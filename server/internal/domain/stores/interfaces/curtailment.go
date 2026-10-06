@@ -41,30 +41,99 @@ var ErrCurtailmentEventStateRaceLoss = errors.New("curtailment event state advan
 // write to the dispatch direction ('curtailed' on Curtail-phase writes,
 // 'active' on Restore-phase) so a concurrent Stop that flipped desired_state
 // race-loses instead of being clobbered.
+//
+// ExpectedState and ExpectedDispatchBatchUUID are the confirmation fast-path
+// race guards. When set, the target's current state must equal ExpectedState
+// (e.g. 'dispatched') and the applicable phase batch UUID — curtail_batch_uuid
+// when desired_state='curtailed', restore_batch_uuid when 'active' — must equal
+// ExpectedDispatchBatchUUID. Together they make concurrent confirmation writes
+// single-winner: a duplicate promotion (state already advanced) or a
+// timeout/redispatch that stamped a new batch UUID (ABA) matches zero rows and
+// maps to ErrCurtailmentEventStateRaceLoss. Nil leaves the guard off, so the
+// existing full-tick writes are unaffected.
 type UpdateCurtailmentTargetStateParams struct {
-	State                models.TargetState
-	LastDispatchedAt     *time.Time
-	LastBatchUUID        *string
-	ObservedPowerW       *float64
-	ObservedAt           *time.Time
-	ConfirmedAt          *time.Time
-	RetryCount           *int32
-	LastError            *string
-	ExpectedEventState   *models.EventState
-	ExpectedDesiredState *string
+	State                     models.TargetState
+	LastDispatchedAt          *time.Time
+	LastBatchUUID             *string
+	ObservedPowerW            *float64
+	ObservedAt                *time.Time
+	ConfirmedAt               *time.Time
+	RetryCount                *int32
+	LastError                 *string
+	ExpectedEventState        *models.EventState
+	ExpectedDesiredState      *string
+	ExpectedState             *models.TargetState
+	ExpectedDispatchBatchUUID *string
 }
 
 // AllPairedReadinessUpdate is one pending/unavailable readiness flip in the
-// bulk all-paired refresh. Reason is the unavailable reason; empty clears
-// last_error (the pending-promotion sentinel, matching the per-row query).
-// BaselinePowerW, when set on a promotion, backfills a NULL baseline from
-// current telemetry (targets inserted while unavailable have none); the SQL
-// never overwrites an existing baseline.
+// bulk all-paired refresh. Restore-failed topology obligations may first park
+// as unavailable so a later commandability transition can requeue them.
+// ExpectedState and ExpectedDesiredState prevent a decision made from a stale
+// target snapshot from overwriting a concurrent state or phase transition.
+// Reason is the unavailable reason; empty clears last_error. BaselinePowerW,
+// when set on a curtail promotion, backfills a NULL baseline from current
+// telemetry; the SQL never overwrites an existing baseline.
 type AllPairedReadinessUpdate struct {
+	DeviceIdentifier     string
+	ExpectedState        models.TargetState
+	ExpectedDesiredState string
+	State                models.TargetState
+	Reason               string
+	BaselinePowerW       *float64
+}
+
+// ConfirmationBatchSize bounds both one fast-path eligibility page and each
+// guarded bulk write so a single pulse cannot monopolize sampler or DB
+// capacity.
+const ConfirmationBatchSize = 500
+
+// ConfirmationPageCursor is the stable keyset position for the global
+// eligibility scan. The zero value starts a new sweep.
+type ConfirmationPageCursor struct {
+	AfterEventID          int64
+	AfterDeviceIdentifier string
+}
+
+// ConfirmationUpdate is one positive fast-path promotion submitted to the
+// guarded bulk confirmation write. The store revalidates event phase, target
+// state/direction/batch, and the exact live device row before applying it.
+type ConfirmationUpdate struct {
+	DeviceDatabaseID int64
 	DeviceIdentifier string
-	State            models.TargetState
-	Reason           string
-	BaselinePowerW   *float64
+	Phase            models.TargetPhase
+	BatchUUID        string
+	ObservedPowerW   *float64
+	ObservedAt       time.Time
+	ConfirmedAt      time.Time
+}
+
+type ConfirmationBulkResult struct {
+	AppliedCount            int
+	SampleDeviceIdentifiers []string
+}
+
+// CurtailmentConfirmationStore is the store surface required only by the
+// optional confirmation fast path. Keeping it separate from CurtailmentStore
+// avoids expanding handler/test doubles that can never run the pulse.
+type CurtailmentConfirmationStore interface {
+	// ListEligibleConfirmationTargets returns at most ConfirmationBatchSize
+	// phase-valid dispatched targets across all orgs after the exclusive
+	// cursor: curtail work under pending/active events and restore work under
+	// restoring events. The cursor's zero value starts a new global sweep.
+	ListEligibleConfirmationTargets(
+		ctx context.Context,
+		cursor ConfirmationPageCursor,
+	) ([]models.ConfirmationTarget, error)
+
+	// BulkConfirmTargets applies positive confirmations for one event in one
+	// guarded statement and returns only device identifiers that won.
+	BulkConfirmTargets(
+		ctx context.Context,
+		eventID int64,
+		expectedEventState models.EventState,
+		updates []ConfirmationUpdate,
+	) (ConfirmationBulkResult, error)
 }
 
 // UpsertCurtailmentHeartbeatParams describes the singleton liveness row
@@ -78,6 +147,20 @@ type UpsertCurtailmentHeartbeatParams struct {
 
 type BeginRestoreTransitionParams struct {
 	AutomationDemandGuard *AutomationDemandGuard
+	// KnownUnsentDeviceIdentifiers identifies DISPATCHING rows for which the
+	// caller knows the physical command boundary was never crossed.
+	KnownUnsentDeviceIdentifiers []string
+}
+
+// BeginRecurtailTransitionParams binds an automation-owned re-curtail to the
+// current rule, MQTT source principal, and response-profile revision. Manual
+// re-curtail calls leave the automation fields zero.
+type BeginRecurtailTransitionParams struct {
+	ResponseProfileID       int64
+	ResponseProfileRevision uuid.UUID
+	AutomationRuleID        int64
+	AutomationMQTTSourceID  int64
+	AutomationServiceUserID int64
 }
 
 type AutomationDemandGuard struct {
@@ -108,11 +191,12 @@ type ListTargetsByEventPageParams struct {
 type ResponseProfileStore interface {
 	ListResponseProfiles(ctx context.Context, orgID int64) ([]*models.ResponseProfile, error)
 	GetResponseProfile(ctx context.Context, orgID, profileID int64) (*models.ResponseProfile, error)
+	ListCandidates(ctx context.Context, params ListCandidatesParams) ([]*models.Candidate, error)
 	ListResponseProfileDeviceSites(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]*int64, error)
 	ListResponseProfileInfrastructureDevices(ctx context.Context, orgID int64, infrastructureDeviceIDs []int64) (map[int64]models.ResponseProfileInfrastructureDevice, error)
-	CreateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error)
-	UpdateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice, expectedSiteID *int64, expectedScopeJSON []byte, expectedFacilityFanSettings models.ResponseProfileFanSettings) (*models.ResponseProfile, error)
-	DeleteResponseProfile(ctx context.Context, orgID, profileID int64, expectedSiteID *int64, expectedScopeJSON []byte, expectedFacilityFanSettings models.ResponseProfileFanSettings) error
+	CreateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedDeviceSites map[string]*int64, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice) (*models.ResponseProfile, error)
+	UpdateResponseProfile(ctx context.Context, profile models.ResponseProfile, expectedDeviceSites map[string]*int64, expectedInfrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice, expectedSiteID *int64, expectedScopeJSON []byte, expectedFacilityFanSettings models.ResponseProfileFanSettings) (*models.ResponseProfile, error)
+	DeleteResponseProfile(ctx context.Context, orgID, profileID int64, expectedSiteID *int64, expectedScopeJSON, expectedAuthorizationEnvelopeJSON []byte, expectedFacilityFanSettings models.ResponseProfileFanSettings) error
 	CountAutomationRulesByResponseProfile(ctx context.Context, orgID, profileID int64) (int64, error)
 	SiteBelongsToOrg(ctx context.Context, orgID, siteID int64) (bool, error)
 }
@@ -127,7 +211,7 @@ type AutomationStore interface {
 	ListEnabledAutomationRulesByMQTTSource(ctx context.Context, mqttSourceID int64) ([]*models.AutomationRule, error)
 	CreateAutomationRule(ctx context.Context, rule models.AutomationRule, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
 	UpdateAutomationRule(ctx context.Context, rule models.AutomationRule, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
-	SetAutomationRuleEnabled(ctx context.Context, orgID, ruleID int64, enabled bool, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
+	SetAutomationRuleEnabled(ctx context.Context, orgID, ruleID int64, enabled bool, responseProfileRevision uuid.UUID, expectedFanSettings models.ResponseProfileFanSettings) (*models.AutomationRule, error)
 	DeleteAutomationRule(ctx context.Context, orgID, ruleID int64) error
 	CountAutomationRulesByMQTTSource(ctx context.Context, orgID, sourceID int64) (int64, error)
 	RecordAutomationSignal(ctx context.Context, ruleID int64, signal models.AutomationSignal, at time.Time) error
@@ -140,20 +224,124 @@ type AutomationStore interface {
 	RecordAutomationExecutionError(ctx context.Context, ruleID int64, message string, at time.Time) error
 }
 
-// ListCandidatesParams scopes selector candidate reads. Empty SiteIDs and
-// DeviceIdentifiers means whole-org. When both are present, results are the
-// union of matching sites and explicit device identifiers.
+const CurtailmentResolvedMinerMax = 10000
+
+// ListCandidatesParams scopes selector candidate reads. Empty selector slices
+// mean whole-org. Curtailment validates that no more than one selector type is
+// set before crossing the store boundary.
 type ListCandidatesParams struct {
-	OrgID             int64
+	OrgID int64
+	// ResultLimit is zero for no limit; selector entry points use max+1 so
+	// they can distinguish an exact-bound result from overflow.
+	ResultLimit       int32
 	DeviceIdentifiers []string
 	SiteIDs           []int64
+	BuildingIDs       []int64
+	RackIDs           []int64
+	GroupIDs          []int64
 }
 
 type ListRecentlyResolvedCurtailedDevicesParams struct {
 	OrgID             int64
+	ExcludeEventID    int64
 	CooldownSec       int32
 	DeviceIdentifiers []string
 	SiteIDs           []int64
+}
+
+// CurtailmentTopologyScopeCoverage is the authorization envelope derived from
+// a validated topology selector. SiteIDs is the combined compatibility view;
+// the split fields preserve why each site is covered. RequireOrgWide is set
+// when any selected resource or member is unassigned, or when a group has no
+// members and therefore unbounded future coverage.
+type CurtailmentTopologyScopeCoverage struct {
+	SiteIDs                 []int64
+	SelectedResourceSiteIDs []int64
+	CurrentMemberSiteIDs    []int64
+	RequireOrgWide          bool
+}
+
+// CurtailmentTopologyScopeStore validates topology selectors and derives their
+// current authorization coverage. It is separate from CurtailmentStore so
+// non-topology test stores do not need to implement an unused capability.
+type CurtailmentTopologyScopeStore interface {
+	ResolveCurtailmentTopologyScope(
+		ctx context.Context,
+		params ListCandidatesParams,
+	) (CurtailmentTopologyScopeCoverage, error)
+}
+
+// CurtailmentTopologyTargetRestoreStore moves targets that left a live
+// topology selector into the existing per-target restore state machine while
+// leaving the parent watcher active.
+type CurtailmentTopologyTargetRestoreStore interface {
+	BeginCurtailmentTopologyTargetRestore(
+		ctx context.Context,
+		event *models.Event,
+		deviceIdentifiers []string,
+	) (int64, error)
+}
+
+// CurtailmentTopologyDispatchSnapshot is one database snapshot of both the
+// selector's authorization coverage and the subset of the dispatch batch that
+// is still a member. Keeping these reads together prevents a placement change
+// from being authorized against coverage from a different point in time.
+type CurtailmentTopologyDispatchSnapshot struct {
+	Coverage                        CurtailmentTopologyScopeCoverage
+	DispatchMemberDeviceIdentifiers []string
+}
+
+// CurtailmentTopologyDispatchStore performs the live topology check used at
+// the physical command boundary. It is separate from the start-time topology
+// resolver because only the reconciler needs batch membership in the result.
+type CurtailmentTopologyDispatchStore interface {
+	ResolveCurtailmentTopologyDispatch(
+		ctx context.Context,
+		params ListCandidatesParams,
+		dispatchDeviceIdentifiers []string,
+	) (CurtailmentTopologyDispatchSnapshot, error)
+}
+
+// CurtailmentTopologyDispatchFenceSnapshot is the event and topology state
+// protected by the dispatch fence for the duration of its callback.
+type CurtailmentTopologyDispatchFenceSnapshot struct {
+	Event    *models.Event
+	Topology CurtailmentTopologyDispatchSnapshot
+}
+
+// CurtailmentTopologyDispatchFenceStore serializes event transitions,
+// topology mutations, and creator permission revocations through the physical
+// Curtail command callback. Implementations must keep referenced user/device
+// rows compatible with the foreign-key locks acquired by command enqueueing.
+type CurtailmentTopologyDispatchFenceStore interface {
+	WithCurtailmentTopologyDispatchFence(
+		ctx context.Context,
+		event *models.Event,
+		params ListCandidatesParams,
+		dispatchDeviceIdentifiers []string,
+		command func(CurtailmentTopologyDispatchFenceSnapshot) error,
+	) error
+}
+
+// CurtailmentTopologyRestoreDispatchFenceSnapshot is the event and topology
+// state protected by a restore dispatch fence. ParkReturnedTargets persists
+// returned active-watcher targets before the fence releases its locks.
+type CurtailmentTopologyRestoreDispatchFenceSnapshot struct {
+	Event               *models.Event
+	Topology            CurtailmentTopologyDispatchSnapshot
+	ParkReturnedTargets func([]string) error
+}
+
+// CurtailmentTopologyRestoreDispatchFenceStore holds the current event and
+// topology membership stable through returned-target parking and a physical
+// Uncurtail command.
+type CurtailmentTopologyRestoreDispatchFenceStore interface {
+	WithCurtailmentTopologyRestoreDispatchFence(
+		ctx context.Context,
+		event *models.Event,
+		dispatchDeviceIdentifiers []string,
+		command func(CurtailmentTopologyRestoreDispatchFenceSnapshot) error,
+	) error
 }
 
 // UpdateOperatorFieldsParams carries the optional patch fields for a
@@ -329,35 +517,41 @@ type CurtailmentStore interface {
 
 	// ClaimClosedLoopFullFleetTargets inserts missing closed-loop FULL_FLEET
 	// targets as DISPATCHING while the parent event is still pending/active.
-	// Existing same-event rows and cross-event conflicts are skipped so
-	// reconciliation can retry later.
+	// Existing same-event rows and cross-event conflicts are skipped before at
+	// most maxTargets are selected, so a reserved prefix cannot underfill the
+	// bounded admission batch.
 	ClaimClosedLoopFullFleetTargets(
 		ctx context.Context,
 		eventID int64,
 		orgID int64,
 		cooldownSec int32,
+		maxTargets int,
 		targets []models.InsertTargetParams,
 	) ([]*models.Target, error)
 
 	// ClaimAllPairedPolicyTargets inserts or reopens durable all-paired
 	// FULL_FLEET policy targets in their computed state. Unlike closed-loop
-	// dispatch claims, this does not pre-claim rows as DISPATCHING.
+	// dispatch claims, this does not pre-claim rows as DISPATCHING. It skips
+	// earlier reservations before selecting at most maxTargets, so a reserved
+	// prefix cannot starve the bounded admission batch.
 	ClaimAllPairedPolicyTargets(
 		ctx context.Context,
 		eventID int64,
+		orgID int64,
+		maxTargets int,
 		targets []models.InsertTargetParams,
 	) (int64, error)
 
-	// BulkRefreshAllPairedTargetReadiness applies pending/unavailable
-	// readiness flips for all-paired policy rows in one statement. Rows
-	// whose state or desired_state advanced concurrently — and every row
-	// when the parent event left expectedEventState — are skipped, not
-	// clobbered; the reconciler re-reads them next tick. Returns the
-	// device identifiers of the rows actually updated so callers mirror
-	// only applied flips.
+	// BulkRefreshAllPairedTargetReadiness applies batched readiness flips to
+	// all-paired curtail rows and topology restore obligations. Rows whose
+	// state or desired_state advanced concurrently — and every row when the
+	// parent event left expectedEventState — are skipped, not clobbered; the
+	// reconciler re-reads them next tick. Returns the device identifiers of
+	// the rows actually updated so callers mirror only applied flips.
 	BulkRefreshAllPairedTargetReadiness(
 		ctx context.Context,
 		eventID int64,
+		orgID int64,
 		expectedEventState models.EventState,
 		updates []AllPairedReadinessUpdate,
 	) ([]string, error)
@@ -413,5 +607,6 @@ type CurtailmentStore interface {
 		ctx context.Context,
 		orgID int64,
 		eventUUID uuid.UUID,
+		params BeginRecurtailTransitionParams,
 	) (*models.Event, error)
 }

@@ -46,6 +46,10 @@ const buildRacks = (aisleCount: number, perAisle: number) => {
 const meta: Meta<BuildingRackGridProps> = {
   title: "Proto Fleet/BuildingRackGrid",
   component: BuildingRackGrid,
+  argTypes: {
+    // Protobuf fixture IDs are bigint values, which the JSON editor cannot serialize.
+    rackHealth: { control: false },
+  },
   parameters: {
     layout: "padded",
     docs: {

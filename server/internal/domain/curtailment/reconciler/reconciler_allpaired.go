@@ -35,26 +35,27 @@ func isAllPairedPolicyReleasedCurtailTarget(ev *models.Event, target *models.Tar
 // claimAllPairedPolicyTargets inserts or reopens durable policy rows for
 // every paired-like miner in scope that no event owns yet. Unlike the
 // closed-loop dispatch claim, rows enter in their computed policy state
-// (pending or unavailable) and dispatch on a later pending pass, so this
-// always returns nil.
+// (pending or unavailable) and dispatch on a later pending pass. The return
+// value tells the caller to end the current tick while topology airflow starts
+// or while newly admitted rows wait for that later dispatch pass.
 func (r *Reconciler) claimAllPairedPolicyTargets(
 	ctx context.Context,
 	ev *models.Event,
 	existingTargets []*models.Target,
 	candidates []*models.Candidate,
 	params interfaces.ListCandidatesParams,
-) []*models.Target {
+) bool {
 	orgConfig, err := r.store.GetOrgConfig(ctx, ev.OrgID)
 	if err != nil {
 		slog.Error("curtailment reconciler: get org config (all-paired admission) failed",
 			"event_id", ev.ID, "error", err)
-		return nil
+		return false
 	}
 	activeDevices, err := r.store.ListActiveCurtailmentTargetDevices(ctx, ev.OrgID)
 	if err != nil {
 		slog.Error("curtailment reconciler: list active devices (all-paired admission) failed",
 			"event_id", ev.ID, "error", err)
-		return nil
+		return false
 	}
 	activeSet := toStringSet(activeDevices)
 	for _, target := range existingTargets {
@@ -71,24 +72,43 @@ func (r *Reconciler) claimAllPairedPolicyTargets(
 		models.ModeFullFleet,
 		candidateMinPowerWForEvent(ev, orgConfig.CandidateMinPowerW),
 	)
+	topologyFilter := isTopologyCandidateFilter(params)
 	targets = excludeNonReopenableExistingTargetParams(targets, existingTargets)
 	if len(targets) == 0 {
-		return nil
+		return false
 	}
-	claimed, err := r.store.ClaimAllPairedPolicyTargets(ctx, ev.ID, targets)
+	if topologyFilter && !r.topologyAdmissionAirflowReady(ctx, ev) {
+		return true
+	}
+	if topologyFilter {
+		if curtailBatchIntervalActive(ev) && !r.curtailBatchIntervalElapsed(ev) {
+			return false
+		}
+		if hasInFlightCurtailDispatch(existingTargets) {
+			return false
+		}
+	}
+	claimed, err := r.store.ClaimAllPairedPolicyTargets(
+		ctx,
+		ev.ID,
+		ev.OrgID,
+		int(curtailBatchSizeForEvent(ev, len(targets))),
+		targets,
+	)
 	if err != nil {
 		slog.Error("curtailment reconciler: claim all-paired policy targets failed",
 			"event_id", ev.ID, "candidate_count", len(targets),
 			"scope_device_count", len(params.DeviceIdentifiers),
 			"scope_site_count", len(params.SiteIDs),
 			"error", err)
-		return nil
+		return false
 	}
 	if claimed > 0 {
 		slog.Info("curtailment reconciler: claimed all-paired policy targets",
 			"event_id", ev.ID, "claimed", claimed)
+		return topologyFilter
 	}
-	return nil
+	return false
 }
 
 // refreshAllPairedPolicyTargets re-evaluates dispatch readiness for policy
@@ -135,10 +155,12 @@ func (r *Reconciler) refreshAllPairedPolicyTargets(
 			if nextState == models.TargetStatePending && target.BaselinePowerW == nil {
 				if baseline := curtailment.AllPairedPromotionBaselinePowerW(candidate, minPowerW); baseline != nil {
 					updates = append(updates, interfaces.AllPairedReadinessUpdate{
-						DeviceIdentifier: target.DeviceIdentifier,
-						State:            nextState,
-						Reason:           reason,
-						BaselinePowerW:   baseline,
+						DeviceIdentifier:     target.DeviceIdentifier,
+						ExpectedState:        target.State,
+						ExpectedDesiredState: target.DesiredState,
+						State:                nextState,
+						Reason:               reason,
+						BaselinePowerW:       baseline,
 					})
 					refreshable[target.DeviceIdentifier] = target
 				}
@@ -149,9 +171,11 @@ func (r *Reconciler) refreshAllPairedPolicyTargets(
 			continue
 		}
 		update := interfaces.AllPairedReadinessUpdate{
-			DeviceIdentifier: target.DeviceIdentifier,
-			State:            nextState,
-			Reason:           reason,
+			DeviceIdentifier:     target.DeviceIdentifier,
+			ExpectedState:        target.State,
+			ExpectedDesiredState: target.DesiredState,
+			State:                nextState,
+			Reason:               reason,
 		}
 		// Rows inserted while unavailable carry no pre-curtail baseline;
 		// backfill it from current telemetry at promotion so confirm/drift
@@ -166,12 +190,98 @@ func (r *Reconciler) refreshAllPairedPolicyTargets(
 	if len(updates) == 0 {
 		return
 	}
-	appliedDevices, err := r.store.BulkRefreshAllPairedTargetReadiness(ctx, ev.ID, ev.State, updates)
+	r.applyAllPairedReadinessUpdates(ctx, ev, refreshable, updates)
+}
+
+// refreshAllPairedTopologyRestoreTargets keeps departed policy miners out of
+// the restore dispatcher while they cannot receive commands. A restore-failed
+// row only leaves its terminal state after first observing an unavailable
+// miner; that commandability transition avoids turning ordinary dispatch
+// failures into an unbounded retry loop.
+func (r *Reconciler) refreshAllPairedTopologyRestoreTargets(
+	ctx context.Context,
+	ev *models.Event,
+	targets []*models.Target,
+) bool {
+	if !isAllPairedTopologyPolicyEvent(ev) {
+		return true
+	}
+
+	refreshable := make(map[string]*models.Target, len(targets))
+	deviceIdentifiers := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if target == nil || target.DeviceIdentifier == "" || target.DesiredState != models.DesiredStateActive {
+			continue
+		}
+		switch target.State { //nolint:exhaustive // Only restore states can change commandability.
+		case models.TargetStatePending, models.TargetStateUnavailable, models.TargetStateRestoreFailed:
+			refreshable[target.DeviceIdentifier] = target
+			deviceIdentifiers = append(deviceIdentifiers, target.DeviceIdentifier)
+		}
+	}
+	if len(deviceIdentifiers) == 0 {
+		return true
+	}
+
+	candidates, err := r.store.ListCandidates(ctx, interfaces.ListCandidatesParams{
+		OrgID:             ev.OrgID,
+		DeviceIdentifiers: deviceIdentifiers,
+	})
+	if err != nil {
+		slog.Error("curtailment reconciler: list all-paired topology restore candidates failed",
+			"event_id", ev.ID, "error", err)
+		return false
+	}
+	candidatesByID := candidatesByDeviceID(candidates)
+	updates := make([]interfaces.AllPairedReadinessUpdate, 0, len(refreshable))
+	for deviceIdentifier, target := range refreshable {
+		nextState, reason := curtailment.AllPairedPolicyRestoreTargetState(candidatesByID[deviceIdentifier])
+		if !shouldRefreshAllPairedRestoreTarget(target, nextState, reason) {
+			continue
+		}
+		updates = append(updates, interfaces.AllPairedReadinessUpdate{
+			DeviceIdentifier:     deviceIdentifier,
+			ExpectedState:        target.State,
+			ExpectedDesiredState: target.DesiredState,
+			State:                nextState,
+			Reason:               reason,
+		})
+	}
+	if len(updates) == 0 {
+		return true
+	}
+	return r.applyAllPairedReadinessUpdates(ctx, ev, refreshable, updates)
+}
+
+func shouldRefreshAllPairedRestoreTarget(
+	target *models.Target,
+	nextState models.TargetState,
+	reason string,
+) bool {
+	switch target.State { //nolint:exhaustive // Callers provide only refreshable restore states.
+	case models.TargetStatePending:
+		return nextState != models.TargetStatePending
+	case models.TargetStateUnavailable:
+		return nextState != target.State || reason != targetErrorString(target)
+	case models.TargetStateRestoreFailed:
+		return nextState != models.TargetStatePending
+	default:
+		return false
+	}
+}
+
+func (r *Reconciler) applyAllPairedReadinessUpdates(
+	ctx context.Context,
+	ev *models.Event,
+	refreshable map[string]*models.Target,
+	updates []interfaces.AllPairedReadinessUpdate,
+) bool {
+	appliedDevices, err := r.store.BulkRefreshAllPairedTargetReadiness(ctx, ev.ID, ev.OrgID, ev.State, updates)
 	if err != nil {
 		r.metrics.IncTargetWriteFailure()
 		slog.Error("curtailment reconciler: all-paired readiness bulk refresh failed",
 			"event_id", ev.ID, "update_count", len(updates), "error", err)
-		return
+		return false
 	}
 	applied := toStringSet(appliedDevices)
 	if len(applied) < len(updates) {
@@ -202,7 +312,26 @@ func (r *Reconciler) refreshAllPairedPolicyTargets(
 			baseline := *update.BaselinePowerW
 			target.BaselinePowerW = &baseline
 		}
+		if target.DesiredState == models.DesiredStateActive {
+			target.ConfirmedAt = nil
+			if target.RestorePhase != nil {
+				target.RestorePhase.State = update.State
+				target.RestorePhase.CompletedAt = nil
+				target.RestorePhase.LastError = target.LastError
+			}
+			if update.State == models.TargetStatePending {
+				target.RetryCount = 0
+				target.LastDispatchedAt = nil
+				target.LastBatchUUID = nil
+				if target.RestorePhase != nil {
+					target.RestorePhase.RetryCount = 0
+					target.RestorePhase.DispatchedAt = nil
+					target.RestorePhase.BatchUUID = nil
+				}
+			}
+		}
 	}
+	return true
 }
 
 func (r *Reconciler) releaseAllPairedPolicyTarget(ctx context.Context, ev *models.Event, target *models.Target, reason string) {

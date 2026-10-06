@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/infrastructure/dbtypes"
 	"github.com/google/uuid"
 	"github.com/sqlc-dev/pqtype"
 )
@@ -364,6 +365,41 @@ type AlertChannel struct {
 	DeletedAt       sql.NullTime
 }
 
+type AlertMaintenanceWindow struct {
+	ID         int64
+	OrgID      int64
+	RuleUids   []string
+	ChannelIds []int64
+	StartsAt   time.Time
+	EndsAt     time.Time
+	Comment    string
+	CreatedBy  string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+}
+
+type AlertRouteChannel struct {
+	PolicyID  int64
+	ChannelID int64
+}
+
+type AlertRoutePolicy struct {
+	ID        int64
+	OrgID     int64
+	RuleUid   string
+	Mode      string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+type AlertRuleConfig struct {
+	OrgID     int64
+	RuleUid   string
+	Config    json.RawMessage
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 type ApiKey struct {
 	ID             int64
 	KeyID          string
@@ -429,6 +465,13 @@ type CommandOnDeviceLog struct {
 	SiteID            sql.NullInt64
 }
 
+type ConnectedPostgresIdentity struct {
+	ServerAddress string
+	ServerPort    int32
+	InRecovery    bool
+	Timeline      int64
+}
+
 type CurtailmentAutomationRule struct {
 	ID                int64
 	OrgID             int64
@@ -439,6 +482,11 @@ type CurtailmentAutomationRule struct {
 	Enabled           bool
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
+}
+
+type CurtailmentAutomationRuleProfileRevision struct {
+	AutomationRuleID        int64
+	ResponseProfileRevision uuid.UUID
 }
 
 type CurtailmentAutomationRuleState struct {
@@ -500,6 +548,7 @@ type CurtailmentEvent struct {
 	FanAirflowReopenedAt         sql.NullTime
 	FanLastError                 sql.NullString
 	LastCurtailPendingDispatchAt sql.NullTime
+	AuthorizationEnvelopeJsonb   json.RawMessage
 }
 
 type CurtailmentMqttSourceConfig struct {
@@ -582,6 +631,60 @@ type CurtailmentResponseProfile struct {
 	FacilityFanDeviceIds        []int64
 	FanOffDelaySec              int32
 	FanRestoreDelaySec          int32
+	AuthorizationEnvelopeJsonb  json.RawMessage
+}
+
+type CurtailmentResponseProfileRevision struct {
+	ResponseProfileID int64
+	Revision          uuid.UUID
+}
+
+type CurtailmentResponseProfileWithRevision struct {
+	ID                          int64
+	OrgID                       int64
+	ProfileName                 string
+	SiteID                      sql.NullInt64
+	Mode                        string
+	Strategy                    string
+	Level                       string
+	Priority                    string
+	TargetKw                    sql.NullString
+	ToleranceKw                 sql.NullString
+	CurtailBatchSize            sql.NullInt32
+	CurtailBatchIntervalSec     int32
+	RestoreBatchSize            int32
+	RestoreBatchIntervalSec     int32
+	IncludeMaintenance          bool
+	ForceIncludeMaintenance     bool
+	CreatedAt                   time.Time
+	UpdatedAt                   time.Time
+	PostEventCooldownSec        int32
+	ScopeJson                   json.RawMessage
+	ForceIncludeAllPairedMiners bool
+	FacilityFanDeviceIds        []int64
+	FanOffDelaySec              int32
+	FanRestoreDelaySec          int32
+	AuthorizationEnvelopeJsonb  json.RawMessage
+	Revision                    uuid.UUID
+}
+
+type CurtailmentRigConfigReconciliation struct {
+	OrganizationID          int64
+	RequestedBy             int64
+	DesiredGeneration       int64
+	EnqueuedGeneration      int64
+	RetryAt                 time.Time
+	LeaseExpiresAt          sql.NullTime
+	LastError               sql.NullString
+	CreatedAt               time.Time
+	UpdatedAt               time.Time
+	FullReconcileGeneration int64
+}
+
+type CurtailmentRigConfigTarget struct {
+	OrganizationID      int64
+	DeviceID            int64
+	RequestedGeneration int64
 }
 
 type CurtailmentTarget struct {
@@ -633,6 +736,15 @@ type Device struct {
 	WorkerNamePoolSyncStatus NullWorkerNamePoolSyncStatusEnum
 	SiteID                   sql.NullInt64
 	BuildingID               sql.NullInt64
+}
+
+type DeviceFirmwareDeployment struct {
+	DeviceID             int64
+	FirmwareChecksum     string
+	FirmwareVersion      string
+	RolloutID            sql.NullInt64
+	DeployedAt           time.Time
+	LastCommandBatchUuid sql.NullString
 }
 
 type DeviceMetric struct {
@@ -833,8 +945,107 @@ type Error struct {
 	SiteID            sql.NullInt64
 }
 
+type FirmwareRollout struct {
+	ID                       int64
+	OrgID                    int64
+	ChannelID                int64
+	Manufacturer             string
+	Model                    string
+	FirmwareChecksum         string
+	FirmwareVersion          string
+	PreviousFirmwareChecksum string
+	PreviousFirmwareVersion  string
+	AssignmentGeneration     int64
+	Status                   string
+	CancelReason             string
+	Stage                    string
+	BehaviorSnapshot         dbtypes.RolloutBehaviorSnapshot
+	BatchCount               int32
+	CurrentBatch             int32
+	StageChangedAt           time.Time
+	StagePausedMicroseconds  int64
+	PausedAt                 sql.NullTime
+	Revision                 int64
+	RevisionTxid             int64
+	UpdatedAt                time.Time
+	StartedByType            string
+	StartedByID              int64
+	StartedByName            string
+	LastActionByType         string
+	LastActionByID           int64
+	LastActionByName         string
+	CreatedAt                time.Time
+	FinishedAt               sql.NullTime
+	ControllerWaitingSince   sql.NullTime
+}
+
+type FirmwareRolloutDevice struct {
+	RolloutID               int64
+	DeviceID                int64
+	BatchIndex              sql.NullInt32
+	Position                sql.NullInt32
+	Attempts                int32
+	FirstSentAt             sql.NullTime
+	LastSentAt              sql.NullTime
+	LastDispatchedAt        sql.NullTime
+	LastDispatchedBatchUuid sql.NullString
+	VerifiedAt              sql.NullTime
+	HaltedAt                sql.NullTime
+	HaltReason              string
+	LastError               string
+	SkipNote                string
+	ExcludedAt              sql.NullTime
+	BaselineStatus          sql.NullString
+	BaselineHashRateHs      sql.NullFloat64
+	BaselinePowerW          sql.NullFloat64
+	BaselineEfficiencyJh    sql.NullFloat64
+	BaselineTempC           sql.NullFloat64
+	BaselineOpenErrors      sql.NullInt32
+	BaselineAt              sql.NullTime
+	AddedAt                 time.Time
+}
+
+type FirmwareRolloutEvent struct {
+	ID                int64
+	OrgID             int64
+	RolloutID         int64
+	ChannelID         int64
+	Type              string
+	OccurredAt        time.Time
+	ActorType         string
+	ActorID           int64
+	ActorName         string
+	RolloutRevision   int64
+	Note              string
+	DeviceIdentifiers []string
+}
+
+type FirmwareRolloutReservation struct {
+	ChannelID       int64
+	DeviceID        int64
+	BatchUuid       string
+	ObservedOffline bool
+}
+
+type FirmwareRolloutSuppressedDevice struct {
+	ChannelID            int64
+	ManufacturerKey      string
+	ModelKey             string
+	AssignmentGeneration int64
+	DeviceID             int64
+}
+
 type FleetActiveOrganization struct {
 	OrganizationID string
+}
+
+type FleetDevicePlacement struct {
+	OrgID      int64
+	DeviceID   string
+	SiteID     sql.NullInt64
+	BuildingID sql.NullInt64
+	RackID     sql.NullInt64
+	GroupID    sql.NullInt64
 }
 
 type FleetMetricRollup90 struct {
@@ -918,6 +1129,15 @@ type FleetPollableDevicePresence struct {
 	OrganizationID string
 }
 
+type FleetRuntimeLease struct {
+	LeaseName               string
+	DcsClusterID            string
+	HighestWriterGeneration int64
+	LeaseEpoch              int64
+	HolderID                uuid.UUID
+	ExpiresAt               time.Time
+}
+
 type FleetTelemetryPollHeartbeat struct {
 	Bucket         interface{}
 	OrganizationID string
@@ -939,6 +1159,23 @@ type InfrastructureDevice struct {
 	UpdatedAt    time.Time
 	DeletedAt    sql.NullTime
 	RackName     string
+}
+
+type InventoryPart struct {
+	ID           int64
+	OrgID        int64
+	Name         string
+	Type         string
+	Manufacturer sql.NullString
+	PartNumber   sql.NullString
+	SiteID       sql.NullInt64
+	OnHand       int32
+	Allocated    int32
+	ReorderPoint int32
+	BinLocation  sql.NullString
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	DeletedAt    sql.NullTime
 }
 
 // Organization-scoped agent harness and encrypted BYOLLM provider configuration.
@@ -1106,6 +1343,162 @@ type RackSlot struct {
 	Row         int32
 	Col         int32
 	CreatedAt   time.Time
+}
+
+type ReleaseChannel struct {
+	ID                           int64
+	OrgID                        int64
+	Name                         string
+	Description                  string
+	Method                       string
+	OrderBy                      string
+	BatchSize                    int32
+	PilotSize                    int32
+	WaitBetweenBatchesSeconds    int32
+	ReviewAfterEachBatch         bool
+	AutoContinue                 bool
+	StabilizationSeconds         int32
+	MaxHashrateDropPercent       sql.NullFloat64
+	MaxEfficiencyIncreasePercent sql.NullFloat64
+	MaxTempIncreaseC             sql.NullFloat64
+	MaxNewErrors                 sql.NullInt32
+	MinSampleCoveragePercent     sql.NullFloat64
+	MaxConcurrentOffline         int32
+	ControllerTimeoutSeconds     int32
+	CreatedBy                    int64
+	CreatedAt                    time.Time
+	UpdatedAt                    time.Time
+}
+
+type ReleaseChannelConflict struct {
+	ChannelID   int64
+	OrgID       int64
+	DeviceID    int64
+	Specificity interface{}
+	Resolution  string
+}
+
+type ReleaseChannelFirmware struct {
+	ChannelID                  int64
+	Manufacturer               string
+	Model                      string
+	FirmwareChecksum           string
+	FirmwareVersion            string
+	FirmwareTargetManufacturer string
+	FirmwareTargetModel        string
+	AssignmentGeneration       int64
+	AssignedBy                 int64
+	UpdatedAt                  time.Time
+	PreviousFirmwareChecksum   string
+	PreviousFirmwareVersion    string
+}
+
+type ReleaseChannelMatch struct {
+	ChannelID   int64
+	OrgID       int64
+	DeviceID    int64
+	Specificity int32
+}
+
+type ReleaseChannelMember struct {
+	ChannelID  int64
+	OrgID      int64
+	DeviceID   int64
+	Conflicted bool
+}
+
+type ReleaseChannelPlacement struct {
+	OrgID            int64
+	DeviceID         int64
+	DeviceIdentifier string
+	SiteID           sql.NullInt64
+	BuildingID       sql.NullInt64
+	RackID           sql.NullInt64
+}
+
+type ReleaseChannelResolution struct {
+	ChannelID   int64
+	OrgID       int64
+	DeviceID    int64
+	Specificity interface{}
+	Best        interface{}
+	AtLevel     int64
+	Channels    int64
+}
+
+type ReleaseChannelSetting struct {
+	OrganizationID int64
+	Channel        string
+	UpdatedAt      time.Time
+}
+
+type ReleaseChannelTarget struct {
+	ChannelID        int64
+	TargetType       string
+	TargetID         sql.NullInt64
+	DeviceIdentifier sql.NullString
+}
+
+type RepairTicket struct {
+	ID                int64
+	OrgID             int64
+	TicketNumber      string
+	Category          int16
+	Status            int16
+	Urgent            bool
+	Component         string
+	Diagnosis         sql.NullString
+	MinerIdentifier   sql.NullString
+	AlertID           sql.NullString
+	AssigneeUserID    sql.NullInt64
+	WarrantyStatus    int16
+	SiteID            sql.NullInt64
+	BuildingID        sql.NullInt64
+	Zone              sql.NullString
+	RackID            sql.NullInt64
+	RackLabel         sql.NullString
+	GroupLabel        sql.NullString
+	Resolution        int16
+	RepairLocation    int16
+	Notes             sql.NullString
+	DailyImpactUsd    sql.NullString
+	RmaVendor         sql.NullString
+	RmaTracking       sql.NullString
+	RmaEta            sql.NullTime
+	CompletedAt       sql.NullTime
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	DeletedAt         sql.NullTime
+	IdempotencyKey    sql.NullString
+	CreateRequestHash sql.NullString
+}
+
+type RepairTicketComment struct {
+	ID                int64
+	OrgID             int64
+	TicketID          int64
+	UserID            int64
+	UserName          string
+	Text              string
+	CreatedAt         time.Time
+	DeletedAt         sql.NullTime
+	IdempotencyKey    sql.NullString
+	CreateRequestHash sql.NullString
+}
+
+type RepairTicketCounter struct {
+	OrgID      int64
+	NextNumber int64
+}
+
+type RepairTicketPart struct {
+	ID              int64
+	OrgID           int64
+	TicketID        int64
+	InventoryPartID int64
+	PartName        string
+	Quantity        int32
+	ConsumedAt      sql.NullTime
 }
 
 type Role struct {

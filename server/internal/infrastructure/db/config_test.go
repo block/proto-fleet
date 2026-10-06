@@ -139,3 +139,69 @@ func TestConfigValidateRejectsPGHostaddrEnvironment(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "hostaddr is not supported")
 }
+
+func TestConfigValidateHAAcceptsSecureMultiHostWriterDSN(t *testing.T) {
+	t.Parallel()
+
+	cfg := Config{
+		ExplicitDSN: "postgres://fleet@fleet-a:5432,fleet-b:5432/fleet?sslmode=verify-full&sslrootcert=system&target_session_attrs=read-write",
+	}
+
+	require.NoError(t, cfg.ValidateHA())
+}
+
+func TestConfigValidateHARejectsUnsupportedDatabaseTargets(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		config    Config
+		wantError string
+	}{
+		{
+			name: "legacy fields",
+			config: Config{
+				Address: "fleet-a:5432",
+			},
+			wantError: "explicit multi-host DB_DSN",
+		},
+		{
+			name: "single host",
+			config: Config{
+				ExplicitDSN: "postgres://fleet@fleet-a:5432/fleet?sslmode=verify-full&sslrootcert=system&target_session_attrs=read-write",
+			},
+			wantError: "explicit multi-host DB_DSN",
+		},
+		{
+			name: "no writer selection",
+			config: Config{
+				ExplicitDSN: "postgres://fleet@fleet-a:5432,fleet-b:5432/fleet?sslmode=verify-full&sslrootcert=system",
+			},
+			wantError: "target_session_attrs=read-write",
+		},
+		{
+			name: "plaintext",
+			config: Config{
+				ExplicitDSN: "postgres://fleet@fleet-a:5432,fleet-b:5432/fleet?sslmode=disable&target_session_attrs=read-write",
+			},
+			wantError: "sslmode=verify-full and sslrootcert",
+		},
+		{
+			name: "no trust root",
+			config: Config{
+				ExplicitDSN: "postgres://fleet@fleet-a:5432,fleet-b:5432/fleet?sslmode=verify-full&target_session_attrs=read-write",
+			},
+			wantError: "sslmode=verify-full and sslrootcert",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := testCase.config.ValidateHA()
+
+			require.ErrorContains(t, err, testCase.wantError)
+		})
+	}
+}

@@ -38,6 +38,8 @@ var (
 const (
 	historyDefaultPageSize = 50
 	historyMaxPageSize     = 200
+	// Distinct firing rules per org, not instances: a fleet with every rule firing at once still fits.
+	activeGroupsMaxPageSize = 200
 )
 
 func (h *Handler) authorize(ctx context.Context, permission string) (int64, error) {
@@ -179,15 +181,25 @@ func (h *Handler) ListRules(ctx context.Context, _ *connect.Request[alertsv1.Lis
 	if err != nil {
 		return nil, err
 	}
+	includeDevice, err := h.canReadDeviceScope(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rules, err := h.svc.ListRules(ctx, orgID)
 	if err != nil {
 		return nil, mapErr(err)
 	}
 	out := make([]*alertsv1.Rule, 0, len(rules))
 	for _, r := range rules {
-		out = append(out, ruleToProto(r))
+		out = append(out, ruleToProto(r, includeDevice))
 	}
 	return connect.NewResponse(&alertsv1.ListRulesResponse{Rules: out}), nil
+}
+
+// canReadDeviceScope gates scope device ids on org-WIDE miner:read: scope ids can reference miners at
+// any site, so a grant narrowed away at even one site must redact (a plain org-scope check would leak).
+func (h *Handler) canReadDeviceScope(ctx context.Context) (bool, error) {
+	return middleware.HasOrgWidePermission(ctx, authz.PermMinerRead)
 }
 
 func (h *Handler) PauseRule(ctx context.Context, req *connect.Request[alertsv1.PauseRuleRequest]) (*connect.Response[alertsv1.PauseRuleResponse], error) {
@@ -195,11 +207,15 @@ func (h *Handler) PauseRule(ctx context.Context, req *connect.Request[alertsv1.P
 	if err != nil {
 		return nil, err
 	}
+	includeDevice, err := h.canReadDeviceScope(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rule, err := h.svc.PauseRule(ctx, orgID, req.Msg.GetId(), actor)
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return connect.NewResponse(&alertsv1.PauseRuleResponse{Rule: ruleToProto(*rule)}), nil
+	return connect.NewResponse(&alertsv1.PauseRuleResponse{Rule: ruleToProto(*rule, includeDevice)}), nil
 }
 
 func (h *Handler) ResumeRule(ctx context.Context, req *connect.Request[alertsv1.ResumeRuleRequest]) (*connect.Response[alertsv1.ResumeRuleResponse], error) {
@@ -207,11 +223,15 @@ func (h *Handler) ResumeRule(ctx context.Context, req *connect.Request[alertsv1.
 	if err != nil {
 		return nil, err
 	}
+	includeDevice, err := h.canReadDeviceScope(ctx)
+	if err != nil {
+		return nil, err
+	}
 	rule, err := h.svc.ResumeRule(ctx, orgID, req.Msg.GetId())
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return connect.NewResponse(&alertsv1.ResumeRuleResponse{Rule: ruleToProto(*rule)}), nil
+	return connect.NewResponse(&alertsv1.ResumeRuleResponse{Rule: ruleToProto(*rule, includeDevice)}), nil
 }
 
 // Rule create/update mirror channel mutations' requireMinerRead: a rule
@@ -228,11 +248,21 @@ func (h *Handler) CreateRule(ctx context.Context, req *connect.Request[alertsv1.
 	if err != nil {
 		return nil, err
 	}
-	rule, err := h.svc.CreateRule(ctx, orgID, cfg)
+	// Absent routing means default; a present-but-unspecified mode is a client bug and rejected.
+	mode := alerts.RouteModeDefault
+	var channelIDs []string
+	if routing := req.Msg.GetRouting(); routing != nil {
+		mode, channelIDs, err = protoToRouting(routing)
+		if err != nil {
+			return nil, err
+		}
+	}
+	rule, err := h.svc.CreateRule(ctx, orgID, cfg, mode, channelIDs)
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return connect.NewResponse(&alertsv1.CreateRuleResponse{Rule: ruleToProto(*rule)}), nil
+	// requireMinerRead passed above, so the response may carry device scope ids.
+	return connect.NewResponse(&alertsv1.CreateRuleResponse{Rule: ruleToProto(*rule, true)}), nil
 }
 
 func (h *Handler) UpdateRule(ctx context.Context, req *connect.Request[alertsv1.UpdateRuleRequest]) (*connect.Response[alertsv1.UpdateRuleResponse], error) {
@@ -251,7 +281,29 @@ func (h *Handler) UpdateRule(ctx context.Context, req *connect.Request[alertsv1.
 	if err != nil {
 		return nil, mapErr(err)
 	}
-	return connect.NewResponse(&alertsv1.UpdateRuleResponse{Rule: ruleToProto(*rule)}), nil
+	// requireMinerRead passed above, so the response may carry device scope ids.
+	return connect.NewResponse(&alertsv1.UpdateRuleResponse{Rule: ruleToProto(*rule, true)}), nil
+}
+
+// SetRuleRouting mirrors channel mutations' requireMinerRead: routing decides which destinations receive the org's per-device alert stream.
+func (h *Handler) SetRuleRouting(ctx context.Context, req *connect.Request[alertsv1.SetRuleRoutingRequest]) (*connect.Response[alertsv1.SetRuleRoutingResponse], error) {
+	orgID, err := h.authorize(ctx, authz.PermAlertManage)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.requireMinerRead(ctx); err != nil {
+		return nil, err
+	}
+	mode, channelIDs, err := protoToRouting(req.Msg.GetRouting())
+	if err != nil {
+		return nil, err
+	}
+	rule, err := h.svc.SetRuleRouting(ctx, orgID, req.Msg.GetRuleId(), mode, channelIDs)
+	if err != nil {
+		return nil, mapErr(err)
+	}
+	// requireMinerRead passed above, so the response may carry device scope ids.
+	return connect.NewResponse(&alertsv1.SetRuleRoutingResponse{Rule: ruleToProto(*rule, true)}), nil
 }
 
 func (h *Handler) DeleteRule(ctx context.Context, req *connect.Request[alertsv1.DeleteRuleRequest]) (*connect.Response[alertsv1.DeleteRuleResponse], error) {
@@ -330,34 +382,43 @@ func (h *Handler) ListAlerts(ctx context.Context, req *connect.Request[alertsv1.
 	if err != nil {
 		return nil, err
 	}
-	// Device identity (id/name/mac) is miner data, so gate those fields on org-scope miner:read rather than leaking them via alert:read.
-	includeDevice, err := middleware.HasPermission(ctx, authz.PermMinerRead, authz.ResourceContext{})
+	// Device identity (id/name/mac) spans every site, so gate it on org-WIDE miner:read: a grant
+	// narrowed away at one site must not see that site's device identity (like canReadDeviceScope).
+	includeDevice, err := h.canReadDeviceScope(ctx)
 	if err != nil {
 		return nil, err
 	}
-	var rows []notificationhistory.StoredNotification
-	var pageLimit int32
-	if req.Msg.GetActiveOnly() {
-		// Active-only is a current-state view, not a feed: return the latest firing row per alert without keyset
-		// paging. Over-fetch by one so the response can flag (rather than silently swallow) an alert storm past the cap.
+	// A rule group alone names no rule: "" is a real group, so it can't mean "every group with this name" here
+	// and "no group filter" there. Reject it rather than silently widen the drill-in to the whole firing set.
+	if req.Msg.GetActiveOnly() && req.Msg.GetRuleGroup() != "" && req.Msg.GetAlertName() == "" {
+		return nil, fleeterror.NewInvalidArgumentError("rule_group requires alert_name")
+	}
+	// Each branch names its own cursor as it dispatches, so the shape a caller gets back can't drift from the
+	// branch that produced it. Only the named-alert drill-in pages: unfiltered keeps the contract it had before.
+	var (
+		rows      []notificationhistory.StoredNotification
+		pageLimit = historyPageLimit(req.Msg.GetPageSize())
+		cursorOf  func(notificationhistory.StoredNotification) string
+	)
+	switch {
+	case req.Msg.GetActiveOnly() && req.Msg.GetAlertName() != "":
+		cursorOf = func(n notificationhistory.StoredNotification) string { return n.AlertKey }
+		rows, err = h.history.ListActiveByAlert(ctx, orgID, notificationhistory.ActiveAlertFilter{
+			AlertName: req.Msg.GetAlertName(),
+			RuleGroup: req.Msg.GetRuleGroup(),
+			AfterKey:  req.Msg.GetBeforeId(),
+			Limit:     pageLimit + 1,
+		})
+	case req.Msg.GetActiveOnly():
+		// Over-fetch by one so a storm past the cap is flagged rather than silently swallowed.
 		pageLimit = historyMaxPageSize
 		rows, err = h.history.ListActive(ctx, orgID, pageLimit+1)
-	} else {
-		pageLimit = req.Msg.GetPageSize()
-		if pageLimit <= 0 {
-			pageLimit = historyDefaultPageSize
-		}
-		if pageLimit > historyMaxPageSize {
-			pageLimit = historyMaxPageSize
-		}
+	default:
 		var beforeID *int64
-		if s := req.Msg.GetBeforeId(); s != "" {
-			v, parseErr := strconv.ParseInt(s, 10, 64)
-			if parseErr != nil {
-				return nil, fleeterror.NewInvalidArgumentError("invalid before_id: " + s)
-			}
-			beforeID = &v
+		if beforeID, err = parseBeforeID(req.Msg.GetBeforeId()); err != nil {
+			return nil, err
 		}
+		cursorOf = func(n notificationhistory.StoredNotification) string { return strconv.FormatInt(n.ID, 10) }
 		rows, err = h.history.List(ctx, orgID, beforeID, pageLimit+1)
 	}
 	if err != nil {
@@ -372,8 +433,69 @@ func (h *Handler) ListAlerts(ctx context.Context, req *connect.Request[alertsv1.
 	for _, n := range rows {
 		out = append(out, historyEntryToProto(n, includeDevice))
 	}
+	// Off the last row of a full page only, so a final page advertises nothing to resume from.
+	nextCursor := ""
+	if hasMore && cursorOf != nil && len(rows) > 0 {
+		nextCursor = cursorOf(rows[len(rows)-1])
+	}
 	return connect.NewResponse(&alertsv1.ListAlertsResponse{
-		Alerts:  out,
+		Alerts:     out,
+		HasMore:    hasMore,
+		NextCursor: nextCursor,
+	}), nil
+}
+
+// historyPageLimit clamps a requested page size for both keyset-paged branches: the history feed and the drill-in.
+func historyPageLimit(requested int32) int32 {
+	if requested <= 0 {
+		return historyDefaultPageSize
+	}
+	return min(requested, historyMaxPageSize)
+}
+
+func parseBeforeID(s string) (*int64, error) {
+	if s == "" {
+		return nil, nil
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return nil, fleeterror.NewInvalidArgumentError("invalid before_id: " + s)
+	}
+	return &v, nil
+}
+
+// ListActiveAlertGroups answers "what is firing right now" per rule. No row carries device identity, and the one
+// summary it does carry clears the same template gate the history API applies, so this needs no miner:read gate;
+// the drill-in does.
+func (h *Handler) ListActiveAlertGroups(ctx context.Context, _ *connect.Request[alertsv1.ListActiveAlertGroupsRequest]) (*connect.Response[alertsv1.ListActiveAlertGroupsResponse], error) {
+	orgID, err := h.authorize(ctx, authz.PermAlertRead)
+	if err != nil {
+		return nil, err
+	}
+	// Over-fetch by one so a fleet past the cap is flagged rather than silently swallowed.
+	groups, err := h.history.ListActiveGroups(ctx, orgID, activeGroupsMaxPageSize+1)
+	if err != nil {
+		return nil, err
+	}
+	hasMore := len(groups) > activeGroupsMaxPageSize
+	if hasMore {
+		groups = groups[:activeGroupsMaxPageSize]
+	}
+	out := make([]*alertsv1.ActiveAlertGroup, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, &alertsv1.ActiveAlertGroup{
+			AlertName:      g.AlertName,
+			RuleGroup:      g.RuleGroup,
+			AlertCount:     g.AlertCount,
+			DeviceCount:    g.DeviceCount,
+			FirstStartedAt: timestamppb.New(g.FirstStartedAt),
+			// Same policy as the history API: a device template's summary names the miner, so it needs
+			// miner:read, which this endpoint never has. Device-less alone would let a stray offline row through.
+			Summary: visibleSummary(g.Summary, g.Template, false),
+		})
+	}
+	return connect.NewResponse(&alertsv1.ListActiveAlertGroupsResponse{
+		Groups:  out,
 		HasMore: hasMore,
 	}), nil
 }
@@ -418,7 +540,7 @@ func protoToChannel(id, name string, kind alertsv1.ChannelKind, wh *alertsv1.Web
 	return dom, nil
 }
 
-func ruleToProto(r alerts.Rule) *alertsv1.Rule {
+func ruleToProto(r alerts.Rule, includeDevice bool) *alertsv1.Rule {
 	out := &alertsv1.Rule{
 		Id:              r.ID,
 		OrganizationId:  r.OrganizationID,
@@ -431,11 +553,55 @@ func ruleToProto(r alerts.Rule) *alertsv1.Rule {
 		DurationSeconds: r.DurationSeconds,
 		Enabled:         r.Enabled,
 		Origin:          ruleOriginToProto(r.Origin),
+		ConfigOutOfSync: r.ConfigOutOfSync,
+		ConfigUnknown:   r.ConfigUnknown,
 	}
 	if r.Config != nil {
-		out.Config = ruleConfigToProto(*r.Config)
+		out.Config = ruleConfigToProto(*r.Config, includeDevice)
+	}
+	// Unknown routing stays unset on the wire; a readable rule always carries an explicit mode.
+	if !r.RoutingUnknown {
+		out.Routing = routingToProto(r.Routing)
 	}
 	return out
+}
+
+func routingToProto(p *alerts.RoutePolicy) *alertsv1.RuleRouting {
+	out := &alertsv1.RuleRouting{Mode: alertsv1.RoutingMode_ROUTING_MODE_DEFAULT}
+	switch {
+	case p == nil:
+	case p.Mode == alerts.RouteModeCustom:
+		out.Mode = alertsv1.RoutingMode_ROUTING_MODE_CUSTOM
+		out.ChannelIds = make([]string, 0, len(p.ChannelIDs))
+		for _, id := range p.ChannelIDs {
+			out.ChannelIds = append(out.ChannelIds, strconv.FormatInt(id, 10))
+		}
+	case p.Mode == alerts.RouteModeNone:
+		out.Mode = alertsv1.RoutingMode_ROUTING_MODE_NONE
+	}
+	return out
+}
+
+// protoToRouting maps a RuleRouting message; nil-safe (nil reads as unspecified mode and is rejected).
+func protoToRouting(r *alertsv1.RuleRouting) (alerts.RouteMode, []string, error) {
+	mode, err := protoToRouteMode(r.GetMode())
+	if err != nil {
+		return "", nil, err
+	}
+	return mode, r.GetChannelIds(), nil
+}
+
+func protoToRouteMode(m alertsv1.RoutingMode) (alerts.RouteMode, error) {
+	switch m {
+	case alertsv1.RoutingMode_ROUTING_MODE_DEFAULT:
+		return alerts.RouteModeDefault, nil
+	case alertsv1.RoutingMode_ROUTING_MODE_CUSTOM:
+		return alerts.RouteModeCustom, nil
+	case alertsv1.RoutingMode_ROUTING_MODE_NONE:
+		return alerts.RouteModeNone, nil
+	case alertsv1.RoutingMode_ROUTING_MODE_UNSPECIFIED:
+	}
+	return "", fleeterror.NewInvalidArgumentError("routing mode is required")
 }
 
 func ruleOriginToProto(o alerts.RuleOrigin) alertsv1.RuleOrigin {
@@ -448,7 +614,7 @@ func ruleOriginToProto(o alerts.RuleOrigin) alertsv1.RuleOrigin {
 	return alertsv1.RuleOrigin_RULE_ORIGIN_UNSPECIFIED
 }
 
-func ruleConfigToProto(c alerts.RuleConfig) *alertsv1.RuleConfig {
+func ruleConfigToProto(c alerts.RuleConfig, includeDevice bool) *alertsv1.RuleConfig {
 	out := &alertsv1.RuleConfig{
 		Name:            c.Name,
 		DurationSeconds: c.DurationSeconds,
@@ -466,6 +632,22 @@ func ruleConfigToProto(c alerts.RuleConfig) *alertsv1.RuleConfig {
 		out.TemplateConfig = &alertsv1.RuleConfig_Temperature{Temperature: &alertsv1.TemperatureConfig{
 			MaxCelsius: c.Temperature.MaxCelsius,
 		}}
+	}
+	if !c.Scope.IsZero() {
+		out.Scope = &alertsv1.RuleScope{
+			SiteIds:     c.Scope.SiteIDs,
+			BuildingIds: c.Scope.BuildingIDs,
+			RackIds:     c.Scope.RackIDs,
+			GroupIds:    c.Scope.GroupIDs,
+			AllSites:    c.Scope.AllSites,
+		}
+		// Redacted reads keep the scope message and say so: an absent scope means
+		// org-wide, which would misreport a narrower rule as covering every miner.
+		if includeDevice {
+			out.Scope.DeviceIds = c.Scope.DeviceIDs
+		} else if len(c.Scope.DeviceIDs) > 0 {
+			out.Scope.DeviceIdsRedacted = true
+		}
 	}
 	return out
 }
@@ -495,6 +677,30 @@ func protoToRuleConfig(c *alertsv1.RuleConfig) (alerts.RuleConfig, error) {
 		out.Temperature = &alerts.TemperatureRuleConfig{MaxCelsius: tc.Temperature.GetMaxCelsius()}
 	default:
 		return alerts.RuleConfig{}, fleeterror.NewInvalidArgumentError("rule template config is required")
+	}
+	if sc := c.GetScope(); sc != nil {
+		// A redacted read carries no device list to round-trip, so accepting the marker would silently
+		// rewrite the rule without its explicit miners; writers hold miner:read and can re-read the scope.
+		if sc.GetDeviceIdsRedacted() {
+			return alerts.RuleConfig{}, fleeterror.NewInvalidArgumentError("scope device_ids are redacted; re-read the rule for the full scope before saving")
+		}
+		scope := &alerts.RuleScope{
+			SiteIDs:     sc.GetSiteIds(),
+			DeviceIDs:   sc.GetDeviceIds(),
+			BuildingIDs: sc.GetBuildingIds(),
+			RackIDs:     sc.GetRackIds(),
+			GroupIDs:    sc.GetGroupIds(),
+			AllSites:    sc.GetAllSites(),
+		}
+		if sc.GetOrgWide() {
+			if !scope.IsZero() {
+				return alerts.RuleConfig{}, fleeterror.NewInvalidArgumentError("scope cannot be org-wide and list placements or devices")
+			}
+			out.ScopeOrgWideExplicit = true
+		}
+		if !scope.IsZero() {
+			out.Scope = scope
+		}
 	}
 	return out, nil
 }
@@ -545,12 +751,17 @@ func maintenanceWindowToProto(s alerts.MaintenanceWindow) *alertsv1.MaintenanceW
 	out := &alertsv1.MaintenanceWindow{
 		Id:             s.ID,
 		OrganizationId: s.OrganizationID,
-		Scope:          scopeToProto(s.Scope),
-		StartsAt:       timestamppb.New(s.StartsAt),
-		Comment:        s.Comment,
-		CreatedBy:      s.CreatedBy,
-		CreatedAt:      timestamppb.New(s.CreatedAt),
-		Active:         s.Active,
+		Scope: &alertsv1.MaintenanceWindowScope{
+			RuleIds:     s.RuleIDs,
+			ChannelIds:  s.ChannelIDs,
+			AllRules:    len(s.RuleIDs) == 0,
+			AllChannels: len(s.ChannelIDs) == 0,
+		},
+		StartsAt:  timestamppb.New(s.StartsAt),
+		Comment:   s.Comment,
+		CreatedBy: s.CreatedBy,
+		CreatedAt: timestamppb.New(s.CreatedAt),
+		Active:    s.Active,
 	}
 	if !s.EndsAt.IsZero() {
 		out.EndsAt = timestamppb.New(s.EndsAt)
@@ -558,43 +769,38 @@ func maintenanceWindowToProto(s alerts.MaintenanceWindow) *alertsv1.MaintenanceW
 	return out
 }
 
-func scopeToProto(sc alerts.MaintenanceWindowScope) *alertsv1.MaintenanceWindowScope {
-	return &alertsv1.MaintenanceWindowScope{
-		Kind:      scopeKindToProto(sc.Kind),
-		RuleId:    sc.RuleID,
-		GroupId:   sc.GroupID,
-		SiteId:    sc.SiteID,
-		DeviceIds: sc.DeviceIDs,
-	}
-}
-
 func protoToMaintenanceWindow(id string, scope *alertsv1.MaintenanceWindowScope, startsAt, endsAt *timestamppb.Timestamp, comment string) (alerts.MaintenanceWindow, error) {
 	if scope == nil {
 		return alerts.MaintenanceWindow{}, fleeterror.NewInvalidArgumentError("scope is required")
 	}
-	dk, err := protoToScopeKind(scope.GetKind())
-	if err != nil {
+	if err := validateMaintenanceWindowTargetSelection("rules", scope.GetAllRules(), scope.GetRuleIds()); err != nil {
+		return alerts.MaintenanceWindow{}, err
+	}
+	if err := validateMaintenanceWindowTargetSelection("destinations", scope.GetAllChannels(), scope.GetChannelIds()); err != nil {
 		return alerts.MaintenanceWindow{}, err
 	}
 	if startsAt == nil {
 		return alerts.MaintenanceWindow{}, fleeterror.NewInvalidArgumentError("starts_at is required")
 	}
 	dom := alerts.MaintenanceWindow{
-		ID: id,
-		Scope: alerts.MaintenanceWindowScope{
-			Kind:      dk,
-			RuleID:    scope.GetRuleId(),
-			GroupID:   scope.GetGroupId(),
-			SiteID:    scope.GetSiteId(),
-			DeviceIDs: scope.GetDeviceIds(),
-		},
-		StartsAt: startsAt.AsTime(),
-		Comment:  comment,
+		ID:         id,
+		RuleIDs:    scope.GetRuleIds(),
+		ChannelIDs: scope.GetChannelIds(),
+		StartsAt:   startsAt.AsTime(),
+		Comment:    comment,
 	}
 	if endsAt != nil {
 		dom.EndsAt = endsAt.AsTime()
 	}
 	return dom, nil
+}
+
+func validateMaintenanceWindowTargetSelection(name string, all bool, ids []string) error {
+	if all == (len(ids) > 0) {
+		return fleeterror.NewInvalidArgumentErrorf(
+			"scope must select either all %s or a non-empty %s list", name, name)
+	}
+	return nil
 }
 
 // includeDevice gates miner data behind miner:read: the structured device fields plus the free-text summary,
@@ -616,12 +822,7 @@ func historyEntryToProto(n notificationhistory.StoredNotification, includeDevice
 		out.DeviceName = n.DeviceName
 		out.DeviceMac = n.DeviceMAC
 	}
-	// Summary follows the template's scope: on device templates it names the
-	// miner, on source-level templates only the MQTT source, which is not
-	// miner identity and stays visible to any alert:read caller.
-	if includeDevice || isSourceLevelTemplate(n.Template) {
-		out.Summary = n.Summary
-	}
+	out.Summary = visibleSummary(n.Summary, n.Template, includeDevice)
 	if n.StartsAt != nil {
 		out.StartsAt = timestamppb.New(*n.StartsAt)
 	}
@@ -631,12 +832,36 @@ func historyEntryToProto(n notificationhistory.StoredNotification, includeDevice
 	return out
 }
 
-// isSourceLevelTemplate reports whether the template scopes the alert to an
-// MQTT curtailment source rather than a device. The label stays trustworthy:
-// user rules only emit offline/hashrate/temperature (compileUserRule).
-func isSourceLevelTemplate(t string) bool {
-	tmpl := alerts.RuleTemplate(t)
-	return tmpl == alerts.RuleTemplateMQTTCurtailment || tmpl == alerts.RuleTemplateMQTTDisconnected
+// A device template's summary names the miner, so it needs miner:read; a device-less one names a source, a
+// curtailment event, or the fleet, none of which is miner identity.
+func visibleSummary(summary, template string, includeDevice bool) string {
+	if includeDevice || isDeviceLessTemplate(template) {
+		return summary
+	}
+	return ""
+}
+
+// The provisioned templates that fire on a source, a curtailment event, or the fleet rather than on a miner, so
+// their annotation summaries name no device. Anything absent fails closed, which costs a non-miner reader only
+// the free text — counts, rule identity, and timing still come through. A device-less rule added to
+// proto-fleet-rules.yaml without a template label lands here too, unnamed and therefore redacted, so a new one
+// carries a label (see the metric-ingest rule) rather than relying on this list recognizing its absence.
+var deviceLessTemplates = map[alerts.RuleTemplate]struct{}{
+	alerts.RuleTemplateMQTTCurtailment:       {},
+	alerts.RuleTemplateMQTTDisconnected:      {},
+	alerts.RuleTemplateCurtailmentFanRestore: {},
+	alerts.RuleTemplateTelemetryPoll:         {},
+	alerts.RuleTemplateMetricIngest:          {},
+	alerts.RuleTemplateHAReadiness:           {},
+	alerts.RuleTemplateFleetNodeUnavailable:  {},
+}
+
+// isDeviceLessTemplate reports whether the template's summary is safe to show without miner:read. The label
+// stays trustworthy: user rules only emit offline/hashrate/temperature (compileUserRule), so an org cannot mint
+// a miner alert that claims one of these.
+func isDeviceLessTemplate(t string) bool {
+	_, ok := deviceLessTemplates[alerts.RuleTemplate(t)]
+	return ok
 }
 
 func channelKindToProto(k alerts.ChannelKind) alertsv1.ChannelKind {
@@ -658,7 +883,7 @@ func protoToChannelKind(k alertsv1.ChannelKind) (alerts.ChannelKind, error) {
 	// SMTP is not offered in this slice; it ships in the SMTP channel slice.
 	case alertsv1.ChannelKind_CHANNEL_KIND_UNSPECIFIED, alertsv1.ChannelKind_CHANNEL_KIND_SMTP:
 	}
-	return "", fleeterror.NewInvalidArgumentErrorf("unknown channel kind: %s", k)
+	return "", fleeterror.NewInvalidArgumentErrorf("unknown destination kind: %s", k)
 }
 
 func httpStatusToInt32(code int) int32 {
@@ -701,35 +926,9 @@ func ruleTemplateToProto(t alerts.RuleTemplate) alertsv1.RuleTemplate {
 		return alertsv1.RuleTemplate_RULE_TEMPLATE_MQTT_CURTAILMENT
 	case alerts.RuleTemplateMQTTDisconnected:
 		return alertsv1.RuleTemplate_RULE_TEMPLATE_MQTT_DISCONNECTED
+	// Provisioned-only and carried as raw labels on alert rows, not as rule shapes any client creates or
+	// renders, so they have no proto counterpart and report unspecified like any label this build doesn't know.
+	case alerts.RuleTemplateCurtailmentFanRestore, alerts.RuleTemplateMetricIngest, alerts.RuleTemplateHAReadiness, alerts.RuleTemplateFleetNodeUnavailable:
 	}
 	return alertsv1.RuleTemplate_RULE_TEMPLATE_UNSPECIFIED
-}
-
-func scopeKindToProto(k alerts.MaintenanceWindowScopeKind) alertsv1.MaintenanceWindowScopeKind {
-	switch k {
-	case alerts.MaintenanceWindowScopeRule:
-		return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_RULE
-	case alerts.MaintenanceWindowScopeGroup:
-		return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_GROUP
-	case alerts.MaintenanceWindowScopeSite:
-		return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_SITE
-	case alerts.MaintenanceWindowScopeDevice:
-		return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_DEVICE
-	}
-	return alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_UNSPECIFIED
-}
-
-func protoToScopeKind(k alertsv1.MaintenanceWindowScopeKind) (alerts.MaintenanceWindowScopeKind, error) {
-	switch k {
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_RULE:
-		return alerts.MaintenanceWindowScopeRule, nil
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_GROUP:
-		return alerts.MaintenanceWindowScopeGroup, nil
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_SITE:
-		return alerts.MaintenanceWindowScopeSite, nil
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_DEVICE:
-		return alerts.MaintenanceWindowScopeDevice, nil
-	case alertsv1.MaintenanceWindowScopeKind_MAINTENANCE_WINDOW_SCOPE_KIND_UNSPECIFIED:
-	}
-	return "", fleeterror.NewInvalidArgumentErrorf("unknown maintenance window scope kind: %s", k)
 }

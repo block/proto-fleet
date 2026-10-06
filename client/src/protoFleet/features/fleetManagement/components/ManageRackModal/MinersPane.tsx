@@ -68,6 +68,9 @@ function MinerRow({
   onBlinkLED: (deviceId: string) => void;
 }) {
   const name = miner?.name;
+  // Miners outside the first display page have no cached snapshot, so fall back
+  // to the identifier rather than labelling a control "for undefined".
+  const label = name || deviceId;
   const ipAddress = miner?.ipAddress;
   const macAddress = miner?.macAddress;
   const model = miner?.model;
@@ -161,6 +164,7 @@ function MinerRow({
         {isAssigned ? (
           <button
             type="button"
+            aria-label={`Unassign ${label} from its slot`}
             className="flex h-8 w-8 items-center justify-center rounded-lg text-text-primary-70 hover:cursor-pointer"
             onClick={(e) => {
               e.stopPropagation();
@@ -173,6 +177,7 @@ function MinerRow({
           <>
             <button
               type="button"
+              aria-label={`Actions for ${label}`}
               className="flex h-8 w-8 items-center justify-center rounded-lg text-text-primary-70 hover:cursor-pointer"
               onClick={(e) => {
                 e.stopPropagation();

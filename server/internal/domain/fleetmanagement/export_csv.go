@@ -232,6 +232,10 @@ func telemetryGatedByAuth(status pb.PairingStatus) bool {
 }
 
 func minerStatusCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmodels.ErrorMessage) string {
+	if snapshot.OfflineReason == pb.DeviceOfflineReason_DEVICE_OFFLINE_REASON_FLEET_NODE_UNAVAILABLE {
+		return "Unavailable"
+	}
+
 	if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
 		return csvStatusNeedsAttention
 	}
@@ -264,6 +268,10 @@ func minerStatusCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmo
 }
 
 func minerIssuesCSVValue(snapshot *pb.MinerStateSnapshot, errors []diagnosticsmodels.ErrorMessage) string {
+	if snapshot.OfflineReason == pb.DeviceOfflineReason_DEVICE_OFFLINE_REASON_FLEET_NODE_UNAVAILABLE {
+		return "No connection"
+	}
+
 	if snapshot.PairingStatus == pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
 		return "Authentication required"
 	}

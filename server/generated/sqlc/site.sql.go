@@ -119,6 +119,26 @@ func (q *Queries) CountInfrastructureDevicesBySite(ctx context.Context, arg Coun
 	return column_1, err
 }
 
+const countInventoryPartsBySite = `-- name: CountInventoryPartsBySite :one
+SELECT COUNT(*)::bigint
+FROM inventory_part
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+`
+
+type CountInventoryPartsBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+func (q *Queries) CountInventoryPartsBySite(ctx context.Context, arg CountInventoryPartsBySiteParams) (int64, error) {
+	row := q.queryRow(ctx, q.countInventoryPartsBySiteStmt, countInventoryPartsBySite, arg.OrgID, arg.SiteID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const countRacksBySite = `-- name: CountRacksBySite :one
 SELECT COUNT(*)::bigint
 FROM device_set_rack dsr
@@ -135,6 +155,28 @@ type CountRacksBySiteParams struct {
 
 func (q *Queries) CountRacksBySite(ctx context.Context, arg CountRacksBySiteParams) (int64, error) {
 	row := q.queryRow(ctx, q.countRacksBySiteStmt, countRacksBySite, arg.OrgID, arg.SiteID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const countRepairTicketsBySite = `-- name: CountRepairTicketsBySite :one
+SELECT COUNT(*)::bigint
+FROM repair_ticket
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+  AND status <> 5
+`
+
+type CountRepairTicketsBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+// Only unfinished work blocks deletion; completed tickets retain historical links.
+func (q *Queries) CountRepairTicketsBySite(ctx context.Context, arg CountRepairTicketsBySiteParams) (int64, error) {
+	row := q.queryRow(ctx, q.countRepairTicketsBySiteStmt, countRepairTicketsBySite, arg.OrgID, arg.SiteID)
 	var column_1 int64
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -824,6 +866,7 @@ SELECT id FROM device
 WHERE org_id = $1
   AND device_identifier = ANY($2::text[])
   AND deleted_at IS NULL
+ORDER BY id
 FOR UPDATE
 `
 
@@ -1204,7 +1247,7 @@ type SoftDeleteSiteParams struct {
 }
 
 // Caller is expected to also cascade-unassign attached devices/racks and
-// soft-delete buildings in the same transaction (cascade — see plan J3).
+// soft-delete buildings in the same transaction (cascade).
 func (q *Queries) SoftDeleteSite(ctx context.Context, arg SoftDeleteSiteParams) (int64, error) {
 	result, err := q.exec(ctx, q.softDeleteSiteStmt, softDeleteSite, arg.ID, arg.OrgID)
 	if err != nil {

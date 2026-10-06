@@ -110,6 +110,7 @@ type Processor struct {
 }
 
 var _ runtimejobs.Lifecycle = (*Processor)(nil)
+var _ runtimejobs.Aborter = (*Processor)(nil)
 
 func NewProcessor(
 	procStore interfaces.ScheduleProcessorStore,
@@ -198,7 +199,6 @@ func (p *Processor) Start(ctx context.Context) error {
 	go p.endOfWindowLoop(run)
 	close(run.startupDone)
 
-	slog.Info("schedule processor started")
 	return nil
 }
 
@@ -228,6 +228,18 @@ func (p *Processor) Stop(ctx context.Context) error {
 		run.cancelWork()
 		return fmt.Errorf("stop schedule processor: %w", ctx.Err())
 	}
+}
+
+// Abort immediately cancels admission and detached work before a fatal exit.
+func (p *Processor) Abort() {
+	p.lifecycleMu.Lock()
+	run := p.activation
+	p.lifecycleMu.Unlock()
+	if run == nil {
+		return
+	}
+	p.beginStop(run)
+	run.cancelWork()
 }
 
 func (p *Processor) beginStop(run *processorActivation) {
@@ -262,11 +274,11 @@ func (p *Processor) finishStop(run *processorActivation) {
 	}
 	close(run.stopDone)
 	p.lifecycleMu.Unlock()
-	slog.Info("schedule processor stopped")
 }
 
 func (p *Processor) reconcileLoop(run *processorActivation) {
 	defer run.wg.Done()
+	reportProgress := runtimejobs.TrackProgress(run.admissionCtx, reconcileInterval)
 	ticker := time.NewTicker(reconcileInterval)
 	defer ticker.Stop()
 	for {
@@ -280,6 +292,7 @@ func (p *Processor) reconcileLoop(run *processorActivation) {
 			if err := p.syncSchedules(run.workCtx, run); err != nil {
 				slog.Error("reconciliation failed, will retry next cycle", "error", err)
 			}
+			reportProgress()
 		}
 	}
 }

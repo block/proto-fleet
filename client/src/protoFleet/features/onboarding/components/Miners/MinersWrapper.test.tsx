@@ -1,14 +1,19 @@
 import { MemoryRouter } from "react-router-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import MinersPage from "./MinersWrapper";
+import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { NetworkInfoSchema } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
 import { DeviceSchema } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import { type FleetNodeItem, useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 import { useMinerPairing } from "@/protoFleet/api/useMinerPairing";
 import { useNetworkInfo } from "@/protoFleet/api/useNetworkInfo";
 import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
+import { useHasPermission } from "@/protoFleet/store";
+import { pushToast } from "@/shared/features/toaster";
 
+vi.mock("@/protoFleet/api/useFleetNodes");
 vi.mock("@/protoFleet/api/useMinerPairing");
 vi.mock("@/protoFleet/api/useNetworkInfo");
 vi.mock("@/protoFleet/api/useOnboardedStatus");
@@ -17,6 +22,7 @@ vi.mock("@/protoFleet/store", () => ({
   useMinerIds: vi.fn(() => []),
   useNotifyPairingCompleted: vi.fn(() => vi.fn()),
   useAuthErrors: vi.fn(() => ({ handleAuthErrors: vi.fn() })),
+  useHasPermission: vi.fn(),
   useFleetStore: Object.assign(
     (selector: any) => {
       const state = {
@@ -43,9 +49,11 @@ vi.mock("@/shared/features/toaster", () => ({
 
 const mockDiscover = vi.fn().mockResolvedValue(undefined);
 const mockPair = vi.fn();
+const mockListFleetNodes = vi.fn().mockResolvedValue([]);
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockDiscover.mockReset().mockResolvedValue(undefined);
 
   vi.mocked(useMinerPairing).mockReturnValue({
     discover: mockDiscover,
@@ -53,6 +61,14 @@ beforeEach(() => {
     pairingPending: false,
     pair: mockPair,
   });
+  vi.mocked(useFleetNodes).mockReturnValue({
+    listFleetNodes: mockListFleetNodes,
+    createEnrollmentCode: vi.fn(),
+    confirmFleetNode: vi.fn(),
+    revokeFleetNode: vi.fn(),
+  });
+  vi.mocked(useHasPermission).mockReturnValue(true);
+  mockListFleetNodes.mockResolvedValue([]);
 
   vi.mocked(useOnboardedStatus).mockReturnValue({
     poolConfigured: false,
@@ -79,8 +95,118 @@ function createDiscoveredMiner(deviceIdentifier: string, ipAddress: string) {
   });
 }
 
+function fleetNode(overrides: Partial<FleetNodeItem> = {}): FleetNodeItem {
+  return {
+    fleetNodeId: "1",
+    pendingEnrollmentId: null,
+    name: "hidden-node-name",
+    enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
+    identityFingerprint: "hidden-fingerprint",
+    commandProtocolUpgradeRequired: false,
+    controlStreamConnected: true,
+    createdAt: null,
+    lastSeenAt: null,
+    ...overrides,
+  };
+}
+
 describe("MinersWrapper", () => {
   describe("network scan discovery", () => {
+    it.each(["network", "manual"])("retains and refreshes found miners on a %s rescan", async (mode) => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+      const firstMiner = createDiscoveredMiner("miner-1", "192.168.1.100");
+      mockDiscover
+        .mockImplementationOnce(async ({ onStreamData }) => {
+          onStreamData([firstMiner, createDiscoveredMiner("miner-2", "192.168.1.101")]);
+        })
+        .mockImplementationOnce(async ({ onStreamData }) => {
+          onStreamData([
+            createDiscoveredMiner("miner-1", "192.168.1.200"),
+            createDiscoveredMiner("miner-3", "192.168.1.201"),
+          ]);
+        });
+      renderMinersPage(mode === "network" ? "onboarding" : "pairing");
+      if (mode === "network") {
+        fireEvent.click(screen.getByText("Get started"));
+        fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+      } else {
+        fireEvent.change(screen.getByTestId("ipAddresses"), { target: { value: "192.168.1.0/24" } });
+        fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+      }
+      expect(await screen.findByText("2 miners found on your network")).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByTestId("add-miners-rescan-network")).toBeEnabled());
+
+      fireEvent.click(screen.getByTestId("add-miners-rescan-network"));
+
+      expect(await screen.findByText("3 miners found on your network")).toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("add-miners-choose-miners"));
+      expect(await screen.findByText("192.168.1.200")).toBeInTheDocument();
+      expect(screen.queryByText("192.168.1.100")).not.toBeInTheDocument();
+      expect(screen.getByText("192.168.1.101")).toBeInTheDocument();
+      expect(screen.getByText("192.168.1.201")).toBeInTheDocument();
+    });
+
+    it("starts fresh after closing and reopening onboarding discovery", async () => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+      mockDiscover
+        .mockImplementationOnce(async ({ onStreamData }) => {
+          onStreamData([createDiscoveredMiner("miner-1", "192.168.1.100")]);
+        })
+        .mockImplementationOnce(async ({ onStreamData }) => {
+          onStreamData([createDiscoveredMiner("miner-2", "192.168.1.200")]);
+        });
+      renderMinersPage("onboarding");
+      fireEvent.click(screen.getByText("Get started"));
+      fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+      expect(await screen.findByText("1 miners found on your network")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText("Close add miners"));
+      fireEvent.click(screen.getByText("Get started"));
+      fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+
+      await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
+      expect(await screen.findByText("1 miners found on your network")).toBeInTheDocument();
+    });
+
+    it("shows an incomplete-discovery notification with the source and keeps discovered miners", async () => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+      mockDiscover.mockImplementationOnce(async ({ onStreamData, onWarning }) => {
+        onStreamData([createDiscoveredMiner("miner-1", "192.168.1.101")]);
+        onWarning("Fleet Node north: scan timed out");
+        onStreamData([createDiscoveredMiner("miner-2", "192.168.1.102")]);
+      });
+
+      renderMinersPage("onboarding");
+      fireEvent.click(screen.getByText("Get started"));
+      fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+
+      await waitFor(() => {
+        expect(screen.getByText("2 miners found on your network")).toBeInTheDocument();
+      });
+      expect(pushToast).toHaveBeenCalledWith({
+        message: "Discovery incomplete: Fleet Node north: scan timed out",
+        status: "error",
+      });
+    });
+
     it("shows loading skeleton when network info is available and Find miners is clicked", async () => {
       vi.mocked(useNetworkInfo).mockReturnValue({
         data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
@@ -105,7 +231,7 @@ describe("MinersWrapper", () => {
         expect.objectContaining({
           discoverRequest: expect.objectContaining({
             mode: expect.objectContaining({
-              case: "nmap",
+              case: "networkScan",
               value: expect.objectContaining({
                 target: "192.168.1.0/24",
               }),
@@ -114,6 +240,7 @@ describe("MinersWrapper", () => {
         }),
       );
       const scanRequest = mockDiscover.mock.calls[0][0].discoverRequest;
+      expect(scanRequest.mode.value.useFleetNodeLocalSubnet).toBe(true);
       expect(scanRequest.mode.value.ports).toEqual([]);
     });
 
@@ -257,14 +384,14 @@ describe("MinersWrapper", () => {
 
       mockDiscover.mockImplementationOnce(async ({ onStreamData }) => {
         onStreamData([
-          createDiscoveredMiner("miner-1-443", "192.168.1.101"),
-          createDiscoveredMiner("miner-1-8080", "192.168.1.101"),
-          createDiscoveredMiner("miner-2-443", "192.168.1.102"),
-          createDiscoveredMiner("miner-2-8080", "192.168.1.102"),
-          createDiscoveredMiner("miner-3-443", "192.168.1.103"),
-          createDiscoveredMiner("miner-3-8080", "192.168.1.103"),
-          createDiscoveredMiner("miner-4-443", "192.168.1.104"),
-          createDiscoveredMiner("miner-4-8080", "192.168.1.104"),
+          createDiscoveredMiner("miner-1", "192.168.1.101"),
+          createDiscoveredMiner("miner-1", "192.168.1.101"),
+          createDiscoveredMiner("miner-2", "192.168.1.102"),
+          createDiscoveredMiner("miner-2", "192.168.1.102"),
+          createDiscoveredMiner("miner-3", "192.168.1.103"),
+          createDiscoveredMiner("miner-3", "192.168.1.103"),
+          createDiscoveredMiner("miner-4", "192.168.1.104"),
+          createDiscoveredMiner("miner-4", "192.168.1.104"),
         ]);
       });
 
@@ -284,6 +411,54 @@ describe("MinersWrapper", () => {
 
       expect(screen.getByRole("button", { name: "Continue with 4 miners" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Continue with 8 miners" })).not.toBeInTheDocument();
+    });
+
+    it("keeps distinct miners that share an IP address across remote networks", async () => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+
+      mockDiscover.mockImplementationOnce(async ({ onStreamData }) => {
+        onStreamData([
+          createDiscoveredMiner("site-a-miner", "192.168.1.101"),
+          createDiscoveredMiner("site-b-miner", "192.168.1.101"),
+        ]);
+      });
+
+      renderMinersPage("onboarding");
+      fireEvent.click(screen.getByText("Get started"));
+      fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+
+      await waitFor(() => expect(screen.getByText("2 miners found on your network")).toBeInTheDocument(), {
+        timeout: 4000,
+      });
+      expect(screen.getByRole("button", { name: "Continue with 2 miners" })).toBeInTheDocument();
+    });
+
+    it("keeps discovery results that have no usable identity", async () => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+
+      mockDiscover.mockImplementationOnce(async ({ onStreamData }) => {
+        onStreamData([createDiscoveredMiner("", ""), createDiscoveredMiner("", "")]);
+      });
+
+      renderMinersPage("onboarding");
+      fireEvent.click(screen.getByText("Get started"));
+      fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+
+      await waitFor(() => expect(screen.getByText("2 miners found on your network")).toBeInTheDocument(), {
+        timeout: 4000,
+      });
     });
   });
 
@@ -333,7 +508,7 @@ describe("MinersWrapper", () => {
         expect.objectContaining({
           discoverRequest: expect.objectContaining({
             mode: expect.objectContaining({
-              case: "nmap",
+              case: "networkScan",
               value: expect.objectContaining({
                 target: "192.168.1.0/24",
               }),
@@ -342,6 +517,7 @@ describe("MinersWrapper", () => {
         }),
       );
       expect(mockDiscover.mock.calls[1][0].discoverRequest.mode.value.ports).toEqual([]);
+      expect(mockDiscover.mock.calls[1][0].discoverRequest.mode.value.useFleetNodeLocalSubnet).toBe(false);
 
       expect(mockDiscover).toHaveBeenNthCalledWith(
         3,
@@ -358,6 +534,320 @@ describe("MinersWrapper", () => {
         }),
       );
       expect(mockDiscover.mock.calls[2][0].discoverRequest.mode.value.ports).toEqual([]);
+    });
+
+    it("submits mixed manual requests sequentially", async () => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: undefined,
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+      const resolvers: Array<() => void> = [];
+      mockDiscover.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            resolvers.push(resolve);
+          }),
+      );
+
+      renderMinersPage("pairing");
+      fireEvent.change(screen.getByTestId("ipAddresses"), {
+        target: { value: "192.168.1.100\n192.168.1.0/24\n192.168.1.150 - 192.168.1.160" },
+      });
+      fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+
+      await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(1));
+      resolvers[0]();
+      await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
+      resolvers[1]();
+      await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(3));
+      resolvers[2]();
+    });
+
+    it("aborts a mixed manual request and does not start the next request after unmount", async () => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: undefined,
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+      let resolveFirst!: () => void;
+      mockDiscover.mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveFirst = resolve;
+          }),
+      );
+
+      const view = renderMinersPage("pairing");
+      fireEvent.change(screen.getByTestId("ipAddresses"), {
+        target: { value: "192.168.1.100\n192.168.1.0/24" },
+      });
+      fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+
+      await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(1));
+      const signal = mockDiscover.mock.calls[0][0].discoverAbortController.signal;
+      view.unmount();
+      expect(signal.aborted).toBe(true);
+      resolveFirst();
+      await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(1));
+    });
+
+    it("continues mixed manual requests after one fails", async () => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: undefined,
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+      mockDiscover.mockRejectedValueOnce(new Error("node busy")).mockResolvedValue(undefined);
+
+      renderMinersPage("pairing");
+      fireEvent.change(screen.getByTestId("ipAddresses"), {
+        target: { value: "192.168.1.100\n192.168.1.0/24\n192.168.1.150 - 192.168.1.160" },
+      });
+      fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+
+      await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(3));
+      const skeleton = screen.getAllByTestId("skeleton-row")[0].parentElement?.parentElement;
+      await waitFor(() => expect(skeleton).toHaveStyle({ opacity: "0" }), { timeout: 3000 });
+    });
+  });
+
+  describe("remote discovery coverage", () => {
+    beforeEach(() => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: undefined,
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+    });
+
+    it("shows no topology or warning when every confirmed node is eligible", async () => {
+      mockListFleetNodes.mockResolvedValue([fleetNode()]);
+
+      renderMinersPage("pairing");
+
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalled());
+      expect(screen.queryByTestId("remote-discovery-warning")).not.toBeInTheDocument();
+      expect(screen.queryByText("hidden-node-name")).not.toBeInTheDocument();
+      expect(screen.queryByText("hidden-fingerprint")).not.toBeInTheDocument();
+    });
+
+    it("warns generically when some confirmed nodes are ineligible", async () => {
+      mockListFleetNodes.mockResolvedValue([
+        fleetNode(),
+        fleetNode({ fleetNodeId: "2", controlStreamConnected: false }),
+      ]);
+
+      renderMinersPage("pairing");
+
+      expect(await screen.findByText("Some Fleet Nodes cannot scan. Discovery may be incomplete.")).toBeInTheDocument();
+      expect(screen.queryByText("hidden-node-name")).not.toBeInTheDocument();
+    });
+
+    it("warns generically when no confirmed node is eligible", async () => {
+      mockListFleetNodes.mockResolvedValue([fleetNode({ commandProtocolUpgradeRequired: true })]);
+
+      renderMinersPage("pairing");
+
+      expect(await screen.findByText("Some Fleet Nodes cannot scan. Discovery may be incomplete.")).toBeInTheDocument();
+    });
+
+    it("hides the settings link without Fleet Node read permission", async () => {
+      vi.mocked(useHasPermission).mockImplementation((permission) => permission !== "fleetnode:read");
+      mockListFleetNodes.mockRejectedValue(new Error("request failed"));
+      renderMinersPage("pairing");
+      await screen.findByTestId("remote-discovery-warning");
+      expect(screen.queryByRole("link", { name: "View Fleet Node settings" })).not.toBeInTheDocument();
+    });
+
+    it("warns and links to settings when remote coverage cannot be checked", async () => {
+      mockListFleetNodes.mockRejectedValue(new Error("request failed"));
+
+      renderMinersPage("pairing");
+
+      expect(await screen.findByText("Could not check Fleet Nodes. Discovery may be incomplete.")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "View Fleet Node settings" })).toHaveAttribute("href", "/settings/nodes");
+    });
+
+    it("refreshes disconnected and reconnected coverage before manual discovery and rescan", async () => {
+      // Arrange
+      mockListFleetNodes
+        .mockResolvedValueOnce([fleetNode()])
+        .mockResolvedValueOnce([fleetNode({ controlStreamConnected: false })])
+        .mockResolvedValue([fleetNode()]);
+      mockDiscover.mockImplementation(async ({ onStreamData }) => {
+        onStreamData([createDiscoveredMiner("miner-1", "192.168.1.100")]);
+      });
+      renderMinersPage("pairing");
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(1));
+
+      // Act: the node disconnects before a manual scan, then reconnects before rescan.
+      fireEvent.change(screen.getByTestId("ipAddresses"), { target: { value: "192.168.1.100" } });
+      fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(2));
+
+      // Assert: the refreshed disconnected state is visible alongside results.
+      expect(await screen.findByText("1 miners found on your network")).toBeInTheDocument();
+      expect(await screen.findByText("Some Fleet Nodes cannot scan. Discovery may be incomplete.")).toBeInTheDocument();
+
+      await waitFor(() => expect(screen.getByTestId("add-miners-rescan-network")).toBeEnabled());
+      fireEvent.click(screen.getByTestId("add-miners-rescan-network"));
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(3));
+      expect(screen.queryByTestId("remote-discovery-warning")).not.toBeInTheDocument();
+      expect(mockDiscover).toHaveBeenCalledTimes(2);
+    });
+
+    it("shows delayed coverage warnings during scanning and keeps them alongside results", async () => {
+      // Arrange
+      let resolveCoverage!: (nodes: FleetNodeItem[]) => void;
+      let finishScan!: () => void;
+      mockListFleetNodes.mockResolvedValueOnce([fleetNode()]).mockImplementationOnce(
+        () =>
+          new Promise<FleetNodeItem[]>((resolve) => {
+            resolveCoverage = resolve;
+          }),
+      );
+      mockDiscover.mockImplementation(({ onStreamData }) => {
+        onStreamData([createDiscoveredMiner("miner-1", "192.168.1.100")]);
+        return new Promise<void>((resolve) => {
+          finishScan = resolve;
+        });
+      });
+      renderMinersPage("pairing");
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(1));
+
+      // Act: start scanning before the coverage refresh finishes.
+      fireEvent.change(screen.getByTestId("ipAddresses"), { target: { value: "192.168.1.100" } });
+      fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+      expect(screen.getByText("Finding miners on your network... 1 found so far")).toBeInTheDocument();
+      expect(screen.queryByTestId("remote-discovery-warning")).not.toBeInTheDocument();
+      await act(async () => resolveCoverage([fleetNode(), fleetNode({ controlStreamConnected: false })]));
+
+      // Assert: delayed warnings are visible without leaving scanning or results.
+      const warning = "Some Fleet Nodes cannot scan. Discovery may be incomplete.";
+      expect(screen.getByText("Finding miners on your network... 1 found so far")).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByText(warning)).toBeVisible());
+      await act(async () => finishScan());
+      expect(screen.getByText("1 miners found on your network")).toBeInTheDocument();
+      expect(screen.getByText(warning)).toBeVisible();
+      expect(screen.queryByTestId("section-search-by-ip")).not.toBeInTheDocument();
+    });
+
+    it("recovers from a failed coverage check on automatic discovery without blocking the scan", async () => {
+      // Arrange
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+      let resolveCoverage!: (nodes: FleetNodeItem[]) => void;
+      mockListFleetNodes.mockRejectedValueOnce(new Error("request failed")).mockImplementationOnce(
+        () =>
+          new Promise<FleetNodeItem[]>((resolve) => {
+            resolveCoverage = resolve;
+          }),
+      );
+      renderMinersPage("pairing");
+      expect(await screen.findByTestId("remote-discovery-warning")).toBeInTheDocument();
+
+      // Act: discovery starts while its refreshed health request is still pending.
+      fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+
+      // Assert
+      expect(mockListFleetNodes).toHaveBeenCalledTimes(2);
+      expect(mockDiscover).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("remote-discovery-warning")).toBeVisible();
+      await act(async () => resolveCoverage([fleetNode()]));
+      expect(screen.queryByTestId("remote-discovery-warning")).not.toBeInTheDocument();
+    });
+
+    it("continues discovery when the refreshed coverage check fails", async () => {
+      // Arrange
+      mockListFleetNodes.mockResolvedValueOnce([fleetNode()]).mockRejectedValueOnce(new Error("request failed"));
+      renderMinersPage("pairing");
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(1));
+
+      // Act
+      fireEvent.change(screen.getByTestId("ipAddresses"), { target: { value: "192.168.1.100" } });
+      fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(2));
+
+      // Assert
+      expect(mockDiscover).toHaveBeenCalledTimes(1);
+      expect(await screen.findByText("Could not check Fleet Nodes. Discovery may be incomplete.")).toBeInTheDocument();
+    });
+
+    it.each(["success", "failure"])("ignores a stale initial coverage %s after a newer scan check", async (outcome) => {
+      // Arrange
+      let resolveInitial!: (nodes: FleetNodeItem[]) => void;
+      let rejectInitial!: (error: Error) => void;
+      mockListFleetNodes.mockImplementationOnce(
+        () =>
+          new Promise<FleetNodeItem[]>((resolve, reject) => {
+            resolveInitial = resolve;
+            rejectInitial = reject;
+          }),
+      );
+      mockListFleetNodes.mockResolvedValue([fleetNode({ controlStreamConnected: false })]);
+      renderMinersPage("pairing");
+
+      // Act
+      fireEvent.change(screen.getByTestId("ipAddresses"), { target: { value: "192.168.1.100" } });
+      fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(2));
+      await act(async () => {
+        if (outcome === "success") resolveInitial([fleetNode()]);
+        else rejectInitial(new Error("stale failure"));
+      });
+
+      // Assert: neither an older success nor failure overwrites the latest check.
+      expect(await screen.findByText("Some Fleet Nodes cannot scan. Discovery may be incomplete.")).toBeInTheDocument();
+    });
+
+    it("shows no warning when there are no confirmed nodes", async () => {
+      mockListFleetNodes.mockResolvedValue([
+        fleetNode({ enrollmentStatus: FleetNodeEnrollmentStatus.PENDING, controlStreamConnected: false }),
+      ]);
+
+      renderMinersPage("pairing");
+
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalled());
+      expect(screen.queryByTestId("remote-discovery-warning")).not.toBeInTheDocument();
+    });
+
+    it("does not load or show node coverage without miner pairing permission", () => {
+      vi.mocked(useHasPermission).mockReturnValue(false);
+
+      renderMinersPage("pairing");
+
+      expect(useHasPermission).toHaveBeenCalledWith("miner:pair");
+      expect(mockListFleetNodes).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("remote-discovery-warning")).not.toBeInTheDocument();
+    });
+
+    it("hides loaded coverage state when miner pairing permission is removed", async () => {
+      mockListFleetNodes.mockResolvedValue([fleetNode({ controlStreamConnected: false })]);
+      const view = renderMinersPage("pairing");
+      expect(await screen.findByTestId("remote-discovery-warning")).toBeInTheDocument();
+
+      vi.mocked(useHasPermission).mockReturnValue(false);
+      view.rerender(
+        <MemoryRouter>
+          <MinersPage mode="pairing" />
+        </MemoryRouter>,
+      );
+
+      expect(screen.queryByTestId("remote-discovery-warning")).not.toBeInTheDocument();
     });
   });
 });

@@ -74,7 +74,7 @@ const FleetGroupListActionBar = ({
 
   return (
     <ActionBar
-      className="fixed right-0 bottom-4 left-0 z-20 laptop:left-16 desktop:left-50"
+      className="fixed right-0 bottom-4 left-0 z-20 tablet:left-16 desktop:left-50"
       selectedItems={selectedIds}
       selectionMode="subset"
       itemNoun={{ singular: kind, plural: pluralKind }}

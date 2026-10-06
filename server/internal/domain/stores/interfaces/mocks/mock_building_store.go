@@ -176,6 +176,21 @@ func (mr *MockBuildingStoreMockRecorder) CountRacksInBuilding(ctx, orgID, buildi
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountRacksInBuilding", reflect.TypeOf((*MockBuildingStore)(nil).CountRacksInBuilding), ctx, orgID, buildingID)
 }
 
+// CountRepairTicketsByBuilding mocks base method.
+func (m *MockBuildingStore) CountRepairTicketsByBuilding(ctx context.Context, orgID, buildingID int64) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CountRepairTicketsByBuilding", ctx, orgID, buildingID)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CountRepairTicketsByBuilding indicates an expected call of CountRepairTicketsByBuilding.
+func (mr *MockBuildingStoreMockRecorder) CountRepairTicketsByBuilding(ctx, orgID, buildingID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountRepairTicketsByBuilding", reflect.TypeOf((*MockBuildingStore)(nil).CountRepairTicketsByBuilding), ctx, orgID, buildingID)
+}
+
 // CreateBuilding mocks base method.
 func (m *MockBuildingStore) CreateBuilding(ctx context.Context, params models.CreateParams) (*models.Building, error) {
 	m.ctrl.T.Helper()
@@ -249,6 +264,21 @@ func (m *MockBuildingStore) GetBuildingSiteID(ctx context.Context, orgID, buildi
 func (mr *MockBuildingStoreMockRecorder) GetBuildingSiteID(ctx, orgID, buildingID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBuildingSiteID", reflect.TypeOf((*MockBuildingStore)(nil).GetBuildingSiteID), ctx, orgID, buildingID)
+}
+
+// ListBuildingNamesBySite mocks base method.
+func (m *MockBuildingStore) ListBuildingNamesBySite(ctx context.Context, orgID, siteID int64) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListBuildingNamesBySite", ctx, orgID, siteID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListBuildingNamesBySite indicates an expected call of ListBuildingNamesBySite.
+func (mr *MockBuildingStoreMockRecorder) ListBuildingNamesBySite(ctx, orgID, siteID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListBuildingNamesBySite", reflect.TypeOf((*MockBuildingStore)(nil).ListBuildingNamesBySite), ctx, orgID, siteID)
 }
 
 // ListBuildingRacks mocks base method.

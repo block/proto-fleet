@@ -33,18 +33,42 @@ export class BasePage {
   }
 
   async clickClearAllFilters() {
-    const clearAllFiltersButton = this.page.getByRole("button", { name: "Clear all filters", exact: true });
-    await clearAllFiltersButton.scrollIntoViewIfNeeded();
-    await this.dismissVisibleToastIfPresent();
-    try {
-      await clearAllFiltersButton.click();
-    } catch (error) {
-      if (!(error instanceof Error) || !error.message.includes("intercepts pointer events")) {
+    await expect
+      .poll(
+        async () => {
+          const button = await this.findVisibleButton("Clear all filters");
+          return button ? "visible" : "hidden";
+        },
+        {
+          timeout: DEFAULT_TIMEOUT,
+          message: 'Expected a visible "Clear all filters" button.',
+        },
+      )
+      .toBe("visible");
+
+    await expect(async () => {
+      const clearAllFiltersButton = await this.findVisibleButton("Clear all filters");
+      if (!clearAllFiltersButton) {
+        throw new Error('Expected a visible "Clear all filters" button.');
+      }
+
+      await clearAllFiltersButton.scrollIntoViewIfNeeded();
+      await this.dismissVisibleToastIfPresent();
+
+      try {
+        await clearAllFiltersButton.click({ timeout: OVERLAY_DISMISS_TIMEOUT });
+      } catch (error) {
+        if (
+          !(error instanceof Error) ||
+          (!error.message.includes("intercepts pointer events") && !error.message.includes("element was detached"))
+        ) {
+          throw error;
+        }
+
+        await this.dismissVisibleToastIfPresent();
         throw error;
       }
-      await this.dismissVisibleToastIfPresent();
-      await clearAllFiltersButton.click();
-    }
+    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [100] });
   }
 
   async clearActiveFilter(filterValue: string) {
@@ -379,17 +403,6 @@ export class BasePage {
 
     const logoutButton = this.page.getByTestId("logout-button");
 
-    if (!this.isMobile) {
-      if (await logoutButton.isVisible().catch(() => false)) {
-        await logoutButton.click();
-        return;
-      }
-
-      await this.page.goto("/auth");
-      await expect(loginForm).toBeVisible();
-      return;
-    }
-
     // A server-invalidated session can redirect to /auth between any locator
     // probe and click. Retry short actions so each attempt can re-check the
     // logged-out state instead of waiting on a navigation control that vanished.
@@ -401,6 +414,12 @@ export class BasePage {
       if (await logoutButton.isVisible().catch(() => false)) {
         await logoutButton.click({ timeout: LOGOUT_ACTION_TIMEOUT });
       } else {
+        if (!this.isMobile) {
+          await this.page.goto("/auth");
+          await expect(loginForm).toBeVisible({ timeout: LOGOUT_ACTION_TIMEOUT });
+          return;
+        }
+
         await this.clickNavigationMenuIfMobile(LOGOUT_ACTION_TIMEOUT);
 
         if (await isLoggedOut()) {
@@ -420,9 +439,9 @@ export class BasePage {
   }
 
   async validateTitleInModal(expectedTitle: string) {
-    const titleLocator = this.page.locator(
-      `//*[@data-testid='modal']//*[contains(@class,'heading')][text()='${expectedTitle}']`,
-    );
+    const titleLocator = this.page
+      .locator(`//*[@data-testid='modal']//*[contains(@class,'heading')][text()='${expectedTitle}']`)
+      .filter({ visible: true });
     await expect(titleLocator).toBeVisible();
   }
 
@@ -432,10 +451,10 @@ export class BasePage {
   }
 
   async validateTitleInModalNotVisible(expectedTitle: string) {
-    const titleLocator = this.page.locator(
-      `//*[@data-testid='modal']//*[contains(@class,'heading')][text()='${expectedTitle}']`,
-    );
-    await expect(titleLocator).toBeHidden();
+    const titleLocator = this.page
+      .locator(`//*[@data-testid='modal']//*[contains(@class,'heading')][text()='${expectedTitle}']`)
+      .filter({ visible: true });
+    await expect(titleLocator).toHaveCount(0);
   }
 
   async validateTextIsVisible(text: string) {
@@ -443,8 +462,49 @@ export class BasePage {
   }
 
   async validateTextInToast(text: string, timeout: number = DEFAULT_TIMEOUT) {
-    const toast = this.page.getByTestId("toast").getByText(text);
-    await expect(toast).toBeVisible({ timeout });
+    await expect
+      .poll(
+        async () => {
+          const normalize = (value: string | null | undefined) => (value ?? "").replace(/\s+/g, " ").trim();
+
+          const groupedHeader = this.page.getByTestId("grouped-toaster-header");
+          if (await groupedHeader.isVisible().catch(() => false)) {
+            const headerText = normalize(await groupedHeader.textContent().catch(() => ""));
+            if (headerText.includes(text)) {
+              return true;
+            }
+          }
+
+          const toastContainer = this.page.getByTestId("toaster-container");
+          if (await toastContainer.isVisible().catch(() => false)) {
+            const containerText = normalize(await toastContainer.textContent().catch(() => ""));
+            if (containerText.includes(text)) {
+              return true;
+            }
+          }
+
+          const toasts = this.page.getByTestId("toast");
+          const count = await toasts.count();
+          for (let i = count - 1; i >= 0; i -= 1) {
+            const toast = toasts.nth(i);
+            if (!(await toast.isVisible().catch(() => false))) {
+              continue;
+            }
+
+            const toastText = normalize(await toast.textContent().catch(() => ""));
+            if (toastText.includes(text)) {
+              return true;
+            }
+          }
+
+          return false;
+        },
+        {
+          timeout,
+          message: `Expected a visible toast containing "${text}".`,
+        },
+      )
+      .toBe(true);
   }
 
   async validateTextInToastGroup(text: string) {
@@ -461,6 +521,14 @@ export class BasePage {
         },
       )
       .toBe(true);
+  }
+
+  // Toasts stack, and validateTextInToast matches any visible one carrying the
+  // text, so a loop that repeats the same action can pass on the toast a previous
+  // pass left behind. Clearing between passes keeps each assertion about the
+  // toast that pass produced.
+  async clearToasts() {
+    await this.dismissVisibleToastIfPresent();
   }
 
   async dismissToast() {
@@ -677,10 +745,20 @@ export class BasePage {
     await link.click();
   }
 
+  protected async waitForMobileNavigationMenuToClose() {
+    if (!this.isMobile) {
+      return;
+    }
+
+    await expect(this.page.getByRole("dialog", { name: "Navigation menu" })).toHaveCount(0);
+    await expect(this.page.getByTestId("navigation-menu-button")).toBeVisible();
+  }
+
   async navigateToHomePage() {
     await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/dashboard"]').click();
     await expect(this.page).toHaveURL(/.*\/dashboard$/);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async navigateToFleetPage() {
@@ -704,6 +782,7 @@ export class BasePage {
     }
     await expect(this.page.getByTestId("fleet-layout")).toBeVisible();
     await expect(this.page).toHaveURL(FLEET_TAB_ROUTE);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async navigateToMinersPage() {
@@ -716,6 +795,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/groups"]').click();
     await expect(this.page).toHaveURL(/.*\/groups/);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async navigateToRacksPage() {
@@ -728,6 +808,7 @@ export class BasePage {
     await this.clickNavigationMenuIfMobile();
     await this.page.getByTestId("navigation-menu").locator('a[href="/activity"]').click();
     await expect(this.page).toHaveURL(/.*\/activity/);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async navigateToSettingsPage() {
@@ -739,6 +820,7 @@ export class BasePage {
       await this.page.getByTestId("navigation-menu").locator('a[href="/settings"]').click();
     }
     await expect(this.page).toHaveURL(/.*\/settings/);
+    await this.waitForMobileNavigationMenuToClose();
   }
 
   async navigateSettingsIfDesktop() {
@@ -834,6 +916,11 @@ export class BasePage {
     await this.navigateSettingsIfDesktop();
     await this.clickSettingsSubnavLink("/settings/alerts");
     await expect(this.page).toHaveURL(/.*\/settings\/alerts/);
+  }
+
+  async navigateToUpdatesSettings() {
+    await this.page.goto("/settings/updates");
+    await expect(this.page).toHaveURL(/.*\/settings\/updates/);
   }
 
   async navigateToServerLogsSettings() {
@@ -1042,8 +1129,9 @@ export class BasePage {
       return;
     }
 
-    const trigger = await this.getVisibleAddFilterTrigger();
-    await trigger.click();
+    // Dismiss outside the menu without toggling it back open if a filter update
+    // closes it between the visibility check and the click.
+    await this.page.getByTestId("fleet-layout").getByRole("heading", { name: "Fleet", exact: true }).click();
     await expect(popover).toBeHidden();
   }
 

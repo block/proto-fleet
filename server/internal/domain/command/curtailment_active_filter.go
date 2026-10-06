@@ -36,6 +36,14 @@ func (f *CurtailmentActiveFilter) Name() string {
 }
 
 func (f *CurtailmentActiveFilter) Apply(ctx context.Context, in CommandFilterInput) (CommandFilterOutput, error) {
+	// Configuration updates do not change the miner's current operating state,
+	// and must remain deliverable while a curtailment event is active. In
+	// particular, disabling a source has to reach rig-local fallback services
+	// before Fleet restores the affected miners.
+	if in.CommandType == commandtype.ApplyCurtailmentConfig {
+		return CommandFilterOutput{Kept: in.DeviceIdentifiers}, nil
+	}
+
 	// Reconciler self-bypass: only Curtail/Uncurtail under ActorCurtailment.
 	if in.Actor == session.ActorCurtailment &&
 		(in.CommandType == commandtype.Curtail || in.CommandType == commandtype.Uncurtail) {

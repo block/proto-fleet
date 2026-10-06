@@ -1,6 +1,16 @@
 import { type ReactNode } from "react";
 
-import { Activity, AIStroked, Fleet, Groups, Home, IconProps, LightningAlt, Settings } from "@/shared/assets/icons";
+import {
+  Activity,
+  AIStroked,
+  Fleet,
+  Groups,
+  Home,
+  IconProps,
+  LightningAlt,
+  Repair,
+  Settings,
+} from "@/shared/assets/icons";
 
 // Runtime-gated features: an entry tagged with one is shown only when the server
 // reports the feature enabled (see SecondaryNavigation). Distinct from
@@ -88,6 +98,12 @@ export const primaryNavItems: NavItem[] = [
     scopable: true,
   },
   {
+    path: "/maintenance",
+    label: "Maintenance",
+    icon: Repair,
+    requiredPermission: "maintenance:read",
+  },
+  {
     path: "/energy",
     label: "Energy",
     icon: LightningAlt,
@@ -98,8 +114,9 @@ export const primaryNavItems: NavItem[] = [
     path: "/activity",
     label: "Activity",
     icon: Activity,
-    // ActivityService is server-gated on activity:read (PR #347).
-    requiredPermission: "activity:read",
+    // The page carries two feeds, each server-gated on its own read: ActivityService on
+    // activity:read (PR #347) and alert history on alert:read.
+    requiredAnyPermission: ["activity:read", "alert:read"],
     scopable: true,
   },
   {
@@ -217,6 +234,15 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     parent: "/settings",
     section: "Admin",
     requiredPermission: "serverlog:read",
+  },
+  {
+    path: "/settings/updates",
+    label: "Software Update",
+    parent: "/settings",
+    section: "Admin",
+    // The page's backing RPCs (GetUpdateStatus, SetReleaseChannel) are
+    // server-gated on instance:update, so gate the nav entry to match.
+    requiredPermission: "instance:update",
   },
   {
     path: "/settings/preferences",

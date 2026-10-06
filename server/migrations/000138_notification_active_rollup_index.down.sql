@@ -1,0 +1,1 @@
+DROP INDEX CONCURRENTLY IF EXISTS idx_notification_active_org_rollup;

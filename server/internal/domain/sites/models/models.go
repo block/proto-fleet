@@ -42,7 +42,14 @@ type SiteWithCounts struct {
 	ListStats                 *FleetListStats
 }
 
-// CreateSiteParams is the input shape for the Create flow.
+// CreateSiteParams is the input shape for the Create flow. The site fields are
+// always used; the trailing seed fields are optional (#559) — when BuildingIDs,
+// RackIDs, and/or DeviceIdentifiers are non-empty, CreateSite assigns them to
+// the new site in the SAME transaction, so a failure anywhere (including an
+// unresolvable device conflict) rolls the site INSERT back too. The three id
+// sets are independent: a seeded device need not belong to any seeded rack or
+// building (it becomes a direct site member), and a seeded rack need not belong
+// to any seeded building. Empty seed fields = a plain create.
 type CreateSiteParams struct {
 	OrgID           int64
 	Name            string
@@ -56,6 +63,12 @@ type CreateSiteParams struct {
 	PostalCode      string
 	Country         string
 	Notes           string
+
+	// Optional seed (see type doc).
+	BuildingIDs                         []int64
+	RackIDs                             []int64
+	DeviceIdentifiers                   []string
+	ForceClearConflictingRackMembership bool
 }
 
 // UpdateSiteParams is the input shape for the Update flow.

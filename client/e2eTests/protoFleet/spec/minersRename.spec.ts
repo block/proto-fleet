@@ -77,7 +77,7 @@ test.describe("Miners Rename", () => {
     }
   });
 
-  test("Validate bulk rename functionality", async ({ minersPage, commonSteps }) => {
+  test("Validate bulk rename functionality", { tag: "@smoke" }, async ({ minersPage, commonSteps }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
     await minersPage.setBulkRenamePropertyOrder(BULK_RENAME_PROPERTIES);
@@ -315,7 +315,7 @@ test.describe("Miners Rename", () => {
     });
   });
 
-  test("RENAME a single miner", async ({ minersPage, page, commonSteps }) => {
+  test("RENAME a single miner", { tag: "@smoke" }, async ({ minersPage, page, commonSteps }) => {
     await commonSteps.loginAsAdmin();
     await commonSteps.goToMinersPage();
 

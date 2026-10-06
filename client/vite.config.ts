@@ -13,6 +13,7 @@ const _dirname = __dirname;
 const src = resolve(_dirname, "src");
 
 const MODES = ["protoFleet", "protoOS"];
+const DOCKER_PREVIEW_ALLOWED_HOSTS = ["host.docker.internal"];
 
 const createModeConfig = (mode) => {
   return {
@@ -201,6 +202,7 @@ export default defineConfig(({ mode, command }) => {
     },
     preview: {
       proxy: proxies,
+      allowedHosts: DOCKER_PREVIEW_ALLOWED_HOSTS,
     },
   };
 });

@@ -372,6 +372,9 @@
               }
             }
           },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
           "500": {
             "$ref": "#/components/responses/InternalServerError"
           },
@@ -1267,17 +1270,8 @@
           "200": {
             "description": "The mining device has successfully started system update check."
           },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "422": {
-            "$ref": "#/components/responses/UnprocessableEntity"
-          },
           "409": {
             "$ref": "#/components/responses/UpdateAlreadyInProgress"
-          },
-          "500": {
-            "$ref": "#/components/responses/InternalServerError"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -3561,6 +3555,11 @@
               "Stratum V2"
             ]
           },
+          "v2_authority_pubkey": {
+            "type": "string",
+            "description": "Stratum V2 authority public key used for Noise server authentication. The accepted format is Base58Check encoding of a 34-byte payload: the two-byte little-endian key version 1 (01 00), followed by a 32-byte x-only secp256k1 public key. Required for remote SV2 pools; may be empty only for loopback development endpoints.",
+            "example": "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
+          },
           "accepted": {
             "type": "integer",
             "description": "The number of shares that have been accepted by the mining pool as valid solutions to a mining problem.",
@@ -4429,12 +4428,12 @@
           "refresh_token": {
             "type": "string",
             "description": "JWT refresh token.",
-            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+            "example": "example.jwt.token"
           },
           "access_token": {
             "type": "string",
             "description": "JWT access token.",
-            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+            "example": "example.jwt.token"
           }
         },
         "required": [
@@ -4449,7 +4448,7 @@
           "refresh_token": {
             "type": "string",
             "description": "The JWT refresh token to be validated.",
-            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+            "example": "example.jwt.token"
           }
         },
         "required": [
@@ -4463,7 +4462,7 @@
           "access_token": {
             "type": "string",
             "description": "A new JWT access token.",
-            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
+            "example": "example.jwt.token"
           }
         },
         "required": [
@@ -4562,6 +4561,11 @@
           },
           "password": {
             "$ref": "#/components/schemas/PoolPassword"
+          },
+          "v2_authority_pubkey": {
+            "type": "string",
+            "description": "Stratum V2 authority public key used for Noise server authentication. The accepted format is Base58Check encoding of a 34-byte payload: the two-byte little-endian key version 1 (01 00), followed by a 32-byte x-only secp256k1 public key. Required for remote SV2 pools; omit or set to an empty string only for loopback development endpoints.",
+            "example": "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
           },
           "priority": {
             "$ref": "#/components/schemas/PoolPriority"
@@ -5417,6 +5421,11 @@
           },
           "password": {
             "$ref": "#/components/schemas/PoolPassword"
+          },
+          "v2_authority_pubkey": {
+            "type": "string",
+            "description": "Stratum V2 authority public key used for Noise server authentication. The accepted format is Base58Check encoding of a 34-byte payload: the two-byte little-endian key version 1 (01 00), followed by a 32-byte x-only secp256k1 public key. Required for remote SV2 pools; omit or set to an empty string only for loopback development endpoints.",
+            "example": "9auqWEzQDVyd2oe1JVGFLMLHZtCo2FFqZwtKA5gd9xbuEu7PH72"
           }
         }
       },
@@ -5464,7 +5473,7 @@
           },
           "secureboot": {
             "type": "string",
-            "description": "Secure boot status reported by lock_ctrl_ta_client.",
+            "description": "Secure boot status reported by lock_ctrl_ta_client: OPEN, CLOSED, UNLOCKED, UNINITIALIZED, or UNKNOWN. UNINITIALIZED means optee ta was never initialized on device equivalent of OPEN state. This hardware status is independent of the effective secure override.",
             "example": "CLOSED"
           },
           "certificate-validity": {
@@ -5494,13 +5503,24 @@
           "secure_override"
         ]
       },
+      "LockStatus": {
+        "type": "string",
+        "description": "Hardware lock state reported by lock_ctrl_ta_client status, independent of the effective secure state or secure override. A failed, missing, or unrecognized status query is UNKNOWN.",
+        "enum": [
+          "OPEN",
+          "CLOSED",
+          "UNLOCKED",
+          "UNINITIALIZED",
+          "UNKNOWN"
+        ],
+        "example": "UNLOCKED"
+      },
       "UnlockResponse": {
         "type": "object",
         "description": "Response containing device lock status",
         "properties": {
           "lock-status": {
-            "type": "string",
-            "example": "UNLOCKED"
+            "$ref": "#/components/schemas/LockStatus"
           }
         }
       },
@@ -5701,8 +5721,11 @@
       },
       "PoolUrl": {
         "type": "string",
-        "description": "The pool URL is used to establish communication with the mining pool and it is essential that it includes the port information.",
-        "example": "stratum+tcp://stratum.braiins.com:3333"
+        "description": "Pool connection URL. Use stratum+tcp for Stratum V1 (default port 3333) or stratum2+tcp for Stratum V2 (default port 3336). The port may be omitted to use the scheme's default.",
+        "examples": [
+          "stratum+tcp://stratum.braiins.com:3333",
+          "stratum2+tcp://pool.example.com:3336"
+        ]
       },
       "PoolUsername": {
         "type": "string",

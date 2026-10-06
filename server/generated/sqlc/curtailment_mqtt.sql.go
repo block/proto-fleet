@@ -8,15 +8,100 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/lib/pq"
 )
 
-const deleteDisabledMQTTSourceConfigByOrg = `-- name: DeleteDisabledMQTTSourceConfigByOrg :execrows
-DELETE FROM curtailment_mqtt_source_config
-WHERE id = $1
-  AND organization_id = $2
-  AND enabled = FALSE
+const claimRigConfigReconciliation = `-- name: ClaimRigConfigReconciliation :one
+WITH candidate AS (
+    SELECT organization_id
+    FROM curtailment_rig_config_reconciliation
+    WHERE desired_generation > enqueued_generation
+      AND retry_at <= CURRENT_TIMESTAMP
+      AND (lease_expires_at IS NULL OR lease_expires_at <= CURRENT_TIMESTAMP)
+    ORDER BY retry_at, organization_id
+    FOR UPDATE SKIP LOCKED
+    LIMIT 1
+)
+UPDATE curtailment_rig_config_reconciliation reconciliation
+SET lease_expires_at = CURRENT_TIMESTAMP + INTERVAL '90 seconds'
+FROM candidate
+WHERE reconciliation.organization_id = candidate.organization_id
+RETURNING reconciliation.organization_id, reconciliation.requested_by, reconciliation.desired_generation, reconciliation.enqueued_generation, reconciliation.retry_at, reconciliation.lease_expires_at, reconciliation.last_error, reconciliation.created_at, reconciliation.updated_at, reconciliation.full_reconcile_generation
+`
+
+func (q *Queries) ClaimRigConfigReconciliation(ctx context.Context) (CurtailmentRigConfigReconciliation, error) {
+	row := q.queryRow(ctx, q.claimRigConfigReconciliationStmt, claimRigConfigReconciliation)
+	var i CurtailmentRigConfigReconciliation
+	err := row.Scan(
+		&i.OrganizationID,
+		&i.RequestedBy,
+		&i.DesiredGeneration,
+		&i.EnqueuedGeneration,
+		&i.RetryAt,
+		&i.LeaseExpiresAt,
+		&i.LastError,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.FullReconcileGeneration,
+	)
+	return i, err
+}
+
+const completeRigConfigReconciliation = `-- name: CompleteRigConfigReconciliation :exec
+WITH completed AS (
+UPDATE curtailment_rig_config_reconciliation reconciliation
+SET enqueued_generation = GREATEST(reconciliation.enqueued_generation, $1),
+    retry_at = CASE
+        WHEN reconciliation.desired_generation > $1 THEN CURRENT_TIMESTAMP
+        ELSE reconciliation.retry_at
+    END,
+    lease_expires_at = NULL,
+    last_error = NULL
+WHERE reconciliation.organization_id = $2
+  AND reconciliation.enqueued_generation < $1
+RETURNING reconciliation.organization_id
+)
+DELETE FROM curtailment_rig_config_target target
+USING completed
+WHERE target.organization_id = completed.organization_id
+  AND target.requested_generation <= $1
+`
+
+type CompleteRigConfigReconciliationParams struct {
+	EnqueuedGeneration int64
+	OrganizationID     int64
+}
+
+func (q *Queries) CompleteRigConfigReconciliation(ctx context.Context, arg CompleteRigConfigReconciliationParams) error {
+	_, err := q.exec(ctx, q.completeRigConfigReconciliationStmt, completeRigConfigReconciliation, arg.EnqueuedGeneration, arg.OrganizationID)
+	return err
+}
+
+const deleteDisabledMQTTSourceConfigByOrg = `-- name: DeleteDisabledMQTTSourceConfigByOrg :one
+WITH changed AS (
+DELETE FROM curtailment_mqtt_source_config config
+WHERE config.id = $1
+  AND config.organization_id = $2
+  AND config.enabled = FALSE
+RETURNING config.organization_id, config.service_user_id
+), requested AS (
+    INSERT INTO curtailment_rig_config_reconciliation (
+        organization_id,
+        requested_by,
+        full_reconcile_generation
+    )
+    SELECT organization_id, service_user_id, 1
+    FROM changed
+    ON CONFLICT (organization_id) DO UPDATE
+    SET requested_by = EXCLUDED.requested_by,
+        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        retry_at = CURRENT_TIMESTAMP,
+        last_error = NULL
+)
+SELECT COUNT(*)::BIGINT FROM changed
 `
 
 type DeleteDisabledMQTTSourceConfigByOrgParams struct {
@@ -25,11 +110,10 @@ type DeleteDisabledMQTTSourceConfigByOrgParams struct {
 }
 
 func (q *Queries) DeleteDisabledMQTTSourceConfigByOrg(ctx context.Context, arg DeleteDisabledMQTTSourceConfigByOrgParams) (int64, error) {
-	result, err := q.exec(ctx, q.deleteDisabledMQTTSourceConfigByOrgStmt, deleteDisabledMQTTSourceConfigByOrg, arg.ID, arg.OrganizationID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	row := q.queryRow(ctx, q.deleteDisabledMQTTSourceConfigByOrgStmt, deleteDisabledMQTTSourceConfigByOrg, arg.ID, arg.OrganizationID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const getMQTTSourceConfigByOrg = `-- name: GetMQTTSourceConfigByOrg :one
@@ -99,6 +183,7 @@ func (q *Queries) GetMQTTSourceStateByID(ctx context.Context, sourceConfigID int
 }
 
 const insertMQTTSourceConfig = `-- name: InsertMQTTSourceConfig :one
+WITH changed AS (
 INSERT INTO curtailment_mqtt_source_config (
     organization_id,
     service_user_id,
@@ -129,6 +214,22 @@ INSERT INTO curtailment_mqtt_source_config (
     $13
 )
 RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at
+), requested AS (
+    INSERT INTO curtailment_rig_config_reconciliation (
+        organization_id,
+        requested_by,
+        full_reconcile_generation
+    )
+    SELECT organization_id, service_user_id, 1
+    FROM changed
+    ON CONFLICT (organization_id) DO UPDATE
+    SET requested_by = EXCLUDED.requested_by,
+        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        retry_at = CURRENT_TIMESTAMP,
+        last_error = NULL
+)
+SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at FROM changed
 `
 
 type InsertMQTTSourceConfigParams struct {
@@ -147,7 +248,26 @@ type InsertMQTTSourceConfigParams struct {
 	Enabled               bool
 }
 
-func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (CurtailmentMqttSourceConfig, error) {
+type InsertMQTTSourceConfigRow struct {
+	ID                    int64
+	OrganizationID        int64
+	ServiceUserID         int64
+	SourceName            string
+	Topic                 string
+	BrokerPrimaryHost     string
+	BrokerSecondaryHost   string
+	BrokerPort            sql.NullInt32
+	BrokerTransport       string
+	MqttUsername          string
+	MqttPasswordEnc       string
+	PayloadFormat         string
+	StalenessThresholdSec sql.NullInt32
+	Enabled               bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (InsertMQTTSourceConfigRow, error) {
 	row := q.queryRow(ctx, q.insertMQTTSourceConfigStmt, insertMQTTSourceConfig,
 		arg.OrganizationID,
 		arg.ServiceUserID,
@@ -163,7 +283,7 @@ func (q *Queries) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSour
 		arg.StalenessThresholdSec,
 		arg.Enabled,
 	)
-	var i CurtailmentMqttSourceConfig
+	var i InsertMQTTSourceConfigRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrganizationID,
@@ -329,12 +449,219 @@ func (q *Queries) ListMQTTSourceStatesByOrg(ctx context.Context, organizationID 
 	return items, nil
 }
 
+const listRigConfigReconciliationTargets = `-- name: ListRigConfigReconciliationTargets :many
+SELECT d.device_identifier
+FROM curtailment_rig_config_target target
+JOIN device d ON d.id = target.device_id AND d.org_id = target.organization_id
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+JOIN device_pairing dp ON dp.device_id = d.id
+WHERE target.organization_id = $1
+  AND target.requested_generation > $2
+  AND target.requested_generation <= $3
+  AND d.deleted_at IS NULL
+  AND dd.manufacturer = 'Proto'
+  AND dp.pairing_status = 'PAIRED'
+ORDER BY d.device_identifier
+`
+
+type ListRigConfigReconciliationTargetsParams struct {
+	OrganizationID     int64
+	EnqueuedGeneration int64
+	DesiredGeneration  int64
+}
+
+// Run after claiming in a separate statement: its fresh snapshot includes
+// targets committed by a concurrent requester before the claim obtained its
+// organization lock. Targets refreshed after the claim remain for the next pass.
+func (q *Queries) ListRigConfigReconciliationTargets(ctx context.Context, arg ListRigConfigReconciliationTargetsParams) ([]string, error) {
+	rows, err := q.query(ctx, q.listRigConfigReconciliationTargetsStmt, listRigConfigReconciliationTargets, arg.OrganizationID, arg.EnqueuedGeneration, arg.DesiredGeneration)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const requestRigConfigReconciliation = `-- name: RequestRigConfigReconciliation :exec
+INSERT INTO curtailment_rig_config_reconciliation (
+    organization_id,
+    requested_by,
+    full_reconcile_generation
+) VALUES (
+    $1,
+    $2,
+    1
+)
+ON CONFLICT (organization_id) DO UPDATE
+SET requested_by = EXCLUDED.requested_by,
+    desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+    full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+    retry_at = CURRENT_TIMESTAMP,
+    last_error = NULL
+`
+
+type RequestRigConfigReconciliationParams struct {
+	OrganizationID int64
+	RequestedBy    int64
+}
+
+func (q *Queries) RequestRigConfigReconciliation(ctx context.Context, arg RequestRigConfigReconciliationParams) error {
+	_, err := q.exec(ctx, q.requestRigConfigReconciliationStmt, requestRigConfigReconciliation, arg.OrganizationID, arg.RequestedBy)
+	return err
+}
+
+const requestRigConfigReconciliationForDevices = `-- name: RequestRigConfigReconciliationForDevices :exec
+WITH eligible AS MATERIALIZED (
+    SELECT d.id, d.org_id
+    FROM device d
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    JOIN device_pairing dp ON dp.device_id = d.id
+    WHERE d.org_id = $1
+      AND d.device_identifier = ANY($2::text[])
+      AND d.deleted_at IS NULL
+      AND dd.manufacturer = 'Proto'
+      AND dp.pairing_status = 'PAIRED'
+), requested AS (
+    INSERT INTO curtailment_rig_config_reconciliation (
+        organization_id,
+        requested_by
+    )
+    SELECT DISTINCT org_id, $3::bigint
+    FROM eligible
+    ON CONFLICT (organization_id) DO UPDATE
+    SET requested_by = EXCLUDED.requested_by,
+        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        retry_at = CURRENT_TIMESTAMP,
+        last_error = NULL
+    RETURNING organization_id, desired_generation
+)
+INSERT INTO curtailment_rig_config_target (
+    organization_id,
+    device_id,
+    requested_generation
+)
+SELECT requested.organization_id, eligible.id, requested.desired_generation
+FROM requested
+JOIN eligible ON eligible.org_id = requested.organization_id
+ORDER BY eligible.id
+ON CONFLICT (organization_id, device_id) DO UPDATE
+SET requested_generation = EXCLUDED.requested_generation
+`
+
+type RequestRigConfigReconciliationForDevicesParams struct {
+	OrganizationID    int64
+	DeviceIdentifiers []string
+	RequestedBy       int64
+}
+
+// Lock/update the organization before writing targets. Completion and terminal
+// retry follow the same lock order so concurrent requests cannot lose targets.
+func (q *Queries) RequestRigConfigReconciliationForDevices(ctx context.Context, arg RequestRigConfigReconciliationForDevicesParams) error {
+	_, err := q.exec(ctx, q.requestRigConfigReconciliationForDevicesStmt, requestRigConfigReconciliationForDevices, arg.OrganizationID, pq.Array(arg.DeviceIdentifiers), arg.RequestedBy)
+	return err
+}
+
+const requeueRigConfigReconciliationAfterTerminalFailure = `-- name: RequeueRigConfigReconciliationAfterTerminalFailure :exec
+WITH eligible AS MATERIALIZED (
+    SELECT d.id, d.org_id
+    FROM device d
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    JOIN device_pairing dp ON dp.device_id = d.id
+    WHERE d.org_id = $1
+      AND d.id = $2
+      AND d.deleted_at IS NULL
+      AND dd.manufacturer = 'Proto'
+      AND dp.pairing_status = 'PAIRED'
+), requested AS (
+UPDATE curtailment_rig_config_reconciliation reconciliation
+SET desired_generation = reconciliation.desired_generation + 1,
+    retry_at = CURRENT_TIMESTAMP + INTERVAL '5 seconds',
+    last_error = 'config command reached terminal failure'
+FROM eligible
+WHERE reconciliation.organization_id = eligible.org_id
+RETURNING reconciliation.organization_id, reconciliation.desired_generation
+)
+INSERT INTO curtailment_rig_config_target (
+    organization_id,
+    device_id,
+    requested_generation
+)
+SELECT requested.organization_id, eligible.id, requested.desired_generation
+FROM requested
+JOIN eligible ON eligible.org_id = requested.organization_id
+ON CONFLICT (organization_id, device_id) DO UPDATE
+SET requested_generation = EXCLUDED.requested_generation
+`
+
+type RequeueRigConfigReconciliationAfterTerminalFailureParams struct {
+	OrganizationID int64
+	DeviceID       int64
+}
+
+// The command queue has bounded per-message retries. Retain only the failed
+// eligible device for another attempt; successful devices need no new command.
+func (q *Queries) RequeueRigConfigReconciliationAfterTerminalFailure(ctx context.Context, arg RequeueRigConfigReconciliationAfterTerminalFailureParams) error {
+	_, err := q.exec(ctx, q.requeueRigConfigReconciliationAfterTerminalFailureStmt, requeueRigConfigReconciliationAfterTerminalFailure, arg.OrganizationID, arg.DeviceID)
+	return err
+}
+
+const retryRigConfigReconciliation = `-- name: RetryRigConfigReconciliation :exec
+UPDATE curtailment_rig_config_reconciliation
+SET retry_at = CURRENT_TIMESTAMP + INTERVAL '5 seconds',
+    lease_expires_at = NULL,
+    last_error = $1
+WHERE organization_id = $2
+  AND desired_generation >= $3
+`
+
+type RetryRigConfigReconciliationParams struct {
+	LastError         sql.NullString
+	OrganizationID    int64
+	DesiredGeneration int64
+}
+
+func (q *Queries) RetryRigConfigReconciliation(ctx context.Context, arg RetryRigConfigReconciliationParams) error {
+	_, err := q.exec(ctx, q.retryRigConfigReconciliationStmt, retryRigConfigReconciliation, arg.LastError, arg.OrganizationID, arg.DesiredGeneration)
+	return err
+}
+
 const setMQTTSourceConfigEnabled = `-- name: SetMQTTSourceConfigEnabled :one
-UPDATE curtailment_mqtt_source_config
+WITH changed AS (
+UPDATE curtailment_mqtt_source_config config
 SET enabled = $1
-WHERE id = $2
-  AND organization_id = $3
+WHERE config.id = $2
+  AND config.organization_id = $3
 RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at
+), requested AS (
+    INSERT INTO curtailment_rig_config_reconciliation (
+        organization_id,
+        requested_by,
+        full_reconcile_generation
+    )
+    SELECT organization_id, service_user_id, 1
+    FROM changed
+    ON CONFLICT (organization_id) DO UPDATE
+    SET requested_by = EXCLUDED.requested_by,
+        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        retry_at = CURRENT_TIMESTAMP,
+        last_error = NULL
+)
+SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at FROM changed
 `
 
 type SetMQTTSourceConfigEnabledParams struct {
@@ -343,9 +670,28 @@ type SetMQTTSourceConfigEnabledParams struct {
 	OrganizationID int64
 }
 
-func (q *Queries) SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (CurtailmentMqttSourceConfig, error) {
+type SetMQTTSourceConfigEnabledRow struct {
+	ID                    int64
+	OrganizationID        int64
+	ServiceUserID         int64
+	SourceName            string
+	Topic                 string
+	BrokerPrimaryHost     string
+	BrokerSecondaryHost   string
+	BrokerPort            sql.NullInt32
+	BrokerTransport       string
+	MqttUsername          string
+	MqttPasswordEnc       string
+	PayloadFormat         string
+	StalenessThresholdSec sql.NullInt32
+	Enabled               bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+func (q *Queries) SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (SetMQTTSourceConfigEnabledRow, error) {
 	row := q.queryRow(ctx, q.setMQTTSourceConfigEnabledStmt, setMQTTSourceConfigEnabled, arg.Enabled, arg.ID, arg.OrganizationID)
-	var i CurtailmentMqttSourceConfig
+	var i SetMQTTSourceConfigEnabledRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrganizationID,
@@ -368,7 +714,8 @@ func (q *Queries) SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSou
 }
 
 const updateMQTTSourceConfig = `-- name: UpdateMQTTSourceConfig :one
-UPDATE curtailment_mqtt_source_config
+WITH changed AS (
+UPDATE curtailment_mqtt_source_config config
 SET
     service_user_id = $1,
     source_name = $2,
@@ -381,9 +728,25 @@ SET
     mqtt_password_enc = $9,
     payload_format = $10,
     staleness_threshold_sec = $11
-WHERE id = $12
-  AND organization_id = $13
+WHERE config.id = $12
+  AND config.organization_id = $13
 RETURNING id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at
+), requested AS (
+    INSERT INTO curtailment_rig_config_reconciliation (
+        organization_id,
+        requested_by,
+        full_reconcile_generation
+    )
+    SELECT organization_id, service_user_id, 1
+    FROM changed
+    ON CONFLICT (organization_id) DO UPDATE
+    SET requested_by = EXCLUDED.requested_by,
+        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
+        retry_at = CURRENT_TIMESTAMP,
+        last_error = NULL
+)
+SELECT id, organization_id, service_user_id, source_name, topic, broker_primary_host, broker_secondary_host, broker_port, broker_transport, mqtt_username, mqtt_password_enc, payload_format, staleness_threshold_sec, enabled, created_at, updated_at FROM changed
 `
 
 type UpdateMQTTSourceConfigParams struct {
@@ -402,7 +765,26 @@ type UpdateMQTTSourceConfigParams struct {
 	OrganizationID        int64
 }
 
-func (q *Queries) UpdateMQTTSourceConfig(ctx context.Context, arg UpdateMQTTSourceConfigParams) (CurtailmentMqttSourceConfig, error) {
+type UpdateMQTTSourceConfigRow struct {
+	ID                    int64
+	OrganizationID        int64
+	ServiceUserID         int64
+	SourceName            string
+	Topic                 string
+	BrokerPrimaryHost     string
+	BrokerSecondaryHost   string
+	BrokerPort            sql.NullInt32
+	BrokerTransport       string
+	MqttUsername          string
+	MqttPasswordEnc       string
+	PayloadFormat         string
+	StalenessThresholdSec sql.NullInt32
+	Enabled               bool
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+}
+
+func (q *Queries) UpdateMQTTSourceConfig(ctx context.Context, arg UpdateMQTTSourceConfigParams) (UpdateMQTTSourceConfigRow, error) {
 	row := q.queryRow(ctx, q.updateMQTTSourceConfigStmt, updateMQTTSourceConfig,
 		arg.ServiceUserID,
 		arg.SourceName,
@@ -418,7 +800,7 @@ func (q *Queries) UpdateMQTTSourceConfig(ctx context.Context, arg UpdateMQTTSour
 		arg.ID,
 		arg.OrganizationID,
 	)
-	var i CurtailmentMqttSourceConfig
+	var i UpdateMQTTSourceConfigRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrganizationID,

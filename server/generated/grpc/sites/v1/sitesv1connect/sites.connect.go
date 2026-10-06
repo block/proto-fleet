@@ -80,6 +80,21 @@ type SiteServiceClient interface {
 	// CreateSite inserts a new site. Name must be unique within the
 	// org. network_config is parsed and canonicalized server-side;
 	// the response carries the canonical form.
+	//
+	// The request may optionally seed the new site with buildings
+	// (building_ids), racks (rack_ids), and/or devices
+	// (device_identifiers) in the SAME transaction — the atomic form of
+	// CreateSite followed by AssignBuildingsToSite + AssignRacksToSite +
+	// AssignDevicesToSite. Either everything commits or nothing does, so a
+	// failed seed can't leave an orphaned or partially-populated site
+	// (#559). The three id sets are independent: a seeded device need not
+	// belong to any seeded rack or building (it becomes a direct site
+	// member), and a seeded rack need not belong to any seeded building. If
+	// any seeded device is in a rack at another site,
+	// force_clear_conflicting_rack_membership governs whether the whole
+	// request rejects with per-device conflicts (nothing created) or the
+	// rack membership is dropped and the device moved. A request with no
+	// seed fields behaves exactly like a plain create.
 	CreateSite(context.Context, *connect.Request[v1.CreateSiteRequest]) (*connect.Response[v1.CreateSiteResponse], error)
 	// UpdateSite mutates name + descriptive fields + network_config.
 	// Same canonicalization + validation as CreateSite.
@@ -283,6 +298,21 @@ type SiteServiceHandler interface {
 	// CreateSite inserts a new site. Name must be unique within the
 	// org. network_config is parsed and canonicalized server-side;
 	// the response carries the canonical form.
+	//
+	// The request may optionally seed the new site with buildings
+	// (building_ids), racks (rack_ids), and/or devices
+	// (device_identifiers) in the SAME transaction — the atomic form of
+	// CreateSite followed by AssignBuildingsToSite + AssignRacksToSite +
+	// AssignDevicesToSite. Either everything commits or nothing does, so a
+	// failed seed can't leave an orphaned or partially-populated site
+	// (#559). The three id sets are independent: a seeded device need not
+	// belong to any seeded rack or building (it becomes a direct site
+	// member), and a seeded rack need not belong to any seeded building. If
+	// any seeded device is in a rack at another site,
+	// force_clear_conflicting_rack_membership governs whether the whole
+	// request rejects with per-device conflicts (nothing created) or the
+	// rack membership is dropped and the device moved. A request with no
+	// seed fields behaves exactly like a plain create.
 	CreateSite(context.Context, *connect.Request[v1.CreateSiteRequest]) (*connect.Response[v1.CreateSiteResponse], error)
 	// UpdateSite mutates name + descriptive fields + network_config.
 	// Same canonicalization + validation as CreateSite.

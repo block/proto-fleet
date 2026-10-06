@@ -1,11 +1,11 @@
 import { test } from "../fixtures/pageFixtures";
 import {
   AUTOMATION_ZONE,
+  createRackLabel,
   NETWORK_RACK_COLUMNS,
   NETWORK_RACK_ROWS,
   ORDER_INDEX_SCENARIOS,
   RACK_COLUMNS,
-  RACK_LABEL,
   RACK_ROWS,
   useRacksHooks,
 } from "../helpers/racksTestSetup";
@@ -14,7 +14,7 @@ import { type RackSelectorMiner } from "../pages/racks";
 test.describe("Racks - creation", () => {
   useRacksHooks();
 
-  test("Create rack with miners assigned by name", async ({ racksPage }) => {
+  test("Create rack with miners assigned by name", { tag: "@smoke" }, async ({ racksPage }) => {
     let rackLabel = "";
     let orderIndexValue = "";
     let selectedMiners: RackSelectorMiner[] = [];
@@ -23,7 +23,7 @@ test.describe("Racks - creation", () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
 
-      rackLabel = RACK_LABEL;
+      rackLabel = createRackLabel();
       await racksPage.inputRackLabel(rackLabel);
 
       await racksPage.enableCustomRackLayout();
@@ -31,7 +31,7 @@ test.describe("Racks - creation", () => {
       await racksPage.inputRows(RACK_ROWS);
 
       orderIndexValue = await racksPage.getOrderIndexValue();
-      await racksPage.clickContinueFromRackSettings();
+      await racksPage.clickCreateRackFromSettings();
     });
 
     await test.step("Validate empty rack assignment state", async () => {
@@ -46,7 +46,7 @@ test.describe("Racks - creation", () => {
       selectedMiners = await racksPage.getMinersFromSelector([0, 1]);
       test.expect(selectedMiners).toHaveLength(2);
       await racksPage.selectMinersInSelectorByIndex([0, 1]);
-      await racksPage.clickContinueInMinerSelector();
+      await racksPage.clickSaveInMinerSelector();
     });
 
     await test.step("Assign miners by name and validate positions", async () => {
@@ -55,8 +55,8 @@ test.describe("Racks - creation", () => {
     });
 
     await test.step("Save rack and validate rack grid card", async () => {
-      await racksPage.clickSaveRack();
-      await racksPage.validateRackToast(rackLabel);
+      await racksPage.clickSaveMinerPositions();
+      await racksPage.validateMinerPositionsToast(rackLabel);
       await racksPage.clickViewGrid();
       await racksPage.validateRackCardVisible(rackLabel, AUTOMATION_ZONE);
       await racksPage.validateRackCardGrid(rackLabel, AUTOMATION_ZONE, RACK_COLUMNS, RACK_ROWS);
@@ -69,17 +69,18 @@ test.describe("Racks - creation", () => {
     });
   });
 
-  test("Rack numbering updates when order index changes", async ({ racksPage }) => {
+  test("Rack numbering updates when order index changes", { tag: "@smoke" }, async ({ racksPage }) => {
+    const rackLabel = createRackLabel();
     let selectedMiners: RackSelectorMiner[] = [];
 
     await test.step("Create a new 2x2 rack", async () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
-      await racksPage.inputRackLabel(RACK_LABEL);
+      await racksPage.inputRackLabel(rackLabel);
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(RACK_COLUMNS);
       await racksPage.inputRows(RACK_ROWS);
-      await racksPage.clickContinueFromRackSettings();
+      await racksPage.clickCreateRackFromSettings();
     });
 
     await test.step("Add four miners", async () => {
@@ -89,7 +90,7 @@ test.describe("Racks - creation", () => {
       selectedMiners = await racksPage.getMinersFromSelector([0, 1, 2, 3]);
       test.expect(selectedMiners).toHaveLength(4);
       await racksPage.selectMinersInSelectorByIndex([0, 1, 2, 3]);
-      await racksPage.clickContinueInMinerSelector();
+      await racksPage.clickSaveInMinerSelector();
     });
 
     await test.step("Assign miners manually in DOM order and validate default numbering", async () => {
@@ -103,7 +104,12 @@ test.describe("Racks - creation", () => {
     for (const scenario of ORDER_INDEX_SCENARIOS.slice(1)) {
       await test.step(`Change order index to ${scenario.label}`, async () => {
         await racksPage.clickEditRackSettings();
-        await racksPage.changeOrderIndexAndContinue(scenario.label);
+        await racksPage.changeOrderIndexAndSaveSettings(scenario.label);
+        await racksPage.validateRackToast(rackLabel, "saved");
+        // Every pass saves the same rack, so the message is identical each time.
+        // Clearing means the next pass matches the toast it produced rather than
+        // this one, which is still on screen when the next save lands.
+        await racksPage.clearToasts();
         await racksPage.validateRackConfiguration(RACK_COLUMNS, RACK_ROWS, scenario.label);
         await racksPage.validateRackSlotNumbersInDomOrder(scenario.expectedNumbers);
         await racksPage.validateMinerPositions(selectedMiners, scenario.expectedNumbers);
@@ -112,16 +118,17 @@ test.describe("Racks - creation", () => {
   });
 
   test("Assign by network orders all miners by IP address on a 9x9 rack", async ({ racksPage }) => {
+    const rackLabel = createRackLabel();
     let allVisibleMiners: RackSelectorMiner[] = [];
 
     await test.step("Create a new 9x9 rack and add all visible miners", async () => {
       await racksPage.clickAddRackButton();
       await racksPage.inputZone(AUTOMATION_ZONE);
-      await racksPage.inputRackLabel(RACK_LABEL);
+      await racksPage.inputRackLabel(rackLabel);
       await racksPage.enableCustomRackLayout();
       await racksPage.inputColumns(NETWORK_RACK_COLUMNS);
       await racksPage.inputRows(NETWORK_RACK_ROWS);
-      await racksPage.clickContinueFromRackSettings();
+      await racksPage.clickCreateRackFromSettings();
 
       await racksPage.clickAddMiners();
       await racksPage.waitForMinerSelectorListToLoad();
@@ -129,7 +136,7 @@ test.describe("Racks - creation", () => {
       test.expect(allVisibleMiners.length).toBeGreaterThan(0);
       test.expect(allVisibleMiners.length).toBeLessThanOrEqual(NETWORK_RACK_COLUMNS * NETWORK_RACK_ROWS);
       await racksPage.clickSelectAllMinersInSelector();
-      await racksPage.clickContinueInMinerSelector();
+      await racksPage.clickSaveInMinerSelector();
     });
 
     await test.step("Assign all miners by network and validate positions by IP and name", async () => {

@@ -22,20 +22,78 @@ type Stream struct {
 
 // Register installs a connection for fleetNodeID, newest-wins: any existing one
 // is evicted via teardown, so its handler wakes on Done and its deferred
-// Unregister no-ops by pointer identity.
+// Unregister no-ops by pointer identity. It records the current command protocol
+// for in-process callers; production streams use RegisterAuthenticated.
 func (r *Registry) Register(fleetNodeID int64) *Stream {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.registerLocked(fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1)
+}
+
+// RegisterAuthenticated installs a connection only if its bearer session has
+// not been replaced or revoked since authentication. A missing fence is valid:
+// the database-backed authentication check is authoritative after process start.
+// maxCommandProtocolVersion comes from ControlHello; zero identifies legacy nodes.
+func (r *Registry) RegisterAuthenticated(
+	fleetNodeID int64,
+	sessionFingerprint string,
+	maxCommandProtocolVersion gatewaypb.CommandProtocolVersion,
+) (*Stream, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	fence, exists := r.sessionFences[fleetNodeID]
+	if exists && (fence.revoked || fence.fingerprint != sessionFingerprint) {
+		return nil, errSessionInvalidated
+	}
+	return r.registerLocked(fleetNodeID, maxCommandProtocolVersion), nil
+}
+
+func (r *Registry) registerLocked(fleetNodeID int64, maxCommandProtocolVersion gatewaypb.CommandProtocolVersion) *Stream {
 	if old, exists := r.conns[fleetNodeID]; exists {
 		teardown(old)
 	}
 	conn := &connection{
-		outgoing: make(chan *gatewaypb.ControlCommand, outgoingBuffer),
-		done:     make(chan struct{}),
-		cmds:     make(map[string]*inflightCommand),
+		outgoing:                  make(chan *gatewaypb.ControlCommand, outgoingBuffer),
+		done:                      make(chan struct{}),
+		cmds:                      make(map[string]*inflightCommand),
+		maxCommandProtocolVersion: maxCommandProtocolVersion,
 	}
 	r.conns[fleetNodeID] = conn
 	return &Stream{r: r, fleetNodeID: fleetNodeID, conn: conn, Outgoing: conn.outgoing, Done: conn.done}
+}
+
+// ReplaceSession fences out streams authenticated with older credentials and
+// disconnects the currently registered stream, if any.
+func (r *Registry) ReplaceSession(fleetNodeID int64, sessionFingerprint string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sessionFences[fleetNodeID] = sessionFence{fingerprint: sessionFingerprint}
+	r.disconnectLocked(fleetNodeID)
+}
+
+// RevokeSession fences out every authenticated session and disconnects the
+// currently registered stream, if any.
+func (r *Registry) RevokeSession(fleetNodeID int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sessionFences[fleetNodeID] = sessionFence{revoked: true}
+	r.disconnectLocked(fleetNodeID)
+}
+
+// Disconnect tears down the active ControlStream for fleetNodeID, if any.
+func (r *Registry) Disconnect(fleetNodeID int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.disconnectLocked(fleetNodeID)
+}
+
+func (r *Registry) disconnectLocked(fleetNodeID int64) {
+	conn, ok := r.conns[fleetNodeID]
+	if !ok {
+		return
+	}
+	teardown(conn)
+	delete(r.conns, fleetNodeID)
 }
 
 // Unregister tears the connection down so blocked senders/the handler wake. No-op if

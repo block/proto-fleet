@@ -22,6 +22,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	authv1 "github.com/block/proto-fleet/server/generated/grpc/auth/v1"
+	onboardingv1 "github.com/block/proto-fleet/server/generated/grpc/onboarding/v1"
 )
 
 // noopTransactor runs the callback directly without a real DB transaction.
@@ -89,7 +90,18 @@ func (m *mockUserStoreForVerify) UpdateUserPassword(ctx context.Context, userID 
 	return nil
 }
 func (m *mockUserStoreForVerify) UpdateUserUsername(ctx context.Context, userID int64, username string) error {
-	return m.updateUserErr
+	if m.updateUserErr != nil {
+		return m.updateUserErr
+	}
+	for oldName, user := range m.users {
+		if user.ID == userID {
+			delete(m.users, oldName)
+			user.Username = username
+			m.users[username] = user
+			break
+		}
+	}
+	return nil
 }
 func (m *mockUserStoreForVerify) GetOrganizationsForUser(ctx context.Context, userID int64) ([]interfaces.Organization, error) {
 	return m.orgs, nil
@@ -560,13 +572,39 @@ func TestService_UpdatePassword_WrongCurrentPasswordSkipsTransaction(t *testing.
 		transactor: mockTransactor,
 	}
 
-	_, err = service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
+	_, _, err = service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
 		CurrentPassword: "wrongpass",
 		NewPassword:     "newpass123",
 	}, "test-agent", "127.0.0.1")
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "Invalid current password")
+}
+
+func TestService_UpdatePasswordRejectsInvalidNewPasswordBeforeLookup(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	service := &Service{
+		userStore:  mocks.NewMockUserStore(ctrl),
+		transactor: mocks.NewMockTransactor(ctrl),
+	}
+
+	_, _, err := service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
+		CurrentPassword: "current-password",
+		NewPassword:     "short",
+	}, "test-agent", "127.0.0.1")
+
+	require.ErrorContains(t, err, "at least 8 characters")
+}
+
+func TestService_CreateAdminUserRejectsInvalidPasswordBeforePersistence(t *testing.T) {
+	service := &Service{}
+
+	_, err := service.CreateAdminUser(context.Background(), &onboardingv1.CreateAdminLoginRequest{
+		Username: "admin",
+		Password: "short",
+	})
+
+	require.ErrorContains(t, err, "at least 8 characters")
 }
 
 func TestService_UpdatePassword_RejectsConcurrentPasswordRotation(t *testing.T) {
@@ -605,7 +643,7 @@ func TestService_UpdatePassword_RejectsConcurrentPasswordRotation(t *testing.T) 
 		transactor:          mockTransactor,
 	}
 
-	_, err = service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
+	_, _, err = service.UpdatePassword(ctxWithSession("ext-1", "admin", 100), &authv1.UpdatePasswordRequest{
 		CurrentPassword: currentPassword,
 		NewPassword:     "newpass123",
 	}, "test-agent", "127.0.0.1")
@@ -1375,6 +1413,8 @@ func TestDeactivateUser_LastSuperAdminGuard(t *testing.T) {
 		expectSoftDelete    bool
 		expectLockCount     bool
 		expectGetAssignment bool
+		expectTicketCount   bool
+		activeTicketCount   int64
 		expectSelfRejectMsg string
 		wantErrCode         connect.Code
 		wantErrSubstring    string
@@ -1384,6 +1424,7 @@ func TestDeactivateUser_LastSuperAdminGuard(t *testing.T) {
 			userID:              targetExternalID,
 			currentBuiltinKey:   string(authz.BuiltinKeyFieldTech),
 			expectGetAssignment: true,
+			expectTicketCount:   true,
 			expectSoftDelete:    true,
 		},
 		{
@@ -1403,7 +1444,18 @@ func TestDeactivateUser_LastSuperAdminGuard(t *testing.T) {
 			saCount:             2,
 			expectGetAssignment: true,
 			expectLockCount:     true,
+			expectTicketCount:   true,
 			expectSoftDelete:    true,
+		},
+		{
+			name:                "target with active maintenance tickets is refused",
+			userID:              targetExternalID,
+			currentBuiltinKey:   string(authz.BuiltinKeyFieldTech),
+			expectGetAssignment: true,
+			expectTicketCount:   true,
+			activeTicketCount:   1,
+			wantErrCode:         failedPreCode,
+			wantErrSubstring:    "active maintenance tickets",
 		},
 		{
 			// Self-deactivation: rejected before any store calls beyond the
@@ -1439,10 +1491,15 @@ func TestDeactivateUser_LastSuperAdminGuard(t *testing.T) {
 						RoleID:       999,
 						BuiltinKey:   tc.currentBuiltinKey,
 					}, nil)
+				mockUserStore.EXPECT().GetUserByIDForUpdate(gomock.Any(), targetInternalID).Return(target, nil)
 			}
 			if tc.expectLockCount {
 				mockMgmtStore.EXPECT().LockAndCountOrgScopeSuperAdmins(gomock.Any(), orgID).
 					Return(tc.saCount, nil)
+			}
+			if tc.expectTicketCount {
+				mockMgmtStore.EXPECT().CountActiveRepairTicketsAssignedToUser(gomock.Any(), orgID, targetInternalID).
+					Return(tc.activeTicketCount, nil)
 			}
 			if tc.expectSoftDelete {
 				mockMgmtStore.EXPECT().SoftDeleteUser(gomock.Any(), targetInternalID).Return(nil)

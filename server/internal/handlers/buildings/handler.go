@@ -69,12 +69,57 @@ func (h *Handler) CreateBuilding(ctx context.Context, req *connect.Request[pb.Cr
 	if err != nil {
 		return nil, err
 	}
-	building, err := h.service.CreateBuilding(ctx, toCreateParams(req.Msg, info.OrganizationID))
+	// An optional device seed can force-clear conflicting rack memberships,
+	// which deletes device_set_membership rows in the same transaction. Gate
+	// that behind rack:manage the same way AssignDevicesToBuilding does so a
+	// site-only operator can't bypass rack auth via the create-and-seed path.
+	// A plain create, or a seed without the force flag, needs only
+	// site:manage — matching the standalone AssignRacksToBuilding /
+	// AssignDevicesToBuilding surfaces.
+	if req.Msg.GetForceClearConflictingRackMembership() {
+		if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
+	result, conflicts, err := h.service.CreateBuilding(ctx, toCreateParams(req.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err
 	}
+	if len(conflicts) > 0 {
+		// A seed hit an unresolvable conflict — the whole tx rolled back and
+		// nothing was created, so building stays unset.
+		return connect.NewResponse(&pb.CreateBuildingResponse{
+			Conflicts: toProtoBuildingConflicts(conflicts),
+		}), nil
+	}
 	return connect.NewResponse(&pb.CreateBuildingResponse{
-		Building: toProtoBuilding(building),
+		Building:                  toProtoBuilding(result.Building),
+		AssignedRackCount:         result.AssignedRackCount,
+		ReassignedDeviceCount:     result.ReassignedDeviceCount,
+		SiteReassignedDeviceCount: result.SiteReassignedDeviceCount,
+	}), nil
+}
+
+func (h *Handler) CreateBuildings(ctx context.Context, req *connect.Request[pb.CreateBuildingsRequest]) (*connect.Response[pb.CreateBuildingsResponse], error) {
+	// Authorize against the target site, not the org: bulk create always names
+	// a site, so a site-scoped site:manage operator is admitted at their own
+	// site and an assignment narrowing an org-wide grant is respected.
+	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: &req.Msg.SiteId})
+	if err != nil {
+		return nil, err
+	}
+	// No rack:manage escalation, unlike CreateBuilding: no rack/device seed.
+	created, rejected, err := h.service.CreateBuildings(ctx, toCreateBuildingsParams(req.Msg, info.OrganizationID))
+	if err != nil {
+		return nil, err
+	}
+	if len(rejected) > 0 {
+		return connect.NewResponse(&pb.CreateBuildingsResponse{
+			Errors: toProtoBuildingCreateErrors(rejected),
+		}), nil
+	}
+	return connect.NewResponse(&pb.CreateBuildingsResponse{
+		Buildings: toProtoBuildings(created),
 	}), nil
 }
 

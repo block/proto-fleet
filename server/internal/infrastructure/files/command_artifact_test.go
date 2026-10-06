@@ -46,6 +46,20 @@ func TestSaveCommandArtifactValidatesAndOpens(t *testing.T) {
 	assert.Empty(t, commandArtifactStagingEntries(t))
 }
 
+func TestSaveCommandArtifactPreservesDotPrefixedFilename(t *testing.T) {
+	svc := setupService(t)
+	content := "hidden artifact payload"
+
+	info, err := svc.SaveCommandArtifact(".miner-logs.zip", int64(len(content)), checksumOf(content), strings.NewReader(content))
+	require.NoError(t, err)
+	assert.Equal(t, ".miner-logs.zip", info.Filename)
+
+	reader, opened, err := svc.OpenCommandArtifact(info.ID)
+	require.NoError(t, err)
+	defer reader.Close()
+	assert.Equal(t, ".miner-logs.zip", opened.Filename)
+}
+
 func TestSaveCommandArtifactReservesMetadataFilename(t *testing.T) {
 	svc := setupService(t)
 	content := "miner log bundle bytes"

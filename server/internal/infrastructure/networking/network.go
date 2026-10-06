@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -14,6 +15,13 @@ import (
 )
 
 const externalIPForGatewayDetection = "8.8.8.8"
+
+// RFC 3986 scheme grammar: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ).
+var urlSchemeRE = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*$`)
+
+func IsValidURLScheme(scheme string) bool {
+	return urlSchemeRE.MatchString(scheme)
+}
 
 type NetworkInfo struct {
 	Interface  string

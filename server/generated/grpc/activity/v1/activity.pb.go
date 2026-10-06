@@ -223,10 +223,10 @@ type ActivityFilter struct {
 	// one of these sites.
 	SiteIds []int64 `protobuf:"varint,8,rep,packed,name=site_ids,json=siteIds,proto3" json:"site_ids,omitempty"`
 	// When true, activity rows in the "unassigned" bucket are also
-	// included. For direct (non-batch) events the bucket is site_id IS NULL
-	// minus org-level categories (auth, system); for command-batch events it
-	// is batches whose command_on_device_log rows have site_id IS NULL. See
-	// the multi-site Activity TDD for the precise definition.
+	// included. Direct single-site events qualify when site_id IS NULL,
+	// excluding org-level categories. Direct multi-site events qualify when
+	// activity_log_site contains a NULL-site membership. Command-batch events
+	// qualify when at least one command_on_device_log row has site_id IS NULL.
 	IncludeUnassigned bool `protobuf:"varint,9,opt,name=include_unassigned,json=includeUnassigned,proto3" json:"include_unassigned,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache

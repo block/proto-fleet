@@ -122,7 +122,7 @@ WHERE id = sqlc.arg('id')
 
 -- name: SoftDeleteBuilding :one
 -- Caller is expected to also unassign the building's racks in the same
--- transaction (cascade-unassign — see plan J3). RETURNING site_id lets the
+-- transaction (cascade-unassign). RETURNING site_id lets the
 -- caller stamp the delete audit row with the site of the row actually deleted,
 -- race-free: a concurrent site move can't slip between a separate read and the
 -- delete. sql.ErrNoRows when the building is missing/already-deleted/cross-org.
@@ -132,6 +132,15 @@ WHERE id = sqlc.arg('id')
   AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL
 RETURNING site_id;
+
+-- name: CountRepairTicketsByBuilding :one
+-- Only unfinished work blocks deletion; completed tickets retain historical links.
+SELECT COUNT(*)::bigint
+FROM repair_ticket
+WHERE org_id = sqlc.arg('org_id')
+  AND building_id = sqlc.arg('building_id')
+  AND deleted_at IS NULL
+  AND status <> 5;
 
 -- name: UnassignRacksFromBuilding :execrows
 -- Sets device_set_rack.building_id = NULL (and clears the free-form
@@ -463,3 +472,13 @@ FROM building
 WHERE org_id = $1
   AND deleted_at IS NULL
   AND id = ANY(@ids::bigint[]);
+
+-- name: ListBuildingNamesBySite :many
+-- CreateBuildings' collision preflight: names only, so it skips
+-- ListBuildingsByOrg's org-wide rack/device aggregation while the site
+-- write lock is held.
+SELECT name
+FROM building
+WHERE org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('site_id')
+  AND deleted_at IS NULL;

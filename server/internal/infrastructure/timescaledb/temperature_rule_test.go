@@ -53,11 +53,14 @@ func TestDeviceTemperatureHighRule_Freshness(t *testing.T) {
 
 	const org = "temp-test-org"
 	hotFresh := fmt.Sprintf("%s-hot-fresh", org)
+	criticalBoundary := fmt.Sprintf("%s-critical-boundary", org)
 	hotStale := fmt.Sprintf("%s-hot-stale", org)
 	coolFresh := fmt.Sprintf("%s-cool-fresh", org)
 
 	// Reporting now and over the threshold: must fire.
 	writeTempSample(t, db, org, hotFresh, "chip", 95, 10*time.Second)
+	// The dashboard categorizes 90C as critical, so the alert must include the boundary.
+	writeTempSample(t, db, org, criticalBoundary, "chip", 90, 10*time.Second)
 	// Hot but last reported 5 minutes ago: inside the 10-minute scan window, but the freshness gate must drop it.
 	writeTempSample(t, db, org, hotStale, "chip", 95, 5*time.Minute)
 	// Reporting now but below the threshold: must not fire.
@@ -67,6 +70,8 @@ func TestDeviceTemperatureHighRule_Freshness(t *testing.T) {
 
 	require.Contains(t, got, hotFresh, "a device reporting a fresh hot reading must fire")
 	require.InDelta(t, 95.0, got[hotFresh], 1e-9)
+	require.Contains(t, got, criticalBoundary, "the dashboard's critical boundary must fire")
+	require.InDelta(t, 90.0, got[criticalBoundary], 1e-9)
 	require.NotContains(t, got, hotStale, "a stale hot reading must not keep the rule firing")
 	require.NotContains(t, got, coolFresh, "a fresh sub-threshold reading must not fire")
 }

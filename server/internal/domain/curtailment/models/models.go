@@ -20,9 +20,11 @@ type OrgConfig struct {
 type ResponseProfile struct {
 	ID                          int64
 	OrgID                       int64
+	Revision                    uuid.UUID
 	ProfileName                 string
 	SiteID                      *int64
 	ScopeJSON                   []byte
+	AuthorizationEnvelopeJSON   []byte
 	Mode                        Mode
 	Strategy                    Strategy
 	Level                       Level
@@ -86,6 +88,7 @@ type AutomationRule struct {
 	MQTTSourceID             int64
 	MQTTSourceName           string
 	ResponseProfileID        int64
+	ResponseProfileRevision  uuid.UUID
 	ResponseProfileName      string
 	ResponseProfileSiteID    *int64
 	ResponseProfileScopeJSON []byte
@@ -177,7 +180,6 @@ type ScopeType string
 const (
 	ScopeTypeWholeOrg   ScopeType = "whole_org"
 	ScopeTypeSite       ScopeType = "site"
-	ScopeTypeDeviceSets ScopeType = "device_sets"
 	ScopeTypeDeviceList ScopeType = "device_list"
 	ScopeTypeMixed      ScopeType = "mixed"
 )
@@ -242,6 +244,7 @@ type Event struct {
 	LoopType                     LoopType
 	ScopeType                    ScopeType
 	ScopeJSON                    []byte
+	AuthorizationEnvelopeJSON    []byte
 	ModeParamsJSON               []byte
 	CurtailBatchSize             *int32
 	CurtailBatchIntervalSec      int32
@@ -335,6 +338,8 @@ type InsertEventParams struct {
 	LoopType                    LoopType
 	ScopeType                   ScopeType
 	ScopeJSON                   []byte
+	AuthorizationEnvelopeJSON   []byte
+	ExpectedDeviceSites         map[string]*int64
 	ModeParamsJSON              []byte
 	CurtailBatchSize            *int32
 	CurtailBatchIntervalSec     int32
@@ -353,21 +358,41 @@ type InsertEventParams struct {
 	ExpectedFacilityFanSites map[int64]int64
 	FanOffDelaySec           int32
 	FanRestoreDelaySec       int32
-	DecisionSnapshotJSON     []byte
-	SourceActorType          SourceActorType
-	SourceActorID            *string
-	ExternalSource           *string
-	ExternalReference        *string
-	IdempotencyKey           *string
-	Reason                   string
-	ScheduledStartAt         *time.Time
-	StartedAt                *time.Time
+	// Execution-fence fields are consumed by the store and are not persisted on
+	// the event.
+	ResponseProfileID       int64
+	ResponseProfileRevision uuid.UUID
+	AutomationRuleID        int64
+	AutomationMQTTSourceID  int64
+	DecisionSnapshotJSON    []byte
+	SourceActorType         SourceActorType
+	SourceActorID           *string
+	ExternalSource          *string
+	ExternalReference       *string
+	IdempotencyKey          *string
+	Reason                  string
+	ScheduledStartAt        *time.Time
+	StartedAt               *time.Time
 	// EndedAt is set only when an event is inserted already terminal — a
 	// vacuously-COMPLETED FULL_FLEET start with no eligible targets — so the
 	// completion time is recorded; the reconciler/restorer set it otherwise.
 	EndedAt            *time.Time
 	CreatedByUserID    int64
 	EffectiveBatchSize int32
+}
+
+const AuthorizationEnvelopeSchemaVersion int32 = 1
+
+// AuthorizationEnvelope is the immutable resource-coverage snapshot captured
+// when a profile or event is persisted. It is deliberately separate from the
+// executable selector so authorization coverage can never widen targeting.
+type AuthorizationEnvelope struct {
+	SchemaVersion             int32   `json:"schema_version"`
+	SelectedResourceSiteIDs   []int64 `json:"selected_resource_site_ids"`
+	CurrentMemberSiteIDs      []int64 `json:"current_member_site_ids"`
+	MinerScopeUnbounded       bool    `json:"miner_scope_unbounded"`
+	FacilityFanSiteIDs        []int64 `json:"facility_fan_site_ids"`
+	FacilityFanScopeUnbounded bool    `json:"facility_fan_scope_unbounded"`
 }
 
 // InsertEventResult is what InsertEventWithTargets returns to the caller.
@@ -476,4 +501,34 @@ type Candidate struct {
 	// value. nil means the continuous aggregate has no row for this
 	// device — the selector ranks unknown-efficiency miners last.
 	AvgEfficiencyJH *float64
+}
+
+// ConfirmationTarget is one eligible `dispatched` work row returned by the
+// reconciler-only ListEligibleConfirmationTargets read that backs the
+// confirmation fast path. It carries everything the pulse needs to confirm a
+// target from a fresh telemetry sample without re-listing per-event targets:
+//
+//   - EventState + DesiredState identify the phase. Curtail work is a
+//     pending/active event with DesiredState 'curtailed'; restore work is a
+//     restoring event with DesiredState 'active'.
+//   - BatchUUID is the applicable phase batch UUID (curtail_batch_uuid or
+//     restore_batch_uuid); it is the ABA token the guarded promoting write
+//     passes as ExpectedDispatchBatchUUID.
+//   - BaselinePowerW feeds the existing isCurtailed / isRestored predicates
+//     (the live power/hash sample arrives from the telemetry sampler, not this
+//     read). nil when selection captured no baseline.
+//   - PairingStatus + ForceIncludeAllPairedMiners reproduce the all-paired
+//     policy pairing gate the full tick applies in confirmOneDispatched.
+type ConfirmationTarget struct {
+	EventID                     int64
+	EventUUID                   uuid.UUID
+	OrgID                       int64
+	EventState                  EventState
+	DeviceDatabaseID            int64
+	DeviceIdentifier            string
+	DesiredState                string
+	BaselinePowerW              *float64
+	BatchUUID                   string
+	PairingStatus               string
+	ForceIncludeAllPairedMiners bool
 }

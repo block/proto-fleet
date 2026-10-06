@@ -21,9 +21,11 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/infrastructure/driver"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -33,7 +35,6 @@ const (
 	reconcilerActorName = "curtailment-reconciler"
 
 	defaultTickInterval            = 30 * time.Second
-	defaultShutdownDeadline        = 10 * time.Second
 	defaultMaxRetries        int32 = 10
 	defaultCurtailMaxRetries int32 = 50
 
@@ -60,7 +61,6 @@ type CommandDispatcher interface {
 // Config carries runtime tunables. Zero-valued fields use defaults.
 type Config struct {
 	TickInterval         time.Duration `help:"Interval between curtailment reconciler ticks. Zero uses the default; values below 1s are rejected." default:"0s" env:"TICK_INTERVAL"`
-	ShutdownDeadline     time.Duration
 	MaxRetries           int32
 	CurtailMaxRetries    int32
 	DriftThresholdFactor float64
@@ -70,14 +70,15 @@ type Config struct {
 	// RestoreDispatchTimeoutSec ages out restore-phase targets stuck in
 	// Dispatched without confirming telemetry (burns retry budget).
 	RestoreDispatchTimeoutSec int `help:"Seconds a restore target may stay dispatched without telemetry confirmation before consuming retry budget. Zero uses the default." default:"0" env:"RESTORE_DISPATCH_TIMEOUT_SEC"`
+	// ConfirmationFastPathEnabled turns on the wake-driven confirmation
+	// pulse (see confirmation_fast_path.go). Disabled restores exact
+	// tick-only confirmation semantics and starts no pulse goroutine.
+	ConfirmationFastPathEnabled bool `help:"Enable the curtailment confirmation fast path: a wake-driven pulse that confirms dispatched targets from fresh telemetry between full reconciler ticks." default:"true" env:"CONFIRMATION_FAST_PATH_ENABLED"`
 }
 
 func (c Config) withDefaults() Config {
 	if c.TickInterval <= 0 {
 		c.TickInterval = defaultTickInterval
-	}
-	if c.ShutdownDeadline <= 0 {
-		c.ShutdownDeadline = defaultShutdownDeadline
 	}
 	if c.MaxRetries <= 0 {
 		c.MaxRetries = defaultMaxRetries
@@ -101,22 +102,52 @@ func (c Config) withDefaults() Config {
 // Each tick reads non-terminal events, dispatches/observes per event with
 // per-event panic isolation, then upserts the heartbeat.
 type Reconciler struct {
-	cfg      Config
-	store    interfaces.CurtailmentStore
-	fanStore interfaces.CurtailmentFanStateStore
-	cmd      CommandDispatcher
-	metrics  curtailment.Metrics
-	fans     curtailment.FacilityFanController
-	fanAlert FacilityFanAlertEmitter
-	now      func() time.Time
+	cfg         Config
+	store       interfaces.CurtailmentStore
+	fanStore    interfaces.CurtailmentFanStateStore
+	cmd         CommandDispatcher
+	permissions DispatchPermissionResolver
+	metrics     curtailment.Metrics
+	fans        curtailment.FacilityFanController
+	fanAlert    FacilityFanAlertEmitter
+	now         func() time.Time
 
-	stopCancel context.CancelFunc
-	workCancel context.CancelFunc
-	wg         sync.WaitGroup
+	// sampler backs the confirmation fast path (see
+	// confirmation_fast_path.go); required only when
+	// cfg.ConfirmationFastPathEnabled.
+	sampler           ConfirmationSampler
+	confirmationStore interfaces.CurtailmentConfirmationStore
+	// confirmationWake coalesces pulse wakes; buffered size 1.
+	confirmationWake chan struct{}
+	// confirmationPulse is the between-pass cadence while eligible work
+	// exists. Defaults to confirmationPulseInterval; tests shorten it.
+	confirmationPulse time.Duration
+	// confirmationPassTimeout bounds the sampling half of one pulse pass
+	// (eligibility read + batch sampling). Defaults to the
+	// confirmationPassTimeout constant; tests shorten it to force the
+	// split-budget path where sampling exhausts the pass budget while the
+	// separate write budget stays live.
+	confirmationPassTimeout time.Duration
+	// confirmationCursor is activation-owned keyset state. Each successful
+	// eligibility read advances it even when no target promotes, preventing
+	// a nonconfirming page from monopolizing the active pulse.
+	confirmationCursor interfaces.ConfirmationPageCursor
+	// topologyDispatchRejects latches a failed dispatch authorization until
+	// the durable restoring transition succeeds. This prevents a transient
+	// transition failure from letting a later tick resume Curtail commands.
+	topologyDispatchRejects sync.Map
 
-	mu      sync.Mutex
-	running bool
+	loopCancel  context.CancelFunc
+	workCancel  context.CancelFunc
+	runCanceled <-chan struct{}
+	runDone     <-chan struct{}
+
+	lifecycleMu sync.Mutex
+	mu          sync.Mutex
 }
+
+var _ runtimejobs.Lifecycle = (*Reconciler)(nil)
+var _ runtimejobs.Aborter = (*Reconciler)(nil)
 
 // Option configures a Reconciler at construction time.
 type Option func(*Reconciler)
@@ -150,14 +181,20 @@ func WithFacilityFanAlertEmitter(emitter FacilityFanAlertEmitter) Option {
 // here, so a misconfigured fleetd surfaces during lifecycle bring-up.
 func New(cfg Config, store interfaces.CurtailmentStore, cmd CommandDispatcher, opts ...Option) *Reconciler {
 	r := &Reconciler{
-		cfg:     cfg.withDefaults(),
-		store:   store,
-		cmd:     cmd,
-		metrics: curtailment.NoOpMetrics{},
-		now:     time.Now,
+		cfg:                     cfg.withDefaults(),
+		store:                   store,
+		cmd:                     cmd,
+		metrics:                 curtailment.NoOpMetrics{},
+		now:                     time.Now,
+		confirmationWake:        make(chan struct{}, 1),
+		confirmationPulse:       confirmationPulseInterval,
+		confirmationPassTimeout: confirmationPassTimeout,
 	}
 	if fanStore, ok := store.(interfaces.CurtailmentFanStateStore); ok {
 		r.fanStore = fanStore
+	}
+	if confirmationStore, ok := store.(interfaces.CurtailmentConfirmationStore); ok {
+		r.confirmationStore = confirmationStore
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -165,9 +202,10 @@ func New(cfg Config, store interfaces.CurtailmentStore, cmd CommandDispatcher, o
 	return r
 }
 
-// Start spins up the tick loop. Repeat Starts without an intervening Stop
-// are no-ops so misbehaving wiring cannot fork two reconcilers.
-func (r *Reconciler) Start(_ context.Context) error {
+// Start spins up the tick loop for the lifetime of ctx. Repeat Starts without
+// an intervening Stop are no-ops so misbehaving wiring cannot fork two
+// reconcilers.
+func (r *Reconciler) Start(ctx context.Context) error {
 	if r.store == nil {
 		return fmt.Errorf("curtailment reconciler: store is required")
 	}
@@ -180,68 +218,149 @@ func (r *Reconciler) Start(_ context.Context) error {
 	if r.cfg.CurtailDispatchTimeoutSec < 1 {
 		return fmt.Errorf("curtailment reconciler: curtail_dispatch_timeout_sec must be at least 1, got %d", r.cfg.CurtailDispatchTimeoutSec)
 	}
+	if r.cfg.ConfirmationFastPathEnabled && r.sampler == nil {
+		return fmt.Errorf("curtailment reconciler: confirmation fast path is enabled but no sampler is configured (WithConfirmationSampler)")
+	}
+	if r.cfg.ConfirmationFastPathEnabled && r.confirmationStore == nil {
+		return fmt.Errorf("curtailment reconciler: confirmation fast path is enabled but the store does not support bulk confirmation")
+	}
 
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
 	r.mu.Lock()
-	if r.running {
+	if r.runDone != nil {
+		stopping := channelClosed(r.runCanceled)
 		r.mu.Unlock()
+		if stopping {
+			return errors.New("curtailment reconciler: previous activation is still stopping")
+		}
 		return nil
 	}
-	r.running = true
-	stopCtx, stopCancel := context.WithCancel(context.Background())
-	workCtx, workCancel := context.WithCancel(context.Background())
-	r.stopCancel = stopCancel
+	workCtx, workCancel := context.WithCancel(context.WithoutCancel(ctx))
+	loopCtx, loopCancel := context.WithCancel(ctx)
+	runDone := make(chan struct{})
+	r.loopCancel = loopCancel
 	r.workCancel = workCancel
+	r.runCanceled = loopCtx.Done()
+	r.runDone = runDone
+	r.confirmationCursor = interfaces.ConfirmationPageCursor{}
 	r.mu.Unlock()
 
-	r.wg.Add(1)
-	go r.tickLoop(stopCtx, workCtx)
-	slog.Info("curtailment reconciler started", "tick_interval", r.cfg.TickInterval)
+	go r.tickLoop(loopCtx, workCtx, runDone)
+	slog.Debug("configured curtailment reconciler",
+		"tick_interval", r.cfg.TickInterval,
+		"confirmation_fast_path_enabled", r.cfg.ConfirmationFastPathEnabled)
 	return nil
 }
 
-// Stop signals the tick loop and waits up to ShutdownDeadline for the
-// in-flight tick to drain. Concurrent second Stop is a no-op. Adding a
-// Start-after-Stop restart path needs a `stopping` guard to prevent
-// stacking goroutines on the same WaitGroup.
-func (r *Reconciler) Stop() error {
+// Stop cancels the activation and waits for it to drain within ctx. A timed-out
+// activation retains ownership until its goroutine actually exits, so Start can
+// never overlap it.
+func (r *Reconciler) Stop(ctx context.Context) error {
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
+
 	r.mu.Lock()
-	if !r.running {
+	if r.runDone == nil {
 		r.mu.Unlock()
 		return nil
 	}
-	r.running = false
-	stopCancel := r.stopCancel
+	loopCancel := r.loopCancel
 	workCancel := r.workCancel
-	r.stopCancel = nil
-	r.workCancel = nil
+	runDone := r.runDone
 	r.mu.Unlock()
 
-	if workCancel != nil {
-		watchdog := time.AfterFunc(r.cfg.ShutdownDeadline, workCancel)
-		defer watchdog.Stop()
+	if loopCancel != nil {
+		loopCancel()
 	}
-	if stopCancel != nil {
-		stopCancel()
+	select {
+	case <-runDone:
+		if workCancel != nil {
+			workCancel()
+		}
+		return nil
+	case <-ctx.Done():
+		if workCancel != nil {
+			workCancel()
+		}
+		return fmt.Errorf("curtailment reconciler: stop: %w", ctx.Err())
 	}
-	r.wg.Wait()
+}
+
+// Abort immediately cancels admission and detached work before a fatal exit.
+func (r *Reconciler) Abort() {
+	r.mu.Lock()
+	loopCancel := r.loopCancel
+	workCancel := r.workCancel
+	r.mu.Unlock()
+	if loopCancel != nil {
+		loopCancel()
+	}
 	if workCancel != nil {
 		workCancel()
 	}
-	slog.Info("curtailment reconciler stopped")
-	return nil
 }
 
-func (r *Reconciler) tickLoop(stopCtx, workCtx context.Context) {
-	defer r.wg.Done()
+func (r *Reconciler) tickLoop(loopCtx, workCtx context.Context, runDone chan<- struct{}) {
+	defer close(runDone)
+	defer r.finishActivation()
+
+	reportProgress := runtimejobs.TrackProgress(loopCtx, r.cfg.TickInterval)
+	var confirmationDone <-chan struct{}
+	if r.cfg.ConfirmationFastPathEnabled {
+		done := make(chan struct{})
+		confirmationDone = done
+		go func() {
+			defer close(done)
+			// The confirmation pulse is an acceleration only, so Stop may
+			// cancel an active pass immediately. Full ticks keep using the
+			// detached work context so their existing drain semantics remain
+			// unchanged.
+			r.confirmationLoop(loopCtx, loopCtx)
+		}()
+		// Startup recovery: rows may already sit in dispatched from a
+		// previous process; run one pass immediately rather than waiting
+		// for the first full tick's wake.
+		r.wakeConfirmation()
+	}
+	if confirmationDone != nil {
+		defer func() { <-confirmationDone }()
+	}
+
 	ticker := time.NewTicker(r.cfg.TickInterval)
 	defer ticker.Stop()
 	for {
 		select {
-		case <-stopCtx.Done():
+		case <-loopCtx.Done():
 			return
 		case <-ticker.C:
 			r.safeTick(workCtx)
+			if loopCtx.Err() != nil {
+				return
+			}
+			reportProgress()
 		}
+	}
+}
+
+func (r *Reconciler) finishActivation() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.loopCancel = nil
+	r.workCancel = nil
+	r.runCanceled = nil
+	r.runDone = nil
+}
+
+func channelClosed(done <-chan struct{}) bool {
+	if done == nil {
+		return false
+	}
+	select {
+	case <-done:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -354,10 +473,18 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 			"event_id", ev.ID, "error", err)
 		return
 	}
+	// Deferred so both fresh dispatches from this pass and rows already
+	// dispatched (recovery) wake the confirmation fast path.
+	defer func() { r.wakeIfDispatchedWork(targets) }()
 	if !r.reconcilePendingFans(ctx, ev) {
 		return
 	}
-	if len(targets) == 0 {
+	topologyRestoreInProgress := r.driveTopologyRestores(ctx, ev, targets)
+	topologySnapshot, stopTick := r.prepareClosedLoopTopologyTick(ctx, ev, targets)
+	if stopTick || topologyRestoreInProgress {
+		return
+	}
+	if len(targets) == 0 && !isAllPairedPolicyEvent(ev) {
 		if isClosedLoopFullFleet(ev) {
 			now := r.now()
 			if err := r.store.UpdateEventState(ctx, ev.ID, ev.State, models.EventStateActive, &now, nil); err != nil {
@@ -407,9 +534,21 @@ func (r *Reconciler) dispatchPending(ctx context.Context, ev *models.Event) {
 	// multi-tick re-confirmation window unless admission also runs here.
 	// Claimed/reopened rows enter as pending/unavailable and dispatch on the
 	// next tick's pending pass, mirroring the observeActive claim ordering.
-	if isAllPairedPolicyEvent(ev) {
-		claimed := r.claimClosedLoopFullFleetTargets(ctx, ev, targets)
+	if topologySnapshot != nil || isAllPairedPolicyEvent(ev) {
+		claimed, deferDispatch := r.claimClosedLoopFullFleetTargetsFromSnapshot(
+			ctx,
+			ev,
+			targets,
+			topologySnapshot,
+		)
+		if deferDispatch {
+			return
+		}
 		r.dispatchClaimedCurtailTargets(cmdCtx, ev, claimed)
+		// Claimed rows are a separate slice the deferred wakeIfDispatchedWork
+		// (which only sees `targets`) never covers, so a dynamically-admitted
+		// miner would miss the pulse when it is parked. Wake for them too.
+		r.wakeIfDispatchedWork(claimed)
 	}
 }
 
@@ -463,7 +602,7 @@ func (r *Reconciler) dispatchPendingCurtailBatches(ctx context.Context, ev *mode
 		}
 		claim := make([]*models.Target, 0, batchSize)
 		for _, t := range targets {
-			if t.State != state {
+			if t.State != state || !isCurtailRetryTarget(t) {
 				continue
 			}
 			claim = append(claim, t)
@@ -545,6 +684,24 @@ func (r *Reconciler) dispatchOneCurtail(ctx context.Context, ev *models.Event, t
 // dispatchCurtailBatch issues one Curtail command for every device in claim and
 // records per-target dispatched/skipped/failed outcomes.
 func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event, claim []*models.Target, nonTerminalFailureState models.TargetState, recordPendingDispatch bool) bool {
+	return r.dispatchCurtailBatchWithKnownUnsent(
+		ctx,
+		ev,
+		claim,
+		nonTerminalFailureState,
+		recordPendingDispatch,
+		nil,
+	)
+}
+
+func (r *Reconciler) dispatchCurtailBatchWithKnownUnsent(
+	ctx context.Context,
+	ev *models.Event,
+	claim []*models.Target,
+	nonTerminalFailureState models.TargetState,
+	recordPendingDispatch bool,
+	preclaimedUnsentDeviceIdentifiers []string,
+) bool {
 	if len(claim) == 0 {
 		return true
 	}
@@ -559,7 +716,11 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 	// last_dispatched_at is *not* stamped here — only successful enqueues
 	// advance it (used by the restore-batch interval gate).
 	dispatchSet := make([]*models.Target, 0, len(claim))
+	knownUnsentDeviceIdentifiers := append([]string(nil), preclaimedUnsentDeviceIdentifiers...)
 	for _, t := range claim {
+		if t.State == models.TargetStatePending {
+			knownUnsentDeviceIdentifiers = append(knownUnsentDeviceIdentifiers, t.DeviceIdentifier)
+		}
 		dispatchingParams := interfaces.UpdateCurtailmentTargetStateParams{
 			State: models.TargetStateDispatching,
 		}
@@ -584,7 +745,6 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 	if !r.eventStillDispatchable(ctx, ev) {
 		return false
 	}
-
 	deviceIDs := make([]string, 0, len(dispatchSet))
 	for _, t := range dispatchSet {
 		deviceIDs = append(deviceIDs, t.DeviceIdentifier)
@@ -596,7 +756,25 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 			},
 		},
 	}
-	result, dispatchErr := r.cmd.Curtail(ctx, selector, sdk.CurtailLevelFull)
+	var result *command.CommandResult
+	var dispatchErr error
+	topologyHandled, topologyAllowed := r.authorizeTopologyCurtailDispatch(
+		ctx,
+		ev,
+		dispatchSet,
+		knownUnsentDeviceIdentifiers,
+		func() { result, dispatchErr = r.cmd.Curtail(ctx, selector, sdk.CurtailLevelFull) },
+	)
+	if topologyHandled {
+		if !topologyAllowed {
+			return false
+		}
+	} else {
+		if !r.eventStillDispatchable(ctx, ev) {
+			return false
+		}
+		result, dispatchErr = r.cmd.Curtail(ctx, selector, sdk.CurtailLevelFull)
+	}
 	if dispatchErr != nil {
 		errMsg := dispatchErr.Error()
 		slog.Error("curtailment reconciler: curtail batch dispatch failed",
@@ -679,10 +857,41 @@ func (r *Reconciler) dispatchCurtailBatch(ctx context.Context, ev *models.Event,
 	return true
 }
 
+type dispatchFailureGuard struct {
+	expectedState     models.TargetState
+	expectedBatchUUID *string
+}
+
+func loadedDispatchBatchUUID(t *models.Target) *string {
+	if t.DesiredState == models.DesiredStateActive {
+		if t.RestorePhase == nil {
+			return nil
+		}
+		return t.RestorePhase.BatchUUID
+	}
+	return t.CurtailPhase.BatchUUID
+}
+
 // recordDispatchFailure bumps retry_count. Restore targets transition to
 // RestoreFailed at MaxRetries so the event can complete; curtail targets stay
 // retryable while OFF remains asserted, with retry_count surfacing the alert.
 func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState) {
+	r.recordDispatchFailureGuarded(ctx, ev, t, errMsg, nonTerminalFailureState, nil)
+}
+
+// recordDispatchedObservationFailure guards failure writes derived from a
+// loaded dispatched target on both its state and dispatch batch. The batch
+// token closes the ABA window where another fleetd confirms and redispatches
+// the row before this stale snapshot writes. Legacy dispatched rows without a
+// batch token retain the state guard so they can still age normally.
+func (r *Reconciler) recordDispatchedObservationFailure(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState) {
+	r.recordDispatchFailureGuarded(ctx, ev, t, errMsg, nonTerminalFailureState, &dispatchFailureGuard{
+		expectedState:     models.TargetStateDispatched,
+		expectedBatchUUID: loadedDispatchBatchUUID(t),
+	})
+}
+
+func (r *Reconciler) recordDispatchFailureGuarded(ctx context.Context, ev *models.Event, t *models.Target, errMsg string, nonTerminalFailureState models.TargetState, guard *dispatchFailureGuard) {
 	newRetry := t.RetryCount + 1
 	state := nonTerminalFailureState
 	if r.retryBudgetTerminalizes(t, newRetry) {
@@ -692,6 +901,14 @@ func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event
 		State:      state,
 		LastError:  &errMsg,
 		RetryCount: &newRetry,
+	}
+	if t.DesiredState != "" {
+		expectedDesiredState := t.DesiredState
+		params.ExpectedDesiredState = &expectedDesiredState
+	}
+	if guard != nil {
+		params.ExpectedState = &guard.expectedState
+		params.ExpectedDispatchBatchUUID = guard.expectedBatchUUID
 	}
 	err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params)
 	if err == nil {
@@ -705,6 +922,12 @@ func (r *Reconciler) recordDispatchFailure(ctx context.Context, ev *models.Event
 	}
 	slog.Error("curtailment reconciler: target update after dispatch failure failed",
 		"event_id", ev.ID, "device", t.DeviceIdentifier, "error", err)
+	if guard != nil {
+		// BumpTargetRetry cannot carry the dispatched-state and phase-batch
+		// guards. Falling back here could consume retry budget on a target the
+		// pulse already confirmed or on a replacement dispatch batch.
+		return
+	}
 	// Fallback: advance retry budget only. State stays at the prior value;
 	// terminal restore escalation lands on the next successful UpdateTargetState.
 	if bumpErr := r.store.BumpTargetRetry(ctx, ev.ID, t.DeviceIdentifier); bumpErr != nil {
@@ -768,7 +991,14 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 			"event_id", ev.ID, "error", err)
 		return
 	}
+	// Deferred confirmation fast-path wake; see dispatchPending.
+	defer func() { r.wakeIfDispatchedWork(targets) }()
 	if r.enforceMaxDuration(ctx, ev, targets) {
+		return
+	}
+	topologyRestoreInProgress := r.driveTopologyRestores(ctx, ev, targets)
+	topologySnapshot, stopTick := r.prepareClosedLoopTopologyTick(ctx, ev, targets)
+	if stopTick {
 		return
 	}
 
@@ -792,7 +1022,7 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 			slog.Error("curtailment reconciler: list candidates (drift) failed",
 				"event_id", ev.ID, "error", err)
 			if ev.FanOffSentAt != nil && len(ev.FacilityFanDeviceIDs) > 0 {
-				if !r.reopenActiveFans(ctx, ev) {
+				if !r.reopenEventFans(ctx, ev) {
 					return
 				}
 				airflowReopened = true
@@ -803,12 +1033,15 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 				r.refreshAllPairedPolicyTargets(cmdCtx, ev, targets, candByID)
 			}
 			for _, t := range targets {
+				if !isCurtailRetryTarget(t) {
+					continue
+				}
 				switch t.State {
 				case models.TargetStateConfirmed:
 					if ev.FanOffSentAt != nil &&
 						!hasFreshTelemetry(candByID[t.DeviceIdentifier]) {
 						if !airflowReopened {
-							if !r.reopenActiveFans(ctx, ev) {
+							if !r.reopenEventFans(ctx, ev) {
 								return
 							}
 							airflowReopened = true
@@ -883,8 +1116,22 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 			r.dispatchPendingCurtailBatches(cmdCtx, ev, targets)
 		}
 	}
-	claimed := r.claimClosedLoopFullFleetTargets(ctx, ev, targets)
-	if len(claimed) > 0 && !airflowReopened && ev.FanOffSentAt != nil {
+	if topologyRestoreInProgress {
+		if !airflowReopened {
+			_ = r.reconcileActiveFans(ctx, ev, targets)
+		}
+		return
+	}
+	claimed, deferDispatch := r.claimClosedLoopFullFleetTargetsFromSnapshot(
+		ctx,
+		ev,
+		targets,
+		topologySnapshot,
+	)
+	if deferDispatch {
+		return
+	}
+	if len(claimed) > 0 && !airflowReopened && fanAirflowNeedsReopen(ev) {
 		// A closed-loop event may discover a hashing miner after airflow was
 		// stopped. Reopen the fans while the new target is still undispatched;
 		// later ticks keep them ON until every admitted target confirms curtailment.
@@ -894,9 +1141,49 @@ func (r *Reconciler) observeActive(ctx context.Context, ev *models.Event) {
 		airflowReopened = true
 	}
 	r.dispatchClaimedCurtailTargets(cmdCtx, ev, claimed)
+	// Claimed rows aren't in the deferred wake's `targets` slice; wake for
+	// them explicitly so dynamically-admitted miners get the pulse too.
+	r.wakeIfDispatchedWork(claimed)
 	if !airflowReopened {
 		_ = r.reconcileActiveFans(ctx, ev, append(targets, claimed...))
 	}
+}
+
+func (r *Reconciler) driveTopologyRestores(ctx context.Context, ev *models.Event, targets []*models.Target) bool {
+	if ev == nil || (ev.State != models.EventStatePending && ev.State != models.EventStateActive) {
+		return false
+	}
+	if !r.refreshAllPairedTopologyRestoreTargets(ctx, ev, targets) {
+		return true
+	}
+	if !hasTopologyRestoreWork(targets) {
+		return false
+	}
+	r.confirmDispatchedRestores(ctx, ev, targets)
+	if !hasTopologyRestoreWork(targets) {
+		return false
+	}
+	if len(ev.FacilityFanDeviceIDs) > 0 && fanAirflowNeedsReopen(ev) {
+		if !r.reopenEventFans(ctx, ev) {
+			return true
+		}
+	}
+	r.maybeClaimRestoreBatch(ctx, ev, targets)
+	r.wakeIfDispatchedWork(targets)
+	return hasTopologyRestoreWork(targets)
+}
+
+func hasTopologyRestoreWork(targets []*models.Target) bool {
+	for _, target := range targets {
+		if target == nil || target.DesiredState != models.DesiredStateActive {
+			continue
+		}
+		if target.State != models.TargetStateUnavailable && target.State != models.TargetStateResolved && target.State != models.TargetStateRestoreFailed &&
+			target.State != models.TargetStateReleased {
+			return true
+		}
+	}
+	return false
 }
 
 // reconcileActiveFans reports true only when the requested hardware command
@@ -1005,6 +1292,12 @@ func hasFreshTelemetry(c *models.Candidate) bool {
 func activeFanTargetConfirmation(targets []*models.Target) (confirmed int, allConfirmed bool) {
 	allConfirmed = true
 	for _, target := range targets {
+		if target.DesiredState == models.DesiredStateActive {
+			if target.State != models.TargetStateResolved && target.State != models.TargetStateReleased {
+				allConfirmed = false
+			}
+			continue
+		}
 		if target.DesiredState != "" && target.DesiredState != models.DesiredStateCurtailed {
 			continue
 		}
@@ -1050,13 +1343,13 @@ func activeFanOffDelayElapsed(ev *models.Event, targets []*models.Target, now ti
 	return !now.Before(delayStartedAt.Add(time.Duration(ev.FanOffDelaySec) * time.Second))
 }
 
-func (r *Reconciler) reopenActiveFans(ctx context.Context, ev *models.Event) bool {
+func (r *Reconciler) reopenEventFans(ctx context.Context, ev *models.Event) bool {
 	if r.fans == nil || r.fanStore == nil || ev == nil || len(ev.FacilityFanDeviceIDs) == 0 || ev.FanOffSentAt == nil {
 		return false
 	}
 	now := r.now()
 	params := interfaces.UpdateCurtailmentFanStateParams{
-		ExpectedEventState: models.EventStateActive,
+		ExpectedEventState: ev.State,
 	}
 	if ev.FanAirflowReopenedAt == nil {
 		params.FanAirflowReopenedAt = &now
@@ -1078,90 +1371,368 @@ func (r *Reconciler) reopenActiveFans(ctx context.Context, ev *models.Event) boo
 	return lastError == nil
 }
 
-func (r *Reconciler) claimClosedLoopFullFleetTargets(ctx context.Context, ev *models.Event, existingTargets []*models.Target) []*models.Target {
-	if !isClosedLoopFullFleet(ev) || (ev.State != models.EventStatePending && ev.State != models.EventStateActive) {
-		return nil
+func (r *Reconciler) claimClosedLoopFullFleetTargets(
+	ctx context.Context,
+	ev *models.Event,
+	existingTargets []*models.Target,
+) ([]*models.Target, bool) {
+	return r.claimClosedLoopFullFleetTargetsFromSnapshot(ctx, ev, existingTargets, nil)
+}
+
+type closedLoopTopologySnapshot struct {
+	params     interfaces.ListCandidatesParams
+	candidates []*models.Candidate
+}
+
+func (r *Reconciler) prepareClosedLoopTopologyTick(
+	ctx context.Context,
+	ev *models.Event,
+	existingTargets []*models.Target,
+) (*closedLoopTopologySnapshot, bool) {
+	if !isClosedLoopFullFleet(ev) || (ev.State != models.EventStatePending && ev.State != models.EventStateActive) ||
+		ev.ScopeType != models.ScopeTypeMixed {
+		return nil, false
 	}
-	params, ok := listCandidatesParamsForEventScope(ev)
-	if !ok {
-		slog.Warn("curtailment reconciler: unsupported closed-loop full-fleet scope",
-			"event_id", ev.ID, "scope_type", ev.ScopeType)
-		return nil
+	scope, hasScope, err := curtailment.ScopeFromJSON(ev.ScopeJSON)
+	if err != nil || !hasScope {
+		r.rejectClosedLoopAdmission(ctx, ev, "persisted topology scope is invalid", err)
+		return nil, true
+	}
+	if !curtailment.IsTopologyScope(scope) {
+		return nil, false
+	}
+	params, err := curtailment.ListCandidatesParamsForScope(scope)
+	if err != nil {
+		r.rejectClosedLoopAdmission(ctx, ev, "persisted topology scope is invalid", err)
+		return nil, true
 	}
 	params.OrgID = ev.OrgID
-	// Admission gates run before the fleet-scale candidate scan for both
-	// policies. For all-paired events this paces only the discovery of
-	// brand-new devices and reopens; readiness refresh of existing targets
-	// stays per-tick via the device-scoped refresh path.
-	if curtailBatchIntervalActive(ev) && !r.curtailBatchIntervalElapsed(ev) {
-		return nil
+	if !r.validateClosedLoopTopologyAdmission(ctx, ev, params) {
+		return nil, true
 	}
-	if hasInFlightCurtailDispatch(existingTargets) {
-		return nil
-	}
+	params.ResultLimit = curtailment.ScopeResolvedMinerMax + 1
 	candidates, err := r.store.ListCandidates(ctx, params)
 	if err != nil {
-		slog.Error("curtailment reconciler: list candidates (full_fleet admission) failed",
+		slog.Error("curtailment reconciler: list candidates (topology reconciliation) failed",
 			"event_id", ev.ID, "error", err)
-		return nil
+		return nil, true
+	}
+	if len(candidates) > curtailment.ScopeResolvedMinerMax {
+		r.rejectClosedLoopAdmission(ctx, ev, "resolved miner limit exceeded", nil,
+			"resolved_count", len(candidates), "limit", curtailment.ScopeResolvedMinerMax)
+		return nil, true
+	}
+	departures, ok := r.reconcileClosedLoopTopologyDepartures(ctx, ev, existingTargets, candidates)
+	if !ok || departures {
+		return nil, true
+	}
+	return &closedLoopTopologySnapshot{params: params, candidates: candidates}, false
+}
+
+func (r *Reconciler) claimClosedLoopFullFleetTargetsFromSnapshot(
+	ctx context.Context,
+	ev *models.Event,
+	existingTargets []*models.Target,
+	topologySnapshot *closedLoopTopologySnapshot,
+) ([]*models.Target, bool) {
+	if !isClosedLoopFullFleet(ev) || (ev.State != models.EventStatePending && ev.State != models.EventStateActive) {
+		return nil, false
+	}
+	var params interfaces.ListCandidatesParams
+	var candidates []*models.Candidate
+	if topologySnapshot != nil {
+		params = topologySnapshot.params
+		candidates = topologySnapshot.candidates
+	} else {
+		var ok bool
+		params, ok = listCandidatesParamsForEventScope(ev)
+		if !ok {
+			slog.Warn("curtailment reconciler: unsupported closed-loop full-fleet scope",
+				"event_id", ev.ID, "scope_type", ev.ScopeType)
+			return nil, false
+		}
+		params.OrgID = ev.OrgID
+		if !r.validateClosedLoopTopologyAdmission(ctx, ev, params) {
+			return nil, isTopologyCandidateFilter(params)
+		}
+		// Closed-loop selectors are re-expanded on every admission pass. Bound the
+		// query at max+1 so an oversized topology change fails closed without
+		// materializing an unbounded candidate set in the reconciler.
+		params.ResultLimit = curtailment.ScopeResolvedMinerMax + 1
+	}
+	topologyFilter := isTopologyCandidateFilter(params)
+	if !topologyFilter {
+		if curtailBatchIntervalActive(ev) && !r.curtailBatchIntervalElapsed(ev) {
+			return nil, false
+		}
+		if hasInFlightCurtailDispatch(existingTargets) {
+			return nil, false
+		}
+	}
+	if topologySnapshot == nil {
+		var err error
+		candidates, err = r.store.ListCandidates(ctx, params)
+		if err != nil {
+			slog.Error("curtailment reconciler: list candidates (full_fleet admission) failed",
+				"event_id", ev.ID, "error", err)
+			return nil, topologyFilter
+		}
+		if len(candidates) > curtailment.ScopeResolvedMinerMax {
+			r.rejectClosedLoopAdmission(ctx, ev, "resolved miner limit exceeded", nil,
+				"resolved_count", len(candidates), "limit", curtailment.ScopeResolvedMinerMax)
+			return nil, topologyFilter
+		}
+		if topologyFilter {
+			departures, ok := r.reconcileClosedLoopTopologyDepartures(ctx, ev, existingTargets, candidates)
+			if !ok || departures {
+				return nil, true
+			}
+		}
 	}
 	if isAllPairedPolicyEvent(ev) {
-		return r.claimAllPairedPolicyTargets(ctx, ev, existingTargets, candidates, params)
+		return nil, r.claimAllPairedPolicyTargets(ctx, ev, existingTargets, candidates, params)
 	}
 	orgConfig, err := r.store.GetOrgConfig(ctx, ev.OrgID)
 	if err != nil {
 		slog.Error("curtailment reconciler: get org config (full_fleet admission) failed",
 			"event_id", ev.ID, "error", err)
-		return nil
+		return nil, false
 	}
 	targets, _ := curtailment.BuildFullFleetAdmissionTargets(
 		candidates,
 		ev.IncludeMaintenance && ev.ForceIncludeMaintenance,
 		candidateMinPowerWForEvent(ev, orgConfig.CandidateMinPowerW),
 	)
-	targets = excludeExistingTargetParams(targets, existingTargets)
+	targets = excludeNonReopenableExistingTargetParams(targets, existingTargets)
 	activeDevices, err := r.store.ListActiveCurtailmentTargetDevices(ctx, ev.OrgID)
 	if err != nil {
 		slog.Error("curtailment reconciler: list active devices (full_fleet admission) failed",
 			"event_id", ev.ID, "error", err)
-		return nil
+		return nil, false
 	}
 	targets = excludeDeviceIdentifiers(targets, activeDevices)
 	cooldownSec := postEventCooldownSecForEvent(ev)
 	if cooldownSec > 0 {
+		candidateIdentifiers := make([]string, 0, len(candidates))
+		for _, candidate := range candidates {
+			if candidate != nil && candidate.DeviceIdentifier != "" {
+				candidateIdentifiers = append(candidateIdentifiers, candidate.DeviceIdentifier)
+			}
+		}
 		cooldownDevices, err := r.store.ListRecentlyResolvedCurtailedDevices(
 			ctx,
 			interfaces.ListRecentlyResolvedCurtailedDevicesParams{
 				OrgID:             ev.OrgID,
+				ExcludeEventID:    ev.ID,
 				CooldownSec:       cooldownSec,
-				DeviceIdentifiers: params.DeviceIdentifiers,
-				SiteIDs:           params.SiteIDs,
+				DeviceIdentifiers: candidateIdentifiers,
 			},
 		)
 		if err != nil {
 			slog.Error("curtailment reconciler: list cooldown devices (full_fleet admission) failed",
 				"event_id", ev.ID, "error", err)
-			return nil
+			return nil, false
 		}
 		targets = excludeDeviceIdentifiers(targets, cooldownDevices)
 	}
 	if len(targets) == 0 {
-		return nil
+		return nil, false
 	}
-	if batchSize := curtailBatchSizeForEvent(ev, len(targets)); len(targets) > int(batchSize) {
-		targets = targets[:batchSize]
+	if topologyFilter && !r.topologyAdmissionAirflowReady(ctx, ev) {
+		return nil, true
 	}
-	claimed, err := r.store.ClaimClosedLoopFullFleetTargets(ctx, ev.ID, ev.OrgID, cooldownSec, targets)
+	// Admission pacing never delays topology departures or airflow recovery:
+	// both are handled above before new Curtail work is gated.
+	if topologyFilter {
+		if curtailBatchIntervalActive(ev) && !r.curtailBatchIntervalElapsed(ev) {
+			return nil, false
+		}
+		if hasInFlightCurtailDispatch(existingTargets) {
+			return nil, false
+		}
+	}
+	batchSize := curtailBatchSizeForEvent(ev, len(targets))
+	claimed, err := r.store.ClaimClosedLoopFullFleetTargets(
+		ctx,
+		ev.ID,
+		ev.OrgID,
+		cooldownSec,
+		int(batchSize),
+		targets,
+	)
 	if err != nil {
 		slog.Error("curtailment reconciler: claim full_fleet targets failed",
 			"event_id", ev.ID, "candidate_count", len(targets), "error", err)
-		return nil
+		return nil, false
 	}
 	if len(claimed) > 0 {
 		slog.Info("curtailment reconciler: claimed full_fleet targets",
 			"event_id", ev.ID, "claimed", len(claimed))
 	}
-	return claimed
+	return claimed, false
+}
+
+// topologyAdmissionAirflowReady keeps newly discovered topology members
+// unclaimed until facility airflow has been restored for the configured delay.
+// Returning to the next tick is intentional: scope membership and permissions
+// must be resolved again after the delay before ownership is claimed.
+func (r *Reconciler) topologyAdmissionAirflowReady(ctx context.Context, ev *models.Event) bool {
+	if ev == nil || ev.FanOffSentAt == nil || len(ev.FacilityFanDeviceIDs) == 0 {
+		return true
+	}
+	if fanAirflowNeedsReopen(ev) {
+		_ = r.reopenEventFans(ctx, ev)
+		return false
+	}
+	delay := max(ev.FanRestoreDelaySec, 0)
+	return !r.now().Before(ev.FanAirflowReopenedAt.Add(time.Duration(delay) * time.Second))
+}
+
+func fanAirflowNeedsReopen(ev *models.Event) bool {
+	return ev != nil && ev.FanOffSentAt != nil &&
+		(ev.FanAirflowReopenedAt == nil || ev.FanLastError != nil)
+}
+
+func isTopologyCandidateFilter(params interfaces.ListCandidatesParams) bool {
+	return len(params.BuildingIDs) > 0 || len(params.RackIDs) > 0 || len(params.GroupIDs) > 0
+}
+
+func (r *Reconciler) reconcileClosedLoopTopologyDepartures(
+	ctx context.Context,
+	ev *models.Event,
+	existingTargets []*models.Target,
+	candidates []*models.Candidate,
+) (bool, bool) {
+	members := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		if candidate == nil || candidate.DeviceIdentifier == "" {
+			continue
+		}
+		if isAllPairedPolicyEvent(ev) {
+			if !curtailment.IsAllPairedPolicyPairingStatus(candidate.PairingStatus) {
+				continue
+			}
+		} else if candidate.PairingStatus != "PAIRED" {
+			continue
+		}
+		members[candidate.DeviceIdentifier] = struct{}{}
+	}
+	departures := make([]string, 0)
+	for _, target := range existingTargets {
+		if target == nil || target.DesiredState == models.DesiredStateActive {
+			continue
+		}
+		switch target.State { //nolint:exhaustive // Only terminal departure states are skipped.
+		case models.TargetStateResolved, models.TargetStateRestoreFailed, models.TargetStateReleased:
+			continue
+		}
+		if _, stillMember := members[target.DeviceIdentifier]; !stillMember {
+			departures = append(departures, target.DeviceIdentifier)
+		}
+	}
+	if len(departures) == 0 {
+		return false, true
+	}
+	restoreStore, ok := r.store.(interfaces.CurtailmentTopologyTargetRestoreStore)
+	if !ok {
+		r.rejectClosedLoopAdmission(ctx, ev, "topology target restore store is not configured", nil)
+		return true, false
+	}
+	transitioned, err := restoreStore.BeginCurtailmentTopologyTargetRestore(ctx, ev, departures)
+	if err != nil {
+		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			slog.Error("curtailment reconciler: topology departure restore transition failed",
+				"event_id", ev.ID, "departures", len(departures), "error", err)
+		}
+		return true, false
+	}
+	slog.Info("curtailment reconciler: topology departures entered restore",
+		"event_id", ev.ID, "departures", len(departures), "transitioned", transitioned)
+	return true, true
+}
+
+func (r *Reconciler) validateClosedLoopTopologyAdmission(
+	ctx context.Context,
+	ev *models.Event,
+	params interfaces.ListCandidatesParams,
+) bool {
+	if len(params.BuildingIDs) == 0 && len(params.RackIDs) == 0 && len(params.GroupIDs) == 0 {
+		return true
+	}
+	topologyStore, ok := r.store.(interfaces.CurtailmentTopologyScopeStore)
+	if !ok {
+		r.rejectClosedLoopAdmission(ctx, ev, "topology scope resolver is not configured", nil)
+		return false
+	}
+	coverage, err := topologyStore.ResolveCurtailmentTopologyScope(ctx, params)
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) || fleeterror.IsInvalidArgumentError(err) ||
+			fleeterror.IsFailedPreconditionError(err) || fleeterror.IsResourceExhaustedError(err) {
+			r.rejectClosedLoopAdmission(ctx, ev, "persisted topology scope is no longer valid", err)
+		} else {
+			slog.Error("curtailment reconciler: topology scope validation failed; admission deferred",
+				"event_id", ev.ID, "error", err)
+		}
+		return false
+	}
+	envelope, err := curtailment.AuthorizationEnvelopeFromJSON(ev.AuthorizationEnvelopeJSON)
+	if err != nil {
+		r.rejectClosedLoopAdmission(ctx, ev, "persisted authorization envelope is invalid", err)
+		return false
+	}
+	if !topologyCoverageWithinEnvelope(coverage, envelope) {
+		r.rejectClosedLoopAdmission(ctx, ev, "current topology exceeds the persisted authorization envelope", nil)
+		return false
+	}
+	if r.permissions == nil {
+		r.rejectClosedLoopAdmission(ctx, ev, "admission permission resolver is not configured", nil)
+		return false
+	}
+	effective, err := r.permissions.LoadEffective(ctx, ev.CreatedByUserID, ev.OrgID)
+	if err != nil {
+		slog.Error("curtailment reconciler: admission permission validation failed; admission deferred",
+			"event_id", ev.ID, "error", err)
+		return false
+	}
+	if !authorizationEnvelopeAllowsDispatch(effective, envelope, coverage) {
+		r.rejectClosedLoopAdmission(ctx, ev, "event creator no longer has required permissions", nil)
+		return false
+	}
+	adminAllowed, err := r.eventCreatorCanUseRequiredAdminControls(ctx, ev)
+	if err != nil {
+		slog.Error("curtailment reconciler: admission admin-control validation failed; admission deferred",
+			"event_id", ev.ID, "error", err)
+		return false
+	}
+	if !adminAllowed {
+		r.rejectClosedLoopAdmission(ctx, ev, "event creator no longer has the admin role required by this event", nil)
+		return false
+	}
+	return true
+}
+
+func (r *Reconciler) rejectClosedLoopAdmission(
+	ctx context.Context,
+	ev *models.Event,
+	reason string,
+	cause error,
+	attributes ...any,
+) {
+	logAttributes := []any{"event_id", ev.ID, "event_uuid", ev.EventUUID, "reason", reason}
+	if cause != nil {
+		logAttributes = append(logAttributes, "error", cause)
+	}
+	logAttributes = append(logAttributes, attributes...)
+	slog.Error("curtailment reconciler: closed-loop admission rejected", logAttributes...)
+	if _, err := r.store.BeginRestoreTransition(
+		ctx,
+		ev.OrgID,
+		ev.EventUUID,
+		interfaces.BeginRestoreTransitionParams{},
+	); err != nil && !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+		slog.Error("curtailment reconciler: failed to restore after closed-loop admission rejection",
+			"event_id", ev.ID, "event_uuid", ev.EventUUID, "error", err)
+	}
 }
 
 func hasInFlightCurtailDispatch(targets []*models.Target) bool {
@@ -1199,24 +1770,6 @@ func postEventCooldownSecForEvent(ev *models.Event) int32 {
 	return snapshot.PostEventCooldownSec
 }
 
-func excludeExistingTargetParams(targets []models.InsertTargetParams, existingTargets []*models.Target) []models.InsertTargetParams {
-	if len(targets) == 0 || len(existingTargets) == 0 {
-		return targets
-	}
-	existing := make(map[string]struct{}, len(existingTargets))
-	for _, target := range existingTargets {
-		existing[target.DeviceIdentifier] = struct{}{}
-	}
-	filtered := targets[:0]
-	for _, target := range targets {
-		if _, ok := existing[target.DeviceIdentifier]; ok {
-			continue
-		}
-		filtered = append(filtered, target)
-	}
-	return filtered
-}
-
 func excludeNonReopenableExistingTargetParams(targets []models.InsertTargetParams, existingTargets []*models.Target) []models.InsertTargetParams {
 	if len(targets) == 0 || len(existingTargets) == 0 {
 		return targets
@@ -1228,12 +1781,18 @@ func excludeNonReopenableExistingTargetParams(targets []models.InsertTargetParam
 	filtered := targets[:0]
 	for _, target := range targets {
 		state, ok := existing[target.DeviceIdentifier]
-		if ok && state != models.TargetStateReleased {
+		if ok && !isReopenableTargetState(state) {
 			continue
 		}
 		filtered = append(filtered, target)
 	}
 	return filtered
+}
+
+func isReopenableTargetState(state models.TargetState) bool {
+	return state == models.TargetStateResolved ||
+		state == models.TargetStateRestoreFailed ||
+		state == models.TargetStateReleased
 }
 
 func excludeDeviceIdentifiers(targets []models.InsertTargetParams, deviceIdentifiers []string) []models.InsertTargetParams {
@@ -1267,7 +1826,18 @@ func (r *Reconciler) dispatchClaimedCurtailTargets(ctx context.Context, ev *mode
 	if len(dispatchable) == 0 {
 		return
 	}
-	_ = r.dispatchCurtailBatch(ctx, ev, dispatchable, models.TargetStateDispatching, recordPendingDispatchClock)
+	knownUnsentDeviceIdentifiers := make([]string, 0, len(dispatchable))
+	for _, target := range dispatchable {
+		knownUnsentDeviceIdentifiers = append(knownUnsentDeviceIdentifiers, target.DeviceIdentifier)
+	}
+	_ = r.dispatchCurtailBatchWithKnownUnsent(
+		ctx,
+		ev,
+		dispatchable,
+		models.TargetStateDispatching,
+		recordPendingDispatchClock,
+		knownUnsentDeviceIdentifiers,
+	)
 }
 
 func isClosedLoopFullFleet(ev *models.Event) bool {
@@ -1296,11 +1866,15 @@ func listCandidatesParamsForEventScope(ev *models.Event) (interfaces.ListCandida
 		return interfaces.ListCandidatesParams{SiteIDs: []int64{scope.SiteID}}, true
 	case models.ScopeTypeMixed:
 		scope, hasScope, err := curtailment.ScopeFromJSON(ev.ScopeJSON)
-		if err != nil || !hasScope || !curtailment.IsSiteOnlyScope(scope) {
+		if err != nil || !hasScope {
 			return interfaces.ListCandidatesParams{}, false
 		}
-		return interfaces.ListCandidatesParams{SiteIDs: scope.SiteIDs}, true
-	case models.ScopeTypeDeviceSets, models.ScopeTypeDeviceList:
+		params, err := curtailment.ListCandidatesParamsForScope(scope)
+		if err != nil {
+			return interfaces.ListCandidatesParams{}, false
+		}
+		return params, true
+	case models.ScopeTypeDeviceList:
 		return interfaces.ListCandidatesParams{}, false
 	default:
 		return interfaces.ListCandidatesParams{}, false
@@ -1309,14 +1883,14 @@ func listCandidatesParamsForEventScope(ev *models.Event) (interfaces.ListCandida
 
 // confirmOneDispatched promotes Dispatched → Confirmed when telemetry
 // shows curtailment, resetting retry_count. Missing candidate row goes
-// through recordDispatchFailure so a vanished device can't stall.
+// through guarded failure aging so a vanished device can't stall.
 func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate, nonTerminalState models.TargetState) {
 	if c == nil {
-		r.recordDispatchFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", nonTerminalState)
+		r.recordDispatchedObservationFailure(ctx, ev, t, "candidate row missing (device unpaired or deleted)", nonTerminalState)
 		return
 	}
 	if isAllPairedPolicyEvent(ev) && !curtailment.IsAllPairedPolicyPairingStatus(c.PairingStatus) {
-		r.recordDispatchFailure(ctx, ev, t, "device is no longer paired-like", nonTerminalState)
+		r.recordDispatchedObservationFailure(ctx, ev, t, "device is no longer paired-like", nonTerminalState)
 		return
 	}
 	if !isCurtailed(c.LatestPowerW, t.BaselinePowerW, c.LatestHashRateHS, r.cfg.DriftThresholdFactor, true) {
@@ -1326,7 +1900,10 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 				slog.Info("curtailment reconciler: curtail telemetry timeout aging initiated",
 					"event_id", ev.ID, "device", t.DeviceIdentifier,
 					"timeout_sec", r.cfg.CurtailDispatchTimeoutSec)
-				r.recordDispatchFailure(ctx, ev, t,
+				// Guard on dispatched: if the confirmation pulse already
+				// confirmed this target from a fresh sample, this stale-snapshot
+				// aging write race-loses instead of reverting it and burning retry.
+				r.recordDispatchedObservationFailure(ctx, ev, t,
 					"curtail telemetry timeout",
 					models.TargetStateDispatching)
 			}
@@ -1334,17 +1911,10 @@ func (r *Reconciler) confirmOneDispatched(ctx context.Context, ev *models.Event,
 		return
 	}
 	now := r.now()
-	zero := int32(0)
-	params := interfaces.UpdateCurtailmentTargetStateParams{
-		State:       models.TargetStateConfirmed,
-		ConfirmedAt: &now,
-		ObservedAt:  &now,
-		RetryCount:  &zero,
-	}
-	if c.LatestPowerW != nil && isFinite(*c.LatestPowerW) {
-		power := *c.LatestPowerW
-		params.ObservedPowerW = &power
-	}
+	params := confirmedCurtailTargetParams(now, c.LatestPowerW)
+	expectedTargetState := models.TargetStateDispatched
+	params.ExpectedState = &expectedTargetState
+	params.ExpectedDispatchBatchUUID = loadedDispatchBatchUUID(t)
 	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			slog.Error("curtailment reconciler: target confirm update failed",
@@ -1440,11 +2010,21 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 // completed_with_failures so they can't sit indefinitely.
 func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targets []*models.Target) {
 	confirmed, terminalFailures, unavailable, releasedPolicy := 0, 0, 0, 0
+	topologyWatcher := isClosedLoopTopologyEvent(ev)
+	if len(targets) == 0 && isAllPairedPolicyEvent(ev) {
+		r.warnIfAllPairedPendingStalled(ev, 0, 0)
+		return
+	}
 	for _, t := range targets {
 		switch t.State {
 		case models.TargetStateConfirmed:
 			confirmed++
 		case models.TargetStateRestoreFailed:
+			if topologyWatcher && t.DesiredState == models.DesiredStateActive {
+				// A departed miner exhausted its restore retries. The target keeps
+				// the failure visible, but it must not terminate the scope watcher.
+				continue
+			}
 			terminalFailures++
 		case models.TargetStateUnavailable:
 			if isAllPairedPolicyEvent(ev) {
@@ -1467,11 +2047,18 @@ func (r *Reconciler) maybeMarkActive(ctx context.Context, ev *models.Event, targ
 				releasedPolicy++
 				continue
 			}
+			if topologyWatcher {
+				// The miner left the scope before Curtail was dispatched, so there
+				// is no restore obligation and the watcher can continue.
+				continue
+			}
 			// Unreachable on a pending event; hold for manual cleanup.
 			return
 		case models.TargetStateResolved:
-			// Unreachable on a pending event; hold for manual cleanup.
-			return
+			if t.DesiredState != models.DesiredStateActive || !isClosedLoopFullFleet(ev) {
+				// Unreachable outside a completed topology restore; hold for manual cleanup.
+				return
+			}
 		}
 	}
 	if confirmed == 0 && (unavailable > 0 || releasedPolicy > 0) {
@@ -1587,13 +2174,17 @@ func (r *Reconciler) writeTargetState(ctx context.Context, ev *models.Event, dev
 		return nil
 	}
 	if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
-		r.metrics.IncEventStateRaceLoss()
-		slog.Warn("curtailment reconciler: target state advanced concurrently; skipping update",
-			"event_id", ev.ID, "event_uuid", ev.EventUUID, "device", deviceID)
+		r.recordTargetStateRaceLoss(ev, deviceID)
 		return err
 	}
 	r.metrics.IncTargetWriteFailure()
 	return err
+}
+
+func (r *Reconciler) recordTargetStateRaceLoss(ev *models.Event, deviceID string) {
+	r.metrics.IncEventStateRaceLoss()
+	slog.Warn("curtailment reconciler: target state advanced concurrently; skipping update",
+		"event_id", ev.ID, "event_uuid", ev.EventUUID, "device", deviceID)
 }
 
 func expectedDesiredStateForEventState(state models.EventState) string {
@@ -1746,8 +2337,13 @@ func (r *Reconciler) observeRestoring(ctx context.Context, ev *models.Event) {
 			"event_id", ev.ID, "error", err)
 		return
 	}
+	// Deferred confirmation fast-path wake; see dispatchPending.
+	defer func() { r.wakeIfDispatchedWork(targets) }()
 	r.reconcileRestoringFans(ctx, ev)
 
+	if !r.refreshAllPairedTopologyRestoreTargets(ctx, ev, targets) {
+		return
+	}
 	r.confirmDispatchedRestores(ctx, ev, targets)
 	if r.maybeCompleteRestoring(ctx, ev, targets) {
 		return
@@ -1892,11 +2488,14 @@ func (r *Reconciler) confirmDispatchedRestores(ctx context.Context, ev *models.E
 
 // confirmOneRestore promotes Dispatched → Resolved when telemetry shows
 // the miner is back above the restore threshold; mirrors
-// confirmOneDispatched. Vanished devices burn retry budget to keep
-// progress.
+// confirmOneDispatched. Vanished devices normally burn retry budget to keep
+// progress; all-paired topology obligations park until commandable instead.
 func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t *models.Target, c *models.Candidate) {
+	if isAllPairedTopologyPolicyEvent(ev) && r.parkUncommandableTopologyRestore(ctx, ev, t, c) {
+		return
+	}
 	if c == nil {
-		r.recordDispatchFailure(ctx, ev, t,
+		r.recordDispatchedObservationFailure(ctx, ev, t,
 			"candidate row missing (device unpaired or deleted)",
 			models.TargetStatePending)
 		return
@@ -1910,7 +2509,11 @@ func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t 
 				slog.Info("curtailment reconciler: restore telemetry timeout aging initiated",
 					"event_id", ev.ID, "device", t.DeviceIdentifier,
 					"timeout_sec", r.cfg.RestoreDispatchTimeoutSec)
-				r.recordDispatchFailure(ctx, ev, t,
+				// Guard on dispatched: if the confirmation pulse already
+				// resolved this restore target, this stale-snapshot aging write
+				// race-loses instead of reverting it — critically avoiding a
+				// spurious RESTORE_FAILED when retry budget is at the ceiling.
+				r.recordDispatchedObservationFailure(ctx, ev, t,
 					"restore telemetry timeout",
 					models.TargetStatePending)
 			}
@@ -1918,15 +2521,12 @@ func (r *Reconciler) confirmOneRestore(ctx context.Context, ev *models.Event, t 
 		return
 	}
 	now := r.now()
-	params := interfaces.UpdateCurtailmentTargetStateParams{
-		State:       models.TargetStateResolved,
-		ConfirmedAt: &now,
-		ObservedAt:  &now,
-	}
-	if c.LatestPowerW != nil && isFinite(*c.LatestPowerW) {
-		power := *c.LatestPowerW
-		params.ObservedPowerW = &power
-	}
+	params := resolvedRestoreTargetParams(now, c.LatestPowerW)
+	desiredActive := models.DesiredStateActive
+	params.ExpectedDesiredState = &desiredActive
+	expectedTargetState := models.TargetStateDispatched
+	params.ExpectedState = &expectedTargetState
+	params.ExpectedDispatchBatchUUID = loadedDispatchBatchUUID(t)
 	if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, params); err != nil {
 		if !errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
 			slog.Error("curtailment reconciler: restore confirm update failed",
@@ -1991,14 +2591,27 @@ func restoreClaimBatchSize(ev *models.Event) int32 {
 // pending restore targets and dispatches one Uncurtail covering the batch.
 func (r *Reconciler) maybeClaimRestoreBatch(ctx context.Context, ev *models.Event, targets []*models.Target) {
 	if len(ev.FacilityFanDeviceIDs) > 0 {
-		if ev.FanOnSentAt == nil {
-			return
+		var delayStartedAt *time.Time
+		if ev.State == models.EventStateActive || ev.State == models.EventStatePending {
+			// If OFF was never attempted, airflow has remained available and no
+			// fan-start delay is needed. Otherwise a successful reopen establishes
+			// the delay boundary before any miner is restored.
+			if ev.FanOffSentAt != nil {
+				delayStartedAt = ev.FanAirflowReopenedAt
+				if delayStartedAt == nil {
+					return
+				}
+			}
+		} else {
+			delayStartedAt = ev.FanOnSentAt
+			if airflowStartedAt := restoringFanAirflowStartedAt(ev); airflowStartedAt != nil {
+				delayStartedAt = airflowStartedAt
+			}
+			if delayStartedAt == nil {
+				return
+			}
 		}
-		delayStartedAt := ev.FanOnSentAt
-		if airflowStartedAt := restoringFanAirflowStartedAt(ev); airflowStartedAt != nil {
-			delayStartedAt = airflowStartedAt
-		}
-		if r.now().Before(delayStartedAt.Add(time.Duration(ev.FanRestoreDelaySec) * time.Second)) {
+		if delayStartedAt != nil && r.now().Before(delayStartedAt.Add(time.Duration(ev.FanRestoreDelaySec)*time.Second)) {
 			return
 		}
 	}
@@ -2098,9 +2711,13 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 		return
 	}
 	dispatchSet := make([]*models.Target, 0, len(claim))
+	desiredActive := models.DesiredStateActive
 	for _, t := range claim {
+		expectedState := t.State
 		dispatchingParams := interfaces.UpdateCurtailmentTargetStateParams{
-			State: models.TargetStateDispatching,
+			State:                models.TargetStateDispatching,
+			ExpectedDesiredState: &desiredActive,
+			ExpectedState:        &expectedState,
 		}
 		if err := r.writeTargetState(ctx, ev, t.DeviceIdentifier, dispatchingParams); err != nil {
 			if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
@@ -2121,26 +2738,62 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 		return
 	}
 
-	deviceIDs := make([]string, 0, len(dispatchSet))
-	for _, t := range dispatchSet {
-		deviceIDs = append(deviceIDs, t.DeviceIdentifier)
-	}
 	cmdCtx := reconcilerCommandContext(ctx, ev.OrgID, ev.CreatedByUserID)
-	selector := &pb.DeviceSelector{
-		SelectionType: &pb.DeviceSelector_IncludeDevices{
-			IncludeDevices: &commonpb.DeviceIdentifierList{
-				DeviceIdentifiers: deviceIDs,
+	var result *command.CommandResult
+	var dispatchErr error
+	runCommand := func(targets []*models.Target) {
+		deviceIDs := make([]string, 0, len(targets))
+		for _, target := range targets {
+			deviceIDs = append(deviceIDs, target.DeviceIdentifier)
+		}
+		selector := &pb.DeviceSelector{
+			SelectionType: &pb.DeviceSelector_IncludeDevices{
+				IncludeDevices: &commonpb.DeviceIdentifierList{
+					DeviceIdentifiers: deviceIDs,
+				},
 			},
-		},
+		}
+		result, dispatchErr = r.cmd.Uncurtail(cmdCtx, selector)
 	}
-	result, dispatchErr := r.cmd.Uncurtail(cmdCtx, selector)
+	commandTargets := dispatchSet
+	topologyHandled, fenceReached, fencedTargets, fenceErr := r.fenceTopologyRestoreDispatch(
+		ctx,
+		ev,
+		dispatchSet,
+		runCommand,
+	)
+	if topologyHandled {
+		if !fenceReached {
+			if errors.Is(fenceErr, interfaces.ErrCurtailmentEventStateRaceLoss) {
+				return
+			}
+			errMsg := "topology restore dispatch fence failed"
+			if fenceErr != nil {
+				errMsg = fenceErr.Error()
+			}
+			slog.Error("curtailment reconciler: topology restore dispatch fence failed",
+				"event_id", ev.ID, "error", fenceErr)
+			for _, target := range dispatchSet {
+				r.recordDispatchFailure(ctx, ev, target, errMsg, models.TargetStatePending)
+			}
+			return
+		}
+		commandTargets = fencedTargets
+		if fenceErr != nil {
+			slog.Error("curtailment reconciler: topology restore fence ended after command callback",
+				"event_id", ev.ID, "error", fenceErr)
+		}
+		if len(commandTargets) == 0 {
+			return
+		}
+	} else {
+		runCommand(commandTargets)
+	}
 	if dispatchErr != nil {
 		errMsg := dispatchErr.Error()
 		slog.Error("curtailment reconciler: restore batch dispatch failed",
-			"event_id", ev.ID, "batch_size", len(dispatchSet), "error", dispatchErr)
-		for _, t := range dispatchSet {
-			r.recordDispatchFailure(ctx, ev, t, errMsg, models.TargetStatePending)
-		}
+			"event_id", ev.ID, "batch_size", len(commandTargets), "error", dispatchErr)
+		r.recordRestoreDispatchFailures(ctx, ev, restoreDispatchFailures(commandTargets, errMsg))
 		return
 	}
 
@@ -2148,10 +2801,8 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 	if result == nil || result.BatchIdentifier == "" {
 		const reason = "uncurtail command produced no batch (no live devices to dispatch)"
 		slog.Warn("curtailment reconciler: restore batch produced empty result",
-			"event_id", ev.ID, "batch_size", len(dispatchSet))
-		for _, t := range dispatchSet {
-			r.recordDispatchFailure(ctx, ev, t, reason, models.TargetStatePending)
-		}
+			"event_id", ev.ID, "batch_size", len(commandTargets))
+		r.recordRestoreDispatchFailures(ctx, ev, restoreDispatchFailures(commandTargets, reason))
 		return
 	}
 
@@ -2166,18 +2817,19 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 
 	now := r.now()
 	batchID := result.BatchIdentifier
-	for _, t := range dispatchSet {
+	failures := make([]restoreDispatchFailure, 0, len(commandTargets))
+	for _, t := range commandTargets {
 		if reason, skipped := skippedSet[t.DeviceIdentifier]; skipped {
 			slog.Warn("curtailment reconciler: restore device filter-skipped",
 				"event_id", ev.ID, "device", t.DeviceIdentifier, "reason", reason)
-			r.recordDispatchFailure(ctx, ev, t, reason, models.TargetStatePending)
+			failures = append(failures, restoreDispatchFailure{target: t, reason: reason})
 			continue
 		}
 		if _, dispatched := dispatchedSet[t.DeviceIdentifier]; !dispatched {
 			const reason = "uncurtail command did not enqueue device"
 			slog.Warn("curtailment reconciler: restore device not dispatched",
 				"event_id", ev.ID, "device", t.DeviceIdentifier)
-			r.recordDispatchFailure(ctx, ev, t, reason, models.TargetStatePending)
+			failures = append(failures, restoreDispatchFailure{target: t, reason: reason})
 			continue
 		}
 		emptyErr := ""
@@ -2203,6 +2855,128 @@ func (r *Reconciler) dispatchRestoreBatch(ctx context.Context, ev *models.Event,
 		t.LastBatchUUID = &batchID
 		t.LastError = nil
 	}
+	r.recordRestoreDispatchFailures(ctx, ev, failures)
+}
+
+type restoreDispatchFailure struct {
+	target *models.Target
+	reason string
+}
+
+func restoreDispatchFailures(targets []*models.Target, reason string) []restoreDispatchFailure {
+	failures := make([]restoreDispatchFailure, 0, len(targets))
+	for _, target := range targets {
+		failures = append(failures, restoreDispatchFailure{target: target, reason: reason})
+	}
+	return failures
+}
+
+// recordRestoreDispatchFailures parks all-paired topology obligations that
+// became uncommandable between the readiness pass and Uncurtail. This records
+// the unavailable transition while it is observable, so a later repair can
+// safely requeue the obligation without reopening ordinary terminal failures.
+func (r *Reconciler) recordRestoreDispatchFailures(
+	ctx context.Context,
+	ev *models.Event,
+	failures []restoreDispatchFailure,
+) {
+	if len(failures) == 0 {
+		return
+	}
+
+	parked := make(map[string]struct{}, len(failures))
+	if isAllPairedTopologyPolicyEvent(ev) {
+		deviceIdentifiers := make([]string, 0, len(failures))
+		for _, failure := range failures {
+			if failure.target != nil && failure.target.DeviceIdentifier != "" {
+				deviceIdentifiers = append(deviceIdentifiers, failure.target.DeviceIdentifier)
+			}
+		}
+		candidates, err := r.store.ListCandidates(ctx, interfaces.ListCandidatesParams{
+			OrgID:             ev.OrgID,
+			DeviceIdentifiers: deviceIdentifiers,
+		})
+		if err != nil {
+			slog.Error("curtailment reconciler: restore failure readiness refresh failed",
+				"event_id", ev.ID, "error", err)
+		} else {
+			candidatesByID := candidatesByDeviceID(candidates)
+			for _, failure := range failures {
+				if failure.target != nil && r.parkUncommandableTopologyRestore(
+					ctx,
+					ev,
+					failure.target,
+					candidatesByID[failure.target.DeviceIdentifier],
+				) {
+					parked[failure.target.DeviceIdentifier] = struct{}{}
+				}
+			}
+		}
+	}
+
+	for _, failure := range failures {
+		if failure.target == nil {
+			continue
+		}
+		if _, ok := parked[failure.target.DeviceIdentifier]; ok {
+			continue
+		}
+		r.recordDispatchFailureGuarded(
+			ctx,
+			ev,
+			failure.target,
+			failure.reason,
+			models.TargetStatePending,
+			&dispatchFailureGuard{expectedState: models.TargetStateDispatching},
+		)
+	}
+}
+
+func isAllPairedTopologyPolicyEvent(ev *models.Event) bool {
+	return isAllPairedPolicyEvent(ev) && isClosedLoopTopologyEvent(ev)
+}
+
+func isClosedLoopTopologyEvent(ev *models.Event) bool {
+	if !isClosedLoopFullFleet(ev) {
+		return false
+	}
+	scopeParams, hasScope := listCandidatesParamsForEventScope(ev)
+	return hasScope && isTopologyCandidateFilter(scopeParams)
+}
+
+func (r *Reconciler) parkUncommandableTopologyRestore(
+	ctx context.Context,
+	ev *models.Event,
+	target *models.Target,
+	candidate *models.Candidate,
+) bool {
+	nextState, reason := curtailment.AllPairedPolicyRestoreTargetState(candidate)
+	if nextState != models.TargetStateUnavailable {
+		return false
+	}
+	desiredActive := models.DesiredStateActive
+	expectedState := target.State
+	params := interfaces.UpdateCurtailmentTargetStateParams{
+		State:                models.TargetStateUnavailable,
+		LastError:            &reason,
+		ExpectedState:        &expectedState,
+		ExpectedDesiredState: &desiredActive,
+	}
+	if err := r.writeTargetState(ctx, ev, target.DeviceIdentifier, params); err != nil {
+		if errors.Is(err, interfaces.ErrCurtailmentEventStateRaceLoss) {
+			return true
+		}
+		slog.Error("curtailment reconciler: park uncommandable restore failed",
+			"event_id", ev.ID, "device", target.DeviceIdentifier, "error", err)
+		return false
+	}
+	target.State = models.TargetStateUnavailable
+	target.LastError = &reason
+	if target.RestorePhase != nil {
+		target.RestorePhase.State = models.TargetStateUnavailable
+		target.RestorePhase.LastError = &reason
+	}
+	return true
 }
 
 func (r *Reconciler) eventStillDispatchable(ctx context.Context, ev *models.Event) bool {

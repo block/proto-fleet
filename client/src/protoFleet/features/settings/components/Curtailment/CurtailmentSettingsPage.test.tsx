@@ -88,7 +88,7 @@ vi.mock("@/protoFleet/features/energy/useCurtailmentPlanPreview", () => ({
   useCurtailmentPlanPreview: mockUseCurtailmentPlanPreview,
 }));
 
-vi.mock("@/protoFleet/features/settings/components/Schedules/MinerSelectionModal", () => ({
+vi.mock("@/protoFleet/components/TargetSelectionModal/MinerSelectionModal", () => ({
   default: ({ open, onSave }: { open: boolean; onSave: (minerIds: string[]) => void }) =>
     open ? (
       <div role="dialog" aria-label="Select miners">
@@ -185,16 +185,25 @@ const apiSources: CurtailmentSource[] = [
 const testResponseProfiles: ResponseProfile[] = [
   {
     id: "emergency-full-shed",
+    revision: "11111111-1111-4111-8111-111111111111",
     name: "Emergency full shed",
     targetSummary: "100% reduction",
     scope: "Whole fleet",
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
     deadlineSummary: "Within 5 min",
+    isAutomationReady: true,
     formValues: {
       name: "Emergency full shed",
       actionType: "fullFleet",
       targetKw: "",
+      toleranceKw: "",
+      priority: "normal",
+      postEventCooldownSec: "",
+      scopeType: "wholeOrg",
+      buildingTargetIds: [],
+      rackTargetIds: [],
+      groupTargetIds: [],
       deviceIdentifiers: [],
       siteId: "",
       siteName: "",
@@ -212,16 +221,25 @@ const testResponseProfiles: ResponseProfile[] = [
   },
   {
     id: "site-alpha-500-kw",
+    revision: "22222222-2222-4222-8222-222222222222",
     name: "Site Alpha 500 kW",
     targetSummary: "500 kW target",
     scope: "Whole fleet",
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore immediately",
     deadlineSummary: "Within 15 min",
+    isAutomationReady: true,
     formValues: {
       name: "Site Alpha 500 kW",
       actionType: "fixedKwReduction",
       targetKw: "500",
+      toleranceKw: "",
+      priority: "normal",
+      postEventCooldownSec: "",
+      scopeType: "wholeOrg",
+      buildingTargetIds: [],
+      rackTargetIds: [],
+      groupTargetIds: [],
       deviceIdentifiers: [],
       siteId: "",
       siteName: "",
@@ -247,10 +265,18 @@ const targetedMinersResponseProfile: ResponseProfile = {
   selectionStrategy: "Least efficient first",
   restoreBehavior: "Restore in batches",
   deadlineSummary: "Within 15 min",
+  isAutomationReady: true,
   formValues: {
     name: "Targeted miners",
     actionType: "fixedKwReduction",
     targetKw: "650",
+    toleranceKw: "",
+    priority: "normal",
+    postEventCooldownSec: "",
+    scopeType: "explicitMiners",
+    buildingTargetIds: [],
+    rackTargetIds: [],
+    groupTargetIds: [],
     deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
     siteId: "",
     siteName: "",
@@ -275,10 +301,18 @@ const siteScopedResponseProfile: ResponseProfile = {
   selectionStrategy: "Least efficient first",
   restoreBehavior: "Restore immediately",
   deadlineSummary: "Within 15 min",
+  isAutomationReady: true,
   formValues: {
     name: "Site scoped profile",
     actionType: "fixedKwReduction",
     targetKw: "400",
+    toleranceKw: "",
+    priority: "normal",
+    postEventCooldownSec: "",
+    scopeType: "site",
+    buildingTargetIds: [],
+    rackTargetIds: [],
+    groupTargetIds: [],
     deviceIdentifiers: [],
     siteId: "101",
     siteName: "Site 101",
@@ -537,7 +571,9 @@ describe("CurtailmentSettingsPage", () => {
     expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage");
     expect(useCurtailmentResponseProfiles).toHaveBeenCalledWith(true, { siteNameById: undefined });
     expect(useMqttCurtailmentSources).toHaveBeenCalledWith(true);
-    expect(useCurtailmentAutomationRules).toHaveBeenCalledWith(true);
+    expect(useCurtailmentAutomationRules).toHaveBeenCalledWith(true, {
+      refreshResponseProfiles: expect.any(Function),
+    });
     expect(screen.getByTestId("settings-curtailment-page")).toBeVisible();
     expect(screen.getByText("Curtailment")).toBeVisible();
     expect(
@@ -546,6 +582,9 @@ describe("CurtailmentSettingsPage", () => {
       ),
     ).toBeVisible();
     expect(screen.getByText("Response profiles")).toBeVisible();
+    expect(screen.getByTestId("proto-rig-curtailment-fallback-notice")).toHaveTextContent(
+      "Proto rigs can use compatible TCP MaestroOS sources as a local fallback",
+    );
     expect(screen.getByRole("button", { name: "About response profiles" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Create profile" })).toBeEnabled();
     expect(screen.getByText("Sources")).toBeVisible();
@@ -576,6 +615,35 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByText("Add a MaestroOS MQTT source to receive curtailment signals.")).toBeVisible();
     expect(screen.getByText("No automations configured")).toBeVisible();
     expect(screen.getByText("Add an automation to trigger a response profile.")).toBeVisible();
+  });
+
+  it.each([
+    {
+      permission: "site:read",
+      visibleTarget: /Buildings\s+Select/,
+      hiddenTargets: [/Racks\s+Select/, /Groups\s+Select/],
+    },
+    {
+      permission: "rack:read",
+      visibleTarget: /Racks\s+Select/,
+      hiddenTargets: [/Buildings\s+Select/],
+    },
+  ])("gates topology pickers by $permission", async ({ permission, visibleTarget, hiddenTargets }) => {
+    const user = userEvent.setup();
+    vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage" || key === permission);
+
+    render(
+      <MemoryRouter>
+        <CurtailmentSettingsPage />
+      </MemoryRouter>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Create profile" }));
+
+    expect(screen.getByRole("button", { name: visibleTarget })).toBeInTheDocument();
+    for (const hiddenTarget of hiddenTargets) {
+      expect(screen.queryByRole("button", { name: hiddenTarget })).not.toBeInTheDocument();
+    }
   });
 
   it("renders sources returned by the API hook", () => {
@@ -939,7 +1007,20 @@ describe("CurtailmentSettingsPage", () => {
 
   it("saves a response profile, runs a curtailment, and redirects to energy", async () => {
     vi.mocked(useHasPermission).mockImplementation((key) => key === "curtailment:manage");
-    createResponseProfileMock.mockResolvedValue(testResponseProfiles[0]);
+    createResponseProfileMock.mockResolvedValue({
+      ...testResponseProfiles[0],
+      id: "27",
+      revision: "33333333-3333-4333-8333-333333333333",
+      formValues: {
+        ...testResponseProfiles[0].formValues!,
+        minerSelectionMode: "all",
+        siteSelection: "allSites",
+        curtailBatchSize: "25",
+        curtailBatchIntervalSec: "60",
+        restoreBatchSize: "10",
+        restoreIntervalSec: "120",
+      },
+    });
 
     render(
       <MemoryRouter>
@@ -986,6 +1067,8 @@ describe("CurtailmentSettingsPage", () => {
           restoreBatchSize: "10",
           restoreIntervalSec: "120",
           includeMaintenance: false,
+          responseProfileId: "27",
+          responseProfileRevision: "33333333-3333-4333-8333-333333333333",
         }),
       ),
     );
@@ -1155,8 +1238,19 @@ describe("CurtailmentSettingsPage", () => {
     mockResponseProfilesApi({ responseProfiles: testResponseProfiles });
     updateResponseProfileMock.mockResolvedValue({
       ...testResponseProfiles[1],
+      id: "28",
+      revision: "44444444-4444-4444-8444-444444444444",
       name: "Site Alpha 750 kW",
       targetSummary: "750 kW target",
+      formValues: {
+        ...testResponseProfiles[1].formValues!,
+        name: "Site Alpha 750 kW",
+        targetKw: "750.123",
+        curtailBatchSize: "75",
+        curtailBatchIntervalSec: "45",
+        restoreBatchSize: "50",
+        restoreIntervalSec: "120",
+      },
     });
 
     render(
@@ -1170,7 +1264,7 @@ describe("CurtailmentSettingsPage", () => {
     expect(screen.getByRole("button", { name: "Run curtailment" })).toBeEnabled();
 
     fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Site Alpha 750 kW" } });
-    fireEvent.change(screen.getByLabelText("Fixed target reduction (kW)"), { target: { value: "750" } });
+    fireEvent.change(screen.getByLabelText("Fixed target reduction (kW)"), { target: { value: "750.1234" } });
     fireEvent.change(screen.getByTestId("response-profile-curtail-batch-size"), { target: { value: "75" } });
     fireEvent.change(screen.getByTestId("response-profile-curtail-batch-interval"), { target: { value: "45" } });
     fireEvent.change(screen.getByTestId("response-profile-restore-batch-size"), { target: { value: "50" } });
@@ -1189,7 +1283,7 @@ describe("CurtailmentSettingsPage", () => {
         "site-alpha-500-kw",
         expect.objectContaining({
           name: "Site Alpha 750 kW",
-          targetKw: "750",
+          targetKw: "750.1234",
           curtailBatchSize: "75",
           curtailBatchIntervalSec: "45",
           restoreBatchSize: "50",
@@ -1202,7 +1296,7 @@ describe("CurtailmentSettingsPage", () => {
       expect(startCurtailmentMock).toHaveBeenCalledWith(
         expect.objectContaining({
           reason: "Site Alpha 750 kW",
-          targetKw: "750",
+          targetKw: "750.123",
           curtailmentMode: "fixedKwReduction",
           scopeType: "wholeOrg",
           siteId: "",
@@ -1210,6 +1304,8 @@ describe("CurtailmentSettingsPage", () => {
           curtailBatchIntervalSec: "45",
           restoreBatchSize: "50",
           restoreIntervalSec: "120",
+          responseProfileId: "28",
+          responseProfileRevision: "44444444-4444-4444-8444-444444444444",
         }),
       ),
     );
@@ -1263,6 +1359,31 @@ describe("CurtailmentSettingsPage", () => {
     const noSignalLabel = screen.getByText("No signal");
     expect(noSignalLabel.previousElementSibling).toHaveClass("h-2", "w-2", "rounded-full", "bg-intent-critical-fill");
     expect(document.querySelector(".curtailment-source-health")).not.toBeInTheDocument();
+  });
+
+  it("enables editing for topology-scoped response profiles", () => {
+    const topologyProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "topology-profile",
+      name: "Building response",
+      scope: "2 buildings",
+      formValues: {
+        ...testResponseProfiles[0].formValues!,
+        scopeType: "building",
+        buildingTargetIds: ["7", "8"],
+        siteSelection: "none",
+        siteId: "",
+        siteIds: [],
+      },
+      isReadOnly: false,
+      isAutomationReady: true,
+    };
+
+    render(<CurtailmentSettingsContent initialResponseProfiles={[topologyProfile]} />);
+
+    const card = getResponseProfileCard("Building response");
+    expect(within(card).getByText("2 buildings")).toBeVisible();
+    expect(within(card).getByRole("button", { name: "Edit" })).toBeEnabled();
   });
 
   it("renders provided automations with enabled and disabled rows", () => {
@@ -1386,6 +1507,43 @@ describe("CurtailmentSettingsPage", () => {
 
     await waitFor(() => expect(screen.queryByTestId("full-screen-two-pane-modal")).not.toBeInTheDocument());
     expect(screen.queryByText("Site Alpha 750 kW")).not.toBeInTheDocument();
+  });
+
+  it("hides the test action when the response profile cannot be persisted", () => {
+    render(
+      <CurtailmentSettingsContent
+        initialResponseProfileModalOpen
+        onTestResponseProfileCurtailment={async () => undefined}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Run curtailment" })).not.toBeInTheDocument();
+  });
+
+  it("reloads an open response profile editor when its revision changes", () => {
+    const originalProfile: ResponseProfile = {
+      ...testResponseProfiles[1],
+      revision: "33333333-3333-4333-8333-333333333333",
+    };
+    const refreshedProfile: ResponseProfile = {
+      ...originalProfile,
+      revision: "44444444-4444-4444-8444-444444444444",
+      name: "Changed elsewhere",
+      formValues: {
+        ...originalProfile.formValues!,
+        name: "Changed elsewhere",
+        targetKw: "900",
+      },
+    };
+    const { rerender } = render(<CurtailmentSettingsContent responseProfiles={[originalProfile]} />);
+
+    fireEvent.click(within(getResponseProfileCard(originalProfile.name)).getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Profile name"), { target: { value: "Unsaved local edit" } });
+
+    rerender(<CurtailmentSettingsContent responseProfiles={[refreshedProfile]} />);
+
+    expect(screen.getByLabelText("Profile name")).toHaveValue("Changed elsewhere");
+    expect(screen.getByLabelText("Fixed target reduction (kW)")).toHaveValue("900");
   });
 
   it("opens the source dialog and closes it from Save without API props", async () => {
@@ -1809,6 +1967,7 @@ describe("CurtailmentSettingsPage", () => {
         name: "Site Alpha automation",
         sourceId: "11",
         responseProfileId: "21",
+        responseProfileRevision: apiResponseProfiles[0].revision,
       }),
     );
     await waitFor(() =>
@@ -1831,7 +1990,9 @@ describe("CurtailmentSettingsPage", () => {
     expect(useHasPermission).toHaveBeenCalledWith("curtailment:manage");
     expect(useCurtailmentResponseProfiles).toHaveBeenCalledWith(false, { siteNameById: undefined });
     expect(useMqttCurtailmentSources).toHaveBeenCalledWith(false);
-    expect(useCurtailmentAutomationRules).toHaveBeenCalledWith(false);
+    expect(useCurtailmentAutomationRules).toHaveBeenCalledWith(false, {
+      refreshResponseProfiles: expect.any(Function),
+    });
     expect(screen.queryByTestId("settings-curtailment-page")).not.toBeInTheDocument();
   });
 });

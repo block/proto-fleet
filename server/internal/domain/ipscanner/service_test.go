@@ -2,10 +2,13 @@ package ipscanner
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
 	"github.com/block/proto-fleet/server/internal/domain/ipscanner/mocks"
@@ -19,6 +22,120 @@ type noopDiscoverer struct{}
 
 func (n *noopDiscoverer) Discover(ctx context.Context, ipAddress, port string) (*discoverymodels.DiscoveredDevice, error) {
 	return nil, nil
+}
+
+type recordingFleetNodeRecovery struct{ ran chan struct{} }
+
+func (r recordingFleetNodeRecovery) RunCycle(context.Context) {
+	select {
+	case r.ran <- struct{}{}:
+	default:
+	}
+}
+
+type blockingFleetNodeRecovery struct {
+	firstStarted chan struct{}
+	releaseFirst chan struct{}
+	calls        chan struct{}
+	once         sync.Once
+}
+
+func (r *blockingFleetNodeRecovery) RunCycle(context.Context) {
+	r.calls <- struct{}{}
+	r.once.Do(func() {
+		close(r.firstStarted)
+		<-r.releaseFirst
+	})
+}
+
+func TestIPScannerServiceRunsFleetNodeRecoveryWhenCloudScannerIsDisabled(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	config := Config{Enabled: false, ScanInterval: time.Hour, MaxConcurrentSubnetScans: 1, MaxConcurrentIPScansPerSubnet: 1, ScanTimeout: time.Second, SubnetMaskBits: 24}
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	service := NewIPScannerService(config, deviceStore, storemocks.NewMockDiscoveredDeviceStore(ctrl), &noopDiscoverer{}, mocks.NewMockDeviceIdentityCheckService(ctrl), slog.Default())
+	ran := make(chan struct{}, 1)
+	service.WithFleetNodeRecovery(recordingFleetNodeRecovery{ran: ran})
+
+	require.NoError(t, service.Start(t.Context()))
+	waitForScannerSignal(t, ran, "Fleet Node recovery did not run immediately")
+	require.NoError(t, service.Stop(t.Context()))
+}
+
+func TestIPScannerService_Start_RejectsNonpositiveScanInterval(t *testing.T) {
+	for _, mode := range []struct {
+		name    string
+		enabled bool
+	}{
+		{name: "cloud", enabled: true},
+		{name: "Fleet Node only", enabled: false},
+	} {
+		for _, interval := range []time.Duration{0, -time.Second} {
+			t.Run(mode.name+"/"+interval.String(), func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				service := NewIPScannerService(
+					Config{Enabled: mode.enabled, ScanInterval: interval, MaxConcurrentSubnetScans: 1, MaxConcurrentIPScansPerSubnet: 1},
+					storemocks.NewMockDeviceStore(ctrl),
+					storemocks.NewMockDiscoveredDeviceStore(ctrl),
+					&noopDiscoverer{},
+					mocks.NewMockDeviceIdentityCheckService(ctrl),
+					slog.Default(),
+				)
+				ran := make(chan struct{}, 1)
+				service.WithFleetNodeRecovery(recordingFleetNodeRecovery{ran: ran})
+
+				require.ErrorContains(t, service.Start(t.Context()), "scan interval must be positive")
+				require.Nil(t, service.run, "invalid configuration must not allocate a run")
+				require.NoError(t, service.Stop(t.Context()))
+				require.Empty(t, ran, "invalid configuration must not dispatch recovery")
+			})
+		}
+	}
+}
+
+func TestFleetNodeRecoveryWaitsAFullIntervalAfterSlowCycle(t *testing.T) {
+	interval := 30 * time.Millisecond
+	recovery := &blockingFleetNodeRecovery{
+		firstStarted: make(chan struct{}),
+		releaseFirst: make(chan struct{}),
+		calls:        make(chan struct{}, 2),
+	}
+	service := &Service{config: Config{ScanInterval: interval}, fleetNodeRecovery: recovery}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		service.fleetNodeRecoveryLoop(ctx)
+	}()
+
+	select {
+	case <-recovery.firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first recovery cycle did not start")
+	}
+	<-time.After(2 * interval)
+	close(recovery.releaseFirst)
+	select {
+	case <-recovery.calls:
+		// Drain the first call recorded before it blocked.
+	default:
+		t.Fatal("first recovery call was not recorded")
+	}
+	select {
+	case <-recovery.calls:
+		t.Fatal("second recovery cycle started without waiting a full interval")
+	case <-time.After(interval / 2):
+	}
+	select {
+	case <-recovery.calls:
+	case <-time.After(5 * interval):
+		t.Fatal("second recovery cycle did not start after the interval")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("recovery loop did not stop after cancellation")
+	}
 }
 
 func TestIPScannerService_StartStopStart(t *testing.T) {
@@ -64,24 +181,80 @@ func TestIPScannerService_StartStopStart(t *testing.T) {
 	}
 }
 
-func TestIPScannerService_Start_CallerCancellationDoesNotStopRun(t *testing.T) {
+func TestIPScannerService_Start_ActivationCancellationAllowsRestartAfterDrain(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	config := Config{
 		Enabled:                       true,
-		ScanInterval:                  10 * time.Millisecond,
+		ScanInterval:                  time.Hour,
 		MaxConcurrentSubnetScans:      1,
 		MaxConcurrentIPScansPerSubnet: 1,
 		ScanTimeout:                   time.Second,
 		SubnetMaskBits:                24,
 	}
 	deviceStore := storemocks.NewMockDeviceStore(ctrl)
-	scanned := make(chan struct{}, 2)
+	scanned := make(chan struct{}, 1)
 	deviceStore.EXPECT().GetOfflineDevices(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(context.Context, int) ([]stores.OfflineDeviceInfo, error) {
-			select {
-			case scanned <- struct{}{}:
-			default:
-			}
+			scanned <- struct{}{}
+			return nil, nil
+		},
+	).Times(2)
+	service := NewIPScannerService(
+		config,
+		deviceStore,
+		storemocks.NewMockDiscoveredDeviceStore(ctrl),
+		&noopDiscoverer{},
+		mocks.NewMockDeviceIdentityCheckService(ctrl),
+		slog.Default(),
+	)
+
+	activationCtx, cancelActivation := context.WithCancel(t.Context())
+	if err := service.Start(activationCtx); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	waitForScannerSignal(t, scanned, "initial scan did not run")
+
+	service.lifecycleMu.Lock()
+	run := service.run
+	service.lifecycleMu.Unlock()
+	if run == nil {
+		t.Fatal("Start did not create an active scanner run")
+	}
+
+	cancelActivation()
+	waitForScannerSignal(t, run.done, "activation context cancellation did not stop scanner run")
+
+	if err := service.Start(t.Context()); err != nil {
+		t.Fatalf("Start after drain failed: %v", err)
+	}
+	waitForScannerSignal(t, scanned, "restarted run did not scan")
+	if err := service.Stop(t.Context()); err != nil {
+		t.Fatalf("Stop failed: %v", err)
+	}
+}
+
+func TestIPScannerService_Start_RejectsCanceledRunUntilDrained(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	config := Config{
+		Enabled:                       true,
+		ScanInterval:                  time.Hour,
+		MaxConcurrentSubnetScans:      1,
+		MaxConcurrentIPScansPerSubnet: 1,
+		ScanTimeout:                   time.Second,
+		SubnetMaskBits:                24,
+	}
+	firstScanStarted := make(chan struct{})
+	releaseFirstScan := make(chan struct{})
+	release := sync.OnceFunc(func() { close(releaseFirstScan) })
+	t.Cleanup(release)
+	blockFirstScan := sync.OnceFunc(func() {
+		close(firstScanStarted)
+		<-releaseFirstScan
+	})
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	deviceStore.EXPECT().GetOfflineDevices(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, int) ([]stores.OfflineDeviceInfo, error) {
+			blockFirstScan()
 			return nil, nil
 		},
 	).AnyTimes()
@@ -94,17 +267,38 @@ func TestIPScannerService_Start_CallerCancellationDoesNotStopRun(t *testing.T) {
 		slog.Default(),
 	)
 
-	startupCtx, cancelStartup := context.WithCancel(t.Context())
-	if err := service.Start(startupCtx); err != nil {
+	activationCtx, cancelActivation := context.WithCancel(t.Context())
+	if err := service.Start(activationCtx); err != nil {
 		t.Fatalf("Start failed: %v", err)
 	}
-	waitForScannerSignal(t, scanned, "initial scan did not run")
+	waitForScannerSignal(t, firstScanStarted, "initial scan did not start")
 
-	cancelStartup()
-	waitForScannerSignal(t, scanned, "startup context cancellation stopped periodic scans")
+	service.lifecycleMu.Lock()
+	run := service.run
+	service.lifecycleMu.Unlock()
+	if run == nil {
+		t.Fatal("Start did not create an active scanner run")
+	}
 
+	cancelActivation()
+	select {
+	case <-run.done:
+		t.Fatal("scanner run drained before restart check")
+	default:
+	}
+	if err := service.Start(t.Context()); !errors.Is(err, errServiceStopping) {
+		t.Fatalf("Start error = %v, want %v", err, errServiceStopping)
+	}
+
+	release()
 	if err := service.Stop(t.Context()); err != nil {
 		t.Fatalf("Stop failed: %v", err)
+	}
+	if err := service.Start(t.Context()); err != nil {
+		t.Fatalf("Start after drain failed: %v", err)
+	}
+	if err := service.Stop(t.Context()); err != nil {
+		t.Fatalf("final Stop failed: %v", err)
 	}
 }
 
@@ -166,16 +360,18 @@ func TestIPScannerService_Stop_CancelsWorkerBlockedOnFullResults(t *testing.T) {
 func TestIPScannerService_Stop_ReturnsAtDeadline(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	service := NewIPScannerService(
-		Config{Enabled: true, MaxConcurrentSubnetScans: 1, MaxConcurrentIPScansPerSubnet: 1},
+		Config{Enabled: true, ScanInterval: time.Hour, MaxConcurrentSubnetScans: 1, MaxConcurrentIPScansPerSubnet: 1},
 		storemocks.NewMockDeviceStore(ctrl),
 		storemocks.NewMockDiscoveredDeviceStore(ctrl),
 		&noopDiscoverer{},
 		mocks.NewMockDeviceIdentityCheckService(ctrl),
 		slog.Default(),
 	)
+	activationCtx, cancelActivation := context.WithCancel(t.Context())
 	service.run = &serviceRun{
-		cancel: func() {},
-		done:   make(chan struct{}),
+		activationDone: activationCtx.Done(),
+		cancel:         cancelActivation,
+		done:           make(chan struct{}),
 	}
 
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)

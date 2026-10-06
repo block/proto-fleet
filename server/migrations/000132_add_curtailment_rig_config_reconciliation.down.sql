@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS curtailment_rig_config_reconciliation;

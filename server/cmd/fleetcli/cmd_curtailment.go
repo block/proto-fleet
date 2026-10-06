@@ -31,6 +31,7 @@ func generatedCurtailmentCommand() *cli.Command {
 							&cli.Int64Flag{Name: "mqtt-source-id", Usage: "(required) mqtt source id", Required: true},
 							&cli.Int64Flag{Name: "response-profile-id", Usage: "(required) response profile id", Required: true},
 							&cli.BoolFlag{Name: "enabled", Usage: "enabled"},
+							&cli.StringFlag{Name: "expected-response-profile-revision", Usage: "(required) expected response profile revision", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.CreateCurtailmentAutomationRuleRequest{}
@@ -54,6 +55,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("enabled") {
 								value := cmd.Bool("enabled")
 								req.Enabled = &value
+							}
+							if cmd.IsSet("expected-response-profile-revision") {
+								req.ExpectedResponseProfileRevision = cmd.String("expected-response-profile-revision")
 							}
 							if err := generatedValidateRequest(req); err != nil {
 								return nil, err
@@ -125,6 +129,7 @@ func generatedCurtailmentCommand() *cli.Command {
 						[]cli.Flag{
 							&cli.Int64Flag{Name: "rule-id", Usage: "(required) rule id", Required: true},
 							&cli.BoolFlag{Name: "enabled", Usage: "(required) enabled", Required: true},
+							&cli.StringFlag{Name: "expected-response-profile-revision", Usage: "expected response profile revision"},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.SetCurtailmentAutomationRuleEnabledRequest{}
@@ -133,6 +138,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							}
 							if cmd.IsSet("enabled") {
 								req.Enabled = cmd.Bool("enabled")
+							}
+							if cmd.IsSet("expected-response-profile-revision") {
+								req.ExpectedResponseProfileRevision = cmd.String("expected-response-profile-revision")
 							}
 							if err := generatedValidateRequest(req); err != nil {
 								return nil, err
@@ -152,6 +160,7 @@ func generatedCurtailmentCommand() *cli.Command {
 							&cli.StringFlag{Name: "trigger-type", Usage: "trigger type. Valid options: mqtt"},
 							&cli.Int64Flag{Name: "mqtt-source-id", Usage: "(required) mqtt source id", Required: true},
 							&cli.Int64Flag{Name: "response-profile-id", Usage: "(required) response profile id", Required: true},
+							&cli.StringFlag{Name: "expected-response-profile-revision", Usage: "(required) expected response profile revision", Required: true},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.UpdateCurtailmentAutomationRuleRequest{}
@@ -174,6 +183,9 @@ func generatedCurtailmentCommand() *cli.Command {
 							}
 							if cmd.IsSet("response-profile-id") {
 								req.ResponseProfileId = cmd.Int64("response-profile-id")
+							}
+							if cmd.IsSet("expected-response-profile-revision") {
+								req.ExpectedResponseProfileRevision = cmd.String("expected-response-profile-revision")
 							}
 							if err := generatedValidateRequest(req); err != nil {
 								return nil, err
@@ -316,6 +328,10 @@ func generatedCurtailmentCommand() *cli.Command {
 							&cli.UintFlag{Name: "candidate-min-power-w-override", Usage: "candidate min power w override"},
 							&cli.UintFlag{Name: "post-event-cooldown-sec", Usage: "post event cooldown sec"},
 							&cli.BoolFlag{Name: "force-include-all-paired-miners", Usage: "force include all paired miners"},
+							&cli.UintFlag{Name: "scope-schema-version", Usage: "scope schema version"},
+							&cli.Int64Flag{Name: "response-profile-id", Usage: "response profile id"},
+							&cli.StringFlag{Name: "expected-response-profile-revision", Usage: "expected response profile revision"},
+							&cli.UintFlag{Name: "execution-schema-version", Usage: "(required unless provided by --json) execution schema version"},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.PreviewCurtailmentPlanRequest{}
@@ -407,7 +423,27 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("force-include-all-paired-miners") {
 								req.ForceIncludeAllPairedMiners = cmd.Bool("force-include-all-paired-miners")
 							}
-							if err := generatedValidateRequiredFields(req, "mode"); err != nil {
+							if cmd.IsSet("scope-schema-version") {
+								value, err := generatedUint32FlagValue(cmd, "scope-schema-version")
+								if err != nil {
+									return nil, err
+								}
+								req.ScopeSchemaVersion = value
+							}
+							if cmd.IsSet("response-profile-id") {
+								req.ResponseProfileId = cmd.Int64("response-profile-id")
+							}
+							if cmd.IsSet("expected-response-profile-revision") {
+								req.ExpectedResponseProfileRevision = cmd.String("expected-response-profile-revision")
+							}
+							if cmd.IsSet("execution-schema-version") {
+								value, err := generatedUint32FlagValue(cmd, "execution-schema-version")
+								if err != nil {
+									return nil, err
+								}
+								req.ExecutionSchemaVersion = value
+							}
+							if err := generatedValidateRequiredFields(req, "execution_schema_version", "mode"); err != nil {
 								return nil, err
 							}
 							if err := generatedValidateRequest(req); err != nil {
@@ -443,6 +479,10 @@ func generatedCurtailmentCommand() *cli.Command {
 							&cli.StringSliceFlag{Name: "facility-fan-device-ids", Usage: "facility fan device ids"},
 							&cli.UintFlag{Name: "fan-off-delay-sec", Usage: "fan off delay sec"},
 							&cli.UintFlag{Name: "fan-restore-delay-sec", Usage: "fan restore delay sec"},
+							&cli.UintFlag{Name: "scope-schema-version", Usage: "scope schema version"},
+							&cli.Int64Flag{Name: "response-profile-id", Usage: "response profile id"},
+							&cli.StringFlag{Name: "expected-response-profile-revision", Usage: "expected response profile revision"},
+							&cli.UintFlag{Name: "execution-schema-version", Usage: "(required unless provided by --json) execution schema version"},
 							&cli.StringFlag{Name: "idempotency-key", Usage: "idempotency key"},
 							&cli.StringFlag{Name: "reason", Usage: "(required unless provided by --json) reason"},
 							&cli.StringFlag{Name: "external-source", Usage: "external source"},
@@ -604,6 +644,26 @@ func generatedCurtailmentCommand() *cli.Command {
 								}
 								req.FanRestoreDelaySec = value
 							}
+							if cmd.IsSet("scope-schema-version") {
+								value, err := generatedUint32FlagValue(cmd, "scope-schema-version")
+								if err != nil {
+									return nil, err
+								}
+								req.ScopeSchemaVersion = value
+							}
+							if cmd.IsSet("response-profile-id") {
+								req.ResponseProfileId = cmd.Int64("response-profile-id")
+							}
+							if cmd.IsSet("expected-response-profile-revision") {
+								req.ExpectedResponseProfileRevision = cmd.String("expected-response-profile-revision")
+							}
+							if cmd.IsSet("execution-schema-version") {
+								value, err := generatedUint32FlagValue(cmd, "execution-schema-version")
+								if err != nil {
+									return nil, err
+								}
+								req.ExecutionSchemaVersion = value
+							}
 							if cmd.IsSet("idempotency-key") {
 								req.IdempotencyKey = cmd.String("idempotency-key")
 							}
@@ -616,7 +676,7 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("external-reference") {
 								req.ExternalReference = cmd.String("external-reference")
 							}
-							if err := generatedValidateRequiredFields(req, "mode", "reason"); err != nil {
+							if err := generatedValidateRequiredFields(req, "execution_schema_version", "mode", "reason"); err != nil {
 								return nil, err
 							}
 							if err := generatedValidateRequest(req); err != nil {
@@ -1051,6 +1111,7 @@ func generatedCurtailmentCommand() *cli.Command {
 							&cli.StringSliceFlag{Name: "facility-fan-device-ids", Usage: "facility fan device ids"},
 							&cli.UintFlag{Name: "fan-off-delay-sec", Usage: "fan off delay sec"},
 							&cli.UintFlag{Name: "fan-restore-delay-sec", Usage: "fan restore delay sec"},
+							&cli.UintFlag{Name: "scope-schema-version", Usage: "scope schema version"},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.CreateCurtailmentResponseProfileRequest{}
@@ -1187,6 +1248,13 @@ func generatedCurtailmentCommand() *cli.Command {
 								}
 								req.FanRestoreDelaySec = value
 							}
+							if cmd.IsSet("scope-schema-version") {
+								value, err := generatedUint32FlagValue(cmd, "scope-schema-version")
+								if err != nil {
+									return nil, err
+								}
+								req.ScopeSchemaVersion = value
+							}
 							if err := generatedValidateRequiredFields(req, "mode", "profile_name"); err != nil {
 								return nil, err
 							}
@@ -1277,6 +1345,8 @@ func generatedCurtailmentCommand() *cli.Command {
 							&cli.UintFlag{Name: "fan-off-delay-sec", Usage: "fan off delay sec"},
 							&cli.UintFlag{Name: "fan-restore-delay-sec", Usage: "fan restore delay sec"},
 							&cli.BoolFlag{Name: "replace-facility-fan-settings", Usage: "replace facility fan settings"},
+							&cli.UintFlag{Name: "scope-schema-version", Usage: "scope schema version"},
+							&cli.StringFlag{Name: "expected-revision", Usage: "(required unless provided by --json) expected revision"},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &curtailmentv1.UpdateCurtailmentResponseProfileRequest{}
@@ -1419,13 +1489,23 @@ func generatedCurtailmentCommand() *cli.Command {
 							if cmd.IsSet("replace-facility-fan-settings") {
 								req.ReplaceFacilityFanSettings = cmd.Bool("replace-facility-fan-settings")
 							}
+							if cmd.IsSet("scope-schema-version") {
+								value, err := generatedUint32FlagValue(cmd, "scope-schema-version")
+								if err != nil {
+									return nil, err
+								}
+								req.ScopeSchemaVersion = value
+							}
+							if cmd.IsSet("expected-revision") {
+								req.ExpectedRevision = cmd.String("expected-revision")
+							}
 							if (cmd.IsSet("facility-fan-device-ids") || cmd.IsSet("fan-off-delay-sec") || cmd.IsSet("fan-restore-delay-sec")) && !(cmd.IsSet("facility-fan-device-ids") && cmd.IsSet("fan-off-delay-sec") && cmd.IsSet("fan-restore-delay-sec")) {
 								return nil, fmt.Errorf("flags --facility-fan-device-ids, --fan-off-delay-sec, --fan-restore-delay-sec must be provided together")
 							}
 							if cmd.IsSet("facility-fan-device-ids") && cmd.IsSet("fan-off-delay-sec") && cmd.IsSet("fan-restore-delay-sec") {
 								req.ReplaceFacilityFanSettings = true
 							}
-							if err := generatedValidateRequiredFields(req, "mode", "profile_id", "profile_name"); err != nil {
+							if err := generatedValidateRequiredFields(req, "expected_revision", "mode", "profile_id", "profile_name"); err != nil {
 								return nil, err
 							}
 							if err := generatedValidateRequest(req); err != nil {

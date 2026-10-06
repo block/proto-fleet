@@ -7,8 +7,11 @@ import (
 	"runtime"
 	"testing"
 
+	"connectrpc.com/connect"
+
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	sqlstoresinterfaces "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -800,4 +803,39 @@ func TestCollectionStore_ListCollectionMembers_Pagination(t *testing.T) {
 		}
 	}
 	assert.Len(t, seen, 5)
+}
+
+// TestCollectionStore_SetRackSlotPosition_occupiedCellIsInvalidArgument pins
+// the uk_rack_slot_position mapping. The standalone slot RPCs take no rack
+// row lock, so a pre-check cannot close the window on its own: whoever loses
+// the race must get a caller-fixable error rather than a 500.
+func TestCollectionStore_SetRackSlotPosition_occupiedCellIsInvalidArgument(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping database integration test in short mode")
+	}
+
+	db, orgID, deviceIDs := setupCollectionTestData(t, 2)
+	store := newCollectionStore(db)
+	ctx := t.Context()
+
+	rack, err := store.CreateCollection(ctx, orgID, pb.CollectionType_COLLECTION_TYPE_RACK, "Rack A", "")
+	require.NoError(t, err)
+	_, err = store.AddDevicesToCollection(ctx, orgID, rack.Id, deviceIDs)
+	require.NoError(t, err)
+
+	require.NoError(t, store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[0], 0, 0, orgID))
+
+	err = store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[1], 0, 0, orgID)
+	require.Error(t, err)
+	// Read the code off the FleetError: connect.CodeOf reports Unknown for it,
+	// since FleetError isn't a connect error — it carries the code it maps to.
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInvalidArgument, fleetErr.GRPCCode)
+	assert.Contains(t, err.Error(), "already occupied")
+
+	// The occupant re-asserting its own cell still upserts: the ON CONFLICT
+	// target is (device_set_id, device_id), so this never reaches the
+	// position constraint.
+	require.NoError(t, store.SetRackSlotPosition(ctx, rack.Id, deviceIDs[0], 0, 0, orgID))
 }

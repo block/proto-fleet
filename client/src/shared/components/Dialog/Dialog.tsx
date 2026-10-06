@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { ReactNode, useCallback, useRef } from "react";
+import { ReactNode, useCallback } from "react";
 import clsx from "clsx";
 
 import { variants } from "@/shared/components/Button";
@@ -9,7 +9,6 @@ import { ButtonProps } from "@/shared/components/ButtonGroup/types";
 import Header from "@/shared/components/Header";
 import PageOverlay from "@/shared/components/PageOverlay";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import { useClickOutsideDismiss } from "@/shared/hooks/useClickOutsideDismiss";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 import useSlideUpAnimation from "@/shared/hooks/useSlideUpAnimation";
 
@@ -18,6 +17,7 @@ interface DialogProps {
   children?: ReactNode;
   icon?: ReactNode;
   loading?: boolean;
+  inert?: boolean;
   preventScroll?: boolean;
   open?: boolean;
   subtitle?: string;
@@ -37,6 +37,7 @@ const Dialog = ({
   children,
   icon,
   loading,
+  inert,
   preventScroll,
   open,
   subtitle,
@@ -50,7 +51,6 @@ const Dialog = ({
   buttons,
   onDismiss,
 }: DialogProps) => {
-  const dialogRef = useRef<HTMLDivElement>(null);
   const slideUpAnimation = useSlideUpAnimation();
   const footerConfig = getDialogFooterConfig(buttons, buttonGroupVariant);
   const footerButtons = footerConfig.stacked
@@ -63,24 +63,22 @@ const Dialog = ({
 
   useEscapeDismiss(open === false ? undefined : dismissDialog);
 
-  useClickOutsideDismiss({
-    ref: dialogRef,
-    onDismiss: open === false ? undefined : dismissDialog,
-  });
-
   return (
     <PageOverlay open={open} zIndex="z-60" shouldPreventScroll={preventScroll} position="top">
       <motion.div
-        ref={dialogRef}
         {...slideUpAnimation}
-        className={clsx("mt-16 h-fit w-108 overflow-hidden rounded-3xl bg-surface-elevated-base shadow-200", className)}
+        className={clsx(
+          "mt-16 h-fit max-h-[calc(100dvh-(--spacing(32)))] w-108 max-w-[calc(100vw-theme(spacing.4))] overflow-x-hidden overflow-y-auto rounded-3xl bg-surface-elevated-base shadow-200 phone:mt-10 phone:max-h-[calc(100dvh-theme(spacing.10))] phone:w-screen phone:max-w-none phone:min-w-[100vw] phone:rounded-[16px]",
+          className,
+        )}
         data-testid={testId}
+        inert={inert}
       >
         <div className="p-6">
           <div className="flex flex-col gap-3">
             {loading ? (
               <div className="flex w-10 items-center justify-center rounded-lg bg-surface-5 py-2.5">
-                <ProgressCircular indeterminate className="text-text-primary" />
+                <ProgressCircular indeterminate />
               </div>
             ) : null}
             {!loading ? icon : null}

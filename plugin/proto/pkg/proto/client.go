@@ -42,6 +42,8 @@ const (
 	// SDK command is a blink action with no separate disable call, so keep it
 	// bounded.
 	locateLEDOnTimeSeconds = 30
+
+	curtailmentConfigPath = "/api/v1/curtailment/config"
 )
 
 var (
@@ -68,6 +70,9 @@ type Client struct {
 // can translate it into their surface's wording.
 var errInvalidCredentials = errors.New("invalid credentials")
 
+// ErrHTMLResponse identifies a web page returned in place of the Proto JSON API.
+var ErrHTMLResponse = errors.New("received HTML instead of a Proto API response")
+
 // DeviceInfo represents basic device information.
 type DeviceInfo struct {
 	SerialNumber string
@@ -76,10 +81,22 @@ type DeviceInfo struct {
 	Manufacturer string
 }
 
+// HTTPStatusError preserves a non-success response code so discovery can
+// distinguish an unsupported endpoint from a transient server failure.
+type HTTPStatusError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("request failed with status %d: %s", e.StatusCode, e.Body)
+}
+
 // Status represents the current status of a miner.
 type Status struct {
 	State        sdk.HealthStatus
 	ErrorMessage string
+	IsCurtailed  bool
 }
 
 // Pool represents a mining pool configuration.
@@ -142,6 +159,30 @@ type PowerTargetInfo struct {
 	MaxW     uint32
 	DefaultW uint32
 	Mode     sdk.PerformanceMode
+}
+
+type curtailmentConfig struct {
+	Enabled               bool                        `json:"enabled"`
+	FailPolicy            string                      `json:"fail_policy"`
+	RestorePolicy         string                      `json:"restore_policy"`
+	NATSURL               string                      `json:"nats_url"`
+	MCDDGRPCAddress       string                      `json:"mcdd_grpc_addr"`
+	StatusPublishInterval string                      `json:"status_publish_interval"`
+	Providers             []curtailmentProviderConfig `json:"providers"`
+}
+
+type curtailmentProviderConfig struct {
+	Name             string   `json:"name"`
+	Type             string   `json:"type"`
+	Enabled          bool     `json:"enabled"`
+	Brokers          []string `json:"brokers"`
+	Port             int32    `json:"port"`
+	Username         string   `json:"username"`
+	Password         string   `json:"password"`
+	Topic            string   `json:"topic"`
+	QOS              int32    `json:"qos"`
+	StaleAfter       string   `json:"stale_after"`
+	ReconnectBackoff string   `json:"reconnect_backoff"`
 }
 
 // NotificationError represents a single error from the REST /api/v1/errors endpoint.
@@ -582,6 +623,10 @@ func (c *Client) Close() error {
 // doRequest executes an authenticated request, re-logging in and retrying once on
 // a 401 (token expired or invalidated by an out-of-band login).
 func (c *Client) doRequest(ctx context.Context, method, path string, body any) (*http.Response, error) {
+	return c.doRequestWithHeaders(ctx, method, path, body, nil)
+}
+
+func (c *Client) doRequestWithHeaders(ctx context.Context, method, path string, body any, headers http.Header) (*http.Response, error) {
 	var bodyBytes []byte
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -596,7 +641,7 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body any) (
 		return nil, err
 	}
 
-	resp, err := c.sendRequest(ctx, method, path, bodyBytes, token)
+	resp, err := c.sendRequest(ctx, method, path, bodyBytes, token, headers)
 	if err != nil {
 		return nil, err
 	}
@@ -607,13 +652,13 @@ func (c *Client) doRequest(ctx context.Context, method, path string, body any) (
 		if err != nil {
 			return nil, err
 		}
-		return c.sendRequest(ctx, method, path, bodyBytes, token)
+		return c.sendRequest(ctx, method, path, bodyBytes, token, headers)
 	}
 
 	return resp, nil
 }
 
-func (c *Client) sendRequest(ctx context.Context, method, path string, bodyBytes []byte, token string) (*http.Response, error) {
+func (c *Client) sendRequest(ctx context.Context, method, path string, bodyBytes []byte, token string, headers http.Header) (*http.Response, error) {
 	var bodyReader io.Reader
 	if bodyBytes != nil {
 		bodyReader = bytes.NewReader(bodyBytes)
@@ -629,6 +674,11 @@ func (c *Client) sendRequest(ctx context.Context, method, path string, bodyBytes
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	for key, values := range headers {
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -672,11 +722,24 @@ func (c *Client) doGetWithStatus(ctx context.Context, path string, result any) (
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return resp.StatusCode, fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
+		return resp.StatusCode, &HTTPStatusError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 
 	if result != nil {
-		if err := json.NewDecoder(resp.Body).Decode(result); err != nil {
+		decoder := json.NewDecoder(resp.Body)
+		if err := decoder.Decode(result); err != nil {
+			var syntaxErr *json.SyntaxError
+			if errors.As(err, &syntaxErr) {
+				prefix, _ := io.ReadAll(decoder.Buffered())
+				if strings.HasPrefix(http.DetectContentType(prefix), "text/html") {
+					// A failed body read is still an incomplete probe, even if its
+					// initial bytes look like an unrelated service's web page.
+					if _, readErr := io.Copy(io.Discard, resp.Body); readErr != nil {
+						return resp.StatusCode, fmt.Errorf("failed to read response: %w", readErr)
+					}
+					return resp.StatusCode, ErrHTMLResponse
+				}
+			}
 			return resp.StatusCode, fmt.Errorf("failed to decode response: %w", err)
 		}
 	}
@@ -686,7 +749,11 @@ func (c *Client) doGetWithStatus(ctx context.Context, path string, result any) (
 
 // doPost performs a POST request and checks the response.
 func (c *Client) doPost(ctx context.Context, path string) error {
-	resp, err := c.doRequest(ctx, http.MethodPost, path, nil)
+	return c.doPostWithHeaders(ctx, path, nil)
+}
+
+func (c *Client) doPostWithHeaders(ctx context.Context, path string, headers http.Header) error {
+	resp, err := c.doRequestWithHeaders(ctx, http.MethodPost, path, nil, headers)
 	if err != nil {
 		return err
 	}
@@ -846,7 +913,7 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 		state = mapMiningState(resp.MiningStatus.Status)
 	}
 
-	// The actual pool list is the source of truth, not MiningState (which can be stale).
+	// The actual pool list is the source of truth because MiningState can be stale.
 	needsPool, err := c.checkNeedsMiningPool(ctx)
 	if err != nil {
 		slog.Warn("failed to check pool configuration", "error", err)
@@ -859,6 +926,7 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 	return &Status{
 		State:        state,
 		ErrorMessage: "", // TODO: Extract from API when available
+		IsCurtailed:  strings.EqualFold(resp.MiningStatus.Status, "curtailed"),
 	}, nil
 }
 
@@ -870,7 +938,7 @@ func mapMiningState(status string) sdk.HealthStatus {
 		return sdk.HealthHealthyActive
 	case "degradedmining", "degraded_mining", "degraded":
 		return sdk.HealthWarning
-	case "stopped":
+	case "stopped", "curtailed":
 		return sdk.HealthHealthyInactive
 	case "poweringon", "powering_on":
 		return sdk.HealthHealthyInactive
@@ -1118,6 +1186,14 @@ func (c *Client) StopMining(ctx context.Context) error {
 	return c.doPost(ctx, "/api/v1/mining/stop")
 }
 
+// CurtailMining enters the same minimal-power mode as StopMining while
+// identifying that the command came from the full-curtailment workflow.
+func (c *Client) CurtailMining(ctx context.Context) error {
+	return c.doPostWithHeaders(ctx, "/api/v1/mining/stop", http.Header{
+		"X-Proto-Fleet-Curtailment": []string{"full"},
+	})
+}
+
 // SetCoolingMode configures the cooling system.
 func (c *Client) SetCoolingMode(ctx context.Context, mode sdk.CoolingMode) error {
 	var apiMode string
@@ -1214,6 +1290,44 @@ func (c *Client) GetPowerTarget(ctx context.Context) (*PowerTargetInfo, error) {
 		DefaultW: safeIntToUint32(resp.DefaultPowerTargetWatts),
 		Mode:     mode,
 	}, nil
+}
+
+// ApplyCurtailmentConfig replaces the rig-local curtailment-service config.
+func (c *Client) ApplyCurtailmentConfig(ctx context.Context, config sdk.CurtailmentConfig) error {
+	resp, err := c.doRequest(ctx, http.MethodPut, curtailmentConfigPath, curtailmentConfigFromSDK(config))
+	if err != nil {
+		return fmt.Errorf("failed to apply curtailment config: %w", err)
+	}
+	defer resp.Body.Close()
+	return checkResponse(resp, "apply curtailment config failed", http.StatusOK, http.StatusNoContent)
+}
+
+func curtailmentConfigFromSDK(config sdk.CurtailmentConfig) curtailmentConfig {
+	providers := make([]curtailmentProviderConfig, 0, len(config.Providers))
+	for _, provider := range config.Providers {
+		providers = append(providers, curtailmentProviderConfig{
+			Name:             provider.Name,
+			Type:             provider.Type,
+			Enabled:          provider.Enabled,
+			Brokers:          append([]string(nil), provider.Brokers...),
+			Port:             provider.Port,
+			Username:         provider.Username,
+			Password:         provider.Password,
+			Topic:            provider.Topic,
+			QOS:              provider.QOS,
+			StaleAfter:       provider.StaleAfter,
+			ReconnectBackoff: provider.ReconnectBackoff,
+		})
+	}
+	return curtailmentConfig{
+		Enabled:               config.Enabled,
+		FailPolicy:            config.FailPolicy,
+		RestorePolicy:         config.RestorePolicy,
+		NATSURL:               config.NATSURL,
+		MCDDGRPCAddress:       config.MCDDGRPCAddress,
+		StatusPublishInterval: config.StatusPublishInterval,
+		Providers:             providers,
+	}
 }
 
 func safeIntToUint32(v int) uint32 {

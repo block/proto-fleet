@@ -12,7 +12,62 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate deployment shell syntax
+        run: |
+          for script in \
+            deployment-files/install.sh \
+            deployment-files/reset-super-admin-password.sh \
+            deployment-files/run-fleet.sh \
+            deployment-files/scripts/compose-project.sh \
+            deployment-files/scripts/create-release-manifest.sh \
+            deployment-files/scripts/docker-daemon.sh \
+            deployment-files/uninstall.sh \
+            deployment-files/tests/test-install-overlay-migration.sh \
+            deployment-files/tests/test-profiles.sh \
+            deployment-files/tests/test-reset-super-admin-password.sh \
+            deployment-files/tests/test-run-fleet-upgrade.sh \
+            deployment-files/tests/test-uninstall-updater-cleanup.sh; do
+            bash -n "$script"
+          done
 
       - name: Validate host profiles and compose interpolation
         run: ./deployment-files/tests/test-profiles.sh
+
+      - name: Validate HA deployment profile
+        run: ./deployment-files/ha/tests/test-profile.sh
+
+      - name: Validate non-interactive upgrade safety
+        run: ./deployment-files/tests/test-run-fleet-upgrade.sh
+
+      - name: Validate SUPER_ADMIN password reset wrapper
+        run: ./deployment-files/tests/test-reset-super-admin-password.sh
+
+      - name: Validate installer overlay migration
+        run: ./deployment-files/tests/test-install-overlay-migration.sh
+
+      - name: Validate release repository selection and packaged installers
+        run: bash deployment-files/tests/test-release-repository.sh
+
+      - name: Validate cloud compatibility metadata
+        run: python3 deployment-files/tests/test_cloud_release.py
+
+      - name: Validate uninstaller updater cleanup
+        run: ./deployment-files/tests/test-uninstall-updater-cleanup.sh
+
+  fleetnode-installer:
+    name: Fleet Node installer
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate shell syntax
+        run: bash -n deployment-files/fleetnode/fleetnode-enroll deployment-files/fleetnode/install-fleet-node.sh deployment-files/fleetnode/tests/qualify-package.sh deployment-files/fleetnode/tests/test-fleetnode-enroll.sh deployment-files/fleetnode/tests/test-install-fleetnode.sh
+
+      - name: Test enrollment helper
+        run: ./deployment-files/fleetnode/tests/test-fleetnode-enroll.sh
+
+      - name: Test installer
+        run: ./deployment-files/fleetnode/tests/test-install-fleetnode.sh

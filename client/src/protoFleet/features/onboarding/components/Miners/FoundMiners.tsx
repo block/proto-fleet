@@ -111,11 +111,7 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
           supportedAuthenticationMethods: supportedMethods,
           miners: [miner],
         };
-      } else if (
-        // if miner is already in our state dont add it again
-        // so that we dont have duplicates
-        !_minersByModel[minerKey.toString()].miners.find((m) => m.ipAddress === miner.ipAddress)
-      ) {
+      } else {
         _minersByModel[minerKey.toString()].miners.push(miner);
       }
     });
@@ -164,7 +160,9 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
                       {model.manufacturer} {model.model}
                     </div>
                     {supportsAutoAuth(model.manufacturer, model.supportedAuthenticationMethods) ? (
-                      <div className="text-200 text-text-primary-70">Authenticated with default username/password</div>
+                      <div className="text-200 text-text-primary-70">
+                        Will try the default username/password when added
+                      </div>
                     ) : (
                       <div className="text-200 text-text-primary-70">You will need to log in after setup</div>
                     )}

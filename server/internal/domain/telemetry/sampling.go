@@ -1,0 +1,595 @@
+// Read-only device-metrics sampling.
+//
+// SampleDeviceMetrics returns a current metrics sample for each requested
+// device without any server-side persistence: no device_metrics/status writer
+// enqueue, no firmware or pairing reconciliation, no scheduler mutation, and
+// no diagnostics polling. It exists for callers (the curtailment confirmation
+// fast path) that need fresh, ordered evidence of device state between
+// scheduled polls.
+//
+// The sampler shares three things with scheduled collection:
+//
+//  1. Per-device flights. The inFlight map now stores *inFlightEntry values
+//     carrying a fleetd-owned flight start time, a metrics-ready signal with
+//     the shared sample, and a claim-complete signal. A sampler joins a
+//     full-telemetry flight that started after the caller's freshness bound,
+//     and waits for status-only or RefreshDevice claims to complete before
+//     starting its own read.
+//  2. Completed samples. The most recent successful sample per device is
+//     retained in memory (with its flight start) and reused when it satisfies
+//     the caller's bound and is younger than sampleReuseWindow. The window
+//     keeps repeated pulses from replaying one stale negative sample forever;
+//     retention is in-memory because persisted device_metrics rows carry no
+//     fleetd-owned flight start and so can never prove post-dispatch ordering.
+//  3. The fetch budget. Direct reads are executed by the same worker pool
+//     that serves scheduled collection (workers select across tasks,
+//     statusTasks, and sampleTasks), so combined scheduled plus confirmation
+//     fetches can never exceed Config.ConcurrencyLimit. Each activation also
+//     caps direct-read reservations globally at half the pool (minimum one),
+//     across all concurrent sampler calls, so confirmation work cannot occupy
+//     every worker. At ConcurrencyLimit=1 the reservation degrades to temporal
+//     sharing: each hold is bounded by MetricTimeout.
+package telemetry
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+)
+
+// sampleReuseWindow bounds how long a completed sample may satisfy new
+// sampling requests. It matches the confirmation pulse interval so a parked
+// caller re-requesting every pulse eventually triggers a fresh device read
+// instead of replaying the same sample.
+const sampleReuseWindow = 3 * time.Second
+
+const retainedSampleSweepInterval = sampleReuseWindow / 2
+
+// errNoSampleFromFlight is published to joiners of a flight that ended
+// without ever producing a metrics sample (for example a claim released on
+// shutdown before its fetch ran).
+var errNoSampleFromFlight = errors.New("telemetry flight ended without a metrics sample")
+
+// errSampleGenerationInvalidated prevents telemetry fetched for a removed
+// device incarnation from confirming a replacement with the same identifier.
+var errSampleGenerationInvalidated = errors.New("telemetry sample invalidated by device removal")
+
+// inFlightEntry is the value stored in TelemetryService.inFlight while a
+// device is claimed. flightStart is fleetd-owned and set at claim time, so it
+// is always at or before the moment the device fetch actually starts; a
+// flight whose start is after a dispatch timestamp therefore observed the
+// device strictly after that dispatch.
+type inFlightEntry struct {
+	kind inFlightKind
+	// sampleGeneration prevents a flight admitted before device removal from
+	// reaching samplers or repopulating retention after that device is
+	// removed or re-added.
+	sampleGeneration uint64
+	// flightStart is the fleetd-owned claim time. Device-reported timestamps
+	// are observation metadata only and must never be compared against
+	// fleetd clocks.
+	flightStart time.Time
+
+	metricsOnce sync.Once
+	// metricsReady closes once metrics (or metricsErr) is set. For
+	// full-telemetry and sample flights this happens right after the device
+	// fetch returns, before any persistence side effects run.
+	metricsReady chan struct{}
+	metrics      modelsV2.DeviceMetrics
+	metricsOrgID int64
+	metricsErr   error
+
+	claimOnce sync.Once
+	// claimDone closes when the claim is released and the device becomes
+	// claimable again.
+	claimDone chan struct{}
+}
+
+func newInFlightEntry(kind inFlightKind) *inFlightEntry {
+	return &inFlightEntry{
+		kind:         kind,
+		flightStart:  time.Now(),
+		metricsReady: make(chan struct{}),
+		claimDone:    make(chan struct{}),
+	}
+}
+
+func (s *TelemetryService) newDeviceInFlightEntry(
+	deviceID models.DeviceIdentifier,
+	kind inFlightKind,
+) *inFlightEntry {
+	entry := newInFlightEntry(kind)
+	entry.sampleGeneration = s.currentSampleGeneration(deviceID)
+	return entry
+}
+
+// joinable reports whether a sampler may consume this flight's metrics
+// directly. Status-only flights fetch no metrics; RefreshDevice flights are
+// deliberately opaque so their existing wait/re-poll/flush contract stays
+// untouched (their completed sample is still reusable via retention).
+func (e *inFlightEntry) joinable() bool {
+	return e.kind == inFlightKindFullTelemetry || e.kind == inFlightKindSample
+}
+
+func (e *inFlightEntry) publishMetrics(metrics modelsV2.DeviceMetrics, orgID int64, err error) (published bool) {
+	e.metricsOnce.Do(func() {
+		published = true
+		e.metrics = metrics
+		e.metricsOrgID = orgID
+		e.metricsErr = err
+		close(e.metricsReady)
+	})
+	return published
+}
+
+// releaseInFlight publishes a terminal "no sample" error to any joiners that
+// are still waiting, signals claim completion, and frees the device for the
+// next claimant. Safe to call exactly once per held claim; the claim holder
+// is the only releaser by invariant.
+func (s *TelemetryService) releaseInFlight(deviceID models.DeviceIdentifier, entry *inFlightEntry) {
+	entry.publishMetrics(modelsV2.DeviceMetrics{}, 0, errNoSampleFromFlight)
+	s.inFlight.CompareAndDelete(deviceID, entry)
+	entry.claimOnce.Do(func() { close(entry.claimDone) })
+}
+
+// releaseInFlightByID releases the current claim when the caller does not
+// hold the entry reference.
+func (s *TelemetryService) releaseInFlightByID(deviceID models.DeviceIdentifier) {
+	if v, ok := s.inFlight.Load(deviceID); ok {
+		if entry, ok := v.(*inFlightEntry); ok {
+			s.releaseInFlight(deviceID, entry)
+		}
+	}
+}
+
+// publishFlightSample shares the outcome of a full collection fetch with
+// samplers joined to the exact claim captured before the fetch, and retains
+// successful samples for short-window reuse. Identity checking prevents a
+// completed fetch from publishing into a later claimant's entry.
+func (s *TelemetryService) publishFlightSample(deviceID models.DeviceIdentifier, expectedEntry *inFlightEntry, result *deviceResult, fetchErr error) {
+	if expectedEntry == nil {
+		return
+	}
+	current, ok := s.inFlight.Load(deviceID)
+	currentEntry, isEntry := current.(*inFlightEntry)
+	if !ok || !isEntry || currentEntry != expectedEntry {
+		return
+	}
+	sampleErr := fetchErr
+	if sampleErr == nil && result != nil {
+		sampleErr = result.metricsErr
+	}
+	if sampleErr != nil || result == nil {
+		if sampleErr == nil {
+			sampleErr = errNoSampleFromFlight
+		}
+		expectedEntry.publishMetrics(modelsV2.DeviceMetrics{}, 0, sampleErr)
+		return
+	}
+	s.publishCurrentGenerationSample(deviceID, expectedEntry, result.metrics, result.orgID)
+}
+
+// retainedSample is the most recent successful metrics sample for a device,
+// kept for sampleReuseWindow so bursts of sampling requests (and scheduled
+// polls that just completed) do not trigger redundant device reads.
+type retainedSample struct {
+	metrics     modelsV2.DeviceMetrics
+	orgID       int64
+	flightStart time.Time
+	completedAt time.Time
+}
+
+type sampleGenerationState struct {
+	mu         sync.Mutex
+	generation uint64
+}
+
+// publishCurrentGenerationSample linearizes successful publication and
+// retention with RemoveDevices invalidation. If removal wins, every waiter
+// receives an unusable result; if publication wins, removal subsequently
+// advances the generation and deletes the retained sample.
+func (s *TelemetryService) publishCurrentGenerationSample(
+	deviceID models.DeviceIdentifier,
+	entry *inFlightEntry,
+	metrics modelsV2.DeviceMetrics,
+	orgID int64,
+) {
+	state := s.sampleGenerationState(deviceID)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+
+	if entry.sampleGeneration != state.generation {
+		entry.publishMetrics(modelsV2.DeviceMetrics{}, 0, errSampleGenerationInvalidated)
+		return
+	}
+	if !entry.publishMetrics(metrics, orgID, nil) {
+		return
+	}
+	s.retainedSamples.Store(deviceID, &retainedSample{
+		metrics:     metrics,
+		orgID:       orgID,
+		flightStart: entry.flightStart,
+		completedAt: time.Now(),
+	})
+}
+
+func (s *TelemetryService) sampleGenerationState(deviceID models.DeviceIdentifier) *sampleGenerationState {
+	value, _ := s.sampleGenerations.LoadOrStore(deviceID, &sampleGenerationState{})
+	state, ok := value.(*sampleGenerationState)
+	if !ok {
+		panic("telemetry sample generation map contains an invalid value")
+	}
+	return state
+}
+
+func (s *TelemetryService) currentSampleGeneration(deviceID models.DeviceIdentifier) uint64 {
+	state := s.sampleGenerationState(deviceID)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	return state.generation
+}
+
+func (s *TelemetryService) invalidateDeviceSamples(deviceID models.DeviceIdentifier) {
+	state := s.sampleGenerationState(deviceID)
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	state.generation++
+	s.retainedSamples.Delete(deviceID)
+}
+
+func (s *TelemetryService) evictExpiredRetainedSamples(now time.Time) {
+	s.retainedSamples.Range(func(key, value any) bool {
+		retained, ok := value.(*retainedSample)
+		if ok && !now.Before(retained.completedAt.Add(sampleReuseWindow)) {
+			s.retainedSamples.CompareAndDelete(key, retained)
+		}
+		return true
+	})
+}
+
+func (s *TelemetryService) retainedSampleEvictionRoutine(ctx context.Context) {
+	ticker := time.NewTicker(retainedSampleSweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			s.evictExpiredRetainedSamples(now)
+		}
+	}
+}
+
+// SampleSource records how a sample was obtained.
+type SampleSource string
+
+const (
+	// SampleSourceReused means a recently completed sample satisfied the bound.
+	SampleSourceReused SampleSource = "reused"
+	// SampleSourceJoined means the sampler consumed an in-flight full poll.
+	SampleSourceJoined SampleSource = "joined"
+	// SampleSourceDirect means the sampler performed its own device read.
+	SampleSourceDirect SampleSource = "direct"
+)
+
+// SampleRequest asks for one device's current metrics observed strictly after
+// SampledAfter (fleetd clock). A zero SampledAfter accepts any fresh sample.
+type SampleRequest struct {
+	DeviceID models.DeviceIdentifier
+	// OrgID scopes confirmation sampling to the live device currently owned
+	// by that organization. Zero preserves the generic internal sampler
+	// contract for callers that do not need tenant authorization.
+	OrgID int64
+	// SampledAfter is the exclusive lower bound on the fleetd-owned flight
+	// start time. Flights started at or before this instant cannot satisfy
+	// the request.
+	SampledAfter time.Time
+}
+
+// SampleResult is the per-device outcome of SampleDeviceMetrics. Err is
+// per-device so failed devices never invalidate successful siblings.
+type SampleResult struct {
+	DeviceID models.DeviceIdentifier
+	OrgID    int64
+	Metrics  modelsV2.DeviceMetrics
+	// FlightStart is the fleetd-owned start time of the flight that produced
+	// Metrics. Always after the request's SampledAfter bound when Err is nil.
+	FlightStart time.Time
+	Source      SampleSource
+	Err         error
+}
+
+// sampleTask carries a claimed direct read to the shared worker pool.
+type sampleTask struct {
+	deviceID models.DeviceIdentifier
+	orgID    int64
+	entry    *inFlightEntry
+	done     <-chan struct{}
+}
+
+// SampleDeviceMetrics returns one result per unique requested device.
+// Duplicate device IDs are deduplicated keeping the latest SampledAfter
+// bound. Each device is served by reuse, join, or one direct read, in that
+// order of preference; every per-device operation is bounded by
+// MetricTimeout. The call itself performs no persistence.
+func (s *TelemetryService) SampleDeviceMetrics(ctx context.Context, requests []SampleRequest) []SampleResult {
+	if len(requests) == 0 {
+		return nil
+	}
+
+	type requestKey struct {
+		deviceID models.DeviceIdentifier
+		orgID    int64
+	}
+	// Deduplicate by tenant and device, keeping first-seen order and the
+	// strictest local freshness bound.
+	order := make([]requestKey, 0, len(requests))
+	bounds := make(map[requestKey]time.Time, len(requests))
+	for _, req := range requests {
+		key := requestKey{deviceID: req.DeviceID, orgID: req.OrgID}
+		bound, seen := bounds[key]
+		if !seen {
+			order = append(order, key)
+			bounds[key] = req.SampledAfter
+			continue
+		}
+		if req.SampledAfter.After(bound) {
+			bounds[key] = req.SampledAfter
+		}
+	}
+
+	activation, releaseProducer, err := s.registerActivationProducer()
+	if err != nil {
+		results := make([]SampleResult, len(order))
+		for i, key := range order {
+			results[i] = s.sampleInactiveResult(key.deviceID, key.orgID)
+		}
+		return results
+	}
+	defer releaseProducer()
+
+	results := make([]SampleResult, len(order))
+	// This cap bounds one call's waiter fan-out. activation.sampleSlots is the
+	// activation-wide guarantee across all concurrent sampler calls.
+	waiterLimit := s.config.ConcurrencyLimit / 2
+	if waiterLimit < 1 {
+		waiterLimit = 1
+	}
+	if waiterLimit > len(order) {
+		waiterLimit = len(order)
+	}
+
+	var wg sync.WaitGroup
+	indexes := make(chan int)
+	for range waiterLimit {
+		wg.Go(func() {
+			for i := range indexes {
+				key := order[i]
+				results[i] = s.sampleOne(ctx, activation, key.deviceID, key.orgID, bounds[key])
+			}
+		})
+	}
+	for i := range order {
+		indexes <- i
+	}
+	close(indexes)
+	wg.Wait()
+	return results
+}
+
+// sampleOne obtains a single device sample under a MetricTimeout-bounded
+// child context covering flight wait, admission, and fetch.
+func (s *TelemetryService) sampleOne(
+	ctx context.Context,
+	activation *telemetryActivation,
+	deviceID models.DeviceIdentifier,
+	orgID int64,
+	sampledAfter time.Time,
+) SampleResult {
+	opCtx, cancel := context.WithTimeout(ctx, s.sampleOperationTimeout())
+	defer cancel()
+
+	for {
+		if activation.isStopping() {
+			return s.sampleInactiveResult(deviceID, orgID)
+		}
+
+		// 1. Reuse a recently completed qualifying sample.
+		if v, ok := s.retainedSamples.Load(deviceID); ok {
+			if retained, ok := v.(*retainedSample); ok {
+				if time.Since(retained.completedAt) > sampleReuseWindow {
+					s.retainedSamples.CompareAndDelete(deviceID, retained)
+				} else if retained.flightStart.After(sampledAfter) {
+					if orgID != 0 && retained.orgID != orgID {
+						s.retainedSamples.CompareAndDelete(deviceID, retained)
+						continue
+					}
+					return SampleResult{
+						DeviceID:    deviceID,
+						OrgID:       orgID,
+						Metrics:     retained.metrics,
+						FlightStart: retained.flightStart,
+						Source:      SampleSourceReused,
+					}
+				}
+			}
+		}
+
+		// 2. Join or wait out the device's current flight.
+		if v, ok := s.inFlight.Load(deviceID); ok {
+			entry, isEntry := v.(*inFlightEntry)
+			if !isEntry {
+				// Foreign claim value (should not happen in production).
+				// Treat it as an opaque claim and poll for release.
+				select {
+				case <-activation.stopping:
+					return s.sampleInactiveResult(deviceID, orgID)
+				case <-opCtx.Done():
+					return s.sampleTimeoutResult(deviceID, orgID, opCtx)
+				case <-time.After(10 * time.Millisecond):
+					continue
+				}
+			}
+			if entry.joinable() && entry.flightStart.After(sampledAfter) {
+				select {
+				case <-entry.metricsReady:
+					if entry.metricsErr != nil {
+						return SampleResult{DeviceID: deviceID, OrgID: orgID, Source: SampleSourceJoined, Err: entry.metricsErr}
+					}
+					if orgID != 0 && entry.metricsOrgID != orgID {
+						select {
+						case <-entry.claimDone:
+							continue
+						case <-activation.stopping:
+							return s.sampleInactiveResult(deviceID, orgID)
+						case <-opCtx.Done():
+							return s.sampleTimeoutResult(deviceID, orgID, opCtx)
+						}
+					}
+					return SampleResult{
+						DeviceID:    deviceID,
+						OrgID:       orgID,
+						Metrics:     entry.metrics,
+						FlightStart: entry.flightStart,
+						Source:      SampleSourceJoined,
+					}
+				case <-activation.stopping:
+					return s.sampleInactiveResult(deviceID, orgID)
+				case <-opCtx.Done():
+					return s.sampleTimeoutResult(deviceID, orgID, opCtx)
+				}
+			}
+			// Pre-bound flight or status-only/refresh claim: wait for the
+			// claim to complete, then re-evaluate (retention may now hold a
+			// qualifying sample, or the device is claimable for a direct read).
+			select {
+			case <-entry.claimDone:
+				continue
+			case <-activation.stopping:
+				return s.sampleInactiveResult(deviceID, orgID)
+			case <-opCtx.Done():
+				return s.sampleTimeoutResult(deviceID, orgID, opCtx)
+			}
+		}
+
+		// 3. Claim the device and perform one direct read via the shared pool.
+		select {
+		case activation.sampleSlots <- struct{}{}:
+		case <-activation.stopping:
+			return s.sampleInactiveResult(deviceID, orgID)
+		case <-opCtx.Done():
+			return s.sampleTimeoutResult(deviceID, orgID, opCtx)
+		}
+
+		entry := s.newDeviceInFlightEntry(deviceID, inFlightKindSample)
+		if _, loaded := s.inFlight.LoadOrStore(deviceID, entry); loaded {
+			activation.releaseSampleSlot()
+			continue // lost the claim race; re-evaluate the new flight
+		}
+		// Never enqueue on a context that is already done: select would pick
+		// between the two ready cases at random and could strand the claim
+		// behind a task nobody is waiting for.
+		if opCtx.Err() != nil {
+			s.releaseInFlight(deviceID, entry)
+			activation.releaseSampleSlot()
+			return s.sampleTimeoutResult(deviceID, orgID, opCtx)
+		}
+		if activation.isStopping() {
+			s.releaseInFlight(deviceID, entry)
+			activation.releaseSampleSlot()
+			return s.sampleInactiveResult(deviceID, orgID)
+		}
+		select {
+		case activation.sampleTasks <- sampleTask{deviceID: deviceID, orgID: orgID, entry: entry, done: opCtx.Done()}:
+			// Ownership of both the claim and sample slot transfers to the
+			// worker, or to finishActivation if shutdown drains the queue.
+		case <-activation.stopping:
+			s.releaseInFlight(deviceID, entry)
+			activation.releaseSampleSlot()
+			return s.sampleInactiveResult(deviceID, orgID)
+		case <-opCtx.Done():
+			s.releaseInFlight(deviceID, entry)
+			activation.releaseSampleSlot()
+			return s.sampleTimeoutResult(deviceID, orgID, opCtx)
+		}
+		select {
+		case <-entry.metricsReady:
+			if entry.metricsErr != nil {
+				return SampleResult{DeviceID: deviceID, OrgID: orgID, Source: SampleSourceDirect, Err: entry.metricsErr}
+			}
+			return SampleResult{
+				DeviceID:    deviceID,
+				OrgID:       orgID,
+				Metrics:     entry.metrics,
+				FlightStart: entry.flightStart,
+				Source:      SampleSourceDirect,
+			}
+		case <-activation.stopping:
+			return s.sampleInactiveResult(deviceID, orgID)
+		case <-opCtx.Done():
+			// The worker still owns the claim and will release it when the
+			// fetch finishes (bounded by its own MetricTimeout).
+			return s.sampleTimeoutResult(deviceID, orgID, opCtx)
+		}
+	}
+}
+
+func (s *TelemetryService) sampleInactiveResult(deviceID models.DeviceIdentifier, orgID int64) SampleResult {
+	return SampleResult{
+		DeviceID: deviceID,
+		OrgID:    orgID,
+		Err:      fmt.Errorf("sampling device %s: %w", deviceID, errTelemetryServiceInactive),
+	}
+}
+
+func (s *TelemetryService) sampleTimeoutResult(deviceID models.DeviceIdentifier, orgID int64, opCtx context.Context) SampleResult {
+	if err := opCtx.Err(); err != nil {
+		return SampleResult{
+			DeviceID: deviceID,
+			OrgID:    orgID,
+			Source:   SampleSourceDirect,
+			Err:      fmt.Errorf("sampling device %s: %w", deviceID, err),
+		}
+	}
+	return SampleResult{
+		DeviceID: deviceID,
+		OrgID:    orgID,
+		Source:   SampleSourceDirect,
+		Err:      fmt.Errorf("sampling device %s: operation ended without a context error", deviceID),
+	}
+}
+
+func (s *TelemetryService) sampleOperationTimeout() time.Duration {
+	if s.config.MetricTimeout > 0 {
+		return s.config.MetricTimeout
+	}
+	return 5 * time.Second
+}
+
+// processSample executes a claimed direct read on a shared pool worker. It
+// publishes the outcome to the claim entry and retains successful samples,
+// with no persistence, scheduler, firmware, pairing, or diagnostics side
+// effects (R5).
+func (s *TelemetryService) processSample(ctx context.Context, task sampleTask) {
+	fetchCtx, cancel := context.WithTimeout(ctx, s.sampleOperationTimeout())
+	defer cancel()
+
+	result, err := s.fetchTelemetryFromMinerForOrg(fetchCtx, models.Device{ID: task.deviceID}, task.orgID)
+	sampleErr := err
+	if sampleErr == nil && result != nil {
+		sampleErr = result.metricsErr
+	}
+	if sampleErr != nil || result == nil {
+		if sampleErr == nil {
+			sampleErr = errNoSampleFromFlight
+		}
+		task.entry.publishMetrics(modelsV2.DeviceMetrics{}, 0, sampleErr)
+		return
+	}
+	s.publishCurrentGenerationSample(task.deviceID, task.entry, result.metrics, result.orgID)
+}

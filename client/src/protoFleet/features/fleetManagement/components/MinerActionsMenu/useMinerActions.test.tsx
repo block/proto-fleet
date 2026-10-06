@@ -2496,6 +2496,26 @@ describe("useMinerActions", () => {
       expect(deleteAction?.confirmation?.subtitle).not.toContain("All");
     });
 
+    it("should show 'matching' message for 'all' selection mode with an active search", () => {
+      const activeFilter = createProto(MinerListFilterSchema, {
+        searchQuery: "worker-42",
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1" }],
+          selectionMode: "all",
+          totalCount: 12,
+          currentFilter: activeFilter,
+        }),
+      );
+
+      const deleteAction = result.current.popoverActions.find((a) => a.action === deviceActions.unpair);
+      expect(deleteAction?.confirmation?.subtitle).toContain("12 matching miners");
+      expect(deleteAction?.confirmation?.subtitle).not.toContain("All");
+    });
+
     it("should use correct plural for multiple unreachable Proto miners in mixed batch", () => {
       setStoreMiners([
         {
@@ -3973,6 +3993,29 @@ describe("useMinerActions", () => {
       ).toBe(false);
     });
 
+    it("preserves channel ownership guidance when a direct firmware update is rejected", async () => {
+      const reason =
+        "This miner is managed by release channel Stable. Change its firmware in Settings > Firmware > Release channels.";
+      mockFirmwareUpdate.mockImplementationOnce(({ onError }: { onError: (error: string) => void }) => onError(reason));
+      const onActionComplete = vi.fn();
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+      await act(async () => result.current.handleFirmwareUpdateConfirm("different-firmware"));
+      expect(toaster.updateToast).toHaveBeenCalledWith(
+        expect.any(Number),
+        expect.objectContaining({ message: `Couldn't update firmware: ${reason}`, status: toaster.STATUSES.error }),
+      );
+      expect(mockStartBatchOperation).not.toHaveBeenCalled();
+      expect(mockStreamCommandBatchUpdates).not.toHaveBeenCalled();
+      expect(onActionComplete).toHaveBeenCalledOnce();
+    });
+
     it("does not infer rebooting devices when successful identifiers are omitted", async () => {
       mockFirmwareUpdate.mockImplementation(({ onSuccess }: any) => {
         onSuccess({ batchIdentifier: "batch-firmware" });
@@ -4060,9 +4103,14 @@ describe("useMinerActions", () => {
     });
 
     it("should show error toast and not open modal when selected miners have mixed models", async () => {
-      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-1", model: "S19" });
+      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-1",
+        manufacturer: "Bitmain",
+        model: "S19",
+      });
       testMiners["device-2"] = createProto(MinerStateSnapshotSchema, {
         deviceIdentifier: "device-2",
+        manufacturer: "Proto",
         model: "Proto Rig",
       });
 
@@ -4089,7 +4137,7 @@ describe("useMinerActions", () => {
 
       expect(toaster.pushToast).toHaveBeenCalledWith(
         expect.objectContaining({
-          message: expect.stringContaining("same model"),
+          message: expect.stringContaining("same manufacturer and model"),
           status: "error",
         }),
       );
@@ -4098,8 +4146,16 @@ describe("useMinerActions", () => {
     });
 
     it("should open modal when all selected miners have the same model", async () => {
-      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-1", model: "S19" });
-      testMiners["device-2"] = createProto(MinerStateSnapshotSchema, { deviceIdentifier: "device-2", model: "S19" });
+      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-1",
+        manufacturer: "Bitmain",
+        model: "S19",
+      });
+      testMiners["device-2"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-2",
+        manufacturer: "Bitmain",
+        model: "S19",
+      });
 
       const { result } = renderHook(() =>
         useMinerActions({
@@ -4119,6 +4175,121 @@ describe("useMinerActions", () => {
       });
 
       expect(result.current.showFirmwareUpdateModal).toBe(true);
+      expect(result.current.firmwareUpdateTarget).toEqual({ targetManufacturer: "Bitmain", targetModel: "S19" });
+    });
+
+    it("derives the firmware target from the capability-filtered selection", async () => {
+      mockCheckCommandCapabilities.mockImplementationOnce(({ onSuccess }: any) => {
+        onSuccess({
+          allSupported: false,
+          noneSupported: false,
+          supportedCount: 1,
+          unsupportedCount: 1,
+          totalCount: 2,
+          unsupportedGroups: [{ model: "S19", firmwareVersion: "1.0.0", count: 1 }],
+          supportedDeviceIdentifiers: ["device-1"],
+        });
+      });
+      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-1",
+        manufacturer: "Proto",
+        model: "Rig",
+      });
+      testMiners["device-2"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-2",
+        manufacturer: "Bitmain",
+        model: "S19",
+      });
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+        }),
+      );
+
+      const fwAction = result.current.popoverActions.find((a) => a.action === deviceActions.firmwareUpdate);
+      await act(async () => {
+        await fwAction!.actionHandler();
+      });
+      expect(result.current.unsupportedMinersInfo.visible).toBe(true);
+      expect(result.current.showFirmwareUpdateModal).toBe(false);
+
+      act(() => {
+        result.current.handleUnsupportedMinersContinue();
+      });
+
+      expect(result.current.showFirmwareUpdateModal).toBe(true);
+      expect(result.current.firmwareUpdateTarget).toEqual({ targetManufacturer: "Proto", targetModel: "Rig" });
+    });
+
+    it("does not open the modal for the same model from different manufacturers", async () => {
+      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-1",
+        manufacturer: "Bitmain",
+        model: "S19",
+      });
+      testMiners["device-2"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-2",
+        manufacturer: "Other",
+        model: "S19",
+      });
+      const onActionComplete = vi.fn();
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [
+            { deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE },
+            { deviceIdentifier: "device-2", deviceStatus: DeviceStatus.ONLINE },
+          ],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      const fwAction = result.current.popoverActions.find((a) => a.action === deviceActions.firmwareUpdate);
+      await act(async () => {
+        await fwAction!.actionHandler();
+      });
+
+      expect(result.current.showFirmwareUpdateModal).toBe(false);
+      expect(result.current.firmwareUpdateTarget).toBeNull();
+      expect(onActionComplete).toHaveBeenCalled();
+    });
+
+    it("does not open the modal when a selected miner has an unknown target", async () => {
+      testMiners["device-1"] = createProto(MinerStateSnapshotSchema, {
+        deviceIdentifier: "device-1",
+        manufacturer: "",
+        model: "S19",
+      });
+      const onActionComplete = vi.fn();
+
+      const { result } = renderHook(() =>
+        useMinerActions({
+          ...batchOpsParams(),
+          selectedMiners: [{ deviceIdentifier: "device-1", deviceStatus: DeviceStatus.ONLINE }],
+          selectionMode: "subset",
+          onActionComplete,
+        }),
+      );
+
+      const fwAction = result.current.popoverActions.find((a) => a.action === deviceActions.firmwareUpdate);
+      await act(async () => {
+        await fwAction!.actionHandler();
+      });
+
+      expect(result.current.showFirmwareUpdateModal).toBe(false);
+      expect(result.current.firmwareUpdateTarget).toBeNull();
+      expect(onActionComplete).toHaveBeenCalled();
+      expect(toaster.pushToast).toHaveBeenCalledWith(
+        expect.objectContaining({ message: expect.stringContaining("manufacturer and model"), status: "error" }),
+      );
     });
   });
 });

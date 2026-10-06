@@ -542,6 +542,58 @@ class UncurtailRequest(_message.Message):
     ref: DeviceRef
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ...) -> None: ...
 
+class CurtailmentProviderConfig(_message.Message):
+    __slots__ = ("name", "type", "enabled", "brokers", "port", "username", "password", "topic", "qos", "stale_after", "reconnect_backoff")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    TYPE_FIELD_NUMBER: _ClassVar[int]
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    BROKERS_FIELD_NUMBER: _ClassVar[int]
+    PORT_FIELD_NUMBER: _ClassVar[int]
+    USERNAME_FIELD_NUMBER: _ClassVar[int]
+    PASSWORD_FIELD_NUMBER: _ClassVar[int]
+    TOPIC_FIELD_NUMBER: _ClassVar[int]
+    QOS_FIELD_NUMBER: _ClassVar[int]
+    STALE_AFTER_FIELD_NUMBER: _ClassVar[int]
+    RECONNECT_BACKOFF_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    type: str
+    enabled: bool
+    brokers: _containers.RepeatedScalarFieldContainer[str]
+    port: int
+    username: str
+    password: str
+    topic: str
+    qos: int
+    stale_after: str
+    reconnect_backoff: str
+    def __init__(self, name: _Optional[str] = ..., type: _Optional[str] = ..., enabled: bool = ..., brokers: _Optional[_Iterable[str]] = ..., port: _Optional[int] = ..., username: _Optional[str] = ..., password: _Optional[str] = ..., topic: _Optional[str] = ..., qos: _Optional[int] = ..., stale_after: _Optional[str] = ..., reconnect_backoff: _Optional[str] = ...) -> None: ...
+
+class CurtailmentConfig(_message.Message):
+    __slots__ = ("enabled", "fail_policy", "restore_policy", "nats_url", "mcdd_grpc_address", "status_publish_interval", "providers")
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    FAIL_POLICY_FIELD_NUMBER: _ClassVar[int]
+    RESTORE_POLICY_FIELD_NUMBER: _ClassVar[int]
+    NATS_URL_FIELD_NUMBER: _ClassVar[int]
+    MCDD_GRPC_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    STATUS_PUBLISH_INTERVAL_FIELD_NUMBER: _ClassVar[int]
+    PROVIDERS_FIELD_NUMBER: _ClassVar[int]
+    enabled: bool
+    fail_policy: str
+    restore_policy: str
+    nats_url: str
+    mcdd_grpc_address: str
+    status_publish_interval: str
+    providers: _containers.RepeatedCompositeFieldContainer[CurtailmentProviderConfig]
+    def __init__(self, enabled: bool = ..., fail_policy: _Optional[str] = ..., restore_policy: _Optional[str] = ..., nats_url: _Optional[str] = ..., mcdd_grpc_address: _Optional[str] = ..., status_publish_interval: _Optional[str] = ..., providers: _Optional[_Iterable[_Union[CurtailmentProviderConfig, _Mapping]]] = ...) -> None: ...
+
+class ApplyCurtailmentConfigRequest(_message.Message):
+    __slots__ = ("ref", "config")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    CONFIG_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    config: CurtailmentConfig
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., config: _Optional[_Union[CurtailmentConfig, _Mapping]] = ...) -> None: ...
+
 class SetPowerTargetRequest(_message.Message):
     __slots__ = ("ref", "performance_mode")
     REF_FIELD_NUMBER: _ClassVar[int]

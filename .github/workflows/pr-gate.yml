@@ -32,16 +32,17 @@ jobs:
       rust_sdk: ${{ github.event_name != 'pull_request' || steps.filter.outputs.rust_sdk == 'true' }}
       windows: ${{ github.event_name != 'pull_request' || steps.filter.outputs.windows == 'true' }}
       powershell: ${{ github.event_name != 'pull_request' || steps.filter.outputs.powershell == 'true' }}
+      developer_workflows: ${{ github.event_name != 'pull_request' || steps.filter.outputs.developer_workflows == 'true' }}
       protofleet_e2e: ${{ github.event_name != 'pull_request' || steps.filter.outputs.protofleet_e2e == 'true' }}
       protoos_e2e: ${{ github.event_name != 'pull_request' || steps.filter.outputs.protoos_e2e == 'true' }}
     steps:
       - name: Checkout
         if: github.event_name == 'pull_request'
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Detect changed areas
         id: filter
         if: github.event_name == 'pull_request'
-        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4.0.2
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           filters: .github/path-filters.yml
 
@@ -162,11 +163,28 @@ jobs:
     uses: ./.github/workflows/powershell-lint.yml
     secrets: inherit
 
+  developer-workflow-tests:
+    name: Developer Workflow Tests
+    needs: changes
+    if: needs.changes.outputs.developer_workflows == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Hermit
+        uses: ./.github/actions/hermit-setup
+      - name: Test developer workflows
+        run: just test-developer-workflows
+
   protofleet-e2e-tests:
     name: ProtoFleet E2E Tests
     needs: changes
     if: needs.changes.outputs.protofleet_e2e == 'true'
     uses: ./.github/workflows/protofleet-e2e-tests.yml
+    with:
+      run_scope: smoke
     secrets: inherit
 
   protoos-e2e-tests:
@@ -181,11 +199,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Run review policy tests
-        run: python3 .github/scripts/evaluate_review_policy_test.py
+      - name: Run review policy and Codex sharding tests
+        run: |
+          python3 .github/scripts/evaluate_review_policy_test.py
+          python3 .github/scripts/codex_sharding_test.py
 
   gate:
     name: Gate
@@ -210,6 +230,7 @@ jobs:
       - rust-sdk-checks
       - windows-checks
       - powershell-lint
+      - developer-workflow-tests
       - protofleet-e2e-tests
       - protoos-e2e-tests
       - review-policy-tests

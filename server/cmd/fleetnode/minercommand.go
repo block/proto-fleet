@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 
 	"buf.build/go/protovalidate"
@@ -29,6 +28,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/commandresult"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/curtailmentconfig"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -128,6 +128,12 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		return
 	}
 	bundle = passwordUpdate.secretBundle(target, bundle)
+	curtailmentConfig, err := newCurtailmentConfigCommand(r.passwordUpdatePrivateKey, target, mc)
+	if err != nil {
+		code, msg := classifyMinerCommandError("decrypt curtailment config", err)
+		r.sendAck(stream, commandID, code, msg, logger)
+		return
+	}
 
 	cmdCtx, cancel := context.WithTimeout(ctx, minerCommandActionTimeout(mc))
 	defer cancel()
@@ -164,6 +170,8 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	var payload []byte
 	if passwordUpdate != nil {
 		payload, err = passwordUpdate.run(cmdCtx, dev, bundle, r.minerSecrets)
+	} else if curtailmentConfig != nil {
+		payload, err = curtailmentConfig.run(cmdCtx, dev)
 	} else {
 		payload, err = runMinerAction(cmdCtx, client, commandID, r.firmwareTempRootForDownloads(), caps, dev, mc)
 	}
@@ -173,6 +181,33 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		return
 	}
 	r.sendAckWithPayload(stream, commandID, pb.AckCode_ACK_CODE_OK, "", payload, logger)
+}
+
+type curtailmentConfigCommand struct {
+	config sdk.CurtailmentConfig
+}
+
+func newCurtailmentConfigCommand(privateKey []byte, target *pb.MinerConnectionDescriptor, mc *pb.MinerCommand) (*curtailmentConfigCommand, error) {
+	action := mc.GetApplyCurtailmentConfig()
+	if action == nil {
+		return nil, nil
+	}
+	if len(privateKey) == 0 {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node has no curtailment config decryption key configured")
+	}
+	config, err := curtailmentconfig.Decrypt(privateKey, action.GetEncryptedConfig(), target.GetDeviceIdentifier())
+	if err != nil {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err.Error())
+	}
+	return &curtailmentConfigCommand{config: config}, nil
+}
+
+func (c *curtailmentConfigCommand) run(ctx context.Context, dev sdk.Device) ([]byte, error) {
+	configurator, ok := dev.(sdk.DeviceCurtailmentConfigurator)
+	if !ok {
+		return nil, sdk.NewErrUnsupportedCapability("curtailment configuration")
+	}
+	return nil, configurator.ApplyCurtailmentConfig(ctx, c.config)
 }
 
 type passwordUpdateCommand struct {
@@ -594,27 +629,6 @@ func ensureFirmwareTempSpace(root string, artifactSize int64) error {
 		return cmdErr(pb.AckCode_ACK_CODE_BUSY, "insufficient firmware temp space: need %d bytes, have %d bytes", needed, freeBytes)
 	}
 	return nil
-}
-
-func firmwareTempFreeBytes(root string) (int64, error) {
-	var stat syscall.Statfs_t
-	if err := syscall.Statfs(root, &stat); err != nil {
-		return 0, fmt.Errorf("statfs firmware temp dir: %w", err)
-	}
-	if stat.Bsize <= 0 {
-		return 0, nil
-	}
-	blockSize := uint64(stat.Bsize) //nolint:gosec // Bsize is guarded above; Statfs reports a non-negative block size in practice.
-	availableBlocks := stat.Bavail
-	const maxInt64 = ^uint64(0) >> 1
-	if availableBlocks > ^uint64(0)/blockSize {
-		return int64(maxInt64), nil
-	}
-	free := availableBlocks * blockSize
-	if free > maxInt64 {
-		return int64(maxInt64), nil
-	}
-	return int64(free), nil
 }
 
 func downloadFirmwareArtifact(ctx context.Context, client gatewayClient, commandID, deviceIdentifier, firmwareTempRoot string, ref *pb.CommandArtifactRef) (string, func(), error) {

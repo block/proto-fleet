@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
@@ -38,7 +39,7 @@ func (i *FleetNodeAuthInterceptor) WrapUnary(next connect.UnaryFunc) connect.Una
 		if !i.appliesTo(req.Spec().Procedure) {
 			return next(ctx, req)
 		}
-		newCtx, err := i.authenticate(ctx, req.Header().Get("Authorization"))
+		newCtx, _, err := i.authenticate(ctx, req.Header().Get("Authorization"))
 		if err != nil {
 			return nil, err
 		}
@@ -55,32 +56,35 @@ func (i *FleetNodeAuthInterceptor) WrapStreamingHandler(next connect.StreamingHa
 		if !i.appliesTo(conn.Spec().Procedure) {
 			return next(ctx, conn)
 		}
-		newCtx, err := i.authenticate(ctx, conn.RequestHeader().Get("Authorization"))
+		newCtx, expiresAt, err := i.authenticate(ctx, conn.RequestHeader().Get("Authorization"))
 		if err != nil {
 			return err
 		}
-		return next(newCtx, conn)
+		sessionCtx, cancel := context.WithDeadline(newCtx, expiresAt)
+		defer cancel()
+		return next(sessionCtx, conn)
 	}
 }
 
-func (i *FleetNodeAuthInterceptor) authenticate(ctx context.Context, authHeader string) (context.Context, error) {
+func (i *FleetNodeAuthInterceptor) authenticate(ctx context.Context, authHeader string) (context.Context, time.Time, error) {
 	rawToken, ok := parseBearerToken(authHeader)
 	if !ok {
-		return ctx, fleeterror.NewUnauthenticatedError("invalid Authorization header format, expected: Bearer <session_token>")
+		return ctx, time.Time{}, fleeterror.NewUnauthenticatedError("invalid Authorization header format, expected: Bearer <session_token>")
 	}
 	resolved, err := i.auth.ResolveSession(ctx, rawToken)
 	if err != nil {
 		var fe fleeterror.FleetError
 		if errors.As(err, &fe) {
-			return ctx, err
+			return ctx, time.Time{}, err
 		}
 		slog.Error("fleet node auth: session lookup failed", "error", err)
-		return ctx, fleeterror.NewInternalError("fleet node authentication failed")
+		return ctx, time.Time{}, fleeterror.NewInternalError("fleet node authentication failed")
 	}
 	return authn.SetInfo(ctx, &auth.Subject{
 		FleetNodeID:         resolved.FleetNodeID,
 		OrgID:               resolved.OrgID,
 		Name:                resolved.Name,
 		IdentityFingerprint: enrollment.IdentityFingerprint(resolved.IdentityPubkey),
-	}), nil
+		SessionFingerprint:  resolved.SessionFingerprint,
+	}), resolved.SessionExpiresAt, nil
 }

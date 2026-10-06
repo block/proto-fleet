@@ -111,7 +111,8 @@ func (g *Grafana) EnsureFolder(ctx context.Context, uid, title string) error {
 	if err == nil {
 		return nil
 	}
-	if !IsNotFound(err) {
+	// Grafana 13 fails closed for non-admins on folder GETs only (uid-scoped authz runs before existence); unscoped provisioning/silence GETs still 404 when missing, so don't copy 403-as-missing to them.
+	if !IsNotFound(err) && !isForbidden(err) {
 		return fmt.Errorf("get folder: %w", err)
 	}
 	createErr := g.do(ctx, http.MethodPost, "/api/folders", GrafanaFolder{UID: uid, Title: title}, &got)
@@ -340,18 +341,24 @@ func (e *GrafanaError) Error() string {
 	return fmt.Sprintf("grafana %d: %s", e.StatusCode, e.Message)
 }
 
-func IsNotFound(err error) bool {
+// grafanaStatusCode returns the GrafanaError status, or 0 for non-Grafana errors.
+func grafanaStatusCode(err error) int {
 	var ge *GrafanaError
 	if errors.As(err, &ge) {
-		return ge.StatusCode == http.StatusNotFound
+		return ge.StatusCode
 	}
-	return false
+	return 0
+}
+
+func IsNotFound(err error) bool {
+	return grafanaStatusCode(err) == http.StatusNotFound
 }
 
 func isConflict(err error) bool {
-	var ge *GrafanaError
-	if errors.As(err, &ge) {
-		return ge.StatusCode == http.StatusConflict || ge.StatusCode == http.StatusPreconditionFailed
-	}
-	return false
+	code := grafanaStatusCode(err)
+	return code == http.StatusConflict || code == http.StatusPreconditionFailed
+}
+
+func isForbidden(err error) bool {
+	return grafanaStatusCode(err) == http.StatusForbidden
 }

@@ -92,6 +92,33 @@ func TestBuildMinerFilterParams_CombinedFilters(t *testing.T) {
 	assert.True(t, params.pairingStatusFilter.Valid)
 }
 
+func TestBuildMinerFilterParams_SearchQuery(t *testing.T) {
+	params := buildMinerFilterParams(&stores.MinerFilter{SearchQuery: `  miner%_\  `})
+
+	require.True(t, params.searchQueryFilter.Valid)
+	assert.Equal(t, `%miner\%\_\\%`, params.searchQueryFilter.String)
+}
+
+func TestAppendFilterSQL_SearchQuery(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{
+		searchQueryFilter: sql.NullString{String: "%worker%", Valid: true},
+	}
+
+	resultArgs, resultArgNum := appendFilterSQL(&sb, nil, 1, 1, fp)
+
+	query := sb.String()
+	assert.Contains(t, query, "device.custom_name")
+	assert.Contains(t, query, "device.serial_number")
+	assert.Contains(t, query, "device.mac_address")
+	assert.Contains(t, query, "discovered_device.ip_address")
+	assert.Contains(t, query, "device.worker_name")
+	assert.Contains(t, query, "discovered_device.device_identifier")
+	assert.Contains(t, query, "ESCAPE '\\'")
+	assert.Equal(t, []any{"%worker%"}, resultArgs)
+	assert.Equal(t, 2, resultArgNum)
+}
+
 func TestAppendFilterSQL_PairingStatusFilter(t *testing.T) {
 	var sb strings.Builder
 	args := []any{"initial"}
@@ -136,7 +163,7 @@ func TestAppendFilterSQL_StatusFilter(t *testing.T) {
 
 	resultArgs, resultArgNum := appendFilterSQL(&sb, args, argNum, orgID, fp)
 
-	assert.Contains(t, sb.String(), "device_status.status::text")
+	assert.Contains(t, sb.String(), "effective_status.status")
 	assert.Len(t, resultArgs, 3) // initial + statusValues + orgID
 	assert.Equal(t, 4, resultArgNum)
 }
@@ -158,10 +185,10 @@ func TestAppendFilterSQL_StatusFilterWithNeedsAttention(t *testing.T) {
 	sql := sb.String()
 	assert.Contains(t, sql, "AUTHENTICATION_NEEDED")
 	assert.Contains(t, sql, "errors")
-	assert.Contains(t, sql, "device_status.status IS NULL OR device_status.status != 'OFFLINE'")
-	assert.Contains(t, sql, "device_status.status IS NULL OR device_status.status NOT IN")
+	assert.Contains(t, sql, "effective_status.status IS NULL OR effective_status.status != 'OFFLINE'")
+	assert.Contains(t, sql, "effective_status.status IS NULL OR effective_status.status NOT IN")
 	// Errors branch excludes NULL paired-like miners (they remain bucketed as offline).
-	assert.Contains(t, sql, "NOT (device_status.status IS NULL AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))")
+	assert.Contains(t, sql, "NOT (effective_status.status IS NULL AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))")
 	assert.Len(t, resultArgs, 4) // initial + statusValues + orgID + orgID
 	assert.Equal(t, 5, resultArgNum)
 }
@@ -180,7 +207,7 @@ func TestAppendFilterSQL_StatusFilterWithOfflineIncludesNull(t *testing.T) {
 	appendFilterSQL(&sb, args, argNum, orgID, fp)
 
 	sql := sb.String()
-	assert.Contains(t, sql, "device_status.status IS NULL")
+	assert.Contains(t, sql, "effective_status.status IS NULL")
 	// Narrowed to paired-like statuses (matches CountMinersByState scope); excludes PENDING/FAILED/UNPAIRED.
 	assert.Contains(t, sql, "device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')")
 	assert.NotContains(t, sql, "pairing_status != 'AUTHENTICATION_NEEDED'")
@@ -200,6 +227,21 @@ func TestAppendFilterSQL_StatusFilterActiveDoesNotIncludeNull(t *testing.T) {
 
 	sql := sb.String()
 	assert.NotContains(t, sql, "device_status.status IS NULL")
+}
+
+func TestAppendFilterSQL_StatusFilterUsesEffectiveFleetNodeStatus(t *testing.T) {
+	var sb strings.Builder
+	fp := minerFilterParams{
+		statusFilter: validNullString(),
+		statusValues: []string{"OFFLINE"},
+	}
+
+	appendFilterSQL(&sb, []any{"initial"}, 2, 1, fp)
+
+	sql := sb.String()
+	assert.Contains(t, sql, "effective_status.status")
+	assert.Contains(t, sql, "= ANY($2::text[])")
+	assert.NotContains(t, sql, "device_status.status::text = ANY")
 }
 
 func TestAppendFilterSQL_CombinedFilters(t *testing.T) {
@@ -223,7 +265,7 @@ func TestAppendFilterSQL_CombinedFilters(t *testing.T) {
 	assert.Contains(t, sb.String(), "pairing_status")
 	assert.Contains(t, sb.String(), "discovered_device.model")
 	assert.Contains(t, sb.String(), "discovered_device.manufacturer")
-	assert.Contains(t, sb.String(), "device_status.status")
+	assert.Contains(t, sb.String(), "effective_status.status")
 	assert.Len(t, resultArgs, 6) // initial + pairing + model + manufacturer + status + orgID
 	assert.Equal(t, 7, resultArgNum)
 }
@@ -448,7 +490,7 @@ func TestAppendFilterSQL_UnassignedRackBucket_NoRackBranchNotGated(t *testing.T)
 }
 
 // TestBuildMinerFilterParams_SiteFilter exercises the four allowed combos
-// of site_ids + include_unassigned (plan §"device/" filter notes).
+// of site_ids + include_unassigned.
 func TestBuildMinerFilterParams_SiteFilter(t *testing.T) {
 	t.Run("specific sites only", func(t *testing.T) {
 		fp := buildMinerFilterParams(&stores.MinerFilter{SiteIDs: []int64{1, 2}})
@@ -1031,7 +1073,7 @@ func TestAppendFilterSQL_NumericRange_LowerBoundExclusive(t *testing.T) {
 
 	sql := sb.String()
 	assert.Contains(t, sql, "latest_metrics.hash_rate_hs / 1e12 > $2")
-	assert.Contains(t, sql, "device_status.status != 'OFFLINE'", "numeric filter must exclude OFFLINE miners")
+	assert.Contains(t, sql, "effective_status.status IS NULL OR effective_status.status != 'OFFLINE'", "numeric filter must exclude OFFLINE miners")
 	assert.Len(t, resultArgs, 2)
 	assert.Equal(t, 3, resultArgNum)
 }
@@ -1124,7 +1166,7 @@ func TestAppendFilterSQL_NoNumericRange_DoesNotExcludeOffline(t *testing.T) {
 
 	appendFilterSQL(&sb, []any{"initial"}, 2, 1, fp)
 
-	assert.NotContains(t, sb.String(), "device_status.status != 'OFFLINE'")
+	assert.NotContains(t, sb.String(), "effective_status.status IS NULL OR effective_status.status != 'OFFLINE'")
 }
 
 func TestAppendFilterSQL_IPCIDRs_UsesInetAnyPredicate(t *testing.T) {
@@ -1223,4 +1265,67 @@ func TestAppendFilterSQL_NumericAndCIDRWithExistingFilters_ArgContinuity(t *test
 	assert.Contains(t, sql, "discovered_device.ip_address_inet <<= ANY($5::cidr[])")
 	assert.Len(t, resultArgs, 5) // initial + model + 2 numeric + cidrs
 	assert.Equal(t, 6, resultArgNum)
+}
+
+// TestRequiresDynamicQuery_EveryInexpressibleDimension pins the routing
+// predicate to one case per dimension the static sqlc queries cannot express.
+// Callers pair a count with a row set off this single predicate, so a dimension
+// that reaches appendFilterSQL without reaching requiresDynamicQuery would
+// return a count describing a wider set than the rows beside it.
+func TestRequiresDynamicQuery_EveryInexpressibleDimension(t *testing.T) {
+	tests := []struct {
+		name   string
+		filter *stores.MinerFilter
+	}{
+		{"search query", &stores.MinerFilter{SearchQuery: "rack-7"}},
+		{"numeric range", &stores.MinerFilter{NumericRanges: []stores.NumericRange{
+			{Field: stores.NumericFilterFieldHashrateTHs, Min: ptr(90.0)},
+		}}},
+		{"ip cidr", &stores.MinerFilter{IPCIDRs: []netip.Prefix{netip.MustParsePrefix("192.168.1.0/24")}}},
+		{"ip range", &stores.MinerFilter{IPRanges: []stores.IPRange{
+			{Start: netip.MustParseAddr("10.0.0.1"), End: netip.MustParseAddr("10.0.0.9")},
+		}}},
+		{"site ids", &stores.MinerFilter{SiteIDs: []int64{7}}},
+		{"include unassigned", &stores.MinerFilter{IncludeUnassigned: true}},
+		{"building ids", &stores.MinerFilter{BuildingIDs: []int64{3}}},
+		{"include no building", &stores.MinerFilter{IncludeNoBuilding: true}},
+		{"zone keys", &stores.MinerFilter{ZoneKeys: []stores.ZoneKey{{Zone: "Austin"}}}},
+		{"include no rack", &stores.MinerFilter{IncludeNoRack: true}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.True(t, buildMinerFilterParams(tt.filter).requiresDynamicQuery(),
+				"%s must route to the dynamic builder", tt.name)
+		})
+	}
+}
+
+// TestRequiresDynamicQuery_StaticExpressibleFilters keeps the predicate from
+// widening into an always-true check, which would silently retire the static
+// query path for every caller.
+func TestRequiresDynamicQuery_StaticExpressibleFilters(t *testing.T) {
+	assert.False(t, buildMinerFilterParams(nil).requiresDynamicQuery(),
+		"a nil filter must stay on the static query")
+
+	staticOnly := &stores.MinerFilter{
+		DeviceStatusFilter: []minermodels.MinerStatus{minermodels.MinerStatusError},
+		ModelNames:         []string{"S21 XP"},
+		FirmwareVersions:   []string{"v3.5.1"},
+		RackIDs:            []int64{4},
+		GroupIDs:           []int64{9},
+		DeviceIdentifiers:  []string{"device-1"},
+	}
+	assert.False(t, buildMinerFilterParams(staticOnly).requiresDynamicQuery(),
+		"filters the static query can express must not force the dynamic builder")
+}
+
+// TestRequiresDynamicQuery_BlankSearchStaysStatic guards the trimmed-empty
+// case: a cleared search box must not permanently divert every query to the
+// dynamic builder.
+func TestRequiresDynamicQuery_BlankSearchStaysStatic(t *testing.T) {
+	for _, q := range []string{"", "   ", "\t\n"} {
+		assert.False(t, buildMinerFilterParams(&stores.MinerFilter{SearchQuery: q}).requiresDynamicQuery(),
+			"blank search %q must stay on the static query", q)
+	}
 }

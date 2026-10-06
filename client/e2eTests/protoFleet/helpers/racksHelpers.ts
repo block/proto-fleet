@@ -23,7 +23,7 @@ export async function addSelectableMinersToSlots(
   const selectableMinerIndexes = await racksPage.getSelectableMinerIndexes(minerCount);
   const selectedMiners = await racksPage.getMinersFromSelector(selectableMinerIndexes);
   await racksPage.selectMinersInSelectorByIndex(selectableMinerIndexes);
-  await racksPage.clickContinueInMinerSelector();
+  await racksPage.clickSaveInMinerSelector();
 
   for (let i = 0; i < selectedMiners.length; i++) {
     await racksPage.selectRackMiner(selectedMiners[i].ipAddress);
@@ -48,7 +48,7 @@ export async function addSelectableRigMinersToSlots(
   const selectableMinerIndexes = await racksPage.getSelectableMinerIndexes(minerCount);
   const selectedMiners = await racksPage.getMinersFromSelector(selectableMinerIndexes);
   await racksPage.selectMinersInSelectorByIndex(selectableMinerIndexes);
-  await racksPage.clickContinueInMinerSelector();
+  await racksPage.clickSaveInMinerSelector();
 
   for (let i = 0; i < selectedMiners.length; i++) {
     await racksPage.selectRackMiner(selectedMiners[i].ipAddress);

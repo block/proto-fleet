@@ -89,6 +89,10 @@ func writeTempFirmwareFile(t *testing.T, name string, content []byte) string {
 	return path
 }
 
+func testFirmwareTarget() firmwareTarget {
+	return firmwareTarget{Manufacturer: "Proto", Model: "Rig", Version: "v2.0.0"}
+}
+
 func TestFileSHA256(t *testing.T) {
 	content := []byte("fleet firmware payload")
 	path := writeTempFirmwareFile(t, "fw.swu", content)
@@ -187,7 +191,7 @@ func TestFirmwareCheckSendsSHA256(t *testing.T) {
 	client := newFirmwareTestServer(t, mux)
 
 	digest := strings.Repeat("ab", 32)
-	resp, err := client.FirmwareCheck(context.Background(), digest)
+	resp, err := client.FirmwareCheck(context.Background(), digest, testFirmwareTarget())
 	if err != nil {
 		t.Fatalf("FirmwareCheck() error = %v", err)
 	}
@@ -195,7 +199,7 @@ func TestFirmwareCheckSendsSHA256(t *testing.T) {
 	if gotContentType != contentTypeJSON {
 		t.Errorf("check Content-Type = %q, want %q", gotContentType, contentTypeJSON)
 	}
-	wantBody := fmt.Sprintf(`{"sha256":%q}`, digest)
+	wantBody := fmt.Sprintf(`{"sha256":%q,"target_manufacturer":"Proto","target_model":"Rig","firmware_version":"v2.0.0"}`, digest)
 	if string(gotBody) != wantBody {
 		t.Errorf("check body = %s, want %s", gotBody, wantBody)
 	}
@@ -243,15 +247,15 @@ func TestFirmwareUploadReusesExistingFile(t *testing.T) {
 	forbidFirmwareEndpoint(t, mux, "POST /api/v1/firmware/upload/chunked")
 	client := newFirmwareTestServer(t, mux)
 
-	result, reused, err := runFirmwareUpload(context.Background(), client, path, false, nil)
+	result, err := runFirmwareUpload(context.Background(), client, path, testFirmwareTarget(), false, nil)
 	if err != nil {
 		t.Fatalf("runFirmwareUpload() error = %v", err)
 	}
-	if !reused {
-		t.Error("runFirmwareUpload() reused = false, want true")
-	}
 	if result.FirmwareFileID != "existing-id" {
 		t.Errorf("FirmwareFileID = %q, want %q", result.FirmwareFileID, "existing-id")
+	}
+	if !result.Reused {
+		t.Error("result.Reused = false, want true")
 	}
 }
 
@@ -268,15 +272,15 @@ func TestFirmwareUploadForceUploadsDespiteCheckHit(t *testing.T) {
 	})
 	client := newFirmwareTestServer(t, mux)
 
-	result, reused, err := runFirmwareUpload(context.Background(), client, path, true, nil)
+	result, err := runFirmwareUpload(context.Background(), client, path, testFirmwareTarget(), true, nil)
 	if err != nil {
 		t.Fatalf("runFirmwareUpload() error = %v", err)
 	}
 	if !uploadHit {
 		t.Error("direct upload endpoint was not called despite --force")
 	}
-	if reused {
-		t.Error("runFirmwareUpload() reused = true, want false")
+	if result.Reused {
+		t.Error("result.Reused = true, want false")
 	}
 	if result.FirmwareFileID != "fresh-id" {
 		t.Errorf("FirmwareFileID = %q, want %q", result.FirmwareFileID, "fresh-id")
@@ -315,6 +319,18 @@ func TestFirmwareUploadDirectUsesMultipart(t *testing.T) {
 				}
 				defer func() { _ = file.Close() }()
 				gotFilename = header.Filename
+				if got := r.FormValue("target_manufacturer"); got != "Proto" {
+					t.Errorf("target_manufacturer = %q, want Proto", got)
+				}
+				if got := r.FormValue("target_model"); got != "Rig" {
+					t.Errorf("target_model = %q, want Rig", got)
+				}
+				if got := r.FormValue("firmware_version"); got != "v2.0.0" {
+					t.Errorf("firmware_version = %q, want v2.0.0", got)
+				}
+				if got := r.FormValue("force"); got != "" {
+					t.Errorf("force = %q, want empty", got)
+				}
 				gotBytes, err = io.ReadAll(file)
 				if err != nil {
 					t.Errorf("read multipart file: %v", err)
@@ -323,12 +339,12 @@ func TestFirmwareUploadDirectUsesMultipart(t *testing.T) {
 			})
 			client := newFirmwareTestServer(t, mux)
 
-			result, reused, err := runFirmwareUpload(context.Background(), client, path, false, nil)
+			result, err := runFirmwareUpload(context.Background(), client, path, testFirmwareTarget(), false, nil)
 			if err != nil {
 				t.Fatalf("runFirmwareUpload() error = %v", err)
 			}
-			if reused {
-				t.Error("runFirmwareUpload() reused = true, want false")
+			if result.Reused {
+				t.Error("result.Reused = true, want false")
 			}
 			if result.FirmwareFileID != "direct-id" {
 				t.Errorf("FirmwareFileID = %q, want %q", result.FirmwareFileID, "direct-id")
@@ -382,18 +398,24 @@ func TestFirmwareUploadChunkedSequence(t *testing.T) {
 	})
 	client := newFirmwareTestServer(t, mux)
 
-	result, reused, err := runFirmwareUpload(context.Background(), client, path, false, nil)
+	result, err := runFirmwareUpload(context.Background(), client, path, testFirmwareTarget(), false, nil)
 	if err != nil {
 		t.Fatalf("runFirmwareUpload() error = %v", err)
 	}
-	if reused {
-		t.Error("runFirmwareUpload() reused = true, want false")
+	if result.Reused {
+		t.Error("result.Reused = true, want false")
 	}
 	if result.FirmwareFileID != "chunked-id" {
 		t.Errorf("FirmwareFileID = %q, want %q", result.FirmwareFileID, "chunked-id")
 	}
 	if initiateBody.Filename != "big-firmware.swu" || initiateBody.FileSize != int64(len(content)) {
 		t.Errorf("initiate body = %+v, want filename big-firmware.swu and file_size %d", initiateBody, len(content))
+	}
+	if initiateBody.TargetManufacturer != "Proto" || initiateBody.TargetModel != "Rig" {
+		t.Errorf("initiate target = %s %s, want Proto Rig", initiateBody.TargetManufacturer, initiateBody.TargetModel)
+	}
+	if initiateBody.Force {
+		t.Error("initiate force = true, want false")
 	}
 	wantRanges := []string{"bytes 0-7/20", "bytes 8-15/20", "bytes 16-19/20"}
 	if len(gotRanges) != len(wantRanges) {
@@ -409,6 +431,27 @@ func TestFirmwareUploadChunkedSequence(t *testing.T) {
 	}
 	if !bytes.Equal(reassembled, content) {
 		t.Errorf("reassembled chunks do not match the source file (got %q, want %q)", reassembled, content)
+	}
+}
+
+func TestFirmwareTargetValidateRequiresAllMetadata(t *testing.T) {
+	tests := []struct {
+		name    string
+		target  firmwareTarget
+		wantErr string
+	}{
+		{name: "manufacturer", target: firmwareTarget{}, wantErr: "--target-manufacturer is required"},
+		{name: "model", target: firmwareTarget{Manufacturer: "Proto"}, wantErr: "--target-model is required"},
+		{name: "version", target: firmwareTarget{Manufacturer: "Proto", Model: "Rig"}, wantErr: "--firmware-version is required"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.target.validate()
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("validate() error = %v, want containing %q", err, tt.wantErr)
+			}
+		})
 	}
 }
 
@@ -448,7 +491,7 @@ func TestFirmwareUploadValidationRejectsLocally(t *testing.T) {
 			forbidFirmwareEndpoint(t, mux, "POST /api/v1/firmware/upload/chunked")
 			client := newFirmwareTestServer(t, mux)
 
-			_, _, err := runFirmwareUpload(context.Background(), client, tt.path(t), false, nil)
+			_, err := runFirmwareUpload(context.Background(), client, tt.path(t), testFirmwareTarget(), false, nil)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("runFirmwareUpload() error = %v, want containing %q", err, tt.wantErr)
 			}
@@ -475,6 +518,44 @@ func TestFirmwareListDecodesFiles(t *testing.T) {
 	file := resp.Files[0]
 	if file.ID != "id-1" || file.Filename != "fw.swu" || file.Size != 42 || file.UploadedAt != "2026-06-10T14:30:45Z" {
 		t.Errorf("FirmwareList() file = %+v", file)
+	}
+}
+
+func TestFirmwareUpdateMetadataPatchesEscapedFileEndpoint(t *testing.T) {
+	fileID := "abc/def %"
+	target := testFirmwareTarget()
+	var gotEscapedPath, gotContentType, gotAccept, gotBody string
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("PATCH /api/v1/firmware/files/", func(w http.ResponseWriter, r *http.Request) {
+		gotEscapedPath = r.URL.EscapedPath()
+		gotContentType = r.Header.Get("Content-Type")
+		gotAccept = r.Header.Get("Accept")
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read metadata update body: %v", err)
+		}
+		gotBody = string(body)
+		w.WriteHeader(http.StatusNoContent)
+	})
+	client := newFirmwareTestServer(t, mux)
+
+	if err := client.FirmwareUpdateMetadata(context.Background(), fileID, target); err != nil {
+		t.Fatalf("FirmwareUpdateMetadata() error = %v", err)
+	}
+	wantPath := "/api/v1/firmware/files/" + url.PathEscape(fileID)
+	if gotEscapedPath != wantPath {
+		t.Errorf("request path = %q, want %q", gotEscapedPath, wantPath)
+	}
+	if gotContentType != contentTypeJSON {
+		t.Errorf("Content-Type = %q, want %q", gotContentType, contentTypeJSON)
+	}
+	if gotAccept != contentTypeJSON {
+		t.Errorf("Accept = %q, want %q", gotAccept, contentTypeJSON)
+	}
+	wantBody := `{"target_manufacturer":"Proto","target_model":"Rig","firmware_version":"v2.0.0"}`
+	if gotBody != wantBody {
+		t.Errorf("request body = %q, want %q", gotBody, wantBody)
 	}
 }
 
@@ -642,6 +723,54 @@ func TestFirmwareDeleteAllCommandDeletesAfterYes(t *testing.T) {
 				t.Fatalf("deleted_count = %d, want 3", decoded.DeletedCount)
 			}
 		})
+	}
+}
+
+func TestFirmwareEditMetadataCommandPrintsConfirmation(t *testing.T) {
+	pinFleetAuthEnv(t, map[string]string{envFleetPassword: "proto"})
+	oldNoColor := color.NoColor
+	color.NoColor = true
+	t.Cleanup(func() { color.NoColor = oldNoColor })
+
+	fileID := "550e8400-e29b-41d4-a716-446655440000"
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /auth.v1.AuthService/Authenticate", func(w http.ResponseWriter, _ *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "fleet_session", Value: "test-session", Path: "/", Secure: true})
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{}`))
+	})
+	mux.HandleFunc("PATCH /api/v1/firmware/files/"+fileID, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	output := captureStdout(t, func() {
+		err := newRootCommand().Run(context.Background(), []string{
+			"fleetcli", "--server", srv.URL + "/", "--username", "admin",
+			"firmware", "edit-metadata",
+			"--firmware-file-id", fileID,
+			"--target-manufacturer", "Proto",
+			"--target-model", "Rig",
+			"--firmware-version", "v2.0.0",
+		})
+		if err != nil {
+			t.Fatalf("firmware edit-metadata error = %v", err)
+		}
+	})
+
+	var decoded firmwareMetadataUpdateResult
+	if err := json.Unmarshal([]byte(output), &decoded); err != nil {
+		t.Fatalf("output is not JSON: %s", output)
+	}
+	want := firmwareMetadataUpdateResult{
+		FirmwareFileID:     fileID,
+		TargetManufacturer: "Proto",
+		TargetModel:        "Rig",
+		FirmwareVersion:    "v2.0.0",
+	}
+	if decoded != want {
+		t.Errorf("edit-metadata output = %+v, want %+v", decoded, want)
 	}
 }
 
@@ -1030,6 +1159,64 @@ func TestFirmwareSingleArgValidation(t *testing.T) {
 			err := firmwareCheckCommand().Run(context.Background(), tt.args)
 			if err == nil || !strings.Contains(err.Error(), "expected exactly one argument") {
 				t.Fatalf("check %v error = %v, want single-argument usage error", tt.args, err)
+			}
+		})
+	}
+}
+
+func TestFirmwareEditMetadataCommandRequiresIDAndTarget(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		wantErr string
+	}{
+		{
+			name: "file id",
+			args: []string{
+				"edit-metadata",
+				"--target-manufacturer", "Proto",
+				"--target-model", "Rig",
+				"--firmware-version", "v2.0.0",
+			},
+			wantErr: "firmware-file-id",
+		},
+		{
+			name: "manufacturer",
+			args: []string{
+				"edit-metadata",
+				"--firmware-file-id", "firmware-id",
+				"--target-model", "Rig",
+				"--firmware-version", "v2.0.0",
+			},
+			wantErr: "--target-manufacturer is required",
+		},
+		{
+			name: "model",
+			args: []string{
+				"edit-metadata",
+				"--firmware-file-id", "firmware-id",
+				"--target-manufacturer", "Proto",
+				"--firmware-version", "v2.0.0",
+			},
+			wantErr: "--target-model is required",
+		},
+		{
+			name: "version",
+			args: []string{
+				"edit-metadata",
+				"--firmware-file-id", "firmware-id",
+				"--target-manufacturer", "Proto",
+				"--target-model", "Rig",
+			},
+			wantErr: "--firmware-version is required",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := firmwareEditMetadataCommand().Run(context.Background(), tt.args)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("edit-metadata error = %v, want containing %q", err, tt.wantErr)
 			}
 		})
 	}

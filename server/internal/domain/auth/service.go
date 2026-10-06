@@ -54,6 +54,8 @@ type effectivePermissionResolver interface {
 }
 
 type Service struct {
+	loginAttempts       passwordAttempts
+	stepUpAttempts      passwordAttempts
 	userStore           stores.UserStore
 	userManagementStore stores.UserManagementStore
 	transactor          stores.Transactor
@@ -131,6 +133,9 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 			return nil, nil, fleeterror.NewInternalErrorf("authentication service unavailable")
 		}
 		s.logLoginFailed(ctx, req.Username, nil, nil)
+		return nil, nil, newAuthenticationFailedError()
+	}
+	if err := s.loginAttempts.check(user.ID); err != nil {
 		return nil, nil, newAuthenticationFailedError()
 	}
 
@@ -293,6 +298,9 @@ func (s *Service) CreateAdminUser(ctx context.Context, req *onboardingv1.CreateA
 	if len(req.Password) == 0 {
 		return nil, fleeterror.NewInvalidArgumentError("password is required but not provided")
 	}
+	if err := ValidatePassword(req.Password); err != nil {
+		return nil, fleeterror.NewInvalidArgumentError(err.Error())
+	}
 
 	// generate salted password hash
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -406,6 +414,9 @@ func (s *Service) VerifyCredentials(ctx context.Context, username, password stri
 	if err != nil {
 		return fleeterror.NewForbiddenErrorf("invalid credentials")
 	}
+	if err := s.loginAttempts.check(user.ID); err != nil {
+		return fleeterror.NewForbiddenErrorf("invalid credentials")
+	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
 		return fleeterror.NewForbiddenErrorf("invalid credentials")
@@ -425,6 +436,9 @@ func (s *Service) VerifySessionCredentials(ctx context.Context, username, passwo
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error getting session info: %v", err)
+	}
+	if err := s.stepUpAttempts.check(info.UserID); err != nil {
+		return err
 	}
 
 	user, err := s.userStore.GetUserByID(ctx, info.UserID)
@@ -456,27 +470,33 @@ func (s *Service) VerifySessionCredentials(ctx context.Context, username, passwo
 // and creates a replacement session — all in one transaction. Returns a fresh
 // session cookie so the caller stays logged in while every other session is
 // invalidated.
-func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRequest, userAgent, ipAddress string) (*http.Cookie, error) {
+func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRequest, userAgent, ipAddress string) (*authv1.UpdatePasswordResponse, *http.Cookie, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if r.CurrentPassword == r.NewPassword {
-		return nil, fleeterror.NewErrorWithEndpointCode(
+		return nil, nil, fleeterror.NewErrorWithEndpointCode(
 			"New password cannot be the same as current password.",
 			connect.CodeInvalidArgument,
 			int32(authv1.UpdatePasswordErrorCode_UPDATE_PASSWORD_ERROR_CODE_NEW_PASSWORD_SAME_AS_OLD_PASSWORD),
 		)
 	}
+	if err := ValidatePassword(r.NewPassword); err != nil {
+		return nil, nil, fleeterror.NewInvalidArgumentError(err.Error())
+	}
+	if err := s.stepUpAttempts.check(info.UserID); err != nil {
+		return nil, nil, err
+	}
 
 	user, err := s.userStore.GetUserByID(ctx, info.UserID)
 	if err != nil {
-		return nil, fleeterror.NewForbiddenErrorf("error getting user by id, user_id: %d, error: %v", info.UserID, err)
+		return nil, nil, fleeterror.NewForbiddenErrorf("error getting user by id, user_id: %d, error: %v", info.UserID, err)
 	}
 
 	if err = bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(r.CurrentPassword)); err != nil {
-		return nil, newInvalidCurrentPasswordError()
+		return nil, nil, newInvalidCurrentPasswordError()
 	}
 
 	// Snapshot the password version before starting the transaction so we can
@@ -487,7 +507,7 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 	// holds the lock for the update/revoke/create sequence.
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(r.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error generating hash of new password for user_id: %d, because: %v", info.UserID, err)
+		return nil, nil, fleeterror.NewInternalErrorf("error generating hash of new password for user_id: %d, because: %v", info.UserID, err)
 	}
 
 	var sess *session.Session
@@ -519,7 +539,7 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 
 		return nil
 	}); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	cookie := s.sessionSvc.CreateCookie(sess.SessionID)
@@ -533,7 +553,7 @@ func (s *Service) UpdatePassword(ctx context.Context, r *authv1.UpdatePasswordRe
 		OrganizationID: &info.OrganizationID,
 	})
 
-	return cookie, nil
+	return &authv1.UpdatePasswordResponse{SessionExpiry: sess.ExpiresAt.Unix()}, cookie, nil
 }
 
 func (s *Service) GetUserAuditInfo(ctx context.Context) (*authv1.GetUserAuditInfoResponse, error) {
@@ -698,7 +718,7 @@ func (s *Service) CreateUser(ctx context.Context, req *authv1.CreateUserRequest)
 	orgID := orgs[0].ID
 
 	// Generate temporary password
-	tempPassword, err := generateTemporaryPassword()
+	tempPassword, err := GenerateTemporaryPassword()
 	if err != nil {
 		return nil, err
 	}
@@ -844,7 +864,7 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 	}
 
 	// Generate new temporary password
-	tempPassword, err := generateTemporaryPassword()
+	tempPassword, err := GenerateTemporaryPassword()
 	if err != nil {
 		return nil, err
 	}
@@ -857,7 +877,7 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 
 	// Update password and revoke all sessions atomically.
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		if err := s.userManagementStore.AdminResetUserPassword(ctx, user.ID, string(hashedPassword)); err != nil {
+		if _, err := s.userManagementStore.AdminResetUserPassword(ctx, user.ID, string(hashedPassword)); err != nil {
 			return fleeterror.NewInternalErrorf("error resetting password: %v", err)
 		}
 		if err := s.sessionSvc.RevokeAllSessions(ctx, user.ID); err != nil {
@@ -937,6 +957,12 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return fleeterror.NewInternalErrorf("error getting target assignment: %v", err)
 		}
+		// GetOrgScopeAssignmentForUser also locks the user when a current
+		// assignment exists. Lock it explicitly as well so legacy users without
+		// a migrated assignment still serialize with maintenance assignment.
+		if _, lockErr := s.userStore.GetUserByIDForUpdate(ctx, user.ID); lockErr != nil {
+			return fleeterror.NewInternalErrorf("error locking target user: %v", lockErr)
+		}
 		// If the target holds an org-scope SUPER_ADMIN seat, lock every
 		// live SA assignment in the org and require count > 1 (the
 		// target's own seat is still live at this point).
@@ -948,6 +974,13 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 			if total <= 1 {
 				return fleeterror.NewFailedPreconditionError("cannot deactivate the last SUPER_ADMIN in the organization")
 			}
+		}
+		activeTickets, countErr := s.userManagementStore.CountActiveRepairTicketsAssignedToUser(ctx, orgID, user.ID)
+		if countErr != nil {
+			return fleeterror.NewInternalErrorf("error counting active maintenance tickets: %v", countErr)
+		}
+		if activeTickets > 0 {
+			return fleeterror.NewFailedPreconditionError("reassign or unassign active maintenance tickets before deactivating this user")
 		}
 		return s.userManagementStore.SoftDeleteUser(ctx, user.ID)
 	})

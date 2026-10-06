@@ -67,6 +67,9 @@ func (e *RequestLoggingInterceptor) logUnaryRequest(request connect.AnyRequest, 
 	logBody := e.logLevel <= slog.LevelDebug && !SensitiveBodyProcedures[procedure]
 
 	if err != nil {
+		if fleeterror.IsCanceledError(err) {
+			return
+		}
 		if logBody {
 			slog.Error("incoming unary request failed",
 				"procedure", procedure,

@@ -27,7 +27,6 @@ import (
 )
 
 type InfrastructureProvider struct {
-	serviceProvider  *ServiceProvider
 	AuthClient       authv1connect.AuthServiceClient
 	ApiKeyClient     apikeyv1connect.ApiKeyServiceClient
 	PairingClient    pairingv1connect.PairingServiceClient
@@ -80,7 +79,6 @@ func NewInfrastructureProvider(t *testing.T, serviceProvider *ServiceProvider, a
 	commandClient := minercommandv1connect.NewMinerCommandServiceClient(http.DefaultClient, testServer.URL)
 
 	provider := InfrastructureProvider{
-		serviceProvider:  serviceProvider,
 		AuthClient:       authClient,
 		ApiKeyClient:     apiKeyClient,
 		PairingClient:    pairingClient,
@@ -91,10 +89,7 @@ func NewInfrastructureProvider(t *testing.T, serviceProvider *ServiceProvider, a
 		testServer:       testServer,
 	}
 
-	t.Cleanup(func() {
-		provider.testServer.Close()
-		provider.serviceProvider.ExecutionServiceCancel()
-	})
+	t.Cleanup(provider.testServer.Close)
 
 	return &provider
 }

@@ -9,11 +9,13 @@ import (
 	"net/http"
 	_ "net/http/pprof" // #nosec G108 -- pprof endpoint intentionally exposed for debugging
 	"os"
+	"strings"
 	"time"
 	_ "time/tzdata"
 
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/ipscanner"
+	marketdataDomain "github.com/block/proto-fleet/server/internal/domain/marketdata"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
@@ -31,7 +33,6 @@ import (
 	"connectrpc.com/grpcreflect"
 	"connectrpc.com/validate"
 	"github.com/alecthomas/kong"
-	kongyaml "github.com/alecthomas/kong-yaml"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	fleet_telemetry "github.com/block/proto-fleet/server/internal/infrastructure/fleet-telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/logging"
@@ -55,11 +56,16 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/marketdata/v1/marketdatav1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/rollout/v1/rolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
@@ -84,12 +90,16 @@ import (
 	fleetnodediscovery "github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
+	fleetnoderecovery "github.com/block/proto-fleet/server/internal/domain/fleetnode/recovery"
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	foremanImportDomain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
 	infrastructureDomain "github.com/block/proto-fleet/server/internal/domain/infrastructure"
+	inventoryDomain "github.com/block/proto-fleet/server/internal/domain/inventory"
+	maintenanceDomain "github.com/block/proto-fleet/server/internal/domain/maintenance"
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/block/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
+	rolloutDomain "github.com/block/proto-fleet/server/internal/domain/rollout"
 	scheduleDomain "github.com/block/proto-fleet/server/internal/domain/schedule"
 	sitemapDomain "github.com/block/proto-fleet/server/internal/domain/sitemap"
 	sitesDomain "github.com/block/proto-fleet/server/internal/domain/sites"
@@ -97,6 +107,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/scheduler"
 	tokenDomain "github.com/block/proto-fleet/server/internal/domain/token"
+	updatesDomain "github.com/block/proto-fleet/server/internal/domain/updates"
+	"github.com/block/proto-fleet/server/internal/ha"
+	"github.com/block/proto-fleet/server/internal/ha/deployment"
+	"github.com/block/proto-fleet/server/internal/ha/readiness"
 	activityHandler "github.com/block/proto-fleet/server/internal/handlers/activity"
 	"github.com/block/proto-fleet/server/internal/handlers/alertmanagerwebhook"
 	alertsHandler "github.com/block/proto-fleet/server/internal/handlers/alerts"
@@ -117,17 +131,22 @@ import (
 	foremanImportHandler "github.com/block/proto-fleet/server/internal/handlers/foremanimport"
 	infrastructureHandler "github.com/block/proto-fleet/server/internal/handlers/infrastructure"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
+	inventoryHandler "github.com/block/proto-fleet/server/internal/handlers/inventory"
+	maintenanceHandler "github.com/block/proto-fleet/server/internal/handlers/maintenance"
+	marketdataHandler "github.com/block/proto-fleet/server/internal/handlers/marketdata"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	minerProxyHandler "github.com/block/proto-fleet/server/internal/handlers/minerproxy"
 	"github.com/block/proto-fleet/server/internal/handlers/networkinfo"
 	"github.com/block/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/block/proto-fleet/server/internal/handlers/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/pools"
+	rolloutHandler "github.com/block/proto-fleet/server/internal/handlers/rollout"
 	scheduleHandler "github.com/block/proto-fleet/server/internal/handlers/schedule"
 	serverlogHandler "github.com/block/proto-fleet/server/internal/handlers/serverlog"
 	sitemapHandler "github.com/block/proto-fleet/server/internal/handlers/sitemap"
 	sitesHandler "github.com/block/proto-fleet/server/internal/handlers/sites"
 	telemetryHandler "github.com/block/proto-fleet/server/internal/handlers/telemetry"
+	updatesHandler "github.com/block/proto-fleet/server/internal/handlers/updates"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/mqttclient"
 	"github.com/block/proto-fleet/server/internal/infrastructure/server"
@@ -140,22 +159,38 @@ const shutdownTimeout = 10 * time.Second
 var version = "dev"
 
 func main() {
-	config := &Config{}
-
-	_ = kong.Parse(
-		config,
+	cli := &fleetdCLI{}
+	parser := kong.Must(
+		cli,
 		kong.Name("fleetd"),
-		kong.Configuration(kongyaml.Loader, "/etc/fleetd/config.yaml"),
+		kong.Configuration(fleetdYAMLLoader, "/etc/fleetd/config.yaml"),
+		kong.BindTo(context.Background(), (*context.Context)(nil)),
 	)
+	kctx, err := parser.Parse(normalizeFleetdArgs(os.Args[1:]))
+	parser.FatalIfErrorf(err)
 
-	logging.InitLogger(config.Log)
+	// Kong applies flag defaults tree-wide, so for non-server commands
+	// cli.Server.Log carries the compiled defaults (info level, 1000 buffer).
+	logging.InitLogger(cli.Server.Log)
 
-	slog.Info("fleetd starting", "version", version)
-
-	if err := start(config); err != nil {
+	if err := kctx.Run(); err != nil {
 		slog.Error(fmt.Sprintf("%+v", err))
 		os.Exit(1)
 	}
+}
+
+// normalizeFleetdArgs preserves the pre-command CLI contract. Kong's default
+// subcommand handles an empty invocation, but flags must be routed explicitly.
+func normalizeFleetdArgs(args []string) []string {
+	if len(args) == 0 {
+		return args
+	}
+	for _, path := range fleetdCommandPaths {
+		if args[0] == strings.Fields(path)[0] {
+			return args
+		}
+	}
+	return append([]string{"server"}, args...)
 }
 
 // reflectEnabledServices lists the gRPC services exposed via the
@@ -165,6 +200,7 @@ func main() {
 // service shape (no business data), so the inclusion list is "all
 // services" rather than a curated subset.
 var reflectEnabledServices = []string{
+	marketdatav1connect.MarketDataServiceName,
 	pairingv1connect.PairingServiceName,
 	telemetryv1connect.TelemetryServiceName,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceName,
@@ -175,9 +211,32 @@ var reflectEnabledServices = []string{
 	curtailmentv1connect.CurtailmentServiceName,
 	device_setv1connect.DeviceSetServiceName,
 	chatv1connect.ChatServiceName,
+	instancev1connect.InstanceUpdateServiceName,
+	maintenancev1connect.MaintenanceServiceName,
+	inventoryv1connect.InventoryServiceName,
+	rolloutv1connect.RolloutServiceName,
 }
 
-func start(config *Config) error {
+func start(config *Config) (result error) {
+	clientIP, err := middleware.NewClientIPMiddleware(config.HTTP.TrustedProxyCIDRs)
+	if err != nil {
+		return err
+	}
+	marketDataSvc, err := marketdataDomain.NewService(config.MarketData, marketdataDomain.NewHTTPProvider(config.MarketData))
+	if err != nil {
+		return fmt.Errorf("configure market data: %w", err)
+	}
+	if err := config.HA.Validate(); err != nil {
+		return fmt.Errorf("invalid HA configuration: %w", err)
+	}
+	if err := validateHAHTTPAddress(*config); err != nil {
+		return err
+	}
+	if config.HA.Enabled {
+		if err := config.DB.ValidateHA(); err != nil {
+			return fmt.Errorf("invalid HA database configuration: %w", err)
+		}
+	}
 	// Construct one configured registry before starting services. The CRUD
 	// service uses it now; the Phase 5 reconciler will share this same instance.
 	infrastructureDriverRegistry, err := infrastructureDomain.NewConfiguredDriverRegistry(config.Infrastructure)
@@ -251,6 +310,10 @@ func start(config *Config) error {
 	notificationHistoryStore := sqlstores.NewSQLNotificationHistoryStore(conn)
 
 	activitySvc := activityDomain.NewService(activityStore)
+	inventoryStore := sqlstores.NewSQLInventoryStore(conn)
+	maintenanceStore := sqlstores.NewSQLMaintenanceStore(conn)
+	inventorySvc := inventoryDomain.NewService(inventoryStore, transactor, activitySvc)
+	maintenanceSvc := maintenanceDomain.NewService(maintenanceStore, maintenanceStore, inventoryStore, transactor, activitySvc)
 
 	apiKeyStore := sqlstores.NewSQLApiKeyStore(conn)
 	apiKeySvc := apikeyDomain.NewService(apiKeyStore, activitySvc)
@@ -260,6 +323,7 @@ func start(config *Config) error {
 	fleetNodePairingStore := sqlstores.NewSQLFleetNodePairingStore(conn)
 	fleetNodePairingSvc := fleetnodepairing.NewService(fleetNodePairingStore, fleetNodeEnrollmentStore, transactor)
 	fleetNodeControlRegistry := control.NewRegistry()
+	fleetNodeEnrollmentSvc.WithControlStreamInvalidator(fleetNodeControlRegistry.RevokeSession)
 	fleetNodeDiscoverySvc := fleetnodediscovery.NewService(fleetNodeControlRegistry, fleetNodeEnrollmentSvc)
 	fleetNodeAuthStore := sqlstores.NewSQLFleetNodeAuthStore(conn)
 	fleetNodeAuthSvc := fleetnodeauth.NewService(fleetNodeAuthStore, fleetNodeEnrollmentStore, apiKeySvc)
@@ -280,36 +344,36 @@ func start(config *Config) error {
 	// userStore implements both UserStore and UserManagementStore interfaces
 	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, sessionSvc, encryptSvc, activitySvc, permissionResolver)
 
-	// Start session cleanup goroutine
-	cleanupCtx, cleanupCancel := context.WithCancel(context.Background())
-	go func() {
-		ticker := time.NewTicker(sessionSvc.CleanupInterval())
+	identityStateCleanup := newBackgroundLoop(func(ctx context.Context) {
+		cleanupInterval := sessionSvc.CleanupInterval()
+		reportProgress := runtimejobs.TrackProgress(ctx, cleanupInterval)
+		ticker := time.NewTicker(cleanupInterval)
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ticker.C:
-				if deleted, err := sessionSvc.CleanupExpired(cleanupCtx); err != nil {
+				if deleted, err := sessionSvc.CleanupExpired(ctx); err != nil {
 					slog.Error("failed to cleanup expired sessions", "error", err)
 				} else if deleted > 0 {
 					slog.Debug("cleaned up expired sessions", "count", deleted)
 				}
-				if swept, err := fleetNodeEnrollmentSvc.SweepExpired(cleanupCtx); err != nil {
+				if swept, err := fleetNodeEnrollmentSvc.SweepExpired(ctx); err != nil {
 					slog.Error("failed to sweep expired fleet node enrollments", "error", err)
 				} else if swept > 0 {
 					slog.Debug("swept expired fleet node enrollments", "count", swept)
 				}
-				if challenges, sessions, err := fleetNodeAuthSvc.SweepExpired(cleanupCtx); err != nil {
+				if challenges, sessions, err := fleetNodeAuthSvc.SweepExpired(ctx); err != nil {
 					slog.Error("failed to sweep expired fleet node auth state", "error", err)
 				} else if challenges > 0 || sessions > 0 {
 					slog.Debug("swept expired fleet node auth state", "challenges", challenges, "sessions", sessions)
 				}
-			case <-cleanupCtx.Done():
+				reportProgress()
+			case <-ctx.Done():
 				return
 			}
 		}
-	}()
-	defer cleanupCancel()
+	})
 
 	if err := config.Plugins.Validate(); err != nil {
 		return fmt.Errorf("invalid plugin configuration: %w", err)
@@ -364,7 +428,6 @@ func start(config *Config) error {
 	if err != nil {
 		return err
 	}
-	commandArtifactCleanupCtx, commandArtifactCleanupCancel := context.WithCancel(context.Background())
 	runCommandArtifactSweep := func() {
 		deleted, sweepErr := filesService.SweepExpiredCommandArtifacts(time.Now().UTC(), filesService.CommandArtifactRetentionTTL())
 		if sweepErr != nil {
@@ -375,21 +438,24 @@ func start(config *Config) error {
 			slog.Debug("swept expired command artifacts", "count", deleted)
 		}
 	}
-	go func() {
-		ticker := time.NewTicker(filesService.CommandArtifactCleanupInterval())
+	commandArtifactCleanup := newBackgroundLoop(func(ctx context.Context) {
+		cleanupInterval := filesService.CommandArtifactCleanupInterval()
+		reportProgress := runtimejobs.TrackProgress(ctx, cleanupInterval)
+		ticker := time.NewTicker(cleanupInterval)
 		defer ticker.Stop()
 		runCommandArtifactSweep()
+		reportProgress()
 
 		for {
 			select {
 			case <-ticker.C:
 				runCommandArtifactSweep()
-			case <-commandArtifactCleanupCtx.Done():
+				reportProgress()
+			case <-ctx.Done():
 				return
 			}
 		}
-	}()
-	defer commandArtifactCleanupCancel()
+	})
 	minerService := miner.NewMinerService(conn, userStore, encryptSvc, filesService, pluginManager).
 		WithCommandSender(fleetNodeControlRegistry)
 
@@ -397,12 +463,6 @@ func start(config *Config) error {
 	errorStore := sqlstores.NewSQLErrorStore(conn, transactor)
 	diagnosticsService := diagnostics.NewService(config.Diagnostics, errorStore, transactor).
 		WithDeviceScopeResolver(deviceStore)
-	if err := diagnosticsService.Start(context.Background()); err != nil {
-		return fmt.Errorf("start diagnostics error closer: %w", err)
-	}
-	defer func() {
-		stopStandaloneJob("diagnostics error closer", diagnosticsService)
-	}()
 
 	// Shared per-org cache for ListMinerStateSnapshots option arrays
 	// (models, firmware versions). The TTL is the primary freshness
@@ -420,20 +480,6 @@ func start(config *Config) error {
 	)
 	telemetryService.WithMetricsEmitter(metricsProvider)
 	fleetNodePairingSvc.WithTelemetryScheduler(telemetryService)
-	if err := telemetryService.Start(context.Background()); err != nil {
-		slog.Error("failed to start telemetry service", "error", err)
-		return fmt.Errorf("failed to start telemetry service: %w", err)
-	}
-
-	// Ensure telemetry service cleanup on shutdown
-	defer func() {
-		slog.Info("Stopping telemetry service")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
-		if err := telemetryService.Stop(shutdownCtx); err != nil {
-			slog.Error("Failed to stop telemetry service", "error", err)
-		}
-	}()
 
 	pluginPairer := plugins.NewPairer(pluginManager, transactor, discoveredDeviceStore, deviceStore, encryptSvc)
 
@@ -442,6 +488,7 @@ func start(config *Config) error {
 		deviceStore,
 		transactor,
 		tokenSvc,
+		encryptSvc,
 		discoverer,
 		pluginService,
 		telemetryService,
@@ -461,22 +508,15 @@ func start(config *Config) error {
 		pairingSvc,
 		slog.Default(),
 	)
-
-	if err := ipScannerService.Start(context.Background()); err != nil {
-		slog.Error("failed to start IP scanner service", "error", err)
-		return fmt.Errorf("failed to start IP scanner service: %w", err)
-	}
-
-	// Ensure IP scanner service cleanup on shutdown
-	defer func() {
-		slog.Info("Stopping IP scanner service")
-		stopStandaloneJob("IP scanner service", ipScannerService)
-	}()
+	ipScannerService.WithFleetNodeRecovery(fleetnoderecovery.NewService(
+		deviceStore,
+		fleetNodeControlRegistry,
+		minerService,
+		metricsProvider,
+		slog.Default(),
+	))
 
 	dbMessageQueue := queue.NewDatabaseMessageQueue(&config.Queue, conn)
-
-	executionServiceCtx, executionServiceCancel := context.WithCancel(context.Background())
-	defer executionServiceCancel()
 
 	// Ensure plugin cleanup on shutdown
 	defer func() {
@@ -488,12 +528,8 @@ func start(config *Config) error {
 		}
 	}()
 
-	executionService := commandDomain.NewExecutionService(executionServiceCtx, &config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
+	executionService := commandDomain.NewExecutionService(&config.Command, conn, dbMessageQueue, encryptSvc, tokenSvc, minerService, deviceStore, telemetryService, filesService)
 	executionService.WithMetricsEmitter(metricsProvider)
-	err = executionService.Start(executionServiceCtx)
-	if err != nil {
-		slog.Error("failed to start command execution service", "error", err)
-	}
 
 	statusService := commandDomain.NewStatusService(conn, dbMessageQueue)
 	commandSvc := commandDomain.NewService(&config.Command, conn, executionService, dbMessageQueue, statusService, encryptSvc, filesService, deviceStore, userStore, authSvc, telemetryService, pluginService, activitySvc)
@@ -548,14 +584,39 @@ func start(config *Config) error {
 	// CurtailmentActiveFilter blocks non-curtailment commands on locked
 	// devices; reconciler self-traffic bypasses via ActorCurtailment.
 	commandSvc.RegisterFilter(commandDomain.NewCurtailmentActiveFilter(curtailmentStore))
+	commandSvc.RegisterFilter(commandDomain.NewReleaseChannelFirmwareFilter(conn))
 
 	scheduleProcessor := scheduleDomain.NewProcessor(scheduleStore, scheduleStore, collectionStore, deviceStore, commandSvc, activitySvc)
-	if err := scheduleProcessor.Start(context.Background()); err != nil {
-		return fmt.Errorf("failed to start schedule processor: %w", err)
-	}
-	defer func() {
-		stopStandaloneJob("schedule processor", scheduleProcessor)
-	}()
+
+	rolloutQueries := sqlstores.NewSQLConnectionManager(conn)
+	rolloutSvc := rolloutDomain.NewService(&rolloutQueries, transactor, commandSvc, filesService, activitySvc)
+	filesService.SetFirmwareDeletionGuard(func() (files.FirmwareDeletionCheck, func(), error) {
+		checkCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		check, release, err := rolloutDomain.PrepareFirmwareDeletion(checkCtx, conn)
+		if err != nil {
+			cancel()
+			return nil, nil, err
+		}
+		return check, func() {
+			release()
+			cancel()
+		}, nil
+	})
+	rolloutEnforcement := newBackgroundLoop(func(ctx context.Context) {
+		const enforceInterval = 15 * time.Second
+		reportProgress := runtimejobs.TrackProgress(ctx, enforceInterval)
+		ticker := time.NewTicker(enforceInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				rolloutSvc.EnforceTick(ctx)
+				reportProgress()
+			case <-ctx.Done():
+				return
+			}
+		}
+	})
 
 	curtailmentRec := curtailmentReconciler.New(
 		config.Curtailment,
@@ -564,15 +625,12 @@ func start(config *Config) error {
 		curtailmentReconciler.WithMetrics(curtailmentMetrics),
 		curtailmentReconciler.WithFacilityFanController(facilityFanController),
 		curtailmentReconciler.WithFacilityFanAlertEmitter(metricsProvider),
+		curtailmentReconciler.WithDispatchPermissionResolver(permissionResolver),
+		// The confirmation fast path samples device metrics through the
+		// telemetry service's read-only seam (shared worker pool, no
+		// persistence side effects).
+		curtailmentReconciler.WithConfirmationSampler(telemetryService),
 	)
-	if err := curtailmentRec.Start(context.Background()); err != nil {
-		return fmt.Errorf("failed to start curtailment reconciler: %w", err)
-	}
-	defer func() {
-		if err := curtailmentRec.Stop(); err != nil {
-			slog.Error("failed to stop curtailment reconciler", "error", err)
-		}
-	}()
 
 	mqttQueries, err := db.NewPreparedQuerier(context.Background(), conn)
 	if err != nil {
@@ -605,10 +663,6 @@ func start(config *Config) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize curtailment mqtt subscriber: %w", err)
 	}
-	if err := mqttSubscriber.Start(context.Background()); err != nil {
-		return fmt.Errorf("failed to start curtailment mqtt subscriber: %w", err)
-	}
-	defer mqttSubscriber.Stop()
 	mqttConnectionTester, err := mqttingest.NewMQTTConnectionTester(mqttingest.ConnectionTesterConfig{
 		NewClient: func() mqttingest.MQTTClient { return mqttclient.New() },
 	})
@@ -620,15 +674,20 @@ func start(config *Config) error {
 		Cipher:           encryptSvc,
 		Runtime:          mqttSubscriber,
 		ConnectionTester: mqttConnectionTester,
+		RigConfigApplier: commandSvc,
+		RigConfigStore:   mqttingest.NewSQLCRigConfigReconciliationStore(mqttQueries),
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize curtailment mqtt settings service: %w", err)
 	}
+	pairingSvc.WithRigConfigReapplier(mqttSettingsSvc.ReapplyRigConfigBestEffort)
+	fleetNodePairingSvc.WithRigConfigReapplier(mqttSettingsSvc.ReapplyRigConfigBestEffort)
 
 	// Feeds the MQTT curtailment default alert rules; skipped when the
 	// metrics pipeline is off so its periodic queries aren't wasted work.
+	var curtailmentAlertMetrics runtimejobs.Lifecycle
 	if metricsProvider.Enabled() {
-		curtailmentAlertMetrics, err := curtailmentDomain.NewAlertMetricsLoop(curtailmentDomain.AlertMetricsConfig{
+		alertMetricsLoop, err := curtailmentDomain.NewAlertMetricsLoop(curtailmentDomain.AlertMetricsConfig{
 			Sources:           mqttingest.NewSQLCStore(mqttQueries),
 			Runtime:           mqttSubscriber,
 			ActiveCurtailment: curtailmentStore,
@@ -637,10 +696,7 @@ func start(config *Config) error {
 		if err != nil {
 			return fmt.Errorf("failed to initialize curtailment alert metrics loop: %w", err)
 		}
-		if err := curtailmentAlertMetrics.Start(context.Background()); err != nil {
-			return fmt.Errorf("failed to start curtailment alert metrics loop: %w", err)
-		}
-		defer curtailmentAlertMetrics.Stop()
+		curtailmentAlertMetrics = alertMetricsLoop
 	}
 
 	deviceResolver := deviceresolver.New(deviceStore)
@@ -651,63 +707,171 @@ func start(config *Config) error {
 	// fleet-api owns org channel storage + delivery; Grafana keeps only rule evaluation,
 	// silences (rule pause / maintenance windows), and the internal history webhook.
 	alertChannelStore := sqlstores.NewSQLAlertChannelStore(conn)
-	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
-	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, encryptSvc, alertsDeliverer, config.Metrics.AlertDestinations)
+	alertRouteStore := sqlstores.NewSQLAlertRouteStore(conn)
+	alertRuleConfigStore := sqlstores.NewSQLAlertRuleConfigStore(conn)
+	alertMaintenanceWindowStore := sqlstores.NewSQLAlertMaintenanceWindowStore(conn)
+	alertsDeliverer := alertsDomain.NewDeliverer(alertChannelStore, alertRouteStore, alertMaintenanceWindowStore, encryptSvc, alertChannelStore, config.Metrics.AlertDestinations, config.PublicURL)
+	alertScopeLookup := alertScopeStores{sites: siteStore, buildings: buildingStore, sets: collectionStore}
+	alertsSvc := alertsDomain.NewService(grafanaClient, alertChannelStore, alertRouteStore, alertRuleConfigStore, alertMaintenanceWindowStore, encryptSvc, alertsDeliverer, alertScopeLookup, config.Metrics.AlertDestinations)
 	llmConfigStore := sqlstores.NewSQLLLMConfigStore(conn)
 	llmConfigSvc := chatDomain.NewConfigService(llmConfigStore, encryptSvc, config.Chat)
 	chatModelClient := chatDomain.NewHTTPModelClient(config.Chat)
 	chatConfirmationBroker := chatDomain.NewConfirmationBroker()
 	chatAgent := chatDomain.NewAgent(chatModelClient, chatConfirmationBroker)
 
-	middlewares := []server.Middleware{
-		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
-		middleware.TelemetryMiddleware{},
+	// Both updates URLs end up inside a copy-paste upgrade command, so an
+	// http:// base must fail startup (explicit Validate, like Plugins above —
+	// kong only auto-validates flag leaves, not embedded config structs).
+	if err := config.Updates.Validate(); err != nil {
+		return fmt.Errorf("invalid updates configuration: %w", err)
 	}
+	// The checker is constructed even when disabled: the updates service still
+	// answers version/status calls, reading the zero snapshot as "no offer".
+	releaseChecker := updatesDomain.NewChecker(config.Updates, version)
+	updatesSvc := updatesDomain.NewService(config.Updates, version, releaseChecker,
+		db.NewFailoverResettingQuerier(db.NewRetryDB(conn)), activitySvc)
+
+	// The public listener is bound before this group starts. This channel keeps
+	// the first system heartbeat from clearing its stale alert before then.
+	listenerBound := make(chan struct{})
+	var systemMonitoring runtimejobs.Lifecycle
+	if config.SystemMonitoring.Enabled {
+		collector := sysmon.New(config.SystemMonitoring, metricsProvider)
+		systemMonitoring = newBackgroundLoop(func(ctx context.Context) {
+			select {
+			case <-listenerBound:
+				collector.Run(ctx)
+			case <-ctx.Done():
+			}
+		})
+	}
+	var haReadiness runtimejobs.Lifecycle
+	if config.HA.Enabled && metricsProvider.Enabled() {
+		collector := readiness.New(func(ctx context.Context) (bool, error) {
+			report, err := deployment.StatusWithDatabase(ctx, "/etc/proto-fleet/ha/node.env", conn)
+			if err != nil {
+				return false, err
+			}
+			return report.Control != nil && report.Control.FailoverReady, nil
+		}, metricsProvider)
+		haReadiness = newBackgroundLoop(func(ctx context.Context) {
+			select {
+			case <-listenerBound:
+				collector.Run(ctx)
+			case <-ctx.Done():
+			}
+		})
+	}
+
+	chunkedMgr := firmwareHandler.NewChunkedUploadManager()
+	chunkedUploadCleanup := newBackgroundLoop(func(ctx context.Context) {
+		chunkedMgr.StartCleanup(ctx, config.Files.ChunkedUploadSessionTTL)
+	})
+	// nil-when-disabled mirrors systemMonitoring: newRuntimeJobs skips
+	// optional jobs entirely instead of starting a lifecycle that no-ops.
+	var releaseCheckerJob runtimejobs.Lifecycle
+	if config.Updates.Enabled {
+		releaseCheckerJob = releaseChecker
+	}
+	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
+		identityStateCleanup:      identityStateCleanup,
+		commandArtifactCleanup:    commandArtifactCleanup,
+		diagnosticsErrorCloser:    diagnosticsService,
+		telemetry:                 telemetryService,
+		ipScanner:                 ipScannerService,
+		commandExecution:          executionService,
+		scheduleProcessor:         scheduleProcessor,
+		rolloutEnforcement:        rolloutEnforcement,
+		curtailmentReconciler:     curtailmentRec,
+		curtailmentMQTTSubscriber: mqttSubscriber,
+		curtailmentRigConfig:      mqttSettingsSvc,
+		curtailmentAlertMetrics:   curtailmentAlertMetrics,
+		chunkedUploadCleanup:      chunkedUploadCleanup,
+		systemMonitoring:          systemMonitoring,
+		haReadiness:               haReadiness,
+		releaseChecker:            releaseCheckerJob,
+	})
+	if err != nil {
+		return err
+	}
+	runtimeJobGroup, err := runtimejobs.NewGroup(jobs)
+	if err != nil {
+		return fmt.Errorf("create runtime job group: %w", err)
+	}
+	fleetRuntime, closeHA, err := ha.NewConfiguredRuntime(
+		config.HA,
+		conn,
+		runtimeJobGroup,
+		executionService.IsRunning,
+	)
+	if err != nil {
+		return fmt.Errorf("create Fleet runtime: %w", err)
+	}
+	defer func() {
+		if err := closeHA(); err != nil {
+			slog.Error("Failed to close HA services", "error", err)
+		}
+	}()
+	defer func() {
+		stopRuntimeJobGroupAfterRun(result, runtimeJobGroup, executionService, shutdownTimeout)
+	}()
+
+	middlewares := []server.Middleware{
+		clientIP,
+		middleware.NewCORSMiddleware(config.HTTP.SuppressCors),
+		middleware.TelemetryMiddleware{TrustIncomingTraces: config.FleetTelemetry.TrustIncomingTraces},
+	}
+	activeHTTP := middleware.NewActiveMiddleware(fleetRuntime)
 
 	validateInterceptor := validate.NewInterceptor()
 
+	requestAuth := interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, permissionResolver, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures)
+
 	li := connect.WithInterceptors(
 		interceptors.NewErrorMappingInterceptor(),
+		interceptors.NewActiveInterceptor(fleetRuntime),
 		interceptors.NewErrorStackTraceLoggingInterceptor(config.Log.Level),
 		interceptors.NewRequestLoggingInterceptor(config.Log.Level, interceptors.RedactedRequestProcedures, interceptors.RedactedResponseProcedures),
 		interceptors.NewFleetNodeAuthInterceptor(fleetNodeAuthSvc, interceptors.FleetNodeAuthenticatedProcedures),
-		interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, permissionResolver, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures),
+		requestAuth,
 		validateInterceptor,
 	)
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/health", health.NewHandler())
-	mux.HandleFunc("/health/ready", health.NewReadyHandler(conn))
+	mux.HandleFunc("/health", health.NewHandler(version))
+	mux.HandleFunc("/health/ready", health.NewReadyHandler(conn, fleetRuntime))
+	mux.HandleFunc("/health/active", health.NewActiveHandler(version, fleetRuntime))
+	if config.HA.Enabled {
+		mux.HandleFunc("/health/ha", health.NewHAHandler(version, fleetRuntime))
+		mux.HandleFunc("/health/passive", health.NewPassiveHandler(fleetRuntime))
+	}
 	if config.Metrics.Enabled {
 		if config.Metrics.WebhookToken == "" {
 			slog.Warn("FLEET_ALERTS_WEBHOOK_TOKEN is not set; alertmanager webhook will reject every delivery")
 		}
 		orgQueries := db.NewFailoverResettingQuerier(db.NewRetryDB(conn))
-		mux.Handle("POST "+alertmanagerwebhook.Path, alertmanagerwebhook.NewHandler(notificationHistoryStore, config.Metrics.WebhookToken, orgQueries, alertsDeliverer))
+		mux.Handle("POST "+alertmanagerwebhook.Path, activeHTTP.Wrap(alertmanagerwebhook.NewHandler(notificationHistoryStore, config.Metrics.WebhookToken, orgQueries, alertsDeliverer)))
 	}
-	mux.Handle("/api/v1/firmware/upload", firmwareHandler.NewUploadHandler(filesService, sessionSvc, userStore, filesService.MaxFirmwareFileSize()))
-	mux.Handle("/api/v1/firmware/check", firmwareHandler.NewCheckHandler(filesService, sessionSvc, userStore))
-	mux.Handle("GET /api/v1/firmware/config", firmwareHandler.NewConfigHandler(filesService, sessionSvc, userStore, config.Files))
-
-	chunkedMgr := firmwareHandler.NewChunkedUploadManager()
-	mux.Handle("POST /api/v1/firmware/upload/chunked", firmwareHandler.NewInitiateHandler(chunkedMgr, filesService, sessionSvc, userStore))
-	mux.Handle("PUT /api/v1/firmware/upload/chunked/{uploadId}", firmwareHandler.NewChunkHandler(chunkedMgr, sessionSvc, userStore))
-	mux.Handle("POST /api/v1/firmware/upload/chunked/{uploadId}/complete", firmwareHandler.NewCompleteHandler(chunkedMgr, filesService, sessionSvc, userStore))
-	mux.Handle("GET /api/v1/firmware/files", firmwareHandler.NewListFilesHandler(filesService, sessionSvc, userStore))
-	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", firmwareHandler.NewDeleteFileHandler(filesService, sessionSvc, userStore))
-	mux.Handle("DELETE /api/v1/firmware/files", firmwareHandler.NewDeleteAllFilesHandler(filesService, sessionSvc, userStore))
-	mux.Handle("/miners/{deviceIdentifier}/api/v1/{rest...}", minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc))
-
-	chunkedCleanupCtx, chunkedCleanupCancel := context.WithCancel(context.Background())
-	go chunkedMgr.StartCleanup(chunkedCleanupCtx, config.Files.ChunkedUploadSessionTTL)
-	defer chunkedCleanupCancel()
+	mux.Handle("/api/v1/firmware/upload", activeHTTP.Wrap(firmwareHandler.NewUploadHandler(filesService, requestAuth, activitySvc)))
+	mux.Handle("/api/v1/firmware/check", activeHTTP.Wrap(firmwareHandler.NewCheckHandler(filesService, requestAuth)))
+	mux.Handle("GET /api/v1/firmware/config", activeHTTP.Wrap(firmwareHandler.NewConfigHandler(filesService, requestAuth, config.Files)))
+	mux.Handle("POST /api/v1/firmware/upload/chunked", activeHTTP.Wrap(firmwareHandler.NewInitiateHandler(chunkedMgr, filesService, requestAuth)))
+	mux.Handle("PUT /api/v1/firmware/upload/chunked/{uploadId}", activeHTTP.Wrap(firmwareHandler.NewChunkHandler(chunkedMgr, requestAuth)))
+	mux.Handle("POST /api/v1/firmware/upload/chunked/{uploadId}/complete", activeHTTP.Wrap(firmwareHandler.NewCompleteHandler(chunkedMgr, filesService, requestAuth, activitySvc)))
+	mux.Handle("GET /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewListFilesHandler(filesService, requestAuth)))
+	mux.Handle("PATCH /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewUpdateMetadataHandler(filesService, requestAuth, activitySvc)))
+	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewDeleteFileHandler(filesService, requestAuth)))
+	mux.Handle("DELETE /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewDeleteAllFilesHandler(filesService, requestAuth)))
+	mux.Handle("/miners/{deviceIdentifier}/api/v1/{rest...}", activeHTTP.Wrap(minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc)))
 
 	if len(reflectEnabledServices) != 0 {
 		slog.Debug("enabling reflection", "services", reflectEnabledServices)
 		reflector := grpcreflect.NewStaticReflector(reflectEnabledServices...)
-		mux.Handle(grpcreflect.NewHandlerV1(reflector))
-		mux.Handle(grpcreflect.NewHandlerV1Alpha(reflector))
+		path, handler := grpcreflect.NewHandlerV1(reflector)
+		mux.Handle(path, activeHTTP.Wrap(handler))
+		path, handler = grpcreflect.NewHandlerV1Alpha(reflector)
+		mux.Handle(path, activeHTTP.Wrap(handler))
 	}
 
 	mux.Handle(authv1connect.NewAuthServiceHandler(auth.NewHandler(authSvc), li))
@@ -721,11 +885,19 @@ func start(config *Config) error {
 	commandServiceHandler := command.NewHandler(commandSvc)
 	scheduleServiceHandler := scheduleHandler.NewHandler(scheduleSvc)
 
+	mux.Handle(marketdatav1connect.NewMarketDataServiceHandler(marketdataHandler.NewHandler(marketDataSvc), li))
 	mux.Handle(fleetmanagementv1connect.NewFleetManagementServiceHandler(fleetManagementHandler, li))
 	mux.Handle(minercommandv1connect.NewMinerCommandServiceHandler(commandServiceHandler, li))
 	mux.Handle(poolsv1connect.NewPoolsServiceHandler(poolsHandler, li))
 	mux.Handle(schedulev1connect.NewScheduleServiceHandler(scheduleServiceHandler, li))
-	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc), li))
+	rolloutPath, rolloutHTTP := rolloutv1connect.NewRolloutServiceHandler(rolloutHandler.NewHandler(rolloutSvc), li)
+	mux.Handle(rolloutPath, rolloutHTTP)
+	rolloutHandler.RegisterRESTRoutes(mux, rolloutHTTP)
+	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
+		curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc),
+		li,
+		curtailmentHandler.RequestReadLimitOption(),
+	))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(siteServiceHandler, li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))
@@ -739,13 +911,19 @@ func start(config *Config) error {
 		li,
 		gateway.CommandArtifactUploadReadLimitOption(),
 	))
-	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(admin.NewHandler(fleetNodeEnrollmentSvc, fleetNodePairingSvc, fleetNodeDiscoverySvc), li))
+	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(admin.NewHandler(fleetNodeEnrollmentSvc, fleetNodePairingSvc, fleetNodeDiscoverySvc, fleetNodeControlRegistry), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
 	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(deviceSetServiceHandler, li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))
 	mux.Handle(errorsv1connect.NewErrorQueryServiceHandler(errorqueryHandler.NewHandler(diagnosticsService), li))
 	mux.Handle(foremanimportv1connect.NewForemanImportServiceHandler(foremanImportHandler.NewHandler(foremanImportSvc), li))
 	mux.Handle(activityv1connect.NewActivityServiceHandler(activityHandler.NewHandler(activitySvc), li))
+	mux.Handle(maintenancev1connect.NewMaintenanceServiceHandler(maintenanceHandler.NewHandler(maintenanceSvc), li))
+	mux.Handle(inventoryv1connect.NewInventoryServiceHandler(
+		inventoryHandler.NewHandler(inventorySvc),
+		li,
+		inventoryHandler.RequestReadLimitOption(),
+	))
 	mux.Handle(apikeyv1connect.NewApiKeyServiceHandler(apikeyHandler.NewHandler(apiKeySvc), li))
 	mux.Handle(authzv1connect.NewAuthzServiceHandler(authzHandler.NewHandler(authz.NewService(conn, activitySvc)), li))
 	mux.Handle(serverlogv1connect.NewServerLogServiceHandler(serverlogHandler.NewHandler(logging.DefaultBuffer()), li))
@@ -764,7 +942,9 @@ func start(config *Config) error {
 	mux.Handle(alertsv1connect.NewHistoryServiceHandler(alertHandler, li))
 	// Runtime capability probe so the prebuilt client can surface the Alerts
 	// nav only when the sidecar this feature proxies is actually enabled.
-	mux.HandleFunc("GET /api/v1/alerts/enabled", alertsHandler.NewEnabledHandler(config.Metrics.Enabled))
+	mux.Handle("GET /api/v1/alerts/enabled", activeHTTP.Wrap(alertsHandler.NewEnabledHandler(config.Metrics.Enabled)))
+
+	mux.Handle(instancev1connect.NewInstanceUpdateServiceHandler(updatesHandler.NewHandler(updatesSvc), li))
 
 	if config.HTTP.PprofAddr != "" {
 		ln, err := net.Listen("tcp", config.HTTP.PprofAddr)
@@ -805,52 +985,38 @@ func start(config *Config) error {
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", config.HTTP.Address, err)
 	}
+	close(listenerBound)
+	defer func() {
+		if err := listener.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			slog.Error("failed to close HTTP listener", "error", err)
+		}
+	}()
 
-	// Started only once the listener is accepting: the first heartbeat is what
-	// clears the Fleet Heartbeat Stale alert, so a crash-looping boot must not
-	// keep refreshing it and mask a down fleet-api.
-	if config.SystemMonitoring.Enabled {
-		sysmonCtx, sysmonCancel := context.WithCancel(context.Background())
-		defer sysmonCancel()
-		go sysmon.New(config.SystemMonitoring, metricsProvider).Run(sysmonCtx)
-	}
-
-	err = httpServer.Serve(listener)
-	if err != nil {
-		return fmt.Errorf("server shutting down: %+v", err)
-	}
-	return nil
-}
-
-// stopStandaloneJob gives work one graceful-shutdown budget, then one final
-// bounded drain budget. Stop is synchronous, so both budgets rely on the
-// implementation honoring the supplied contexts.
-func stopStandaloneJob(name string, job runtimejobs.Lifecycle) {
-	stopStandaloneJobWithTimeout(name, job, shutdownTimeout)
-}
-
-func stopStandaloneJobWithTimeout(name string, job runtimejobs.Lifecycle, timeout time.Duration) {
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
-	err := job.Stop(shutdownCtx)
-	shutdownErr := shutdownCtx.Err()
-	cancel()
-	if err == nil {
-		return
-	}
-	if !errors.Is(shutdownErr, context.DeadlineExceeded) {
-		slog.Error("failed to stop runtime job", "job", name, "error", err)
-		return
-	}
-	slog.Error("runtime job exceeded shutdown timeout", "job", name, "error", err)
-	drainCtx, drainCancel := context.WithTimeout(context.Background(), timeout)
-	defer drainCancel()
-	if err := job.Stop(drainCtx); err != nil {
-		slog.Error("failed to drain runtime job", "job", name, "error", err)
-	}
+	return serveFleetRuntime(&httpServer, listener, fleetRuntime, shutdownTimeout)
 }
 
 func newHTTP2Server(config HTTPConfig) *http2.Server {
 	return &http2.Server{
 		WriteByteTimeout: config.WriteByteTimeout,
 	}
+}
+
+// alertScopeStores adapts the site/building/device-set stores to the alerts
+// domain's ScopeLookup for rule-scope ownership validation.
+type alertScopeStores struct {
+	sites     *sqlstores.SQLSiteStore
+	buildings *sqlstores.SQLBuildingStore
+	sets      *sqlstores.SQLCollectionStore
+}
+
+func (a alertScopeStores) SitesByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error) {
+	return a.sites.SitesByIDs(ctx, orgID, ids)
+}
+
+func (a alertScopeStores) BuildingsByIDs(ctx context.Context, orgID int64, ids []int64) ([]int64, error) {
+	return a.buildings.BuildingsByIDs(ctx, orgID, ids)
+}
+
+func (a alertScopeStores) DeviceSetsByIDs(ctx context.Context, orgID int64, setType string, ids []int64) ([]int64, error) {
+	return a.sets.DeviceSetsByIDs(ctx, orgID, setType, ids)
 }

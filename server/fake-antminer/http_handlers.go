@@ -15,7 +15,17 @@ import (
 	"github.com/google/uuid"
 )
 
+var firmwareFilenameVersionRE = regexp.MustCompile(`(?:^|[^0-9.])v?([0-9]+\.[0-9]+\.[0-9]+)(?:$|[^0-9.]|\.[A-Za-z])`)
+
 // HTTP handler functions
+
+func firmwareVersionFromFilename(filename string) (string, bool) {
+	matches := firmwareFilenameVersionRE.FindStringSubmatch(filename)
+	if len(matches) != 2 {
+		return "", false
+	}
+	return matches[1], true
+}
 
 func createSystemInfoHandler(state *MinerState) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -126,6 +136,7 @@ func createStatsHandler(state *MinerState) http.HandlerFunc {
 
 		now := time.Now().Unix()
 		hashRate := state.effectiveHashRateLocked()
+		powerWatts := state.effectivePowerWattsLocked()
 
 		const chainCount = 3
 		chains := make([]map[string]interface{}, chainCount)
@@ -183,16 +194,17 @@ func createStatsHandler(state *MinerState) http.HandlerFunc {
 			},
 			"STATS": []map[string]interface{}{
 				{
-					"elapsed":    3600,
-					"rate_5s":    hashRate * 1000,
-					"rate_30m":   hashRate * 1000,
-					"rate_avg":   hashRate * 1000,
-					"rate_ideal": hashRate * 1000,
-					"rate_unit":  "GH/s",
-					"chain_num":  chainCount,
-					"fan_num":    4,
-					"fan":        fanSpeeds,
-					"hwp_total":  0.0006,
+					"elapsed":     3600,
+					"rate_5s":     hashRate * 1000,
+					"rate_30m":    hashRate * 1000,
+					"rate_avg":    hashRate * 1000,
+					"rate_ideal":  hashRate * 1000,
+					"rate_unit":   "GH/s",
+					"chain_power": fmt.Sprintf("%d W", powerWatts),
+					"chain_num":   chainCount,
+					"fan_num":     4,
+					"fan":         fanSpeeds,
+					"hwp_total":   0.0006,
 					"psu": map[string]interface{}{
 						"index":  0,
 						"status": psuStatus,
@@ -340,6 +352,13 @@ func createRebootHandler(state *MinerState) http.HandlerFunc {
 		}
 
 		log.Println("Received reboot request")
+
+		state.mu.Lock()
+		if state.PendingFirmwareVersion != "" {
+			state.FirmwareVersion = state.PendingFirmwareVersion
+			state.PendingFirmwareVersion = ""
+		}
+		state.mu.Unlock()
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -591,7 +610,7 @@ func createKernelLogHandler(state *MinerState) http.HandlerFunc {
 	}
 }
 
-func createUpgradeHandler(_ *MinerState) http.HandlerFunc {
+func createUpgradeHandler(state *MinerState) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -605,7 +624,16 @@ func createUpgradeHandler(_ *MinerState) http.HandlerFunc {
 		}
 		defer file.Close()
 
-		log.Printf("Firmware upgrade received: filename=%s, size=%d", header.Filename, header.Size)
+		version, hasVersion := firmwareVersionFromFilename(header.Filename)
+		state.mu.Lock()
+		state.PendingFirmwareVersion = version
+		state.mu.Unlock()
+
+		if hasVersion {
+			log.Printf("Firmware upgrade received: filename=%s, size=%d, staged_version=%s", header.Filename, header.Size, version)
+		} else {
+			log.Printf("Firmware upgrade received: filename=%s, size=%d", header.Filename, header.Size)
+		}
 
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)

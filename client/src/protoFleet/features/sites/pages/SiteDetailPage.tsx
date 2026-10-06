@@ -114,10 +114,6 @@ const SiteDetailPage = () => {
 
   const [buildingsRefreshKey, setBuildingsRefreshKey] = useState(0);
   const refetchBuildings = useCallback(() => setBuildingsRefreshKey((n) => n + 1), []);
-  // Membership saves in ManageSiteModal also affect building rows, so share
-  // the same refresh signal used for direct building mutations.
-  const modals = useSiteModals({ refetchSites, refetchBuildings });
-
   const siteId = site?.site?.id;
   const siteIdText = siteId?.toString();
   const visibleBuildings = buildings && buildings.siteId === siteIdText ? buildings.rows : undefined;
@@ -136,11 +132,19 @@ const SiteDetailPage = () => {
     error: siteStatsError,
     refetch: refetchSiteStats,
   } = useSiteStats({ siteId: siteId ?? 0n, enabled: siteId !== undefined, pollIntervalMs: POLL_INTERVAL_MS });
-  const handleBuildingMutationSuccess = useCallback(() => {
+  // Site-level caches any building mutation invalidates: the catalog carries
+  // building counts, and the metrics row reads its building count from
+  // siteStats before falling back to the building list — so refreshing the
+  // catalog alone leaves the header at 0 until the next poll.
+  const refreshSiteCaches = useCallback(() => {
     refetchSites();
     refetchSiteStats();
   }, [refetchSites, refetchSiteStats]);
-  const buildingModals = useBuildingModals({ refetchBuildings, onMutationSuccess: handleBuildingMutationSuccess });
+  const buildingModals = useBuildingModals({ refetchBuildings, onMutationSuccess: refreshSiteCaches });
+  // Declared here, after refreshSiteCaches, so the site modals' create and
+  // assign paths refresh the same pair. Membership saves in ManageSiteModal
+  // also affect building rows, hence the shared refetchBuildings signal.
+  const modals = useSiteModals({ refetchSites: refreshSiteCaches, refetchBuildings });
 
   // Performance charts — mirrors the group/rack/building overview pages, but
   // scopes telemetry by site rather than by explicit device-set membership.
@@ -319,11 +323,31 @@ const SiteDetailPage = () => {
               {visibleBuildings === undefined ? (
                 <div className="text-200 text-text-primary-50">Loading buildings…</div>
               ) : visibleBuildings.length === 0 ? (
+                // The surrounding panel is already the card, so this centers
+                // inside it rather than nesting a second surface. NullState
+                // isn't the fit here: it brings its own tinted panel and
+                // left-aligns, both of which fight this container.
                 <div
-                  className="rounded-2xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
+                  className="flex flex-col items-center gap-2 py-10 text-center phone:py-4"
                   data-testid="site-detail-buildings-empty"
                 >
-                  No buildings in this site yet.
+                  <div className="text-heading-200 text-text-primary">No buildings to display</div>
+                  <div className="text-300 text-text-primary-70">
+                    {canManageSites
+                      ? "Create buildings or assign existing buildings to this site."
+                      : "No buildings have been assigned to this site."}
+                  </div>
+                  {canManageSites ? (
+                    <Button
+                      variant={variants.primary}
+                      text="Manage buildings"
+                      className="mt-4"
+                      // Empty membership: this branch only renders when the
+                      // site has no buildings.
+                      onClick={() => modals.openBuildingsPicker(site.site!, [])}
+                      testId="site-detail-buildings-empty-manage"
+                    />
+                  ) : null}
                 </div>
               ) : (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-3">

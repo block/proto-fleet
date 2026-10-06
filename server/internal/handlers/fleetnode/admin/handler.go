@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"fmt"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -11,6 +12,7 @@ import (
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
@@ -23,12 +25,13 @@ type Handler struct {
 	enrollment *enrollment.Service
 	pairing    *pairing.Service
 	discovery  *discovery.Service
+	registry   *control.Registry
 }
 
 var _ fleetnodeadminv1connect.FleetNodeAdminServiceHandler = &Handler{}
 
-func NewHandler(enrollment *enrollment.Service, pairing *pairing.Service, discoverySvc *discovery.Service) *Handler {
-	return &Handler{enrollment: enrollment, pairing: pairing, discovery: discoverySvc}
+func NewHandler(enrollment *enrollment.Service, pairing *pairing.Service, discoverySvc *discovery.Service, registry *control.Registry) *Handler {
+	return &Handler{enrollment: enrollment, pairing: pairing, discovery: discoverySvc, registry: registry}
 }
 
 func (h *Handler) CreateEnrollmentCode(ctx context.Context, _ *connect.Request[pb.CreateEnrollmentCodeRequest]) (*connect.Response[pb.CreateEnrollmentCodeResponse], error) {
@@ -48,28 +51,39 @@ func (h *Handler) CreateEnrollmentCode(ctx context.Context, _ *connect.Request[p
 }
 
 func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.ListFleetNodesRequest]) (*connect.Response[pb.ListFleetNodesResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermFleetnodeRead, authz.ResourceContext{})
+	info, err := middleware.RequireAnyPermission(ctx, []string{authz.PermFleetnodeRead, authz.PermFleetnodeManage, authz.PermMinerPair}, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
+	_, detailsErr := middleware.RequireAnyPermission(ctx, []string{authz.PermFleetnodeRead, authz.PermFleetnodeManage}, authz.ResourceContext{})
+	includeAdministrativeDetails := detailsErr == nil
 	fleetNodes, err := h.enrollment.ListFleetNodes(ctx, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
+	connected := make(map[int64]struct{})
+	for _, fleetNodeID := range h.registry.ConnectedFleetNodeIDs() {
+		connected[fleetNodeID] = struct{}{}
+	}
 	resp := &pb.ListFleetNodesResponse{FleetNodes: make([]*pb.FleetNodeSummary, 0, len(fleetNodes))}
 	for _, n := range fleetNodes {
+		_, controlStreamConnected := connected[n.ID]
 		summary := &pb.FleetNodeSummary{
-			FleetNodeId:         n.ID,
-			Name:                n.Name,
-			EnrollmentStatus:    deriveDisplayStatus(n),
-			IdentityFingerprint: enrollment.IdentityFingerprint(n.IdentityPubkey),
-			CreatedAt:           timestamppb.New(n.CreatedAt),
+			EnrollmentStatus:               deriveDisplayStatus(n),
+			CommandProtocolUpgradeRequired: h.registry.CommandProtocolUpgradeRequired(n.ID),
+			ControlStreamConnected:         controlStreamConnected,
 		}
-		if n.PendingEnrollmentID != nil {
-			summary.PendingEnrollmentId = n.PendingEnrollmentID
-		}
-		if n.LastSeenAt != nil {
-			summary.LastSeenAt = timestamppb.New(*n.LastSeenAt)
+		if includeAdministrativeDetails {
+			summary.FleetNodeId = n.ID
+			summary.Name = n.Name
+			summary.IdentityFingerprint = enrollment.IdentityFingerprint(n.IdentityPubkey)
+			summary.CreatedAt = timestamppb.New(n.CreatedAt)
+			if n.PendingEnrollmentID != nil {
+				summary.PendingEnrollmentId = n.PendingEnrollmentID
+			}
+			if n.LastSeenAt != nil {
+				summary.LastSeenAt = timestamppb.New(*n.LastSeenAt)
+			}
 		}
 		resp.FleetNodes = append(resp.FleetNodes, summary)
 	}
@@ -189,7 +203,7 @@ func (h *Handler) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[
 		return fleeterror.NewFailedPreconditionError("fleet node is not CONFIRMED")
 	}
 
-	return h.discovery.RunOnNode(ctx, fleetNodeID, discoverReq, func(batch *pairingpb.DiscoverResponse) error {
+	return h.discovery.RunOnNode(ctx, fleetNodeID, fmt.Sprintf("Fleet Node %d", fleetNodeID), discoverReq, func(batch *pairingpb.DiscoverResponse) error {
 		if sendErr := stream.Send(&pb.DiscoverOnFleetNodeResponse{Response: batch}); sendErr != nil {
 			return fleeterror.NewInternalErrorf("send batch to operator: %v", sendErr)
 		}

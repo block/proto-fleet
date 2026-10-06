@@ -126,6 +126,13 @@ type Event struct {
 	OrganizationID *int64
 	Metadata       map[string]any
 
+	// IdempotencyKey makes retries converge on one activity row when non-empty.
+	// Callers must make it globally unique for each logical event, normally by
+	// namespacing it with the event type and a globally unique resource ID. The
+	// SQL store derives a deterministic event_id and treats only that unique-key
+	// collision as a successful duplicate.
+	IdempotencyKey string
+
 	// BatchID links the activity row to a command_batch_log.uuid. The
 	// partial unique index on (batch_id, event_type) for '%.completed'
 	// event types guarantees at most one completion row per batch.

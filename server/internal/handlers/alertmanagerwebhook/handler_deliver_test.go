@@ -15,7 +15,11 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/notificationhistory"
 )
 
-type okStore struct{ inserts int }
+type okStore struct {
+	inserts int
+	// Last persisted batch, for tests that inspect row contents.
+	rows []*notificationhistory.Notification
+}
 
 func (s *okStore) Insert(context.Context, *notificationhistory.Notification) error {
 	s.inserts++
@@ -24,6 +28,7 @@ func (s *okStore) Insert(context.Context, *notificationhistory.Notification) err
 
 func (s *okStore) InsertBatch(_ context.Context, notifs []*notificationhistory.Notification) error {
 	s.inserts += len(notifs)
+	s.rows = notifs
 	return nil
 }
 
@@ -50,6 +55,44 @@ func TestServeHTTP_InvokesDelivererWithParsedAlerts(t *testing.T) {
 	require.Len(t, deliverer.got, 1)
 	assert.Equal(t, "7", deliverer.got[0].Labels["organization_id"])
 	assert.Equal(t, "firing", deliverer.got[0].Status)
+}
+
+// Route policies key off the producing rule's UID: the proto_fleet_rule_uid label is primary,
+// generatorURL is the fallback for rules compiled before the label existed.
+func TestServeHTTP_ExtractsRuleUID(t *testing.T) {
+	deliverer := &captureDeliverer{}
+	handler := NewHandler(&okStore{}, testWebhookToken, nil, deliverer)
+
+	payload := []byte(`{
+		"status": "firing",
+		"alerts": [
+			{
+				"status": "firing",
+				"labels": {"alertname": "Labeled", "organization_id": "7", "proto_fleet_rule_uid": "pfu-labeled"},
+				"annotations": {},
+				"generatorURL": "http://grafana:3000/alerting/grafana/ignored-when-labeled/view"
+			},
+			{
+				"status": "firing",
+				"labels": {"alertname": "DeviceOffline", "organization_id": "7"},
+				"annotations": {},
+				"generatorURL": "http://grafana:3000/alerting/grafana/protofleet-device-offline/view?orgId=1"
+			},
+			{
+				"status": "firing",
+				"labels": {"alertname": "NoURL", "organization_id": "7"},
+				"annotations": {}
+			}
+		]
+	}`)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, newAuthedRequest(t, payload))
+
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.Len(t, deliverer.got, 3)
+	assert.Equal(t, "pfu-labeled", deliverer.got[0].RuleUID, "the server-controlled label wins over generatorURL")
+	assert.Equal(t, "protofleet-device-offline", deliverer.got[1].RuleUID, "generatorURL covers rules without the label")
+	assert.Empty(t, deliverer.got[2].RuleUID, "neither source degrades to default routing, never an error")
 }
 
 // failBatchStore fails the atomic batch insert, to exercise the all-or-nothing persist path.

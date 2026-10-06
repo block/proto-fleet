@@ -42,61 +42,65 @@ test.describe("Proto Fleet - Schedules", () => {
     }
   });
 
-  test("Create, pause/resume, edit, and delete a schedule", async ({ commonSteps, settingsSchedulesPage }) => {
-    const scheduleName = generateRandomText(SCHEDULE_PREFIX);
-    const updatedScheduleName = `${scheduleName}_updated`;
+  test(
+    "Create, pause/resume, edit, and delete a schedule",
+    { tag: "@smoke" },
+    async ({ commonSteps, settingsSchedulesPage }) => {
+      const scheduleName = generateRandomText(SCHEDULE_PREFIX);
+      const updatedScheduleName = `${scheduleName}_updated`;
 
-    await test.step("Log in as admin", async () => {
-      await commonSteps.loginAsAdmin();
-    });
+      await test.step("Log in as admin", async () => {
+        await commonSteps.loginAsAdmin();
+      });
 
-    await test.step("Navigate to schedules settings", async () => {
-      await settingsSchedulesPage.navigateToSchedulesSettings();
-      await settingsSchedulesPage.validateSchedulesPageOpened();
-    });
+      await test.step("Navigate to schedules settings", async () => {
+        await settingsSchedulesPage.navigateToSchedulesSettings();
+        await settingsSchedulesPage.validateSchedulesPageOpened();
+      });
 
-    await test.step("Create a one-time schedule for one miner", async () => {
-      shouldCleanupSchedules = true;
-      await settingsSchedulesPage.clickAddSchedule();
-      await settingsSchedulesPage.inputScheduleName(scheduleName);
-      await settingsSchedulesPage.selectStartDate(1);
-      await settingsSchedulesPage.openMinersTargetSelector();
-      await settingsSchedulesPage.waitForMinerSelectionModalToLoad();
-      await settingsSchedulesPage.selectFirstMiners(1);
-      await settingsSchedulesPage.confirmMinerSelection();
-      await settingsSchedulesPage.clickSaveSchedule();
-    });
+      await test.step("Create a one-time schedule for one miner", async () => {
+        shouldCleanupSchedules = true;
+        await settingsSchedulesPage.clickAddSchedule();
+        await settingsSchedulesPage.inputScheduleName(scheduleName);
+        await settingsSchedulesPage.selectStartDate(1);
+        await settingsSchedulesPage.openMinersTargetSelector();
+        await settingsSchedulesPage.waitForMinerSelectionModalToLoad();
+        await settingsSchedulesPage.selectFirstMiners(1);
+        await settingsSchedulesPage.confirmMinerSelection();
+        await settingsSchedulesPage.clickSaveSchedule();
+      });
 
-    await test.step("Validate the schedule was created", async () => {
-      await settingsSchedulesPage.validateScheduleVisible(scheduleName);
-      await settingsSchedulesPage.validateScheduleStatus(scheduleName, "Active");
-      await settingsSchedulesPage.validateScheduleAction(scheduleName, "Set power target");
-      await settingsSchedulesPage.validateScheduleTargetSummary(scheduleName, "Applies to 1 miner");
-    });
+      await test.step("Validate the schedule was created", async () => {
+        await settingsSchedulesPage.validateScheduleVisible(scheduleName);
+        await settingsSchedulesPage.validateScheduleStatus(scheduleName, "Active");
+        await settingsSchedulesPage.validateScheduleAction(scheduleName, "Set power target");
+        await settingsSchedulesPage.validateScheduleTargetSummary(scheduleName, "Applies to 1 miner");
+      });
 
-    await test.step("Pause and resume the schedule", async () => {
-      await settingsSchedulesPage.pauseSchedule(scheduleName);
-      await settingsSchedulesPage.validateScheduleStatus(scheduleName, "Paused");
+      await test.step("Pause and resume the schedule", async () => {
+        await settingsSchedulesPage.pauseSchedule(scheduleName);
+        await settingsSchedulesPage.validateScheduleStatus(scheduleName, "Paused");
 
-      await settingsSchedulesPage.resumeSchedule(scheduleName);
-      await settingsSchedulesPage.validateScheduleStatus(scheduleName, "Active");
-    });
+        await settingsSchedulesPage.resumeSchedule(scheduleName);
+        await settingsSchedulesPage.validateScheduleStatus(scheduleName, "Active");
+      });
 
-    await test.step("Edit the schedule name", async () => {
-      await settingsSchedulesPage.openEditSchedule(scheduleName);
-      await settingsSchedulesPage.inputScheduleName(updatedScheduleName);
-      await settingsSchedulesPage.clickSaveSchedule();
-      await settingsSchedulesPage.validateScheduleVisible(updatedScheduleName);
-      await settingsSchedulesPage.validateScheduleNotVisible(scheduleName);
-    });
+      await test.step("Edit the schedule name", async () => {
+        await settingsSchedulesPage.openEditSchedule(scheduleName);
+        await settingsSchedulesPage.inputScheduleName(updatedScheduleName);
+        await settingsSchedulesPage.clickSaveSchedule();
+        await settingsSchedulesPage.validateScheduleVisible(updatedScheduleName);
+        await settingsSchedulesPage.validateScheduleNotVisible(scheduleName);
+      });
 
-    await test.step("Delete the schedule", async () => {
-      await settingsSchedulesPage.deleteSchedule(updatedScheduleName);
-      shouldCleanupSchedules = false;
-    });
-  });
+      await test.step("Delete the schedule", async () => {
+        await settingsSchedulesPage.deleteSchedule(updatedScheduleName);
+        shouldCleanupSchedules = false;
+      });
+    },
+  );
 
-  test("Recurring schedule validation", async ({ commonSteps, settingsSchedulesPage }) => {
+  test("Recurring schedule validation", { tag: "@smoke" }, async ({ commonSteps, settingsSchedulesPage }) => {
     const scheduleName = generateRandomText(SCHEDULE_PREFIX);
 
     await test.step("Log in as admin", async () => {

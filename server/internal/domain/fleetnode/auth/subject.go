@@ -14,6 +14,7 @@ type Subject struct {
 	OrgID               int64
 	Name                string
 	IdentityFingerprint string
+	SessionFingerprint  string
 }
 
 func GetSubject(ctx context.Context) (*Subject, error) {

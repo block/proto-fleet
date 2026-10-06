@@ -17,6 +17,7 @@ import {
   importFleetSitesPage,
   importGroupOverviewPage,
   importGroupsPage,
+  importMaintenancePage,
   importMinerbotPage,
   importMiners,
   importMinersPage,
@@ -38,6 +39,7 @@ import {
   importSettingsPreferences,
   importSettingsSchedules,
   importSettingsTeam,
+  importSettingsUpdates,
   importSiteDetailPage,
   importUpdatePassword,
   importWelcomePage,
@@ -94,6 +96,7 @@ const SettingsCurtailment = lazy(importSettingsCurtailment);
 const SettingsAlerts = lazy(importSettingsAlerts);
 const SettingsAgents = lazy(importSettingsAgents);
 const SettingsIntegrations = lazy(importSettingsIntegrations);
+const SettingsUpdates = lazy(importSettingsUpdates);
 const SiteDetailPage = lazy(importSiteDetailPage);
 const BuildingPage = lazy(importBuildingPage);
 const FleetLayout = lazy(importFleetLayout);
@@ -101,6 +104,7 @@ const FleetBuildingsPage = lazy(importFleetBuildingsPage);
 const FleetSitesPage = lazy(importFleetSitesPage);
 const FleetDown = lazy(importFleetDown);
 const FleetInfraPage = lazy(importFleetInfraPage);
+const MaintenancePage = lazy(importMaintenancePage);
 
 // Helper to check if an admin user has been created
 const checkFleetInitStatus = async (): Promise<boolean> => {
@@ -257,6 +261,8 @@ const router = createBrowserRouter([
   createRoute("/sites/:id", <SiteDetailPage />, { hideShellHeader: true }),
   createRoute("/buildings/:id", <BuildingPage />, { hideShellHeader: true }),
 
+  createRoute("/maintenance", <MaintenancePage />),
+
   // Single miner (fullscreen - protoOS routes handle layout). SingleMinerWrapper
   // wraps the parent Outlet so it stays mounted across tab navigations — the
   // protoOS tabs redirect via loaders, which would otherwise remount it (and
@@ -365,6 +371,12 @@ const router = createBrowserRouter([
     "/settings/server-logs",
     <SettingsLayout>
       <ServerLogsPage />
+    </SettingsLayout>,
+  ),
+  createRoute(
+    "/settings/updates",
+    <SettingsLayout>
+      <SettingsUpdates />
     </SettingsLayout>,
   ),
   // Auth routes (fullscreen)

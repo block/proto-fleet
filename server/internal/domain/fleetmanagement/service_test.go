@@ -390,7 +390,7 @@ func TestService_LookupMinerByIdentifier_ShouldLookupByMACWhenTypeIsMAC(t *testi
 	)
 
 	deviceStore.EXPECT().
-		GetPairedDeviceByMACAddress(gomock.Any(), mac, orgID).
+		GetPairedDeviceByMACAddress(gomock.Any(), mac, orgID, "").
 		Return(&interfaces.PairedDeviceInfo{DeviceIdentifier: deviceID, MacAddress: mac}, nil)
 	deviceStore.EXPECT().
 		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
@@ -423,7 +423,7 @@ func TestService_LookupMinerByIdentifier_ShouldInferMACWhenTypeUnspecified(t *te
 	)
 
 	deviceStore.EXPECT().
-		GetPairedDeviceByMACAddress(gomock.Any(), mac, orgID).
+		GetPairedDeviceByMACAddress(gomock.Any(), mac, orgID, "").
 		Return(&interfaces.PairedDeviceInfo{DeviceIdentifier: deviceID, MacAddress: mac}, nil)
 	deviceStore.EXPECT().
 		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
@@ -493,10 +493,12 @@ func TestService_LookupMinerByIdentifier_ShouldReturnHydratedSnapshot(t *testing
 	deviceStore.EXPECT().
 		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
 		Return([]sqlc.ListMinerStateSnapshotsRow{{
-			DeviceIdentifier: deviceID,
-			PairingStatus:    "PAIRED",
-			SerialNumber:     sql.NullString{String: serial, Valid: true},
-			Model:            sql.NullString{String: "S21 XP", Valid: true},
+			DeviceIdentifier:     deviceID,
+			PairingStatus:        "PAIRED",
+			SerialNumber:         sql.NullString{String: serial, Valid: true},
+			Model:                sql.NullString{String: "S21 XP", Valid: true},
+			DeviceStatus:         sqlc.NullDeviceStatusEnum{DeviceStatusEnum: sqlc.DeviceStatusEnumACTIVE, Valid: true},
+			FleetNodeUnavailable: true,
 		}}, "", int64(1), nil)
 	// Paired snapshot triggers hydration; return empty placement data.
 	collectionStore.EXPECT().
@@ -520,47 +522,45 @@ func TestService_LookupMinerByIdentifier_ShouldReturnHydratedSnapshot(t *testing
 	assert.Equal(t, deviceID, resp.Snapshot.DeviceIdentifier)
 	assert.Equal(t, serial, resp.Snapshot.SerialNumber)
 	assert.Equal(t, pb.PairingStatus_PAIRING_STATUS_PAIRED, resp.Snapshot.PairingStatus)
+	assert.Equal(t, pb.DeviceStatus_DEVICE_STATUS_OFFLINE, resp.Snapshot.DeviceStatus)
+	assert.Equal(t, pb.DeviceOfflineReason_DEVICE_OFFLINE_REASON_FLEET_NODE_UNAVAILABLE, resp.Snapshot.OfflineReason)
 }
 
-func TestService_RefreshMiners_ShouldReturnUnsupportedForFleetNodeOwnedMiner(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+func TestService_RefreshMiners_ShouldRefreshFleetNodeOwnedMiner(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping test in short mode")
+	}
+
+	testContext := testutil.InitializeDBServiceInfrastructure(t)
+	testUser := testContext.DatabaseService.CreateSuperAdminUser()
+	deviceIDs := testContext.DatabaseService.CreateTestMiners(testUser.OrganizationID, 1, "https://172.17.0.1:80")
+	require.Len(t, deviceIDs, 1)
+	pairMinerToFleetNode(t, testContext.ServiceProvider.DB, testUser.OrganizationID, deviceIDs[0])
+
 	collector := &recordingRefreshTelemetryCollector{}
-
-	const (
-		deviceID = "node-owned-device"
-		orgID    = int64(123)
-	)
-
-	deviceStore.EXPECT().
-		GetDeviceByDeviceIdentifier(gomock.Any(), deviceID, orgID).
-		Return(&pairingpb.Device{DeviceIdentifier: deviceID}, nil)
-	deviceStore.EXPECT().
-		IsDeviceOwnedByFleetNode(gomock.Any(), deviceID, orgID).
-		Return(true, nil)
-
+	transactor := sqlstores.NewSQLTransactor(testContext.ServiceProvider.DB)
 	service := fleetmanagement.NewService(
-		deviceStore,
-		nil,
+		sqlstores.NewSQLDeviceStore(testContext.ServiceProvider.DB),
+		sqlstores.NewSQLDiscoveredDeviceStore(testContext.ServiceProvider.DB),
 		collector,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
+		testContext.ServiceProvider.MinerService,
+		testContext.ServiceProvider.PluginService,
+		sqlstores.NewSQLPoolStore(testContext.ServiceProvider.DB, testContext.ServiceProvider.EncryptService),
+		sqlstores.NewSQLErrorStore(testContext.ServiceProvider.DB, transactor),
+		sqlstores.NewSQLCollectionStore(testContext.ServiceProvider.DB),
+		sqlstores.NewSQLBuildingStore(testContext.ServiceProvider.DB),
+		testContext.ServiceProvider.CommandService,
+		activity.NewService(sqlstores.NewSQLActivityStore(testContext.ServiceProvider.DB)),
 	)
 
-	ctx := testutil.MockAuthContextForTesting(t.Context(), 1, orgID)
-	resp, err := service.RefreshMiners(ctx, &pb.RefreshMinersRequest{DeviceIds: []string{deviceID}})
+	ctx := testutil.MockAuthContextForTesting(t.Context(), testUser.DatabaseID, testUser.OrganizationID)
+	resp, err := service.RefreshMiners(ctx, &pb.RefreshMinersRequest{DeviceIds: deviceIDs})
 
 	require.NoError(t, err)
-	assert.Empty(t, resp.Snapshots)
-	require.Contains(t, resp.Errors, deviceID)
-	assert.Contains(t, resp.Errors[deviceID], "fleet-node-owned miners are not supported")
-	assert.Empty(t, collector.Refreshed())
+	require.Len(t, resp.Snapshots, 1)
+	assert.Equal(t, deviceIDs[0], resp.Snapshots[0].DeviceIdentifier)
+	assert.Empty(t, resp.Errors)
+	assert.Equal(t, deviceIDs, collector.Refreshed())
 }
 
 func TestService_RefreshMiners_ShouldReturnSanitizedRefreshFailure(t *testing.T) {
@@ -577,10 +577,6 @@ func TestService_RefreshMiners_ShouldReturnSanitizedRefreshFailure(t *testing.T)
 	deviceStore.EXPECT().
 		GetDeviceByDeviceIdentifier(gomock.Any(), deviceID, orgID).
 		Return(&pairingpb.Device{DeviceIdentifier: deviceID}, nil)
-	deviceStore.EXPECT().
-		IsDeviceOwnedByFleetNode(gomock.Any(), deviceID, orgID).
-		Return(false, nil)
-
 	service := fleetmanagement.NewService(
 		deviceStore,
 		nil,

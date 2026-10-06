@@ -3,6 +3,17 @@ INSERT INTO device_set (org_id, type, label, description)
 VALUES ($1, $2, $3, $4)
 RETURNING id, org_id, type, label, description, created_at, updated_at;
 
+-- name: ListTakenDeviceSetLabels :many
+-- Which candidate labels are already live in the org for this type. Backs bulk
+-- create's duplicate check: uk_device_collection_org_type_label spans
+-- (org_id, type, label), so a site/building-scoped rack list can't answer it.
+SELECT label
+FROM device_set
+WHERE org_id = sqlc.arg('org_id')
+  AND type = sqlc.arg('type')
+  AND label = ANY(sqlc.arg('labels')::text[])
+  AND deleted_at IS NULL;
+
 -- name: CreateRackExtension :exec
 -- org_id is denormalized onto device_set_rack so the building FK can be
 -- composite-keyed; inherit it from device_set so the caller's org_id
@@ -331,15 +342,28 @@ WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL;
 -- (ON CONFLICT DO NOTHING skips already-members), so callers can both count
 -- the change (len of result) and resolve the changed set for activity site
 -- scope (#538). Equivalent affected-row count to the prior :execrows shape.
+WITH locked_device_set AS MATERIALIZED (
+    SELECT device_set.id, device_set.type
+    FROM device_set
+    WHERE device_set.id = $2
+      AND device_set.org_id = $1
+      AND device_set.deleted_at IS NULL
+    FOR UPDATE
+), locked_devices AS MATERIALIZED (
+    SELECT d.id, d.device_identifier
+    FROM device d
+    CROSS JOIN locked_device_set
+    WHERE d.device_identifier = ANY(@device_identifiers::text[])
+      AND d.org_id = $1
+      AND d.deleted_at IS NULL
+    ORDER BY d.id
+    FOR UPDATE OF d
+)
 INSERT INTO device_set_membership (org_id, device_set_id, device_set_type, device_id, device_identifier)
 SELECT $1, $2, ds.type, d.id, d.device_identifier
-FROM device d
-CROSS JOIN device_set ds
-WHERE d.device_identifier = ANY(@device_identifiers::text[])
-  AND d.org_id = $1
-  AND d.deleted_at IS NULL
-  AND ds.id = $2
-  AND ds.deleted_at IS NULL
+FROM locked_devices d
+CROSS JOIN locked_device_set ds
+ORDER BY d.id
 ON CONFLICT (device_set_id, device_id) DO NOTHING
 RETURNING device_identifier;
 
@@ -406,9 +430,29 @@ WHERE d.device_identifier = ANY(@device_identifiers::text[])
   AND d.building_id IS DISTINCT FROM dsr.building_id;
 
 -- name: RemoveAllDevicesFromDeviceSet :execrows
-DELETE FROM device_set_membership
-WHERE device_set_id = $1
-  AND org_id = $2;
+WITH locked_device_set AS MATERIALIZED (
+    SELECT device_set.id
+    FROM device_set
+    WHERE device_set.id = sqlc.arg('device_set_id')
+      AND device_set.org_id = sqlc.arg('org_id')
+      AND device_set.deleted_at IS NULL
+    FOR UPDATE
+), locked_devices AS MATERIALIZED (
+    SELECT d.id
+    FROM device d
+    JOIN device_set_membership dsm
+      ON dsm.device_id = d.id AND dsm.org_id = d.org_id
+    CROSS JOIN locked_device_set ds
+    WHERE dsm.device_set_id = ds.id
+      AND d.org_id = sqlc.arg('org_id')
+    ORDER BY d.id
+    FOR UPDATE OF d
+)
+DELETE FROM device_set_membership dsm
+USING locked_device_set ds, locked_devices d
+WHERE dsm.device_set_id = ds.id
+  AND dsm.device_id = d.id
+  AND dsm.org_id = sqlc.arg('org_id');
 
 -- name: LockRacksForReparent :many
 -- Locks every rack involved in a reparent (sources + target) FOR UPDATE
@@ -479,11 +523,28 @@ WHERE org_id = $1
 -- were not members match nothing), so callers can count the change and resolve
 -- the changed set for activity site scope (#538). Equivalent affected-row
 -- count to the prior :execrows shape.
-DELETE FROM device_set_membership
-WHERE device_set_id = $1
-  AND org_id = $2
-  AND device_identifier = ANY(@device_identifiers::text[])
-RETURNING device_identifier;
+WITH locked_device_set AS MATERIALIZED (
+    SELECT device_set.id
+    FROM device_set
+    WHERE device_set.id = sqlc.arg('device_set_id')
+      AND device_set.org_id = sqlc.arg('org_id')
+      AND device_set.deleted_at IS NULL
+    FOR UPDATE
+), locked_devices AS MATERIALIZED (
+    SELECT d.id
+    FROM device d
+    CROSS JOIN locked_device_set
+    WHERE d.org_id = sqlc.arg('org_id')
+      AND d.device_identifier = ANY(@device_identifiers::text[])
+    ORDER BY d.id
+    FOR UPDATE OF d
+)
+DELETE FROM device_set_membership dsm
+USING locked_device_set ds, locked_devices d
+WHERE dsm.device_set_id = ds.id
+  AND dsm.device_id = d.id
+  AND dsm.org_id = sqlc.arg('org_id')
+RETURNING dsm.device_identifier;
 
 -- name: ListDeviceSetMembersPaginated :many
 SELECT dsm.id, dsm.device_identifier, dsm.created_at,
@@ -734,3 +795,13 @@ WHERE org_id = sqlc.arg('org_id')
   AND device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND deleted_at IS NULL
   AND (site_id IS NOT NULL OR building_id IS NOT NULL);
+
+-- name: DeviceSetsByIDs :many
+-- Returns the subset of requested IDs that are live device sets of the given type in the org;
+-- the caller diffs against the request to detect cross-org, wrong-type, or missing IDs.
+SELECT id
+FROM device_set
+WHERE org_id = sqlc.arg('org_id')
+  AND type = sqlc.arg('set_type')
+  AND deleted_at IS NULL
+  AND id = ANY(sqlc.arg('ids')::bigint[]);

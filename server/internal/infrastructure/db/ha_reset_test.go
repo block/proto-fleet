@@ -41,7 +41,7 @@ func TestWithTransactionBeginFailoverResetsPoolWithoutRetry(t *testing.T) {
 		resets++
 	})
 
-	_, err := WithTransaction(context.Background(), sqlDB, func(*sqlc.Queries) (struct{}, error) {
+	_, err := WithTransaction(context.Background(), sqlDB, func(sqlc.Querier) (struct{}, error) {
 		t.Fatal("transaction action should not run")
 		return struct{}{}, nil
 	})
@@ -64,7 +64,7 @@ func TestWithTransactionActionFailoverResetsPoolWithoutRetry(t *testing.T) {
 	})
 
 	calls := 0
-	_, err := WithTransaction(context.Background(), sqlDB, func(*sqlc.Queries) (struct{}, error) {
+	_, err := WithTransaction(context.Background(), sqlDB, func(sqlc.Querier) (struct{}, error) {
 		calls++
 		return struct{}{}, pgErr
 	})
@@ -99,7 +99,7 @@ func TestWithTransactionQueryFailoverResetsPoolAfterRollback(t *testing.T) {
 		}
 	})
 
-	_, err := WithTransaction(context.Background(), sqlDB, func(q *sqlc.Queries) (struct{}, error) {
+	_, err := WithTransaction(context.Background(), sqlDB, func(q sqlc.Querier) (struct{}, error) {
 		_, queryErr := q.GetSessionByID(context.Background(), "session")
 		if !errors.Is(queryErr, pgErr) {
 			t.Fatalf("query error = %v, want wrapped failover error", queryErr)
@@ -147,7 +147,7 @@ func TestWithTransactionCommitFailoverResetsPoolWithoutRetry(t *testing.T) {
 	})
 
 	calls := 0
-	_, err := WithTransaction(context.Background(), sqlDB, func(*sqlc.Queries) (struct{}, error) {
+	_, err := WithTransaction(context.Background(), sqlDB, func(sqlc.Querier) (struct{}, error) {
 		calls++
 		return struct{}{}, nil
 	})

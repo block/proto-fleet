@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type CatalogEntry, dependencyGaps, withRequiredReads } from "./permissionCatalog";
+import { buildPermissionGroups, type CatalogEntry, dependencyGaps, withRequiredReads } from "./permissionCatalog";
 
 // Minimal catalog covering the keys the dependency rules reference.
 const catalog: CatalogEntry[] = [
@@ -14,6 +14,36 @@ const catalog: CatalogEntry[] = [
   { key: "schedule:read", description: "View scheduled miner actions.", resource: "schedule" },
   { key: "schedule:manage", description: "Create, edit, pause, resume, and delete schedules.", resource: "schedule" },
 ];
+
+describe("buildPermissionGroups", () => {
+  it("publishes instance permissions as a visible role-editor group", () => {
+    const instanceUpdate: CatalogEntry = {
+      key: "instance:update",
+      description: "Manage instance updates.",
+      resource: "instance",
+    };
+
+    expect(buildPermissionGroups([...catalog, instanceUpdate])).toContainEqual({
+      resource: "instance",
+      label: "Instance",
+      entries: [instanceUpdate],
+    });
+  });
+
+  it("publishes maintenance permissions as a visible role-editor group", () => {
+    const maintenanceRead: CatalogEntry = {
+      key: "maintenance:read",
+      description: "View repair tickets and parts inventory.",
+      resource: "maintenance",
+    };
+
+    expect(buildPermissionGroups([...catalog, maintenanceRead])).toContainEqual({
+      resource: "maintenance",
+      label: "Maintenance",
+      entries: [maintenanceRead],
+    });
+  });
+});
 
 describe("dependencyGaps", () => {
   it("gives schedule:manage no hard requirements, only a choose-one-of action set", () => {

@@ -23,7 +23,7 @@ const (
 	// absent_over_time(fleet_device_online[10m]).
 	MetricDeviceOnline = "fleet_device_online"
 
-	// MetricDeviceHashing is a per-device observed/expected hashrate ratio while the device is expected to be hashing (lower degraded, 0 stopped), and a non-alerting 1.0 once it is no longer expected to (paused, unknown, offline) so a stale low sample can't keep the Device Hashrate Low rule firing; a still-expected device with a missing or invalid reading emits nothing so a gap can't clear a real low. The below-expected threshold lives in that rule.
+	// MetricDeviceHashing is a per-device observed/expected hashrate ratio while the device is expected to be hashing (lower degraded, 0 stopped), and a non-alerting 1.0 once it is no longer expected to (paused, unknown, offline) so a stale low sample can't keep a percentage-based hashrate rule firing; a still-expected device with a missing or invalid reading emits nothing so a gap can't clear a real low. The below-expected threshold lives in each user-created rule.
 	MetricDeviceHashing = "fleet_device_hashing"
 
 	// MetricDeviceHashrateTerahash is the device's currently observed hashrate
@@ -80,6 +80,12 @@ const (
 	// tick, so staleness means fleet-api is down or the metrics writer is
 	// wedged. The Fleet Heartbeat Stale rule alerts on it.
 	MetricSystemHeartbeat = "fleet_system_heartbeat"
+
+	// MetricHAFailoverReady mirrors fleet-ha status control.failover_ready: 1
+	// means every HA redundancy and control-path check is healthy, 0 means at
+	// least one part of the cluster is degraded. It is host-scoped and emitted
+	// only by the active Fleet runtime.
+	MetricHAFailoverReady = "fleet_ha_failover_ready"
 
 	// MetricMQTTSourceConnected is a per-source gauge: 1 when the MQTT
 	// curtailment source has at least one broker connection subscribed to its
@@ -168,6 +174,7 @@ var AllMetricNames = []string{
 	MetricSystemMemoryUsedPercent,
 	MetricSystemDiskUsedPercent,
 	MetricSystemHeartbeat,
+	MetricHAFailoverReady,
 	MetricMQTTSourceConnected,
 	MetricMQTTCurtailmentActive,
 	MetricCurtailmentFanRestoreFailed,

@@ -222,6 +222,10 @@ const ScheduleModalStory = ({ infoMessage, schedule }: ScheduleModalStoryProps) 
 const meta = {
   title: "Proto Fleet/Settings/ScheduleModal",
   component: ScheduleModalStory,
+  argTypes: {
+    // The raw protobuf schedule contains bigint IDs, which the JSON editor cannot serialize.
+    schedule: { control: false },
+  },
   parameters: {
     layout: "fullscreen",
   },

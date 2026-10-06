@@ -125,7 +125,7 @@ export class ActivityPage extends BasePage {
 
   async exportCsv() {
     const downloadPromise = this.page.waitForEvent("download");
-    await this.page.getByRole("button", { name: "Export CSV", exact: true }).click();
+    await this.page.getByRole("button", { name: "Export activity CSV", exact: true }).click();
     return await downloadPromise;
   }
 

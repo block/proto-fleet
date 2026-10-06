@@ -1,6 +1,7 @@
 import { expect, Locator } from "@playwright/test";
 import { DEFAULT_INTERVAL, DEFAULT_TIMEOUT } from "../config/test.config";
 import { BasePage } from "./base";
+import { CurtailmentModal } from "./components/curtailmentModal";
 
 export type ResponseProfileFormInput = {
   name: string;
@@ -21,6 +22,8 @@ export type CurtailmentSourceFormInput = {
 };
 
 export class SettingsCurtailmentPage extends BasePage {
+  private readonly curtailmentModal = new CurtailmentModal(this.page);
+
   async validateCurtailmentSubmenuHidden() {
     await expect(this.page.getByTestId("secondary-nav").locator('a[href="/settings/curtailment"]')).toBeHidden();
   }
@@ -47,16 +50,63 @@ export class SettingsCurtailmentPage extends BasePage {
     await this.page.getByTestId("response-profile-restore-batch-interval").fill(values.restoreBatchIntervalSec);
   }
 
+  async selectSiteTarget(siteName: string) {
+    await this.curtailmentModal.selectSite(siteName);
+  }
+
+  async selectBuildingTarget(buildingName: string) {
+    await this.curtailmentModal.selectBuilding(buildingName);
+  }
+
+  async selectRackTarget(rackLabel: string) {
+    await this.curtailmentModal.selectRack(rackLabel);
+  }
+
+  async selectGroupTarget(groupName: string) {
+    await this.curtailmentModal.selectGroup(groupName);
+  }
+
+  async enableAllPairedTargeting() {
+    const checkbox = this.page.getByRole("checkbox", { name: "Target all paired miners", exact: true });
+    await checkbox.check();
+    await expect(checkbox).toBeChecked();
+  }
+
+  async validateBuildingTargetSelected() {
+    await this.curtailmentModal.validateSelection("Buildings", "1 building");
+  }
+
+  async validateRackTargetSelected() {
+    await this.curtailmentModal.validateSelection("Racks", "1 rack");
+  }
+
+  async openEditResponseProfile(name: string) {
+    const card = this.getResponseProfileCard(name);
+    await expect(card).toBeVisible();
+    await card.getByRole("button", { name: "Edit", exact: true }).click();
+    await expect(this.page.getByText("Edit response profile", { exact: true })).toBeVisible();
+  }
+
+  async reloadResponseProfiles() {
+    await this.page.reload();
+    await this.waitForResponseProfilesToLoad();
+  }
+
+  async runResponseProfileCurtailment() {
+    await this.curtailmentModal.confirmRun();
+    await expect(this.page).toHaveURL(/.*\/energy/);
+  }
+
   async saveResponseProfile() {
     await this.clickButton("Save profile");
     await expect(this.page.getByTestId("full-screen-two-pane-modal")).toBeHidden();
   }
 
-  async validateResponseProfileVisible(name: string) {
+  async validateResponseProfileVisible(name: string, target = "Whole fleet") {
     const card = this.getResponseProfileCard(name);
     await expect(card).toBeVisible();
     await expect(card.getByText("100% reduction", { exact: true })).toBeVisible();
-    await expect(card.getByText("Whole fleet", { exact: true })).toBeVisible();
+    await expect(card.getByText(target, { exact: true })).toBeVisible();
   }
 
   async deleteResponseProfilesByPrefix(prefix: string) {

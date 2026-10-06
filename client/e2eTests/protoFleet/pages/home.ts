@@ -1,7 +1,22 @@
-import { expect } from "@playwright/test";
+import { expect, type Locator } from "@playwright/test";
 import { BasePage } from "./base";
 
 export class HomePage extends BasePage {
+  getCompleteSetupModule(): Locator {
+    return this.page.getByTestId("complete-setup");
+  }
+
+  getCompleteSetupCard(title: string): Locator {
+    return this.getCompleteSetupModule()
+      .getByText(title, { exact: true })
+      .locator("xpath=ancestor::div[contains(@class,'rounded-2xl')]")
+      .first();
+  }
+
+  getCompleteSetupButton(label: string): Locator {
+    return this.getCompleteSetupModule().getByRole("button", { name: label, exact: true });
+  }
+
   private getDurationButton(duration: string) {
     return this.page.getByRole("button", { name: duration, exact: true });
   }
@@ -30,6 +45,16 @@ export class HomePage extends BasePage {
 
   async clickAuthenticateMinersButton() {
     await this.clickButton("Authenticate");
+  }
+
+  async dismissCompleteSetupIfVisible() {
+    const dismissButton = this.page.getByRole("button", { name: "Dismiss complete setup", exact: true });
+    if (!(await dismissButton.isVisible().catch(() => false))) {
+      return;
+    }
+
+    await dismissButton.click();
+    await expect(dismissButton).toBeHidden();
   }
 
   async validateAuthenticateMinersModalTitle() {
@@ -145,16 +170,18 @@ export class HomePage extends BasePage {
     await this.page.getByTestId("modal-overflow-sheet-content").getByRole("button", { name: "Show miners" }).click();
   }
 
-  async validateCalloutInModal(text: string) {
-    await expect(this.page.getByTestId("modal").locator("[data-testid*='callout']").getByText(text)).toBeVisible();
+  async validateAuthenticationError(text: string) {
+    await expect(
+      this.page.getByTestId("modal").getByTestId("authentication-error-callout").getByText(text),
+    ).toBeVisible();
   }
 
-  async validateNoCalloutInModal() {
-    await expect(this.page.getByTestId("modal").locator("[data-testid*='callout']")).toBeHidden();
+  async validateNoAuthenticationError() {
+    await expect(this.page.getByTestId("modal").getByTestId("authentication-error-callout")).toBeHidden();
   }
 
-  async clickCalloutButton() {
-    await this.page.getByTestId("modal").locator("[data-testid*='callout']").getByRole("button").click();
+  async dismissAuthenticationError() {
+    await this.page.getByTestId("modal").getByTestId("authentication-error-callout").getByRole("button").click();
   }
 
   async getMinerRowByModel(model: string) {

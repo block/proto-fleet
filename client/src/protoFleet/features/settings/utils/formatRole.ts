@@ -8,5 +8,5 @@ export const formatRole = (role: string): string => {
     FIELD_TECH: "Field Tech",
   };
 
-  return roleMap[role] || role;
+  return Object.prototype.hasOwnProperty.call(roleMap, role) ? roleMap[role] : role;
 };

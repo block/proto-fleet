@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,37 +17,53 @@ import (
 	"time"
 )
 
-// perSendTimeout bounds a single destination POST so one slow channel can't stall the whole batch.
-const perSendTimeout = 10 * time.Second
-
-// maxDeliveryConcurrency bounds in-flight sends per org so one slow channel can't starve the rest.
-const maxDeliveryConcurrency = 8
+const (
+	// perSendTimeout bounds a single destination POST so one slow channel can't stall the whole batch.
+	perSendTimeout = 10 * time.Second
+	// maxDeliveryConcurrency bounds in-flight sends per org so one slow channel can't starve the rest.
+	maxDeliveryConcurrency = 8
+	alertStatusResolved    = "resolved"
+)
 
 // Alert is one alert instance from a Grafana webhook batch, reduced to what delivery needs.
 type Alert struct {
 	Status      string
 	Labels      map[string]string
 	Annotations map[string]string
+	// Producing rule's Grafana UID (proto_fleet_rule_uid label, else generatorURL). Empty routes as
+	// default while the org has no policies, and is dropped from channel delivery once it does.
+	RuleUID string
 }
 
 // Deliverer fans a webhook batch out to each org's channels, re-checking each destination against the SSRF policy at send time.
 type Deliverer struct {
 	channels   ChannelStore
+	routes     RouteStore
+	windows    MaintenanceWindowStore
 	crypto     Cipher
 	devices    DeviceIdentityLookup
 	httpClient *http.Client
 	policy     DestinationPolicy
 	publicURL  string
+	// Last-known-good policies per org: a transient policy-read failure must not bypass explicit custom/none restrictions.
+	policyCacheMu sync.Mutex
+	policyCache   map[int64][]RoutePolicy
+	// Bumped per org by InvalidatePolicyCache: a read that raced a routing write must not land in the cache.
+	policyCacheGen map[int64]uint64
 }
 
-func NewDeliverer(channels ChannelStore, crypto Cipher, devices DeviceIdentityLookup, policy DestinationPolicy, publicURL string) *Deliverer {
+func NewDeliverer(channels ChannelStore, routes RouteStore, windows MaintenanceWindowStore, crypto Cipher, devices DeviceIdentityLookup, policy DestinationPolicy, publicURL string) *Deliverer {
 	return &Deliverer{
-		channels:   channels,
-		crypto:     crypto,
-		devices:    devices,
-		httpClient: newDeliveryHTTPClient(policy),
-		policy:     policy,
-		publicURL:  strings.TrimRight(publicURL, "/"),
+		channels:       channels,
+		routes:         routes,
+		windows:        windows,
+		crypto:         crypto,
+		devices:        devices,
+		httpClient:     newDeliveryHTTPClient(policy),
+		policy:         policy,
+		publicURL:      strings.TrimRight(publicURL, "/"),
+		policyCache:    map[int64][]RoutePolicy{},
+		policyCacheGen: map[int64]uint64{},
 	}
 }
 
@@ -132,20 +149,195 @@ func (d *Deliverer) deliverOrg(ctx context.Context, orgID int64, orgAlerts []Ale
 	if len(recs) == 0 {
 		return
 	}
-	identities := d.resolveDevices(ctx, orgID, orgAlerts)
+	defaultAlerts, extraIdx, routedUnique := d.routeAlerts(ctx, orgID, orgAlerts)
+	if len(defaultAlerts) == 0 && len(extraIdx) == 0 {
+		return
+	}
+	windows := d.activeMaintenanceWindows(ctx, orgID)
+	// Resolve identities for routing survivors only (each surviving alert exactly once).
+	survivors := make([]Alert, 0, len(defaultAlerts)+len(routedUnique))
+	survivors = append(append(survivors, defaultAlerts...), routedUnique...)
+	identities := d.resolveDevices(ctx, orgID, survivors)
 	// Deliver channels concurrently (bounded) so one slow destination can't delay the others.
 	sem := make(chan struct{}, maxDeliveryConcurrency)
 	var wg sync.WaitGroup
 	for _, rec := range recs {
+		idxs := extraIdx[rec.ID]
+		if len(defaultAlerts) == 0 && len(idxs) == 0 {
+			continue
+		}
+		// Window coverage depends only on the channel, so resolve it once here. Resolutions still
+		// deliver through an all-rules window, so materialize and filter every covered batch.
+		muted, muteAll := channelMutedRules(windows, rec.ID)
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(rec ChannelRecord) {
+		go func(rec ChannelRecord, idxs []int, muted map[string]bool, muteAll bool) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			d.deliverChannel(ctx, orgID, rec, orgAlerts, identities)
-		}(rec)
+			// Materialize the channel's batch inside its concurrency slot: routing stays index-based, so a
+			// wide custom fan-out holds at most maxDeliveryConcurrency copies instead of alerts x channels.
+			alerts := defaultAlerts
+			if len(idxs) > 0 {
+				alerts = make([]Alert, 0, len(defaultAlerts)+len(idxs))
+				alerts = append(alerts, defaultAlerts...)
+				for _, i := range idxs {
+					alerts = append(alerts, orgAlerts[i])
+				}
+			}
+			alerts = dropMutedAlerts(alerts, muted, muteAll)
+			if len(alerts) == 0 {
+				return
+			}
+			d.deliverChannel(ctx, orgID, rec, alerts, identities)
+		}(rec, idxs, muted, muteAll)
 	}
 	wg.Wait()
+}
+
+// activeMaintenanceWindows loads the org's currently-active windows for delivery muting. Unlike
+// route policies (which fail closed so restricted alerts can't leak to unintended channels), a
+// read failure here fails open and delivers: a window only suppresses noise, and transient extra
+// noise during maintenance beats losing real pages.
+func (d *Deliverer) activeMaintenanceWindows(ctx context.Context, orgID int64) []MaintenanceWindowRecord {
+	if d.windows == nil {
+		return nil
+	}
+	windows, err := d.windows.ListActive(ctx, orgID, time.Now())
+	if err != nil {
+		slog.Error("alerts.deliver_list_windows_failed", "org", orgID, "err", err)
+		return nil
+	}
+	return windows
+}
+
+// channelMutedRules resolves the org's active windows down to what they mute on this channel
+// (an empty channel list covers every channel): muteAll reports that a covering window has an
+// empty rule list, which mutes the channel's entire send; otherwise muted unions the covering
+// windows' rule UIDs, one set lookup per alert regardless of how many windows target the rule.
+func channelMutedRules(windows []MaintenanceWindowRecord, channelID int64) (muted map[string]bool, muteAll bool) {
+	for _, w := range windows {
+		if len(w.ChannelIDs) > 0 && !slices.Contains(w.ChannelIDs, channelID) {
+			continue
+		}
+		if len(w.RuleUIDs) == 0 {
+			return nil, true
+		}
+		if muted == nil {
+			muted = map[string]bool{}
+		}
+		for _, uid := range w.RuleUIDs {
+			muted[uid] = true
+		}
+	}
+	return muted, false
+}
+
+// dropMutedAlerts returns the channel's batch minus firing alerts covered by a maintenance
+// window. Resolutions always stay so a destination that saw a firing notification can close it.
+// Unattributed firing alerts stay under a rule-scoped window because no rule can claim them. The
+// input slice is shared across channel goroutines and never mutated; it is returned as-is (no
+// copy) until an alert actually drops.
+func dropMutedAlerts(alerts []Alert, muted map[string]bool, muteAll bool) []Alert {
+	if !muteAll && len(muted) == 0 {
+		return alerts
+	}
+	isMuted := func(a Alert) bool {
+		if a.Status == alertStatusResolved {
+			return false
+		}
+		return muteAll || (a.RuleUID != "" && muted[a.RuleUID])
+	}
+	first := slices.IndexFunc(alerts, isMuted)
+	if first < 0 {
+		return alerts
+	}
+	out := make([]Alert, 0, len(alerts)-1)
+	out = append(out, alerts[:first]...)
+	for _, a := range alerts[first+1:] {
+		if !isMuted(a) {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// routeAlerts splits the org batch per its route policies: no policy or no rule UID → every channel (fail open),
+// custom → only its channels (as indices into orgAlerts), none → nowhere. routedUnique lists each custom-routed
+// alert exactly once, for identity resolution.
+func (d *Deliverer) routeAlerts(ctx context.Context, orgID int64, orgAlerts []Alert) (defaultAlerts []Alert, extraIdx map[int64][]int, routedUnique []Alert) {
+	if d.routes == nil {
+		return orgAlerts, nil, nil
+	}
+	d.policyCacheMu.Lock()
+	gen := d.policyCacheGen[orgID]
+	d.policyCacheMu.Unlock()
+	policies, err := d.routes.ListPolicies(ctx, orgID)
+	if err != nil {
+		slog.Error("alerts.deliver_list_routes_failed", "org", orgID, "err", err)
+		// Serve the last-known-good policies so a transient read failure can't bypass explicit custom/none restrictions.
+		d.policyCacheMu.Lock()
+		cached, ok := d.policyCache[orgID]
+		d.policyCacheMu.Unlock()
+		if !ok {
+			// Cold cache: fail closed for channel delivery (history is already stored) rather than leak restricted
+			// alerts to every channel; Alertmanager re-notifies firing alerts each repeat_interval, so pages are delayed, not lost.
+			slog.Error("alerts.deliver_dropped_unroutable", "org", orgID, "alerts", len(orgAlerts))
+			return nil, nil, nil
+		}
+		slog.Warn("alerts.deliver_routes_from_cache", "org", orgID, "policies", len(cached))
+		policies = cached
+	} else {
+		d.policyCacheMu.Lock()
+		// Only store if no routing write invalidated the org mid-read: a pre-write snapshot stored
+		// after the invalidation would resurrect routing the operator just removed.
+		if d.policyCacheGen[orgID] == gen {
+			d.policyCache[orgID] = policies
+		}
+		d.policyCacheMu.Unlock()
+	}
+	if len(policies) == 0 {
+		return orgAlerts, nil, nil
+	}
+	byRule := policiesByRule(policies)
+	extraIdx = map[int64][]int{}
+	unattributed := 0
+	orphaned := map[string]bool{}
+	for i, a := range orgAlerts {
+		// Every routeable rule carries the identity label (or the URL fallback), so an unattributed alert in a
+		// policy-holding org is genuine identity loss: fail closed for channel delivery (history is stored).
+		if a.RuleUID == "" {
+			unattributed++
+			continue
+		}
+		p, ok := byRule[a.RuleUID]
+		if !ok {
+			defaultAlerts = append(defaultAlerts, a)
+			continue
+		}
+		switch {
+		case p.Mode == RouteModeNone:
+		case p.Mode == RouteModeCustom:
+			// Empty after the live-channel filter: every routed channel was deleted, so the alert delivers nowhere.
+			if len(p.ChannelIDs) == 0 {
+				orphaned[p.RuleUID] = true
+				continue
+			}
+			routedUnique = append(routedUnique, a)
+			for _, id := range p.ChannelIDs {
+				extraIdx[id] = append(extraIdx[id], i)
+			}
+		default:
+			// Explicit default mode or an unknown persisted mode: fail open rather than drop the alert.
+			defaultAlerts = append(defaultAlerts, a)
+		}
+	}
+	if unattributed > 0 {
+		slog.Error("alerts.deliver_dropped_unattributed", "org", orgID, "count", unattributed)
+	}
+	for uid := range orphaned {
+		slog.Warn("alerts.deliver_route_no_live_channels", "org", orgID, "rule_uid", uid)
+	}
+	return defaultAlerts, extraIdx, routedUnique
 }
 
 func (d *Deliverer) deliverChannel(ctx context.Context, orgID int64, rec ChannelRecord, orgAlerts []Alert, identities map[string]DeviceIdentity) {
@@ -210,6 +402,15 @@ func (d *Deliverer) send(ctx context.Context, kind ChannelKind, cfg channelConfi
 	return d.post(ctx, cfg.URL, bearer, body)
 }
 
+// InvalidatePolicyCache drops the org's last-known-good snapshot after a routing write, so an
+// outage right after the write fails closed instead of serving the stale pre-write policies.
+func (d *Deliverer) InvalidatePolicyCache(orgID int64) {
+	d.policyCacheMu.Lock()
+	delete(d.policyCache, orgID)
+	d.policyCacheGen[orgID]++
+	d.policyCacheMu.Unlock()
+}
+
 // SendTest posts a synthetic notification and reports whether it was accepted (implements ChannelTester).
 func (d *Deliverer) SendTest(ctx context.Context, kind ChannelKind, url, bearer string) (bool, string, error) {
 	sample := []Alert{{
@@ -262,7 +463,7 @@ func (d *Deliverer) post(ctx context.Context, rawURL, bearer string, body []byte
 // firing/resolved partition, stable by alertname then device for a deterministic message.
 func partitionAlerts(alerts []Alert) (firing, resolved []Alert) {
 	for _, a := range alerts {
-		if a.Status == "resolved" {
+		if a.Status == alertStatusResolved {
 			resolved = append(resolved, a)
 		} else {
 			firing = append(firing, a)
@@ -280,25 +481,4 @@ func sortAlerts(alerts []Alert) {
 		}
 		return alerts[i].Labels["device_id"] < alerts[j].Labels["device_id"]
 	})
-}
-
-// deviceSuffix renders " — <name> (<MAC>)" for an alert's device, falling back to the raw id.
-func deviceSuffix(a Alert, identities map[string]DeviceIdentity) string {
-	id := a.Labels["device_id"]
-	if id == "" {
-		return ""
-	}
-	ident := identities[id]
-	name := escapeMrkdwn(strings.TrimSpace(ident.Name))
-	mac := escapeMrkdwn(ident.MAC)
-	switch {
-	case name != "" && mac != "":
-		return fmt.Sprintf(" — %s (%s)", name, mac)
-	case name != "":
-		return " — " + name
-	case mac != "":
-		return " — " + mac
-	default:
-		return " — " + escapeMrkdwn(id)
-	}
 }

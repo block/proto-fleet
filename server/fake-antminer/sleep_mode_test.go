@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -89,8 +90,9 @@ func TestSetConfigSleepModePersistsAndZeroesHashrate(t *testing.T) {
 
 	var stats struct {
 		Stats []struct {
-			Rate5s float64 `json:"rate_5s"`
-			Chain  []struct {
+			Rate5s     float64 `json:"rate_5s"`
+			ChainPower string  `json:"chain_power"`
+			Chain      []struct {
 				RateReal float64 `json:"rate_real"`
 			} `json:"chain"`
 		} `json:"STATS"`
@@ -103,6 +105,9 @@ func TestSetConfigSleepModePersistsAndZeroesHashrate(t *testing.T) {
 	}
 	if got := stats.Stats[0].Rate5s; got != 0 {
 		t.Fatalf("expected stats rate_5s 0, got %v", got)
+	}
+	if got := stats.Stats[0].ChainPower; got != "30 W" {
+		t.Fatalf("expected stats chain_power %q, got %q", "30 W", got)
 	}
 	for _, chain := range stats.Stats[0].Chain {
 		if chain.RateReal != 0 {
@@ -134,6 +139,51 @@ func TestSetConfigSleepModePersistsAndZeroesHashrate(t *testing.T) {
 	if got := rpcDevs.Devices[0].MHSav; got != 0 {
 		t.Fatalf("expected RPC MHS av 0, got %v", got)
 	}
+
+	rpcStats := generateStatsResponse(state)
+	if len(rpcStats.Stats) != 2 {
+		t.Fatalf("expected 2 RPC stats entries, got %d", len(rpcStats.Stats))
+	}
+	if got := rpcStats.Stats[1]["chain_power"]; got != "30 W" {
+		t.Fatalf("expected RPC chain_power %q, got %#v", "30 W", got)
+	}
+}
+
+func TestRPCStatsReportsMiningPower(t *testing.T) {
+	state := &MinerState{
+		MinerType:       "Antminer S19j Pro",
+		HashRate:        110,
+		BitmainWorkMode: WorkModeNormal,
+	}
+
+	response := requestRPCStats(t, state)
+	if len(response.Stats) != 2 {
+		t.Fatalf("expected firmware and mining stats entries, got %d", len(response.Stats))
+	}
+	if got := response.Stats[0]["Type"]; got != state.MinerType {
+		t.Fatalf("expected firmware type %q, got %#v", state.MinerType, got)
+	}
+	if got := response.Stats[1]["chain_power"]; got != "3250 W" {
+		t.Fatalf("expected RPC chain_power %q, got %#v", "3250 W", got)
+	}
+}
+
+func requestRPCStats(t *testing.T, state *MinerState) StatsResponse {
+	t.Helper()
+
+	serverConn, clientConn := net.Pipe()
+	t.Cleanup(func() { _ = clientConn.Close() })
+	go handleRPCConnection(serverConn, state)
+
+	if err := json.NewEncoder(clientConn).Encode(RPCRequest{Command: "stats"}); err != nil {
+		t.Fatalf("encode RPC stats request: %v", err)
+	}
+
+	var response StatsResponse
+	if err := json.NewDecoder(clientConn).Decode(&response); err != nil {
+		t.Fatalf("decode RPC stats response: %v", err)
+	}
+	return response
 }
 
 func TestSetConfigLegacySleepModePersists(t *testing.T) {

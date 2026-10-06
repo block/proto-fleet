@@ -2,6 +2,7 @@ import { type KeyboardEvent, type ReactElement, useCallback, useEffect, useMemo,
 import { Navigate, useNavigate } from "react-router-dom";
 import clsx from "clsx";
 
+import { type CurtailmentScopeSelection, getCurtailmentScopeSummary } from "@/protoFleet/api/curtailmentScopes";
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
@@ -30,6 +31,7 @@ import {
   type CurtailmentSource,
   type CurtailmentSourceFormValues,
   DEFAULT_SOURCE_STALENESS_THRESHOLD_SEC,
+  isResponseProfileAutomationReady,
   MAX_SOURCE_STALENESS_THRESHOLD_SEC,
   type ResponseProfile,
   type ResponseProfileFormValues,
@@ -42,7 +44,7 @@ import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { Alert, Info, Success } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import Button, { sizes, variants } from "@/shared/components/Button";
-import { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
+import Callout, { DismissibleCalloutWrapper, intents } from "@/shared/components/Callout";
 import Card, { cardType } from "@/shared/components/Card";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
@@ -61,6 +63,8 @@ const CURTAILMENT_PAGE_DESCRIPTION =
   "Configure response profiles, manage external signal sources, and define automations that trigger curtailment.";
 const RESPONSE_PROFILES_DESCRIPTION = "Saved configurations that define how much power to shed and how to restore it.";
 const SOURCES_DESCRIPTION = "MaestroOS MQTT brokers that publish curtailment signals.";
+const PROTO_RIG_FALLBACK_DESCRIPTION =
+  "Proto rigs can use compatible TCP MaestroOS sources as a local fallback. Fleet also sends commands to all targeted miners, confirms curtailment, tracks progress, and restores them.";
 const SOURCE_CONNECTION_FAILURE_MESSAGE =
   "We couldn't connect with your source. Review your source details and try again.";
 const MAX_BROKER_PORT = 65_535;
@@ -159,6 +163,13 @@ const emptyResponseProfileFormValues: ResponseProfileFormValues = {
   name: "",
   actionType: "fullFleet",
   targetKw: "",
+  toleranceKw: "",
+  priority: "normal",
+  postEventCooldownSec: "",
+  scopeType: "wholeOrg",
+  buildingTargetIds: [],
+  rackTargetIds: [],
+  groupTargetIds: [],
   deviceIdentifiers: [],
   minerSelectionMode: "subset",
   siteSelection: "none",
@@ -238,33 +249,10 @@ function getResponseProfileDeadlineSummary(values: ResponseProfileFormValues): s
 }
 
 function getResponseProfileScopeSummary(values: ResponseProfileFormValues): string {
-  if (values.minerSelectionMode === "all") {
-    return getResponseProfileScopeLabelForActionType(values.actionType);
-  }
-
-  const siteIds = getSelectedResponseProfileSiteIds(values);
-  if (values.siteSelection === "allSites") {
-    return "All sites";
-  }
-
-  const minerCount = values.deviceIdentifiers.length;
-  const siteSummary =
-    siteIds.length === 1
-      ? getResponseProfileSiteNameForId(values, siteIds[0]) || `Site ${siteIds[0]}`
-      : `${siteIds.length} sites`;
-  if (values.siteSelection === "site" && siteIds.length > 0 && minerCount > 0) {
-    return `${siteSummary} + ${minerCount} ${minerCount === 1 ? "miner" : "miners"}`;
-  }
-
-  if (values.siteSelection === "site" && siteIds.length > 0) {
-    return siteSummary;
-  }
-
-  if (minerCount > 0) {
-    return `${minerCount} ${minerCount === 1 ? "miner" : "miners"}`;
-  }
-
-  return getResponseProfileScopeLabelForActionType(values.actionType);
+  return getCurtailmentScopeSummary(values, {
+    fallbackLabel: getResponseProfileScopeLabelForActionType(values.actionType),
+    getSiteLabel: (siteId) => getResponseProfileSiteNameForId(values, siteId),
+  });
 }
 
 function uniqueNonEmptyStrings(values: readonly string[]): string[] {
@@ -348,6 +336,16 @@ function createResponseProfileId(name: string, existingProfiles: ResponseProfile
   return candidate;
 }
 
+function cloneTopologyTargetIds(
+  values: Pick<CurtailmentScopeSelection, "buildingTargetIds" | "rackTargetIds" | "groupTargetIds">,
+) {
+  return {
+    buildingTargetIds: [...(values.buildingTargetIds ?? [])],
+    rackTargetIds: [...(values.rackTargetIds ?? [])],
+    groupTargetIds: [...(values.groupTargetIds ?? [])],
+  };
+}
+
 function createResponseProfileFromFormValues(
   values: ResponseProfileFormValues,
   existingProfiles: ResponseProfile[],
@@ -360,6 +358,7 @@ function createResponseProfileFromFormValues(
     ...values,
     name: values.name.trim(),
     targetKw: values.targetKw.trim(),
+    ...cloneTopologyTargetIds(values),
     deviceIdentifiers: hasAllMinersSelected ? [] : [...values.deviceIdentifiers],
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
     siteSelection: hasAllMinersSelected
@@ -394,6 +393,7 @@ function createResponseProfileFromFormValues(
     restoreBehavior: responseProfileRestoreBehaviorLabel[normalizedValues.restoreBehavior],
     deadlineSummary: getResponseProfileDeadlineSummary(normalizedValues),
     formValues: normalizedValues,
+    isAutomationReady: isResponseProfileAutomationReady(normalizedValues.scopeType),
   };
 }
 
@@ -404,6 +404,7 @@ function removeResponseProfileScope(values: ResponseProfileFormValues): Response
 
   return {
     ...values,
+    ...cloneTopologyTargetIds(values),
     deviceIdentifiers: hasAllMinersSelected ? [] : [...values.deviceIdentifiers],
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
     siteSelection: hasAllMinersSelected
@@ -432,6 +433,13 @@ function createResponseProfileFormValuesFromProfile(profile: ResponseProfile): R
     name: profile.name,
     actionType,
     targetKw: targetKwMatch?.[1] ?? "",
+    toleranceKw: emptyResponseProfileFormValues.toleranceKw,
+    priority: emptyResponseProfileFormValues.priority,
+    postEventCooldownSec: emptyResponseProfileFormValues.postEventCooldownSec,
+    scopeType: "wholeOrg",
+    buildingTargetIds: [],
+    rackTargetIds: [],
+    groupTargetIds: [],
     deviceIdentifiers: [],
     minerSelectionMode: "subset",
     siteSelection: "none",
@@ -491,13 +499,15 @@ function createCurtailmentFormValuesFromResponseProfile(
         : "none";
 
   return {
-    scopeType: hasAllMinersSelected
-      ? "wholeOrg"
-      : deviceIdentifiers.length > 0
-        ? "explicitMiners"
-        : siteIds.length > 0
-          ? "site"
-          : "wholeOrg",
+    scopeType:
+      values.scopeType ??
+      (hasAllMinersSelected
+        ? "wholeOrg"
+        : deviceIdentifiers.length > 0
+          ? "explicitMiners"
+          : siteIds.length > 0
+            ? "site"
+            : "wholeOrg"),
     scopeId: hasAllMinersSelected
       ? "whole-org"
       : siteIds.length > 0
@@ -511,6 +521,7 @@ function createCurtailmentFormValuesFromResponseProfile(
     siteId,
     siteIds,
     siteNamesById,
+    ...cloneTopologyTargetIds(values),
     deviceSetIds: [],
     deviceIdentifiers,
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
@@ -518,6 +529,9 @@ function createCurtailmentFormValuesFromResponseProfile(
     curtailmentMode: values.actionType,
     minerSelectionStrategy: values.selectionStrategy,
     targetKw: values.targetKw,
+    toleranceKw: values.toleranceKw,
+    priority: values.priority,
+    postEventCooldownSec: values.postEventCooldownSec,
     minDurationSec: values.minDurationSec,
     maxDurationSec: values.maxDurationSec || minutesToSeconds(values.responseDeadlineMinutes),
     curtailBatchSize: values.curtailBatchSize,
@@ -550,6 +564,9 @@ function getResponseProfileRestoreBehavior(
 function createResponseProfileFormValuesFromCurtailmentValues(
   values: CurtailmentSubmitValues,
 ): ResponseProfileFormValues {
+  if (values.scopeType === "deviceSet") {
+    throw new Error("Unsupported curtailment target scope.");
+  }
   const hasAllMinersSelected = values.minerSelectionMode === "all";
   const siteIds =
     hasAllMinersSelected || (values.siteSelection !== "site" && values.siteSelection !== "allSites")
@@ -571,6 +588,11 @@ function createResponseProfileFormValuesFromCurtailmentValues(
     name: values.reason,
     actionType: values.curtailmentMode,
     targetKw: values.targetKw,
+    toleranceKw: values.toleranceKw,
+    priority: values.priority,
+    postEventCooldownSec: values.postEventCooldownSec ?? "",
+    scopeType: values.scopeType,
+    ...cloneTopologyTargetIds(values),
     deviceIdentifiers,
     minerSelectionMode: hasAllMinersSelected ? "all" : "subset",
     siteSelection: hasAllMinersSelected ? "allSites" : values.siteSelection,
@@ -830,7 +852,9 @@ function ResponseProfileCard({ profile, onEdit }: ResponseProfileCardProps): Rea
           variant={variants.secondary}
           size={sizes.compact}
           text="Edit"
+          ariaLabel={profile.isReadOnly ? "Editing this profile is unavailable" : "Edit"}
           className="!h-8 !px-3 !py-0"
+          disabled={profile.isReadOnly}
           onClick={() => onEdit(profile)}
           testId={`response-profile-edit-${profile.id}`}
         />
@@ -1303,6 +1327,8 @@ type CurtailmentSettingsContentProps = {
   updatingAutomationRuleIds?: ReadonlySet<string>;
   siteOptions?: CurtailmentSiteOption[];
   defaultResponseProfileSiteScope?: CurtailmentSiteOption;
+  buildingScopeEnabled?: boolean;
+  rackAndGroupScopeEnabled?: boolean;
   isLoadingSiteOptions?: boolean;
   siteScopeDisabledReason?: string;
   infrastructureDevices?: FacilityFanDeviceOption[];
@@ -1310,11 +1336,8 @@ type CurtailmentSettingsContentProps = {
   infrastructureDevicesError?: string | null;
   onRetryInfrastructureDevices?: () => void;
   onResponseProfileModalOpen?: () => void;
-  onCreateResponseProfile?: (values: ResponseProfileFormValues) => Promise<ResponseProfile | void>;
-  onUpdateResponseProfile?: (
-    profile: ResponseProfile,
-    values: ResponseProfileFormValues,
-  ) => Promise<ResponseProfile | void>;
+  onCreateResponseProfile?: (values: ResponseProfileFormValues) => Promise<ResponseProfile>;
+  onUpdateResponseProfile?: (profile: ResponseProfile, values: ResponseProfileFormValues) => Promise<ResponseProfile>;
   onTestResponseProfileCurtailment?: (
     values: ResponseProfileFormValues,
     curtailmentValues: CurtailmentSubmitValues,
@@ -1330,7 +1353,11 @@ type CurtailmentSettingsContentProps = {
   onDeleteSource?: (source: CurtailmentSource) => Promise<void>;
   onCreateAutomation?: (values: AutomationRuleFormValues) => Promise<AutomationRule | void>;
   onUpdateAutomation?: (rule: AutomationRule, values: AutomationRuleFormValues) => Promise<AutomationRule | void>;
-  onToggleAutomation?: (rule: AutomationRule, enabled: boolean) => Promise<AutomationRule | void>;
+  onToggleAutomation?: (
+    rule: AutomationRule,
+    enabled: boolean,
+    expectedResponseProfileRevision?: string,
+  ) => Promise<AutomationRule | void>;
   onDeleteAutomation?: (rule: AutomationRule) => Promise<void>;
 };
 
@@ -1372,6 +1399,8 @@ export function CurtailmentSettingsContent({
   updatingAutomationRuleIds = emptyUpdatingAutomationRuleIds,
   siteOptions = [],
   defaultResponseProfileSiteScope,
+  buildingScopeEnabled = true,
+  rackAndGroupScopeEnabled = true,
   isLoadingSiteOptions = false,
   siteScopeDisabledReason,
   infrastructureDevices = [],
@@ -1405,13 +1434,20 @@ export function CurtailmentSettingsContent({
   const responseProfiles = controlledResponseProfiles ?? localResponseProfiles;
   const sources = controlledSources ?? localSources;
   const knownAutomationRules = controlledAutomationRules ?? initialAutomationRules;
+  const latestEditingResponseProfile = editingResponseProfile
+    ? (responseProfiles.find((profile) => profile.id === editingResponseProfile.id) ?? editingResponseProfile)
+    : null;
+  const canTestResponseProfileCurtailment = Boolean(
+    onTestResponseProfileCurtailment &&
+    (latestEditingResponseProfile ? onUpdateResponseProfile : onCreateResponseProfile),
+  );
   const responseProfileModalMode: ResponseProfileModalMode = editingResponseProfile ? "edit" : "create";
   const responseProfileModalInitialValues = useMemo(
     () =>
-      editingResponseProfile
-        ? createResponseProfileFormValuesFromProfile(editingResponseProfile)
+      latestEditingResponseProfile
+        ? createResponseProfileFormValuesFromProfile(latestEditingResponseProfile)
         : emptyResponseProfileFormValues,
-    [editingResponseProfile],
+    [latestEditingResponseProfile],
   );
   const responseProfileCurtailmentInitialValues = useMemo(
     () => createCurtailmentFormValuesFromResponseProfile(responseProfileModalInitialValues),
@@ -1422,15 +1458,15 @@ export function CurtailmentSettingsContent({
     () => (editingSource ? createSourceFormValuesFromSource(editingSource) : emptySourceFormValues),
     [editingSource],
   );
-  const isEditingResponseProfile = editingResponseProfile
-    ? updatingResponseProfileIds.has(editingResponseProfile.id)
+  const isEditingResponseProfile = latestEditingResponseProfile
+    ? updatingResponseProfileIds.has(latestEditingResponseProfile.id)
     : false;
-  const facilityFanSelectionDisabledReason = editingResponseProfile
+  const facilityFanSelectionDisabledReason = latestEditingResponseProfile
     ? isLoadingAutomationRules
       ? "Checking whether an automation uses this profile. You can change infrastructure fans when this check is complete."
       : loadAutomationRulesError
         ? "We couldn't check whether an automation uses this profile. Reload the page before changing infrastructure fans."
-        : knownAutomationRules.some((rule) => rule.responseProfileId === editingResponseProfile.id)
+        : knownAutomationRules.some((rule) => rule.responseProfileId === latestEditingResponseProfile.id)
           ? "An automation uses this profile. Update or delete the automation before changing infrastructure fans."
           : undefined
     : undefined;
@@ -1476,27 +1512,29 @@ export function CurtailmentSettingsContent({
 
   const handleCreateResponseProfile = useCallback(
     async (values: ResponseProfileFormValues) => {
-      const createdProfile = await onCreateResponseProfile?.(values);
+      const profile = onCreateResponseProfile
+        ? await onCreateResponseProfile(values)
+        : createResponseProfileFromFormValues(values, responseProfiles);
       if (!controlledResponseProfiles) {
-        setLocalResponseProfiles((currentProfiles) => {
-          const profile = createdProfile ?? createResponseProfileFromFormValues(values, currentProfiles);
-          return [...currentProfiles.filter((currentProfile) => currentProfile.id !== profile.id), profile];
-        });
+        setLocalResponseProfiles((currentProfiles) => [
+          ...currentProfiles.filter((currentProfile) => currentProfile.id !== profile.id),
+          profile,
+        ]);
       }
+      return profile;
     },
-    [controlledResponseProfiles, onCreateResponseProfile],
+    [controlledResponseProfiles, onCreateResponseProfile, responseProfiles],
   );
 
   const handleSaveResponseProfile = useCallback(
     async (values: ResponseProfileFormValues) => {
-      if (!editingResponseProfile) {
-        await handleCreateResponseProfile(values);
-        return;
+      if (!latestEditingResponseProfile) {
+        return handleCreateResponseProfile(values);
       }
 
-      const updatedProfile =
-        (await onUpdateResponseProfile?.(editingResponseProfile, values)) ??
-        createResponseProfileFromFormValues(values, responseProfiles, editingResponseProfile);
+      const updatedProfile = onUpdateResponseProfile
+        ? await onUpdateResponseProfile(latestEditingResponseProfile, values)
+        : createResponseProfileFromFormValues(values, responseProfiles, latestEditingResponseProfile);
       if (!controlledResponseProfiles) {
         setLocalResponseProfiles((currentProfiles) =>
           currentProfiles.map((currentProfile) =>
@@ -1504,10 +1542,11 @@ export function CurtailmentSettingsContent({
           ),
         );
       }
+      return updatedProfile;
     },
     [
       controlledResponseProfiles,
-      editingResponseProfile,
+      latestEditingResponseProfile,
       handleCreateResponseProfile,
       onUpdateResponseProfile,
       responseProfiles,
@@ -1526,25 +1565,33 @@ export function CurtailmentSettingsContent({
     async (values: CurtailmentSubmitValues) => {
       const responseProfileValues = createResponseProfileFormValuesFromCurtailmentValues(values);
 
-      await handleSaveResponseProfile(responseProfileValues);
-      await onTestResponseProfileCurtailment?.(responseProfileValues, values);
+      const savedProfile = await handleSaveResponseProfile(responseProfileValues);
+      if (!savedProfile.revision || !savedProfile.formValues) {
+        throw new Error("Reload the response profile before running curtailment.");
+      }
+      await onTestResponseProfileCurtailment?.(savedProfile.formValues, {
+        ...values,
+        ...createCurtailmentFormValuesFromResponseProfile(savedProfile.formValues),
+        responseProfileId: savedProfile.id,
+        responseProfileRevision: savedProfile.revision,
+      });
       closeResponseProfileModal();
     },
     [closeResponseProfileModal, handleSaveResponseProfile, onTestResponseProfileCurtailment],
   );
 
   const handleDeleteResponseProfile = useCallback(async () => {
-    if (!editingResponseProfile) {
+    if (!latestEditingResponseProfile) {
       return;
     }
 
-    await onDeleteResponseProfile?.(editingResponseProfile);
+    await onDeleteResponseProfile?.(latestEditingResponseProfile);
     if (!controlledResponseProfiles) {
       setLocalResponseProfiles((currentProfiles) =>
-        currentProfiles.filter((currentProfile) => currentProfile.id !== editingResponseProfile.id),
+        currentProfiles.filter((currentProfile) => currentProfile.id !== latestEditingResponseProfile.id),
       );
     }
-  }, [controlledResponseProfiles, editingResponseProfile, onDeleteResponseProfile]);
+  }, [controlledResponseProfiles, latestEditingResponseProfile, onDeleteResponseProfile]);
 
   const handleDeleteResponseProfileFromCurtailment = useCallback(async () => {
     await handleDeleteResponseProfile();
@@ -1659,7 +1706,17 @@ export function CurtailmentSettingsContent({
 
   return (
     <div className="flex flex-col gap-14" data-testid="settings-curtailment-page">
-      <SettingsPageHeader title="Curtailment" description={CURTAILMENT_PAGE_DESCRIPTION} />
+      <div className="flex flex-col gap-6">
+        <SettingsPageHeader title="Curtailment" description={CURTAILMENT_PAGE_DESCRIPTION} />
+
+        <Callout
+          intent={intents.information}
+          prefixIcon={<Info width={iconSizes.medium} />}
+          subtitle={PROTO_RIG_FALLBACK_DESCRIPTION}
+          testId="proto-rig-curtailment-fallback-notice"
+          title="Proto rig fallback"
+        />
+      </div>
 
       <section className="curtailment-settings__section">
         <SectionHeader
@@ -1725,7 +1782,7 @@ export function CurtailmentSettingsContent({
       <CurtailmentStartModal
         key={
           isResponseProfileModalOpen
-            ? `response-profile-${responseProfileModalMode}-${editingResponseProfile?.id ?? "new"}`
+            ? `response-profile-${responseProfileModalMode}-${latestEditingResponseProfile?.id ?? "new"}-${latestEditingResponseProfile?.revision ?? "local"}`
             : "response-profile-modal-closed"
         }
         open={isResponseProfileModalOpen}
@@ -1733,6 +1790,8 @@ export function CurtailmentSettingsContent({
         responseProfileMode={responseProfileModalMode}
         initialValues={responseProfileCurtailmentInitialValues}
         siteOptions={siteOptions}
+        buildingScopeEnabled={buildingScopeEnabled}
+        rackAndGroupScopeEnabled={rackAndGroupScopeEnabled}
         defaultSiteScope={responseProfileModalMode === "create" ? defaultResponseProfileSiteScope : undefined}
         siteScopeEnabled={siteOptions.length > 0 || isLoadingSiteOptions}
         isSiteScopeLoading={isLoadingSiteOptions}
@@ -1745,11 +1804,11 @@ export function CurtailmentSettingsContent({
         actionError={responseProfileActionError}
         onDismiss={closeResponseProfileModal}
         onSubmit={handleResponseProfileModalSubmit}
-        onTestCurtailment={onTestResponseProfileCurtailment ? handleResponseProfileModalTestCurtailment : undefined}
-        onDeleteResponseProfile={editingResponseProfile ? handleResponseProfileModalDelete : undefined}
-        isSubmitting={editingResponseProfile ? isEditingResponseProfile : isSavingResponseProfile}
+        onTestCurtailment={canTestResponseProfileCurtailment ? handleResponseProfileModalTestCurtailment : undefined}
+        onDeleteResponseProfile={latestEditingResponseProfile ? handleResponseProfileModalDelete : undefined}
+        isSubmitting={latestEditingResponseProfile ? isEditingResponseProfile : isSavingResponseProfile}
         isTestingCurtailment={isTestingResponseProfileCurtailment}
-        isDeleting={editingResponseProfile ? isDeletingResponseProfile || isEditingResponseProfile : false}
+        isDeleting={latestEditingResponseProfile ? isDeletingResponseProfile || isEditingResponseProfile : false}
       />
 
       <SourceModal
@@ -1773,6 +1832,7 @@ export function CurtailmentSettingsContent({
 function CurtailmentSettingsPage(): ReactElement {
   const canManageCurtailment = useHasPermission("curtailment:manage");
   const canReadSiteCatalog = useHasPermission("site:read");
+  const canReadRackCatalog = useHasPermission("rack:read");
   const navigate = useNavigate();
   const { activeSite } = useActiveSite({});
   const { listSites } = useSites();
@@ -1797,6 +1857,7 @@ function CurtailmentSettingsPage(): ReactElement {
     isCreating: isCreatingResponseProfile,
     updatingProfileIds,
     loadError: responseProfilesLoadError,
+    listResponseProfiles,
     createResponseProfile,
     updateResponseProfile,
     deleteResponseProfile,
@@ -1824,7 +1885,7 @@ function CurtailmentSettingsPage(): ReactElement {
     updateAutomationRule,
     setAutomationRuleEnabled,
     deleteAutomationRule,
-  } = useCurtailmentAutomationRules(canManageCurtailment);
+  } = useCurtailmentAutomationRules(canManageCurtailment, { refreshResponseProfiles: listResponseProfiles });
   const {
     devices: infrastructureDevices,
     isLoading: isLoadingInfrastructureDevices,
@@ -2061,9 +2122,9 @@ function CurtailmentSettingsPage(): ReactElement {
   );
 
   const handleToggleAutomation = useCallback(
-    async (rule: AutomationRule, enabled: boolean) => {
+    async (rule: AutomationRule, enabled: boolean, expectedResponseProfileRevision?: string) => {
       try {
-        return await setAutomationRuleEnabled(rule.id, enabled);
+        return await setAutomationRuleEnabled(rule.id, enabled, expectedResponseProfileRevision);
       } catch (error) {
         pushToast({
           message: getErrorMessage(error, "Failed to update automation."),
@@ -2119,6 +2180,8 @@ function CurtailmentSettingsPage(): ReactElement {
       updatingAutomationRuleIds={updatingAutomationRuleIds}
       siteOptions={effectiveSiteOptions}
       defaultResponseProfileSiteScope={defaultResponseProfileSiteScope}
+      buildingScopeEnabled={canReadSiteCatalog}
+      rackAndGroupScopeEnabled={canReadRackCatalog}
       isLoadingSiteOptions={canLoadSiteOptions ? isLoadingSiteOptions : false}
       siteScopeDisabledReason={siteScopeDisabledReason}
       infrastructureDevices={infrastructureDevices}

@@ -10,7 +10,7 @@ describe("buildFleetNodeEnrollCommand", () => {
         protocol: "http:",
         hostname: "192.168.1.20",
       },
-      expected: "fleetnode enroll --server-url=http://192.168.1.20:4000 --allow-insecure-transport",
+      expected: "sudo fleetnode-enroll --server-url=http://192.168.1.20:4000 --allow-insecure-transport",
     },
     {
       label: "HTTPS",
@@ -19,7 +19,7 @@ describe("buildFleetNodeEnrollCommand", () => {
         protocol: "https:",
         hostname: "fleet.example.com",
       },
-      expected: "fleetnode enroll --server-url=https://fleet.example.com/api-proxy",
+      expected: "sudo fleetnode-enroll --server-url=https://fleet.example.com/api-proxy",
     },
     {
       label: "localhost HTTP",
@@ -28,7 +28,7 @@ describe("buildFleetNodeEnrollCommand", () => {
         protocol: "http:",
         hostname: "localhost",
       },
-      expected: "fleetnode enroll --server-url=http://localhost:4000",
+      expected: "sudo fleetnode-enroll --server-url=http://localhost:4000",
     },
     {
       label: "127.0.0.1 HTTP",
@@ -37,7 +37,7 @@ describe("buildFleetNodeEnrollCommand", () => {
         protocol: "http:",
         hostname: "127.0.0.1",
       },
-      expected: "fleetnode enroll --server-url=http://127.0.0.1:4000",
+      expected: "sudo fleetnode-enroll --server-url=http://127.0.0.1:4000",
     },
     {
       label: "::1 HTTP",
@@ -46,7 +46,7 @@ describe("buildFleetNodeEnrollCommand", () => {
         protocol: "http:",
         hostname: "[::1]",
       },
-      expected: "fleetnode enroll --server-url=http://[::1]:4000",
+      expected: "sudo fleetnode-enroll --server-url=http://[::1]:4000",
     },
   ])("builds the enroll command for $label", ({ location, expected }) => {
     expect(buildFleetNodeEnrollCommand(location)).toBe(expected);

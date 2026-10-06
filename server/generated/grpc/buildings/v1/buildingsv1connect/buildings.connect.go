@@ -43,6 +43,9 @@ const (
 	// BuildingServiceCreateBuildingProcedure is the fully-qualified name of the BuildingService's
 	// CreateBuilding RPC.
 	BuildingServiceCreateBuildingProcedure = "/buildings.v1.BuildingService/CreateBuilding"
+	// BuildingServiceCreateBuildingsProcedure is the fully-qualified name of the BuildingService's
+	// CreateBuildings RPC.
+	BuildingServiceCreateBuildingsProcedure = "/buildings.v1.BuildingService/CreateBuildings"
 	// BuildingServiceUpdateBuildingProcedure is the fully-qualified name of the BuildingService's
 	// UpdateBuilding RPC.
 	BuildingServiceUpdateBuildingProcedure = "/buildings.v1.BuildingService/UpdateBuilding"
@@ -78,7 +81,27 @@ type BuildingServiceClient interface {
 	// within the assigned site (when site_id is set); unassigned
 	// buildings are not name-unique so cascade-unassign on site
 	// delete cannot collide.
+	//
+	// The request may optionally seed the new building with racks
+	// (rack_ids) and/or devices (device_identifiers) in the SAME
+	// transaction — the atomic form of CreateBuilding followed by
+	// AssignRacksToBuilding + AssignDevicesToBuilding. Either everything
+	// commits or nothing does, so a failed seed can't leave an orphaned or
+	// partially-populated building (#559). rack_ids and device_identifiers
+	// are independent: a seeded device need not belong to any seeded rack
+	// (it becomes a direct building member). If any seeded device is in a
+	// rack at another building/site, force_clear_conflicting_rack_membership
+	// governs whether the whole request rejects with per-device conflicts
+	// (nothing created) or the rack membership is dropped and the device
+	// moved. A request with no seed fields behaves exactly like a plain
+	// create.
 	CreateBuilding(context.Context, *connect.Request[v1.CreateBuildingRequest]) (*connect.Response[v1.CreateBuildingResponse], error)
+	// CreateBuildings bulk-creates buildings into one site, all-or-nothing
+	// in a single transaction (#559). site_id is required and no rack/device
+	// seeding is supported. Names must be unique within the batch and against
+	// the site; a collision rejects the whole request with one `errors` entry
+	// per offending row so the UI can mark it.
+	CreateBuildings(context.Context, *connect.Request[v1.CreateBuildingsRequest]) (*connect.Response[v1.CreateBuildingsResponse], error)
 	// UpdateBuilding mutates name, description, capacity, layout
 	// defaults. Site assignment is *not* changed by UpdateBuilding —
 	// use AssignBuildingsToSite (SiteService) for that, since it has
@@ -147,6 +170,11 @@ func NewBuildingServiceClient(httpClient connect.HTTPClient, baseURL string, opt
 			baseURL+BuildingServiceCreateBuildingProcedure,
 			opts...,
 		),
+		createBuildings: connect.NewClient[v1.CreateBuildingsRequest, v1.CreateBuildingsResponse](
+			httpClient,
+			baseURL+BuildingServiceCreateBuildingsProcedure,
+			opts...,
+		),
 		updateBuilding: connect.NewClient[v1.UpdateBuildingRequest, v1.UpdateBuildingResponse](
 			httpClient,
 			baseURL+BuildingServiceUpdateBuildingProcedure,
@@ -185,6 +213,7 @@ type buildingServiceClient struct {
 	listBuildings           *connect.Client[v1.ListBuildingsRequest, v1.ListBuildingsResponse]
 	getBuilding             *connect.Client[v1.GetBuildingRequest, v1.GetBuildingResponse]
 	createBuilding          *connect.Client[v1.CreateBuildingRequest, v1.CreateBuildingResponse]
+	createBuildings         *connect.Client[v1.CreateBuildingsRequest, v1.CreateBuildingsResponse]
 	updateBuilding          *connect.Client[v1.UpdateBuildingRequest, v1.UpdateBuildingResponse]
 	deleteBuilding          *connect.Client[v1.DeleteBuildingRequest, v1.DeleteBuildingResponse]
 	listBuildingRacks       *connect.Client[v1.ListBuildingRacksRequest, v1.ListBuildingRacksResponse]
@@ -206,6 +235,11 @@ func (c *buildingServiceClient) GetBuilding(ctx context.Context, req *connect.Re
 // CreateBuilding calls buildings.v1.BuildingService.CreateBuilding.
 func (c *buildingServiceClient) CreateBuilding(ctx context.Context, req *connect.Request[v1.CreateBuildingRequest]) (*connect.Response[v1.CreateBuildingResponse], error) {
 	return c.createBuilding.CallUnary(ctx, req)
+}
+
+// CreateBuildings calls buildings.v1.BuildingService.CreateBuildings.
+func (c *buildingServiceClient) CreateBuildings(ctx context.Context, req *connect.Request[v1.CreateBuildingsRequest]) (*connect.Response[v1.CreateBuildingsResponse], error) {
+	return c.createBuildings.CallUnary(ctx, req)
 }
 
 // UpdateBuilding calls buildings.v1.BuildingService.UpdateBuilding.
@@ -253,7 +287,27 @@ type BuildingServiceHandler interface {
 	// within the assigned site (when site_id is set); unassigned
 	// buildings are not name-unique so cascade-unassign on site
 	// delete cannot collide.
+	//
+	// The request may optionally seed the new building with racks
+	// (rack_ids) and/or devices (device_identifiers) in the SAME
+	// transaction — the atomic form of CreateBuilding followed by
+	// AssignRacksToBuilding + AssignDevicesToBuilding. Either everything
+	// commits or nothing does, so a failed seed can't leave an orphaned or
+	// partially-populated building (#559). rack_ids and device_identifiers
+	// are independent: a seeded device need not belong to any seeded rack
+	// (it becomes a direct building member). If any seeded device is in a
+	// rack at another building/site, force_clear_conflicting_rack_membership
+	// governs whether the whole request rejects with per-device conflicts
+	// (nothing created) or the rack membership is dropped and the device
+	// moved. A request with no seed fields behaves exactly like a plain
+	// create.
 	CreateBuilding(context.Context, *connect.Request[v1.CreateBuildingRequest]) (*connect.Response[v1.CreateBuildingResponse], error)
+	// CreateBuildings bulk-creates buildings into one site, all-or-nothing
+	// in a single transaction (#559). site_id is required and no rack/device
+	// seeding is supported. Names must be unique within the batch and against
+	// the site; a collision rejects the whole request with one `errors` entry
+	// per offending row so the UI can mark it.
+	CreateBuildings(context.Context, *connect.Request[v1.CreateBuildingsRequest]) (*connect.Response[v1.CreateBuildingsResponse], error)
 	// UpdateBuilding mutates name, description, capacity, layout
 	// defaults. Site assignment is *not* changed by UpdateBuilding —
 	// use AssignBuildingsToSite (SiteService) for that, since it has
@@ -318,6 +372,11 @@ func NewBuildingServiceHandler(svc BuildingServiceHandler, opts ...connect.Handl
 		svc.CreateBuilding,
 		opts...,
 	)
+	buildingServiceCreateBuildingsHandler := connect.NewUnaryHandler(
+		BuildingServiceCreateBuildingsProcedure,
+		svc.CreateBuildings,
+		opts...,
+	)
 	buildingServiceUpdateBuildingHandler := connect.NewUnaryHandler(
 		BuildingServiceUpdateBuildingProcedure,
 		svc.UpdateBuilding,
@@ -356,6 +415,8 @@ func NewBuildingServiceHandler(svc BuildingServiceHandler, opts ...connect.Handl
 			buildingServiceGetBuildingHandler.ServeHTTP(w, r)
 		case BuildingServiceCreateBuildingProcedure:
 			buildingServiceCreateBuildingHandler.ServeHTTP(w, r)
+		case BuildingServiceCreateBuildingsProcedure:
+			buildingServiceCreateBuildingsHandler.ServeHTTP(w, r)
 		case BuildingServiceUpdateBuildingProcedure:
 			buildingServiceUpdateBuildingHandler.ServeHTTP(w, r)
 		case BuildingServiceDeleteBuildingProcedure:
@@ -387,6 +448,10 @@ func (UnimplementedBuildingServiceHandler) GetBuilding(context.Context, *connect
 
 func (UnimplementedBuildingServiceHandler) CreateBuilding(context.Context, *connect.Request[v1.CreateBuildingRequest]) (*connect.Response[v1.CreateBuildingResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("buildings.v1.BuildingService.CreateBuilding is not implemented"))
+}
+
+func (UnimplementedBuildingServiceHandler) CreateBuildings(context.Context, *connect.Request[v1.CreateBuildingsRequest]) (*connect.Response[v1.CreateBuildingsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("buildings.v1.BuildingService.CreateBuildings is not implemented"))
 }
 
 func (UnimplementedBuildingServiceHandler) UpdateBuilding(context.Context, *connect.Request[v1.UpdateBuildingRequest]) (*connect.Response[v1.UpdateBuildingResponse], error) {

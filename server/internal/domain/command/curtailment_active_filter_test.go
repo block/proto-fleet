@@ -61,6 +61,24 @@ func TestCurtailmentActiveFilter_BypassesReconcilerUncurtail(t *testing.T) {
 	assert.Equal(t, 0, q.calls)
 }
 
+func TestCurtailmentActiveFilter_BypassesRigConfigUpdates(t *testing.T) {
+	t.Parallel()
+
+	querier := &fakeCurtailmentActiveQuerier{active: []string{"proto-rig-1"}}
+	filter := NewCurtailmentActiveFilter(querier)
+
+	out, err := filter.Apply(t.Context(), CommandFilterInput{
+		CommandType:       commandtype.ApplyCurtailmentConfig,
+		OrganizationID:    42,
+		DeviceIdentifiers: []string{"proto-rig-1"},
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"proto-rig-1"}, out.Kept)
+	assert.Equal(t, 0, len(out.Skipped))
+	assert.Equal(t, 0, querier.calls)
+}
+
 func TestCurtailmentActiveFilter_NonReconcilerCurtailIsGated(t *testing.T) {
 	// A Curtail command from a user/API caller (Actor empty) must still be
 	// gated against the active-event set; only the reconciler bypasses.

@@ -2,8 +2,12 @@ package plugins
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
+
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 
@@ -29,6 +33,28 @@ func NewMultiTypeDiscoverer(manager *Manager) *MultiTypeDiscoverer {
 type discoveryResult struct {
 	device     *discoverymodels.DiscoveredDevice
 	pluginName string
+}
+
+type incompleteDiscoveryError struct{ cause error }
+
+func (e *incompleteDiscoveryError) Error() string { return e.cause.Error() }
+func (e *incompleteDiscoveryError) Unwrap() error { return e.cause }
+
+// IsIncompleteDiscoveryError reports whether discovery failed for a reason
+// that cannot safely prove the endpoint is not a supported miner.
+func IsIncompleteDiscoveryError(err error) bool {
+	var incomplete *incompleteDiscoveryError
+	return errors.As(err, &incomplete)
+}
+
+func isDefinitiveDiscoveryMiss(err error) bool {
+	if fleeterror.IsNotFoundError(err) || fleeterror.IsUnimplementedError(err) ||
+		fleeterror.IsInvalidArgumentError(err) || fleeterror.IsFailedPreconditionError(err) {
+		return true
+	}
+	code := grpcstatus.Code(err)
+	return code == codes.NotFound || code == codes.Unimplemented ||
+		code == codes.InvalidArgument || code == codes.FailedPrecondition
 }
 
 // Discover tries to discover a device by running all available plugins concurrently.
@@ -81,6 +107,7 @@ func (d *MultiTypeDiscoverer) Discover(ctx context.Context, ipAddress string, po
 	// Wait for first success or all failures
 	errCount := 0
 	var lastErr error
+	incomplete := false
 	for {
 		select {
 		case r := <-resultChan:
@@ -89,8 +116,13 @@ func (d *MultiTypeDiscoverer) Discover(ctx context.Context, ipAddress string, po
 		case err := <-errChan:
 			errCount++
 			lastErr = err
+			incomplete = incomplete || !isDefinitiveDiscoveryMiss(err)
 			if errCount >= activePlugins {
-				return nil, fleeterror.NewInternalErrorf("all plugin discovery attempts failed, last error: %v", lastErr)
+				err := fleeterror.NewInternalErrorf("all plugin discovery attempts failed, last error: %w", lastErr)
+				if incomplete {
+					return nil, &incompleteDiscoveryError{cause: err}
+				}
+				return nil, err
 			}
 		case <-ctx.Done():
 			// A successful result may have been sent just before cancel() was called.

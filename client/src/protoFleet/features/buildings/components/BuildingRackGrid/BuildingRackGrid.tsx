@@ -7,12 +7,17 @@ import { type BuildingRackHealth } from "@/protoFleet/api/generated/buildings/v1
 import { HealthBar } from "@/protoFleet/components/HealthBar";
 import { ChevronDown } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
+import Button, { variants } from "@/shared/components/Button";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 
 export interface BuildingRackGridProps {
   rackHealth: BuildingRackHealth[];
   aisles: number;
   racksPerAisle: number;
+  // Opens the racks picker from the empty state. Omitted (or withheld for an
+  // operator who can't manage placement) leaves the empty card copy-only —
+  // there is nothing else to offer a viewer with no racks to look at.
+  onManageRacks?: () => void;
   testId?: string;
 }
 
@@ -49,6 +54,7 @@ const BuildingRackGrid = ({
   rackHealth,
   aisles,
   racksPerAisle,
+  onManageRacks,
   testId = "building-rack-grid",
 }: BuildingRackGridProps) => {
   const navigate = useNavigate();
@@ -169,11 +175,28 @@ const BuildingRackGrid = ({
 
   if (rackHealth.length === 0) {
     return (
+      // The same full-width card the populated grid uses, so an empty building
+      // reads as a section with nothing in it rather than a placeholder slot.
+      // Mirrors SiteDetailPage's empty buildings card.
       <div
-        className="rounded-2xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70"
+        className="flex flex-col items-center gap-2 rounded-xl bg-surface-elevated-base p-10 text-center shadow-100 phone:p-6"
         data-testid={`${testId}-empty`}
       >
-        No racks in this building yet.
+        <div className="text-heading-200 text-text-primary">No racks in this building yet</div>
+        <div className="text-300 text-text-primary-70">
+          {onManageRacks
+            ? "Create racks or assign existing racks to this building."
+            : "No racks have been assigned to this building."}
+        </div>
+        {onManageRacks ? (
+          <Button
+            variant={variants.primary}
+            text="Manage racks"
+            className="mt-4"
+            onClick={onManageRacks}
+            testId={`${testId}-empty-manage`}
+          />
+        ) : null}
       </div>
     );
   }

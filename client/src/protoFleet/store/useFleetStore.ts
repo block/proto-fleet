@@ -29,7 +29,10 @@ export interface FleetStore {
 
 const ORG_PERMISSIONS_SCOPE = "org" as const;
 
-type PersistedAuthState = Pick<AuthSlice, "sessionExpiry" | "isAuthenticated" | "username" | "role" | "permissions"> & {
+type PersistedAuthState = Pick<
+  AuthSlice,
+  "sessionExpiry" | "sessionGeneration" | "isAuthenticated" | "username" | "role" | "permissions"
+> & {
   // Guards against rehydrating old sessions where permissions meant a flat
   // "has this anywhere" projection. Current permissions are org/default scope.
   permissionsScope?: typeof ORG_PERMISSIONS_SCOPE;
@@ -46,6 +49,7 @@ type PersistedFleetState = {
     | "bulkRenamePreferences"
     | "bulkWorkerNamePreferences"
     | "racksViewMode"
+    | "buildingsViewMode"
     | "activeSite"
   >;
 };
@@ -102,6 +106,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
             state: {
               auth: {
                 sessionExpiry: state.auth.sessionExpiry,
+                sessionGeneration: state.auth.sessionGeneration,
                 isAuthenticated: state.auth.isAuthenticated,
                 username: state.auth.username,
                 role: state.auth.role,
@@ -127,6 +132,7 @@ const createMultiKeyStorage = (): PersistStorage<PersistedFleetState> => {
                 bulkRenamePreferences: state.ui.bulkRenamePreferences,
                 bulkWorkerNamePreferences: state.ui.bulkWorkerNamePreferences,
                 racksViewMode: state.ui.racksViewMode,
+                buildingsViewMode: state.ui.buildingsViewMode,
               },
             },
             version: value.version,
@@ -179,6 +185,7 @@ export const useFleetStore = create<FleetStore>()(
           partialize: (state) => ({
             auth: {
               sessionExpiry: state.auth.sessionExpiry,
+              sessionGeneration: state.auth.sessionGeneration,
               isAuthenticated: state.auth.isAuthenticated,
               username: state.auth.username,
               role: state.auth.role,
@@ -192,6 +199,7 @@ export const useFleetStore = create<FleetStore>()(
               bulkRenamePreferences: state.ui.bulkRenamePreferences,
               bulkWorkerNamePreferences: state.ui.bulkWorkerNamePreferences,
               racksViewMode: state.ui.racksViewMode,
+              buildingsViewMode: state.ui.buildingsViewMode,
               activeSite: state.ui.activeSite,
             },
           }),
@@ -219,6 +227,9 @@ export const useFleetStore = create<FleetStore>()(
                 sessionExpiry: sessionIsStalePreOrgDefault
                   ? currentState.auth.sessionExpiry
                   : (persisted?.auth?.sessionExpiry ?? currentState.auth.sessionExpiry),
+                sessionGeneration: sessionIsStalePreOrgDefault
+                  ? currentState.auth.sessionGeneration
+                  : (persisted?.auth?.sessionGeneration ?? currentState.auth.sessionGeneration),
                 isAuthenticated: sessionIsStalePreOrgDefault
                   ? false
                   : (persisted?.auth?.isAuthenticated ?? currentState.auth.isAuthenticated),
@@ -244,6 +255,7 @@ export const useFleetStore = create<FleetStore>()(
                 temperatureUnit: persisted?.ui?.temperatureUnit ?? currentState.ui.temperatureUnit,
                 duration: isFleetDuration(persistedDuration) ? persistedDuration : currentState.ui.duration,
                 racksViewMode: persisted?.ui?.racksViewMode ?? currentState.ui.racksViewMode,
+                buildingsViewMode: persisted?.ui?.buildingsViewMode ?? currentState.ui.buildingsViewMode,
                 bulkRenamePreferences: normalizeBulkRenamePreferences(
                   persisted?.ui?.bulkRenamePreferences ?? currentState.ui.bulkRenamePreferences,
                 ),

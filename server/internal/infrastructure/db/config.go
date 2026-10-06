@@ -1,6 +1,7 @@
 package db
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/url"
 	"os"
@@ -48,24 +49,55 @@ func (c *Config) UsesExplicitDSN() bool {
 }
 
 func (c *Config) Validate() error {
-	dsn := c.DSN()
-	if strings.TrimSpace(dsn) == "" {
-		return fmt.Errorf("database DSN is empty")
-	}
-	if environmentHasHostaddr() {
-		return fmt.Errorf("database PGHOSTADDR hostaddr is not supported; use host")
-	}
-	parsedConfig, err := pgconn.ParseConfig(dsn)
+	parsedConfig, err := c.parsedConfig()
 	if err != nil {
-		return fmt.Errorf("invalid database DSN")
-	}
-	if parsedConfigHasHostaddr(parsedConfig) {
-		return fmt.Errorf("database DSN hostaddr is not supported; use host")
+		return err
 	}
 	if parsedConfigLooksMultiHost(parsedConfig) && !parsedConfigHasReadWriteTarget(parsedConfig) {
 		return fmt.Errorf("multi-host database DSN requires target_session_attrs=read-write")
 	}
 	return nil
+}
+
+// ValidateHA requires every database fallback to preserve writer selection and
+// authenticate the PostgreSQL server before Fleet starts its HA runtime.
+func (c *Config) ValidateHA() error {
+	if !c.UsesExplicitDSN() {
+		return fmt.Errorf("HA database requires an explicit multi-host DB_DSN")
+	}
+
+	parsedConfig, err := c.parsedConfig()
+	if err != nil {
+		return err
+	}
+	if !parsedConfigLooksMultiHost(parsedConfig) {
+		return fmt.Errorf("HA database requires an explicit multi-host DB_DSN")
+	}
+	if !parsedConfigHasReadWriteTarget(parsedConfig) {
+		return fmt.Errorf("HA database DSN requires target_session_attrs=read-write")
+	}
+	if !parsedConfigUsesAuthenticatedTLS(parsedConfig) {
+		return fmt.Errorf("HA database DSN requires sslmode=verify-full and sslrootcert")
+	}
+	return nil
+}
+
+func (c *Config) parsedConfig() (*pgconn.Config, error) {
+	dsn := c.DSN()
+	if strings.TrimSpace(dsn) == "" {
+		return nil, fmt.Errorf("database DSN is empty")
+	}
+	if environmentHasHostaddr() {
+		return nil, fmt.Errorf("database PGHOSTADDR hostaddr is not supported; use host")
+	}
+	parsedConfig, err := pgconn.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("invalid database DSN")
+	}
+	if parsedConfigHasHostaddr(parsedConfig) {
+		return nil, fmt.Errorf("database DSN hostaddr is not supported; use host")
+	}
+	return parsedConfig, nil
 }
 
 func (c *Config) ConnectionTarget() string {
@@ -94,6 +126,22 @@ func parsedConfigHasReadWriteTarget(config *pgconn.Config) bool {
 	}
 	return reflect.ValueOf(config.ValidateConnect).Pointer() ==
 		reflect.ValueOf(pgconn.ValidateConnectTargetSessionAttrsReadWrite).Pointer()
+}
+
+func parsedConfigUsesAuthenticatedTLS(config *pgconn.Config) bool {
+	if config == nil || !tlsConfigAuthenticatesServer(config.TLSConfig) {
+		return false
+	}
+	for _, fallback := range config.Fallbacks {
+		if fallback == nil || !tlsConfigAuthenticatesServer(fallback.TLSConfig) {
+			return false
+		}
+	}
+	return true
+}
+
+func tlsConfigAuthenticatesServer(config *tls.Config) bool {
+	return config != nil && !config.InsecureSkipVerify && config.ServerName != "" && config.RootCAs != nil
 }
 
 func parsedConfigHasHostaddr(config *pgconn.Config) bool {

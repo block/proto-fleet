@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { ReactNode, useCallback, useState } from "react";
 import clsx from "clsx";
 
 import { sizes } from "./constants";
@@ -10,7 +10,6 @@ import Divider from "@/shared/components/Divider";
 import Header from "@/shared/components/Header";
 import ModalHeaderActions from "@/shared/components/ModalHeaderActions";
 import PageOverlay from "@/shared/components/PageOverlay";
-import { useClickOutsideDismiss } from "@/shared/hooks/useClickOutsideDismiss";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 import useSlideUpAnimation from "@/shared/hooks/useSlideUpAnimation";
 
@@ -80,10 +79,6 @@ const Modal = ({
   forceTitleCollapsed = false,
   fixedFooter,
 }: ModalProps) => {
-  const modalRef = useRef<HTMLDivElement>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const headerRef = useRef<HTMLDivElement>(null);
-  const sentinelRef = useRef<HTMLDivElement>(null);
   const [isTitleCollapsed, setIsTitleCollapsed] = useState(false);
   const isFullscreen = size === sizes.fullscreen;
   const showTitleInHeader = isFullscreen || isTitleCollapsed || forceTitleCollapsed;
@@ -91,29 +86,12 @@ const Modal = ({
   const hasPhoneFooterButtons = (phoneFooterButtons?.length ?? 0) > 0;
   const isPhoneSheet = phoneSheet && size !== sizes.fullscreen;
 
-  useEffect(() => {
-    if (!title || !sentinelRef.current || !scrollRef.current) {
-      setIsTitleCollapsed(false);
-      return;
-    }
-
-    const headerHeight = headerRef.current?.offsetHeight ?? 0;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        setIsTitleCollapsed(!entry.isIntersecting);
-      },
-      {
-        root: scrollRef.current,
-        rootMargin: `-${headerHeight}px 0px 0px 0px`,
-        threshold: 0,
-      },
-    );
-
-    observer.observe(sentinelRef.current);
-
-    return () => observer.disconnect();
-  }, [title, showHeader]);
+  // Header content changes its height, so observing its boundary creates a
+  // collapse/expand feedback loop. Only the scroll position controls the title.
+  // Sync on attachment too: PageOverlay remounts this element when reopened.
+  const syncTitleOnMount = useCallback((element: HTMLDivElement | null) => {
+    if (element) setIsTitleCollapsed(element.scrollTop > 0);
+  }, []);
 
   const dismissModal = useCallback(() => {
     onDismiss?.();
@@ -135,11 +113,6 @@ const Modal = ({
 
   useEscapeDismiss(open === false ? undefined : dismissModal);
 
-  useClickOutsideDismiss({
-    ref: modalRef,
-    onDismiss: open === false ? undefined : dismissModal,
-    ignoreSelectors: [".popover-content"],
-  });
   const headerIconProps =
     icon === null
       ? {}
@@ -152,7 +125,6 @@ const Modal = ({
   return (
     <PageOverlay open={open} position="top" {...(zIndex && { zIndex })}>
       <div
-        ref={modalRef}
         className={clsx(
           "h-fit overflow-hidden rounded-3xl bg-surface-elevated-base shadow-300",
           sizeClasses[size],
@@ -182,13 +154,28 @@ const Modal = ({
             },
             className,
           )}
-          ref={scrollRef}
+          ref={syncTitleOnMount}
+          onScroll={(event) => setIsTitleCollapsed(event.currentTarget.scrollTop > 0)}
           data-testid={testId}
         >
           {showHeader ? (
             <div
-              ref={headerRef}
-              className={clsx("sticky top-0 z-10 bg-surface-elevated-base pt-6", { "phone:hidden": hideHeaderOnPhone })}
+              // Two things keep the sticky background actually opaque:
+              //
+              // flex-col — headerSpacingClassName is a margin on an empty
+              // trailing div, and in normal flow that margin collapses out of
+              // this box. The header painted 16px shorter than it occupied, so
+              // body content scrolled through the gap. Flex items don't collapse.
+              //
+              // -mx-6 px-6 — the scroll container's own px-6 would otherwise
+              // leave a 24px gutter down each side of the header, where borders
+              // and other body content stayed visible. The header has to reach
+              // the container's padding edge; the padding puts its contents back.
+              // Safe against the callers that pass `!p-0`, since those all set
+              // showHeader={false}.
+              className={clsx("sticky top-0 z-10 -mx-6 flex flex-col bg-surface-elevated-base px-6 pt-6", {
+                "phone:hidden": hideHeaderOnPhone,
+              })}
             >
               <div className="relative">
                 <Header
@@ -218,16 +205,17 @@ const Modal = ({
             </div>
           ) : null}
           {title && !isFullscreen && !forceTitleCollapsed ? (
-            <>
-              <div ref={sentinelRef} className="h-0 w-0" />
-              <div
-                className={clsx("text-heading-300 text-text-primary", description ? "mb-1" : "mb-4", {
-                  "phone:mb-0": hideHeaderOnPhone,
-                })}
-              >
-                {title}
-              </div>
-            </>
+            <div
+              // Retain this space so collapsing the title cannot move the
+              // scroll boundary. Only the visible title should be announced.
+              className={clsx("text-heading-300 text-text-primary", description ? "mb-1" : "mb-4", {
+                "phone:mb-0": hideHeaderOnPhone,
+                invisible: showHeader && showTitleInHeader,
+                "phone:visible": hideHeaderOnPhone,
+              })}
+            >
+              {title}
+            </div>
           ) : null}
           {description ? <div className="mb-4 max-w-[600px] text-300 text-text-primary-70">{description}</div> : null}
           <div className={clsx("text-300 text-text-primary-70", bodyClassName)}>{children}</div>

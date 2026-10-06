@@ -49,6 +49,18 @@ type FSFile struct {
 	Data     []byte
 }
 
+type firmwareUploadKey struct {
+	checksum     string
+	manufacturer string
+	model        string
+	version      string
+}
+
+type firmwareUploadLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
 func getBatchLogsZipFilePath(batchLogUUID string) string {
 	return filepath.Join(tempDir, fmt.Sprintf("logs_batch_%s.zip", batchLogUUID))
 }
@@ -82,9 +94,16 @@ type Service struct {
 	commandArtifactRetentionTTL    time.Duration
 	commandArtifactCleanupInterval time.Duration
 
-	mu                   sync.Mutex
-	checksumIndex        map[string][]string // SHA-256 hex -> fileIDs
-	firmwareChecksumByID map[string]string   // fileID -> SHA-256 hex
+	mu                      sync.Mutex
+	bundleCreationMu        sync.Mutex
+	firmwareMetadataReuseMu sync.RWMutex
+	checksumIndex           map[string][]string    // SHA-256 hex -> reuse-eligible file IDs
+	firmwareChecksumByID    map[string]string      // fileID -> SHA-256 hex
+	firmwarePayloadFailures map[string]os.FileInfo // file ID -> failed payload snapshot; guarded by mu
+	firmwareUploadLocks     map[firmwareUploadKey]*firmwareUploadLock
+	firmwareExecutionPins   map[string]int // file ID -> active deliveries or assignment writes; guarded by mu
+	firmwareDeletionGuard   func() (FirmwareDeletionCheck, func(), error)
+	syncFirmwareDir         func(string) error
 }
 
 // MaxFirmwareFileSize returns the configured maximum firmware file size in bytes.
@@ -157,6 +176,8 @@ func NewService(cfg Config) (*Service, error) {
 		commandArtifactCleanupInterval: cleanupInterval,
 		checksumIndex:                  make(map[string][]string),
 		firmwareChecksumByID:           make(map[string]string),
+		firmwareUploadLocks:            make(map[firmwareUploadKey]*firmwareUploadLock),
+		syncFirmwareDir:                syncFirmwareDirectory,
 	}
 
 	if err := svc.initChecksumIndex(); err != nil {
@@ -461,10 +482,25 @@ func (s *Service) GetBatchLogBundleFile(batchLogUUID string) (*FSFile, error) {
 	return &FSFile{Filename: filename, Data: data}, nil
 }
 
+func (s *Service) EnsureBatchLogBundle(batchLogUUID string) error {
+	if findBatchBundlePath(batchLogUUID) != "" {
+		return nil
+	}
+
+	s.bundleCreationMu.Lock()
+	defer s.bundleCreationMu.Unlock()
+
+	if findBatchBundlePath(batchLogUUID) != "" {
+		return nil
+	}
+
+	_, err := s.bundleLogs(batchLogUUID)
+	return err
+}
+
 func (s *Service) DownloadLogsOnFinishedCallback(batchLogUUID string) func() error {
 	return func() error {
-		_, err := s.bundleLogs(batchLogUUID)
-		if err != nil {
+		if err := s.EnsureBatchLogBundle(batchLogUUID); err != nil {
 			return fleeterror.NewInternalErrorf("error bundling logs: %v", err)
 		}
 

@@ -8,6 +8,8 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROFILES_DIR="$REPO_ROOT/deployment-files/profiles"
 BASE_COMPOSE="$REPO_ROOT/server/docker-compose.base.yaml"
 PROD_COMPOSE="$REPO_ROOT/deployment-files/docker-compose.yaml"
+PIN_RELEASE_IMAGES="$REPO_ROOT/deployment-files/scripts/pin-release-images.sh"
+RELEASE_TAG="v1.2.3"
 
 FAILURES=0
 
@@ -201,7 +203,84 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-# 5. Compose render smoke test (staged tarball layout)
+# 5. NGINX keeps only ControlStream on native gRPC
+# ----------------------------------------------------------------------------
+
+check_control_stream_route() { # config upstream_host
+    local config="$1" upstream_host="$2" block generic
+    block=$(sed -n '\|location = /api-proxy/fleetnodegateway.v1.FleetNodeGatewayService/ControlStream {|,/^[[:space:]]*}/p' "$config")
+    generic=$(sed -n '\|location /api-proxy/ {|,/^[[:space:]]*}/p' "$config")
+
+    if ! grep -Fq -- 'http2 on;' "$config"; then
+        fail "$(basename "$config"): HTTP/2 must remain enabled for gRPC"
+    fi
+
+    for expected in \
+        'location = /api-proxy/fleetnodegateway.v1.FleetNodeGatewayService/ControlStream {' \
+        'rewrite ^/api-proxy/(.*)$ /$1 break;' \
+        "grpc_pass grpc://${upstream_host}:4000;" \
+        'grpc_read_timeout 90s;' \
+        'grpc_next_upstream off;'; do
+        if ! printf '%s\n' "$block" | grep -Fq -- "$expected"; then
+            fail "$(basename "$config"): ControlStream route does not contain: $expected"
+        fi
+    done
+    if [ "$(grep -c 'grpc_pass ' "$config")" -ne 1 ]; then
+        fail "$(basename "$config"): exactly one RPC route must use grpc_pass"
+    fi
+    if ! printf '%s\n' "$generic" | grep -Fq -- "proxy_pass http://${upstream_host}:4000/;"; then
+        fail "$(basename "$config"): generic /api-proxy route must retain Connect proxy_pass"
+    fi
+}
+
+check_discovery_routes() { # config upstream_host
+    local config="$1" upstream_host="$2" route block expected
+    for route in pairing.v1.PairingService/Discover fleetnodeadmin.v1.FleetNodeAdminService/DiscoverOnFleetNode; do
+        block=$(sed -n "\|location = /api-proxy/${route} {|,/^[[:space:]]*}/p" "$config")
+        for expected in "proxy_pass http://${upstream_host}:4000/${route};" 'proxy_read_timeout 13m;' 'proxy_buffering off;'; do
+            if ! printf '%s\n' "$block" | grep -Fq -- "$expected"; then
+                fail "$(basename "$config"): ${route} route does not contain: $expected"
+            fi
+        done
+    done
+}
+
+check_pairing_routes() { # config upstream_host
+    local config="$1" upstream_host="$2" route block generic expected
+    route=fleetnodeadmin.v1.FleetNodeAdminService/PairDiscoveredDevicesOnFleetNode
+    block=$(sed -n "\|location = /api-proxy/${route} {|,/^[[:space:]]*}/p" "$config")
+    # A node can remain silent for its full 12-minute server-side command budget.
+    # Flush result batches to the operator without waiting for pair-all to finish.
+    for expected in "proxy_pass http://${upstream_host}:4000/${route};" \
+        'proxy_http_version 1.1;' 'proxy_set_header Host $host;' \
+        'proxy_read_timeout 13m;' 'proxy_buffering off;' 'client_max_body_size 64m;'; do
+        if ! printf '%s\n' "$block" | grep -Fq -- "$expected"; then
+            fail "$(basename "$config"): ${route} route does not contain: $expected"
+        fi
+    done
+
+    generic=$(sed -n '\|location /api-proxy/ {|,/^[[:space:]]*}/p' "$config")
+    if printf '%s\n' "$generic" | grep -Eq 'proxy_(read|send)_timeout'; then
+        fail "$(basename "$config"): extended pairing timeouts must not apply to generic RPCs"
+    fi
+}
+
+check_discovery_routes "$REPO_ROOT/deployment-files/client/nginx.http.conf" localhost
+check_discovery_routes "$REPO_ROOT/deployment-files/client/nginx.https.conf" localhost
+check_discovery_routes "$REPO_ROOT/client/nginx.runner-protofleet.conf" 127.0.0.1
+
+check_control_stream_route "$REPO_ROOT/deployment-files/client/nginx.http.conf" localhost
+check_control_stream_route "$REPO_ROOT/deployment-files/client/nginx.https.conf" localhost
+check_control_stream_route "$REPO_ROOT/client/nginx.runner-protofleet.conf" 127.0.0.1
+pass "NGINX routes only ControlStream through native gRPC"
+
+check_pairing_routes "$REPO_ROOT/deployment-files/client/nginx.http.conf" localhost
+check_pairing_routes "$REPO_ROOT/deployment-files/client/nginx.https.conf" localhost
+check_pairing_routes "$REPO_ROOT/client/nginx.runner-protofleet.conf" 127.0.0.1
+pass "NGINX gives Fleet Node pairing scoped streaming timeouts"
+
+# ----------------------------------------------------------------------------
+# 6. Compose render smoke test (staged tarball layout)
 # ----------------------------------------------------------------------------
 
 if ! docker compose version >/dev/null 2>&1; then
@@ -212,8 +291,10 @@ fi
 
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STRICT_TMP" "$STAGE"' EXIT
-mkdir -p "$STAGE/server" "$STAGE/client"
+mkdir -p "$STAGE/server" "$STAGE/client" "$STAGE/ha"
 cp "$PROD_COMPOSE" "$STAGE/"
+cp "$REPO_ROOT/deployment-files/docker-compose.updater.yaml" "$STAGE/"
+cp "$REPO_ROOT/deployment-files/ha/compose.yaml" "$STAGE/ha/"
 cp "$BASE_COMPOSE" "$STAGE/server/"
 cp -r "$PROFILES_DIR" "$STAGE/profiles"
 printf 'FROM scratch\n' > "$STAGE/server/Dockerfile"
@@ -221,8 +302,48 @@ printf 'FROM scratch\n' > "$STAGE/client/Dockerfile"
 printf 'DB_USERNAME=fleet\nDB_PASSWORD=test\nAUTH_CLIENT_SECRET_KEY=test\nENCRYPT_SERVICE_MASTER_KEY=test\n' > "$STAGE/base-secrets.env"
 printf 'DB_USERNAME=fleet\nDB_PASSWORD=test\nAUTH_CLIENT_SECRET_KEY=test\nENCRYPT_SERVICE_MASTER_KEY=test\nPG_SHARED_BUFFERS=999MB\n' > "$STAGE/override.env"
 
+if "$PIN_RELEASE_IMAGES" "$STAGE" latest >/dev/null 2>&1; then
+    fail "release packaging accepted the shared latest image tag"
+else
+    pass "release packaging rejects the shared latest image tag"
+fi
+if "$PIN_RELEASE_IMAGES" "$STAGE" "$RELEASE_TAG"; then
+    pass "release packaging pins immutable image references"
+else
+    fail "release packaging could not pin immutable image references"
+fi
+for image in \
+    "proto-fleet-api:$RELEASE_TAG" \
+    "proto-fleet-client:$RELEASE_TAG" \
+    "proto-fleet-timescaledb:$RELEASE_TAG"; do
+    grep -Fq "image: $image" "$STAGE/docker-compose.yaml" || \
+        fail "packaged Compose is missing $image"
+done
+grep -Fq "image: proto-fleet-timescaledb-ha:$RELEASE_TAG" "$STAGE/ha/compose.yaml" || \
+    fail "packaged HA Compose is missing its release-specific image"
+if grep -Fq 'proto-fleet-api:latest' "$STAGE/docker-compose.yaml" || \
+   grep -Fq 'proto-fleet-client:latest' "$STAGE/docker-compose.yaml" || \
+   grep -Fq 'proto-fleet-timescaledb:latest' "$STAGE/docker-compose.yaml" || \
+   grep -Fq 'proto-fleet-timescaledb-ha:latest' "$STAGE/ha/compose.yaml"; then
+    fail "release packaging left a shared latest runtime image reference"
+else
+    pass "release packaging removes shared latest runtime image references"
+fi
+
+render_compose() { # compose args...
+    env -u MARKET_DATA_ENABLED -u MARKET_DATA_REFRESH_INTERVAL \
+        -u MARKET_DATA_PRICE_PROVIDER -u MARKET_DATA_COINBASE_URL \
+        -u MARKET_DATA_COINGECKO_URL -u MARKET_DATA_COINGECKO_API_KEY -u MARKET_DATA_MEMPOOL_URL \
+        docker compose "$@" config 2>"$STAGE/render.err"
+}
+
 render() { # env-file args...
-    (cd "$STAGE" && docker compose "$@" -f docker-compose.yaml config 2>"$STAGE/render.err")
+    (cd "$STAGE" && render_compose "$@" -f docker-compose.yaml)
+}
+
+render_dev() { # env-file args...
+    render_compose --env-file "$STAGE/base-secrets.env" "$@" \
+        -f "$REPO_ROOT/server/docker-compose.yaml"
 }
 
 assert_rendered() { # description rendered_output expected...
@@ -243,12 +364,60 @@ assert_rendered() { # description rendered_output expected...
 
 out=$(render --env-file base-secrets.env)
 assert_rendered "no-profile render keeps defaults" "$out" \
+    "image: proto-fleet-api:$RELEASE_TAG" \
+    "image: proto-fleet-client:$RELEASE_TAG" \
+    "image: proto-fleet-timescaledb:$RELEASE_TAG" \
     "shared_buffers=256MB" "max_worker_processes=19" "wal_compression=off" \
     "shared_preload_libraries=timescaledb,pg_stat_statements" \
     "pg_stat_statements.track_utility=off" \
     "track_io_timing=on" "log_min_duration_statement=5000" \
     "log_parameter_max_length=0" "log_parameter_max_length_on_error=0" \
+    'MARKET_DATA_ENABLED: "false"' \
+    'MARKET_DATA_REFRESH_INTERVAL: 1m' \
+    'MARKET_DATA_PRICE_PROVIDER: coingecko' \
+    'MARKET_DATA_COINBASE_URL: https://api.coinbase.com' \
+    'MARKET_DATA_COINGECKO_URL: https://pro-api.coingecko.com' \
+    'MARKET_DATA_COINGECKO_API_KEY: ""' \
+    'MARKET_DATA_MEMPOOL_URL: https://mempool.space' \
     'shm_size: "268435456"'
+
+out=$(render_dev)
+assert_rendered "local dev render keeps market-data defaults" "$out" \
+    'MARKET_DATA_ENABLED: "false"' \
+    'MARKET_DATA_REFRESH_INTERVAL: 1m' \
+    'MARKET_DATA_PRICE_PROVIDER: coingecko' \
+    'MARKET_DATA_COINBASE_URL: https://api.coinbase.com' \
+    'MARKET_DATA_COINGECKO_URL: https://pro-api.coingecko.com' \
+    'MARKET_DATA_COINGECKO_API_KEY: ""' \
+    'MARKET_DATA_MEMPOOL_URL: https://mempool.space'
+
+for enabled in false true; do
+    printf '%s\n' "MARKET_DATA_ENABLED=$enabled" \
+        'MARKET_DATA_REFRESH_INTERVAL=5m' \
+        'MARKET_DATA_PRICE_PROVIDER=coingecko' \
+        'MARKET_DATA_COINBASE_URL=https://example.invalid/coinbase' \
+        'MARKET_DATA_COINGECKO_URL=https://example.invalid/coingecko' \
+        'MARKET_DATA_COINGECKO_API_KEY=test-key' \
+        'MARKET_DATA_MEMPOOL_URL=http://mempool.internal:8999' > "$STAGE/market-data.env"
+    out=$(render --env-file profiles/standard.env --env-file base-secrets.env --env-file market-data.env)
+    assert_rendered "packaged market-data settings reach fleet-api with flag $enabled" "$out" \
+        "MARKET_DATA_ENABLED: \"$enabled\"" "shared_buffers=4GB" \
+        'MARKET_DATA_REFRESH_INTERVAL: 5m' \
+        'MARKET_DATA_PRICE_PROVIDER: coingecko' \
+        'MARKET_DATA_COINBASE_URL: https://example.invalid/coinbase' \
+        'MARKET_DATA_COINGECKO_URL: https://example.invalid/coingecko' \
+        'MARKET_DATA_COINGECKO_API_KEY: test-key' \
+        'MARKET_DATA_MEMPOOL_URL: http://mempool.internal:8999'
+    out=$(render_dev --env-file "$STAGE/market-data.env")
+    assert_rendered "local dev market-data settings reach fleet-api with flag $enabled" "$out" \
+        "MARKET_DATA_ENABLED: \"$enabled\"" \
+        'MARKET_DATA_REFRESH_INTERVAL: 5m' \
+        'MARKET_DATA_PRICE_PROVIDER: coingecko' \
+        'MARKET_DATA_COINBASE_URL: https://example.invalid/coinbase' \
+        'MARKET_DATA_COINGECKO_URL: https://example.invalid/coingecko' \
+        'MARKET_DATA_COINGECKO_API_KEY: test-key' \
+        'MARKET_DATA_MEMPOOL_URL: http://mempool.internal:8999'
+done
 
 out=$(render --env-file profiles/mini.env --env-file base-secrets.env)
 assert_rendered "mini render" "$out" \
@@ -268,6 +437,29 @@ assert_rendered "max render" "$out" \
 out=$(render --env-file profiles/standard.env --env-file override.env)
 assert_rendered "operator .env overrides the profile" "$out" \
     "shared_buffers=999MB" "max_worker_processes=13"
+
+out=$(cd "$STAGE" && docker compose --env-file base-secrets.env \
+    -f docker-compose.yaml -f docker-compose.updater.yaml config 2>"$STAGE/render.err")
+assert_rendered "host updater overlay exposes only its Unix socket" "$out" \
+    'UPDATES_UPDATER_SOCKET_PATH: /run/proto-fleet-updater/updater.sock' \
+    'source: /run/proto-fleet-updater' \
+    'target: /run/proto-fleet-updater'
+if printf '%s\n' "$out" | awk '
+    $1 == "source:" && $2 == "/run/proto-fleet-updater" { in_socket = 1; target = 0; next }
+    in_socket && $1 == "target:" && $2 == "/run/proto-fleet-updater" { target = 1; next }
+    in_socket && target && $1 == "read_only:" && $2 == "true" { read_only = 1; exit }
+    in_socket && $1 == "source:" { in_socket = 0 }
+    END { exit !(read_only == 1) }
+'; then
+    pass "host updater socket mount is read-only"
+else
+    fail "host updater socket mount is not read-only"
+fi
+if printf '%s\n' "$out" | grep -qF '/var/run/docker.sock'; then
+    fail "host updater overlay exposes the Docker socket"
+else
+    pass "host updater overlay does not expose the Docker socket"
+fi
 
 # ----------------------------------------------------------------------------
 

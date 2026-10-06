@@ -23,6 +23,7 @@ func TestStringFromStringRoundtrip(t *testing.T) {
 		UpdateMinerPassword,
 		Curtail,
 		Uncurtail,
+		ApplyCurtailmentConfig,
 	}
 	for _, want := range all {
 		name := want.String()

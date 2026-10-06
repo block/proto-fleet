@@ -4,7 +4,7 @@ import { authClient, onboardingClient } from "@/protoFleet/api/clients";
 import { UpdatePasswordRequest, UpdateUsernameRequest } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { CreateAdminLoginRequest } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { useAuthErrors, useSetUsername } from "@/protoFleet/store";
+import { useAuthErrors, useSetSessionExpiry, useSetUsername } from "@/protoFleet/store";
 
 interface SetPasswordProps {
   onError?: (message: string) => void;
@@ -29,6 +29,7 @@ interface UpdateUsernameProps {
 
 const useAuth = () => {
   const setUsername = useSetUsername();
+  const setSessionExpiry = useSetSessionExpiry();
   const { handleAuthErrors } = useAuthErrors();
   const [passwordLastUpdatedAt, setPasswordLastUpdatedAt] = useState<Date | null>(null);
 
@@ -80,7 +81,8 @@ const useAuth = () => {
     async ({ currentPassword, newPassword, onSuccess, onError, onFinally }: UpdatePasswordProps) => {
       await authClient
         .updatePassword({ currentPassword, newPassword })
-        .then(() => {
+        .then((response) => {
+          setSessionExpiry(new Date(Number(response.sessionExpiry) * 1000));
           onSuccess?.();
           fetchLastUpdatedPasswordDate();
         })
@@ -96,7 +98,7 @@ const useAuth = () => {
           onFinally?.();
         });
     },
-    [fetchLastUpdatedPasswordDate, handleAuthErrors],
+    [fetchLastUpdatedPasswordDate, handleAuthErrors, setSessionExpiry],
   );
 
   const updateUsername = useCallback(

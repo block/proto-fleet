@@ -150,100 +150,100 @@ test.describe("Proto Fleet - Curtailment Settings", () => {
     }
   });
 
-  test("Create curtailment response profiles and sources", async ({
-    commonSteps,
-    page,
-    settingsCurtailmentPage,
-  }, testInfo) => {
-    const { responseProfilePrefix, sourcePrefix } = getRunPrefixes(testInfo);
-    const responseProfileName = generateRandomText(responseProfilePrefix);
-    const sourceName = generateRandomText(sourcePrefix);
-    const sourceInput = {
-      name: sourceName,
-      brokerPrimaryHost: "127.0.0.1",
-      brokerSecondaryHost: "127.0.0.2",
-      brokerPort: "1883",
-      topic: `curtailment/e2e/${sourceName}/target`,
-      username: "curtailment-e2e",
-      password: "curtailment-e2e-password",
-    };
+  test(
+    "Create curtailment response profiles and sources",
+    { tag: "@smoke" },
+    async ({ commonSteps, page, settingsCurtailmentPage }, testInfo) => {
+      const { responseProfilePrefix, sourcePrefix } = getRunPrefixes(testInfo);
+      const responseProfileName = generateRandomText(responseProfilePrefix);
+      const sourceName = generateRandomText(sourcePrefix);
+      const sourceInput = {
+        name: sourceName,
+        brokerPrimaryHost: "127.0.0.1",
+        brokerSecondaryHost: "127.0.0.2",
+        brokerPort: "1883",
+        topic: `curtailment/e2e/${sourceName}/target`,
+        username: "curtailment-e2e",
+        password: "curtailment-e2e-password",
+      };
 
-    await test.step("Log in as admin", async () => {
-      await commonSteps.loginAsAdmin();
-    });
-
-    await test.step("Navigate to curtailment settings", async () => {
-      await settingsCurtailmentPage.navigateToCurtailmentSettings();
-      await settingsCurtailmentPage.validateCurtailmentPageOpened();
-    });
-
-    let createProfileRequest!: Awaited<ReturnType<typeof page.waitForRequest>>;
-
-    await test.step("Create a whole-fleet response profile", async () => {
-      await settingsCurtailmentPage.openCreateResponseProfile();
-      await settingsCurtailmentPage.fillResponseProfile({
-        name: responseProfileName,
-        curtailBatchSize: "25",
-        curtailBatchIntervalSec: "60",
-        restoreBatchSize: "10",
-        restoreBatchIntervalSec: "120",
+      await test.step("Log in as admin", async () => {
+        await commonSteps.loginAsAdmin();
       });
 
-      [createProfileRequest] = await Promise.all([
-        page.waitForRequest((request) => isCreateResponseProfileRequest(request, responseProfileName)),
-        settingsCurtailmentPage.saveResponseProfile(),
-      ]);
-    });
+      await test.step("Navigate to curtailment settings", async () => {
+        await settingsCurtailmentPage.navigateToCurtailmentSettings();
+        await settingsCurtailmentPage.validateCurtailmentPageOpened();
+      });
 
-    await test.step("Validate the response profile payload and card", async () => {
-      const requestBody = createProfileRequest.postDataJSON() as CreateResponseProfileRequestBody;
+      let createProfileRequest!: Awaited<ReturnType<typeof page.waitForRequest>>;
 
-      expect(createProfileRequest.method()).toBe("POST");
-      expect(requestBody.profileName).toBe(responseProfileName);
-      expect(requestBody.mode).toBe("CURTAILMENT_MODE_FULL_FLEET");
-      expect(requestBody.strategy).toBe("CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST");
-      expect(requestBody.level).toBe("CURTAILMENT_LEVEL_FULL");
-      expect(requestBody.priority).toBe("CURTAILMENT_PRIORITY_NORMAL");
-      expect(requestBody.curtailBatchSize).toBe(25);
-      expect(requestBody.curtailBatchIntervalSec).toBe(60);
-      expect(requestBody.restoreBatchSize).toBe(10);
-      expect(requestBody.restoreBatchIntervalSec).toBe(120);
-      // Maintenance-flagged miners are excluded by default; the admin-gated
-      // force_include_maintenance pair is only sent when "Target all paired
-      // miners" opts them in. Proto3 JSON omits false booleans, so assert
-      // falsy rather than an explicit false.
-      expect(requestBody.includeMaintenance).toBeFalsy();
-      expect(requestBody.forceIncludeMaintenance).toBeFalsy();
-      await settingsCurtailmentPage.validateResponseProfileVisible(responseProfileName);
-    });
+      await test.step("Create a whole-fleet response profile", async () => {
+        await settingsCurtailmentPage.openCreateResponseProfile();
+        await settingsCurtailmentPage.fillResponseProfile({
+          name: responseProfileName,
+          curtailBatchSize: "25",
+          curtailBatchIntervalSec: "60",
+          restoreBatchSize: "10",
+          restoreBatchIntervalSec: "120",
+        });
 
-    let createSourceRequest!: Awaited<ReturnType<typeof page.waitForRequest>>;
+        [createProfileRequest] = await Promise.all([
+          page.waitForRequest((request) => isCreateResponseProfileRequest(request, responseProfileName)),
+          settingsCurtailmentPage.saveResponseProfile(),
+        ]);
+      });
 
-    await test.step("Create an MQTT curtailment source", async () => {
-      await settingsCurtailmentPage.openAddSource();
-      await settingsCurtailmentPage.fillSource(sourceInput);
+      await test.step("Validate the response profile payload and card", async () => {
+        const requestBody = createProfileRequest.postDataJSON() as CreateResponseProfileRequestBody;
 
-      [createSourceRequest] = await Promise.all([
-        page.waitForRequest((request) => isCreateSourceRequest(request, sourceName)),
-        settingsCurtailmentPage.saveSource(),
-      ]);
-    });
+        expect(createProfileRequest.method()).toBe("POST");
+        expect(requestBody.profileName).toBe(responseProfileName);
+        expect(requestBody.mode).toBe("CURTAILMENT_MODE_FULL_FLEET");
+        expect(requestBody.strategy).toBe("CURTAILMENT_STRATEGY_LEAST_EFFICIENT_FIRST");
+        expect(requestBody.level).toBe("CURTAILMENT_LEVEL_FULL");
+        expect(requestBody.priority).toBe("CURTAILMENT_PRIORITY_NORMAL");
+        expect(requestBody.curtailBatchSize).toBe(25);
+        expect(requestBody.curtailBatchIntervalSec).toBe(60);
+        expect(requestBody.restoreBatchSize).toBe(10);
+        expect(requestBody.restoreBatchIntervalSec).toBe(120);
+        // Maintenance-flagged miners are excluded by default; the admin-gated
+        // force_include_maintenance pair is only sent when "Target all paired
+        // miners" opts them in. Proto3 JSON omits false booleans, so assert
+        // falsy rather than an explicit false.
+        expect(requestBody.includeMaintenance).toBeFalsy();
+        expect(requestBody.forceIncludeMaintenance).toBeFalsy();
+        await settingsCurtailmentPage.validateResponseProfileVisible(responseProfileName);
+      });
 
-    await test.step("Validate the source payload and row", async () => {
-      const requestBody = createSourceRequest.postDataJSON() as CreateSourceRequestBody;
+      let createSourceRequest!: Awaited<ReturnType<typeof page.waitForRequest>>;
 
-      expect(createSourceRequest.method()).toBe("POST");
-      expect(requestBody.sourceName).toBe(sourceName);
-      expect(requestBody.topic).toBe(sourceInput.topic);
-      expect(requestBody.brokerPrimaryHost).toBe(sourceInput.brokerPrimaryHost);
-      expect(requestBody.brokerSecondaryHost).toBe(sourceInput.brokerSecondaryHost);
-      expect(requestBody.brokerPort).toBe(Number(sourceInput.brokerPort));
-      expect(requestBody.brokerTransport).toBe("tcp");
-      expect(requestBody.mqttUsername).toBe(sourceInput.username);
-      expect(requestBody.mqttPassword).toBe(sourceInput.password);
-      expect(requestBody.payloadFormat).toBe("target_timestamp");
-      expect(requestBody.stalenessThresholdSec).toBe(240);
-      await settingsCurtailmentPage.validateSourceVisible(sourceName);
-    });
-  });
+      await test.step("Create an MQTT curtailment source", async () => {
+        await settingsCurtailmentPage.openAddSource();
+        await settingsCurtailmentPage.fillSource(sourceInput);
+
+        [createSourceRequest] = await Promise.all([
+          page.waitForRequest((request) => isCreateSourceRequest(request, sourceName)),
+          settingsCurtailmentPage.saveSource(),
+        ]);
+      });
+
+      await test.step("Validate the source payload and row", async () => {
+        const requestBody = createSourceRequest.postDataJSON() as CreateSourceRequestBody;
+
+        expect(createSourceRequest.method()).toBe("POST");
+        expect(requestBody.sourceName).toBe(sourceName);
+        expect(requestBody.topic).toBe(sourceInput.topic);
+        expect(requestBody.brokerPrimaryHost).toBe(sourceInput.brokerPrimaryHost);
+        expect(requestBody.brokerSecondaryHost).toBe(sourceInput.brokerSecondaryHost);
+        expect(requestBody.brokerPort).toBe(Number(sourceInput.brokerPort));
+        expect(requestBody.brokerTransport).toBe("tcp");
+        expect(requestBody.mqttUsername).toBe(sourceInput.username);
+        expect(requestBody.mqttPassword).toBe(sourceInput.password);
+        expect(requestBody.payloadFormat).toBe("target_timestamp");
+        expect(requestBody.stalenessThresholdSec).toBe(240);
+        await settingsCurtailmentPage.validateSourceVisible(sourceName);
+      });
+    },
+  );
 });

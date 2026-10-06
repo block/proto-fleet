@@ -67,6 +67,9 @@ const (
 	RuleServiceUpdateRuleProcedure = "/alerts.v1.RuleService/UpdateRule"
 	// RuleServiceDeleteRuleProcedure is the fully-qualified name of the RuleService's DeleteRule RPC.
 	RuleServiceDeleteRuleProcedure = "/alerts.v1.RuleService/DeleteRule"
+	// RuleServiceSetRuleRoutingProcedure is the fully-qualified name of the RuleService's
+	// SetRuleRouting RPC.
+	RuleServiceSetRuleRoutingProcedure = "/alerts.v1.RuleService/SetRuleRouting"
 	// MaintenanceWindowServiceListMaintenanceWindowsProcedure is the fully-qualified name of the
 	// MaintenanceWindowService's ListMaintenanceWindows RPC.
 	MaintenanceWindowServiceListMaintenanceWindowsProcedure = "/alerts.v1.MaintenanceWindowService/ListMaintenanceWindows"
@@ -82,6 +85,9 @@ const (
 	// HistoryServiceListAlertsProcedure is the fully-qualified name of the HistoryService's ListAlerts
 	// RPC.
 	HistoryServiceListAlertsProcedure = "/alerts.v1.HistoryService/ListAlerts"
+	// HistoryServiceListActiveAlertGroupsProcedure is the fully-qualified name of the HistoryService's
+	// ListActiveAlertGroups RPC.
+	HistoryServiceListActiveAlertGroupsProcedure = "/alerts.v1.HistoryService/ListActiveAlertGroups"
 )
 
 // ChannelServiceClient is a client for the alerts.v1.ChannelService service.
@@ -254,6 +260,8 @@ type RuleServiceClient interface {
 	CreateRule(context.Context, *connect.Request[v1.CreateRuleRequest]) (*connect.Response[v1.CreateRuleResponse], error)
 	UpdateRule(context.Context, *connect.Request[v1.UpdateRuleRequest]) (*connect.Response[v1.UpdateRuleResponse], error)
 	DeleteRule(context.Context, *connect.Request[v1.DeleteRuleRequest]) (*connect.Response[v1.DeleteRuleResponse], error)
+	// Works on both provisioned and user rules: routing is org-owned even when the rule is shared.
+	SetRuleRouting(context.Context, *connect.Request[v1.SetRuleRoutingRequest]) (*connect.Response[v1.SetRuleRoutingResponse], error)
 }
 
 // NewRuleServiceClient constructs a client for the alerts.v1.RuleService service. By default, it
@@ -296,17 +304,23 @@ func NewRuleServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			baseURL+RuleServiceDeleteRuleProcedure,
 			opts...,
 		),
+		setRuleRouting: connect.NewClient[v1.SetRuleRoutingRequest, v1.SetRuleRoutingResponse](
+			httpClient,
+			baseURL+RuleServiceSetRuleRoutingProcedure,
+			opts...,
+		),
 	}
 }
 
 // ruleServiceClient implements RuleServiceClient.
 type ruleServiceClient struct {
-	listRules  *connect.Client[v1.ListRulesRequest, v1.ListRulesResponse]
-	pauseRule  *connect.Client[v1.PauseRuleRequest, v1.PauseRuleResponse]
-	resumeRule *connect.Client[v1.ResumeRuleRequest, v1.ResumeRuleResponse]
-	createRule *connect.Client[v1.CreateRuleRequest, v1.CreateRuleResponse]
-	updateRule *connect.Client[v1.UpdateRuleRequest, v1.UpdateRuleResponse]
-	deleteRule *connect.Client[v1.DeleteRuleRequest, v1.DeleteRuleResponse]
+	listRules      *connect.Client[v1.ListRulesRequest, v1.ListRulesResponse]
+	pauseRule      *connect.Client[v1.PauseRuleRequest, v1.PauseRuleResponse]
+	resumeRule     *connect.Client[v1.ResumeRuleRequest, v1.ResumeRuleResponse]
+	createRule     *connect.Client[v1.CreateRuleRequest, v1.CreateRuleResponse]
+	updateRule     *connect.Client[v1.UpdateRuleRequest, v1.UpdateRuleResponse]
+	deleteRule     *connect.Client[v1.DeleteRuleRequest, v1.DeleteRuleResponse]
+	setRuleRouting *connect.Client[v1.SetRuleRoutingRequest, v1.SetRuleRoutingResponse]
 }
 
 // ListRules calls alerts.v1.RuleService.ListRules.
@@ -339,6 +353,11 @@ func (c *ruleServiceClient) DeleteRule(ctx context.Context, req *connect.Request
 	return c.deleteRule.CallUnary(ctx, req)
 }
 
+// SetRuleRouting calls alerts.v1.RuleService.SetRuleRouting.
+func (c *ruleServiceClient) SetRuleRouting(ctx context.Context, req *connect.Request[v1.SetRuleRoutingRequest]) (*connect.Response[v1.SetRuleRoutingResponse], error) {
+	return c.setRuleRouting.CallUnary(ctx, req)
+}
+
 // RuleServiceHandler is an implementation of the alerts.v1.RuleService service.
 type RuleServiceHandler interface {
 	ListRules(context.Context, *connect.Request[v1.ListRulesRequest]) (*connect.Response[v1.ListRulesResponse], error)
@@ -347,6 +366,8 @@ type RuleServiceHandler interface {
 	CreateRule(context.Context, *connect.Request[v1.CreateRuleRequest]) (*connect.Response[v1.CreateRuleResponse], error)
 	UpdateRule(context.Context, *connect.Request[v1.UpdateRuleRequest]) (*connect.Response[v1.UpdateRuleResponse], error)
 	DeleteRule(context.Context, *connect.Request[v1.DeleteRuleRequest]) (*connect.Response[v1.DeleteRuleResponse], error)
+	// Works on both provisioned and user rules: routing is org-owned even when the rule is shared.
+	SetRuleRouting(context.Context, *connect.Request[v1.SetRuleRoutingRequest]) (*connect.Response[v1.SetRuleRoutingResponse], error)
 }
 
 // NewRuleServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -385,6 +406,11 @@ func NewRuleServiceHandler(svc RuleServiceHandler, opts ...connect.HandlerOption
 		svc.DeleteRule,
 		opts...,
 	)
+	ruleServiceSetRuleRoutingHandler := connect.NewUnaryHandler(
+		RuleServiceSetRuleRoutingProcedure,
+		svc.SetRuleRouting,
+		opts...,
+	)
 	return "/alerts.v1.RuleService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case RuleServiceListRulesProcedure:
@@ -399,6 +425,8 @@ func NewRuleServiceHandler(svc RuleServiceHandler, opts ...connect.HandlerOption
 			ruleServiceUpdateRuleHandler.ServeHTTP(w, r)
 		case RuleServiceDeleteRuleProcedure:
 			ruleServiceDeleteRuleHandler.ServeHTTP(w, r)
+		case RuleServiceSetRuleRoutingProcedure:
+			ruleServiceSetRuleRoutingHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -430,6 +458,10 @@ func (UnimplementedRuleServiceHandler) UpdateRule(context.Context, *connect.Requ
 
 func (UnimplementedRuleServiceHandler) DeleteRule(context.Context, *connect.Request[v1.DeleteRuleRequest]) (*connect.Response[v1.DeleteRuleResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("alerts.v1.RuleService.DeleteRule is not implemented"))
+}
+
+func (UnimplementedRuleServiceHandler) SetRuleRouting(context.Context, *connect.Request[v1.SetRuleRoutingRequest]) (*connect.Response[v1.SetRuleRoutingResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("alerts.v1.RuleService.SetRuleRouting is not implemented"))
 }
 
 // MaintenanceWindowServiceClient is a client for the alerts.v1.MaintenanceWindowService service.
@@ -574,6 +606,9 @@ func (UnimplementedMaintenanceWindowServiceHandler) DeleteMaintenanceWindow(cont
 // HistoryServiceClient is a client for the alerts.v1.HistoryService service.
 type HistoryServiceClient interface {
 	ListAlerts(context.Context, *connect.Request[v1.ListAlertsRequest]) (*connect.Response[v1.ListAlertsResponse], error)
+	// Currently-firing alerts rolled up per rule with affected-miner counts, so a fleet-wide outage reads as a
+	// handful of rows instead of thousands. Drill into one group with ListAlerts (active_only + alert_name).
+	ListActiveAlertGroups(context.Context, *connect.Request[v1.ListActiveAlertGroupsRequest]) (*connect.Response[v1.ListActiveAlertGroupsResponse], error)
 }
 
 // NewHistoryServiceClient constructs a client for the alerts.v1.HistoryService service. By default,
@@ -591,12 +626,18 @@ func NewHistoryServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			baseURL+HistoryServiceListAlertsProcedure,
 			opts...,
 		),
+		listActiveAlertGroups: connect.NewClient[v1.ListActiveAlertGroupsRequest, v1.ListActiveAlertGroupsResponse](
+			httpClient,
+			baseURL+HistoryServiceListActiveAlertGroupsProcedure,
+			opts...,
+		),
 	}
 }
 
 // historyServiceClient implements HistoryServiceClient.
 type historyServiceClient struct {
-	listAlerts *connect.Client[v1.ListAlertsRequest, v1.ListAlertsResponse]
+	listAlerts            *connect.Client[v1.ListAlertsRequest, v1.ListAlertsResponse]
+	listActiveAlertGroups *connect.Client[v1.ListActiveAlertGroupsRequest, v1.ListActiveAlertGroupsResponse]
 }
 
 // ListAlerts calls alerts.v1.HistoryService.ListAlerts.
@@ -604,9 +645,17 @@ func (c *historyServiceClient) ListAlerts(ctx context.Context, req *connect.Requ
 	return c.listAlerts.CallUnary(ctx, req)
 }
 
+// ListActiveAlertGroups calls alerts.v1.HistoryService.ListActiveAlertGroups.
+func (c *historyServiceClient) ListActiveAlertGroups(ctx context.Context, req *connect.Request[v1.ListActiveAlertGroupsRequest]) (*connect.Response[v1.ListActiveAlertGroupsResponse], error) {
+	return c.listActiveAlertGroups.CallUnary(ctx, req)
+}
+
 // HistoryServiceHandler is an implementation of the alerts.v1.HistoryService service.
 type HistoryServiceHandler interface {
 	ListAlerts(context.Context, *connect.Request[v1.ListAlertsRequest]) (*connect.Response[v1.ListAlertsResponse], error)
+	// Currently-firing alerts rolled up per rule with affected-miner counts, so a fleet-wide outage reads as a
+	// handful of rows instead of thousands. Drill into one group with ListAlerts (active_only + alert_name).
+	ListActiveAlertGroups(context.Context, *connect.Request[v1.ListActiveAlertGroupsRequest]) (*connect.Response[v1.ListActiveAlertGroupsResponse], error)
 }
 
 // NewHistoryServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -620,10 +669,17 @@ func NewHistoryServiceHandler(svc HistoryServiceHandler, opts ...connect.Handler
 		svc.ListAlerts,
 		opts...,
 	)
+	historyServiceListActiveAlertGroupsHandler := connect.NewUnaryHandler(
+		HistoryServiceListActiveAlertGroupsProcedure,
+		svc.ListActiveAlertGroups,
+		opts...,
+	)
 	return "/alerts.v1.HistoryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case HistoryServiceListAlertsProcedure:
 			historyServiceListAlertsHandler.ServeHTTP(w, r)
+		case HistoryServiceListActiveAlertGroupsProcedure:
+			historyServiceListActiveAlertGroupsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -635,4 +691,8 @@ type UnimplementedHistoryServiceHandler struct{}
 
 func (UnimplementedHistoryServiceHandler) ListAlerts(context.Context, *connect.Request[v1.ListAlertsRequest]) (*connect.Response[v1.ListAlertsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("alerts.v1.HistoryService.ListAlerts is not implemented"))
+}
+
+func (UnimplementedHistoryServiceHandler) ListActiveAlertGroups(context.Context, *connect.Request[v1.ListActiveAlertGroupsRequest]) (*connect.Response[v1.ListActiveAlertGroupsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("alerts.v1.HistoryService.ListActiveAlertGroups is not implemented"))
 }

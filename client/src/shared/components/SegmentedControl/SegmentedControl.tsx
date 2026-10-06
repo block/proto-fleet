@@ -54,8 +54,16 @@ const SegmentedControl = ({
   if (segments.length === 0) return null;
 
   return (
+    // isolate contains the segment labels' z-10 (Segment.tsx), which only needs
+    // to beat the sliding pill below it. Without a stacking context here that
+    // z-10 leaks into whatever ancestor has one, where it tied with a modal's
+    // sticky header — same z-index, later in the DOM — and the labels painted
+    // over the header as the body scrolled under it.
     <div
-      className={clsx("relative flex h-full w-fit flex-row gap-2 rounded-3xl bg-core-primary-5 p-[2px]", className)}
+      className={clsx(
+        "relative isolate flex h-full w-fit flex-row gap-2 rounded-3xl bg-core-primary-5 p-[2px]",
+        className,
+      )}
       data-testid="segmented-control"
     >
       <div

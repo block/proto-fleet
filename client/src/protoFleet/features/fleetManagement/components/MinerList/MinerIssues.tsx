@@ -1,6 +1,10 @@
 import { ReactNode, useMemo } from "react";
 import { ComponentType as ErrorComponentType, type ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { DeviceStatus, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  DeviceOfflineReason,
+  DeviceStatus,
+  PairingStatus,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { transformFleetErrorsToShared } from "@/protoFleet/components/StatusModal/utils";
 import { getComponentIcon } from "@/protoFleet/features/fleetManagement/components/MinerList/utils";
@@ -65,6 +69,7 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
   const needsMiningPool = deviceStatus === DeviceStatus.NEEDS_MINING_POOL;
   const isUpdating = deviceStatus === DeviceStatus.UPDATING;
   const isRebootRequired = deviceStatus === DeviceStatus.REBOOT_REQUIRED;
+  const isUnavailable = miner.offlineReason === DeviceOfflineReason.FLEET_NODE_UNAVAILABLE;
 
   // Transform errors to shared format using existing utility
   const sharedErrors = useMemo(() => transformFleetErrorsToShared(groupedErrors), [groupedErrors]);
@@ -82,7 +87,7 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
   // Note: Auth and pool issues don't have icons (per Figma design)
   const icon = useMemo((): ReactNode | null => {
     // Auth and pool issues don't get icons
-    if (needsAuthentication || needsMiningPool) {
+    if (needsAuthentication || needsMiningPool || isUnavailable) {
       return null;
     }
 
@@ -97,15 +102,15 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
       return getComponentIcon(componentTypesWithErrors[0]);
     }
     return <Alert width="w-4" />;
-  }, [needsAuthentication, needsMiningPool, sharedErrors]);
+  }, [isUnavailable, needsAuthentication, needsMiningPool, sharedErrors]);
 
   // While errors haven't loaded, show shimmer for devices that could have issues
-  if (!errorsLoaded && !needsAuthentication && !needsMiningPool && !isUpdating && !isRebootRequired) {
+  if (!errorsLoaded && !needsAuthentication && !needsMiningPool && !isUpdating && !isRebootRequired && !isUnavailable) {
     return <SkeletonBar className="w-24" />;
   }
 
   // Show empty state if no issues
-  if (!hasIssues) {
+  if (!hasIssues && !isUnavailable) {
     return null;
   }
 
@@ -115,7 +120,7 @@ const MinerIssues = ({ miner, errors, errorsLoaded, onClick }: MinerIssuesProps)
   const content = (
     <>
       {icon}
-      {summary}
+      {isUnavailable ? "No connection" : summary}
     </>
   );
 

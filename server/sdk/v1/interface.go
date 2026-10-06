@@ -267,6 +267,34 @@ type CurtailRequest struct {
 // UncurtailRequest describes a request to restore a previously curtailed device.
 type UncurtailRequest struct{}
 
+// CurtailmentConfig configures the rig-local curtailment fallback. Fleet sends
+// the complete desired configuration so rig state does not depend on a
+// sequence of incremental updates.
+type CurtailmentConfig struct {
+	Enabled               bool
+	FailPolicy            string
+	RestorePolicy         string
+	NATSURL               string
+	MCDDGRPCAddress       string
+	StatusPublishInterval string
+	Providers             []CurtailmentProviderConfig
+}
+
+// CurtailmentProviderConfig configures one Maestro MQTT source on a rig.
+type CurtailmentProviderConfig struct {
+	Name             string
+	Type             string
+	Enabled          bool
+	Brokers          []string
+	Port             int32
+	Username         string
+	Password         string
+	Topic            string
+	QOS              int32
+	StaleAfter       string
+	ReconnectBackoff string
+}
+
 // UsernamePassword represents username/password authentication
 type UsernamePassword struct {
 	Username string
@@ -387,6 +415,12 @@ type DeviceControl interface {
 type DeviceCurtailment interface {
 	Curtail(ctx context.Context, req CurtailRequest) error
 	Uncurtail(ctx context.Context, req UncurtailRequest) error
+}
+
+// DeviceCurtailmentConfigurator is optional. Devices advertising this
+// interface accept Fleet's complete desired rig-local fallback config.
+type DeviceCurtailmentConfigurator interface {
+	ApplyCurtailmentConfig(ctx context.Context, config CurtailmentConfig) error
 }
 
 // DeviceConfiguration represents device configuration operations

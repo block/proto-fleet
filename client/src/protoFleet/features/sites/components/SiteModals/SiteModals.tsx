@@ -1,6 +1,7 @@
 import ManageSiteModal from "../ManageSiteModal";
 import SiteDeleteDialog from "../SiteDeleteDialog";
 import SiteSettingsModal from "../SiteSettingsModal";
+import SiteBuildingsPicker from "./SiteBuildingsPicker";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { type useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
 
@@ -17,44 +18,34 @@ interface SiteModalsProps {
 
 const SiteModals = ({ modals, sites, buildingsRefreshKey }: SiteModalsProps) => {
   const { state, deleteTarget } = modals;
-  const showManage =
-    state.kind === "manageCreate" ||
-    state.kind === "manageEdit" ||
-    state.kind === "manageCreateEditingDetails" ||
-    state.kind === "manageEditEditingDetails";
+  const showManage = state.kind === "manageEdit" || state.kind === "manageEditEditingDetails";
 
-  // Delete in the create flow (whether or not details is stacked) discards
-  // the pending create; edit-flow routes through requestDeleteCurrent which
-  // opens the cascade dialog from the page-level cache.
-  const handleDelete = () => {
-    if (state.kind === "manageCreate" || state.kind === "manageCreateEditingDetails") {
-      modals.cancelAll();
-      return;
-    }
-    modals.requestDeleteCurrent(sites);
-  };
+  // The manage modal is always backed by a persisted site (Continue creates it
+  // up front), so Delete always opens the cascade dialog from the page-level
+  // cache rather than discarding a pending create.
+  const handleDelete = () => modals.requestDeleteCurrent(sites);
 
-  const manageDraft = showManage ? state.draft : undefined;
-  const manageSite = state.kind === "manageEdit" || state.kind === "manageEditEditingDetails" ? state.site : undefined;
-  const manageMode = state.kind === "manageEdit" || state.kind === "manageEditEditingDetails" ? "edit" : "create";
+  const manageSite = showManage ? state.site : undefined;
 
   return (
     <>
       {/* Render ManageSiteModal first so SiteSettingsModal's portal lands
           later in the DOM and naturally stacks on top at the same z-50. */}
-      {showManage && manageDraft ? (
+      {showManage && manageSite ? (
         <ManageSiteModal
-          // Key on the site id so switching directly between sites (or
-          // create → edit) remounts the modal with a fresh building working
-          // set + load-time snapshot, instead of briefly rendering the prior
-          // site's entries until the new fetch resolves. Mirrors how the host
-          // keys ManageBuildingModal on building.id.
-          key={manageSite ? manageSite.id.toString() : "create"}
+          // Key on the site id so switching directly between sites remounts the
+          // modal with a fresh building working set + load-time snapshot,
+          // instead of briefly rendering the prior site's entries until the new
+          // fetch resolves. Mirrors how the host keys ManageBuildingModal on
+          // building.id.
+          key={manageSite.id.toString()}
           open
-          mode={manageMode}
-          draft={manageDraft}
+          draft={state.draft}
           site={manageSite}
-          onSave={modals.manageSave}
+          onAssignBuildings={modals.manageAssignBuildings}
+          onRemoveBuilding={modals.manageRemoveBuilding}
+          onCreateBuilding={modals.manageCreateBuilding}
+          onCreateBuildings={modals.manageCreateBuildings}
           onEditDetails={modals.manageEditDetails}
           onDeleteRequested={handleDelete}
           onDismiss={modals.dismiss}
@@ -64,23 +55,26 @@ const SiteModals = ({ modals, sites, buildingsRefreshKey }: SiteModalsProps) => 
           unassignedMinerCount={modals.manageUnassignedMinerCount}
         />
       ) : null}
+      {state.kind === "buildingsPicker" ? (
+        <SiteBuildingsPicker
+          site={state.site}
+          currentBuildings={state.currentBuildings}
+          onAssignBuildings={modals.manageAssignBuildings}
+          // picker* rather than manage*: with no ManageSiteModal working set to
+          // inject into, the created rows only appear if the host's list is
+          // refetched.
+          onCreateBuilding={modals.pickerCreateBuilding}
+          onCreateBuildings={modals.pickerCreateBuildings}
+          onDismiss={modals.dismiss}
+          saving={modals.saving}
+        />
+      ) : null}
       {state.kind === "detailsCreate" ? (
         <SiteSettingsModal
           open
           mode="create"
           initialValues={state.draft}
           onContinue={modals.detailsContinueCreate}
-          onDismiss={modals.dismiss}
-          saving={modals.saving}
-        />
-      ) : null}
-      {state.kind === "manageCreateEditingDetails" ? (
-        <SiteSettingsModal
-          open
-          mode="createReturn"
-          initialValues={state.draft}
-          onContinue={modals.detailsContinueCreate}
-          onDeleteRequested={handleDelete}
           onDismiss={modals.dismiss}
           saving={modals.saving}
         />

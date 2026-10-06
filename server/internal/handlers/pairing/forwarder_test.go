@@ -45,19 +45,22 @@ func TestDedupForwarder_IPPortFallbackKey(t *testing.T) {
 	require.Len(t, sent, 1)
 }
 
-func TestDedupForwarder_DropsAllDuplicateBatchButKeepsErrorResponse(t *testing.T) {
+func TestDedupForwarder_DropsAllDuplicateBatchButKeepsWarningResponse(t *testing.T) {
 	// Arrange
 	var sent []*pb.DiscoverResponse
 	fwd := newDedupForwarder(func(r *pb.DiscoverResponse) error { sent = append(sent, r); return nil }, nil)
 	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80")}}))
 
-	// Act: a fully-duplicate batch is dropped; an error-only response is forwarded.
+	// Act: a fully-duplicate batch is dropped; a warning-only response is forwarded.
 	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80")}}))
-	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Error: "scan failed"}))
+	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Warning: "scan failed"}))
+	require.NoError(t, fwd.forward(&pb.DiscoverResponse{Devices: []*pb.Device{dev("mac:a", "10.0.0.1", "80")}, Warning: "stopped early"}))
 
 	// Assert
-	require.Len(t, sent, 2)
-	assert.Equal(t, "scan failed", sent[1].GetError())
+	require.Len(t, sent, 3)
+	assert.Equal(t, "scan failed", sent[1].GetWarning())
+	assert.Empty(t, sent[2].GetDevices())
+	assert.Equal(t, "stopped early", sent[2].GetWarning())
 }
 
 func TestDedupForwarder_SendErrorRecordedAndCancels(t *testing.T) {

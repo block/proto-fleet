@@ -146,6 +146,22 @@ WHERE org_id = sqlc.arg('org_id')
   AND site_id = sqlc.arg('site_id')
   AND deleted_at IS NULL;
 
+-- name: CountInventoryPartsBySite :one
+SELECT COUNT(*)::bigint
+FROM inventory_part
+WHERE org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('site_id')
+  AND deleted_at IS NULL;
+
+-- name: CountRepairTicketsBySite :one
+-- Only unfinished work blocks deletion; completed tickets retain historical links.
+SELECT COUNT(*)::bigint
+FROM repair_ticket
+WHERE org_id = sqlc.arg('org_id')
+  AND site_id = sqlc.arg('site_id')
+  AND deleted_at IS NULL
+  AND status <> 5;
+
 -- name: UpdateSite :exec
 -- The slug is not user-editable but tracks the name: the service regenerates
 -- it on a rename and re-sends the unchanged slug otherwise. A slug
@@ -170,7 +186,7 @@ WHERE id = sqlc.arg('id')
 
 -- name: SoftDeleteSite :execrows
 -- Caller is expected to also cascade-unassign attached devices/racks and
--- soft-delete buildings in the same transaction (cascade — see plan J3).
+-- soft-delete buildings in the same transaction (cascade).
 UPDATE site
 SET deleted_at = CURRENT_TIMESTAMP
 WHERE id = sqlc.arg('id')
@@ -404,6 +420,7 @@ SELECT id FROM device
 WHERE org_id = sqlc.arg('org_id')
   AND device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND deleted_at IS NULL
+ORDER BY id
 FOR UPDATE;
 
 -- name: FindDeviceSiteConflicts :many

@@ -604,3 +604,41 @@ func (mr *MockMinerPasswordCredentialUpdaterMockRecorder) UpdateMinerPasswordWit
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateMinerPasswordWithCredentials", reflect.TypeOf((*MockMinerPasswordCredentialUpdater)(nil).UpdateMinerPasswordWithCredentials), ctx, payload)
 }
+
+// MockMinerCurtailmentConfigurator is a mock of MinerCurtailmentConfigurator interface.
+type MockMinerCurtailmentConfigurator struct {
+	ctrl     *gomock.Controller
+	recorder *MockMinerCurtailmentConfiguratorMockRecorder
+	isgomock struct{}
+}
+
+// MockMinerCurtailmentConfiguratorMockRecorder is the mock recorder for MockMinerCurtailmentConfigurator.
+type MockMinerCurtailmentConfiguratorMockRecorder struct {
+	mock *MockMinerCurtailmentConfigurator
+}
+
+// NewMockMinerCurtailmentConfigurator creates a new mock instance.
+func NewMockMinerCurtailmentConfigurator(ctrl *gomock.Controller) *MockMinerCurtailmentConfigurator {
+	mock := &MockMinerCurtailmentConfigurator{ctrl: ctrl}
+	mock.recorder = &MockMinerCurtailmentConfiguratorMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockMinerCurtailmentConfigurator) EXPECT() *MockMinerCurtailmentConfiguratorMockRecorder {
+	return m.recorder
+}
+
+// ApplyCurtailmentConfig mocks base method.
+func (m *MockMinerCurtailmentConfigurator) ApplyCurtailmentConfig(ctx context.Context, payload dto.ApplyCurtailmentConfigPayload) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ApplyCurtailmentConfig", ctx, payload)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ApplyCurtailmentConfig indicates an expected call of ApplyCurtailmentConfig.
+func (mr *MockMinerCurtailmentConfiguratorMockRecorder) ApplyCurtailmentConfig(ctx, payload any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApplyCurtailmentConfig", reflect.TypeOf((*MockMinerCurtailmentConfigurator)(nil).ApplyCurtailmentConfig), ctx, payload)
+}

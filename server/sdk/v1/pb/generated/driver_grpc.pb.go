@@ -47,6 +47,7 @@ const (
 	Driver_UpdateMinerPassword_FullMethodName     = "/sdk.v1.Driver/UpdateMinerPassword"
 	Driver_Curtail_FullMethodName                 = "/sdk.v1.Driver/Curtail"
 	Driver_Uncurtail_FullMethodName               = "/sdk.v1.Driver/Uncurtail"
+	Driver_ApplyCurtailmentConfig_FullMethodName  = "/sdk.v1.Driver/ApplyCurtailmentConfig"
 	Driver_DeviceStatus_FullMethodName            = "/sdk.v1.Driver/DeviceStatus"
 	Driver_GetTimeSeriesData_FullMethodName       = "/sdk.v1.Driver/GetTimeSeriesData"
 	Driver_GetDeviceWebViewURL_FullMethodName     = "/sdk.v1.Driver/GetDeviceWebViewURL"
@@ -95,6 +96,8 @@ type DriverClient interface {
 	Curtail(ctx context.Context, in *CurtailRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Restore a previously curtailed device to normal operation.
 	Uncurtail(ctx context.Context, in *UncurtailRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Optional: replace the rig-local curtailment fallback configuration.
+	ApplyCurtailmentConfig(ctx context.Context, in *ApplyCurtailmentConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// CoreV1 - Base Telemetry - Required methods
 	DeviceStatus(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*DeviceMetrics, error)
 	// CoreV1 - Advanced Telemetry - Optional methods
@@ -350,6 +353,15 @@ func (c *driverClient) Uncurtail(ctx context.Context, in *UncurtailRequest, opts
 	return out, nil
 }
 
+func (c *driverClient) ApplyCurtailmentConfig(ctx context.Context, in *ApplyCurtailmentConfigRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, Driver_ApplyCurtailmentConfig_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *driverClient) DeviceStatus(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*DeviceMetrics, error) {
 	out := new(DeviceMetrics)
 	err := c.cc.Invoke(ctx, Driver_DeviceStatus_FullMethodName, in, out, opts...)
@@ -467,6 +479,8 @@ type DriverServer interface {
 	Curtail(context.Context, *CurtailRequest) (*emptypb.Empty, error)
 	// Restore a previously curtailed device to normal operation.
 	Uncurtail(context.Context, *UncurtailRequest) (*emptypb.Empty, error)
+	// Optional: replace the rig-local curtailment fallback configuration.
+	ApplyCurtailmentConfig(context.Context, *ApplyCurtailmentConfigRequest) (*emptypb.Empty, error)
 	// CoreV1 - Base Telemetry - Required methods
 	DeviceStatus(context.Context, *DeviceRef) (*DeviceMetrics, error)
 	// CoreV1 - Advanced Telemetry - Optional methods
@@ -562,6 +576,9 @@ func (UnimplementedDriverServer) Curtail(context.Context, *CurtailRequest) (*emp
 }
 func (UnimplementedDriverServer) Uncurtail(context.Context, *UncurtailRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Uncurtail not implemented")
+}
+func (UnimplementedDriverServer) ApplyCurtailmentConfig(context.Context, *ApplyCurtailmentConfigRequest) (*emptypb.Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ApplyCurtailmentConfig not implemented")
 }
 func (UnimplementedDriverServer) DeviceStatus(context.Context, *DeviceRef) (*DeviceMetrics, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeviceStatus not implemented")
@@ -1062,6 +1079,24 @@ func _Driver_Uncurtail_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Driver_ApplyCurtailmentConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyCurtailmentConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).ApplyCurtailmentConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_ApplyCurtailmentConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).ApplyCurtailmentConfig(ctx, req.(*ApplyCurtailmentConfigRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Driver_DeviceStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DeviceRef)
 	if err := dec(in); err != nil {
@@ -1283,6 +1318,10 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Uncurtail",
 			Handler:    _Driver_Uncurtail_Handler,
+		},
+		{
+			MethodName: "ApplyCurtailmentConfig",
+			Handler:    _Driver_ApplyCurtailmentConfig_Handler,
 		},
 		{
 			MethodName: "DeviceStatus",

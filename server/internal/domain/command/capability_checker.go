@@ -119,7 +119,7 @@ func (c *CapabilityChecker) getDeviceInfo(
 
 // getAllDeviceInfo retrieves info for command-eligible devices in the organization.
 func (c *CapabilityChecker) getAllDeviceInfo(ctx context.Context, orgID int64) ([]deviceInfo, error) {
-	return db.WithTransaction(ctx, c.conn, func(q *sqlc.Queries) ([]deviceInfo, error) {
+	return db.WithTransaction(ctx, c.conn, func(q sqlc.Querier) ([]deviceInfo, error) {
 		rows, err := q.GetAllDeviceInfoForCapabilityCheck(ctx, orgID)
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("error getting device info: %v", err)
@@ -143,7 +143,7 @@ func (c *CapabilityChecker) getDeviceInfoByDeviceIdentifiers(
 		return []deviceInfo{}, nil
 	}
 
-	return db.WithTransaction(ctx, c.conn, func(q *sqlc.Queries) ([]deviceInfo, error) {
+	return db.WithTransaction(ctx, c.conn, func(q sqlc.Querier) ([]deviceInfo, error) {
 		rows, err := q.GetDeviceInfoForCapabilityCheck(ctx, sqlc.GetDeviceInfoForCapabilityCheckParams{
 			DeviceIdentifiers: deviceIdentifiers,
 			OrgID:             orgID,

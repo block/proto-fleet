@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 
+import { AutomationResponseProfileRevisionConflictError } from "@/protoFleet/api/automationResponseProfileRevisionConflict";
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
   type CurtailmentAutomationRule as ApiCurtailmentAutomationRule,
@@ -15,8 +17,16 @@ import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/reques
 import type {
   AutomationRule,
   AutomationRuleFormValues,
+  ResponseProfile,
 } from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useAuthErrors } from "@/protoFleet/store";
+
+const responseProfileRevisionConflictMessage =
+  "curtailment response profile changed before automation rule save; retry";
+
+type UseCurtailmentAutomationRulesOptions = {
+  refreshResponseProfiles?: () => Promise<ResponseProfile[]>;
+};
 
 export type UseCurtailmentAutomationRulesResult = {
   automationRules: AutomationRule[];
@@ -28,7 +38,11 @@ export type UseCurtailmentAutomationRulesResult = {
   listAutomationRules: (signal?: AbortSignal) => Promise<AutomationRule[]>;
   createAutomationRule: (values: AutomationRuleFormValues) => Promise<AutomationRule>;
   updateAutomationRule: (ruleId: string, values: AutomationRuleFormValues) => Promise<AutomationRule>;
-  setAutomationRuleEnabled: (ruleId: string, enabled: boolean) => Promise<AutomationRule>;
+  setAutomationRuleEnabled: (
+    ruleId: string,
+    enabled: boolean,
+    expectedResponseProfileRevision?: string,
+  ) => Promise<AutomationRule>;
   deleteAutomationRule: (ruleId: string) => Promise<void>;
 };
 
@@ -63,16 +77,36 @@ function parsePositiveBigIntId(value: string, label: string): bigint {
   return BigInt(trimmedValue);
 }
 
+function requireResponseProfileRevision(value: string | undefined): string {
+  const revision = value?.trim();
+  if (!revision) {
+    throw new Error("Reload response profiles before saving the automation rule.");
+  }
+  return revision;
+}
+
+function isResponseProfileRevisionConflict(error: unknown): boolean {
+  return (
+    error instanceof ConnectError &&
+    error.code === Code.FailedPrecondition &&
+    error.rawMessage === responseProfileRevisionConflictMessage
+  );
+}
+
 function buildAutomationRulePayload(values: AutomationRuleFormValues) {
   return {
     ruleName: values.name.trim(),
     triggerType: CurtailmentAutomationTriggerType.MQTT,
     mqttSourceId: parsePositiveBigIntId(values.sourceId, "source"),
     responseProfileId: parsePositiveBigIntId(values.responseProfileId, "response profile"),
+    expectedResponseProfileRevision: requireResponseProfileRevision(values.responseProfileRevision),
   };
 }
 
-export default function useCurtailmentAutomationRules(enabled = true): UseCurtailmentAutomationRulesResult {
+export default function useCurtailmentAutomationRules(
+  enabled = true,
+  { refreshResponseProfiles }: UseCurtailmentAutomationRulesOptions = {},
+): UseCurtailmentAutomationRulesResult {
   const { handleAuthErrors } = useAuthErrors();
   const [apiRules, setApiRules] = useState<ApiCurtailmentAutomationRule[]>([]);
   const [isLoading, setIsLoading] = useState(enabled);
@@ -94,6 +128,29 @@ export default function useCurtailmentAutomationRules(enabled = true): UseCurtai
       return resolvedError;
     },
     [handleAuthErrors],
+  );
+
+  const handleMutationFailure = useCallback(
+    async (error: unknown, fallbackMessage: string): Promise<Error> => {
+      const resolvedError = handleFailure(error, fallbackMessage);
+      if (!isResponseProfileRevisionConflict(error)) {
+        return resolvedError;
+      }
+
+      let responseProfiles: ResponseProfile[] = [];
+      let conflictMessage =
+        "This response profile changed in another session. The latest values have been loaded; review the automation before trying again.";
+      try {
+        if (!refreshResponseProfiles) {
+          throw new Error("Response profile refresh is unavailable.");
+        }
+        responseProfiles = await refreshResponseProfiles();
+      } catch {
+        conflictMessage = "This response profile changed in another session. Reload the page before trying again.";
+      }
+      return new AutomationResponseProfileRevisionConflictError(conflictMessage, responseProfiles, error);
+    },
+    [handleFailure, refreshResponseProfiles],
   );
 
   const listAutomationRules = useCallback(
@@ -169,14 +226,14 @@ export default function useCurtailmentAutomationRules(enabled = true): UseCurtai
         ]);
         return mapApiAutomationRule(createdRule, apiRules.length + 1);
       } catch (error) {
-        const resolvedError = handleFailure(error, "Failed to create automation rule.");
+        const resolvedError = await handleMutationFailure(error, "Failed to create automation rule.");
         setCreateError(resolvedError.message);
         throw resolvedError;
       } finally {
         setIsCreating(false);
       }
     },
-    [apiRules.length, handleFailure],
+    [apiRules.length, handleMutationFailure],
   );
 
   const updateAutomationRule = useCallback(
@@ -201,7 +258,8 @@ export default function useCurtailmentAutomationRules(enabled = true): UseCurtai
         const priority = automationRules.find((rule) => rule.id === ruleId)?.priority ?? 0;
         return mapApiAutomationRule(updatedRule, priority);
       } catch (error) {
-        throw handleFailure(error, "Failed to update automation rule.");
+        const resolvedError = await handleMutationFailure(error, "Failed to update automation rule.");
+        throw resolvedError;
       } finally {
         setUpdatingRuleIds((currentIds) => {
           const nextIds = new Set(currentIds);
@@ -210,11 +268,11 @@ export default function useCurtailmentAutomationRules(enabled = true): UseCurtai
         });
       }
     },
-    [automationRules, handleFailure],
+    [automationRules, handleMutationFailure],
   );
 
   const setAutomationRuleEnabled = useCallback(
-    async (ruleId: string, enabled: boolean): Promise<AutomationRule> => {
+    async (ruleId: string, enabled: boolean, expectedResponseProfileRevision?: string): Promise<AutomationRule> => {
       setUpdatingRuleIds((currentIds) => new Set(currentIds).add(ruleId));
 
       try {
@@ -222,6 +280,9 @@ export default function useCurtailmentAutomationRules(enabled = true): UseCurtai
           create(SetCurtailmentAutomationRuleEnabledRequestSchema, {
             ruleId: parsePositiveBigIntId(ruleId, "automation rule"),
             enabled,
+            expectedResponseProfileRevision: enabled
+              ? requireResponseProfileRevision(expectedResponseProfileRevision)
+              : "",
           }),
         );
         if (!response.rule) {
@@ -235,7 +296,8 @@ export default function useCurtailmentAutomationRules(enabled = true): UseCurtai
         const priority = automationRules.find((rule) => rule.id === ruleId)?.priority ?? 0;
         return mapApiAutomationRule(updatedRule, priority);
       } catch (error) {
-        throw handleFailure(error, "Failed to update automation rule.");
+        const resolvedError = await handleMutationFailure(error, "Failed to update automation rule.");
+        throw resolvedError;
       } finally {
         setUpdatingRuleIds((currentIds) => {
           const nextIds = new Set(currentIds);
@@ -244,7 +306,7 @@ export default function useCurtailmentAutomationRules(enabled = true): UseCurtai
         });
       }
     },
-    [automationRules, handleFailure],
+    [automationRules, handleMutationFailure],
   );
 
   const deleteAutomationRule = useCallback(

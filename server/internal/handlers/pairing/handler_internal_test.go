@@ -3,21 +3,85 @@ package pairing
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"slices"
+	"sync"
 	"testing"
+	"time"
 
+	"buf.build/go/protovalidate"
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/proto"
 
 	commonv1 "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fleetmanagementv1 "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	fleetnodediscovery "github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
+	discoverymocks "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/mocks"
+	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	domainpairing "github.com/block/proto-fleet/server/internal/domain/pairing"
+	pairingmocks "github.com/block/proto-fleet/server/internal/domain/pairing/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	storemocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
+
+type stubFleetNodeDiscoveryRunner struct {
+	mu          sync.Mutex
+	nodeIDs     []int64
+	eligibleErr error
+	requests    []*pb.DiscoverRequest
+	runErr      error
+	warning     string
+}
+
+func (s *stubFleetNodeDiscoveryRunner) EligibleNodeIDs(context.Context, int64) ([]int64, error) {
+	return s.nodeIDs, s.eligibleErr
+}
+
+func (s *stubFleetNodeDiscoveryRunner) RunOnNode(
+	_ context.Context,
+	nodeID int64,
+	source string,
+	req *pb.DiscoverRequest,
+	onBatch func(*pb.DiscoverResponse) error,
+) error {
+	if err := fleetnodediscovery.ValidateRequest(req); err != nil {
+		return err
+	}
+	cloned := proto.CloneOf(req)
+	s.mu.Lock()
+	s.requests = append(s.requests, cloned)
+	s.mu.Unlock()
+	if s.runErr != nil {
+		return s.runErr
+	}
+	if err := onBatch(&pb.DiscoverResponse{Devices: []*pb.Device{
+		{DeviceIdentifier: "shared", IpAddress: "192.168.1.10", Port: "4028"},
+		{DeviceIdentifier: fmt.Sprintf("node-%d", nodeID), IpAddress: "192.168.1.11", Port: "4028"},
+	}}); err != nil {
+		return err
+	}
+	if s.warning != "" {
+		if err := onBatch(&pb.DiscoverResponse{Warning: fmt.Sprintf("%s: %s", source, s.warning)}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // ctxWithPerms builds the request context the auth interceptor would produce:
 // session info plus the caller's effective org-scoped permissions.
@@ -36,48 +100,337 @@ func ctxWithPerms(perms ...string) context.Context {
 	))
 }
 
-func TestCallerCanManageFleetNodes(t *testing.T) {
-	tests := []struct {
-		name  string
-		perms []string
-		want  bool
-	}{
-		{
-			// The fan-out regression: miner:pair alone (no fleetnode:manage) must
-			// NOT unlock fleet-node discovery commands.
-			name:  "miner:pair only does not grant fleet-node management",
-			perms: []string{authz.PermMinerPair},
-			want:  false,
-		},
-		{
-			name:  "fleetnode:manage grants it",
-			perms: []string{authz.PermMinerPair, authz.PermFleetnodeManage},
-			want:  true,
-		},
-		{
-			name:  "fleetnode:read alone does not grant it",
-			perms: []string{authz.PermMinerPair, authz.PermFleetnodeRead},
-			want:  false,
-		},
-		{
-			name:  "no permissions",
-			perms: nil,
-			want:  false,
-		},
+func TestFleetNodeDiscoveryRequest(t *testing.T) {
+	ipList := &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{
+		IpAddresses: []string{"192.168.1.10"}, Ports: []string{"4028"},
+	}}}
+	ipRange := &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{
+		StartIp: "192.168.1.10", EndIp: "192.168.1.20", Ports: []string{"4028"},
+	}}}
+	networkScanRequest := func(localSubnet bool) *pb.DiscoverRequest {
+		return &pb.DiscoverRequest{
+			Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{
+				Target: "192.168.1.0/24", Ports: []string{"4028"}, UseFleetNodeLocalSubnet: localSubnet,
+			}},
+		}
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
-			ctx := ctxWithPerms(tc.perms...)
+	assert.Same(t, ipList, fleetNodeDiscoveryRequest(ipList))
+	assert.Same(t, ipRange, fleetNodeDiscoveryRequest(ipRange))
+	assert.Nil(t, fleetNodeDiscoveryRequest(&pb.DiscoverRequest{
+		Mode: &pb.DiscoverRequest_Mdns{Mdns: &pb.MDNSModeRequest{}},
+	}))
+	manual := networkScanRequest(false)
+	automatic := networkScanRequest(true)
+	assert.Same(t, manual, fleetNodeDiscoveryRequest(manual))
+	assert.Same(t, automatic, fleetNodeDiscoveryRequest(automatic))
+}
 
-			// Act
-			got := callerCanManageFleetNodes(ctx)
+func TestDiscoverRequest_IPListTargetLimit(t *testing.T) {
+	addresses := make([]string, 4096)
+	for i := range addresses {
+		addresses[i] = "192.168.1.10"
+	}
+	request := &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{
+		IpAddresses: addresses,
+	}}}
 
-			// Assert
-			assert.Equal(t, tc.want, got)
+	assert.NoError(t, protovalidate.Validate(request))
+	request.GetIpList().IpAddresses = append(request.GetIpList().IpAddresses, "192.168.1.11")
+	assert.Error(t, protovalidate.Validate(request))
+}
+
+func TestDiscoverRequest_RawPortLimit(t *testing.T) {
+	requests := []func([]string) *pb.DiscoverRequest{
+		func(ports []string) *pb.DiscoverRequest {
+			return &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{
+				IpAddresses: []string{"10.0.0.1"}, Ports: ports,
+			}}}
+		},
+		func(ports []string) *pb.DiscoverRequest {
+			return &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{
+				StartIp: "10.0.0.1", EndIp: "10.0.0.2", Ports: ports,
+			}}}
+		},
+		func(ports []string) *pb.DiscoverRequest {
+			return &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{
+				Target: "10.0.0.0/20", Ports: ports,
+			}}}
+		},
+	}
+	for _, request := range requests {
+		t.Run(fmt.Sprintf("%T", request(nil).GetMode()), func(t *testing.T) {
+			// Duplicate strings still consume the raw request budget, before normalization.
+			ports := make([]string, 10)
+			for i := range ports {
+				ports[i] = "80"
+			}
+			assert.NoError(t, protovalidate.Validate(request(ports)))
+			assert.Error(t, protovalidate.Validate(request(slices.Concat(ports, []string{"80"}))))
 		})
 	}
+}
+
+func TestForwardDiscoverySources_FansOutManualRequestsAndDeduplicates(t *testing.T) {
+	requests := []*pb.DiscoverRequest{
+		{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}, Ports: []string{"4028"}}}},
+		{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "192.168.1.10", EndIp: "192.168.1.20", Ports: []string{"4028"}}}},
+		{Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{Target: "192.168.1.0/24", Ports: []string{"4028"}}}},
+	}
+
+	for _, req := range requests {
+		t.Run(fmt.Sprintf("%T", req.GetMode()), func(t *testing.T) {
+			runner := &stubFleetNodeDiscoveryRunner{
+				nodeIDs: []int64{7, 8},
+				warning: "node busy",
+			}
+			h := &Handler{discovery: runner}
+			serverResults := make(chan *pb.DiscoverResponse, 1)
+			serverResults <- &pb.DiscoverResponse{Devices: []*pb.Device{{
+				DeviceIdentifier: "shared", IpAddress: "192.168.1.10", Port: "4028",
+			}}}
+			close(serverResults)
+			var sent []*pb.Device
+			var warnings []string
+			fwd := newDedupForwarder(func(resp *pb.DiscoverResponse) error {
+				sent = append(sent, resp.GetDevices()...)
+				if resp.GetWarning() != "" {
+					warnings = append(warnings, resp.GetWarning())
+				}
+				return nil
+			}, nil)
+
+			require.NoError(t, h.forwardDiscoverySources(ctxWithPerms(authz.PermMinerPair), 1, serverResults, req, fwd))
+			assert.ElementsMatch(t, []string{"Fleet Node: node busy", "Fleet Node: node busy"}, warnings)
+
+			require.Len(t, runner.requests, 2)
+			for _, got := range runner.requests {
+				assert.True(t, proto.Equal(req, got), "manual request must reach every node unchanged")
+			}
+			ids := make([]string, 0, len(sent))
+			for _, device := range sent {
+				ids = append(ids, device.GetDeviceIdentifier())
+			}
+			assert.ElementsMatch(t, []string{"shared", "node-7", "node-8"}, ids)
+		})
+	}
+}
+
+func TestForwardDiscoverySources_CanceledContextDoesNotDispatch(t *testing.T) {
+	runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7, 8}}
+	h := &Handler{discovery: runner}
+	serverResults := make(chan *pb.DiscoverResponse)
+	close(serverResults)
+	ctx, cancel := context.WithCancel(ctxWithPerms(authz.PermMinerPair))
+	cancel()
+	fwd := newDedupForwarder(func(*pb.DiscoverResponse) error { return nil }, nil)
+
+	require.NoError(t, h.forwardDiscoverySources(ctx, 1, serverResults, &pb.DiscoverRequest{
+		Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}},
+	}, fwd))
+
+	assert.Empty(t, runner.requests)
+}
+
+func TestForwardDiscoverySources_EligibleNodeLookupFailureKeepsServerResults(t *testing.T) {
+	runner := &stubFleetNodeDiscoveryRunner{eligibleErr: errors.New("lookup failed")}
+	h := &Handler{discovery: runner}
+	serverResults := make(chan *pb.DiscoverResponse, 1)
+	serverResults <- &pb.DiscoverResponse{Devices: []*pb.Device{{DeviceIdentifier: "server"}}}
+	close(serverResults)
+	var sent []*pb.Device
+	var warnings []string
+	fwd := newDedupForwarder(func(resp *pb.DiscoverResponse) error {
+		sent = append(sent, resp.GetDevices()...)
+		if resp.GetWarning() != "" {
+			warnings = append(warnings, resp.GetWarning())
+		}
+		return nil
+	}, nil)
+	require.NoError(t, h.forwardDiscoverySources(ctxWithPerms(authz.PermMinerPair), 1, serverResults, &pb.DiscoverRequest{
+		Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}},
+	}, fwd))
+	assert.Empty(t, runner.requests)
+	require.Len(t, sent, 1)
+	assert.Equal(t, "server", sent[0].GetDeviceIdentifier())
+	assert.Equal(t, []string{"Fleet Nodes: unable to list connected nodes"}, warnings)
+}
+
+func TestForwardDiscoverySources_AuthenticationAndLookupValidationErrorsAreTerminal(t *testing.T) {
+	for _, sourceErr := range []error{fleeterror.NewInvalidArgumentError("invalid target"), fleeterror.NewUnauthenticatedError("expired session"), fleeterror.NewForbiddenError("no permission")} {
+		for _, lookup := range []bool{false, true} {
+			if !lookup && fleeterror.IsInvalidArgumentError(sourceErr) {
+				continue // Node-specific target policy failures are source warnings.
+			}
+			t.Run(fmt.Sprintf("%v/lookup-%t", sourceErr, lookup), func(t *testing.T) {
+				runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}, runErr: sourceErr}
+				if lookup {
+					runner.eligibleErr = sourceErr
+				}
+				h := &Handler{discovery: runner}
+				serverResults := make(chan *pb.DiscoverResponse)
+				close(serverResults)
+				fwd := newDedupForwarder(func(resp *pb.DiscoverResponse) error { assert.Empty(t, resp.GetWarning()); return nil }, nil)
+				err := h.forwardDiscoverySources(t.Context(), 1, serverResults, &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}}}, fwd)
+				require.ErrorIs(t, err, sourceErr)
+			})
+		}
+	}
+}
+
+func TestDiscover_NodeFailureKeepsLaterServerResults(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		req               *pb.DiscoverRequest
+		serverIP          string
+		rejectCredentials bool
+	}{
+		{"public address", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"8.8.8.8"}, Ports: []string{"4028"}}}}, "8.8.8.8", false},
+		{"broad private range", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "10.0.0.0", EndIp: "10.0.31.255", Ports: []string{"4028"}}}}, "10.0.0.0", false},
+		{"miner credentials rejected", &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}, Ports: []string{"4028"}}}}, "192.168.1.10", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			warningSeen := make(chan struct{})
+			ctrl := gomock.NewController(t)
+			discoverer := discoverymocks.NewMockDiscoverer(ctrl)
+			discoverer.EXPECT().Discover(gomock.Any(), gomock.Any(), "4028").DoAndReturn(
+				func(_ context.Context, ip, _ string) (*discoverymodels.DiscoveredDevice, error) {
+					if ip != tc.serverIP {
+						return nil, nil
+					}
+					// A real server result must survive after the node warning reaches the client.
+					select {
+					case <-warningSeen:
+						return &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "server", FirmwareVersion: "1"}}, nil
+					case <-ctx.Done():
+						return nil, ctx.Err()
+					}
+				}).AnyTimes()
+			store := storemocks.NewMockDiscoveredDeviceStore(ctrl)
+			store.EXPECT().Save(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, _ discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
+					return device, nil
+				})
+			caps := pairingmocks.NewMockCapabilitiesProvider(ctrl)
+			caps.EXPECT().GetMinerCapabilitiesForDevice(gomock.Any(), gomock.Any()).Return(nil)
+			var runner fleetNodeDiscoveryRunner = &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
+			if tc.rejectCredentials {
+				reg := control.NewRegistry()
+				nodeStream := reg.Register(7)
+				defer nodeStream.Unregister()
+				go func() {
+					select {
+					case cmd := <-nodeStream.Outgoing:
+						nodeStream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED})
+					case <-ctx.Done():
+					}
+				}()
+				runner = credentialAckDiscoveryRunner{fleetnodediscovery.NewService(reg, nil)}
+			}
+			client := discoveryClientForHandler(t, &Handler{
+				pairingSvc: domainpairing.NewService(store, nil, nil, nil, nil, discoverer, caps, nil, nil),
+				discovery:  runner,
+			})
+			stream, err := client.Discover(ctx, connect.NewRequest(tc.req))
+			require.NoError(t, err)
+			var devices []*pb.Device
+			var warnings []string
+			for stream.Receive() {
+				response := stream.Msg()
+				if response.GetWarning() != "" {
+					warnings = append(warnings, response.GetWarning())
+					if len(warnings) == 1 {
+						close(warningSeen)
+					}
+				}
+				devices = append(devices, response.GetDevices()...)
+			}
+			require.NoError(t, stream.Err())
+			require.Len(t, warnings, 1)
+			assert.Contains(t, warnings[0], "Fleet Node:")
+			assert.NotContains(t, warnings[0], "Fleet Node 7")
+			require.Len(t, devices, 1)
+			assert.Equal(t, "server", devices[0].GetDeviceIdentifier())
+			assert.Equal(t, tc.serverIP, devices[0].GetIpAddress())
+		})
+	}
+}
+
+func TestForwardDiscoverySources_StreamInvalidArgumentStaysTerminal(t *testing.T) {
+	sendErr := fleeterror.NewInvalidArgumentError("stream rejected response")
+	h := &Handler{discovery: &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}}
+	fwd := newDedupForwarder(func(*pb.DiscoverResponse) error { return sendErr }, nil)
+	err := h.forwardDiscoverySources(t.Context(), 1, nil, &pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"10.0.0.1"}}}}, fwd)
+	require.ErrorIs(t, err, sendErr)
+	require.ErrorIs(t, fwd.failure(), sendErr)
+}
+
+func TestDiscover_ServerDefaultsUnavailableStillScansNodes(t *testing.T) {
+	for _, defaults := range [][]string{nil, {"not-a-port"}} {
+		t.Run(fmt.Sprint(defaults), func(t *testing.T) {
+			runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
+			client := discoveryClientWithDefaultPorts(t, runner, defaults)
+			stream, err := client.Discover(t.Context(), connect.NewRequest(&pb.DiscoverRequest{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}}}}))
+			require.NoError(t, err)
+			var devices []*pb.Device
+			var warnings []string
+			for stream.Receive() {
+				devices = append(devices, stream.Msg().GetDevices()...)
+				if stream.Msg().GetWarning() != "" {
+					warnings = append(warnings, stream.Msg().GetWarning())
+				}
+			}
+			require.NoError(t, stream.Err())
+			require.Len(t, runner.requests, 1)
+			require.Len(t, devices, 2)
+			require.Len(t, warnings, 1)
+			assert.Equal(t, "Fleet Server: discovery failed", warnings[0])
+		})
+	}
+}
+
+func TestDiscover_InvalidInputIsTerminalBeforeFanOut(t *testing.T) {
+	for _, req := range []*pb.DiscoverRequest{
+		{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{}}},
+		{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{Ports: []string{"4028"}}}},
+		{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.10"}, Ports: []string{"bad"}}}},
+		{Mode: &pb.DiscoverRequest_IpList{IpList: &pb.IPListModeRequest{IpAddresses: []string{"192.168.1.0/24"}}}},
+		{Mode: &pb.DiscoverRequest_IpRange{IpRange: &pb.IPRangeModeRequest{StartIp: "10.0.0.2", EndIp: "10.0.0.1"}}},
+		{Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{Target: "not/a/target"}}},
+		{Mode: &pb.DiscoverRequest_NetworkScan{NetworkScan: &pb.NetworkScanModeRequest{Target: "192.168.1.0/24", UseFleetNodeLocalSubnet: true, Ports: []string{"70000"}}}},
+	} {
+		t.Run(req.String(), func(t *testing.T) {
+			runner := &stubFleetNodeDiscoveryRunner{nodeIDs: []int64{7}}
+			client := discoveryClientWithDefaultPorts(t, runner, nil)
+			stream, err := client.Discover(t.Context(), connect.NewRequest(req))
+			if err == nil {
+				assert.False(t, stream.Receive())
+				err = stream.Err()
+			}
+			require.Error(t, err)
+			assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+			assert.Empty(t, runner.requests)
+		})
+	}
+}
+
+func discoveryClientWithDefaultPorts(t *testing.T, runner *stubFleetNodeDiscoveryRunner, defaults []string) pairingv1connect.PairingServiceClient {
+	t.Helper()
+	caps := pairingmocks.NewMockCapabilitiesProvider(gomock.NewController(t))
+	caps.EXPECT().GetDefaultDiscoveryPorts(gomock.Any()).Return(defaults).AnyTimes()
+	return discoveryClientForHandler(t, &Handler{pairingSvc: domainpairing.NewService(nil, nil, nil, nil, nil, nil, caps, nil, nil), discovery: runner})
+}
+
+func discoveryClientForHandler(t *testing.T, h *Handler) pairingv1connect.PairingServiceClient {
+	t.Helper()
+	_, handler := pairingv1connect.NewPairingServiceHandler(h, connect.WithInterceptors(interceptors.NewErrorMappingInterceptor()))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler.ServeHTTP(w, r.WithContext(ctxWithPerms(authz.PermMinerPair)))
+	}))
+	t.Cleanup(server.Close)
+	return pairingv1connect.NewPairingServiceClient(server.Client(), server.URL)
 }
 
 func TestSelectedDeviceIdentifiers_IncludeDevices(t *testing.T) {
@@ -271,4 +624,13 @@ func TestIsNoCloudPairTargetsError(t *testing.T) {
 	assert.True(t, isNoCloudPairTargetsError(fleeterror.NewInvalidArgumentError("no devices match the selector")))
 	assert.False(t, isNoCloudPairTargetsError(fleeterror.NewInvalidArgumentError("include_devices selector requires at least one device identifier")))
 	assert.False(t, isNoCloudPairTargetsError(connect.NewError(connect.CodeInvalidArgument, errors.New("no devices match the selector"))))
+}
+
+// Use the real command/ACK path while fixing node eligibility for the RPC test.
+type credentialAckDiscoveryRunner struct {
+	*fleetnodediscovery.Service
+}
+
+func (credentialAckDiscoveryRunner) EligibleNodeIDs(context.Context, int64) ([]int64, error) {
+	return []int64{7}, nil
 }

@@ -7,13 +7,14 @@ import { RacksPage } from "../pages/racks";
 import { SettingsPage } from "../pages/settings";
 import { SettingsPoolsPage } from "../pages/settingsPools";
 import { CommonSteps } from "./commonSteps";
+import { generateRandomText } from "./testDataHelper";
 
 export const VALID_POOL_URL = "stratum+tcp://mine.ocean.xyz:3334";
 export const AUTOMATION_ZONE = "AutomationZone";
 // Racks no longer auto-generate a label from the zone, so tests type one
-// explicitly. The afterEach deletes all racks, so a shared constant is safe
-// for single-rack tests (no cross-test label collisions).
-export const RACK_LABEL = "AutomationRack";
+// explicitly. Use per-test labels so repeated runs do not collide with stale
+// cleanup from a prior attempt.
+const RACK_LABEL_PREFIX = "automation_rack";
 export const RACK_COLUMNS = 2;
 export const RACK_ROWS = 2;
 export const VALIDATION_RACK_COLUMNS = 1;
@@ -31,6 +32,10 @@ export const ORDER_INDEX_SCENARIOS = [
   { label: "Bottom right", expectedNumbers: [4, 3, 2, 1] },
   { label: "Top right", expectedNumbers: [2, 1, 4, 3] },
 ] as const;
+
+export function createRackLabel(): string {
+  return generateRandomText(RACK_LABEL_PREFIX);
+}
 
 export async function cleanupPoolIfPageOpen(
   page: Page,

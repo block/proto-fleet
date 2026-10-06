@@ -201,12 +201,16 @@ func TestListFleetNodeDiscoveredDevices_ExcludesPairedIncludesAuthNeeded(t *test
 	node := createFleetNode(t, enrollment, orgID, "node-exclude-list")
 	upsertNodeDiscovered(t, pairing, orgID, node, "mac:keep")
 	upsertNodeDiscovered(t, pairing, orgID, node, "mac:bound")
+	upsertNodeDiscovered(t, pairing, orgID, node, "mac:bound-authneeded")
 	upsertNodeDiscovered(t, pairing, orgID, node, "mac:cloudpaired")
 	upsertNodeDiscovered(t, pairing, orgID, node, "mac:clouddefault")
 	upsertNodeDiscovered(t, pairing, orgID, node, "mac:authneeded")
 
 	boundDev := deviceForDiscovered(t, db, orgID, "mac:bound")
 	require.NoError(t, pairing.PairDevice(ctx, node, boundDev, orgID, nil))
+	boundAuthDev := deviceForDiscovered(t, db, orgID, "mac:bound-authneeded")
+	require.NoError(t, pairing.PairDevice(ctx, node, boundAuthDev, orgID, nil))
+	setPairingStatus(t, db, boundAuthDev, "AUTHENTICATION_NEEDED")
 
 	cloudDev := deviceForDiscovered(t, db, orgID, "mac:cloudpaired")
 	setPairingStatus(t, db, cloudDev, "PAIRED")
@@ -219,11 +223,15 @@ func TestListFleetNodeDiscoveredDevices_ExcludesPairedIncludesAuthNeeded(t *test
 	// Act
 	got, _, err := pairing.ListDiscoveredDevicesForFleetNode(ctx, orgID, &node, nil, nil)
 	require.NoError(t, err)
+	all, _, err := pairing.ListDiscoveredDevicesForFleetNode(ctx, orgID, nil, nil, nil)
+	require.NoError(t, err)
 
 	// Assert
 	ids := discoveredIdentifiers(got)
 	assert.Contains(t, ids, "mac:keep")
 	assert.Contains(t, ids, "mac:authneeded", "AUTHENTICATION_NEEDED rows must surface for retry")
+	assert.Contains(t, ids, "mac:bound-authneeded", "the owning node must be able to retry a recovery-marked miner")
+	assert.Contains(t, discoveredIdentifiers(all), "mac:bound-authneeded", "organization-wide listings must show recovery-marked miners")
 	assert.NotContains(t, ids, "mac:bound", "a device bound to the node is already paired")
 	assert.NotContains(t, ids, "mac:cloudpaired", "a cloud-PAIRED device is not offered for fleet-node pairing")
 	assert.NotContains(t, ids, "mac:clouddefault", "a cloud-DEFAULT_PASSWORD device is not offered for fleet-node pairing")

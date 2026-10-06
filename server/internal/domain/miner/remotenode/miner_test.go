@@ -29,19 +29,22 @@ import (
 )
 
 type fakeSender struct {
-	cmd       *gatewaypb.ControlCommand
-	ack       *gatewaypb.ControlAck
-	err       error
-	artifacts []control.ArtifactExpectation
-	refs      []*gatewaypb.CommandArtifactRef
+	minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion
+	cmd                           *gatewaypb.ControlCommand
+	ack                           *gatewaypb.ControlAck
+	err                           error
+	artifacts                     []control.ArtifactExpectation
+	refs                          []*gatewaypb.CommandArtifactRef
 }
 
-func (f *fakeSender) SendCommand(_ context.Context, _ int64, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+func (f *fakeSender) SendCommand(_ context.Context, _ int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+	f.minimumCommandProtocolVersion = minimumCommandProtocolVersion
 	f.cmd = cmd
 	return f.ack, f.err
 }
 
-func (f *fakeSender) SendCommandWithArtifactResults(_ context.Context, _ int64, cmd *gatewaypb.ControlCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
+func (f *fakeSender) SendCommandWithArtifactResults(_ context.Context, _ int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
+	f.minimumCommandProtocolVersion = minimumCommandProtocolVersion
 	f.cmd = cmd
 	f.artifacts = artifacts
 	return f.ack, f.refs, f.err
@@ -75,7 +78,7 @@ type blockingSender struct {
 	started chan struct{}
 }
 
-func (s *blockingSender) SendCommand(ctx context.Context, _ int64, _ *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+func (s *blockingSender) SendCommand(ctx context.Context, _ int64, _ gatewaypb.CommandProtocolVersion, _ *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
 	close(s.started)
 	<-ctx.Done()
 	return nil, fmt.Errorf("wait for ack: %w", ctx.Err())
@@ -140,11 +143,11 @@ type blockingArtifactSender struct {
 	release chan struct{}
 }
 
-func (s *blockingArtifactSender) SendCommand(_ context.Context, _ int64, _ *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+func (s *blockingArtifactSender) SendCommand(_ context.Context, _ int64, _ gatewaypb.CommandProtocolVersion, _ *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
 	return nil, fmt.Errorf("unexpected SendCommand")
 }
 
-func (s *blockingArtifactSender) SendCommandWithArtifactResults(ctx context.Context, _ int64, _ *gatewaypb.ControlCommand, _ []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
+func (s *blockingArtifactSender) SendCommandWithArtifactResults(ctx context.Context, _ int64, _ gatewaypb.CommandProtocolVersion, _ *gatewaypb.ControlCommand, _ []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
 	select {
 	case s.started <- struct{}{}:
 	case <-ctx.Done():
@@ -272,6 +275,7 @@ func TestMiner_EncodesActionAndTarget(t *testing.T) {
 
 			// Assert
 			require.NoError(t, err)
+			assert.Equal(t, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, s.minimumCommandProtocolVersion)
 			mc := decodeSent(t, s)
 			assert.Equal(t, "dev-1", mc.GetTarget().GetDeviceIdentifier())
 			assert.Equal(t, "10.0.0.5", mc.GetTarget().GetIpAddress())
@@ -666,6 +670,66 @@ func TestMiner_GetErrors_MalformedPayloadReturnsInternal(t *testing.T) {
 type releasableGate struct {
 	acquired chan int64
 	release  chan struct{}
+}
+
+type countingGate struct {
+	acquisitions int
+}
+
+func (g *countingGate) Acquire(_ context.Context, _ int64) (func(), error) {
+	g.acquisitions++
+	return func() {}, nil
+}
+
+func TestMinerAcquireGateUsesSharedAdmissionPolicy(t *testing.T) {
+	tests := []struct {
+		name           string
+		command        *gatewaypb.MinerCommand
+		wantGeneral    int
+		wantDeferrable int
+	}{
+		{
+			name: "reboot uses general gate",
+			command: &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_Reboot{
+				Reboot: &gatewaypb.RebootAction{},
+			}},
+			wantGeneral: 1,
+		},
+		{
+			name: "cooling mode read uses deferrable gate",
+			command: &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetCoolingMode{
+				GetCoolingMode: &gatewaypb.GetCoolingModeAction{},
+			}},
+			wantDeferrable: 1,
+		},
+		{
+			name: "error read uses deferrable gate",
+			command: &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_GetErrors{
+				GetErrors: &gatewaypb.GetErrorsAction{},
+			}},
+			wantDeferrable: 1,
+		},
+		{
+			name:        "unknown action uses general gate",
+			command:     &gatewaypb.MinerCommand{},
+			wantGeneral: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			general := &countingGate{}
+			deferrable := &countingGate{}
+			miner := &Miner{gate: general, deferrableReadGate: deferrable, fleetNodeID: 7}
+
+			release, err := miner.acquireGate(t.Context(), tt.command)
+			require.NoError(t, err)
+			release()
+
+			assert.Equal(t, tt.wantGeneral, general.acquisitions)
+			assert.Equal(t, tt.wantDeferrable, deferrable.acquisitions)
+		})
+	}
 }
 
 func (g *releasableGate) Acquire(ctx context.Context, fleetNodeID int64) (func(), error) {

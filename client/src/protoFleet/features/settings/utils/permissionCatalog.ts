@@ -35,6 +35,8 @@ const RESOURCE_TO_GROUP: Record<string, string> = {
   pool: "pool",
   schedule: "schedule",
   alert: "alerts",
+  maintenance: "maintenance",
+  instance: "instance",
   fleetnode: "admin",
   serverlog: "admin",
   activity: "admin",
@@ -51,10 +53,23 @@ const GROUP_LABELS: Record<string, string> = {
   pool: "Mining pools",
   schedule: "Schedules",
   alerts: "Alerts",
+  maintenance: "Maintenance",
+  instance: "Instance",
   admin: "Administration",
 };
 
-const GROUP_ORDER = ["fleet", "miner", "infrastructure", "curtailment", "pool", "schedule", "alerts", "admin"];
+const GROUP_ORDER = [
+  "fleet",
+  "miner",
+  "infrastructure",
+  "curtailment",
+  "pool",
+  "schedule",
+  "alerts",
+  "maintenance",
+  "instance",
+  "admin",
+];
 
 /** True for catalog keys whose action segment is "read". */
 export const isReadKey = (key: string): boolean => key.endsWith(":read");

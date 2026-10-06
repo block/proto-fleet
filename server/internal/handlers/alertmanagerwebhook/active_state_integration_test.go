@@ -1,6 +1,8 @@
 package alertmanagerwebhook
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -31,6 +33,59 @@ func activeKeys(t *testing.T, h *dbHarness, orgID int64) []string {
 		keys = append(keys, r.AlertName+"/"+r.DeviceID)
 	}
 	return keys
+}
+
+// seedLegacyActive writes an active row under 000094's fingerprintless key (no rule_group), reconstructing the
+// state a database carried before 000136 rekeyed it.
+func seedLegacyActive(t *testing.T, h *dbHarness, orgID int64, name, ruleGroup, deviceID, status string, eventAt time.Time) {
+	t.Helper()
+	_, err := h.db.ExecContext(t.Context(), `
+		INSERT INTO notification_active
+			(organization_id, alert_key, history_id, received_at, status, event_at,
+			 alert_name, severity, rule_group, fingerprint, device_id, template, summary)
+		VALUES ($1, md5($2 || chr(31) || $3), 1, $4, $5, $4, $2, '', $6, '', $3, '', '')`,
+		orgID, name, deviceID, eventAt, status, ruleGroup)
+	require.NoError(t, err)
+}
+
+// runMigration replays a migration file so its data statements meet rows, which they never do at setup time:
+// migrations run against an empty schema. Read from disk rather than restated here, so the two can't drift.
+func runMigration(t *testing.T, h *dbHarness, name string) {
+	t.Helper()
+	sqlBytes, err := os.ReadFile(filepath.Join("..", "..", "..", "migrations", name))
+	require.NoError(t, err)
+	// The file opens with LOCK TABLE, which Postgres only accepts inside a transaction.
+	tx, err := h.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(t.Context(), string(sqlBytes))
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+}
+
+// 000136 rekeys fingerprintless rows in place. Dropping them instead would take the resolved tombstones with
+// them, and a delayed firing retry for a resolved episode would then reopen the alert with nothing to lose to.
+func TestMigration000136_RekeyKeepsFingerprintlessLifecycleState(t *testing.T) {
+	h := newDBHarness(t)
+	const org = int64(11)
+	// Inside the freshness window ListActive applies, so these read as current state rather than stale rows.
+	t0 := time.Now().Add(-10 * time.Minute)
+	t1 := t0.Add(5 * time.Minute)
+
+	seedLegacyActive(t, h, org, "DeviceOffline", "proto-fleet-defaults", "device-1", "firing", t1)
+	seedLegacyActive(t, h, org, "DeviceHashrateLow", "proto-fleet-defaults", "device-2", "resolved", t1)
+
+	runMigration(t, h, "000136_notification_active_bound_labels.up.sql")
+
+	// The firing row is still firing: it moved to the new key rather than being dropped and re-asserted.
+	require.Equal(t, []string{"DeviceOffline/device-1"}, activeKeys(t, h, org))
+
+	// The resolved row moved too, so it is still there to outrank a delayed retry from the episode it ended.
+	insertEvent(t, h, notificationhistory.Notification{
+		AlertName: "DeviceHashrateLow", Status: "firing", RuleGroup: "proto-fleet-defaults",
+		OrganizationID: orgIDPtr(org), DeviceID: "device-2", StartsAt: &t0,
+	})
+	require.Equal(t, []string{"DeviceOffline/device-1"}, activeKeys(t, h, org))
 }
 
 // A firing event populates notification_active, a resolved event clears it, and a re-fire restores it.

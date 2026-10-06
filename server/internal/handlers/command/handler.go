@@ -250,14 +250,21 @@ func (h *Handler) StreamCommandBatchUpdates(ctx context.Context, r *connect.Requ
 		return err
 	}
 
+	return streamCommandBatchUpdates(ctx, responseChan, stream)
+}
+
+func streamCommandBatchUpdates(
+	ctx context.Context,
+	responseChan <-chan *pb.StreamCommandBatchUpdatesResponse,
+	stream *connect.ServerStream[pb.StreamCommandBatchUpdatesResponse],
+) error {
 	for {
 		select {
 		case <-ctx.Done():
 			slog.Debug("context closed")
-			return fleeterror.NewInternalErrorf("context done with error: %v", ctx.Err())
+			return fleeterror.NewCanceledError()
 		case resp, ok := <-responseChan:
 			if !ok {
-				slog.Warn("channel closed")
 				return nil
 			}
 			slog.Debug("sending update", "payload", resp)
@@ -275,7 +282,7 @@ func (h *Handler) GetCommandBatchLogBundle(
 	if _, err := middleware.RequirePermission(ctx, authz.PermMinerDownloadLogs, authz.ResourceContext{}); err != nil {
 		return nil, err
 	}
-	resp, err := h.commandSvc.GetCommandBatchLogBundle(req.Msg.BatchIdentifier)
+	resp, err := h.commandSvc.GetCommandBatchLogBundle(ctx, req.Msg.BatchIdentifier)
 	if err != nil {
 		return nil, err
 	}

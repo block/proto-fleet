@@ -6,6 +6,7 @@ import {
   type Building,
   type BuildingRack,
   type BuildingWithCounts,
+  type PerBuildingCreateErrorReason,
   RackOrderIndex,
 } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import type { FleetListTelemetryRangeFilter } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
@@ -57,12 +58,66 @@ interface ListBuildingRacksProps {
   onFinally?: () => void;
 }
 
+// CreateBuildingResult is the success payload: the created building plus the
+// seed-assignment counts the server applied (both zero for a plain create).
+export interface CreateBuildingResult {
+  building: Building;
+  assignedRackCount: bigint;
+  reassignedDeviceCount: bigint;
+}
+
 interface CreateBuildingProps {
   values: BuildingFormValues;
   siteId: bigint;
+  // Optional seed (#559): when non-empty, the building is created and these
+  // racks + devices are assigned to it in ONE transaction. Empty/omitted =
+  // a plain create.
+  rackIds?: bigint[];
+  deviceIdentifiers?: string[];
+  // Force-clear conflicting rack memberships for seeded devices; server
+  // gates this on rack:manage.
+  forceClearConflictingRackMembership?: boolean;
   signal?: AbortSignal;
-  onSuccess?: (building: Building) => void;
-  onError?: (message: string) => void;
+  onSuccess?: (result: CreateBuildingResult) => void;
+  // Called on failure. When a seed hit unresolvable device conflicts nothing
+  // was created (the whole transaction rolled back) and `conflicts` carries
+  // the per-device reasons; it is empty for a transport / permission failure
+  // and for a plain create.
+  onError?: (message: string, conflicts: AssignDevicesToBuildingConflict[]) => void;
+  onFinally?: () => void;
+}
+
+// One row of a bulk create. The bulk form only sets the name (generated from
+// a prefix + counter, or typed); power/overhead ride along so the shape can
+// grow without another proto change.
+export interface NewBuildingInput {
+  name: string;
+  description?: string;
+  powerCapacityMw?: number;
+  overheadKw?: number;
+  // Layout dimensions. The bulk form applies one pair across the batch, but
+  // they travel per row so a NewBuilding describes a whole building.
+  aisles?: number;
+  racksPerAisle?: number;
+}
+
+// A row the server refused, keyed by its index in the submitted list so the
+// preview can mark that exact line.
+export interface BulkCreateBuildingError {
+  index: number;
+  name: string;
+  reason: PerBuildingCreateErrorReason;
+}
+
+interface CreateBuildingsProps {
+  siteId: bigint;
+  buildings: NewBuildingInput[];
+  signal?: AbortSignal;
+  onSuccess?: (buildings: Building[]) => void;
+  // Called on failure. `errors` carries the per-row name collisions when the
+  // server rejected the batch (nothing was created); it is empty for a
+  // transport / permission failure.
+  onError?: (message: string, errors: BulkCreateBuildingError[]) => void;
   onFinally?: () => void;
 }
 
@@ -356,8 +411,25 @@ const useBuildings = () => {
     [handleAuthErrors],
   );
 
+  // createBuilding creates the building and — when a seed is supplied — assigns
+  // its racks + devices in a single transactional RPC. Either everything commits
+  // or nothing does, so a seed failure can no longer strand an empty building
+  // (issue #559). On unresolvable device conflicts the server returns them with
+  // an unset building; we surface those through onError so the caller can prompt
+  // for force-clear, exactly like assignDevicesToBuilding. A plain create (no
+  // seed) simply returns the building with zero counts and no conflicts.
   const createBuilding = useCallback(
-    async ({ values, siteId, signal, onSuccess, onError, onFinally }: CreateBuildingProps) => {
+    async ({
+      values,
+      siteId,
+      rackIds,
+      deviceIdentifiers,
+      forceClearConflictingRackMembership,
+      signal,
+      onSuccess,
+      onError,
+      onFinally,
+    }: CreateBuildingProps) => {
       try {
         const response = await buildingsClient.createBuilding(
           {
@@ -368,24 +440,87 @@ const useBuildings = () => {
             overheadKw: values.overheadKw,
             aisles: values.aisles,
             racksPerAisle: values.racksPerAisle,
-            // Layout defaults are not surfaced in the Phase 1a
-            // building modals. Send the proto's documented "unset"
-            // sentinels so the server stores NULL / UNSPECIFIED.
+            // Layout defaults are not surfaced in the building modals. Send
+            // the proto's documented "unset" sentinels so the server stores
+            // NULL / UNSPECIFIED.
             physicalRackCount: 0,
             defaultRackRows: 0,
             defaultRackColumns: 0,
             defaultRackOrderIndex: RackOrderIndex.UNSPECIFIED,
+            // Optional seed (empty = plain create).
+            rackIds: rackIds ?? [],
+            deviceIdentifiers: deviceIdentifiers ?? [],
+            forceClearConflictingRackMembership,
           },
           { signal },
         );
         if (signal?.aborted) return;
-        if (response.building) onSuccess?.(response.building);
+        if (response.conflicts.length > 0 || !response.building) {
+          const conflicts: AssignDevicesToBuildingConflict[] = response.conflicts.map((c) => ({
+            deviceIdentifier: c.deviceIdentifier,
+            reason: c.reason,
+            conflictingBuildingId: c.conflictingBuildingId,
+          }));
+          onError?.("Some miners could not be assigned to the new building", conflicts);
+          return;
+        }
+        onSuccess?.({
+          building: response.building,
+          assignedRackCount: response.assignedRackCount,
+          reassignedDeviceCount: response.reassignedDeviceCount,
+        });
       } catch (err) {
         if (signal?.aborted) return;
         handleAuthErrors({
           error: err,
           onError: (error) => {
-            onError?.(getErrorMessage(error));
+            onError?.(getErrorMessage(error), []);
+          },
+        });
+      } finally {
+        onFinally?.();
+      }
+    },
+    [handleAuthErrors],
+  );
+
+  // createBuildings creates every building in the batch against one site in a
+  // single transaction (all-or-nothing), so a mid-list failure can't leave half
+  // the operator's list behind. Name collisions come back per row — within the
+  // batch or against buildings already at the site — with nothing created, so
+  // the caller can mark the offending preview lines and let the operator retry.
+  const createBuildings = useCallback(
+    async ({ siteId, buildings, signal, onSuccess, onError, onFinally }: CreateBuildingsProps) => {
+      try {
+        const response = await buildingsClient.createBuildings(
+          {
+            siteId,
+            buildings: buildings.map((b) => ({
+              name: b.name,
+              description: b.description ?? "",
+              powerKw: mwToKw(b.powerCapacityMw ?? 0),
+              overheadKw: b.overheadKw ?? 0,
+              aisles: b.aisles ?? 0,
+              racksPerAisle: b.racksPerAisle ?? 0,
+            })),
+          },
+          { signal },
+        );
+        if (signal?.aborted) return;
+        if (response.errors.length > 0 || response.buildings.length === 0) {
+          onError?.(
+            "Some building names are already taken",
+            response.errors.map((e) => ({ index: e.index, name: e.name, reason: e.reason })),
+          );
+          return;
+        }
+        onSuccess?.(response.buildings);
+      } catch (err) {
+        if (signal?.aborted) return;
+        handleAuthErrors({
+          error: err,
+          onError: (error) => {
+            onError?.(getErrorMessage(error), []);
           },
         });
       } finally {
@@ -543,6 +678,7 @@ const useBuildings = () => {
     getBuilding,
     listBuildingRacks,
     createBuilding,
+    createBuildings,
     updateBuilding,
     deleteBuilding,
     assignRacksToBuilding,

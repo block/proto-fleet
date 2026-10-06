@@ -2,7 +2,6 @@ import { type ReactNode, type RefObject } from "react";
 
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { INACTIVE_PLACEHOLDER } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
-import { FLEET_SELECTABLE_PAIRING_STATUSES } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 import { getMinerRackLabel } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 
 import { Alert, Dismiss, Success } from "@/shared/assets/icons";
@@ -40,6 +39,9 @@ export interface ScanMinerQrModalViewProps {
   cameraError: string;
   /** Hidden file input for the photo-capture fallback. */
   fileInputRef: RefObject<HTMLInputElement | null>;
+  /** A confirmed assignment is mid-write. Holds the found dialog still so the
+   *  operator cannot move the scan on and have that write land behind them. */
+  assigning: boolean;
   onDismiss: () => void;
   onConfirmFound: () => void;
   onUndoAssignment: () => void;
@@ -65,6 +67,7 @@ export default function ScanMinerQrModalView({
   cameraStatus,
   cameraError,
   fileInputRef,
+  assigning,
   onDismiss,
   onConfirmFound,
   onUndoAssignment,
@@ -82,13 +85,6 @@ export default function ScanMinerQrModalView({
     !!getMinerRackLabel(phase.snapshot) &&
     getMinerRackLabel(phase.snapshot) !== currentRackLabel;
 
-  // Enforce the same eligibility rule as the list/search assignment flows
-  // (FLEET_SELECTABLE_PAIRING_STATUSES = PAIRED only). LookupMinerByIdentifier
-  // also resolves AUTHENTICATION_NEEDED / DEFAULT_PASSWORD miners, so without
-  // this guard the scan flow would let operators rack not-fully-paired miners
-  // that the rest of the UI excludes.
-  const notPairedForAssignment =
-    phase.kind === "found" && !FLEET_SELECTABLE_PAIRING_STATUSES.includes(phase.snapshot.pairingStatus);
   const cameraUnavailable = phase.kind === "scanning" && !liveCamera;
   const cameraFailed = phase.kind === "scanning" && liveCamera && (cameraStatus === "error" || !!cameraError);
 
@@ -156,8 +152,8 @@ export default function ScanMinerQrModalView({
         isReassignment={phase.isReassignment}
         requiresConfirmation={!!phase.requiresConfirmation}
         otherRackLabel={getMinerRackLabel(phase.snapshot)}
-        notPaired={notPairedForAssignment}
         targetSlotLabel={targetSlotLabel}
+        assigning={assigning}
         onDismiss={onDismiss}
         onConfirm={onConfirmFound}
         onRescan={onRescan}
@@ -364,8 +360,8 @@ function FoundMinerDialog({
   isReassignment,
   requiresConfirmation,
   otherRackLabel,
-  notPaired,
   targetSlotLabel,
+  assigning,
   onDismiss,
   onConfirm,
   onRescan,
@@ -376,43 +372,44 @@ function FoundMinerDialog({
   isReassignment: boolean;
   requiresConfirmation: boolean;
   otherRackLabel: string;
-  notPaired: boolean;
   targetSlotLabel: string;
+  assigning: boolean;
   onDismiss: () => void;
   onConfirm: () => void;
   onRescan: () => void;
 }) {
-  const title = notPaired
-    ? "Miner isn't fully paired"
-    : requiresConfirmation
-      ? "Multiple miners found"
-      : inOtherRack
-        ? "Miner already assigned"
-        : isReassignment
-          ? "Confirm miner move"
-          : "Miner can't be assigned";
-  const subtitle = notPaired
-    ? "Only paired miners can be assigned to a rack. Finish pairing this miner, then scan it again."
-    : requiresConfirmation
-      ? `Multiple QR codes were detected. Confirm this is the miner for ${targetSlotLabel}.`
-      : inOtherRack
-        ? `Assigning it here will move it from ${otherRackLabel}.`
-        : isReassignment
-          ? `Assigning it here will move it to ${currentRackLabel}.`
-          : "Choose another miner for this rack slot.";
-  const canConfirmAssignment = (isReassignment || requiresConfirmation) && !notPaired;
+  const title = requiresConfirmation
+    ? "Multiple miners found"
+    : inOtherRack
+      ? "Miner already assigned"
+      : isReassignment
+        ? "Confirm miner move"
+        : "Miner can't be assigned";
+  const subtitle = requiresConfirmation
+    ? `Multiple QR codes were detected. Confirm this is the miner for ${targetSlotLabel}.`
+    : inOtherRack
+      ? `Assigning it here will move it from ${otherRackLabel}.`
+      : isReassignment
+        ? `Assigning it here will move it to ${currentRackLabel}.`
+        : "Choose another miner for this rack slot.";
+  const canConfirmAssignment = isReassignment || requiresConfirmation;
+  // Both hold while the confirmed assignment writes: moving the scan on would
+  // leave that write to land against a slot the operator has left behind.
   const buttons: ButtonProps[] = [
     dismissButton(onDismiss),
     {
       text: "Scan another",
       variant: canConfirmAssignment ? variants.secondary : variants.primary,
+      disabled: assigning,
       onClick: onRescan,
     },
     ...(canConfirmAssignment
       ? [
           {
-            text: "Assign to slot",
+            text: assigning ? "Assigning..." : "Assign to slot",
             variant: variants.primary,
+            disabled: assigning,
+            loading: assigning,
             onClick: onConfirm,
           },
         ]

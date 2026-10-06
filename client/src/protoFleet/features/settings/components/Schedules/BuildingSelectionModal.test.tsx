@@ -109,4 +109,28 @@ describe("BuildingSelectionModal", () => {
     // selected, so it's preserved rather than silently dropped on save.
     expect(onSave).toHaveBeenCalledWith(["1", "99"]);
   });
+
+  it("renders and explicitly removes unavailable selections in curtailment mode", async () => {
+    listBuildingsMock.mockImplementation(({ onSuccess, onFinally }: Callbacks) => {
+      onSuccess?.([]);
+      onFinally?.();
+    });
+    const onSave = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <BuildingSelectionModal
+        open
+        selectedBuildingIds={["99"]}
+        preserveMissingSelections
+        onDismiss={vi.fn()}
+        onSave={onSave}
+      />,
+    );
+
+    await user.click(await screen.findByText("Unavailable building (99)"));
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(onSave).toHaveBeenCalledWith([]);
+  });
 });

@@ -13,6 +13,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/modes"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 )
 
 // validStartRequest builds a valid StartRequest pointing at orgID. Callers
@@ -51,6 +52,206 @@ func TestService_Start_RejectsEmptyReason(t *testing.T) {
 			assert.Contains(t, err.Error(), "reason")
 		})
 	}
+}
+
+func TestService_Start_FixedKWTopologyScopesFreezeSelectedTargets(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name      string
+		scope     Scope
+		seed      func(*fakeStore, int64, *models.Candidate)
+		wantScope string
+	}{
+		{
+			name:  "building",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, BuildingIDs: []int64{7}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByBuilding[orgID] = map[int64][]*models.Candidate{7: {candidate}}
+			},
+			wantScope: `{"building_ids":[7],"scope_schema_version":1}`,
+		},
+		{
+			name:  "rack",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, RackIDs: []int64{8}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByRack[orgID] = map[int64][]*models.Candidate{8: {candidate}}
+			},
+			wantScope: `{"rack_ids":[8],"scope_schema_version":1}`,
+		},
+		{
+			name:  "group",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, GroupIDs: []int64{9}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByGroup[orgID] = map[int64][]*models.Candidate{9: {candidate}}
+			},
+			wantScope: `{"group_ids":[9],"scope_schema_version":1}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			const orgID = int64(1)
+			candidate := minerWithEff(tc.name+"-miner", 3000, 100, 30)
+			store := newFakeStore()
+			store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+			store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+			tc.seed(store, orgID, candidate)
+			svc := NewService(store)
+			req := validStartRequest(orgID)
+			req.Scope = tc.scope
+			req.TargetKW = 2
+
+			plan, err := svc.Start(t.Context(), req)
+
+			require.NoError(t, err)
+			require.Len(t, plan.Selected, 1)
+			assert.Equal(t, tc.name+"-miner", plan.Selected[0].DeviceIdentifier)
+			assert.Equal(t, tc.scope.BuildingIDs, store.lastTopologyFilter.BuildingIDs)
+			assert.Equal(t, tc.scope.RackIDs, store.lastTopologyFilter.RackIDs)
+			assert.Equal(t, tc.scope.GroupIDs, store.lastTopologyFilter.GroupIDs)
+			assert.Equal(t, tc.scope.BuildingIDs, store.lastListCandidateBuildings)
+			assert.Equal(t, tc.scope.RackIDs, store.lastListCandidateRacks)
+			assert.Equal(t, tc.scope.GroupIDs, store.lastListCandidateGroups)
+			assert.Equal(t, models.ScopeTypeMixed, store.lastInsertEvent.ScopeType)
+			assert.Equal(t, models.LoopTypeOpen, store.lastInsertEvent.LoopType)
+			assert.Equal(t, models.EventStatePending, store.lastInsertEvent.State)
+			assert.JSONEq(t, tc.wantScope, string(store.lastInsertEvent.ScopeJSON))
+			require.Len(t, store.lastInsertTargets, 1)
+			assert.Equal(t, tc.name+"-miner", store.lastInsertTargets[0].DeviceIdentifier)
+		})
+	}
+}
+
+func TestService_Start_TopologyFullFleetStartsClosedLoopWithoutFrozenTargets(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name  string
+		scope Scope
+		seed  func(*fakeStore, int64, *models.Candidate)
+	}{
+		{
+			name:  "building",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, BuildingIDs: []int64{7}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByBuilding[orgID] = map[int64][]*models.Candidate{7: {candidate}}
+			},
+		},
+		{
+			name:  "rack",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, RackIDs: []int64{8}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByRack[orgID] = map[int64][]*models.Candidate{8: {candidate}}
+			},
+		},
+		{
+			name:  "group",
+			scope: Scope{SchemaVersion: ScopeSchemaVersionCurrent, GroupIDs: []int64{9}},
+			seed: func(store *fakeStore, orgID int64, candidate *models.Candidate) {
+				store.candidatesByGroup[orgID] = map[int64][]*models.Candidate{9: {candidate}}
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			const orgID = int64(1)
+			candidate := minerWithEff(tc.name+"-miner", 3000, 100, 30)
+			store := newFakeStore()
+			store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+			store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+			tc.seed(store, orgID, candidate)
+			svc := NewService(store)
+			req := validStartRequest(orgID)
+			req.Scope = tc.scope
+			req.Mode = models.ModeFullFleet
+			req.TargetKW = 0
+
+			plan, err := svc.Start(t.Context(), req)
+
+			require.NoError(t, err)
+			require.Len(t, plan.Selected, 1)
+			assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State)
+			assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+			assert.Empty(t, store.lastInsertTargets)
+		})
+	}
+}
+
+func TestService_Start_AllPairedTopologyFullFleetPersistsPolicyTargets(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	candidate := minerWithEff("building-miner", 3000, 100, 30)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+	store.candidatesByBuilding[orgID] = map[int64][]*models.Candidate{7: {candidate}}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{SchemaVersion: ScopeSchemaVersionCurrent, BuildingIDs: []int64{7}}
+	req.Mode = models.ModeFullFleet
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+
+	plan, err := svc.Start(t.Context(), req)
+
+	require.NoError(t, err)
+	require.Len(t, plan.Selected, 1)
+	assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State)
+	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
+	require.Len(t, store.lastInsertTargets, 1)
+	assert.Equal(t, candidate.DeviceIdentifier, store.lastInsertTargets[0].DeviceIdentifier)
+}
+
+func TestService_Start_EmptyAllPairedTopologyPersistsPendingWatcher(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	candidate := minerWithEff("unpaired-building-miner", 3000, 100, 30)
+	candidate.PairingStatus = "UNPAIRED"
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+	store.candidatesByBuilding[orgID] = map[int64][]*models.Candidate{7: {candidate}}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{SchemaVersion: ScopeSchemaVersionCurrent, BuildingIDs: []int64{7}}
+	req.Mode = models.ModeFullFleet
+	req.ForceIncludeAllPairedMiners = true
+	req.CanUseAdminControls = true
+
+	plan, err := svc.Start(t.Context(), req)
+
+	require.NoError(t, err)
+	assert.Empty(t, plan.Selected)
+	assert.Equal(t, 1, store.insertEventCalls)
+	assert.Equal(t, models.EventStatePending, store.lastInsertEvent.State)
+	assert.Nil(t, store.lastInsertEvent.StartedAt)
+	assert.Empty(t, store.lastInsertTargets)
+}
+
+func TestService_Start_EmptyTopologyScopeReturnsInsufficientLoadWithoutPersisting(t *testing.T) {
+	t.Parallel()
+
+	const orgID = int64(1)
+	store := newFakeStore()
+	store.orgConfigByOrg[orgID] = defaultOrgConfig(orgID)
+	store.topologyCoverage = interfaces.CurtailmentTopologyScopeCoverage{SiteIDs: []int64{42}}
+	svc := NewService(store)
+	req := validStartRequest(orgID)
+	req.Scope = Scope{
+		SchemaVersion: ScopeSchemaVersionCurrent,
+		GroupIDs:      []int64{9},
+	}
+
+	plan, err := svc.Start(t.Context(), req)
+
+	require.NoError(t, err)
+	require.NotNil(t, plan.InsufficientLoadDetail)
+	assert.Equal(t, modes.OutcomeInsufficientLoad, plan.Outcome)
+	assert.Zero(t, store.insertEventCalls)
 }
 
 func TestService_Start_RejectsAllowUnboundedWithMaxDuration(t *testing.T) {
@@ -121,20 +322,14 @@ func TestService_Start_RejectsForceIncludeAllPairedMinersOutsideFullFleet(t *tes
 	assert.Contains(t, err.Error(), "force_include_all_paired_miners")
 }
 
-// Open-loop scopes (explicit miners / device sets) never run the policy's
-// release/reopen admission loop, so an all-paired event there would release
-// unpaired miners and never reclaim them. The service rejects the combination.
+// Explicit miners do not currently run the policy's release/reopen admission
+// loop, so an all-paired event there would release unpaired miners and never
+// reclaim them. The service rejects the combination.
 func TestService_Start_RejectsForceIncludeAllPairedMinersForOpenLoopScopes(t *testing.T) {
 	t.Parallel()
 
 	scopes := map[string]Scope{
 		"device list": {Type: models.ScopeTypeDeviceList, DeviceIdentifiers: []string{"miner-1"}},
-		"device sets": {Type: models.ScopeTypeDeviceSets, DeviceSetIDs: []string{"set-1"}},
-		"mixed sites and miners": {
-			Type:              models.ScopeTypeMixed,
-			SiteIDs:           []int64{7},
-			DeviceIdentifiers: []string{"miner-1"},
-		},
 	}
 	for name, scope := range scopes {
 		t.Run(name, func(t *testing.T) {
@@ -149,7 +344,7 @@ func TestService_Start_RejectsForceIncludeAllPairedMinersForOpenLoopScopes(t *te
 			_, err := svc.Start(t.Context(), req)
 			require.Error(t, err)
 			assert.True(t, fleeterror.IsInvalidArgumentError(err))
-			assert.Contains(t, err.Error(), "whole-org or site scope")
+			assert.Contains(t, err.Error(), "whole-org, site, building, rack, or group scope")
 		})
 	}
 }
@@ -670,7 +865,7 @@ func TestService_Start_PersistsMultiSiteFullFleetAsClosedLoop(t *testing.T) {
 	assert.Equal(t, models.EventStateActive, store.lastInsertEvent.State)
 	assert.Equal(t, models.LoopTypeClosed, store.lastInsertEvent.LoopType)
 	assert.Equal(t, models.ScopeTypeMixed, store.lastInsertEvent.ScopeType)
-	assert.JSONEq(t, `{"site_ids":[99,100],"device_identifiers":null}`, string(store.lastInsertEvent.ScopeJSON))
+	assert.JSONEq(t, `{"site_ids":[99,100]}`, string(store.lastInsertEvent.ScopeJSON))
 	assert.Empty(t, store.lastInsertTargets)
 }
 
@@ -841,6 +1036,34 @@ func TestService_Start_AllowUnboundedPersistsNullMaxDuration(t *testing.T) {
 		"allow_unbounded events must persist max_duration_seconds = NULL")
 }
 
+func TestStartRequiresAdminControls(t *testing.T) {
+	t.Parallel()
+
+	orgConfig := &models.OrgConfig{MaxDurationDefaultSec: 100}
+	tests := []struct {
+		name string
+		req  StartRequest
+		want bool
+	}{
+		{name: "ordinary settings"},
+		{name: "allow unbounded", req: StartRequest{AllowUnbounded: true}, want: true},
+		{name: "candidate power override", req: StartRequest{PreviewRequest: PreviewRequest{CandidateMinPowerWOverride: int32Ptr(1)}}, want: true},
+		{name: "force maintenance", req: StartRequest{PreviewRequest: PreviewRequest{ForceIncludeMaintenance: true}}, want: true},
+		{name: "force all paired", req: StartRequest{PreviewRequest: PreviewRequest{ForceIncludeAllPairedMiners: true}}, want: true},
+		{name: "curtail pacing above operator limit", req: StartRequest{CurtailBatchIntervalSec: nonAdminRestoreBatchIntervalMax + 1}, want: true},
+		{name: "restore pacing above operator limit", req: StartRequest{RestoreBatchIntervalSec: nonAdminRestoreBatchIntervalMax + 1}, want: true},
+		{name: "duration above org default", req: StartRequest{MaxDurationSeconds: int32Ptr(101)}, want: true},
+		{name: "duration at org default", req: StartRequest{MaxDurationSeconds: int32Ptr(100)}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, startRequiresAdminControls(tt.req, orgConfig))
+		})
+	}
+}
+
 func TestService_Start_ForwardsIdempotencyAndExternalAttribution(t *testing.T) {
 	t.Parallel()
 	const orgID = int64(1)
@@ -945,7 +1168,7 @@ func TestService_Start_StampsEffectiveBatchSize(t *testing.T) {
 		want             int32
 	}{
 		{"immediate_restore_claims_all_selected", 0, 5, 5},
-		{"immediate_restore_is_safety_limited", 0, int(RestoreBatchSizeMax) + 1, RestoreBatchSizeMax},
+		{"immediate_restore_at_resolved_miner_limit", 0, int(RestoreBatchSizeMax), RestoreBatchSizeMax},
 		{"positive_restore_batch_size_used_verbatim", 60, 5, 60},
 		{"positive_restore_batch_size_not_increased_by_large_fleet", 10, 5000, 10},
 		{"positive_restore_batch_size_not_clamped_at_100", 250, 10_000, 250},

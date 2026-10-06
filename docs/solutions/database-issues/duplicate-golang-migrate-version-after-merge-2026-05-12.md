@@ -53,7 +53,7 @@ git mv server/migrations/000048_add_site_id_to_device_set_rack.down.sql \
        server/migrations/000049_add_site_id_to_device_set_rack.down.sql
 ```
 
-Grep the tree for the old version string (`000048` in this case) to catch any in-code references — sqlc embeds, test fixtures, docs in `docs/plans/`, etc. In this incident there were none.
+Grep the tree for the old version string (`000048` in this case) to catch any references in sqlc embeds, test fixtures, and maintained documentation. In this incident there were none.
 
 Run `just lint`, `go vet`, and the targeted DB-backed tests before pushing.
 
@@ -73,7 +73,7 @@ The rename-the-branch-migration approach is the right move (rather than touching
    ```
 2. **After every merge from main**, scan the merged tree for duplicate version prefixes:
    ```bash
-   ls server/migrations/ | cut -c1-6 | sort | uniq -d
+   ls server/migrations/ | grep -F '.up.sql' | cut -c1-6 | sort | uniq -d
    ```
    Any output is a hard fail — fix before pushing.
 3. **Add a lefthook pre-push hook (and CI guard)** that runs the `uniq -d` check above and exits non-zero on collision. Cheap, deterministic, would have caught this before the merge commit landed. The repo already uses lefthook for `block-protected-branches`; this is the same shape.

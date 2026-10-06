@@ -14,6 +14,7 @@ import (
 
 // minerFilterParams holds the parsed filter parameters for miner queries.
 type minerFilterParams struct {
+	searchQueryFilter         sql.NullString
 	statusFilter              sql.NullString
 	statusValues              []string
 	modelFilter               sql.NullString
@@ -81,6 +82,8 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 	if filter == nil {
 		return fp
 	}
+
+	fp.searchQueryFilter = likeSearchPattern(filter.SearchQuery)
 
 	// Status filter
 	if len(filter.DeviceStatusFilter) > 0 {
@@ -215,6 +218,28 @@ func buildMinerFilterParams(filter *stores.MinerFilter) minerFilterParams {
 	return fp
 }
 
+// requiresDynamicQuery reports whether any active filter dimension is
+// inexpressible in the static sqlc queries, forcing the dynamic builder.
+//
+// Every caller that pairs a count with a row set must consult this same
+// predicate: routing the rows dynamically while counting statically silently
+// drops the inexpressible dimensions from the count, so a total or a state
+// breakdown would describe a wider set than the rows beside it. Adding a filter
+// dimension to appendFilterSQL without adding it here reintroduces exactly that
+// divergence.
+func (fp minerFilterParams) requiresDynamicQuery() bool {
+	return fp.searchQueryFilter.Valid ||
+		len(fp.numericRanges) > 0 ||
+		fp.ipCIDRsFilter.Valid ||
+		len(fp.ipRangeStarts) > 0 ||
+		fp.siteIDsFilter.Valid ||
+		fp.includeUnassigned ||
+		fp.buildingIDsFilter.Valid ||
+		fp.includeNoBuilding ||
+		fp.zoneKeysFilter.Valid ||
+		fp.includeNoRack
+}
+
 // numericFieldColumn returns the SQL expression that yields a value in the
 // same display units the corresponding Measurement is emitted in by other
 // telemetry APIs. The column→display conversions mirror
@@ -241,6 +266,24 @@ func numericFieldColumn(f stores.NumericFilterField) string {
 
 // appendFilterSQL appends filter conditions to the query builder and returns updated args.
 func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, fp minerFilterParams) ([]any, int) {
+	if fp.searchQueryFilter.Valid {
+		// The name branch reuses the sort expression so search-by-name and
+		// sort-by-name can never disagree about what a miner is called. It is
+		// passed as an argument rather than spliced into the format string so a
+		// literal % in the expression can never be read as a format verb.
+		fmt.Fprintf(sb, ` AND (
+			%s ILIKE $%d ESCAPE '\'
+			OR discovered_device.device_identifier ILIKE $%d ESCAPE '\'
+			OR device.device_identifier ILIKE $%d ESCAPE '\'
+			OR device.serial_number ILIKE $%d ESCAPE '\'
+			OR device.mac_address ILIKE $%d ESCAPE '\'
+			OR discovered_device.ip_address ILIKE $%d ESCAPE '\'
+			OR device.worker_name ILIKE $%d ESCAPE '\'
+		)`, sortExpressions[stores.SortFieldName], argNum, argNum, argNum, argNum, argNum, argNum, argNum)
+		args = append(args, fp.searchQueryFilter.String)
+		argNum++
+	}
+
 	if fp.pairingStatusFilter.Valid {
 		fmt.Fprintf(sb, " AND (%s = ANY($%d::text[]))", pairingStatusExpr, argNum)
 		args = append(args, pq.Array(fp.pairingStatusValues))
@@ -268,9 +311,9 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 	if fp.statusFilter.Valid {
 		// Start outer AND group for status filter with optional needs attention
 		fmt.Fprintf(sb,
-			" AND ((device_status.status::text = ANY($%d::text[])"+
-				" AND (device_status.status IN %s"+
-				" OR (device_status.status = 'ACTIVE' AND NOT EXISTS ("+
+			" AND ((effective_status.status = ANY($%d::text[])"+
+				" AND (effective_status.status IN %s"+
+				" OR (effective_status.status = 'ACTIVE' AND NOT EXISTS ("+
 				"SELECT 1 FROM errors WHERE errors.device_id = device.id"+
 				" AND errors.org_id = $%d AND errors.closed_at IS NULL AND %s))",
 			argNum, nonActionableStatuses, argNum+1, actionableErrorSeverities)
@@ -288,14 +331,14 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			// Auth-needed (exclude OFFLINE only)
 			sb.WriteString(
 				" OR (device_pairing.pairing_status IN ('AUTHENTICATION_NEEDED')" +
-					" AND (device_status.status IS NULL OR device_status.status != 'OFFLINE'))")
+					" AND (effective_status.status IS NULL OR effective_status.status != 'OFFLINE'))")
 			// Devices with actionable errors. Excludes NULL-status paired-like miners
 			// so they stay bucketed as offline (matches CountMinersByState).
 			fmt.Fprintf(sb,
 				" OR (EXISTS (SELECT 1 FROM errors WHERE errors.device_id = device.id"+
 					" AND errors.org_id = $%d AND errors.closed_at IS NULL AND %s)"+
-					" AND NOT (device_status.status IS NULL AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))"+
-					" AND (device_status.status IS NULL OR device_status.status NOT IN %s))",
+					" AND NOT (effective_status.status IS NULL AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))"+
+					" AND (effective_status.status IS NULL OR effective_status.status NOT IN %s))",
 				argNum, actionableErrorSeverities, nonActionableStatuses)
 			args = append(args, orgID)
 			argNum++
@@ -304,7 +347,7 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 			// NULL-status paired-like miners (counted as offline in dashboard).
 			// Scoped to PAIRED/DEFAULT_PASSWORD to match CountMinersByState's WHERE clause.
 			sb.WriteString(
-				" OR (device_status.status IS NULL" +
+				" OR (effective_status.status IS NULL" +
 					" AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))")
 		}
 		// Close outer AND group
@@ -406,7 +449,7 @@ func appendFilterSQL(sb *strings.Builder, args []any, argNum int, orgID int64, f
 		// Match the UI's em-dash semantics: OFFLINE miners never expose a
 		// telemetry value, so a numeric predicate should not surface them
 		// even if a fresh metric exists.
-		sb.WriteString(" AND (device_status.status IS NULL OR device_status.status != 'OFFLINE')")
+		sb.WriteString(" AND (effective_status.status IS NULL OR effective_status.status != 'OFFLINE')")
 	}
 
 	// Subnet facet: CIDR containment and inclusive ranges are OR'd together

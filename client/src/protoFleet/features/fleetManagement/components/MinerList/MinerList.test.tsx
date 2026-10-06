@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
-import { BrowserRouter, MemoryRouter, useLocation } from "react-router-dom";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { BrowserRouter, MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
@@ -1015,6 +1015,72 @@ describe("MinerList", () => {
       // Select none clears the selection, tearing the action bar back down.
       await user.click(screen.getByTestId("mock-action-bar-select-none"));
       expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
+    });
+
+    it("disarms an all-mode selection on the first search keystroke, before the debounced filter applies", async () => {
+      const user = userEvent.setup();
+
+      renderMinerList(
+        {
+          title: "Miners",
+          minerIds: ["m1", "m2"],
+          totalMiners: 37,
+          currentPage: 0,
+          onAddMiners: vi.fn(),
+          loading: false,
+        },
+        ["/?status=hashing"],
+      );
+
+      const rowCheckboxes = screen.getAllByTestId("checkbox");
+      await user.click(rowCheckboxes[0].querySelector("input[type='checkbox']") as HTMLInputElement);
+      await user.click(screen.getByTestId("mock-action-bar-select-all"));
+      expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
+
+      fireEvent.click(screen.getByRole("button", { name: "Search miners" }));
+      fireEvent.change(screen.getByRole("textbox", { name: /search miners/i }), { target: { value: "r" } });
+
+      // Synchronous: the URL (and with it the selection scope) has not changed yet.
+      expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
+      expect(screen.getByTestId("path-display")).toHaveTextContent("/?status=hashing");
+    });
+
+    it("discards a query still waiting on the debounce when a saved view is applied", async () => {
+      const ApplyView = () => {
+        const navigate = useNavigate();
+        return (
+          <button type="button" onClick={() => navigate("/?view=saved-1")}>
+            Apply view
+          </button>
+        );
+      };
+      render(
+        <MemoryRouter initialEntries={["/"]}>
+          <MinerList
+            title="Miners"
+            minerIds={["m1"]}
+            miners={autoMiners(["m1"])}
+            errorsByDevice={{}}
+            errorsLoaded={true}
+            getActiveBatches={mockGetActiveBatches}
+            totalMiners={1}
+            currentPage={0}
+            onAddMiners={vi.fn()}
+            loading={false}
+          />
+          <ApplyView />
+          <PathDisplay />
+        </MemoryRouter>,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Search miners" }));
+      fireEvent.change(screen.getByRole("textbox", { name: /search miners/i }), { target: { value: "rack" } });
+      fireEvent.click(screen.getByRole("button", { name: "Apply view" }));
+      await act(() => new Promise((resolve) => setTimeout(resolve, 300)));
+
+      expect(screen.getByTestId("path-display")).toHaveTextContent("/?view=saved-1");
+      expect(screen.getByTestId("path-display")).not.toHaveTextContent("search=");
+      expect(screen.getByRole("button", { name: "Search miners" })).toBeInTheDocument();
     });
 
     it("clears bulk selection when the page changes and does not restore it when returning", async () => {

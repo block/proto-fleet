@@ -7,8 +7,6 @@ import { useOnboardedStatus } from "@/protoFleet/api/useOnboardedStatus";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import SitePicker, { siteFilterFromActive, useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
-import { useAlertsEnabled } from "@/protoFleet/features/alerts/api/useAlertsEnabled";
-import ActiveAlertsCard from "@/protoFleet/features/alerts/components/ActiveAlertsCard";
 import { EfficiencyPanel } from "@/protoFleet/features/dashboard/components/EfficiencyPanel";
 import FleetHealthMetrics from "@/protoFleet/features/dashboard/components/FleetHealthMetrics";
 import FleetHealthSection from "@/protoFleet/features/dashboard/components/FleetHealthSection";
@@ -18,6 +16,7 @@ import SectionHeading from "@/protoFleet/features/dashboard/components/SectionHe
 import SitesSection from "@/protoFleet/features/dashboard/components/SitesSection";
 import { TemperaturePanel } from "@/protoFleet/features/dashboard/components/TemperaturePanel";
 import { UptimePanel } from "@/protoFleet/features/dashboard/components/UptimePanel";
+import MarketDataSection from "@/protoFleet/features/marketData/MarketDataSection";
 import { MinersPage } from "@/protoFleet/features/onboarding";
 import { CompleteSetup } from "@/protoFleet/features/onboarding/components/CompleteSetup";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
@@ -42,7 +41,6 @@ const Dashboard = () => {
   const { devicePaired, statusLoaded } = useOnboardedStatus();
   const duration = useDuration();
   const setDuration = useSetDuration();
-  // Gate on both the read permission and the runtime feature probe so the card is hidden when the alerts sidecar is disabled.
   // ListSites is org-gated on site:read. Without it the shared catalog is
   // skipped (empty, never loaded), so — like the topbar picker in PageHeader —
   // the heading SitePicker is hidden. Mounting it with an empty catalog would
@@ -50,9 +48,6 @@ const Dashboard = () => {
   // and strip the authorized scope. The page-level knownSiteIds guard below is
   // not enough because SitePicker recomputes its own from the `sites` prop.
   const canReadSites = useHasPermission("site:read");
-  const hasAlertRead = useHasPermission("alert:read");
-  const alertsEnabled = useAlertsEnabled();
-  const canViewAlerts = hasAlertRead && alertsEnabled;
   const currentYear = new Date().getFullYear();
   const { refs } = useStickyState();
   const { bgClass } = usePageBackground();
@@ -194,12 +189,9 @@ const Dashboard = () => {
                 <FleetHealthMetrics {...healthCounts} />
               )}
             </div>
-            {canViewAlerts ? (
-              <div className="mt-6 flex flex-col gap-4">
-                <ActiveAlertsCard />
-              </div>
-            ) : null}
           </section>
+
+          <MarketDataSection />
 
           {/* Sites Section — All Sites mode only */}
           {activeSite.kind === "all" ? <SitesSection sites={sites} /> : null}

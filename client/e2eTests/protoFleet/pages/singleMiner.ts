@@ -99,11 +99,11 @@ export class SingleMinerPage extends BasePage {
   }
 
   async searchLogs(query: string) {
-    await this.page.getByLabel("Search").fill(query);
+    await this.page.getByRole("textbox", { name: "Search" }).fill(query);
   }
 
   async validateLogsSearchQuery(expectedQuery: string) {
-    await expect(this.page.getByLabel("Search")).toHaveValue(expectedQuery);
+    await expect(this.page.getByRole("textbox", { name: "Search" })).toHaveValue(expectedQuery);
   }
 
   async navigateToAuthenticationSettings() {

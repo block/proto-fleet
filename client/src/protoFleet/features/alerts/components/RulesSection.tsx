@@ -1,29 +1,33 @@
 import { useCallback, useMemo, useState } from "react";
 import AddMaintenanceWindowModal from "./AddMaintenanceWindowModal";
 import AddRuleModal from "./AddRuleModal";
+import EditDeliveryModal from "./EditDeliveryModal";
 import StatusDot from "./StatusDot";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAlertsContext } from "@/protoFleet/features/alerts/api/AlertsContext";
-import { isMaintenanceWindowActive } from "@/protoFleet/features/alerts/api/useAlerts";
+import { isMaintenanceWindowActive, isRuleFullyMuted } from "@/protoFleet/features/alerts/api/useAlerts";
+import { scopePartLabels } from "@/protoFleet/features/alerts/lib/scopeLabels";
 import { useNow } from "@/protoFleet/features/alerts/lib/useNow";
 import type { Rule } from "@/protoFleet/features/alerts/types";
 import { useHasPermission } from "@/protoFleet/store";
-import { Edit, Pause, Play, Stop, Trash } from "@/shared/assets/icons";
+import { Edit, Notification, Pause, Play, Stop, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
-type RuleColumns = "name" | "condition" | "status";
+type RuleColumns = "name" | "condition" | "scope" | "delivery" | "status";
 
 const colTitles: ColTitles<RuleColumns> = {
   name: "Name",
   condition: "Condition",
+  scope: "Applies to",
+  delivery: "Delivery",
   status: "Status",
 };
 
-const activeCols: RuleColumns[] = ["name", "condition", "status"];
+const activeCols: RuleColumns[] = ["name", "condition", "scope", "delivery", "status"];
 
 // Borderless cells with a right-aligned action kebab, per the alerts design.
 const rulesTableClassName = "mb-6 [&_td]:!border-x-0 [&_th]:!border-x-0 [&_td[data-testid='action']>div]:!ml-auto";
@@ -32,6 +36,40 @@ const formatRuleCondition = (rule: Rule): string => {
   if (rule.summary) return rule.summary;
   if (rule.duration_seconds > 0) return `fires after ${rule.duration_seconds}s`;
   return "fires on first matching evaluation";
+};
+
+// Counts only (like MaintenanceWindowsSection's formatChannels); the edit modal's pickers show names.
+const formatRuleScope = (rule: Rule): string => {
+  const scope = rule.config?.scope;
+  const parts = scopePartLabels({
+    allSites: scope?.all_sites ?? false,
+    sites: scope?.site_ids?.length ?? 0,
+    buildings: scope?.building_ids?.length ?? 0,
+    racks: scope?.rack_ids?.length ?? 0,
+    groups: scope?.group_ids?.length ?? 0,
+    miners: scope?.device_ids?.length ?? 0,
+    minersRedacted: scope?.device_ids_redacted ?? false,
+  });
+  const label = parts.length === 0 ? "All miners" : parts.join(", ");
+  // An interrupted save left the rule evaluating different SQL than this config
+  // (an org-wide stored config is just as suspect); re-saving converges.
+  if (rule.config_out_of_sync) return `${label} (out of sync — re-save)`;
+  return label;
+};
+
+const formatRuleDelivery = (rule: Rule): string => {
+  switch (rule.routing?.mode) {
+    case "custom":
+      return rule.routing.channel_ids.length === 1
+        ? "1 destination"
+        : `${rule.routing.channel_ids.length} destinations`;
+    case "none":
+      return "In-app only";
+    case "default":
+      return "All destinations";
+    default:
+      return "—";
+  }
 };
 
 const RulesSection = () => {
@@ -46,20 +84,26 @@ const RulesSection = () => {
   const [showMaintenanceWindowModal, setShowMaintenanceWindowModal] = useState(false);
   const [showRuleModal, setShowRuleModal] = useState(false);
   const [editingRule, setEditingRule] = useState<Rule | null>(null);
+  const [deliveryRule, setDeliveryRule] = useState<Rule | null>(null);
 
   const now = useNow();
-  const activeMaintenanceWindowIdsByRule = useMemo(() => {
-    // Track every active window per rule, not just the last one, so lifting a rule clears all of them.
-    const map = new Map<string, string[]>();
-    maintenanceWindows.forEach((sil) => {
-      if (isMaintenanceWindowActive(sil, now) && sil.scope.kind === "rule" && sil.scope.rule_id) {
-        const ids = map.get(sil.scope.rule_id) ?? [];
-        ids.push(sil.id);
-        map.set(sil.scope.rule_id, ids);
+  const { mutedRuleIds, liftableWindowIdsByRule } = useMemo(() => {
+    const activeWindows = maintenanceWindows.filter((w) => isMaintenanceWindowActive(w, now));
+    // Lifting from a rule row only deletes windows scoped to exactly that rule,
+    // so it can't silently un-mute the window's other targets. Track every such
+    // window, not just the last one, so lifting clears overlapping ones too.
+    const liftable = new Map<string, string[]>();
+    activeWindows.forEach((w) => {
+      if (w.rule_ids.length === 1) {
+        const [ruleId] = w.rule_ids;
+        const ids = liftable.get(ruleId) ?? [];
+        ids.push(w.id);
+        liftable.set(ruleId, ids);
       }
     });
-    return map;
-  }, [maintenanceWindows, now]);
+    const muted = new Set(rules.filter((rule) => isRuleFullyMuted(rule, activeWindows)).map((rule) => rule.id));
+    return { mutedRuleIds: muted, liftableWindowIdsByRule: liftable };
+  }, [rules, maintenanceWindows, now]);
 
   const sortedRules = useMemo(
     () =>
@@ -94,18 +138,18 @@ const RulesSection = () => {
 
   const handleMaintenanceWindowOrLift = useCallback(
     async (rule: Rule) => {
-      const activeIds = activeMaintenanceWindowIdsByRule.get(rule.id) ?? [];
+      const activeIds = liftableWindowIdsByRule.get(rule.id) ?? [];
       if (activeIds.length > 0) {
         try {
           // Lift every active window for the rule so it isn't left muted by an overlapping one.
           await Promise.all(activeIds.map((id) => removeMaintenanceWindow(id)));
           pushToast({
-            message: activeIds.length > 1 ? "Maintenance windows lifted" : "Maintenance window lifted",
+            message: activeIds.length > 1 ? "Quiet periods lifted" : "Quiet period lifted",
             status: STATUSES.success,
           });
         } catch (error) {
           pushToast({
-            message: getErrorMessage(error, "Failed to lift maintenance window"),
+            message: getErrorMessage(error, "Failed to lift quiet period"),
             status: STATUSES.error,
           });
         }
@@ -114,7 +158,7 @@ const RulesSection = () => {
         setShowMaintenanceWindowModal(true);
       }
     },
-    [activeMaintenanceWindowIdsByRule, removeMaintenanceWindow],
+    [liftableWindowIdsByRule, removeMaintenanceWindow],
   );
 
   const handleDelete = useCallback(
@@ -146,6 +190,15 @@ const RulesSection = () => {
         },
       },
       {
+        title: "Edit delivery",
+        icon: <Notification />,
+        // Routing is org-owned, so it applies to provisioned rules too; the server gates it like other rule mutations.
+        hidden: () => !canWriteRules,
+        actionHandler: (rule) => {
+          setDeliveryRule(rule);
+        },
+      },
+      {
         title: (rule) => (rule.enabled ? "Pause" : "Resume"),
         icon: (rule) => (rule.enabled ? <Pause /> : <Play />),
         actionHandler: (rule) => {
@@ -153,8 +206,7 @@ const RulesSection = () => {
         },
       },
       {
-        title: (rule) =>
-          activeMaintenanceWindowIdsByRule.has(rule.id) ? "Lift maintenance window" : "Maintenance window",
+        title: (rule) => (liftableWindowIdsByRule.has(rule.id) ? "Lift quiet period" : "Quiet period"),
         icon: <Stop />,
         actionHandler: (rule) => {
           void handleMaintenanceWindowOrLift(rule);
@@ -170,7 +222,7 @@ const RulesSection = () => {
         },
       },
     ],
-    [handleTogglePause, handleMaintenanceWindowOrLift, handleDelete, activeMaintenanceWindowIdsByRule, canWriteRules],
+    [handleTogglePause, handleMaintenanceWindowOrLift, handleDelete, liftableWindowIdsByRule, canWriteRules],
   );
 
   const colConfig: ColConfig<Rule, string, RuleColumns> = useMemo(
@@ -195,13 +247,21 @@ const RulesSection = () => {
         ),
         width: "w-96",
       },
+      scope: {
+        component: (rule) => <span className="truncate text-text-primary">{formatRuleScope(rule)}</span>,
+        width: "w-40",
+      },
+      delivery: {
+        component: (rule) => <span className="truncate text-text-primary">{formatRuleDelivery(rule)}</span>,
+        width: "w-40",
+      },
       status: {
         component: (rule) => {
           if (!rule.enabled) {
             return <StatusDot dotClass="bg-text-primary-30">Paused</StatusDot>;
           }
-          // An active maintenance window suppresses the rule even while enabled.
-          if (activeMaintenanceWindowIdsByRule.has(rule.id)) {
+          // Active maintenance windows covering every channel the rule delivers to suppress it even while enabled.
+          if (mutedRuleIds.has(rule.id)) {
             return <StatusDot dotClass="bg-intent-warning-fill">Muted</StatusDot>;
           }
           return <StatusDot dotClass="bg-intent-success-fill">Active</StatusDot>;
@@ -209,7 +269,7 @@ const RulesSection = () => {
         width: "w-80",
       },
     }),
-    [activeMaintenanceWindowIdsByRule],
+    [mutedRuleIds],
   );
 
   return (
@@ -231,8 +291,7 @@ const RulesSection = () => {
         </div>
         <p className="text-300 text-text-primary-50">
           Conditions that decide when an alert fires. Add your own rule on a fleet metric, or work with the provisioned
-          defaults — pause one to silence it indefinitely, or attach a maintenance window to mute it for a finite
-          period.
+          defaults — pause one to silence it indefinitely, or attach a quiet period to mute it for a finite period.
         </p>
       </div>
 
@@ -273,6 +332,8 @@ const RulesSection = () => {
           setEditingRule(null);
         }}
       />
+
+      <EditDeliveryModal open={deliveryRule !== null} rule={deliveryRule} onDismiss={() => setDeliveryRule(null)} />
     </section>
   );
 };

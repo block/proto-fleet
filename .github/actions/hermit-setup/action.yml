@@ -10,7 +10,7 @@ runs:
   using: "composite"
   steps:
     - name: Activate hermit
-      uses: cashapp/activate-hermit@12a728b03ad41eace0f9abaf98a035e7e8ea2318 # v1.1.4
+      uses: cashapp/activate-hermit@cea9af7913204a965fd488637a8d1811bba2e616 # v1.1.5
       with:
         cache: "false" # Disable hermit cache to avoid it evicting yocto cache for now
 

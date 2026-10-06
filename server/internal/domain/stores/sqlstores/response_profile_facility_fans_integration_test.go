@@ -143,12 +143,41 @@ func TestSQLCurtailmentStore_ResponseProfileFacilityFanSettings(t *testing.T) {
 		created.ID,
 		updated.SiteID,
 		updated.ScopeJSON,
+		updated.AuthorizationEnvelopeJSON,
 		responseProfileFanSettings(updated),
 	)
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 	_, err = service.Get(ctx, orgID, created.ID)
 	require.NoError(t, err)
+
+	err = service.Delete(
+		ctx,
+		orgID,
+		created.ID,
+		replacement.SiteID,
+		replacement.ScopeJSON,
+		updated.AuthorizationEnvelopeJSON,
+		responseProfileFanSettings(replacement),
+	)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	_, err = service.Get(ctx, orgID, created.ID)
+	require.NoError(t, err)
+
+	err = service.Delete(
+		ctx,
+		orgID,
+		created.ID,
+		replacement.SiteID,
+		replacement.ScopeJSON,
+		replacement.AuthorizationEnvelopeJSON,
+		responseProfileFanSettings(replacement),
+	)
+	require.NoError(t, err)
+	_, err = service.Get(ctx, orgID, created.ID)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsNotFoundError(err))
 
 	otherSiteProfile, err := service.Create(ctx, domainCurtailment.SaveResponseProfileRequest{
 		Profile: models.ResponseProfile{
@@ -188,74 +217,93 @@ func TestSQLCurtailmentStore_AutomationFanProfilesAreEnabledAfterSequencingLands
 	db := testContext.DatabaseService.DB
 	store := sqlstores.NewSQLCurtailmentStore(db)
 	orgID := user.OrganizationID
+	fanSiteID, fanID := seedCurtailmentFacilityFan(t, db, orgID, "automation-profile-fan")
 	sourceID := seedMQTTSourceConfig(t, db, orgID, user.DatabaseID, "fan-invariant-source", true)
 	cleanProfileID := seedResponseProfile(t, db, orgID, "fan-free-profile")
 
 	var fanProfileID int64
 	require.NoError(t, db.QueryRowContext(ctx, `
 		INSERT INTO curtailment_response_profile
-			(org_id, profile_name, mode, facility_fan_device_ids)
-		VALUES ($1, 'fan-profile', 'FULL_FLEET', ARRAY[31]::bigint[])
-		RETURNING id`, orgID).Scan(&fanProfileID))
-	fanProfileSettings := models.ResponseProfileFanSettings{FacilityFanDeviceIDs: []int64{31}}
+			(org_id, profile_name, mode, facility_fan_device_ids, authorization_envelope_jsonb)
+		VALUES (
+			$1, 'fan-profile', 'FULL_FLEET', ARRAY[$2]::bigint[],
+			jsonb_build_object(
+				'schema_version', 1,
+				'selected_resource_site_ids', '[]'::jsonb,
+				'current_member_site_ids', '[]'::jsonb,
+				'miner_scope_unbounded', true,
+				'facility_fan_site_ids', jsonb_build_array($3::bigint),
+				'facility_fan_scope_unbounded', false
+			)
+		)
+		RETURNING id`, orgID, fanID, fanSiteID).Scan(&fanProfileID))
+	fanProfileSettings := models.ResponseProfileFanSettings{FacilityFanDeviceIDs: []int64{fanID}}
+	fanProfileRevision := mustResponseProfileRevision(t, store, orgID, fanProfileID)
 
 	_, err := store.CreateAutomationRule(ctx, models.AutomationRule{
-		OrgID:             orgID,
-		RuleName:          "create-fan-rule",
-		TriggerType:       models.AutomationTriggerTypeMQTT,
-		MQTTSourceID:      sourceID,
-		ResponseProfileID: fanProfileID,
-		Enabled:           true,
+		OrgID:                   orgID,
+		RuleName:                "create-fan-rule",
+		TriggerType:             models.AutomationTriggerTypeMQTT,
+		MQTTSourceID:            sourceID,
+		ResponseProfileID:       fanProfileID,
+		ResponseProfileRevision: fanProfileRevision,
+		Enabled:                 true,
 	}, fanProfileSettings)
 	require.NoError(t, err)
 
 	cleanRuleID := seedAutomationRule(t, db, orgID, sourceID, cleanProfileID, "update-to-fan-rule", false)
 	_, err = store.UpdateAutomationRule(ctx, models.AutomationRule{
-		ID:                cleanRuleID,
-		OrgID:             orgID,
-		RuleName:          "update-to-fan-rule",
-		MQTTSourceID:      sourceID,
-		ResponseProfileID: fanProfileID,
+		ID:                      cleanRuleID,
+		OrgID:                   orgID,
+		RuleName:                "update-to-fan-rule",
+		MQTTSourceID:            sourceID,
+		ResponseProfileID:       fanProfileID,
+		ResponseProfileRevision: fanProfileRevision,
 	}, fanProfileSettings)
 	require.NoError(t, err)
 
 	disabledFanRuleID := seedAutomationRule(t, db, orgID, sourceID, fanProfileID, "enable-fan-rule", false)
-	_, err = store.SetAutomationRuleEnabled(ctx, orgID, disabledFanRuleID, true, fanProfileSettings)
+	_, err = store.SetAutomationRuleEnabled(ctx, orgID, disabledFanRuleID, true, fanProfileRevision, fanProfileSettings)
 	require.NoError(t, err)
 
 	_, err = store.CreateAutomationRule(ctx, models.AutomationRule{
-		OrgID:             orgID,
-		RuleName:          "stale-create-fan-rule",
-		TriggerType:       models.AutomationTriggerTypeMQTT,
-		MQTTSourceID:      sourceID,
-		ResponseProfileID: fanProfileID,
-		Enabled:           true,
+		OrgID:                   orgID,
+		RuleName:                "stale-create-fan-rule",
+		TriggerType:             models.AutomationTriggerTypeMQTT,
+		MQTTSourceID:            sourceID,
+		ResponseProfileID:       fanProfileID,
+		ResponseProfileRevision: fanProfileRevision,
+		Enabled:                 true,
 	}, models.ResponseProfileFanSettings{})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 
 	_, err = store.UpdateAutomationRule(ctx, models.AutomationRule{
-		ID:                cleanRuleID,
-		OrgID:             orgID,
-		RuleName:          "stale-update-to-fan-rule",
-		MQTTSourceID:      sourceID,
-		ResponseProfileID: fanProfileID,
+		ID:                      cleanRuleID,
+		OrgID:                   orgID,
+		RuleName:                "stale-update-to-fan-rule",
+		MQTTSourceID:            sourceID,
+		ResponseProfileID:       fanProfileID,
+		ResponseProfileRevision: fanProfileRevision,
 	}, models.ResponseProfileFanSettings{})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 
 	staleEnableRuleID := seedAutomationRule(t, db, orgID, sourceID, fanProfileID, "stale-enable-fan-rule", false)
-	_, err = store.SetAutomationRuleEnabled(ctx, orgID, staleEnableRuleID, true, models.ResponseProfileFanSettings{})
+	_, err = store.SetAutomationRuleEnabled(ctx, orgID, staleEnableRuleID, true, fanProfileRevision, models.ResponseProfileFanSettings{})
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsFailedPreconditionError(err))
 
 	cleanProfile, err := store.GetResponseProfile(ctx, orgID, cleanProfileID)
 	require.NoError(t, err)
-	cleanProfile.FacilityFanDeviceIDs = []int64{31}
+	cleanProfile.FacilityFanDeviceIDs = []int64{fanID}
+	devices, err := store.ListResponseProfileInfrastructureDevices(ctx, orgID, cleanProfile.FacilityFanDeviceIDs)
+	require.NoError(t, err)
 	_, err = store.UpdateResponseProfile(
 		ctx,
 		*cleanProfile,
 		nil,
+		devices,
 		cleanProfile.SiteID,
 		cleanProfile.ScopeJSON,
 		models.ResponseProfileFanSettings{},

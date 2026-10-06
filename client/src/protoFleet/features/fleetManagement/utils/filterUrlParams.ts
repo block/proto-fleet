@@ -32,7 +32,10 @@ const URL_PARAMS = {
   FIRMWARE: "firmware",
   ZONE: "zone",
   SUBNET: "subnet",
+  SEARCH: "search",
 } as const;
+
+export const MINER_SEARCH_URL_PARAM = URL_PARAMS.SEARCH;
 
 export const UNASSIGNED_URL_VALUE = "null";
 export const UNASSIGNED_FILTER_OPTION = { id: UNASSIGNED_URL_VALUE, label: "Unassigned" };
@@ -292,6 +295,10 @@ export function encodeFilterToURL(filter: MinerListFilter): URLSearchParams {
     setMulti(params, URL_PARAMS.SUBNET, subnetValues.sort());
   }
 
+  if (filter.searchQuery.trim() !== "") {
+    params.set(URL_PARAMS.SEARCH, filter.searchQuery.trim());
+  }
+
   return params;
 }
 
@@ -307,6 +314,7 @@ export function parseFilterFromURL(params: URLSearchParams): MinerListFilter | u
 
   const filter = create(MinerListFilterSchema, {
     errorComponentTypes: [],
+    searchQuery: params.get(URL_PARAMS.SEARCH)?.trim() ?? "",
   });
 
   getMultiLegacy(params, URL_PARAMS.STATUS).forEach((value) => {

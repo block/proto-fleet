@@ -12,7 +12,11 @@ import { useHasPermission } from "@/protoFleet/store";
 const mockUseWindowDimensions = vi.fn();
 const mockUseReactiveLocalStorage = vi.fn();
 const mockUseCurtailmentPillData = vi.fn();
+const mockUseActiveAlertsPillData = vi.fn();
 const mockUseSchedulePillData = vi.fn();
+const mockUseUpdateIndicator = vi.fn();
+const mockUseFleetNodeUpgradeIndicator = vi.fn();
+const mockUseRolloutPillData = vi.fn();
 
 vi.mock("@/protoFleet/api/ScheduleApiProvider", () => ({
   ScheduleApiProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -31,7 +35,7 @@ vi.mock("@/protoFleet/components/NavigationMenu", () => ({
 
 vi.mock("@/protoFleet/components/PageHeader", () => ({
   __esModule: true,
-  default: () => <div>Page header</div>,
+  default: ({ navigationToggle }: { navigationToggle?: ReactNode }) => <div>Page header{navigationToggle}</div>,
 }));
 
 vi.mock("@/protoFleet/features/aiChat", () => ({
@@ -45,6 +49,22 @@ vi.mock("@/protoFleet/components/PageHeader/useSchedulePillData", () => ({
 
 vi.mock("@/protoFleet/components/PageHeader/useCurtailmentPillData", () => ({
   useCurtailmentPillData: () => mockUseCurtailmentPillData(),
+}));
+
+vi.mock("@/protoFleet/components/PageHeader/useActiveAlertsPillData", () => ({
+  useActiveAlertsPillData: (options: { enabled?: boolean }) => mockUseActiveAlertsPillData(options),
+}));
+
+vi.mock("@/protoFleet/features/updates/useUpdateIndicator", () => ({
+  useUpdateIndicator: (options: { enabled?: boolean }) => mockUseUpdateIndicator(options),
+}));
+
+vi.mock("@/protoFleet/components/PageHeader/useFleetNodeUpgradeIndicator", () => ({
+  useFleetNodeUpgradeIndicator: (options: { enabled?: boolean }) => mockUseFleetNodeUpgradeIndicator(options),
+}));
+
+vi.mock("@/protoFleet/components/PageHeader/useRolloutPillData", () => ({
+  useRolloutPillData: (options: { enabled?: boolean }) => mockUseRolloutPillData(options),
 }));
 
 vi.mock("@/shared/hooks/useWindowDimensions", () => ({
@@ -97,13 +117,19 @@ const activeCurtailmentEvent: CurtailmentPillEvent = {
 
 describe("AppLayout", () => {
   beforeEach(() => {
+    // Without this, a `toHaveBeenCalledWith` assertion matches any earlier test's render instead of its own.
+    vi.clearAllMocks();
     mockUseWindowDimensions.mockReturnValue({
       width: 375,
       isPhone: true,
     });
     mockUseReactiveLocalStorage.mockReturnValue([false, vi.fn()]);
     mockUseCurtailmentPillData.mockReturnValue({ activeEvent: null });
+    mockUseActiveAlertsPillData.mockReturnValue({ groups: [], error: null, hasMore: false, hasVisiblePill: false });
     mockUseSchedulePillData.mockReturnValue(createSchedulePillData());
+    mockUseUpdateIndicator.mockReturnValue(null);
+    mockUseFleetNodeUpgradeIndicator.mockReturnValue(null);
+    mockUseRolloutPillData.mockReturnValue({ activeRollouts: [], hasVisiblePill: false });
     vi.mocked(useHasPermission).mockReturnValue(true);
   });
 
@@ -155,9 +181,35 @@ describe("AppLayout", () => {
 
     expect(screen.queryByText("Page header")).not.toBeInTheDocument();
     expect(screen.getByText("Body content").parentElement).toHaveClass("top-0");
-    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:pt-12", "tablet-only:pt-12");
+    expect(screen.getByText("Body content").parentElement).toHaveClass("pt-12");
     expect(screen.getByText("Body content").parentElement).not.toHaveClass("phone:top-[calc(theme(spacing.1)*12)]");
     expect(screen.getByTestId("navigation-menu-button")).toBeInTheDocument();
+  });
+
+  it("keeps the header toggle beside the expanded sidebar and resets it on desktop", () => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: false, isTablet: true });
+    const view = () => (
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>
+    );
+    const { rerender } = render(view());
+    const toggle = screen.getByRole("button", { name: "Expand navigation" });
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAccessibleName("Collapse navigation");
+    expect(screen.getByTestId("app-header")).toHaveClass("tablet:left-50");
+    expect(screen.getByTestId("app-content")).toHaveClass("tablet:left-16");
+    fireEvent.click(toggle);
+    expect(screen.getByTestId("app-header")).toHaveClass("tablet:left-16");
+    fireEvent.click(toggle);
+    mockUseWindowDimensions.mockReturnValue({ isPhone: false, isDesktop: true });
+    rerender(view());
+    expect(screen.queryByRole("button", { name: /^(Expand|Collapse) navigation$/ })).not.toBeInTheDocument();
+    mockUseWindowDimensions.mockReturnValue({ isPhone: false, isTablet: true });
+    rerender(view());
+    expect(screen.getByRole("button", { name: "Expand navigation" })).toHaveAttribute("aria-expanded", "false");
   });
 
   it("opens navigation from the detail route mobile menu trigger", () => {
@@ -173,7 +225,25 @@ describe("AppLayout", () => {
     fireEvent.click(screen.getByTestId("navigation-menu-button"));
 
     expect(screen.getByText("Navigation menu")).toBeInTheDocument();
+    expect(screen.getByTestId("navigation-menu-button")).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it.each([
+    { isTablet: true, isLaptop: false },
+    { isTablet: false, isLaptop: true },
+  ])("offers the sidebar toggle on compact detail routes without a phone menu trigger: %o", (dimensions) => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: false, ...dimensions });
+    render(
+      <MemoryRouter>
+        <AppLayout hideShellHeader>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText("Body content").parentElement).toHaveClass("tablet:left-16");
     expect(screen.queryByTestId("navigation-menu-button")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Expand navigation" })).toBeVisible();
+    expect(screen.getByText("Body content").parentElement).toHaveClass("pt-12", "laptop:pt-15");
   });
 
   it("keeps the shell header and top offset on non-detail routes", () => {
@@ -238,6 +308,170 @@ describe("AppLayout", () => {
       </MemoryRouter>,
     );
 
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+40px)]");
+  });
+
+  it("uses the three-widget phone content offset when the update indicator makes four widgets visible", () => {
+    mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
+    mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
+    mockUseSchedulePillData.mockReturnValue(
+      createSchedulePillData({
+        pillSchedule: createPillSchedule(),
+      }),
+    );
+    mockUseUpdateIndicator.mockReturnValue({ version: "v1.3.0", onClick: vi.fn() });
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+120px)]");
+  });
+
+  it("uses the four-widget phone content offset when a firing alert makes five widgets visible", () => {
+    mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
+    mockUseActiveAlertsPillData.mockReturnValue({
+      groups: [{ key: "miner|offline" }],
+      error: null,
+      hasMore: false,
+      hasVisiblePill: true,
+    });
+    mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
+    mockUseSchedulePillData.mockReturnValue(createSchedulePillData({ pillSchedule: createPillSchedule() }));
+    mockUseUpdateIndicator.mockReturnValue({ version: "v1.3.0", onClick: vi.fn() });
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    // The alerts pill takes the inline slot, leaving four stacked pills that the three-row ladder would clip.
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+160px)]");
+  });
+
+  it("uses the five-widget phone content offset when six widgets are visible", () => {
+    mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
+    mockUseActiveAlertsPillData.mockReturnValue({
+      groups: [{ key: "miner|offline" }],
+      error: null,
+      hasMore: false,
+      hasVisiblePill: true,
+    });
+    mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
+    mockUseSchedulePillData.mockReturnValue(createSchedulePillData({ pillSchedule: createPillSchedule() }));
+    mockUseUpdateIndicator.mockReturnValue({ version: "v1.3.0", onClick: vi.fn() });
+    mockUseFleetNodeUpgradeIndicator.mockReturnValue({ nodeCount: 1, onClick: vi.fn() });
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+200px)]");
+  });
+
+  it("reserves six phone rows when Fleet Node upgrades and rollouts make all seven widgets visible", () => {
+    mockUseReactiveLocalStorage.mockReturnValue([true, vi.fn()]);
+    mockUseActiveAlertsPillData.mockReturnValue({
+      groups: [{ key: "miner|offline" }],
+      error: null,
+      hasMore: false,
+      hasVisiblePill: true,
+    });
+    mockUseCurtailmentPillData.mockReturnValue({ activeEvent: activeCurtailmentEvent });
+    mockUseSchedulePillData.mockReturnValue(createSchedulePillData({ pillSchedule: createPillSchedule() }));
+    mockUseUpdateIndicator.mockReturnValue({ version: "v1.3.0", onClick: vi.fn() });
+    mockUseFleetNodeUpgradeIndicator.mockReturnValue({ nodeCount: 1, onClick: vi.fn() });
+    mockUseRolloutPillData.mockReturnValue({ activeRollouts: [{ id: 1n }], hasVisiblePill: true });
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+240px)]");
+    expect(mockUseRolloutPillData).toHaveBeenCalledWith({ enabled: true });
+  });
+
+  it("disables update polling when the route hides the shell header", () => {
+    render(
+      <MemoryRouter>
+        <AppLayout hideShellHeader>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(mockUseUpdateIndicator).toHaveBeenCalledWith({ enabled: false });
+  });
+
+  it("disables Fleet Node compatibility polling when the route hides the shell header", () => {
+    render(
+      <MemoryRouter>
+        <AppLayout hideShellHeader>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(mockUseFleetNodeUpgradeIndicator).toHaveBeenCalledWith({ enabled: false });
+  });
+
+  it("disables active-alert polling when the route hides the shell header", () => {
+    render(
+      <MemoryRouter>
+        <AppLayout hideShellHeader>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(mockUseActiveAlertsPillData).toHaveBeenCalledWith({ enabled: false });
+  });
+
+  it("disables rollout polling when the route hides the shell header", () => {
+    render(
+      <MemoryRouter>
+        <AppLayout hideShellHeader>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    expect(mockUseRolloutPillData).toHaveBeenCalledWith({ enabled: false });
+  });
+
+  it("offsets the phone content for a firing alert so the pill has a row", () => {
+    mockUseActiveAlertsPillData.mockReturnValue({
+      groups: [{ key: "miner|offline" }],
+      error: null,
+      hasMore: false,
+      hasVisiblePill: true,
+    });
+    mockUseSchedulePillData.mockReturnValue(createSchedulePillData({ pillSchedule: createPillSchedule() }));
+
+    render(
+      <MemoryRouter>
+        <AppLayout>
+          <div>Body content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+
+    // The alerts pill takes the inline slot, pushing the schedule pill into a row of its own.
     expect(screen.getByText("Body content").parentElement).toHaveClass("phone:top-[calc(theme(spacing.1)*12+40px)]");
   });
 

@@ -288,6 +288,21 @@ func generatedAlertsCommand() *cli.Command {
 				Usage: "Manage history commands",
 				Commands: []*cli.Command{
 					generatedRequestCommand(
+						"active",
+						"List active alert groups",
+						"/alerts.v1.HistoryService/ListActiveAlertGroups",
+						generatedAuthSessionOnly,
+						[]cli.Flag{},
+						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+							req := &alertsv1.ListActiveAlertGroupsRequest{}
+							if err := generatedValidateRequest(req); err != nil {
+								return nil, err
+							}
+							return req, nil
+						},
+						func() proto.Message { return &alertsv1.ListActiveAlertGroupsResponse{} },
+					),
+					generatedRequestCommand(
 						"list",
 						"List alerts",
 						"/alerts.v1.HistoryService/ListAlerts",
@@ -296,6 +311,8 @@ func generatedAlertsCommand() *cli.Command {
 							&cli.StringFlag{Name: "before-id", Usage: "before id"},
 							&cli.IntFlag{Name: "page-size", Usage: "page size"},
 							&cli.BoolFlag{Name: "active-only", Usage: "active only"},
+							&cli.StringFlag{Name: "alert-name", Usage: "alert name"},
+							&cli.StringFlag{Name: "rule-group", Usage: "rule group"},
 						},
 						func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 							req := &alertsv1.ListAlertsRequest{}
@@ -307,6 +324,12 @@ func generatedAlertsCommand() *cli.Command {
 							}
 							if cmd.IsSet("active-only") {
 								req.ActiveOnly = cmd.Bool("active-only")
+							}
+							if cmd.IsSet("alert-name") {
+								req.AlertName = cmd.String("alert-name")
+							}
+							if cmd.IsSet("rule-group") {
+								req.RuleGroup = cmd.String("rule-group")
 							}
 							if err := generatedValidateRequest(req); err != nil {
 								return nil, err

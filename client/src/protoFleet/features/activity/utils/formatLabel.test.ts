@@ -9,6 +9,19 @@ describe("formatLabel", () => {
     expect(formatLabel("set_rack_slot")).toBe("Updated rack position");
     expect(formatLabel("site.created")).toBe("Created site");
     expect(formatLabel("devices.reassigned_to_site")).toBe("Reassigned miners to site");
+    expect(formatLabel("cli_reset_password")).toBe("Break-glass password reset");
+    expect(formatLabel("maintenance.ticket_created")).toBe("Created repair ticket");
+    expect(formatLabel("inventory.parts_imported")).toBe("Imported inventory parts");
+  });
+
+  it.each([
+    ["rollout_advanced", "Advanced firmware update", "Firmware update advanced"],
+    ["rollout_devices_skipped", "Skipped firmware update targets", "Firmware update targets skipped"],
+    ["rollout_device_failed", "Firmware update target failed", "Firmware update target failed"],
+    ["rollout_controller_timed_out", "Firmware update controller timed out", "Firmware update controller timed out"],
+  ])("labels %s in activity and its filters", (eventType, label, filterLabel) => {
+    expect(formatLabel(eventType)).toBe(label);
+    expect(formatActivityFilterLabel(eventType)).toBe(filterLabel);
   });
 
   it("formats completed event types using the base event label", () => {
@@ -24,6 +37,9 @@ describe("formatLabel", () => {
     expect(formatActivityFilterLabel("set_rack_slot")).toBe("Update rack position");
     expect(formatActivityFilterLabel("site.created")).toBe("Create site");
     expect(formatActivityFilterLabel("set_power_target.completed")).toBe("Update power target");
+    expect(formatActivityFilterLabel("cli_reset_password")).toBe("Break-glass password reset");
+    expect(formatActivityFilterLabel("maintenance.ticket_bulk_update")).toBe("Bulk update repair tickets");
+    expect(formatActivityFilterLabel("inventory.part_updated")).toBe("Update inventory part");
   });
 
   it("keeps curtailment lifecycle filter labels distinct from curtail commands", () => {

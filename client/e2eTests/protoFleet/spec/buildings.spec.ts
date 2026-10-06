@@ -14,26 +14,25 @@ import {
 test.describe("Buildings", () => {
   useBuildingsHooks();
 
-  test("Create a site, building, rack, and miners flow across fleet tabs", async ({
-    page,
-    fleetLocationsPage,
-    minersPage,
-    racksPage,
-  }) => {
-    const scenario = createBuildingsScenarioData();
-    const buildingId = await createSiteAndBuilding(fleetLocationsPage, scenario);
-    const { rackId, selectedMinerIps } = await createRackWithAssignedMiners(racksPage, scenario.rackLabel);
+  test(
+    "Create a site, building, rack, and miners flow across fleet tabs",
+    { tag: "@smoke" },
+    async ({ page, fleetLocationsPage, minersPage, racksPage }) => {
+      const scenario = createBuildingsScenarioData();
+      const buildingId = await createSiteAndBuilding(fleetLocationsPage, scenario);
+      const { rackId, selectedMinerIps } = await createRackWithAssignedMiners(racksPage, scenario.rackLabel);
 
-    await assignRackToBuilding(page, racksPage, scenario.rackLabel, rackId, scenario.buildingName, buildingId);
-    await validateBuildingPlacementAcrossTabs({
-      page,
-      fleetLocationsPage,
-      minersPage,
-      racksPage,
-      scenario,
-      selectedMinerIps,
-    });
-  });
+      await assignRackToBuilding(page, racksPage, scenario.rackLabel, rackId, scenario.buildingName, buildingId);
+      await validateBuildingPlacementAcrossTabs({
+        page,
+        fleetLocationsPage,
+        minersPage,
+        racksPage,
+        scenario,
+        selectedMinerIps,
+      });
+    },
+  );
 
   test("Move a rack between buildings and then unassign it", async ({
     page,
@@ -100,39 +99,38 @@ test.describe("Buildings", () => {
     });
   });
 
-  test("Rename a building and propagate the new name across fleet tabs", async ({
-    page,
-    fleetLocationsPage,
-    minersPage,
-    racksPage,
-  }) => {
-    const scenario = createBuildingsScenarioData();
-    const renamedBuilding = createBuildingsScenarioData().buildingName;
-    const buildingId = await createSiteAndBuilding(fleetLocationsPage, scenario);
-    const { rackId, selectedMinerIps } = await createRackWithAssignedMiners(racksPage, scenario.rackLabel);
+  test(
+    "Rename a building and propagate the new name across fleet tabs",
+    { tag: "@smoke" },
+    async ({ page, fleetLocationsPage, minersPage, racksPage }) => {
+      const scenario = createBuildingsScenarioData();
+      const renamedBuilding = createBuildingsScenarioData().buildingName;
+      const buildingId = await createSiteAndBuilding(fleetLocationsPage, scenario);
+      const { rackId, selectedMinerIps } = await createRackWithAssignedMiners(racksPage, scenario.rackLabel);
 
-    await assignRackToBuilding(page, racksPage, scenario.rackLabel, rackId, scenario.buildingName, buildingId);
-    await fleetLocationsPage.renameBuilding(scenario.buildingName, renamedBuilding);
+      await assignRackToBuilding(page, racksPage, scenario.rackLabel, rackId, scenario.buildingName, buildingId);
+      await fleetLocationsPage.renameBuilding(scenario.buildingName, renamedBuilding);
 
-    await validateSiteAndBuildingCounts(fleetLocationsPage, {
-      siteName: scenario.siteName,
-      siteCounts: {
-        buildings: 1,
-        racks: 1,
-        miners: 2,
-      },
-      buildings: [{ buildingName: renamedBuilding, racks: 1, miners: 2 }],
-    });
-    await validateRackAndMinerPlacementAcrossTabs({
-      page,
-      minersPage,
-      racksPage,
-      siteName: scenario.siteName,
-      buildingName: renamedBuilding,
-      rackLabel: scenario.rackLabel,
-      selectedMinerIps,
-    });
-  });
+      await validateSiteAndBuildingCounts(fleetLocationsPage, {
+        siteName: scenario.siteName,
+        siteCounts: {
+          buildings: 1,
+          racks: 1,
+          miners: 2,
+        },
+        buildings: [{ buildingName: renamedBuilding, racks: 1, miners: 2 }],
+      });
+      await validateRackAndMinerPlacementAcrossTabs({
+        page,
+        minersPage,
+        racksPage,
+        siteName: scenario.siteName,
+        buildingName: renamedBuilding,
+        rackLabel: scenario.rackLabel,
+        selectedMinerIps,
+      });
+    },
+  );
 
   test("Delete a building with an assigned rack and keep the rack on the site", async ({
     page,

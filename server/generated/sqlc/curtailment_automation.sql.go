@@ -14,6 +14,36 @@ import (
 	"github.com/google/uuid"
 )
 
+const bindCurtailmentAutomationRuleResponseProfileRevision = `-- name: BindCurtailmentAutomationRuleResponseProfileRevision :execrows
+UPDATE curtailment_automation_rule_profile_revision AS rule_revision
+SET response_profile_revision = $1
+FROM curtailment_automation_rule AS rule
+WHERE rule_revision.automation_rule_id = rule.id
+  AND rule.id = $2
+  AND rule.org_id = $3
+  AND rule.response_profile_id = $4
+`
+
+type BindCurtailmentAutomationRuleResponseProfileRevisionParams struct {
+	ResponseProfileRevision   uuid.UUID
+	ID                        int64
+	OrgID                     int64
+	ExpectedResponseProfileID int64
+}
+
+func (q *Queries) BindCurtailmentAutomationRuleResponseProfileRevision(ctx context.Context, arg BindCurtailmentAutomationRuleResponseProfileRevisionParams) (int64, error) {
+	result, err := q.exec(ctx, q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt, bindCurtailmentAutomationRuleResponseProfileRevision,
+		arg.ResponseProfileRevision,
+		arg.ID,
+		arg.OrgID,
+		arg.ExpectedResponseProfileID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const clearCurtailmentAutomationActiveEvent = `-- name: ClearCurtailmentAutomationActiveEvent :exec
 INSERT INTO curtailment_automation_rule_state (
     rule_id,
@@ -164,6 +194,7 @@ func (q *Queries) DisableCurtailmentAutomationRuleByActiveEvent(ctx context.Cont
 const getCurtailmentAutomationRuleByOrg = `-- name: GetCurtailmentAutomationRuleByOrg :one
 SELECT
     r.id, r.org_id, r.rule_name, r.trigger_type, r.mqtt_source_id, r.response_profile_id, r.enabled, r.created_at, r.updated_at,
+    rule_revision.response_profile_revision,
     src.source_name AS mqtt_source_name,
     st.last_signal,
     st.last_signal_at,
@@ -176,6 +207,8 @@ SELECT
     profile.site_id AS response_profile_site_id,
     profile.scope_json AS response_profile_scope_json
 FROM curtailment_automation_rule r
+JOIN curtailment_automation_rule_profile_revision rule_revision
+    ON rule_revision.automation_rule_id = r.id
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
     AND src.organization_id = r.org_id
@@ -203,6 +236,7 @@ type GetCurtailmentAutomationRuleByOrgRow struct {
 	Enabled                  bool
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
+	ResponseProfileRevision  uuid.UUID
 	MqttSourceName           string
 	LastSignal               sql.NullString
 	LastSignalAt             sql.NullTime
@@ -229,6 +263,7 @@ func (q *Queries) GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg Get
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ResponseProfileRevision,
 		&i.MqttSourceName,
 		&i.LastSignal,
 		&i.LastSignalAt,
@@ -247,6 +282,7 @@ func (q *Queries) GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg Get
 const getEnabledCurtailmentAutomationRuleByEvent = `-- name: GetEnabledCurtailmentAutomationRuleByEvent :one
 SELECT
     r.id, r.org_id, r.rule_name, r.trigger_type, r.mqtt_source_id, r.response_profile_id, r.enabled, r.created_at, r.updated_at,
+    rule_revision.response_profile_revision,
     src.source_name AS mqtt_source_name,
     st.last_signal,
     st.last_signal_at,
@@ -259,6 +295,8 @@ SELECT
     profile.site_id AS response_profile_site_id,
     profile.scope_json AS response_profile_scope_json
 FROM curtailment_automation_rule r
+JOIN curtailment_automation_rule_profile_revision rule_revision
+    ON rule_revision.automation_rule_id = r.id
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
     AND src.organization_id = r.org_id
@@ -297,6 +335,7 @@ type GetEnabledCurtailmentAutomationRuleByEventRow struct {
 	Enabled                  bool
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
+	ResponseProfileRevision  uuid.UUID
 	MqttSourceName           string
 	LastSignal               sql.NullString
 	LastSignalAt             sql.NullTime
@@ -323,6 +362,7 @@ func (q *Queries) GetEnabledCurtailmentAutomationRuleByEvent(ctx context.Context
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ResponseProfileRevision,
 		&i.MqttSourceName,
 		&i.LastSignal,
 		&i.LastSignalAt,
@@ -393,6 +433,7 @@ func (q *Queries) InsertCurtailmentAutomationRule(ctx context.Context, arg Inser
 const listCurtailmentAutomationRulesByOrg = `-- name: ListCurtailmentAutomationRulesByOrg :many
 SELECT
     r.id, r.org_id, r.rule_name, r.trigger_type, r.mqtt_source_id, r.response_profile_id, r.enabled, r.created_at, r.updated_at,
+    rule_revision.response_profile_revision,
     src.source_name AS mqtt_source_name,
     st.last_signal,
     st.last_signal_at,
@@ -405,6 +446,8 @@ SELECT
     profile.site_id AS response_profile_site_id,
     profile.scope_json AS response_profile_scope_json
 FROM curtailment_automation_rule r
+JOIN curtailment_automation_rule_profile_revision rule_revision
+    ON rule_revision.automation_rule_id = r.id
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
     AND src.organization_id = r.org_id
@@ -427,6 +470,7 @@ type ListCurtailmentAutomationRulesByOrgRow struct {
 	Enabled                  bool
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
+	ResponseProfileRevision  uuid.UUID
 	MqttSourceName           string
 	LastSignal               sql.NullString
 	LastSignalAt             sql.NullTime
@@ -459,6 +503,7 @@ func (q *Queries) ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ResponseProfileRevision,
 			&i.MqttSourceName,
 			&i.LastSignal,
 			&i.LastSignalAt,
@@ -487,6 +532,7 @@ func (q *Queries) ListCurtailmentAutomationRulesByOrg(ctx context.Context, orgID
 const listEnabledCurtailmentAutomationRulesByMQTTSource = `-- name: ListEnabledCurtailmentAutomationRulesByMQTTSource :many
 SELECT
     r.id, r.org_id, r.rule_name, r.trigger_type, r.mqtt_source_id, r.response_profile_id, r.enabled, r.created_at, r.updated_at,
+    rule_revision.response_profile_revision,
     src.source_name AS mqtt_source_name,
     st.last_signal,
     st.last_signal_at,
@@ -499,6 +545,8 @@ SELECT
     profile.site_id AS response_profile_site_id,
     profile.scope_json AS response_profile_scope_json
 FROM curtailment_automation_rule r
+JOIN curtailment_automation_rule_profile_revision rule_revision
+    ON rule_revision.automation_rule_id = r.id
 JOIN curtailment_mqtt_source_config src
     ON src.id = r.mqtt_source_id
     AND src.organization_id = r.org_id
@@ -522,6 +570,7 @@ type ListEnabledCurtailmentAutomationRulesByMQTTSourceRow struct {
 	Enabled                  bool
 	CreatedAt                time.Time
 	UpdatedAt                time.Time
+	ResponseProfileRevision  uuid.UUID
 	MqttSourceName           string
 	LastSignal               sql.NullString
 	LastSignalAt             sql.NullTime
@@ -554,6 +603,7 @@ func (q *Queries) ListEnabledCurtailmentAutomationRulesByMQTTSource(ctx context.
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ResponseProfileRevision,
 			&i.MqttSourceName,
 			&i.LastSignal,
 			&i.LastSignalAt,
@@ -626,6 +676,70 @@ func (q *Queries) ListMQTTSourcesWithActiveCurtailment(ctx context.Context) ([]L
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockCurtailmentAutomationRuleForExecution = `-- name: LockCurtailmentAutomationRuleForExecution :one
+SELECT rule.id
+FROM curtailment_automation_rule AS rule
+JOIN curtailment_automation_rule_profile_revision AS rule_revision
+  ON rule_revision.automation_rule_id = rule.id
+JOIN curtailment_mqtt_source_config AS source
+  ON source.id = rule.mqtt_source_id
+ AND source.organization_id = rule.org_id
+WHERE rule.id = $1
+  AND rule.org_id = $2
+  AND rule.enabled = TRUE
+  AND rule.trigger_type = 'MQTT'
+  AND rule.mqtt_source_id = $3
+  AND source.service_user_id = $4
+  AND rule.response_profile_id = $5
+  AND rule_revision.response_profile_revision = $6
+FOR UPDATE OF rule, rule_revision, source
+`
+
+type LockCurtailmentAutomationRuleForExecutionParams struct {
+	ID                      int64
+	OrgID                   int64
+	MqttSourceID            int64
+	ServiceUserID           int64
+	ResponseProfileID       int64
+	ResponseProfileRevision uuid.UUID
+}
+
+func (q *Queries) LockCurtailmentAutomationRuleForExecution(ctx context.Context, arg LockCurtailmentAutomationRuleForExecutionParams) (int64, error) {
+	row := q.queryRow(ctx, q.lockCurtailmentAutomationRuleForExecutionStmt, lockCurtailmentAutomationRuleForExecution,
+		arg.ID,
+		arg.OrgID,
+		arg.MqttSourceID,
+		arg.ServiceUserID,
+		arg.ResponseProfileID,
+		arg.ResponseProfileRevision,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const lockCurtailmentAutomationRuleMutation = `-- name: LockCurtailmentAutomationRuleMutation :exec
+SELECT pg_advisory_xact_lock(
+    hashtextextended(
+        'curtailment_automation_rule:'
+            || $1::bigint::text
+            || ':'
+            || $2::bigint::text,
+        0
+    )
+)
+`
+
+type LockCurtailmentAutomationRuleMutationParams struct {
+	OrgID  int64
+	RuleID int64
+}
+
+func (q *Queries) LockCurtailmentAutomationRuleMutation(ctx context.Context, arg LockCurtailmentAutomationRuleMutationParams) error {
+	_, err := q.exec(ctx, q.lockCurtailmentAutomationRuleMutationStmt, lockCurtailmentAutomationRuleMutation, arg.OrgID, arg.RuleID)
+	return err
 }
 
 const setCurtailmentAutomationActiveEvent = `-- name: SetCurtailmentAutomationActiveEvent :execrows
@@ -753,14 +867,16 @@ func (q *Queries) SetCurtailmentAutomationRestoreStarted(ctx context.Context, ar
 
 const setCurtailmentAutomationRuleEnabled = `-- name: SetCurtailmentAutomationRuleEnabled :one
 UPDATE curtailment_automation_rule
-SET enabled = $1
+SET
+    enabled = $1
 WHERE curtailment_automation_rule.id = $2
   AND curtailment_automation_rule.org_id = $3
   AND (
-      $1 = TRUE
-      -- Same live-event pin as UpdateCurtailmentAutomationRule: pointer or
-      -- external reference, so the nil-pointer window cannot slip a disable.
-      OR NOT EXISTS (
+      $1 = FALSE
+      OR response_profile_id = $4
+  )
+  AND (
+      NOT EXISTS (
           SELECT 1
           FROM curtailment_event e
           WHERE e.state IN ('pending', 'active', 'restoring')
@@ -778,18 +894,36 @@ WHERE curtailment_automation_rule.id = $2
                 )
             )
       )
+      OR (
+          $1 = TRUE
+          AND curtailment_automation_rule.enabled = TRUE
+          AND EXISTS (
+              SELECT 1
+              FROM curtailment_automation_rule_profile_revision AS rule_revision
+              WHERE rule_revision.automation_rule_id = curtailment_automation_rule.id
+                AND rule_revision.response_profile_revision = $5
+          )
+      )
   )
 RETURNING id, org_id, rule_name, trigger_type, mqtt_source_id, response_profile_id, enabled, created_at, updated_at
 `
 
 type SetCurtailmentAutomationRuleEnabledParams struct {
-	Enabled bool
-	ID      int64
-	OrgID   int64
+	Enabled                   bool
+	ID                        int64
+	OrgID                     int64
+	ExpectedResponseProfileID int64
+	ResponseProfileRevision   uuid.UUID
 }
 
 func (q *Queries) SetCurtailmentAutomationRuleEnabled(ctx context.Context, arg SetCurtailmentAutomationRuleEnabledParams) (CurtailmentAutomationRule, error) {
-	row := q.queryRow(ctx, q.setCurtailmentAutomationRuleEnabledStmt, setCurtailmentAutomationRuleEnabled, arg.Enabled, arg.ID, arg.OrgID)
+	row := q.queryRow(ctx, q.setCurtailmentAutomationRuleEnabledStmt, setCurtailmentAutomationRuleEnabled,
+		arg.Enabled,
+		arg.ID,
+		arg.OrgID,
+		arg.ExpectedResponseProfileID,
+		arg.ResponseProfileRevision,
+	)
 	var i CurtailmentAutomationRule
 	err := row.Scan(
 		&i.ID,

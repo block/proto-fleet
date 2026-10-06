@@ -1,6 +1,7 @@
 package curtailment
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/curtailment/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/google/uuid"
 )
 
 const (
@@ -45,6 +47,7 @@ type SaveResponseProfileRequest struct {
 	ExpectedSiteID               *int64
 	ExpectedScopeJSON            []byte
 	ExpectedFacilityFanSettings  models.ResponseProfileFanSettings
+	AuthorizedMinerDeviceSites   map[string]*int64
 	AuthorizedFacilityFanDevices map[int64]models.ResponseProfileInfrastructureDevice
 }
 
@@ -69,6 +72,27 @@ func (s *ResponseProfileService) Get(ctx context.Context, orgID, profileID int64
 		return nil, fleeterror.NewInvalidArgumentError("profile_id must be set")
 	}
 	return s.store.GetResponseProfile(ctx, orgID, profileID)
+}
+
+// ValidateAutomationScope strictly resolves topology selectors before an
+// automation binding or execution is accepted. Get intentionally returns
+// persisted profiles even when their selected topology was later deleted, so
+// callers that can execute a profile must opt into this live validation.
+func (s *ResponseProfileService) ValidateAutomationScope(ctx context.Context, profile *models.ResponseProfile) error {
+	if s == nil || s.store == nil {
+		return fleeterror.NewUnimplementedError("curtailment response profile service is not configured")
+	}
+	if profile == nil {
+		return fleeterror.NewNotFoundError("curtailment response profile not found")
+	}
+	scope, err := ResponseProfileScope(*profile)
+	if err != nil {
+		return err
+	}
+	if !IsTopologyScope(scope) {
+		return nil
+	}
+	return s.validateResponseProfileScope(ctx, profile.OrgID, scope)
 }
 
 func (s *ResponseProfileService) ListDeviceSites(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]*int64, error) {
@@ -128,7 +152,7 @@ func (s *ResponseProfileService) Create(ctx context.Context, req SaveResponsePro
 	if err != nil {
 		return nil, err
 	}
-	return s.store.CreateResponseProfile(ctx, profile, infrastructureDevices)
+	return s.store.CreateResponseProfile(ctx, profile, req.AuthorizedMinerDeviceSites, infrastructureDevices)
 }
 
 func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponseProfileRequest) (*models.ResponseProfile, error) {
@@ -138,6 +162,9 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 	if req.Profile.ID <= 0 {
 		return nil, fleeterror.NewInvalidArgumentError("profile_id must be set")
 	}
+	if req.Profile.Revision == uuid.Nil {
+		return nil, fleeterror.NewInvalidArgumentError("expected_revision must be set")
+	}
 	profile, infrastructureDevices, err := s.validateAndNormalize(ctx, req, true)
 	if err != nil {
 		return nil, err
@@ -145,6 +172,7 @@ func (s *ResponseProfileService) Update(ctx context.Context, req SaveResponsePro
 	return s.store.UpdateResponseProfile(
 		ctx,
 		profile,
+		req.AuthorizedMinerDeviceSites,
 		infrastructureDevices,
 		req.ExpectedSiteID,
 		req.ExpectedScopeJSON,
@@ -158,6 +186,7 @@ func (s *ResponseProfileService) Delete(
 	profileID int64,
 	expectedSiteID *int64,
 	expectedScopeJSON []byte,
+	expectedAuthorizationEnvelopeJSON []byte,
 	expectedFacilityFanSettings models.ResponseProfileFanSettings,
 ) error {
 	if s == nil || s.store == nil {
@@ -184,6 +213,7 @@ func (s *ResponseProfileService) Delete(
 		profileID,
 		expectedSiteID,
 		expectedScopeJSON,
+		expectedAuthorizationEnvelopeJSON,
 		expectedFacilityFanSettings,
 	)
 }
@@ -214,6 +244,12 @@ func (s *ResponseProfileService) validateAndNormalize(
 			return models.ResponseProfile{}, nil, fleeterror.NewNotFoundErrorf("site not found: %d", siteID)
 		}
 	}
+	if err := validateResponseProfileBehavior(profile, req.CanUseAdminControls); err != nil {
+		return models.ResponseProfile{}, nil, err
+	}
+	if err := s.validateResponseProfileScope(ctx, profile.OrgID, scope); err != nil {
+		return models.ResponseProfile{}, nil, err
+	}
 	var infrastructureDevices map[int64]models.ResponseProfileInfrastructureDevice
 	var existingFacilityFanDeviceIDs []int64
 	if allowLegacyFacilityFans {
@@ -233,15 +269,37 @@ func (s *ResponseProfileService) validateAndNormalize(
 	if err != nil {
 		return models.ResponseProfile{}, nil, err
 	}
-	if normalizeScope(scope).Type == models.ScopeTypeWholeOrg && explicitWholeOrgScope {
+	if normalizeScope(scope).Type == models.ScopeTypeWholeOrg && explicitWholeOrgScope && scope.SchemaVersion == 0 {
 		scopeJSON = []byte(`{"whole_org":true}`)
 	}
 	profile.ScopeJSON = scopeJSON
 	profile.SiteID = responseProfileLegacySiteID(scope)
-	if err := validateResponseProfileBehavior(profile, req.CanUseAdminControls); err != nil {
-		return models.ResponseProfile{}, nil, err
-	}
 	return profile, infrastructureDevices, nil
+}
+
+func (s *ResponseProfileService) validateResponseProfileScope(ctx context.Context, orgID int64, scope Scope) error {
+	filter, err := resolveScope(scope)
+	if err != nil {
+		return err
+	}
+	filter.OrgID = orgID
+	if listCandidatesFilterHasTopology(filter) {
+		resolver, ok := s.store.(interfaces.CurtailmentTopologyScopeStore)
+		if !ok {
+			return fleeterror.NewInternalError("curtailment topology scope resolver is not configured")
+		}
+		_, err = resolver.ResolveCurtailmentTopologyScope(ctx, filter)
+		return err
+	}
+	if len(filter.DeviceIdentifiers) > 0 {
+		return nil
+	}
+	filter.ResultLimit = ScopeResolvedMinerMax + 1
+	candidates, err := s.store.ListCandidates(ctx, filter)
+	if err != nil {
+		return err
+	}
+	return validateResolvedMinerCount(len(candidates))
 }
 
 func (s *ResponseProfileService) validateFacilityFanDevices(
@@ -564,36 +622,72 @@ func ScopeFromJSON(scopeJSON []byte) (Scope, bool, error) {
 	if len(scopeJSON) == 0 {
 		return Scope{}, false, nil
 	}
-	var payload struct {
-		WholeOrg          bool     `json:"whole_org"`
-		SiteID            int64    `json:"site_id"`
-		SiteIDs           []int64  `json:"site_ids"`
-		DeviceSetIDs      []string `json:"device_set_ids"`
-		DeviceIdentifiers []string `json:"device_identifiers"`
-	}
-	if err := json.Unmarshal(scopeJSON, &payload); err != nil {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(scopeJSON, &fields); err != nil {
 		return Scope{}, false, fleeterror.NewInvalidArgumentErrorf("invalid scope_json: %v", err)
 	}
-	hasScope := payload.WholeOrg ||
-		payload.SiteID != 0 ||
-		len(payload.SiteIDs) > 0 ||
-		len(payload.DeviceSetIDs) > 0 ||
-		len(payload.DeviceIdentifiers) > 0
-	if !hasScope {
-		return Scope{}, false, nil
+	if fields == nil {
+		return Scope{}, false, fleeterror.NewInvalidArgumentError("invalid scope_json: expected an object")
 	}
-	if payload.SiteID < 0 || hasNonPositiveInt64(payload.SiteIDs) {
-		return Scope{}, false, fleeterror.NewInvalidArgumentError("site_ids must be positive")
+	var payload struct {
+		ScopeSchemaVersion uint32   `json:"scope_schema_version"`
+		WholeOrg           bool     `json:"whole_org"`
+		SiteID             int64    `json:"site_id"`
+		SiteIDs            []int64  `json:"site_ids"`
+		BuildingIDs        []int64  `json:"building_ids"`
+		RackIDs            []int64  `json:"rack_ids"`
+		GroupIDs           []int64  `json:"group_ids"`
+		DeviceIdentifiers  []string `json:"device_identifiers"`
 	}
-	if payload.WholeOrg {
-		return Scope{Type: models.ScopeTypeWholeOrg}, true, nil
+	decoder := json.NewDecoder(bytes.NewReader(scopeJSON))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		return Scope{}, false, fleeterror.NewInvalidArgumentErrorf("invalid scope_json: %v", err)
 	}
-	return normalizeScope(Scope{
+	scope := Scope{
+		SchemaVersion:     payload.ScopeSchemaVersion,
 		SiteID:            payload.SiteID,
 		SiteIDs:           payload.SiteIDs,
-		DeviceSetIDs:      payload.DeviceSetIDs,
+		BuildingIDs:       payload.BuildingIDs,
+		RackIDs:           payload.RackIDs,
+		GroupIDs:          payload.GroupIDs,
 		DeviceIdentifiers: payload.DeviceIdentifiers,
-	}), true, nil
+	}
+	if payload.WholeOrg {
+		scope.Type = models.ScopeTypeWholeOrg
+	}
+	selectorFieldCount := 0
+	for _, name := range []string{
+		"whole_org",
+		"site_id",
+		"site_ids",
+		"building_ids",
+		"rack_ids",
+		"group_ids",
+		"device_identifiers",
+	} {
+		if _, ok := fields[name]; ok {
+			selectorFieldCount++
+		}
+	}
+	if selectorFieldCount == 0 {
+		if err := validateScopeSchemaVersion(payload.ScopeSchemaVersion); err != nil {
+			return Scope{}, false, err
+		}
+		if payload.ScopeSchemaVersion != 0 {
+			return Scope{}, false, fleeterror.NewInvalidArgumentError(
+				"scope_json with scope_schema_version must include a recognized selector",
+			)
+		}
+		return Scope{}, false, nil
+	}
+	if selectorFieldCount != 1 {
+		return Scope{}, false, fleeterror.NewInvalidArgumentError("scope must contain exactly one selector type")
+	}
+	if err := validateScopeContract(scope); err != nil {
+		return Scope{}, false, err
+	}
+	return normalizeScope(scope), true, nil
 }
 
 func responseProfileLegacySiteID(scope Scope) *int64 {

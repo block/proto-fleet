@@ -10,31 +10,51 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	activityDomain "github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/session"
-	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 type uploadSession struct {
 	mu            sync.Mutex
 	uploadID      string
+	owner         uploadOwner
 	filename      string
+	metadata      files.FirmwareMetadata
 	expectedSize  int64
 	receivedBytes int64
 	tempFilePath  string
+	force         bool
 	createdAt     time.Time
 	lastActivity  time.Time
+}
+
+// uploadOwner prevents another user or API key from taking over a staged upload.
+// Session renewal may resume the same user's upload; bearer uploads require the
+// exact key, so another key issued to the same user cannot consume its staging ID.
+type uploadOwner struct {
+	organizationID int64
+	userID         int64
+	authMethod     session.AuthMethod
+	apiKeyID       int64
+}
+
+func ownerFromContext(ctx context.Context) uploadOwner {
+	info, _ := session.GetInfo(ctx) // Permission checks already require session.Info.
+	return uploadOwner{organizationID: info.OrganizationID, userID: info.UserID, authMethod: info.AuthMethod, apiKeyID: info.APIKeyDatabaseID}
 }
 
 type initiateRequest struct {
 	Filename string `json:"filename"`
 	FileSize int64  `json:"file_size"`
+	files.FirmwareMetadata
+	Force bool `json:"force,omitempty"`
 }
 
 type initiateResponse struct {
@@ -64,6 +84,7 @@ func (m *ChunkedUploadManager) StartCleanup(ctx context.Context, ttl time.Durati
 	if interval < time.Minute {
 		interval = time.Minute
 	}
+	reportProgress := runtimejobs.TrackProgress(ctx, interval)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -71,6 +92,7 @@ func (m *ChunkedUploadManager) StartCleanup(ctx context.Context, ttl time.Durati
 		select {
 		case <-ticker.C:
 			m.cleanupExpired(ttl)
+			reportProgress()
 		case <-ctx.Done():
 			return
 		}
@@ -100,22 +122,29 @@ func (m *ChunkedUploadManager) cleanupExpired(ttl time.Duration) {
 func NewInitiateHandler(
 	mgr *ChunkedUploadManager,
 	filesService *files.Service,
-	sessionService *session.Service,
-	userStore interfaces.UserStore,
+	authenticator RequestAuthenticator,
 ) http.Handler {
-	return &initiateHandler{mgr: mgr, filesService: filesService, sessionService: sessionService, userStore: userStore}
+	return &initiateHandler{
+		mgr:           mgr,
+		filesService:  filesService,
+		authenticator: authenticator,
+	}
 }
 
 type initiateHandler struct {
-	mgr            *ChunkedUploadManager
-	filesService   *files.Service
-	sessionService *session.Service
-	userStore      interfaces.UserStore
+	mgr           *ChunkedUploadManager
+	filesService  *files.Service
+	authenticator RequestAuthenticator
 }
 
 func (h *initiateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	ctx, ok := requireMutationPermission(
+		w,
+		r,
+		h.authenticator,
+		"initiate chunked upload",
+	)
+	if !ok {
 		return
 	}
 
@@ -137,6 +166,10 @@ func (h *initiateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if err := files.ValidateFirmwareUploadMetadata(req.FirmwareMetadata); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 
 	if req.FileSize <= 0 {
 		writeError(w, http.StatusBadRequest, "file_size must be greater than zero")
@@ -154,22 +187,23 @@ func (h *initiateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uploadID := hex.EncodeToString(b)
-	tempPath := filepath.Join(files.StagingDir(), uploadID)
-	tempFile, err := os.OpenFile(tempPath, os.O_CREATE|os.O_RDWR, 0600)
+	tempPath, err := files.NewChunkedStagingPath(uploadID)
 	if err != nil {
 		slog.Error("failed to create temp file for chunked upload", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to initiate upload")
 		return
 	}
-	tempFile.Close()
 
 	now := time.Now()
 	h.mgr.mu.Lock()
 	h.mgr.sessions[uploadID] = &uploadSession{
 		uploadID:     uploadID,
+		owner:        ownerFromContext(ctx),
 		filename:     req.Filename,
+		metadata:     req.FirmwareMetadata,
 		expectedSize: req.FileSize,
 		tempFilePath: tempPath,
+		force:        req.Force,
 		createdAt:    now,
 		lastActivity: now,
 	}
@@ -187,21 +221,27 @@ func (h *initiateHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // NewChunkHandler returns a handler for PUT /api/v1/firmware/upload/chunked/{uploadId}.
 func NewChunkHandler(
 	mgr *ChunkedUploadManager,
-	sessionService *session.Service,
-	userStore interfaces.UserStore,
+	authenticator RequestAuthenticator,
 ) http.Handler {
-	return &chunkHandler{mgr: mgr, sessionService: sessionService, userStore: userStore}
+	return &chunkHandler{
+		mgr:           mgr,
+		authenticator: authenticator,
+	}
 }
 
 type chunkHandler struct {
-	mgr            *ChunkedUploadManager
-	sessionService *session.Service
-	userStore      interfaces.UserStore
+	mgr           *ChunkedUploadManager
+	authenticator RequestAuthenticator
 }
 
 func (h *chunkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	ctx, ok := requireMutationPermission(
+		w,
+		r,
+		h.authenticator,
+		"upload chunk",
+	)
+	if !ok {
 		return
 	}
 
@@ -215,7 +255,7 @@ func (h *chunkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sess, ok := h.mgr.sessions[uploadID]
 	h.mgr.mu.Unlock()
 
-	if !ok {
+	if !ok || sess.owner != ownerFromContext(ctx) {
 		writeError(w, http.StatusNotFound, "upload session not found")
 		return
 	}
@@ -269,22 +309,32 @@ func (h *chunkHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func NewCompleteHandler(
 	mgr *ChunkedUploadManager,
 	filesService *files.Service,
-	sessionService *session.Service,
-	userStore interfaces.UserStore,
+	authenticator RequestAuthenticator,
+	activitySvc *activityDomain.Service,
 ) http.Handler {
-	return &completeHandler{mgr: mgr, filesService: filesService, sessionService: sessionService, userStore: userStore}
+	return &completeHandler{
+		mgr:           mgr,
+		filesService:  filesService,
+		authenticator: authenticator,
+		activitySvc:   activitySvc,
+	}
 }
 
 type completeHandler struct {
-	mgr            *ChunkedUploadManager
-	filesService   *files.Service
-	sessionService *session.Service
-	userStore      interfaces.UserStore
+	mgr           *ChunkedUploadManager
+	filesService  *files.Service
+	authenticator RequestAuthenticator
+	activitySvc   *activityDomain.Service
 }
 
 func (h *completeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if _, err := authenticate(r, h.sessionService, h.userStore); err != nil {
-		writeError(w, http.StatusUnauthorized, "authentication required")
+	ctx, ok := requireMutationPermission(
+		w,
+		r,
+		h.authenticator,
+		"complete chunked upload",
+	)
+	if !ok {
 		return
 	}
 
@@ -296,15 +346,22 @@ func (h *completeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	h.mgr.mu.Lock()
 	sess, ok := h.mgr.sessions[uploadID]
-	if ok {
+	if ok && sess.owner == ownerFromContext(ctx) {
 		delete(h.mgr.sessions, uploadID)
 	}
 	h.mgr.mu.Unlock()
 
-	if !ok {
+	if !ok || sess.owner != ownerFromContext(ctx) {
 		writeError(w, http.StatusNotFound, "upload session not found")
 		return
 	}
+
+	// The session is out of the map, so no further chunk can arrive and the
+	// staged file is ours to publish or discard on every path below.
+	// Checksum is empty: the chunks were written across many requests, so it
+	// is computed once here by SaveFirmwareUploadFromPath.
+	staged := &files.StagedFirmwareUpload{Path: sess.tempFilePath}
+	defer staged.Discard()
 
 	// Wait for any in-flight chunk write to finish. After removing the
 	// session from the map no new chunk requests can find it, so once we
@@ -314,21 +371,18 @@ func (h *completeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	sess.mu.Unlock()
 
 	if receivedBytes != sess.expectedSize {
-		os.Remove(sess.tempFilePath)
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("received %d bytes but expected %d", receivedBytes, sess.expectedSize))
 		return
 	}
 
-	info, statErr := os.Stat(sess.tempFilePath)
+	info, statErr := os.Stat(staged.Path)
 	if statErr != nil || info.Size() != sess.expectedSize {
-		os.Remove(sess.tempFilePath)
 		writeError(w, http.StatusInternalServerError, "uploaded file size mismatch on disk")
 		return
 	}
 
-	fileID, err := h.filesService.SaveFirmwareFileFromPath(sess.filename, sess.tempFilePath)
+	saveResult, err := h.filesService.SaveFirmwareUploadFromPath(sess.filename, staged.Path, sess.metadata, sess.force, staged.Checksum)
 	if err != nil {
-		os.Remove(sess.tempFilePath)
 		if isClientError(err) {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -338,11 +392,12 @@ func (h *completeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("chunked upload completed", "upload_id", uploadID, "firmware_file_id", fileID)
+	slog.Info("chunked upload completed", "upload_id", uploadID, "firmware_file_id", saveResult.FirmwareFileID, "reused", saveResult.Reused)
+	logFirmwareUploadActivity(ctx, h.activitySvc, sess.filename, saveResult)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(uploadResponse{FirmwareFileID: fileID}); err != nil {
+	if err := json.NewEncoder(w).Encode(uploadResponse{FirmwareFileID: saveResult.FirmwareFileID, Reused: saveResult.Reused}); err != nil {
 		slog.Error("failed to encode chunked upload response", "error", err)
 	}
 }

@@ -44,12 +44,14 @@ const Harness = ({
   liveCamera = true,
   cameraStatus,
   cameraError = "",
+  assigning = false,
 }: {
   phase: ScanPhase;
   targetSlotLabel?: string;
   liveCamera?: boolean;
   cameraStatus?: string;
   cameraError?: string;
+  assigning?: boolean;
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scanRegionRef = useRef<HTMLDivElement | null>(null);
@@ -66,6 +68,7 @@ const Harness = ({
       cameraStatus={cameraStatus ?? (phase.kind === "scanning" ? "scanning" : "idle")}
       cameraError={cameraError}
       fileInputRef={fileInputRef}
+      assigning={assigning}
       onDismiss={action("onDismiss")}
       onConfirmFound={action("onConfirmFound")}
       onUndoAssignment={action("onUndoAssignment")}
@@ -79,6 +82,10 @@ const Harness = ({
 const meta = {
   title: "Proto Fleet/Rack Management/ScanMinerQrModal",
   component: Harness,
+  argTypes: {
+    // Found-miner snapshots include bigint rack IDs; keep these typed fixtures out of the JSON editor.
+    phase: { control: false },
+  },
   parameters: { layout: "fullscreen" },
 } satisfies Meta<typeof Harness>;
 
@@ -146,14 +153,15 @@ export const FoundInAnotherRack: Story = {
   },
 };
 
-/** Resolved, but the miner still needs pairing work before assignment. */
-export const FoundNotFullyPaired: Story = {
+/** The confirmed assignment is mid-write: the dialog holds until it lands. */
+export const FoundAssignmentPending: Story = {
   args: {
     phase: {
       kind: "found",
-      snapshot: mockSnapshot({ pairingStatus: PairingStatus.AUTHENTICATION_NEEDED }),
-      isReassignment: false,
+      snapshot: mockSnapshot({ placement: { rack: { id: 7n, label: "Rack B-02" } } } as Partial<MinerStateSnapshot>),
+      isReassignment: true,
     },
+    assigning: true,
   },
 };
 

@@ -54,6 +54,9 @@ func (e ErrorStackTraceLoggingInterceptor) logError(err error) {
 	if err == nil {
 		return
 	}
+	if fleeterror.IsCanceledError(err) {
+		return
+	}
 
 	var fleetErr fleeterror.FleetError
 	if errors.As(err, &fleetErr) {

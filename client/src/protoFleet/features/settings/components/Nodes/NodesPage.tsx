@@ -132,7 +132,7 @@ const NodesPage = () => {
       },
       status: {
         component: (node: FleetNodeItem) => <NodeStatusBadge node={node} />,
-        width: "w-48",
+        width: "w-56",
       },
       fingerprint: {
         component: (node: FleetNodeItem) => (

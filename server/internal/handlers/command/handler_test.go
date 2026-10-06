@@ -85,7 +85,7 @@ func TestHandler_GetCommandBatchDeviceResults_PassesThroughHappyPath(t *testing.
 
 	batchUUID := "handler-happy-1"
 	ctx := context.Background()
-	require.NoError(t, db2.WithTransactionNoResult(ctx, dbService.DB, func(q *sqlc.Queries) error {
+	require.NoError(t, db2.WithTransactionNoResult(ctx, dbService.DB, func(q sqlc.Querier) error {
 		_, e := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
 			Uuid:           batchUUID,
 			Type:           "REBOOT",
@@ -101,7 +101,7 @@ func TestHandler_GetCommandBatchDeviceResults_PassesThroughHappyPath(t *testing.
 	_, err = dbService.DB.ExecContext(ctx,
 		`UPDATE command_batch_log SET finished_at = NOW() WHERE uuid = $1`, batchUUID)
 	require.NoError(t, err)
-	require.NoError(t, db2.WithTransactionNoResult(ctx, dbService.DB, func(q *sqlc.Queries) error {
+	require.NoError(t, db2.WithTransactionNoResult(ctx, dbService.DB, func(q sqlc.Querier) error {
 		return q.UpsertCommandOnDeviceLog(ctx, sqlc.UpsertCommandOnDeviceLogParams{
 			Uuid:      batchUUID,
 			DeviceID:  dev.DatabaseID,
@@ -183,7 +183,7 @@ func TestHandler_GetCommandBatchDeviceResults_PropagatesNotFound(t *testing.T) {
 
 	batchUUID := "handler-cross-org-1"
 	ctx := context.Background()
-	require.NoError(t, db2.WithTransactionNoResult(ctx, dbService.DB, func(q *sqlc.Queries) error {
+	require.NoError(t, db2.WithTransactionNoResult(ctx, dbService.DB, func(q sqlc.Querier) error {
 		_, e := q.CreateCommandBatchLog(ctx, sqlc.CreateCommandBatchLogParams{
 			Uuid:           batchUUID,
 			Type:           "REBOOT",

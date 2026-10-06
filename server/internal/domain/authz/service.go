@@ -41,6 +41,7 @@ const (
 // permission edit can't slip in between the check and the persist.
 type Service struct {
 	conn        *sql.DB
+	queries     sqlc.Querier
 	activitySvc *activity.Service
 }
 
@@ -52,7 +53,11 @@ type Service struct {
 // activitySvc records role-management audit events; it may be nil (its
 // Log method is a no-op on a nil receiver), which tests rely on.
 func NewService(conn *sql.DB, activitySvc *activity.Service) *Service {
-	return &Service{conn: conn, activitySvc: activitySvc}
+	return &Service{
+		conn:        conn,
+		queries:     db.NewFailoverResettingQuerier(db.NewRetryDB(conn)),
+		activitySvc: activitySvc,
+	}
 }
 
 // auditWriteTimeout bounds the detached audit-log insert (see
@@ -103,7 +108,7 @@ type RoleView struct {
 // per-role hydrate-and-count pattern was O(roles * 2 queries) on a
 // listing hit by every role-management page open.
 func (s *Service) ListRoles(ctx context.Context, orgID int64) ([]RoleView, error) {
-	rows, err := sqlc.New(s.conn).ListRolesWithDetailsForOrg(ctx, sql.NullInt64{Int64: orgID, Valid: true})
+	rows, err := s.queries.ListRolesWithDetailsForOrg(ctx, sql.NullInt64{Int64: orgID, Valid: true})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("authz: list roles: %w", err)
 	}
@@ -177,7 +182,7 @@ func (s *Service) CreateCustomRole(ctx context.Context, callerID, orgID int64, n
 		return RoleView{}, err
 	}
 	trimmedDescription := strings.TrimSpace(description)
-	view, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (RoleView, error) {
+	view, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (RoleView, error) {
 		if err := authorizeCallerCanGrant(ctx, q, callerID, orgID, normalized); err != nil {
 			return RoleView{}, err
 		}
@@ -223,7 +228,7 @@ func (s *Service) UpdateCustomRole(ctx context.Context, callerID, orgID, roleID 
 		return RoleView{}, err
 	}
 	trimmedDescription := strings.TrimSpace(description)
-	view, err := db.WithTransaction(ctx, s.conn, func(q *sqlc.Queries) (RoleView, error) {
+	view, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (RoleView, error) {
 		existing, err := getRoleInOrg(ctx, q, orgID, roleID)
 		if err != nil {
 			return RoleView{}, err
@@ -295,7 +300,7 @@ func (s *Service) UpdateCustomRole(ctx context.Context, callerID, orgID, roleID 
 // count check and the soft delete.
 func (s *Service) DeleteCustomRole(ctx context.Context, callerID, orgID, roleID int64) error {
 	var deletedName string
-	err := db.WithTransactionNoResult(ctx, s.conn, func(q *sqlc.Queries) error {
+	err := db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
 		if err := authorizeCallerCanGrant(ctx, q, callerID, orgID, nil); err != nil {
 			return err
 		}
@@ -350,7 +355,7 @@ func (s *Service) DeleteCustomRole(ctx context.Context, callerID, orgID, roleID 
 // Pass an empty normalizedKeys to use this as a bare "caller still
 // holds role:manage" recheck — that's how DeleteCustomRole defends
 // against the middleware gate's window being too wide.
-func authorizeCallerCanGrant(ctx context.Context, q *sqlc.Queries, callerID, orgID int64, normalizedKeys []string) error {
+func authorizeCallerCanGrant(ctx context.Context, q sqlc.Querier, callerID, orgID int64, normalizedKeys []string) error {
 	callerEff, err := LoadEffectiveForUpdate(ctx, q, callerID, orgID)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("authz: load caller permissions: %w", err)
@@ -462,7 +467,7 @@ func validateReadPairing(keys []string) error {
 // any prior rows first (UpdateCustomRole does this with
 // ClearRolePermissions). The permission table is reconciled at boot, so
 // every catalog key has a row.
-func setRolePermissions(ctx context.Context, q *sqlc.Queries, roleID int64, keys []string) error {
+func setRolePermissions(ctx context.Context, q sqlc.Querier, roleID int64, keys []string) error {
 	if len(keys) == 0 {
 		return nil
 	}
@@ -487,7 +492,7 @@ func setRolePermissions(ctx context.Context, q *sqlc.Queries, roleID int64, keys
 // hydrateRole loads the permission keys and live assignment count for a
 // role row and assembles a RoleView. Called per row inside ListRoles
 // and per-row after mutations.
-func hydrateRole(ctx context.Context, q *sqlc.Queries, r sqlc.Role) (RoleView, error) {
+func hydrateRole(ctx context.Context, q sqlc.Querier, r sqlc.Role) (RoleView, error) {
 	keys, err := q.ListRolePermissionKeys(ctx, r.ID)
 	if err != nil {
 		return RoleView{}, fleeterror.NewInternalErrorf("authz: list role permissions: %w", err)
@@ -520,7 +525,7 @@ func hydrateRole(ctx context.Context, q *sqlc.Queries, r sqlc.Role) (RoleView, e
 // InvalidArgument so an admin in org A cannot probe role ids belonging
 // to org B. NotFound is also masked as InvalidArgument for the same
 // existence-leak reason.
-func getRoleInOrg(ctx context.Context, q *sqlc.Queries, orgID, roleID int64) (sqlc.Role, error) {
+func getRoleInOrg(ctx context.Context, q sqlc.Querier, orgID, roleID int64) (sqlc.Role, error) {
 	role, err := q.GetRoleByID(ctx, roleID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -538,7 +543,7 @@ func getRoleInOrg(ctx context.Context, q *sqlc.Queries, orgID, roleID int64) (sq
 // Takes FOR UPDATE on the role row so DeleteCustomRole serializes
 // against resolveCreateUserRole (the only other code path that mutates
 // or depends on the role row's liveness during an assignment write).
-func getRoleInOrgForUpdate(ctx context.Context, q *sqlc.Queries, orgID, roleID int64) (sqlc.Role, error) {
+func getRoleInOrgForUpdate(ctx context.Context, q sqlc.Querier, orgID, roleID int64) (sqlc.Role, error) {
 	role, err := q.GetRoleByIDForUpdate(ctx, roleID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

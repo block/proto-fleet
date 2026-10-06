@@ -22,6 +22,12 @@ func toCreateSiteParams(req *pb.CreateSiteRequest, orgID int64) models.CreateSit
 		PostalCode:      req.GetPostalCode(),
 		Country:         req.GetCountry(),
 		Notes:           req.GetNotes(),
+
+		// Optional seed (empty = plain create).
+		BuildingIDs:                         req.GetBuildingIds(),
+		RackIDs:                             req.GetRackIds(),
+		DeviceIdentifiers:                   req.GetDeviceIdentifiers(),
+		ForceClearConflictingRackMembership: req.GetForceClearConflictingRackMembership(),
 	}
 }
 
@@ -113,6 +119,17 @@ func toProtoSite(site *models.Site) *pb.Site {
 		CreatedAt:       timestamppb.New(site.CreatedAt),
 		UpdatedAt:       timestamppb.New(site.UpdatedAt),
 	}
+}
+
+func toMaintenanceSiteOptionsResponse(rows []models.SiteWithCounts) *pb.ListSitesResponse {
+	out := make([]*pb.SiteWithCounts, 0, len(rows))
+	for i := range rows {
+		out = append(out, &pb.SiteWithCounts{Site: &pb.Site{
+			Id:   rows[i].Site.ID,
+			Name: rows[i].Site.Name,
+		}})
+	}
+	return &pb.ListSitesResponse{Sites: out}
 }
 
 func toListSitesResponse(rows []models.SiteWithCounts) *pb.ListSitesResponse {

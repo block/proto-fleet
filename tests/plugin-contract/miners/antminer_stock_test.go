@@ -43,6 +43,19 @@ func TestAntminerStock(t *testing.T) {
 
 	t.Run("Discovery", func(t *testing.T) { miners.AssertDiscovery(t, tc) })
 	t.Run("Pairing", func(t *testing.T) { miners.AssertPairing(t, tc) })
+	t.Run("IdentityFreeRecoveryProbe", func(t *testing.T) {
+		info, err := driver.DiscoverDevice(t.Context(), tc.MinerIP, tc.MinerPort)
+		require.NoError(t, err)
+		require.Empty(t, info.MacAddress)
+		require.Empty(t, info.SerialNumber)
+		result, err := driver.NewDevice(t.Context(), "stock-recovery-probe", info,
+			miners.TestSecret())
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, result.Device.Close(context.Background())) })
+		identity, _, err := result.Device.DescribeDevice(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, "02:B3:B9:8C:1E:C8", identity.MacAddress)
+	})
 
 	t.Run("DeviceLifecycle", func(t *testing.T) {
 		device, caps := miners.SetupDevice(t, tc, "test-antminer-001")

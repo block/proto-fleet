@@ -1,6 +1,8 @@
 import { type poolInfoAttributes } from "./constants";
 
-export type PoolInfo = Record<keyof typeof poolInfoAttributes, any>;
+export type PoolInfo = Record<keyof typeof poolInfoAttributes, any> & {
+  v2_authority_pubkey?: string;
+};
 
 export type DefaultPoolIndex = 0;
 

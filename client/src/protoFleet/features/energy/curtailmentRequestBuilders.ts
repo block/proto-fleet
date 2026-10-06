@@ -1,17 +1,19 @@
 import { create } from "@bufbuild/protobuf";
 
 import {
-  type CurtailmentScope,
-  CurtailmentScopeSchema,
+  buildCurtailmentScopes,
+  curtailmentScopeSchemaVersion,
+  type CurtailmentScopeSelection,
+  normalizeCurtailmentSelectionValues,
+  parseCurtailmentTargetId,
+} from "@/protoFleet/api/curtailmentScopes";
+import {
   type FixedKwParams,
   FixedKwParamsSchema,
   CurtailmentLevel as ProtoCurtailmentLevel,
   CurtailmentMode as ProtoCurtailmentMode,
   CurtailmentPriority as ProtoCurtailmentPriority,
   CurtailmentStrategy as ProtoCurtailmentStrategy,
-  ScopeDeviceListSchema,
-  ScopeSiteSchema,
-  ScopeWholeOrgSchema,
   type StartCurtailmentRequest,
   StartCurtailmentRequestSchema,
   type UpdateCurtailmentEventRequest,
@@ -26,9 +28,14 @@ import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/Curta
 
 type OptionalUint32FieldOptions = Parameters<typeof parseOptionalUint32Field>[1];
 
+export const customResponseProfileId = "customPlan";
+export const curtailmentExecutionSchemaVersion = 1;
+
 type CurtailmentRequestFields = Pick<
   StartCurtailmentRequest,
   | "scopes"
+  | "scopeSchemaVersion"
+  | "executionSchemaVersion"
   | "mode"
   | "strategy"
   | "level"
@@ -37,6 +44,12 @@ type CurtailmentRequestFields = Pick<
   | "includeMaintenance"
   | "forceIncludeMaintenance"
   | "forceIncludeAllPairedMiners"
+  | "postEventCooldownSec"
+>;
+
+type ResponseProfileExecutionFields = Pick<
+  StartCurtailmentRequest,
+  "responseProfileId" | "expectedResponseProfileRevision"
 >;
 
 const maxDurationOptions: OptionalUint32FieldOptions = {
@@ -71,18 +84,10 @@ const fanRestoreDelayOptions: OptionalUint32FieldOptions = {
   label: "fan restore delay",
   max: curtailmentNumericFieldLimits.fanDelaySec,
 };
-const maxInt64 = 9_223_372_036_854_775_807n;
-const baseTenIntegerPattern = /^[0-9]+$/;
-
-export function parseCurtailmentSiteId(value: string | undefined): bigint | undefined {
-  const trimmed = value?.trim() ?? "";
-  if (!baseTenIntegerPattern.test(trimmed)) {
-    return undefined;
-  }
-
-  const parsed = BigInt(trimmed);
-  return parsed > 0n && parsed <= maxInt64 ? parsed : undefined;
-}
+const postEventCooldownOptions: OptionalUint32FieldOptions = {
+  label: "post-event cooldown",
+  max: curtailmentNumericFieldLimits.postEventCooldownSec,
+};
 
 function parseOptionalNumber(value: string): number | undefined {
   const trimmed = value.trim();
@@ -171,109 +176,55 @@ function buildFixedKwParams(values: CurtailmentSubmitValues): FixedKwParams {
   });
 }
 
-type CurtailmentScopeValues = Pick<
-  CurtailmentSubmitValues,
-  "scopeType" | "siteSelection" | "siteId" | "siteIds" | "deviceSetIds" | "deviceIdentifiers" | "minerSelectionMode"
->;
-
-function uniqueNonEmptyStrings(values: readonly string[]): string[] {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
-}
-
-function getSelectedSiteIds(
-  values: CurtailmentScopeValues,
-  siteSelection: CurtailmentScopeValues["siteSelection"],
-): string[] {
-  if (siteSelection !== "site" && siteSelection !== "allSites") {
-    return [];
+export function getResponseProfileExecutionFields(
+  values: Pick<CurtailmentSubmitValues, "responseProfileId" | "responseProfileRevision">,
+): ResponseProfileExecutionFields | undefined {
+  if (values.responseProfileId === customResponseProfileId) {
+    return { responseProfileId: 0n, expectedResponseProfileRevision: "" };
   }
 
-  const siteIds =
-    values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [];
-  return uniqueNonEmptyStrings(siteIds);
-}
-
-export function buildCurtailmentScopes(values: CurtailmentScopeValues): CurtailmentScope[] | undefined {
-  const siteSelection = values.siteSelection ?? (values.scopeType === "site" ? "site" : "none");
-  if (values.minerSelectionMode === "all") {
-    return [create(CurtailmentScopeSchema, { scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) } })];
-  }
-
-  const scopes: CurtailmentScope[] = [];
-  if (siteSelection === "site" || siteSelection === "allSites") {
-    const siteIds: bigint[] = [];
-    for (const siteIdValue of getSelectedSiteIds(values, siteSelection)) {
-      const siteId = parseCurtailmentSiteId(siteIdValue);
-      if (siteId === undefined) {
-        return undefined;
-      }
-      siteIds.push(siteId);
-    }
-    if (siteIds.length === 0) {
-      return undefined;
-    }
-    for (const siteId of siteIds) {
-      scopes.push(
-        create(CurtailmentScopeSchema, {
-          scope: { case: "site", value: create(ScopeSiteSchema, { siteId }) },
-        }),
-      );
-    }
-  }
-
-  const deviceIdentifiers = uniqueNonEmptyStrings(values.deviceIdentifiers);
-  if (deviceIdentifiers.length > 0) {
-    scopes.push(
-      create(CurtailmentScopeSchema, {
-        scope: { case: "deviceIdentifiers", value: create(ScopeDeviceListSchema, { deviceIdentifiers }) },
-      }),
-    );
-  }
-
-  if (scopes.length > 0) {
-    return scopes;
-  }
-
-  if (values.scopeType === "deviceSet" || values.scopeType === "explicitMiners") {
+  const responseProfileId = parseCurtailmentTargetId(values.responseProfileId);
+  const expectedResponseProfileRevision = values.responseProfileRevision?.trim();
+  if (responseProfileId === undefined || !expectedResponseProfileRevision) {
     return undefined;
   }
 
-  return [create(CurtailmentScopeSchema, { scope: { case: "wholeOrg", value: create(ScopeWholeOrgSchema, {}) } })];
+  return { responseProfileId, expectedResponseProfileRevision };
 }
 
-// All-paired targeting requires a closed-loop scope (whole org or sites).
-// The policy's durable-ownership loop (release on unpair, reopen on re-pair)
-// does not run for explicit miner selections, and the server rejects the
-// combination.
+// Logical placement scopes can back the durable all-paired policy. Explicit
+// miner lists remain snapshots until their closed-loop lifecycle is supported.
 export function supportsAllPairedTargeting(
-  values: CurtailmentScopeValues & Pick<CurtailmentSubmitValues, "curtailmentMode">,
+  values: CurtailmentScopeSelection & Pick<CurtailmentSubmitValues, "curtailmentMode">,
 ): boolean {
   if (values.curtailmentMode !== "fullFleet") {
     return false;
   }
   const scopes = buildCurtailmentScopes(values);
-  return scopes !== undefined && scopes.every((s) => s.scope.case === "wholeOrg" || s.scope.case === "site");
+  return scopes !== undefined && scopes.every((scope) => scope.scope.case !== "deviceIdentifiers");
 }
 
 // Targeting all paired miners also opts in miners flagged for maintenance:
 // parking them as unavailable would contradict the operator's explicit
 // "all paired" choice, and both flags sit behind the same server-side admin
-// gate as the all-paired control itself.
-//
-// The maintenance pair derives SOLELY from the all-paired flag: the UI no
-// longer exposes an independent maintenance toggle, so a stale
-// values.includeMaintenance (hydrated from a profile or past event saved when
-// the pair was coupled) must not survive unchecking "Target all paired
-// miners" — it would silently keep the admin-gated maintenance inclusion with
-// nothing in the UI showing it.
+// gate as the all-paired control itself. Saved profiles may independently opt
+// into maintenance miners, so executions must preserve that stored setting.
+// Custom plans still derive maintenance inclusion solely from the visible
+// all-paired control.
 export function buildForceInclusionFields(
-  values: CurtailmentScopeValues & Pick<CurtailmentSubmitValues, "curtailmentMode" | "forceIncludeAllPairedMiners">,
+  values: CurtailmentScopeSelection &
+    Pick<
+      CurtailmentSubmitValues,
+      "responseProfileId" | "curtailmentMode" | "includeMaintenance" | "forceIncludeAllPairedMiners"
+    >,
 ): Pick<CurtailmentRequestFields, "includeMaintenance" | "forceIncludeMaintenance" | "forceIncludeAllPairedMiners"> {
   const forceIncludeAllPairedMiners = values.forceIncludeAllPairedMiners && supportsAllPairedTargeting(values);
+  const includeMaintenance =
+    values.responseProfileId === customResponseProfileId ? forceIncludeAllPairedMiners : values.includeMaintenance;
   // The proto validator requires include_maintenance == force_include_maintenance.
   return {
-    includeMaintenance: forceIncludeAllPairedMiners,
-    forceIncludeMaintenance: forceIncludeAllPairedMiners,
+    includeMaintenance,
+    forceIncludeMaintenance: includeMaintenance,
     forceIncludeAllPairedMiners,
   };
 }
@@ -299,16 +250,23 @@ function buildCurtailmentRequestFields(values: CurtailmentSubmitValues): Curtail
 
   return {
     scopes,
+    scopeSchemaVersion: curtailmentScopeSchemaVersion,
+    executionSchemaVersion: curtailmentExecutionSchemaVersion,
     ...fixedKwModeFields,
     // Server defaults unspecified strategy to least-efficient-first.
     strategy: ProtoCurtailmentStrategy.UNSPECIFIED,
     level: ProtoCurtailmentLevel.FULL,
     priority: getPriority(values.priority),
+    postEventCooldownSec: getOptionalUint32Setting(values.postEventCooldownSec ?? "", postEventCooldownOptions),
     ...buildForceInclusionFields(values),
   };
 }
 
 export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): StartCurtailmentRequest {
+  const responseProfileExecutionFields = getResponseProfileExecutionFields(values);
+  if (responseProfileExecutionFields === undefined) {
+    throw new Error("Reload the response profile before starting curtailment.");
+  }
   const curtailBatchSize = getOptionalPositiveUint32Setting(values.curtailBatchSize, curtailBatchSizeOptions);
   const curtailBatchIntervalSec = getOptionalUpdateUint32Setting(
     values.curtailBatchIntervalSec,
@@ -320,8 +278,8 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
 
   const facilityFanDeviceIds = [
     ...new Set(
-      uniqueNonEmptyStrings(values.facilityFanDeviceIds ?? []).map((value) => {
-        const id = parseCurtailmentSiteId(value);
+      normalizeCurtailmentSelectionValues(values.facilityFanDeviceIds ?? []).map((value) => {
+        const id = parseCurtailmentTargetId(value);
         if (id === undefined) {
           throw new Error("Facility fan IDs must be positive integers.");
         }
@@ -332,6 +290,7 @@ export function buildStartCurtailmentRequest(values: CurtailmentSubmitValues): S
 
   return create(StartCurtailmentRequestSchema, {
     ...buildCurtailmentRequestFields(values),
+    ...responseProfileExecutionFields,
     maxDurationSeconds: getOptionalUint32Setting(values.maxDurationSec, maxDurationOptions),
     curtailBatchSize,
     curtailBatchIntervalSec,

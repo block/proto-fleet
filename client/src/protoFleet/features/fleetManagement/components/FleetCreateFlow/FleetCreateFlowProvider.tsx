@@ -9,14 +9,16 @@ import {
   type SiteCreateSeed,
 } from "./context";
 import { emptyBuildingFormValues, useBuildings } from "@/protoFleet/api/buildings";
-import { type Building, BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import { type Site, type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
+import { BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { emptySiteFormValues, useSites } from "@/protoFleet/api/sites";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import BuildingSettingsModal from "@/protoFleet/features/buildings/components/BuildingSettingsModal";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 import { ManageRackModal, type RackFormData } from "@/protoFleet/features/fleetManagement/components/ManageRackModal";
+import ReparentWarningDialog from "@/protoFleet/features/fleetManagement/components/ManageRackModal/ReparentWarningDialog";
 import RackSettingsModal from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
+import { useCreateRack } from "@/protoFleet/features/fleetManagement/hooks/useCreateRack";
 import SiteModals from "@/protoFleet/features/sites/components/SiteModals";
 import SiteSettingsModal from "@/protoFleet/features/sites/components/SiteSettingsModal";
 import { useSiteModals } from "@/protoFleet/features/sites/hooks/useSiteModals";
@@ -44,9 +46,10 @@ const MAX_DEVICE_BATCH = 10000;
 // with the operator's current miner selection, which in all-selection mode
 // resolves to the full fleet (capped only at MAX_DEVICE_BATCH). Without a
 // gate here, an oversized seed renders one MinersPane row per miner and
-// freezes the browser long before the save-time capacity guard fires. Cap
-// at the absolute max before ManageRackModal mounts — the exact
-// chosen-capacity check still runs at save once rows×columns are picked.
+// freezes the browser long before anything else fires. Cap at the absolute
+// max before the operator even reaches Rack Settings — the exact
+// chosen-capacity check runs server-side on the create, once rows×columns
+// are picked.
 const MAX_RACK_CAPACITY = 12 * 12;
 
 // A seed that moves racked miners into a new building/site sends
@@ -110,12 +113,14 @@ const FleetCreateFlowProvider = ({
   const activeSite = useFleetStore((state) => state.ui.activeSite);
   const scopedSiteId = useMemo(() => (activeSite.kind === "site" ? BigInt(activeSite.id) : undefined), [activeSite]);
 
-  // Rack create flow. rackSettings drives RackSettingsModal; once the
-  // operator continues, rackFormData opens ManageRackModal seeded with the
-  // selected miners. rackSeed survives the settings step so the miners reach
-  // the manage modal.
+  // Rack create flow. RackSettingsModal's "Create rack" creates the rack with
+  // the seeded miners already in it — one atomic SaveRack, so a failed seed
+  // can't leave an empty rack behind — then ManageRackModal opens on the real
+  // rack for positioning. rackSeed survives the settings step so the miners
+  // reach the create call.
   const [rackSettingsOpen, setRackSettingsOpen] = useState(false);
   const [rackFormData, setRackFormData] = useState<RackFormData | null>(null);
+  const [rackId, setRackId] = useState<bigint | null>(null);
   const [rackSeed, setRackSeed] = useState<RackCreateSeed | null>(null);
   // Holds a seed whose miners have a placement the new rack would clear,
   // until the operator confirms; null when no confirmation is pending.
@@ -124,6 +129,7 @@ const FleetCreateFlowProvider = ({
   const openRackSettings = useCallback((seed: RackCreateSeed) => {
     setRackSeed(seed);
     setRackFormData(null);
+    setRackId(null);
     setRackSettingsOpen(true);
   }, []);
 
@@ -153,13 +159,35 @@ const FleetCreateFlowProvider = ({
   const closeRackFlow = useCallback(() => {
     setRackSettingsOpen(false);
     setRackFormData(null);
+    setRackId(null);
     setRackSeed(null);
   }, []);
 
-  const handleRackSettingsContinue = useCallback((formData: RackFormData) => {
-    setRackSettingsOpen(false);
-    setRackFormData(formData);
-  }, []);
+  const {
+    createRack,
+    creating: creatingRack,
+    conflict: rackCreateConflict,
+    confirmConflict: confirmRackCreateConflict,
+    cancelConflict: cancelRackCreateConflict,
+  } = useCreateRack({
+    onCreated: (createdId, formData) => {
+      // The rack and its seeded miners are live. Pulse the lists now — the
+      // operator may well dismiss the manage step without positioning anything,
+      // and the rack still exists.
+      bumpEntities();
+      setRackSettingsOpen(false);
+      setRackSeed(null);
+      setRackFormData(formData);
+      setRackId(createdId);
+    },
+  });
+
+  // The seed's miners ride on the create itself, so membership and the rack
+  // land in one transaction.
+  const handleRackSettingsSubmit = useCallback(
+    (formData: RackFormData) => createRack(formData, rackSeed?.minerIds),
+    [createRack, rackSeed],
+  );
 
   const handleRackSaved = useCallback(() => {
     bumpEntities();
@@ -170,7 +198,7 @@ const FleetCreateFlowProvider = ({
   // hook) so we can intercept create-success to assign the seed and chain
   // into manage; the manage/edit/delete surfaces reuse a controller-owned
   // useBuildingModals instance rendered through <BuildingModals>.
-  const { createBuilding, assignRacksToBuilding, assignDevicesToBuilding } = useBuildings();
+  const { createBuilding } = useBuildings();
   const buildingModals = useBuildingModals({ refetchBuildings: bumpEntities });
   // Gates the force-clear preflight below: a force-clearing device assignment
   // needs rack:manage on the server, but the create flow is reachable with
@@ -215,20 +243,22 @@ const FleetCreateFlowProvider = ({
 
   const closeBuildingSettings = useCallback(() => setBuildingSeed(null), []);
 
-  // create → assign seeded racks/miners (force-clearing prior memberships,
-  // mirroring the reparent confirm path) → open manage for positioning.
+  // create + seed (racks + miners, force-clearing prior memberships to match
+  // the reparent confirm path) in ONE transactional RPC, then open manage for
+  // positioning. Atomicity is the point of #559: a seed failure rolls the
+  // whole thing back, so we never open manage on a stranded empty building.
   const handleBuildingCreate = useCallback(
     async (values: Parameters<typeof createBuilding>[0]["values"], siteId: bigint) => {
       // Synchronous re-entry guard: a double-click reaches here twice before
       // the `saving` prop re-renders, which would create duplicate buildings.
       if (creatingBuildingRef.current) return;
 
-      // Preflight seeded racks against the chosen layout BEFORE creating the
-      // building. The server's AssignRacksToBuilding now rejects an
-      // over-capacity assign; without this guard the building is created and
-      // then stranded with its racks unassigned (the assign failure only
-      // toasts). Net-new == every seeded rack since the building is brand
-      // new. Skipped at capacity 0 (unconfigured layout) — staging is allowed.
+      // Preflight seeded racks against the chosen layout BEFORE the RPC. The
+      // server's rack assign rejects an over-capacity batch; catching it here
+      // keeps the operator in the settings modal with a specific message
+      // instead of a generic transaction failure. Net-new == every seeded rack
+      // since the building is brand new. Skipped at capacity 0 (unconfigured
+      // layout) — staging is allowed.
       const rackCapacity = values.aisles * values.racksPerAisle;
       if (buildingSeed && rackCapacity > 0 && buildingSeed.rackIds.length > rackCapacity) {
         pushToast({
@@ -242,68 +272,46 @@ const FleetCreateFlowProvider = ({
       setCreatingBuilding(true);
       try {
         const seed = buildingSeed;
-        const building = await new Promise<Building | null>((resolve) => {
+        await new Promise<void>((resolve) => {
           void createBuilding({
             values,
             siteId,
-            onSuccess: (b) => resolve(b),
+            rackIds: seed?.rackIds,
+            deviceIdentifiers: seed?.minerIds,
+            forceClearConflictingRackMembership: seed?.forceClearRackMembership ?? false,
+            onSuccess: (result) => {
+              bumpEntities();
+              setBuildingSeed(null);
+              const siteName = sites.find((s) => s.site?.id === siteId)?.site?.name;
+              buildingModals.openManage(
+                create(BuildingWithCountsSchema, { building: result.building, rackCount: result.assignedRackCount }),
+                siteName,
+                Number(result.reassignedDeviceCount) || undefined,
+              );
+              resolve();
+            },
             onError: (msg) => {
+              // Nothing was created (transaction rolled back). Keep the
+              // settings modal open with the seed intact so the operator can
+              // adjust the selection and retry.
               pushToast({ message: `Failed to create building: ${msg}`, status: STATUSES.error });
-              resolve(null);
+              resolve();
             },
           });
         });
-        if (!building) return;
-
-        if (seed && seed.rackIds.length > 0) {
-          await new Promise<void>((resolve) => {
-            void assignRacksToBuilding({
-              racks: seed.rackIds.map((rackId) => ({ rackId })),
-              targetBuildingId: building.id,
-              onSuccess: () => resolve(),
-              onError: (msg) => {
-                pushToast({ message: `Building created, but adding racks failed: ${msg}`, status: STATUSES.error });
-                resolve();
-              },
-            });
-          });
-        }
-        if (seed && seed.minerIds.length > 0) {
-          await new Promise<void>((resolve) => {
-            void assignDevicesToBuilding({
-              targetBuildingId: building.id,
-              deviceIdentifiers: seed.minerIds,
-              forceClearConflictingRackMembership: seed.forceClearRackMembership ?? false,
-              onSuccess: () => resolve(),
-              onError: (msg) => {
-                pushToast({ message: `Building created, but adding miners failed: ${msg}`, status: STATUSES.error });
-                resolve();
-              },
-            });
-          });
-        }
-
-        bumpEntities();
-        setBuildingSeed(null);
-        const siteName = sites.find((s) => s.site?.id === siteId)?.site?.name;
-        buildingModals.openManage(
-          create(BuildingWithCountsSchema, { building, rackCount: BigInt(seed?.rackIds.length ?? 0) }),
-          siteName,
-          seed?.minerIds.length || undefined,
-        );
       } finally {
         creatingBuildingRef.current = false;
         setCreatingBuilding(false);
       }
     },
-    [buildingSeed, createBuilding, assignRacksToBuilding, assignDevicesToBuilding, bumpEntities, sites, buildingModals],
+    [buildingSeed, createBuilding, bumpEntities, sites, buildingModals],
   );
 
   // Site create flow. Like building, the settings step is hosted directly so
   // we can intercept continue → create → assign → manage. The manage step
   // routes through edit mode (openManageEdit) because create mode gates
   // building assignment until the site exists.
-  const { createSite, assignBuildingsToSite, assignRacksToSite, assignDevicesToSite } = useSites();
+  const { createSite } = useSites();
   const siteModals = useSiteModals({ refetchSites: refreshSitesAndBump });
   const [siteSeed, setSiteSeed] = useState<SiteCreateSeed | null>(null);
   const [siteConflictSeed, setSiteConflictSeed] = useState<SiteCreateSeed | null>(null);
@@ -347,79 +355,37 @@ const FleetCreateFlowProvider = ({
       setCreatingSite(true);
       try {
         const seed = siteSeed;
-        const site = await new Promise<Site | null>((resolve) => {
+        await new Promise<void>((resolve) => {
           void createSite({
             values,
-            onSuccess: (s) => resolve(s),
+            buildingIds: seed?.buildingIds,
+            rackIds: seed?.rackIds,
+            deviceIdentifiers: seed?.minerIds,
+            forceClearConflictingRackMembership: seed?.forceClearRackMembership ?? false,
+            onSuccess: (result) => {
+              refreshSitesAndBump();
+              setSiteSeed(null);
+              siteModals.openManageEdit(result.site, {
+                unassignedRackCount: Number(result.assignedRackCount) || undefined,
+                unassignedMinerCount: Number(result.reassignedDeviceCount) || undefined,
+              });
+              resolve();
+            },
             onError: (msg) => {
+              // Nothing was created (transaction rolled back). Keep the site
+              // settings modal open with the seed intact so the operator can
+              // adjust the selection and retry.
               pushToast({ message: `Failed to create site: ${msg}`, status: STATUSES.error });
-              resolve(null);
+              resolve();
             },
           });
-        });
-        if (!site) return;
-
-        if (seed && seed.buildingIds.length > 0) {
-          await new Promise<void>((resolve) => {
-            void assignBuildingsToSite({
-              buildingIds: seed.buildingIds,
-              targetSiteId: site.id,
-              onSuccess: () => resolve(),
-              onError: (msg) => {
-                pushToast({ message: `Site created, but adding buildings failed: ${msg}`, status: STATUSES.error });
-                resolve();
-              },
-            });
-          });
-        }
-        if (seed && seed.rackIds.length > 0) {
-          await new Promise<void>((resolve) => {
-            void assignRacksToSite({
-              rackIds: seed.rackIds,
-              targetSiteId: site.id,
-              onSuccess: () => resolve(),
-              onError: (msg) => {
-                pushToast({ message: `Site created, but adding racks failed: ${msg}`, status: STATUSES.error });
-                resolve();
-              },
-            });
-          });
-        }
-        if (seed && seed.minerIds.length > 0) {
-          await new Promise<void>((resolve) => {
-            void assignDevicesToSite({
-              targetSiteId: site.id,
-              deviceIdentifiers: seed.minerIds,
-              forceClearConflictingRackMembership: seed.forceClearRackMembership ?? false,
-              onSuccess: () => resolve(),
-              onError: (msg) => {
-                pushToast({ message: `Site created, but adding miners failed: ${msg}`, status: STATUSES.error });
-                resolve();
-              },
-            });
-          });
-        }
-
-        refreshSitesAndBump();
-        setSiteSeed(null);
-        siteModals.openManageEdit(site, {
-          unassignedRackCount: seed?.rackIds.length || undefined,
-          unassignedMinerCount: seed?.minerIds.length || undefined,
         });
       } finally {
         creatingSiteRef.current = false;
         setCreatingSite(false);
       }
     },
-    [
-      siteSeed,
-      createSite,
-      assignBuildingsToSite,
-      assignRacksToSite,
-      assignDevicesToSite,
-      refreshSitesAndBump,
-      siteModals,
-    ],
+    [siteSeed, createSite, refreshSitesAndBump, siteModals],
   );
 
   const value = useMemo<FleetCreateFlowContextValue>(
@@ -442,18 +408,30 @@ const FleetCreateFlowProvider = ({
           existingRacks={[]}
           defaultSiteId={scopedSiteId}
           onDismiss={closeRackFlow}
-          onContinue={handleRackSettingsContinue}
+          onSubmit={handleRackSettingsSubmit}
+          saving={creatingRack}
         />
       ) : null}
-      {rackFormData ? (
+      {rackFormData && rackId !== null ? (
         <ManageRackModal
-          show={!!rackFormData}
+          show
           rackSettings={rackFormData}
+          existingRackId={rackId}
           existingRacks={[]}
-          seededMinerIds={rackSeed?.minerIds}
           scopedSiteId={scopedSiteId}
           onDismiss={closeRackFlow}
           onSave={handleRackSaved}
+          // Membership commits land while this modal is open; pulse the lists so
+          // they're right even if the operator dismisses without positioning.
+          onSettingsPersisted={bumpEntities}
+        />
+      ) : null}
+      {rackCreateConflict ? (
+        <ReparentWarningDialog
+          count={rackCreateConflict.count}
+          rackLabel={rackCreateConflict.rackLabel}
+          onCancel={cancelRackCreateConflict}
+          onConfirm={confirmRackCreateConflict}
         />
       ) : null}
       {rackConflictSeed ? (

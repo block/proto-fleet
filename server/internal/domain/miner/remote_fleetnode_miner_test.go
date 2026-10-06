@@ -17,10 +17,39 @@ import (
 	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/curtailmentconfig"
+	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 )
+
+func TestRemoteFleetNodeMinerApplyCurtailmentConfigForwardsToDelegate(t *testing.T) {
+	delegate := &recordingCurtailmentConfigMiner{}
+	miner := &RemoteFleetNodeMiner{delegate: delegate}
+	payload := dto.ApplyCurtailmentConfigPayload{
+		EncryptedConfig: &dto.NodeEncryptedPayload{
+			Algorithm:       curtailmentconfig.Algorithm,
+			EphemeralPubkey: []byte("ephemeral-public-key"),
+			Nonce:           []byte("nonce"),
+			Ciphertext:      []byte("ciphertext"),
+		},
+	}
+
+	require.NoError(t, miner.ApplyCurtailmentConfig(t.Context(), payload))
+	assert.Equal(t, payload, delegate.payload)
+}
+
+type recordingCurtailmentConfigMiner struct {
+	interfaces.Miner
+	payload dto.ApplyCurtailmentConfigPayload
+}
+
+func (m *recordingCurtailmentConfigMiner) ApplyCurtailmentConfig(_ context.Context, payload dto.ApplyCurtailmentConfigPayload) error {
+	m.payload = payload
+	return nil
+}
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsHappyPath(t *testing.T) {
 	registry := control.NewRegistry()
@@ -43,6 +72,23 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsHappyPath(t *testing.T) {
 	assert.Equal(t, "node-device", got.metrics.DeviceIdentifier)
 	assert.Equal(t, 100.0, got.metrics.HashrateHS.Value)
 	assert.Equal(t, "fw-1", got.metrics.FirmwareVersion)
+}
+
+func TestRemoteFleetNodeMinerGetDeviceMetricsRequiresCommandProtocolV1(t *testing.T) {
+	registry := control.NewRegistry()
+	stream, err := registry.RegisterAuthenticated(12, "legacy", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED)
+	require.NoError(t, err)
+	defer stream.Unregister()
+	miner := newTestRemoteFleetNodeMiner(t, registry)
+
+	_, err = miner.GetDeviceMetrics(t.Context())
+
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	select {
+	case cmd := <-stream.Outgoing:
+		t.Fatalf("legacy node received telemetry command %q", cmd.GetCommandId())
+	default:
+	}
 }
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsPreservesComponentPayload(t *testing.T) {
@@ -244,7 +290,38 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsMapsAckTimeoutToConnectionError(t *
 	assert.True(t, fleeterror.IsConnectionError(got.err))
 }
 
-func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsNonOKAck(t *testing.T) {
+func TestRemoteFleetNodeMinerGetDeviceMetricsMapsUnsupportedAck(t *testing.T) {
+	for _, code := range []gatewaypb.AckCode{
+		gatewaypb.AckCode_ACK_CODE_AGENT_INCAPABLE,
+		gatewaypb.AckCode_ACK_CODE_UNIMPLEMENTED,
+	} {
+		t.Run(code.String(), func(t *testing.T) {
+			registry := control.NewRegistry()
+			stream := registry.Register(12)
+			defer stream.Unregister()
+			miner := newTestRemoteFleetNodeMiner(t, registry)
+
+			results := make(chan metricsResult, 1)
+			go func() {
+				metrics, err := miner.GetDeviceMetrics(context.Background())
+				results <- metricsResult{metrics: metrics, err: err}
+			}()
+
+			cmd := receiveRemoteCommand(t, stream)
+			stream.PublishAck(&gatewaypb.ControlAck{
+				CommandId:    cmd.GetCommandId(),
+				Code:         code,
+				ErrorMessage: "driver missing",
+			})
+
+			got := receiveMetricsResult(t, results)
+			require.Error(t, got.err)
+			assert.True(t, fleeterror.IsUnimplementedError(got.err))
+		})
+	}
+}
+
+func TestRemoteFleetNodeMinerGetDeviceMetricsMapsBusyAckToResourceExhausted(t *testing.T) {
 	registry := control.NewRegistry()
 	stream := registry.Register(12)
 	defer stream.Unregister()
@@ -259,13 +336,13 @@ func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsNonOKAck(t *testing.T) {
 	cmd := receiveRemoteCommand(t, stream)
 	stream.PublishAck(&gatewaypb.ControlAck{
 		CommandId:    cmd.GetCommandId(),
-		Code:         gatewaypb.AckCode_ACK_CODE_AGENT_INCAPABLE,
-		ErrorMessage: "driver missing",
+		Code:         gatewaypb.AckCode_ACK_CODE_BUSY,
+		ErrorMessage: "retry shortly",
 	})
 
 	got := receiveMetricsResult(t, results)
 	require.Error(t, got.err)
-	assert.True(t, fleeterror.IsUnimplementedError(got.err))
+	assert.True(t, fleeterror.IsResourceExhaustedError(got.err))
 }
 
 func TestRemoteFleetNodeMinerGetDeviceMetricsRejectsFailedOKAck(t *testing.T) {

@@ -1,11 +1,18 @@
 import type { ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 
 import MinerSelectionList from "./MinerSelectionList";
+import { MinerListFilterSchema, PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  FLEET_SELECTABLE_PAIRING_STATUSES,
+  FLEET_VISIBLE_PAIRING_STATUSES,
+} from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 
-const { fleetArgsSpy, listPropsSpy, listRacksMock, listGroupsMock, hasPermMock } = vi.hoisted(() => ({
+const { fleetArgsSpy, fleetState, listPropsSpy, listRacksMock, listGroupsMock, hasPermMock } = vi.hoisted(() => ({
   fleetArgsSpy: vi.fn(),
+  fleetState: { minerIds: ["miner-1"], isLoading: false },
   listPropsSpy: vi.fn(),
   listRacksMock: vi.fn(),
   listGroupsMock: vi.fn(),
@@ -17,7 +24,7 @@ vi.mock("@/protoFleet/api/useFleet", () => ({
   default: (args: unknown) => {
     fleetArgsSpy(args);
     return {
-      minerIds: ["miner-1"],
+      minerIds: fleetState.minerIds,
       miners: {
         "miner-1": {
           deviceIdentifier: "miner-1",
@@ -27,7 +34,7 @@ vi.mock("@/protoFleet/api/useFleet", () => ({
         },
       },
       totalMiners: 2,
-      isLoading: false,
+      isLoading: fleetState.isLoading,
       hasMore: false,
       currentPage: 0,
       hasPreviousPage: false,
@@ -69,6 +76,8 @@ vi.mock("@/shared/components/List", () => ({
 describe("MinerSelectionList site scope", () => {
   beforeEach(() => {
     fleetArgsSpy.mockReset();
+    fleetState.minerIds = ["miner-1"];
+    fleetState.isLoading = false;
     listPropsSpy.mockReset();
     listRacksMock.mockReset();
     listGroupsMock.mockReset();
@@ -90,7 +99,7 @@ describe("MinerSelectionList site scope", () => {
     expect(listRacksMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [], includeUnassigned: false }));
   });
 
-  it("scopes the miner list and rack facet options to the selected site", async () => {
+  it("scopes the miner list and rack/group facet options to the selected site", async () => {
     render(<MinerSelectionList scope={{ siteIds: [7n], includeUnassigned: false }} />);
 
     const filter = lastFleetFilter();
@@ -99,6 +108,7 @@ describe("MinerSelectionList site scope", () => {
 
     await waitFor(() => expect(listRacksMock).toHaveBeenCalled());
     expect(listRacksMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [7n], includeUnassigned: false }));
+    expect(listGroupsMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [7n], includeUnassigned: false }));
   });
 
   it("includes site-unassigned miners in the list but keeps rack facet options within the site", async () => {
@@ -113,6 +123,45 @@ describe("MinerSelectionList site scope", () => {
 
     await waitFor(() => expect(listRacksMock).toHaveBeenCalled());
     expect(listRacksMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [7n], includeUnassigned: false }));
+    expect(listGroupsMock).toHaveBeenCalledWith(expect.objectContaining({ siteIds: [7n], includeUnassigned: false }));
+  });
+
+  it("keeps drill-down ancestors when an interactive facet changes", async () => {
+    const initialFilter = create(MinerListFilterSchema, {
+      buildingIds: [11n],
+      rackIds: [21n],
+      groupIds: [31n],
+    });
+    render(<MinerSelectionList initialFilter={initialFilter} filterConfig={{ showBuildingFilter: true }} />);
+
+    const listProps = listPropsSpy.mock.calls[listPropsSpy.mock.calls.length - 1]?.[0] as {
+      filters: { children?: { title: string }[] }[];
+      onServerFilter: (filters: {
+        buttonFilters: string[];
+        dropdownFilters: Record<string, string[]>;
+        numericFilters: Record<string, unknown>;
+        textareaListFilters: Record<string, string[]>;
+      }) => Promise<void>;
+    };
+    const filterTitles = listProps.filters[0]?.children?.map((filter) => filter.title) ?? [];
+    expect(filterTitles).not.toContain("Building");
+    expect(filterTitles).not.toContain("Rack");
+    expect(filterTitles).not.toContain("Group");
+
+    await act(async () => {
+      await listProps.onServerFilter({
+        buttonFilters: [],
+        dropdownFilters: { model: ["S21"] },
+        numericFilters: {},
+        textareaListFilters: {},
+      });
+    });
+
+    const filter = lastFleetFilter();
+    expect(filter.models).toEqual(["S21"]);
+    expect(filter.buildingIds).toEqual([11n]);
+    expect(filter.rackIds).toEqual([21n]);
+    expect(filter.groupIds).toEqual([31n]);
   });
 
   it("re-applies the filter when the active site changes mid-modal", () => {
@@ -202,6 +251,8 @@ describe("MinerSelectionList site scope", () => {
 describe("MinerSelectionList eligibility", () => {
   beforeEach(() => {
     fleetArgsSpy.mockReset();
+    fleetState.minerIds = ["miner-1"];
+    fleetState.isLoading = false;
     listPropsSpy.mockReset();
     listRacksMock.mockReset();
     listGroupsMock.mockReset();
@@ -330,12 +381,89 @@ describe("MinerSelectionList eligibility", () => {
     expect(titles).not.toContain("Building");
   });
 
-  it("renders the assignable-only toggle only when eligibility is provided", () => {
+  it("renders miner search for every list and the assignable-only toggle only with eligibility", () => {
     const { rerender } = render(<MinerSelectionList />);
-    expect(lastListProps()?.headerControls).toBeFalsy();
+    expect(lastListProps()?.headerControls).toBeTruthy();
+    expect(screen.queryByLabelText("Show assigned miners")).not.toBeInTheDocument();
 
     rerender(<MinerSelectionList eligibility={{ rackId: 1n }} />);
     expect(lastListProps()?.headerControls).toBeTruthy();
+    expect(screen.getByLabelText("Show assigned miners")).toBeInTheDocument();
+  });
+
+  it("keeps the focused search field mounted while an empty result set reloads", () => {
+    const { rerender } = render(<MinerSelectionList />);
+    const input = screen.getByLabelText("Search miners");
+    input.focus();
+    expect(input).toHaveFocus();
+
+    // A refined query after a zero-result search: loading, nothing to show yet.
+    fleetState.minerIds = [];
+    fleetState.isLoading = true;
+    rerender(<MinerSelectionList />);
+
+    expect(screen.getByLabelText("Search miners")).toBe(input);
+    expect(input).toHaveFocus();
+    expect(lastListProps()?.items).toEqual([]);
+    expect(lastListProps()?.emptyStateRow).toBeTruthy();
+  });
+
+  it("debounces the search query before fetching", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<MinerSelectionList />);
+      const input = screen.getByLabelText("Search miners");
+
+      fireEvent.change(input, { target: { value: "worker-42" } });
+      expect(lastFleetFilter().searchQuery).toBe("");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(249);
+      });
+      expect(lastFleetFilter().searchQuery).toBe("");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(lastFleetFilter().searchQuery).toBe("worker-42");
+      expect(screen.queryByText("Select all")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("withdraws select-all on the first keystroke, not when the debounce lands", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<MinerSelectionList />);
+      const input = screen.getByLabelText("Search miners");
+      expect(screen.queryByText("Select all")).toBeInTheDocument();
+
+      fireEvent.change(input, { target: { value: "worker-42" } });
+
+      // The applied filter still reads as empty here. Gating select-all on it
+      // would leave a window where submitting all-mode targets the whole fleet
+      // while the field already shows a query.
+      expect(lastFleetFilter().searchQuery).toBe("");
+      expect(screen.queryByText("Select all")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops an existing all-selection as soon as the operator starts narrowing", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<MinerSelectionList />);
+      fireEvent.click(screen.getByText("Select all"));
+      expect(screen.queryByText(/All \d+ miners selected/)).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText("Search miners"), { target: { value: "worker-42" } });
+
+      expect(screen.queryByText(/All \d+ miners selected/)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("applies eligibility server-side by default and drops it when 'Show assigned miners' is on", () => {
@@ -391,5 +519,31 @@ describe("MinerSelectionList eligibility", () => {
       <>{colConfig.name.component({ deviceIdentifier: "b", rackId: 9n, siteId: 2n, buildingId: 3n, ...base }, [])}</>,
     );
     expect(ineligible.container.querySelector(conflictButton)).not.toBeNull();
+  });
+});
+
+describe("MinerSelectionList pairing statuses", () => {
+  beforeEach(() => {
+    fleetArgsSpy.mockReset();
+    listRacksMock.mockReset();
+    listGroupsMock.mockReset();
+  });
+
+  const lastFleetPairingStatuses = () => {
+    const calls = fleetArgsSpy.mock.calls;
+    return calls[calls.length - 1]?.[0]?.pairingStatuses;
+  };
+
+  it("fetches PAIRED-only by default (other selection flows unchanged)", () => {
+    render(<MinerSelectionList />);
+    expect(lastFleetPairingStatuses()).toEqual(FLEET_SELECTABLE_PAIRING_STATUSES);
+    expect(lastFleetPairingStatuses()).toEqual([PairingStatus.PAIRED]);
+  });
+
+  it("forwards a widened pairing set so non-paired rack members render (#777)", () => {
+    render(<MinerSelectionList pairingStatuses={FLEET_VISIBLE_PAIRING_STATUSES} />);
+    expect(lastFleetPairingStatuses()).toEqual(FLEET_VISIBLE_PAIRING_STATUSES);
+    expect(lastFleetPairingStatuses()).toContain(PairingStatus.AUTHENTICATION_NEEDED);
+    expect(lastFleetPairingStatuses()).toContain(PairingStatus.DEFAULT_PASSWORD);
   });
 });

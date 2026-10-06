@@ -168,11 +168,21 @@ describe("summarizeDisplay", () => {
     expect(summarizeDisplay(new URLSearchParams("display=carousel"), "racks")).toBeUndefined();
   });
 
+  it("humanizes display on the buildings tab", () => {
+    expect(summarizeDisplay(new URLSearchParams("display=grid"), "buildings")).toEqual({
+      mode: "grid",
+      label: "Grid view",
+    });
+    expect(summarizeDisplay(new URLSearchParams("display=list"), "buildings")).toEqual({
+      mode: "list",
+      label: "List view",
+    });
+  });
+
   it("ignores display params on tabs that don't own display", () => {
-    // Only racks has a grid/list toggle today; other tabs must not surface
-    // display as a saveable setting.
+    // Racks and Buildings have a grid/list toggle; the toggle-less tabs must
+    // not surface display as a saveable setting.
     expect(summarizeDisplay(new URLSearchParams("display=grid"), "miners")).toBeUndefined();
-    expect(summarizeDisplay(new URLSearchParams("display=grid"), "buildings")).toBeUndefined();
     expect(summarizeDisplay(new URLSearchParams("display=grid"), "sites")).toBeUndefined();
   });
 });

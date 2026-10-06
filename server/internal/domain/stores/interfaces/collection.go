@@ -88,6 +88,13 @@ type CollectionStore interface {
 	// Must be called after CreateCollection for rack-type collections.
 	CreateRackExtension(ctx context.Context, params CreateRackExtensionParams) error
 
+	// ListTakenLabels returns the subset of labels already used by a live
+	// collection of this type in the org. Bulk create calls it to report
+	// collisions per row instead of surfacing one opaque AlreadyExists from
+	// the unique index. Labels are unique per (org, type), so this is
+	// deliberately not scoped to a site or building.
+	ListTakenLabels(ctx context.Context, orgID int64, collectionType pb.CollectionType, labels []string) ([]string, error)
+
 	// GetCollection retrieves a collection by ID with its device count.
 	GetCollection(ctx context.Context, orgID int64, collectionID int64) (*pb.DeviceCollection, error)
 
@@ -268,6 +275,17 @@ type CollectionStore interface {
 	// placement by joining a site-less rack (the force path clears both
 	// columns), so the caller can confirm before stripping.
 	FindDevicesWithSiteOrBuilding(ctx context.Context, orgID int64, deviceIdentifiers []string) ([]string, error)
+
+	// LockDevicesForReassign takes a FOR UPDATE row lock on every matching
+	// live device for the rest of the surrounding transaction. SaveRack
+	// calls it before FindDevicesWithSiteOrBuilding so the site-strip
+	// conflict check and the later placement cascade observe one stable
+	// snapshot: without it a concurrent direct site assignment
+	// (sites.AssignDevicesToSite, which locks the same rows) could commit
+	// between the check and the cascade and be silently stripped back to
+	// NULL despite force being false. An empty result means none of the
+	// identifiers exist; the caller still wants the lock side-effect.
+	LockDevicesForReassign(ctx context.Context, orgID int64, deviceIdentifiers []string) error
 
 	// ClearDeviceSitesAndBuildings nulls device.site_id and
 	// device.building_id for the given identifiers (skipping rows already

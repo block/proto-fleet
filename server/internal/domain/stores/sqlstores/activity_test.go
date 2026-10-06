@@ -113,3 +113,34 @@ func TestIsCompletedBatchDuplicate(t *testing.T) {
 		})
 	}
 }
+
+func TestNewActivityEventIDUsesStableNamespacedIdempotencyKey(t *testing.T) {
+	t.Parallel()
+
+	first, err := newActivityEventID(&models.Event{IdempotencyKey: "upgrade-acknowledged:op-1"})
+	require.NoError(t, err)
+	retry, err := newActivityEventID(&models.Event{IdempotencyKey: "upgrade-acknowledged:op-1"})
+	require.NoError(t, err)
+	other, err := newActivityEventID(&models.Event{IdempotencyKey: "upgrade-acknowledged:op-2"})
+	require.NoError(t, err)
+
+	assert.Equal(t, first, retry)
+	assert.NotEqual(t, first, other)
+}
+
+func TestIsIdempotencyKeyDuplicate(t *testing.T) {
+	t.Parallel()
+
+	uniqueErr := &pgconn.PgError{Code: pgErrCodeUniqueViolation, ConstraintName: activityEventIDUniqueConstraint}
+	otherConstraintErr := &pgconn.PgError{Code: pgErrCodeUniqueViolation, ConstraintName: "activity_log_pkey"}
+	otherPgErr := &pgconn.PgError{Code: "23503", ConstraintName: activityEventIDUniqueConstraint}
+	event := &models.Event{IdempotencyKey: "upgrade-acknowledged:op-1"}
+
+	assert.True(t, isIdempotencyKeyDuplicate(event, uniqueErr))
+	assert.False(t, isIdempotencyKeyDuplicate(nil, uniqueErr))
+	assert.False(t, isIdempotencyKeyDuplicate(&models.Event{}, uniqueErr))
+	assert.False(t, isIdempotencyKeyDuplicate(event, nil))
+	assert.False(t, isIdempotencyKeyDuplicate(event, otherConstraintErr))
+	assert.False(t, isIdempotencyKeyDuplicate(event, otherPgErr))
+	assert.False(t, isIdempotencyKeyDuplicate(event, errors.New("network blip")))
+}

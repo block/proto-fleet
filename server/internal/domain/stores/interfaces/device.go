@@ -14,6 +14,7 @@ import (
 	diagnosticsmodels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 )
 
@@ -55,6 +56,11 @@ type ZoneKey struct {
 }
 
 type MinerFilter struct {
+	// SearchQuery is a case-insensitive substring matched against miner
+	// identifying fields (name, device identifier, serial, MAC, IP, worker).
+	// Name reuses the display-name sort expression, so an unnamed miner matches
+	// on its manufacturer/model fallback.
+	SearchQuery         string
 	PairingStatuses     []fm.PairingStatus // Changed from single value to slice
 	DeviceStatusFilter  []mm.MinerStatus
 	ModelNames          []string                          // Filter by device model names (e.g., "S21 XP", "M60")
@@ -143,6 +149,22 @@ type OfflineDeviceInfo struct {
 	DiscoveredDeviceIdentifier string
 }
 
+// FleetNodeRecoveryTarget is an offline, paired-like miner whose owning Fleet
+// Node can scan the miner's private LAN for a changed endpoint.
+type FleetNodeRecoveryTarget struct {
+	FleetNodeID        int64
+	DeviceIdentifier   string
+	OrgID              int64
+	SerialNumber       string
+	MacAddress         string
+	DriverName         string
+	LastKnownIP        string
+	LastKnownPort      string
+	LastKnownScheme    string
+	CredentialUsername []byte
+	CredentialPassword []byte
+}
+
 // DeviceRenameProperties holds the device attributes needed for name generation.
 type DeviceRenameProperties struct {
 	DeviceIdentifier         string
@@ -177,7 +199,9 @@ type DeviceStore interface {
 	SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, device *pb.Device, orgID int64) (bool, error)
 	UpdateDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) error
 	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, pairingStatus string) (eligible bool, updated bool, err error)
-	ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (eligible bool, updated bool, err error)
+	ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64, endpoint networking.ConnectionInfo) (eligible bool, updated bool, err error)
+	LockDeviceForCloudRecoveryByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (locked bool, err error)
+	ReconcileCloudAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (eligible bool, updated bool, err error)
 	GetDevicePairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (string, error)
 	GetMinerCredentials(ctx context.Context, device *pb.Device, orgID int64) (*pb.Credentials, error)
 	GetDeviceByDeviceIdentifier(ctx context.Context, identifier string, orgID int64) (*pb.Device, error)
@@ -188,7 +212,6 @@ type DeviceStore interface {
 	// Excludes soft-deleted devices, so DeleteMiners must call it before
 	// the soft-delete.
 	GetDistinctDeviceSiteIDs(ctx context.Context, orgID int64, identifiers []string) ([]*int64, error)
-	IsDeviceOwnedByFleetNode(ctx context.Context, identifier string, orgID int64) (bool, error)
 	UpdateDeviceInfo(ctx context.Context, device *pb.Device, orgID int64) error
 	GetDeviceWithIPAssignment(ctx context.Context, deviceIdentifier string, orgID int64) (*discoverymodels.DiscoveredDevice, error)
 	GetTotalPairedDevices(ctx context.Context, orgID int64, filter *MinerFilter) (int64, error)
@@ -203,6 +226,9 @@ type DeviceStore interface {
 	UpsertDeviceStatuses(ctx context.Context, updates []DeviceStatusUpdate) error
 	GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models.DeviceIdentifier) (map[models.DeviceIdentifier]mm.MinerStatus, error)
 	GetOfflineDevices(ctx context.Context, limit int) ([]OfflineDeviceInfo, error)
+	GetOfflineFleetNodeDevices(ctx context.Context) ([]FleetNodeRecoveryTarget, error)
+	ApplyFleetNodeRecoveredEndpoint(ctx context.Context, target FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error)
+	ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error)
 	GetKnownSubnets(ctx context.Context, orgID int64, maskBits int, isIPv4 bool) ([]string, error)
 	ListMinerStateSnapshots(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *MinerFilter, sortConfig *SortConfig) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error)
 	AllDevicesBelongToOrg(ctx context.Context, deviceIdentifiers []string, orgID int64) (bool, error)
@@ -220,7 +246,7 @@ type DeviceStore interface {
 	UpdateWorkerName(ctx context.Context, deviceIdentifier models.DeviceIdentifier, workerName string) error
 	GetDevicePropertiesForRename(ctx context.Context, orgID int64, deviceIdentifiers []string, includeTelemetry bool) ([]DeviceRenameProperties, error)
 	UpdateDeviceCustomNames(ctx context.Context, orgID int64, names map[string]string) error
-	GetPairedDeviceByMACAddress(ctx context.Context, macAddress string, orgID int64) (*PairedDeviceInfo, error)
+	GetPairedDeviceByMACAddress(ctx context.Context, macAddress string, orgID int64, excludeDeviceIdentifier string) (*PairedDeviceInfo, error)
 	GetPairedDevicesByMACAddresses(ctx context.Context, macAddresses []string, orgID int64) (map[string]*PairedDeviceInfo, error)
 	GetPairedDeviceBySerialNumber(ctx context.Context, serialNumber string, orgID int64) (*PairedDeviceInfo, error)
 }

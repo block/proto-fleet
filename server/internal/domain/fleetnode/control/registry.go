@@ -40,6 +40,7 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/discoverylimits"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 // commandEventBuffer sizes a report-bearing command's event channel; overflow drops
@@ -49,7 +50,7 @@ const commandEventBuffer = 64
 // outgoingBuffer sizes the per-connection outbound command queue. It comfortably
 // exceeds the node's command worker-pool ceiling so concurrent Send/SendCommand to
 // one node enqueue without serializing behind the gateway's single drain loop.
-const outgoingBuffer = 64
+const outgoingBuffer = 1024
 
 // MaxConcurrentCommandArtifactUploadsPerFleetNode bounds upload streams before
 // their first message can be matched to a command expectation.
@@ -66,6 +67,10 @@ const maxReportsPerCommand = discoverylimits.MaxScanTargets * discoverylimits.Ma
 var (
 	// ErrNoActiveStream: no ControlStream for the fleet_node (callers map to FailedPrecondition).
 	ErrNoActiveStream = errors.New("no active control stream for fleet_node")
+
+	// errSessionInvalidated: the authenticated session was replaced or revoked
+	// before its ControlStream could register.
+	errSessionInvalidated = errors.New("fleet_node session was replaced or revoked")
 
 	// errNoInFlightCommand: AdmitReport's command_id isn't an in-flight report-bearing
 	// command. Unexported; callers map it to FailedPrecondition like any non-quota admit failure.
@@ -165,9 +170,10 @@ type artifactExpectation struct {
 // connection is the server's view of one agent ControlStream. It can hold many
 // concurrent in-flight commands keyed by command_id. Fields guarded by Registry.mu.
 type connection struct {
-	outgoing chan *gatewaypb.ControlCommand // commands to the ControlStream handler (buffered, never closed)
-	done     chan struct{}                  // closed once on evict/Unregister; wakes the handler and blocked senders
-	cmds     map[string]*inflightCommand    // in-flight commands by command_id
+	outgoing                  chan *gatewaypb.ControlCommand // commands to the ControlStream handler (buffered, never closed)
+	done                      chan struct{}                  // closed once on evict/Unregister; wakes the handler and blocked senders
+	cmds                      map[string]*inflightCommand    // in-flight commands by command_id
+	maxCommandProtocolVersion gatewaypb.CommandProtocolVersion
 }
 
 // inflightCommand is the operator/worker side of one in-flight command. Its result
@@ -202,13 +208,20 @@ func (c *inflightCommand) reportBearing() bool { return c.events != nil }
 type Registry struct {
 	mu                       sync.Mutex
 	conns                    map[int64]*connection
+	sessionFences            map[int64]sessionFence
 	commandArtifactUploads   map[int64]int
 	commandArtifactDownloads map[int64]int
+}
+
+type sessionFence struct {
+	fingerprint string
+	revoked     bool
 }
 
 func NewRegistry() *Registry {
 	return &Registry{
 		conns:                    make(map[int64]*connection),
+		sessionFences:            make(map[int64]sessionFence),
 		commandArtifactUploads:   make(map[int64]int),
 		commandArtifactDownloads: make(map[int64]int),
 	}
@@ -225,6 +238,16 @@ func (r *Registry) ConnectedFleetNodeIDs() []int64 {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+// CommandProtocolUpgradeRequired reports whether an active connection is too
+// old to process the server's current commands. Disconnected nodes are handled
+// by their existing connection status instead.
+func (r *Registry) CommandProtocolUpgradeRequired(fleetNodeID int64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	conn := r.conns[fleetNodeID]
+	return conn != nil && conn.maxCommandProtocolVersion < gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
 }
 
 // teardown closes connection.done and every in-flight command's done. Caller holds
@@ -247,16 +270,24 @@ func (r *Registry) inflightFor(fleetNodeID int64, commandID string) *inflightCom
 	return conn.cmds[commandID] // nil if absent
 }
 
-// addCmd registers c under its command_id, returning errNoActiveStream if the node
-// has no connection or errDuplicateCommandID on a colliding id. On success it also
-// returns the connection's outgoing/done channels so the caller can enqueue without
-// re-locking. Caller must NOT hold Registry.mu.
-func (r *Registry) addCmd(fleetNodeID int64, c *inflightCommand) (chan *gatewaypb.ControlCommand, chan struct{}, error) {
+// addCmd registers c under its command_id, returning ErrNoActiveStream if the node
+// has no connection, FailedPrecondition if its command protocol is too old, or
+// errDuplicateCommandID on a colliding id. On success it also returns the
+// connection's outgoing/done channels so the caller can enqueue without re-locking.
+// Caller must NOT hold Registry.mu.
+func (r *Registry) addCmd(fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, c *inflightCommand) (chan *gatewaypb.ControlCommand, chan struct{}, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	conn, ok := r.conns[fleetNodeID]
 	if !ok {
 		return nil, nil, ErrNoActiveStream
+	}
+	if conn.maxCommandProtocolVersion < minimumCommandProtocolVersion {
+		return nil, nil, fleeterror.NewFailedPreconditionErrorf(
+			"fleet node command protocol version %d does not support this command; requires version %d; upgrade Fleet Node",
+			conn.maxCommandProtocolVersion,
+			minimumCommandProtocolVersion,
+		)
 	}
 	if _, dup := conn.cmds[c.id]; dup {
 		return nil, nil, errDuplicateCommandID

@@ -1,5 +1,9 @@
+import { randomUUID } from "crypto";
+
 export function generateRandomText(prefix: string): string {
-  const randomCode = Math.random().toString(36).substring(2, 9);
+  // Same 7-char suffix length as the previous Math.random() implementation,
+  // but from a CSPRNG since these names feed real account creation in RBAC specs.
+  const randomCode = randomUUID().replaceAll("-", "").substring(0, 7);
   return `${prefix}_${randomCode}`;
 }
 

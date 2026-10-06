@@ -203,6 +203,22 @@ func TestHasOrgWidePermissionHonorsSiteNarrowing(t *testing.T) {
 // RequireAnyPermission
 // ---------------------------------------------------------------
 
+func TestRequirePermissionAtAnySite_AllowsSiteOnlyGrant(t *testing.T) {
+	ctx := ctxWithEffective(t, userInfo(), siteAssignment(10, authz.PermMaintenanceRead))
+
+	info, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermMaintenanceRead)
+	require.NoError(t, err)
+	require.Equal(t, "alice", info.Username)
+}
+
+func TestRequirePermissionAtAnySite_DeniesMissingGrant(t *testing.T) {
+	ctx := ctxWithEffective(t, userInfo(), siteAssignment(10, authz.PermFleetRead))
+
+	_, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermMaintenanceRead)
+	require.Error(t, err)
+	require.Equal(t, connect.CodePermissionDenied, connectCode(t, err))
+}
+
 func TestSiteScopeForPermission_ProjectsAllowlistAndDenylist(t *testing.T) {
 	// Site-scoped-only caller: allowlist of granting sites.
 	ctx := ctxWithEffective(t, userInfo(),
@@ -371,8 +387,8 @@ func connectCode(t *testing.T, err error) connect.Code {
 }
 
 // connectMessage returns the FleetError's debug message, which is what
-// the middleware stuffs the JSON payload into. The plan specifies the
-// payload shape directly in the message body so the client can pick
+// the middleware puts the JSON payload into. The payload is included
+// directly in the message body so the client can pick
 // it up via Connect's standard error.Message().
 func connectMessage(t *testing.T, err error) string {
 	t.Helper()

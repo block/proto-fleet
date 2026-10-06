@@ -1,4 +1,4 @@
-import { parseCurtailmentSiteId } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
+import { parseCurtailmentTargetId } from "@/protoFleet/api/curtailmentScopes";
 import type { CurtailmentSiteOption } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const getValidSiteScopeId = (siteId?: string): string | undefined => {
@@ -7,7 +7,7 @@ const getValidSiteScopeId = (siteId?: string): string | undefined => {
     return undefined;
   }
 
-  const parsedSiteId = parseCurtailmentSiteId(normalizedSiteId);
+  const parsedSiteId = parseCurtailmentTargetId(normalizedSiteId);
   return parsedSiteId?.toString() === normalizedSiteId ? normalizedSiteId : undefined;
 };
 

@@ -1,3 +1,5 @@
+import { type CurtailmentTerminalScopeType } from "@/protoFleet/api/curtailmentScopes";
+
 export type CurtailmentHealth = "connected" | "waitingForSignal" | "noSignal" | "offline";
 export type AutomationTriggerType = "MQTT";
 
@@ -40,11 +42,23 @@ export type ResponseProfileSelectionStrategy = "leastEfficientFirst";
 export type ResponseProfileMinerSelectionMode = "subset" | "all";
 export type ResponseProfileRestoreBehavior = "automaticBatchRestore" | "automaticImmediateRestore";
 export type ResponseProfileSiteSelection = "none" | "allSites" | "site";
+export type ResponseProfileScopeType = CurtailmentTerminalScopeType;
+
+export function isResponseProfileAutomationReady(scopeType: ResponseProfileScopeType | undefined): boolean {
+  return scopeType !== undefined;
+}
 
 export type ResponseProfileFormValues = {
   name: string;
   actionType: ResponseProfileActionType;
   targetKw: string;
+  toleranceKw: string;
+  priority: "normal" | "emergency";
+  postEventCooldownSec: string;
+  scopeType: ResponseProfileScopeType;
+  buildingTargetIds: string[];
+  rackTargetIds: string[];
+  groupTargetIds: string[];
   deviceIdentifiers: string[];
   minerSelectionMode?: ResponseProfileMinerSelectionMode;
   siteSelection?: ResponseProfileSiteSelection;
@@ -70,6 +84,7 @@ export type ResponseProfileFormValues = {
 
 export type ResponseProfile = {
   id: string;
+  revision?: string;
   name: string;
   targetSummary: string;
   scope: string;
@@ -77,6 +92,8 @@ export type ResponseProfile = {
   restoreBehavior: string;
   deadlineSummary: string;
   formValues?: ResponseProfileFormValues;
+  isReadOnly?: boolean;
+  isAutomationReady: boolean;
 };
 
 export type AutomationConditionType = "mqttTriggerTargetOff" | "marketPriceAbove" | "hashpriceBelow" | "capacityAbove";
@@ -85,6 +102,7 @@ export type AutomationRuleFormValues = {
   name: string;
   sourceId: string;
   responseProfileId: string;
+  responseProfileRevision: string;
 };
 
 export type AutomationRule = {

@@ -1,4 +1,4 @@
-import type { ChangeEvent, DragEvent } from "react";
+import type { ChangeEvent, DragEvent, KeyboardEvent } from "react";
 import { useCallback, useRef, useState } from "react";
 import clsx from "clsx";
 import { Checkmark } from "@/shared/assets/icons";
@@ -60,16 +60,27 @@ export function FileDropZone({ extensions, onFileSelect, disabled }: FileDropZon
   );
 
   const handleClick = useCallback(() => {
+    if (disabled) return;
     fileInputRef.current?.click();
-  }, []);
+  }, [disabled]);
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLDivElement>) => {
+      if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
+      if (e.key === " ") e.preventDefault();
+      handleClick();
+    },
+    [handleClick],
+  );
 
   const handleFileInputChange = useCallback(
     (e: ChangeEvent<HTMLInputElement>) => {
+      if (disabled) return;
       const selected = e.target.files?.[0];
       if (selected) onFileSelect(selected);
       if (fileInputRef.current) fileInputRef.current.value = "";
     },
-    [onFileSelect],
+    [disabled, onFileSelect],
   );
 
   const formattedExtensions =
@@ -86,13 +97,15 @@ export function FileDropZone({ extensions, onFileSelect, disabled }: FileDropZon
           isDragActive && "ring-2 ring-border-primary",
         )}
         onClick={handleClick}
+        onKeyDown={handleKeyDown}
         onDragEnter={handleDragEnter}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
         data-testid="firmware-drop-zone"
         role="button"
-        tabIndex={0}
+        aria-disabled={disabled}
+        tabIndex={disabled ? -1 : 0}
       >
         <div className="text-300 text-text-primary">Drag update files here</div>
         <div className="text-200 text-text-primary-70">or</div>
@@ -112,6 +125,7 @@ export function FileDropZone({ extensions, onFileSelect, disabled }: FileDropZon
         type="file"
         accept={buildAcceptString(extensions)}
         onChange={handleFileInputChange}
+        disabled={disabled}
         className="hidden"
         data-testid="firmware-file-input"
       />
@@ -124,6 +138,33 @@ interface FileProcessingStatusProps {
   fileName: string;
   fileSize: number;
   uploadProgress: number;
+}
+
+interface FileSelectedStatusProps {
+  fileName: string;
+  fileSize: number;
+  onRemove: () => void;
+}
+
+export function FileSelectedStatus({ fileName, fileSize, onRemove }: FileSelectedStatusProps) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-border-5 p-4">
+      <div className="flex min-w-0 flex-col">
+        <div className="truncate text-300 text-text-primary" title={fileName}>
+          {fileName}
+        </div>
+        <div className="text-200 text-text-primary-70">{formatFileSize(fileSize)}</div>
+      </div>
+      <Button
+        variant={variants.textOnly}
+        textColor="text-core-accent-fill"
+        textOnlyUnderlineOnHover={false}
+        className="shrink-0"
+        onClick={onRemove}
+        text="Remove"
+      />
+    </div>
+  );
 }
 
 export function FileProcessingStatus({ state, fileName, fileSize, uploadProgress }: FileProcessingStatusProps) {

@@ -11,6 +11,7 @@ export type { FleetStore } from "./useFleetStore";
 
 export {
   useSessionExpiry,
+  useSessionGeneration,
   useIsAuthenticated,
   useUsername,
   useRole,

@@ -39,7 +39,6 @@ var defaultCredentials = []sdk.UsernamePassword{
 // Driver implements sdk.Driver for virtual miners.
 type Driver struct {
 	config         *config.Config
-	devices        map[string]sdk.Device
 	minersByIP     map[string]*config.VirtualMinerConfig
 	sv2ByMakeModel map[modelKey]bool
 	mutex          sync.RWMutex
@@ -72,7 +71,6 @@ func New(configPath string) (*Driver, error) {
 
 	return &Driver{
 		config:         cfg,
-		devices:        make(map[string]sdk.Device),
 		minersByIP:     minersByIP,
 		sv2ByMakeModel: sv2ByMakeModel,
 		latencyRNG:     rand.New(rand.NewPCG(uint64(time.Now().UnixNano()), 2)),
@@ -140,12 +138,13 @@ func (d *Driver) GetCapabilitiesForModel(_ context.Context, manufacturer, model 
 func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sdk.DeviceInfo, error) {
 	// Only handle IPs in the virtual range
 	if !strings.HasPrefix(ipAddress, virtualIPPrefix) {
-		return sdk.DeviceInfo{}, fmt.Errorf("not a virtual miner IP: %s", ipAddress)
+		return sdk.DeviceInfo{}, sdk.NewErrorDeviceNotFound(ipAddress, fmt.Errorf("not a virtual miner IP: %s", ipAddress))
 	}
 
 	// Only respond on the designated port to prevent duplicates when scanning multiple ports
 	if port != virtualDiscoveryPort {
-		return sdk.DeviceInfo{}, fmt.Errorf("virtual miner only responds on port %s, got %s", virtualDiscoveryPort, port)
+		return sdk.DeviceInfo{}, sdk.NewErrorDeviceNotFound(ipAddress,
+			fmt.Errorf("virtual miner only responds on port %s, got %s", virtualDiscoveryPort, port))
 	}
 
 	// Look up by IP only (ignoring port) since virtual miners don't use real network ports
@@ -154,10 +153,10 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 	d.mutex.RUnlock()
 
 	if !exists {
-		return sdk.DeviceInfo{}, fmt.Errorf("no virtual miner configured at %s", ipAddress)
+		return sdk.DeviceInfo{}, sdk.NewErrorDeviceNotFound(ipAddress, fmt.Errorf("no virtual miner configured at %s", ipAddress))
 	}
 	if err := d.waitForLatency(ctx, minerCfg, false); err != nil {
-		return sdk.DeviceInfo{}, err
+		return sdk.DeviceInfo{}, sdk.NewErrorDeviceUnavailable(ipAddress, err)
 	}
 
 	slog.Debug("Discovered virtual miner", "serial", minerCfg.SerialNumber, "ip", ipAddress)
@@ -216,10 +215,6 @@ func (d *Driver) NewDevice(_ context.Context, deviceID string, deviceInfo sdk.De
 
 	// Create the device instance
 	dev := device.New(deviceID, deviceInfo, minerCfg)
-
-	d.mutex.Lock()
-	d.devices[deviceID] = dev
-	d.mutex.Unlock()
 
 	slog.Debug("Created virtual device instance", "device_id", deviceID, "serial", deviceInfo.SerialNumber)
 

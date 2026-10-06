@@ -15,33 +15,59 @@ import (
 
 // Sender dispatches one command to a node's ControlStream. *Registry implements it.
 type Sender interface {
-	Send(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta) (*Session, error)
+	Send(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta) (*Session, error)
 }
 
 // RunCommand dispatches cmd, drains result events through onData until the terminal
 // ack, and maps the outcome to an error. Shared by discovery and pairing. kind/pair
-// are as in Send; noun names the command in errors. onData returns terminal=true to
-// stop early. Returns nil on an OK or PARTIAL ack, error otherwise (or onData's).
-func RunCommand(ctx context.Context, sender Sender, fleetNodeID int64, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta, timeout time.Duration, noun string, onData func(CommandEvent) (terminal bool, err error)) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+// are as in Send; minimumCommandProtocolVersion is the oldest protocol that may
+// receive cmd; noun names the command in errors. onData returns terminal=true to
+// stop early. PARTIAL is delivered to onData before completion; OK is not.
+// Returns nil on an OK or PARTIAL ack, error otherwise (or onData's).
+func RunCommand(ctx context.Context, sender Sender, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta, timeout time.Duration, noun string, onData func(CommandEvent) (terminal bool, err error)) error {
+	return runCommand(ctx, sender, fleetNodeID, minimumCommandProtocolVersion, cmd, scope, kind, pair, timeout, noun, onData, false)
+}
+
+// RunCommandToCompletion keeps dispatch cancelable, then finishes an accepted
+// command even if the caller disconnects. The timeout covers both enqueueing and
+// completion; detaching the wait does not restart it or retain the caller deadline.
+func RunCommandToCompletion(ctx context.Context, sender Sender, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta, timeout time.Duration, noun string, onData func(CommandEvent) (terminal bool, err error)) error {
+	return runCommand(ctx, sender, fleetNodeID, minimumCommandProtocolVersion, cmd, scope, kind, pair, timeout, noun, onData, true)
+}
+
+func runCommand(ctx context.Context, sender Sender, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta, timeout time.Duration, noun string, onData func(CommandEvent) (terminal bool, err error), finishAfterCancellation bool) error {
+	deadline := time.Now().Add(timeout)
+	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
 
-	session, err := sender.Send(ctx, fleetNodeID, cmd, scope, kind, pair)
+	session, err := sender.Send(ctx, fleetNodeID, minimumCommandProtocolVersion, cmd, scope, kind, pair)
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return connect.NewError(connect.CodeDeadlineExceeded, fmt.Errorf("%s command timed out after %s", noun, timeout))
+		}
+		if ctx.Err() != nil {
+			return fleeterror.NewCanceledError()
+		}
 		if errors.Is(err, ErrNoActiveStream) {
 			return fleeterror.NewFailedPreconditionError("fleet node has no active control stream")
 		}
 		return err
 	}
 	defer session.Close()
+	if finishAfterCancellation {
+		var cancelWait context.CancelFunc
+		ctx, cancelWait = context.WithDeadline(context.WithoutCancel(ctx), deadline)
+		defer cancelWait()
+	}
 
 	handleEvent := func(ev CommandEvent) (terminal bool, err error) {
 		if ev.Ack != nil {
-			// PARTIAL: results already streamed, so treat it as usable, not a failure.
+			// Let discovery describe incomplete results; pairing ignores ACK-only events.
 			if ev.Ack.GetCode() == gatewaypb.AckCode_ACK_CODE_PARTIAL {
 				slog.Warn("fleet node command completed partially",
 					"fleet_node_id", fleetNodeID, "command", noun, "detail", ev.Ack.GetErrorMessage())
-				return true, nil
+				_, err := onData(ev)
+				return true, err
 			}
 			// Require the OK code, not just succeeded=true, so an inconsistent ack
 			// can't pass a failed command off as success.
@@ -96,6 +122,10 @@ func AckFailure(ack *gatewaypb.ControlAck, noun string) error {
 	if code == gatewaypb.AckCode_ACK_CODE_BAD_REQUEST {
 		return fleeterror.NewInvalidArgumentErrorf("fleet node rejected %s command: %s", noun, reason)
 	}
+	if code == gatewaypb.AckCode_ACK_CODE_UNAUTHENTICATED {
+		// These are miner credentials, not the operator session.
+		return fleeterror.NewFailedPreconditionErrorf("fleet node rejected %s credentials: %s", noun, reason)
+	}
 	if code == gatewaypb.AckCode_ACK_CODE_BUSY {
 		return fleeterror.NewPlainError(
 			fmt.Sprintf("fleet node is busy with another command; retry shortly: %s", reason),
@@ -104,6 +134,9 @@ func AckFailure(ack *gatewaypb.ControlAck, noun string) error {
 	}
 	if code == gatewaypb.AckCode_ACK_CODE_AGENT_INCAPABLE {
 		return fleeterror.NewFailedPreconditionErrorf("fleet node cannot service this %s command; try another node: %s", noun, reason)
+	}
+	if code == gatewaypb.AckCode_ACK_CODE_UNIMPLEMENTED {
+		return fleeterror.NewUnimplementedErrorf("fleet node does not support this %s command: %s", noun, reason)
 	}
 	if code == gatewaypb.AckCode_ACK_CODE_REPORT_FAILED {
 		return fleeterror.NewInternalErrorf("fleet node could not upload all %s results; some may have been applied, re-list to confirm: %s", noun, reason)

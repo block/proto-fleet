@@ -40,11 +40,11 @@ import (
 // CommandSender dispatches a ControlCommand to a fleet node and blocks for its
 // terminal ack. *control.Registry satisfies it.
 type CommandSender interface {
-	SendCommand(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error)
+	SendCommand(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error)
 }
 
 type ArtifactCommandSender interface {
-	SendCommandWithArtifactResults(ctx context.Context, fleetNodeID int64, cmd *gatewaypb.ControlCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error)
+	SendCommandWithArtifactResults(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error)
 }
 
 type LogArtifactSaver interface {
@@ -62,6 +62,10 @@ type Config struct {
 	// Gate, if set, bounds concurrent commands the server has in flight to this
 	// fleet node so a large batch paces rather than oversubscribing the node.
 	Gate Gate
+	// DeferrableReadGate, if set, replaces Gate for GetErrors and
+	// GetCoolingMode. It is expected to include both the deferrable and shared
+	// permits, matching Fleet Node admission.
+	DeferrableReadGate Gate
 	// LogDownloadGate, if set, further bounds concurrent log downloads to this
 	// fleet node so artifact uploads stay within gateway admission capacity.
 	LogDownloadGate Gate
@@ -84,19 +88,21 @@ type Config struct {
 // value (no live connection), so caching the handle is safe; stream liveness is
 // resolved per command by the registry.
 type Miner struct {
-	sender       CommandSender
-	gate         Gate
-	logGate      Gate
-	logArtifacts LogArtifactSaver
-	fleetNodeID  int64
-	orgID        int64
-	siteID       int64
-	desc         *gatewaypb.MinerConnectionDescriptor
-	connInfo     networking.ConnectionInfo
+	sender             CommandSender
+	gate               Gate
+	deferrableReadGate Gate
+	logGate            Gate
+	logArtifacts       LogArtifactSaver
+	fleetNodeID        int64
+	orgID              int64
+	siteID             int64
+	desc               *gatewaypb.MinerConnectionDescriptor
+	connInfo           networking.ConnectionInfo
 }
 
 var _ interfaces.Miner = (*Miner)(nil)
 var _ interfaces.FirmwareUpdateStatusProvider = (*Miner)(nil)
+var _ interfaces.MinerCurtailmentConfigurator = (*Miner)(nil)
 
 // Keep the remote diagnostics wait aligned with the cloud command worker budget
 // and above the fleet node's minerCommandTimeout, while still bounding callers
@@ -125,13 +131,14 @@ func New(cfg Config) (*Miner, error) {
 		return nil, fleeterror.NewInternalErrorf("remote-node miner: connection info: %v", err)
 	}
 	return &Miner{
-		sender:       cfg.Sender,
-		gate:         cfg.Gate,
-		logGate:      cfg.LogDownloadGate,
-		logArtifacts: cfg.LogArtifacts,
-		fleetNodeID:  cfg.FleetNodeID,
-		orgID:        cfg.OrgID,
-		siteID:       cfg.SiteID,
+		sender:             cfg.Sender,
+		gate:               cfg.Gate,
+		deferrableReadGate: cfg.DeferrableReadGate,
+		logGate:            cfg.LogDownloadGate,
+		logArtifacts:       cfg.LogArtifacts,
+		fleetNodeID:        cfg.FleetNodeID,
+		orgID:              cfg.OrgID,
+		siteID:             cfg.SiteID,
 		desc: &gatewaypb.MinerConnectionDescriptor{
 			DeviceIdentifier:   cfg.DeviceIdentifier,
 			DriverName:         cfg.DriverName,
@@ -186,6 +193,19 @@ func (m *Miner) Uncurtail(ctx context.Context, _ sdk.UncurtailRequest) error {
 	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_Uncurtail{Uncurtail: &gatewaypb.UncurtailAction{}}})
 }
 
+// ApplyCurtailmentConfig forwards the device-bound encrypted config to its
+// FleetNode. Plaintext is never accepted on the node transport.
+func (m *Miner) ApplyCurtailmentConfig(ctx context.Context, payload dto.ApplyCurtailmentConfigPayload) error {
+	if payload.EncryptedConfig == nil {
+		return fleeterror.NewFailedPreconditionError("encrypted curtailment config is required for fleet-node miner")
+	}
+	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_ApplyCurtailmentConfig{
+		ApplyCurtailmentConfig: &gatewaypb.ApplyCurtailmentConfigAction{
+			EncryptedConfig: dtoNodeEncryptedPayloadToProto(payload.EncryptedConfig),
+		},
+	}})
+}
+
 func (m *Miner) SetCoolingMode(ctx context.Context, payload dto.CoolingModePayload) error {
 	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_SetCoolingMode{
 		SetCoolingMode: &gatewaypb.SetCoolingModeAction{Mode: payload.Mode},
@@ -207,7 +227,7 @@ func (m *Miner) dispatch(ctx context.Context, mc *gatewaypb.MinerCommand) error 
 }
 
 func (m *Miner) dispatchWithArtifacts(ctx context.Context, mc *gatewaypb.MinerCommand, artifacts []control.ArtifactExpectation) error {
-	release, err := m.acquireGate(ctx)
+	release, err := m.acquireGate(ctx, mc)
 	if err != nil {
 		return err
 	}
@@ -220,7 +240,7 @@ func (m *Miner) dispatchWithArtifacts(ctx context.Context, mc *gatewaypb.MinerCo
 }
 
 func (m *Miner) send(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
-	release, err := m.acquireGate(ctx)
+	release, err := m.acquireGate(ctx, mc)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +249,7 @@ func (m *Miner) send(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewayp
 }
 
 func (m *Miner) sendWithCommandTimeout(ctx context.Context, timeout time.Duration, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
-	release, err := m.acquireGate(ctx)
+	release, err := m.acquireGate(ctx, mc)
 	if err != nil {
 		return nil, err
 	}
@@ -245,8 +265,13 @@ func (m *Miner) sendWithCommandTimeout(ctx context.Context, timeout time.Duratio
 	return ack, err
 }
 
-func (m *Miner) acquireGate(ctx context.Context) (func(), error) {
-	return acquireFleetNodeGate(ctx, m.gate, m.fleetNodeID, "fleet node command")
+func (m *Miner) acquireGate(ctx context.Context, command *gatewaypb.MinerCommand) (func(), error) {
+	gate := m.gate
+	class, _ := control.AdmissionForMinerCommand(command)
+	if class == control.CommandAdmissionDeferrableRead && m.deferrableReadGate != nil {
+		gate = m.deferrableReadGate
+	}
+	return acquireFleetNodeGate(ctx, gate, m.fleetNodeID, "fleet node command")
 }
 
 func (m *Miner) acquireLogDownloadGate(ctx context.Context) (func(), error) {
@@ -274,7 +299,7 @@ func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand)
 	if err != nil {
 		return nil, err
 	}
-	ack, err := m.sender.SendCommand(ctx, m.fleetNodeID, cmd)
+	ack, err := m.sender.SendCommand(ctx, m.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd)
 	if err != nil {
 		return nil, mapSendCommandError(err)
 	}
@@ -290,7 +315,7 @@ func (m *Miner) sendWithoutGateWithArtifactResults(ctx context.Context, mc *gate
 	if err != nil {
 		return nil, nil, err
 	}
-	ack, refs, err := sender.SendCommandWithArtifactResults(ctx, m.fleetNodeID, cmd, artifacts)
+	ack, refs, err := sender.SendCommandWithArtifactResults(ctx, m.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, artifacts)
 	if err != nil {
 		return nil, nil, mapSendCommandError(err)
 	}
@@ -438,15 +463,16 @@ func (m *Miner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
 		return err
 	}
 	defer releaseLogDownload()
-	release, err := m.acquireGate(ctx)
+	command := &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_DownloadLogs{
+		DownloadLogs: &gatewaypb.DownloadLogsAction{BatchLogUuid: batchLogUUID},
+	}}
+	release, err := m.acquireGate(ctx, command)
 	if err != nil {
 		return err
 	}
 	defer release()
 
-	ack, refs, err := m.sendWithoutGateWithArtifactResults(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_DownloadLogs{
-		DownloadLogs: &gatewaypb.DownloadLogsAction{BatchLogUuid: batchLogUUID},
-	}}, []control.ArtifactExpectation{{
+	ack, refs, err := m.sendWithoutGateWithArtifactResults(ctx, command, []control.ArtifactExpectation{{
 		Direction:        control.ArtifactDirectionUpload,
 		Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
 		DeviceIdentifier: m.desc.GetDeviceIdentifier(),

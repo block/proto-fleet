@@ -30,4 +30,5 @@ message FleetErrorDetails {
 
 enum FleetErrorCode {
   FLEET_ERROR_CODE_UNSPECIFIED = 0;
+  FLEET_ERROR_CODE_NOT_ACTIVE = 1;
 }

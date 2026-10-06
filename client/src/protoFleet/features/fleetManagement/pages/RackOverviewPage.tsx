@@ -579,9 +579,9 @@ const RackOverviewPage = () => {
             resolveRack(rack.id);
             void refetchStats();
           }}
-          // Settings "Continue" persists before the final Save; refresh the
-          // overview in the background (modal stays open) so a later dismiss
-          // can't leave stale label/placement on screen.
+          // The Rack settings Save and the miner pickers each persist on their
+          // own; refresh the overview in the background (modal stays open) so a
+          // later dismiss can't leave stale label/placement/members on screen.
           onSettingsPersisted={() => {
             resolveRack(rack.id);
             void refetchStats();

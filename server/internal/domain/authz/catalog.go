@@ -88,6 +88,14 @@ const (
 
 	// role — custom role + ADMIN/FIELD_TECH editing.
 	PermRoleManage = "role:manage"
+
+	// instance — server-instance administration: seeing release update
+	// prompts, changing the release channel, and triggering upgrades.
+	PermInstanceUpdate = "instance:update"
+
+	// maintenance — organization-wide repair ticket lifecycle.
+	PermMaintenanceRead   = "maintenance:read"
+	PermMaintenanceManage = "maintenance:manage"
 )
 
 // Resource identifiers used to group catalog entries for the admin UI
@@ -108,6 +116,8 @@ const (
 	ResourceAPIKey      = "apikey"
 	ResourceUser        = "user"
 	ResourceRole        = "role"
+	ResourceInstance    = "instance"
+	ResourceMaintenance = "maintenance"
 )
 
 // CatalogEntry is the in-code shape of a single permission. The wire-level
@@ -168,7 +178,7 @@ var catalog = []CatalogEntry{
 	{PermFleetnodeManage, "Enroll, confirm, and revoke fleet nodes, pair miners on them, and run network scans.", ResourceFleetNode},
 
 	{PermAlertRead, "View alert channels, rules, maintenance windows, and alert history.", ResourceAlert},
-	{PermAlertManage, "Create, edit, test, and delete alert channels; create, edit, delete, pause, and resume alert rules; create, edit, and delete maintenance windows.", ResourceAlert},
+	{PermAlertManage, "Create, edit, test, and delete alert channels; create, edit, delete, pause, resume, and route alert rules; create, edit, and delete maintenance windows.", ResourceAlert},
 
 	{PermAPIKeyManage, "List, create, and revoke API keys for the organization.", ResourceAPIKey},
 
@@ -176,6 +186,11 @@ var catalog = []CatalogEntry{
 	{PermUserManage, "Create, deactivate, reset passwords, and reassign roles for users in the organization.", ResourceUser},
 
 	{PermRoleManage, "Create, edit, and delete custom roles, and view all roles and permissions. Built-in roles cannot be modified.", ResourceRole},
+
+	{PermInstanceUpdate, "See available server updates, change the release channel, and apply server upgrades.", ResourceInstance},
+
+	{PermMaintenanceRead, "View repair tickets, maintenance history, and parts inventory.", ResourceMaintenance},
+	{PermMaintenanceManage, "Create, assign, update, and close repair tickets; manage parts inventory.", ResourceMaintenance},
 }
 
 // AllPermissions returns the canonical permission keys in catalog order. The

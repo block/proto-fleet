@@ -55,17 +55,16 @@ func findSingleFileInDir(dir string, ignoredNames ...string) (string, error) {
 	return foundPath, nil
 }
 
+// cleanStorageStagingDir removes every entry (files and directories) left in a
+// staging dir by interrupted operations from previous runs.
 func cleanStorageStagingDir(dir, failureMessage, successMessage string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
 	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
 		path := filepath.Join(dir, entry.Name())
-		if err := os.Remove(path); err != nil {
+		if err := os.RemoveAll(path); err != nil {
 			slog.Warn(failureMessage, "path", path, "error", err)
 		} else if successMessage != "" {
 			slog.Info(successMessage, "path", path)

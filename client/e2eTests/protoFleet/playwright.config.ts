@@ -6,7 +6,10 @@ import { testConfig } from "./config/test.config";
 const configDir = path.dirname(fileURLToPath(import.meta.url));
 const adminStorageState = path.join(configDir, "playwright", ".auth", "admin.json");
 const SETUP_FILE_GLOB = "**/[0-9][0-9]-*.spec.ts";
+const VISUAL_SPEC_GLOB = "**/onboardingVisual.spec.ts";
 const skipProjectDeps = process.env.PW_UI_NO_DEPS === "1";
+const visualOnly = process.env.PROTOFLEET_VISUAL_ONLY === "1";
+const visualBaseUrl = process.env.PROTOFLEET_VISUAL_BASE_URL?.trim();
 
 /**
  * See https://playwright.dev/docs/test-configuration.
@@ -15,6 +18,7 @@ const skipProjectDeps = process.env.PW_UI_NO_DEPS === "1";
 export default defineConfig({
   testDir: "./spec",
   globalSetup: "./globalSetup.ts",
+  snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}-{projectName}{ext}",
   /* Run tests in serial order (one at a time) */
   fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
@@ -40,7 +44,7 @@ export default defineConfig({
   /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
     /* Base URL to use in actions like `await page.goto('/')`. */
-    baseURL: testConfig.baseUrl,
+    baseURL: visualOnly && visualBaseUrl ? visualBaseUrl : testConfig.baseUrl,
 
     /* Set a consistent viewport size for all tests */
     viewport: { width: 1600, height: 900 },
@@ -57,45 +61,66 @@ export default defineConfig({
   },
 
   // E.g.:  npx playwright test --project=desktop
-  projects: [
-    {
-      name: "setup-desktop",
-      testMatch: SETUP_FILE_GLOB,
-      use: {
-        viewport: { width: 1600, height: 900 },
-        isMobile: false,
-      },
-    },
-    {
-      name: "setup-mobile",
-      testMatch: SETUP_FILE_GLOB,
-      use: {
-        viewport: { width: 393, height: 852 },
-        isMobile: true,
-      },
-    },
-    {
-      name: "desktop",
-      testMatch: /.*\.spec\.ts$/,
-      testIgnore: SETUP_FILE_GLOB,
-      dependencies: skipProjectDeps ? [] : ["setup-desktop"],
-      use: {
-        viewport: { width: 1600, height: 900 },
-        isMobile: false,
-        storageState: adminStorageState,
-      },
-    },
-    // Resolution of the iPhone 14 Pro / 15 Pro / 16
-    {
-      name: "mobile",
-      testMatch: /.*\.spec\.ts$/,
-      testIgnore: SETUP_FILE_GLOB,
-      dependencies: skipProjectDeps ? [] : ["setup-mobile"],
-      use: {
-        viewport: { width: 393, height: 852 },
-        isMobile: true,
-        storageState: adminStorageState,
-      },
-    },
-  ],
+  projects: visualOnly
+    ? [
+        {
+          name: "desktop",
+          testMatch: VISUAL_SPEC_GLOB,
+          use: {
+            viewport: { width: 1600, height: 900 },
+            isMobile: false,
+            storageState: { cookies: [], origins: [] },
+          },
+        },
+        {
+          name: "mobile",
+          testMatch: VISUAL_SPEC_GLOB,
+          use: {
+            viewport: { width: 393, height: 852 },
+            isMobile: true,
+            storageState: { cookies: [], origins: [] },
+          },
+        },
+      ]
+    : [
+        {
+          name: "setup-desktop",
+          testMatch: SETUP_FILE_GLOB,
+          use: {
+            viewport: { width: 1600, height: 900 },
+            isMobile: false,
+          },
+        },
+        {
+          name: "setup-mobile",
+          testMatch: SETUP_FILE_GLOB,
+          use: {
+            viewport: { width: 393, height: 852 },
+            isMobile: true,
+          },
+        },
+        {
+          name: "desktop",
+          testMatch: /.*\.spec\.ts$/,
+          testIgnore: [SETUP_FILE_GLOB, VISUAL_SPEC_GLOB],
+          dependencies: skipProjectDeps ? [] : ["setup-desktop"],
+          use: {
+            viewport: { width: 1600, height: 900 },
+            isMobile: false,
+            storageState: adminStorageState,
+          },
+        },
+        // Resolution of the iPhone 14 Pro / 15 Pro / 16
+        {
+          name: "mobile",
+          testMatch: /.*\.spec\.ts$/,
+          testIgnore: [SETUP_FILE_GLOB, VISUAL_SPEC_GLOB],
+          dependencies: skipProjectDeps ? [] : ["setup-mobile"],
+          use: {
+            viewport: { width: 393, height: 852 },
+            isMobile: true,
+            storageState: adminStorageState,
+          },
+        },
+      ],
 });

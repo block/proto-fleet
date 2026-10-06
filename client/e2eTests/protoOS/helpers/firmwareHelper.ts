@@ -7,6 +7,17 @@ type FirmwareState = {
   previousVersion: string | null;
 };
 
+type SystemInfoResponse = {
+  "system-info": {
+    sw_update_status: {
+      status: string;
+      current_version?: string;
+      new_version?: string;
+      previous_version?: string;
+    };
+  };
+};
+
 const FAKE_PROTO_RIG_SERIAL_PREFIX = "PROTO-SIM-";
 const FIRMWARE_STATUS_TIMEOUT_MS = 20_000;
 const FIRMWARE_STATUS_POLL_INTERVAL_MS = 250;
@@ -58,21 +69,15 @@ export class FirmwareHelper {
     return this.authAccessToken !== "";
   }
 
-  async getState(): Promise<FirmwareState> {
+  async getSystemInfo(): Promise<SystemInfoResponse> {
     const response = await this.request.get("/api/v1/system");
     expect(response.ok()).toBeTruthy();
 
-    const data = (await response.json()) as {
-      "system-info": {
-        sw_update_status: {
-          status: string;
-          current_version?: string;
-          new_version?: string;
-          previous_version?: string;
-        };
-      };
-    };
+    return (await response.json()) as SystemInfoResponse;
+  }
 
+  async getState(): Promise<FirmwareState> {
+    const data = await this.getSystemInfo();
     const updateStatus = data["system-info"].sw_update_status;
 
     return {

@@ -27,6 +27,11 @@ type BuildingStore interface {
 	// rack_count, ordered by name. Filter selects scope.
 	ListBuildings(ctx context.Context, filter models.ListFilter) ([]models.BuildingWithCounts, error)
 
+	// ListBuildingNamesBySite returns the names of live buildings at one
+	// site, for CreateBuildings' collision preflight — cheaper than
+	// ListBuildings, which aggregates org-wide rack/device counts.
+	ListBuildingNamesBySite(ctx context.Context, orgID, siteID int64) ([]string, error)
+
 	// UpdateBuilding mutates the row's mutable fields (excluding
 	// site_id — that lives on SiteService.AssignBuildingsToSite for
 	// cross-collection enforcement). Returns NotFound when row gone.
@@ -39,6 +44,10 @@ type BuildingStore interface {
 	// surrounding transaction and the cascade-unassign of racks
 	// (UnassignRacksFromBuilding) in the same tx.
 	SoftDeleteBuilding(ctx context.Context, orgID, id int64) (siteID *int64, found bool, err error)
+
+	// CountRepairTicketsByBuilding returns the number of unfinished repair tickets
+	// attached to the building. Building deletion is blocked while non-zero.
+	CountRepairTicketsByBuilding(ctx context.Context, orgID, buildingID int64) (int64, error)
 
 	// UnassignRacksFromBuilding sets device_set_rack.building_id =
 	// NULL for every rack pointing at the building. Returns the

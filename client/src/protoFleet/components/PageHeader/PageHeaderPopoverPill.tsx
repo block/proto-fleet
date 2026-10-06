@@ -6,10 +6,14 @@ import Popover, { PopoverProvider, popoverSizes, useResponsivePopover } from "@/
 import { positions } from "@/shared/constants";
 import { classNameToSelectors } from "@/shared/utils/cssUtils";
 
+// Pills that report a status pass `dotClassName`; pills whose subject has its own glyph pass `prefixIcon`.
 interface PageHeaderPopoverPillProps {
   ariaLabel: string;
   children: (props: { closePopover: () => void }) => ReactNode;
-  dotClassName: string;
+  constrainHeightToViewport?: boolean;
+  dotClassName?: string;
+  popoverSize?: keyof typeof popoverSizes;
+  prefixIcon?: ReactNode;
   triggerClassName: string;
   triggerLabel: ReactNode;
 }
@@ -17,7 +21,10 @@ interface PageHeaderPopoverPillProps {
 function PageHeaderPopoverPillContent({
   ariaLabel,
   children,
+  constrainHeightToViewport = false,
   dotClassName,
+  popoverSize = popoverSizes.small,
+  prefixIcon,
   triggerClassName,
   triggerLabel,
 }: PageHeaderPopoverPillProps) {
@@ -47,7 +54,7 @@ function PageHeaderPopoverPillContent({
         ariaExpanded={isPopoverOpen}
         ariaLabel={ariaLabel}
         onClick={handleTriggerClick}
-        prefixIcon={<span className={clsx("h-2.5 w-2.5 rounded-full", dotClassName)} />}
+        prefixIcon={prefixIcon ?? <span className={clsx("h-2.5 w-2.5 rounded-full", dotClassName)} />}
       >
         <span className="block max-w-56 min-w-0 truncate">{triggerLabel}</span>
       </Button>
@@ -55,10 +62,14 @@ function PageHeaderPopoverPillContent({
       {isPopoverOpen ? (
         <Popover
           position={positions["bottom left"]}
-          size={popoverSizes.small}
+          size={popoverSize}
           className="!space-y-0 px-4 pt-4 pb-3"
           closePopover={closePopover}
           closeIgnoreSelectors={closeIgnoreSelectors}
+          // The shared viewport cap requires fixed positioning, including
+          // desktop where header popovers otherwise render inline.
+          freezePosition={constrainHeightToViewport}
+          constrainHeightToViewport={constrainHeightToViewport}
         >
           {children({ closePopover })}
         </Popover>

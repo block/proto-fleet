@@ -86,6 +86,9 @@ func generatedBuildingsCommand() *cli.Command {
 					&cli.IntFlag{Name: "default-rack-rows", Usage: "default rack rows"},
 					&cli.IntFlag{Name: "default-rack-columns", Usage: "default rack columns"},
 					&cli.StringFlag{Name: "default-rack-order-index", Usage: "default rack order index. Valid options: bottom-left, top-left, bottom-right, top-right"},
+					&cli.StringSliceFlag{Name: "rack-ids", Usage: "rack ids"},
+					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "device identifiers"},
+					&cli.BoolFlag{Name: "force-clear-conflicting-rack-membership", Usage: "force clear conflicting rack membership"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &buildingsv1.CreateBuildingRequest{}
@@ -133,6 +136,20 @@ func generatedBuildingsCommand() *cli.Command {
 						default:
 							return nil, fmt.Errorf("invalid value for default-rack-order-index: %s. Valid options: bottom-left, top-left, bottom-right, top-right", cmd.String("default-rack-order-index"))
 						}
+					}
+					if cmd.IsSet("rack-ids") {
+						values, err := parseInt64Slice(cmd.StringSlice("rack-ids"))
+						if err != nil {
+							return nil, err
+						}
+						req.RackIds = values
+					}
+					if cmd.IsSet("device-identifiers") {
+						req.DeviceIdentifiers = cmd.StringSlice("device-identifiers")
+					}
+					if cmd.IsSet("force-clear-conflicting-rack-membership") {
+						value := cmd.Bool("force-clear-conflicting-rack-membership")
+						req.ForceClearConflictingRackMembership = &value
 					}
 					if err := generatedValidateRequest(req); err != nil {
 						return nil, err

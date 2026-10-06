@@ -32,7 +32,22 @@ func NewHandler(service *sites.Service) *Handler {
 }
 
 func (h *Handler) ListSites(ctx context.Context, req *connect.Request[pb.ListSitesRequest]) (*connect.Response[pb.ListSitesResponse], error) {
-	info, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{})
+	maintenanceOptionsScope := req.Msg.GetMaintenanceOptionsScope()
+	permission := authz.PermSiteRead
+	switch maintenanceOptionsScope {
+	case pb.MaintenanceSiteOptionsScope_MAINTENANCE_SITE_OPTIONS_SCOPE_UNSPECIFIED:
+	case pb.MaintenanceSiteOptionsScope_MAINTENANCE_SITE_OPTIONS_SCOPE_READ:
+		permission = authz.PermMaintenanceRead
+	case pb.MaintenanceSiteOptionsScope_MAINTENANCE_SITE_OPTIONS_SCOPE_MANAGE:
+		permission = authz.PermMaintenanceManage
+	default:
+		return nil, fleeterror.NewInvalidArgumentError("invalid maintenance site options scope")
+	}
+	maintenanceOptionsOnly := maintenanceOptionsScope != pb.MaintenanceSiteOptionsScope_MAINTENANCE_SITE_OPTIONS_SCOPE_UNSPECIFIED
+	if maintenanceOptionsOnly && (len(req.Msg.GetErrorComponentTypes()) > 0 || len(req.Msg.GetTelemetryRanges()) > 0) {
+		return nil, fleeterror.NewInvalidArgumentError("maintenance site options cannot include fleet filters")
+	}
+	info, err := middleware.RequirePermissionAtAnySite(ctx, permission)
 	if err != nil {
 		return nil, err
 	}
@@ -41,6 +56,12 @@ func (h *Handler) ListSites(ctx context.Context, req *connect.Request[pb.ListSit
 		return nil, err
 	}
 	includeStatsForSite := func(siteID int64) bool {
+		if maintenanceOptionsOnly {
+			return false
+		}
+		if _, err := middleware.RequirePermission(ctx, authz.PermSiteRead, authz.ResourceContext{SiteID: &siteID}); err != nil {
+			return false
+		}
 		_, err := middleware.RequirePermission(ctx, authz.PermFleetRead, authz.ResourceContext{SiteID: &siteID})
 		return err == nil
 	}
@@ -48,7 +69,21 @@ func (h *Handler) ListSites(ctx context.Context, req *connect.Request[pb.ListSit
 	if err != nil {
 		return nil, err
 	}
-	return connect.NewResponse(toListSitesResponse(out)), nil
+	readable := out[:0]
+	for i := range out {
+		siteID := out[i].Site.ID
+		if _, err := middleware.RequirePermission(ctx, permission, authz.ResourceContext{SiteID: &siteID}); err != nil {
+			if fleeterror.IsForbiddenError(err) {
+				continue
+			}
+			return nil, err
+		}
+		readable = append(readable, out[i])
+	}
+	if maintenanceOptionsOnly {
+		return connect.NewResponse(toMaintenanceSiteOptionsResponse(readable)), nil
+	}
+	return connect.NewResponse(toListSitesResponse(readable)), nil
 }
 
 func (h *Handler) ResolveSiteBySlug(ctx context.Context, req *connect.Request[pb.ResolveSiteBySlugRequest]) (*connect.Response[pb.ResolveSiteBySlugResponse], error) {
@@ -74,13 +109,34 @@ func (h *Handler) CreateSite(ctx context.Context, req *connect.Request[pb.Create
 	if err != nil {
 		return nil, err
 	}
-	result, err := h.service.CreateSite(ctx, toCreateSiteParams(req.Msg, info.OrganizationID))
+	// A device seed can force-clear conflicting rack memberships, which deletes
+	// device_set_membership rows in the same transaction. Gate that behind
+	// rack:manage the same way AssignDevicesToSite does so a site-only operator
+	// can't bypass rack auth via the create-and-seed path. Seeding
+	// buildings/racks/devices without the force flag needs only site:manage —
+	// matching the standalone Assign*ToSite surfaces. A plain create (no seed)
+	// never sets the flag, so this gate is a no-op there.
+	if req.Msg.GetForceClearConflictingRackMembership() {
+		if _, err := middleware.RequirePermission(ctx, authz.PermRackManage, authz.ResourceContext{}); err != nil {
+			return nil, err
+		}
+	}
+	result, conflicts, err := h.service.CreateSite(ctx, toCreateSiteParams(req.Msg, info.OrganizationID))
 	if err != nil {
 		return nil, err
+	}
+	if len(conflicts) > 0 {
+		// Nothing was created — the whole tx rolled back. Site stays unset.
+		return connect.NewResponse(&pb.CreateSiteResponse{
+			Conflicts: toProtoConflicts(conflicts),
+		}), nil
 	}
 	return connect.NewResponse(&pb.CreateSiteResponse{
 		Site:                  toProtoSite(result.Site),
 		NetworkConfigWarnings: result.NetworkConfigWarnings,
+		AssignedBuildingCount: result.AssignedBuildingCount,
+		AssignedRackCount:     result.AssignedRackCount,
+		ReassignedDeviceCount: result.ReassignedDeviceCount,
 	}), nil
 }
 

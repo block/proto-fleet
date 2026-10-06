@@ -30,6 +30,8 @@ const (
 	Curtail
 	// Uncurtail restores the device to its pre-curtailment mining state.
 	Uncurtail
+	// ApplyCurtailmentConfig replaces the rig-local fallback configuration.
+	ApplyCurtailmentConfig
 )
 
 func (t *Type) String() string {
@@ -60,6 +62,8 @@ func (t *Type) String() string {
 		return "Curtail"
 	case Uncurtail:
 		return "Uncurtail"
+	case ApplyCurtailmentConfig:
+		return "ApplyCurtailmentConfig"
 
 	default:
 		return "Undefined"
@@ -94,6 +98,8 @@ func FromString(s string) (Type, error) {
 		return Curtail, nil
 	case "Uncurtail":
 		return Uncurtail, nil
+	case "ApplyCurtailmentConfig":
+		return ApplyCurtailmentConfig, nil
 
 	default:
 		return Type(-1), fleeterror.NewInternalErrorf("invalid command type: %s", s)

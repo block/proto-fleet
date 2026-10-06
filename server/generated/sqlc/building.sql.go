@@ -334,6 +334,28 @@ func (q *Queries) CountRacksInBuilding(ctx context.Context, arg CountRacksInBuil
 	return rack_count, err
 }
 
+const countRepairTicketsByBuilding = `-- name: CountRepairTicketsByBuilding :one
+SELECT COUNT(*)::bigint
+FROM repair_ticket
+WHERE org_id = $1
+  AND building_id = $2
+  AND deleted_at IS NULL
+  AND status <> 5
+`
+
+type CountRepairTicketsByBuildingParams struct {
+	OrgID      int64
+	BuildingID sql.NullInt64
+}
+
+// Only unfinished work blocks deletion; completed tickets retain historical links.
+func (q *Queries) CountRepairTicketsByBuilding(ctx context.Context, arg CountRepairTicketsByBuildingParams) (int64, error) {
+	row := q.queryRow(ctx, q.countRepairTicketsByBuildingStmt, countRepairTicketsByBuilding, arg.OrgID, arg.BuildingID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const createBuilding = `-- name: CreateBuilding :one
 INSERT INTO building (
     org_id,
@@ -624,6 +646,45 @@ func (q *Queries) GetBuildingSiteID(ctx context.Context, arg GetBuildingSiteIDPa
 	var site_id sql.NullInt64
 	err := row.Scan(&site_id)
 	return site_id, err
+}
+
+const listBuildingNamesBySite = `-- name: ListBuildingNamesBySite :many
+SELECT name
+FROM building
+WHERE org_id = $1
+  AND site_id = $2
+  AND deleted_at IS NULL
+`
+
+type ListBuildingNamesBySiteParams struct {
+	OrgID  int64
+	SiteID sql.NullInt64
+}
+
+// CreateBuildings' collision preflight: names only, so it skips
+// ListBuildingsByOrg's org-wide rack/device aggregation while the site
+// write lock is held.
+func (q *Queries) ListBuildingNamesBySite(ctx context.Context, arg ListBuildingNamesBySiteParams) ([]string, error) {
+	rows, err := q.query(ctx, q.listBuildingNamesBySiteStmt, listBuildingNamesBySite, arg.OrgID, arg.SiteID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listBuildingRacks = `-- name: ListBuildingRacks :many
@@ -1010,7 +1071,7 @@ type SoftDeleteBuildingParams struct {
 }
 
 // Caller is expected to also unassign the building's racks in the same
-// transaction (cascade-unassign — see plan J3). RETURNING site_id lets the
+// transaction (cascade-unassign). RETURNING site_id lets the
 // caller stamp the delete audit row with the site of the row actually deleted,
 // race-free: a concurrent site move can't slip between a separate read and the
 // delete. sql.ErrNoRows when the building is missing/already-deleted/cross-org.

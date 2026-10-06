@@ -3,6 +3,10 @@ name: Proto Fleet Artifact Build
 on:
   workflow_call:
     inputs:
+      release_repository:
+        description: GitHub owner/repo publishing this release; callers must pass github.repository.
+        required: true
+        type: string
       version:
         description: Version string used in artifact filenames and embedded metadata.
         required: true
@@ -40,6 +44,7 @@ jobs:
       channel: ${{ steps.metadata.outputs.channel }}
       is_prerelease: ${{ steps.metadata.outputs.is_prerelease }}
       version: ${{ steps.metadata.outputs.version }}
+      release_repository: ${{ steps.metadata.outputs.release_repository }}
     steps:
       - name: Resolve artifact metadata
         id: metadata
@@ -48,9 +53,19 @@ jobs:
           INPUT_CHANNEL: ${{ inputs.channel }}
           INPUT_IS_PRERELEASE: ${{ inputs.is_prerelease }}
           INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_REPOSITORY: ${{ inputs.release_repository }}
         run: |
-          if [[ ! "$INPUT_VERSION" =~ ^[A-Za-z0-9._-]+$ ]]; then
-            echo "::error::Version '$INPUT_VERSION' must only contain letters, numbers, dots, underscores, or hyphens."
+          if [[ ! "$RELEASE_REPOSITORY" =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$ ]] || [[ "$RELEASE_REPOSITORY" == *-/* || "$RELEASE_REPOSITORY" == *..* ]]; then
+            echo '::error::release_repository must be a GitHub owner/repo value.'
+            exit 1
+          fi
+          if [[ "$RELEASE_REPOSITORY" != "$GITHUB_REPOSITORY" ]]; then
+            echo '::error::release_repository must match the publishing workflow repository.'
+            exit 1
+          fi
+          echo "release_repository=$RELEASE_REPOSITORY" >> "$GITHUB_OUTPUT"
+          if [[ ! "$INPUT_VERSION" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$ ]] || [[ "$INPUT_VERSION" == "latest" ]]; then
+            echo "::error::Version '$INPUT_VERSION' must be a release-specific Docker tag (1-128 letters, numbers, dots, underscores, or hyphens; not 'latest')."
             exit 1
           fi
 
@@ -84,15 +99,33 @@ jobs:
             echo "- Commit: \`${GITHUB_SHA}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  package-installers:
+    name: Package repository-specific installers
+    needs: [metadata]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Stage installers
+        env:
+          RELEASE_REPOSITORY: ${{ needs.metadata.outputs.release_repository }}
+        run: bash deployment-files/scripts/package-release-installers.sh "$RELEASE_REPOSITORY" "$RUNNER_TEMP/release-installers"
+      - name: Upload installers
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proto-fleet-release-installers
+          path: ${{ runner.temp }}/release-installers/*
+          retention-days: ${{ inputs.retention_days }}
+
   build-proto-fleet-windows-installer:
     name: Build ProtoFleet Windows installer
     runs-on: windows-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup .NET SDK from global.json
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           global-json-file: deployment-files/windows/global.json
 
@@ -154,9 +187,10 @@ jobs:
       BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
       IS_PRERELEASE: ${{ needs.metadata.outputs.is_prerelease }}
       VERSION: ${{ needs.metadata.outputs.version }}
+      RELEASE_REPOSITORY: ${{ needs.metadata.outputs.release_repository }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
@@ -168,8 +202,29 @@ jobs:
         working-directory: ./server
         run: |
           go mod download
-          go build -v -ldflags "-X main.version=$VERSION" -o fleetd-${{ matrix.arch }} ./cmd/fleetd
+          go build -v -ldflags "-X main.version=$VERSION -X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY" -o fleetd-${{ matrix.arch }} ./cmd/fleetd
+          go build -v -ldflags "-X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY" -o fleet-ha-${{ matrix.arch }} ./cmd/fleet-ha
+          updater_binary="proto-fleet-updater-${{ matrix.arch }}"
+          CGO_ENABLED=0 go build -v -ldflags "-X main.version=$VERSION -X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY" -o "$updater_binary" ./cmd/fleet-updater
+          if ! command -v readelf >/dev/null || ! readelf -h "$updater_binary" >/dev/null; then
+            echo "::error::Unable to inspect the host updater ELF binary"
+            exit 1
+          fi
+          if readelf -l "$updater_binary" | grep INTERP >/dev/null || readelf -d "$updater_binary" | grep NEEDED >/dev/null; then
+            echo "::error::Host updater must be statically linked for supported Linux hosts"
+            exit 1
+          fi
+          updater_version=$("./$updater_binary" --version)
+          if [[ "$("./$updater_binary" --print-release-repository)" != "$RELEASE_REPOSITORY" ]]; then
+            echo '::error::Host updater publishing repository was not embedded correctly.'
+            exit 1
+          fi
+          if [[ "$updater_version" != "$VERSION" ]]; then
+            echo "::error::Host updater reports version '$updater_version', expected '$VERSION'"
+            exit 1
+          fi
           echo "version: $VERSION" > version.txt
+          echo "release_repository: $RELEASE_REPOSITORY" >> version.txt
           echo "is_prerelease: $IS_PRERELEASE" >> version.txt
           echo "build_date: $BUILD_DATE" >> version.txt
           echo "commit: ${{ github.sha }}" >> version.txt
@@ -186,7 +241,7 @@ jobs:
           chmod +x server/proto-plugin-* server/antminer-plugin-* server/virtual-plugin-*
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Build asicrs plugin binary
         run: |
@@ -204,6 +259,8 @@ jobs:
         run: |
           tar -czf "proto-fleet-server-${VERSION}-${{ matrix.arch }}.tar.gz" \
             fleetd-${{ matrix.arch }} \
+            fleet-ha-${{ matrix.arch }} \
+            proto-fleet-updater-${{ matrix.arch }} \
             proto-plugin-${{ matrix.arch }} \
             antminer-plugin-${{ matrix.arch }} \
             virtual-plugin-${{ matrix.arch }} \
@@ -219,6 +276,98 @@ jobs:
           path: ./server/proto-fleet-server-${{ needs.metadata.outputs.version }}-${{ matrix.arch }}.tar.gz
           retention-days: ${{ inputs.retention_days }}
 
+  package-fleet-node:
+    name: Package Fleet Node (${{ matrix.arch }})
+    needs: [metadata]
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      CGO_ENABLED: 0
+      VERSION: ${{ needs.metadata.outputs.version }}
+      RELEASE_REPOSITORY: ${{ needs.metadata.outputs.release_repository }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Hermit
+        uses: ./.github/actions/hermit-setup
+
+      - name: Configure Go cache
+        uses: ./.github/actions/go-cache-setup
+
+      - name: Build Fleet Node and Go plugins
+        run: |
+          go work sync
+          go build -v -o server/fleetnode ./server/cmd/fleetnode
+          go build -o server/proto-plugin ./plugin/proto
+          go build -o server/antminer-plugin ./plugin/antminer
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build asicrs plugin
+        run: |
+          docker buildx build \
+            --file plugin/asicrs/Dockerfile.build \
+            --output "type=local,dest=/tmp/asicrs" \
+            .
+          cp /tmp/asicrs/asicrs-plugin server/asicrs-plugin
+          cp /tmp/asicrs/asicrs-config.yaml server/asicrs-config.yaml
+
+      - name: Validate Fleet Node executables
+        run: |
+          for binary in fleetnode proto-plugin antminer-plugin asicrs-plugin; do
+            path="server/$binary"
+            if ! readelf -h "$path" >/dev/null; then
+              echo "::error::Unable to inspect Fleet Node executable $binary"
+              exit 1
+            fi
+            if readelf -l "$path" | grep INTERP >/dev/null || readelf -d "$path" | grep NEEDED >/dev/null; then
+              echo "::error::Fleet Node executable $binary must be statically linked"
+              exit 1
+            fi
+          done
+
+      - name: Package Fleet Node
+        working-directory: ./server
+        run: |
+          package_dir="fleetnode-${VERSION}-linux-${{ matrix.arch }}"
+          archive="${package_dir}.tar.gz"
+
+          mkdir -p "$package_dir/plugins"
+          install -m 0755 fleetnode "$package_dir/fleetnode"
+          install -m 0755 ../deployment-files/fleetnode/fleetnode-enroll "$package_dir/fleetnode-enroll"
+          install -m 0644 ../deployment-files/fleetnode/fleet-node.service "$package_dir/fleet-node.service"
+          install -m 0755 proto-plugin "$package_dir/plugins/proto-plugin"
+          install -m 0755 antminer-plugin "$package_dir/plugins/antminer-plugin"
+          install -m 0755 asicrs-plugin "$package_dir/plugins/asicrs-plugin"
+          install -m 0644 asicrs-config.yaml "$package_dir/plugins/asicrs-config.yaml"
+          printf 'version: %s\nrelease_repository: %s\n' "$VERSION" "$RELEASE_REPOSITORY" > "$package_dir/version.txt"
+
+          tar -czf "$archive" "$package_dir"
+          sha256sum "$archive" > "$archive.sha256"
+
+      - name: Qualify Fleet Node package on systemd
+        env:
+          PACKAGE_DIR: ${{ github.workspace }}/server
+        run: |
+          deployment-files/fleetnode/tests/qualify-package.sh "$VERSION" "$PACKAGE_DIR"
+
+      - name: Upload Fleet Node artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fleetnode-linux-${{ matrix.arch }}
+          path: |
+            ./server/fleetnode-${{ needs.metadata.outputs.version }}-linux-${{ matrix.arch }}.tar.gz
+            ./server/fleetnode-${{ needs.metadata.outputs.version }}-linux-${{ matrix.arch }}.tar.gz.sha256
+          retention-days: ${{ inputs.retention_days }}
+
   build-proto-fleet-client:
     name: Build ProtoFleet client
     runs-on: ubuntu-latest
@@ -228,13 +377,13 @@ jobs:
       VERSION: ${{ needs.metadata.outputs.version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
 
       - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           cache: "npm"
           cache-dependency-path: "./client/package-lock.json"
@@ -279,13 +428,13 @@ jobs:
       VERSION: ${{ needs.metadata.outputs.version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Hermit
         uses: ./.github/actions/hermit-setup
 
       - name: Set up Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           cache: "npm"
           cache-dependency-path: "./client/package-lock.json"
@@ -335,7 +484,8 @@ jobs:
           retention-days: ${{ inputs.retention_days }}
 
   build-timescaledb-image:
-    name: Build TimescaleDB image (${{ matrix.arch }})
+    name: Build TimescaleDB images (${{ matrix.arch }})
+    needs: [metadata]
     strategy:
       matrix:
         include:
@@ -344,20 +494,53 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
+    env:
+      IMAGE_TAG: ${{ needs.metadata.outputs.version }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-      - name: Build TimescaleDB image
+      - name: Build TimescaleDB images
         run: |
           docker buildx build \
-            -t proto-fleet-timescaledb:latest \
-            --output type=docker,dest=timescaledb-${{ matrix.arch }}.tar \
+            --tag "proto-fleet-timescaledb:${IMAGE_TAG}" \
+            --load \
             server/timescaledb
-          gzip -9 timescaledb-${{ matrix.arch }}.tar
+
+          docker build \
+            --file deployment-files/ha/patroni.Dockerfile \
+            --build-arg SOURCE_COMMIT="${GITHUB_SHA}" \
+            --build-arg "TIMESCALEDB_IMAGE_TAG=${IMAGE_TAG}" \
+            --tag "proto-fleet-timescaledb-ha:${IMAGE_TAG}" \
+            deployment-files/ha
+
+          ./deployment-files/ha/tests/validate-image.sh \
+            "proto-fleet-timescaledb-ha:${IMAGE_TAG}" \
+            "${GITHUB_SHA}"
+
+          docker save \
+            --output timescaledb-${{ matrix.arch }}.tar \
+            "proto-fleet-timescaledb:${IMAGE_TAG}" \
+            "proto-fleet-timescaledb-ha:${IMAGE_TAG}"
+
+          ARCHIVE_MANIFEST=$(tar -xOf timescaledb-${{ matrix.arch }}.tar manifest.json)
+          for image in \
+            "proto-fleet-timescaledb:${IMAGE_TAG}" \
+            "proto-fleet-timescaledb-ha:${IMAGE_TAG}"; do
+            if ! grep -Fq "\"${image}\"" <<<"$ARCHIVE_MANIFEST"; then
+              echo "::error::TimescaleDB archive is missing required image ${image}."
+              exit 1
+            fi
+          done
+          if grep -Fq ':latest"' <<<"$ARCHIVE_MANIFEST"; then
+            echo "::error::TimescaleDB archive must not contain shared latest tags."
+            exit 1
+          fi
+
+          gzip -9 --force timescaledb-${{ matrix.arch }}.tar
           echo "${{ matrix.arch }} image size: $(du -h timescaledb-${{ matrix.arch }}.tar.gz | cut -f1)"
 
       - name: Upload TimescaleDB image artifact
@@ -369,7 +552,7 @@ jobs:
 
   build-proto-fleet:
     name: Build ProtoFleet deployment bundle (${{ matrix.arch }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     needs:
       - metadata
       - build-proto-fleet-server
@@ -378,14 +561,19 @@ jobs:
       - build-timescaledb-image
     strategy:
       matrix:
-        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     env:
       BUILD_DATE: ${{ needs.metadata.outputs.build_date }}
       CHANNEL: ${{ needs.metadata.outputs.channel }}
       VERSION: ${{ needs.metadata.outputs.version }}
+      RELEASE_REPOSITORY: ${{ needs.metadata.outputs.release_repository }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Create deployment directory structure
         run: |
@@ -422,6 +610,9 @@ jobs:
           tar -xzf "/tmp/server-artifacts/proto-fleet-server-${VERSION}-${{ matrix.arch }}.tar.gz" -C deployment/server
           cd deployment/server
           mv fleetd-${{ matrix.arch }} fleetd
+          mv fleet-ha-${{ matrix.arch }} fleet-ha
+          mkdir -p ../updater
+          mv proto-fleet-updater-${{ matrix.arch }} ../updater/proto-fleet-updater
           mv proto-plugin-${{ matrix.arch }} proto-plugin
           mv antminer-plugin-${{ matrix.arch }} antminer-plugin
           mv virtual-plugin-${{ matrix.arch }} virtual-plugin
@@ -446,36 +637,96 @@ jobs:
           cp deployment-files/client/nginx.https.conf deployment/client/
           cp -r deployment-files/client/docker-entrypoint.d deployment/client/
           cp deployment-files/server/Dockerfile deployment/server/
+          cp deployment-files/server/otel-collector-config.datadog.yaml deployment/server/
           cp deployment-files/docker-compose.yaml deployment/
           cp deployment-files/docker-compose.alerts.yaml deployment/
           cp deployment-files/docker-compose.system-monitoring.yaml deployment/
+          cp deployment-files/docker-compose.tracing.yaml deployment/
+          cp deployment-files/docker-compose.updater.yaml deployment/
+          cp deployment-files/updater/proto-fleet-updater.service deployment/updater/
           cp -a server/monitoring deployment/server/
           cp server/docker-compose.base.yaml deployment/server/
           cp deployment-files/run-fleet.sh deployment/
+          cp deployment-files/reset-super-admin-password.sh deployment/
           cp deployment-files/uninstall.sh deployment/
           cp -r deployment-files/scripts deployment/
           cp -r deployment-files/profiles deployment/
-          chmod +x deployment/run-fleet.sh deployment/uninstall.sh deployment/scripts/*.sh
+          cp -r deployment-files/ha deployment/
+          mv deployment/server/fleet-ha deployment/ha/fleet-ha
+          chmod +x deployment/run-fleet.sh deployment/reset-super-admin-password.sh deployment/uninstall.sh deployment/scripts/*.sh
+          chmod +x deployment/ha/scripts/*.sh deployment/ha/tests/*.sh
+          chmod +x deployment/updater/proto-fleet-updater
 
           mkdir -p deployment/images
           cp /tmp/timescaledb-images/timescaledb-${{ matrix.arch }}.tar.gz deployment/images/timescaledb.tar.gz
 
+          deployment/scripts/pin-release-images.sh deployment "$VERSION"
+
+      - name: Build Fleet images
+        run: |
+          cp deployment/client/nginx.https.conf deployment/client/nginx.conf
+          docker build --tag "proto-fleet-api:${VERSION}" deployment/server
+          docker build --tag "proto-fleet-client:${VERSION}" deployment/client
+
+          docker save \
+            --output fleet-${{ matrix.arch }}.tar \
+            "proto-fleet-api:${VERSION}" \
+            "proto-fleet-client:${VERSION}"
+
+          archive_manifest=$(tar -xOf fleet-${{ matrix.arch }}.tar manifest.json)
+          for image in \
+            "proto-fleet-api:${VERSION}" \
+            "proto-fleet-client:${VERSION}"; do
+            if ! grep -Fq "\"${image}\"" <<<"$archive_manifest"; then
+              echo "::error::Fleet image archive is missing ${image}."
+              exit 1
+            fi
+          done
+          gzip -9 fleet-${{ matrix.arch }}.tar
+          mv fleet-${{ matrix.arch }}.tar.gz deployment/images/fleet.tar.gz
+
       - name: Create version file
         run: |
           echo "version: $VERSION" > deployment/version.txt
+          echo "release_repository: $RELEASE_REPOSITORY" >> deployment/version.txt
           echo "build_date: $BUILD_DATE" >> deployment/version.txt
           echo "commit: ${{ github.sha }}" >> deployment/version.txt
           if [[ "$CHANNEL" == "nightly" ]]; then
             echo "channel: $CHANNEL" >> deployment/version.txt
           fi
 
+      - name: Record cloud database compatibility
+        run: python3 deployment-files/scripts/create-cloud-release.py . deployment
+
+      - name: Create immutable deployment manifest
+        run: deployment/scripts/create-release-manifest.sh deployment
+
       - name: Package ProtoFleet deployment bundle
         run: |
-          tar -czf "proto-fleet-${VERSION}-${{ matrix.arch }}.tar.gz" deployment
+          bundle="proto-fleet-${VERSION}-${{ matrix.arch }}.tar.gz"
+          tar -czf "$bundle" deployment
+          sha256sum "$bundle" > "$bundle.sha256"
+          sha256sum -c "$bundle.sha256"
+
+          tar -tzf "$bundle" > "$RUNNER_TEMP/deployment-bundle-contents.txt"
+          for required_path in \
+            deployment/docker-compose.updater.yaml \
+            deployment/reset-super-admin-password.sh \
+            deployment/images/fleet.tar.gz \
+            deployment/cloud-release.json \
+            deployment/updater/proto-fleet-updater \
+            deployment/updater/proto-fleet-updater.service; do
+            if ! grep -Fxq "$required_path" "$RUNNER_TEMP/deployment-bundle-contents.txt"; then
+              echo "::error::Deployment bundle is missing $required_path"
+              exit 1
+            fi
+          done
 
       - name: Upload deployment bundle artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: proto-fleet-deployment-bundle-${{ matrix.arch }}
-          path: proto-fleet-${{ needs.metadata.outputs.version }}-${{ matrix.arch }}.tar.gz
+          path: |
+            proto-fleet-${{ needs.metadata.outputs.version }}-${{ matrix.arch }}.tar.gz
+            proto-fleet-${{ needs.metadata.outputs.version }}-${{ matrix.arch }}.tar.gz.sha256
           retention-days: ${{ inputs.retention_days }}

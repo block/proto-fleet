@@ -5,6 +5,11 @@ import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 
 import SiteDetailPage from "./SiteDetailPage";
+import {
+  BuildingSchema,
+  type BuildingWithCounts,
+  BuildingWithCountsSchema,
+} from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { DEFAULT_ACTIVE_SITE } from "@/protoFleet/store/types/activeSite";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
@@ -73,9 +78,12 @@ vi.mock("@/protoFleet/features/sites/components/SiteModals", () => ({
   default: () => null,
 }));
 
+const openBuildingsPickerMock = vi.hoisted(() => vi.fn());
+
 vi.mock("@/protoFleet/features/sites/hooks/useSiteModals", () => ({
   useSiteModals: () => ({
     openManageEdit: vi.fn(),
+    openBuildingsPicker: openBuildingsPickerMock,
   }),
 }));
 
@@ -294,5 +302,59 @@ describe("SiteDetailPage", () => {
     await waitFor(() => expect(screen.getByTestId("site-detail-breadcrumb-switcher")).toHaveTextContent("Austin"));
     expect(screen.queryByTestId("location-probe")).not.toBeInTheDocument();
     expect(useFleetStore.getState().ui.activeSite).toEqual({ kind: "site", id: "8", slug: "austin" });
+  });
+
+  // beforeEach already resolves the page's building fetch with [], so these
+  // cases inherit the empty site and only opt into permissions.
+  describe("buildings zero-state", () => {
+    it("offers a Manage buildings CTA that opens the picker for the viewed site", async () => {
+      useFleetStore.setState((state) => {
+        state.auth.permissions = ["site:manage"];
+      });
+
+      const user = userEvent.setup();
+      renderPage("/sites/7");
+
+      const empty = await screen.findByTestId("site-detail-buildings-empty");
+      expect(empty).toHaveTextContent("No buildings to display");
+      expect(empty).toHaveTextContent("Create buildings or assign existing buildings to this site.");
+
+      await user.click(screen.getByTestId("site-detail-buildings-empty-manage"));
+
+      // Passes the resolved site, not the route param, so the picker opens
+      // against the row the page is actually showing.
+      expect(openBuildingsPickerMock).toHaveBeenCalledTimes(1);
+      expect(openBuildingsPickerMock.mock.calls[0][0]).toMatchObject({ id: 7n, name: "Dallas" });
+      // No seeded membership — this CTA only exists on the empty site, so
+      // every checkbox in the picker starts clear.
+      expect(openBuildingsPickerMock.mock.calls[0][1]).toEqual([]);
+    });
+
+    it("drops the CTA and the create-oriented copy without site:manage", async () => {
+      renderPage("/sites/7");
+
+      const empty = await screen.findByTestId("site-detail-buildings-empty");
+      expect(empty).toHaveTextContent("No buildings have been assigned to this site.");
+      expect(empty).not.toHaveTextContent("Create buildings");
+      expect(screen.queryByTestId("site-detail-buildings-empty-manage")).not.toBeInTheDocument();
+    });
+
+    it("shows the building grid instead once the site has one", async () => {
+      useFleetStore.setState((state) => {
+        state.auth.permissions = ["site:manage"];
+      });
+      listBuildingsBySiteMock.mockImplementation(({ onSuccess }: { onSuccess: (rows: BuildingWithCounts[]) => void }) =>
+        onSuccess([
+          create(BuildingWithCountsSchema, {
+            building: create(BuildingSchema, { id: 4n, name: "Bldg-1", siteId: 7n }),
+          }),
+        ]),
+      );
+
+      renderPage("/sites/7");
+
+      expect(await screen.findByTestId("site-detail-buildings-section")).toBeInTheDocument();
+      expect(screen.queryByTestId("site-detail-buildings-empty")).not.toBeInTheDocument();
+    });
   });
 });

@@ -80,6 +80,12 @@ type MinerPasswordCredentialUpdater interface {
 	UpdateMinerPasswordWithCredentials(ctx context.Context, payload dto.UpdateMinerPasswordPayload) (*gatewaypb.EncryptedCredentials, error)
 }
 
+// MinerCurtailmentConfigurator is implemented by miners that can replace a
+// rig-local curtailment fallback configuration.
+type MinerCurtailmentConfigurator interface {
+	ApplyCurtailmentConfig(ctx context.Context, payload dto.ApplyCurtailmentConfigPayload) error
+}
+
 // MinerConfiguredPool represents a pool currently configured on a miner device
 type MinerConfiguredPool struct {
 	Priority int32

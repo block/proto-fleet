@@ -295,6 +295,13 @@ func TestClient_GetDeviceInfo(t *testing.T) {
 	assert.Equal(t, "Bitmain", deviceInfo.Manufacturer)
 	assert.Equal(t, "ABC123456", deviceInfo.SerialNumber)
 	assert.Equal(t, "00:11:22:33:44:55", deviceInfo.MacAddress)
+
+	mockRPCClient.EXPECT().GetVersion(gomock.Any(), gomock.Any()).Return(mockVersionResponse, nil)
+	mockWebClient.EXPECT().GetSystemInfo(gomock.Any(), gomock.Any()).Return(nil, assert.AnError)
+
+	_, err = client.GetDeviceInfo(t.Context())
+
+	require.ErrorIs(t, err, assert.AnError)
 }
 
 func TestClient_GetStatus(t *testing.T) {

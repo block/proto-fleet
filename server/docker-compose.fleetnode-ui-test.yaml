@@ -9,6 +9,8 @@ services:
     build:
       context: ..
       dockerfile: server/Dockerfile.fleetnode.dev
+    cap_drop:
+      - NET_RAW
     command: ["--state-dir=/state", "run"]
     environment:
       FLEETNODE_LOCAL_DISCOVERY_SUBNET: "10.90.0.0/24"
@@ -54,7 +56,7 @@ services:
       MINER_TYPE: "Antminer S19 UI Test"
       SERIAL_NUMBER: "UI-TEST-ANTMINER-001"
       MAC_ADDRESS: "02:42:0a:5a:00:20"
-      FIRMWARE_VERSION: "Antminer S19 XP 140Th 15/01/2023 10:30:25"
+      FIRMWARE_VERSION: "2.0.0"
       IP_ADDRESS: "10.90.0.20"
       GATEWAY: "10.90.0.1"
       DNS_SERVERS: ""

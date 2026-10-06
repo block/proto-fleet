@@ -20,6 +20,7 @@ import (
 	models0 "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	interfaces "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	models1 "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	networking "github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	secrets "github.com/block/proto-fleet/server/internal/infrastructure/secrets"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -61,6 +62,36 @@ func (m *MockDeviceStore) AllDevicesBelongToOrg(ctx context.Context, deviceIdent
 func (mr *MockDeviceStoreMockRecorder) AllDevicesBelongToOrg(ctx, deviceIdentifiers, orgID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AllDevicesBelongToOrg", reflect.TypeOf((*MockDeviceStore)(nil).AllDevicesBelongToOrg), ctx, deviceIdentifiers, orgID)
+}
+
+// ApplyFleetNodeRecoveredEndpoint mocks base method.
+func (m *MockDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, target interfaces.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ApplyFleetNodeRecoveredEndpoint", ctx, target, ipAddress, port, urlScheme)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ApplyFleetNodeRecoveredEndpoint indicates an expected call of ApplyFleetNodeRecoveredEndpoint.
+func (mr *MockDeviceStoreMockRecorder) ApplyFleetNodeRecoveredEndpoint(ctx, target, ipAddress, port, urlScheme any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApplyFleetNodeRecoveredEndpoint", reflect.TypeOf((*MockDeviceStore)(nil).ApplyFleetNodeRecoveredEndpoint), ctx, target, ipAddress, port, urlScheme)
+}
+
+// ApplyFleetNodeRecoveryAuthenticationNeeded mocks base method.
+func (m *MockDeviceStore) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target interfaces.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ApplyFleetNodeRecoveryAuthenticationNeeded", ctx, target, ipAddress, port, urlScheme)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ApplyFleetNodeRecoveryAuthenticationNeeded indicates an expected call of ApplyFleetNodeRecoveryAuthenticationNeeded.
+func (mr *MockDeviceStoreMockRecorder) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, target, ipAddress, port, urlScheme any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApplyFleetNodeRecoveryAuthenticationNeeded", reflect.TypeOf((*MockDeviceStore)(nil).ApplyFleetNodeRecoveryAuthenticationNeeded), ctx, target, ipAddress, port, urlScheme)
 }
 
 // GetAllPairedDeviceIdentifiers mocks base method.
@@ -365,19 +396,34 @@ func (mr *MockDeviceStoreMockRecorder) GetOfflineDevices(ctx, limit any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOfflineDevices", reflect.TypeOf((*MockDeviceStore)(nil).GetOfflineDevices), ctx, limit)
 }
 
-// GetPairedDeviceByMACAddress mocks base method.
-func (m *MockDeviceStore) GetPairedDeviceByMACAddress(ctx context.Context, macAddress string, orgID int64) (*interfaces.PairedDeviceInfo, error) {
+// GetOfflineFleetNodeDevices mocks base method.
+func (m *MockDeviceStore) GetOfflineFleetNodeDevices(ctx context.Context) ([]interfaces.FleetNodeRecoveryTarget, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPairedDeviceByMACAddress", ctx, macAddress, orgID)
+	ret := m.ctrl.Call(m, "GetOfflineFleetNodeDevices", ctx)
+	ret0, _ := ret[0].([]interfaces.FleetNodeRecoveryTarget)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOfflineFleetNodeDevices indicates an expected call of GetOfflineFleetNodeDevices.
+func (mr *MockDeviceStoreMockRecorder) GetOfflineFleetNodeDevices(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOfflineFleetNodeDevices", reflect.TypeOf((*MockDeviceStore)(nil).GetOfflineFleetNodeDevices), ctx)
+}
+
+// GetPairedDeviceByMACAddress mocks base method.
+func (m *MockDeviceStore) GetPairedDeviceByMACAddress(ctx context.Context, macAddress string, orgID int64, excludeDeviceIdentifier string) (*interfaces.PairedDeviceInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetPairedDeviceByMACAddress", ctx, macAddress, orgID, excludeDeviceIdentifier)
 	ret0, _ := ret[0].(*interfaces.PairedDeviceInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetPairedDeviceByMACAddress indicates an expected call of GetPairedDeviceByMACAddress.
-func (mr *MockDeviceStoreMockRecorder) GetPairedDeviceByMACAddress(ctx, macAddress, orgID any) *gomock.Call {
+func (mr *MockDeviceStoreMockRecorder) GetPairedDeviceByMACAddress(ctx, macAddress, orgID, excludeDeviceIdentifier any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPairedDeviceByMACAddress", reflect.TypeOf((*MockDeviceStore)(nil).GetPairedDeviceByMACAddress), ctx, macAddress, orgID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPairedDeviceByMACAddress", reflect.TypeOf((*MockDeviceStore)(nil).GetPairedDeviceByMACAddress), ctx, macAddress, orgID, excludeDeviceIdentifier)
 }
 
 // GetPairedDeviceBySerialNumber mocks base method.
@@ -454,21 +500,6 @@ func (mr *MockDeviceStoreMockRecorder) InsertDevice(ctx, device, orgID, discover
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertDevice", reflect.TypeOf((*MockDeviceStore)(nil).InsertDevice), ctx, device, orgID, discoveredDeviceIdentifier)
 }
 
-// IsDeviceOwnedByFleetNode mocks base method.
-func (m *MockDeviceStore) IsDeviceOwnedByFleetNode(ctx context.Context, identifier string, orgID int64) (bool, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "IsDeviceOwnedByFleetNode", ctx, identifier, orgID)
-	ret0, _ := ret[0].(bool)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// IsDeviceOwnedByFleetNode indicates an expected call of IsDeviceOwnedByFleetNode.
-func (mr *MockDeviceStoreMockRecorder) IsDeviceOwnedByFleetNode(ctx, identifier, orgID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsDeviceOwnedByFleetNode", reflect.TypeOf((*MockDeviceStore)(nil).IsDeviceOwnedByFleetNode), ctx, identifier, orgID)
-}
-
 // ListMinerStateSnapshots mocks base method.
 func (m *MockDeviceStore) ListMinerStateSnapshots(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *interfaces.MinerFilter, sortConfig *interfaces.SortConfig) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error) {
 	m.ctrl.T.Helper()
@@ -486,10 +517,25 @@ func (mr *MockDeviceStoreMockRecorder) ListMinerStateSnapshots(ctx, orgID, curso
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMinerStateSnapshots", reflect.TypeOf((*MockDeviceStore)(nil).ListMinerStateSnapshots), ctx, orgID, cursor, pageSize, filter, sortConfig)
 }
 
-// ReconcileAuthenticationNeededPairingStatusByIdentifier mocks base method.
-func (m *MockDeviceStore) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (bool, bool, error) {
+// LockDeviceForCloudRecoveryByIdentifier mocks base method.
+func (m *MockDeviceStore) LockDeviceForCloudRecoveryByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ReconcileAuthenticationNeededPairingStatusByIdentifier", ctx, deviceIdentifier)
+	ret := m.ctrl.Call(m, "LockDeviceForCloudRecoveryByIdentifier", ctx, deviceIdentifier, orgID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockDeviceForCloudRecoveryByIdentifier indicates an expected call of LockDeviceForCloudRecoveryByIdentifier.
+func (mr *MockDeviceStoreMockRecorder) LockDeviceForCloudRecoveryByIdentifier(ctx, deviceIdentifier, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockDeviceForCloudRecoveryByIdentifier", reflect.TypeOf((*MockDeviceStore)(nil).LockDeviceForCloudRecoveryByIdentifier), ctx, deviceIdentifier, orgID)
+}
+
+// ReconcileAuthenticationNeededPairingStatusByIdentifier mocks base method.
+func (m *MockDeviceStore) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64, endpoint networking.ConnectionInfo) (bool, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReconcileAuthenticationNeededPairingStatusByIdentifier", ctx, deviceIdentifier, orgID, endpoint)
 	ret0, _ := ret[0].(bool)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
@@ -497,9 +543,25 @@ func (m *MockDeviceStore) ReconcileAuthenticationNeededPairingStatusByIdentifier
 }
 
 // ReconcileAuthenticationNeededPairingStatusByIdentifier indicates an expected call of ReconcileAuthenticationNeededPairingStatusByIdentifier.
-func (mr *MockDeviceStoreMockRecorder) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier any) *gomock.Call {
+func (mr *MockDeviceStoreMockRecorder) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier, orgID, endpoint any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileAuthenticationNeededPairingStatusByIdentifier", reflect.TypeOf((*MockDeviceStore)(nil).ReconcileAuthenticationNeededPairingStatusByIdentifier), ctx, deviceIdentifier)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileAuthenticationNeededPairingStatusByIdentifier", reflect.TypeOf((*MockDeviceStore)(nil).ReconcileAuthenticationNeededPairingStatusByIdentifier), ctx, deviceIdentifier, orgID, endpoint)
+}
+
+// ReconcileCloudAuthenticationNeededPairingStatusByIdentifier mocks base method.
+func (m *MockDeviceStore) ReconcileCloudAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64) (bool, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReconcileCloudAuthenticationNeededPairingStatusByIdentifier", ctx, deviceIdentifier, orgID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// ReconcileCloudAuthenticationNeededPairingStatusByIdentifier indicates an expected call of ReconcileCloudAuthenticationNeededPairingStatusByIdentifier.
+func (mr *MockDeviceStoreMockRecorder) ReconcileCloudAuthenticationNeededPairingStatusByIdentifier(ctx, deviceIdentifier, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileCloudAuthenticationNeededPairingStatusByIdentifier", reflect.TypeOf((*MockDeviceStore)(nil).ReconcileCloudAuthenticationNeededPairingStatusByIdentifier), ctx, deviceIdentifier, orgID)
 }
 
 // ReconcileDefaultPasswordPairingStatusByIdentifier mocks base method.

@@ -3,6 +3,7 @@ import AddMaintenanceWindowModal from "./AddMaintenanceWindowModal";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAlertsContext } from "@/protoFleet/features/alerts/api/AlertsContext";
 import { isMaintenanceWindowActive } from "@/protoFleet/features/alerts/api/useAlerts";
+import { countLabel } from "@/protoFleet/features/alerts/lib/alertCountLabels";
 import { useNow } from "@/protoFleet/features/alerts/lib/useNow";
 import type { MaintenanceWindowWithActive } from "@/protoFleet/features/alerts/types";
 import { useHasPermission } from "@/protoFleet/store";
@@ -13,21 +14,38 @@ import List from "@/shared/components/List";
 import type { ColConfig, ColTitles, ListAction } from "@/shared/components/List/types";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 
-type MaintenanceWindowColumns = "target" | "window" | "reason";
+type MaintenanceWindowColumns = "alerts" | "channels" | "window" | "reason";
 
 const colTitles: ColTitles<MaintenanceWindowColumns> = {
-  target: "Target",
-  window: "Window",
+  alerts: "Alerts",
+  channels: "Destinations",
+  window: "Period",
   reason: "Reason",
 };
 
-const activeCols: MaintenanceWindowColumns[] = ["target", "window", "reason"];
+const activeCols: MaintenanceWindowColumns[] = ["alerts", "channels", "window", "reason"];
+
+const periodDateTimeOptions: Intl.DateTimeFormatOptions = {
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+};
 
 const formatWindow = (maintenanceWindow: MaintenanceWindowWithActive): string => {
-  const start = new Date(maintenanceWindow.starts_at).toLocaleString();
-  const end = maintenanceWindow.ends_at ? new Date(maintenanceWindow.ends_at).toLocaleString() : "—";
+  const start = new Date(maintenanceWindow.starts_at).toLocaleString(undefined, periodDateTimeOptions);
+  const end = maintenanceWindow.ends_at
+    ? new Date(maintenanceWindow.ends_at).toLocaleString(undefined, periodDateTimeOptions)
+    : "—";
   return `${start} → ${end}`;
 };
+
+// Channel names live in a separate lazily-loaded list; a count keeps this column dependency-free.
+const formatChannels = (maintenanceWindow: MaintenanceWindowWithActive): string =>
+  maintenanceWindow.channel_ids.length === 0
+    ? "All destinations"
+    : countLabel(maintenanceWindow.channel_ids.length, "destination");
 
 const MaintenanceWindowsSection = () => {
   const { maintenanceWindows, rules, removeMaintenanceWindow } = useAlertsContext();
@@ -50,14 +68,9 @@ const MaintenanceWindowsSection = () => {
 
   const ruleNameById = useCallback((id: string) => rules.find((r) => r.id === id)?.name ?? id, [rules]);
 
-  const formatTarget = useCallback(
-    (maintenanceWindow: MaintenanceWindowWithActive): string => {
-      if (maintenanceWindow.scope.kind === "rule")
-        return maintenanceWindow.scope.rule_id ? ruleNameById(maintenanceWindow.scope.rule_id) : "—";
-      if (maintenanceWindow.scope.kind === "group") return `Group: ${maintenanceWindow.scope.group_id ?? "—"}`;
-      if (maintenanceWindow.scope.kind === "site") return `Site: ${maintenanceWindow.scope.site_id ?? "—"}`;
-      return `${(maintenanceWindow.scope.device_ids ?? []).length} devices`;
-    },
+  const formatAlerts = useCallback(
+    (maintenanceWindow: MaintenanceWindowWithActive): string =>
+      maintenanceWindow.rule_ids.length === 0 ? "All alerts" : maintenanceWindow.rule_ids.map(ruleNameById).join(", "),
     [ruleNameById],
   );
 
@@ -75,10 +88,10 @@ const MaintenanceWindowsSection = () => {
     async (maintenanceWindow: MaintenanceWindowWithActive) => {
       try {
         await removeMaintenanceWindow(maintenanceWindow.id);
-        pushToast({ message: "Maintenance window lifted", status: STATUSES.success });
+        pushToast({ message: "Quiet period lifted", status: STATUSES.success });
       } catch (error) {
         pushToast({
-          message: getErrorMessage(error, "Failed to lift maintenance window"),
+          message: getErrorMessage(error, "Failed to lift quiet period"),
           status: STATUSES.error,
         });
       }
@@ -94,7 +107,7 @@ const MaintenanceWindowsSection = () => {
         actionHandler: handleEdit,
       },
       {
-        title: "Lift maintenance window",
+        title: "Lift quiet period",
         icon: <Stop />,
         variant: "destructive",
         actionHandler: (maintenanceWindow) => {
@@ -107,10 +120,10 @@ const MaintenanceWindowsSection = () => {
 
   const colConfig: ColConfig<MaintenanceWindowWithActive, string, MaintenanceWindowColumns> = useMemo(
     () => ({
-      target: {
+      alerts: {
         component: (maintenanceWindow) => (
           <span className="flex items-center gap-2">
-            <span className="text-emphasis-300 text-text-primary">{formatTarget(maintenanceWindow)}</span>
+            <span className="text-emphasis-300 text-text-primary">{formatAlerts(maintenanceWindow)}</span>
             {maintenanceWindow.active ? (
               <span className="bg-state-success-fill/10 text-state-success-fill rounded px-2 py-0.5 text-200">
                 Active
@@ -125,6 +138,13 @@ const MaintenanceWindowsSection = () => {
           </span>
         ),
         width: "w-64",
+        allowWrap: true,
+      },
+      channels: {
+        component: (maintenanceWindow) => (
+          <span className="text-text-primary-50">{formatChannels(maintenanceWindow)}</span>
+        ),
+        width: "w-32",
       },
       window: {
         component: (maintenanceWindow) => (
@@ -141,19 +161,19 @@ const MaintenanceWindowsSection = () => {
         allowWrap: true,
       },
     }),
-    [formatTarget, now],
+    [formatAlerts, now],
   );
 
   return (
     <section className="flex flex-col gap-4 rounded-xl border border-border-5 p-6">
       <div className="flex items-center justify-between">
-        <Header title="Maintenance Windows" titleSize="text-heading-200" />
+        <Header title="Quiet Periods" titleSize="text-heading-200" />
         {canManage ? (
-          <Button variant={variants.secondary} size={sizes.compact} text="Add maintenance window" onClick={openAdd} />
+          <Button variant={variants.secondary} size={sizes.compact} text="Add quiet period" onClick={openAdd} />
         ) : null}
       </div>
       <p className="text-300 text-text-primary-50">
-        Temporary mutes that stop a rule from firing during a maintenance window or planned outage.
+        Temporary mutes that silence alert delivery during planned work. Muted alerts still show up in history.
       </p>
 
       <List<MaintenanceWindowWithActive, string, MaintenanceWindowColumns>
@@ -163,10 +183,10 @@ const MaintenanceWindowsSection = () => {
         colTitles={colTitles}
         colConfig={colConfig}
         total={sortedMaintenanceWindows.length}
-        itemName={{ singular: "maintenance window", plural: "maintenance windows" }}
+        itemName={{ singular: "quiet period", plural: "quiet periods" }}
         noDataElement={
           <div className="py-10 text-center text-text-primary-50">
-            No maintenance windows right now — click Add maintenance window to mute during planned work.
+            No quiet periods right now — click Add quiet period to mute during planned work.
           </div>
         }
         actions={canManage ? actions : []}

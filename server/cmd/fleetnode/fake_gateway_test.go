@@ -25,15 +25,18 @@ import (
 type fakeFleetNodeGateway struct {
 	fleetnodegatewayv1connect.UnimplementedFleetNodeGatewayServiceHandler
 
-	expectedCode     string
-	expectedAPIKey   string
-	fleetNodeID      int64
-	identityPub      ed25519.PublicKey
-	challenge        []byte
-	sessionToken     string
-	sessionExpiresAt time.Time
-	registerError    error
-	beginAuthError   error
+	expectedCode          string
+	expectedAPIKey        string
+	fleetNodeID           int64
+	identityPub           ed25519.PublicKey
+	challenge             []byte
+	sessionToken          string
+	sessionExpiresAt      time.Time
+	registerError         error
+	beginAuthError        error
+	completeAuthMu        sync.Mutex
+	completeAuthCalls     int
+	completeAuthResponder func(call int) error
 
 	registered        bool
 	signatureVerified bool
@@ -91,10 +94,26 @@ func (f *fakeFleetNodeGateway) CompleteAuthHandshake(_ context.Context, req *con
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("bad signature"))
 	}
 	f.signatureVerified = true
+	f.completeAuthMu.Lock()
+	f.completeAuthCalls++
+	call := f.completeAuthCalls
+	responder := f.completeAuthResponder
+	f.completeAuthMu.Unlock()
+	if responder != nil {
+		if err := responder(call); err != nil {
+			return nil, err
+		}
+	}
 	return connect.NewResponse(&pb.CompleteAuthHandshakeResponse{
 		SessionToken: f.sessionToken,
 		ExpiresAt:    timestamppb.New(f.sessionExpiresAt),
 	}), nil
+}
+
+func (f *fakeFleetNodeGateway) completeAuthCount() int {
+	f.completeAuthMu.Lock()
+	defer f.completeAuthMu.Unlock()
+	return f.completeAuthCalls
 }
 
 func (f *fakeFleetNodeGateway) UploadHeartbeat(_ context.Context, req *connect.Request[pb.UploadHeartbeatRequest]) (*connect.Response[pb.UploadHeartbeatResponse], error) {

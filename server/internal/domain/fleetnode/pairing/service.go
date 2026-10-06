@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
-	"regexp"
 	"strconv"
 	"time"
 
@@ -14,6 +13,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 )
 
 const (
@@ -24,12 +25,14 @@ const (
 	clientErrUpsertDiscoveredDevice    = "discovery upsert failed"
 	clientErrLookupDeviceForPairing    = "device lookup failed"
 	clientErrLookupFleetNodeForPairing = "fleet node lookup failed"
+	rigConfigLookupTimeout             = 5 * time.Second
 )
 
 var telemetryScheduleTimeout = 5 * time.Second
 
 type Store interface { //nolint:interfacebloat // Pairing coordinates several sqlc-backed persistence operations in one transaction boundary.
 	PairDeviceToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) (int64, error)
+	LockDeviceForFleetNodePairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	TransferDiscoveredDeviceAttribution(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error)
 	DeviceHasActiveCloudPairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	DeviceHasActivePairing(ctx context.Context, deviceID, orgID int64) (bool, error)
@@ -72,7 +75,8 @@ type Service struct {
 	discoveredDeviceStore stores.DiscoveredDeviceStore
 	dispatcher            control.Sender
 
-	invalidateMiner func(context.Context, int64)
+	invalidateMiner    func(context.Context, int64)
+	rigConfigReapplier func(context.Context, int64, int64, []string)
 }
 
 func NewService(store Store, enrollmentStore enrollment.AgentStore, transactor stores.Transactor) *Service {
@@ -100,6 +104,13 @@ func (s *Service) WithTelemetryScheduler(telemetry TelemetryScheduler) *Service 
 	return s
 }
 
+// WithRigConfigReapplier wires desired-state convergence for the devices that
+// successfully pair.
+func (s *Service) WithRigConfigReapplier(reapply func(context.Context, int64, int64, []string)) *Service {
+	s.rigConfigReapplier = reapply
+	return s
+}
+
 func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) error {
 	exists, err := s.store.DeviceExistsInOrg(ctx, deviceID, orgID)
 	if err != nil {
@@ -118,6 +129,18 @@ func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID i
 		s.invalidateMiner(ctx, deviceID)
 	}
 	s.scheduleTelemetryBestEffort(ctx, deviceID, orgID)
+	if s.rigConfigReapplier != nil && assignedBy != nil && *assignedBy > 0 {
+		// Binding has committed, so request cancellation must not prevent the
+		// newly paired device from receiving its desired configuration.
+		lookupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), rigConfigLookupTimeout)
+		identifier, err := s.store.GetFleetNodePairedDeviceIdentifier(lookupCtx, deviceID, orgID)
+		cancel()
+		if err != nil {
+			slog.Warn("failed to resolve paired device for rig config reapply", "device_id", deviceID, "org_id", orgID, "err", err)
+		} else if identifier != "" {
+			s.reapplyRigConfigBestEffort(ctx, orgID, assignedBy, []string{identifier})
+		}
+	}
 	return nil
 }
 
@@ -126,6 +149,16 @@ func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID i
 // and transfers discovery attribution. (PairDevice and PersistFleetNodePairResult
 // both wrap it.)
 func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) error {
+	if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
+		return err
+	}
+	if err := s.lockDeviceForPairing(ctx, deviceID, orgID); err != nil {
+		return err
+	}
+	return s.pairDeviceWithLocks(ctx, fleetNodeID, deviceID, orgID, assignedBy)
+}
+
+func (s *Service) lockFleetNodeForPairing(ctx context.Context, fleetNodeID, orgID int64) error {
 	// Lock-and-recheck in the TX so a concurrent revoke can't soft-delete the node
 	// between the status check and the INSERT. Matches Confirm/Revoke lock order.
 	node, lockErr := s.enrollmentStore.LockFleetNodeByID(ctx, fleetNodeID, orgID)
@@ -133,26 +166,44 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 		if fleeterror.IsNotFoundError(lockErr) {
 			return fleeterror.NewNotFoundError("fleet node not found")
 		}
-		return fleeterror.LogInternal(component, "lock fleet node", clientErrLookupFleetNodeForPairing, lockErr)
+		return logInternal("lock fleet node", clientErrLookupFleetNodeForPairing, lockErr)
 	}
 	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
 		return fleeterror.NewFailedPreconditionError("fleet node is not confirmed; cannot pair until enrollment completes")
 	}
+	return nil
+}
+
+func (s *Service) lockDeviceForPairing(ctx context.Context, deviceID, orgID int64) error {
+	// Keep the Fleet Node -> device lock order used by this flow. Cloud recovery
+	// takes only the device lock, so a stale scan that waits here rechecks
+	// ownership after this transaction commits.
+	locked, deviceLockErr := s.store.LockDeviceForFleetNodePairing(ctx, deviceID, orgID)
+	if deviceLockErr != nil {
+		return logInternal("lock device for pairing", clientErrPair, deviceLockErr)
+	}
+	if !locked {
+		return fleeterror.NewNotFoundError("device not found")
+	}
+	return nil
+}
+
+func (s *Service) pairDeviceWithLocks(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) error {
 	// Refuse a cloud-dialed device: the discovery upsert guard blocks refreshing a
 	// cloud-paired row, so the node could never refresh it. Unpair from cloud first.
 	if cloudPaired, cloudErr := s.store.DeviceHasActiveCloudPairing(ctx, deviceID, orgID); cloudErr != nil {
-		return fleeterror.LogInternal(component, "check cloud pairing", clientErrPair, cloudErr)
+		return logInternal("check cloud pairing", clientErrPair, cloudErr)
 	} else if cloudPaired {
 		return fleeterror.NewFailedPreconditionError("device is cloud-paired; unpair it from the cloud before pairing to a fleet node")
 	}
 	rows, pairErr := s.store.PairDeviceToFleetNode(ctx, fleetNodeID, deviceID, orgID, assignedBy)
 	if pairErr != nil {
-		return fleeterror.LogInternal(component, "pair device", clientErrPair, pairErr)
+		return logInternal("pair device", clientErrPair, pairErr)
 	}
 	if rows == 0 {
 		sameNode, boundErr := s.deviceBoundToFleetNode(ctx, fleetNodeID, deviceID, orgID)
 		if boundErr != nil {
-			return fleeterror.LogInternal(component, "check fleet node binding", clientErrPair, boundErr)
+			return logInternal("check fleet node binding", clientErrPair, boundErr)
 		}
 		if sameNode {
 			return nil
@@ -165,9 +216,18 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 	// Make the paired node the discovery owner so its future reports refresh the row
 	// instead of being rejected by the attribution guard. No-op without a discovered_device.
 	if _, attrErr := s.store.TransferDiscoveredDeviceAttribution(ctx, fleetNodeID, deviceID, orgID); attrErr != nil {
-		return fleeterror.LogInternal(component, "transfer discovery attribution", clientErrPair, attrErr)
+		return logInternal("transfer discovery attribution", clientErrPair, attrErr)
 	}
 	return nil
+}
+
+// logInternal sanitizes ordinary storage errors while allowing the transaction
+// runner to recognize and retry serialization failures and deadlocks.
+func logInternal(op, clientMsg string, err error) error {
+	if db.IsRetryablePostgresError(err) {
+		return err
+	}
+	return fleeterror.LogInternal(component, op, clientMsg, err)
 }
 
 func (s *Service) deviceBoundToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64) (bool, error) {
@@ -234,6 +294,13 @@ func (s *Service) scheduleTelemetryBestEffortWith(ctx context.Context, deviceID,
 	}()
 }
 
+func (s *Service) reapplyRigConfigBestEffort(ctx context.Context, orgID int64, assignedBy *int64, deviceIdentifiers []string) {
+	if s.rigConfigReapplier == nil || assignedBy == nil || *assignedBy <= 0 || len(deviceIdentifiers) == 0 {
+		return
+	}
+	s.rigConfigReapplier(context.WithoutCancel(ctx), orgID, *assignedBy, deviceIdentifiers)
+}
+
 func (s *Service) UnpairDevice(ctx context.Context, deviceID, orgID int64) error {
 	var rows int64
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
@@ -264,7 +331,7 @@ func (s *Service) deleteMinerCredentialsByDeviceIDAndOrgID(ctx context.Context, 
 		return fleeterror.NewInternalError("fleet node pairing credential cleanup is not configured")
 	}
 	if _, err := store.DeleteMinerCredentialsByDeviceIDAndOrgID(ctx, deviceID, orgID); err != nil {
-		return fleeterror.LogInternal(component, "clear miner credentials", clientMessage, err)
+		return logInternal("clear miner credentials", clientMessage, err)
 	}
 	return nil
 }
@@ -371,11 +438,8 @@ func validateReport(r DiscoveredDeviceReport) error {
 	// stratum+tcp) so an injection payload such as "javascript:alert(1)//"
 	// can't be stored. The clickable web URL is separately restricted to
 	// http/https at construction (constructWebViewURL).
-	if r.URLScheme != "" && !urlSchemeRE.MatchString(r.URLScheme) {
+	if r.URLScheme != "" && !networking.IsValidURLScheme(r.URLScheme) {
 		return fmt.Errorf("url_scheme %q is not a valid scheme", r.URLScheme)
 	}
 	return nil
 }
-
-// urlSchemeRE is the RFC 3986 scheme grammar: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ).
-var urlSchemeRE = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*$`)

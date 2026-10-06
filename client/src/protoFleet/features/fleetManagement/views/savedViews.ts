@@ -1,6 +1,6 @@
 /**
  * Saved fleet views: tab + filters + sort bundled into named, persistable
- * presets. See docs/plans/2026-04-30-custom-views.md and issue #398.
+ * presets. See issue #398.
  */
 
 import { TELEMETRY_FILTER_BOUNDS } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
@@ -30,6 +30,7 @@ const MINER_FILTER_KEYS: readonly string[] = [
   "firmware",
   "zone",
   "subnet",
+  "search",
   ...Object.keys(TELEMETRY_FILTER_BOUNDS).flatMap((key) => [`${key}_min`, `${key}_max`]),
 ];
 
@@ -44,7 +45,9 @@ const TELEMETRY_FILTER_KEYS: readonly string[] = Object.keys(TELEMETRY_FILTER_BO
 ]);
 
 const RACK_FILTER_KEYS: readonly string[] = ["building", "site", "zone", "issues", "display", ...TELEMETRY_FILTER_KEYS];
-const BUILDING_FILTER_KEYS: readonly string[] = ["site", "issues", ...TELEMETRY_FILTER_KEYS];
+// Buildings tab, like Racks, owns a `display` (grid/list) toggle, so its
+// view-mode is capturable into a saved view.
+const BUILDING_FILTER_KEYS: readonly string[] = ["site", "issues", "display", ...TELEMETRY_FILTER_KEYS];
 const SITE_FILTER_KEYS: readonly string[] = ["issues", ...TELEMETRY_FILTER_KEYS];
 const INFRASTRUCTURE_FILTER_KEYS: readonly string[] = [];
 

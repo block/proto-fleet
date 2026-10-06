@@ -230,6 +230,8 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     infrastructureDevicesError,
     onRetryInfrastructureDevices,
     defaultSiteScope,
+    buildingScopeEnabled,
+    rackAndGroupScopeEnabled,
   }: {
     initialValues?: Partial<CurtailmentSubmitValues>;
     mode?: string;
@@ -243,11 +245,16 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
     infrastructureDevicesError?: string | null;
     onRetryInfrastructureDevices?: () => void;
     defaultSiteScope?: CurtailmentSiteOption;
+    buildingScopeEnabled?: boolean;
+    rackAndGroupScopeEnabled?: boolean;
   }) => (
     <div role="dialog" aria-label={mode === "edit" ? "Manage curtailment" : "New curtailment"}>
       <div data-testid="modal-initial-reason">{initialValues?.reason ?? ""}</div>
       <div data-testid="modal-response-profiles">{responseProfiles?.map((profile) => profile.label).join(",")}</div>
       <div data-testid="modal-response-profile-values">{JSON.stringify(responseProfiles?.[0]?.values ?? {})}</div>
+      <div data-testid="modal-response-profile-all-values">
+        {JSON.stringify(responseProfiles?.map((profile) => profile.values) ?? [])}
+      </div>
       <div data-testid="modal-site-options">{siteOptions?.map((siteOption) => siteOption.name).join(",")}</div>
       <div data-testid="modal-infrastructure-count">{infrastructureDevices?.length ?? 0}</div>
       <div data-testid="modal-infrastructure-loading">{isLoadingInfrastructureDevices ? "loading" : "idle"}</div>
@@ -258,6 +265,8 @@ vi.mock("@/protoFleet/features/energy/CurtailmentStartModal", () => ({
         </button>
       ) : null}
       <div data-testid="modal-default-site-scope">{defaultSiteScope?.name ?? ""}</div>
+      <div data-testid="modal-building-scope-enabled">{buildingScopeEnabled ? "enabled" : "disabled"}</div>
+      <div data-testid="modal-rack-group-scope-enabled">{rackAndGroupScopeEnabled ? "enabled" : "disabled"}</div>
       <div data-testid="modal-preview">
         {preview
           ? `${preview.selectedMinerCount} miners, ${preview.targetKw} kW target, ${preview.estimatedReductionKw} kW estimated`
@@ -435,6 +444,8 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
 
     expect(screen.getByTestId("modal-site-options")).toHaveTextContent("Austin, TX");
+    expect(screen.getByTestId("modal-building-scope-enabled")).toHaveTextContent("enabled");
+    expect(screen.getByTestId("modal-rack-group-scope-enabled")).toHaveTextContent("disabled");
   });
 
   it("passes the globally selected site as the default site scope for new curtailment runs", async () => {
@@ -562,6 +573,9 @@ describe("CurtailmentManagementPanel", () => {
             name: "Standard shed",
             actionType: "fixedKwReduction",
             targetKw: "50",
+            toleranceKw: "5",
+            priority: "emergency",
+            postEventCooldownSec: "900",
             deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
             siteId: "101",
             siteName: "Austin, TX",
@@ -576,6 +590,41 @@ describe("CurtailmentManagementPanel", () => {
             responseDeadlineMinutes: "15",
             includeMaintenance: true,
           },
+        },
+        {
+          id: "profile-2",
+          name: "Building shed",
+          targetSummary: "100% reduction",
+          scope: "2 buildings",
+          selectionStrategy: "Least efficient first",
+          restoreBehavior: "Restore in batches",
+          deadlineSummary: "Within 15 min",
+          formValues: {
+            name: "Building shed",
+            actionType: "fixedKwReduction",
+            scopeType: "building",
+            targetKw: "100",
+            toleranceKw: "10",
+            priority: "normal",
+            buildingTargetIds: ["7", "8"],
+            rackTargetIds: [],
+            groupTargetIds: [],
+            deviceIdentifiers: [],
+            siteSelection: "none",
+            siteId: "",
+            siteIds: [],
+            selectionStrategy: "leastEfficientFirst",
+            restoreBehavior: "automaticBatchRestore",
+            minDurationSec: "",
+            maxDurationSec: "",
+            curtailBatchSize: "20",
+            curtailBatchIntervalSec: "60",
+            restoreBatchSize: "10",
+            restoreIntervalSec: "120",
+            responseDeadlineMinutes: "15",
+            includeMaintenance: false,
+          },
+          isReadOnly: false,
         },
       ],
       isLoading: false,
@@ -594,6 +643,7 @@ describe("CurtailmentManagementPanel", () => {
     await user.click(screen.getByRole("button", { name: "Run curtailment" }));
 
     expect(screen.getByTestId("modal-response-profiles")).toHaveTextContent("Standard shed");
+    expect(screen.getByTestId("modal-response-profiles")).toHaveTextContent("Building shed");
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"scopeType":"explicitMiners"');
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"scopeId":"Austin, TX"');
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"siteSelection":"site"');
@@ -602,6 +652,12 @@ describe("CurtailmentManagementPanel", () => {
       '"deviceIdentifiers":["miner-1","miner-2","miner-3"]',
     );
     expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"targetKw":"50"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"toleranceKw":"5"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"priority":"emergency"');
+    expect(screen.getByTestId("modal-response-profile-values")).toHaveTextContent('"postEventCooldownSec":"900"');
+    expect(screen.getByTestId("modal-response-profile-all-values")).toHaveTextContent('"scopeType":"building"');
+    expect(screen.getByTestId("modal-response-profile-all-values")).toHaveTextContent('"buildingTargetIds":["7","8"]');
+    expect(screen.getByTestId("modal-response-profile-all-values")).toHaveTextContent('"scopeId":"2 buildings"');
   });
 
   it("passes miner-scoped response profiles to the plan modal", async () => {
@@ -620,6 +676,8 @@ describe("CurtailmentManagementPanel", () => {
             name: "Targeted shed",
             actionType: "fixedKwReduction",
             targetKw: "50",
+            toleranceKw: "",
+            priority: "normal",
             deviceIdentifiers: ["miner-1", "miner-2", "miner-3"],
             siteId: "",
             siteName: "",

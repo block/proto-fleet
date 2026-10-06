@@ -267,6 +267,22 @@ func TestGetBatchLogBundleFile_NotReady(t *testing.T) {
 	assert.Contains(t, err.Error(), "not available yet")
 }
 
+func TestEnsureBatchLogBundleBuildsMissingBundle(t *testing.T) {
+	// Arrange
+	svc := setupService(t)
+	_, err := svc.SaveLogs("batch-lazy", "cc:dd:ee:ff:00:11", []string{"Time,Message", `2026-01-01T00:00:00Z,"data"`})
+	require.NoError(t, err)
+
+	// Act
+	err = svc.EnsureBatchLogBundle("batch-lazy")
+
+	// Assert
+	require.NoError(t, err)
+	file, err := svc.GetBatchLogBundleFile("batch-lazy")
+	require.NoError(t, err)
+	assert.NotEmpty(t, file.Data)
+}
+
 // TestFindBatchBundlePath_PrefersZIPOverCSV verifies that when both a ZIP and a CSV
 // happen to exist for the same batch UUID the ZIP path is returned.
 func TestFindBatchBundlePath_PrefersZIPOverCSV(t *testing.T) {

@@ -12,6 +12,8 @@ const (
 	defaultHashrateTHS    = 140.0  // TH/s
 	defaultTemperatureC   = 55.0   // Celsius
 	defaultPowerW         = 3400.0 // Watts
+	defaultIdlePowerW     = 200.0  // Watts
+	defaultCurtailPowerW  = 30.0   // Watts
 	defaultEfficiencyJTH  = 24.3   // J/TH
 	defaultIdealHashrate  = 145.0  // TH/s
 	defaultFanSpeedRPM    = 4500
@@ -201,12 +203,13 @@ type PoolStatistics struct {
 
 // Pool represents a mining pool configuration.
 type Pool struct {
-	Idx        uint32          `json:"idx"`
-	Priority   int             `json:"priority"`
-	Url        string          `json:"url"`
-	Username   string          `json:"username"`
-	Password   string          `json:"password"`
-	Statistics *PoolStatistics `json:"statistics,omitempty"`
+	Idx               uint32          `json:"idx"`
+	Priority          int             `json:"priority"`
+	Url               string          `json:"url"`
+	Username          string          `json:"username"`
+	Password          string          `json:"password"`
+	V2AuthorityPubkey string          `json:"v2_authority_pubkey"`
+	Statistics        *PoolStatistics `json:"statistics,omitempty"`
 }
 
 // MinerState holds the complete state of the simulated miner.
@@ -269,10 +272,14 @@ type MinerState struct {
 	TelemetryEnabled bool
 
 	// Firmware update simulation
-	FWUpdateStatus    string // "current", "downloading", "downloaded", "installing", "installed"
-	FWCurrentVersion  string // running firmware version; initialized to defaultFirmwareVersion
-	FWNewVersion      string // staged version after a successful upload; promoted to current on reboot
-	FWPreviousVersion string // set after reboot following a firmware update
+	FWUpdateStatus      string // "current", "downloading", "downloaded", "installing", "installed", "error"
+	FWCurrentVersion    string // running firmware version; initialized to defaultFirmwareVersion
+	FWNewVersion        string // staged version after a successful upload; promoted to current on reboot
+	FWPreviousVersion   string // set after reboot following a firmware update
+	FWUpdateError       string // deterministic error exposed when the active fake update fails
+	FWUpdateSequence    uint64 // invalidates stale lifecycle goroutines after reboot or a new update
+	FWUpdateOutcome     string // outcome consumed by the active update
+	FWNextUpdateOutcome string // one-shot fake test control; reset to success when consumed
 
 	// Reboot simulation
 	Rebooting bool
@@ -328,6 +335,7 @@ func NewMinerState(serialNumber, macAddress string) *MinerState {
 		Pools:                make([]*Pool, 0),
 		PoolNames:            make(map[uint32]string),
 		FWCurrentVersion:     defaultFirmwareVersion,
+		FWNextUpdateOutcome:  firmwareUpdateOutcomeSuccess,
 		CurtailmentConfigVal: defaultCurtailmentConfig(),
 		StartTime:            time.Now(),
 	}
@@ -389,7 +397,13 @@ func (s *MinerState) miningState() MiningState {
 		return *s.ErrorConfig.ForceMiningState
 	}
 
-	// If no pools configured, report NO_POOLS state
+	// Full curtailment must remain visible even on a pool-less device so
+	// telemetry can expose its minimal-power state.
+	if s.MiningStateVal == MiningStateCurtailed {
+		return MiningStateCurtailed
+	}
+
+	// If no pools configured, report NO_POOLS state.
 	if len(s.Pools) == 0 {
 		return MiningStateNoPools
 	}
@@ -413,14 +427,17 @@ func (s *MinerState) GetMinerTelemetry() (hashrate, temperature, power, efficien
 		temperature = s.ErrorConfig.OverrideTemperature
 	}
 
-	// If not actively mining, reduce hashrate to 0
-	effectiveState := s.miningState()
-	if effectiveState != MiningStateMining &&
-		effectiveState != MiningStateDegraded {
-		hashrate = 0
-		power = applyVariation(200.0, telemetryVariation) // Idle power
+	// Model mining, idle/non-mining, and full-curtail draw separately.
+	switch s.miningState() {
+	case MiningStateMining, MiningStateDegraded:
+		return
+	case MiningStateCurtailed:
+		power = applyVariation(defaultCurtailPowerW, telemetryVariation)
+	default:
+		power = applyVariation(defaultIdlePowerW, telemetryVariation)
 	}
 
+	hashrate = 0
 	return
 }
 

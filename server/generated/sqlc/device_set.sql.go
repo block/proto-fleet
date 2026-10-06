@@ -14,15 +14,28 @@ import (
 )
 
 const addDevicesToDeviceSet = `-- name: AddDevicesToDeviceSet :many
+WITH locked_device_set AS MATERIALIZED (
+    SELECT device_set.id, device_set.type
+    FROM device_set
+    WHERE device_set.id = $2
+      AND device_set.org_id = $1
+      AND device_set.deleted_at IS NULL
+    FOR UPDATE
+), locked_devices AS MATERIALIZED (
+    SELECT d.id, d.device_identifier
+    FROM device d
+    CROSS JOIN locked_device_set
+    WHERE d.device_identifier = ANY($3::text[])
+      AND d.org_id = $1
+      AND d.deleted_at IS NULL
+    ORDER BY d.id
+    FOR UPDATE OF d
+)
 INSERT INTO device_set_membership (org_id, device_set_id, device_set_type, device_id, device_identifier)
 SELECT $1, $2, ds.type, d.id, d.device_identifier
-FROM device d
-CROSS JOIN device_set ds
-WHERE d.device_identifier = ANY($3::text[])
-  AND d.org_id = $1
-  AND d.deleted_at IS NULL
-  AND ds.id = $2
-  AND ds.deleted_at IS NULL
+FROM locked_devices d
+CROSS JOIN locked_device_set ds
+ORDER BY d.id
 ON CONFLICT (device_set_id, device_id) DO NOTHING
 RETURNING device_identifier
 `
@@ -432,6 +445,46 @@ func (q *Queries) DeviceSetBelongsToOrg(ctx context.Context, arg DeviceSetBelong
 	var belongs bool
 	err := row.Scan(&belongs)
 	return belongs, err
+}
+
+const deviceSetsByIDs = `-- name: DeviceSetsByIDs :many
+SELECT id
+FROM device_set
+WHERE org_id = $1
+  AND type = $2
+  AND deleted_at IS NULL
+  AND id = ANY($3::bigint[])
+`
+
+type DeviceSetsByIDsParams struct {
+	OrgID   int64
+	SetType DeviceSetType
+	Ids     []int64
+}
+
+// Returns the subset of requested IDs that are live device sets of the given type in the org;
+// the caller diffs against the request to detect cross-org, wrong-type, or missing IDs.
+func (q *Queries) DeviceSetsByIDs(ctx context.Context, arg DeviceSetsByIDsParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.deviceSetsByIDsStmt, deviceSetsByIDs, arg.OrgID, arg.SetType, pq.Array(arg.Ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const findDevicesWithSiteOrBuilding = `-- name: FindDevicesWithSiteOrBuilding :many
@@ -1524,6 +1577,47 @@ func (q *Queries) ListRackZones(ctx context.Context, orgID int64) ([]sql.NullStr
 	return items, nil
 }
 
+const listTakenDeviceSetLabels = `-- name: ListTakenDeviceSetLabels :many
+SELECT label
+FROM device_set
+WHERE org_id = $1
+  AND type = $2
+  AND label = ANY($3::text[])
+  AND deleted_at IS NULL
+`
+
+type ListTakenDeviceSetLabelsParams struct {
+	OrgID  int64
+	Type   DeviceSetType
+	Labels []string
+}
+
+// Which candidate labels are already live in the org for this type. Backs bulk
+// create's duplicate check: uk_device_collection_org_type_label spans
+// (org_id, type, label), so a site/building-scoped rack list can't answer it.
+func (q *Queries) ListTakenDeviceSetLabels(ctx context.Context, arg ListTakenDeviceSetLabelsParams) ([]string, error) {
+	rows, err := q.query(ctx, q.listTakenDeviceSetLabelsStmt, listTakenDeviceSetLabels, arg.OrgID, arg.Type, pq.Array(arg.Labels))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var label string
+		if err := rows.Scan(&label); err != nil {
+			return nil, err
+		}
+		items = append(items, label)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockRackPlacementForWrite = `-- name: LockRackPlacementForWrite :one
 SELECT dsr.site_id, dsr.building_id, dsr.zone
 FROM device_set_rack dsr
@@ -1631,18 +1725,38 @@ func (q *Queries) LockRacksForReparent(ctx context.Context, arg LockRacksForRepa
 }
 
 const removeAllDevicesFromDeviceSet = `-- name: RemoveAllDevicesFromDeviceSet :execrows
-DELETE FROM device_set_membership
-WHERE device_set_id = $1
-  AND org_id = $2
+WITH locked_device_set AS MATERIALIZED (
+    SELECT device_set.id
+    FROM device_set
+    WHERE device_set.id = $2
+      AND device_set.org_id = $1
+      AND device_set.deleted_at IS NULL
+    FOR UPDATE
+), locked_devices AS MATERIALIZED (
+    SELECT d.id
+    FROM device d
+    JOIN device_set_membership dsm
+      ON dsm.device_id = d.id AND dsm.org_id = d.org_id
+    CROSS JOIN locked_device_set ds
+    WHERE dsm.device_set_id = ds.id
+      AND d.org_id = $1
+    ORDER BY d.id
+    FOR UPDATE OF d
+)
+DELETE FROM device_set_membership dsm
+USING locked_device_set ds, locked_devices d
+WHERE dsm.device_set_id = ds.id
+  AND dsm.device_id = d.id
+  AND dsm.org_id = $1
 `
 
 type RemoveAllDevicesFromDeviceSetParams struct {
-	DeviceSetID int64
 	OrgID       int64
+	DeviceSetID int64
 }
 
 func (q *Queries) RemoveAllDevicesFromDeviceSet(ctx context.Context, arg RemoveAllDevicesFromDeviceSetParams) (int64, error) {
-	result, err := q.exec(ctx, q.removeAllDevicesFromDeviceSetStmt, removeAllDevicesFromDeviceSet, arg.DeviceSetID, arg.OrgID)
+	result, err := q.exec(ctx, q.removeAllDevicesFromDeviceSetStmt, removeAllDevicesFromDeviceSet, arg.OrgID, arg.DeviceSetID)
 	if err != nil {
 		return 0, err
 	}
@@ -1681,16 +1795,33 @@ func (q *Queries) RemoveDevicesFromAnyRack(ctx context.Context, arg RemoveDevice
 }
 
 const removeDevicesFromDeviceSet = `-- name: RemoveDevicesFromDeviceSet :many
-DELETE FROM device_set_membership
-WHERE device_set_id = $1
-  AND org_id = $2
-  AND device_identifier = ANY($3::text[])
-RETURNING device_identifier
+WITH locked_device_set AS MATERIALIZED (
+    SELECT device_set.id
+    FROM device_set
+    WHERE device_set.id = $2
+      AND device_set.org_id = $1
+      AND device_set.deleted_at IS NULL
+    FOR UPDATE
+), locked_devices AS MATERIALIZED (
+    SELECT d.id
+    FROM device d
+    CROSS JOIN locked_device_set
+    WHERE d.org_id = $1
+      AND d.device_identifier = ANY($3::text[])
+    ORDER BY d.id
+    FOR UPDATE OF d
+)
+DELETE FROM device_set_membership dsm
+USING locked_device_set ds, locked_devices d
+WHERE dsm.device_set_id = ds.id
+  AND dsm.device_id = d.id
+  AND dsm.org_id = $1
+RETURNING dsm.device_identifier
 `
 
 type RemoveDevicesFromDeviceSetParams struct {
-	DeviceSetID       int64
 	OrgID             int64
+	DeviceSetID       int64
 	DeviceIdentifiers []string
 }
 
@@ -1699,7 +1830,7 @@ type RemoveDevicesFromDeviceSetParams struct {
 // the changed set for activity site scope (#538). Equivalent affected-row
 // count to the prior :execrows shape.
 func (q *Queries) RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error) {
-	rows, err := q.query(ctx, q.removeDevicesFromDeviceSetStmt, removeDevicesFromDeviceSet, arg.DeviceSetID, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	rows, err := q.query(ctx, q.removeDevicesFromDeviceSetStmt, removeDevicesFromDeviceSet, arg.OrgID, arg.DeviceSetID, pq.Array(arg.DeviceIdentifiers))
 	if err != nil {
 		return nil, err
 	}

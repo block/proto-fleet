@@ -96,7 +96,7 @@ func RequirePermission(ctx context.Context, key string, rc authz.ResourceContext
 	// access.
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorRolloutEnforcement:
 			return info, nil
 		default:
 			return nil, fleeterror.NewInternalErrorf(
@@ -122,6 +122,26 @@ func RequirePermission(ctx context.Context, key string, rc authz.ResourceContext
 	return info, nil
 }
 
+// RequirePermissionAtAnySite gates operations whose resource set is resolved
+// later (for example, scoped list queries and writes that lock their target).
+// A caller passes when key is effective organization-wide or at one or more
+// sites; downstream filtering or locked-resource validation must still enforce
+// the projected scope.
+func RequirePermissionAtAnySite(ctx context.Context, key string) (*session.Info, error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	orgWide, siteIDs, err := SiteScopeForPermission(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	if !orgWide && len(siteIDs) == 0 {
+		return nil, permissionDeniedError(key, authz.ResourceContext{})
+	}
+	return info, nil
+}
+
 func RequireOrgWidePermission(ctx context.Context, key string) (*session.Info, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
@@ -130,7 +150,7 @@ func RequireOrgWidePermission(ctx context.Context, key string) (*session.Info, e
 
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorRolloutEnforcement:
 			return info, nil
 		default:
 			return nil, fleeterror.NewInternalErrorf(
@@ -168,7 +188,7 @@ func HasPermission(ctx context.Context, key string, rc authz.ResourceContext) (b
 
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorRolloutEnforcement:
 			return true, nil
 		default:
 			return false, fleeterror.NewInternalErrorf(
@@ -195,7 +215,7 @@ func HasOrgWidePermission(ctx context.Context, key string) (bool, error) {
 
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorRolloutEnforcement:
 			return true, nil
 		default:
 			return false, fleeterror.NewInternalErrorf(
@@ -212,6 +232,20 @@ func HasOrgWidePermission(ctx context.Context, key string) (bool, error) {
 		)
 	}
 	return eff.HasOrgWide(key), nil
+}
+
+// BindAuthorizedSiteScope projects key's current site coverage into the
+// request context so domain services can revalidate locked resources before a
+// write. Callers must perform their normal permission gate before binding.
+func BindAuthorizedSiteScope(ctx context.Context, key string) (context.Context, error) {
+	orgWide, sites, err := SiteScopeForPermission(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	return authz.WithAuthorizedSiteScope(ctx, authz.AuthorizedSiteScope{
+		OrgWide: orgWide,
+		SiteIDs: sites,
+	}), nil
 }
 
 // SiteScopeForPermission projects the caller's site-level authority for
@@ -232,7 +266,7 @@ func SiteScopeForPermission(ctx context.Context, key string) (orgWide bool, site
 
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorRolloutEnforcement:
 			return true, nil, nil
 		default:
 			return false, nil, fleeterror.NewInternalErrorf(
@@ -282,7 +316,7 @@ func RequireAnyPermission(ctx context.Context, keys []string, rc authz.ResourceC
 	// Same allowlisted internal-actor short-circuit as RequirePermission.
 	if info.Actor != "" {
 		switch info.Actor {
-		case session.ActorScheduler, session.ActorCurtailment:
+		case session.ActorScheduler, session.ActorCurtailment, session.ActorRolloutEnforcement:
 			return info, nil
 		default:
 			return nil, fleeterror.NewInternalErrorf(
@@ -308,7 +342,7 @@ func RequireAnyPermission(ctx context.Context, keys []string, rc authz.ResourceC
 }
 
 // permissionDeniedError builds a Connect PermissionDenied error whose
-// body is the structured payload the plan specifies:
+// body is this structured payload:
 //
 //	{"required": "<permission_key>", "scope": {"site_id": <N>}}
 //

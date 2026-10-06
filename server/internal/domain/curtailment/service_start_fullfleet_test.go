@@ -139,11 +139,13 @@ func TestService_Start_FullFleet_AllPairedPersistsPolicyTargetsImmediately(t *te
 
 	var snapshot struct {
 		ForceIncludeAllPairedMiners bool `json:"force_include_all_paired_miners"`
+		RequiresAdminControls       bool `json:"requires_admin_controls"`
 		PolicyTargetCount           int  `json:"policy_target_count"`
 		UnavailableTargetCount      int  `json:"unavailable_target_count"`
 	}
 	require.NoError(t, json.Unmarshal(store.lastInsertEvent.DecisionSnapshotJSON, &snapshot))
 	assert.True(t, snapshot.ForceIncludeAllPairedMiners)
+	assert.True(t, snapshot.RequiresAdminControls)
 	assert.Equal(t, 3, snapshot.PolicyTargetCount)
 	assert.Equal(t, 2, snapshot.UnavailableTargetCount)
 }
@@ -256,10 +258,12 @@ func TestService_Start_FullFleet_AllPairedBypassesPostEventCooldown(t *testing.T
 	var snapshot struct {
 		PostEventCooldownSec        int32 `json:"post_event_cooldown_sec"`
 		ForceIncludeAllPairedMiners bool  `json:"force_include_all_paired_miners"`
+		RequiresAdminControls       bool  `json:"requires_admin_controls"`
 	}
 	require.NoError(t, json.Unmarshal(store.lastInsertEvent.DecisionSnapshotJSON, &snapshot))
 	assert.Equal(t, int32(600), snapshot.PostEventCooldownSec)
 	assert.True(t, snapshot.ForceIncludeAllPairedMiners)
+	assert.True(t, snapshot.RequiresAdminControls)
 }
 
 func TestService_Preview_FullFleet_SkipsMissingTelemetrySamples(t *testing.T) {

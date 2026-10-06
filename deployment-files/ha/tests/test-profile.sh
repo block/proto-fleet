@@ -1,0 +1,321 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Fast contract checks for the declarative HA deployment files. Host setup
+# behavior is covered by focused Go tests for the fleet-ha utility; this suite
+# only checks the cross-file Compose and Patroni boundaries.
+
+HA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+fail() {
+    echo "FAIL: $*" >&2
+    exit 1
+}
+
+assert_contains() {
+    local file="$1"
+    local text="$2"
+    grep -Fq -- "$text" "$file" || fail "${file} does not contain: ${text}"
+}
+
+assert_not_contains() {
+    local file="$1"
+    local text="$2"
+    if grep -Fq -- "$text" "$file"; then
+        fail "${file} unexpectedly contains: ${text}"
+    fi
+}
+
+render_fleet_profile() {
+    local release_dir="$1"
+    local profile="$2"
+
+    local -a environment=(
+        AUTH_CLIENT_SECRET_KEY=test-auth-secret
+        DB_USERNAME=fleet
+        DB_PASSWORD=test-db-password
+        DB_DSN=postgresql://fleet:test@10.40.0.11:5432/fleet
+        ENCRYPT_SERVICE_MASTER_KEY=test-master-key
+        GRAFANA_ADMIN_PASSWORD=test-grafana-admin-password
+        GRAFANA_DB_PASSWORD=test-grafana-db-password
+        GRAFANA_SECRET_KEY=test-grafana-secret-key
+        FLEET_ALERTS_WEBHOOK_TOKEN=test-alert-webhook-token
+        DD_HOSTNAME=ha-a
+        HA_NODE_NAME=ha-a
+        HA_NODE_IP=10.40.0.11
+        HA_DB_A_IP=10.40.0.11
+        HA_DB_B_IP=10.40.0.12
+        HA_DCS_C_IP=10.40.0.13
+        HA_VIRTUAL_IP=10.40.0.100
+        HA_NETWORK_INTERFACE=eth0
+        HA_DATA_DIR=/var/lib/proto-fleet/ha
+        HA_SECRETS_DIR=/etc/proto-fleet/ha
+    )
+    local -a compose_files=(--file "${release_dir}/docker-compose.yaml")
+    local -a services=(fleet-api fleet-client)
+    if [[ "$profile" != "disabled" ]]; then
+        compose_files+=(--file "${release_dir}/docker-compose.alerts.yaml")
+        services+=(grafana)
+    fi
+    compose_files+=(--file "${release_dir}/ha/fleet-compose.yaml")
+    if [[ "$profile" == "external" ]]; then
+        environment+=(HA_ENDPOINT_MODE=external HA_PUBLIC_URL=https://fleet.example.com HA_ENDPOINT_NODE_IP=10.40.0.11 HA_VIRTUAL_IP= HA_NETWORK_INTERFACE=)
+        compose_files+=(--file "${release_dir}/ha/fleet-compose.external.yaml")
+    fi
+    if [[ "$profile" != "disabled" ]]; then
+        compose_files+=(--file "${release_dir}/ha/fleet-compose.alerts.yaml")
+    fi
+    if [[ "$profile" == "tracing" ]]; then
+        environment+=(DD_API_KEY=test-datadog-key)
+        services+=(otel-collector)
+        compose_files+=(
+            --file "${release_dir}/docker-compose.system-monitoring.yaml"
+            --file "${release_dir}/ha/fleet-compose.system-monitoring.yaml"
+            --file "${release_dir}/docker-compose.tracing.yaml"
+            --file "${release_dir}/ha/fleet-compose.tracing.yaml"
+        )
+    fi
+
+    env "${environment[@]}" docker compose "${compose_files[@]}" config "${services[@]}"
+}
+
+test_compose_uses_one_host_identity() {
+    local rendered
+    rendered="$(mktemp)"
+    trap 'rm -f "$rendered"' RETURN
+
+    HA_NODE_NAME=ha-a \
+    HA_NODE_IP=10.40.0.11 \
+    HA_DB_A_IP=10.40.0.11 \
+    HA_DB_B_IP=10.40.0.12 \
+    HA_DCS_C_IP=10.40.0.13 \
+    HA_DATA_DIR=/var/lib/proto-fleet/ha \
+    HA_SECRETS_DIR=/etc/proto-fleet/ha \
+        docker compose \
+        --file "${HA_DIR}/compose.yaml" \
+        --profile database \
+        config >"$rendered"
+
+    [[ "$(grep -c 'network_mode: host' "$rendered")" -eq 2 ]] ||
+        fail "etcd and Patroni must both use host networking"
+    [[ "$(grep -c 'restart: on-failure' "$rendered")" -eq 2 ]] ||
+        fail "etcd and Patroni must recover process failures without bypassing the systemd start gate"
+    assert_not_contains "$rendered" "ports:"
+    assert_not_contains "$rendered" "127.0.0.1"
+    assert_contains "$rendered" "https://10.40.0.11:2379"
+    assert_contains "$rendered" "https://10.40.0.11:2380"
+    assert_contains "$rendered" "auth-token=jwt"
+    assert_contains "$rendered" "--peer-client-cert-auth=true"
+}
+
+test_patroni_contract() {
+    local template="${HA_DIR}/patroni.yml.tmpl"
+    local dockerfile="${HA_DIR}/patroni.Dockerfile"
+    local compose="${HA_DIR}/compose.yaml"
+    local entrypoint="${HA_DIR}/scripts/patroni-entrypoint.sh"
+    local bootstrap="${HA_DIR}/scripts/patroni-post-bootstrap.sh"
+
+    assert_contains "$template" 'connect_address: ${HA_NODE_IP}:5432'
+    assert_contains "$template" 'connect_address: ${HA_NODE_IP}:8008'
+    assert_contains "$template" "synchronous_mode: true"
+    assert_contains "$template" "synchronous_mode_strict: false"
+    assert_contains "$template" "sslmode: verify-full"
+    assert_contains "$template" 'post_bootstrap: /usr/local/bin/patroni-post-bootstrap'
+    assert_contains "$template" 'hostssl fleet grafana_ha_ro ${HA_DB_A_IP}/32 scram-sha-256'
+    assert_not_contains "$template" "0.0.0.0/0"
+    assert_contains "$entrypoint" "render-patroni-config"
+    assert_contains "$bootstrap" 'psql --dbname="$connection_url" --set=ON_ERROR_STOP=1'
+    assert_contains "$bootstrap" 'CREATE ROLE grafana_ha_ro LOGIN PASSWORD'
+    assert_not_contains "$bootstrap" 'GRANT SELECT ON ALL TABLES'
+    assert_not_contains "$bootstrap" 'ALTER DEFAULT PRIVILEGES'
+    assert_not_contains "$bootstrap" 'PGDATABASE="$connection_url"'
+    assert_contains "$dockerfile" 'ARG TIMESCALEDB_IMAGE_TAG=latest'
+    assert_contains "$dockerfile" 'FROM proto-fleet-timescaledb:${TIMESCALEDB_IMAGE_TAG}'
+    [[ "$(grep -E '^[[:space:]]*USER[[:space:]]+' "$dockerfile" | tail -n 1)" == "USER postgres" ]] ||
+        fail "Patroni image must default to the postgres user"
+    awk '
+        /^  patroni:$/ { in_patroni = 1; next }
+        in_patroni && /^  [[:alnum:]_-]+:$/ { exit }
+        in_patroni && /^[[:space:]]+user: root$/ { found = 1 }
+        END { exit !found }
+    ' "$compose" || fail "Patroni must start as root before its entrypoint drops privileges"
+}
+
+test_fleet_ha_contract() {
+    local rendered release_dir secret_mount_count
+    local ha_rules="${HA_DIR}/../../server/monitoring/grafana/ha/proto-fleet-ha-rules.yaml"
+    local notification_policies="${HA_DIR}/../../server/monitoring/grafana/provisioning/alerting/notification-policies.yaml"
+    rendered="$(mktemp)"
+    release_dir="$(mktemp -d)"
+    trap 'rm -f "$rendered"; rm -rf "$release_dir"' RETURN
+
+    mkdir -p "${release_dir}/ha" "${release_dir}/server"
+    cp "${HA_DIR}/../docker-compose.yaml" "${release_dir}/docker-compose.yaml"
+    cp "${HA_DIR}/../docker-compose.alerts.yaml" "${release_dir}/docker-compose.alerts.yaml"
+    cp "${HA_DIR}/../docker-compose.system-monitoring.yaml" "${release_dir}/docker-compose.system-monitoring.yaml"
+    cp "${HA_DIR}/../docker-compose.tracing.yaml" "${release_dir}/docker-compose.tracing.yaml"
+    cp "${HA_DIR}/fleet-compose.yaml" "${release_dir}/ha/fleet-compose.yaml"
+    cp "${HA_DIR}/fleet-compose.external.yaml" "${release_dir}/ha/fleet-compose.external.yaml"
+    cp "${HA_DIR}/fleet-compose.alerts.yaml" "${release_dir}/ha/fleet-compose.alerts.yaml"
+    cp "${HA_DIR}/fleet-compose.system-monitoring.yaml" "${release_dir}/ha/fleet-compose.system-monitoring.yaml"
+    cp "${HA_DIR}/fleet-compose.tracing.yaml" "${release_dir}/ha/fleet-compose.tracing.yaml"
+    cp "${HA_DIR}/../../server/docker-compose.base.yaml" "${release_dir}/server/docker-compose.base.yaml"
+    cp "${HA_DIR}/../server/otel-collector-config.datadog.yaml" "${release_dir}/server/otel-collector-config.datadog.yaml"
+    cp -r "${HA_DIR}/../../server/monitoring" "${release_dir}/server/monitoring"
+
+    UPDATES_ENABLED=true render_fleet_profile "$release_dir" base >"$rendered"
+
+    if grep -q '^  timescaledb:$' "$rendered"; then
+        fail "HA Fleet targets must not include the standalone database service"
+    fi
+    assert_contains "$rendered" "HTTP_LISTEN_ADDRESS: 127.0.0.1:4000"
+    assert_contains "$rendered" "UPDATES_ENABLED: \"false\""
+    assert_contains "$rendered" "FLEET_HA_ENABLED: \"true\""
+    assert_contains "$rendered" "https://10.40.0.11:2379,https://10.40.0.12:2379,https://10.40.0.13:2379"
+    assert_contains "$rendered" "FLEET_HA_ENDPOINT_IP: 10.40.0.100"
+    assert_contains "$rendered" "FLEET_HA_ENDPOINT_INTERFACE: eth0"
+    assert_contains "$rendered" "FLEET_ALERTS_ENABLED: \"true\""
+    assert_contains "$rendered" "FLEET_PUBLIC_URL: https://10.40.0.100"
+    assert_contains "$rendered" "sleep 15; exec /app/fleetd"
+    [[ "$(grep -c 'restart: on-failure' "$rendered")" -eq 3 ]] ||
+        fail "Fleet services must restart process failures without bypassing the systemd start gate"
+    assert_contains "$rendered" "cap_drop:"
+    assert_contains "$rendered" "NET_RAW"
+    assert_not_contains "$rendered" "cap_add:"
+    assert_not_contains "$rendered" "NET_ADMIN"
+    assert_not_contains "$rendered" "/app/dlv"
+    assert_contains "$rendered" "source: /etc/proto-fleet/ha/service-ca.crt"
+    assert_contains "$rendered" "source: /etc/proto-fleet/ha/fleet-etcd-password"
+    assert_contains "$rendered" "source: /etc/proto-fleet/ha/node.env"
+    assert_contains "$rendered" "source: /etc/proto-fleet/ha/fleet-client.crt"
+    assert_contains "$rendered" "target: /etc/nginx/ssl/cert.pem"
+    assert_contains "$rendered" "source: /etc/proto-fleet/ha/fleet-client.key"
+    assert_contains "$rendered" "target: /etc/nginx/ssl/key.pem"
+    assert_contains "$rendered" "target: /usr/share/nginx/html/proto-fleet-ha-service-ca.crt"
+    assert_contains "${HA_DIR}/fleet-compose.yaml" '${HA_SECRETS_DIR}/service-ca.crt:/usr/share/nginx/html/proto-fleet-ha-service-ca.crt:ro'
+    assert_not_contains "${HA_DIR}/fleet-compose.yaml" '.key:/usr/share/nginx/html/'
+    assert_contains "$rendered" "GF_SERVER_HTTP_ADDR: 127.0.0.1"
+    assert_contains "$rendered" "GF_SERVER_HTTP_PORT: \"3030\""
+    assert_contains "$rendered" "HA_DB_A_IP: 10.40.0.11"
+    assert_contains "$rendered" "HA_DB_B_IP: 10.40.0.12"
+    assert_contains "$rendered" "image: grafana/grafana:13.0@sha256:e78917cdd3336d0d679d345b2e6d0f60a0fe85ed7ac3882b68f089fdb6ff2ace"
+    assert_contains "$rendered" "GRAFANA_DB_USERNAME: grafana_ha_ro"
+    assert_contains "$rendered" "FLEET_ALERTS_GRAFANA_PASSWORD: test-grafana-admin-password"
+    assert_contains "$rendered" "target: /etc/grafana/provisioning/alerting/proto-fleet-ha-rules.yaml"
+    assert_not_contains "$rendered" "target: /etc/grafana/provisioning/alerting/proto-fleet-rules.yaml"
+    assert_contains "$rendered" "target: /etc/grafana/proto-fleet-ha/service-ca.crt"
+    assert_contains "$rendered" "/api/v1/provisioning/alert-rules/protofleet-ha-readiness"
+    assert_not_contains "$rendered" "--password"
+    assert_contains "$rendered" "Authorization: Basic"
+    assert_contains "$rendered" ">/dev/null 2>&1"
+    assert_contains "${release_dir}/server/monitoring/grafana/ha/timescaledb.yaml" 'url: ${HA_DB_A_IP},${HA_DB_B_IP}:5432'
+    assert_contains "$ha_rules" "for: 1m"
+    assert_not_contains "$ha_rules" "for: 0s"
+    awk '
+        /\["template", "=", "ha-readiness"\]/ { in_ha_route = 1; next }
+        in_ha_route && /group_wait: 5s/ { found = 1; exit }
+        in_ha_route && /^[[:space:]]+- receiver:/ { exit }
+        END { exit !found }
+    ' "$notification_policies" || fail "HA readiness notifications must use a five-second group wait"
+    secret_mount_count="$(grep -c 'source: /etc/proto-fleet/ha/' "$rendered")"
+    [[ "$secret_mount_count" -eq 7 ]] || fail "Fleet services must mount only their required HA secret files"
+
+    render_fleet_profile "$release_dir" disabled >"$rendered"
+    assert_not_contains "$rendered" "grafana:"
+    assert_not_contains "$rendered" "grafana-data"
+    assert_not_contains "$rendered" "FLEET_ALERTS_GRAFANA_PASSWORD"
+
+    render_fleet_profile "$release_dir" tracing >"$rendered"
+
+    assert_contains "$rendered" "FLEET_SYSTEM_MONITORING_ENABLED: \"true\""
+    assert_contains "$rendered" "source: /var/lib/proto-fleet/ha/system-monitoring"
+    assert_contains "$rendered" "target: /hostfs"
+    assert_contains "$rendered" "FLEET_TELEMETRY_ENABLED: \"true\""
+    assert_contains "$rendered" "DD_HOSTNAME: ha-a"
+    awk '
+        /^  fleet-api:$/ { f = 1; next }
+        f && /^  [[:alnum:]_-]+:$/ { exit }
+        f && /^      otel-collector:$/ { exit 1 }
+    ' "$rendered" || fail "HA tracing collector must not gate Fleet startup"
+    assert_contains "$rendered" 'published: "13133"'
+    assert_contains "$rendered" "image: otel/opentelemetry-collector-contrib:0.150.1@sha256:a516c26968aa1feb5e5fc0562e3338ea13755cb4f373603226bcc4e276374ad0"
+    assert_contains "${release_dir}/server/otel-collector-config.datadog.yaml" "fail_on_invalid_key: true"
+    assert_contains "$rendered" "target: /etc/grafana/provisioning/alerting/proto-fleet-system-rules.yaml"
+    awk '
+        /^  otel-collector:$/ { in_collector = 1; next }
+        in_collector && /^  [[:alnum:]_-]+:$/ { exit }
+        in_collector && /^[[:space:]]+restart: on-failure$/ { found = 1 }
+        END { exit !found }
+    ' "$rendered" || fail "HA tracing collector must remain behind the systemd start gate"
+    assert_not_contains "$rendered" "source: ${release_dir}/ssl"
+    assert_not_contains "$rendered" "/run/proto-fleet-updater"
+
+    render_fleet_profile "$release_dir" external >"$rendered"
+    assert_contains "$rendered" "FLEET_HA_ENDPOINT_MODE: external"
+    assert_contains "$rendered" "FLEET_HA_ENDPOINT_NODE_IP: 10.40.0.11"
+    assert_contains "$rendered" 'FLEET_HA_ENDPOINT_IP: ""'
+    assert_contains "$rendered" 'FLEET_HA_ENDPOINT_INTERFACE: ""'
+    assert_contains "$rendered" "FLEET_PUBLIC_URL: https://fleet.example.com"
+    for artifact in firmware command-artifacts logs; do
+        assert_contains "$rendered" "source: /var/lib/proto-fleet/ha/artifacts/${artifact}"
+        assert_contains "$rendered" "target: /app/${artifact}"
+    done
+
+    assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" '--cacert "$service_ca"'
+    assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" '--connect-to "${virtual_ip}:443:127.0.0.1:443"'
+    assert_contains "${HA_DIR}/scripts/check-fleet-active.sh" "--noproxy '*'"
+    assert_not_contains "${HA_DIR}/scripts/check-fleet-active.sh" "--insecure"
+    assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" "Restart=on-failure"
+    assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" "After=proto-fleet-ha.service"
+    assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" "PartOf=proto-fleet-ha.service"
+    assert_contains "${HA_DIR}/proto-fleet-ha-keepalived.conf" "Wants=keepalived.service"
+    assert_contains "${HA_DIR}/keepalived-systemd.conf.tmpl" 'ExecStopPost=/usr/sbin/ip address flush to ${HA_VIRTUAL_IP}/32 dev ${HA_NETWORK_INTERFACE}'
+    assert_not_contains "${HA_DIR}/firewall.nft.tmpl" "destroy table"
+    assert_contains "${HA_DIR}/firewall.nft.tmpl" "tcp dport 40000 drop"
+    assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "ExecStartPre=-/usr/sbin/nft add table inet proto_fleet_ha"
+    assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "ExecStartPre=/usr/sbin/nft -c -f /etc/proto-fleet/ha/firewall-replace.nft"
+    assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "ExecStart=/usr/sbin/nft -f /etc/proto-fleet/ha/firewall-replace.nft"
+    assert_contains "${HA_DIR}/firewall-replace.nft" "delete table inet proto_fleet_ha"
+    assert_contains "${HA_DIR}/firewall-replace.nft" 'include "/etc/proto-fleet/ha/firewall.nft"'
+    assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "BindsTo=nftables.service"
+    assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "After=nftables.service"
+    assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "PartOf=nftables.service"
+    assert_contains "${HA_DIR}/proto-fleet-ha-firewall.service" "Before=docker.service proto-fleet-ha.service"
+    assert_contains "${HA_DIR}/nftables-systemd.conf" "ExecReload="
+    assert_contains "${HA_DIR}/nftables-systemd.conf" "ExecReload=/usr/sbin/nft -f /etc/proto-fleet/ha/nftables-reload.conf"
+    assert_not_contains "${HA_DIR}/nftables-systemd.conf" "ExecStart"
+    assert_not_contains "${HA_DIR}/nftables-systemd.conf" "ExecStop"
+    assert_contains "${HA_DIR}/nftables-reload.conf" 'include "/etc/nftables.conf"'
+    assert_contains "${HA_DIR}/nftables-reload.conf" 'include "/etc/proto-fleet/ha/firewall.nft"'
+    assert_contains "${HA_DIR}/proto-fleet-ha.service" "Requires=proto-fleet-ha-firewall.service docker.service"
+    assert_contains "${HA_DIR}/proto-fleet-ha.service" "BindsTo=docker.service"
+    assert_contains "${HA_DIR}/proto-fleet-ha.service" "PartOf=docker.service"
+    assert_contains "${HA_DIR}/proto-fleet-ha.service" "ExecStart=/opt/proto-fleet/deployment/ha/fleet-ha start"
+    assert_contains "${HA_DIR}/proto-fleet-ha.service" "ExecStopPost=/opt/proto-fleet/deployment/ha/fleet-ha stop"
+    assert_contains "${HA_DIR}/proto-fleet-ha.service" "StartLimitIntervalSec=5min"
+    assert_contains "${HA_DIR}/proto-fleet-ha.service" "StartLimitBurst=3"
+    assert_contains "${HA_DIR}/proto-fleet-ha.service" "Restart=on-failure"
+    assert_contains "${HA_DIR}/docker-systemd.conf" "Requires=proto-fleet-ha-firewall.service"
+    assert_contains "${HA_DIR}/docker-systemd.conf" "PartOf=nftables.service"
+    assert_not_contains "${HA_DIR}/docker-systemd.conf" "Wants=proto-fleet-ha.service"
+    assert_contains "${HA_DIR}/docker-ha-recovery-systemd.conf" "Wants=proto-fleet-ha.service"
+    assert_contains "${HA_DIR}/updater-systemd.conf" "ReadWritePaths=/etc/proto-fleet/ha"
+    assert_contains "${HA_DIR}/updater-systemd.conf" "After=proto-fleet-ha.service"
+    assert_contains "${HA_DIR}/updater-systemd.conf" "PartOf=proto-fleet-ha.service"
+    assert_contains "${HA_DIR}/updater-systemd.conf" "StartLimitIntervalSec=0"
+    assert_contains "${HA_DIR}/ha-updater-systemd.conf" "EnvironmentFile=-/etc/proto-fleet/updater.env"
+    assert_contains "${HA_DIR}/ha-updater-systemd.conf" "Wants=proto-fleet-updater.service"
+    assert_contains "${HA_DIR}/ha-updater-systemd.conf" "ExecStartPre=/usr/local/libexec/proto-fleet/proto-fleet-updater --deployment-mode ha --self-update-path /usr/local/libexec/proto-fleet/proto-fleet-updater --repair-startup"
+    assert_not_contains "${HA_DIR}/ha-updater-systemd.conf" "Requires=proto-fleet-updater.service"
+
+    for nginx_config in "${HA_DIR}/../client/nginx.http.conf" "${HA_DIR}/../client/nginx.https.conf"; do
+        assert_contains "$nginx_config" "location ^~ /api-proxy/health/ha"
+        assert_contains "$nginx_config" "return 404;"
+    done
+}
+
+test_compose_uses_one_host_identity
+test_patroni_contract
+test_fleet_ha_contract
+
+echo "HA deployment profile checks passed"

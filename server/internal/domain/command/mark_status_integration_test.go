@@ -25,7 +25,7 @@ func setupMarkStatusTest(t *testing.T) (*sql.DB, *testutil.DatabaseService, *tes
 
 func seedBatchLog(t *testing.T, conn *sql.DB, batchUUID string, userID int64, deviceCount int32) {
 	t.Helper()
-	err := db2.WithTransactionNoResult(context.Background(), conn, func(q *sqlc.Queries) error {
+	err := db2.WithTransactionNoResult(context.Background(), conn, func(q sqlc.Querier) error {
 		_, err := q.CreateCommandBatchLog(context.Background(), sqlc.CreateCommandBatchLogParams{
 			Uuid:         batchUUID,
 			Type:         "REBOOT",
@@ -43,7 +43,7 @@ func seedBatchLog(t *testing.T, conn *sql.DB, batchUUID string, userID int64, de
 func seedProcessingMessage(t *testing.T, conn *sql.DB, batchUUID string, deviceID int64) int64 {
 	t.Helper()
 	ctx := context.Background()
-	err := db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+	err := db2.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
 		return q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
 			CommandBatchLogUuid: batchUUID,
 			CommandType:         "REBOOT",
@@ -100,7 +100,7 @@ func TestMarkQueueMessageStatusTransitions(t *testing.T) {
 		msgID := seedProcessingMessage(t, conn, batchUUID, device.DatabaseID)
 
 		// Act — same query as markQueueMessageStatus with nil workerError
-		result, err := db2.WithTransaction(context.Background(), conn, func(q *sqlc.Queries) (sql.Result, error) {
+		result, err := db2.WithTransaction(context.Background(), conn, func(q sqlc.Querier) (sql.Result, error) {
 			return q.UpdateMessageStatus(context.Background(), sqlc.UpdateMessageStatusParams{
 				ID:     msgID,
 				Status: sqlc.QueueStatusEnumSUCCESS,
@@ -123,7 +123,7 @@ func TestMarkQueueMessageStatusTransitions(t *testing.T) {
 		msgID := seedProcessingMessage(t, conn, batchUUID, device.DatabaseID)
 
 		// Act — same query as markQueueMessageStatus with retryable error
-		result, err := db2.WithTransaction(context.Background(), conn, func(q *sqlc.Queries) (sql.Result, error) {
+		result, err := db2.WithTransaction(context.Background(), conn, func(q sqlc.Querier) (sql.Result, error) {
 			return q.UpdateMessageAfterFailure(context.Background(), sqlc.UpdateMessageAfterFailureParams{
 				ID:         msgID,
 				RetryCount: 5, // MaxFailureRetries = 5, retry_count starts at 0
@@ -147,7 +147,7 @@ func TestMarkQueueMessageStatusTransitions(t *testing.T) {
 		msgID := seedProcessingMessage(t, conn, batchUUID, device.DatabaseID)
 
 		// Act — same query as markQueueMessageStatus with unimplemented error
-		result, err := db2.WithTransaction(context.Background(), conn, func(q *sqlc.Queries) (sql.Result, error) {
+		result, err := db2.WithTransaction(context.Background(), conn, func(q sqlc.Querier) (sql.Result, error) {
 			return q.UpdateMessagePermanentlyFailed(context.Background(), sqlc.UpdateMessagePermanentlyFailedParams{
 				ID:        msgID,
 				ErrorInfo: sql.NullString{String: "not supported", Valid: true},
@@ -170,7 +170,7 @@ func TestMarkQueueMessageStatusTransitions(t *testing.T) {
 
 		// Create message directly as FAILED (simulating reaper)
 		ctx := context.Background()
-		err := db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+		err := db2.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
 			return q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
 				CommandBatchLogUuid: batchUUID,
 				CommandType:         "REBOOT",
@@ -189,7 +189,7 @@ func TestMarkQueueMessageStatusTransitions(t *testing.T) {
 		require.NoError(t, err)
 
 		// Act — try SUCCESS on already-FAILED message (WHERE status = 'PROCESSING' won't match)
-		result, err := db2.WithTransaction(ctx, conn, func(q *sqlc.Queries) (sql.Result, error) {
+		result, err := db2.WithTransaction(ctx, conn, func(q sqlc.Querier) (sql.Result, error) {
 			return q.UpdateMessageStatus(ctx, sqlc.UpdateMessageStatusParams{
 				ID:     msgID,
 				Status: sqlc.QueueStatusEnumSUCCESS,
@@ -222,7 +222,7 @@ func TestAtomicQueueStatusAndDeviceLog(t *testing.T) {
 		msgID := seedProcessingMessage(t, conn, batchUUID, device.DatabaseID)
 
 		// Act — single transaction: mark SUCCESS + write device log
-		err := db2.WithTransactionNoResult(context.Background(), conn, func(q *sqlc.Queries) error {
+		err := db2.WithTransactionNoResult(context.Background(), conn, func(q sqlc.Querier) error {
 			result, err := q.UpdateMessageStatus(context.Background(), sqlc.UpdateMessageStatusParams{
 				ID:     msgID,
 				Status: sqlc.QueueStatusEnumSUCCESS,
@@ -258,7 +258,7 @@ func TestAtomicQueueStatusAndDeviceLog(t *testing.T) {
 		failureReason := "plugin exploded: connection refused"
 
 		// Act — transition to FAILED and write the audit row with error_info.
-		err := db2.WithTransactionNoResult(context.Background(), conn, func(q *sqlc.Queries) error {
+		err := db2.WithTransactionNoResult(context.Background(), conn, func(q sqlc.Querier) error {
 			result, err := q.UpdateMessagePermanentlyFailed(context.Background(), sqlc.UpdateMessagePermanentlyFailedParams{
 				ID:        msgID,
 				ErrorInfo: sql.NullString{String: failureReason, Valid: true},
@@ -305,7 +305,7 @@ func TestAtomicQueueStatusAndDeviceLog(t *testing.T) {
 		seedBatchLog(t, conn, batchUUID, user.DatabaseID, 1)
 
 		// Act — write a SUCCESS device log without any error info.
-		err := db2.WithTransactionNoResult(context.Background(), conn, func(q *sqlc.Queries) error {
+		err := db2.WithTransactionNoResult(context.Background(), conn, func(q sqlc.Querier) error {
 			return q.UpsertCommandOnDeviceLog(context.Background(), sqlc.UpsertCommandOnDeviceLogParams{
 				Uuid:      batchUUID,
 				DeviceID:  device.DatabaseID,
@@ -335,7 +335,7 @@ func TestAtomicQueueStatusAndDeviceLog(t *testing.T) {
 
 		// Seed as FAILED (simulating reaper)
 		ctx := context.Background()
-		err := db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+		err := db2.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
 			return q.CreateQueueMessage(ctx, sqlc.CreateQueueMessageParams{
 				CommandBatchLogUuid: batchUUID,
 				CommandType:         "REBOOT",
@@ -354,7 +354,7 @@ func TestAtomicQueueStatusAndDeviceLog(t *testing.T) {
 		require.NoError(t, err)
 
 		// Act — same atomic transaction pattern; stale detection skips device log
-		err = db2.WithTransactionNoResult(ctx, conn, func(q *sqlc.Queries) error {
+		err = db2.WithTransactionNoResult(ctx, conn, func(q sqlc.Querier) error {
 			result, err := q.UpdateMessageStatus(ctx, sqlc.UpdateMessageStatusParams{
 				ID:     msgID,
 				Status: sqlc.QueueStatusEnumSUCCESS,

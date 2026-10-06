@@ -234,6 +234,7 @@ func TestCommandsManifestSessionOnlyMethods(t *testing.T) {
 		"/alerts.v1.ChannelService/ListChannels",
 		"/alerts.v1.ChannelService/TestChannel",
 		"/alerts.v1.ChannelService/UpdateChannel",
+		"/alerts.v1.HistoryService/ListActiveAlertGroups",
 		"/alerts.v1.HistoryService/ListAlerts",
 		"/alerts.v1.MaintenanceWindowService/CreateMaintenanceWindow",
 		"/alerts.v1.MaintenanceWindowService/DeleteMaintenanceWindow",
@@ -527,7 +528,7 @@ func TestValidateManifestRequirementsRejectsGapsAndStaleExceptions(t *testing.T)
 func TestValidateManifestRequirementsAllowsDocumentedMessageConstraint(t *testing.T) {
 	message := (&curtailmentv1.PreviewCurtailmentPlanRequest{}).ProtoReflect().Descriptor()
 	err := validateManifestRequirements(message, renderOptions{
-		RequiredFields:       map[string]bool{"mode": true},
+		RequiredFields:       map[string]bool{"mode": true, "execution_schema_version": true},
 		ValidationExceptions: map[string]string{"$message": "mode parameters depend on mode"},
 	})
 	if err != nil {

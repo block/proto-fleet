@@ -118,6 +118,8 @@ const confirmedNode: FleetNodeItem = {
   name: "node-01",
   enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
   identityFingerprint: "abcd1234abcd1234",
+  commandProtocolUpgradeRequired: false,
+  controlStreamConnected: true,
   createdAt: new Date("2026-07-09T12:00:00Z"),
   lastSeenAt: new Date("2026-07-09T12:01:00Z"),
 };

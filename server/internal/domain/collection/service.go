@@ -2,10 +2,13 @@ package collection
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 
+	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/collection/v1"
@@ -13,6 +16,7 @@ import (
 	fm "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/devicerollup"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	minerModels "github.com/block/proto-fleet/server/internal/domain/miner/models"
@@ -193,6 +197,45 @@ func (s *Service) resolveAndLockRackPlacement(ctx context.Context, orgID int64, 
 	return siteID, buildingID, nil
 }
 
+// ResolveBuildingSite returns a building's parent site_id so the handlers can
+// narrow the site:manage check to a building-only placement. Unlocked read for
+// the authorization decision only; the observed site is bound to the write via
+// authz.WithAuthorizedPlacement and re-checked under lock (verifyAuthorizedPlacement).
+// Returns (nil, nil) for a site-less building, NotFound for a missing one.
+func (s *Service) ResolveBuildingSite(ctx context.Context, orgID, buildingID int64) (*int64, error) {
+	return s.collectionStore.GetBuildingSite(ctx, orgID, buildingID)
+}
+
+// ResolveRackSite returns a rack's current site_id (nil for a site-less rack or
+// a non-rack collection). Unlocked read the handlers use to authorize a move
+// against the SOURCE site; bound to the write and re-checked under lock.
+func (s *Service) ResolveRackSite(ctx context.Context, orgID, collectionID int64) (*int64, error) {
+	rackInfo, err := s.collectionStore.GetRackInfo(ctx, collectionID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if rackInfo == nil {
+		return nil, nil
+	}
+	return rackInfo.SiteId, nil
+}
+
+// verifyAuthorizedPlacement fails the write closed when the locked current/
+// target sites no longer match the sites the handler authorized — i.e. a
+// concurrent move slipped in between authorization and this write. A no-op when
+// no authz.AuthorizedPlacement is set (an internal/trusted caller).
+func verifyAuthorizedPlacement(ctx context.Context, lockedCurrentSite, lockedTargetSite *int64) error {
+	ap, ok := authz.AuthorizedPlacementFromContext(ctx)
+	if !ok {
+		return nil
+	}
+	if !int64PtrEqual(ap.CurrentSiteID, lockedCurrentSite) || !int64PtrEqual(ap.TargetSiteID, lockedTargetSite) {
+		return fleeterror.NewFailedPreconditionError(
+			"rack placement changed since authorization; refresh and retry")
+	}
+	return nil
+}
+
 // enforceBuildingRackCapacity rejects placing a rack into buildingID when
 // the building's grid (aisles×racks_per_aisle) is already full. netNew is
 // the count of racks newly joining the building: 1 for a create or a
@@ -234,6 +277,22 @@ func (s *Service) enforceBuildingRackCapacity(ctx context.Context, orgID, buildi
 // (both ids nil). Explicit zero (unassign) returns false.
 func rackPlacementOmitted(rackInfo *pb.RackInfo) bool {
 	return rackInfo != nil && rackInfo.SiteId == nil && rackInfo.BuildingId == nil
+}
+
+// deviceLosesSiteConflicts builds the per-device conflict list returned when
+// adding devices to a site-less rack would strip their site/building. Sorted
+// for a deterministic response. Shared by AssignDevicesToRack and SaveRack so
+// both enforce the same "losing placement" contract identically.
+func deviceLosesSiteConflicts(deviceIdentifiers []string) []PerDeviceRackConflict {
+	sort.Strings(deviceIdentifiers)
+	conflicts := make([]PerDeviceRackConflict, 0, len(deviceIdentifiers))
+	for _, id := range deviceIdentifiers {
+		conflicts = append(conflicts, PerDeviceRackConflict{
+			DeviceIdentifier: id,
+			Reason:           RackConflictReasonDeviceLosesSite,
+		})
+	}
+	return conflicts
 }
 
 func int64PtrEqual(a, b *int64) bool {
@@ -333,6 +392,11 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 			var err error
 			siteID, buildingID, err = s.resolveAndLockRackPlacement(ctx, info.OrganizationID, rackInfo)
 			if err != nil {
+				return nil, err
+			}
+			// New rack, no current site: bind the destination to what the handler
+			// authorized, failing closed if the building moved sites since.
+			if err := verifyAuthorizedPlacement(ctx, nil, siteID); err != nil {
 				return nil, err
 			}
 		}
@@ -452,6 +516,303 @@ func (s *Service) CreateCollection(ctx context.Context, req *pb.CreateCollection
 	return &pb.CreateCollectionResponse{Collection: txResult.collection, AddedCount: int32(txResult.addedCount)}, nil
 }
 
+// NewRackParams is one row of a bulk rack create. Placement is not here — it
+// lives on CreateRacksParams, since a batch lands in one place.
+type NewRackParams struct {
+	Label       string
+	Rows        int32
+	Columns     int32
+	Zone        string
+	OrderIndex  pb.RackOrderIndex
+	CoolingType pb.RackCoolingType
+}
+
+// CreateRacksParams describes a bulk rack create. SiteID / BuildingID use the
+// same encoding as RackInfo: nil means "not placed", and BuildingID dictates
+// the site when both are set.
+type CreateRacksParams struct {
+	OrgID      int64
+	SiteID     *int64
+	BuildingID *int64
+	Racks      []NewRackParams
+}
+
+// RackCreateErrorReason says why one row of a bulk create was rejected.
+type RackCreateErrorReason int
+
+const (
+	RackCreateErrorReasonUnspecified RackCreateErrorReason = iota
+	RackCreateDuplicateLabelInBatch
+	// RackCreateDuplicateLabelInOrg: label taken by a live rack anywhere in
+	// the org, not just the target site/building — see ListTakenLabels.
+	RackCreateDuplicateLabelInOrg
+)
+
+// PerRackCreateError points at one offending row so the UI can mark it.
+type PerRackCreateError struct {
+	Index  int32
+	Label  string
+	Reason RackCreateErrorReason
+}
+
+// maxBulkCreateRacks caps one bulk-create batch, mirroring the buf.validate
+// max_items — a typo guard, not a capacity limit.
+const maxBulkCreateRacks = 500
+
+// errBulkRackCreateRejected rolls the batch back when label collisions are
+// found inside the tx; the offending rows travel in a closure variable.
+// Deliberately NOT a FleetError so errors.Is still matches after the
+// transactor wraps it.
+var errBulkRackCreateRejected = errors.New("bulk rack create rejected")
+
+// CreateRacks inserts the whole batch at one placement in a SINGLE
+// transaction: all racks exist afterward or none do.
+//
+// Label collisions are reported per row so the form can mark offending lines.
+// Two sources: duplicates within the batch (request math, before the tx) and
+// against live racks in the ORG (read inside the tx, after the placement rows
+// are locked, so a concurrent create can't slip in). Org-wide because
+// uk_device_collection_org_type_label is.
+//
+// Members are never seeded: N racks at once has no way to say which miner
+// belongs to which rack.
+func (s *Service) CreateRacks(ctx context.Context, params CreateRacksParams) ([]*pb.DeviceCollection, []PerRackCreateError, error) {
+	// Resolve attribution up front: failing after the racks exist would
+	// report an error for a write that happened.
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(params.Racks) == 0 {
+		return nil, nil, fleeterror.NewInvalidArgumentError("racks must not be empty")
+	}
+	if len(params.Racks) > maxBulkCreateRacks {
+		return nil, nil, fleeterror.NewInvalidArgumentErrorf("racks exceed the %d-row limit", maxBulkCreateRacks)
+	}
+
+	// Trim first so " A" and "A " can't insert then read back as the same
+	// label. The trimmed value is stored and compared.
+	labels := make([]string, len(params.Racks))
+	for i, r := range params.Racks {
+		labels[i] = strings.TrimSpace(r.Label)
+		if labels[i] == "" {
+			return nil, nil, fleeterror.NewInvalidArgumentErrorf("racks[%d].label is required", i)
+		}
+		if err := validateNewRackShape(r); err != nil {
+			return nil, nil, fleeterror.NewInvalidArgumentErrorf("racks[%d]: %v", i, err)
+		}
+	}
+
+	// Don't return on batch dupes alone: a label can be both repeated here and
+	// taken in the org, and reporting one source at a time makes the operator
+	// resubmit to find the rest. Merged with the org check below.
+	batchDupes := duplicateLabelsInBatch(labels)
+
+	// Same struct SaveRack resolves, so site-from-building derivation and lock
+	// ordering stay in one place.
+	placement := &pb.RackInfo{SiteId: params.SiteID, BuildingId: params.BuildingID}
+
+	// RunInTxWithResult may retry the closure, so reset at each attempt.
+	var rejected []PerRackCreateError
+	result, err := s.transactor.RunInTxWithResult(ctx, func(txCtx context.Context) (any, error) {
+		rejected = nil
+
+		siteID, buildingID, err := s.resolveAndLockRackPlacement(txCtx, params.OrgID, placement)
+		if err != nil {
+			return nil, err
+		}
+		// All racks are new and share one placement, so one check binds the
+		// destination to what the handler authorized.
+		if err := verifyAuthorizedPlacement(txCtx, nil, siteID); err != nil {
+			return nil, err
+		}
+		if buildingID != nil {
+			// All racks are new, so the whole batch counts against the grid.
+			if err := s.enforceBuildingRackCapacity(txCtx, params.OrgID, *buildingID, len(params.Racks)); err != nil {
+				return nil, err
+			}
+		}
+
+		taken, err := s.collectionStore.ListTakenLabels(txCtx, params.OrgID, pb.CollectionType_COLLECTION_TYPE_RACK, labels)
+		if err != nil {
+			return nil, err
+		}
+		var orgClashes []PerRackCreateError
+		if len(taken) > 0 {
+			takenSet := make(map[string]struct{}, len(taken))
+			for _, label := range taken {
+				takenSet[label] = struct{}{}
+			}
+			for i, label := range labels {
+				if _, clash := takenSet[label]; clash {
+					orgClashes = append(orgClashes, PerRackCreateError{
+						Index:  int32(i), //nolint:gosec // i < len(labels) <= maxBulkCreateRacks (500), checked above.
+						Label:  label,
+						Reason: RackCreateDuplicateLabelInOrg,
+					})
+				}
+			}
+		}
+		rejected = mergeRackCreateErrors(batchDupes, orgClashes)
+		if len(rejected) > 0 {
+			return nil, errBulkRackCreateRejected
+		}
+
+		created := make([]*pb.DeviceCollection, 0, len(params.Racks))
+		for i, r := range params.Racks {
+			// Same store calls a single create uses, so the unique-index
+			// mapping and column defaults stay in one place.
+			collection, err := s.collectionStore.CreateCollection(txCtx, params.OrgID, pb.CollectionType_COLLECTION_TYPE_RACK, labels[i], "")
+			if err != nil {
+				// The unique index is org-wide, but this tx locks only the
+				// target site/building rows (an unplaced batch locks none), so
+				// a concurrent same-label create can commit between the
+				// ListTakenLabels read and this insert at READ COMMITTED.
+				// Report as this row's rejection, not an opaque AlreadyExists.
+				var fleetErr fleeterror.FleetError
+				if errors.As(err, &fleetErr) && fleetErr.GRPCCode == connect.CodeAlreadyExists {
+					rejected = []PerRackCreateError{{
+						Index:  int32(i), //nolint:gosec // i < len(params.Racks) <= maxBulkCreateRacks (500).
+						Label:  labels[i],
+						Reason: RackCreateDuplicateLabelInOrg,
+					}}
+					return nil, errBulkRackCreateRejected
+				}
+				return nil, err
+			}
+			if err := s.collectionStore.CreateRackExtension(txCtx, interfaces.CreateRackExtensionParams{
+				OrgID:        params.OrgID,
+				CollectionID: collection.Id,
+				Rows:         r.Rows,
+				Columns:      r.Columns,
+				OrderIndex:   int32(r.OrderIndex),
+				CoolingType:  int32(r.CoolingType),
+				Zone:         r.Zone,
+				SiteID:       siteID,
+				BuildingID:   buildingID,
+			}); err != nil {
+				return nil, err
+			}
+			collection.TypeDetails = &pb.DeviceCollection_RackInfo{RackInfo: &pb.RackInfo{
+				Rows:        r.Rows,
+				Columns:     r.Columns,
+				Zone:        r.Zone,
+				OrderIndex:  r.OrderIndex,
+				CoolingType: r.CoolingType,
+				SiteId:      siteID,
+				BuildingId:  buildingID,
+			}}
+			created = append(created, collection)
+		}
+		return &createRacksResult{racks: created, siteID: siteID}, nil
+	})
+	if err != nil {
+		if errors.Is(err, errBulkRackCreateRejected) {
+			return nil, rejected, nil
+		}
+		return nil, nil, err
+	}
+	txResult, ok := result.(*createRacksResult)
+	if !ok {
+		return nil, nil, fleeterror.NewInternalErrorf("unexpected result type: %T", result)
+	}
+
+	// One activity row per rack, matching a sequence of single creates.
+	scopeType := collectionScopeType(pb.CollectionType_COLLECTION_TYPE_RACK)
+	for _, rack := range txResult.racks {
+		label := rack.Label
+		s.logActivity(ctx, activitymodels.Event{
+			Category:       activitymodels.CategoryCollection,
+			Type:           "create_collection",
+			Description:    fmt.Sprintf("Create %s: %s", scopeType, label),
+			ScopeType:      &scopeType,
+			ScopeLabel:     &label,
+			UserID:         &info.ExternalUserID,
+			Username:       &info.Username,
+			OrganizationID: &info.OrganizationID,
+			SiteID:         txResult.siteID,
+		})
+	}
+	return txResult.racks, nil, nil
+}
+
+type createRacksResult struct {
+	racks []*pb.DeviceCollection
+	// Resolved placement, for the activity rows' site scope.
+	siteID *int64
+}
+
+// validateNewRackShape enforces the same dimension/order/cooling contract as
+// validateRackInfoShape. Separate because a bulk row has no RackInfo — its
+// placement lives on the request, not the row.
+func validateNewRackShape(r NewRackParams) error {
+	if r.Rows < 1 || r.Rows > maxRackDimension {
+		return fmt.Errorf("rows must be between 1 and %d", maxRackDimension)
+	}
+	if r.Columns < 1 || r.Columns > maxRackDimension {
+		return fmt.Errorf("columns must be between 1 and %d", maxRackDimension)
+	}
+	if r.OrderIndex == pb.RackOrderIndex_RACK_ORDER_INDEX_UNSPECIFIED {
+		return errors.New("order_index is required")
+	}
+	if _, ok := pb.RackOrderIndex_name[int32(r.OrderIndex)]; !ok {
+		return errors.New("invalid order_index value")
+	}
+	if r.CoolingType == pb.RackCoolingType_RACK_COOLING_TYPE_UNSPECIFIED {
+		return errors.New("cooling_type is required")
+	}
+	if _, ok := pb.RackCoolingType_name[int32(r.CoolingType)]; !ok {
+		return errors.New("invalid cooling_type value")
+	}
+	return nil
+}
+
+// duplicateLabelsInBatch reports every row whose label repeats an earlier row.
+// The FIRST occurrence is left alone — it is the later ones the operator needs
+// to change, and flagging all of them would light up a whole prefix run.
+func duplicateLabelsInBatch(labels []string) []PerRackCreateError {
+	seen := make(map[string]struct{}, len(labels))
+	var dupes []PerRackCreateError
+	for i, label := range labels {
+		if _, repeat := seen[label]; repeat {
+			dupes = append(dupes, PerRackCreateError{
+				Index:  int32(i), //nolint:gosec // caller bounds labels to maxBulkCreateRacks (500) first.
+				Label:  label,
+				Reason: RackCreateDuplicateLabelInBatch,
+			})
+			continue
+		}
+		seen[label] = struct{}{}
+	}
+	return dupes
+}
+
+// mergeRackCreateErrors combines the two label-uniqueness sources into one
+// entry per row, ordered by index so the response lines up with the request.
+// A row that is both repeated in the batch and already taken in the org
+// reports IN_ORG: that is the one renaming other rows cannot resolve.
+func mergeRackCreateErrors(batchDupes, orgClashes []PerRackCreateError) []PerRackCreateError {
+	if len(batchDupes) == 0 {
+		return orgClashes
+	}
+	if len(orgClashes) == 0 {
+		return batchDupes
+	}
+	byIndex := make(map[int32]PerRackCreateError, len(batchDupes)+len(orgClashes))
+	for _, e := range batchDupes {
+		byIndex[e.Index] = e
+	}
+	for _, e := range orgClashes {
+		byIndex[e.Index] = e
+	}
+	merged := make([]PerRackCreateError, 0, len(byIndex))
+	for _, e := range byIndex {
+		merged = append(merged, e)
+	}
+	sort.Slice(merged, func(i, j int) bool { return merged[i].Index < merged[j].Index })
+	return merged
+}
+
 // GetCollection retrieves a collection by ID.
 func (s *Service) GetCollection(ctx context.Context, req *pb.GetCollectionRequest) (*pb.GetCollectionResponse, error) {
 	info, err := session.GetInfo(ctx)
@@ -541,7 +902,7 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 			//     govern — recheck under the rack row lock (afterLock) so a
 			//     concurrent SaveRack can't add members between the read and the
 			//     resize.
-			var afterLock func(context.Context) error
+			var afterLock func(ctx context.Context, resolvedSiteID, resolvedBuildingID *int64) error
 			if hasDeviceSelector {
 				if capacity := int(rackInfo.Rows) * int(rackInfo.Columns); len(deviceIdentifiers) > capacity {
 					return nil, fleeterror.NewInvalidArgumentErrorf(
@@ -549,7 +910,7 @@ func (s *Service) UpdateCollection(ctx context.Context, req *pb.UpdateCollection
 						len(deviceIdentifiers), capacity, rackInfo.Rows, rackInfo.Columns)
 				}
 			} else {
-				afterLock = func(ctx context.Context) error {
+				afterLock = func(ctx context.Context, _, _ *int64) error {
 					return s.enforceRackDimensionsFitCurrentMembers(ctx, info.OrganizationID, req.CollectionId, rackInfo.Rows, rackInfo.Columns)
 				}
 			}
@@ -1076,6 +1437,133 @@ type AssignDevicesToRackParams struct {
 	// site, stripping their site/building to match the rack. When false
 	// (default) such an add returns Conflicts and writes nothing.
 	ForceClearConflictingSite bool
+	// SlotAssignments optionally places the assigned devices in the target
+	// rack's grid, in the same transaction. One entry per device whose
+	// placement changes: Position set places it, Position nil clears its
+	// slot. Unnamed devices keep the slot they had. Requires TargetRackID.
+	SlotAssignments []*pb.RackSlot
+}
+
+// validateAssignRackSlots checks the SlotAssignments contract that needs no
+// DB read. Grid bounds are checked in-tx, once dimensions are known.
+func validateAssignRackSlots(params AssignDevicesToRackParams) error {
+	if len(params.SlotAssignments) == 0 {
+		return nil
+	}
+	if params.TargetRackID == nil {
+		return fleeterror.NewInvalidArgumentError("slot_assignments requires target_rack_id; an unassign has no rack to place into")
+	}
+	assigned := make(map[string]struct{}, len(params.DeviceIdentifiers))
+	for _, id := range params.DeviceIdentifiers {
+		assigned[id] = struct{}{}
+	}
+	seenDevices := make(map[string]struct{}, len(params.SlotAssignments))
+	seenPositions := make(map[[2]int32]struct{}, len(params.SlotAssignments))
+	for _, slot := range params.SlotAssignments {
+		if slot == nil {
+			return fleeterror.NewInvalidArgumentError("slot assignment must not be empty")
+		}
+		if _, ok := assigned[slot.DeviceIdentifier]; !ok {
+			return fleeterror.NewInvalidArgumentErrorf("slot assignment references device %q which is not in the device selector", slot.DeviceIdentifier)
+		}
+		if _, dup := seenDevices[slot.DeviceIdentifier]; dup {
+			return fleeterror.NewInvalidArgumentErrorf("device %q appears in slot_assignments more than once", slot.DeviceIdentifier)
+		}
+		seenDevices[slot.DeviceIdentifier] = struct{}{}
+		// Unset position = clear the slot; nothing left to bounds check.
+		if slot.Position == nil {
+			continue
+		}
+		if slot.Position.Row < 0 || slot.Position.Column < 0 {
+			return fleeterror.NewInvalidArgumentError("slot position row and column must not be negative")
+		}
+		// Friendly form of uk_rack_slot_position.
+		cell := [2]int32{slot.Position.Row, slot.Position.Column}
+		if _, dup := seenPositions[cell]; dup {
+			return fleeterror.NewInvalidArgumentErrorf("two devices are assigned to slot (%d, %d)", cell[0], cell[1])
+		}
+		seenPositions[cell] = struct{}{}
+	}
+	return nil
+}
+
+// applyRackSlotDelta persists the slot half of an AssignDevicesToRack
+// batch. Only the named devices are touched, so an unmentioned miner keeps
+// its slot — the delta shape SaveRack's replace-all could not express.
+// Empty slotAssignments writes nothing, which is what every pre-existing
+// caller (importer, CLI, assign-then-place pair) relies on.
+//
+// members is the post-insert membership snapshot. The store calls are
+// INSERT/DELETE ... SELECT over device_set_membership, so a non-member
+// would silently no-op and report a placement that never landed.
+func (s *Service) applyRackSlotDelta(ctx context.Context, orgID, rackID int64, slotAssignments []*pb.RackSlot, members map[string]*int64) error {
+	if len(slotAssignments) == 0 {
+		return nil
+	}
+	named := make(map[string]struct{}, len(slotAssignments))
+	placements := 0
+	for _, slot := range slotAssignments {
+		if _, ok := members[slot.DeviceIdentifier]; !ok {
+			return fleeterror.NewInvalidArgumentErrorf(
+				"device %q did not become a member of the target rack, so its slot cannot be written", slot.DeviceIdentifier)
+		}
+		named[slot.DeviceIdentifier] = struct{}{}
+		if slot.Position != nil {
+			placements++
+		}
+	}
+
+	// The clear pass frees only the named devices' cells, so a position
+	// landing on an untouched member's cell would hit uk_rack_slot_position.
+	// Reject it here, where we can name the occupant. The rack row lock
+	// upstream serializes this read against the other batch writers, but NOT
+	// against the standalone Set/ClearRackSlotPosition RPCs, which take no
+	// rack lock; the store maps that constraint to InvalidArgument as the
+	// backstop for what slips through.
+	if placements > 0 {
+		occupants, err := s.collectionStore.GetRackSlots(ctx, rackID, orgID)
+		if err != nil {
+			return err
+		}
+		heldBy := make(map[[2]int32]string, len(occupants))
+		for _, occupant := range occupants {
+			if occupant.Position == nil {
+				continue
+			}
+			heldBy[[2]int32{occupant.Position.Row, occupant.Position.Column}] = occupant.DeviceIdentifier
+		}
+		for _, slot := range slotAssignments {
+			if slot.Position == nil {
+				continue
+			}
+			holder, taken := heldBy[[2]int32{slot.Position.Row, slot.Position.Column}]
+			if !taken || holder == slot.DeviceIdentifier {
+				continue
+			}
+			// Held by a device the batch clears first: that is a swap.
+			if _, moving := named[holder]; moving {
+				continue
+			}
+			return fleeterror.NewInvalidArgumentErrorf(
+				"slot (%d, %d) is already held by device %q, which this request does not move",
+				slot.Position.Row, slot.Position.Column, holder)
+		}
+	}
+
+	for _, slot := range slotAssignments {
+		if err := s.collectionStore.ClearRackSlotPosition(ctx, rackID, slot.DeviceIdentifier, orgID); err != nil {
+			return err
+		}
+	}
+	for _, slot := range slotAssignments {
+		if slot.Position == nil {
+			continue
+		}
+		if err := s.collectionStore.SetRackSlotPosition(ctx, rackID, slot.DeviceIdentifier, slot.Position.Row, slot.Position.Column, orgID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // PerDeviceRackConflictReason enumerates why a device blocked an
@@ -1130,9 +1618,20 @@ type AssignDevicesToRackResult struct {
 //
 // Empty DeviceIdentifiers rejects with InvalidArgument so the caller
 // learns up-front instead of getting a 0-row response.
+//
+// SlotAssignments, when supplied, places the same devices in the target
+// rack's grid inside this transaction — the rack-level counterpart of
+// AssignRacksToBuilding's optional per-rack aisle/position. That is what
+// lets a client persist a placement edit without re-asserting the rack's
+// whole member set the way SaveRack does.
 func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesToRackParams) (*AssignDevicesToRackResult, error) {
 	if len(params.DeviceIdentifiers) == 0 {
 		return nil, fleeterror.NewInvalidArgumentError("device_identifiers must not be empty")
+	}
+	// Shape checks that need no DB read run before the tx opens; the
+	// grid-bounds check needs the rack's dimensions and runs inside.
+	if err := validateAssignRackSlots(params); err != nil {
+		return nil, err
 	}
 
 	type txOut struct {
@@ -1148,9 +1647,11 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 	}
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
 		var (
-			targetSiteID     *int64
-			targetBuildingID *int64
-			targetLabel      string
+			targetSiteID              *int64
+			targetBuildingID          *int64
+			targetLabel               string
+			targetRows, targetColumns int32
+			targetPriorCount          int32
 		)
 		// Canonical lock order: lock every rack involved in the
 		// reparent -- sources + target -- together in ascending
@@ -1199,6 +1700,38 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			targetSiteID = placement.SiteID
 			targetBuildingID = placement.BuildingID
 			targetLabel = coll.Label
+			// Pre-add member count, read under the rack lock. Paired with
+			// AddDevicesToCollection's newly-inserted count below it gives
+			// the exact resulting size without a second membership read —
+			// RemoveDevicesFromAnyRack excludes the target rack, so nothing
+			// between here and the insert can change this number.
+			targetPriorCount = coll.DeviceCount
+
+			// Read the grid once under the rack lock; it bounds both the
+			// slot positions below and the post-insert capacity check. A
+			// RACK always has a device_set_rack row, so nil means the data
+			// is corrupt — continuing without dimensions would pass both
+			// checks silently and write unaddressable positions.
+			rackInfo, err := s.collectionStore.GetRackInfo(ctx, *params.TargetRackID, params.OrgID)
+			if err != nil {
+				return nil, err
+			}
+			if rackInfo == nil {
+				return nil, fleeterror.NewInternalErrorf("rack %d has no rack extension row", *params.TargetRackID)
+			}
+			targetRows, targetColumns = rackInfo.Rows, rackInfo.Columns
+			for _, slot := range params.SlotAssignments {
+				// Unset position = clear; no cell to bounds check.
+				if slot.Position == nil {
+					continue
+				}
+				if slot.Position.Row >= targetRows {
+					return nil, fleeterror.NewInvalidArgumentErrorf("slot row %d is out of bounds (rack has %d rows)", slot.Position.Row, targetRows)
+				}
+				if slot.Position.Column >= targetColumns {
+					return nil, fleeterror.NewInvalidArgumentErrorf("slot column %d is out of bounds (rack has %d columns)", slot.Position.Column, targetColumns)
+				}
+			}
 		}
 
 		// Placement-consistency guard for a site-less (fully-unassigned)
@@ -1215,15 +1748,7 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 				return nil, err
 			}
 			if len(withPlacement) > 0 && !params.ForceClearConflictingSite {
-				sort.Strings(withPlacement)
-				conflicts := make([]PerDeviceRackConflict, 0, len(withPlacement))
-				for _, id := range withPlacement {
-					conflicts = append(conflicts, PerDeviceRackConflict{
-						DeviceIdentifier: id,
-						Reason:           RackConflictReasonDeviceLosesSite,
-					})
-				}
-				return &txOut{conflicts: conflicts}, nil
+				return &txOut{conflicts: deviceLosesSiteConflicts(withPlacement)}, nil
 			}
 		}
 
@@ -1268,6 +1793,19 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 				return nil, err
 			}
 			newlyAssigned = added
+
+			// Capacity guard: every rack member is expected to occupy a
+			// slot, so membership is bounded by rows×columns — the same
+			// invariant SaveRack enforces on its replace path. prior +
+			// newly-inserted is exact, since `added` counts only rows the
+			// ON CONFLICT DO NOTHING insert created.
+			if capacity := int64(targetRows) * int64(targetColumns); capacity > 0 {
+				if resulting := int64(targetPriorCount) + added; resulting > capacity {
+					return nil, fleeterror.NewInvalidArgumentErrorf(
+						"cannot assign %d miner(s) to rack %q: it would hold %d miner(s) but has only %d slot(s) (%d×%d)",
+						len(uniqueIdentifiers(params.DeviceIdentifiers)), targetLabel, resulting, capacity, targetRows, targetColumns)
+				}
+			}
 			assigned = int64(len(uniqueIdentifiers(params.DeviceIdentifiers)))
 			// Site cascade fires when the rack has a site OR a building.
 			// A rack in a building inherits that building's site (NULL
@@ -1279,17 +1817,26 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 			// fully-unassigned racks. Fully-unassigned racks (no site,
 			// no building) skip the cascade to preserve direct
 			// device.site_id assignments.
+
+			// Post-insert membership snapshot, read once and shared: the
+			// cascade needs per-device prior sites, the slot delta needs to
+			// confirm its devices became members.
+			var members map[string]*int64
+			if targetSiteID != nil || targetBuildingID != nil || len(params.SlotAssignments) > 0 {
+				m, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, *params.TargetRackID, params.OrgID)
+				if err != nil {
+					return nil, err
+				}
+				members = m
+			}
+
 			if targetSiteID != nil || targetBuildingID != nil {
-				// Capture per-device priors BEFORE the cascade rewrites
+				// Priors are captured BEFORE the cascade rewrites
 				// device.site_id, so the activity audit reflects the
 				// implicit site reassignment. Mirrors the CreateCollection
 				// cascade-audit path so audit consumers can treat both
 				// event types uniformly.
-				priors, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, *params.TargetRackID, params.OrgID)
-				if err != nil {
-					return nil, err
-				}
-				deviceSiteChanges, totalAffected = buildDeviceSiteChanges(priors, targetSiteID)
+				deviceSiteChanges, totalAffected = buildDeviceSiteChanges(members, targetSiteID)
 				c, err := s.collectionStore.CascadeAddedDeviceSites(ctx, params.OrgID, *params.TargetRackID, params.DeviceIdentifiers)
 				if err != nil {
 					return nil, err
@@ -1318,6 +1865,12 @@ func (s *Service) AssignDevicesToRack(ctx context.Context, params AssignDevicesT
 					return nil, err
 				}
 				siteReassigned = stripped
+			}
+
+			// Placement, last: membership must exist before a slot can
+			// reference it (both slot queries join device_set_membership).
+			if err := s.applyRackSlotDelta(ctx, params.OrgID, *params.TargetRackID, params.SlotAssignments, members); err != nil {
+				return nil, err
 			}
 		}
 
@@ -1487,16 +2040,65 @@ func (s *Service) SetRackSlotPosition(ctx context.Context, req *pb.SetRackSlotPo
 	}
 
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
-		coll, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
+		// Gate on type before locking. Type is immutable, so this pre-lock read
+		// can't go stale; authoritative label + site for the activity event are
+		// re-read under the lock below.
+		collType, err := s.collectionStore.GetCollectionType(ctx, info.OrganizationID, req.CollectionId)
 		if err != nil {
 			return nil, err
 		}
-		if coll.Type != pb.CollectionType_COLLECTION_TYPE_RACK {
+		if collType != pb.CollectionType_COLLECTION_TYPE_RACK {
 			return nil, fleeterror.NewInvalidArgumentError("slot positions can only be set on rack collections")
 		}
 
-		// Device membership is enforced by the store query joining on device_set_membership.
+		// Lock the rack row FOR UPDATE before reading grid + membership so the
+		// checks hold for the write; without it a concurrent resize could shrink
+		// the grid out from under an in-bounds position. Same rack-first lock the
+		// batch path takes.
+		if _, err := s.collectionStore.LockRackPlacementForWrite(ctx, req.CollectionId, info.OrganizationID); err != nil {
+			return nil, err
+		}
+
+		// Reject out-of-bounds cells. A RACK always has a device_set_rack row, so
+		// nil is a broken invariant. Guard both bounds so a negative coordinate
+		// (which bypasses the proto interceptor on a direct call) returns
+		// InvalidArgument rather than tripping the SQL CHECK as a 500, matching
+		// the batch and SaveRack paths.
+		rackInfo, err := s.collectionStore.GetRackInfo(ctx, req.CollectionId, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		if rackInfo == nil {
+			return nil, fleeterror.NewInternalErrorf("rack %d has no rack extension row", req.CollectionId)
+		}
+		if req.Position.Row < 0 || req.Position.Row >= rackInfo.Rows {
+			return nil, fleeterror.NewInvalidArgumentErrorf("slot row %d is out of bounds (rack has %d rows)", req.Position.Row, rackInfo.Rows)
+		}
+		if req.Position.Column < 0 || req.Position.Column >= rackInfo.Columns {
+			return nil, fleeterror.NewInvalidArgumentErrorf("slot column %d is out of bounds (rack has %d columns)", req.Position.Column, rackInfo.Columns)
+		}
+
+		// Confirm membership: the store's INSERT ... SELECT silently writes zero
+		// rows for a non-member and returns no error, so a bare call would report
+		// a placement that never landed.
+		members, err := s.collectionStore.GetDeviceSiteIDsByMembership(ctx, req.CollectionId, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		if _, ok := members[req.DeviceIdentifier]; !ok {
+			return nil, fleeterror.NewInvalidArgumentErrorf(
+				"device %q is not a member of rack %d, so its slot cannot be set", req.DeviceIdentifier, req.CollectionId)
+		}
+
 		if err := s.collectionStore.SetRackSlotPosition(ctx, req.CollectionId, req.DeviceIdentifier, req.Position.Row, req.Position.Column, info.OrganizationID); err != nil {
+			return nil, err
+		}
+
+		// Read the collection under the lock so the activity event's label + site
+		// reflect the state we wrote to, not a pre-lock snapshot a concurrent
+		// rename/move could have staled.
+		coll, err := s.collectionStore.GetCollection(ctx, info.OrganizationID, req.CollectionId)
+		if err != nil {
 			return nil, err
 		}
 
@@ -1786,8 +2388,7 @@ func (s *Service) ListRackTypes(ctx context.Context, _ *pb.ListRackTypesRequest)
 //
 // Deprecated: this RPC still backs the legacy collection.v1 surface; new
 // callers (notably device_set.v1.ListRackZones) use ListRackZoneRefs to
-// receive (building_id, zone) tuples with denormalized labels. See
-// docs/plans/2026-05-14-229-miner-zone-building-filter-plan.md.
+// receive (building_id, zone) tuples with denormalized labels.
 func (s *Service) ListRackZones(ctx context.Context, _ *pb.ListRackZonesRequest) (*pb.ListRackZonesResponse, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
@@ -1827,10 +2428,35 @@ type saveRackResult struct {
 	totalAffected     int
 }
 
+// SaveRackResult is the domain outcome of SaveRack. Conflicts is non-empty
+// only when the save would strip a member's site/building by moving it into a
+// site-less rack and the caller didn't pass forceClearConflictingSite; when
+// set, NO write happened. Callers map it onto their transport response
+// (device_set.v1 carries the conflict list; the deprecated collection.v1 path
+// rejects instead — see its handler).
+type SaveRackResult struct {
+	Collection          *pb.DeviceCollection
+	AssignedCount       int32
+	SiteReassignedCount int32
+	Conflicts           []PerDeviceRackConflict
+}
+
+// errSaveRackSiteConflict aborts the SaveRack transaction so nothing persists
+// when a site-less-rack save would strip member placement without force. It is
+// a sentinel used only to force a rollback; the conflict list is carried out
+// via a captured variable, so the error value itself is discarded.
+var errSaveRackSiteConflict = errors.New("save rack: members would lose site placement")
+
 // SaveRack atomically creates or updates a rack with its membership and slot
 // assignments. Lock order is the canonical site -> building -> rack -> devices.
 // On site change, the cascade rewrites descendant device.site_id.
-func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.SaveRackResponse, error) {
+//
+// When the saved rack ends up site-less AND building-less, any member that
+// currently has a site or building would have it stripped. Mirroring
+// AssignDevicesToRack, such a save returns Conflicts and writes nothing unless
+// forceClearConflictingSite is set — so a stale or direct client can't bypass
+// the confirmation contract the reparent RPC enforces.
+func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest, forceClearConflictingSite bool) (*SaveRackResult, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
 		return nil, err
@@ -1873,7 +2499,12 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 
 	isUpdate := req.CollectionId != nil
 
+	// Carries the site-strip conflict list out of the tx: when set, the tx is
+	// rolled back via errSaveRackSiteConflict so nothing persists. Reset at the
+	// top of the closure so a transactor retry can't surface a stale list.
+	var pendingConflicts []PerDeviceRackConflict
 	result, err := s.transactor.RunInTxWithResult(ctx, func(ctx context.Context) (any, error) {
+		pendingConflicts = nil
 		var (
 			collectionID    int64
 			finalSiteID     *int64
@@ -1882,6 +2513,39 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			siteChanged     bool
 			buildingChanged bool
 		)
+
+		// Placement-consistency guard, mirroring AssignDevicesToRack: when the
+		// saved rack ends up site-less AND building-less, the cascade would
+		// strip site/building from any member that currently has one. The
+		// create/update helpers run this BEFORE their first write (once the
+		// rack's final placement is resolved under the canonical locks) so a
+		// no-force conflict returns with nothing persisted — the contract
+		// holds even when SaveRack runs inside an outer transaction, where the
+		// sentinel rollback below cannot unwind an already-applied write.
+		// With force, it is a no-op and the cascade clears the members.
+		checkSiteStrip := func(ctx context.Context, resolvedSiteID, resolvedBuildingID *int64) error {
+			if forceClearConflictingSite || resolvedSiteID != nil || resolvedBuildingID != nil || len(deviceIdentifiers) == 0 {
+				return nil
+			}
+			// Row-lock the members first so the conflict check and the
+			// placement cascade share one stable snapshot. Without the lock a
+			// concurrent sites.AssignDevicesToSite (which locks these same rows
+			// FOR UPDATE) could commit a site between the check reading NULL
+			// and the cascade, silently stripping it back to NULL despite
+			// force being false.
+			if err := s.collectionStore.LockDevicesForReassign(ctx, info.OrganizationID, deviceIdentifiers); err != nil {
+				return err
+			}
+			withPlacement, err := s.collectionStore.FindDevicesWithSiteOrBuilding(ctx, info.OrganizationID, deviceIdentifiers)
+			if err != nil {
+				return err
+			}
+			if len(withPlacement) > 0 {
+				pendingConflicts = deviceLosesSiteConflicts(withPlacement)
+				return errSaveRackSiteConflict
+			}
+			return nil
+		}
 
 		// The rack-locking pre-pass (LockRacksForReparent) lives INSIDE the
 		// path helpers below rather than at the top of the tx. On a placement
@@ -1895,7 +2559,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 		// the RemoveDevicesFromAnyRack delete from deadlocking against a
 		// concurrent rack save moving devices the opposite way.
 		if isUpdate {
-			res, err := s.saveRackUpdate(ctx, info, req, rackInfo, deviceIdentifiers)
+			res, err := s.saveRackUpdate(ctx, info, req, rackInfo, deviceIdentifiers, checkSiteStrip)
 			if err != nil {
 				return nil, err
 			}
@@ -1906,7 +2570,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			siteChanged = res.siteChanged
 			buildingChanged = res.buildingChanged
 		} else {
-			res, err := s.saveRackCreate(ctx, info, req, rackInfo, deviceIdentifiers)
+			res, err := s.saveRackCreate(ctx, info, req, rackInfo, deviceIdentifiers, checkSiteStrip)
 			if err != nil {
 				return nil, err
 			}
@@ -1954,6 +2618,11 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 			totalAffected:       totalAffected,
 		}, nil
 	})
+	// A site-strip conflict rolled the tx back on purpose: nothing persisted,
+	// so return the conflict list (not an error) for the caller to confirm.
+	if len(pendingConflicts) > 0 {
+		return &SaveRackResult{Conflicts: pendingConflicts}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1996,7 +2665,7 @@ func (s *Service) SaveRack(ctx context.Context, req *pb.SaveRackRequest) (*pb.Sa
 	}
 	s.logActivity(ctx, saveEvent)
 
-	return &pb.SaveRackResponse{
+	return &SaveRackResult{
 		Collection:    txResult.collection,
 		AssignedCount: txResult.assignedCount,
 		// #nosec G115 -- cascadeCount bounded by rack member count (~144)
@@ -2097,10 +2766,17 @@ func (s *Service) lockSourceRacksForReparent(ctx context.Context, orgID int64, d
 }
 
 // saveRackCreate runs the SaveRack create branch in-tx: resolve placement,
-// then insert device_set + device_set_rack rows.
-func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *pb.SaveRackRequest, rackInfo *pb.RackInfo, deviceIdentifiers []string) (*saveRackCreatePathResult, error) {
+// then insert device_set + device_set_rack rows. siteStripCheck runs after the
+// placement + source-rack locks are held but BEFORE the first write, so a
+// site-strip conflict aborts with nothing created.
+func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *pb.SaveRackRequest, rackInfo *pb.RackInfo, deviceIdentifiers []string, siteStripCheck func(ctx context.Context, resolvedSiteID, resolvedBuildingID *int64) error) (*saveRackCreatePathResult, error) {
 	newSiteID, newBuildingID, err := s.resolveAndLockRackPlacement(ctx, info.OrganizationID, rackInfo)
 	if err != nil {
+		return nil, err
+	}
+	// New rack, no current site: bind the destination to what the handler
+	// authorized, failing closed if the building moved sites since.
+	if err := verifyAuthorizedPlacement(ctx, nil, newSiteID); err != nil {
 		return nil, err
 	}
 
@@ -2115,6 +2791,12 @@ func (s *Service) saveRackCreate(ctx context.Context, info *session.Info, req *p
 	// the source racks the members currently sit in. Runs after placement
 	// resolution above and before the membership writes below.
 	if err := s.lockSourceRacksForReparent(ctx, info.OrganizationID, deviceIdentifiers, 0); err != nil {
+		return nil, err
+	}
+
+	// Site-strip conflict guard runs under the locks just taken, before the
+	// first write, so a no-force conflict returns without creating the rack.
+	if err := siteStripCheck(ctx, newSiteID, newBuildingID); err != nil {
 		return nil, err
 	}
 
@@ -2162,7 +2844,10 @@ type saveRackUpdatePathResult struct {
 // saveRackUpdate runs the SaveRack update branch: validate ownership,
 // lock site/building/rack in canonical order, derive the final zone,
 // persist placement, and flag siteChanged for the downstream cascade.
-func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *pb.SaveRackRequest, rackInfo *pb.RackInfo, deviceIdentifiers []string) (*saveRackUpdatePathResult, error) {
+// siteStripCheck runs as resolveAndApplyRackPlacement's afterLock hook — after
+// the canonical locks are held but BEFORE any placement/label write — so a
+// site-strip conflict aborts with nothing persisted.
+func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *pb.SaveRackRequest, rackInfo *pb.RackInfo, deviceIdentifiers []string, siteStripCheck func(ctx context.Context, resolvedSiteID, resolvedBuildingID *int64) error) (*saveRackUpdatePathResult, error) {
 	collectionID := *req.CollectionId
 
 	belongs, err := s.collectionStore.CollectionBelongsToOrg(ctx, collectionID, info.OrganizationID)
@@ -2184,7 +2869,7 @@ func (s *Service) saveRackUpdate(ctx context.Context, info *session.Info, req *p
 	// AND may carry an empty zone without meaning to clear it, so preserve the
 	// current zone on empty (see resolveAndApplyRackPlacement + the
 	// omitted-placement contract in service_test.go).
-	res, err := s.resolveAndApplyRackPlacement(ctx, info, collectionID, rackInfo, deviceIdentifiers, true /* preserveZoneOnEmpty */, nil /* afterLock */)
+	res, err := s.resolveAndApplyRackPlacement(ctx, info, collectionID, rackInfo, deviceIdentifiers, true /* preserveZoneOnEmpty */, siteStripCheck)
 	if err != nil {
 		return nil, err
 	}
@@ -2247,10 +2932,12 @@ func (s *Service) enforceRackDimensionsFitCurrentMembers(ctx context.Context, or
 // submits the current zone, so an empty value is an explicit clear.
 //
 // afterLock, when non-nil, runs AFTER the rack row lock is held but BEFORE any
-// write. It lets a caller re-validate under the lock (e.g. the dimension guard)
-// so a concurrent SaveRack can't mutate membership/slots between the caller's
-// pre-read and this resize. nil for callers with nothing to recheck.
-func (s *Service) resolveAndApplyRackPlacement(ctx context.Context, info *session.Info, collectionID int64, rackInfo *pb.RackInfo, deviceIdentifiers []string, preserveZoneOnEmpty bool, afterLock func(context.Context) error) (*saveRackUpdatePathResult, error) {
+// write, receiving the resolved final site/building. It lets a caller
+// re-validate under the lock (e.g. the dimension guard or the site-strip
+// conflict guard) so a concurrent SaveRack can't mutate membership/slots
+// between the caller's pre-read and this resize, and so a rejection aborts
+// before any write lands. nil for callers with nothing to recheck.
+func (s *Service) resolveAndApplyRackPlacement(ctx context.Context, info *session.Info, collectionID int64, rackInfo *pb.RackInfo, deviceIdentifiers []string, preserveZoneOnEmpty bool, afterLock func(ctx context.Context, resolvedSiteID, resolvedBuildingID *int64) error) (*saveRackUpdatePathResult, error) {
 	var (
 		current       interfaces.RackPlacement
 		newSiteID     *int64
@@ -2288,11 +2975,18 @@ func (s *Service) resolveAndApplyRackPlacement(ctx context.Context, info *sessio
 		}
 	}
 
+	// Bind authorization to the locked reality: reject if a concurrent move
+	// changed the current or target site since the handler authorized this move.
+	// Under the rack lock, so it can't be raced past.
+	if err := verifyAuthorizedPlacement(ctx, current.SiteID, newSiteID); err != nil {
+		return nil, err
+	}
+
 	// Re-validate under the rack lock before any write. A concurrent SaveRack
 	// touching membership/slots holds this same row lock, so it either
 	// committed before us (this recheck sees it) or waits until we commit.
 	if afterLock != nil {
-		if err := afterLock(ctx); err != nil {
+		if err := afterLock(ctx, newSiteID, newBuildingID); err != nil {
 			return nil, err
 		}
 	}

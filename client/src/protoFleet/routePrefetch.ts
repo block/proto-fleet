@@ -44,12 +44,14 @@ export const importSettingsCurtailment = () => import("@/protoFleet/features/set
 export const importSettingsAlerts = () => import("@/protoFleet/features/alerts/pages/Alerts");
 export const importSettingsAgents = () => import("@/protoFleet/features/settings/agents");
 export const importSettingsIntegrations = () => import("@/protoFleet/features/settings/components/ApiKeys");
+export const importSettingsUpdates = () => import("@/protoFleet/features/settings/components/Updates");
 export const importSiteDetailPage = () => import("@/protoFleet/features/sites/pages/SiteDetailPage");
 export const importBuildingPage = () => import("@/protoFleet/features/buildings/pages/BuildingPage");
 export const importFleetLayout = () => import("@/protoFleet/features/fleetManagement/components/FleetLayout");
 export const importFleetBuildingsPage = () => import("@/protoFleet/features/fleetManagement/pages/FleetBuildingsPage");
 export const importFleetSitesPage = () => import("@/protoFleet/features/fleetManagement/pages/FleetSitesPage");
 export const importFleetDown = () => import("@/protoFleet/components/FleetDown/FleetDown");
+export const importMaintenancePage = () => import("@/protoFleet/features/maintenance/pages/MaintenancePage");
 export const importFleetInfraPage = () => import("@/protoFleet/features/fleetManagement/pages/FleetInfraPage");
 
 // Sidebar destinations + the default settings sub-route. App.tsx
@@ -63,6 +65,7 @@ export const globalRoutePrefetch: readonly RouteImporter[] = [
   importFleetSitesPage,
   importFleetInfraPage,
   importGroupsPage,
+  importMaintenancePage,
   importEnergyPage,
   importActivityPage,
   importMinerbotPage,
@@ -86,4 +89,5 @@ export const settingsRoutePrefetch: readonly RouteImporter[] = [
   importSettingsIntegrations,
   importSettingsPreferences,
   importServerLogsPage,
+  importSettingsUpdates,
 ];

@@ -7,7 +7,7 @@ global: &global
   - .github/actions/**
   - .github/workflows/**
   - .github/*.{yml,yaml}
-  - .github/copilot-instructions.md
+  - .github/skills/**
   - bin/**
   - hermit-packages/**
   - just/**
@@ -19,8 +19,12 @@ global: &global
 
 deployment_config:
   - *global
+  - deployment-files/fleetnode/**
+  - deployment-files/ha/**
   - deployment-files/profiles/**
   - deployment-files/tests/**
+  - server/migrations/**
+  - server/timescaledb/**
   - server/docker-compose.base.yaml
   - server/internal/infrastructure/db/config.go
   - server/internal/infrastructure/timescaledb/config.go
@@ -122,6 +126,22 @@ windows:
 powershell:
   - *global
   - "**/*.ps1"
+
+developer_workflows:
+  - .agents/**
+  - .claude/**
+  - .github/actions/hermit-setup/**
+  - .github/path-filters.yml
+  - .github/review-policy.json
+  - .github/workflows/pr-gate.yml
+  - "**/AGENTS.md"
+  - CLAUDE.md
+  - CONTRIBUTING.md
+  - go.work
+  - justfile
+  - lefthook.yml
+  - scripts/check-changed.sh
+  - scripts/check-changed_test.sh
 
 protofleet_e2e:
   - *global

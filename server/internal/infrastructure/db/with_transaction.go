@@ -13,11 +13,11 @@ import (
 // WithTransaction runs action in a transaction and retries the entire action for
 // retryable PostgreSQL errors. The action must be safe to replay and should not
 // perform side effects outside the transaction.
-func WithTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error), opts ...*sql.TxOptions) (T, error) {
+func WithTransaction[T any](ctx context.Context, db *sql.DB, action func(q sqlc.Querier) (T, error), opts ...*sql.TxOptions) (T, error) {
 	return withTransactionWithRetry(ctx, db, action, DefaultRetryConfig, firstTxOpts(opts))
 }
 
-func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error), config RetryConfig, txOpts *sql.TxOptions) (T, error) {
+func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action func(q sqlc.Querier) (T, error), config RetryConfig, txOpts *sql.TxOptions) (T, error) {
 	var zero T
 	var lastErr error
 	attempts := 0
@@ -67,7 +67,7 @@ func withTransactionWithRetry[T any](ctx context.Context, db *sql.DB, action fun
 	return zero, fleeterror.NewInternalErrorf("transaction failed after %d attempts: %w", attempts, lastErr)
 }
 
-func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) (T, error), txOpts *sql.TxOptions) (T, error) {
+func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q sqlc.Querier) (T, error), txOpts *sql.TxOptions) (T, error) {
 	var zero T
 
 	//nolint:forbidigo // This helper is the canonical boundary for opening SQL transactions.
@@ -79,7 +79,7 @@ func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q *s
 	//goland:noinspection GoUnhandledErrorResult
 	defer tx.Rollback()
 
-	sq := sqlc.New(tx)
+	sq := NewTracingQuerier(sqlc.New(tx))
 	result, err := action(sq)
 	if err != nil {
 		return zero, err
@@ -96,12 +96,46 @@ func executeTransaction[T any](ctx context.Context, db *sql.DB, action func(q *s
 // WithTransactionNoResult runs action in a transaction and retries the entire
 // action for retryable PostgreSQL errors. The action must be safe to replay and
 // should not perform side effects outside the transaction.
-func WithTransactionNoResult(ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) error, opts ...*sql.TxOptions) error {
+func WithTransactionNoResult(ctx context.Context, db *sql.DB, action func(q sqlc.Querier) error, opts ...*sql.TxOptions) error {
 	return withTransactionNoResultWithRetry(ctx, db, action, DefaultRetryConfig, firstTxOpts(opts))
 }
 
-func withTransactionNoResultWithRetry(ctx context.Context, db *sql.DB, action func(q *sqlc.Queries) error, config RetryConfig, txOpts *sql.TxOptions) error {
-	_, err := withTransactionWithRetry(ctx, db, func(sq *sqlc.Queries) (any, error) {
+// WithTransactionNoRetryNoResult runs action exactly once. Use it only when
+// action performs an external side effect that cannot safely be replayed.
+func WithTransactionNoRetryNoResult(ctx context.Context, db *sql.DB, action func(q sqlc.Querier) error, opts ...*sql.TxOptions) error {
+	_, err := executeTransaction(ctx, db, func(q sqlc.Querier) (struct{}, error) {
+		return struct{}{}, action(q)
+	}, firstTxOpts(opts))
+	return err
+}
+
+// WithTransactionTimeout bounds the complete operation, including retries, and
+// applies the same limit inside each transaction.
+func WithTransactionTimeout[T any](ctx context.Context, db *sql.DB, timeout time.Duration, action func(q sqlc.Querier) (T, error)) (T, error) {
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	return WithTransaction(timeoutCtx, db, func(q sqlc.Querier) (T, error) {
+		var zero T
+		if err := q.SetLocalTransactionTimeout(
+			timeoutCtx,
+			timeout.Milliseconds(),
+		); err != nil {
+			return zero, err
+		}
+		return action(q)
+	})
+}
+
+func WithTransactionTimeoutNoResult(ctx context.Context, db *sql.DB, timeout time.Duration, action func(q sqlc.Querier) error) error {
+	_, err := WithTransactionTimeout(ctx, db, timeout, func(q sqlc.Querier) (struct{}, error) {
+		return struct{}{}, action(q)
+	})
+	return err
+}
+
+func withTransactionNoResultWithRetry(ctx context.Context, db *sql.DB, action func(q sqlc.Querier) error, config RetryConfig, txOpts *sql.TxOptions) error {
+	_, err := withTransactionWithRetry(ctx, db, func(sq sqlc.Querier) (any, error) {
 		var emptyResult any
 		return emptyResult, action(sq)
 	}, config, txOpts)

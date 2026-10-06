@@ -8,7 +8,7 @@ interface ErrorWithCause extends Error {
   cause?: unknown;
 }
 
-function createErrorWithCause(message: string, cause: unknown): Error {
+export function createErrorWithCause(message: string, cause: unknown): Error {
   const error = new Error(message) as ErrorWithCause;
   error.cause = cause;
   return error;

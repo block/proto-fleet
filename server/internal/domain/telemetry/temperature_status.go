@@ -7,6 +7,6 @@ const (
 	TempOkMinC       = 0.0  // 0°C to 70°C = OK
 	TempOkMaxC       = 70.0 // Upper bound for OK status
 	TempHotMinC      = 70.0 // 70°C to 90°C = HOT
-	TempHotMaxC      = 90.0 // Upper bound for HOT status
-	TempCriticalMinC = 90.0 // Above 90°C = CRITICAL
+	TempHotMaxC      = 90.0 // Exclusive upper bound for HOT status
+	TempCriticalMinC = 90.0 // At or above 90°C = CRITICAL
 )

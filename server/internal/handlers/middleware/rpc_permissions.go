@@ -16,11 +16,16 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/marketdata/v1/marketdatav1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/rollout/v1/rolloutv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/schedule/v1/schedulev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
@@ -59,12 +64,35 @@ var ProcedurePermissions = map[string]string{
 	chatv1connect.ChatServiceSendMessageProcedure:             authz.PermFleetRead,
 	chatv1connect.ChatServiceResolveToolConfirmationProcedure: authz.PermFleetRead,
 
+	marketdatav1connect.MarketDataServiceGetMarketDataProcedure: authz.PermFleetRead,
 	// Activity log — read-only audit trail. Export is the CSV variant of
 	// the same query; filter options is the lookup endpoint that drives
 	// the UI's filter panel. All three sit on activity:read.
 	activityv1connect.ActivityServiceListActivitiesProcedure:            authz.PermActivityRead,
 	activityv1connect.ActivityServiceExportActivitiesProcedure:          authz.PermActivityRead,
 	activityv1connect.ActivityServiceListActivityFilterOptionsProcedure: authz.PermActivityRead,
+
+	maintenancev1connect.MaintenanceServiceListRepairTicketsProcedure:       authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceGetRepairTicketProcedure:         authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceListTicketCommentsProcedure:      authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceListCompletedTicketsProcedure:    authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceListAssigneesProcedure:           authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceGetTicketStatsProcedure:          authz.PermMaintenanceRead,
+	maintenancev1connect.MaintenanceServiceCreateRepairTicketProcedure:      authz.PermMaintenanceManage,
+	maintenancev1connect.MaintenanceServiceUpdateRepairTicketProcedure:      authz.PermMaintenanceManage,
+	maintenancev1connect.MaintenanceServiceBulkUpdateRepairTicketsProcedure: authz.PermMaintenanceManage,
+	maintenancev1connect.MaintenanceServiceCreateTicketCommentProcedure:     authz.PermMaintenanceManage,
+	maintenancev1connect.MaintenanceServiceDeleteTicketCommentProcedure:     authz.PermMaintenanceManage,
+
+	inventoryv1connect.InventoryServiceListInventoryPartsProcedure:     authz.PermMaintenanceRead,
+	inventoryv1connect.InventoryServiceGetInventoryPartProcedure:       authz.PermMaintenanceRead,
+	inventoryv1connect.InventoryServiceGetInventoryInsightsProcedure:   authz.PermMaintenanceRead,
+	inventoryv1connect.InventoryServiceListPartsBySiteProcedure:        authz.PermMaintenanceRead,
+	inventoryv1connect.InventoryServiceCreateInventoryPartProcedure:    authz.PermMaintenanceManage,
+	inventoryv1connect.InventoryServiceUpdateInventoryPartProcedure:    authz.PermMaintenanceManage,
+	inventoryv1connect.InventoryServiceDeleteInventoryPartProcedure:    authz.PermMaintenanceManage,
+	inventoryv1connect.InventoryServiceImportInventoryCsvProcedure:     authz.PermMaintenanceManage,
+	inventoryv1connect.InventoryServiceConfirmInventoryImportProcedure: authz.PermMaintenanceManage,
 
 	// API key management — gated by RequirePermission(PermAPIKeyManage).
 	apikeyv1connect.ApiKeyServiceCreateApiKeyProcedure: authz.PermAPIKeyManage,
@@ -104,10 +132,19 @@ var ProcedurePermissions = map[string]string{
 	// Buildings CRUD — site:read for reads, site:manage for writes.
 	// ListBuildingRacks is a building-scoped read; AssignRacksToBuilding
 	// mutates the rack's building/site/zone/grid placement.
-	buildingsv1connect.BuildingServiceListBuildingsProcedure:         authz.PermSiteRead,
-	buildingsv1connect.BuildingServiceGetBuildingProcedure:           authz.PermSiteRead,
-	buildingsv1connect.BuildingServiceListBuildingRacksProcedure:     authz.PermSiteRead,
-	buildingsv1connect.BuildingServiceCreateBuildingProcedure:        authz.PermSiteManage,
+	buildingsv1connect.BuildingServiceListBuildingsProcedure:     authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceGetBuildingProcedure:       authz.PermSiteRead,
+	buildingsv1connect.BuildingServiceListBuildingRacksProcedure: authz.PermSiteRead,
+	// CreateBuilding optionally seeds racks + devices atomically (#559). This
+	// site:manage entry is the primary gate; when the caller opts into
+	// force_clear_conflicting_rack_membership the handler adds an inline
+	// rack:manage check (mirrors AssignDevicesToBuilding).
+	buildingsv1connect.BuildingServiceCreateBuildingProcedure: authz.PermSiteManage,
+	// CreateBuildings takes no rack/device seed, so unlike CreateBuilding
+	// there is no rack:manage escalation to gate. The handler authorizes
+	// against the request's target site (ResourceContext{SiteID}), which
+	// site_id always carries for bulk create.
+	buildingsv1connect.BuildingServiceCreateBuildingsProcedure:       authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceUpdateBuildingProcedure:        authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceDeleteBuildingProcedure:        authz.PermSiteManage,
 	buildingsv1connect.BuildingServiceAssignRacksToBuildingProcedure: authz.PermSiteManage,
@@ -208,6 +245,7 @@ var ProcedurePermissions = map[string]string{
 	device_setv1connect.DeviceSetServiceAddDevicesToGroupProcedure:      authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceRemoveDevicesFromGroupProcedure: authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceSaveRackProcedure:               authz.PermRackManage,
+	device_setv1connect.DeviceSetServiceCreateRacksProcedure:            authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceAssignDevicesToRackProcedure:    authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceSetRackSlotPositionProcedure:    authz.PermRackManage,
 	device_setv1connect.DeviceSetServiceClearRackSlotPositionProcedure:  authz.PermRackManage,
@@ -237,6 +275,8 @@ var ProcedurePermissions = map[string]string{
 
 	// FleetNodeAdminService — fully migrated. Read for the list endpoints,
 	// manage for everything that mutates fleet-node state or triggers a scan.
+	// ListFleetNodes also permits fleetnode:manage and miner:pair because Add
+	// Miners uses a redacted projection to report degraded remote coverage.
 	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure:           authz.PermFleetnodeManage,
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure:                 authz.PermFleetnodeRead,
 	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure:               authz.PermFleetnodeManage,
@@ -246,8 +286,8 @@ var ProcedurePermissions = map[string]string{
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDevicesProcedure:           authz.PermFleetnodeRead,
 	fleetnodeadminv1connect.FleetNodeAdminServiceDiscoverOnFleetNodeProcedure:            authz.PermFleetnodeManage,
 	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodeDiscoveredDevicesProcedure: authz.PermFleetnodeRead,
-	// Pairing miners requires both miner:pair (primary gate, matches all other
-	// miner onboarding paths) and fleetnode:manage (inline handler check below).
+	// Pairing through the Fleet Node admin flow requires miner:pair here and
+	// fleetnode:manage in the handler.
 	fleetnodeadminv1connect.FleetNodeAdminServicePairDiscoveredDevicesOnFleetNodeProcedure: authz.PermMinerPair,
 
 	// ForemanImportService — bulk miner import flow. Gated on
@@ -295,11 +335,13 @@ var ProcedurePermissions = map[string]string{
 	alertsv1connect.RuleServiceCreateRuleProcedure:                           authz.PermAlertManage,
 	alertsv1connect.RuleServiceUpdateRuleProcedure:                           authz.PermAlertManage,
 	alertsv1connect.RuleServiceDeleteRuleProcedure:                           authz.PermAlertManage,
+	alertsv1connect.RuleServiceSetRuleRoutingProcedure:                       authz.PermAlertManage,
 	alertsv1connect.MaintenanceWindowServiceListMaintenanceWindowsProcedure:  authz.PermAlertRead,
 	alertsv1connect.MaintenanceWindowServiceCreateMaintenanceWindowProcedure: authz.PermAlertManage,
 	alertsv1connect.MaintenanceWindowServiceUpdateMaintenanceWindowProcedure: authz.PermAlertManage,
 	alertsv1connect.MaintenanceWindowServiceDeleteMaintenanceWindowProcedure: authz.PermAlertManage,
 	alertsv1connect.HistoryServiceListAlertsProcedure:                        authz.PermAlertRead,
+	alertsv1connect.HistoryServiceListActiveAlertGroupsProcedure:             authz.PermAlertRead,
 
 	// OnboardingService — fleet-init status. Other onboarding procedures
 	// are unauthenticated (covered by UnauthenticatedProcedures).
@@ -319,6 +361,34 @@ var ProcedurePermissions = map[string]string{
 	poolsv1connect.PoolsServiceCreatePoolProcedure:   authz.PermPoolManage,
 	poolsv1connect.PoolsServiceUpdatePoolProcedure:   authz.PermPoolManage,
 	poolsv1connect.PoolsServiceDeletePoolProcedure:   authz.PermPoolManage,
+
+	// RolloutService — release channels exist solely to drive firmware
+	// updates, so every RPC (including reads) sits on the firmware-update
+	// permission; the handler re-checks it.
+	rolloutv1connect.RolloutServiceListReleaseChannelsProcedure:                   authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceGetReleaseChannelProcedure:                     authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceListReleaseChannelMinersProcedure:              authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceCreateReleaseChannelProcedure:                  authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceUpdateReleaseChannelProcedure:                  authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceDeleteReleaseChannelProcedure:                  authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServicePreviewReleaseChannelScopeProcedure:            authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceApplyReleaseChannelFirmwareProcedure:           authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceRollbackReleaseChannelFirmwareProcedure:        authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceListRolloutsProcedure:                          authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceGetRolloutProcedure:                            authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceListRolloutDevicesProcedure:                    authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceContinueRolloutProcedure:                       authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServicePauseRolloutProcedure:                          authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceResumeRolloutProcedure:                         authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceCancelRolloutProcedure:                         authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceRetryFailedRolloutDevicesProcedure:             authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceListReleaseChannelModelGroupsProcedure:         authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceListReleaseChannelMembershipConflictsProcedure: authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServicePreviewReleaseChannelFirmwareProcedure:         authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceAdvanceRolloutProcedure:                        authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceSkipRolloutDevicesProcedure:                    authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceCompleteRolloutProcedure:                       authz.PermMinerFirmwareUpdate,
+	rolloutv1connect.RolloutServiceListRolloutEventsProcedure:                     authz.PermMinerFirmwareUpdate,
 
 	// ScheduleService — recurring miner actions. CreateSchedule and
 	// UpdateSchedule additionally re-check the underlying miner action
@@ -347,7 +417,13 @@ var ProcedurePermissions = map[string]string{
 	sitemapv1connect.SiteMapServiceImportSiteMapCsvProcedure: authz.PermSiteManage,
 
 	// Sites CRUD — site:read for List, site:manage for everything else.
-	sitesv1connect.SiteServiceListSitesProcedure:             authz.PermSiteRead,
+	// ListSites also accepts maintenance:read inline because maintenance forms
+	// need site IDs and names; this entry records the endpoint's primary gate.
+	sitesv1connect.SiteServiceListSitesProcedure: authz.PermSiteRead,
+	// CreateSite optionally seeds buildings + racks + devices atomically (#559).
+	// This site:manage entry is the primary gate; when the caller opts into
+	// force_clear_conflicting_rack_membership the handler adds an inline
+	// rack:manage check (mirrors AssignDevicesToSite).
 	sitesv1connect.SiteServiceCreateSiteProcedure:            authz.PermSiteManage,
 	sitesv1connect.SiteServiceUpdateSiteProcedure:            authz.PermSiteManage,
 	sitesv1connect.SiteServiceDeleteSiteProcedure:            authz.PermSiteManage,
@@ -366,6 +442,14 @@ var ProcedurePermissions = map[string]string{
 	// TelemetryService — fleet:read for combined-metrics surfaces.
 	telemetryv1connect.TelemetryServiceGetCombinedMetricsProcedure:          authz.PermFleetRead,
 	telemetryv1connect.TelemetryServiceStreamCombinedMetricUpdatesProcedure: authz.PermFleetRead,
+
+	// InstanceUpdateService — release visibility, channel selection, and host upgrade
+	// control share one instance-administration key.
+	instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure:    authz.PermInstanceUpdate,
+	instancev1connect.InstanceUpdateServiceSetReleaseChannelProcedure:  authz.PermInstanceUpdate,
+	instancev1connect.InstanceUpdateServiceTriggerUpgradeProcedure:     authz.PermInstanceUpdate,
+	instancev1connect.InstanceUpdateServiceGetUpgradeStatusProcedure:   authz.PermInstanceUpdate,
+	instancev1connect.InstanceUpdateServiceAcknowledgeUpgradeProcedure: authz.PermInstanceUpdate,
 }
 
 // ProceduresPendingMigration lists authenticated Connect procedures that

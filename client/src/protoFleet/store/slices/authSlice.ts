@@ -9,6 +9,7 @@ import { resetActiveCurtailmentData } from "@/protoFleet/api/activeCurtailmentDa
 
 export interface AuthSlice {
   sessionExpiry: Date | null;
+  sessionGeneration: number;
   isAuthenticated: boolean;
   username: string;
   role: string;
@@ -38,6 +39,7 @@ export interface AuthSlice {
 export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]], [], AuthSlice> = (set) => ({
   // Initial state
   sessionExpiry: null,
+  sessionGeneration: 0,
   isAuthenticated: false,
   username: "",
   role: "",
@@ -49,6 +51,9 @@ export const createAuthSlice: StateCreator<FleetStore, [["zustand/immer", never]
   setSessionExpiry: (expiry) =>
     set((state) => {
       state.auth.sessionExpiry = expiry;
+      if (expiry) {
+        state.auth.sessionGeneration += 1;
+      }
     }),
 
   setIsAuthenticated: (isAuthenticated) =>

@@ -34,7 +34,7 @@ The telemetry system uses a producer-consumer pattern with three main components
 	│ statusWriterRoutine │ (consumer)
 	│ - Batches updates   │
 	│ - Writes to DB      │
-	│ - Broadcasts changes│
+	│ - Updates status    │
 	└─────────────────────┘
 
 # Component Details
@@ -53,8 +53,8 @@ simple and stateless - no batching logic.
 statusWriterRoutine: A single goroutine that collects status updates from
 all workers and batches them for efficient DB writes. It flushes on a
 configurable interval (StatusFlushInterval) or when the context is
-cancelled. After writing, it broadcasts status changes to connected
-clients using in-memory state for change detection.
+cancelled. After writing, it updates the in-memory status cache used by
+the recovery polling loop.
 
 statusPollingRoutine: A separate routine that periodically checks failed
 devices (those removed from the main scheduler after too many failures).
@@ -94,16 +94,17 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
 const (
 	// Default intervals
-	defaultStatusUpdateInterval    = 1 * time.Second
-	defaultFetchInterval           = 5 * time.Second
-	defaultDevicePollInterval      = 10 * time.Minute
-	defaultHeartbeatInterval       = 30 * time.Second
-	defaultBroadcasterPollInterval = 5 * time.Second
-	defaultStatusPollingInterval   = 10 * time.Second
+	defaultStatusUpdateInterval  = 1 * time.Second
+	defaultFetchInterval         = 5 * time.Second
+	defaultDevicePollInterval    = 10 * time.Minute
+	defaultHeartbeatInterval     = 30 * time.Second
+	defaultStatusPollingInterval = 10 * time.Second
 
 	// Channel buffer sizes - prevent blocking on temporary consumer delays while limiting memory.
 
@@ -114,10 +115,6 @@ const (
 	// statusUpdateChannelBuffer: miner state count updates for streaming.
 	// Provides buffer for consumer processing delays at the configured update interval.
 	statusUpdateChannelBuffer = 100
-
-	// subscriberChannelBuffer: telemetry updates per subscriber.
-	// Allows asynchronous processing without dropping updates during brief delays.
-	subscriberChannelBuffer = 100
 
 	// resultsChannelBuffer: status results from workers before batch DB writes.
 	// Larger than others because all workers (ConcurrencyLimit) write here concurrently,
@@ -143,6 +140,8 @@ const (
 	// Context timeouts
 	shutdownFlushTimeout = 5 * time.Second
 )
+
+var errTelemetryServiceInactive = errors.New("telemetry service is inactive or stopping")
 
 const (
 	defaultUpdateInterval = 1 * time.Minute
@@ -177,6 +176,7 @@ const (
 type UpdateScheduler interface {
 	AddNewDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error
 	AddDevices(ctx context.Context, devices ...models.Device) error
+	RequeueDevices(ctx context.Context, devices ...models.Device) error
 	AddFailedDevices(ctx context.Context, devices ...models.Device) error
 	FetchDevices(ctx context.Context, after time.Time) ([]models.Device, error)
 	RemoveDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error
@@ -230,12 +230,7 @@ type statusResult struct {
 	driverName       string
 }
 
-type statusFlushRequest struct {
-	deviceID *models.DeviceIdentifier
-	done     chan error
-}
-
-type metricsFlushRequest struct {
+type flushRequest struct {
 	deviceID *models.DeviceIdentifier
 	done     chan error
 }
@@ -300,6 +295,12 @@ type inFlightKind string
 const (
 	inFlightKindFullTelemetry inFlightKind = "full_telemetry"
 	inFlightKindStatusOnly    inFlightKind = "status_only"
+	// inFlightKindRefresh marks a RefreshDevice claim. It runs the same full
+	// collection path but is not joinable by samplers, keeping the
+	// RefreshDevice contract opaque (see sampling.go).
+	inFlightKindRefresh inFlightKind = "refresh"
+	// inFlightKindSample marks a read-only direct sample (see sampling.go).
+	inFlightKindSample inFlightKind = "sample"
 )
 
 // metricsResult holds device metrics queued by a worker for batch DB writes.
@@ -311,6 +312,11 @@ type metricsResult struct {
 	metrics    modelsV2.DeviceMetrics
 }
 
+type telemetryResults struct {
+	status  chan statusResult
+	metrics chan metricsResult
+}
+
 type TelemetryService struct {
 	config             Config
 	updateScheduler    UpdateScheduler
@@ -319,44 +325,40 @@ type TelemetryService struct {
 	deviceStore        stores.DeviceStore
 	errorPoller        ErrorPoller
 	metricsObserver    *metricsObserver
-	mux                sync.Mutex
-	// tasks queues devices for full telemetry collection (metrics, telemetry, and status).
-	// Buffer sized to ConcurrencyLimit to ensure at least one queued task per worker.
-	tasks chan models.Device
-	// statusTasks queues devices for status-only checks (no telemetry fetch).
-	// Used by statusPollingRoutine to check failed devices for recovery.
-	statusTasks chan models.Device
-	// statusResults receives status updates from workers for batch DB writes.
-	statusResults chan statusResult
-	// statusFlushRequests asks statusWriterRoutine to flush pending status
-	// updates immediately and report the result to the caller.
-	statusFlushRequests chan statusFlushRequest
-	// metricsResults receives device metrics from workers for batch DB writes.
-	// Uses a blocking send so metrics are never dropped; backpressure slows workers
-	// if the DB falls behind rather than losing data.
-	metricsResults chan metricsResult
-	// metricsFlushRequests asks metricsWriterRoutine to flush pending metrics
-	// immediately and report the result to the caller.
-	metricsFlushRequests chan metricsFlushRequest
-	cancelFunc           context.CancelFunc
-	lookBackDuration     time.Duration
+	lookBackDuration   time.Duration
+	lifecycleMu        sync.Mutex
+	activation         *telemetryActivation
 	// devicesForStatusPolling tracks all paired devices that need periodic status checks.
 	// This ensures failed devices (removed from scheduler after MaxConsecutiveFailures)
 	// continue to be polled for status so they can recover when they come back online.
 	devicesForStatusPolling sync.Map
-	broadcasters            sync.Map // map[int64]*TelemetryBroadcaster - keyed by orgID
+	// awaitingInitialTelemetry tracks newly paired devices until the scheduler
+	// dispatches their first full telemetry task. Status polling must not bypass
+	// the scheduler's initial admission spread for these devices.
+	awaitingInitialTelemetry sync.Map
 	// lastKnownStatuses tracks the most recent status written to DB for each device.
-	// Used for change detection when broadcasting status updates. Using in-memory state
-	// avoids a race condition between reading old statuses and writing new ones.
+	// Used by status polling to avoid re-polling healthy devices.
 	lastKnownStatuses sync.Map // map[DeviceIdentifier]MinerStatus
 	lastKnownFirmware sync.Map // map[DeviceIdentifier]string
 	// lastDefaultPwActive caches the last-seen default-password flag per device so
 	// the poll only checks for a pairing-status change on transitions, not every poll.
 	lastDefaultPwActive sync.Map // map[DeviceIdentifier]bool
-	// inFlight tracks devices currently being processed by a worker via the tasks channel.
-	// statusPollingRoutine skips devices in this map to avoid double-processing the same
-	// device simultaneously in both the full-telemetry and status-only paths.
-	inFlight sync.Map // map[DeviceIdentifier]struct{}
+	// inFlight tracks devices currently claimed for processing (scheduled
+	// full telemetry, status-only recovery, RefreshDevice, or a direct
+	// sample). Values are *inFlightEntry carrying the fleetd-owned flight
+	// start plus metrics-ready and claim-complete signals so read-only
+	// samplers can join or wait out a flight (see sampling.go). Claim
+	// holders are the only releasers.
+	inFlight sync.Map // map[DeviceIdentifier]*inFlightEntry
+	// retainedSamples holds the most recent successful metrics sample per
+	// device (with its fleetd-owned flight start) for short-window reuse by
+	// SampleDeviceMetrics. See sampling.go.
+	retainedSamples sync.Map // map[DeviceIdentifier]*retainedSample
+	// sampleGenerations invalidate flights admitted before a device removal,
+	// preventing their eventual completion from reaching samplers or
+	// repopulating retention. Each device has an independent lock that
+	// linearizes invalidation with successful sample publication.
+	sampleGenerations sync.Map // map[DeviceIdentifier]*sampleGenerationState
 	// combinedMetricsSingle collapses identical concurrent GetCombinedMetrics
 	// calls (N dashboard viewers polling the same org) into one execution.
 	combinedMetricsSingle singleflight.Group
@@ -368,23 +370,18 @@ type TelemetryService struct {
 }
 
 func NewTelemetryService(config Config, telemetryDataStore TelemetryDataStore, minerManager CachedMinerGetter, scheduler UpdateScheduler, deviceStore stores.DeviceStore, errorPoller ErrorPoller) *TelemetryService {
-	return &TelemetryService{
+	s := &TelemetryService{
 		config:                 config,
 		telemetryDataStore:     telemetryDataStore,
 		minerManager:           minerManager,
 		updateScheduler:        scheduler,
 		deviceStore:            deviceStore,
 		errorPoller:            errorPoller,
-		tasks:                  make(chan models.Device, config.ConcurrencyLimit),
-		statusTasks:            make(chan models.Device, config.ConcurrencyLimit),
-		statusResults:          make(chan statusResult, resultsChannelBuffer),
-		statusFlushRequests:    make(chan statusFlushRequest),
-		metricsResults:         make(chan metricsResult, resultsChannelBuffer),
-		metricsFlushRequests:   make(chan metricsFlushRequest),
 		lookBackDuration:       -1 * (config.StalenessThreshold - config.FetchInterval),
 		metricsObserver:        newMetricsObserver(NoMetrics()),
 		combinedMetricsFlights: make(map[string]*combinedMetricsFlight),
 	}
+	return s
 }
 
 func (s *TelemetryService) WithMetricsEmitter(emitter MetricsEmitter) *TelemetryService {
@@ -396,17 +393,27 @@ func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.De
 	if len(deviceID) == 0 {
 		return nil
 	}
+	var newlyTracked []models.DeviceIdentifier
 	for _, id := range deviceID {
-		device := models.Device{ID: id, LastUpdatedAt: time.Now().Add(-s.config.NewDeviceLookback)}
-		select {
-		case s.tasks <- device:
-		case <-ctx.Done():
-			return fmt.Errorf("enqueue telemetry device %s: %w", id, ctx.Err())
+		if _, alreadyTracked := s.devicesForStatusPolling.LoadOrStore(id, struct{}{}); !alreadyTracked {
+			s.awaitingInitialTelemetry.Store(id, struct{}{})
+			newlyTracked = append(newlyTracked, id)
 		}
-		s.devicesForStatusPolling.Store(id, struct{}{})
 		s.lastDefaultPwActive.Delete(id)
 	}
-	return s.updateScheduler.AddNewDevices(ctx, deviceID...)
+	// The scheduler is the single admission path. It makes one new device
+	// immediately eligible and spreads bulk startup discovery across the poll
+	// window, avoiding an immediate queue plus a duplicate scheduler wave.
+	if err := s.updateScheduler.AddNewDevices(ctx, deviceID...); err != nil {
+		// A device that was not admitted by the scheduler must remain eligible
+		// for status polling rather than getting stuck behind an initial task
+		// that will never arrive.
+		for _, id := range newlyTracked {
+			s.awaitingInitialTelemetry.Delete(id)
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...models.DeviceIdentifier) error {
@@ -414,7 +421,9 @@ func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...model
 		return nil
 	}
 	for _, id := range deviceIDs {
+		s.invalidateDeviceSamples(id)
 		s.devicesForStatusPolling.Delete(id)
+		s.awaitingInitialTelemetry.Delete(id)
 		s.lastKnownStatuses.Delete(id)
 		s.lastKnownFirmware.Delete(id)
 		s.lastDefaultPwActive.Delete(id)
@@ -426,24 +435,30 @@ func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...model
 // RefreshDevice runs the same collection path used by scheduled telemetry for
 // one device, then asks the writers to flush pending status and metrics updates.
 func (s *TelemetryService) RefreshDevice(ctx context.Context, device models.Device) error {
-	waitCtx, cancelWait := context.WithTimeout(ctx, s.refreshDeviceOperationTimeout())
-	claimed, err := s.claimDeviceForRefresh(waitCtx, device.ID)
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context cancelled waiting for in-flight refresh for device %s: %w", device.ID, err)
+	}
+	activation, releaseProducer, err := s.registerActivationProducer()
+	if err != nil {
+		return err
+	}
+	defer releaseProducer()
+
+	operationTimeout := s.refreshDeviceOperationTimeout()
+	waitCtx, cancelWait := context.WithTimeout(ctx, operationTimeout)
+	err = s.claimDeviceForRefresh(waitCtx, device.ID, activation.stopping)
 	cancelWait()
 	if err != nil {
 		return err
 	}
+	defer s.releaseInFlightByID(device.ID)
 
-	operationCtx, cancelOperation := context.WithTimeout(ctx, s.refreshDeviceOperationTimeout())
+	operationCtx, cancelOperation := context.WithTimeout(ctx, operationTimeout)
 	defer cancelOperation()
 
-	var processErr error
-	if claimed {
-		defer s.inFlight.Delete(device.ID)
-		processErr = s.processDevice(operationCtx, device)
-	}
-
-	flushErr := s.FlushStatusForDevice(operationCtx, device.ID)
-	metricsFlushErr := s.FlushMetricsForDevice(operationCtx, device.ID)
+	processErr := s.processDevice(operationCtx, device, activation.results)
+	flushErr := s.requestStatusFlush(operationCtx, &device.ID, activation, nil)
+	metricsFlushErr := s.requestMetricsFlush(operationCtx, &device.ID, activation, nil)
 	return errors.Join(processErr, flushErr, metricsFlushErr)
 }
 
@@ -459,27 +474,32 @@ func (s *TelemetryService) refreshDeviceOperationTimeout() time.Duration {
 	return metricTimeout + 5*time.Second
 }
 
-func (s *TelemetryService) claimDeviceForRefresh(ctx context.Context, deviceID models.DeviceIdentifier) (bool, error) {
-	if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, inFlightKindFullTelemetry); !alreadyClaimed {
-		return true, nil
-	}
-
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-
+func (s *TelemetryService) claimDeviceForRefresh(ctx context.Context, deviceID models.DeviceIdentifier, inactive <-chan struct{}) error {
 	for {
-		_, stillInFlight := s.inFlight.Load(deviceID)
-		if !stillInFlight {
-			if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, inFlightKindFullTelemetry); !alreadyClaimed {
-				return true, nil
+		current, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, s.newDeviceInFlightEntry(deviceID, inFlightKindRefresh))
+		if !alreadyClaimed {
+			return nil
+		}
+		if entry, ok := current.(*inFlightEntry); ok {
+			select {
+			case <-entry.claimDone:
+				continue
+			case <-inactive:
+				return errTelemetryServiceInactive
+			case <-ctx.Done():
+				return fmt.Errorf("context cancelled waiting for in-flight refresh for device %s: %w", deviceID, ctx.Err())
 			}
-			continue
 		}
 
+		// Foreign claim values are test-only defensive compatibility. Typed
+		// production entries signal claimDone and never require polling.
 		select {
+		case <-inactive:
+			return errTelemetryServiceInactive
 		case <-ctx.Done():
-			return false, fmt.Errorf("context cancelled waiting for in-flight refresh for device %s: %w", deviceID, ctx.Err())
-		case <-ticker.C:
+			return fmt.Errorf("context cancelled waiting for in-flight refresh for device %s: %w", deviceID, ctx.Err())
+		case <-time.After(10 * time.Millisecond):
+			continue
 		}
 	}
 }
@@ -493,20 +513,23 @@ func (s *TelemetryService) FlushStatusForDevice(ctx context.Context, deviceID mo
 }
 
 func (s *TelemetryService) flushStatus(ctx context.Context, deviceID *models.DeviceIdentifier) error {
-	req := statusFlushRequest{deviceID: deviceID, done: make(chan error, 1)}
-
-	select {
-	case s.statusFlushRequests <- req:
-	case <-ctx.Done():
-		return fmt.Errorf("context cancelled before status flush request was queued: %w", ctx.Err())
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context cancelled before status flush request was queued: %w", err)
 	}
-
-	select {
-	case err := <-req.done:
+	activation, err := s.activeActivation()
+	if err != nil {
 		return err
-	case <-ctx.Done():
-		return fmt.Errorf("context cancelled waiting for status flush: %w", ctx.Err())
 	}
+	return s.requestStatusFlush(ctx, deviceID, activation, activation.stopping)
+}
+
+func (s *TelemetryService) requestStatusFlush(
+	ctx context.Context,
+	deviceID *models.DeviceIdentifier,
+	activation *telemetryActivation,
+	inactive <-chan struct{},
+) error {
+	return requestFlush(ctx, deviceID, activation.statusFlushRequests, inactive, "status")
 }
 
 func (s *TelemetryService) FlushMetricsNow(ctx context.Context) error {
@@ -518,103 +541,61 @@ func (s *TelemetryService) FlushMetricsForDevice(ctx context.Context, deviceID m
 }
 
 func (s *TelemetryService) flushMetrics(ctx context.Context, deviceID *models.DeviceIdentifier) error {
-	req := metricsFlushRequest{deviceID: deviceID, done: make(chan error, 1)}
-
-	select {
-	case s.metricsFlushRequests <- req:
-	case <-ctx.Done():
-		return fmt.Errorf("context cancelled before metrics flush request was queued: %w", ctx.Err())
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("context cancelled before metrics flush request was queued: %w", err)
 	}
-
-	select {
-	case err := <-req.done:
+	activation, err := s.activeActivation()
+	if err != nil {
 		return err
+	}
+	return s.requestMetricsFlush(ctx, deviceID, activation, activation.stopping)
+}
+
+func (s *TelemetryService) requestMetricsFlush(
+	ctx context.Context,
+	deviceID *models.DeviceIdentifier,
+	activation *telemetryActivation,
+	inactive <-chan struct{},
+) error {
+	return requestFlush(ctx, deviceID, activation.metricsFlushRequests, inactive, "metrics")
+}
+
+func requestFlush(
+	ctx context.Context,
+	deviceID *models.DeviceIdentifier,
+	requests chan<- flushRequest,
+	inactive <-chan struct{},
+	kind string,
+) error {
+	request := flushRequest{
+		deviceID: deviceID,
+		done:     make(chan error, 1),
+	}
+
+	select {
+	case requests <- request:
+	case <-inactive:
+		return errTelemetryServiceInactive
 	case <-ctx.Done():
-		return fmt.Errorf("context cancelled waiting for metrics flush: %w", ctx.Err())
+		return fmt.Errorf("context cancelled before %s flush request was queued: %w", kind, ctx.Err())
+	}
+
+	select {
+	case err := <-request.done:
+		return err
+	case <-inactive:
+		return errTelemetryServiceInactive
+	case <-ctx.Done():
+		return fmt.Errorf("context cancelled waiting for %s flush: %w", kind, ctx.Err())
 	}
 }
 
-func (s *TelemetryService) Start(ctx context.Context) error {
-	ctx, cancel := context.WithCancel(ctx)
-	s.cancelFunc = cancel
-
-	go s.gatherMetricsRoutine(ctx)
-	go s.devicePollingRoutine(ctx)
-	go s.statusPollingRoutine(ctx)
-	go s.fleetStateSnapshotRoutine(ctx)
-	go s.fleetMetricRollupRoutine(ctx)
-	return nil
-}
-
-func (s *TelemetryService) Stop(ctx context.Context) error {
-	s.cancelFunc()
-	defer close(s.tasks)
-	defer close(s.statusTasks)
-	defer close(s.statusResults)
-
-	s.broadcasters.Range(func(_, value any) bool {
-		if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
-			broadcaster.Stop()
-		}
-		return true
-	})
-
-	return nil
-}
-
-// GetOrCreateBroadcaster returns the broadcaster for an organization, creating it if needed
-func (s *TelemetryService) GetOrCreateBroadcaster(ctx context.Context, orgID int64) (*TelemetryBroadcaster, error) {
-	if val, ok := s.broadcasters.Load(orgID); ok {
-		broadcaster, ok := val.(*TelemetryBroadcaster)
-		if !ok {
-			return nil, fmt.Errorf("invalid broadcaster type for org %d", orgID)
-		}
-		return broadcaster, nil
-	}
-
-	pollInterval := defaultBroadcasterPollInterval
-	if s.config.FetchInterval > 0 {
-		pollInterval = s.config.FetchInterval
-	}
-
-	broadcaster := NewTelemetryBroadcaster(orgID, s.telemetryDataStore, pollInterval)
-
-	actual, loaded := s.broadcasters.LoadOrStore(orgID, broadcaster)
-	if loaded {
-		actualBroadcaster, ok := actual.(*TelemetryBroadcaster)
-		if !ok {
-			return nil, fmt.Errorf("invalid broadcaster type for org %d", orgID)
-		}
-		return actualBroadcaster, nil
-	}
-
-	if err := broadcaster.Start(ctx); err != nil {
-		s.broadcasters.Delete(orgID)
-		return nil, fmt.Errorf("failed to start broadcaster for org %d: %w", orgID, err)
-	}
-
-	return broadcaster, nil
-}
-
-func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
-	if !s.mux.TryLock() {
-		return
-	}
-	defer s.mux.Unlock()
-
-	// Start workers that fetch telemetry/status from miners
-	for range s.config.ConcurrencyLimit {
-		go s.worker(ctx)
-	}
-
-	// Start routines that collect results from workers and periodically write to DB
-	go s.statusWriterRoutine(ctx)
-	go s.metricsWriterRoutine(ctx)
-
+func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context, tasks chan<- models.Device) {
 	fetchInterval := s.config.FetchInterval
 	if fetchInterval <= 0 {
 		fetchInterval = defaultFetchInterval
 	}
+	reportProgress := runtimejobs.TrackProgress(ctx, fetchInterval)
 	ticker := time.NewTicker(fetchInterval)
 	defer ticker.Stop()
 	for {
@@ -626,11 +607,18 @@ func (s *TelemetryService) gatherMetricsRoutine(ctx context.Context) {
 			devices, err := s.updateScheduler.FetchDevices(ctx, lookback)
 			if err != nil {
 				slog.Error("failed to fetch devices for telemetry", "error", err)
+				reportProgress()
 				continue
 			}
-			for _, device := range devices {
-				s.tasks <- device
+			for index, device := range devices {
+				select {
+				case tasks <- device:
+				case <-ctx.Done():
+					s.requeueTelemetryTasks(devices[index:])
+					return
+				}
 			}
+			reportProgress()
 		}
 	}
 }
@@ -676,12 +664,13 @@ func (s *TelemetryService) loadPairedDevices(ctx context.Context) error {
 	return nil
 }
 
-// statusPollingRoutine sends all paired devices to the statusTasks channel at regular intervals.
+// statusPollingRoutine sends paired devices eligible for recovery checks to the statusTasks
+// channel at regular intervals. Initial collection remains owned by the telemetry scheduler.
 // This is essential for recovering failed devices: when a device exceeds MaxConsecutiveFailures,
 // the scheduler stops including it in telemetry fetches. This routine ensures we continue
 // checking status so devices can be restored when they come back online.
 // Status tasks are processed by workers in parallel, enabling efficient handling of large fleets.
-func (s *TelemetryService) statusPollingRoutine(ctx context.Context) {
+func (s *TelemetryService) statusPollingRoutine(ctx context.Context, statusTasks chan<- models.Device) {
 	interval := s.config.DeviceStatusPollInterval
 	if interval <= 0 {
 		interval = defaultStatusPollingInterval
@@ -700,6 +689,16 @@ func (s *TelemetryService) statusPollingRoutine(ctx context.Context) {
 					return true
 				}
 
+				if _, awaitingInitialTelemetry := s.awaitingInitialTelemetry.Load(deviceID); awaitingInitialTelemetry {
+					// The scheduler owns initial admission, including the startup
+					// spread for bulk-loaded devices. A failed device is allowed
+					// through so this guard cannot suppress offline recovery.
+					failed, _, err := s.updateScheduler.IsFailedDevice(ctx, deviceID)
+					if err != nil || !failed {
+						return true
+					}
+				}
+
 				// Skip devices that are healthy — the main telemetry loop already updates them.
 				// statusPollingRoutine exists to recover failed/offline devices, not to re-poll healthy ones.
 				// However, a device can be marked failed by the scheduler while its cached status is still
@@ -716,14 +715,15 @@ func (s *TelemetryService) statusPollingRoutine(ctx context.Context) {
 				}
 
 				// Atomically claim the device; skip if already queued or processing.
-				if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, inFlightKindStatusOnly); alreadyClaimed {
+				entry := s.newDeviceInFlightEntry(deviceID, inFlightKindStatusOnly)
+				if _, alreadyClaimed := s.inFlight.LoadOrStore(deviceID, entry); alreadyClaimed {
 					return true
 				}
 
 				select {
-				case s.statusTasks <- models.Device{ID: deviceID}:
+				case statusTasks <- models.Device{ID: deviceID}:
 				case <-ctx.Done():
-					s.inFlight.Delete(deviceID) // release claim on context cancellation
+					s.releaseInFlight(deviceID, entry) // release claim on context cancellation
 					return false
 				}
 				return true
@@ -817,34 +817,54 @@ func fleetMetricRollupWriteWindow(now, latest time.Time) (startTime, endTime tim
 	return startTime, endTime, true
 }
 
-// worker processes devices from task channels one at a time.
-// It fetches telemetry/status from miners and sends results to the statusResults channel
-// for periodic DB writes by statusWriterRoutine.
-func (s *TelemetryService) worker(ctx context.Context) {
+// worker processes devices from one activation's task channels.
+func (s *TelemetryService) worker(ctx context.Context, activation *telemetryActivation) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 
-		case device, ok := <-s.tasks:
+		case device, ok := <-activation.tasks:
 			if !ok {
 				return
 			}
-			if _, alreadyClaimed := s.inFlight.LoadOrStore(device.ID, inFlightKindFullTelemetry); alreadyClaimed {
+			entry := s.newDeviceInFlightEntry(device.ID, inFlightKindFullTelemetry)
+			if _, alreadyClaimed := s.inFlight.LoadOrStore(device.ID, entry); alreadyClaimed {
 				if err := s.updateScheduler.AddDevices(ctx, device); err != nil {
 					slog.Warn("failed to requeue skipped in-flight telemetry task", "deviceID", device.ID, "error", err)
 				}
 				continue
 			}
-			_ = s.processDevice(ctx, device)
-			s.inFlight.Delete(device.ID)
+			// Claim before clearing this marker so status polling cannot race in
+			// between initial scheduler admission and the in-flight guard.
+			_, awaitingInitialTelemetry := s.awaitingInitialTelemetry.LoadAndDelete(device.ID)
+			if err := s.processDevice(ctx, device, activation.results); awaitingInitialTelemetry && fleeterror.IsResourceExhaustedError(err) {
+				// Capacity rejection defers, rather than completes, initial telemetry.
+				// Restore the marker before releasing the in-flight claim so status
+				// polling cannot bypass the scheduler's initial-admission path.
+				s.awaitingInitialTelemetry.Store(device.ID, struct{}{})
+			}
+			s.releaseInFlight(device.ID, entry)
 
-		case device, ok := <-s.statusTasks:
+		case device, ok := <-activation.statusTasks:
 			if !ok {
 				return
 			}
-			s.processStatusOnly(ctx, device)
-			s.inFlight.Delete(device.ID)
+			s.processStatusOnly(ctx, device, activation.results.status)
+			s.releaseInFlightByID(device.ID)
+
+		case task, ok := <-activation.sampleTasks:
+			if !ok {
+				return
+			}
+			select {
+			case <-task.done:
+				// The caller's operation ended while this task was queued.
+			default:
+				s.processSample(ctx, task)
+			}
+			s.releaseInFlight(task.deviceID, task.entry)
+			activation.releaseSampleSlot()
 		}
 	}
 }
@@ -858,10 +878,10 @@ func (s *TelemetryService) worker(ctx context.Context) {
 //
 // Connection errors during status fetch are converted to MinerStatusOffline (not errors),
 // so the flow continues. Only auth failures and other non-connection errors cause early return.
-func (s *TelemetryService) processDevice(ctx context.Context, device models.Device) error {
+func (s *TelemetryService) processDevice(ctx context.Context, device models.Device, results telemetryResults) error {
 	// Telemetry failure doesn't block status/error polling - we still want to track online state.
 	// When metrics succeed, status is derived from the health field — no second RPC needed.
-	metricsStatus, hasMetricsStatus, orgID, driverName, siteID, pollSuccess, telemetryErr := s.GetTelemetryFromDevice(ctx, device)
+	metricsStatus, hasMetricsStatus, orgID, driverName, siteID, pollSuccess, telemetryErr := s.getTelemetryFromDevice(ctx, device, results.metrics)
 	var collectionErr error
 	s.metricsObserver.onPollResult(
 		ctx,
@@ -879,6 +899,19 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 				slog.Error("failed to update pairing status for credential remediation",
 					"deviceID", device.ID, "error", updateErr)
 			}
+		}
+
+		// A saturated Fleet Node already told us to retry later. Requeue it on
+		// the normal cadence without counting it as a device failure, and do not
+		// issue the same telemetry command again through GetDeviceStatus.
+		if fleeterror.IsResourceExhaustedError(telemetryErr) {
+			if addErr := s.updateScheduler.RequeueDevices(ctx, models.Device{
+				ID:            device.ID,
+				LastUpdatedAt: time.Now(),
+			}); addErr != nil {
+				slog.Warn("failed to requeue capacity-limited device", "deviceID", device.ID, "error", addErr)
+			}
+			return collectionErr
 		}
 
 		if addErr := s.updateScheduler.AddFailedDevices(ctx, device); addErr != nil {
@@ -926,7 +959,7 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 
 	// Send status result to writer (non-blocking to prevent worker stalls)
 	select {
-	case s.statusResults <- statusResult{
+	case results.status <- statusResult{
 		deviceIdentifier: device.ID,
 		status:           status,
 		orgID:            orgID,
@@ -954,7 +987,7 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 // This function is the recovery mechanism for failed devices. When a device exceeds
 // MaxConsecutiveFailures in the main telemetry loop, the scheduler marks it as "failed"
 // and stops including it in regular telemetry fetches. However, statusPollingRoutine
-// continues to send ALL paired devices here for status checks.
+// continues to send paired devices that have completed initial admission here for status checks.
 //
 // Recovery logic:
 //   - A device is considered "recovered" when it returns a healthy status (not offline/error).
@@ -966,7 +999,7 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 //
 // This design ensures devices can automatically rejoin telemetry collection when they
 // come back online, without manual intervention.
-func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.Device) {
+func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.Device, results chan<- statusResult) {
 	status, orgID, driverName, siteID, statusErr := s.fetchStatusFromMiner(ctx, device.ID)
 	if statusErr != nil {
 		// Non-connection errors (e.g., auth failures) - device stays in failed state.
@@ -1005,7 +1038,7 @@ func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.
 
 	// Always send status to DB for UI visibility (even for offline devices)
 	select {
-	case s.statusResults <- statusResult{
+	case results <- statusResult{
 		deviceIdentifier: device.ID,
 		status:           status,
 		orgID:            orgID,
@@ -1021,7 +1054,7 @@ func (s *TelemetryService) processStatusOnly(ctx context.Context, device models.
 
 // statusWriterRoutine collects status results from workers and writes them to DB periodically.
 // This centralizes DB writes to reduce connection usage and improve throughput.
-func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
+func (s *TelemetryService) statusWriterRoutine(ctx context.Context, activation *telemetryActivation) {
 	flushInterval := s.config.StatusFlushInterval
 	if flushInterval <= 0 {
 		flushInterval = defaultStatusFlushInterval
@@ -1051,7 +1084,7 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 		var drainResult statusFlushResult
 		for {
 			select {
-			case result, ok := <-s.statusResults:
+			case result, ok := <-activation.results.status:
 				if !ok {
 					return drainResult
 				}
@@ -1115,23 +1148,8 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 		}
 
 		if upsertOK {
-			// Broadcast status changes using in-memory state for change detection.
 			for _, u := range statusUpdates {
-				oldStatus, hadOldStatus := s.lastKnownStatuses.Load(u.DeviceIdentifier)
-				oldStatusTyped, validType := oldStatus.(mm.MinerStatus)
-				statusChanged := !hadOldStatus || !validType || oldStatusTyped != u.Status
-
-				if statusChanged {
-					// Store BEFORE broadcasting to ensure in-memory state is current
-					// before any broadcast handlers execute.
-					s.lastKnownStatuses.Store(u.DeviceIdentifier, u.Status)
-					s.broadcasters.Range(func(_, value any) bool {
-						if broadcaster, ok := value.(*TelemetryBroadcaster); ok {
-							broadcaster.PublishStatusChange(u.DeviceIdentifier, u.Status)
-						}
-						return true
-					})
-				}
+				s.lastKnownStatuses.Store(u.DeviceIdentifier, u.Status)
 			}
 		}
 
@@ -1156,11 +1174,12 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 			// Use a fresh context with timeout for final flush to ensure pending
 			// updates are written even after the parent context is cancelled.
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownFlushTimeout)
+			_ = drainReadyStatusResults(shutdownCtx)
 			_ = flush(shutdownCtx)
 			cancel()
 			return
 
-		case result, ok := <-s.statusResults:
+		case result, ok := <-activation.results.status:
 			if !ok {
 				return
 			}
@@ -1172,11 +1191,29 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context) {
 		case <-ticker.C:
 			_ = flush(ctx)
 
-		case req := <-s.statusFlushRequests:
+		case req := <-activation.statusFlushRequests:
 			result := mergeStatusFlushResults(drainReadyStatusResults(ctx), flush(ctx))
 			req.done <- result.errorForDevice(req.deviceID)
 		}
 	}
+}
+
+// authenticationFailure retains the endpoint from the handle that made the
+// failed request, rather than looking up a possibly recovered endpoint later.
+type authenticationFailure struct {
+	cause    error
+	orgID    int64
+	endpoint networking.ConnectionInfo
+}
+
+func (e *authenticationFailure) Error() string { return e.cause.Error() }
+func (e *authenticationFailure) Unwrap() error { return e.cause }
+
+func withAuthenticationEndpoint(err error, miner interfaces.Miner) error {
+	if !fleeterror.IsAuthenticationError(err) {
+		return err
+	}
+	return &authenticationFailure{cause: err, orgID: miner.GetOrgID(), endpoint: miner.GetConnectionInfo()}
 }
 
 // handleCredentialRemediation sets the pairing state matching the failure:
@@ -1197,7 +1234,13 @@ func (s *TelemetryService) handleCredentialRemediation(ctx context.Context, devi
 		return nil
 	}
 
-	eligible, updated, err := s.deviceStore.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, string(deviceID))
+	var failure *authenticationFailure
+	if !errors.As(cause, &failure) {
+		// Resolution failed before returning a handle; no contacted endpoint is
+		// available to safely authorize a pairing-state change.
+		return nil
+	}
+	eligible, updated, err := s.deviceStore.ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx, string(deviceID), failure.orgID, failure.endpoint)
 	if err != nil {
 		return fmt.Errorf("failed to reconcile auth-needed pairing status for device %s: %w", deviceID, err)
 	}
@@ -1312,18 +1355,37 @@ func (s *TelemetryService) reconcileDefaultPasswordState(ctx context.Context, de
 }
 
 func (s *TelemetryService) fetchTelemetryFromMiner(ctx context.Context, device models.Device) (*deviceResult, error) {
+	return s.fetchTelemetryFromMinerForOrg(ctx, device, 0)
+}
+
+func (s *TelemetryService) fetchTelemetryFromMinerForOrg(
+	ctx context.Context,
+	device models.Device,
+	expectedOrgID int64,
+) (*deviceResult, error) {
 	miner, err := s.minerManager.GetMinerFromDeviceIdentifier(ctx, device.ID)
 	if err != nil {
 		return nil, err
 	}
+	orgID := miner.GetOrgID()
+	if expectedOrgID != 0 && orgID != expectedOrgID {
+		return nil, fmt.Errorf(
+			"device %s belongs to org %d, expected org %d",
+			device.ID, orgID, expectedOrgID,
+		)
+	}
 
 	result := &deviceResult{
 		device:     device,
-		orgID:      miner.GetOrgID(),
+		orgID:      orgID,
 		siteID:     miner.GetSiteID(),
 		driverName: miner.GetDriverName(),
 	}
 	result.metrics, result.metricsErr = miner.GetDeviceMetrics(ctx)
+	result.metricsErr = withAuthenticationEndpoint(result.metricsErr, miner)
+	if fleeterror.IsResourceExhaustedError(result.metricsErr) {
+		return result, result.metricsErr
+	}
 	if result.metricsErr == nil {
 		trustedID := string(device.ID)
 		if result.metrics.DeviceIdentifier != "" && result.metrics.DeviceIdentifier != trustedID {
@@ -1377,6 +1439,7 @@ func (s *TelemetryService) fetchStatusFromMiner(ctx context.Context, deviceID mo
 	}
 	orgID, driverName, siteID := miner.GetOrgID(), miner.GetDriverName(), miner.GetSiteID()
 	status, err := miner.GetDeviceStatus(ctx)
+	err = withAuthenticationEndpoint(err, miner)
 	if err != nil {
 		if fleeterror.IsConnectionError(err) {
 			return mm.MinerStatusOffline, orgID, driverName, siteID, nil
@@ -1408,10 +1471,33 @@ func (s *TelemetryService) resolveTrustedDeviceMetadata(ctx context.Context, dev
 // succeeded, and any error. The first bool is false when the health status is
 // ambiguous; see healthStatusToMinerStatus.
 func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device models.Device) (mm.MinerStatus, bool, int64, string, int64, bool, error) {
+	activation, releaseProducer, err := s.registerActivationProducer()
+	if err != nil {
+		return mm.MinerStatusUnknown, false, 0, "", 0, false, err
+	}
+	defer releaseProducer()
+
+	// This compatibility wrapper owns no in-flight claim, so it must not
+	// publish its fetch into another producer's flight.
+	return s.collectTelemetryFromDevice(ctx, device, activation.results.metrics, nil)
+}
+
+func (s *TelemetryService) getTelemetryFromDevice(ctx context.Context, device models.Device, results chan<- metricsResult) (mm.MinerStatus, bool, int64, string, int64, bool, error) {
+	var expectedEntry *inFlightEntry
+	if current, ok := s.inFlight.Load(device.ID); ok {
+		expectedEntry, _ = current.(*inFlightEntry)
+	}
+	return s.collectTelemetryFromDevice(ctx, device, results, expectedEntry)
+}
+
+func (s *TelemetryService) collectTelemetryFromDevice(ctx context.Context, device models.Device, results chan<- metricsResult, expectedEntry *inFlightEntry) (mm.MinerStatus, bool, int64, string, int64, bool, error) {
 	fetchCtx, cancel := context.WithTimeout(ctx, s.config.MetricTimeout)
 	defer cancel()
 
 	result, err := s.fetchTelemetryFromMiner(fetchCtx, device)
+	// Share the fetch outcome with any sampler joined to this flight before
+	// running persistence side effects (see sampling.go).
+	s.publishFlightSample(device.ID, expectedEntry, result, err)
 	if err != nil {
 		var orgID, siteID int64
 		var driverName string
@@ -1430,7 +1516,7 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 		// prevent enqueueing metrics we already fetched. Only give up if the service
 		// itself is shutting down (ctx cancelled by the root context).
 		select {
-		case s.metricsResults <- metricsResult{
+		case results <- metricsResult{
 			deviceID:   device.ID,
 			orgID:      result.orgID,
 			siteID:     result.siteID,
@@ -1453,7 +1539,7 @@ func (s *TelemetryService) GetTelemetryFromDevice(ctx context.Context, device mo
 	}
 	return result.status, result.hasStatus, result.orgID, result.driverName, result.siteID, pollSuccess, nil
 }
-func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
+func (s *TelemetryService) metricsWriterRoutine(ctx context.Context, activation *telemetryActivation) {
 	flushInterval := s.config.StatusFlushInterval
 	if flushInterval <= 0 {
 		flushInterval = defaultMetricsFlushInterval
@@ -1501,7 +1587,7 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 		var drainResult metricsFlushResult
 		for {
 			select {
-			case result, ok := <-s.metricsResults:
+			case result, ok := <-activation.results.metrics:
 				if !ok {
 					return drainResult
 				}
@@ -1524,14 +1610,14 @@ func (s *TelemetryService) metricsWriterRoutine(ctx context.Context) {
 			_ = flush(shutdownCtx)
 			cancel()
 			return
-		case result := <-s.metricsResults:
+		case result := <-activation.results.metrics:
 			forwardMetrics(result)
 			if len(pending) >= maxMetricsBatchSize {
 				_ = flush(ctx)
 			}
 		case <-ticker.C:
 			_ = flush(ctx)
-		case req := <-s.metricsFlushRequests:
+		case req := <-activation.metricsFlushRequests:
 			result := mergeMetricsFlushResults(drainReadyMetricsResults(ctx), flush(ctx))
 			req.done <- result.errorForDevice(req.deviceID)
 		}
@@ -2025,28 +2111,6 @@ func (s *TelemetryService) sendCombinedMetricUpdate(ctx context.Context, updateC
 	case <-ctx.Done():
 		return fmt.Errorf("context cancelled: %w", ctx.Err())
 	}
-}
-
-// SubscribeToTelemetryUpdates subscribes to raw telemetry updates for an organization
-// This allows consumers to receive telemetry events without the conversion to protobuf responses
-// eventTypes filters which event types to receive (empty means all types)
-func (s *TelemetryService) SubscribeToTelemetryUpdates(ctx context.Context, orgID int64, deviceIDs []string, eventTypes []models.UpdateType) (<-chan models.TelemetryUpdate, func(), error) {
-	broadcaster, err := s.GetOrCreateBroadcaster(ctx, orgID)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get broadcaster: %w", err)
-	}
-
-	updateChan, unsubscribe, err := broadcaster.Subscribe(ctx, SubscriptionConfig{
-		DeviceIDs:        models.ToDeviceIdentifiers(deviceIDs),
-		MeasurementTypes: nil,
-		EventTypes:       eventTypes,
-		BufferSize:       subscriberChannelBuffer,
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to subscribe to broadcaster: %w", err)
-	}
-
-	return updateChan, unsubscribe, nil
 }
 
 // GetLatestDeviceMetrics retrieves the latest telemetry metrics for a batch of devices.

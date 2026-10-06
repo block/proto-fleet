@@ -8,7 +8,6 @@ import {
 import { lookupMinerByIdentifier } from "@/protoFleet/api/lookupMinerByIdentifier";
 import type { MinerEligibility } from "@/protoFleet/components/MinerSelectionList";
 import { canUseLiveCamera, useQrScanner } from "@/protoFleet/features/fleetManagement/hooks/useQrScanner";
-import { FLEET_SELECTABLE_PAIRING_STATUSES } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 import { isMinerSnapshotIneligible } from "@/protoFleet/features/fleetManagement/utils/minerPlacement";
 import { parseScannedIdentifier } from "@/protoFleet/features/fleetManagement/utils/parseScannedIdentifier";
 
@@ -16,6 +15,15 @@ export interface ScanAssignmentResult {
   slotLabel: string;
   hasNextSlot: boolean;
 }
+
+/** The assignment didn't happen. `message` is shown when present; without one the
+ *  operator cancelled and needs no telling, so the scanner just resumes. */
+export interface ScanAssignmentRefused {
+  failed: true;
+  message?: string;
+}
+
+export type ScanAssignmentOutcome = ScanAssignmentResult | ScanAssignmentRefused;
 
 interface ScanMinerQrModalProps {
   show: boolean;
@@ -27,9 +35,15 @@ interface ScanMinerQrModalProps {
   onDismiss: () => void;
   /** `isReassignment` is true when the scanned miner is currently assigned to a
    *  different rack/building/site, so the caller can confirm the reparent. */
-  onConfirm: (deviceIdentifier: string, isReassignment: boolean) => void;
-  onAssign: (deviceIdentifier: string) => ScanAssignmentResult | null;
-  onUndoAssignment: () => void;
+  // Awaited, like onAssign: it commits membership too, so the found dialog has
+  // to stay put until it lands rather than letting a rescan run underneath it.
+  onConfirm: (deviceIdentifier: string, isReassignment: boolean) => Promise<void>;
+  // Both commit: assigning writes the miner into the rack, undoing takes it
+  // back out. Awaited so the "assigned" phase only shows once it landed.
+  onAssign: (deviceIdentifier: string) => Promise<ScanAssignmentOutcome>;
+  /** Resolves false when the undo could not be persisted — the miner is still in
+   *  the rack, and the caller has surfaced the error on its own surface. */
+  onUndoAssignment: () => Promise<boolean>;
   onScanNextSlot: () => boolean;
 }
 
@@ -50,6 +64,7 @@ export default function ScanMinerQrModal({
   onScanNextSlot,
 }: ScanMinerQrModalProps) {
   const [phase, setPhase] = useState<ScanPhase>({ kind: "scanning" });
+  const [assigning, setAssigning] = useState(false);
   const [scannerRestartKey, setScannerRestartKey] = useState(0);
   const liveCamera = canUseLiveCamera();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -123,17 +138,25 @@ export default function ScanMinerQrModal({
 
       const snapshot = resolvedSnapshots[0];
       const isReassignment = isMinerSnapshotIneligible(snapshot, eligibility);
-      const notPairedForAssignment = !FLEET_SELECTABLE_PAIRING_STATUSES.includes(snapshot.pairingStatus);
       const requiresConfirmation = resolvedSnapshots.length > 1;
 
-      if (requiresConfirmation || isReassignment || notPairedForAssignment) {
+      // LookupMinerByIdentifier only resolves miners in the visible pairing set
+      // (PAIRED / auth-needed / default-password) — the same set the rack list
+      // and search flows allow — so a resolved miner is always assignable; no
+      // pairing gate here.
+      if (requiresConfirmation || isReassignment) {
         setPhase({ kind: "found", snapshot, isReassignment, requiresConfirmation });
         return;
       }
 
-      const assignment = onAssign(snapshot.deviceIdentifier);
-      if (!assignment) {
-        setPhase({ kind: "error", message: "Select a rack slot, then scan a miner." });
+      const assignment = await onAssign(snapshot.deviceIdentifier);
+      // The write outlives the scan it came from: closing and reopening the
+      // scanner bumps the sequence, and applying a result past that point would
+      // paint an "assigned" screen over the fresh scan, wired to the previous
+      // slot's undo.
+      if (seq !== lookupSeq.current) return;
+      if ("failed" in assignment) {
+        setPhase(assignment.message ? { kind: "error", message: assignment.message } : { kind: "scanning" });
         return;
       }
 
@@ -192,13 +215,20 @@ export default function ScanMinerQrModal({
     [detectFromBlob, runLookup],
   );
 
-  const handleConfirm = useCallback(() => {
-    if (phase.kind === "found") {
-      const isReassignment = isMinerSnapshotIneligible(phase.snapshot, eligibility);
+  // `assigning` holds the found dialog while either commit runs, and the
+  // sequence check covers what a held dialog cannot: dismissing mid-write, which
+  // is still allowed, then reopening onto a scan this result no longer describes.
+  const handleConfirm = useCallback(async () => {
+    if (phase.kind !== "found") return;
+    const seq = lookupSeq.current;
+    const isReassignment = isMinerSnapshotIneligible(phase.snapshot, eligibility);
+    setAssigning(true);
+    try {
       if (phase.requiresConfirmation && !isReassignment) {
-        const assignment = onAssign(phase.snapshot.deviceIdentifier);
-        if (!assignment) {
-          setPhase({ kind: "error", message: "Select a rack slot, then scan a miner." });
+        const assignment = await onAssign(phase.snapshot.deviceIdentifier);
+        if (seq !== lookupSeq.current) return;
+        if ("failed" in assignment) {
+          setPhase(assignment.message ? { kind: "error", message: assignment.message } : { kind: "scanning" });
           return;
         }
 
@@ -211,13 +241,19 @@ export default function ScanMinerQrModal({
         return;
       }
 
-      onConfirm(phase.snapshot.deviceIdentifier, isReassignment);
+      // Resolves once the reparent is confirmed and its membership commit lands.
+      // The caller closes the scanner itself on both outcomes.
+      await onConfirm(phase.snapshot.deviceIdentifier, isReassignment);
+    } finally {
+      setAssigning(false);
     }
   }, [phase, onAssign, onConfirm, eligibility]);
 
-  const handleUndoAssignment = useCallback(() => {
-    onUndoAssignment();
-    rescan();
+  // Only rescan once the undo actually landed. A failed one leaves the miner in
+  // the rack, and rescanning would replace the assigned screen with the scanning
+  // one — dropping the operator back into a scan as if the undo had worked.
+  const handleUndoAssignment = useCallback(async () => {
+    if (await onUndoAssignment()) rescan();
   }, [onUndoAssignment, rescan]);
 
   const handleScanNextSlot = useCallback(() => {
@@ -236,9 +272,10 @@ export default function ScanMinerQrModal({
       cameraStatus={status}
       cameraError={errorMessage}
       fileInputRef={fileInputRef}
+      assigning={assigning}
       onDismiss={onDismiss}
-      onConfirmFound={handleConfirm}
-      onUndoAssignment={handleUndoAssignment}
+      onConfirmFound={() => void handleConfirm()}
+      onUndoAssignment={() => void handleUndoAssignment()}
       onScanNextSlot={handleScanNextSlot}
       onRescan={rescan}
       onFile={handleFile}

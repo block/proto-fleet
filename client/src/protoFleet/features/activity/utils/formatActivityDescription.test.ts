@@ -18,6 +18,16 @@ describe("formatActivityDescription", () => {
     expect(formatActivityDescription(entry)).toBe("Couldn't log in");
   });
 
+  it("identifies break-glass resets and their target", () => {
+    const entry = create(ActivityEntrySchema, {
+      eventType: "cli_reset_password",
+      description: "Break-glass SUPER_ADMIN password reset",
+      metadata: { target_username: "owner" },
+    });
+
+    expect(formatActivityDescription(entry)).toBe("Break-glass password reset for owner");
+  });
+
   it("uses metadata to avoid backend IDs in site and building descriptions", () => {
     const siteEntry = create(ActivityEntrySchema, {
       eventType: "site.created",
@@ -105,6 +115,50 @@ describe("formatActivityDescription", () => {
     });
 
     expect(formatActivityDescription(entry)).toBe("Updated power target: 0/9 miners completed");
+  });
+
+  it.each([
+    ["rollout_started", "Started firmware update"],
+    ["rollout_review_ready", "Firmware update ready for review"],
+    ["rollout_continued", "Continued firmware update"],
+    ["rollout_advanced", "Advanced firmware update"],
+    ["rollout_devices_skipped", "Skipped firmware update targets"],
+    ["rollout_device_failed", "Firmware update target failed"],
+    ["rollout_controller_timed_out", "Firmware update controller timed out"],
+    ["rollout_paused", "Paused firmware update"],
+    ["rollout_resumed", "Resumed firmware update"],
+    ["rollout_canceled", "Canceled remaining firmware updates"],
+    ["rollout_completed", "Completed firmware update"],
+    ["rollout_completed_with_failures", "Completed firmware update with failures"],
+    ["rollout_retried", "Retried failed firmware updates"],
+  ])("preserves indexed %s descriptions without requiring metadata", (eventType, label) => {
+    const description = `${label}: Canary Proto Rig → 2.0.0`;
+    const entry = create(ActivityEntrySchema, { eventType, description });
+
+    expect(formatActivityDescription(entry)).toBe(description);
+    expect(formatActivityDescription(create(ActivityEntrySchema, { eventType }))).toBe(label);
+  });
+
+  it.each([
+    ["rollout_retried", "Retried failed firmware updates"],
+    ["rollout_advanced", "Advanced firmware update"],
+    ["rollout_devices_skipped", "Skipped firmware update targets"],
+    ["rollout_device_failed", "Firmware update target failed"],
+    ["rollout_controller_timed_out", "Firmware update controller timed out"],
+  ])("preserves target names and firmware versions for %s", (eventType, label) => {
+    const description = `${label}: Failed devices (id=42) Device device(s) → force-cleared-failed`;
+    const entry = create(ActivityEntrySchema, {
+      eventType,
+      description,
+      metadata: {
+        channel_name: "Failed devices (id=42)",
+        manufacturer: "Device",
+        model: "device(s)",
+        firmware_version: "force-cleared-failed",
+      },
+    });
+
+    expect(formatActivityDescription(entry)).toBe(description);
   });
 
   it("cleans fallback descriptions without changing backend values", () => {

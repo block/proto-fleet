@@ -19,9 +19,56 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
+	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 )
+
+func TestPairDiscoveredDevicesOnFleetNode_PairAllBeyondOneBatch(t *testing.T) {
+	h := newPairingHarness(t)
+	fleetNodeID := h.createFleetNode(t, "admin-pairall-pages")
+	count := fleetnodepairing.MaxPairBatch + 1
+	_, err := h.db.Exec(`
+		INSERT INTO discovered_device (org_id, device_identifier, ip_address, port, url_scheme, driver_name, is_active, discovered_by_fleet_node_id)
+		SELECT $1, 'mac:page-' || n, '10.0.0.7', '80', 'http', 'virtual', TRUE, $2
+		FROM generate_series(1, $3::int) AS n`, h.orgID, fleetNodeID, count)
+	require.NoError(t, err)
+	stream := h.registry.Register(fleetNodeID)
+	defer stream.Unregister()
+	client := startAdminServer(t, h)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	go func() {
+		for {
+			select {
+			case cmd, ok := <-stream.Outgoing:
+				if !ok {
+					return
+				}
+				// Missing results synthesize failures and leave discovery rows
+				// eligible: the next page must not select them again.
+				stream.PublishAck(&gatewaypb.ControlAck{CommandId: cmd.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_PARTIAL})
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	resp, err := client.PairDiscoveredDevicesOnFleetNode(ctx, connect.NewRequest(&pb.PairDiscoveredDevicesOnFleetNodeRequest{
+		FleetNodeId: fleetNodeID, PairAllUnpaired: true,
+	}))
+	require.NoError(t, err)
+	seen := make(map[string]bool, count)
+	for resp.Receive() {
+		for _, result := range resp.Msg().GetResults() {
+			assert.False(t, seen[result.GetDeviceIdentifier()], "each miner is attempted once")
+			seen[result.GetDeviceIdentifier()] = true
+			assert.Equal(t, fleetmanagementv1.PairingStatus_PAIRING_STATUS_FAILED, result.GetPairingStatus())
+		}
+	}
+	require.NoError(t, resp.Err())
+	require.NoError(t, resp.Close())
+	assert.Len(t, seen, count)
+}
 
 func (h *pairingHarness) insertDiscoveredForNode(t *testing.T, fleetNodeID int64, identifier string) {
 	t.Helper()

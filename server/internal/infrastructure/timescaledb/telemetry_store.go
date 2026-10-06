@@ -1842,7 +1842,7 @@ func (s *TimescaleTelemetryStore) UpsertFleetMetricRollups(ctx context.Context, 
 	ctx, cancel := context.WithTimeout(ctx, s.config.WriteTimeout)
 	defer cancel()
 
-	return db.WithTransactionNoResult(ctx, s.db, func(q *sqlc.Queries) error {
+	return db.WithTransactionNoResult(ctx, s.db, func(q sqlc.Querier) error {
 		if err := q.DeleteFleetMetricRollupsForWindow(ctx, sqlc.DeleteFleetMetricRollupsForWindowParams{
 			StartTime: startTime,
 			EndTime:   endTime,

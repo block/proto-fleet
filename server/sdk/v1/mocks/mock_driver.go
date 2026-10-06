@@ -233,6 +233,44 @@ func (mr *MockDeviceCurtailmentMockRecorder) Uncurtail(ctx, req any) *gomock.Cal
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Uncurtail", reflect.TypeOf((*MockDeviceCurtailment)(nil).Uncurtail), ctx, req)
 }
 
+// MockDeviceCurtailmentConfigurator is a mock of DeviceCurtailmentConfigurator interface.
+type MockDeviceCurtailmentConfigurator struct {
+	ctrl     *gomock.Controller
+	recorder *MockDeviceCurtailmentConfiguratorMockRecorder
+	isgomock struct{}
+}
+
+// MockDeviceCurtailmentConfiguratorMockRecorder is the mock recorder for MockDeviceCurtailmentConfigurator.
+type MockDeviceCurtailmentConfiguratorMockRecorder struct {
+	mock *MockDeviceCurtailmentConfigurator
+}
+
+// NewMockDeviceCurtailmentConfigurator creates a new mock instance.
+func NewMockDeviceCurtailmentConfigurator(ctrl *gomock.Controller) *MockDeviceCurtailmentConfigurator {
+	mock := &MockDeviceCurtailmentConfigurator{ctrl: ctrl}
+	mock.recorder = &MockDeviceCurtailmentConfiguratorMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockDeviceCurtailmentConfigurator) EXPECT() *MockDeviceCurtailmentConfiguratorMockRecorder {
+	return m.recorder
+}
+
+// ApplyCurtailmentConfig mocks base method.
+func (m *MockDeviceCurtailmentConfigurator) ApplyCurtailmentConfig(ctx context.Context, config sdk.CurtailmentConfig) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ApplyCurtailmentConfig", ctx, config)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ApplyCurtailmentConfig indicates an expected call of ApplyCurtailmentConfig.
+func (mr *MockDeviceCurtailmentConfiguratorMockRecorder) ApplyCurtailmentConfig(ctx, config any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApplyCurtailmentConfig", reflect.TypeOf((*MockDeviceCurtailmentConfigurator)(nil).ApplyCurtailmentConfig), ctx, config)
+}
+
 // MockDeviceConfiguration is a mock of DeviceConfiguration interface.
 type MockDeviceConfiguration struct {
 	ctrl     *gomock.Controller

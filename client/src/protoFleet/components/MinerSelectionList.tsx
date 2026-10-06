@@ -18,8 +18,10 @@ import {
 import { useSites } from "@/protoFleet/api/sites";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useFleet from "@/protoFleet/api/useFleet";
+import MinerSearchInput from "@/protoFleet/components/MinerSearchInput";
 import type { SiteFilterFields } from "@/protoFleet/components/PageHeader/SitePicker";
 import { INACTIVE_PLACEHOLDER } from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
+import { FLEET_SELECTABLE_PAIRING_STATUSES } from "@/protoFleet/features/fleetManagement/utils/fleetVisiblePairingFilter";
 import {
   getMinerBuildingId,
   getMinerBuildingLabel,
@@ -96,6 +98,10 @@ export interface MinerSelectionListHandle {
 
 export interface MinerSelectionListProps {
   filterConfig?: FilterConfig;
+  // Immutable constraints supplied by the caller, such as the selected
+  // building/rack/group ancestors in a drill-down flow. Interactive facets are
+  // layered on top and must never replace these constraints.
+  initialFilter?: MinerListFilter;
   initialAllSelected?: boolean;
   initialSelectedItems?: string[];
   isMembersLoading?: boolean;
@@ -119,6 +125,9 @@ export interface MinerSelectionListProps {
   eligibility?: MinerEligibility;
   // Label of the target rack, shown in the assignment-conflict dialog.
   targetRackLabel?: string;
+  // Pairing statuses the list fetches; defaults to PAIRED-only. Rack flows pass
+  // the wider visible set so non-paired members render.
+  pairingStatuses?: PairingStatus[];
   onSelectionChange?: (state: {
     selectedItems: string[];
     allSelected: boolean;
@@ -248,12 +257,29 @@ const describeReassignment = (item: DeviceListItem, targetRackLabel?: string): s
   return `Assigning ${name} to ${target} will unassign it from ${current}.`;
 };
 
+const layerUserFilter = (baseFilter: MinerListFilter, userFilter: MinerListFilter): MinerListFilter => {
+  const merged = clone(MinerListFilterSchema, baseFilter);
+
+  if (merged.models.length === 0) merged.models = userFilter.models;
+  if (merged.rackIds.length === 0) merged.rackIds = userFilter.rackIds;
+  if (merged.groupIds.length === 0) merged.groupIds = userFilter.groupIds;
+  if (merged.siteIds.length === 0) merged.siteIds = userFilter.siteIds;
+  if (merged.buildingIds.length === 0) merged.buildingIds = userFilter.buildingIds;
+  if (merged.ipCidrs.length === 0 && merged.ipRanges.length === 0) {
+    merged.ipCidrs = userFilter.ipCidrs;
+    merged.ipRanges = userFilter.ipRanges;
+  }
+
+  return merged;
+};
+
 // --- Component ---
 
 const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionListProps>(
   (
     {
       filterConfig,
+      initialFilter,
       initialAllSelected = false,
       initialSelectedItems,
       isMembersLoading = false,
@@ -264,15 +290,19 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       scope,
       eligibility,
       targetRackLabel,
+      pairingStatuses = FLEET_SELECTABLE_PAIRING_STATUSES,
       onSelectionChange,
     },
     ref,
   ) => {
+    const [baseFilter] = useState(() =>
+      initialFilter ? clone(MinerListFilterSchema, initialFilter) : create(MinerListFilterSchema, {}),
+    );
     const {
-      showTypeFilter = true,
+      showTypeFilter: showTypeFilterProp = true,
       showRackFilter: showRackFilterProp = true,
-      showGroupFilter = true,
-      showSubnetFilter = false,
+      showGroupFilter: showGroupFilterProp = true,
+      showSubnetFilter: showSubnetFilterProp = false,
       showSiteFilter: showSiteFilterProp = false,
       showBuildingFilter: showBuildingFilterProp = false,
     } = filterConfig ?? {};
@@ -319,9 +349,16 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // their labels ride on the miner snapshot. The facets stay visible in both
     // toggle states — a facet that conflicts with the target rack's placement is
     // handled by the assignable-only empty state below, not by hiding.
-    const showRackFilter = showRackFilterProp;
-    const showSiteFilter = showSiteFilterProp && canReadSiteCatalog;
-    const showBuildingFilter = showBuildingFilterProp && canReadSiteCatalog;
+    // A caller-provided constraint is a navigation boundary, not an editable
+    // facet. Hide that dimension so an OR-based protobuf id list cannot broaden
+    // the drill-down scope with a second value from the catalog.
+    const showTypeFilter = showTypeFilterProp && baseFilter.models.length === 0;
+    const showRackFilter = showRackFilterProp && baseFilter.rackIds.length === 0;
+    const showGroupFilter = showGroupFilterProp && baseFilter.groupIds.length === 0;
+    const showSubnetFilter =
+      showSubnetFilterProp && baseFilter.ipCidrs.length === 0 && baseFilter.ipRanges.length === 0;
+    const showSiteFilter = showSiteFilterProp && canReadSiteCatalog && baseFilter.siteIds.length === 0;
+    const showBuildingFilter = showBuildingFilterProp && canReadSiteCatalog && baseFilter.buildingIds.length === 0;
 
     const { listGroups, listRacks } = useDeviceSets();
     const { listSites } = useSites();
@@ -330,6 +367,12 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // group). Site scope and eligibility are layered on top in the derived
     // `filter` below so applying a facet never drops those constraints.
     const [userFilter, setUserFilter] = useState(() => create(MinerListFilterSchema, {}));
+    const [searchQuery, setSearchQuery] = useState(baseFilter.searchQuery);
+    // What the search field currently shows, updated per keystroke. `searchQuery`
+    // lags it by the input's debounce, and select-all is gated on both: the
+    // applied query so the offer matches the listed rows, and the pending query
+    // so all-mode is disarmed the moment the operator starts narrowing.
+    const [pendingSearchQuery, setPendingSearchQuery] = useState(baseFilter.searchQuery);
     const [selectedItems, setSelectedItems] = useState<string[]>(initialSelectedItems ?? []);
     const [allSelected, setAllSelected] = useState(initialAllSelected && !singleSelect);
     const [availableGroups, setAvailableGroups] = useState<DeviceSet[]>([]);
@@ -360,7 +403,8 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // useFleet dedupes by protobuf value equality, so a fresh object per render
     // only triggers a refetch when the contents actually change.
     const filter = useMemo(() => {
-      const merged = clone(MinerListFilterSchema, userFilter);
+      const merged = layerUserFilter(baseFilter, userFilter);
+      merged.searchQuery = searchQuery;
       // Site scope is the soft baseline; a user-selected Site facet
       // (userFilter.siteIds) is more specific and takes precedence.
       if (merged.siteIds.length === 0) {
@@ -422,8 +466,10 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       return merged;
     }, [
       userFilter,
+      baseFilter,
       scopeSiteIds,
       scopeIncludeUnassigned,
+      searchQuery,
       showAssigned,
       eligibilityEnabled,
       eligRackId,
@@ -446,7 +492,7 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       filter,
       sort: sortConfig,
       pageSize: PAGE_SIZE,
-      pairingStatuses: [PairingStatus.PAIRED],
+      pairingStatuses,
     });
 
     const currentPageItems = useMemo(() => {
@@ -546,9 +592,17 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
     // assigned-elsewhere rows, so "select all" is ambiguous (and the assignable
     // resolver would silently drop the reassignment picks). Only offer it in the
     // assignable-only view.
+    //
+    // A search withdraws "select all" for every caller, not just the ones that
+    // opt into `disableFilteredSelectAll`: no backend selector can represent a
+    // substring match, so the offer would silently widen to the whole fleet.
+    // That is why the search gates sit here rather than in
+    // hasUnsupportedAllSelectionFilter.
     const canSelectAll =
       !singleSelect &&
       !(eligibilityEnabled && showAssigned) &&
+      filter.searchQuery.trim().length === 0 &&
+      pendingSearchQuery.trim().length === 0 &&
       (!disableFilteredSelectAll || !hasUnsupportedAllSelectionFilter(filter));
     const shouldShowSelectionFooter =
       showSelectAllFooter &&
@@ -659,12 +713,13 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       goToPrevPage();
     }, [scrollToTop, goToPrevPage]);
 
-    // Fetch filter options only for enabled filters. Rack/building facet options
+    // Fetch filter options only for enabled filters. Rack/building/group facet options
     // scope to the active site so the dropdowns list only the site's members
-    // (facetIncludeUnassigned, not the list's includeUnassigned); group and site
-    // options stay org-wide until ListGroups gains site filtering (issue #520).
+    // (facetIncludeUnassigned, not the list's includeUnassigned); site options
+    // remain org-wide because the site facet itself defines that scope.
     useEffect(() => {
-      if (showGroupFilter) listGroups({ onSuccess: setAvailableGroups });
+      if (showGroupFilter)
+        listGroups({ siteIds: scopeSiteIds, includeUnassigned: facetIncludeUnassigned, onSuccess: setAvailableGroups });
       if (showRackFilter)
         listRacks({ siteIds: scopeSiteIds, includeUnassigned: facetIncludeUnassigned, onSuccess: setAvailableRacks });
       if (showSiteFilter)
@@ -853,15 +908,10 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
       [showRackFilter, showGroupFilter, showSiteFilter, showBuildingFilter, showSubnetFilter],
     );
 
+    // The spinner replaces the rows, not the whole list: the header holds the
+    // search field, and unmounting it while a refined query loads after an
+    // empty result would drop focus and swallow the keystrokes typed meanwhile.
     const showSpinner = (isLoading || isMembersLoading) && currentPageItems.length === 0;
-
-    if (showSpinner) {
-      return (
-        <div className="flex justify-center py-20">
-          <ProgressCircular indeterminate />
-        </div>
-      );
-    }
 
     return (
       <div className="flex min-h-0 flex-1 flex-col">
@@ -873,26 +923,31 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             filters={filters}
             onServerFilter={handleServerFilter}
             headerControls={
-              eligibilityEnabled ? (
-                // px-1 gives the toggle's hover scale-up room so it doesn't
-                // paint past the filter row's right edge and trigger horizontal
-                // scroll in the modal.
-                <div className="flex items-center gap-1 px-1">
-                  <Button
-                    variant={variants.textOnly}
-                    textOnlyUnderlineOnHover={false}
-                    ariaLabel="About “Show assigned miners”"
-                    prefixIcon={<Info className="text-text-primary-70" />}
-                    onClick={() => setShowAssignedInfo(true)}
-                  />
-                  <Switch
-                    label="Show assigned miners"
-                    ariaLabel="Show assigned miners"
-                    checked={showAssigned}
-                    setChecked={setShowAssigned}
-                  />
-                </div>
-              ) : undefined
+              <div className="flex items-center gap-2 px-1">
+                <MinerSearchInput
+                  id="miner-selection-search"
+                  initialValue={searchQuery}
+                  onQueryChange={setSearchQuery}
+                  onQueryInput={setPendingSearchQuery}
+                />
+                {eligibilityEnabled ? (
+                  <>
+                    <Button
+                      variant={variants.textOnly}
+                      textOnlyUnderlineOnHover={false}
+                      ariaLabel="About “Show assigned miners”"
+                      prefixIcon={<Info className="text-text-primary-70" />}
+                      onClick={() => setShowAssignedInfo(true)}
+                    />
+                    <Switch
+                      label="Show assigned miners"
+                      ariaLabel="Show assigned miners"
+                      checked={showAssigned}
+                      setChecked={setShowAssigned}
+                    />
+                  </>
+                ) : null}
+              </div>
             }
             items={displayItems}
             itemKey="deviceIdentifier"
@@ -913,7 +968,13 @@ const MinerSelectionList = forwardRef<MinerSelectionListHandle, MinerSelectionLi
             overflowContainer
             stickyBgColor="bg-surface-elevated-base"
             emptyStateRow={
-              <div className="py-10 text-center text-300 text-text-primary-70">No miners match these filters.</div>
+              showSpinner ? (
+                <div className="flex justify-center py-20">
+                  <ProgressCircular indeterminate />
+                </div>
+              ) : (
+                <div className="py-10 text-center text-300 text-text-primary-70">No miners match these filters.</div>
+              )
             }
             footerContent={
               !placementFacetConflict && !isLoading && totalMiners !== undefined && totalMiners > 0 ? (

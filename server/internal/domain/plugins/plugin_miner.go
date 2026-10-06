@@ -29,6 +29,7 @@ import (
 
 var _ interfaces.Miner = &PluginMiner{}
 var _ interfaces.MinerInfo = &PluginMiner{}
+var _ interfaces.MinerCurtailmentConfigurator = &PluginMiner{}
 
 // PluginMiner wraps an SDK Device to implement the interfaces.Miner interface.
 //
@@ -244,6 +245,21 @@ func (p *PluginMiner) Uncurtail(ctx context.Context, req sdk.UncurtailRequest) e
 	}
 	if err := curtailer.Uncurtail(ctx, req); err != nil {
 		return wrapCurtailmentPluginError(err, "failed to uncurtail device")
+	}
+	return nil
+}
+
+// ApplyCurtailmentConfig dispatches through optional SDK support.
+func (p *PluginMiner) ApplyCurtailmentConfig(ctx context.Context, payload dto.ApplyCurtailmentConfigPayload) error {
+	if payload.Config == nil {
+		return fleeterror.NewFailedPreconditionError("plaintext curtailment config is required for local plugin dispatch")
+	}
+	configurator, ok := p.sdkDevice.(sdk.DeviceCurtailmentConfigurator)
+	if !ok {
+		return fleeterror.NewUnimplementedError("device does not support curtailment configuration")
+	}
+	if err := configurator.ApplyCurtailmentConfig(ctx, *payload.Config); err != nil {
+		return wrapPluginError(err, "failed to apply curtailment config")
 	}
 	return nil
 }

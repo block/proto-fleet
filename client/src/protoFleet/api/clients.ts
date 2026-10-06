@@ -19,11 +19,16 @@ import { FleetManagementService } from "@/protoFleet/api/generated/fleetmanageme
 import { FleetNodeAdminService } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { ForemanImportService } from "@/protoFleet/api/generated/foremanimport/v1/foremanimport_pb";
 import { InfrastructureService } from "@/protoFleet/api/generated/infrastructure/v1/infrastructure_pb";
+import { InstanceUpdateService } from "@/protoFleet/api/generated/instance/v1/updates_pb";
+import { InventoryService } from "@/protoFleet/api/generated/inventory/v1/inventory_pb";
+import { MaintenanceService } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
+import { MarketDataService } from "@/protoFleet/api/generated/marketdata/v1/marketdata_pb";
 import { MinerCommandService } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { NetworkInfoService } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
 import { OnboardingService } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
 import { PairingService } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { PoolsService } from "@/protoFleet/api/generated/pools/v1/pools_pb";
+import { RolloutService } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { ScheduleService } from "@/protoFleet/api/generated/schedule/v1/schedule_pb";
 import { ServerLogService } from "@/protoFleet/api/generated/serverlog/v1/serverlog_pb";
 import { SiteMapService } from "@/protoFleet/api/generated/sitemap/v1/sitemap_pb";
@@ -57,6 +62,11 @@ const alertChannelClient = createClient(AlertChannelService, transport);
 const alertRuleClient = createClient(AlertRuleService, transport);
 const alertMaintenanceWindowClient = createClient(AlertMaintenanceWindowService, transport);
 const alertHistoryClient = createClient(AlertHistoryService, transport);
+const instanceUpdateClient = createClient(InstanceUpdateService, transport);
+const inventoryClient = createClient(InventoryService, transport);
+const maintenanceClient = createClient(MaintenanceService, transport);
+const marketDataClient = createClient(MarketDataService, transport);
+const rolloutClient = createClient(RolloutService, transport);
 
 export {
   alertChannelClient,
@@ -77,6 +87,9 @@ export {
   fleetManagementClient,
   fleetNodeAdminClient,
   infrastructureClient,
+  inventoryClient,
+  maintenanceClient,
+  marketDataClient,
   onboardingClient,
   minerCommandClient,
   poolsClient,
@@ -85,5 +98,7 @@ export {
   siteMapClient,
   sitesClient,
   telemetryClient,
+  instanceUpdateClient,
+  rolloutClient,
   foremanImportClient,
 };

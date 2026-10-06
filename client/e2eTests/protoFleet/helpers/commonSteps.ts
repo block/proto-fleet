@@ -51,6 +51,8 @@ export class CommonSteps {
         if (await this.authPage.isAlreadyLoggedIn()) {
           return;
         }
+
+        await this.authPage.gotoAuthPage();
       }
 
       await this.authPage.inputUsername(testConfig.users.admin.username);

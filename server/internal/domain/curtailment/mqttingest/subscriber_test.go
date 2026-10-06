@@ -55,6 +55,38 @@ type countingClient struct {
 	connected bool
 }
 
+type blockingDisconnectClient struct {
+	reg     *clientRegistry
+	release <-chan struct{}
+}
+
+type blockingListStore struct {
+	Store
+	started     chan struct{}
+	startedOnce sync.Once
+	release     <-chan struct{}
+}
+
+func (s *blockingListStore) ListEnabledSources(ctx context.Context) ([]SourceConfig, error) {
+	s.startedOnce.Do(func() { close(s.started) })
+	<-s.release
+	return s.Store.ListEnabledSources(ctx)
+}
+
+func (c *blockingDisconnectClient) Connect(context.Context, string, int32, string, string, string, string) error {
+	c.reg.onConnect()
+	return nil
+}
+
+func (c *blockingDisconnectClient) Subscribe(context.Context, string, func([]byte, time.Time)) error {
+	return nil
+}
+
+func (c *blockingDisconnectClient) Disconnect(time.Duration) {
+	<-c.release
+	c.reg.onDisconnect()
+}
+
 func (c *countingClient) Connect(context.Context, string, int32, string, string, string, string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -199,7 +231,7 @@ func TestSubscriber_ReconcileStartsAndStopsWorkers(t *testing.T) {
 	reg := &clientRegistry{}
 	s := newReconcileTestSubscriber(t, store, reg)
 	require.NoError(t, s.Start(context.Background()))
-	defer s.Stop()
+	defer func() { require.NoError(t, s.Stop(context.Background())) }()
 
 	requireRunningBrokers(t, s, src.ID, 2)
 
@@ -218,6 +250,152 @@ func TestSubscriber_ReconcileStartsAndStopsWorkers(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond, "broker sessions should drain after the source is removed")
 }
 
+func TestSubscriber_StartContextCancellationAllowsRestartAfterWorkersDrain(t *testing.T) {
+	t.Parallel()
+
+	src := reconcileTestSource(1, "maestro")
+	store := newFakeSourceStore(src)
+	reg := &clientRegistry{}
+	s := newReconcileTestSubscriber(t, store, reg)
+	runCtx, cancel := context.WithCancel(context.Background())
+	require.NoError(t, s.Start(runCtx))
+	requireRunningBrokers(t, s, src.ID, 2)
+
+	cancel()
+	require.Eventually(t, func() bool {
+		return s.Start(context.Background()) == nil
+	}, 2*time.Second, 10*time.Millisecond, "subscriber should restart after its canceled activation drains")
+	requireRunningBrokers(t, s, src.ID, 2)
+
+	_, maxActive, connects := reg.snapshot()
+	assert.LessOrEqual(t, maxActive, 2, "replacement activation must not overlap canceled workers")
+	assert.Equal(t, 4, connects)
+	require.NoError(t, s.Stop(context.Background()))
+}
+
+func TestSubscriber_StopCanCancelBlockedInitialReconcile(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	store := &blockingListStore{
+		Store:   newFakeSourceStore(),
+		started: started,
+		release: release,
+	}
+	s := newReconcileTestSubscriber(t, store, &clientRegistry{})
+
+	startDone := make(chan error, 1)
+	go func() {
+		startDone <- s.Start(context.Background())
+	}()
+	<-started
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer stopCancel()
+	require.ErrorIs(t, s.Stop(stopCtx), context.DeadlineExceeded)
+	require.ErrorContains(t, s.Start(context.Background()), "previous subscriber activation is still stopping")
+
+	close(release)
+	require.ErrorContains(t, <-startDone, "subscriber is not started")
+	require.NoError(t, s.Stop(context.Background()))
+	require.NoError(t, s.Start(context.Background()))
+	require.NoError(t, s.Stop(context.Background()))
+}
+
+func TestSubscriber_ReconcileDoesNotStartWorkersAfterStop(t *testing.T) {
+	store := newFakeSourceStore()
+	reg := &clientRegistry{}
+	s := newReconcileTestSubscriber(t, store, reg)
+	require.NoError(t, s.Start(context.Background()))
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	store.setSources(reconcileTestSource(1, "maestro"))
+	s.cfg.Store = &blockingListStore{
+		Store:   store,
+		started: started,
+		release: release,
+	}
+
+	reconcileDone := make(chan error, 1)
+	go func() {
+		reconcileDone <- s.Reconcile(context.Background())
+	}()
+	<-started
+
+	stopDone := make(chan error, 1)
+	go func() {
+		stopDone <- s.Stop(context.Background())
+	}()
+	require.Eventually(t, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		return s.activation != nil && channelClosed(s.activation.runCanceled)
+	}, time.Second, 10*time.Millisecond)
+
+	close(release)
+	require.ErrorContains(t, <-reconcileDone, "subscriber is not started")
+	require.NoError(t, <-stopDone)
+	active, maxActive, connects := reg.snapshot()
+	assert.Zero(t, active)
+	assert.Zero(t, maxActive)
+	assert.Zero(t, connects)
+}
+
+func TestSubscriber_CleanupStopsStatusesForUninstalledWorkers(t *testing.T) {
+	s := newReconcileTestSubscriber(t, newFakeSourceStore(), &clientRegistry{})
+	runCtx, cancel := context.WithCancel(t.Context())
+	activation := &subscriberActivation{
+		runCanceled: runCtx.Done(),
+		cancel:      cancel,
+		done:        make(chan struct{}),
+		sourceIDs:   map[int64]struct{}{1: {}},
+	}
+	s.activation = activation
+	s.statuses[1] = RuntimeStatus{State: RuntimeStateRunning}
+
+	cancel()
+	s.startActivationCleanup(activation)
+	select {
+	case <-activation.done:
+	case <-time.After(time.Second):
+		t.Fatal("subscriber activation did not finish cleanup")
+	}
+	assert.Equal(t, RuntimeStateStopped, s.SourceRuntimeStatus(1).State)
+}
+
+func TestSubscriber_StopTimeoutAllowsRestartAfterWorkersEventuallyDrain(t *testing.T) {
+	src := reconcileTestSource(1, "maestro")
+	store := newFakeSourceStore(src)
+	reg := &clientRegistry{}
+	release := make(chan struct{})
+	s, err := NewSubscriber(Config{
+		Store:             store,
+		NewClient:         func() MQTTClient { return &blockingDisconnectClient{reg: reg, release: release} },
+		Decryptor:         passthroughDecryptor{},
+		Logger:            slog.New(slog.DiscardHandler),
+		ShutdownDeadline:  time.Second,
+		WatchdogTickEvery: time.Millisecond,
+	})
+	require.NoError(t, err)
+	require.NoError(t, s.Start(context.Background()))
+	requireRunningBrokers(t, s, src.ID, 2)
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer stopCancel()
+	require.ErrorIs(t, s.Stop(stopCtx), context.DeadlineExceeded)
+	require.Error(t, s.Start(context.Background()), "timed-out workers must keep ownership of the activation")
+	require.Error(t, s.Reconcile(context.Background()), "a stopping activation must reject new workers")
+
+	close(release)
+	require.Eventually(t, func() bool {
+		return s.Start(context.Background()) == nil
+	}, 2*time.Second, 10*time.Millisecond, "subscriber should restart after timed-out workers eventually drain")
+	requireRunningBrokers(t, s, src.ID, 2)
+	_, maxActive, _ := reg.snapshot()
+	assert.LessOrEqual(t, maxActive, 2, "replacement activation must not overlap timed-out workers")
+	require.NoError(t, s.Stop(context.Background()))
+}
+
 func TestSubscriber_ReconcileRestartsChangedSourceWithoutOverlap(t *testing.T) {
 	t.Parallel()
 
@@ -226,7 +404,7 @@ func TestSubscriber_ReconcileRestartsChangedSourceWithoutOverlap(t *testing.T) {
 	reg := &clientRegistry{}
 	s := newReconcileTestSubscriber(t, store, reg)
 	require.NoError(t, s.Start(context.Background()))
-	defer s.Stop()
+	defer func() { require.NoError(t, s.Stop(context.Background())) }()
 
 	requireRunningBrokers(t, s, src.ID, 2)
 
@@ -253,7 +431,7 @@ func TestSubscriber_ReconcileSkipsUnchangedSource(t *testing.T) {
 	reg := &clientRegistry{}
 	s := newReconcileTestSubscriber(t, store, reg)
 	require.NoError(t, s.Start(context.Background()))
-	defer s.Stop()
+	defer func() { require.NoError(t, s.Stop(context.Background())) }()
 
 	requireRunningBrokers(t, s, src.ID, 2)
 
@@ -274,7 +452,7 @@ func TestSubscriber_QuiesceSourceStopsOnlyTargetSource(t *testing.T) {
 	reg := &clientRegistry{}
 	s := newReconcileTestSubscriber(t, store, reg)
 	require.NoError(t, s.Start(context.Background()))
-	defer s.Stop()
+	defer func() { require.NoError(t, s.Stop(context.Background())) }()
 
 	requireRunningBrokers(t, s, first.ID, 2)
 	requireRunningBrokers(t, s, second.ID, 2)
@@ -305,7 +483,7 @@ func TestSubscriber_RuntimeStatusTracksBrokerDisconnectAndReconnect(t *testing.T
 	})
 	require.NoError(t, err)
 	require.NoError(t, s.Start(context.Background()))
-	defer s.Stop()
+	defer func() { require.NoError(t, s.Stop(context.Background())) }()
 
 	requireRuntimeStatus(t, s, src.ID, RuntimeStateRunning, 2, 2)
 

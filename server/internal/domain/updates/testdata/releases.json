@@ -1,0 +1,58 @@
+[
+  {
+    "tag_name": "nightly-20260727-abc1234",
+    "html_url": "https://github.com/block/proto-fleet/releases/tag/nightly-20260727-abc1234",
+    "published_at": "2026-07-27T03:00:00Z",
+    "prerelease": true,
+    "draft": false
+  },
+  {
+    "tag_name": "v0.3.0-pr800.1",
+    "html_url": "https://github.com/block/proto-fleet/releases/tag/v0.3.0-pr800.1",
+    "published_at": "2026-07-26T18:00:00Z",
+    "prerelease": true,
+    "draft": false
+  },
+  {
+    "tag_name": "v0.2.9-pr737.1",
+    "html_url": "https://github.com/block/proto-fleet/releases/tag/v0.2.9-pr737.1",
+    "published_at": "2026-07-26T09:00:00Z",
+    "prerelease": true,
+    "draft": false
+  },
+  {
+    "tag_name": "v0.2.10-rc.1",
+    "html_url": "https://github.com/block/proto-fleet/releases/tag/v0.2.10-rc.1",
+    "published_at": "2026-07-27T06:00:00Z",
+    "prerelease": true,
+    "draft": true
+  },
+  {
+    "tag_name": "v0.2.9-rc.4",
+    "html_url": "https://github.com/block/proto-fleet/releases/tag/v0.2.9-rc.4",
+    "published_at": "2026-07-15T12:00:00Z",
+    "prerelease": true,
+    "draft": false
+  },
+  {
+    "tag_name": "release-2026-07-15",
+    "html_url": "https://github.com/block/proto-fleet/releases/tag/release-2026-07-15",
+    "published_at": "2026-07-15T00:00:00Z",
+    "prerelease": false,
+    "draft": false
+  },
+  {
+    "tag_name": "v0.2.9-rc.5",
+    "html_url": "https://github.com/block/proto-fleet/releases/tag/v0.2.9-rc.5",
+    "published_at": "2026-07-18T12:00:00Z",
+    "prerelease": true,
+    "draft": false
+  },
+  {
+    "tag_name": "v0.2.8",
+    "html_url": "https://github.com/block/proto-fleet/releases/tag/v0.2.8",
+    "published_at": "2026-06-20T12:00:00Z",
+    "prerelease": false,
+    "draft": false
+  }
+]

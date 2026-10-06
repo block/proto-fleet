@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"golang.org/x/sync/singleflight"
 
@@ -336,16 +337,6 @@ func (s *Service) RefreshMiners(ctx context.Context, req *pb.RefreshMinersReques
 				return
 			}
 
-			ownedByFleetNode, err := s.deviceStore.IsDeviceOwnedByFleetNode(refreshCtx, deviceID, info.OrganizationID)
-			if err != nil {
-				results <- refreshResult{id: deviceID, errMsg: sanitizeRefreshMinerError(err)}
-				return
-			}
-			if ownedByFleetNode {
-				results <- refreshResult{id: deviceID, errMsg: "fleet-node-owned miners are not supported by row refresh yet"}
-				return
-			}
-
 			if err := s.telemetry.RefreshDevice(refreshCtx, telemetryModels.Device{
 				ID: telemetryModels.DeviceIdentifier(device.DeviceIdentifier),
 			}); err != nil {
@@ -491,13 +482,14 @@ func refreshMinersRequestTimeout(deviceCount int, refreshDeviceTimeout time.Dura
 }
 
 // LookupMinerByIdentifier resolves a single paired miner from a scanned
-// identifier — a MAC address or a manufacturer serial number — and returns a
-// fully hydrated snapshot. Backs the rack QR scan flow. The caller strips any
-// scanned-label prefix (e.g. "SN:"/"MAC:") and whitespace before invoking.
+// identifier — an internal device ID, MAC address or manufacturer serial number —
+// and returns a fully hydrated snapshot. Backs maintenance links and rack QR
+// scans. The caller strips any scanned-label prefix (e.g. "SN:"/"MAC:") and whitespace before invoking.
 //
 // Routing: when identifier_type is MAC or SERIAL the matching store lookup is
 // used directly. When UNSPECIFIED the kind is inferred from the value shape
-// (a normalizable MAC pattern → MAC, else serial). Returns NotFound when no
+// (a normalizable MAC pattern → MAC, else serial). DEVICE_IDENTIFIER uses the
+// organization-scoped snapshot lookup directly. Returns NotFound when no
 // paired device in the caller's organization matches.
 func (s *Service) LookupMinerByIdentifier(ctx context.Context, req *pb.LookupMinerByIdentifierRequest) (*pb.LookupMinerByIdentifierResponse, error) {
 	identifier := strings.TrimSpace(req.GetIdentifier())
@@ -512,14 +504,18 @@ func (s *Service) LookupMinerByIdentifier(ctx context.Context, req *pb.LookupMin
 
 	// The store lookups return a NotFound fleeterror when nothing matches,
 	// which surfaces to the client as connect.CodeNotFound.
-	device, err := s.resolvePairedDeviceByIdentifier(ctx, identifier, req.GetIdentifierType(), info.OrganizationID)
-	if err != nil {
-		return nil, err
+	deviceIdentifier := identifier
+	if req.GetIdentifierType() != pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_DEVICE_IDENTIFIER {
+		device, err := s.resolvePairedDeviceByIdentifier(ctx, identifier, req.GetIdentifierType(), info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		deviceIdentifier = device.DeviceIdentifier
 	}
 
-	// Reuse the shared hydration path so the returned snapshot matches
-	// ListMinerStateSnapshots entries (telemetry + group/rack refs).
-	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, []string{device.DeviceIdentifier})
+	// Reuse the organization-scoped hydration path for internal identifiers too.
+	// No list search or MAC/serial inference is needed for a Fleet selection.
+	snapshots, err := s.getMinerStateSnapshotsByIDs(ctx, info.OrganizationID, []string{deviceIdentifier})
 	if err != nil {
 		return nil, err
 	}
@@ -529,6 +525,11 @@ func (s *Service) LookupMinerByIdentifier(ctx context.Context, req *pb.LookupMin
 		return nil, fleeterror.NewNotFoundErrorf("no paired miner found for identifier %q", identifier)
 	}
 
+	if req.GetIdentifierType() == pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_DEVICE_IDENTIFIER &&
+		!isPairedLikePairingStatus(snapshots[0].PairingStatus) &&
+		snapshots[0].PairingStatus != pb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED {
+		return nil, fleeterror.NewNotFoundErrorf("no paired miner found for identifier %q", identifier)
+	}
 	return &pb.LookupMinerByIdentifierResponse{Snapshot: snapshots[0]}, nil
 }
 
@@ -543,9 +544,11 @@ func (s *Service) resolvePairedDeviceByIdentifier(
 ) (*interfaces.PairedDeviceInfo, error) {
 	switch idType {
 	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_MAC_ADDRESS:
-		return s.deviceStore.GetPairedDeviceByMACAddress(ctx, identifier, orgID)
+		return s.deviceStore.GetPairedDeviceByMACAddress(ctx, identifier, orgID, "")
 	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_SERIAL_NUMBER:
 		return s.deviceStore.GetPairedDeviceBySerialNumber(ctx, identifier, orgID)
+	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_DEVICE_IDENTIFIER:
+		return nil, fleeterror.NewInvalidArgumentError("internal device identifiers require the snapshot lookup")
 	case pb.MinerIdentifierType_MINER_IDENTIFIER_TYPE_UNSPECIFIED:
 		fallthrough
 	default:
@@ -553,7 +556,7 @@ func (s *Service) resolvePairedDeviceByIdentifier(
 		// AA:BB:.. string only for valid MAC input; anything else is treated
 		// as a serial.
 		if len(networking.NormalizeMAC(identifier)) == 17 {
-			return s.deviceStore.GetPairedDeviceByMACAddress(ctx, identifier, orgID)
+			return s.deviceStore.GetPairedDeviceByMACAddress(ctx, identifier, orgID, "")
 		}
 		return s.deviceStore.GetPairedDeviceBySerialNumber(ctx, identifier, orgID)
 	}
@@ -855,7 +858,10 @@ func (s *Service) buildSnapshotsFromUnifiedQuery(
 			if row.SerialNumber.Valid {
 				snapshot.SerialNumber = row.SerialNumber.String
 			}
-			if row.DeviceStatus.Valid {
+			if row.FleetNodeUnavailable {
+				snapshot.DeviceStatus = pb.DeviceStatus_DEVICE_STATUS_OFFLINE
+				snapshot.OfflineReason = pb.DeviceOfflineReason_DEVICE_OFFLINE_REASON_FLEET_NODE_UNAVAILABLE
+			} else if row.DeviceStatus.Valid {
 				snapshot.DeviceStatus = convertDeviceStatusStringToProto(string(row.DeviceStatus.DeviceStatusEnum))
 			}
 		} else {
@@ -1077,6 +1083,14 @@ func parseFilter(
 
 	if pbFilter == nil {
 		return filter, nil
+	}
+
+	filter.SearchQuery = strings.TrimSpace(pbFilter.SearchQuery)
+	// Rune count, not len(): the proto's string.max_len is a code-point bound, so
+	// a byte check would reject multibyte queries the contract accepts.
+	if utf8.RuneCountInString(filter.SearchQuery) > maxMinerSearchQueryLength {
+		return nil, fleeterror.NewInvalidArgumentErrorf(
+			"search_query exceeds maximum of %d characters", maxMinerSearchQueryLength)
 	}
 
 	if len(pbFilter.PairingStatuses) > 0 {
@@ -1381,6 +1395,8 @@ func parseCIDR(idx int, raw string) (netip.Prefix, error) {
 // firmware versions or zones; arbitrarily large arrays from a misbehaving or
 // hostile client would balloon Postgres planner cost on `= ANY($N::text[])`.
 const maxFreeFormFilterValues = 1024
+
+const maxMinerSearchQueryLength = 255
 
 // convertErrorComponentType converts a proto ComponentType to domain ComponentType.
 func convertErrorComponentType(ct errorsv1.ComponentType) diagnosticsmodels.ComponentType {

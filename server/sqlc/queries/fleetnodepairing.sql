@@ -90,6 +90,17 @@ INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id, assigned_by)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (device_id) DO NOTHING;
 
+-- name: LockFleetNodePairingDevice :many
+-- Serialize ownership assignment with cloud IP-recovery authentication
+-- reconciliation. Call after locking the Fleet Node and before checking the
+-- device's current cloud-pairing state.
+SELECT id
+FROM device
+WHERE id = sqlc.arg('device_id')
+  AND org_id = sqlc.arg('org_id')
+  AND deleted_at IS NULL
+FOR UPDATE;
+
 -- name: DeviceHasActiveCloudPairing :one
 -- True when the device is cloud-dialed: paired-like and not bound to any fleet node.
 -- A device paired to a fleet node is also paired-like (so it reads as paired in
@@ -180,10 +191,11 @@ WHERE fnd.device_id = $1
   AND fnd.org_id = $2;
 
 -- name: ListFleetNodeDiscoveredDevices :many
--- Fleet-node-discovered devices not yet paired to their node. A discovered
--- device is excluded when ANY of its live device rows is already node-bound
--- (fleet_node_device) or cloud-paired-like; AUTHENTICATION_NEEDED rows (a pair
--- attempt that needs credentials) surface for retry. Inverse of
+-- Fleet-node-discovered devices available for pairing or credential retry. A
+-- discovered device is excluded when ANY live device row is cloud-paired-like
+-- or bound to another node. A row bound to the requesting node surfaces only
+-- in AUTHENTICATION_NEEDED so recovery-triggered failures remain retryable.
+-- Other AUTHENTICATION_NEEDED rows also surface for retry. Inverse of
 -- GetActiveUnpairedDiscoveredDevices, which excludes fleet-node rows.
 -- The exclusions use NOT EXISTS so a device with more than one live row is
 -- judged across all of them, not just the joined row. They match by
@@ -224,9 +236,17 @@ WITH candidate AS (
         SELECT 1
         FROM device db
         JOIN fleet_node_device fnd ON fnd.device_id = db.id AND fnd.org_id = dd.org_id
+        LEFT JOIN device_pairing dbp ON dbp.device_id = db.id
         WHERE (db.discovered_device_id = dd.id
                OR (db.device_identifier = dd.device_identifier AND db.org_id = dd.org_id))
           AND db.deleted_at IS NULL
+          AND (
+            COALESCE(dbp.pairing_status::text, '') != 'AUTHENTICATION_NEEDED'
+            OR (
+              sqlc.narg('fleet_node_id')::bigint IS NOT NULL
+              AND fnd.fleet_node_id != sqlc.narg('fleet_node_id')::bigint
+            )
+          )
     )
     AND NOT EXISTS (
         SELECT 1

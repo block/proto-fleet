@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	sitesv1 "github.com/block/proto-fleet/server/generated/grpc/sites/v1"
 	"github.com/urfave/cli/v3"
@@ -119,6 +120,10 @@ func generatedSitesCommand() *cli.Command {
 					&cli.StringFlag{Name: "postal-code", Usage: "postal code"},
 					&cli.StringFlag{Name: "country", Usage: "country"},
 					&cli.StringFlag{Name: "notes", Usage: "notes"},
+					&cli.StringSliceFlag{Name: "building-ids", Usage: "building ids"},
+					&cli.StringSliceFlag{Name: "rack-ids", Usage: "rack ids"},
+					&cli.StringSliceFlag{Name: "device-identifiers", Usage: "device identifiers"},
+					&cli.BoolFlag{Name: "force-clear-conflicting-rack-membership", Usage: "force clear conflicting rack membership"},
 				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &sitesv1.CreateSiteRequest{}
@@ -151,6 +156,27 @@ func generatedSitesCommand() *cli.Command {
 					}
 					if cmd.IsSet("notes") {
 						req.Notes = cmd.String("notes")
+					}
+					if cmd.IsSet("building-ids") {
+						values, err := parseInt64Slice(cmd.StringSlice("building-ids"))
+						if err != nil {
+							return nil, err
+						}
+						req.BuildingIds = values
+					}
+					if cmd.IsSet("rack-ids") {
+						values, err := parseInt64Slice(cmd.StringSlice("rack-ids"))
+						if err != nil {
+							return nil, err
+						}
+						req.RackIds = values
+					}
+					if cmd.IsSet("device-identifiers") {
+						req.DeviceIdentifiers = cmd.StringSlice("device-identifiers")
+					}
+					if cmd.IsSet("force-clear-conflicting-rack-membership") {
+						value := cmd.Bool("force-clear-conflicting-rack-membership")
+						req.ForceClearConflictingRackMembership = &value
 					}
 					if err := generatedValidateRequest(req); err != nil {
 						return nil, err
@@ -204,9 +230,21 @@ func generatedSitesCommand() *cli.Command {
 				"List sites",
 				"/sites.v1.SiteService/ListSites",
 				generatedAuthAuthenticated,
-				[]cli.Flag{},
+				[]cli.Flag{
+					&cli.StringFlag{Name: "maintenance-options-scope", Usage: "maintenance options scope. Valid options: read, manage"},
+				},
 				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
 					req := &sitesv1.ListSitesRequest{}
+					if cmd.IsSet("maintenance-options-scope") {
+						switch normalizeEnum(cmd.String("maintenance-options-scope")) {
+						case "read":
+							req.MaintenanceOptionsScope = sitesv1.MaintenanceSiteOptionsScope_MAINTENANCE_SITE_OPTIONS_SCOPE_READ
+						case "manage":
+							req.MaintenanceOptionsScope = sitesv1.MaintenanceSiteOptionsScope_MAINTENANCE_SITE_OPTIONS_SCOPE_MANAGE
+						default:
+							return nil, fmt.Errorf("invalid value for maintenance-options-scope: %s. Valid options: read, manage", cmd.String("maintenance-options-scope"))
+						}
+					}
 					if err := generatedValidateRequest(req); err != nil {
 						return nil, err
 					}

@@ -3,6 +3,11 @@ import { create, toJsonString } from "@bufbuild/protobuf";
 
 import { curtailmentClient } from "@/protoFleet/api/clients";
 import {
+  buildCurtailmentScopes,
+  curtailmentScopeSchemaVersion,
+  getCurtailmentScopeSelectionCount,
+} from "@/protoFleet/api/curtailmentScopes";
+import {
   CurtailmentMode,
   CurtailmentPriority,
   FixedKwParamsSchema,
@@ -13,8 +18,9 @@ import {
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { curtailmentNumericFieldLimits } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import {
-  buildCurtailmentScopes,
   buildForceInclusionFields,
+  curtailmentExecutionSchemaVersion,
+  getResponseProfileExecutionFields,
 } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
 import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import { useAuthErrors } from "@/protoFleet/store";
@@ -34,13 +40,19 @@ type CurtailmentPlanPreviewRequestValues = Pick<
   | "siteSelection"
   | "siteId"
   | "siteIds"
+  | "buildingTargetIds"
+  | "rackTargetIds"
+  | "groupTargetIds"
   | "deviceSetIds"
   | "deviceIdentifiers"
   | "minerSelectionMode"
+  | "responseProfileId"
+  | "responseProfileRevision"
   | "curtailmentMode"
   | "targetKw"
   | "toleranceKw"
   | "priority"
+  | "postEventCooldownSec"
   | "includeMaintenance"
   | "forceIncludeAllPairedMiners"
 >;
@@ -119,6 +131,9 @@ function cloneRequestValues(values: CurtailmentPlanPreviewRequestValues): Curtai
   return {
     ...values,
     siteIds: values.siteIds ? [...values.siteIds] : undefined,
+    buildingTargetIds: values.buildingTargetIds ? [...values.buildingTargetIds] : undefined,
+    rackTargetIds: values.rackTargetIds ? [...values.rackTargetIds] : undefined,
+    groupTargetIds: values.groupTargetIds ? [...values.groupTargetIds] : undefined,
     deviceSetIds: [...values.deviceSetIds],
     deviceIdentifiers: [...values.deviceIdentifiers],
   };
@@ -132,8 +147,13 @@ export function buildPreviewCurtailmentPlanRequest(
   values: CurtailmentPlanPreviewRequestValues,
 ): PreviewCurtailmentPlanRequest | undefined {
   const scopes = buildCurtailmentScopes(values);
+  const responseProfileExecutionFields = getResponseProfileExecutionFields(values);
 
-  if (scopes === undefined) {
+  if (scopes === undefined || responseProfileExecutionFields === undefined) {
+    return undefined;
+  }
+  const postEventCooldownSec = parseNonNegativeInteger(values.postEventCooldownSec ?? "");
+  if (postEventCooldownSec !== undefined && postEventCooldownSec > curtailmentNumericFieldLimits.postEventCooldownSec) {
     return undefined;
   }
   if (values.curtailmentMode === "fullFleet") {
@@ -141,8 +161,12 @@ export function buildPreviewCurtailmentPlanRequest(
     // subsequent Start will actually target.
     return create(PreviewCurtailmentPlanRequestSchema, {
       scopes,
+      scopeSchemaVersion: curtailmentScopeSchemaVersion,
+      executionSchemaVersion: curtailmentExecutionSchemaVersion,
+      ...responseProfileExecutionFields,
       mode: CurtailmentMode.FULL_FLEET,
       priority: toApiPriority(values.priority),
+      postEventCooldownSec,
       ...buildForceInclusionFields(values),
     });
   }
@@ -155,8 +179,12 @@ export function buildPreviewCurtailmentPlanRequest(
 
   return create(PreviewCurtailmentPlanRequestSchema, {
     scopes,
+    scopeSchemaVersion: curtailmentScopeSchemaVersion,
+    executionSchemaVersion: curtailmentExecutionSchemaVersion,
+    ...responseProfileExecutionFields,
     mode: CurtailmentMode.FIXED_KW,
     priority: toApiPriority(values.priority),
+    postEventCooldownSec,
     modeParams: {
       case: "fixedKw",
       value: create(FixedKwParamsSchema, {
@@ -211,17 +239,21 @@ function formatScopeLabel(values: CurtailmentFormValues): string {
         ? values.scopeId?.trim() || `site ${selectedSiteIds[0]}`
         : `${selectedSiteIds.length} selected sites`;
   const siteLabel = `from ${selectedSiteLabel}`;
-  if (selectedSiteIds.length > 0 && selectedMinerCount > 0) {
-    return `${siteLabel} and selected miners`;
-  }
-  if (selectedSiteIds.length > 0) {
-    return siteLabel;
-  }
-  if (selectedMinerCount > 0) {
+  const canonicalScopeCount = getCurtailmentScopeSelectionCount(values) ?? 0;
+  if (values.scopeType === "explicitMiners" && selectedMinerCount > 0) {
     return formatSelectedMinerScopeLabel(selectedMinerCount);
+  }
+  if (values.scopeType === "site" && selectedSiteIds.length > 0) {
+    return siteLabel;
   }
 
   switch (values.scopeType) {
+    case "building":
+      return formatSelectedScopeLabel(canonicalScopeCount, "building");
+    case "rack":
+      return formatSelectedScopeLabel(canonicalScopeCount, "rack");
+    case "group":
+      return formatSelectedScopeLabel(canonicalScopeCount, "group");
     case "deviceSet":
       if (values.scopeId === "racks") {
         return formatSelectedScopeLabel(values.deviceSetIds?.length ?? 0, "rack");
@@ -402,24 +434,36 @@ export function useCurtailmentPlanPreview({
       siteSelection: values.siteSelection,
       siteId: values.siteId,
       siteIds: values.siteIds,
+      buildingTargetIds: values.buildingTargetIds,
+      rackTargetIds: values.rackTargetIds,
+      groupTargetIds: values.groupTargetIds,
       deviceSetIds: values.deviceSetIds,
       deviceIdentifiers: values.deviceIdentifiers,
       minerSelectionMode: values.minerSelectionMode,
+      responseProfileId: values.responseProfileId,
+      responseProfileRevision: values.responseProfileRevision,
       curtailmentMode: values.curtailmentMode,
       targetKw: values.targetKw,
       toleranceKw: values.toleranceKw,
       priority: values.priority,
+      postEventCooldownSec: values.postEventCooldownSec,
       includeMaintenance: values.includeMaintenance,
       forceIncludeAllPairedMiners: values.forceIncludeAllPairedMiners,
     }),
     [
+      values.buildingTargetIds,
       values.deviceSetIds,
       values.deviceIdentifiers,
+      values.groupTargetIds,
       values.minerSelectionMode,
+      values.responseProfileId,
+      values.responseProfileRevision,
       values.curtailmentMode,
       values.includeMaintenance,
       values.forceIncludeAllPairedMiners,
       values.priority,
+      values.postEventCooldownSec,
+      values.rackTargetIds,
       values.scopeId,
       values.siteSelection,
       values.siteId,

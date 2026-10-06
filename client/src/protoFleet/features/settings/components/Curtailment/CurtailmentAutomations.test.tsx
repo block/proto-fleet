@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { AutomationResponseProfileRevisionConflictError } from "@/protoFleet/api/automationResponseProfileRevisionConflict";
 import { CurtailmentAutomationsContent } from "@/protoFleet/features/settings/components/Curtailment/CurtailmentAutomations";
 import type {
   AutomationRule,
@@ -46,21 +47,25 @@ const testSources: CurtailmentSource[] = [
 const testResponseProfiles: ResponseProfile[] = [
   {
     id: "standard-shed",
+    revision: "11111111-1111-4111-8111-111111111111",
     name: "Standard shed",
     targetSummary: "50% reduction",
     scope: "Whole fleet",
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore in batches",
     deadlineSummary: "Within 15 min",
+    isAutomationReady: true,
   },
   {
     id: "partial-reduction",
+    revision: "22222222-2222-4222-8222-222222222222",
     name: "Partial reduction",
     targetSummary: "2,000 kW target",
     scope: "Whole fleet",
     selectionStrategy: "Least efficient first",
     restoreBehavior: "Restore immediately",
     deadlineSummary: "Within 10 min",
+    isAutomationReady: true,
   },
 ];
 
@@ -144,9 +149,47 @@ describe("CurtailmentAutomationsContent", () => {
 
     await waitFor(() => expect(screen.queryByTestId("curtailment-automation-modal")).not.toBeInTheDocument());
 
+    // The row list re-renders with the new rule a tick after the modal closes;
+    // wait for it before the synchronous row lookup to avoid a load-dependent race.
+    await screen.findByText("High LMP spike");
     const row = getAutomationRow("High LMP spike");
     expect(within(row).getByText("Site Alpha MaestroOS grid signal changes to 0")).toBeVisible();
     expect(within(row).getByText("Standard shed")).toBeVisible();
+  });
+
+  it("retries an automation save with the refreshed response profile revision", async () => {
+    const latestProfile = {
+      ...testResponseProfiles[0],
+      revision: "33333333-3333-4333-8333-333333333333",
+    };
+    const conflict = new AutomationResponseProfileRevisionConflictError(
+      "This response profile changed in another session. The latest values have been loaded; review the automation before trying again.",
+      [latestProfile],
+      new Error("stale revision"),
+    );
+    const onCreateAutomation = vi.fn().mockRejectedValueOnce(conflict).mockResolvedValueOnce(undefined);
+    render(
+      <CurtailmentAutomationsContent
+        sources={testSources}
+        responseProfiles={testResponseProfiles}
+        onCreateAutomation={onCreateAutomation}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
+    fireEvent.change(screen.getByLabelText("Rule name"), { target: { value: "High LMP spike" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await screen.findByText(conflict.message);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(onCreateAutomation).toHaveBeenCalledTimes(2));
+    expect(onCreateAutomation).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        responseProfileId: latestProfile.id,
+        responseProfileRevision: latestProfile.revision,
+      }),
+    );
   });
 
   it("includes facility-fan response profiles in automation choices", () => {
@@ -166,6 +209,94 @@ describe("CurtailmentAutomationsContent", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
     const responseProfileSelect = screen.getByTestId("automation-response-profile-select");
     expect(responseProfileSelect).toHaveTextContent("Facility fan shed");
+  });
+
+  it("includes topology-scoped profiles whose target scope is ready for automation", () => {
+    const topologyProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "building-shed",
+      name: "Building shed",
+      scope: "1 building",
+      formValues: {
+        scopeType: "building",
+        buildingTargetIds: ["7"],
+      } as NonNullable<ResponseProfile["formValues"]>,
+      isAutomationReady: true,
+    };
+    render(
+      <CurtailmentAutomationsContent
+        sources={testSources}
+        responseProfiles={[topologyProfile, ...testResponseProfiles]}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
+    const responseProfileSelect = screen.getByTestId("automation-response-profile-select");
+
+    expect(responseProfileSelect).toHaveTextContent("Building shed");
+  });
+
+  it("prevents enabling an automation whose response profile is not automation-ready", () => {
+    const unsupportedProfile: ResponseProfile = {
+      ...testResponseProfiles[0],
+      id: "unsupported-profile",
+      name: "Unsupported profile",
+      scope: "Unknown scope",
+      formValues: undefined,
+      isReadOnly: true,
+      isAutomationReady: false,
+    };
+    const unsupportedRule: AutomationRule = {
+      ...testAutomationRules[0],
+      responseProfileId: unsupportedProfile.id,
+      enabled: false,
+    };
+    render(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={[unsupportedRule]}
+        sources={testSources}
+        responseProfiles={[unsupportedProfile]}
+      />,
+    );
+
+    const toggle = getAutomationRow("ERCOT ERS obligation").querySelector("input[type='checkbox']");
+    expect(toggle).toBeDisabled();
+  });
+
+  it("allows disabling an enabled automation when its response profile is unavailable", () => {
+    const onToggleAutomation = vi.fn().mockResolvedValue(undefined);
+    render(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={testAutomationRules}
+        sources={testSources}
+        responseProfiles={[]}
+        onToggleAutomation={onToggleAutomation}
+      />,
+    );
+
+    const toggle = getAutomationRow("ERCOT ERS obligation").querySelector("input[type='checkbox']");
+    expect(toggle).not.toBeDisabled();
+    fireEvent.click(toggle as HTMLInputElement);
+
+    expect(onToggleAutomation).toHaveBeenCalledWith(testAutomationRules[0], false, undefined);
+  });
+
+  it("sends the selected profile revision when enabling an automation", () => {
+    const onToggleAutomation = vi.fn().mockResolvedValue(undefined);
+    const disabledRule = { ...testAutomationRules[0], enabled: false };
+    render(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={[disabledRule]}
+        sources={testSources}
+        responseProfiles={testResponseProfiles}
+        onToggleAutomation={onToggleAutomation}
+      />,
+    );
+
+    const toggle = getAutomationRow("ERCOT ERS obligation").querySelector("input[type='checkbox']");
+    fireEvent.click(toggle as HTMLInputElement);
+
+    expect(onToggleAutomation).toHaveBeenCalledWith(disabledRule, true, testResponseProfiles[0].revision);
   });
 
   it("edits and deletes automation rows from the row click modal", async () => {
@@ -202,8 +333,62 @@ describe("CurtailmentAutomationsContent", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(screen.queryByTestId("curtailment-automation-modal")).not.toBeInTheDocument());
-    expect(screen.queryByText("ERCOT ERS updated")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("ERCOT ERS updated")).not.toBeInTheDocument());
     expect(screen.getByText("No automations configured")).toBeVisible();
+  });
+
+  it("waits for an edit rule's response profile instead of selecting another profile", async () => {
+    const onUpdateAutomation = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={testAutomationRules}
+        sources={testSources}
+        responseProfiles={[]}
+        isLoadingResponseProfiles
+        onUpdateAutomation={onUpdateAutomation}
+      />,
+    );
+
+    fireEvent.click(getAutomationRow("ERCOT ERS obligation"));
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+    rerender(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={testAutomationRules}
+        sources={testSources}
+        responseProfiles={[testResponseProfiles[1]]}
+        onUpdateAutomation={onUpdateAutomation}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByTestId("automation-response-profile-select")).not.toHaveTextContent("Partial reduction");
+
+    rerender(
+      <CurtailmentAutomationsContent
+        initialAutomationRules={testAutomationRules}
+        sources={testSources}
+        responseProfiles={[testResponseProfiles[1], testResponseProfiles[0]]}
+        onUpdateAutomation={onUpdateAutomation}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("automation-response-profile-select")).toHaveTextContent("Standard shed"),
+    );
+    const saveButton = screen.getByRole("button", { name: "Save" });
+    expect(saveButton).toBeEnabled();
+    fireEvent.click(saveButton);
+
+    await waitFor(() =>
+      expect(onUpdateAutomation).toHaveBeenCalledWith(
+        expect.objectContaining({ id: testAutomationRules[0].id }),
+        expect.objectContaining({
+          responseProfileId: testResponseProfiles[0].id,
+          responseProfileRevision: testResponseProfiles[0].revision,
+        }),
+      ),
+    );
   });
 
   it("toggles automation rows without exposing reorder handles", () => {

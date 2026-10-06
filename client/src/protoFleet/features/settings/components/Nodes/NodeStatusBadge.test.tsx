@@ -10,6 +10,8 @@ const baseNode: FleetNodeItem = {
   name: "test-node",
   enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
   identityFingerprint: "abcd1234abcd1234",
+  commandProtocolUpgradeRequired: false,
+  controlStreamConnected: false,
   createdAt: new Date("2026-07-09T12:00:00Z"),
   lastSeenAt: null,
 };
@@ -21,7 +23,8 @@ afterEach(() => {
 describe("NodeStatusBadge", () => {
   it.each([
     ["Online", 30_000],
-    ["Stale", 120_000],
+    ["Online", 120_000],
+    ["Stale", 120_001],
   ])("shows %s for a confirmed node last seen %dms ago", (label, ageMs) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-09T12:10:00Z"));
@@ -36,6 +39,17 @@ describe("NodeStatusBadge", () => {
     const { getByText } = render(<NodeStatusBadge node={baseNode} />);
 
     expect(getByText("Never connected")).toBeInTheDocument();
+  });
+
+  it("shows an upgrade warning for an active node even before its first heartbeat", () => {
+    const node = {
+      ...baseNode,
+      commandProtocolUpgradeRequired: true,
+    };
+
+    const { getByText } = render(<NodeStatusBadge node={node} />);
+
+    expect(getByText("Online - upgrade required")).toBeInTheDocument();
   });
 
   it("shows Awaiting confirmation for a registered node", () => {

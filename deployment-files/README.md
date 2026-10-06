@@ -2,6 +2,34 @@
 
 This document provides instructions for installing Proto Fleet.
 
+## HTTP ingress security
+
+Fleet records client IPs from the socket unless `HTTP_TRUSTED_PROXY_CIDRS`
+explicitly trusts the upstream proxy. Packaged nginx installs default to
+`127.0.0.1/32,::1/128`; bare `fleetd` trusts no proxies. For an additional load
+balancer, set this comma-separated value in `.env` to loopback plus its exact
+subnet CIDRs, not the entire VPC. The setting identifies proxies, not allowed
+users or Fleet Nodes. Invalid CIDRs prevent server startup.
+
+nginx appends its observed peer to `X-Forwarded-For`. Fleet walks the chain
+right-to-left through trusted proxies, stopping at the first untrusted address.
+Earlier entries are ignored; malformed entries within the trusted suffix fall
+back to the socket peer. `X-Real-IP` is ignored. Restrict backend access to those proxies and do not
+configure them to preserve arbitrary client-supplied forwarding headers without
+appending the actual peer address.
+
+Password verification has separate budgets for public login and authenticated
+password confirmation, each allowing 10 attempts per account per minute.
+Public attempts cannot exhaust the budget used by an existing session. Successful
+checks count too; immutable account IDs preserve budgets across renames, and
+nonexistent usernames allocate no entries. Public login throttling returns the
+same authentication failure as invalid credentials; authenticated confirmation
+returns `ResourceExhausted` with retry guidance. Both emit
+`event=auth_password_throttled` without credentials. Limits are process-local and
+reset on restart or HA failover. Each budget tracks at most 10,000 accounts;
+new accounts wait for expiry when that budget is full. This is not a persistent
+account lockout or a replacement for edge-level IP rate limits.
+
 ## Prerequisites
 
 Before running the install script:
@@ -22,10 +50,16 @@ The `install.sh` script sets up the Proto Fleet server components.
 ### Proto Fleet Installation Options
 
 ```bash
-Usage: install.sh [VERSION]
+Usage: install.sh [options] [VERSION]
 
 If you omit VERSION or pass "latest", installs the latest GitHub release.
 Pass "nightly" to install the latest successful nightly prerelease.
+Options:
+  --install-dir PATH       Use PATH without prompting.
+  --temp-dir PATH          Existing trusted directory for temporary release
+                           files; must allow execution (default: /tmp).
+  --non-interactive        Fail instead of prompting; for an existing install
+                           with a complete deployment .env.
 You can override by doing, e.g.:
   install.sh v0.1.0-beta-5
   install.sh nightly
@@ -38,7 +72,8 @@ Examples:
 bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/install.sh)
 
 # Install a specific version
-bash <(curl -fsSL https://github.com/block/proto-fleet/releases/latest/download/install.sh) v0.1.0-beta-5
+VERSION=v0.2.10-rc.2
+bash <(curl -fsSL "https://github.com/block/proto-fleet/releases/download/$VERSION/install.sh") "$VERSION"
 
 # Install the latest nightly prerelease (installer is fetched from the resolved
 # nightly release asset, not from the mutable nightly-channel branch)
@@ -49,9 +84,207 @@ bash <(curl -fsSL "https://github.com/block/proto-fleet/releases/download/$VERSI
 The script will:
 
 - Check system compatibility (page size)
-- Download and extract the specified version
-- Preserve existing configuration files if present
+- Download the specified version and verify its published SHA-256 checksum
+- Extract the release and preserve existing configuration files
+- On Linux/systemd with rootful Docker, install the host updater used for
+  in-product one-click upgrades
 - Run the deployment script automatically
+
+### Hosts with a non-executable temporary filesystem
+
+The installer extracts executable bootstrap payloads for the host updater and
+HA operator. If `/tmp` is mounted `noexec`, use `--temp-dir` to select an existing
+directory on an executable filesystem; do not remount `/tmp` to enable execution.
+For example, after downloading the release's `install.sh`:
+
+```bash
+sudo install -d -m 0700 /opt/proto-fleet-bootstrap
+sudo bash ./install.sh --temp-dir /opt/proto-fleet-bootstrap "$VERSION"
+```
+
+The path must be absolute, not a symlink, and owned by root or the user running
+the installer. Its ancestor directories must also be trusted and not group- or
+world-writable, except for root-owned sticky directories such as `/tmp`. A
+root-run installer does not trust directories owned by `SUDO_UID`. It creates a
+fresh private child with mode 0700 and removes only that child on exit, preserving
+rollback artifacts if updater restoration fails. The supplied parent is not
+removed. Checksum verification and executable-payload checks remain enabled.
+
+This option works with standalone and `--ha` installs. It controls bootstrap
+scratch only, not the permanent installation directory or runtime updater state.
+Omitting it retains the `/tmp` default; `TMPDIR` does not select this location.
+
+## Release repositories and forks
+
+Proto Fleet supports public releases on GitHub.com under a validated
+`owner/repo` identity. Source builds default to `block/proto-fleet`.
+Official releases continue to use that repository. A release built in a fork
+uses the fork for release discovery, downloads, release notes, latest stable
+resolution, and the nightly-channel pointer.
+
+The `install.sh` and `install-fleet-node.sh` assets attached to a release already
+contain their publishing repository. Download them from that repository's
+release page and run them with the desired version. There is no installer
+option to override the repository. The installer does not derive identity from
+a Git checkout, working directory, or its download URL. GitHub Enterprise and arbitrary mirror
+URLs are not supported. Repository values must contain one owner and one repo:
+ASCII letters/digits, owner hyphens, and repository dots/underscores/hyphens;
+URL syntax, whitespace, shell syntax, and `..` are rejected.
+
+Selection and consistency rules:
+
+1. The repository embedded in each binary or packaged installer determines its
+   source. There is no runtime environment-variable or command-line override.
+2. An existing installation's `deployment/version.txt` `release_repository`
+   field must match the packaged identity. Metadata without that field means
+   `block/proto-fleet`, including installations created before this feature.
+   Persisted environment settings must agree with the metadata.
+   Fork installations require installers published by that same fork.
+
+Standalone deployments also persist `PROTO_FLEET_RELEASE_REPOSITORY` in
+`deployment/.env` and `/etc/proto-fleet/updater.env` as consistency markers for
+the installer; they do not configure the server or updater's repository.
+Compose does not pass a repository override to fleetd. The privileged updater
+uses its embedded build identity and checks it against the protected pin in
+`/var/lib/proto-fleet-updater/release-repository`. Application requests contain
+only an operation ID and version, never repository or download authority.
+Legacy `*_DOWNLOAD_BASE_URL` configuration, if present, must exactly match the
+derived GitHub release URL. Conflicting settings stop the operation.
+
+The updater preserves its pin across application upgrades, restart, executable
+replacement, and executable rollback; both the current and previous deployment
+must belong to that source. Downloaded bundle metadata must match before
+activation. Manual runs check metadata against `.env` before host changes.
+HA records the repository in protected base/updater configuration, checks it
+in prepared peer bundles, and downloads peer installers from that repository.
+Fleet Node additionally persists `/etc/fleetnode/release-repository`; its existing
+rollback restores a payload from the same source, and uninstall preserves the
+pin with its configuration. The Windows installer reads
+the selected local archive's metadata, rejects a different installed source
+before extraction, and persists the same environment key inside WSL.
+
+Missing releases, inaccessible sources, and invalid metadata are errors. There
+is no fallback to upstream. Repository transfers/renames and cross-repository
+migrations require a separate operator-planned migration; editing only one
+configuration value is not a supported migration procedure. Normal update
+channel behavior is unchanged: the UI/host updater supports stable and canonical
+RC releases, while the shell installer also resolves nightly builds.
+
+### Building fork releases
+
+Both release and nightly workflows explicitly pass `github.repository` into
+the reusable artifact workflow's required `release_repository` input. The build
+validates it before interpolating linker arguments or metadata, embeds it in
+fleetd, fleet-ha, and fleet-updater, and records it in deployment, server, and
+Fleet Node `version.txt` files. The publishing jobs download staged installer
+assets from `proto-fleet-release-installers`; they do not upload source-default
+installer scripts. Windows uses the selected bundle metadata and does not
+perform release discovery itself.
+
+For custom source builds, use the same validated identity in the Go linker
+setting `github.com/block/proto-fleet/server/internal/releaseinfo.Repository`,
+the `release_repository` metadata field, and the installers staged with:
+
+```bash
+bash deployment-files/scripts/package-release-installers.sh example-owner/fleet-fork /tmp/fleet-release-installers
+```
+
+Repository selection does **not** implement private-repository authentication.
+Release discovery and updater downloads currently make unauthenticated requests;
+Fleet Node also disables implicit curl configuration. CI credentials are used
+only by publishing jobs and are never embedded in artifacts. A private fork
+needs a separately designed and tested authentication flow. Custom internal
+prerelease channels (including `-internal.N`) remain outside this feature.
+
+## Resetting the SUPER_ADMIN password
+
+If the sole SUPER_ADMIN is locked out, run this from the installed standalone
+`deployment` directory:
+
+```bash
+./reset-super-admin-password.sh
+```
+
+On an HA database host (`ha-a` or `ha-b`), run the same wrapper with the
+installed HA deployment user's permissions:
+
+```bash
+sudo /opt/proto-fleet/deployment/reset-super-admin-password.sh
+```
+
+The wrapper selects the installed standalone or HA Compose profile. With no
+flags it generates and prints a temporary password on the host after the reset
+succeeds; the credential is never written to container logs. Standalone
+recovery verifies that the selected Docker context or `DOCKER_HOST` identifies
+the same daemon used to run the installation. The reset revokes existing
+sessions and requires a password change at next login.
+To supply the temporary password through a pipeline instead:
+
+```bash
+printf '%s\n' "$NEW_PASSWORD" | ./reset-super-admin-password.sh --password-stdin
+```
+
+Supplied passwords must be valid UTF-8, contain at least 8 characters, and use
+no more than 72 bytes; the success message does not echo them. The command
+refuses to choose an account if the database contains zero or multiple live
+SUPER_ADMIN users. It rejects all other options and fails closed if both
+standalone and HA installation state appear active.
+
+## One-click upgrades
+
+After one manual install of a release that includes the host updater,
+permission-holding operators can upgrade an eligible stable or release
+candidate from the ProtoFleet update prompt. The confirmation explains the
+restart window and adds a no-downgrade warning for release candidates.
+
+The updater runs as `proto-fleet-updater.service`, outside the Docker Compose
+stack it restarts. Fleet API talks to it over
+`/run/proto-fleet-updater/updater.sock`; the application container is never
+given the host Docker socket. Before stopping Fleet, the updater:
+
+1. downloads the target bundle and its checksum over HTTPS;
+2. verifies the SHA-256 digest and safely extracts the archive;
+3. preserves `.env`, the Docker-daemon identity marker, `ssl/`, and
+   `server/influx_config/.env`;
+4. builds and validates the staged deployment with Fleet still running.
+
+Only then does it swap the staged deployment into place and restart the stack.
+The previous deployment remains at `<install-root>/deployment.previous` for
+operator inspection. Automatic rollback is deliberately disabled because
+database migrations are forward-only.
+
+The checksum sidecar detects transfer corruption and binds the expected asset
+name to its digest. Because the bundle and sidecar share the same GitHub
+Release origin, GitHub remains the publisher trust anchor; independent release
+signing is intentionally outside this phase.
+
+One-click upgrades are enabled on Linux hosts with systemd and rootful Docker,
+including WSL distributions configured with systemd. macOS, rootless Docker,
+and Linux hosts without systemd continue to show the exact manual upgrade
+command.
+
+### Failure recovery
+
+The client shows the terminal error, host log path, and a recovery command
+when Fleet is reachable. The same durable details remain on the host:
+
+```text
+/var/lib/proto-fleet-updater/state.json
+/var/lib/proto-fleet-updater/logs/<operation-id>.log
+```
+
+Inspect the service and latest operation with:
+
+```bash
+sudo systemctl status proto-fleet-updater.service
+sudo journalctl -u proto-fleet-updater.service
+sudo cat /var/lib/proto-fleet-updater/state.json
+```
+
+If activation failed, run the `recovery_command` from `state.json` as root.
+Do not replace the active deployment with `deployment.previous` after
+migrations may have started; an older binary may be incompatible with the
+newer schema.
 
 ## Optional Virtual Miners
 
@@ -98,6 +331,34 @@ configuration fails closed.
 Application allowlists do not replace OT network controls. Before enabling a
 site, restrict Modbus TCP routing with default-deny firewall rules so only the
 Proto Fleet server can reach the commissioned drive/PLC addresses and port.
+
+## Market Data (Opt-In)
+
+Dashboard bitcoin price, estimated hashprice, and network hashrate are hidden by
+default. To enable the feature, add these settings to the operator `.env`:
+
+```dotenv
+MARKET_DATA_ENABLED=true
+MARKET_DATA_PRICE_PROVIDER=coingecko
+MARKET_DATA_COINGECKO_API_KEY=your-paid-plan-api-key
+```
+
+Replace the placeholder with your own CoinGecko paid-plan API key. CoinGecko's
+Pro API is the default provider; enabling it without a key prevents `fleet-api`
+from starting. Demo keys and keyless CoinGecko access are not supported.
+
+To use Coinbase instead, set these values; no CoinGecko key is required:
+
+```dotenv
+MARKET_DATA_ENABLED=true
+MARKET_DATA_PRICE_PROVIDER=coinbase
+```
+
+Apply the settings with `./run-fleet.sh` and reload the dashboard. No client
+rebuild is required. Removing `MARKET_DATA_ENABLED` or setting it to `false`
+disables both the panel and outbound feed requests. See
+[market data](../docs/market-data.md) for sources, estimates, refresh behavior,
+and rollout caveats.
 
 ## Host Profiles
 
@@ -235,6 +496,74 @@ The configs live under `server/monitoring/grafana/`:
 - `provisioning/alerting/notification-policies.yaml` — root routing
   tree (grouping + repeat interval).
 
+### When "Metric Ingest Stalled" fires
+
+The rule reads the `fleet_telemetry_poll_heartbeat` continuous aggregate,
+not the raw samples. That aggregate is `materialized_only` and carries its
+own retention policy, so if its refresh policy job stops, retention keeps
+deleting buckets until the aggregate is empty and the rule fires for every
+pollable organization while ingest is perfectly healthy.
+
+So the alert firing does not by itself mean ingest died. Check the raw
+samples first — this is the discriminator:
+
+```bash
+docker exec -i <timescaledb-container> \
+  bash -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT organization_id, max(time) AS newest,
+       round(extract(epoch from now() - max(time))) AS staleness_seconds
+  FROM notification_metric_sample
+ WHERE metric = 'fleet_telemetry_poll_total'
+   AND time > now() - INTERVAL '15 minutes'
+ GROUP BY organization_id;
+SQL
+```
+
+If the newest raw sample is also stale, the stall is real: check fleet-api
+and its metrics writer (`docker logs … | grep 'metrics:'`). If raw samples
+are landing fine, the aggregate is the problem — check its refresh policy:
+
+```bash
+docker exec -i <timescaledb-container> \
+  bash -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT s.job_id, s.job_status, s.last_successful_finish, s.total_failures
+  FROM timescaledb_information.job_stats s
+  JOIN timescaledb_information.jobs j ON j.job_id = s.job_id
+ WHERE j.proc_name = 'policy_refresh_continuous_aggregate'
+   AND j.hypertable_name IN (
+       SELECT ca.view_name
+         FROM timescaledb_information.continuous_aggregates ca
+        WHERE ca.view_name = 'fleet_telemetry_poll_heartbeat'
+       UNION ALL
+       SELECT ca.materialization_hypertable_name
+         FROM timescaledb_information.continuous_aggregates ca
+        WHERE ca.view_name = 'fleet_telemetry_poll_heartbeat');
+SQL
+```
+
+The `proc_name` filter excludes the aggregate's retention policy, which is
+also registered against the same hypertable; matching the materialization
+hypertable name too covers the TimescaleDB versions that label a refresh
+policy that way rather than by view name.
+
+A `job_status` of `Paused`, or a `last_successful_finish` well in the past,
+confirms it. Resume the job with the `job_id` from above and backfill enough
+buckets to clear the alert:
+
+```bash
+docker exec -i <timescaledb-container> \
+  bash -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT alter_job(<job_id>, scheduled => true);
+CALL refresh_continuous_aggregate('fleet_telemetry_poll_heartbeat',
+                                  now() - INTERVAL '2 hours',
+                                  now() - INTERVAL '1 minute');
+SQL
+```
+
+Keep this on psql's default autocommit — `refresh_continuous_aggregate()`
+cannot run inside a transaction block, so adding `--single-transaction` (or
+wrapping the statements in `BEGIN`) fails with that error.
+
 ### Enabling system monitoring
 
 Host system monitoring is **off by default** and requires the alerts
@@ -277,9 +606,9 @@ the Grafana UI at `127.0.0.1:3030` during an outage.
 Disabling the feature removes the alert rules on the next start (via a
 provisioned tombstone) but leaves the System Monitoring dashboard in
 Grafana; delete it from the UI if it bothers you. fleet-api also
-serves `GET /health/ready` (200 only when its database answers a ping)
-for external uptime monitors, alongside the always-static liveness
-check at `GET /health`.
+serves `GET /health/ready` (200 only when Fleet is active and its
+database answers a ping) for external uptime monitors, alongside the
+always-static liveness check at `GET /health`.
 
 ## Client Observability
 
@@ -314,7 +643,7 @@ DD_CLIENT_TOKEN=your-datadog-rum-client-token
 # Optional
 DD_SITE=datadoghq.com          # your Datadog site (default: datadoghq.com)
 DD_SERVICE=proto-fleet-client  # service name (default: proto-fleet-client)
-DD_ENV=production              # environment tag (default: build env)
+DD_ENV=prod-site1              # environment tag; use prod-<site> so per-site data stays separable (default: build env)
 DD_RUM_SAMPLE_RATE=100         # RUM session sample rate (default: 100)
 DD_SESSION_REPLAY_SAMPLE_RATE=0  # Session Replay sample rate (default: 0, off)
 DD_TRACE_SAMPLE_RATE=100       # trace sample rate for API calls (default: 100)
@@ -328,3 +657,56 @@ errors, and injects distributed-tracing headers on same-origin
 `/api-proxy` calls. Session Replay is off by default and masks all
 text/inputs when enabled. Data goes only to the Datadog org identified by
 your keys.
+
+## Server Tracing (Datadog APM)
+
+Request tracing on fleet-api is **off by default**. It lives in a
+separate compose file, `docker-compose.tracing.yaml`, that
+`run-fleet.sh` layers in when the `--enable-tracing` flag is passed
+(or `ENABLE_TRACING=true` is set in `.env`). The overlay starts an
+OpenTelemetry collector sidecar and forwards fleet-api request spans
+to Datadog APM:
+
+```bash
+./run-fleet.sh --enable-tracing
+```
+
+```dotenv
+# Required (run-fleet.sh refuses to start without it when tracing is on)
+DD_API_KEY=your-datadog-api-key
+
+# Optional
+DD_SITE=datadoghq.com            # your Datadog site (default: datadoghq.com)
+DD_ENV=prod-site1                # APM environment tag; use prod-<site> to match the RUM config (default: production)
+DD_HOSTNAME=fleet-host-1         # host tag on spans (default: this machine's hostname)
+FLEET_TELEMETRY_SAMPLE_RATE=1.0  # server-side trace sample cap (default: 1.0)
+FLEET_TELEMETRY_TRUST_INCOMING_TRACES=true  # parent spans to RUM trace context (default: true)
+```
+
+`DD_HOSTNAME` is stamped onto spans as `host.name`. Without it the Datadog
+exporter infers a hostname from inside the collector container, so traces
+hang off a host that nothing else reports. `run-fleet.sh` defaults it to the
+output of `hostname` and writes that value to `.env`; if you also run a
+Datadog Agent on this machine for host metrics or logs, set `DD_HOSTNAME` to
+the hostname that agent reports (its `DD_HOSTNAME`, or `datadog-agent
+hostname`) so APM traces and infra data resolve to the same host. Matching
+`DD_ENV` across the agent, this overlay, and the RUM config is what joins
+infra, APM, and RUM. The overlay itself treats `DD_HOSTNAME` as required, so
+driving `docker compose` with `docker-compose.tracing.yaml` by hand needs it
+set in `.env` or the shell.
+
+Unlike the RUM client token, `DD_API_KEY` is a secret Datadog API key;
+it stays in `.env` (mode 0600) and the collector container's
+environment.
+
+With `FLEET_TELEMETRY_TRUST_INCOMING_TRACES=true` (this overlay's
+default), fleet-api parents its request spans to the `traceparent`
+header Datadog RUM injects on `/api-proxy` calls, so RUM sessions link
+to their APM traces. Trusting that header means any client on the LAN
+can influence tracing of its own requests: a not-sampled flag is
+honored (an unsampled RUM trace records no server span), sampled
+requests are still capped by `FLEET_TELEMETRY_SAMPLE_RATE`, and trace
+IDs are client-chosen. Set
+`FLEET_TELEMETRY_TRUST_INCOMING_TRACES=false` to ignore client trace
+context; spans then start fresh traces that reference the client
+context as a link only.

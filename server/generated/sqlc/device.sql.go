@@ -35,19 +35,192 @@ func (q *Queries) AllDevicesBelongToOrg(ctx context.Context, arg AllDevicesBelon
 	return all_belong, err
 }
 
+const applyFleetNodeRecoveredEndpoint = `-- name: ApplyFleetNodeRecoveredEndpoint :one
+WITH eligible AS MATERIALIZED (
+    SELECT fnd.device_id, fnd.org_id, fnd.fleet_node_id
+    FROM fleet_node_device fnd
+    JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
+    JOIN device_status ds ON ds.device_id = d.id
+    WHERE d.device_identifier = $4
+      AND d.org_id = $5
+      AND d.deleted_at IS NULL
+      AND fnd.fleet_node_id = $11
+      AND ds.status = 'OFFLINE'
+    FOR UPDATE OF fnd, ds
+)
+UPDATE discovered_device dd
+SET ip_address = $1,
+    port = $2,
+    url_scheme = $3,
+    last_seen = NOW()
+FROM device d
+JOIN eligible fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+JOIN device_pairing dp ON dp.device_id = d.id
+WHERE d.discovered_device_id = dd.id
+  AND d.device_identifier = $4
+  AND d.org_id = $5
+  AND COALESCE(d.serial_number, '') = $6
+  AND d.mac_address = $7
+  AND dd.ip_address = $8
+  AND dd.port = $9
+  AND dd.url_scheme = $10
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dd.is_active = TRUE
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+RETURNING d.id
+`
+
+type ApplyFleetNodeRecoveredEndpointParams struct {
+	IpAddress         string
+	Port              string
+	UrlScheme         string
+	DeviceIdentifier  string
+	OrgID             int64
+	SerialNumber      sql.NullString
+	MacAddress        string
+	ExpectedIpAddress string
+	ExpectedPort      string
+	ExpectedUrlScheme string
+	FleetNodeID       int64
+}
+
+// The ownership/pairing/offline predicates are repeated at write time so a
+// stale acknowledgement cannot overwrite a reassigned, repaired, or deleted
+// miner. Locking the ownership and status rows serializes this recheck with
+// unpairing, reassignment, and telemetry recovery. Returns the device id only
+// when the guarded update applied.
+func (q *Queries) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, arg ApplyFleetNodeRecoveredEndpointParams) (int64, error) {
+	row := q.queryRow(ctx, q.applyFleetNodeRecoveredEndpointStmt, applyFleetNodeRecoveredEndpoint,
+		arg.IpAddress,
+		arg.Port,
+		arg.UrlScheme,
+		arg.DeviceIdentifier,
+		arg.OrgID,
+		arg.SerialNumber,
+		arg.MacAddress,
+		arg.ExpectedIpAddress,
+		arg.ExpectedPort,
+		arg.ExpectedUrlScheme,
+		arg.FleetNodeID,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const applyFleetNodeRecoveryAuthenticationNeeded = `-- name: ApplyFleetNodeRecoveryAuthenticationNeeded :one
+WITH eligible AS MATERIALIZED (
+    SELECT fnd.device_id, fnd.org_id, fnd.fleet_node_id
+    FROM fleet_node_device fnd
+    JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
+    JOIN device_status ds ON ds.device_id = d.id
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    WHERE d.device_identifier = $4
+      AND d.org_id = $5
+      AND d.deleted_at IS NULL
+      AND fnd.fleet_node_id = $6
+      AND ds.status = 'OFFLINE'
+      AND dd.ip_address = $7
+      AND dd.port = $8
+      AND dd.url_scheme = $9
+      AND dd.deleted_at IS NULL
+      AND dd.is_active = TRUE
+    FOR UPDATE OF fnd, ds, dd
+), updated_pairing AS (
+    UPDATE device_pairing dp
+    SET pairing_status = 'AUTHENTICATION_NEEDED'
+    FROM device d
+    JOIN eligible fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+    JOIN discovered_device dd ON dd.id = d.discovered_device_id
+    LEFT JOIN miner_credentials mc ON mc.device_id = d.id
+    WHERE dp.device_id = d.id
+      AND d.device_identifier = $4
+      AND d.org_id = $5
+      AND COALESCE(d.serial_number, '') = $10
+      AND d.mac_address = $11
+      AND dd.ip_address = $7
+      AND dd.port = $8
+      AND dd.url_scheme = $9
+      AND d.deleted_at IS NULL
+      AND dd.deleted_at IS NULL
+      AND dd.is_active = TRUE
+      AND (
+          (mc.device_id IS NULL
+           AND $12::text = ''
+           AND $13::text = '')
+          OR (mc.username_enc = $12
+              AND mc.password_enc = $13)
+      )
+      AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    RETURNING d.id, d.discovered_device_id
+)
+UPDATE discovered_device dd
+SET ip_address = $1,
+    port = $2,
+    url_scheme = $3,
+    last_seen = NOW()
+FROM updated_pairing up
+WHERE dd.id = up.discovered_device_id
+RETURNING up.id
+`
+
+type ApplyFleetNodeRecoveryAuthenticationNeededParams struct {
+	IpAddress             string
+	Port                  string
+	UrlScheme             string
+	DeviceIdentifier      string
+	OrgID                 int64
+	FleetNodeID           int64
+	ExpectedIpAddress     string
+	ExpectedPort          string
+	ExpectedUrlScheme     string
+	SerialNumber          sql.NullString
+	MacAddress            string
+	CredentialUsernameEnc string
+	CredentialPasswordEnc string
+}
+
+// Authentication state is changed only for the still-owned, paired-like,
+// offline miner named by the acknowledgement. Identity evidence is validated
+// by the domain layer before this conditional write. Locking the ownership and
+// status rows serializes this recheck with unpairing, reassignment, and
+// telemetry recovery. The caller separately locks the device row before this
+// statement so credential repair is observed from a fresh snapshot.
+func (q *Queries) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, arg ApplyFleetNodeRecoveryAuthenticationNeededParams) (int64, error) {
+	row := q.queryRow(ctx, q.applyFleetNodeRecoveryAuthenticationNeededStmt, applyFleetNodeRecoveryAuthenticationNeeded,
+		arg.IpAddress,
+		arg.Port,
+		arg.UrlScheme,
+		arg.DeviceIdentifier,
+		arg.OrgID,
+		arg.FleetNodeID,
+		arg.ExpectedIpAddress,
+		arg.ExpectedPort,
+		arg.ExpectedUrlScheme,
+		arg.SerialNumber,
+		arg.MacAddress,
+		arg.CredentialUsernameEnc,
+		arg.CredentialPasswordEnc,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const countMinersByState = `-- name: CountMinersByState :one
 SELECT
     -- Offline
     COALESCE(SUM(CASE
-        WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+        WHEN effective_status.status = 'OFFLINE'
+             OR (effective_status.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
         THEN 1
         ELSE 0
     END), 0)::bigint as offline_count,
 
     -- Sleeping
     COALESCE(SUM(CASE
-        WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
+        WHEN effective_status.status IN ('MAINTENANCE', 'INACTIVE')
              AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
         THEN 1
         ELSE 0
@@ -55,10 +228,10 @@ SELECT
 
     -- Broken
     COALESCE(SUM(CASE
-        WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
-             AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
+        WHEN effective_status.status IS DISTINCT FROM 'OFFLINE'
+             AND NOT (effective_status.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND NOT (effective_status.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND (effective_status.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
                   OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
                   OR open_errors.device_id IS NOT NULL)
         THEN 1
@@ -67,7 +240,7 @@ SELECT
 
     -- Hashing
     COALESCE(SUM(CASE
-        WHEN ds.status = 'ACTIVE'
+        WHEN effective_status.status = 'ACTIVE'
              AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
              AND open_errors.device_id IS NULL
         THEN 1
@@ -77,6 +250,19 @@ FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN LATERAL (
+    SELECT CASE
+        WHEN fn.id IS NOT NULL
+             AND fn.deleted_at IS NULL
+             AND fn.enrollment_status = 'CONFIRMED'
+             AND fn.last_seen_at IS NOT NULL
+             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'
+        THEN 'OFFLINE'
+        ELSE ds.status::text
+    END AS status
+) effective_status ON TRUE
 LEFT JOIN (
     SELECT DISTINCT device_id
     FROM errors
@@ -97,10 +283,10 @@ WHERE d.deleted_at IS NULL
   AND (
       $2::text IS NULL
       OR (
-          ds.status::text = ANY($3::text[])
+          effective_status.status = ANY($3::text[])
           AND (
-              ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-              OR (ds.status = 'ACTIVE' AND NOT EXISTS (
+              effective_status.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
+              OR (effective_status.status = 'ACTIVE' AND NOT EXISTS (
                   SELECT 1 FROM errors
                   WHERE errors.device_id = d.id
                     AND errors.org_id = $1
@@ -112,7 +298,7 @@ WHERE d.deleted_at IS NULL
       )
       OR ($4::boolean = TRUE
           AND dp.pairing_status IN ('AUTHENTICATION_NEEDED')
-          AND (ds.status IS NULL OR ds.status != 'OFFLINE'))
+          AND (effective_status.status IS NULL OR effective_status.status != 'OFFLINE'))
       OR ($4::boolean = TRUE
           AND EXISTS (
               SELECT 1 FROM errors
@@ -121,12 +307,12 @@ WHERE d.deleted_at IS NULL
                 AND errors.closed_at IS NULL
                 AND errors.severity IN (1, 2, 3, 4)
           )
-          AND NOT (ds.status IS NULL AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
-          AND (ds.status IS NULL OR ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
+          AND NOT (effective_status.status IS NULL AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
+          AND (effective_status.status IS NULL OR effective_status.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
       -- NULL-status paired-like miners (counted as offline in dashboard).
       -- Scoped to PAIRED/DEFAULT_PASSWORD to match CountMinersByState's WHERE clause.
       OR ($5::boolean = TRUE
-          AND ds.status IS NULL
+          AND effective_status.status IS NULL
           AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
   )
   AND ($6::text IS NULL OR dd.model = ANY($7::text[]))
@@ -1058,10 +1244,23 @@ FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 LEFT JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN LATERAL (
+    SELECT CASE
+        WHEN fn.id IS NOT NULL
+             AND fn.deleted_at IS NULL
+             AND fn.enrollment_status = 'CONFIRMED'
+             AND fn.last_seen_at IS NOT NULL
+             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'
+        THEN 'OFFLINE'
+        ELSE ds.status::text
+    END AS status
+) effective_status ON TRUE
 WHERE d.org_id = $1
     AND dp.pairing_status::text = ANY($2::text[])
     AND d.deleted_at IS NULL
-    AND ($3::text IS NULL OR ds.status::text = $3::text)
+    AND ($3::text IS NULL OR effective_status.status = $3::text)
     AND ($4::text IS NULL OR dd.model = ANY(string_to_array($4, ',')))
     AND ($5::text IS NULL OR dd.manufacturer = ANY(string_to_array($5, ',')))
 ORDER BY d.device_identifier
@@ -1115,10 +1314,23 @@ FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 LEFT JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN LATERAL (
+    SELECT CASE
+        WHEN fn.id IS NOT NULL
+             AND fn.deleted_at IS NULL
+             AND fn.enrollment_status = 'CONFIRMED'
+             AND fn.last_seen_at IS NOT NULL
+             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'
+        THEN 'OFFLINE'
+        ELSE ds.status::text
+    END AS status
+) effective_status ON TRUE
 WHERE d.org_id = $1
     AND dp.pairing_status::text = ANY($2::text[])
     AND d.deleted_at IS NULL
-    AND ($3::text IS NULL OR ds.status::text = $3::text)
+    AND ($3::text IS NULL OR effective_status.status = $3::text)
     AND ($4::text IS NULL OR dd.model = ANY(string_to_array($4, ',')))
     AND ($5::text IS NULL OR dd.manufacturer = ANY(string_to_array($5, ',')))
 ORDER BY d.id
@@ -1220,6 +1432,19 @@ FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN LATERAL (
+    SELECT CASE
+        WHEN fn.id IS NOT NULL
+             AND fn.deleted_at IS NULL
+             AND fn.enrollment_status = 'CONFIRMED'
+             AND fn.last_seen_at IS NOT NULL
+             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'
+        THEN 'OFFLINE'
+        ELSE ds.status::text
+    END AS status
+) effective_status ON TRUE
 WHERE dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   AND d.deleted_at IS NULL
   -- Password updates can run for paired and default-password miners. Auth-needed
@@ -1231,7 +1456,7 @@ WHERE dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   AND dd.model IS NOT NULL
   AND dd.model != ''
   AND ($2::text IS NULL OR dd.model = ANY(string_to_array($2, ',')))
-  AND ($3::text IS NULL OR ds.status::text = ANY(string_to_array($3, ',')))
+  AND ($3::text IS NULL OR effective_status.status = ANY(string_to_array($3, ',')))
   -- Firmware version filter (values list passes as a real PG array so values
   -- can contain commas; the narg sentinel signals "filter applied").
   AND (
@@ -1292,15 +1517,15 @@ const getMinerStateCountsByDeviceIDs = `-- name: GetMinerStateCountsByDeviceIDs 
 SELECT
     -- Offline
     COALESCE(SUM(CASE
-        WHEN ds.status = 'OFFLINE'
-             OR (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+        WHEN effective_status.status = 'OFFLINE'
+             OR (effective_status.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
         THEN 1
         ELSE 0
     END), 0)::int AS offline_count,
 
     -- Sleeping
     COALESCE(SUM(CASE
-        WHEN ds.status IN ('MAINTENANCE', 'INACTIVE')
+        WHEN effective_status.status IN ('MAINTENANCE', 'INACTIVE')
              AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
         THEN 1
         ELSE 0
@@ -1308,10 +1533,10 @@ SELECT
 
     -- Broken
     COALESCE(SUM(CASE
-        WHEN ds.status IS DISTINCT FROM 'OFFLINE'
-             AND NOT (ds.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
-             AND NOT (ds.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
-             AND (ds.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
+        WHEN effective_status.status IS DISTINCT FROM 'OFFLINE'
+             AND NOT (effective_status.status IS NULL AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND NOT (effective_status.status IN ('MAINTENANCE', 'INACTIVE') AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED'))
+             AND (effective_status.status IN ('ERROR', 'NEEDS_MINING_POOL', 'UPDATING', 'REBOOT_REQUIRED')
                   OR dp.pairing_status IN ('AUTHENTICATION_NEEDED')
                   OR open_errors.device_id IS NOT NULL)
         THEN 1
@@ -1320,7 +1545,7 @@ SELECT
 
     -- Hashing
     COALESCE(SUM(CASE
-        WHEN ds.status = 'ACTIVE'
+        WHEN effective_status.status = 'ACTIVE'
              AND dp.pairing_status NOT IN ('AUTHENTICATION_NEEDED')
              AND open_errors.device_id IS NULL
         THEN 1
@@ -1330,6 +1555,19 @@ FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN LATERAL (
+    SELECT CASE
+        WHEN fn.id IS NOT NULL
+             AND fn.deleted_at IS NULL
+             AND fn.enrollment_status = 'CONFIRMED'
+             AND fn.last_seen_at IS NOT NULL
+             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'
+        THEN 'OFFLINE'
+        ELSE ds.status::text
+    END AS status
+) effective_status ON TRUE
 LEFT JOIN (
     SELECT DISTINCT device_id
     FROM errors
@@ -1402,6 +1640,12 @@ WHERE dp.pairing_status = 'PAIRED'
   AND ds.status = 'OFFLINE'
   AND d.mac_address IS NOT NULL
   AND d.mac_address != ''
+  AND NOT EXISTS (
+    SELECT 1
+    FROM fleet_node_device fnd
+    WHERE fnd.device_id = d.id
+      AND fnd.org_id = d.org_id
+  )
 ORDER BY ds.status_timestamp DESC
 LIMIT $1
 `
@@ -1451,6 +1695,90 @@ func (q *Queries) GetOfflineDevices(ctx context.Context, limit int32) ([]GetOffl
 	return items, nil
 }
 
+const getOfflineFleetNodeDevices = `-- name: GetOfflineFleetNodeDevices :many
+SELECT
+    fnd.fleet_node_id,
+    d.device_identifier,
+    d.org_id,
+    d.serial_number,
+    d.mac_address,
+    dd.driver_name,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme,
+    mc.username_enc,
+    mc.password_enc
+FROM fleet_node_device fnd
+JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
+JOIN device_pairing dp ON dp.device_id = d.id
+JOIN device_status ds ON ds.device_id = d.id
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN miner_credentials mc ON mc.device_id = d.id
+WHERE d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dd.is_active = TRUE
+  AND fn.deleted_at IS NULL
+  AND fn.enrollment_status = 'CONFIRMED'
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+  AND ds.status = 'OFFLINE'
+  AND (BTRIM(COALESCE(d.serial_number, '')) != '' OR BTRIM(COALESCE(d.mac_address, '')) != '')
+ORDER BY ds.status_timestamp ASC,
+         d.id ASC
+`
+
+type GetOfflineFleetNodeDevicesRow struct {
+	FleetNodeID      int64
+	DeviceIdentifier string
+	OrgID            int64
+	SerialNumber     sql.NullString
+	MacAddress       string
+	DriverName       string
+	IpAddress        string
+	Port             string
+	UrlScheme        string
+	UsernameEnc      sql.NullString
+	PasswordEnc      sql.NullString
+}
+
+// Stable oldest-offline ordering lets the recovery service rotate bounded
+// per-node batches in memory. Credentials remain the Fleet Node-encrypted
+// blobs stored during pairing.
+func (q *Queries) GetOfflineFleetNodeDevices(ctx context.Context) ([]GetOfflineFleetNodeDevicesRow, error) {
+	rows, err := q.query(ctx, q.getOfflineFleetNodeDevicesStmt, getOfflineFleetNodeDevices)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetOfflineFleetNodeDevicesRow
+	for rows.Next() {
+		var i GetOfflineFleetNodeDevicesRow
+		if err := rows.Scan(
+			&i.FleetNodeID,
+			&i.DeviceIdentifier,
+			&i.OrgID,
+			&i.SerialNumber,
+			&i.MacAddress,
+			&i.DriverName,
+			&i.IpAddress,
+			&i.Port,
+			&i.UrlScheme,
+			&i.UsernameEnc,
+			&i.PasswordEnc,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getPairedDeviceByMACAddress = `-- name: GetPairedDeviceByMACAddress :many
 SELECT
     d.device_identifier,
@@ -1462,7 +1790,8 @@ FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE d.mac_address = $1
-  AND d.org_id = $2
+  AND d.device_identifier <> $2
+  AND d.org_id = $3
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
@@ -1471,8 +1800,9 @@ LIMIT 2
 `
 
 type GetPairedDeviceByMACAddressParams struct {
-	NormalizedMac string
-	OrgID         int64
+	NormalizedMac           string
+	ExcludeDeviceIdentifier string
+	OrgID                   int64
 }
 
 type GetPairedDeviceByMACAddressRow struct {
@@ -1484,11 +1814,12 @@ type GetPairedDeviceByMACAddressRow struct {
 }
 
 // Finds an existing paired device by MAC address for a given organization.
-// Used during discovery reconciliation to detect devices that moved to a new IP/subnet.
+// Explicit pairing excludes its own pending candidate to resolve the original miner.
+// Pass an empty exclusion for ordinary identity lookups.
 // Callers pass the MAC in colon-separated uppercase format (AA:BB:CC:DD:EE:FF),
 // which matches the normalized format stored in the database.
 func (q *Queries) GetPairedDeviceByMACAddress(ctx context.Context, arg GetPairedDeviceByMACAddressParams) ([]GetPairedDeviceByMACAddressRow, error) {
-	rows, err := q.query(ctx, q.getPairedDeviceByMACAddressStmt, getPairedDeviceByMACAddress, arg.NormalizedMac, arg.OrgID)
+	rows, err := q.query(ctx, q.getPairedDeviceByMACAddressStmt, getPairedDeviceByMACAddress, arg.NormalizedMac, arg.ExcludeDeviceIdentifier, arg.OrgID)
 	if err != nil {
 		return nil, err
 	}
@@ -1659,6 +1990,50 @@ func (q *Queries) GetPairedDevicesIds(ctx context.Context, orgID int64) ([]int64
 	return items, nil
 }
 
+const getPairedProtoDeviceIdentifiersByIdentifiers = `-- name: GetPairedProtoDeviceIdentifiersByIdentifiers :many
+SELECT d.device_identifier
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+JOIN device_pairing dp ON dp.device_id = d.id
+WHERE d.org_id = $1
+  AND d.device_identifier = ANY($2::text[])
+  AND d.deleted_at IS NULL
+  AND dp.pairing_status = 'PAIRED'
+  AND dd.manufacturer = 'Proto'
+ORDER BY d.id
+FOR SHARE OF d, dd, dp
+`
+
+type GetPairedProtoDeviceIdentifiersByIdentifiersParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Lock eligible rows until targeted fallback-config commands are enqueued.
+// Pairing, manufacturer, and deletion changes must wait for that transaction.
+func (q *Queries) GetPairedProtoDeviceIdentifiersByIdentifiers(ctx context.Context, arg GetPairedProtoDeviceIdentifiersByIdentifiersParams) ([]string, error) {
+	rows, err := q.query(ctx, q.getPairedProtoDeviceIdentifiersByIdentifiersStmt, getPairedProtoDeviceIdentifiersByIdentifiers, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTotalDevicesPendingAuth = `-- name: GetTotalDevicesPendingAuth :one
 SELECT COUNT(*)
 FROM device d
@@ -1683,6 +2058,19 @@ LEFT JOIN device d ON dd.id = d.discovered_device_id
     AND d.org_id = $1
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
+LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
+LEFT JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN LATERAL (
+    SELECT CASE
+        WHEN fn.id IS NOT NULL
+             AND fn.deleted_at IS NULL
+             AND fn.enrollment_status = 'CONFIRMED'
+             AND fn.last_seen_at IS NOT NULL
+             AND fn.last_seen_at < NOW() - INTERVAL '2 minutes'
+        THEN 'OFFLINE'
+        ELSE ds.status::text
+    END AS status
+) effective_status ON TRUE
 WHERE dd.org_id = $1
     AND dd.is_active = TRUE
     AND dd.deleted_at IS NULL
@@ -1698,10 +2086,10 @@ WHERE dd.org_id = $1
     AND (
         $6::text IS NULL
         OR (
-            ds.status::text = ANY($7::text[])
+            effective_status.status = ANY($7::text[])
             AND (
-                ds.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
-                OR (ds.status = 'ACTIVE' AND NOT EXISTS (
+                effective_status.status IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')
+                OR (effective_status.status = 'ACTIVE' AND NOT EXISTS (
                     SELECT 1 FROM errors
                     WHERE errors.device_id = d.id
                       AND errors.org_id = $1
@@ -1714,7 +2102,7 @@ WHERE dd.org_id = $1
         -- Auth-needed (exclude OFFLINE only)
         OR ($8::boolean = TRUE
             AND dp.pairing_status IN ('AUTHENTICATION_NEEDED')
-            AND (ds.status IS NULL OR ds.status != 'OFFLINE'))
+            AND (effective_status.status IS NULL OR effective_status.status != 'OFFLINE'))
         -- Devices with actionable errors. Excludes NULL-status paired-like miners
         -- so they stay bucketed as offline (matches CountMinersByState).
         OR ($8::boolean = TRUE
@@ -1725,12 +2113,12 @@ WHERE dd.org_id = $1
                   AND errors.closed_at IS NULL
                   AND errors.severity IN (1, 2, 3, 4)
             )
-            AND NOT (ds.status IS NULL AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
-            AND (ds.status IS NULL OR ds.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
+            AND NOT (effective_status.status IS NULL AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
+            AND (effective_status.status IS NULL OR effective_status.status NOT IN ('OFFLINE', 'MAINTENANCE', 'INACTIVE', 'NEEDS_MINING_POOL')))
         -- NULL-status paired-like miners (counted as offline in dashboard).
         -- Scoped to PAIRED/DEFAULT_PASSWORD to match CountMinersByState's WHERE clause.
         OR ($9::boolean = TRUE
-            AND ds.status IS NULL
+            AND effective_status.status IS NULL
             AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD'))
     )
     -- Component error filter
@@ -1900,31 +2288,6 @@ func (q *Queries) InsertDevice(ctx context.Context, arg InsertDeviceParams) (int
 	return id, err
 }
 
-const isDeviceOwnedByFleetNode = `-- name: IsDeviceOwnedByFleetNode :one
-SELECT EXISTS (
-    SELECT 1
-    FROM device d
-    JOIN fleet_node_device fnd
-      ON fnd.device_id = d.id
-     AND fnd.org_id = d.org_id
-    WHERE d.device_identifier = $1
-      AND d.org_id = $2
-      AND d.deleted_at IS NULL
-)
-`
-
-type IsDeviceOwnedByFleetNodeParams struct {
-	DeviceIdentifier string
-	OrgID            int64
-}
-
-func (q *Queries) IsDeviceOwnedByFleetNode(ctx context.Context, arg IsDeviceOwnedByFleetNodeParams) (bool, error) {
-	row := q.queryRow(ctx, q.isDeviceOwnedByFleetNodeStmt, isDeviceOwnedByFleetNode, arg.DeviceIdentifier, arg.OrgID)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
-}
-
 const listMinerStateSnapshots = `-- name: ListMinerStateSnapshots :many
 SELECT
     dd.device_identifier,
@@ -1949,6 +2312,7 @@ SELECT
     COALESCE(s.name, '') as site_label,
     d.building_id,
     COALESCE(b.name, '') as building_label,
+    FALSE as fleet_node_unavailable,
     FALSE as embedded_web_view_available
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id
@@ -1982,6 +2346,7 @@ type ListMinerStateSnapshotsRow struct {
 	SiteLabel                string
 	BuildingID               sql.NullInt64
 	BuildingLabel            string
+	FleetNodeUnavailable     bool
 	EmbeddedWebViewAvailable bool
 }
 
@@ -2021,6 +2386,7 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 			&i.SiteLabel,
 			&i.BuildingID,
 			&i.BuildingLabel,
+			&i.FleetNodeUnavailable,
 			&i.EmbeddedWebViewAvailable,
 		); err != nil {
 			return nil, err
@@ -2036,13 +2402,59 @@ func (q *Queries) ListMinerStateSnapshots(ctx context.Context) ([]ListMinerState
 	return items, nil
 }
 
+const lockDeviceByIdentifier = `-- name: LockDeviceByIdentifier :many
+SELECT id
+FROM device
+WHERE device_identifier = $1
+  AND org_id = $2
+  AND deleted_at IS NULL
+FOR UPDATE
+`
+
+type LockDeviceByIdentifierParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+// Serialize ownership and authentication reconciliation with pairing changes
+// and credential repair. Callers recheck their predicates in a subsequent
+// statement so they see the winner at READ COMMITTED.
+func (q *Queries) LockDeviceByIdentifier(ctx context.Context, arg LockDeviceByIdentifierParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockDeviceByIdentifierStmt, lockDeviceByIdentifier, arg.DeviceIdentifier, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const reconcileAuthenticationNeededPairingStatusByIdentifier = `-- name: ReconcileAuthenticationNeededPairingStatusByIdentifier :one
 WITH candidate AS (
   SELECT device_pairing.device_id
   FROM device_pairing
   JOIN device d ON device_pairing.device_id = d.id
+  JOIN discovered_device dd ON dd.id = d.discovered_device_id
   WHERE d.device_identifier = $1
+    AND d.org_id = $2
     AND d.deleted_at IS NULL
+    AND dd.deleted_at IS NULL
+    AND dd.ip_address = $3
+    AND dd.port = $4
+    AND dd.url_scheme = $5
     AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
 ),
 updated AS (
@@ -2059,6 +2471,14 @@ SELECT
   EXISTS(SELECT 1 FROM updated) AS updated
 `
 
+type ReconcileAuthenticationNeededPairingStatusByIdentifierParams struct {
+	DeviceIdentifier  string
+	OrgID             int64
+	ExpectedIpAddress string
+	ExpectedPort      string
+	ExpectedUrlScheme string
+}
+
 type ReconcileAuthenticationNeededPairingStatusByIdentifierRow struct {
 	Eligible bool
 	Updated  bool
@@ -2066,9 +2486,66 @@ type ReconcileAuthenticationNeededPairingStatusByIdentifierRow struct {
 
 // Telemetry auth failures may move paired-like rows into AUTHENTICATION_NEEDED,
 // but late samples must not resurrect devices moved to UNPAIRED, PENDING, or FAILED.
-func (q *Queries) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error) {
-	row := q.queryRow(ctx, q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt, reconcileAuthenticationNeededPairingStatusByIdentifier, deviceIdentifier)
+// Call after locking the device, so endpoint recovery is visible in this statement.
+func (q *Queries) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, arg ReconcileAuthenticationNeededPairingStatusByIdentifierParams) (ReconcileAuthenticationNeededPairingStatusByIdentifierRow, error) {
+	row := q.queryRow(ctx, q.reconcileAuthenticationNeededPairingStatusByIdentifierStmt, reconcileAuthenticationNeededPairingStatusByIdentifier,
+		arg.DeviceIdentifier,
+		arg.OrgID,
+		arg.ExpectedIpAddress,
+		arg.ExpectedPort,
+		arg.ExpectedUrlScheme,
+	)
 	var i ReconcileAuthenticationNeededPairingStatusByIdentifierRow
+	err := row.Scan(&i.Eligible, &i.Updated)
+	return i, err
+}
+
+const reconcileCloudAuthNeededByIdentifier = `-- name: ReconcileCloudAuthNeededByIdentifier :one
+WITH candidate AS (
+  SELECT device_pairing.device_id
+  FROM device_pairing
+  JOIN device d ON device_pairing.device_id = d.id
+  WHERE d.device_identifier = $1
+    AND d.org_id = $2
+    AND d.deleted_at IS NULL
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
+    AND NOT EXISTS (
+      SELECT 1
+      FROM fleet_node_device fnd
+      WHERE fnd.device_id = d.id
+        AND fnd.org_id = d.org_id
+    )
+),
+updated AS (
+  UPDATE device_pairing
+  SET pairing_status = 'AUTHENTICATION_NEEDED'::pairing_status_enum
+  FROM candidate
+  WHERE device_pairing.device_id = candidate.device_id
+    AND device_pairing.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
+    AND device_pairing.pairing_status IS DISTINCT FROM 'AUTHENTICATION_NEEDED'::pairing_status_enum
+  RETURNING 1
+)
+SELECT
+  EXISTS(SELECT 1 FROM candidate) AS eligible,
+  EXISTS(SELECT 1 FROM updated) AS updated
+`
+
+type ReconcileCloudAuthNeededByIdentifierParams struct {
+	DeviceIdentifier string
+	OrgID            int64
+}
+
+type ReconcileCloudAuthNeededByIdentifierRow struct {
+	Eligible bool
+	Updated  bool
+}
+
+// A credential rejection from cloud IP recovery applies only while the cloud
+// still owns the device. The caller must first lock the device row above in the
+// same transaction so Fleet Node assignment and this ownership check serialize.
+func (q *Queries) ReconcileCloudAuthNeededByIdentifier(ctx context.Context, arg ReconcileCloudAuthNeededByIdentifierParams) (ReconcileCloudAuthNeededByIdentifierRow, error) {
+	row := q.queryRow(ctx, q.reconcileCloudAuthNeededByIdentifierStmt, reconcileCloudAuthNeededByIdentifier, arg.DeviceIdentifier, arg.OrgID)
+	var i ReconcileCloudAuthNeededByIdentifierRow
 	err := row.Scan(&i.Eligible, &i.Updated)
 	return i, err
 }
@@ -2118,15 +2595,21 @@ func (q *Queries) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.
 }
 
 const setDevicePairingAuthNeededIfNotPaired = `-- name: SetDevicePairingAuthNeededIfNotPaired :execrows
+WITH locked_device AS MATERIALIZED (
+    SELECT device.id
+    FROM device
+    WHERE device.id = $1
+    FOR UPDATE
+)
 INSERT INTO device_pairing (
     device_id,
     pairing_status,
     paired_at
-) VALUES (
-    $1,
+) SELECT
+    locked_device.id,
     'AUTHENTICATION_NEEDED'::pairing_status_enum,
     CURRENT_TIMESTAMP
-)
+FROM locked_device
 ON CONFLICT (device_id) DO UPDATE SET
     pairing_status = 'AUTHENTICATION_NEEDED'::pairing_status_enum,
     paired_at = CURRENT_TIMESTAMP,
@@ -2339,15 +2822,21 @@ func (q *Queries) UpdateDeviceWorkerNamePoolSyncStatusByID(ctx context.Context, 
 }
 
 const upsertDevicePairing = `-- name: UpsertDevicePairing :execresult
+WITH locked_device AS MATERIALIZED (
+    SELECT device.id
+    FROM device
+    WHERE device.id = $2
+    FOR UPDATE
+)
 INSERT INTO device_pairing (
     device_id,
     pairing_status,
     paired_at
-) VALUES (
+) SELECT
+    locked_device.id,
     $1,
-    $2,
     CURRENT_TIMESTAMP
-)
+FROM locked_device
 ON CONFLICT (device_id) DO UPDATE SET
     pairing_status = EXCLUDED.pairing_status,
     paired_at = CURRENT_TIMESTAMP,
@@ -2355,12 +2844,12 @@ ON CONFLICT (device_id) DO UPDATE SET
 `
 
 type UpsertDevicePairingParams struct {
-	DeviceID      int64
 	PairingStatus PairingStatusEnum
+	DeviceID      int64
 }
 
 func (q *Queries) UpsertDevicePairing(ctx context.Context, arg UpsertDevicePairingParams) (sql.Result, error) {
-	return q.exec(ctx, q.upsertDevicePairingStmt, upsertDevicePairing, arg.DeviceID, arg.PairingStatus)
+	return q.exec(ctx, q.upsertDevicePairingStmt, upsertDevicePairing, arg.PairingStatus, arg.DeviceID)
 }
 
 const upsertDeviceStatus = `-- name: UpsertDeviceStatus :exec

@@ -45,11 +45,13 @@ type adminTerminateStubStore struct {
 	forceReleaseErr                error
 	// Targets returned by ListTargetsByEvent; admin-terminate fetches them
 	// post-terminate so the response shape mirrors the read endpoints.
-	targets             []*models.Target
-	targetsErr          error
-	listTargetsCalls    int
-	targetSiteIDs       []int64
-	targetSitesComplete bool
+	targets                 []*models.Target
+	targetsErr              error
+	listTargetsCalls        int
+	targetSiteIDs           []int64
+	targetSitesComplete     bool
+	targetSiteCoverageErr   error
+	targetSiteCoverageCalls int
 }
 
 func (s *adminTerminateStubStore) AdminTerminateEvent(_ context.Context, orgID int64, eventUUID uuid.UUID, targetState models.EventState, reason string) (*models.Event, bool, error) {
@@ -115,6 +117,7 @@ func (s *adminTerminateStubStore) ClaimClosedLoopFullFleetTargets(
 	int64,
 	int64,
 	int32,
+	int,
 	[]models.InsertTargetParams,
 ) ([]*models.Target, error) {
 	panic("ClaimClosedLoopFullFleetTargets not exercised by AdminTerminate handler tests")
@@ -122,12 +125,15 @@ func (s *adminTerminateStubStore) ClaimClosedLoopFullFleetTargets(
 func (s *adminTerminateStubStore) ClaimAllPairedPolicyTargets(
 	context.Context,
 	int64,
+	int64,
+	int,
 	[]models.InsertTargetParams,
 ) (int64, error) {
 	panic("ClaimAllPairedPolicyTargets not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) BulkRefreshAllPairedTargetReadiness(
 	context.Context,
+	int64,
 	int64,
 	models.EventState,
 	[]interfaces.AllPairedReadinessUpdate,
@@ -136,10 +142,10 @@ func (s *adminTerminateStubStore) BulkRefreshAllPairedTargetReadiness(
 }
 func (s *adminTerminateStubStore) GetEventByUUID(_ context.Context, _ int64, eventUUID uuid.UUID) (*models.Event, error) {
 	if s.authEvent != nil {
-		return s.authEvent, nil
+		return ensureTestEventAuthorizationEnvelope(s.authEvent, s.targetSiteIDs, s.targetSitesComplete), nil
 	}
 	if s.result != nil && s.result.EventUUID == eventUUID {
-		return s.result, nil
+		return ensureTestEventAuthorizationEnvelope(s.result, s.targetSiteIDs, s.targetSitesComplete), nil
 	}
 	return nil, fleeterror.NewNotFoundErrorf("curtailment event not found: %s", eventUUID)
 }
@@ -157,6 +163,10 @@ func (s *adminTerminateStubStore) ListTargetsByEventPage(context.Context, interf
 	panic("ListTargetsByEventPage not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) ListTargetSiteCoverageByEvent(context.Context, int64, uuid.UUID) (models.TargetSiteCoverage, error) {
+	s.targetSiteCoverageCalls++
+	if s.targetSiteCoverageErr != nil {
+		return models.TargetSiteCoverage{}, s.targetSiteCoverageErr
+	}
 	siteIDs := append([]int64(nil), s.targetSiteIDs...)
 	mappedTargetCount := int64(len(siteIDs))
 	targetCount := mappedTargetCount
@@ -179,7 +189,7 @@ func (s *adminTerminateStubStore) GetTargetRollupByEvent(context.Context, int64,
 func (s *adminTerminateStubStore) BeginRestoreTransition(context.Context, int64, uuid.UUID, interfaces.BeginRestoreTransitionParams) (*models.Event, error) {
 	panic("BeginRestoreTransition not exercised by AdminTerminate handler tests")
 }
-func (s *adminTerminateStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID) (*models.Event, error) {
+func (s *adminTerminateStubStore) BeginRecurtailTransition(context.Context, int64, uuid.UUID, interfaces.BeginRecurtailTransitionParams) (*models.Event, error) {
 	panic("BeginRecurtailTransition not exercised by AdminTerminate handler tests")
 }
 func (s *adminTerminateStubStore) GetHeartbeat(context.Context) (*models.Heartbeat, error) {
@@ -271,6 +281,42 @@ func TestHandler_AdminTerminateEvent_HappyPath(t *testing.T) {
 	assert.Equal(t, eventUUID, store.lastEventUUID)
 	assert.Equal(t, models.EventStateCancelled, store.lastTargetState)
 	assert.Equal(t, "operator escalation", store.lastReason)
+}
+
+func TestHandler_AdminTerminateEvent_DoesNotHydrateDisplayCoverageBeforeControl(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{
+		authEvent: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateActive,
+			ScopeType: models.ScopeTypeDeviceList,
+		},
+		result: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateCancelled,
+			ScopeType: models.ScopeTypeDeviceList,
+		},
+		targetSiteCoverageErr: assert.AnError,
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.AdminTerminateEvent(
+		adminTerminateSessionCtx(42, "ADMIN"),
+		connect.NewRequest(&pb.AdminTerminateEventRequest{
+			EventUuid:   eventUUID.String(),
+			TargetState: pb.CurtailmentEventState_CURTAILMENT_EVENT_STATE_CANCELLED,
+			Reason:      "operator escalation",
+		}),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, store.calls)
+	assert.Zero(t, store.targetSiteCoverageCalls)
 }
 
 func TestHandler_ForceReleaseCurtailmentOwnership_HappyPath(t *testing.T) {
@@ -377,6 +423,76 @@ func TestHandler_ForceReleaseCurtailmentOwnership_BypassesIncompleteTargetSiteCo
 
 	require.NoError(t, err)
 	assert.Equal(t, 1, store.forceReleaseCalls)
+}
+
+func TestHandler_ForceReleaseCurtailmentOwnership_DoesNotHydrateDisplayCoverageBeforeRecovery(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{
+		authEvent: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateActive,
+			ScopeType: models.ScopeTypeDeviceList,
+		},
+		result: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateCancelled,
+			ScopeType: models.ScopeTypeDeviceList,
+		},
+		targetSiteCoverageErr: assert.AnError,
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.ForceReleaseCurtailmentOwnership(
+		adminTerminateSessionCtx(42, "ADMIN"),
+		connect.NewRequest(&pb.ForceReleaseCurtailmentOwnershipRequest{
+			EventUuid: eventUUID.String(),
+			Reason:    "operator release",
+		}),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, store.forceReleaseCalls)
+	assert.Zero(t, store.targetSiteCoverageCalls)
+}
+
+func TestHandler_ForceReleaseCurtailmentOwnership_FailsClosedForMalformedPersistedEnvelope(t *testing.T) {
+	t.Parallel()
+	eventUUID := uuid.New()
+	store := &adminTerminateStubStore{
+		authEvent: &models.Event{
+			ID:                        99,
+			EventUUID:                 eventUUID,
+			OrgID:                     42,
+			State:                     models.EventStateActive,
+			AuthorizationEnvelopeJSON: []byte(`{"schema_version":`),
+		},
+		result: &models.Event{
+			ID:        99,
+			EventUUID: eventUUID,
+			OrgID:     42,
+			State:     models.EventStateCancelled,
+		},
+	}
+	h := NewHandler(domainCurtailment.NewService(store))
+
+	_, err := h.ForceReleaseCurtailmentOwnership(
+		adminTerminateSessionCtx(42, "ADMIN"),
+		connect.NewRequest(&pb.ForceReleaseCurtailmentOwnershipRequest{
+			EventUuid: eventUUID.String(),
+			Reason:    "operator release",
+		}),
+	)
+
+	require.Error(t, err)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	assert.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+	assert.Zero(t, store.forceReleaseCalls)
 }
 
 func TestHandler_ForceReleaseCurtailmentOwnership_RejectsSiteNarrowedKnownSite(t *testing.T) {
@@ -591,14 +707,21 @@ func TestHandler_ForceReleaseCurtailmentOwnership_RejectsWholeOrgWithFanWhenOrgG
 	assert.Equal(t, 0, store.forceReleaseCalls)
 }
 
-func TestHandler_ForceReleaseCurtailmentOwnership_RejectsSiteOnlyManage(t *testing.T) {
+func TestHandler_ForceReleaseCurtailmentOwnership_AllowsMatchingSiteOnlyManage(t *testing.T) {
 	t.Parallel()
 	const (
 		orgID  = int64(42)
 		siteID = int64(7)
 	)
 	eventUUID := uuid.New()
-	store := &adminTerminateStubStore{}
+	store := &adminTerminateStubStore{result: &models.Event{
+		ID:        99,
+		EventUUID: eventUUID,
+		OrgID:     orgID,
+		State:     models.EventStateCancelled,
+		ScopeType: models.ScopeTypeSite,
+		ScopeJSON: siteScopeJSON(t, siteID),
+	}}
 	h := NewHandler(domainCurtailment.NewService(store))
 	ctx := testSessionCtxWithAssignments(t, &session.Info{
 		AuthMethod:     session.AuthMethodSession,
@@ -612,11 +735,8 @@ func TestHandler_ForceReleaseCurtailmentOwnership_RejectsSiteOnlyManage(t *testi
 		Reason:    "operator release",
 	}))
 
-	require.Error(t, err)
-	var fleetErr fleeterror.FleetError
-	require.ErrorAs(t, err, &fleetErr)
-	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
-	assert.Equal(t, 0, store.forceReleaseCalls)
+	require.NoError(t, err)
+	assert.Equal(t, 1, store.forceReleaseCalls)
 }
 
 func TestHandler_ForceReleaseCurtailmentOwnership_RejectsNonAdmin(t *testing.T) {
@@ -849,7 +969,7 @@ func TestHandler_AdminTerminateEvent_UsesSiteScopedEventPermission(t *testing.T)
 	}{
 		{"org permission without site narrowing allows terminate", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage)}, 0, 1},
 		{"matching site narrowing allows terminate", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, 0, 1},
-		{"site-only permission denies terminate", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, connect.CodePermissionDenied, 0},
+		{"site-only permission allows matching terminate", []authz.Assignment{testSiteAssignment(allowedSite, authz.PermCurtailmentManage)}, 0, 1},
 		{"site narrowing without manage denies terminate", []authz.Assignment{testOrgAssignment(authz.PermCurtailmentManage), testSiteAssignment(allowedSite)}, connect.CodePermissionDenied, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
