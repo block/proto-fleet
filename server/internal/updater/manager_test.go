@@ -250,12 +250,15 @@ func TestManagerHAUpdateTouchesOnlyThePassiveApplication(t *testing.T) {
 	assert.Equal(t, "updater", mustReadFile(t, installedUpdater))
 	assert.Equal(t, "target HA substrate\n", mustReadFile(t, filepath.Join(installRoot, "deployment", "ha", "compose.yaml")))
 	commands := runner.Commands()
-	require.Len(t, commands, 5)
+	require.Len(t, commands, 6)
 	assert.Equal(t, []string{"update-preflight"}, commands[0].Args)
-	assert.Equal(t, []string{"require-passive", "/etc/proto-fleet/ha/node.env", "v1.1.0"}, commands[1].Args)
-	assert.Equal(t, []string{"app-stop", "passive"}, commands[2].Args)
-	assert.Equal(t, []string{"app-start", "v1.1.0", "passive"}, commands[3].Args)
-	for _, command := range commands[:4] {
+	assert.Equal(t, []string{"schema-check"}, commands[1].Args)
+	assert.Equal(t, commands[0].Dir, commands[1].Dir)
+	assert.Contains(t, commands[1].Dir, ".proto-fleet-upgrade-")
+	assert.Equal(t, []string{"require-passive", "/etc/proto-fleet/ha/node.env", "v1.1.0"}, commands[2].Args)
+	assert.Equal(t, []string{"app-stop", "passive"}, commands[3].Args)
+	assert.Equal(t, []string{"app-start", "v1.1.0", "passive"}, commands[4].Args)
+	for _, command := range commands[:5] {
 		assert.Contains(t, command.Name, filepath.Join("ha", "fleet-ha"))
 		assert.NotContains(t, strings.Join(command.Args, " "), "etcd")
 		assert.NotContains(t, strings.Join(command.Args, " "), "patroni")
@@ -293,28 +296,32 @@ func TestManagerHAUpdateKeepsForwardRecoveryWhenStartupFails(t *testing.T) {
 }
 
 func TestManagerHAPreflightFailureLeavesCurrentApplicationUntouched(t *testing.T) {
-	// Arrange
-	installRoot := t.TempDir()
-	writeCurrentDeployment(t, installRoot, "v1.0.0")
-	bundle := releaseBundle(t, "v1.1.0")
-	server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
-	runner := &haRecordingRunner{fail: map[string]error{"update-preflight": assert.AnError}}
-	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
-		cfg.DeploymentMode = DeploymentModeHA
-	})
+	for _, failedCommand := range []string{"update-preflight", "schema-check"} {
+		t.Run(failedCommand, func(t *testing.T) {
+			// Arrange
+			installRoot := t.TempDir()
+			writeCurrentDeployment(t, installRoot, "v1.0.0")
+			bundle := releaseBundle(t, "v1.1.0")
+			server := releaseServer(t, "v1.1.0", "amd64", bundle, "")
+			runner := &haRecordingRunner{fail: map[string]error{failedCommand: assert.AnError}}
+			manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+				cfg.DeploymentMode = DeploymentModeHA
+			})
 
-	// Act
-	_, err := manager.TriggerWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
-	require.NoError(t, err)
-	completed := waitForTerminal(t, manager)
+			// Act
+			_, err := manager.TriggerWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+			require.NoError(t, err)
+			completed := waitForTerminal(t, manager)
 
-	// Assert
-	require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
-	assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
-	for _, command := range runner.Commands() {
-		if len(command.Args) > 0 {
-			assert.NotEqual(t, "app-stop", command.Args[0])
-		}
+			// Assert
+			require.Equal(t, updaterapi.PhaseFailed, completed.Phase)
+			assert.Equal(t, "v1.0.0", mustReadVersion(t, filepath.Join(installRoot, "deployment", "version.txt")))
+			for _, command := range runner.Commands() {
+				if len(command.Args) > 0 {
+					assert.NotEqual(t, "app-stop", command.Args[0])
+				}
+			}
+		})
 	}
 }
 
@@ -446,12 +453,13 @@ func TestManagerHACompletionWaitsForUpdatedPeerBeforeSwap(t *testing.T) {
 	require.Equal(t, updaterapi.PhaseSucceeded, completed.Phase, completed.Error)
 	require.True(t, completed.Complete)
 	commands := runner.Commands()
-	require.Len(t, commands, 5)
+	require.Len(t, commands, 6)
 	assert.Equal(t, []string{"update-preflight"}, commands[0].Args)
-	assert.Equal(t, []string{"require-active", "/etc/proto-fleet/ha/node.env", "v1.1.0"}, commands[1].Args)
-	assert.Equal(t, []string{"app-stop", "active"}, commands[2].Args)
-	assert.Equal(t, []string{"wait-takeover", "v1.1.0"}, commands[3].Args)
-	assert.Equal(t, []string{"app-start", "v1.1.0", "complete"}, commands[4].Args)
+	assert.Equal(t, []string{"schema-check"}, commands[1].Args)
+	assert.Equal(t, []string{"require-active", "/etc/proto-fleet/ha/node.env", "v1.1.0"}, commands[2].Args)
+	assert.Equal(t, []string{"app-stop", "active"}, commands[3].Args)
+	assert.Equal(t, []string{"wait-takeover", "v1.1.0"}, commands[4].Args)
+	assert.Equal(t, []string{"app-start", "v1.1.0", "complete"}, commands[5].Args)
 
 	_, err = manager.TriggerWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
 	require.ErrorContains(t, err, "operation id is already associated with another update")

@@ -114,6 +114,24 @@ This option works with standalone and `--ha` installs. It controls bootstrap
 scratch only, not the permanent installation directory or runtime updater state.
 Omitting it retains the `/tmp` default; `TMPDIR` does not select this location.
 
+## Database admission and retained artifacts
+
+Existing databases require [explicit reconciliation](../docs/development/migrations.md#existing-databases)
+before switching histories or repositories. Standalone replacement checks startup
+admission before replacing containers; ordinary pending migrations run at startup.
+HA replacement/recovery requires the exact target schema. Deployment failure does
+not undo database changes.
+
+Standalone firmware, command artifacts and logs live in `artifacts/` beside
+`deployment/`, outside updater tree swaps. The first replacement stops the old API
+container, copies `/app` to a private temporary directory, and retains only those
+three artifact directories.
+Configuration and auth keys keep their existing preservation paths; HA retains
+its `HA_DATA_DIR/artifacts` mounts.
+
+Copy failure stops replacement and retains the old container. Identical copies
+allow retry; conflicting files, symlinks or unexpected mounts require review.
+
 ## Release repositories and forks
 
 Proto Fleet supports public releases on GitHub.com under a validated
@@ -193,8 +211,8 @@ Repository selection does **not** implement private-repository authentication.
 Release discovery and updater downloads currently make unauthenticated requests;
 Fleet Node also disables implicit curl configuration. CI credentials are used
 only by publishing jobs and are never embedded in artifacts. A private fork
-needs a separately designed and tested authentication flow. Custom internal
-prerelease channels (including `-internal.N`) remain outside this feature.
+needs a separately designed and tested authentication flow. Custom
+prerelease channels remain outside this feature.
 
 ## Resetting the SUPER_ADMIN password
 

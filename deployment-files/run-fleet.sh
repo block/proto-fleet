@@ -489,6 +489,7 @@ validate_runner_env_values() {
         ENABLE_TRACING
         ENABLE_ONE_CLICK_UPDATES
         FLEET_PROFILE
+        DB_DSN
         DB_USERNAME
         DB_PASSWORD
         DB_NAME
@@ -2579,6 +2580,47 @@ else
     echo "Skipping image preparation; this release already passed updater preflight."
 fi
 
+# ----------------------------------------------------------------------------
+# Service Management
+# ----------------------------------------------------------------------------
+
+# Check admission before preflight succeeds or artifact preservation stops the
+# old API. This performs no migrations; legacy histories and repository switches
+# require offline reconciliation first.
+existing_api=$(compose ps -a -q fleet-api) || {
+    echo "Error: could not inspect the existing Fleet container." >&2
+    exit 1
+}
+if [ -n "$existing_api" ]; then
+    if [[ "$existing_api" == *$'\n'* ]]; then
+        echo "Error: multiple Fleet API containers require operator review." >&2
+        exit 1
+    fi
+    if ! env_has_nonempty_value DB_DSN; then
+        # A stopped installation still has containers. Start only its retained
+        # database, without recreating it using the target release's image.
+        existing_db=$(compose ps -a -q timescaledb) || {
+            echo "Error: could not inspect the existing database container." >&2
+            exit 1
+        }
+        if [ -z "$existing_db" ] || [[ "$existing_db" == *$'\n'* ]]; then
+            echo "Error: expected one retained database container; operator review is required." >&2
+            exit 1
+        fi
+        if ! docker start "$existing_db" >/dev/null || ! wait_for_psql_true "SELECT true"; then
+            echo "Error: the retained database did not become ready; existing containers were not removed." >&2
+            exit 1
+        fi
+    fi
+    # Avoid creating the artifact bind paths before preservation has adopted them.
+    if ! compose run --rm --no-deps \
+        -v /app/firmware -v /app/command-artifacts -v /app/logs \
+        --entrypoint /app/fleet-db-transition fleet-api check --state startup; then
+        echo "Error: database is not ready for this release; complete offline reconciliation before retrying. Existing containers were not removed." >&2
+        exit 1
+    fi
+fi
+
 if [ "$PREFLIGHT_ONLY" = "true" ]; then
     if ! record_preflight_marker "$PREFLIGHT_FINGERPRINT"; then
         echo "Error: could not record successful preflight at $PREFLIGHT_MARKER." >&2
@@ -2588,9 +2630,12 @@ if [ "$PREFLIGHT_ONLY" = "true" ]; then
     exit 0
 fi
 
-# ----------------------------------------------------------------------------
-# Service Management
-# ----------------------------------------------------------------------------
+if [ -n "$existing_api" ]; then
+    if ! "$PROJECT_ROOT/scripts/preserve-local-artifacts.sh" "$existing_api" "$PROJECT_ROOT/../artifacts"; then
+        echo "Error: local artifacts could not be preserved; the old container was not removed." >&2
+        exit 1
+    fi
+fi
 
 echo "Stopping any running services..."
 capture_previous_release_image_tags
@@ -2885,7 +2930,7 @@ provision_grafana_service_account_token() {
     token_name="fleet-api-$(date +%Y%m%d%H%M%S)"
 
     for attempt in $(seq 1 30); do
-        if curl -fsS --max-time 5 -u "admin:${admin_pass}" "${grafana_url}/api/user" >/dev/null 2>&1; then
+        if curl -fsS --max-time 5 -u "admin:${admin_pass}" "${grafana_url}/api/user" >/dev/null 2>&1; then # sadscan:disable kingfisher.curl.1 -- runtime variable, no embedded credential
             break
         fi
         if [ "$attempt" -eq 30 ]; then

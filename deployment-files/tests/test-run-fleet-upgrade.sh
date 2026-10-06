@@ -130,6 +130,7 @@ make_stage() {
     cp "$DEPLOY_DIR/run-fleet.sh" "$STAGE/"
     cp "$DEPLOY_DIR/scripts/compose-project.sh" "$STAGE/scripts/"
     cp "$DEPLOY_DIR/scripts/docker-daemon.sh" "$STAGE/scripts/"
+    cp "$DEPLOY_DIR/scripts/preserve-local-artifacts.sh" "$STAGE/scripts/"
     "$REAL_AWK" -v env_path="$HARNESS_UPDATER_ENV_FILE" '
         /^HOST_UPDATER_ENV_PATH=/ {
             printf "HOST_UPDATER_ENV_PATH=\"%s\"\n", env_path
@@ -228,6 +229,33 @@ if [ "${1:-}" = "image" ] && [ "${2:-}" = "rm" ]; then
 fi
 
 case " $* " in
+    " start old-db ")
+        [ "${FAKE_DB_START_FAILURE:-false}" != true ] || exit 1
+        touch "$STAGE_ROOT/db-started"
+        ;;
+    " cp old-api:/app/. "*)
+        mkdir -p "$3/firmware"
+        printf 'retained firmware\n' > "$3/firmware/image.bin"
+        ;;
+    *" compose "*" ps -a -q fleet-api "*)
+        printf '%s' "${FAKE_API_CONTAINER:-}"
+        ;;
+    *" compose "*" ps -a -q timescaledb "*)
+        printf '%s' "${FAKE_DB_CONTAINER:-}"
+        ;;
+    *" compose "*" fleet-api check --state startup "*)
+        # Compose creates host bind paths even when the command does not use them.
+        for name in firmware command-artifacts logs; do
+            case " $* " in
+                *" -v /app/$name "*) ;;
+                *) mkdir -p "$STAGE_ROOT/../artifacts/$name" ;;
+            esac
+        done
+        if [ "${FAKE_DB_STOPPED:-false}" = true ]; then
+            [ -f "$STAGE_ROOT/db-started" ] || exit 1
+        fi
+        [ "${FAKE_SCHEMA_REFUSAL:-false}" != true ]
+        ;;
     *" compose up --help "*)
         echo 'Options: --wait --wait-timeout --no-build --pull string'
         ;;
@@ -284,6 +312,10 @@ case " $* " in
         [ "${FAKE_ACTIVATION_FAILURE:-false}" != "true" ]
         ;;
     *" compose "*" exec "*)
+        [ "${FAKE_DB_NOT_READY:-false}" != true ] || exit 1
+        if [ "${FAKE_DB_STOPPED:-false}" = true ]; then
+            [ -f "$STAGE_ROOT/db-started" ] || exit 1
+        fi
         echo 't'
         ;;
     *" volume ls -q "*)
@@ -2286,6 +2318,90 @@ else
 fi
 assert_contains "startup marker directory race reports proof failure" "$HARNESS_OUTPUT_LOG" \
     "could not record the successful startup"
+
+# Both preflight and direct activation must refuse before preservation stops the API.
+for mode in activation preflight; do
+    make_stage "schema-admission-refused-$mode"
+    args=(--non-interactive)
+    [ "$mode" != preflight ] || args+=(--preflight-only)
+    if FAKE_API_CONTAINER=old-api FAKE_DB_CONTAINER=old-db FAKE_SCHEMA_REFUSAL=true \
+        run_stage "$STAGE" "${args[@]}"; then
+        fail "$mode must reject an unsupported schema"
+    else
+        pass "$mode rejects an unsupported schema"
+    fi
+    assert_contains "$mode checks startup admission" "$HARNESS_CALL_LOG" "fleet-api check --state startup"
+    assert_not_contains "$mode refusal leaves the API running" "$HARNESS_CALL_LOG" "docker stop old-api"
+    assert_not_contains "$mode refusal does not copy artifacts" "$HARNESS_CALL_LOG" "docker cp old-api:"
+    assert_not_contains "$mode refusal does not remove containers" "$HARNESS_CALL_LOG" " down --remove-orphans"
+    if [ -e "$STAGE/.update-preflight-complete" ]; then
+        fail "$mode refusal must not record successful preflight"
+    fi
+done
+
+# Restart an adopted installation from retained, stopped containers. Exercise the
+# real preservation script, including its stop and artifact copy, after admission.
+make_stage retained-database-restart
+if FAKE_API_CONTAINER=old-api FAKE_DB_CONTAINER=old-db FAKE_DB_STOPPED=true \
+    run_stage "$STAGE" --non-interactive; then
+    pass "a stopped installation passes admission and starts"
+else
+    fail "a stopped installation should start its retained database before admission"
+fi
+if awk '
+    /docker start old-db/ { started = 1 }
+    /fleet-api check --state startup/ { if (started) admitted = 1 }
+    /docker stop old-api/ { if (admitted) preserved = 1 }
+    / down --remove-orphans/ { if (preserved) replaced = 1 }
+    END { exit !replaced }
+' "$HARNESS_CALL_LOG"; then
+    pass "database startup and admission precede API stop and replacement"
+else
+    fail "database startup, admission, preservation, and replacement must run in order"
+fi
+assert_contains "legacy firmware survives replacement" "$TMP_DIR/artifacts/firmware/image.bin" "retained firmware"
+assert_contains "restart activates the release" "$HARNESS_CALL_LOG" " up --remove-orphans"
+
+for failure in start readiness; do
+    make_stage "retained-database-$failure-failure"
+    if FAKE_API_CONTAINER=old-api FAKE_DB_CONTAINER=old-db \
+        FAKE_DB_START_FAILURE="$([ "$failure" = start ] && echo true)" \
+        FAKE_DB_NOT_READY="$([ "$failure" = readiness ] && echo true)" \
+        FLEET_API_READY_ATTEMPTS=1 run_stage "$STAGE" --non-interactive; then
+        fail "database $failure failure must stop replacement"
+    else
+        pass "database $failure failure stops replacement"
+    fi
+    assert_not_contains "$failure failure leaves the API running" "$HARNESS_CALL_LOG" "docker stop old-api"
+    assert_not_contains "$failure failure skips admission" "$HARNESS_CALL_LOG" "fleet-api check --state startup"
+    assert_not_contains "$failure failure retains containers" "$HARNESS_CALL_LOG" " down --remove-orphans"
+done
+
+# External databases are checked without starting the bundled database. A
+# successful preflight must still leave artifact preservation to activation.
+make_stage external-database-preflight
+printf 'DB_DSN=postgres://external-db/fleet\n' >> "$STAGE/.env"
+if FAKE_API_CONTAINER=old-api FAKE_DB_CONTAINER=old-db \
+    run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "external database preflight succeeds"
+else
+    fail "external database preflight should succeed"
+fi
+assert_contains "external database receives admission check" "$HARNESS_CALL_LOG" "fleet-api check --state startup"
+assert_not_contains "external database does not start bundled database" "$HARNESS_CALL_LOG" "docker start old-db"
+assert_not_contains "successful preflight leaves the API running" "$HARNESS_CALL_LOG" "docker stop old-api"
+if [ ! -f "$STAGE/.update-preflight-complete" ]; then
+    fail "successful admission should record preflight"
+fi
+if FAKE_API_CONTAINER=old-api FAKE_SCHEMA_REFUSAL=true \
+    run_stage "$STAGE" --non-interactive --skip-build; then
+    fail "activation must recheck admission after successful preflight"
+else
+    pass "activation rechecks admission after successful preflight"
+fi
+assert_contains "activation refusal comes from schema admission" "$HARNESS_OUTPUT_LOG" "database is not ready for this release"
+assert_not_contains "changed schema leaves the API running" "$HARNESS_CALL_LOG" "docker stop old-api"
+assert_not_contains "changed schema prevents replacement" "$HARNESS_CALL_LOG" " down --remove-orphans"
 
 if [ "$FAILURES" -ne 0 ]; then
     while IFS= read -r -d '' output; do

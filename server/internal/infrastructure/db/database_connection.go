@@ -6,8 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -116,13 +119,142 @@ func ConnectAndMigrate(config *Config) (*sql.DB, error) {
 
 	slog.Info("connected to database", "target", config.ConnectionTarget(), "database", config.Name)
 
-	err = runMigrationsWithCompatibilityBridges(connection, config)
+	err = runCurrentMigrations(context.Background(), connection, migrations.Current)
 	if err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
 
 	success = true
 	return connection, nil
+}
+
+// migrationCheckpoints derives provenance from the immutable migration filenames,
+// not a second schema-version history. Public releases end at a shared version;
+// internal releases must end at a private version (a no-op checkpoint is enough).
+func migrationCheckpoints(files fs.FS) (map[int]bool, int, error) {
+	paths, err := fs.Glob(files, "current/*.up.sql")
+	if err != nil || len(paths) == 0 {
+		return nil, 0, fmt.Errorf("current migration source is missing: %v", err)
+	}
+	checkpoints := make(map[int]bool, len(paths))
+	latest, internal := 0, false
+	for _, path := range paths {
+		parts := strings.SplitN(strings.TrimPrefix(path, "current/"), "_", 3)
+		version, err := strconv.Atoi(parts[0])
+		if err != nil || len(parts) != 3 || version < 1000 || (parts[1] != "shared" && parts[1] != "internal") {
+			return nil, 0, fmt.Errorf("invalid current migration: %s", path)
+		}
+		if _, duplicate := checkpoints[version]; duplicate {
+			return nil, 0, fmt.Errorf("duplicate current migration: %d", version)
+		}
+		private := parts[1] == "internal"
+		checkpoints[version], internal = private, internal || private
+		latest = max(latest, version)
+	}
+	if internal && !checkpoints[latest] {
+		return nil, 0, fmt.Errorf("internal releases must end at a private checkpoint")
+	}
+	if !internal {
+		for version := range checkpoints {
+			checkpoints[version] = true
+		}
+	}
+	return checkpoints, latest, nil
+}
+
+// Migration SQL and its completed checkpoint commit together. Stopping between
+// files rolls back to the previous checkpoint, which the normal runner can retry.
+// The stock driver still creates/reads the version table and owns the advisory lock.
+type checkpointDriver struct {
+	migratedatabase.Driver
+	checkpoints map[int]bool
+	conn        *sql.Conn
+	ctx         context.Context //nolint:containedctx // The migration driver API has no context parameters; preserve cancellation for this run.
+	tx          *sql.Tx
+}
+
+func (d *checkpointDriver) SetVersion(version int, dirty bool) error {
+	if dirty {
+		if d.tx == nil {
+			//nolint:forbidigo // Migration DDL and its checkpoint must commit atomically.
+			tx, err := d.conn.BeginTx(d.ctx, nil)
+			if err != nil {
+				return fmt.Errorf("begin migration checkpoint: %w", err)
+			}
+			d.tx = tx
+		}
+		return nil
+	}
+	if !d.checkpoints[version] {
+		return nil
+	}
+	if _, err := d.tx.ExecContext(d.ctx, `DELETE FROM public.schema_migrations`); err != nil {
+		return fmt.Errorf("replace migration checkpoint: %w", err)
+	}
+	if _, err := d.tx.ExecContext(d.ctx, `INSERT INTO public.schema_migrations(version,dirty) VALUES ($1,false)`, version); err != nil {
+		return fmt.Errorf("record migration checkpoint: %w", err)
+	}
+	if err := d.tx.Commit(); err != nil {
+		return fmt.Errorf("checkpoint commit acknowledgement failed; reconnect and check before retrying: %w", err)
+	}
+	d.tx = nil
+	return nil
+}
+
+func (d *checkpointDriver) Run(migration io.Reader) error {
+	body, err := io.ReadAll(migration)
+	if err != nil {
+		return fmt.Errorf("read checkpoint migration: %w", err)
+	}
+	if _, err := d.tx.ExecContext(d.ctx, string(body)); err != nil {
+		return fmt.Errorf("run checkpoint migration: %w", err)
+	}
+	return nil
+}
+
+func (d *checkpointDriver) Unlock() error {
+	if d.tx != nil {
+		// Also covers a graceful stop between files and failed SQL. Roll back
+		// before the stock driver queries PostgreSQL to release its lock.
+		_ = d.tx.Rollback()
+		d.tx = nil
+	}
+	if err := d.Driver.Unlock(); err != nil {
+		return fmt.Errorf("unlock migration checkpoint: %w", err)
+	}
+	return nil
+}
+
+func runCurrentMigrations(ctx context.Context, pool *sql.DB, files fs.FS) error {
+	checkpoints, latest, err := migrationCheckpoints(files)
+	if err != nil {
+		return err
+	}
+	return withBaselineLock(ctx, pool, func(conn *sql.Conn) error {
+		if _, err := checkBaselineStartup(ctx, conn, files); err != nil {
+			return err
+		}
+		source, err := iofs.New(files, "current")
+		if err != nil {
+			return fmt.Errorf("open current migrations: %w", err)
+		}
+		driver, err := postgres.WithConnection(ctx, conn, &postgres.Config{})
+		if err != nil {
+			return fmt.Errorf("initialize PostgreSQL migrator: %w", err)
+		}
+		m, err := migrate.NewWithInstance("current", source, "", &checkpointDriver{Driver: driver, checkpoints: checkpoints, conn: conn, ctx: ctx})
+		if err != nil {
+			return fmt.Errorf("initialize current migrations: %w", err)
+		}
+		if err = runMigrations(m); err != nil {
+			return err
+		}
+		status, err := checkBaselineStartup(ctx, conn, files)
+		if err == nil && status.Version != latest {
+			return fmt.Errorf("migration stopped before release checkpoint %d", latest)
+		}
+		return err
+	})
 }
 
 // runMigrationsWithCompatibilityBridges runs immutable migrations around the

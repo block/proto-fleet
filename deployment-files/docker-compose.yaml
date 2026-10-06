@@ -45,6 +45,11 @@ services:
       # Deployment-controlled half of the dual Modbus dial allowlist.
       # Empty keeps all infrastructure writes disabled.
       INFRASTRUCTURE_OT_CONTROL_SUBNETS: "${INFRASTRUCTURE_OT_CONTROL_SUBNETS:-}"
+    volumes:
+      # Sibling of deployment: retained across installer and updater tree swaps.
+      - ../artifacts/firmware:/app/firmware
+      - ../artifacts/command-artifacts:/app/command-artifacts
+      - ../artifacts/logs:/app/logs
     depends_on:
       timescaledb:
         condition: service_healthy

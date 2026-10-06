@@ -157,12 +157,16 @@ Codex users can run the same shared skill with `$pr-describe`.
 
 ### Making Database Schema Changes
 
-1. Create a migration: `cd server && just db-migration-new <name>`
-2. Write both up and down migrations in `server/migrations/`
+1. Coordinate schema changes and final migration numbers with maintainers.
+   Create a migration with `cd server && just db-migration-new shared_<name>`.
+2. Write both up and down migrations in `server/migrations/current/`.
+   Follow the [migration policy](docs/development/migrations.md) for numbering,
+   immutable history and existing-database upgrades.
 3. Update queries in `server/sqlc/queries/` if needed
 4. Run `just gen-db-queries` from the repo root to regenerate sqlc bindings
    (see [Code Generation](#code-generation) for command selection)
-5. **Never modify existing migrations after they have been deployed**
+5. **Never modify, delete or renumber migrations merged to main or released.**
+   Corrections use a new migration pair.
 
 ### Adding Features to the Client
 

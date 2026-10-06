@@ -167,6 +167,27 @@ func prepareApplicationUpdate(ctx context.Context, root string, profile fleetApp
 	return recordActiveInstall(ctx, deps)
 }
 
+// CheckApplicationSchema admits a staged release before a rolling update stops Fleet.
+// Maintenance staging remains separate so it can precede offline reconciliation.
+func CheckApplicationSchema(ctx context.Context, root string) error {
+	profile, err := loadUpdateCompatibleProfile(installedFleetEnvironment)
+	if err != nil {
+		return err
+	}
+	return checkApplicationSchema(ctx, root, profile, RunCompose)
+}
+
+// Rolling updates and their recovery must never perform a schema transition.
+// This read-only check also rejects equal version numbers from another schema.
+func checkApplicationSchema(ctx context.Context, root string, profile fleetApplicationProfile, runCompose func(context.Context, []string) error) error {
+	args := fleetComposeArgsAtProfile(root, installedFleetEnvironment, profile, "run",
+		"--rm", "--no-deps", "--entrypoint", "/app/fleet-db-transition", "fleet-api", "check", "--state", "target")
+	if err := runCompose(ctx, args); err != nil {
+		return fmt.Errorf("HA application schema is not ready; use the offline database transition procedure before updating: %w", err)
+	}
+	return nil
+}
+
 // StopApplication rechecks the expected role, then stops the HA application containers.
 func StopApplication(ctx context.Context, root string, expectedRole ha.RuntimeRole) error {
 	var err error
@@ -209,6 +230,13 @@ func updatedPassivePeerReady(status fleetHostStatus, targetVersion string) bool 
 
 // StartApplication starts the target release and proves it serves its observed HA role.
 func StartApplication(ctx context.Context, root, targetVersion string, requirePassive, requireFailoverReady bool) error {
+	profile, err := loadUpdateCompatibleProfile(installedFleetEnvironment)
+	if err != nil {
+		return err
+	}
+	if err := checkApplicationSchema(ctx, root, profile, RunCompose); err != nil {
+		return err
+	}
 	config, err := loadNodeConfig(filepath.Join(configRoot, "node.env"))
 	if err != nil {
 		return err
