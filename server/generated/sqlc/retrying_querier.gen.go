@@ -54,6 +54,12 @@ func (q *retryingQuerier) AddDevicesToDeviceSet(ctx context.Context, arg AddDevi
 	return result, err
 }
 
+func (q *retryingQuerier) AddHostedAccountKeyDescendant(ctx context.Context, arg AddHostedAccountKeyDescendantParams) error {
+	return q.retrier.RetryQuery(ctx, "AddHostedAccountKeyDescendant", func() error {
+		return q.next.AddHostedAccountKeyDescendant(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) AddHostedAccountSite(ctx context.Context, arg AddHostedAccountSiteParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "AddHostedAccountSite", func() error {
@@ -292,6 +298,12 @@ func (q *retryingQuerier) BindEnrollmentToFleetNode(ctx context.Context, arg Bin
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) BindHostedAccountKey(ctx context.Context, arg BindHostedAccountKeyParams) error {
+	return q.retrier.RetryQuery(ctx, "BindHostedAccountKey", func() error {
+		return q.next.BindHostedAccountKey(ctx, arg)
+	})
 }
 
 func (q *retryingQuerier) BuildingBelongsToOrg(ctx context.Context, arg BuildingBelongsToOrgParams) (bool, error) {
@@ -3174,6 +3186,30 @@ func (q *retryingQuerier) GetHostedAccountInvitationByHash(ctx context.Context, 
 	return result, err
 }
 
+func (q *retryingQuerier) GetHostedAccountKeyAuthority(ctx context.Context, arg GetHostedAccountKeyAuthorityParams) (GetHostedAccountKeyAuthorityRow, error) {
+	var result GetHostedAccountKeyAuthorityRow
+	err := q.retrier.RetryQuery(ctx, "GetHostedAccountKeyAuthority", func() error {
+		callResult, callErr := q.next.GetHostedAccountKeyAuthority(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetHostedAccountKeyOwner(ctx context.Context, arg GetHostedAccountKeyOwnerParams) (sql.NullInt64, error) {
+	var result sql.NullInt64
+	err := q.retrier.RetryQuery(ctx, "GetHostedAccountKeyOwner", func() error {
+		callResult, callErr := q.next.GetHostedAccountKeyOwner(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetHostedAccountMembership(ctx context.Context, arg GetHostedAccountMembershipParams) (HostedAccountMembership, error) {
 	var result HostedAccountMembership
 	err := q.retrier.RetryQuery(ctx, "GetHostedAccountMembership", func() error {
@@ -5304,6 +5340,18 @@ func (q *retryingQuerier) ListHostedAccountInvitations(ctx context.Context, arg 
 	return result, err
 }
 
+func (q *retryingQuerier) ListHostedAccountKeys(ctx context.Context, arg ListHostedAccountKeysParams) ([]ListHostedAccountKeysRow, error) {
+	var result []ListHostedAccountKeysRow
+	err := q.retrier.RetryQuery(ctx, "ListHostedAccountKeys", func() error {
+		callResult, callErr := q.next.ListHostedAccountKeys(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListHostedAccountMembers(ctx context.Context, arg ListHostedAccountMembersParams) ([]ListHostedAccountMembersRow, error) {
 	var result []ListHostedAccountMembersRow
 	err := q.retrier.RetryQuery(ctx, "ListHostedAccountMembers", func() error {
@@ -7120,6 +7168,18 @@ func (q *retryingQuerier) RevokeHostedAccountInvitation(ctx context.Context, arg
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "RevokeHostedAccountInvitation", func() error {
 		callResult, callErr := q.next.RevokeHostedAccountInvitation(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) RevokeHostedAccountKey(ctx context.Context, arg RevokeHostedAccountKeyParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "RevokeHostedAccountKey", func() error {
+		callResult, callErr := q.next.RevokeHostedAccountKey(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

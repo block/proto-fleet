@@ -20,14 +20,15 @@ import (
 type Handler struct {
 	accounts    *domain.Service
 	invitations *domain.InvitationService
+	keys        *domain.KeyService
 	users       interfaces.UserStore
 	permissions *authz.PermissionResolver
 }
 
 var _ hostedv1connect.HostedAccountServiceHandler = (*Handler)(nil)
 
-func NewHandler(accounts *domain.Service, invitations *domain.InvitationService, users interfaces.UserStore, permissions *authz.PermissionResolver) *Handler {
-	return &Handler{accounts: accounts, invitations: invitations, users: users, permissions: permissions}
+func NewHandler(accounts *domain.Service, invitations *domain.InvitationService, keys *domain.KeyService, users interfaces.UserStore, permissions *authz.PermissionResolver) *Handler {
+	return &Handler{accounts: accounts, invitations: invitations, keys: keys, users: users, permissions: permissions}
 }
 
 func principal(ctx context.Context, accountID string) (*session.Info, error) {
@@ -35,6 +36,19 @@ func principal(ctx context.Context, accountID string) (*session.Info, error) {
 		return nil, err
 	}
 	return sessionPrincipal(ctx)
+}
+func readPrincipal(ctx context.Context, accountID string) (*session.Info, error) {
+	if err := domain.RequireRequestAccount(ctx, accountID); err != nil {
+		return nil, err
+	}
+	info, err := session.GetInfo(ctx)
+	if err != nil || info.UserID <= 0 || info.OrganizationID <= 0 {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	if info.AuthMethod == session.AuthMethodAPIKey && !info.AccountKey {
+		return nil, fleeterror.NewForbiddenError("organization keys cannot access customer accounts")
+	}
+	return info, nil
 }
 func sessionPrincipal(ctx context.Context) (*session.Info, error) {
 	info, err := session.GetInfo(ctx)
@@ -67,7 +81,7 @@ func (h *Handler) ListAccounts(ctx context.Context, _ *connect.Request[pb.ListAc
 	return connect.NewResponse(response), nil
 }
 func (h *Handler) GetAccount(ctx context.Context, req *connect.Request[pb.GetAccountRequest]) (*connect.Response[pb.GetAccountResponse], error) {
-	info, err := principal(ctx, req.Msg.AccountId)
+	info, err := readPrincipal(ctx, req.Msg.AccountId)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +265,7 @@ func (h *Handler) SetSitePolicy(ctx context.Context, req *connect.Request[pb.Set
 	return connect.NewResponse(&pb.SetSitePolicyResponse{}), nil
 }
 func (h *Handler) GetSitePolicy(ctx context.Context, req *connect.Request[pb.GetSitePolicyRequest]) (*connect.Response[pb.GetSitePolicyResponse], error) {
-	info, err := principal(ctx, req.Msg.AccountId)
+	info, err := readPrincipal(ctx, req.Msg.AccountId)
 	if err != nil {
 		return nil, err
 	}
@@ -403,4 +417,63 @@ func capabilitiesDomain(value uint64) (domain.Capabilities, error) {
 		return 0, fleeterror.NewInvalidArgumentError("invalid account capabilities")
 	}
 	return domain.Capabilities(value), nil
+}
+
+func (h *Handler) CreateAccountKey(ctx context.Context, req *connect.Request[pb.CreateAccountKeyRequest]) (*connect.Response[pb.CreateAccountKeyResponse], error) {
+	info, err := principal(ctx, req.Msg.AccountId)
+	if err != nil {
+		return nil, err
+	}
+	capabilities, err := capabilitiesDomain(req.Msg.Capabilities)
+	if err != nil {
+		return nil, err
+	}
+	options := domain.KeyOptions{Name: req.Msg.Name, Capabilities: capabilities, DescendantAccountIDs: req.Msg.DescendantAccountIds, IncludeFutureDescendants: req.Msg.IncludeFutureDescendants}
+	if req.Msg.ExpiresAt != nil {
+		if req.Msg.ExpiresAt.CheckValid() != nil {
+			return nil, fleeterror.NewInvalidArgumentError("invalid key expiration")
+		}
+		expiry := req.Msg.ExpiresAt.AsTime()
+		options.ExpiresAt = &expiry
+	}
+	issued, err := h.keys.Create(ctx, info.UserID, info.OrganizationID, req.Msg.AccountId, options)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.CreateAccountKeyResponse{Key: keyDTO(issued.Key), Secret: issued.Secret}), nil
+}
+func (h *Handler) ListAccountKeys(ctx context.Context, req *connect.Request[pb.ListAccountKeysRequest]) (*connect.Response[pb.ListAccountKeysResponse], error) {
+	info, err := principal(ctx, req.Msg.AccountId)
+	if err != nil {
+		return nil, err
+	}
+	keys, err := h.keys.List(ctx, info.UserID, info.OrganizationID, req.Msg.AccountId)
+	if err != nil {
+		return nil, err
+	}
+	response := &pb.ListAccountKeysResponse{}
+	for _, key := range keys {
+		response.Keys = append(response.Keys, keyDTO(key))
+	}
+	return connect.NewResponse(response), nil
+}
+func (h *Handler) RevokeAccountKey(ctx context.Context, req *connect.Request[pb.RevokeAccountKeyRequest]) (*connect.Response[pb.RevokeAccountKeyResponse], error) {
+	info, err := principal(ctx, req.Msg.AccountId)
+	if err != nil {
+		return nil, err
+	}
+	if err = h.keys.Revoke(ctx, info.UserID, info.OrganizationID, req.Msg.AccountId, req.Msg.KeyId); err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.RevokeAccountKeyResponse{}), nil
+}
+func keyDTO(key domain.AccountKey) *pb.AccountKey {
+	result := &pb.AccountKey{KeyId: key.KeyID, Name: key.Name, Prefix: key.Prefix, Capabilities: uint64(key.Capabilities), DescendantAccountIds: key.DescendantAccountIds, IncludeFutureDescendants: key.IncludeFutureDescendants, CreatedAt: timestamppb.New(key.CreatedAt), IssuerUserId: key.IssuerUserID, IssuerUsername: key.IssuerUsername} // #nosec G115 -- stored account-key capability masks are constrained to 1..7.
+	if key.ExpiresAt.Valid {
+		result.ExpiresAt = timestamppb.New(key.ExpiresAt.Time)
+	}
+	if key.LastUsedAt.Valid {
+		result.LastUsedAt = timestamppb.New(key.LastUsedAt.Time)
+	}
+	return result
 }

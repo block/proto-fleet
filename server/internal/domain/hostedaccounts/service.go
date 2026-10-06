@@ -90,6 +90,12 @@ func resolve(ctx context.Context, q sqlc.Querier, userID, orgID int64, accountID
 	}
 	role := Role(row.Role)
 	capabilities := Capabilities(row.Capabilities)
+	if scope, ok := ctx.Value(machineScopeKey{}).(machineScope); ok {
+		if scope.accountID != row.AccountID {
+			return Access{}, denied()
+		}
+		capabilities &= scope.capabilities
+	}
 	if capabilities&View == 0 {
 		return Access{}, denied()
 	}

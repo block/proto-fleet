@@ -57,7 +57,7 @@ func (s *Service) Create(ctx context.Context, userID, orgID int64, externalUserI
 
 	var lastErr error
 	for attempt := range maxCreateRetries {
-		fullKey, apiKey, err := s.tryCreate(ctx, userID, orgID, name, expiresAt)
+		fullKey, apiKey, err := s.tryCreate(ctx, userID, orgID, name, expiresAt, interfaces.ApiKeySubjectKindUser)
 		if err == nil {
 			apiKey.CreatedByUsername = username
 			s.logActivity(ctx, activitymodels.Event{
@@ -84,7 +84,26 @@ func (s *Service) Create(ctx context.Context, userID, orgID int64, externalUserI
 	)
 }
 
-func (s *Service) tryCreate(ctx context.Context, userID, orgID int64, name string, expiresAt *time.Time) (string, *interfaces.ApiKey, error) {
+// CreateAccount is called inside the account service transaction, which binds the
+// credential and writes its account audit atomically. It never emits host activity.
+func (s *Service) CreateAccount(ctx context.Context, userID, orgID int64, name string, expiresAt *time.Time) (string, *interfaces.ApiKey, error) {
+	if db.GetTxQueries(ctx) == nil {
+		return "", nil, fleeterror.NewInternalError("account key creation requires an account transaction")
+	}
+	if expiresAt != nil && !expiresAt.After(time.Now().UTC()) {
+		return "", nil, fleeterror.NewInvalidArgumentError("expiration date must be in the future")
+	}
+	secret, key, err := s.tryCreate(ctx, userID, orgID, name, expiresAt, interfaces.ApiKeySubjectKindAccount)
+	if db.IsUniqueViolationError(err) {
+		return "", nil, fleeterror.NewFailedPreconditionError("API key collision; retry creation")
+	}
+	if err != nil {
+		return "", nil, logInternalError("account api key creation failed", createAPIKeyClientError, err)
+	}
+	return secret, key, nil
+}
+
+func (s *Service) tryCreate(ctx context.Context, userID, orgID int64, name string, expiresAt *time.Time, kind interfaces.ApiKeySubjectKind) (string, *interfaces.ApiKey, error) {
 	prefixBytes := make([]byte, prefixRandomBytes)
 	if _, err := rand.Read(prefixBytes); err != nil {
 		return "", nil, fmt.Errorf("failed to generate api key prefix: %w", err)
@@ -106,7 +125,7 @@ func (s *Service) tryCreate(ctx context.Context, userID, orgID int64, name strin
 		Name:           name,
 		Prefix:         prefix,
 		KeyHash:        keyHash,
-		SubjectKind:    interfaces.ApiKeySubjectKindUser,
+		SubjectKind:    kind,
 		UserID:         &userID,
 		OrganizationID: orgID,
 		CreatedAt:      now,

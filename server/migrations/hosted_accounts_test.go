@@ -16,6 +16,10 @@ import (
 func TestHostedAccountsMigrationBackfillsRootsAndRollsBack(t *testing.T) {
 	conn := dbtest.GetTestDB(t)
 	ctx := t.Context()
+	keysDown, err := migrations.Migrations.ReadFile("000162_hosted_account_keys.down.sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(ctx, string(keysDown))
+	require.NoError(t, err)
 	administrationDown, err := migrations.Current.ReadFile("current/001005_internal_hosted_account_administration.down.sql")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(ctx, string(administrationDown))

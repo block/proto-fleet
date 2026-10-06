@@ -187,7 +187,7 @@ func TestCurtailmentNonAdminProceduresStayApiKeyAccessible(t *testing.T) {
 func TestInstanceUpdateProceduresAreSessionOnly(t *testing.T) {
 	t.Parallel()
 
-	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
+	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
 
 	procedures := []string{
 		instancev1connect.InstanceUpdateServiceGetUpdateStatusProcedure,
@@ -230,7 +230,7 @@ func TestInstanceUpdateResponsesAreRedacted(t *testing.T) {
 func TestAuthInterceptor_AdminTerminateEventRejectsApiKeyAuth(t *testing.T) {
 	t.Parallel()
 
-	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
+	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
 
 	header := http.Header{}
 	header.Set("Authorization", "Bearer fleet_test_some_key")
@@ -256,7 +256,7 @@ func TestAuthInterceptor_UpdateUserRoleRejectsApiKeyAuth(t *testing.T) {
 	assert.Contains(t, SessionOnlyProcedures, authv1connect.AuthServiceUpdateUserRoleProcedure,
 		"UpdateUserRole must be session-only; role mutations should not be reachable via API key")
 
-	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
+	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
 
 	header := http.Header{}
 	header.Set("Authorization", "Bearer fleet_test_some_key")

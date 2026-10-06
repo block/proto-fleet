@@ -13,7 +13,7 @@ import (
 
 const createApiKey = `-- name: CreateApiKey :exec
 INSERT INTO api_key (key_id, name, prefix, key_hash, user_id, organization_id, subject_kind, created_at, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, 'user', $7, $8)
+VALUES ($1, $2, $3, $4, $5, $6, $9, $7, $8)
 `
 
 type CreateApiKeyParams struct {
@@ -25,6 +25,7 @@ type CreateApiKeyParams struct {
 	OrganizationID int64
 	CreatedAt      time.Time
 	ExpiresAt      sql.NullTime
+	SubjectKind    string
 }
 
 func (q *Queries) CreateApiKey(ctx context.Context, arg CreateApiKeyParams) error {
@@ -37,6 +38,7 @@ func (q *Queries) CreateApiKey(ctx context.Context, arg CreateApiKeyParams) erro
 		arg.OrganizationID,
 		arg.CreatedAt,
 		arg.ExpiresAt,
+		arg.SubjectKind,
 	)
 	return err
 }
@@ -184,7 +186,7 @@ func (q *Queries) ListApiKeysByOrganization(ctx context.Context, organizationID 
 const revokeApiKey = `-- name: RevokeApiKey :execrows
 UPDATE api_key
 SET revoked_at = $1
-WHERE key_id = $2 AND organization_id = $3 AND revoked_at IS NULL
+WHERE key_id = $2 AND organization_id = $3 AND revoked_at IS NULL AND subject_kind <> 'account'
 `
 
 type RevokeApiKeyParams struct {

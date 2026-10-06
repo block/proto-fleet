@@ -58,6 +58,7 @@ var RedactedRequestProcedures = []string{
 // RedactedResponseProcedures lists procedures whose responses contain secrets
 // (API keys, temporary passwords) and must not be logged at debug level.
 var RedactedResponseProcedures = []string{
+	hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure,
 	hostedv1connect.HostedAccountServiceCreateInvitationProcedure,
 	apikeyv1connect.ApiKeyServiceCreateApiKeyProcedure,
 	authv1connect.AuthServiceCreateUserProcedure,
@@ -82,10 +83,11 @@ var RedactedResponseProcedures = []string{
 // endpoints to prevent a leaked API key from escalating to interactive
 // credentials or modifying user accounts.
 var SessionOnlyProcedures = []string{
-	// Hosted-account administration is interactive. Account-bounded machine
-	// credentials are introduced separately; organization API keys cannot enter.
+	hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure,
+	hostedv1connect.HostedAccountServiceListAccountKeysProcedure,
+	hostedv1connect.HostedAccountServiceRevokeAccountKeyProcedure,
+	// Account administration and key lifecycle require an interactive session.
 	hostedv1connect.HostedAccountServiceListAccountsProcedure,
-	hostedv1connect.HostedAccountServiceGetAccountProcedure,
 	hostedv1connect.HostedAccountServiceListChildrenProcedure,
 	hostedv1connect.HostedAccountServiceCreateAccountProcedure,
 	hostedv1connect.HostedAccountServiceConfigureAccountProcedure,
@@ -97,7 +99,6 @@ var SessionOnlyProcedures = []string{
 	hostedv1connect.HostedAccountServiceSetAncestorGrantProcedure,
 	hostedv1connect.HostedAccountServiceRevokeAncestorGrantProcedure,
 	hostedv1connect.HostedAccountServiceSetSitePolicyProcedure,
-	hostedv1connect.HostedAccountServiceGetSitePolicyProcedure,
 	hostedv1connect.HostedAccountServiceListInvitationsProcedure,
 	hostedv1connect.HostedAccountServiceCreateInvitationProcedure,
 	hostedv1connect.HostedAccountServiceRevokeInvitationProcedure,
@@ -239,6 +240,7 @@ var FleetNodeAuthenticatedProcedures = []string{
 // For streaming RPCs, this also suppresses individual message bodies in
 // loggingStreamingHandlerConn.
 var SensitiveBodyProcedures = map[string]bool{
+	hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure:    true,
 	hostedv1connect.HostedAccountServicePreviewInvitationProcedure:   true,
 	hostedv1connect.HostedAccountServiceRegisterInvitedUserProcedure: true,
 	hostedv1connect.HostedAccountServiceAcceptInvitationProcedure:    true,

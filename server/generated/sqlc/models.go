@@ -1368,6 +1368,20 @@ type HostedAccountInvitation struct {
 	CreatedAt            time.Time
 }
 
+type HostedAccountKey struct {
+	ApiKeyID                 int64
+	OrganizationID           int64
+	AccountID                int64
+	Capabilities             int64
+	IncludeFutureDescendants bool
+}
+
+type HostedAccountKeyDescendant struct {
+	OrganizationID int64
+	ApiKeyID       int64
+	AccountID      int64
+}
+
 type HostedAccountMembership struct {
 	OrganizationID int64
 	AccountID      int64

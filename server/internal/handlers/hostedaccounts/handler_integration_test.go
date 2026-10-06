@@ -64,7 +64,7 @@ func newRPCFixture(t *testing.T) rpcFixture {
 	accounts := domain.NewService(db)
 	keys := apikey.NewService(sqlstores.NewSQLApiKeyStore(db), nil)
 	authService := domainauth.NewService(users, users, sqlstores.NewSQLTransactor(db), nil, sessions, nil, nil, permissions)
-	requestAuth := interceptors.NewAuthInterceptor(sessions, users, users, keys, permissions, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures)
+	requestAuth := interceptors.NewAuthInterceptor(sessions, users, users, keys, permissions, domain.NewKeyService(accounts, keys), interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures)
 	options := connect.WithInterceptors(
 		interceptors.NewErrorMappingInterceptor(),
 		interceptors.NewRequestLoggingInterceptor(slog.LevelDebug, interceptors.RedactedRequestProcedures, interceptors.RedactedResponseProcedures),
@@ -72,7 +72,7 @@ func newRPCFixture(t *testing.T) rpcFixture {
 		validate.NewInterceptor(),
 	)
 	mux := http.NewServeMux()
-	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedhandler.NewHandler(accounts, domain.NewInvitationService(accounts, sessions), users, permissions), options))
+	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedhandler.NewHandler(accounts, domain.NewInvitationService(accounts, sessions), domain.NewKeyService(accounts, keys), users, permissions), options))
 	mux.Handle(authv1connect.NewAuthServiceHandler(authhandler.NewHandler(authService), options))
 	clientIP, err := middleware.NewClientIPMiddleware("")
 	require.NoError(t, err)
