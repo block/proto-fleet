@@ -135,11 +135,8 @@ func New(deviceID string, deviceInfo sdk.DeviceInfo, credentials sdk.UsernamePas
 		statusTTL:   types.StatusCacheTTL(),
 	}
 
-	// If firmware version is already known from pairing, start the refresh
-	// throttle from now so we don't immediately re-fetch what we already have.
-	if deviceInfo.FirmwareVersion != "" {
-		device.lastFirmwareCheckAt = time.Now()
-	}
+	// Stored firmware is a hint. A fresh handle must verify it on its first
+	// status read; Fleet Node recreates handles for each telemetry sample.
 
 	client, err := clientFactory(deviceInfo.Host, rpcPort, types.WebPort(), deviceInfo.URLScheme)
 	if err != nil {

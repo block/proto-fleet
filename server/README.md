@@ -5,6 +5,29 @@ feed configuration, see [market data](../docs/market-data.md).
 
 Fleet is a Go-based service for managing a fleet of Bitcoin mining devices. It provides gRPC/HTTP API endpoints for device discovery, pairing, telemetry, command execution, and fleet management. It uses PostgreSQL/TimescaleDB for persistence and supports multiple miner types (Proto, Antminer, etc.) through a plugin-based architecture.
 
+## Automatic miner recovery
+
+Miner discovery and recovery assume an operator-controlled LAN or VPN. Keep miner
+endpoints and discovery targets within that trusted network; MAC addresses and
+serial numbers are reconciliation identifiers, not cryptographic authentication.
+
+A cloud recovery scan checks the candidate's discovery identity before reading
+stored credentials, decrypts those credentials for the driver, and confirms the
+identity returned by the authenticated probe. Stock Antminers cannot report MAC or
+serial during unauthenticated discovery, so cloud scans may probe identity-free
+Antminer candidates with stored Antminer credentials on the trusted network. The
+probe must return matching stable identity before an address change is accepted;
+conflicting discovery identity is always rejected. Matching miners recover at their
+new address without being added or authenticated again. Rediscovery preserves the
+original miner ID, handles stale discovery rows, and refuses to replace another
+paired miner occupying the endpoint.
+
+If an identity-confirmed miner rejects its saved credentials, it becomes
+authentication-needed. An identity-free Antminer probe cannot attribute a rejection
+to the stored miner, so it leaves that miner's pairing status unchanged. Missing or
+corrupt stored credentials also leave pairing status unchanged. Fleet Node recovery
+continues to use the existing local-network workflow.
+
 ## Development Commands
 
 ### Build and Run

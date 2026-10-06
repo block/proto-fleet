@@ -412,18 +412,18 @@ func (mr *MockDeviceStoreMockRecorder) GetOfflineFleetNodeDevices(ctx any) *gomo
 }
 
 // GetPairedDeviceByMACAddress mocks base method.
-func (m *MockDeviceStore) GetPairedDeviceByMACAddress(ctx context.Context, macAddress string, orgID int64) (*interfaces.PairedDeviceInfo, error) {
+func (m *MockDeviceStore) GetPairedDeviceByMACAddress(ctx context.Context, macAddress string, orgID int64, excludeDeviceIdentifier string) (*interfaces.PairedDeviceInfo, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetPairedDeviceByMACAddress", ctx, macAddress, orgID)
+	ret := m.ctrl.Call(m, "GetPairedDeviceByMACAddress", ctx, macAddress, orgID, excludeDeviceIdentifier)
 	ret0, _ := ret[0].(*interfaces.PairedDeviceInfo)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetPairedDeviceByMACAddress indicates an expected call of GetPairedDeviceByMACAddress.
-func (mr *MockDeviceStoreMockRecorder) GetPairedDeviceByMACAddress(ctx, macAddress, orgID any) *gomock.Call {
+func (mr *MockDeviceStoreMockRecorder) GetPairedDeviceByMACAddress(ctx, macAddress, orgID, excludeDeviceIdentifier any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPairedDeviceByMACAddress", reflect.TypeOf((*MockDeviceStore)(nil).GetPairedDeviceByMACAddress), ctx, macAddress, orgID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetPairedDeviceByMACAddress", reflect.TypeOf((*MockDeviceStore)(nil).GetPairedDeviceByMACAddress), ctx, macAddress, orgID, excludeDeviceIdentifier)
 }
 
 // GetPairedDeviceBySerialNumber mocks base method.

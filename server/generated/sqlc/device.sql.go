@@ -1790,7 +1790,8 @@ FROM device d
 JOIN device_pairing dp ON d.id = dp.device_id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 WHERE d.mac_address = $1
-  AND d.org_id = $2
+  AND d.device_identifier <> $2
+  AND d.org_id = $3
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
   AND dp.pairing_status IN ('PAIRED', 'AUTHENTICATION_NEEDED', 'DEFAULT_PASSWORD')
@@ -1799,8 +1800,9 @@ LIMIT 2
 `
 
 type GetPairedDeviceByMACAddressParams struct {
-	NormalizedMac string
-	OrgID         int64
+	NormalizedMac           string
+	ExcludeDeviceIdentifier string
+	OrgID                   int64
 }
 
 type GetPairedDeviceByMACAddressRow struct {
@@ -1812,11 +1814,12 @@ type GetPairedDeviceByMACAddressRow struct {
 }
 
 // Finds an existing paired device by MAC address for a given organization.
-// Used during discovery reconciliation to detect devices that moved to a new IP/subnet.
+// Explicit pairing excludes its own pending candidate to resolve the original miner.
+// Pass an empty exclusion for ordinary identity lookups.
 // Callers pass the MAC in colon-separated uppercase format (AA:BB:CC:DD:EE:FF),
 // which matches the normalized format stored in the database.
 func (q *Queries) GetPairedDeviceByMACAddress(ctx context.Context, arg GetPairedDeviceByMACAddressParams) ([]GetPairedDeviceByMACAddressRow, error) {
-	rows, err := q.query(ctx, q.getPairedDeviceByMACAddressStmt, getPairedDeviceByMACAddress, arg.NormalizedMac, arg.OrgID)
+	rows, err := q.query(ctx, q.getPairedDeviceByMACAddressStmt, getPairedDeviceByMACAddress, arg.NormalizedMac, arg.ExcludeDeviceIdentifier, arg.OrgID)
 	if err != nil {
 		return nil, err
 	}

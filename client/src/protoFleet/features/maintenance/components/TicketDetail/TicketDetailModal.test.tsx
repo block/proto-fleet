@@ -26,7 +26,7 @@ const ticket: TicketDetail = {
   urgent: false,
   component: "Fan",
   diagnosis: "Broken",
-  minerIdentifier: "M1",
+  minerIdentifier: "01a0fdc7-5872-7db7-bd0e-78c982fb09c6",
   assigneeUserId: null,
   assigneeName: null,
   siteId: "1",
@@ -166,7 +166,11 @@ describe("TicketDetailModal", () => {
   });
 
   it("opens linked miners through the supported miner viewer", async () => {
-    const snapshot = { deviceIdentifier: "M1", embeddedWebViewAvailable: false, url: "http://miner.test" };
+    const snapshot = {
+      deviceIdentifier: ticket.minerIdentifier,
+      embeddedWebViewAvailable: false,
+      url: "http://miner.test",
+    };
     lookupMinerByIdentifier.mockResolvedValue({ status: "found", snapshot });
     render(
       <MemoryRouter>
@@ -176,12 +180,12 @@ describe("TicketDetailModal", () => {
 
     await waitFor(() =>
       expect(lookupMinerByIdentifier).toHaveBeenCalledWith(
-        "M1",
-        MinerIdentifierType.UNSPECIFIED,
+        ticket.minerIdentifier,
+        MinerIdentifierType.DEVICE_IDENTIFIER,
         expect.any(AbortSignal),
       ),
     );
-    const minerButton = screen.getByRole("button", { name: "Miner M1" });
+    const minerButton = screen.getByRole("button", { name: `Miner ${ticket.minerIdentifier}` });
     await waitFor(() => expect(minerButton).toBeEnabled());
     fireEvent.click(minerButton);
 

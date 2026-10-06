@@ -78,8 +78,8 @@ type FleetManagementServiceClient interface {
 	ListMinerStateSnapshots(context.Context, *connect.Request[v1.ListMinerStateSnapshotsRequest]) (*connect.Response[v1.ListMinerStateSnapshotsResponse], error)
 	// Force an immediate telemetry/status collection for explicit devices and return fresh snapshots.
 	RefreshMiners(context.Context, *connect.Request[v1.RefreshMinersRequest]) (*connect.Response[v1.RefreshMinersResponse], error)
-	// Resolve a single paired miner from a scanned identifier — either a MAC
-	// address or a manufacturer serial number. Backs the rack-assignment QR
+	// Resolve a single paired miner by internal device identifier, MAC address
+	// or manufacturer serial number. Backs maintenance links and rack-assignment QR
 	// scan flow: an operator scans a miner's sticker and the client uses the
 	// returned snapshot to confirm the device before dropping it into a rack
 	// slot. Returns NotFound when no paired device in the caller's
@@ -265,8 +265,8 @@ type FleetManagementServiceHandler interface {
 	ListMinerStateSnapshots(context.Context, *connect.Request[v1.ListMinerStateSnapshotsRequest]) (*connect.Response[v1.ListMinerStateSnapshotsResponse], error)
 	// Force an immediate telemetry/status collection for explicit devices and return fresh snapshots.
 	RefreshMiners(context.Context, *connect.Request[v1.RefreshMinersRequest]) (*connect.Response[v1.RefreshMinersResponse], error)
-	// Resolve a single paired miner from a scanned identifier — either a MAC
-	// address or a manufacturer serial number. Backs the rack-assignment QR
+	// Resolve a single paired miner by internal device identifier, MAC address
+	// or manufacturer serial number. Backs maintenance links and rack-assignment QR
 	// scan flow: an operator scans a miner's sticker and the client uses the
 	// returned snapshot to confirm the device before dropping it into a rack
 	// slot. Returns NotFound when no paired device in the caller's

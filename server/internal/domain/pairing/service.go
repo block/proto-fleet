@@ -28,6 +28,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/workername"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	id "github.com/block/proto-fleet/server/internal/infrastructure/id"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 
@@ -129,6 +130,7 @@ type Service struct {
 	deviceStore           interfaces.DeviceStore
 	transactor            interfaces.Transactor
 	tokenService          *tokenDomain.Service
+	encryptService        *encrypt.Service
 	discoverer            minerdiscovery.Discoverer
 	capabilitiesProvider  CapabilitiesProvider
 	pairer                Pairer
@@ -147,6 +149,7 @@ func NewService(
 	deviceStore interfaces.DeviceStore,
 	transactor interfaces.Transactor,
 	tokenService *tokenDomain.Service,
+	encryptService *encrypt.Service,
 	discoverer minerdiscovery.Discoverer,
 	capabilitiesProvider CapabilitiesProvider,
 	listener Listener,
@@ -157,6 +160,7 @@ func NewService(
 		deviceStore:           deviceStore,
 		transactor:            transactor,
 		tokenService:          tokenService,
+		encryptService:        encryptService,
 		discoverer:            discoverer,
 		capabilitiesProvider:  capabilitiesProvider,
 		pairer:                pairer,
@@ -662,7 +666,7 @@ func (s *Service) hydrateMissingFirmwareVersion(
 func (s *Service) reconcileByMAC(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, orgID int64, newIP string, newPort string) (string, error) {
 	mac := networking.NormalizeMAC(discoveredDevice.MacAddress)
 
-	pairedDevice, err := s.deviceStore.GetPairedDeviceByMACAddress(ctx, mac, orgID)
+	pairedDevice, err := s.deviceStore.GetPairedDeviceByMACAddress(ctx, mac, orgID, "")
 	if err != nil {
 		// Not found is expected for genuinely new devices
 		if !fleeterror.IsNotFoundError(err) {
@@ -741,25 +745,43 @@ func (s *Service) reconcileByIPAcrossDiscoveryPorts(ctx context.Context, discove
 	return "", nil
 }
 
+// Automatic miner recovery assumes an operator-controlled LAN or VPN. Discovery
+// identity checks avoid probing unrelated miners; MAC/serial values are not
+// cryptographic endpoint authentication.
 func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discoverymodels.DiscoveredDevice, pairedDeviceIdentifier string, orgID int64) bool {
 	pairedDevice, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, pairedDeviceIdentifier, orgID)
 	if err != nil {
 		slog.Error("failed to get paired device", "error", err)
 		return false
 	}
-	identityConfirmed := stableidentity.New(newDiscoveredDevice.GetSerialNumber(), newDiscoveredDevice.GetMacAddress()).Matches(
-		stableidentity.New(pairedDevice.GetSerialNumber(), pairedDevice.GetMacAddress()),
-	)
+	candidateIdentity := stableidentity.New(newDiscoveredDevice.GetSerialNumber(), newDiscoveredDevice.GetMacAddress())
+	pairedIdentity := stableidentity.New(pairedDevice.GetSerialNumber(), pairedDevice.GetMacAddress())
+	identityConfirmed := candidateIdentity.Matches(pairedIdentity)
+	// Stock Antminer discovery cannot report MAC/serial before authentication.
+	// On the trusted miner network, permit that driver's identity-free probe,
+	// then require matching authenticated identity before accepting the move.
+	// Never relax the guard for conflicting or non-overlapping discovery evidence.
+	identityFreeAntminer := newDiscoveredDevice.DriverName == "antminer" && pairedDevice.DriverName == "antminer" &&
+		strings.TrimSpace(newDiscoveredDevice.MacAddress) == "" && strings.TrimSpace(newDiscoveredDevice.SerialNumber) == "" && pairedIdentity.Usable()
+	if !identityConfirmed && !identityFreeAntminer {
+		slog.Debug("skipping recovery candidate without matching discovery identity", "device_identifier", pairedDeviceIdentifier)
+		return false
+	}
 
 	pairer := s.pairer
 
 	pairedDeviceCredentials, err := s.deviceStore.GetMinerCredentials(ctx, pairedDevice, orgID)
 	if err != nil {
-		// log and continue without credentials
 		slog.Debug("failed to get paired device credentials", "error", err)
+		return false
+	}
+	credentials, err := s.decryptMinerCredentials(pairedDeviceCredentials)
+	if err != nil {
+		slog.Error("failed to decrypt paired device credentials", "device_identifier", pairedDeviceIdentifier, "error", err)
+		return false
 	}
 
-	newDiscoveredDeviceInfo, err := pairer.GetDeviceInfo(ctx, newDiscoveredDevice, pairedDeviceCredentials)
+	newDiscoveredDeviceInfo, err := pairer.GetDeviceInfo(ctx, newDiscoveredDevice, credentials)
 	if err != nil {
 		// A recovery scan probes multiple same-driver candidates. Authentication
 		// failure identifies the paired miner only when credential-free discovery
@@ -781,8 +803,28 @@ func (s *Service) IsSameDevice(ctx context.Context, newDiscoveredDevice *discove
 		return false
 	}
 
-	return networking.NormalizeMAC(newDiscoveredDeviceInfo.MacAddress) == networking.NormalizeMAC(pairedDevice.MacAddress) &&
-		newDiscoveredDeviceInfo.SerialNumber == pairedDevice.SerialNumber
+	return stableidentity.New(newDiscoveredDeviceInfo.GetSerialNumber(), newDiscoveredDeviceInfo.GetMacAddress()).Matches(
+		stableidentity.New(pairedDevice.GetSerialNumber(), pairedDevice.GetMacAddress()),
+	)
+}
+
+// Stored credentials are encrypted at rest; the pairing driver accepts only
+// plaintext credentials. A read or decryption failure must not be mistaken for
+// the miner rejecting its password or downgrade its pairing status.
+func (s *Service) decryptMinerCredentials(credentials *pb.Credentials) (*pb.Credentials, error) {
+	if credentials == nil || credentials.Password == nil || s.encryptService == nil {
+		return nil, fleeterror.NewInternalError("stored miner credentials and encryption service are required")
+	}
+	username, err := s.encryptService.Decrypt(credentials.Username)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt miner username: %w", err)
+	}
+	password, err := s.encryptService.Decrypt(*credentials.Password)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt miner password: %w", err)
+	}
+	plainPassword := string(password)
+	return &pb.Credentials{Username: string(username), Password: &plainPassword}, nil
 }
 
 func (s *Service) reconcileCloudAuthenticationNeeded(ctx context.Context, deviceIdentifier string, orgID int64) (eligible bool, updated bool, err error) {

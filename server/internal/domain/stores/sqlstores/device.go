@@ -129,6 +129,7 @@ func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identi
 		MacAddress:       device.MacAddress,
 		SerialNumber:     device.SerialNumber.String,
 		Model:            discoveredDevice.Model.String,
+		DriverName:       discoveredDevice.DriverName,
 		Manufacturer:     discoveredDevice.Manufacturer.String,
 		IpAddress:        discoveredDevice.IpAddress,
 		Port:             discoveredDevice.Port,
@@ -1952,15 +1953,16 @@ func updateDeviceCustomNamesWithQueries(ctx context.Context, q sqlc.Querier, org
 	return nil
 }
 
-func (s *SQLDeviceStore) GetPairedDeviceByMACAddress(ctx context.Context, macAddress string, orgID int64) (*stores.PairedDeviceInfo, error) {
+func (s *SQLDeviceStore) GetPairedDeviceByMACAddress(ctx context.Context, macAddress string, orgID int64, excludeDeviceIdentifier string) (*stores.PairedDeviceInfo, error) {
 	normalizedMAC := networking.NormalizeMAC(macAddress)
 	if len(normalizedMAC) != 17 { // AA:BB:CC:DD:EE:FF
 		return nil, fleeterror.NewNotFoundError(fmt.Sprintf("no paired device found with mac_address=%s org_id=%d", macAddress, orgID))
 	}
 
 	rows, err := s.getQueries(ctx).GetPairedDeviceByMACAddress(ctx, sqlc.GetPairedDeviceByMACAddressParams{
-		NormalizedMac: normalizedMAC,
-		OrgID:         orgID,
+		NormalizedMac:           normalizedMAC,
+		OrgID:                   orgID,
+		ExcludeDeviceIdentifier: excludeDeviceIdentifier,
 	})
 	if err != nil {
 		return nil, handleQueryError(err,

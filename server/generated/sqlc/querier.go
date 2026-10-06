@@ -810,7 +810,8 @@ type Querier interface {
 	GetOrganizationByOrgID(ctx context.Context, orgID string) (Organization, error)
 	GetOrganizationsForUser(ctx context.Context, userID int64) ([]Organization, error)
 	// Finds an existing paired device by MAC address for a given organization.
-	// Used during discovery reconciliation to detect devices that moved to a new IP/subnet.
+	// Explicit pairing excludes its own pending candidate to resolve the original miner.
+	// Pass an empty exclusion for ordinary identity lookups.
 	// Callers pass the MAC in colon-separated uppercase format (AA:BB:CC:DD:EE:FF),
 	// which matches the normalized format stored in the database.
 	GetPairedDeviceByMACAddress(ctx context.Context, arg GetPairedDeviceByMACAddressParams) ([]GetPairedDeviceByMACAddressRow, error)

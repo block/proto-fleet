@@ -390,7 +390,7 @@ func TestService_LookupMinerByIdentifier_ShouldLookupByMACWhenTypeIsMAC(t *testi
 	)
 
 	deviceStore.EXPECT().
-		GetPairedDeviceByMACAddress(gomock.Any(), mac, orgID).
+		GetPairedDeviceByMACAddress(gomock.Any(), mac, orgID, "").
 		Return(&interfaces.PairedDeviceInfo{DeviceIdentifier: deviceID, MacAddress: mac}, nil)
 	deviceStore.EXPECT().
 		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).
@@ -423,7 +423,7 @@ func TestService_LookupMinerByIdentifier_ShouldInferMACWhenTypeUnspecified(t *te
 	)
 
 	deviceStore.EXPECT().
-		GetPairedDeviceByMACAddress(gomock.Any(), mac, orgID).
+		GetPairedDeviceByMACAddress(gomock.Any(), mac, orgID, "").
 		Return(&interfaces.PairedDeviceInfo{DeviceIdentifier: deviceID, MacAddress: mac}, nil)
 	deviceStore.EXPECT().
 		ListMinerStateSnapshots(gomock.Any(), orgID, "", int32(1), gomock.AssignableToTypeOf(&interfaces.MinerFilter{}), gomock.Nil()).

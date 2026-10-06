@@ -170,16 +170,18 @@ export class HomePage extends BasePage {
     await this.page.getByTestId("modal-overflow-sheet-content").getByRole("button", { name: "Show miners" }).click();
   }
 
-  async validateCalloutInModal(text: string) {
-    await expect(this.page.getByTestId("modal").locator("[data-testid*='callout']").getByText(text)).toBeVisible();
+  async validateAuthenticationError(text: string) {
+    await expect(
+      this.page.getByTestId("modal").getByTestId("authentication-error-callout").getByText(text),
+    ).toBeVisible();
   }
 
-  async validateNoCalloutInModal() {
-    await expect(this.page.getByTestId("modal").locator("[data-testid*='callout']")).toBeHidden();
+  async validateNoAuthenticationError() {
+    await expect(this.page.getByTestId("modal").getByTestId("authentication-error-callout")).toBeHidden();
   }
 
-  async clickCalloutButton() {
-    await this.page.getByTestId("modal").locator("[data-testid*='callout']").getByRole("button").click();
+  async dismissAuthenticationError() {
+    await this.page.getByTestId("modal").getByTestId("authentication-error-callout").getByRole("button").click();
   }
 
   async getMinerRowByModel(model: string) {

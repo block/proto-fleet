@@ -330,7 +330,7 @@ func TestDiscover_NodeFailureKeepsLaterServerResults(t *testing.T) {
 				runner = credentialAckDiscoveryRunner{fleetnodediscovery.NewService(reg, nil)}
 			}
 			client := discoveryClientForHandler(t, &Handler{
-				pairingSvc: domainpairing.NewService(store, nil, nil, nil, discoverer, caps, nil, nil),
+				pairingSvc: domainpairing.NewService(store, nil, nil, nil, nil, discoverer, caps, nil, nil),
 				discovery:  runner,
 			})
 			stream, err := client.Discover(ctx, connect.NewRequest(tc.req))
@@ -420,7 +420,7 @@ func discoveryClientWithDefaultPorts(t *testing.T, runner *stubFleetNodeDiscover
 	t.Helper()
 	caps := pairingmocks.NewMockCapabilitiesProvider(gomock.NewController(t))
 	caps.EXPECT().GetDefaultDiscoveryPorts(gomock.Any()).Return(defaults).AnyTimes()
-	return discoveryClientForHandler(t, &Handler{pairingSvc: domainpairing.NewService(nil, nil, nil, nil, nil, caps, nil, nil), discovery: runner})
+	return discoveryClientForHandler(t, &Handler{pairingSvc: domainpairing.NewService(nil, nil, nil, nil, nil, nil, caps, nil, nil), discovery: runner})
 }
 
 func discoveryClientForHandler(t *testing.T, h *Handler) pairingv1connect.PairingServiceClient {
