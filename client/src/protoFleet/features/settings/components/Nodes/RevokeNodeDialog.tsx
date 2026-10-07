@@ -61,7 +61,7 @@ const RevokeNodeDialog = ({
           onClick: onConfirm,
           variant: variants.danger,
           loading: isSubmitting,
-          disabled: isLoadingImpact || !!impactError || isSubmitting,
+          disabled: isLoadingImpact || !!impactError,
         },
       ]}
     >
