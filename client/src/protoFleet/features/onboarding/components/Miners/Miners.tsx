@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import clsx from "clsx";
 import FoundMiners from "./FoundMiners";
@@ -37,6 +37,12 @@ interface MinersProps {
   foremanImportPending?: boolean;
   remoteDiscoveryWarning?: string;
   mode?: MinerDiscoveryMode;
+  initialStep?: "findMiners" | "pairing";
+  canAddMiners?: boolean;
+  maxSelectedMiners?: number;
+  notice?: ReactNode;
+  children?: ReactNode;
+  allowDismissWhilePairing?: boolean;
 }
 
 // Minimum time to show the loading animation in milliseconds (only for network scan)
@@ -57,6 +63,12 @@ const Miners = ({
   foremanImportPending = false,
   remoteDiscoveryWarning,
   mode = "onboarding",
+  initialStep = "findMiners",
+  canAddMiners = true,
+  maxSelectedMiners,
+  notice,
+  children,
+  allowDismissWhilePairing = false,
 }: MinersProps) => {
   const [deselectedMiners, setDeselectedMiners] = useState<Device["deviceIdentifier"][]>([]);
   const loadingTimeoutId = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -65,7 +77,7 @@ const Miners = ({
   const [ipListError, setIpListError] = useState<string | boolean>(false);
   const [showModal, setShowModal] = useState(false);
   const [showFoundMinersModal, setShowFoundMinersModal] = useState(false);
-  const [activeStep, setActiveStep] = useState<"findMiners" | "pairing">("findMiners");
+  const [activeStep, setActiveStep] = useState<"findMiners" | "pairing">(initialStep);
   const [showValidationErrorDialog, setShowValidationErrorDialog] = useState(false);
   const [categorizedInvalidEntries, setCategorizedInvalidEntries] = useState<CategorizedInvalidEntries | null>(null);
   const [pendingValidTargets, setPendingValidTargets] = useState<ManualDiscoveryTargets | null>(null);
@@ -230,7 +242,7 @@ const Miners = ({
                 },
               ]
             : []),
-          ...(activeStep === "pairing" && displayMiners.length > 1
+          ...(activeStep === "pairing" && canAddMiners && displayMiners.length > 1
             ? [
                 {
                   variant: variants.secondary,
@@ -243,7 +255,7 @@ const Miners = ({
                 },
               ]
             : []),
-          ...(activeStep === "pairing" && displayMiners.length > 0
+          ...(activeStep === "pairing" && canAddMiners && displayMiners.length > 0
             ? [
                 {
                   variant: variants.primary,
@@ -257,7 +269,10 @@ const Miners = ({
                     const selectedMinerIdentifiers = selectedDisplayMiners.map((miner) => miner.deviceIdentifier);
                     onContinue(selectedMinerIdentifiers);
                   },
-                  disabled: pairingPending || selectedDisplayMiners.length === 0,
+                  disabled:
+                    pairingPending ||
+                    selectedDisplayMiners.length === 0 ||
+                    (maxSelectedMiners !== undefined && selectedDisplayMiners.length > maxSelectedMiners),
                   testId: "add-miners-continue",
                   text: pairingPending
                     ? useCompactHeaderActions
@@ -273,7 +288,12 @@ const Miners = ({
 
   return (
     <div className="h-[calc(100dvh-theme(spacing.1)*15)]">
-      <Dialog open={pairingPending} title="Pairing the found miners" subtitle="This may take a few seconds" loading />
+      <Dialog
+        open={Boolean(pairingPending && !allowDismissWhilePairing)}
+        title="Pairing the found miners"
+        subtitle="This may take a few seconds"
+        loading
+      />
 
       {mode === "onboarding" ? (
         <NullState
@@ -294,7 +314,7 @@ const Miners = ({
             className="sticky top-0 z-10 bg-surface-base px-6 pt-6 pb-4"
             title="Add miners"
             titleSize="text-heading-200 truncate"
-            {...(pairingPending
+            {...(pairingPending && !allowDismissWhilePairing
               ? {
                   icon: <Dismiss />,
                 }
@@ -421,6 +441,7 @@ const Miners = ({
           {activeStep === "pairing" ? (
             <div className="mx-auto w-full max-w-4xl px-6 pt-10">
               {coverageWarning}
+              {notice}
               <FoundMiners
                 miners={displayMiners}
                 deselectedMiners={deselectedMiners}
@@ -428,6 +449,12 @@ const Miners = ({
                 isScanning={discoveryPending}
                 showSkeleton={showLoadingSkeleton}
               />
+              {maxSelectedMiners !== undefined && selectedDisplayMiners.length > maxSelectedMiners ? (
+                <p role="status" className="mt-4 text-300 text-intent-warning-fill">
+                  Select at most {maxSelectedMiners} miners per request.
+                </p>
+              ) : null}
+              {children}
               {displayMiners.length > 0 ? (
                 <FoundMinersModal
                   open={showFoundMinersModal}

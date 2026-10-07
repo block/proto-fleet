@@ -82,7 +82,7 @@ describe("FindNodeMinersModal", () => {
       case: "networkScan",
       value: { useFleetNodeLocalSubnet: true, target: "" },
     });
-    expect(await screen.findByRole("checkbox", { name: "Select miner-2" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Continue with 1 miners" })).toBeInTheDocument();
     expect(screen.queryByText(/Paired miners/)).not.toBeInTheDocument();
     expect(screen.queryByText("Pair selected miners")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Scan target")).not.toBeInTheDocument();
@@ -91,8 +91,8 @@ describe("FindNodeMinersModal", () => {
   it("lets operators without pairing permission scan without add controls", async () => {
     renderFinder({ canPair: false });
 
-    expect(await screen.findByText(/miner-2/)).toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: "Select miner-2" })).not.toBeInTheDocument();
+    expect(await screen.findByText(/1 miner found on your network/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Continue with/ })).not.toBeInTheDocument();
     expect(screen.queryByText("Add found miners")).not.toBeInTheDocument();
   });
 
@@ -103,11 +103,11 @@ describe("FindNodeMinersModal", () => {
       .mockResolvedValueOnce({ devices: [otherMiner], nextCursor: 0n });
     renderFinder();
 
-    await screen.findByRole("checkbox", { name: "Select miner-2" });
-    fireEvent.click(screen.getByRole("button", { name: "Scan again" }));
+    await screen.findByRole("button", { name: "Continue with 1 miners" });
+    fireEvent.click(screen.getByRole("button", { name: "Rescan network" }));
 
-    expect(await screen.findByRole("checkbox", { name: "Select miner-3" })).toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: "Select miner-2" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Continue with 1 miners" })).toBeInTheDocument();
+    expect(listDiscovered).toHaveBeenCalledTimes(3);
     expect(discoverOnNode).toHaveBeenCalledTimes(2);
   });
 
@@ -115,7 +115,7 @@ describe("FindNodeMinersModal", () => {
     discoverOnNode.mockRejectedValue(new Error("Node is busy"));
     renderFinder();
 
-    expect(await screen.findByRole("checkbox", { name: "Select miner-2" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Continue with 1 miners" })).toBeInTheDocument();
     expect(await screen.findByRole("alert")).toHaveTextContent("Node is busy");
   });
 
@@ -126,11 +126,11 @@ describe("FindNodeMinersModal", () => {
     discoverOnNode.mockRejectedValue(new Error("Scan disconnected"));
     renderFinder();
 
-    expect(await screen.findByRole("checkbox", { name: "Select miner-2" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Continue with 1 miners" })).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("Scan disconnected");
   });
 
-  it("adds selected miners through this Node and shows the result", async () => {
+  it("adds miners through this Node from the shared Add miners screen", async () => {
     pairOnNode.mockImplementation(async (_id, _ids, _credentials, onResults) => {
       onResults([
         create(DevicePairingResultSchema, { deviceIdentifier: "miner-2", pairingStatus: PairingStatus.PAIRED }),
@@ -140,15 +140,25 @@ describe("FindNodeMinersModal", () => {
     const onPairingCompleted = vi.fn();
     renderFinder({ onUpdated, onPairingCompleted });
 
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Select miner-2" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add selected (1)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue with 1 miners" }));
 
     await waitFor(() => expect(pairOnNode).toHaveBeenCalledTimes(1));
     expect(pairOnNode.mock.calls[0][0]).toBe("7");
     expect(pairOnNode.mock.calls[0][1]).toEqual(["miner-2"]);
-    expect(await screen.findByText("miner-2: PAIRED")).toBeInTheDocument();
     await waitFor(() => expect(onPairingCompleted).toHaveBeenCalledWith(["miner-2"]));
     expect(onUpdated).toHaveBeenCalled();
+  });
+
+  it("pairs only miners chosen in the shared selection dialog", async () => {
+    listDiscovered.mockResolvedValue({ devices: [miner, otherMiner], nextCursor: 0n });
+    renderFinder();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Choose miners" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner-3" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue with 1 miners" }));
+
+    await waitFor(() => expect(pairOnNode).toHaveBeenCalledWith("7", ["miner-2"], undefined, expect.any(Function)));
   });
 
   it("releases reported miners but keeps unreported miners blocked after a stream failure", async () => {
@@ -166,9 +176,7 @@ describe("FindNodeMinersModal", () => {
     const onPairingCompleted = vi.fn();
     renderFinder({ onPairingStarted, onPairingCompleted });
 
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Select miner-2" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner-3" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add selected (2)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue with 2 miners" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Pair result stream disconnected");
     expect(onPairingStarted).toHaveBeenCalledWith(["miner-2", "miner-3"]);
@@ -191,15 +199,14 @@ describe("FindNodeMinersModal", () => {
     const onPairingCompleted = vi.fn();
     renderFinder({ onPairingStarted, onPairingCompleted });
 
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Select miner-2" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add selected (1)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue with 1 miners" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Node control stream disconnected");
     expect(onPairingStarted).toHaveBeenCalledWith(["miner-2"]);
     expect(onPairingCompleted).not.toHaveBeenCalled();
   });
 
-  it("defers a late-settlement refresh while a later-page miner is selected", async () => {
+  it("keeps later pages visible after a late pairing result refresh", async () => {
     listDiscovered.mockImplementation(async (_nodeId, cursor = 0n) =>
       cursor === 0n ? { devices: [miner], nextCursor: 42n } : { devices: [otherMiner], nextCursor: 0n },
     );
@@ -215,16 +222,13 @@ describe("FindNodeMinersModal", () => {
     };
     const { rerender } = render(<FindNodeMinersModal {...props} settledPairingRevision={0} />);
 
-    await screen.findByRole("checkbox", { name: "Select miner-2" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Load next 100" })).toBeEnabled());
+    await screen.findByRole("button", { name: "Continue with 1 miners" });
     fireEvent.click(screen.getByRole("button", { name: "Load next 100" }));
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Select miner-3" }));
+    expect(await screen.findByRole("button", { name: "Continue with 2 miners" })).toBeInTheDocument();
     rerender(<FindNodeMinersModal {...props} settledPairingRevision={1} />);
 
-    expect(screen.getByRole("checkbox", { name: "Select miner-3" })).toBeChecked();
-
-    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner-3" }));
-    await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Select miner-3" })).not.toBeInTheDocument());
+    await waitFor(() => expect(listDiscovered).toHaveBeenCalledWith("7", 42n));
+    expect(screen.getByRole("button", { name: "Continue with 2 miners" })).toBeInTheDocument();
   });
 
   it("releases retry blocks after definitive pre-dispatch rejection", async () => {
@@ -237,8 +241,7 @@ describe("FindNodeMinersModal", () => {
     const onPairingCompleted = vi.fn();
     renderFinder({ onPairingCompleted });
 
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Select miner-2" }));
-    fireEvent.click(screen.getByRole("button", { name: "Add selected (1)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue with 1 miners" }));
 
     await waitFor(() => expect(onPairingCompleted).toHaveBeenCalledWith(["miner-2"]));
   });
@@ -253,13 +256,13 @@ describe("FindNodeMinersModal", () => {
     const onPairingCompleted = vi.fn();
     renderFinder({ onPairingCompleted });
 
-    fireEvent.click(await screen.findByRole("checkbox", { name: "Select miner-2" }));
+    await screen.findByRole("button", { name: "Continue with 1 miners" });
     listDiscovered.mockRejectedValueOnce(new Error("Refresh failed"));
-    fireEvent.click(screen.getByRole("button", { name: "Add selected (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue with 1 miners" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Pair result stream disconnected");
     expect(screen.getByText("miner-2: PAIRED")).toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: "Select miner-2" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Continue with 1 miners" })).not.toBeInTheDocument();
     expect(onPairingCompleted).toHaveBeenCalledWith(["miner-2"]);
   });
 });
