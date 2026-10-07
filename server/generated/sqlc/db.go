@@ -1395,11 +1395,11 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listFleetMiningAssetsStmt, err = db.PrepareContext(ctx, listFleetMiningAssets); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetMiningAssets: %w", err)
 	}
-	if q.listFleetNodeDeviceIDsForRevocationStmt, err = db.PrepareContext(ctx, listFleetNodeDeviceIDsForRevocation); err != nil {
-		return nil, fmt.Errorf("error preparing query ListFleetNodeDeviceIDsForRevocation: %w", err)
-	}
 	if q.listFleetNodeDevicesStmt, err = db.PrepareContext(ctx, listFleetNodeDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetNodeDevices: %w", err)
+	}
+	if q.listFleetNodeDevicesForRevocationStmt, err = db.PrepareContext(ctx, listFleetNodeDevicesForRevocation); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFleetNodeDevicesForRevocation: %w", err)
 	}
 	if q.listFleetNodeDiscoveredDevicesStmt, err = db.PrepareContext(ctx, listFleetNodeDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetNodeDiscoveredDevices: %w", err)
@@ -1754,6 +1754,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.observeFirmwareRolloutReservationsOfflineStmt, err = db.PrepareContext(ctx, observeFirmwareRolloutReservationsOffline); err != nil {
 		return nil, fmt.Errorf("error preparing query ObserveFirmwareRolloutReservationsOffline: %w", err)
+	}
+	if q.offlineDevicesForFleetNodeRevocationStmt, err = db.PrepareContext(ctx, offlineDevicesForFleetNodeRevocation); err != nil {
+		return nil, fmt.Errorf("error preparing query OfflineDevicesForFleetNodeRevocation: %w", err)
 	}
 	if q.pairDeviceToFleetNodeStmt, err = db.PrepareContext(ctx, pairDeviceToFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query PairDeviceToFleetNode: %w", err)
@@ -2123,6 +2126,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.unpairDeviceStmt, err = db.PrepareContext(ctx, unpairDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query UnpairDevice: %w", err)
+	}
+	if q.unpairDevicesForFleetNodeRevocationStmt, err = db.PrepareContext(ctx, unpairDevicesForFleetNodeRevocation); err != nil {
+		return nil, fmt.Errorf("error preparing query UnpairDevicesForFleetNodeRevocation: %w", err)
 	}
 	if q.unverifyFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, unverifyFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query UnverifyFirmwareRolloutDevices: %w", err)
@@ -4627,14 +4633,14 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listFleetMiningAssetsStmt: %w", cerr)
 		}
 	}
-	if q.listFleetNodeDeviceIDsForRevocationStmt != nil {
-		if cerr := q.listFleetNodeDeviceIDsForRevocationStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing listFleetNodeDeviceIDsForRevocationStmt: %w", cerr)
-		}
-	}
 	if q.listFleetNodeDevicesStmt != nil {
 		if cerr := q.listFleetNodeDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listFleetNodeDevicesStmt: %w", cerr)
+		}
+	}
+	if q.listFleetNodeDevicesForRevocationStmt != nil {
+		if cerr := q.listFleetNodeDevicesForRevocationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFleetNodeDevicesForRevocationStmt: %w", cerr)
 		}
 	}
 	if q.listFleetNodeDiscoveredDevicesStmt != nil {
@@ -5225,6 +5231,11 @@ func (q *Queries) Close() error {
 	if q.observeFirmwareRolloutReservationsOfflineStmt != nil {
 		if cerr := q.observeFirmwareRolloutReservationsOfflineStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing observeFirmwareRolloutReservationsOfflineStmt: %w", cerr)
+		}
+	}
+	if q.offlineDevicesForFleetNodeRevocationStmt != nil {
+		if cerr := q.offlineDevicesForFleetNodeRevocationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing offlineDevicesForFleetNodeRevocationStmt: %w", cerr)
 		}
 	}
 	if q.pairDeviceToFleetNodeStmt != nil {
@@ -5840,6 +5851,11 @@ func (q *Queries) Close() error {
 	if q.unpairDeviceStmt != nil {
 		if cerr := q.unpairDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing unpairDeviceStmt: %w", cerr)
+		}
+	}
+	if q.unpairDevicesForFleetNodeRevocationStmt != nil {
+		if cerr := q.unpairDevicesForFleetNodeRevocationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing unpairDevicesForFleetNodeRevocationStmt: %w", cerr)
 		}
 	}
 	if q.unverifyFirmwareRolloutDevicesStmt != nil {
@@ -6693,8 +6709,8 @@ type Queries struct {
 	listFleetFacilitiesStmt                                      *sql.Stmt
 	listFleetInventoryOptionsStmt                                *sql.Stmt
 	listFleetMiningAssetsStmt                                    *sql.Stmt
-	listFleetNodeDeviceIDsForRevocationStmt                      *sql.Stmt
 	listFleetNodeDevicesStmt                                     *sql.Stmt
+	listFleetNodeDevicesForRevocationStmt                        *sql.Stmt
 	listFleetNodeDiscoveredDevicesStmt                           *sql.Stmt
 	listFleetNodesForOrganizationStmt                            *sql.Stmt
 	listFleetTankOptionsStmt                                     *sql.Stmt
@@ -6813,6 +6829,7 @@ type Queries struct {
 	negateSchedulePrioritiesStmt                                 *sql.Stmt
 	nextRepairTicketNumberStmt                                   *sql.Stmt
 	observeFirmwareRolloutReservationsOfflineStmt                *sql.Stmt
+	offlineDevicesForFleetNodeRevocationStmt                     *sql.Stmt
 	pairDeviceToFleetNodeStmt                                    *sql.Stmt
 	passwordUpdatedAtStmt                                        *sql.Stmt
 	pauseActiveScheduleStmt                                      *sql.Stmt
@@ -6936,6 +6953,7 @@ type Queries struct {
 	undeleteOrganizationStmt                                     *sql.Stmt
 	undeleteRoleStmt                                             *sql.Stmt
 	unpairDeviceStmt                                             *sql.Stmt
+	unpairDevicesForFleetNodeRevocationStmt                      *sql.Stmt
 	unverifyFirmwareRolloutDevicesStmt                           *sql.Stmt
 	updateAlertChannelStmt                                       *sql.Stmt
 	updateAlertMaintenanceWindowStmt                             *sql.Stmt
@@ -7470,8 +7488,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listFleetFacilitiesStmt:                                      q.listFleetFacilitiesStmt,
 		listFleetInventoryOptionsStmt:                                q.listFleetInventoryOptionsStmt,
 		listFleetMiningAssetsStmt:                                    q.listFleetMiningAssetsStmt,
-		listFleetNodeDeviceIDsForRevocationStmt:                      q.listFleetNodeDeviceIDsForRevocationStmt,
 		listFleetNodeDevicesStmt:                                     q.listFleetNodeDevicesStmt,
+		listFleetNodeDevicesForRevocationStmt:                        q.listFleetNodeDevicesForRevocationStmt,
 		listFleetNodeDiscoveredDevicesStmt:                           q.listFleetNodeDiscoveredDevicesStmt,
 		listFleetNodesForOrganizationStmt:                            q.listFleetNodesForOrganizationStmt,
 		listFleetTankOptionsStmt:                                     q.listFleetTankOptionsStmt,
@@ -7590,6 +7608,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		negateSchedulePrioritiesStmt:                                 q.negateSchedulePrioritiesStmt,
 		nextRepairTicketNumberStmt:                                   q.nextRepairTicketNumberStmt,
 		observeFirmwareRolloutReservationsOfflineStmt:                q.observeFirmwareRolloutReservationsOfflineStmt,
+		offlineDevicesForFleetNodeRevocationStmt:                     q.offlineDevicesForFleetNodeRevocationStmt,
 		pairDeviceToFleetNodeStmt:                                    q.pairDeviceToFleetNodeStmt,
 		passwordUpdatedAtStmt:                                        q.passwordUpdatedAtStmt,
 		pauseActiveScheduleStmt:                                      q.pauseActiveScheduleStmt,
@@ -7713,6 +7732,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		undeleteOrganizationStmt:                                     q.undeleteOrganizationStmt,
 		undeleteRoleStmt:                                             q.undeleteRoleStmt,
 		unpairDeviceStmt:                                             q.unpairDeviceStmt,
+		unpairDevicesForFleetNodeRevocationStmt:                      q.unpairDevicesForFleetNodeRevocationStmt,
 		unverifyFirmwareRolloutDevicesStmt:                           q.unverifyFirmwareRolloutDevicesStmt,
 		updateAlertChannelStmt:                                       q.updateAlertChannelStmt,
 		updateAlertMaintenanceWindowStmt:                             q.updateAlertMaintenanceWindowStmt,

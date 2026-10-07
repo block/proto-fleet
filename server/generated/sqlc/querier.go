@@ -1306,8 +1306,8 @@ type Querier interface {
 	// Mining assets: filter and paginate miners/modules without parent aggregation.
 	// Each authority scope uses org-wide/denylist or site-allowlist semantics.
 	ListFleetMiningAssets(ctx context.Context, arg ListFleetMiningAssetsParams) (ListFleetMiningAssetsRow, error)
-	ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error)
 	ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDevicesParams) ([]ListFleetNodeDevicesRow, error)
+	ListFleetNodeDevicesForRevocation(ctx context.Context, arg ListFleetNodeDevicesForRevocationParams) ([]ListFleetNodeDevicesForRevocationRow, error)
 	// Fleet-node-discovered devices available for pairing or credential retry. A
 	// discovered device is excluded when ANY live device row is cloud-paired-like
 	// or bound to another node. A row bound to the requesting node surfaces only
@@ -1703,6 +1703,7 @@ type Querier interface {
 	// completion arrives later. This observation survives exclusion, cancellation,
 	// retries and completed rollout history.
 	ObserveFirmwareRolloutReservationsOffline(ctx context.Context, channelID sql.NullInt64) error
+	OfflineDevicesForFleetNodeRevocation(ctx context.Context, arg OfflineDevicesForFleetNodeRevocationParams) (int64, error)
 	PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error)
 	PasswordUpdatedAt(ctx context.Context, id int64) (sql.NullTime, error)
 	PauseActiveSchedule(ctx context.Context, arg PauseActiveScheduleParams) (int64, error)
@@ -2085,6 +2086,7 @@ type Querier interface {
 	UndeleteOrganization(ctx context.Context, id int64) error
 	UndeleteRole(ctx context.Context, id int64) error
 	UnpairDevice(ctx context.Context, arg UnpairDeviceParams) (int64, error)
+	UnpairDevicesForFleetNodeRevocation(ctx context.Context, arg UnpairDevicesForFleetNodeRevocationParams) (int64, error)
 	// Reopens convergence for verified miners the enforcement loop sees drifting
 	// from the assignment (reported version or provenance no longer match) while
 	// the rollout runs, so they are updated again.
@@ -2288,6 +2290,8 @@ type Querier interface {
 	// When the caller's filter includes BuildingIDs, IncludeNoBuilding,
 	// ZoneKeys, or IncludeNoRack, the Go store routes to the dynamic
 	// query builder (see device_filters.go) so counts match the list.
+	// A queued result from a revoked Node cannot restore a now-unpaired miner's
+	// status. A replacement Node's assignment (or renewed pairing) permits writes.
 	UpsertDeviceStatus(ctx context.Context, arg UpsertDeviceStatusParams) error
 	// PostgreSQL version returns the id directly using RETURNING
 	UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscoveredDeviceParams) (int64, error)

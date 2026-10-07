@@ -17,6 +17,7 @@ import (
 	fleetnodeauth "github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	fleetnodeenrollment "github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -254,9 +255,17 @@ func TestRevokeFleetNodeInvalidatesPairedDeviceMiners(t *testing.T) {
 	require.NoError(t, err)
 	deviceA := insertFleetNodeDevice(t, db, orgID, agent.ID)
 	deviceB := insertFleetNodeDevice(t, db, orgID, agent.ID)
+	var identifierA, identifierB string
+	require.NoError(t, db.QueryRow(`SELECT device_identifier FROM device WHERE id = $1`, deviceA).Scan(&identifierA))
+	require.NoError(t, db.QueryRow(`SELECT device_identifier FROM device WHERE id = $1`, deviceB).Scan(&identifierB))
 	var invalidated []int64
+	var removed []telemetrymodels.DeviceIdentifier
 	enrollment.WithMinerInvalidator(func(_ context.Context, deviceID int64) {
 		invalidated = append(invalidated, deviceID)
+	})
+	enrollment.WithTelemetryRemover(func(_ context.Context, identifiers ...telemetrymodels.DeviceIdentifier) error {
+		removed = append(removed, identifiers...)
+		return nil
 	})
 
 	// Act
@@ -264,6 +273,7 @@ func TestRevokeFleetNodeInvalidatesPairedDeviceMiners(t *testing.T) {
 
 	// Assert
 	require.ElementsMatch(t, []int64{deviceA, deviceB}, invalidated)
+	require.ElementsMatch(t, []telemetrymodels.DeviceIdentifier{telemetrymodels.DeviceIdentifier(identifierA), telemetrymodels.DeviceIdentifier(identifierB)}, removed)
 }
 
 func TestRevokeFleetNodeForEnrollmentRejectsMismatchedPendingEnrollment(t *testing.T) {

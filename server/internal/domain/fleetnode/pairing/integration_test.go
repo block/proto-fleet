@@ -12,11 +12,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	fleetnodeenrollment "github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
+	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -448,21 +452,15 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 	ctx := t.Context()
 	db, orgID, pairing, enrollment := setupPairingTest(t)
 	nodeID := createFleetNode(t, enrollment, orgID, "node-to-revoke")
-	_, _, err := pairing.UpsertDiscoveredDevices(ctx, nodeID, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-		{DeviceIdentifier: "revoke-shared", IPAddress: "10.0.0.30", Port: "80", URLScheme: "http", DriverName: "virtual"},
-	})
+	identifier := "mac:p-revoke-shared"
+	upsertNodeDiscovered(t, pairing, orgID, nodeID, identifier)
+	assignedBy := int64(1)
+	status, err := pairing.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
 	require.NoError(t, err)
+	require.Equal(t, fleetnodepairing.StatusPaired, status)
 	var ddID int64
-	require.NoError(t, db.QueryRow(`SELECT id FROM discovered_device WHERE device_identifier = 'revoke-shared' AND org_id = $1`, orgID).Scan(&ddID))
-	var devID int64
-	require.NoError(t, db.QueryRow(`INSERT INTO device (device_identifier, mac_address, serial_number, org_id, discovered_device_id)
-		VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		fmt.Sprintf("revoke-dev-%d", ddID),
-		fmt.Sprintf("aa:bb:cc:dd:00:%02x", ddID%256),
-		fmt.Sprintf("revoke-sn-%d", ddID),
-		orgID, ddID,
-	).Scan(&devID))
-	require.NoError(t, pairing.PairDevice(ctx, nodeID, devID, orgID, nil))
+	require.NoError(t, db.QueryRow(`SELECT id FROM discovered_device WHERE device_identifier = $1 AND org_id = $2`, identifier, orgID).Scan(&ddID))
+	devID := deviceIDByIdentifier(t, db, orgID, identifier)
 	_, err = db.Exec(
 		`INSERT INTO miner_credentials (device_id, username_enc, password_enc)
 		 VALUES ($1, 'node-owned-username', 'node-owned-password')`,
@@ -481,10 +479,34 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 	var credentials int
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM miner_credentials WHERE device_id = $1`, devID).Scan(&credentials))
 	assert.Equal(t, 0, credentials, "revoke must delete node-owned miner credentials")
+	var pairingStatus, deviceStatus string
+	require.NoError(t, db.QueryRow(`SELECT pairing_status FROM device_pairing WHERE device_id = $1`, devID).Scan(&pairingStatus))
+	require.NoError(t, db.QueryRow(`SELECT status FROM device_status WHERE device_id = $1`, devID).Scan(&deviceStatus))
+	assert.Equal(t, "UNPAIRED", pairingStatus)
+	assert.Equal(t, "OFFLINE", deviceStatus)
 	var attributed sql.NullInt64
 	require.NoError(t, db.QueryRow(`SELECT discovered_by_fleet_node_id FROM discovered_device WHERE id = $1`, ddID).Scan(&attributed))
 	require.True(t, attributed.Valid, "revoke must NOT clear discovered_by_fleet_node_id (immutable origin)")
 	assert.Equal(t, nodeID, attributed.Int64)
+
+	// A queued telemetry result from the revoked Node must not restore Hashing.
+	deviceStore := sqlstores.NewSQLDeviceStore(db)
+	require.NoError(t, deviceStore.UpsertDeviceStatuses(ctx, []interfaces.DeviceStatusUpdate{{
+		DeviceIdentifier: telemetrymodels.DeviceIdentifier(identifier), Status: minermodels.MinerStatusActive,
+	}}))
+	require.NoError(t, db.QueryRow(`SELECT status FROM device_status WHERE device_id = $1`, devID).Scan(&deviceStatus))
+	assert.Equal(t, "OFFLINE", deviceStatus)
+
+	// The replacement Node can rediscover and pair the same miner.
+	replacementID := createFleetNode(t, enrollment, orgID, "replacement-node")
+	upsertNodeDiscovered(t, pairing, orgID, replacementID, identifier)
+	status, err = pairing.PersistFleetNodePairResult(ctx, replacementID, orgID, pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
+	require.NoError(t, err)
+	assert.Equal(t, fleetnodepairing.StatusPaired, status)
+	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, identifier))
+	assert.True(t, deviceBoundToNode(t, db, orgID, replacementID, identifier))
+	require.NoError(t, db.QueryRow(`SELECT status FROM device_status WHERE device_id = $1`, devID).Scan(&deviceStatus))
+	assert.Equal(t, "ACTIVE", deviceStatus)
 }
 
 func TestUnpair_PreservesAttribution(t *testing.T) {

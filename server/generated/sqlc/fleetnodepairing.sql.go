@@ -152,41 +152,6 @@ func (q *Queries) GetFleetNodePairedDeviceIdentifier(ctx context.Context, arg Ge
 	return device_identifier, err
 }
 
-const listFleetNodeDeviceIDsForRevocation = `-- name: ListFleetNodeDeviceIDsForRevocation :many
-SELECT device_id
-FROM fleet_node_device
-WHERE fleet_node_id = $1 AND org_id = $2
-ORDER BY device_id ASC
-`
-
-type ListFleetNodeDeviceIDsForRevocationParams struct {
-	FleetNodeID int64
-	OrgID       int64
-}
-
-func (q *Queries) ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error) {
-	rows, err := q.query(ctx, q.listFleetNodeDeviceIDsForRevocationStmt, listFleetNodeDeviceIDsForRevocation, arg.FleetNodeID, arg.OrgID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var device_id int64
-		if err := rows.Scan(&device_id); err != nil {
-			return nil, err
-		}
-		items = append(items, device_id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listFleetNodeDevices = `-- name: ListFleetNodeDevices :many
 SELECT fnd.fleet_node_id,
        fnd.device_id,
@@ -233,6 +198,47 @@ func (q *Queries) ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDev
 			&i.AssignedAt,
 			&i.AssignedBy,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listFleetNodeDevicesForRevocation = `-- name: ListFleetNodeDevicesForRevocation :many
+SELECT fnd.device_id, d.device_identifier
+FROM fleet_node_device fnd
+JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
+WHERE fnd.fleet_node_id = $1 AND fnd.org_id = $2
+ORDER BY fnd.device_id ASC
+`
+
+type ListFleetNodeDevicesForRevocationParams struct {
+	FleetNodeID int64
+	OrgID       int64
+}
+
+type ListFleetNodeDevicesForRevocationRow struct {
+	DeviceID         int64
+	DeviceIdentifier string
+}
+
+func (q *Queries) ListFleetNodeDevicesForRevocation(ctx context.Context, arg ListFleetNodeDevicesForRevocationParams) ([]ListFleetNodeDevicesForRevocationRow, error) {
+	rows, err := q.query(ctx, q.listFleetNodeDevicesForRevocationStmt, listFleetNodeDevicesForRevocation, arg.FleetNodeID, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFleetNodeDevicesForRevocationRow
+	for rows.Next() {
+		var i ListFleetNodeDevicesForRevocationRow
+		if err := rows.Scan(&i.DeviceID, &i.DeviceIdentifier); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -466,6 +472,30 @@ func (q *Queries) LockFleetNodePairingDevice(ctx context.Context, arg LockFleetN
 	return items, nil
 }
 
+const offlineDevicesForFleetNodeRevocation = `-- name: OfflineDevicesForFleetNodeRevocation :execrows
+INSERT INTO device_status (device_id, status, status_timestamp, status_details)
+SELECT fnd.device_id, 'OFFLINE', CURRENT_TIMESTAMP, NULL
+FROM fleet_node_device fnd
+WHERE fnd.fleet_node_id = $1 AND fnd.org_id = $2
+ON CONFLICT (device_id) DO UPDATE SET
+    status = EXCLUDED.status,
+    status_timestamp = EXCLUDED.status_timestamp,
+    status_details = EXCLUDED.status_details
+`
+
+type OfflineDevicesForFleetNodeRevocationParams struct {
+	FleetNodeID int64
+	OrgID       int64
+}
+
+func (q *Queries) OfflineDevicesForFleetNodeRevocation(ctx context.Context, arg OfflineDevicesForFleetNodeRevocationParams) (int64, error) {
+	result, err := q.exec(ctx, q.offlineDevicesForFleetNodeRevocationStmt, offlineDevicesForFleetNodeRevocation, arg.FleetNodeID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const pairDeviceToFleetNode = `-- name: PairDeviceToFleetNode :execrows
 INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id, assigned_by)
 VALUES ($1, $2, $3, $4)
@@ -534,6 +564,27 @@ type UnpairDeviceParams struct {
 
 func (q *Queries) UnpairDevice(ctx context.Context, arg UnpairDeviceParams) (int64, error) {
 	result, err := q.exec(ctx, q.unpairDeviceStmt, unpairDevice, arg.DeviceID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const unpairDevicesForFleetNodeRevocation = `-- name: UnpairDevicesForFleetNodeRevocation :execrows
+UPDATE device_pairing dp
+SET pairing_status = 'UNPAIRED', unpaired_at = CURRENT_TIMESTAMP
+FROM fleet_node_device fnd
+WHERE dp.device_id = fnd.device_id
+  AND fnd.fleet_node_id = $1 AND fnd.org_id = $2
+`
+
+type UnpairDevicesForFleetNodeRevocationParams struct {
+	FleetNodeID int64
+	OrgID       int64
+}
+
+func (q *Queries) UnpairDevicesForFleetNodeRevocation(ctx context.Context, arg UnpairDevicesForFleetNodeRevocationParams) (int64, error) {
+	result, err := q.exec(ctx, q.unpairDevicesForFleetNodeRevocationStmt, unpairDevicesForFleetNodeRevocation, arg.FleetNodeID, arg.OrgID)
 	if err != nil {
 		return 0, err
 	}

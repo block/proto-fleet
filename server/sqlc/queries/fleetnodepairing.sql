@@ -166,11 +166,29 @@ WHERE device_id = $1 AND org_id = $2;
 DELETE FROM fleet_node_device
 WHERE fleet_node_id = $1 AND org_id = $2;
 
--- name: ListFleetNodeDeviceIDsForRevocation :many
-SELECT device_id
-FROM fleet_node_device
-WHERE fleet_node_id = $1 AND org_id = $2
-ORDER BY device_id ASC;
+-- name: UnpairDevicesForFleetNodeRevocation :execrows
+UPDATE device_pairing dp
+SET pairing_status = 'UNPAIRED', unpaired_at = CURRENT_TIMESTAMP
+FROM fleet_node_device fnd
+WHERE dp.device_id = fnd.device_id
+  AND fnd.fleet_node_id = $1 AND fnd.org_id = $2;
+
+-- name: OfflineDevicesForFleetNodeRevocation :execrows
+INSERT INTO device_status (device_id, status, status_timestamp, status_details)
+SELECT fnd.device_id, 'OFFLINE', CURRENT_TIMESTAMP, NULL
+FROM fleet_node_device fnd
+WHERE fnd.fleet_node_id = $1 AND fnd.org_id = $2
+ON CONFLICT (device_id) DO UPDATE SET
+    status = EXCLUDED.status,
+    status_timestamp = EXCLUDED.status_timestamp,
+    status_details = EXCLUDED.status_details;
+
+-- name: ListFleetNodeDevicesForRevocation :many
+SELECT fnd.device_id, d.device_identifier
+FROM fleet_node_device fnd
+JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
+WHERE fnd.fleet_node_id = $1 AND fnd.org_id = $2
+ORDER BY fnd.device_id ASC;
 
 -- name: ListFleetNodeDevices :many
 SELECT fnd.fleet_node_id,

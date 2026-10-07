@@ -820,7 +820,8 @@ func (s *SQLDeviceStore) UpsertDeviceStatuses(ctx context.Context, updates []sto
 //
 // A single bulk INSERT with ON CONFLICT DO UPDATE is both fast (1 round-trip) and atomic.
 // The WHERE clause prevents telemetry status writes from overwriting firmware update
-// states (UPDATING, REBOOT_REQUIRED) that are managed by the command execution service.
+// states (UPDATING, REBOOT_REQUIRED) that are managed by the command execution
+// service, and ignores late results for unpaired miners of revoked Nodes.
 func buildDeviceStatusBulkUpsert(rowCount int) string {
 	var b strings.Builder
 	paramNum := 1
@@ -838,7 +839,14 @@ func buildDeviceStatusBulkUpsert(rowCount int) string {
 			"status = EXCLUDED.status, "+
 			"status_timestamp = EXCLUDED.status_timestamp, "+
 			"status_details = EXCLUDED.status_details "+
-			"WHERE device_status.status NOT IN ('UPDATING', 'REBOOT_REQUIRED')",
+			"WHERE device_status.status NOT IN ('UPDATING', 'REBOOT_REQUIRED') "+
+			"AND NOT EXISTS ("+
+			"SELECT 1 FROM device d "+
+			"JOIN device_pairing dp ON dp.device_id = d.id AND dp.pairing_status = 'UNPAIRED' "+
+			"JOIN discovered_device dd ON dd.id = d.discovered_device_id "+
+			"JOIN fleet_node fn ON fn.id = dd.discovered_by_fleet_node_id AND fn.enrollment_status = 'REVOKED' "+
+			"WHERE d.id = EXCLUDED.device_id "+
+			"AND NOT EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = d.id))",
 		b.String(),
 	)
 }
