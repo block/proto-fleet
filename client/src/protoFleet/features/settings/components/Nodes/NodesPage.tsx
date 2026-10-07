@@ -277,10 +277,11 @@ const NodesPage = () => {
       ) : null}
       {findingNode ? (
         <FindNodeMinersModal
-          key={`${findingNode.fleetNodeId}:${finderRevisionByNode[findingNode.fleetNodeId] ?? 0}`}
+          key={findingNode.fleetNodeId}
           node={findingNode}
           canPair={Boolean(canPairMiners)}
           blockedPairingIdentifiers={blockedPairingByNode[findingNode.fleetNodeId] ?? []}
+          settledPairingRevision={finderRevisionByNode[findingNode.fleetNodeId] ?? 0}
           onDismiss={() => setFindingNodeId(null)}
           onUpdated={handleNodesUpdated}
           onPairingStarted={(identifiers) => rememberPairing(findingNode.fleetNodeId, identifiers)}

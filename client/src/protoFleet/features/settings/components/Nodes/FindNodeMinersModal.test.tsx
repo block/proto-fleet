@@ -56,6 +56,7 @@ const renderFinder = (props: Partial<ComponentProps<typeof FindNodeMinersModal>>
       node={node}
       canPair
       blockedPairingIdentifiers={[]}
+      settledPairingRevision={0}
       onDismiss={vi.fn()}
       onUpdated={vi.fn()}
       onPairingStarted={vi.fn()}
@@ -98,6 +99,7 @@ describe("FindNodeMinersModal", () => {
   it("rescans this Node and refreshes its discoveries", async () => {
     listDiscovered
       .mockResolvedValueOnce({ devices: [miner], nextCursor: 0n })
+      .mockResolvedValueOnce({ devices: [miner], nextCursor: 0n })
       .mockResolvedValueOnce({ devices: [otherMiner], nextCursor: 0n });
     renderFinder();
 
@@ -107,6 +109,25 @@ describe("FindNodeMinersModal", () => {
     expect(await screen.findByRole("checkbox", { name: "Select miner-3" })).toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "Select miner-2" })).not.toBeInTheDocument();
     expect(discoverOnNode).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows persisted discoveries when a scan is rejected because the Node is busy", async () => {
+    discoverOnNode.mockRejectedValue(new Error("Node is busy"));
+    renderFinder();
+
+    expect(await screen.findByRole("checkbox", { name: "Select miner-2" })).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Node is busy");
+  });
+
+  it("loads miners saved by a scan even when its stream fails", async () => {
+    listDiscovered
+      .mockResolvedValueOnce({ devices: [], nextCursor: 0n })
+      .mockResolvedValueOnce({ devices: [miner], nextCursor: 0n });
+    discoverOnNode.mockRejectedValue(new Error("Scan disconnected"));
+    renderFinder();
+
+    expect(await screen.findByRole("checkbox", { name: "Select miner-2" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Scan disconnected");
   });
 
   it("adds selected miners through this Node and shows the result", async () => {
@@ -153,6 +174,57 @@ describe("FindNodeMinersModal", () => {
     expect(onPairingStarted).toHaveBeenCalledWith(["miner-2", "miner-3"]);
     expect(onPairingCompleted).toHaveBeenCalledWith(["miner-2"]);
     expect(onPairingCompleted).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps synthetic FAILED pairing results blocked after a stream failure", async () => {
+    pairOnNode.mockImplementation(async (_id, _ids, _credentials, onResults) => {
+      onResults([
+        create(DevicePairingResultSchema, {
+          deviceIdentifier: "miner-2",
+          pairingStatus: PairingStatus.FAILED,
+          error: "device was not paired before the batch completed (timed out or truncated); retry",
+        }),
+      ]);
+      throw new Error("Node control stream disconnected");
+    });
+    const onPairingStarted = vi.fn();
+    const onPairingCompleted = vi.fn();
+    renderFinder({ onPairingStarted, onPairingCompleted });
+
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Select miner-2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add selected (1)" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Node control stream disconnected");
+    expect(onPairingStarted).toHaveBeenCalledWith(["miner-2"]);
+    expect(onPairingCompleted).not.toHaveBeenCalled();
+  });
+
+  it("defers a late-settlement refresh while a later-page miner is selected", async () => {
+    listDiscovered.mockImplementation(async (_nodeId, cursor = 0n) =>
+      cursor === 0n ? { devices: [miner], nextCursor: 42n } : { devices: [otherMiner], nextCursor: 0n },
+    );
+    const props = {
+      node,
+      canPair: true,
+      blockedPairingIdentifiers: [],
+      onDismiss: vi.fn(),
+      onUpdated: vi.fn(),
+      onPairingStarted: vi.fn(),
+      onPairingCompleted: vi.fn(),
+      onPairingSettledAfterDismiss: vi.fn(),
+    };
+    const { rerender } = render(<FindNodeMinersModal {...props} settledPairingRevision={0} />);
+
+    await screen.findByRole("checkbox", { name: "Select miner-2" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Load next 100" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Load next 100" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Select miner-3" }));
+    rerender(<FindNodeMinersModal {...props} settledPairingRevision={1} />);
+
+    expect(screen.getByRole("checkbox", { name: "Select miner-3" })).toBeChecked();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner-3" }));
+    await waitFor(() => expect(screen.queryByRole("checkbox", { name: "Select miner-3" })).not.toBeInTheDocument());
   });
 
   it("releases retry blocks after definitive pre-dispatch rejection", async () => {

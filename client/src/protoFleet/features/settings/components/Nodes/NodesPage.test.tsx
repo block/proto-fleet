@@ -1,9 +1,15 @@
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import NodesPage from "./NodesPage";
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  DevicePairingResultSchema,
+  FleetNodeDiscoveredDeviceSchema,
+  FleetNodeEnrollmentStatus,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import type { ListAction, ListActionValue } from "@/shared/components/List/types";
 
@@ -11,6 +17,9 @@ const permissionsMock = vi.hoisted(() => ({ current: [] as string[] }));
 const listFleetNodesMock = vi.hoisted(() => vi.fn());
 const revokeFleetNodeMock = vi.hoisted(() => vi.fn());
 const listFleetNodeDevicesMock = vi.hoisted(() => vi.fn());
+const listFleetNodeDiscoveredDevicesMock = vi.hoisted(() => vi.fn());
+const discoverOnFleetNodeMock = vi.hoisted(() => vi.fn());
+const pairDiscoveredDevicesOnFleetNodeMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: (permission: string) => permissionsMock.current.includes(permission),
@@ -23,6 +32,9 @@ vi.mock("@/protoFleet/api/useFleetNodes", () => ({
     confirmFleetNode: vi.fn(),
     revokeFleetNode: revokeFleetNodeMock,
     listFleetNodeDevices: listFleetNodeDevicesMock,
+    listFleetNodeDiscoveredDevices: listFleetNodeDiscoveredDevicesMock,
+    discoverOnFleetNode: discoverOnFleetNodeMock,
+    pairDiscoveredDevicesOnFleetNode: pairDiscoveredDevicesOnFleetNodeMock,
   }),
 }));
 
@@ -75,17 +87,6 @@ vi.mock("@/protoFleet/features/settings/components/Nodes/NodeDetailsModal", () =
     },
   };
 });
-
-vi.mock("@/protoFleet/features/settings/components/Nodes/FindNodeMinersModal", () => ({
-  default: ({ node, onDismiss }: { node: FleetNodeItem; onDismiss: () => void }) => (
-    <div role="dialog" aria-label="Find miners on Node">
-      {node.name}
-      <button type="button" onClick={onDismiss}>
-        Close finder
-      </button>
-    </div>
-  ),
-}));
 
 vi.mock("@/protoFleet/features/settings/components/Nodes/RevokeNodeDialog", () => ({
   default: ({
@@ -205,6 +206,12 @@ describe("NodesPage", () => {
     revokeFleetNodeMock.mockResolvedValue(undefined);
     listFleetNodeDevicesMock.mockReset();
     listFleetNodeDevicesMock.mockResolvedValue([]);
+    listFleetNodeDiscoveredDevicesMock.mockReset();
+    listFleetNodeDiscoveredDevicesMock.mockResolvedValue({ devices: [], nextCursor: 0n });
+    discoverOnFleetNodeMock.mockReset();
+    discoverOnFleetNodeMock.mockResolvedValue(undefined);
+    pairDiscoveredDevicesOnFleetNodeMock.mockReset();
+    pairDiscoveredDevicesOnFleetNodeMock.mockResolvedValue(undefined);
   });
 
   it("renders nodes for read-only users without management actions", async () => {
@@ -264,7 +271,61 @@ describe("NodesPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
     fireEvent.click(screen.getByRole("button", { name: "Find miners" }));
     expect(screen.queryByRole("dialog", { name: "Node details" })).not.toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Find miners on Node" })).toHaveTextContent("node-01");
+    expect(screen.getByTestId("find-node-miners-modal")).toHaveTextContent("node-01");
+  });
+
+  it("keeps the reopened finder intact when an earlier pairing settles", async () => {
+    permissionsMock.current = ["fleetnode:read", "fleetnode:manage", "miner:pair"];
+    listFleetNodeDiscoveredDevicesMock.mockResolvedValue({
+      devices: [
+        create(FleetNodeDiscoveredDeviceSchema, { deviceIdentifier: "miner-2", ipAddress: "192.168.1.2" }),
+        create(FleetNodeDiscoveredDeviceSchema, { deviceIdentifier: "miner-3", ipAddress: "192.168.1.3" }),
+        create(FleetNodeDiscoveredDeviceSchema, { deviceIdentifier: "miner-4", ipAddress: "192.168.1.4" }),
+      ],
+      nextCursor: 0n,
+    });
+    let finishFirstPairing: (() => void) | undefined;
+    pairDiscoveredDevicesOnFleetNodeMock.mockImplementationOnce(
+      (_nodeId, _identifiers, _credentials, onResults) =>
+        new Promise<void>((_resolve, reject) => {
+          finishFirstPairing = () => {
+            onResults([
+              create(DevicePairingResultSchema, {
+                deviceIdentifier: "miner-2",
+                pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
+              }),
+            ]);
+            reject(new Error("Pair result stream disconnected"));
+          };
+        }),
+    );
+    renderNodesPage();
+
+    await screen.findByText("node-01");
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find miners" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Select miner-2" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner-3" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Add selected (2)" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Add selected (2)" }));
+    await waitFor(() => expect(pairDiscoveredDevicesOnFleetNodeMock).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(within(screen.getByTestId("find-node-miners-modal")).getByRole("button", { name: "Close dialog" }));
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find miners" }));
+    const reopened = screen.getByTestId("find-node-miners-modal");
+    expect(await screen.findByRole("checkbox", { name: "Select miner-2" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "Select miner-3" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner-4" }));
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "operator" } });
+
+    await act(async () => finishFirstPairing?.());
+
+    expect(screen.getByTestId("find-node-miners-modal")).toBe(reopened);
+    expect(screen.getByRole("checkbox", { name: "Select miner-4" })).toBeChecked();
+    expect(screen.getByLabelText("Username")).toHaveValue("operator");
+    expect(screen.getByRole("checkbox", { name: "Select miner-2" })).toBeEnabled();
+    expect(screen.getByRole("checkbox", { name: "Select miner-3" })).toBeDisabled();
   });
 
   it("loads the affected miners before allowing revocation", async () => {

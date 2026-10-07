@@ -35,6 +35,7 @@ interface FindNodeMinersModalProps {
   node: FleetNodeItem;
   canPair: boolean;
   blockedPairingIdentifiers: string[];
+  settledPairingRevision: number;
   onDismiss: () => void;
   onUpdated: () => void;
   onPairingStarted: (identifiers: string[]) => void;
@@ -46,6 +47,7 @@ const FindNodeMinersModal = ({
   node,
   canPair,
   blockedPairingIdentifiers,
+  settledPairingRevision,
   onDismiss,
   onUpdated,
   onPairingStarted,
@@ -68,19 +70,37 @@ const FindNodeMinersModal = ({
   const [warning, setWarning] = useState("");
   const discoveredGenerationRef = useRef(0);
   const mountedRef = useRef(true);
+  const selectedRef = useRef(selected);
+  const lastSettledPairingRevisionRef = useRef(settledPairingRevision);
   const selectedIdentifiers = useMemo(() => new Set(selected), [selected]);
   const blockedIdentifiers = useMemo(() => new Set(blockedPairingIdentifiers), [blockedPairingIdentifiers]);
 
-  const refresh = useCallback(async () => {
-    const generation = ++discoveredGenerationRef.current;
-    setIsLoadingMore(false);
-    const discovery = await listFleetNodeDiscoveredDevices(node.fleetNodeId);
-    if (generation !== discoveredGenerationRef.current) return;
-    setDiscovered(discovery.devices);
-    setNextCursor(discovery.nextCursor);
-    setSelected([]);
-    setHasLoaded(true);
-  }, [listFleetNodeDiscoveredDevices, node.fleetNodeId]);
+  const refresh = useCallback(
+    async (preserveSelection = false) => {
+      const generation = ++discoveredGenerationRef.current;
+      setIsLoadingMore(false);
+      try {
+        const discovery = await listFleetNodeDiscoveredDevices(node.fleetNodeId);
+        if (generation !== discoveredGenerationRef.current || !mountedRef.current) return false;
+        // A late settlement must not discard selections from a loaded later page.
+        // Retry the refresh when the operator finishes with the current selection.
+        if (preserveSelection && selectedRef.current.length > 0) return false;
+        setDiscovered(discovery.devices);
+        setNextCursor(discovery.nextCursor);
+        setSelected([]);
+        setHasLoaded(true);
+        return true;
+      } catch (err) {
+        if (generation === discoveredGenerationRef.current && mountedRef.current) throw err;
+        return false;
+      }
+    },
+    [listFleetNodeDiscoveredDevices, node.fleetNodeId],
+  );
+
+  useEffect(() => {
+    selectedRef.current = selected;
+  }, [selected]);
 
   const loadMore = async () => {
     if (nextCursor === 0n || isLoadingMore || isScanning || isPairing) return;
@@ -106,6 +126,7 @@ const FindNodeMinersModal = ({
     setScanCount(0);
     setIsScanning(true);
     const seen = new Set<string>();
+    let scanFailed = false;
     try {
       await discoverOnFleetNode(
         node.fleetNodeId,
@@ -117,11 +138,22 @@ const FindNodeMinersModal = ({
           setScanCount(seen.size);
         },
       );
-      if (mountedRef.current) await refresh();
     } catch (err) {
+      scanFailed = true;
       if (mountedRef.current) setError(err instanceof Error ? err.message : "Discovery failed.");
     } finally {
-      if (mountedRef.current) setIsScanning(false);
+      if (mountedRef.current) {
+        try {
+          await refresh();
+          if (mountedRef.current && !scanFailed) setError("");
+        } catch (err) {
+          if (mountedRef.current && !scanFailed) {
+            setError(err instanceof Error ? err.message : "Failed to load discovered miners.");
+          }
+        } finally {
+          if (mountedRef.current) setIsScanning(false);
+        }
+      }
     }
   }, [discoverOnFleetNode, node.fleetNodeId, refresh]);
 
@@ -130,14 +162,35 @@ const FindNodeMinersModal = ({
     const generationRef = discoveredGenerationRef;
     mountedRef.current = true;
     void Promise.resolve().then(() => {
-      if (active) void scan();
+      if (!active) return;
+      void refresh().catch((err) => {
+        if (active) setError(err instanceof Error ? err.message : "Failed to load discovered miners.");
+      });
+      void scan();
     });
     return () => {
       active = false;
       mountedRef.current = false;
       generationRef.current++;
     };
-  }, [scan]);
+  }, [refresh, scan]);
+
+  useEffect(() => {
+    if (
+      settledPairingRevision === lastSettledPairingRevisionRef.current ||
+      isScanning ||
+      isPairing ||
+      selected.length > 0
+    )
+      return;
+    void refresh(true)
+      .then((applied) => {
+        if (applied) lastSettledPairingRevisionRef.current = settledPairingRevision;
+      })
+      .catch((err) => {
+        if (mountedRef.current) setError(err instanceof Error ? err.message : "Failed to load discovered miners.");
+      });
+  }, [settledPairingRevision, isScanning, isPairing, selected.length, refresh]);
 
   const pairSelected = async () => {
     if (selected.length === 0 || selected.some((identifier) => blockedIdentifiers.has(identifier))) return;
@@ -159,7 +212,15 @@ const FindNodeMinersModal = ({
         : undefined;
       await pairDiscoveredDevicesOnFleetNode(node.fleetNodeId, submitted, credentials, (results) => {
         receivedResults = true;
+        // FAILED can be a server-synthesized placeholder after a Node timeout
+        // or disconnect, so it is not proof that retrying the miner is safe.
         const completed = results
+          .filter(
+            (result) =>
+              result.pairingStatus === PairingStatus.PAIRED ||
+              result.pairingStatus === PairingStatus.DEFAULT_PASSWORD ||
+              result.pairingStatus === PairingStatus.AUTHENTICATION_NEEDED,
+          )
           .map((result) => result.deviceIdentifier)
           .filter((identifier) => unreported.delete(identifier));
         if (completed.length > 0) onPairingCompleted(completed);
@@ -179,7 +240,6 @@ const FindNodeMinersModal = ({
         }
       });
       pairingCompleted = true;
-      if (unreported.size > 0) onPairingCompleted([...unreported]);
       if (mountedRef.current) {
         setSelected([]);
         setPassword("");
