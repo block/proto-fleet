@@ -5,6 +5,7 @@ import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import EnrollNodeModal from "@/protoFleet/features/settings/components/Nodes/EnrollNodeModal";
+import FindNodeMinersModal from "@/protoFleet/features/settings/components/Nodes/FindNodeMinersModal";
 import NodeDetailsModal from "@/protoFleet/features/settings/components/Nodes/NodeDetailsModal";
 import NodeStatusBadge from "@/protoFleet/features/settings/components/Nodes/NodeStatusBadge";
 import RevokeNodeDialog from "@/protoFleet/features/settings/components/Nodes/RevokeNodeDialog";
@@ -40,7 +41,8 @@ const NodesPage = () => {
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [resumeNode, setResumeNode] = useState<FleetNodeItem | null>(null);
   const [detailsNodeId, setDetailsNodeId] = useState<string | null>(null);
-  const [detailsRevisionByNode, setDetailsRevisionByNode] = useState<Record<string, number>>({});
+  const [findingNodeId, setFindingNodeId] = useState<string | null>(null);
+  const [finderRevisionByNode, setFinderRevisionByNode] = useState<Record<string, number>>({});
   const [blockedPairingByNode, setBlockedPairingByNode] = useState<Record<string, string[]>>({});
   const [revokeNodeData, setRevokeNodeData] = useState<FleetNodeItem | null>(null);
   const [revokeMinerNames, setRevokeMinerNames] = useState<string[]>([]);
@@ -105,11 +107,12 @@ const NodesPage = () => {
     });
   }, []);
 
-  const refreshReopenedDetails = useCallback((nodeId: string) => {
-    setDetailsRevisionByNode((current) => ({ ...current, [nodeId]: (current[nodeId] ?? 0) + 1 }));
+  const refreshReopenedFinder = useCallback((nodeId: string) => {
+    setFinderRevisionByNode((current) => ({ ...current, [nodeId]: (current[nodeId] ?? 0) + 1 }));
   }, []);
 
   const detailsNode = nodes.find((node) => node.fleetNodeId === detailsNodeId) ?? null;
+  const findingNode = nodes.find((node) => node.fleetNodeId === findingNodeId) ?? null;
 
   const dismissRevoke = useCallback(() => {
     revokeImpactRequestRef.current++;
@@ -263,16 +266,26 @@ const NodesPage = () => {
       />
       {detailsNode ? (
         <NodeDetailsModal
-          key={`${detailsNode.fleetNodeId}:${detailsRevisionByNode[detailsNode.fleetNodeId] ?? 0}`}
           node={detailsNode}
-          canManage={canManageNodes}
-          canPair={canPairMiners}
-          blockedPairingIdentifiers={blockedPairingByNode[detailsNode.fleetNodeId] ?? []}
+          canFindMiners={Boolean(canManageNodes)}
           onDismiss={() => setDetailsNodeId(null)}
+          onFindMiners={() => {
+            setDetailsNodeId(null);
+            setFindingNodeId(detailsNode.fleetNodeId);
+          }}
+        />
+      ) : null}
+      {findingNode ? (
+        <FindNodeMinersModal
+          key={`${findingNode.fleetNodeId}:${finderRevisionByNode[findingNode.fleetNodeId] ?? 0}`}
+          node={findingNode}
+          canPair={Boolean(canPairMiners)}
+          blockedPairingIdentifiers={blockedPairingByNode[findingNode.fleetNodeId] ?? []}
+          onDismiss={() => setFindingNodeId(null)}
           onUpdated={handleNodesUpdated}
-          onPairingStarted={(identifiers) => rememberPairing(detailsNode.fleetNodeId, identifiers)}
-          onPairingCompleted={(identifiers) => forgetPairing(detailsNode.fleetNodeId, identifiers)}
-          onPairingSettledAfterDismiss={() => refreshReopenedDetails(detailsNode.fleetNodeId)}
+          onPairingStarted={(identifiers) => rememberPairing(findingNode.fleetNodeId, identifiers)}
+          onPairingCompleted={(identifiers) => forgetPairing(findingNode.fleetNodeId, identifiers)}
+          onPairingSettledAfterDismiss={() => refreshReopenedFinder(findingNode.fleetNodeId)}
         />
       ) : null}
       <RevokeNodeDialog
