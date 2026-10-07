@@ -96,6 +96,6 @@
   "overrides": {
     "eslint": "10.10.0",
     "esbuild": "0.28.2",
-    "shell-quote": "1.10.0"
+    "shell-quote": "1.11.0"
   }
 }
