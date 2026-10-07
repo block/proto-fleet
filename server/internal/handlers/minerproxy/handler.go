@@ -24,6 +24,7 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -64,6 +65,7 @@ type loginResponse struct {
 }
 
 type Handler struct {
+	writeService       *devicewrite.Service
 	queries            sqlc.Querier
 	sessionService     *session.Service
 	userStore          stores.UserStore
@@ -77,6 +79,8 @@ type Handler struct {
 }
 
 type proxyTarget struct {
+	dispatch         func(context.Context, func(context.Context) error) error
+	binding          sqlc.GetDirectProtoMinerProxyTargetRow
 	deviceIdentifier string
 	baseURL          string
 	siteID           *int64
@@ -106,6 +110,7 @@ func NewHandler(
 	encryptService *encrypt.Service,
 ) http.Handler {
 	return &Handler{
+		writeService:       devicewrite.NewService(conn),
 		queries:            db.NewFailoverResettingQuerier(db.NewRetryDB(conn)),
 		sessionService:     sessionService,
 		userStore:          userStore,
@@ -118,13 +123,16 @@ func NewHandler(
 }
 
 func newProxyHTTPClient(skipVerify bool) *http.Client {
+	// A reused connection can be retried internally by net/http without a new
+	// binding or ownership check. One fresh HTTP/1 connection per request keeps
+	// every physical send inside its explicit dispatch admission.
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
 	transport := &http.Transport{
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   10,
-		IdleConnTimeout:       90 * time.Second,
+		DisableKeepAlives:     true,
+		Protocols:             protocols,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: proxyClientTimeout,
-		ForceAttemptHTTP2:     skipVerify,
 	}
 	if skipVerify {
 		transport.TLSClientConfig = &tls.Config{
@@ -219,39 +227,52 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	responseStarted := false
+	err = h.writeService.WithHostAttempt(ctx, target.binding.OrgID, target.binding.ID, target.binding.WriteEpoch, func(ctx context.Context) error {
+		return h.forwardAndCopy(ctx, w, r, target, proxyPath, body, &responseStarted)
+	})
+	if err != nil && !responseStarted {
+		writeError(w, httpStatusForError(err), clientMessageForError(err))
+	}
+}
+
+func (h *Handler) forwardAndCopy(ctx context.Context, w http.ResponseWriter, r *http.Request, target proxyTarget, proxyPath string, body []byte, responseStarted *bool) (resultErr error) {
 	resp, err := h.forward(ctx, r, target, proxyPath, body, false)
 	if err != nil {
-		writeError(w, httpStatusForError(err), clientMessageForError(err))
-		return
+		return err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusUnauthorized && target.hasCredentials() && requiresMinerAuthentication(proxyPath) {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		h.clearToken(target.cacheKey())
-		resp.Body.Close()
-
-		resp, err = h.forward(ctx, r, target, proxyPath, body, true)
-		if err != nil {
-			writeError(w, httpStatusForError(err), clientMessageForError(err))
+	defer func() {
+		if resp == nil {
 			return
 		}
-		defer resp.Body.Close()
+		if err := resp.Body.Close(); err != nil && resultErr == nil {
+			resultErr = fleeterror.NewUnavailableErrorf("miner response could not be closed")
+		}
+	}()
+	if resp.StatusCode == http.StatusUnauthorized && target.hasCredentials() && requiresMinerAuthentication(proxyPath) {
+		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+			return fleeterror.NewUnavailableErrorf("miner response could not be consumed")
+		}
+		h.clearToken(target.cacheKey())
+		if err := resp.Body.Close(); err != nil {
+			return fleeterror.NewUnavailableErrorf("miner response could not be closed")
+		}
+		resp, err = h.forward(ctx, r, target, proxyPath, body, true)
+		if err != nil {
+			return err
+		}
 	}
-
 	copyResponseHeaders(w.Header(), resp.Header)
-	// Set after copying so a miner cannot override them: neutralize any
-	// active content the miner might return on the same-origin Fleet URL.
-	// sandbox + default-src 'none' stops scripts even if the body is HTML, and
-	// nosniff stops MIME-sniffing a benign type into something executable.
 	setResponseHardeningHeaders(w.Header())
+	*responseStarted = true
 	w.WriteHeader(resp.StatusCode)
 	if r.Method == http.MethodHead {
-		return
+		return nil
 	}
 	if _, err := io.Copy(w, resp.Body); err != nil {
-		slog.Warn("miner proxy response copy failed", "device_identifier", deviceIdentifier, "error", err)
+		return fleeterror.NewUnavailableErrorf("miner response stream did not complete")
 	}
+	return nil
 }
 
 func (h *Handler) authenticate(r *http.Request) (context.Context, *session.Info, error) {
@@ -330,6 +351,13 @@ func (h *Handler) resolveTarget(ctx context.Context, deviceIdentifier string, or
 	}
 
 	return proxyTarget{
+		binding: row,
+		dispatch: func(ctx context.Context, call func(context.Context) error) error {
+			if err := h.revalidateTarget(ctx, row); err != nil {
+				return err
+			}
+			return devicewrite.Dispatch(ctx, call)
+		},
 		deviceIdentifier: row.DeviceIdentifier,
 		baseURL:          base.String(),
 		siteID:           siteID,
@@ -374,9 +402,18 @@ func (h *Handler) forward(
 		req.Header.Del("Authorization")
 	}
 
-	resp, err := h.clientFor(target.baseURL).Do(req)
+	var resp *http.Response
+	err = h.dispatchTarget(ctx, target, func(ctx context.Context) error {
+		var callErr error
+		//nolint:bodyclose // forwardAndCopy closes the returned response within the admitted attempt.
+		resp, callErr = h.clientFor(target.baseURL).Do(req.WithContext(ctx))
+		if callErr != nil {
+			return fleeterror.NewUnavailableErrorf("failed to reach miner")
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fleeterror.NewUnavailableErrorf("failed to reach miner: %v", err)
+		return nil, err
 	}
 	return resp, nil
 }
@@ -403,7 +440,7 @@ func (h *Handler) tokenFor(ctx context.Context, target proxyTarget, forceLogin b
 		return "", fleeterror.NewInternalErrorf("failed to decrypt miner credentials: %v", err)
 	}
 
-	token, err := h.login(ctx, target.baseURL, string(passwordBytes))
+	token, err := h.loginTarget(ctx, target, string(passwordBytes))
 	if err != nil {
 		return "", err
 	}
@@ -460,7 +497,38 @@ func (h *Handler) clearToken(key string) {
 	delete(h.tokens, key)
 }
 
-func (h *Handler) login(ctx context.Context, baseURL string, password string) (string, error) {
+func (h *Handler) loginTarget(ctx context.Context, target proxyTarget, password string) (string, error) {
+	var token string
+	err := h.dispatchTarget(ctx, target, func(ctx context.Context) error {
+		var err error
+		token, err = h.login(ctx, target.baseURL, password)
+		return err
+	})
+	return token, err
+}
+
+func (h *Handler) revalidateTarget(ctx context.Context, binding sqlc.GetDirectProtoMinerProxyTargetRow) error {
+	fresh, err := h.queries.GetDirectProtoMinerProxyTarget(ctx, sqlc.GetDirectProtoMinerProxyTargetParams{DeviceIdentifier: binding.DeviceIdentifier, OrgID: binding.OrgID})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fleeterror.NewFailedPreconditionError("miner proxy connection changed")
+		}
+		return fleeterror.NewInternalError("miner proxy connection could not be revalidated")
+	}
+	if fresh != binding {
+		return fleeterror.NewFailedPreconditionError("miner proxy connection changed")
+	}
+	return nil
+}
+
+func (h *Handler) dispatchTarget(ctx context.Context, target proxyTarget, call func(context.Context) error) error {
+	if target.dispatch == nil {
+		return fleeterror.NewFailedPreconditionError("miner proxy target admission missing")
+	}
+	return target.dispatch(ctx, call)
+}
+
+func (h *Handler) login(ctx context.Context, baseURL string, password string) (token string, resultErr error) {
 	body, err := json.Marshal(loginRequest{Password: password})
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("failed to create miner login request: %v", err)
@@ -474,25 +542,37 @@ func (h *Handler) login(ctx context.Context, baseURL string, password string) (s
 
 	resp, err := h.clientFor(baseURL).Do(req)
 	if err != nil {
-		return "", fleeterror.NewUnavailableErrorf("failed to authenticate with miner: %v", err)
+		return "", fleeterror.NewUnavailableErrorf("failed to authenticate with miner")
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil && resultErr == nil {
+			token = ""
+			resultErr = fleeterror.NewUnavailableErrorf("miner login response could not be closed")
+		}
+	}()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		_, _ = io.Copy(io.Discard, resp.Body)
+		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+			return "", fleeterror.NewUnavailableErrorf("miner login response could not be consumed")
+		}
 		return "", fleeterror.NewUnauthenticatedError("stored miner credentials were rejected")
 	}
 	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, resp.Body)
+		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+			return "", fleeterror.NewUnavailableErrorf("miner login response could not be consumed")
+		}
 		return "", fleeterror.NewFailedPreconditionErrorf("miner login failed with status %d", resp.StatusCode)
 	}
 
+	// Read the complete bounded body before accepting a token. Decoding a valid
+	// JSON prefix alone can hide a later response read failure.
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, maxLoginResponseBytes+1))
+	if err != nil || len(responseBody) > maxLoginResponseBytes {
+		return "", fleeterror.NewUnavailableErrorf("miner login response did not complete")
+	}
 	var tokens loginResponse
-	// Bound the response: the login endpoint is dialed at a discovery-sourced
-	// address, so a hostile/wrong host must not be able to stream an unbounded
-	// body into the decoder.
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxLoginResponseBytes)).Decode(&tokens); err != nil {
-		return "", fleeterror.NewInternalErrorf("failed to decode miner login response: %v", err)
+	if err := json.Unmarshal(responseBody, &tokens); err != nil {
+		return "", fleeterror.NewUnavailableErrorf("miner login response could not be decoded")
 	}
 	if tokens.AccessToken == "" {
 		return "", fleeterror.NewInternalError("miner login response did not include an access token")

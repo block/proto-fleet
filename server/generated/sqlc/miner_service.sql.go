@@ -236,11 +236,16 @@ SELECT
     dd.rpc_tls,
     dd.driver_name,
     mc.username_enc,
-    mc.password_enc
+    mc.password_enc,
+    d.discovered_device_id,
+    dp.paired_at,
+    mc.updated_at AS credential_version,
+    COALESCE(f.epoch,0)::bigint AS write_epoch
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN miner_credentials mc ON d.id = mc.device_id
+LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
 WHERE d.device_identifier = $1
     AND d.org_id = $2
     AND d.deleted_at IS NULL
@@ -266,20 +271,24 @@ type GetDirectProtoMinerProxyTargetParams struct {
 }
 
 type GetDirectProtoMinerProxyTargetRow struct {
-	ID               int64
-	DeviceIdentifier string
-	OrgID            int64
-	SiteID           sql.NullInt64
-	SerialNumber     sql.NullString
-	MacAddress       string
-	IpAddress        string
-	Port             string
-	UrlScheme        string
-	RpcPort          int32
-	RpcTls           bool
-	DriverName       string
-	UsernameEnc      sql.NullString
-	PasswordEnc      sql.NullString
+	ID                 int64
+	DeviceIdentifier   string
+	OrgID              int64
+	SiteID             sql.NullInt64
+	SerialNumber       sql.NullString
+	MacAddress         string
+	IpAddress          string
+	Port               string
+	UrlScheme          string
+	RpcPort            int32
+	RpcTls             bool
+	DriverName         string
+	UsernameEnc        sql.NullString
+	PasswordEnc        sql.NullString
+	DiscoveredDeviceID int64
+	PairedAt           sql.NullTime
+	CredentialVersion  sql.NullTime
+	WriteEpoch         int64
 }
 
 func (q *Queries) GetDirectProtoMinerProxyTarget(ctx context.Context, arg GetDirectProtoMinerProxyTargetParams) (GetDirectProtoMinerProxyTargetRow, error) {
@@ -300,6 +309,10 @@ func (q *Queries) GetDirectProtoMinerProxyTarget(ctx context.Context, arg GetDir
 		&i.DriverName,
 		&i.UsernameEnc,
 		&i.PasswordEnc,
+		&i.DiscoveredDeviceID,
+		&i.PairedAt,
+		&i.CredentialVersion,
+		&i.WriteEpoch,
 	)
 	return i, err
 }
