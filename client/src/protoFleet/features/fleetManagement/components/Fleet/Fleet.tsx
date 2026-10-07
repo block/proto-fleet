@@ -157,7 +157,7 @@ const Fleet = () => {
   const insideFleetShell = isPathScopable(pathname);
 
   // Get filter and sort from URL - memoize to avoid recreating on every render
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const inventoryAncestors = useMemo(() => inventoryAncestorsFromURL(searchParams), [searchParams]);
   const availableContainers = useContainerFilterOptions(useInventory);
   const urlFilter = useMemo(() => parseFilterFromURL(searchParams), [searchParams]);
@@ -389,25 +389,6 @@ const Fleet = () => {
         <p className="px-6 pt-4 text-300 text-text-primary-70 laptop:px-10">
           Container and tank filters require access to container inventory.
         </p>
-      ) : null}
-      {inventoryAncestors.length > 0 ? (
-        <div className="px-6 pt-4 text-300 text-text-primary-70 laptop:px-10">
-          Showing modules in the selected {searchParams.has("tank") ? "tank scope" : "containers"}.
-          <button
-            type="button"
-            className="ml-3 underline"
-            onClick={() =>
-              setSearchParams((params) => {
-                const next = new URLSearchParams(params);
-                next.delete("container");
-                next.delete("tank");
-                return next;
-              })
-            }
-          >
-            Show all mining assets
-          </button>
-        </div>
       ) : null}
       {useInventory && miningInventoryRequest(currentFilter).minerFilter ? (
         <p className="px-6 pt-4 text-300 text-text-primary-70 laptop:px-10">
