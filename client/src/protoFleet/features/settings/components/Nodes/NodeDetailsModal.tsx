@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 import NodeStatusBadge from "./NodeStatusBadge";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type {
@@ -8,6 +9,7 @@ import type {
   FleetNodeDiscoveredDevice,
 } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { CredentialsSchema, DiscoverRequestSchema } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
+import { getErrorCause } from "@/protoFleet/api/requestErrors";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -19,6 +21,20 @@ const DISCOVERED_PAGE_SIZE = 100;
 const PAIRED_PAGE_SIZE = 50;
 const MAX_PAIRING_SELECTION = 1024;
 
+const isDefinitivePairRejection = (error: unknown): boolean => {
+  const cause = getErrorCause(error);
+  return (
+    cause instanceof ConnectError &&
+    (cause.code === Code.InvalidArgument ||
+      (cause.code === Code.FailedPrecondition &&
+        [
+          "fleet node has no active control stream",
+          "fleet node is not CONFIRMED",
+          "fleet node is not confirmed; cannot pair until enrollment completes",
+        ].includes(cause.rawMessage)))
+  );
+};
+
 interface NodeDetailsModalProps {
   node: FleetNodeItem;
   canManage: boolean;
@@ -28,6 +44,7 @@ interface NodeDetailsModalProps {
   onUpdated: () => void;
   onPairingStarted: (identifiers: string[]) => void;
   onPairingCompleted: (identifiers: string[]) => void;
+  onPairingSettledAfterDismiss: () => void;
 }
 
 const NodeDetailsModal = ({
@@ -39,6 +56,7 @@ const NodeDetailsModal = ({
   onUpdated,
   onPairingStarted,
   onPairingCompleted,
+  onPairingSettledAfterDismiss,
 }: NodeDetailsModalProps) => {
   const {
     listFleetNodeDevices,
@@ -64,8 +82,16 @@ const NodeDetailsModal = ({
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
   const discoveredGenerationRef = useRef(0);
+  const mountedRef = useRef(true);
   const selectedIdentifiers = useMemo(() => new Set(selected), [selected]);
   const blockedIdentifiers = useMemo(() => new Set(blockedPairingIdentifiers), [blockedPairingIdentifiers]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const refresh = useCallback(async () => {
     const generation = ++discoveredGenerationRef.current;
@@ -152,8 +178,8 @@ const NodeDetailsModal = ({
 
   const pairSelected = async () => {
     if (selected.length === 0 || selected.some((identifier) => blockedIdentifiers.has(identifier))) return;
-    if (password && !username.trim()) {
-      setError("Enter a username when supplying a password.");
+    if (Boolean(username.trim()) !== Boolean(password)) {
+      setError("Enter both a username and password, or leave both blank.");
       return;
     }
     setError("");
@@ -162,37 +188,48 @@ const NodeDetailsModal = ({
     const submitted = [...selected];
     onPairingStarted(submitted);
     let pairingCompleted = false;
+    let receivedResults = false;
     try {
       const credentials = username.trim()
-        ? create(CredentialsSchema, { username: username.trim(), ...(password ? { password } : {}) })
+        ? create(CredentialsSchema, { username: username.trim(), password })
         : undefined;
       await pairDiscoveredDevicesOnFleetNode(node.fleetNodeId, submitted, credentials, (results) => {
-        setPairResults((current) => [...current, ...results]);
+        receivedResults = true;
+        if (mountedRef.current) setPairResults((current) => [...current, ...results]);
       });
       pairingCompleted = true;
+      if (mountedRef.current) {
+        setSelected([]);
+        setPassword("");
+      }
+      if (mountedRef.current) await refresh();
       onPairingCompleted(submitted);
-      setSelected([]);
-      setPassword("");
-      await refresh();
       onUpdated();
     } catch (err) {
       // A disconnected result stream does not mean the Node stopped pairing.
-      setSelected([]);
-      setError(
-        err instanceof Error
-          ? err.message
-          : pairingCompleted
-            ? "Paired miners, but failed to refresh their status."
-            : "Pairing result is unknown. Check miner state before retrying.",
-      );
+      if (mountedRef.current) setSelected([]);
+      if (!pairingCompleted && !receivedResults && isDefinitivePairRejection(err)) {
+        onPairingCompleted(submitted);
+      }
+      if (mountedRef.current) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : pairingCompleted
+              ? "Paired miners, but failed to refresh their status."
+              : "Pairing result is unknown. Check miner state before retrying.",
+        );
+      }
       try {
-        await refresh();
+        if (mountedRef.current) await refresh();
+        if (pairingCompleted) onPairingCompleted(submitted);
         onUpdated();
       } catch {
         // Keep the original error visible.
       }
     } finally {
-      setIsPairing(false);
+      if (mountedRef.current) setIsPairing(false);
+      else onPairingSettledAfterDismiss();
     }
   };
 

@@ -2,6 +2,7 @@ import type { ComponentProps } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 import NodeDetailsModal from "./NodeDetailsModal";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
@@ -11,6 +12,7 @@ import {
   FleetNodeDiscoveredDeviceSchema,
 } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeDiscoveredDevice } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import { createErrorWithCause } from "@/protoFleet/api/requestErrors";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 
 const listPairs = vi.hoisted(() => vi.fn());
@@ -63,6 +65,7 @@ const renderDetails = (props: Partial<ComponentProps<typeof NodeDetailsModal>> =
       onUpdated={vi.fn()}
       onPairingStarted={vi.fn()}
       onPairingCompleted={vi.fn()}
+      onPairingSettledAfterDismiss={vi.fn()}
       {...props}
     />,
   );
@@ -238,5 +241,76 @@ describe("NodeDetailsModal", () => {
     expect(screen.getByRole("checkbox", { name: "Select miner-2" })).toBeDisabled();
     expect(screen.getByRole("status")).toHaveTextContent("1 miner has an unknown pairing result");
     expect(screen.getByRole("button", { name: "Pair selected (0)" })).toBeDisabled();
+  });
+
+  it("requires a password with a supplied username", async () => {
+    renderDetails();
+
+    await screen.findByText("miner-1");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner-2" }));
+    fireEvent.change(screen.getByLabelText("Username"), { target: { value: "admin" } });
+    fireEvent.click(screen.getByRole("button", { name: "Pair selected (1)" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Enter both a username and password");
+    expect(pairOnNode).not.toHaveBeenCalled();
+  });
+
+  it("clears the retry block after a definitive pre-dispatch rejection", async () => {
+    pairOnNode.mockRejectedValue(
+      createErrorWithCause(
+        "fleet node has no active control stream",
+        new ConnectError("fleet node has no active control stream", Code.FailedPrecondition),
+      ),
+    );
+    const onPairingCompleted = vi.fn();
+    renderDetails({ onPairingCompleted });
+
+    await screen.findByText("miner-1");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner-2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pair selected (1)" }));
+
+    await waitFor(() => expect(onPairingCompleted).toHaveBeenCalledWith(["miner-2"]));
+    expect(pairOnNode).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the retry block after a stream failure with the same error code", async () => {
+    pairOnNode.mockRejectedValue(
+      createErrorWithCause(
+        "fleet node control stream closed before command completed",
+        new ConnectError("fleet node control stream closed before command completed", Code.FailedPrecondition),
+      ),
+    );
+    const onPairingCompleted = vi.fn();
+    renderDetails({ onPairingCompleted });
+
+    await screen.findByText("miner-1");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner-2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pair selected (1)" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("control stream closed");
+    expect(onPairingCompleted).not.toHaveBeenCalled();
+  });
+
+  it("notifies the page when pairing finishes after the detail view is dismissed", async () => {
+    let finishPairing!: () => void;
+    pairOnNode.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishPairing = resolve;
+        }),
+    );
+    const onPairingSettledAfterDismiss = vi.fn();
+    const onPairingCompleted = vi.fn();
+    const { unmount } = renderDetails({ onPairingSettledAfterDismiss, onPairingCompleted });
+
+    await screen.findByText("miner-1");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner-2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pair selected (1)" }));
+    await waitFor(() => expect(pairOnNode).toHaveBeenCalledTimes(1));
+    unmount();
+    finishPairing();
+
+    await waitFor(() => expect(onPairingSettledAfterDismiss).toHaveBeenCalledTimes(1));
+    expect(onPairingCompleted).toHaveBeenCalledWith(["miner-2"]);
   });
 });

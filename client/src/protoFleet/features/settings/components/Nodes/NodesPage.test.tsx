@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import NodesPage from "./NodesPage";
 import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
@@ -11,6 +11,10 @@ const permissionsMock = vi.hoisted(() => ({ current: [] as string[] }));
 const listFleetNodesMock = vi.hoisted(() => vi.fn());
 const revokeFleetNodeMock = vi.hoisted(() => vi.fn());
 const listFleetNodeDevicesMock = vi.hoisted(() => vi.fn());
+const detailMockState = vi.hoisted(() => ({
+  nextInstance: 0,
+  settleAfterDismiss: undefined as (() => void) | undefined,
+}));
 
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: (permission: string) => permissionsMock.current.includes(permission),
@@ -46,35 +50,47 @@ vi.mock("@/protoFleet/features/settings/components/Nodes/EnrollNodeModal", () =>
     ) : null,
 }));
 
-vi.mock("@/protoFleet/features/settings/components/Nodes/NodeDetailsModal", () => ({
-  default: ({
-    node,
-    blockedPairingIdentifiers,
-    onPairingStarted,
-    onPairingCompleted,
-    onDismiss,
-  }: {
-    node: FleetNodeItem;
-    blockedPairingIdentifiers: string[];
-    onPairingStarted: (identifiers: string[]) => void;
-    onPairingCompleted: (identifiers: string[]) => void;
-    onDismiss: () => void;
-  }) => (
-    <div role="dialog" aria-label="Node details">
-      {node.name}
-      <span>{blockedPairingIdentifiers.length} blocked miners</span>
-      <button type="button" onClick={() => onPairingStarted(["miner-2"])}>
-        Start pairing
-      </button>
-      <button type="button" onClick={() => onPairingCompleted(["miner-2"])}>
-        Complete pairing
-      </button>
-      <button type="button" onClick={onDismiss}>
-        Close details
-      </button>
-    </div>
-  ),
-}));
+vi.mock("@/protoFleet/features/settings/components/Nodes/NodeDetailsModal", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  return {
+    default: function MockNodeDetailsModal({
+      node,
+      blockedPairingIdentifiers,
+      onPairingStarted,
+      onPairingCompleted,
+      onPairingSettledAfterDismiss,
+      onDismiss,
+    }: {
+      node: FleetNodeItem;
+      blockedPairingIdentifiers: string[];
+      onPairingStarted: (identifiers: string[]) => void;
+      onPairingCompleted: (identifiers: string[]) => void;
+      onPairingSettledAfterDismiss: () => void;
+      onDismiss: () => void;
+    }) {
+      const [instance] = React.useState(() => ++detailMockState.nextInstance);
+      return (
+        <div role="dialog" aria-label="Node details">
+          {node.name}
+          <span>Detail instance {instance}</span>
+          <span>{blockedPairingIdentifiers.length} blocked miners</span>
+          <button type="button" onClick={() => onPairingStarted(["miner-2"])}>
+            Start pairing
+          </button>
+          <button type="button" onClick={() => onPairingCompleted(["miner-2"])}>
+            Complete pairing
+          </button>
+          <button type="button" onClick={() => (detailMockState.settleAfterDismiss = onPairingSettledAfterDismiss)}>
+            Record pending pairing
+          </button>
+          <button type="button" onClick={onDismiss}>
+            Close details
+          </button>
+        </div>
+      );
+    },
+  };
+});
 
 vi.mock("@/protoFleet/features/settings/components/Nodes/RevokeNodeDialog", () => ({
   default: ({
@@ -194,6 +210,8 @@ describe("NodesPage", () => {
     revokeFleetNodeMock.mockResolvedValue(undefined);
     listFleetNodeDevicesMock.mockReset();
     listFleetNodeDevicesMock.mockResolvedValue([]);
+    detailMockState.nextInstance = 0;
+    detailMockState.settleAfterDismiss = undefined;
   });
 
   it("renders nodes for read-only users without management actions", async () => {
@@ -235,12 +253,12 @@ describe("NodesPage", () => {
     await waitFor(() => expect(revokeFleetNodeMock).toHaveBeenCalledWith("7", "11"));
   });
 
-  it("shows status totals and opens Node details", async () => {
+  it("opens Node details without a redundant status summary", async () => {
     listFleetNodesMock.mockResolvedValue([{ ...confirmedNode, lastSeenAt: new Date() }]);
     renderNodesPage();
 
     expect(await screen.findByText("node-01")).toBeInTheDocument();
-    expect(screen.getByLabelText("Node status totals")).toHaveTextContent("Connected1");
+    expect(screen.queryByLabelText("Node status totals")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
     expect(screen.getByRole("dialog", { name: "Node details" })).toHaveTextContent("node-01");
   });
@@ -259,6 +277,21 @@ describe("NodesPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Complete pairing" }));
     expect(screen.getByRole("dialog", { name: "Node details" })).toHaveTextContent("0 blocked miners");
+  });
+
+  it("reloads reopened details when an earlier pairing attempt settles", async () => {
+    renderNodesPage();
+
+    await screen.findByText("node-01");
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    expect(screen.getByRole("dialog", { name: "Node details" })).toHaveTextContent("Detail instance 1");
+    fireEvent.click(screen.getByRole("button", { name: "Record pending pairing" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close details" }));
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    expect(screen.getByRole("dialog", { name: "Node details" })).toHaveTextContent("Detail instance 2");
+
+    act(() => detailMockState.settleAfterDismiss?.());
+    expect(screen.getByRole("dialog", { name: "Node details" })).toHaveTextContent("Detail instance 3");
   });
 
   it("loads the affected miners before allowing revocation", async () => {

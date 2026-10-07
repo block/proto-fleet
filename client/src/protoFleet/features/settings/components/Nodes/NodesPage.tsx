@@ -5,7 +5,6 @@ import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import EnrollNodeModal from "@/protoFleet/features/settings/components/Nodes/EnrollNodeModal";
-import { getNodeDisplayStatus } from "@/protoFleet/features/settings/components/Nodes/getNodeDisplayStatus";
 import NodeDetailsModal from "@/protoFleet/features/settings/components/Nodes/NodeDetailsModal";
 import NodeStatusBadge from "@/protoFleet/features/settings/components/Nodes/NodeStatusBadge";
 import RevokeNodeDialog from "@/protoFleet/features/settings/components/Nodes/RevokeNodeDialog";
@@ -41,6 +40,7 @@ const NodesPage = () => {
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [resumeNode, setResumeNode] = useState<FleetNodeItem | null>(null);
   const [detailsNodeId, setDetailsNodeId] = useState<string | null>(null);
+  const [detailsRevisionByNode, setDetailsRevisionByNode] = useState<Record<string, number>>({});
   const [blockedPairingByNode, setBlockedPairingByNode] = useState<Record<string, string[]>>({});
   const [revokeNodeData, setRevokeNodeData] = useState<FleetNodeItem | null>(null);
   const [revokeMinerNames, setRevokeMinerNames] = useState<string[]>([]);
@@ -105,19 +105,11 @@ const NodesPage = () => {
     });
   }, []);
 
+  const refreshReopenedDetails = useCallback((nodeId: string) => {
+    setDetailsRevisionByNode((current) => ({ ...current, [nodeId]: (current[nodeId] ?? 0) + 1 }));
+  }, []);
+
   const detailsNode = nodes.find((node) => node.fleetNodeId === detailsNodeId) ?? null;
-  const statusCounts = nodes.reduce(
-    (counts, node) => {
-      const status = getNodeDisplayStatus(node);
-      if (status === "connected") counts.connected++;
-      if (status === "heartbeatOnly" || status === "upgradeRequired") counts.needsAttention++;
-      if (status === "stale" || status === "neverConnected") counts.offline++;
-      if (status === "awaitingConfirmation" || status === "pending") counts.pending++;
-      if (status === "revoked") counts.revoked++;
-      return counts;
-    },
-    { connected: 0, needsAttention: 0, offline: 0, pending: 0, revoked: 0 },
-  );
 
   const dismissRevoke = useCallback(() => {
     revokeImpactRequestRef.current++;
@@ -241,25 +233,6 @@ const NodesPage = () => {
         ) : null}
       </div>
 
-      {!isLoading && nodes.length > 0 ? (
-        <div className="grid grid-cols-5 gap-3 phone:grid-cols-2" aria-label="Node status totals">
-          {(
-            [
-              ["Connected", statusCounts.connected],
-              ["Needs attention", statusCounts.needsAttention],
-              ["Offline", statusCounts.offline],
-              ["Pending", statusCounts.pending],
-              ["Revoked", statusCounts.revoked],
-            ] as const
-          ).map(([label, count]) => (
-            <div key={label} className="rounded-xl bg-surface-5 p-3">
-              <div className="text-200 text-text-primary-50">{label}</div>
-              <div className="text-heading-200">{count}</div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-
       {isLoading ? (
         <div className="text-center text-text-primary-50">Loading nodes...</div>
       ) : (
@@ -290,7 +263,7 @@ const NodesPage = () => {
       />
       {detailsNode ? (
         <NodeDetailsModal
-          key={detailsNode.fleetNodeId}
+          key={`${detailsNode.fleetNodeId}:${detailsRevisionByNode[detailsNode.fleetNodeId] ?? 0}`}
           node={detailsNode}
           canManage={canManageNodes}
           canPair={canPairMiners}
@@ -299,6 +272,7 @@ const NodesPage = () => {
           onUpdated={handleNodesUpdated}
           onPairingStarted={(identifiers) => rememberPairing(detailsNode.fleetNodeId, identifiers)}
           onPairingCompleted={(identifiers) => forgetPairing(detailsNode.fleetNodeId, identifiers)}
+          onPairingSettledAfterDismiss={() => refreshReopenedDetails(detailsNode.fleetNodeId)}
         />
       ) : null}
       <RevokeNodeDialog
