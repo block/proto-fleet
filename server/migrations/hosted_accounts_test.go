@@ -1,7 +1,9 @@
 package migrations_test
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -162,4 +164,68 @@ func TestHostedAccountsMigrationBackfillsExistingAdmins(t *testing.T) {
 		SELECT COUNT(*) FROM role_permission rp JOIN permission p ON p.id = rp.permission_id
 		WHERE rp.role_id = $1 AND p.key = 'account:manage'`, roles[0].id).Scan(&revokedGrant))
 	require.Zero(t, revokedGrant, "restart must not restore the operator's revoked permission")
+}
+
+func TestHostedAccountsMigrationIncludesOrganizationsCreatedBeforeItsFence(t *testing.T) {
+	conn := dbtest.GetTestDB(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+	defer cancel()
+	down, err := migrations.Current.ReadFile("current/001003_internal_hosted_accounts.down.sql")
+	require.NoError(t, err)
+	up, err := migrations.Current.ReadFile("current/001003_internal_hosted_accounts.up.sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(ctx, string(down))
+	require.NoError(t, err)
+
+	// An old server has created the organization and its seeded ADMIN, but has
+	// not committed. Neither row is visible to the migration's snapshot yet.
+	creator, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer creator.Rollback()
+	var org, admin int64
+	require.NoError(t, creator.QueryRowContext(ctx, `
+		INSERT INTO organization (org_id, name) VALUES ($1, 'Concurrent host') RETURNING id`, uuid.NewString()).Scan(&org))
+	require.NoError(t, creator.QueryRowContext(ctx, `
+		INSERT INTO role (name, organization_id, is_builtin, builtin_key)
+		VALUES ('ADMIN', $1, TRUE, 'ADMIN') RETURNING id`, org).Scan(&admin))
+
+	migration, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer migration.Rollback()
+	var pid int
+	require.NoError(t, migration.QueryRowContext(ctx, `SELECT pg_backend_pid()`).Scan(&pid))
+	done := make(chan error, 1)
+	go func() {
+		_, execErr := migration.ExecContext(ctx, string(up))
+		if execErr == nil {
+			execErr = migration.Commit()
+		}
+		done <- execErr
+	}()
+
+	// Observe a real PostgreSQL lock wait instead of relying on sleep timing.
+	// Without the early fence, DDL waits only after the ADMIN snapshot.
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := conn.QueryRowContext(ctx, `
+			SELECT EXISTS (SELECT 1 FROM pg_locks
+			WHERE pid = $1 AND relation = 'organization'::regclass AND NOT granted)`, pid).Scan(&waiting)
+		return err == nil && waiting
+	}, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, creator.Commit())
+	require.NoError(t, <-done)
+
+	t.Run("ADMIN permission", func(t *testing.T) {
+		var grants int
+		require.NoError(t, conn.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM role_permission rp JOIN permission p ON p.id = rp.permission_id
+			WHERE rp.role_id = $1 AND p.key = 'account:manage'`, admin).Scan(&grants))
+		require.Equal(t, 1, grants, "the migration must include the organization committed before its fence")
+	})
+	t.Run("host root", func(t *testing.T) {
+		var roots int
+		require.NoError(t, conn.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM hosted_account WHERE organization_id = $1 AND depth = 0`, org).Scan(&roots))
+		require.Equal(t, 1, roots, "the root snapshot must use the same organization fence")
+	})
 }

@@ -1,6 +1,10 @@
 -- requires-shared: 1000
 -- Account membership is separate from organization RBAC. This migration does
 -- not assign organization roles or customer memberships to existing users.
+-- Take the DDL fence before the ADMIN snapshot, including in-flight organization
+-- creation and blocking new inserts until the migration transaction commits.
+LOCK TABLE organization IN SHARE ROW EXCLUSIVE MODE;
+
 INSERT INTO permission (key, description) VALUES
     ('account:manage', 'Create customer accounts and control delegation beneath the host account. Does not grant private customer views or pool overrides.')
 ON CONFLICT (key) DO UPDATE SET description = EXCLUDED.description;
