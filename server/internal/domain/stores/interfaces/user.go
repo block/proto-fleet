@@ -34,6 +34,8 @@ type UserManagementStore interface { //nolint:interfacebloat // user mgmt store 
 	UpdateUserPasswordAndClearPasswordChangeFlag(ctx context.Context, userID int64, passwordHash string) error
 	AdminResetUserPassword(ctx context.Context, userID int64, passwordHash string) (int64, error)
 	CountActiveRepairTicketsAssignedToUser(ctx context.Context, organizationID int64, userID int64) (int64, error)
+	// Must run in the deactivation transaction before acquiring user/role locks.
+	LockAndCountSoleHostedAccountAdministrations(ctx context.Context, organizationID int64, userID int64) (int64, error)
 	SoftDeleteUser(ctx context.Context, userID int64) error
 	UpdateLastLogin(ctx context.Context, userID int64) error
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]User, error)
