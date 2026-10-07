@@ -198,12 +198,13 @@ const NodeDetailsModal = ({
         if (mountedRef.current) setPairResults((current) => [...current, ...results]);
       });
       pairingCompleted = true;
+      onPairingCompleted(submitted);
       if (mountedRef.current) {
         setSelected([]);
         setPassword("");
+        setHasLoaded(false);
       }
       if (mountedRef.current) await refresh();
-      onPairingCompleted(submitted);
       onUpdated();
     } catch (err) {
       // A disconnected result stream does not mean the Node stopped pairing.
@@ -222,7 +223,6 @@ const NodeDetailsModal = ({
       }
       try {
         if (mountedRef.current) await refresh();
-        if (pairingCompleted) onPairingCompleted(submitted);
         onUpdated();
       } catch {
         // Keep the original error visible.

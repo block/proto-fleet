@@ -313,4 +313,19 @@ describe("NodeDetailsModal", () => {
     await waitFor(() => expect(onPairingSettledAfterDismiss).toHaveBeenCalledTimes(1));
     expect(onPairingCompleted).toHaveBeenCalledWith(["miner-2"]);
   });
+
+  it("releases completed pairing even when its list refresh fails", async () => {
+    const onPairingCompleted = vi.fn();
+    renderDetails({ onPairingCompleted });
+
+    await screen.findByText("miner-1");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner-2" }));
+    listPairs.mockRejectedValue(new Error("Paired miners unavailable"));
+    fireEvent.click(screen.getByRole("button", { name: "Pair selected (1)" }));
+
+    await waitFor(() => expect(onPairingCompleted).toHaveBeenCalledWith(["miner-2"]));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Paired miners unavailable");
+    expect(screen.queryByRole("checkbox", { name: "Select miner-2" })).not.toBeInTheDocument();
+    expect(onPairingCompleted).toHaveBeenCalledTimes(1);
+  });
 });
