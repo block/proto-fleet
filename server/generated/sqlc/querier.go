@@ -332,6 +332,7 @@ type Querier interface {
 	CountDevicesWithErrors(ctx context.Context, arg CountDevicesWithErrorsParams) (int64, error)
 	// Counts errors with AND filter logic (same logic as QueryErrors without pagination).
 	CountErrors(ctx context.Context, arg CountErrorsParams) (int64, error)
+	CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) ([]CountFleetNodeDevicesByNodeRow, error)
 	// Administration must remain recoverable after suspension is lifted. Check
 	// live identities and capability ceilings even for currently suspended accounts.
 	CountHostedAccountsWithoutAdministrator(ctx context.Context, arg CountHostedAccountsWithoutAdministratorParams) (int64, error)

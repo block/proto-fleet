@@ -1008,6 +1008,18 @@ func (q *retryingQuerier) CountErrors(ctx context.Context, arg CountErrorsParams
 	return result, err
 }
 
+func (q *retryingQuerier) CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) ([]CountFleetNodeDevicesByNodeRow, error) {
+	var result []CountFleetNodeDevicesByNodeRow
+	err := q.retrier.RetryQuery(ctx, "CountFleetNodeDevicesByNode", func() error {
+		callResult, callErr := q.next.CountFleetNodeDevicesByNode(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountHostedAccountsWithoutAdministrator(ctx context.Context, arg CountHostedAccountsWithoutAdministratorParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountHostedAccountsWithoutAdministrator", func() error {

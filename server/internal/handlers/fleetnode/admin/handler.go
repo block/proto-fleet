@@ -61,6 +61,13 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 	if err != nil {
 		return nil, err
 	}
+	var pairedCounts map[int64]int64
+	if includeAdministrativeDetails {
+		pairedCounts, err = h.pairing.CountDevicesByNode(ctx, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	connected := make(map[int64]struct{})
 	for _, fleetNodeID := range h.registry.ConnectedFleetNodeIDs() {
 		connected[fleetNodeID] = struct{}{}
@@ -75,6 +82,7 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 		}
 		if includeAdministrativeDetails {
 			summary.FleetNodeId = n.ID
+			summary.PairedDeviceCount = pairedCounts[n.ID]
 			summary.Name = n.Name
 			summary.IdentityFingerprint = enrollment.IdentityFingerprint(n.IdentityPubkey)
 			summary.CreatedAt = timestamppb.New(n.CreatedAt)

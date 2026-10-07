@@ -13,6 +13,42 @@ import (
 	"github.com/lib/pq"
 )
 
+const countFleetNodeDevicesByNode = `-- name: CountFleetNodeDevicesByNode :many
+SELECT fnd.fleet_node_id, count(*)::bigint AS device_count
+FROM fleet_node_device fnd
+JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
+WHERE fnd.org_id = $1
+GROUP BY fnd.fleet_node_id
+`
+
+type CountFleetNodeDevicesByNodeRow struct {
+	FleetNodeID int64
+	DeviceCount int64
+}
+
+func (q *Queries) CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) ([]CountFleetNodeDevicesByNodeRow, error) {
+	rows, err := q.query(ctx, q.countFleetNodeDevicesByNodeStmt, countFleetNodeDevicesByNode, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []CountFleetNodeDevicesByNodeRow
+	for rows.Next() {
+		var i CountFleetNodeDevicesByNodeRow
+		if err := rows.Scan(&i.FleetNodeID, &i.DeviceCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deletePairingsForFleetNode = `-- name: DeletePairingsForFleetNode :execrows
 DELETE FROM fleet_node_device
 WHERE fleet_node_id = $1 AND org_id = $2
