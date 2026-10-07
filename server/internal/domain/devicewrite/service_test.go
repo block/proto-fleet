@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/sqlc-dev/pqtype"
 	"github.com/stretchr/testify/require"
 
@@ -437,4 +439,45 @@ type admissionTestSender struct{ calls int }
 func (s *admissionTestSender) SendCommand(context.Context, int64, gatewaypb.CommandProtocolVersion, *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
 	s.calls++
 	return &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK}, nil
+}
+
+func TestRouteChangeAfterAdmissionCannotDispatchOrPoisonDrain(t *testing.T) {
+	cfg, err := testutil.GetTestConfig()
+	require.NoError(t, err)
+	database := testutil.NewDatabaseService(t, cfg)
+	user := database.CreateSuperAdminUser()
+	device := database.CreateDevice(user.OrganizationID, "proto")
+	service := devicewrite.NewService(database.DB)
+	attempt, err := service.BeginHost(t.Context(), user.OrganizationID, device.DatabaseID, 0)
+	require.NoError(t, err)
+	require.NoError(t, sqlc.New(database.DB).UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{ID: device.DatabaseID, IpAddress: "192.0.2.79", Port: "8080", UrlScheme: "http"}))
+	called := false
+	err = service.RunHost(attempt.Context(t.Context()), user.OrganizationID, device.DatabaseID, 0, func(context.Context) error { called = true; return nil })
+	require.Error(t, err, "the route captured by admission must still match at dispatch")
+	require.False(t, called)
+	require.NoError(t, attempt.Finish(t.Context(), err))
+	epoch, err := service.Reserve(t.Context(), user.OrganizationID, device.DatabaseID)
+	require.NoError(t, err)
+	drained, err := service.Drained(t.Context(), user.OrganizationID, device.DatabaseID, epoch)
+	require.NoError(t, err)
+	require.True(t, drained, "a rejected route check sent no physical write")
+}
+
+func TestRunHostRejectsAmbientTransactionWithoutAdmission(t *testing.T) {
+	cfg, err := testutil.GetTestConfig()
+	require.NoError(t, err)
+	database := testutil.NewDatabaseService(t, cfg)
+	user := database.CreateSuperAdminUser()
+	device := database.CreateDevice(user.OrganizationID, "proto")
+	called := false
+	err = db.WithTransactionNoResult(t.Context(), database.DB, func(q sqlc.Querier) error {
+		return devicewrite.NewService(database.DB).RunHost(db.WithTxQueries(t.Context(), q), user.OrganizationID, device.DatabaseID, 0, func(context.Context) error { called = true; return nil })
+	})
+	var classified fleeterror.FleetError
+	require.ErrorAs(t, err, &classified)
+	require.Equal(t, connect.CodeFailedPrecondition, classified.GRPCCode)
+	require.False(t, called)
+	var attempts int
+	require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT count(*) FROM device_write_attempt").Scan(&attempts))
+	require.Zero(t, attempts)
 }

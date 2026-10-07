@@ -43,6 +43,7 @@ type Querier interface {
 	// Serializes reconciliation for each controller. A delayed response cannot
 	// change placement, retire inventory, or overwrite a newer status observation.
 	AdvanceContainerInventory(ctx context.Context, arg AdvanceContainerInventoryParams) (int64, error)
+	AdvanceDeletedDeviceWriteFences(ctx context.Context, arg AdvanceDeletedDeviceWriteFencesParams) ([]AdvanceDeletedDeviceWriteFencesRow, error)
 	// Stage transitions of an active rollout, attributed to an actor when one
 	// drove them. Reject paused rows and stale timer observations so an enforcement
 	// tick loaded before a pause/resume cannot advance on its old elapsed time.
@@ -189,6 +190,7 @@ type Querier interface {
 	// Canceled queue rows cannot reach the worker or reaper. Record their results
 	// atomically without firmware-completion effects: these writes never dispatched.
 	CancelPendingDeviceWrites(ctx context.Context, deviceID int64) error
+	CancelPendingDeviceWritesForDeletion(ctx context.Context, deviceIds []int64) error
 	CancelPendingEnrollment(ctx context.Context, arg CancelPendingEnrollmentParams) (int64, error)
 	// Building peer of CascadeAddedDeviceSites. Rewrites device.building_id
 	// to rack.building_id for added rack members whose current building
@@ -255,6 +257,7 @@ type Querier interface {
 	// Same-event duplicates and cross-event target conflicts are no-ops; the
 	// reconciler retries on a later tick if a conflicting event resolves.
 	ClaimClosedLoopFullFleetTargets(ctx context.Context, arg ClaimClosedLoopFullFleetTargetsParams) ([]ClaimClosedLoopFullFleetTargetsRow, error)
+	ClaimDeletionUnpairPermit(ctx context.Context, arg ClaimDeletionUnpairPermitParams) (int64, error)
 	ClaimMessageForProcessing(ctx context.Context, id int64) (sql.Result, error)
 	ClaimRigConfigReconciliation(ctx context.Context) (CurtailmentRigConfigReconciliation, error)
 	ClassifyFleetRuntimeLeaseAcquisition(ctx context.Context, arg ClassifyFleetRuntimeLeaseAcquisitionParams) (string, error)
@@ -410,6 +413,8 @@ type Querier interface {
 	// batch's owning organization rather than joining through user_organization.
 	CreateCommandBatchLog(ctx context.Context, arg CreateCommandBatchLogParams) (sql.Result, error)
 	CreateCustomRole(ctx context.Context, arg CreateCustomRoleParams) (Role, error)
+	CreateDeletionUnpairPermit(ctx context.Context, arg CreateDeletionUnpairPermitParams) error
+	CreateDeletionUnpairPermits(ctx context.Context, permits json.RawMessage) error
 	CreateDeviceSet(ctx context.Context, arg CreateDeviceSetParams) (CreateDeviceSetRow, error)
 	CreateDeviceWriteAttempt(ctx context.Context, arg CreateDeviceWriteAttemptParams) error
 	// --- Rollouts ---
@@ -691,6 +696,7 @@ type Querier interface {
 	// (dispatching/dispatched conflate). Unavailable reason buckets are covered
 	// by idx_curtailment_target_unavailable_reason.
 	GetCurtailmentTargetRollupByEvent(ctx context.Context, arg GetCurtailmentTargetRollupByEventParams) (GetCurtailmentTargetRollupByEventRow, error)
+	GetDeletionUnpairPermit(ctx context.Context, arg GetDeletionUnpairPermitParams) (DeviceDeletionUnpairPermit, error)
 	GetDeviceByDeviceIdentifier(ctx context.Context, arg GetDeviceByDeviceIdentifierParams) (Device, error)
 	GetDeviceByID(ctx context.Context, arg GetDeviceByIDParams) (Device, error)
 	GetDeviceCommandRoutes(ctx context.Context, arg GetDeviceCommandRoutesParams) ([]GetDeviceCommandRoutesRow, error)
@@ -738,6 +744,9 @@ type Querier interface {
 	// Returns hourly status aggregates for specific devices within a time range.
 	GetDeviceStatusHourlyAggregates(ctx context.Context, arg GetDeviceStatusHourlyAggregatesParams) ([]DeviceStatusHourly, error)
 	GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (GetDeviceWithCredentialsAndIPByDeviceIdentifierRow, error)
+	GetDeviceWriteDeletionBindings(ctx context.Context, arg GetDeviceWriteDeletionBindingsParams) ([]GetDeviceWriteDeletionBindingsRow, error)
+	GetDeviceWriteDeletionTargets(ctx context.Context, arg GetDeviceWriteDeletionTargetsParams) ([]GetDeviceWriteDeletionTargetsRow, error)
+	GetDeviceWriteIdentityKeys(ctx context.Context, targetID int64) ([]string, error)
 	GetDirectProtoMinerProxyTarget(ctx context.Context, arg GetDirectProtoMinerProxyTargetParams) (GetDirectProtoMinerProxyTargetRow, error)
 	GetDiscoveredDeviceByDeviceIdentifier(ctx context.Context, arg GetDiscoveredDeviceByDeviceIdentifierParams) (DiscoveredDevice, error)
 	GetDiscoveredDeviceByID(ctx context.Context, arg GetDiscoveredDeviceByIDParams) (DiscoveredDevice, error)
@@ -1064,7 +1073,9 @@ type Querier interface {
 	InsertRepairTicketPart(ctx context.Context, arg InsertRepairTicketPartParams) error
 	InventoryPartExistsBySiteAndName(ctx context.Context, arg InventoryPartExistsBySiteAndNameParams) (bool, error)
 	IsBatchFinished(ctx context.Context, commandBatchLogUuid string) (bool, error)
+	IsDeletionUnpairIdentityCurrent(ctx context.Context, identityKeys []string) (bool, error)
 	IsDeviceWriteFenceDrained(ctx context.Context, arg IsDeviceWriteFenceDrainedParams) (bool, error)
+	IsRetiredDeviceWriteDrained(ctx context.Context, identityKeys []string) (bool, error)
 	// The delivery-path read: only windows covering sqlc.arg('now'), so the expired tail never loads.
 	ListActiveAlertMaintenanceWindows(ctx context.Context, arg ListActiveAlertMaintenanceWindowsParams) ([]AlertMaintenanceWindow, error)
 	// Devices locked in a non-terminal event; excluded from candidates to
@@ -1640,6 +1651,7 @@ type Querier interface {
 	// Topology writes still conflict with this lock, while command queue inserts
 	// can take the foreign-key KEY SHARE lock on device without self-deadlocking.
 	LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx context.Context, arg LockCurtailmentTopologyMemberDeviceSitesByOrgParams) ([]LockCurtailmentTopologyMemberDeviceSitesByOrgRow, error)
+	LockDeletionUnpairPermit(ctx context.Context, arg LockDeletionUnpairPermitParams) (DeviceDeletionUnpairPermit, error)
 	// Serialize ownership and authentication reconciliation with pairing changes
 	// and credential repair. Callers recheck their predicates in a subsequent
 	// statement so they see the winner at READ COMMITTED.
@@ -1649,6 +1661,7 @@ type Querier interface {
 	// the device. Starting a new operation still requires a live device.
 	LockDeviceWriteFenceRecord(ctx context.Context, arg LockDeviceWriteFenceRecordParams) (DeviceWriteFence, error)
 	LockDeviceWriteFences(ctx context.Context, deviceIds []int64) ([]DeviceWriteFence, error)
+	LockDeviceWriteIdentities(ctx context.Context, identityKeys []string) error
 	// Takes a row lock on each device row for the duration of the
 	// surrounding transaction so the conflict check and the UPDATE are
 	// atomic against a concurrent reassign. Empty result means none of the

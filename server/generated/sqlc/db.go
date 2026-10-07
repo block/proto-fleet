@@ -54,6 +54,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.advanceContainerInventoryStmt, err = db.PrepareContext(ctx, advanceContainerInventory); err != nil {
 		return nil, fmt.Errorf("error preparing query AdvanceContainerInventory: %w", err)
 	}
+	if q.advanceDeletedDeviceWriteFencesStmt, err = db.PrepareContext(ctx, advanceDeletedDeviceWriteFences); err != nil {
+		return nil, fmt.Errorf("error preparing query AdvanceDeletedDeviceWriteFences: %w", err)
+	}
 	if q.advanceFirmwareRolloutStageStmt, err = db.PrepareContext(ctx, advanceFirmwareRolloutStage); err != nil {
 		return nil, fmt.Errorf("error preparing query AdvanceFirmwareRolloutStage: %w", err)
 	}
@@ -159,6 +162,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.cancelPendingDeviceWritesStmt, err = db.PrepareContext(ctx, cancelPendingDeviceWrites); err != nil {
 		return nil, fmt.Errorf("error preparing query CancelPendingDeviceWrites: %w", err)
 	}
+	if q.cancelPendingDeviceWritesForDeletionStmt, err = db.PrepareContext(ctx, cancelPendingDeviceWritesForDeletion); err != nil {
+		return nil, fmt.Errorf("error preparing query CancelPendingDeviceWritesForDeletion: %w", err)
+	}
 	if q.cancelPendingEnrollmentStmt, err = db.PrepareContext(ctx, cancelPendingEnrollment); err != nil {
 		return nil, fmt.Errorf("error preparing query CancelPendingEnrollment: %w", err)
 	}
@@ -197,6 +203,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.claimClosedLoopFullFleetTargetsStmt, err = db.PrepareContext(ctx, claimClosedLoopFullFleetTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query ClaimClosedLoopFullFleetTargets: %w", err)
+	}
+	if q.claimDeletionUnpairPermitStmt, err = db.PrepareContext(ctx, claimDeletionUnpairPermit); err != nil {
+		return nil, fmt.Errorf("error preparing query ClaimDeletionUnpairPermit: %w", err)
 	}
 	if q.claimMessageForProcessingStmt, err = db.PrepareContext(ctx, claimMessageForProcessing); err != nil {
 		return nil, fmt.Errorf("error preparing query ClaimMessageForProcessing: %w", err)
@@ -377,6 +386,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.createCustomRoleStmt, err = db.PrepareContext(ctx, createCustomRole); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateCustomRole: %w", err)
+	}
+	if q.createDeletionUnpairPermitStmt, err = db.PrepareContext(ctx, createDeletionUnpairPermit); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateDeletionUnpairPermit: %w", err)
+	}
+	if q.createDeletionUnpairPermitsStmt, err = db.PrepareContext(ctx, createDeletionUnpairPermits); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateDeletionUnpairPermits: %w", err)
 	}
 	if q.createDeviceSetStmt, err = db.PrepareContext(ctx, createDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateDeviceSet: %w", err)
@@ -735,6 +750,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getCurtailmentTargetRollupByEventStmt, err = db.PrepareContext(ctx, getCurtailmentTargetRollupByEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentTargetRollupByEvent: %w", err)
 	}
+	if q.getDeletionUnpairPermitStmt, err = db.PrepareContext(ctx, getDeletionUnpairPermit); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeletionUnpairPermit: %w", err)
+	}
 	if q.getDeviceByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceByDeviceIdentifier: %w", err)
 	}
@@ -824,6 +842,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt, err = db.PrepareContext(ctx, getDeviceWithCredentialsAndIPByDeviceIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceWithCredentialsAndIPByDeviceIdentifier: %w", err)
+	}
+	if q.getDeviceWriteDeletionBindingsStmt, err = db.PrepareContext(ctx, getDeviceWriteDeletionBindings); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceWriteDeletionBindings: %w", err)
+	}
+	if q.getDeviceWriteDeletionTargetsStmt, err = db.PrepareContext(ctx, getDeviceWriteDeletionTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceWriteDeletionTargets: %w", err)
+	}
+	if q.getDeviceWriteIdentityKeysStmt, err = db.PrepareContext(ctx, getDeviceWriteIdentityKeys); err != nil {
+		return nil, fmt.Errorf("error preparing query GetDeviceWriteIdentityKeys: %w", err)
 	}
 	if q.getDirectProtoMinerProxyTargetStmt, err = db.PrepareContext(ctx, getDirectProtoMinerProxyTarget); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDirectProtoMinerProxyTarget: %w", err)
@@ -1275,8 +1302,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.isBatchFinishedStmt, err = db.PrepareContext(ctx, isBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchFinished: %w", err)
 	}
+	if q.isDeletionUnpairIdentityCurrentStmt, err = db.PrepareContext(ctx, isDeletionUnpairIdentityCurrent); err != nil {
+		return nil, fmt.Errorf("error preparing query IsDeletionUnpairIdentityCurrent: %w", err)
+	}
 	if q.isDeviceWriteFenceDrainedStmt, err = db.PrepareContext(ctx, isDeviceWriteFenceDrained); err != nil {
 		return nil, fmt.Errorf("error preparing query IsDeviceWriteFenceDrained: %w", err)
+	}
+	if q.isRetiredDeviceWriteDrainedStmt, err = db.PrepareContext(ctx, isRetiredDeviceWriteDrained); err != nil {
+		return nil, fmt.Errorf("error preparing query IsRetiredDeviceWriteDrained: %w", err)
 	}
 	if q.listActiveAlertMaintenanceWindowsStmt, err = db.PrepareContext(ctx, listActiveAlertMaintenanceWindows); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveAlertMaintenanceWindows: %w", err)
@@ -1740,6 +1773,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt, err = db.PrepareContext(ctx, lockCurtailmentTopologyMemberDeviceSitesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentTopologyMemberDeviceSitesByOrg: %w", err)
 	}
+	if q.lockDeletionUnpairPermitStmt, err = db.PrepareContext(ctx, lockDeletionUnpairPermit); err != nil {
+		return nil, fmt.Errorf("error preparing query LockDeletionUnpairPermit: %w", err)
+	}
 	if q.lockDeviceByIdentifierStmt, err = db.PrepareContext(ctx, lockDeviceByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDeviceByIdentifier: %w", err)
 	}
@@ -1751,6 +1787,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockDeviceWriteFencesStmt, err = db.PrepareContext(ctx, lockDeviceWriteFences); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDeviceWriteFences: %w", err)
+	}
+	if q.lockDeviceWriteIdentitiesStmt, err = db.PrepareContext(ctx, lockDeviceWriteIdentities); err != nil {
+		return nil, fmt.Errorf("error preparing query LockDeviceWriteIdentities: %w", err)
 	}
 	if q.lockDevicesForReassignStmt, err = db.PrepareContext(ctx, lockDevicesForReassign); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDevicesForReassign: %w", err)
@@ -2515,6 +2554,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing advanceContainerInventoryStmt: %w", cerr)
 		}
 	}
+	if q.advanceDeletedDeviceWriteFencesStmt != nil {
+		if cerr := q.advanceDeletedDeviceWriteFencesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing advanceDeletedDeviceWriteFencesStmt: %w", cerr)
+		}
+	}
 	if q.advanceFirmwareRolloutStageStmt != nil {
 		if cerr := q.advanceFirmwareRolloutStageStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing advanceFirmwareRolloutStageStmt: %w", cerr)
@@ -2690,6 +2734,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing cancelPendingDeviceWritesStmt: %w", cerr)
 		}
 	}
+	if q.cancelPendingDeviceWritesForDeletionStmt != nil {
+		if cerr := q.cancelPendingDeviceWritesForDeletionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing cancelPendingDeviceWritesForDeletionStmt: %w", cerr)
+		}
+	}
 	if q.cancelPendingEnrollmentStmt != nil {
 		if cerr := q.cancelPendingEnrollmentStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing cancelPendingEnrollmentStmt: %w", cerr)
@@ -2753,6 +2802,11 @@ func (q *Queries) Close() error {
 	if q.claimClosedLoopFullFleetTargetsStmt != nil {
 		if cerr := q.claimClosedLoopFullFleetTargetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing claimClosedLoopFullFleetTargetsStmt: %w", cerr)
+		}
+	}
+	if q.claimDeletionUnpairPermitStmt != nil {
+		if cerr := q.claimDeletionUnpairPermitStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing claimDeletionUnpairPermitStmt: %w", cerr)
 		}
 	}
 	if q.claimMessageForProcessingStmt != nil {
@@ -3053,6 +3107,16 @@ func (q *Queries) Close() error {
 	if q.createCustomRoleStmt != nil {
 		if cerr := q.createCustomRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createCustomRoleStmt: %w", cerr)
+		}
+	}
+	if q.createDeletionUnpairPermitStmt != nil {
+		if cerr := q.createDeletionUnpairPermitStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createDeletionUnpairPermitStmt: %w", cerr)
+		}
+	}
+	if q.createDeletionUnpairPermitsStmt != nil {
+		if cerr := q.createDeletionUnpairPermitsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createDeletionUnpairPermitsStmt: %w", cerr)
 		}
 	}
 	if q.createDeviceSetStmt != nil {
@@ -3650,6 +3714,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getCurtailmentTargetRollupByEventStmt: %w", cerr)
 		}
 	}
+	if q.getDeletionUnpairPermitStmt != nil {
+		if cerr := q.getDeletionUnpairPermitStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeletionUnpairPermitStmt: %w", cerr)
+		}
+	}
 	if q.getDeviceByDeviceIdentifierStmt != nil {
 		if cerr := q.getDeviceByDeviceIdentifierStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceByDeviceIdentifierStmt: %w", cerr)
@@ -3798,6 +3867,21 @@ func (q *Queries) Close() error {
 	if q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt != nil {
 		if cerr := q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceWithCredentialsAndIPByDeviceIdentifierStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceWriteDeletionBindingsStmt != nil {
+		if cerr := q.getDeviceWriteDeletionBindingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceWriteDeletionBindingsStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceWriteDeletionTargetsStmt != nil {
+		if cerr := q.getDeviceWriteDeletionTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceWriteDeletionTargetsStmt: %w", cerr)
+		}
+	}
+	if q.getDeviceWriteIdentityKeysStmt != nil {
+		if cerr := q.getDeviceWriteIdentityKeysStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getDeviceWriteIdentityKeysStmt: %w", cerr)
 		}
 	}
 	if q.getDirectProtoMinerProxyTargetStmt != nil {
@@ -4550,9 +4634,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing isBatchFinishedStmt: %w", cerr)
 		}
 	}
+	if q.isDeletionUnpairIdentityCurrentStmt != nil {
+		if cerr := q.isDeletionUnpairIdentityCurrentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing isDeletionUnpairIdentityCurrentStmt: %w", cerr)
+		}
+	}
 	if q.isDeviceWriteFenceDrainedStmt != nil {
 		if cerr := q.isDeviceWriteFenceDrainedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing isDeviceWriteFenceDrainedStmt: %w", cerr)
+		}
+	}
+	if q.isRetiredDeviceWriteDrainedStmt != nil {
+		if cerr := q.isRetiredDeviceWriteDrainedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing isRetiredDeviceWriteDrainedStmt: %w", cerr)
 		}
 	}
 	if q.listActiveAlertMaintenanceWindowsStmt != nil {
@@ -5325,6 +5419,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockCurtailmentTopologyMemberDeviceSitesByOrgStmt: %w", cerr)
 		}
 	}
+	if q.lockDeletionUnpairPermitStmt != nil {
+		if cerr := q.lockDeletionUnpairPermitStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockDeletionUnpairPermitStmt: %w", cerr)
+		}
+	}
 	if q.lockDeviceByIdentifierStmt != nil {
 		if cerr := q.lockDeviceByIdentifierStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockDeviceByIdentifierStmt: %w", cerr)
@@ -5343,6 +5442,11 @@ func (q *Queries) Close() error {
 	if q.lockDeviceWriteFencesStmt != nil {
 		if cerr := q.lockDeviceWriteFencesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockDeviceWriteFencesStmt: %w", cerr)
+		}
+	}
+	if q.lockDeviceWriteIdentitiesStmt != nil {
+		if cerr := q.lockDeviceWriteIdentitiesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockDeviceWriteIdentitiesStmt: %w", cerr)
 		}
 	}
 	if q.lockDevicesForReassignStmt != nil {
@@ -6574,6 +6678,7 @@ type Queries struct {
 	adminTerminateCurtailmentEventStmt                           *sql.Stmt
 	advanceContainerControlsStmt                                 *sql.Stmt
 	advanceContainerInventoryStmt                                *sql.Stmt
+	advanceDeletedDeviceWriteFencesStmt                          *sql.Stmt
 	advanceFirmwareRolloutStageStmt                              *sql.Stmt
 	advanceFleetMetricRollupProgressStmt                         *sql.Stmt
 	advanceRecoveredDeviceWriteFenceStmt                         *sql.Stmt
@@ -6609,6 +6714,7 @@ type Queries struct {
 	cancelEnrollmentForFleetNodeStmt                             *sql.Stmt
 	cancelFirmwareRolloutStmt                                    *sql.Stmt
 	cancelPendingDeviceWritesStmt                                *sql.Stmt
+	cancelPendingDeviceWritesForDeletionStmt                     *sql.Stmt
 	cancelPendingEnrollmentStmt                                  *sql.Stmt
 	cascadeAddedDeviceBuildingsStmt                              *sql.Stmt
 	cascadeAddedDeviceSitesStmt                                  *sql.Stmt
@@ -6622,6 +6728,7 @@ type Queries struct {
 	checkFirmwareArtifactInUseStmt                               *sql.Stmt
 	claimAllPairedPolicyTargetsStmt                              *sql.Stmt
 	claimClosedLoopFullFleetTargetsStmt                          *sql.Stmt
+	claimDeletionUnpairPermitStmt                                *sql.Stmt
 	claimMessageForProcessingStmt                                *sql.Stmt
 	claimRigConfigReconciliationStmt                             *sql.Stmt
 	classifyFleetRuntimeLeaseAcquisitionStmt                     *sql.Stmt
@@ -6682,6 +6789,8 @@ type Queries struct {
 	createBuildingStmt                                           *sql.Stmt
 	createCommandBatchLogStmt                                    *sql.Stmt
 	createCustomRoleStmt                                         *sql.Stmt
+	createDeletionUnpairPermitStmt                               *sql.Stmt
+	createDeletionUnpairPermitsStmt                              *sql.Stmt
 	createDeviceSetStmt                                          *sql.Stmt
 	createDeviceWriteAttemptStmt                                 *sql.Stmt
 	createFirmwareRolloutStmt                                    *sql.Stmt
@@ -6801,6 +6910,7 @@ type Queries struct {
 	getCurtailmentReconcilerHeartbeatStmt                        *sql.Stmt
 	getCurtailmentResponseProfileByOrgStmt                       *sql.Stmt
 	getCurtailmentTargetRollupByEventStmt                        *sql.Stmt
+	getDeletionUnpairPermitStmt                                  *sql.Stmt
 	getDeviceByDeviceIdentifierStmt                              *sql.Stmt
 	getDeviceByIDStmt                                            *sql.Stmt
 	getDeviceCommandRoutesStmt                                   *sql.Stmt
@@ -6831,6 +6941,9 @@ type Queries struct {
 	getDeviceStatusForDeviceIdentifiersStmt                      *sql.Stmt
 	getDeviceStatusHourlyAggregatesStmt                          *sql.Stmt
 	getDeviceWithCredentialsAndIPByDeviceIdentifierStmt          *sql.Stmt
+	getDeviceWriteDeletionBindingsStmt                           *sql.Stmt
+	getDeviceWriteDeletionTargetsStmt                            *sql.Stmt
+	getDeviceWriteIdentityKeysStmt                               *sql.Stmt
 	getDirectProtoMinerProxyTargetStmt                           *sql.Stmt
 	getDiscoveredDeviceByDeviceIdentifierStmt                    *sql.Stmt
 	getDiscoveredDeviceByIDStmt                                  *sql.Stmt
@@ -6981,7 +7094,9 @@ type Queries struct {
 	insertRepairTicketPartStmt                                   *sql.Stmt
 	inventoryPartExistsBySiteAndNameStmt                         *sql.Stmt
 	isBatchFinishedStmt                                          *sql.Stmt
+	isDeletionUnpairIdentityCurrentStmt                          *sql.Stmt
 	isDeviceWriteFenceDrainedStmt                                *sql.Stmt
+	isRetiredDeviceWriteDrainedStmt                              *sql.Stmt
 	listActiveAlertMaintenanceWindowsStmt                        *sql.Stmt
 	listActiveCurtailedDevicesByOrgStmt                          *sql.Stmt
 	listActiveCurtailmentEventsStmt                              *sql.Stmt
@@ -7136,10 +7251,12 @@ type Queries struct {
 	lockCurtailmentScopeForWriteStmt                             *sql.Stmt
 	lockCurtailmentTargetPairingStatusesForWriteStmt             *sql.Stmt
 	lockCurtailmentTopologyMemberDeviceSitesByOrgStmt            *sql.Stmt
+	lockDeletionUnpairPermitStmt                                 *sql.Stmt
 	lockDeviceByIdentifierStmt                                   *sql.Stmt
 	lockDeviceWriteAttemptForRecoveryStmt                        *sql.Stmt
 	lockDeviceWriteFenceRecordStmt                               *sql.Stmt
 	lockDeviceWriteFencesStmt                                    *sql.Stmt
+	lockDeviceWriteIdentitiesStmt                                *sql.Stmt
 	lockDevicesForReassignStmt                                   *sql.Stmt
 	lockFleetNodeByIDStmt                                        *sql.Stmt
 	lockFleetNodePairingDeviceStmt                               *sql.Stmt
@@ -7392,6 +7509,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		adminTerminateCurtailmentEventStmt:                           q.adminTerminateCurtailmentEventStmt,
 		advanceContainerControlsStmt:                                 q.advanceContainerControlsStmt,
 		advanceContainerInventoryStmt:                                q.advanceContainerInventoryStmt,
+		advanceDeletedDeviceWriteFencesStmt:                          q.advanceDeletedDeviceWriteFencesStmt,
 		advanceFirmwareRolloutStageStmt:                              q.advanceFirmwareRolloutStageStmt,
 		advanceFleetMetricRollupProgressStmt:                         q.advanceFleetMetricRollupProgressStmt,
 		advanceRecoveredDeviceWriteFenceStmt:                         q.advanceRecoveredDeviceWriteFenceStmt,
@@ -7427,6 +7545,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		cancelEnrollmentForFleetNodeStmt:                             q.cancelEnrollmentForFleetNodeStmt,
 		cancelFirmwareRolloutStmt:                                    q.cancelFirmwareRolloutStmt,
 		cancelPendingDeviceWritesStmt:                                q.cancelPendingDeviceWritesStmt,
+		cancelPendingDeviceWritesForDeletionStmt:                     q.cancelPendingDeviceWritesForDeletionStmt,
 		cancelPendingEnrollmentStmt:                                  q.cancelPendingEnrollmentStmt,
 		cascadeAddedDeviceBuildingsStmt:                              q.cascadeAddedDeviceBuildingsStmt,
 		cascadeAddedDeviceSitesStmt:                                  q.cascadeAddedDeviceSitesStmt,
@@ -7440,6 +7559,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		checkFirmwareArtifactInUseStmt:                               q.checkFirmwareArtifactInUseStmt,
 		claimAllPairedPolicyTargetsStmt:                              q.claimAllPairedPolicyTargetsStmt,
 		claimClosedLoopFullFleetTargetsStmt:                          q.claimClosedLoopFullFleetTargetsStmt,
+		claimDeletionUnpairPermitStmt:                                q.claimDeletionUnpairPermitStmt,
 		claimMessageForProcessingStmt:                                q.claimMessageForProcessingStmt,
 		claimRigConfigReconciliationStmt:                             q.claimRigConfigReconciliationStmt,
 		classifyFleetRuntimeLeaseAcquisitionStmt:                     q.classifyFleetRuntimeLeaseAcquisitionStmt,
@@ -7500,6 +7620,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createBuildingStmt:                                           q.createBuildingStmt,
 		createCommandBatchLogStmt:                                    q.createCommandBatchLogStmt,
 		createCustomRoleStmt:                                         q.createCustomRoleStmt,
+		createDeletionUnpairPermitStmt:                               q.createDeletionUnpairPermitStmt,
+		createDeletionUnpairPermitsStmt:                              q.createDeletionUnpairPermitsStmt,
 		createDeviceSetStmt:                                          q.createDeviceSetStmt,
 		createDeviceWriteAttemptStmt:                                 q.createDeviceWriteAttemptStmt,
 		createFirmwareRolloutStmt:                                    q.createFirmwareRolloutStmt,
@@ -7619,6 +7741,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getCurtailmentReconcilerHeartbeatStmt:                        q.getCurtailmentReconcilerHeartbeatStmt,
 		getCurtailmentResponseProfileByOrgStmt:                       q.getCurtailmentResponseProfileByOrgStmt,
 		getCurtailmentTargetRollupByEventStmt:                        q.getCurtailmentTargetRollupByEventStmt,
+		getDeletionUnpairPermitStmt:                                  q.getDeletionUnpairPermitStmt,
 		getDeviceByDeviceIdentifierStmt:                              q.getDeviceByDeviceIdentifierStmt,
 		getDeviceByIDStmt:                                            q.getDeviceByIDStmt,
 		getDeviceCommandRoutesStmt:                                   q.getDeviceCommandRoutesStmt,
@@ -7649,6 +7772,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceStatusForDeviceIdentifiersStmt:                      q.getDeviceStatusForDeviceIdentifiersStmt,
 		getDeviceStatusHourlyAggregatesStmt:                          q.getDeviceStatusHourlyAggregatesStmt,
 		getDeviceWithCredentialsAndIPByDeviceIdentifierStmt:          q.getDeviceWithCredentialsAndIPByDeviceIdentifierStmt,
+		getDeviceWriteDeletionBindingsStmt:                           q.getDeviceWriteDeletionBindingsStmt,
+		getDeviceWriteDeletionTargetsStmt:                            q.getDeviceWriteDeletionTargetsStmt,
+		getDeviceWriteIdentityKeysStmt:                               q.getDeviceWriteIdentityKeysStmt,
 		getDirectProtoMinerProxyTargetStmt:                           q.getDirectProtoMinerProxyTargetStmt,
 		getDiscoveredDeviceByDeviceIdentifierStmt:                    q.getDiscoveredDeviceByDeviceIdentifierStmt,
 		getDiscoveredDeviceByIDStmt:                                  q.getDiscoveredDeviceByIDStmt,
@@ -7799,7 +7925,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertRepairTicketPartStmt:                                   q.insertRepairTicketPartStmt,
 		inventoryPartExistsBySiteAndNameStmt:                         q.inventoryPartExistsBySiteAndNameStmt,
 		isBatchFinishedStmt:                                          q.isBatchFinishedStmt,
+		isDeletionUnpairIdentityCurrentStmt:                          q.isDeletionUnpairIdentityCurrentStmt,
 		isDeviceWriteFenceDrainedStmt:                                q.isDeviceWriteFenceDrainedStmt,
+		isRetiredDeviceWriteDrainedStmt:                              q.isRetiredDeviceWriteDrainedStmt,
 		listActiveAlertMaintenanceWindowsStmt:                        q.listActiveAlertMaintenanceWindowsStmt,
 		listActiveCurtailedDevicesByOrgStmt:                          q.listActiveCurtailedDevicesByOrgStmt,
 		listActiveCurtailmentEventsStmt:                              q.listActiveCurtailmentEventsStmt,
@@ -7954,10 +8082,12 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockCurtailmentScopeForWriteStmt:                             q.lockCurtailmentScopeForWriteStmt,
 		lockCurtailmentTargetPairingStatusesForWriteStmt:             q.lockCurtailmentTargetPairingStatusesForWriteStmt,
 		lockCurtailmentTopologyMemberDeviceSitesByOrgStmt:            q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt,
+		lockDeletionUnpairPermitStmt:                                 q.lockDeletionUnpairPermitStmt,
 		lockDeviceByIdentifierStmt:                                   q.lockDeviceByIdentifierStmt,
 		lockDeviceWriteAttemptForRecoveryStmt:                        q.lockDeviceWriteAttemptForRecoveryStmt,
 		lockDeviceWriteFenceRecordStmt:                               q.lockDeviceWriteFenceRecordStmt,
 		lockDeviceWriteFencesStmt:                                    q.lockDeviceWriteFencesStmt,
+		lockDeviceWriteIdentitiesStmt:                                q.lockDeviceWriteIdentitiesStmt,
 		lockDevicesForReassignStmt:                                   q.lockDevicesForReassignStmt,
 		lockFleetNodeByIDStmt:                                        q.lockFleetNodeByIDStmt,
 		lockFleetNodePairingDeviceStmt:                               q.lockFleetNodePairingDeviceStmt,

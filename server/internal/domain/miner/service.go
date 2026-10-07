@@ -11,6 +11,7 @@ import (
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
@@ -48,6 +49,7 @@ type Service struct {
 	userStore      stores.UserStore
 	encryptService *encrypt.Service
 	filesService   *files.Service
+	writeService   *devicewrite.Service
 	pluginManager  PluginManager
 
 	// commandSender, when set, routes commands for fleet-node-paired devices over the
@@ -102,6 +104,7 @@ func NewMinerService(db *sql.DB, userStore stores.UserStore, encryptService *enc
 		userStore:            userStore,
 		encryptService:       encryptService,
 		filesService:         filesService,
+		writeService:         devicewrite.NewService(db),
 		pluginManager:        pluginManager,
 		cache:                lru.NewLRU[string, interfaces.Miner](minerCacheSize, nil, minerCacheTTL),
 	}
@@ -202,29 +205,43 @@ func (s *Service) resolveMiner(ctx context.Context, deviceID models.DeviceIdenti
 		}
 	}
 
-	m, err := s.createMiner(
-		ctx,
-		deviceData.DeviceIdentifier,
-		deviceData.OrgID,
-		siteID,
-		deviceData.Port,
-		deviceData.DriverName,
-		deviceManufacturer,
-		deviceModel,
-		deviceUsername,
-		devicePassword,
-		deviceData.IpAddress,
-		deviceData.UrlScheme,
-		deviceData.SerialNumber.String,
-		deviceData.MacAddress,
-		sdk.DeviceClass(deviceData.DeviceClass),
-		deviceData.RpcPort, deviceData.RpcTls,
-	)
+	if !s.pluginManager.HasPluginForDriverName(deviceData.DriverName) {
+		return nil, fmt.Errorf("no plugin available (driver_name=%q) — ensure the device has been discovered and the appropriate plugin is loaded", deviceData.DriverName)
+	}
+	m, err := plugins.NewPluginMinerWithCredentials(ctx, plugins.PluginMinerConfig{
+		DeviceClass:        sdk.DeviceClass(deviceData.DeviceClass),
+		RPCPort:            deviceData.RpcPort,
+		RPCTLS:             deviceData.RpcTls,
+		DeviceIdentifier:   deviceData.DeviceIdentifier,
+		DriverName:         deviceData.DriverName,
+		Caps:               s.effectiveCapabilitiesForDevice(ctx, deviceData.DriverName, deviceManufacturer, deviceModel),
+		DeviceIPAddress:    deviceData.IpAddress,
+		DevicePort:         deviceData.Port,
+		DeviceScheme:       deviceData.UrlScheme,
+		DeviceSerialNumber: deviceData.SerialNumber.String,
+		DeviceUsername:     deviceUsername,
+		DevicePassword:     devicePassword,
+		MacAddress:         deviceData.MacAddress,
+		OrgID:              deviceData.OrgID,
+		SiteID:             siteID,
+		EncryptService:     s.encryptService,
+		FilesService:       s.filesService,
+		DriverGetter:       s.pluginManager,
+		WriteGate:          s.directWriteGate(deviceData),
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	return m, nil
+	hash, err := devicewrite.DirectBindingHash(deviceData)
+	if err != nil {
+		return nil, err
+	}
+	direct, ok := m.(*plugins.PluginMiner)
+	if !ok {
+		return nil, fleeterror.NewInternalError("direct miner adapter could not be bound")
+	}
+	return &directMinerHandle{PluginMiner: direct, owner: s, deviceID: deviceData.ID, organizationID: deviceData.OrgID, bindingHash: hash}, nil
 }
 
 func (s *Service) encryptTransientCredentials(credentials sdk.UsernamePassword) (string, string, error) {
@@ -261,6 +278,7 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 		EncryptionPublicKey: func(ctx context.Context) ([]byte, error) {
 			return s.poolConfigEncryptionPublicKey(ctx, telemetryRoute.OrgID, telemetryRoute.DeviceIdentifier, telemetryRoute.FleetNodeID)
 		},
+		WriteGate:          s.remoteWriteGate(telemetryRoute),
 		Gate:               s.nodeLimiter,
 		DeferrableReadGate: s.nodeDeferrableReadLimiter,
 		LogDownloadGate:    s.nodeLogDownloadLimiter,
@@ -344,32 +362,6 @@ func (s *Service) InvalidateMinerByID(ctx context.Context, deviceID int64) {
 		return
 	}
 	s.InvalidateMiner(models.DeviceIdentifier(identifier))
-}
-
-func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, siteID int64, devicePort string, driverName string, deviceManufacturer string, deviceModel string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string, macAddress string, deviceClass sdk.DeviceClass, rpcPort int32, rpcTLS bool) (interfaces.Miner, error) {
-	if !s.pluginManager.HasPluginForDriverName(driverName) {
-		return nil, fmt.Errorf("no plugin available (driver_name=%q) — ensure the device has been discovered and the appropriate plugin is loaded", driverName)
-	}
-	return plugins.NewPluginMinerWithCredentials(ctx, plugins.PluginMinerConfig{
-		DeviceClass:        deviceClass,
-		RPCPort:            rpcPort,
-		RPCTLS:             rpcTLS,
-		DeviceIdentifier:   deviceIdentifier,
-		DriverName:         driverName,
-		Caps:               s.effectiveCapabilitiesForDevice(ctx, driverName, deviceManufacturer, deviceModel),
-		DeviceIPAddress:    deviceIPAddress,
-		DevicePort:         devicePort,
-		DeviceScheme:       deviceScheme,
-		DeviceSerialNumber: deviceSerialNumber,
-		DeviceUsername:     deviceUsername,
-		DevicePassword:     devicePassword,
-		MacAddress:         macAddress,
-		OrgID:              orgID,
-		SiteID:             siteID,
-		EncryptService:     s.encryptService,
-		FilesService:       s.filesService,
-		DriverGetter:       s.pluginManager,
-	})
 }
 
 func (s *Service) effectiveCapabilitiesForDevice(ctx context.Context, driverName string, deviceManufacturer string, deviceModel string) sdk.Capabilities {

@@ -825,6 +825,16 @@ type Device struct {
 	BuildingID               sql.NullInt64
 }
 
+type DeviceDeletionUnpairPermit struct {
+	DeviceID       int64
+	OrganizationID int64
+	Epoch          int64
+	BindingHash    string
+	IdentityKeys   []string
+	AttemptID      uuid.NullUUID
+	CreatedAt      time.Time
+}
+
 type DeviceFirmwareDeployment struct {
 	DeviceID             int64
 	FirmwareChecksum     string
@@ -991,13 +1001,14 @@ type DeviceWriteAttempt struct {
 	DeviceID         int64
 	OrganizationID   int64
 	Epoch            int64
-	QueueMessageID   int64
+	QueueMessageID   sql.NullInt64
 	OwnerInstanceID  uuid.UUID
 	OperationKind    string
 	IdentitySnapshot json.RawMessage
 	Status           string
 	CreatedAt        time.Time
 	FinishedAt       sql.NullTime
+	IdentityKeys     []string
 }
 
 type DeviceWriteFence struct {

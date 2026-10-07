@@ -105,7 +105,9 @@ func TestQueuedFirmwareFollowOnCannotCrossOwnershipReservation(t *testing.T) {
 	getter.EXPECT().GetMiner(gomock.Any(), deviceID).Return(firmwareStatusMiner{Miner: miner, FirmwareUpdateStatusProvider: provider}, nil)
 	miner.EXPECT().GetOrgID().Return(int64(1))
 	miner.EXPECT().GetSiteID().Return(int64(0))
-	miner.EXPECT().FirmwareUpdate(gomock.Any(), gomock.Any()).Return(nil)
+	miner.EXPECT().FirmwareUpdate(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ sdk.FirmwareFile) error {
+		return devicewrite.Dispatch(ctx, func(context.Context) error { return nil })
+	})
 	var epoch int64
 	provider.EXPECT().GetFirmwareUpdateStatus(gomock.Any()).DoAndReturn(func(context.Context) (*sdk.FirmwareUpdateStatus, error) {
 		epoch, err = fences.Reserve(t.Context(), 1, deviceID)

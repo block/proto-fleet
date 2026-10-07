@@ -44,17 +44,23 @@ func NewService(conn *sql.DB) *Service {
 }
 
 type Attempt struct {
-	service        *Service
-	id             uuid.UUID
-	deviceID       int64
-	organizationID int64
-	dispatched     atomic.Bool
+	service         *Service
+	id              uuid.UUID
+	deviceID        int64
+	organizationID  int64
+	epoch           int64
+	dispatched      atomic.Bool
+	deletionBinding string
 }
 
 // BeginQueuedHost checks the persisted message as well as its current epoch.
 // The device lock precedes the queue lock, matching reservation/enqueue order.
 func (s *Service) BeginQueuedHost(ctx context.Context, message queue.Message) (*Attempt, error) {
 	return db.WithTransactionTimeout(ctx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) (*Attempt, error) {
+		keys, err := lockIdentity(ctx, q, message.DeviceID)
+		if err != nil {
+			return nil, err
+		}
 		fence, err := lockFence(ctx, q, message.OrgID, message.DeviceID)
 		if err != nil {
 			return nil, err
@@ -69,8 +75,8 @@ func (s *Service) BeginQueuedHost(ctx context.Context, message queue.Message) (*
 		if persisted.DeviceID != message.DeviceID || persisted.OrgID != message.OrgID || persisted.WriteEpoch != fence.Epoch || persisted.CommandType != message.CommandType.String() || persisted.CommandBatchLogUuid != message.BatchLogUUID {
 			return nil, blocked()
 		}
-		attempt := &Attempt{service: s, id: uuid.New(), deviceID: message.DeviceID, organizationID: message.OrgID}
-		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: message.DeviceID, OrganizationID: message.OrgID, Epoch: fence.Epoch, QueueMessageID: message.ID, OwnerInstanceID: processInstanceID, OperationKind: operationMutation}); err != nil {
+		attempt := &Attempt{service: s, id: uuid.New(), deviceID: message.DeviceID, organizationID: message.OrgID, epoch: fence.Epoch}
+		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: message.DeviceID, OrganizationID: message.OrgID, Epoch: fence.Epoch, QueueMessageID: sql.NullInt64{Int64: message.ID, Valid: true}, IdentityKeys: keys, OwnerInstanceID: processInstanceID, OperationKind: operationMutation}); err != nil {
 			return nil, fmt.Errorf("record device write attempt: %w", err)
 		}
 		return attempt, nil
@@ -128,6 +134,9 @@ func (a *Attempt) Finish(ctx context.Context, outcome error) error {
 // Its caller owns account authority and incoming configuration selection.
 func (s *Service) Reserve(ctx context.Context, organizationID, deviceID int64) (int64, error) {
 	reserve := func(q sqlc.Querier) (int64, error) {
+		if _, err := lockIdentity(ctx, q, deviceID); err != nil {
+			return 0, err
+		}
 		if _, err := lockFence(ctx, q, organizationID, deviceID); err != nil {
 			return 0, err
 		}
@@ -238,4 +247,63 @@ func Dispatch(ctx context.Context, operation func(context.Context) error) error 
 		attempt.dispatched.Store(true)
 	}
 	return outcome
+}
+
+// BeginHost commits an attempt before direct device I/O. The captured epoch
+// prevents a cached handle from reviving after ownership returns to the host.
+func (s *Service) BeginHost(ctx context.Context, organizationID, deviceID, epoch int64) (*Attempt, error) {
+	if db.GetTxQueries(ctx) != nil {
+		return nil, fleeterror.NewFailedPreconditionError("device I/O requires committed admission")
+	}
+	return db.WithTransactionTimeout(ctx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) (*Attempt, error) {
+		keys, err := lockIdentity(ctx, q, deviceID)
+		if err != nil {
+			return nil, err
+		}
+		fence, err := lockFence(ctx, q, organizationID, deviceID)
+		if err != nil {
+			return nil, err
+		}
+		if fence.State != "host" || fence.Epoch != epoch {
+			return nil, blocked()
+		}
+		attempt := &Attempt{service: s, id: uuid.New(), deviceID: deviceID, organizationID: organizationID, epoch: epoch}
+		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: deviceID, OrganizationID: organizationID, Epoch: epoch, IdentityKeys: keys, OwnerInstanceID: processInstanceID, OperationKind: operationMutation}); err != nil {
+			return nil, fmt.Errorf("record direct device write: %w", err)
+		}
+		return attempt, nil
+	})
+}
+
+// WithHostAttempt retains the whole operation lifetime after committed admission.
+// The callback marks only actual transport calls with Dispatch after validation.
+// A carried attempt may authorize only its exact database, device and epoch.
+func (s *Service) WithHostAttempt(ctx context.Context, organizationID, deviceID, epoch int64, call func(context.Context) error) (resultErr error) {
+	if db.GetTxQueries(ctx) != nil {
+		return fleeterror.NewFailedPreconditionError("device I/O requires committed admission")
+	}
+	if attempt, ok := ctx.Value(attemptContextKey{}).(*Attempt); ok {
+		if attempt.deletionBinding != "" || attempt.service.conn != s.conn || attempt.organizationID != organizationID || attempt.deviceID != deviceID || attempt.epoch != epoch {
+			return blocked()
+		}
+		return call(ctx)
+	}
+	attempt, err := s.BeginHost(ctx, organizationID, deviceID, epoch)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), runtimepolicy.CommandTransactionBound)
+		defer cancel()
+		if err := attempt.Finish(finishCtx, resultErr); err != nil && resultErr == nil {
+			resultErr = err
+		}
+	}()
+	return call(attempt.Context(ctx))
+}
+
+// RunHost admits a single direct physical call. Multi-step transports use
+// WithHostAttempt and mark each actual dispatch after their own validation.
+func (s *Service) RunHost(ctx context.Context, organizationID, deviceID, epoch int64, call func(context.Context) error) error {
+	return s.WithHostAttempt(ctx, organizationID, deviceID, epoch, func(ctx context.Context) error { return Dispatch(ctx, call) })
 }

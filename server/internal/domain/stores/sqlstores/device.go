@@ -19,6 +19,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	tm "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
@@ -1493,6 +1494,10 @@ func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifier
 		}
 		if !allBelong {
 			return 0, fleeterror.NewForbiddenError("access denied to one or more requested devices")
+		}
+
+		if err := devicewrite.PrepareDeletion(ctx, q, orgID, deviceIdentifiers); err != nil {
+			return 0, err
 		}
 
 		if _, err := q.DeleteMinerCredentialsForDeviceIdentifiers(ctx, sqlc.DeleteMinerCredentialsForDeviceIdentifiersParams{

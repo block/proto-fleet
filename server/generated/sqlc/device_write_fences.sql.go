@@ -7,11 +7,51 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
+
+const advanceDeletedDeviceWriteFences = `-- name: AdvanceDeletedDeviceWriteFences :many
+UPDATE device_write_fence SET epoch=epoch+1,updated_at=statement_timestamp()
+WHERE device_id=ANY($2::bigint[]) AND organization_id=$1 AND state='host'
+RETURNING device_id,epoch
+`
+
+type AdvanceDeletedDeviceWriteFencesParams struct {
+	OrganizationID int64
+	DeviceIds      []int64
+}
+
+type AdvanceDeletedDeviceWriteFencesRow struct {
+	DeviceID int64
+	Epoch    int64
+}
+
+func (q *Queries) AdvanceDeletedDeviceWriteFences(ctx context.Context, arg AdvanceDeletedDeviceWriteFencesParams) ([]AdvanceDeletedDeviceWriteFencesRow, error) {
+	rows, err := q.query(ctx, q.advanceDeletedDeviceWriteFencesStmt, advanceDeletedDeviceWriteFences, arg.OrganizationID, pq.Array(arg.DeviceIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []AdvanceDeletedDeviceWriteFencesRow
+	for rows.Next() {
+		var i AdvanceDeletedDeviceWriteFencesRow
+		if err := rows.Scan(&i.DeviceID, &i.Epoch); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
 
 const advanceRecoveredDeviceWriteFence = `-- name: AdvanceRecoveredDeviceWriteFence :one
 UPDATE device_write_fence SET epoch=epoch+1,updated_at=statement_timestamp()
@@ -69,12 +109,26 @@ func (q *Queries) CancelPendingDeviceWrites(ctx context.Context, deviceID int64)
 	return err
 }
 
+const cancelPendingDeviceWritesForDeletion = `-- name: CancelPendingDeviceWritesForDeletion :exec
+UPDATE queue_message SET status='FAILED',error_info='device command canceled by configuration handover',updated_at=statement_timestamp()
+WHERE device_id=ANY($1::bigint[]) AND status='PENDING'
+`
+
+func (q *Queries) CancelPendingDeviceWritesForDeletion(ctx context.Context, deviceIds []int64) error {
+	_, err := q.exec(ctx, q.cancelPendingDeviceWritesForDeletionStmt, cancelPendingDeviceWritesForDeletion, pq.Array(deviceIds))
+	return err
+}
+
 const checkDeviceWriteAttempt = `-- name: CheckDeviceWriteAttempt :one
 SELECT EXISTS (
  SELECT 1 FROM device_write_attempt a JOIN device_write_fence f ON f.device_id=a.device_id AND f.organization_id=a.organization_id
  JOIN device d ON d.id=f.device_id AND d.org_id=f.organization_id
- JOIN queue_message m ON m.id=a.queue_message_id AND m.status='PROCESSING'
- WHERE a.attempt_id=$1 AND a.status='running' AND f.epoch=a.epoch AND f.state='host' AND d.deleted_at IS NULL
+ LEFT JOIN queue_message m ON m.id=a.queue_message_id
+ WHERE a.attempt_id=$1 AND a.status='running' AND f.epoch=a.epoch AND f.state='host'
+ AND ((d.deleted_at IS NULL AND a.identity_keys=device_write_identity_keys(d.id)) OR (d.deleted_at IS NOT NULL
+  AND EXISTS (SELECT 1 FROM device_deletion_unpair_permit p WHERE p.attempt_id=a.attempt_id AND p.device_id=a.device_id AND p.epoch=a.epoch)
+  AND NOT EXISTS (SELECT 1 FROM device successor WHERE successor.deleted_at IS NULL AND device_write_identity_keys(successor.id) && a.identity_keys)))
+ AND (a.queue_message_id IS NULL OR m.status='PROCESSING')
 )::boolean AS valid
 `
 
@@ -85,21 +139,74 @@ func (q *Queries) CheckDeviceWriteAttempt(ctx context.Context, attemptID uuid.UU
 	return valid, err
 }
 
+const claimDeletionUnpairPermit = `-- name: ClaimDeletionUnpairPermit :execrows
+UPDATE device_deletion_unpair_permit SET attempt_id=$1 WHERE device_id=$2 AND attempt_id IS NULL
+`
+
+type ClaimDeletionUnpairPermitParams struct {
+	AttemptID uuid.NullUUID
+	DeviceID  int64
+}
+
+func (q *Queries) ClaimDeletionUnpairPermit(ctx context.Context, arg ClaimDeletionUnpairPermitParams) (int64, error) {
+	result, err := q.exec(ctx, q.claimDeletionUnpairPermitStmt, claimDeletionUnpairPermit, arg.AttemptID, arg.DeviceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const createDeletionUnpairPermit = `-- name: CreateDeletionUnpairPermit :exec
+INSERT INTO device_deletion_unpair_permit(device_id,organization_id,epoch,binding_hash,identity_keys)
+VALUES($1,$2,$3,$4,$5)
+`
+
+type CreateDeletionUnpairPermitParams struct {
+	DeviceID       int64
+	OrganizationID int64
+	Epoch          int64
+	BindingHash    string
+	IdentityKeys   []string
+}
+
+func (q *Queries) CreateDeletionUnpairPermit(ctx context.Context, arg CreateDeletionUnpairPermitParams) error {
+	_, err := q.exec(ctx, q.createDeletionUnpairPermitStmt, createDeletionUnpairPermit,
+		arg.DeviceID,
+		arg.OrganizationID,
+		arg.Epoch,
+		arg.BindingHash,
+		pq.Array(arg.IdentityKeys),
+	)
+	return err
+}
+
+const createDeletionUnpairPermits = `-- name: CreateDeletionUnpairPermits :exec
+INSERT INTO device_deletion_unpair_permit(device_id,organization_id,epoch,binding_hash,identity_keys)
+SELECT p.device_id,p.organization_id,p.epoch,p.binding_hash,p.identity_keys
+FROM jsonb_to_recordset($1::jsonb) AS p(device_id bigint,organization_id bigint,epoch bigint,binding_hash text,identity_keys text[])
+`
+
+func (q *Queries) CreateDeletionUnpairPermits(ctx context.Context, permits json.RawMessage) error {
+	_, err := q.exec(ctx, q.createDeletionUnpairPermitsStmt, createDeletionUnpairPermits, permits)
+	return err
+}
+
 const createDeviceWriteAttempt = `-- name: CreateDeviceWriteAttempt :exec
-INSERT INTO device_write_attempt(attempt_id,device_id,organization_id,epoch,queue_message_id,owner_instance_id,operation_kind,identity_snapshot)
-SELECT $1,d.id,d.org_id,$2,$3,$4,$5,
+INSERT INTO device_write_attempt(attempt_id,device_id,organization_id,epoch,queue_message_id,owner_instance_id,operation_kind,identity_keys,identity_snapshot)
+SELECT $1,d.id,d.org_id,$2,$3,$4,$5,$6::text[],
  jsonb_build_object('device_identifier',d.device_identifier,'serial_number',d.serial_number,'mac_address',d.mac_address,
  'ip_address',dd.ip_address,'port',dd.port,'url_scheme',dd.url_scheme)
 FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id
-WHERE d.id=$6 AND d.org_id=$7
+WHERE d.id=$7 AND d.org_id=$8
 `
 
 type CreateDeviceWriteAttemptParams struct {
 	AttemptID       uuid.UUID
 	Epoch           int64
-	QueueMessageID  int64
+	QueueMessageID  sql.NullInt64
 	OwnerInstanceID uuid.UUID
 	OperationKind   string
+	IdentityKeys    []string
 	DeviceID        int64
 	OrganizationID  int64
 }
@@ -111,6 +218,7 @@ func (q *Queries) CreateDeviceWriteAttempt(ctx context.Context, arg CreateDevice
 		arg.QueueMessageID,
 		arg.OwnerInstanceID,
 		arg.OperationKind,
+		pq.Array(arg.IdentityKeys),
 		arg.DeviceID,
 		arg.OrganizationID,
 	)
@@ -147,6 +255,96 @@ func (q *Queries) FinishDeviceWriteAttempt(ctx context.Context, arg FinishDevice
 	return result.RowsAffected()
 }
 
+const getDeletionUnpairPermit = `-- name: GetDeletionUnpairPermit :one
+SELECT p.device_id, p.organization_id, p.epoch, p.binding_hash, p.identity_keys, p.attempt_id, p.created_at FROM device_deletion_unpair_permit p JOIN device d ON d.id=p.device_id AND d.org_id=p.organization_id
+WHERE d.id=$1 AND d.org_id=$2 AND d.deleted_at IS NOT NULL AND p.attempt_id IS NULL
+`
+
+type GetDeletionUnpairPermitParams struct {
+	ID    int64
+	OrgID int64
+}
+
+func (q *Queries) GetDeletionUnpairPermit(ctx context.Context, arg GetDeletionUnpairPermitParams) (DeviceDeletionUnpairPermit, error) {
+	row := q.queryRow(ctx, q.getDeletionUnpairPermitStmt, getDeletionUnpairPermit, arg.ID, arg.OrgID)
+	var i DeviceDeletionUnpairPermit
+	err := row.Scan(
+		&i.DeviceID,
+		&i.OrganizationID,
+		&i.Epoch,
+		&i.BindingHash,
+		pq.Array(&i.IdentityKeys),
+		&i.AttemptID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getDeviceWriteDeletionTargets = `-- name: GetDeviceWriteDeletionTargets :many
+SELECT d.id,d.device_identifier,COALESCE(device_write_identity_keys(d.id),'{}'::text[])::text[] AS identity_keys FROM device d
+WHERE d.org_id=$1 AND d.device_identifier=ANY($2::text[]) AND d.deleted_at IS NULL
+ORDER BY d.id
+`
+
+type GetDeviceWriteDeletionTargetsParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+type GetDeviceWriteDeletionTargetsRow struct {
+	ID               int64
+	DeviceIdentifier string
+	IdentityKeys     []string
+}
+
+func (q *Queries) GetDeviceWriteDeletionTargets(ctx context.Context, arg GetDeviceWriteDeletionTargetsParams) ([]GetDeviceWriteDeletionTargetsRow, error) {
+	rows, err := q.query(ctx, q.getDeviceWriteDeletionTargetsStmt, getDeviceWriteDeletionTargets, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDeviceWriteDeletionTargetsRow
+	for rows.Next() {
+		var i GetDeviceWriteDeletionTargetsRow
+		if err := rows.Scan(&i.ID, &i.DeviceIdentifier, pq.Array(&i.IdentityKeys)); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getDeviceWriteIdentityKeys = `-- name: GetDeviceWriteIdentityKeys :one
+SELECT COALESCE(device_write_identity_keys($1),'{}'::text[])::text[] AS identity_keys
+`
+
+func (q *Queries) GetDeviceWriteIdentityKeys(ctx context.Context, targetID int64) ([]string, error) {
+	row := q.queryRow(ctx, q.getDeviceWriteIdentityKeysStmt, getDeviceWriteIdentityKeys, targetID)
+	var identity_keys []string
+	err := row.Scan(pq.Array(&identity_keys))
+	return identity_keys, err
+}
+
+const isDeletionUnpairIdentityCurrent = `-- name: IsDeletionUnpairIdentityCurrent :one
+SELECT EXISTS (SELECT 1 WHERE NOT EXISTS (
+ SELECT 1 FROM device d WHERE d.deleted_at IS NULL
+ AND device_write_identity_keys(d.id) && $1::text[]
+))::boolean AS current
+`
+
+func (q *Queries) IsDeletionUnpairIdentityCurrent(ctx context.Context, identityKeys []string) (bool, error) {
+	row := q.queryRow(ctx, q.isDeletionUnpairIdentityCurrentStmt, isDeletionUnpairIdentityCurrent, pq.Array(identityKeys))
+	var current bool
+	err := row.Scan(&current)
+	return current, err
+}
+
 const isDeviceWriteFenceDrained = `-- name: IsDeviceWriteFenceDrained :one
 SELECT EXISTS (
  SELECT 1 FROM device_write_fence f WHERE f.device_id=$1 AND f.organization_id=$2 AND f.epoch=$3
@@ -167,8 +365,23 @@ func (q *Queries) IsDeviceWriteFenceDrained(ctx context.Context, arg IsDeviceWri
 	return drained, err
 }
 
+const isRetiredDeviceWriteDrained = `-- name: IsRetiredDeviceWriteDrained :one
+SELECT EXISTS (SELECT 1 WHERE NOT EXISTS (
+ SELECT 1 FROM device_write_attempt a JOIN device d ON d.id=a.device_id
+ WHERE d.deleted_at IS NOT NULL AND a.status NOT IN ('complete','resolved')
+ AND a.identity_keys && $1::text[]
+))::boolean AS drained
+`
+
+func (q *Queries) IsRetiredDeviceWriteDrained(ctx context.Context, identityKeys []string) (bool, error) {
+	row := q.queryRow(ctx, q.isRetiredDeviceWriteDrainedStmt, isRetiredDeviceWriteDrained, pq.Array(identityKeys))
+	var drained bool
+	err := row.Scan(&drained)
+	return drained, err
+}
+
 const listUnresolvedDeviceWriteAttempts = `-- name: ListUnresolvedDeviceWriteAttempts :many
-SELECT a.attempt_id, a.device_id, a.organization_id, a.epoch, a.queue_message_id, a.owner_instance_id, a.operation_kind, a.identity_snapshot, a.status, a.created_at, a.finished_at FROM device_write_attempt a
+SELECT a.attempt_id, a.device_id, a.organization_id, a.epoch, a.queue_message_id, a.owner_instance_id, a.operation_kind, a.identity_snapshot, a.status, a.created_at, a.finished_at, a.identity_keys FROM device_write_attempt a
 WHERE a.organization_id=$1 AND a.device_id=$2 AND a.status IN ('running','unknown')
 ORDER BY a.created_at,a.attempt_id
 `
@@ -199,6 +412,7 @@ func (q *Queries) ListUnresolvedDeviceWriteAttempts(ctx context.Context, arg Lis
 			&i.Status,
 			&i.CreatedAt,
 			&i.FinishedAt,
+			pq.Array(&i.IdentityKeys),
 		); err != nil {
 			return nil, err
 		}
@@ -213,8 +427,34 @@ func (q *Queries) ListUnresolvedDeviceWriteAttempts(ctx context.Context, arg Lis
 	return items, nil
 }
 
+const lockDeletionUnpairPermit = `-- name: LockDeletionUnpairPermit :one
+SELECT p.device_id, p.organization_id, p.epoch, p.binding_hash, p.identity_keys, p.attempt_id, p.created_at FROM device_deletion_unpair_permit p JOIN device d ON d.id=p.device_id AND d.org_id=p.organization_id
+WHERE d.id=$1 AND d.org_id=$2 AND d.deleted_at IS NOT NULL AND p.attempt_id IS NULL
+FOR UPDATE OF p
+`
+
+type LockDeletionUnpairPermitParams struct {
+	ID    int64
+	OrgID int64
+}
+
+func (q *Queries) LockDeletionUnpairPermit(ctx context.Context, arg LockDeletionUnpairPermitParams) (DeviceDeletionUnpairPermit, error) {
+	row := q.queryRow(ctx, q.lockDeletionUnpairPermitStmt, lockDeletionUnpairPermit, arg.ID, arg.OrgID)
+	var i DeviceDeletionUnpairPermit
+	err := row.Scan(
+		&i.DeviceID,
+		&i.OrganizationID,
+		&i.Epoch,
+		&i.BindingHash,
+		pq.Array(&i.IdentityKeys),
+		&i.AttemptID,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const lockDeviceWriteAttemptForRecovery = `-- name: LockDeviceWriteAttemptForRecovery :one
-SELECT attempt_id, device_id, organization_id, epoch, queue_message_id, owner_instance_id, operation_kind, identity_snapshot, status, created_at, finished_at FROM device_write_attempt WHERE attempt_id=$1 FOR UPDATE
+SELECT attempt_id, device_id, organization_id, epoch, queue_message_id, owner_instance_id, operation_kind, identity_snapshot, status, created_at, finished_at, identity_keys FROM device_write_attempt WHERE attempt_id=$1 FOR UPDATE
 `
 
 func (q *Queries) LockDeviceWriteAttemptForRecovery(ctx context.Context, attemptID uuid.UUID) (DeviceWriteAttempt, error) {
@@ -232,6 +472,7 @@ func (q *Queries) LockDeviceWriteAttemptForRecovery(ctx context.Context, attempt
 		&i.Status,
 		&i.CreatedAt,
 		&i.FinishedAt,
+		pq.Array(&i.IdentityKeys),
 	)
 	return i, err
 }
@@ -295,6 +536,17 @@ func (q *Queries) LockDeviceWriteFences(ctx context.Context, deviceIds []int64) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockDeviceWriteIdentities = `-- name: LockDeviceWriteIdentities :exec
+SELECT pg_advisory_xact_lock(k) FROM (
+ SELECT DISTINCT hashtextextended(identity,0) AS k FROM unnest($1::text[]) AS identity ORDER BY k
+) AS ordered_keys
+`
+
+func (q *Queries) LockDeviceWriteIdentities(ctx context.Context, identityKeys []string) error {
+	_, err := q.exec(ctx, q.lockDeviceWriteIdentitiesStmt, lockDeviceWriteIdentities, pq.Array(identityKeys))
+	return err
 }
 
 const lockQueuedDeviceWrite = `-- name: LockQueuedDeviceWrite :one
