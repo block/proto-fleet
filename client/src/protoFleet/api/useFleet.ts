@@ -39,6 +39,9 @@ type UseFleetOptions = {
 
 // Constants to prevent re-renders from unstable default values
 const DEFAULT_PAIRING_STATUSES: PairingStatus[] = [];
+const EMPTY_MINER_IDS: string[] = [];
+const EMPTY_MINERS: Record<string, MinerStateSnapshot> = {};
+const EMPTY_INVENTORY_ITEMS: InventoryItem[] = [];
 type PendingFetchMode = "refetch" | "refresh";
 
 const createMiningInventoryQuery = (
@@ -528,12 +531,12 @@ const useFleet = (options: UseFleetOptions = {}) => {
   return {
     ...(inventory
       ? {
-          inventoryItems: inventoryDataCurrent ? inventoryItems : enabled ? [] : undefined,
+          inventoryItems: inventoryDataCurrent ? inventoryItems : enabled ? EMPTY_INVENTORY_ITEMS : undefined,
           inventoryMinerCount: inventoryDataCurrent ? inventoryMinerCount : 0,
         }
       : {}),
-    minerIds: hideInventoryData ? [] : minerIds,
-    miners: hideInventoryData ? {} : miners,
+    minerIds: hideInventoryData ? EMPTY_MINER_IDS : minerIds,
+    miners: hideInventoryData ? EMPTY_MINERS : miners,
     totalMiners: hideInventoryData ? 0 : totalMiners,
     hasMore: hideInventoryData ? false : hasMore,
     isLoading: inventory ? enabled && (!inventoryCompleted || isLoading) : isLoading,

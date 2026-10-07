@@ -1,12 +1,13 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { fleetInventoryClient, fleetManagementClient } from "./clients";
+import { errorQueryClient, fleetInventoryClient, fleetManagementClient } from "./clients";
 import {
   EntityKind,
   EntityRefSchema,
   ListInventoryResponseSchema,
 } from "./generated/fleetinventory/v1/fleetinventory_pb";
+import { useDeviceErrors } from "./useDeviceErrors";
 import useFleet from "./useFleet";
 import {
   ListMinerStateSnapshotsResponseSchema,
@@ -15,6 +16,7 @@ import {
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 vi.mock("./clients", () => ({
+  errorQueryClient: { query: vi.fn() },
   fleetInventoryClient: { listInventory: vi.fn() },
   fleetManagementClient: {
     listMinerStateSnapshots: vi.fn(),
@@ -60,6 +62,46 @@ const makeListResponse = (miners: ReturnType<typeof makeMiner>[]) =>
 describe("useFleet", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("settles with device errors while inventory is pending, failed, or disabled", async () => {
+    let rejectInventory!: (error: Error) => void;
+    vi.mocked(fleetInventoryClient.listInventory).mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectInventory = reject;
+        }),
+    );
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let renders = 0;
+    const { result, rerender } = renderHook(
+      ({ enabled }) => {
+        // Fail promptly if an unstable ID array makes the error hook render endlessly.
+        if (++renders > 20) throw new Error("Inventory and device errors did not settle");
+        const fleet = useFleet({ inventory: true, enabled });
+        const errors = useDeviceErrors(fleet.minerIds);
+        return { fleet, errors };
+      },
+      { initialProps: { enabled: true } },
+    );
+    expect(result.current.fleet.isLoading).toBe(true);
+    const { minerIds, miners, inventoryItems } = result.current.fleet;
+    rerender({ enabled: true });
+    expect(result.current.fleet.minerIds).toBe(minerIds);
+    expect(result.current.fleet.miners).toBe(miners);
+    expect(result.current.fleet.inventoryItems).toBe(inventoryItems);
+
+    await act(async () => rejectInventory(new Error("Inventory unavailable")));
+    expect(result.current.fleet.isLoading).toBe(false);
+    expect(result.current.fleet.minerIds).toBe(minerIds);
+    expect(result.current.fleet.inventoryItems).toBe(inventoryItems);
+
+    rerender({ enabled: false });
+    expect(result.current.fleet.minerIds).toBe(minerIds);
+    expect(result.current.fleet.miners).toBe(miners);
+    expect(result.current.errors.errorsByDevice).toEqual({});
+    expect(errorQueryClient.query).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   it("clears the inventory miner count and ignores in-flight results when disabled", async () => {
