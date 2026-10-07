@@ -1570,6 +1570,7 @@ type Querier interface {
 	LockFleetNodePairingDevice(ctx context.Context, arg LockFleetNodePairingDeviceParams) ([]int64, error)
 	LockHostedAccountAdministrators(ctx context.Context, arg LockHostedAccountAdministratorsParams) ([]int64, error)
 	// Serialize hierarchy, policy, and membership mutations for one organization.
+	// Allow foreign-key KEY SHARE locks from concurrent organization role writes.
 	LockHostedAccountOrganization(ctx context.Context, id int64) (int64, error)
 	// Canonical serialization point for device moves/deletes and response-profile
 	// references. Callers lock parent sites first, then device rows by ID.

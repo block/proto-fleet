@@ -299,10 +299,10 @@ func (s *SQLUserStore) UpdateUserOrganizationRole(ctx context.Context, userID in
 		UserID:         userID,
 		OrganizationID: organizationID,
 	}); err != nil {
-		return fleeterror.NewInternalErrorf("error updating user_organization row: %v", err)
+		return fleeterror.NewInternalErrorf("error updating user_organization row: %w", err)
 	}
 	if err := q.UnassignRole(ctx, oldAssignmentID); err != nil {
-		return fleeterror.NewInternalErrorf("error soft-deleting old user_organization_role row: %v", err)
+		return fleeterror.NewInternalErrorf("error soft-deleting old user_organization_role row: %w", err)
 	}
 	if _, err := q.AssignRole(ctx, sqlc.AssignRoleParams{
 		UserID:         userID,
@@ -311,7 +311,7 @@ func (s *SQLUserStore) UpdateUserOrganizationRole(ctx context.Context, userID in
 		ScopeType:      "org",
 		ScopeID:        sql.NullInt64{},
 	}); err != nil {
-		return fleeterror.NewInternalErrorf("error inserting new user_organization_role row: %v", err)
+		return fleeterror.NewInternalErrorf("error inserting new user_organization_role row: %w", err)
 	}
 	return nil
 }

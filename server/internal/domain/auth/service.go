@@ -919,7 +919,7 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 
 	orgs, err := s.userStore.GetOrganizationsForUser(ctx, info.UserID)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting user organizations: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error getting user organizations: %w", err)
 	}
 
 	if len(orgs) != 1 {
@@ -930,7 +930,7 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 
 	currentUser, err := s.userStore.GetUserByID(ctx, info.UserID)
 	if err != nil {
-		return nil, fleeterror.NewInternalErrorf("error getting current user: %v", err)
+		return nil, fleeterror.NewInternalErrorf("error getting current user: %w", err)
 	}
 
 	// Prevent self-deactivation
@@ -958,20 +958,20 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 		// remove every customer administrator or invert the lock order.
 		soleAccounts, guardErr := s.userManagementStore.LockAndCountSoleHostedAccountAdministrations(ctx, orgID, user.ID)
 		if guardErr != nil {
-			return fleeterror.NewInternalErrorf("error checking hosted account administrators: %v", guardErr)
+			return fleeterror.NewInternalErrorf("error checking hosted account administrators: %w", guardErr)
 		}
 		if soleAccounts > 0 {
 			return fleeterror.NewFailedPreconditionError("assign another account administrator before deactivating this user")
 		}
 		current, err := s.userManagementStore.GetOrgScopeAssignmentForUser(ctx, user.ID, orgID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return fleeterror.NewInternalErrorf("error getting target assignment: %v", err)
+			return fleeterror.NewInternalErrorf("error getting target assignment: %w", err)
 		}
 		// GetOrgScopeAssignmentForUser also locks the user when a current
 		// assignment exists. Lock it explicitly as well so legacy users without
 		// a migrated assignment still serialize with maintenance assignment.
 		if _, lockErr := s.userStore.GetUserByIDForUpdate(ctx, user.ID); lockErr != nil {
-			return fleeterror.NewInternalErrorf("error locking target user: %v", lockErr)
+			return fleeterror.NewInternalErrorf("error locking target user: %w", lockErr)
 		}
 		// If the target holds an org-scope SUPER_ADMIN seat, lock every
 		// live SA assignment in the org and require count > 1 (the
@@ -979,7 +979,7 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 		if err == nil && current.BuiltinKey == string(authz.BuiltinKeySuperAdmin) {
 			total, countErr := s.userManagementStore.LockAndCountOrgScopeSuperAdmins(ctx, orgID)
 			if countErr != nil {
-				return fleeterror.NewInternalErrorf("error counting org super admins: %v", countErr)
+				return fleeterror.NewInternalErrorf("error counting org super admins: %w", countErr)
 			}
 			if total <= 1 {
 				return fleeterror.NewFailedPreconditionError("cannot deactivate the last SUPER_ADMIN in the organization")
@@ -987,7 +987,7 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 		}
 		activeTickets, countErr := s.userManagementStore.CountActiveRepairTicketsAssignedToUser(ctx, orgID, user.ID)
 		if countErr != nil {
-			return fleeterror.NewInternalErrorf("error counting active maintenance tickets: %v", countErr)
+			return fleeterror.NewInternalErrorf("error counting active maintenance tickets: %w", countErr)
 		}
 		if activeTickets > 0 {
 			return fleeterror.NewFailedPreconditionError("reassign or unassign active maintenance tickets before deactivating this user")

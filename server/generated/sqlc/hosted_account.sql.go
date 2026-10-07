@@ -264,10 +264,11 @@ func (q *Queries) LockHostedAccountAdministrators(ctx context.Context, arg LockH
 }
 
 const lockHostedAccountOrganization = `-- name: LockHostedAccountOrganization :one
-SELECT id FROM organization WHERE id = $1 AND deleted_at IS NULL FOR UPDATE
+SELECT id FROM organization WHERE id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE
 `
 
 // Serialize hierarchy, policy, and membership mutations for one organization.
+// Allow foreign-key KEY SHARE locks from concurrent organization role writes.
 func (q *Queries) LockHostedAccountOrganization(ctx context.Context, id int64) (int64, error) {
 	row := q.queryRow(ctx, q.lockHostedAccountOrganizationStmt, lockHostedAccountOrganization, id)
 	err := row.Scan(&id)

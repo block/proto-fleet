@@ -1,6 +1,7 @@
 -- name: LockHostedAccountOrganization :one
 -- Serialize hierarchy, policy, and membership mutations for one organization.
-SELECT id FROM organization WHERE id = $1 AND deleted_at IS NULL FOR UPDATE;
+-- Allow foreign-key KEY SHARE locks from concurrent organization role writes.
+SELECT id FROM organization WHERE id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE;
 
 -- name: CountSoleHostedAccountAdministrations :one
 -- Call after locking the organization, before user/role locks. Also guard
