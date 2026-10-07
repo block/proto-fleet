@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import type { InventoryItem, ModuleIssue } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { Alert, Hashboard, Info, LightningAlt } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
@@ -6,6 +6,7 @@ import { variants } from "@/shared/components/Button";
 import Modal from "@/shared/components/Modal";
 import StatusModalIcon from "@/shared/components/StatusModal/StatusModalIcon";
 import StatusModalLayout from "@/shared/components/StatusModal/StatusModalLayout";
+import { type GroupedStatusErrors, useMinerIssues } from "@/shared/hooks/useStatusSummary";
 
 const componentName = (issue: ModuleIssue) =>
   issue.component === "psu" ? "PSU" : issue.component === "hashboard" ? "Hashboard" : "Module";
@@ -19,18 +20,26 @@ const causeName = (cause: string) => {
 };
 const issueName = (issue: ModuleIssue) => `${componentName(issue)} · ${causeName(issue.cause)}`;
 const timestampMs = (at: ModuleIssue["observedAt"]) => (at ? Number(at.seconds) * 1000 + at.nanos / 1e6 : undefined);
-const componentIcon = (issue: ModuleIssue) =>
+const componentIcon = (issue: ModuleIssue, width?: string) =>
   issue.component === "hashboard" ? (
-    <Hashboard />
+    <Hashboard width={width} />
   ) : issue.component === "psu" ? (
-    <LightningAlt />
+    <LightningAlt width={width} />
   ) : issue.severity === "observation" ? (
-    <Info />
+    <Info width={width} />
   ) : (
-    <Alert />
+    <Alert width={width} />
   );
 
-export function ModuleIssues({ item }: { item: InventoryItem }) {
+export function ModuleIssues({
+  item,
+  hashboardPosition,
+  children,
+}: {
+  item: Pick<InventoryItem, "name" | "moduleIssues">;
+  hashboardPosition?: number;
+  children?: ReactNode;
+}) {
   const [open, setOpen] = useState(false);
   const evidence = item.moduleIssues;
   const sourceMs = timestampMs(evidence?.observedAt);
@@ -63,31 +72,32 @@ export function ModuleIssues({ item }: { item: InventoryItem }) {
     : issues.some((issue) => issue.severity === "warning")
       ? "warning"
       : "info";
-  const availability = issues.length
-    ? "Issue report is partial. Additional issues may be missing."
-    : stale
-      ? "Issue evidence is stale. Current health is not confirmed."
-      : "Issue evidence is incomplete or unavailable. Current health is not confirmed.";
-  let summary = "No reported issues";
-  if (issues.length) {
-    summary = issueName(issues[0]);
-    if (issues.length > 1) summary += ` (+${issues.length - 1})`;
-  } else if (stale) {
-    summary = "Issues stale";
-  } else if (unavailable) {
-    summary = "Issues unavailable";
-  } else if (item.state === "attention") {
-    summary = "No reported cause";
+  const grouped: GroupedStatusErrors = { hashboard: [], psu: [], fan: [], controlBoard: [], other: [] };
+  for (const issue of issues) {
+    const componentType =
+      issue.severity === "observation"
+        ? "other"
+        : issue.component === "hashboard"
+          ? "hashboard"
+          : issue.component === "psu"
+            ? "psu"
+            : "other";
+    grouped[componentType].push({ componentType, slot: componentType === "hashboard" ? hashboardPosition : undefined });
   }
+  const { summary } = useMinerIssues(false, false, grouped);
+  if (!issues.length) return null;
+  const icon =
+    new Set(issues.map((issue) => issue.component)).size > 1 ? <Alert width="w-4" /> : componentIcon(issues[0], "w-4");
   return (
     <div onClick={(event) => event.stopPropagation()}>
       <button
         type="button"
-        className="block max-w-full truncate text-left text-200 underline"
-        title={summary}
+        className="flex cursor-pointer items-center gap-2 hover:underline"
+        title={summary ?? undefined}
         aria-label={`${item.name} issues: ${summary}`}
         onClick={() => setOpen(true)}
       >
+        {icon}
         {summary}
       </button>
       {open ? (
@@ -106,8 +116,8 @@ export function ModuleIssues({ item }: { item: InventoryItem }) {
                 {intent === "info" ? <Info width={iconSizes.xLarge} /> : <Alert width={iconSizes.xLarge} />}
               </StatusModalIcon>
             }
-            title={issues.length > 1 ? "Multiple issues detected" : issues.length ? issueName(issues[0]) : summary}
-            subtitle={unavailable ? availability : undefined}
+            title={issues.length > 1 ? "Multiple issues detected" : issueName(issues[0])}
+            subtitle={unavailable ? "Issue report is partial. Additional issues may be missing." : undefined}
             errors={issues.map((issue) => ({
               key: `${issue.component}:${issue.componentId}:${issue.cause}`,
               icon: componentIcon(issue),
@@ -123,7 +133,7 @@ export function ModuleIssues({ item }: { item: InventoryItem }) {
                 .join(" · "),
             }))}
           >
-            {!issues.length && unavailable ? <p>No current issue details available.</p> : null}
+            {children}
           </StatusModalLayout>
         </Modal>
       ) : null}

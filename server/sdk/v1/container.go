@@ -1,6 +1,9 @@
 package sdk
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // ModuleState describes a whole module, not a count of its faulty boards.
 type ModuleState string
@@ -53,12 +56,39 @@ type ContainerModuleIssue struct {
 
 type ContainerModule struct {
 	Issues     *ContainerModuleIssues  `json:"issues,omitempty"`
+	Hashboards []ContainerHashboard    `json:"hashboards,omitempty"`
 	Metrics    *ContainerModuleMetrics `json:"metrics,omitempty"`
 	Position   int32                   `json:"position"`
 	ReportedID string                  `json:"reported_id,omitempty"`
 	State      ModuleState             `json:"state"`
 	// ObservedAt is the source evidence time, not the collection time.
 	ObservedAt time.Time `json:"observed_at"`
+}
+
+// ContainerHashboard is an observation of a slot, not a module-owned hardware
+// identity. Fleet resolves MAC/serial to durable boards and tracks installations.
+// Empty and unknown slots have no identity. Missing observations never remove
+// inventory. MetadataJSON and HealthJSON preserve the MDK v2 fields and units;
+// the typed measurements use SI units and exclude stale or invalid evidence.
+// PSU fields inside the firmware payload belong to the shared module PSU.
+type ContainerHashboard struct {
+	IdentityClaims    []HashboardIdentityClaim `json:"identity_claims,omitempty"`
+	UnavailableReason string                   `json:"unavailable_reason,omitempty"`
+	Position          int32                    `json:"position"`
+	Occupancy         string                   `json:"occupancy"`
+	MACAddress        string                   `json:"mac_address,omitempty"`
+	Serial            string                   `json:"serial,omitempty"`
+	State             ModuleState              `json:"state"`
+	MiningState       string                   `json:"mining_state,omitempty"`
+	Isolated          *bool                    `json:"isolated,omitempty"`
+	ObservedAt        time.Time                `json:"observed_at"`
+	StateObservedAt   time.Time                `json:"state_observed_at"`
+	HashrateHS        *float64                 `json:"hashrate_hs,omitempty"`
+	TemperatureC      *float64                 `json:"temperature_c,omitempty"`
+	HashrailOK        *bool                    `json:"hashrail_ok,omitempty"`
+	RefclksOK         *bool                    `json:"refclks_ok,omitempty"`
+	MetadataJSON      json.RawMessage          `json:"metadata,omitempty"`
+	HealthJSON        json.RawMessage          `json:"health,omitempty"`
 }
 
 // ContainerModuleMetrics uses SI units. Power is module PSU input power, not
@@ -121,4 +151,19 @@ type ContainerSetpoint struct {
 	Name  string   `json:"name"`
 	Value *float64 `json:"value,omitempty"`
 	Unit  string   `json:"unit"`
+}
+
+// Hashboard unavailability codes describe rejected evidence, not hardware faults.
+const (
+	HashboardInvalidObservation = "invalid_observation"
+	HashboardAmbiguousSlot      = "ambiguous_slot"
+	HashboardMissingIdentity    = "missing_identity"
+	HashboardIdentityConflict   = "identity_conflict"
+	HashboardControllerConflict = "controller_conflict"
+	HashboardOlderObservation   = "older_observation"
+)
+
+// UnavailableHashboard clears untrusted identity and readings without claiming removal.
+func UnavailableHashboard(position int32, reason string) ContainerHashboard {
+	return ContainerHashboard{Position: position, Occupancy: "unknown", State: ModuleUnknown, UnavailableReason: reason}
 }

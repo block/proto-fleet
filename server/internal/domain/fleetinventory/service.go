@@ -28,6 +28,7 @@ type MinerReader interface {
 }
 
 type Store interface {
+	HashboardStore
 	GetContainerTankScope(ctx context.Context, params sqlc.GetContainerTankScopeParams) (sql.NullInt64, error)
 	GetContainerTankHistory(ctx context.Context, params sqlc.GetContainerTankHistoryParams) ([]sqlc.GetContainerTankHistoryRow, error)
 	ListFleetInventoryOptions(ctx context.Context, params sqlc.ListFleetInventoryOptionsParams) (sqlc.ListFleetInventoryOptionsRow, error)
@@ -37,6 +38,12 @@ type Store interface {
 	ListFleetMiningAssets(ctx context.Context, params sqlc.ListFleetMiningAssetsParams) (sqlc.ListFleetMiningAssetsRow, error)
 	GetContainerModuleScope(ctx context.Context, params sqlc.GetContainerModuleScopeParams) (sqlc.GetContainerModuleScopeRow, error)
 	ListContainerModuleHistory(ctx context.Context, params sqlc.ListContainerModuleHistoryParams) ([]sqlc.ListContainerModuleHistoryRow, error)
+}
+
+type HashboardStore interface {
+	CanReadHashboardHistory(ctx context.Context, params sqlc.CanReadHashboardHistoryParams) (bool, error)
+	GetModuleHashboards(ctx context.Context, params sqlc.GetModuleHashboardsParams) (json.RawMessage, error)
+	ListHashboardHistory(ctx context.Context, params sqlc.ListHashboardHistoryParams) ([]sqlc.ListHashboardHistoryRow, error)
 }
 
 type Service struct {

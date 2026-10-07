@@ -29,18 +29,14 @@ function expectDirectRequest(request: Request, baseURL: string) {
   expect(request.headers()["x-frigate-actor"]).toBe("proto-os");
 }
 
-function isNavigationCancelledAsset(
+function isSupersededOptionalAsset(
   request: Request,
   assetDocuments: Map<Request, number>,
   requiredAssets: Map<number, Set<string>>,
   documentGeneration: number,
 ) {
   const generation = assetDocuments.get(request)!;
-  return (
-    generation < documentGeneration &&
-    !requiredAssets.get(generation)?.has(request.url()) &&
-    request.failure()?.errorText === "net::ERR_ABORTED"
-  );
+  return generation < documentGeneration && !requiredAssets.get(generation)?.has(request.url());
 }
 
 function reattributeEntryAssets(
@@ -202,11 +198,15 @@ test("production bundle probes CT1 and survives tank/module deep-link refreshes 
       expect(response!.ok()).toBe(true);
     }
   }
-  const navigationCancelled = (request: Request) =>
-    isNavigationCancelledAsset(request, assetDocuments, requiredAssets, documentGeneration);
+  const supersededOptional = (request: Request) =>
+    isSupersededOptionalAsset(request, assetDocuments, requiredAssets, documentGeneration);
+  // Chromium can omit the terminal event for an outgoing speculative load,
+  // leaving finished() pending even after navigation has replaced its document.
+  // Entry assets above and all current-document assets must still complete.
+  for (const response of assets.filter((response) => !supersededOptional(response.request()))) {
+    expect(await response.finished()).toBeNull();
+  }
   for (const response of assets) {
-    const error = await response.finished();
-    expect(error === null || navigationCancelled(response.request())).toBe(true);
     expect(response.ok()).toBe(true);
     const url = new URL(response.url());
     expect(url.origin).toBe(new URL(baseURL!).origin);
@@ -214,7 +214,8 @@ test("production bundle probes CT1 and survives tank/module deep-link refreshes 
   }
   // Background route prefetches from an old document may be intentionally
   // aborted by navigation. Never ignore HTTP errors or failures in this document.
-  expect(failedAssets.filter((request) => !navigationCancelled(request)).map((request) => request.url())).toEqual([]);
+  expect(failedAssets.filter((request) => !supersededOptional(request)).map((request) => request.url())).toEqual([]);
+  for (const request of failedAssets) expect(request.failure()?.errorText).toBe("net::ERR_ABORTED");
   const stylesheets = assets.filter((response) => response.request().resourceType() === "stylesheet");
   for (const response of stylesheets) {
     expect(new URL(response.url()).pathname).toMatch(/^\/assets\/.+\.css$/);

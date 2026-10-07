@@ -70,11 +70,14 @@ func TestCollectBulkMapAuthenticatesAndCountsModulesOnce(t *testing.T) {
 	require.Equal(t, 1, calls["/api/v2/mining/status"])
 }
 
-func TestSnapshotRejectsDuplicateMembership(t *testing.T) {
+func TestSnapshotDegradesEveryDuplicateMembership(t *testing.T) {
 	board := &Board{MACAddress: "a"}
 	wire := MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{{ID: 1, Modules: []Module{{ID: 1, Slots: []Slot{{Occupied: true, Hashboard: board}, {Occupied: true, Hashboard: board}}}}}}}}
-	_, err := snapshot(wire, time.Now())
-	require.ErrorContains(t, err, "duplicate hashboard")
+	got, err := snapshot(wire, time.Now())
+	require.NoError(t, err)
+	for _, b := range got.Tanks[0].Modules[0].Hashboards[:2] {
+		require.Equal(t, sdk.HashboardIdentityConflict, b.UnavailableReason)
+	}
 }
 
 func TestCollectDerivesEfficiencyFromControllerTotals(t *testing.T) {
@@ -133,4 +136,40 @@ func TestCollectDerivesEfficiencyFromControllerTotals(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCollectPreservesIndependentTelemetryWithMalformedBoard(t *testing.T) {
+	now := time.Now().UTC()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v2/auth/login":
+			_, _ = w.Write([]byte(`{"token":"test"}`))
+		case "/api/v2/container/map":
+			_, _ = w.Write([]byte(`{"containerMap":{"tanks":[{"id":1,"modules":[{"id":1,"slots":[{"occupied":true,"hashboard":{"macAddress":"a","location":{"hashboardPosition":"2"}}}]},{"id":2,"slots":[{"occupied":false}]}]}]}}`))
+		case "/api/v2/mining/status":
+			_, _ = w.Write([]byte(`{"hashrate":200,"power":3000,"mining":true}`))
+		case "/api/v2/telemetry/container":
+			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"timestamp": now, "plant": map[string]any{"facilityPowerW": 3500, "pue": 1.1}}))
+		case "/api/v2/power/container/controls":
+			_, _ = w.Write([]byte(`{"supported":false}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	u, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	port, err := strconv.ParseInt(u.Port(), 10, 32)
+	require.NoError(t, err)
+	client, err := NewClient(sdk.DeviceInfo{Host: u.Hostname(), Port: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{Username: "admin", Password: "password"})
+	require.NoError(t, err)
+	metrics, err := client.Collect(t.Context(), "controller")
+	require.NoError(t, err)
+	require.Equal(t, 200e12, metrics.HashrateHS.Value)
+	require.Equal(t, 3500.0, metrics.PowerW.Value)
+	require.Equal(t, 1.1, *metrics.Container.Plant.PUE)
+	require.NotNil(t, metrics.Container.Controls)
+	require.Len(t, metrics.Container.Tanks[0].Modules, 2)
+	require.Equal(t, sdk.HashboardAmbiguousSlot, metrics.Container.Tanks[0].Modules[0].Hashboards[0].UnavailableReason)
 }

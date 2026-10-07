@@ -54,7 +54,7 @@ func TestContainerReadIncludesChildrenWithoutRackPermission(t *testing.T) {
 	hashrate := 300e12
 	require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: d.DeviceIdentifier, Timestamp: now, Container: &sdk.ContainerSnapshot{
 		ObservedAt: now, TopologyComplete: true, Tanks: []sdk.ContainerTank{
-			{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, State: sdk.ModuleHashing, ObservedAt: now, Metrics: &sdk.ContainerModuleMetrics{ObservedAt: now, HashrateHS: &hashrate}}}},
+			{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, State: sdk.ModuleHashing, ObservedAt: now, Metrics: &sdk.ContainerModuleMetrics{ObservedAt: now, HashrateHS: &hashrate}, Hashboards: []sdk.ContainerHashboard{{Position: 1, Occupancy: "occupied", MACAddress: "board-a", State: sdk.ModuleHashing, ObservedAt: now, StateObservedAt: now, HashrateHS: &hashrate}}}}},
 			{Position: 2},
 		},
 	}}))
@@ -129,6 +129,38 @@ func TestContainerReadIncludesChildrenWithoutRackPermission(t *testing.T) {
 	}
 	_, err = handler.GetTankHistory(ctx, tankHistoryRequest)
 	require.Error(t, err, "unauthenticated requests are rejected")
+	boardRequest := connect.NewRequest(&pb.GetModuleHashboardsRequest{ModuleIds: []int64{modules.Msg.Items[0].Ref.Id}})
+	boards, err := handler.GetModuleHashboards(authorized, boardRequest)
+	require.NoError(t, err)
+	require.Len(t, boards.Msg.Modules, 1)
+	require.Len(t, boards.Msg.Modules[0].Slots, 3)
+	require.Equal(t, "occupied", boards.Msg.Modules[0].Slots[0].Occupancy)
+	for _, slot := range boards.Msg.Modules[0].Slots[1:] {
+		require.Equal(t, "unknown", slot.Occupancy)
+	}
+	boardHistoryRequest := connect.NewRequest(&pb.ListHashboardHistoryRequest{HashboardId: boards.Msg.Modules[0].Slots[0].Board.HashboardId, StartTime: timestamppb.New(now.Add(-time.Minute)), EndTime: timestamppb.New(now.Add(time.Minute))})
+	boardHistory, err := handler.ListHashboardHistory(authorized, boardHistoryRequest)
+	require.NoError(t, err)
+	require.Len(t, boardHistory.Msg.Samples, 1)
+	_, err = handler.ListHashboardHistory(ctx, boardHistoryRequest)
+	require.Error(t, err, "history requires authentication")
+	_, err = handler.GetModuleHashboards(ctx, boardRequest)
+	require.Error(t, err, "batch requires authentication")
+	mixedBoards, err := handler.GetModuleHashboards(authorized, connect.NewRequest(&pb.GetModuleHashboardsRequest{ModuleIds: []int64{modules.Msg.Items[0].Ref.Id, 99999}}))
+	require.NoError(t, err)
+	require.Len(t, mixedBoards.Msg.Modules, 1)
+
+	for i := range read {
+		incomplete := append(append([]string{}, read[:i]...), read[i+1:]...)
+		denied, err := handler.GetModuleHashboards(withPermissions(incomplete, site.ID), boardRequest)
+		require.NoError(t, err)
+		require.Empty(t, denied.Msg.Modules, "no boards are returned without all read permissions")
+		_, err = handler.ListHashboardHistory(withPermissions(incomplete, site.ID), boardHistoryRequest)
+		require.Error(t, err, "history requires all read permissions")
+	}
+	unreadableBoards, err := handler.GetModuleHashboards(withPermissions(read, other.ID), boardRequest)
+	require.NoError(t, err)
+	require.Empty(t, unreadableBoards.Msg.Modules)
 
 	for _, view := range []pb.InventoryView{pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS} {
 		response, err := handler.ListInventory(withPermissions(read, other.ID), connect.NewRequest(&pb.ListInventoryRequest{View: view}))

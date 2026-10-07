@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
@@ -40,16 +40,24 @@ it("shows cause and component, and opens all timestamped details without opening
       <ModuleIssues item={value} />
     </div>,
   );
-  fireEvent.click(screen.getByRole("button", { name: "CT1 T1 M1 issues: Hashboard · Over current (+1)" }));
+  fireEvent.click(screen.getByRole("button", { name: "CT1 T1 M1 issues: Multiple failures" }));
   expect(rowClick).not.toHaveBeenCalled();
   expect(screen.getByTestId("module-issues")).toHaveTextContent("PSU · Over temperature warning");
   expect(screen.getByTestId("module-issues")).toHaveTextContent("MAC address: aa:bb");
   expect(screen.getByTestId("module-issues")).toHaveTextContent("Fault · Observed");
   expect(screen.getByTestId("module-issues")).toHaveTextContent("Warning");
-  expect(screen.getByTestId("alert-icon").parentElement).toHaveClass("text-intent-critical-fill");
-  expect(screen.getByTestId("alert-icon").parentElement).not.toHaveClass("bg-surface-5");
-  expect(screen.getByTestId("hashboard-icon").parentElement?.parentElement).toHaveClass("text-text-primary-70");
-  expect(screen.getByTestId("lightning-alt-icon").parentElement?.parentElement).toHaveClass("text-text-primary-70");
+  expect(within(screen.getByTestId("module-issues")).getByTestId("alert-icon").parentElement).toHaveClass(
+    "text-intent-critical-fill",
+  );
+  expect(within(screen.getByTestId("module-issues")).getByTestId("alert-icon").parentElement).not.toHaveClass(
+    "bg-surface-5",
+  );
+  expect(
+    within(screen.getByTestId("module-issues")).getByTestId("hashboard-icon").parentElement?.parentElement,
+  ).toHaveClass("text-text-primary-70");
+  expect(
+    within(screen.getByTestId("module-issues")).getByTestId("lightning-alt-icon").parentElement?.parentElement,
+  ).toHaveClass("text-text-primary-70");
   expect(screen.getByTestId("module-issues")).toHaveTextContent(
     "Issue report is partial. Additional issues may be missing.",
   );
@@ -82,20 +90,17 @@ it("distinguishes mixed-state observations from faults", () => {
   expect(screen.getByTestId("module-issues").querySelector(".text-text-primary-30")).toBeInTheDocument();
 });
 
-it.each(["missing", "partial", "stale"])("does not imply health for %s evidence", (kind) => {
-  const value = item(false);
-  if (kind === "missing") value.moduleIssues = undefined;
-  if (kind === "stale") value.moduleIssues!.stale = true;
-  render(<ModuleIssues item={value} />);
-  fireEvent.click(screen.getByRole("button"));
-  expect(screen.getByTestId("module-issues")).toHaveTextContent("Current health is not confirmed");
-  expect(screen.getByTestId("module-issues")).not.toHaveTextContent("No reported issues");
-});
-
-it("does not invent a cause from attention state", () => {
-  render(<ModuleIssues item={item()} />);
-  expect(screen.getByRole("button")).toHaveTextContent("No reported cause");
-});
+it.each(["missing", "partial", "stale", "healthy", "attention"])(
+  "leaves the issues column blank for %s evidence without current causes",
+  (kind) => {
+    const value = item(kind === "healthy" || kind === "attention");
+    if (kind === "missing") value.moduleIssues = undefined;
+    if (kind === "stale") value.moduleIssues!.stale = true;
+    if (kind === "healthy") value.state = "hashing";
+    const { container } = render(<ModuleIssues item={value} />);
+    expect(container).toBeEmptyDOMElement();
+  },
+);
 
 it("expires cached issue evidence when refreshes stop", () => {
   vi.useFakeTimers();
@@ -116,9 +121,9 @@ it("expires cached issue evidence when refreshes stop", () => {
       },
     });
     render(<ModuleIssues item={value} />);
-    expect(screen.getByRole("button")).toHaveTextContent("PSU · Over temperature");
+    expect(screen.getByRole("button")).toHaveTextContent("PSU failure");
     act(() => vi.advanceTimersByTime(120_000));
-    expect(screen.getByRole("button")).toHaveTextContent("Issues stale");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
   } finally {
     vi.useRealTimers();
   }
@@ -152,16 +157,16 @@ it("shows fresh faults alongside stale board evidence and expires each cause ind
       },
     });
     render(<ModuleIssues item={value} />);
-    fireEvent.click(screen.getByRole("button", { name: "Module issues: Hashboard · Over current (+1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Module issues: Multiple failures" }));
     expect(screen.getByTestId("module-issues")).toHaveTextContent(
       "Issue report is partial. Additional issues may be missing.",
     );
     act(() => vi.advanceTimersByTime(90_000));
-    expect(screen.getByRole("button", { name: "Module issues: Hashboard · Over current" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Module issues: Hashboard failure" })).toBeInTheDocument();
     expect(screen.getByTestId("module-issues")).not.toHaveTextContent("PSU · Over temperature");
     act(() => vi.advanceTimersByTime(30_000));
-    expect(screen.getByRole("button", { name: "Module issues: Issues stale" })).toBeInTheDocument();
-    expect(screen.getByTestId("module-issues")).not.toHaveTextContent("Hashboard · Over current");
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("module-issues")).not.toBeInTheDocument();
   } finally {
     vi.useRealTimers();
   }

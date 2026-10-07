@@ -777,6 +777,7 @@ message ContainerTank {
   repeated ContainerModule modules = 2;
 }
 message ContainerModule {
+  repeated ContainerHashboard hashboards = 7;
   int32 position = 1;
   string reported_id = 2;
   // unknown, hashing, attention, offline, sleeping, isolated.
@@ -784,6 +785,37 @@ message ContainerModule {
   google.protobuf.Timestamp observed_at = 4;
   ContainerModuleMetrics metrics = 5;
   ContainerModuleIssues issues = 6;
+}
+
+// Slot observations resolve to durable hardware identities on the server.
+// Untrusted aliases retained only to detect conflicting placement evidence.
+// These claims never create, enrich, or move inventory.
+message HashboardIdentityClaim {
+  string mac_address = 1;
+  string serial = 2;
+}
+
+message ContainerHashboard {
+  repeated HashboardIdentityClaim identity_claims = 17;
+  string unavailable_reason = 16; // Bounded SDK reason code for rejected evidence.
+  int32 position = 1;
+  string occupancy = 2; // occupied, empty, or unknown
+  string mac_address = 3;
+  string serial = 4;
+  string state = 5;
+  string mining_state = 6;
+  optional bool isolated = 7;
+  google.protobuf.Timestamp observed_at = 8;
+  google.protobuf.Timestamp state_observed_at = 9;
+  optional double hashrate_hs = 10;
+  optional double temperature_c = 11;
+  optional bool hashrail_ok = 12;
+  optional bool refclks_ok = 13;
+  // Original MDK v2 JSON in firmware units, split to avoid repeating metadata
+  // in telemetry history. PSU evidence remains module-owned. Not current unless
+  // the associated source observation is fresh.
+  bytes metadata_json = 14;
+  bytes health_json = 15;
 }
 
 // SI units; absent values are unavailable. Power is module PSU input power.

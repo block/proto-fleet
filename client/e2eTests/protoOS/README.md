@@ -35,7 +35,7 @@ The suite refuses to reuse a running server, so an occupied port is a setup erro
 - CT1 probe resolution and successful production JavaScript, stylesheets, and body/monospace font loads from the same server;
 - container Home's successful aggregate history response, plotted data, and live readings; tank/module deep-link refreshes without login/onboarding, including successful selected-board ASIC reads and populated temperatures;
 - fresh-storage boot separately from returning users with persisted synthetic v1 bearer credentials;
-- completed entry assets for each document, ignoring only old-document navigation cancellations of non-required speculative prefetches;
+- completed entry assets for each document and current-document assets; optional prefetches from replaced documents need not finish, but all observed HTTP errors and failures other than old-document navigation cancellations still fail the test;
 - adapter reads and writes without `Authorization`, with `X-Frigate-Actor: proto-os`, even with a persisted synthetic v1 bearer session; only the first system-info resolver probe per document load is undecorated;
 - confirmed scoped tank stop/start, exact module coordinates, visible observed state, and unchanged boards in the neighboring tank;
 - narrow restoration of the touched scope in a fixture with its own 30-second timeout and independent API context, even after a browser test timeout.

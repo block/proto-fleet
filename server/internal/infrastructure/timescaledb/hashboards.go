@@ -1,0 +1,411 @@
+package timescaledb
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"math"
+	"net"
+	"strings"
+	"time"
+
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+)
+
+const occupiedHashboardSlot = "occupied"
+
+type hashboardObservation struct {
+	claims []string
+	sdk.ContainerHashboard
+	BoardID  int64      `json:"board_id"`
+	ModuleID int64      `json:"module_id"`
+	SiteID   *int64     `json:"site_id"`
+	Time     *time.Time `json:"time"`
+}
+
+// Runs under the telemetry transaction and org lock. All database operations
+// are batched, independent of the number of boards in the controller map.
+func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64, snapshot *sdk.ContainerSnapshot) error {
+	modules, err := q.ListHashboardModules(ctx, deviceID)
+	if err != nil {
+		return err
+	}
+	byPosition := map[[2]int32]sqlc.ListHashboardModulesRow{}
+	retired := map[int64]bool{}
+	moduleCoordinates := map[int64][2]int32{}
+	for _, m := range modules {
+		moduleCoordinates[m.ID] = [2]int32{m.TankPosition, m.Position}
+		if m.RetiredAt.Valid {
+			retired[m.ID] = true
+		} else {
+			byPosition[[2]int32{m.TankPosition, m.Position}] = m
+		}
+	}
+	observations := collectHashboardObservations(ctx, deviceID, snapshot, byPosition)
+	identityClaims := []map[string]string{}
+	for _, v := range observations {
+		for _, key := range v.claims {
+			kind, value, _ := strings.Cut(key, ":")
+			if kind == "mac" {
+				kind = "mac_address"
+			}
+			identityClaims = append(identityClaims, map[string]string{kind: value})
+		}
+	}
+	data, err := json.Marshal(identityClaims)
+	if err != nil {
+		return fmt.Errorf("encode hashboard observations: %w", err)
+	}
+	identities, err := q.FindHashboardIdentities(ctx, sqlc.FindHashboardIdentitiesParams{OrgID: orgID, Boards: data})
+	if err != nil {
+		return err
+	}
+	aliases := map[string]int64{}
+	lastSeen := map[int64]time.Time{}
+	serials := map[int64]string{}
+	for _, i := range identities {
+		aliases[i.Kind+":"+i.Value] = i.HashboardID
+		lastSeen[i.HashboardID] = i.LastSeenAt
+		if i.Kind == "serial" {
+			serials[i.HashboardID] = i.Value
+		}
+	}
+	// Resolve and count every alias before writing anything. Distinct MAC/serial
+	// observations may resolve to the same durable board even without raw duplicates.
+	aliasCounts := map[string]int{}
+	boardCounts := map[int64]int{}
+	for _, v := range observations {
+		ids := map[int64]bool{}
+		for _, key := range v.claims {
+			aliasCounts[key]++
+			if id := aliases[key]; id != 0 {
+				ids[id] = true
+			}
+		}
+		for id := range ids {
+			boardCounts[id]++
+		}
+	}
+	boardIDs := []int64{}
+	for i := range observations {
+		v := &observations[i]
+		macID, serialID := aliases["mac:"+v.MACAddress], aliases["serial:"+v.Serial]
+		v.BoardID = max(macID, serialID)
+		conflict := macID != 0 && serialID != 0 && macID != serialID
+		for _, key := range v.claims {
+			conflict = conflict || aliasCounts[key] > 1 || boardCounts[aliases[key]] > 1
+		}
+		knownSerial := serials[v.BoardID]
+		conflict = conflict || (knownSerial != "" && v.Serial != "" && knownSerial != v.Serial)
+		if conflict {
+			rejectHashboard(ctx, deviceID, v, sdk.HashboardIdentityConflict)
+			continue
+		}
+		if v.Occupancy != occupiedHashboardSlot {
+			continue
+		}
+		if lastSeen[v.BoardID].After(snapshot.ObservedAt) {
+			rejectHashboard(ctx, deviceID, v, sdk.HashboardOlderObservation)
+			continue
+		}
+		if v.Serial == "" && knownSerial != "" {
+			v.Serial = knownSerial
+			if err := validateHashboard(&v.ContainerHashboard, snapshot.ObservedAt); err != nil {
+				rejectHashboard(ctx, deviceID, v, sdk.HashboardInvalidObservation)
+				continue
+			}
+		}
+		if v.BoardID != 0 {
+			boardIDs = append(boardIDs, v.BoardID)
+		}
+	}
+	installations, err := q.GetHashboardInstallations(ctx, sqlc.GetHashboardInstallationsParams{OrgID: orgID, DeviceID: deviceID, BoardIds: boardIDs})
+	if err != nil {
+		return err
+	}
+	byBoard := map[int64]sqlc.GetHashboardInstallationsRow{}
+	for _, i := range installations {
+		byBoard[i.HashboardID] = i
+	}
+	for i := range observations {
+		v := &observations[i]
+		old, ok := byBoard[v.BoardID]
+		if !ok {
+			continue
+		}
+		if old.LastSeenAt.After(snapshot.ObservedAt) {
+			rejectHashboard(ctx, deviceID, v, sdk.HashboardOlderObservation)
+			continue
+		}
+		if old.DeviceID != deviceID && snapshot.ObservedAt.Sub(old.LastSeenAt) < 2*time.Minute {
+			rejectHashboard(ctx, deviceID, v, sdk.HashboardControllerConflict)
+		}
+	}
+	// Allocate durable IDs and enrich their aliases only after conflict checks.
+	data, err = json.Marshal(observations)
+	if err != nil {
+		return fmt.Errorf("encode hashboard observations: %w", err)
+	}
+	boards, err := q.EnsureHashboards(ctx, sqlc.EnsureHashboardsParams{OrgID: orgID, ObservedAt: snapshot.ObservedAt, Boards: data})
+	if err != nil {
+		return err
+	}
+	for _, b := range boards {
+		if b.MacAddress != "" {
+			aliases["mac:"+b.MacAddress] = b.ID
+		}
+		if b.Serial != "" {
+			aliases["serial:"+b.Serial] = b.ID
+		}
+	}
+	bySlot := map[[2]int64]hashboardObservation{}
+	newByBoard := map[int64]hashboardObservation{}
+	occupied := []hashboardObservation{}
+	for i := range observations {
+		v := &observations[i]
+		if v.Occupancy == occupiedHashboardSlot {
+			v.BoardID = max(aliases["mac:"+v.MACAddress], aliases["serial:"+v.Serial])
+			newByBoard[v.BoardID] = *v
+			occupied = append(occupied, *v)
+		}
+		bySlot[[2]int64{v.ModuleID, int64(v.Position)}] = *v
+	}
+	closeIDs := []int64{}
+	for _, old := range installations {
+		if old.LastSeenAt.After(snapshot.ObservedAt) {
+			continue
+		}
+		v, reported := bySlot[[2]int64{old.ModuleID, int64(old.Position)}]
+		moved, present := newByBoard[old.HashboardID]
+		changedSite := present && sql.NullInt64{Int64: siteValue(moved.SiteID), Valid: moved.SiteID != nil} != old.SiteID
+		retirePlacement := retired[old.ModuleID]
+		// Rejected replacement evidence cannot retire the previous board placement.
+		// The old module stays hidden; a later trustworthy observation resolves it.
+		if replacement, ok := byPosition[moduleCoordinates[old.ModuleID]]; ok && replacement.ID != old.ModuleID {
+			replacementSlot := bySlot[[2]int64{replacement.ID, int64(old.Position)}]
+			if replacementSlot.UnavailableReason != "" {
+				retirePlacement = false
+			}
+		}
+		if retirePlacement || (reported && (v.Occupancy == "empty" || (v.Occupancy == occupiedHashboardSlot && v.BoardID != old.HashboardID))) || (present && (moved.ModuleID != old.ModuleID || moved.Position != old.Position || changedSite)) {
+			closeIDs = append(closeIDs, old.ID)
+		}
+	}
+	if err := q.CloseHashboardInstallations(ctx, sqlc.CloseHashboardInstallationsParams{ObservedAt: snapshot.ObservedAt, Ids: closeIDs}); err != nil {
+		return err
+	}
+	data, err = json.Marshal(observations)
+	if err != nil {
+		return fmt.Errorf("encode hashboard observations: %w", err)
+	}
+	if err := q.UpsertHashboardSlots(ctx, sqlc.UpsertHashboardSlotsParams{ObservedAt: snapshot.ObservedAt, Slots: data}); err != nil {
+		return err
+	}
+	data, err = json.Marshal(occupied)
+	if err != nil {
+		return fmt.Errorf("encode occupied hashboards: %w", err)
+	}
+	if err := q.UpsertHashboardInstallations(ctx, sqlc.UpsertHashboardInstallationsParams{ObservedAt: snapshot.ObservedAt, Boards: data}); err != nil {
+		return err
+	}
+	return q.InsertHashboardMetrics(ctx, sqlc.InsertHashboardMetricsParams{CollectedAt: snapshot.ObservedAt, Boards: data})
+}
+
+func siteValue(site *int64) int64 {
+	if site == nil {
+		return 0
+	}
+	return *site
+}
+
+func validateHashboard(b *sdk.ContainerHashboard, collected time.Time) error {
+	if !sdk.SafeHashboardIdentity(b.MACAddress) || !sdk.SafeHashboardIdentity(b.Serial) || !sdk.SafeHashboardIdentity(b.MiningState) {
+		return fmt.Errorf("invalid hashboard text")
+	}
+	for _, data := range []json.RawMessage{b.MetadataJSON, b.HealthJSON} {
+		if len(data) == 0 || string(data) == "null" {
+			continue
+		}
+		var object map[string]json.RawMessage
+		if len(data) > 256*1024 || json.Unmarshal(data, &object) != nil || object == nil || sdk.ValidateHashboardJSON(data) != nil {
+			return fmt.Errorf("invalid hashboard diagnostic object")
+		}
+	}
+	if b.Occupancy == occupiedHashboardSlot {
+		metadata := map[string]json.RawMessage{}
+		if len(b.MetadataJSON) > 0 && string(b.MetadataJSON) != "null" {
+			if err := json.Unmarshal(b.MetadataJSON, &metadata); err != nil {
+				return fmt.Errorf("decode hashboard metadata: %w", err)
+			}
+		}
+		var err error
+		metadata["macAddress"], err = json.Marshal(b.MACAddress)
+		if err != nil {
+			return fmt.Errorf("encode hashboard MAC: %w", err)
+		}
+		metadata["serial"], err = json.Marshal(b.Serial)
+		if err != nil {
+			return fmt.Errorf("encode hashboard serial: %w", err)
+		}
+		b.MetadataJSON, err = json.Marshal(metadata)
+		if err != nil {
+			return fmt.Errorf("encode hashboard metadata: %w", err)
+		}
+	}
+	switch b.State {
+	case "":
+		b.State = sdk.ModuleUnknown
+	case sdk.ModuleUnknown, sdk.ModuleHashing, sdk.ModuleSleeping, sdk.ModuleAttention, sdk.ModuleOffline, sdk.ModuleIsolated:
+	default:
+		return fmt.Errorf("invalid hashboard state")
+	}
+	if b.ObservedAt.IsZero() || collected.Sub(b.ObservedAt) >= 2*time.Minute || b.ObservedAt.After(collected.Add(5*time.Second)) {
+		b.HashrateHS, b.TemperatureC, b.HashrailOK, b.RefclksOK = nil, nil, nil, nil
+	}
+	for _, value := range []**float64{&b.HashrateHS, &b.TemperatureC} {
+		if *value != nil && (math.IsNaN(**value) || math.IsInf(**value, 0)) {
+			*value = nil
+		}
+	}
+	if b.HashrateHS != nil && *b.HashrateHS < 0 {
+		b.HashrateHS = nil
+	}
+	if b.StateObservedAt.IsZero() || collected.Sub(b.StateObservedAt) >= 2*time.Minute || b.StateObservedAt.After(collected.Add(5*time.Second)) {
+		b.State = sdk.ModuleUnknown
+	}
+	// Future source times must not pin the latest-value watermark.
+	if b.ObservedAt.After(collected.Add(5 * time.Second)) {
+		b.ObservedAt = time.Time{}
+		b.HealthJSON = nil
+	}
+	return nil
+}
+
+func hashboardIdentityKeys(mac, serial string) []string {
+	keys := []string{}
+	if mac != "" && sdk.SafeHashboardIdentity(mac) {
+		keys = append(keys, "mac:"+mac)
+	}
+	if serial != "" && sdk.SafeHashboardIdentity(serial) {
+		keys = append(keys, "serial:"+serial)
+	}
+	return keys
+}
+
+func hashboardClaims(board sdk.ContainerHashboard) []string {
+	keys := hashboardIdentityKeys(normalizeHashboardMAC(board.MACAddress), strings.TrimSpace(board.Serial))
+	for _, claim := range board.IdentityClaims {
+		keys = append(keys, hashboardIdentityKeys(normalizeHashboardMAC(claim.MACAddress), strings.TrimSpace(claim.Serial))...)
+	}
+	// Multiple aliases on one observation still claim only one placement.
+	unique := map[string]bool{}
+	out := []string{}
+	for _, key := range keys {
+		if !unique[key] {
+			unique[key] = true
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
+func rejectHashboard(ctx context.Context, deviceID int64, v *hashboardObservation, reason string) {
+	slog.WarnContext(ctx, "hashboard observation unavailable", "device_id", deviceID, "module_id", v.ModuleID, "position", v.Position, "board_id", v.BoardID, "mac", v.MACAddress, "serial", v.Serial, "reason", reason)
+	v.ContainerHashboard = sdk.UnavailableHashboard(v.Position, reason)
+	v.BoardID, v.Time = 0, nil
+}
+
+func collectHashboardObservations(ctx context.Context, deviceID int64, snapshot *sdk.ContainerSnapshot, modules map[[2]int32]sqlc.ListHashboardModulesRow) []hashboardObservation {
+	observations := []hashboardObservation{}
+	for _, tank := range snapshot.Tanks {
+		for _, module := range tank.Modules {
+			m, ok := modules[[2]int32{tank.Position, module.Position}]
+			if !ok {
+				continue
+			}
+			slots := map[int32][]sdk.ContainerHashboard{}
+			ambiguous := len(module.Hashboards) > 3
+			for _, b := range module.Hashboards {
+				if b.Position < 1 || b.Position > 3 {
+					ambiguous = true
+					continue
+				}
+				slots[b.Position] = append(slots[b.Position], b)
+			}
+			for position := int32(1); position <= 3; position++ {
+				v := hashboardObservation{ContainerHashboard: sdk.UnavailableHashboard(position, ""), ModuleID: m.ID}
+				if m.SiteID.Valid {
+					v.SiteID = &m.SiteID.Int64
+				}
+				reported := slots[position]
+				for _, claim := range reported {
+					v.claims = append(v.claims, hashboardClaims(claim)...)
+				}
+				if position == 1 {
+					for _, claim := range module.Hashboards {
+						if claim.Position < 1 || claim.Position > 3 {
+							v.claims = append(v.claims, hashboardClaims(claim)...)
+						}
+					}
+				}
+				if len(reported) == 1 {
+					v.ContainerHashboard = reported[0]
+				}
+				if ambiguous || len(reported) > 1 {
+					rejectHashboard(ctx, deviceID, &v, sdk.HashboardAmbiguousSlot)
+				} else if err := normalizeHashboard(&v.ContainerHashboard, snapshot.ObservedAt); err != nil {
+					rejectHashboard(ctx, deviceID, &v, sdk.HashboardInvalidObservation)
+				}
+				if !v.ObservedAt.IsZero() {
+					v.Time = &v.ObservedAt
+				}
+				observations = append(observations, v)
+			}
+		}
+	}
+	return observations
+}
+
+func normalizeHashboard(b *sdk.ContainerHashboard, collected time.Time) error {
+	// Claims have already been extracted; never serialize untrusted claims to SQL.
+	b.IdentityClaims = nil
+	b.MACAddress = normalizeHashboardMAC(b.MACAddress)
+	b.Serial = strings.TrimSpace(b.Serial)
+	switch b.Occupancy {
+	case occupiedHashboardSlot:
+		if b.MACAddress == "" && b.Serial == "" {
+			*b = sdk.UnavailableHashboard(b.Position, sdk.HashboardMissingIdentity)
+			return nil
+		}
+		b.UnavailableReason = ""
+	case "empty", "unknown":
+		if b.MACAddress != "" || b.Serial != "" {
+			return fmt.Errorf("unoccupied slot has hardware identity")
+		}
+		reason := b.UnavailableReason
+		switch reason {
+		case "", sdk.HashboardInvalidObservation, sdk.HashboardAmbiguousSlot, sdk.HashboardMissingIdentity, sdk.HashboardIdentityConflict, sdk.HashboardControllerConflict, sdk.HashboardOlderObservation:
+		default:
+			reason = sdk.HashboardInvalidObservation
+		}
+		occupancy := b.Occupancy
+		*b = sdk.UnavailableHashboard(b.Position, reason)
+		if reason == "" {
+			b.Occupancy = occupancy
+		}
+	default:
+		return fmt.Errorf("invalid hashboard occupancy")
+	}
+	return validateHashboard(b, collected)
+}
+
+func normalizeHashboardMAC(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if mac, err := net.ParseMAC(value); err == nil {
+		return mac.String()
+	}
+	return value
+}

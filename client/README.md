@@ -190,6 +190,12 @@ tank ID. Module tiles open stored module history. Container performance uses Fle
 API and existing performance charts, scoped to the controller and its site.
 Container-reported power remains distinct from summed module equipment power.
 
+In the Miners list, CT1 module rows expand into three read-only hashboard slots.
+Expanded modules load current board data from Fleet and retain expansion across
+polling refreshes. Boards have durable hardware IDs and separate installation
+history, so moving or replacing a board does not merge its telemetry with another
+board. See [CT1 hashboard inventory and telemetry](../docs/development/ct1-hashboards.md).
+
 `protoFleet/features/containers` owns the page and container presentation;
 Fleet's dashboard owns `ChartWidget`. App-neutral primitives and telemetry
 formatters remain in `shared`. ProtoOS owns its on-device Systems view, adapters,

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
@@ -21,7 +21,11 @@ import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import type { DeviceSet } from "@/protoFleet/api/generated/device_set/v1/device_set_pb";
 import { ComponentType } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { EntityKind, type InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
+import {
+  EntityKind,
+  HashboardSlotSchema,
+  type InventoryItem,
+} from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import {
   IpRangeSchema,
   type MinerListFilter,
@@ -31,6 +35,7 @@ import {
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
+import { useModuleHashboards } from "@/protoFleet/api/useModuleHashboards";
 import MinerSearchInput from "@/protoFleet/components/MinerSearchInput";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import { useOpenMinerView } from "@/protoFleet/components/SingleMinerWrapper/useOpenMinerView";
@@ -38,6 +43,7 @@ import { ProtoFleetStatusModal } from "@/protoFleet/components/StatusModal";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
+import { HashboardCell } from "@/protoFleet/features/containers/HashboardCell";
 import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
 import { ModuleHistoryDialog } from "@/protoFleet/features/containers/ModuleHistoryDialog";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
@@ -357,6 +363,35 @@ const ScopedMinerListBody = ({
   const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
 
   const [openModule, setOpenModule] = useState<InventoryItem>();
+  const location = useLocation();
+  const [expansion, setExpansion] = useState<{ scope: string; ids: Set<string> }>({
+    scope: location.key,
+    ids: new Set(),
+  });
+  if (expansion.scope !== location.key) {
+    setExpansion({ scope: location.key, ids: new Set() });
+  }
+  const expanded = useMemo(
+    () => (expansion.scope === location.key ? expansion.ids : new Set<string>()),
+    [expansion, location.key],
+  );
+  const toggleModule = useCallback(
+    (id: string) => {
+      setExpansion((previous) => {
+        const ids = new Set(previous.scope === location.key ? previous.ids : []);
+        if (ids.has(id)) ids.delete(id);
+        else ids.add(id);
+        return { scope: location.key, ids };
+      });
+    },
+    [location.key],
+  );
+  const hashboards = useModuleHashboards(
+    (inventoryItems ?? []).flatMap((item) =>
+      item.ref?.kind === EntityKind.MODULE && expanded.has(String(item.ref.id)) ? [item.ref.id] : [],
+    ),
+    location.key,
+  );
   const listItems = useMemo<MiningListItem[]>(() => {
     const minersById = new Map(deviceItems.map((row) => [row.deviceIdentifier, row]));
     if (!inventoryItems)
@@ -378,13 +413,35 @@ const ScopedMinerListBody = ({
         component: (item, selected) =>
           item.kind === "miner" ? (
             config.component?.(item.row, selected)
+          ) : column === "name" ? (
+            <div className="flex min-w-0 items-center">
+              <button
+                type="button"
+                className="-ml-2 flex size-8 shrink-0 items-center justify-center rounded focus-visible:outline-2 focus-visible:outline-offset-2"
+                aria-label={`${expanded.has(String(item.row.ref?.id)) ? "Collapse" : "Expand"} hashboards for ${item.row.name}`}
+                aria-expanded={expanded.has(String(item.row.ref?.id))}
+                aria-controls={
+                  expanded.has(String(item.row.ref?.id))
+                    ? [1, 2, 3].map((position) => `module-${item.row.ref?.id}-hashboard-${position}`).join(" ")
+                    : undefined
+                }
+                onClick={() => toggleModule(String(item.row.ref?.id))}
+              >
+                <span aria-hidden className={expanded.has(String(item.row.ref?.id)) ? "" : "-rotate-90"}>
+                  <ChevronDown />
+                </span>
+              </button>
+              <div className="min-w-0 flex-1">
+                <InventoryCell item={item.row} column={column} />
+              </div>
+            </div>
           ) : (
             <InventoryCell item={item.row} column={column} />
           ),
       };
     }
     return result;
-  }, [minerColConfig]);
+  }, [minerColConfig, expanded, toggleModule]);
   const currentPageSelectableMinerIds = deviceItems.map((item) => item.deviceIdentifier);
   const headerActionButtons = useMemo<ResponsiveActionButton[]>(
     () => [
@@ -452,6 +509,35 @@ const ScopedMinerListBody = ({
   return (
     <>
       <List<MiningListItem, string, MinerColumn>
+        getChildRows={(item) => {
+          if (item.kind !== "module" || !expanded.has(String(item.row.ref?.id))) return [];
+          const result = hashboards.modules[String(item.row.ref?.id)];
+          return [1, 2, 3].map((position) => {
+            const slot =
+              result?.data?.slots.find((value) => value.position === position) ??
+              create(HashboardSlotSchema, { position, occupancy: "unknown" });
+            const cells: Partial<Record<MinerColumn, ReactNode>> = {};
+            for (const column of Object.keys(minerColConfig) as MinerColumn[])
+              cells[column] = <HashboardCell slot={slot} column={column} />;
+            if (!result) cells.status = <span role="status">Loading…</span>;
+            if (result?.error && position === 1)
+              cells.status = (
+                <div>
+                  <p className="text-sm text-text-primary-50" role="alert">
+                    Hashboards unavailable
+                  </p>
+                  <button type="button" className="text-sm underline" onClick={hashboards.retry}>
+                    Retry hashboards
+                  </button>
+                </div>
+              );
+            return {
+              key: `module-${item.row.ref?.id}-hashboard-${position}`,
+              label: `Hashboard ${position} in ${item.row.name}`,
+              cells,
+            };
+          });
+        }}
         activeCols={activeCols}
         colTitles={minerColTitles}
         colConfig={listColumns}

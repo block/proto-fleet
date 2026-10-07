@@ -907,20 +907,68 @@ class ContainerTank(_message.Message):
     def __init__(self, position: _Optional[int] = ..., modules: _Optional[_Iterable[_Union[ContainerModule, _Mapping]]] = ...) -> None: ...
 
 class ContainerModule(_message.Message):
-    __slots__ = ("position", "reported_id", "state", "observed_at", "metrics", "issues")
+    __slots__ = ("hashboards", "position", "reported_id", "state", "observed_at", "metrics", "issues")
+    HASHBOARDS_FIELD_NUMBER: _ClassVar[int]
     POSITION_FIELD_NUMBER: _ClassVar[int]
     REPORTED_ID_FIELD_NUMBER: _ClassVar[int]
     STATE_FIELD_NUMBER: _ClassVar[int]
     OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
     METRICS_FIELD_NUMBER: _ClassVar[int]
     ISSUES_FIELD_NUMBER: _ClassVar[int]
+    hashboards: _containers.RepeatedCompositeFieldContainer[ContainerHashboard]
     position: int
     reported_id: str
     state: str
     observed_at: _timestamp_pb2.Timestamp
     metrics: ContainerModuleMetrics
     issues: ContainerModuleIssues
-    def __init__(self, position: _Optional[int] = ..., reported_id: _Optional[str] = ..., state: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., metrics: _Optional[_Union[ContainerModuleMetrics, _Mapping]] = ..., issues: _Optional[_Union[ContainerModuleIssues, _Mapping]] = ...) -> None: ...
+    def __init__(self, hashboards: _Optional[_Iterable[_Union[ContainerHashboard, _Mapping]]] = ..., position: _Optional[int] = ..., reported_id: _Optional[str] = ..., state: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., metrics: _Optional[_Union[ContainerModuleMetrics, _Mapping]] = ..., issues: _Optional[_Union[ContainerModuleIssues, _Mapping]] = ...) -> None: ...
+
+class HashboardIdentityClaim(_message.Message):
+    __slots__ = ("mac_address", "serial")
+    MAC_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    SERIAL_FIELD_NUMBER: _ClassVar[int]
+    mac_address: str
+    serial: str
+    def __init__(self, mac_address: _Optional[str] = ..., serial: _Optional[str] = ...) -> None: ...
+
+class ContainerHashboard(_message.Message):
+    __slots__ = ("identity_claims", "unavailable_reason", "position", "occupancy", "mac_address", "serial", "state", "mining_state", "isolated", "observed_at", "state_observed_at", "hashrate_hs", "temperature_c", "hashrail_ok", "refclks_ok", "metadata_json", "health_json")
+    IDENTITY_CLAIMS_FIELD_NUMBER: _ClassVar[int]
+    UNAVAILABLE_REASON_FIELD_NUMBER: _ClassVar[int]
+    POSITION_FIELD_NUMBER: _ClassVar[int]
+    OCCUPANCY_FIELD_NUMBER: _ClassVar[int]
+    MAC_ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    SERIAL_FIELD_NUMBER: _ClassVar[int]
+    STATE_FIELD_NUMBER: _ClassVar[int]
+    MINING_STATE_FIELD_NUMBER: _ClassVar[int]
+    ISOLATED_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    STATE_OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    HASHRATE_HS_FIELD_NUMBER: _ClassVar[int]
+    TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    HASHRAIL_OK_FIELD_NUMBER: _ClassVar[int]
+    REFCLKS_OK_FIELD_NUMBER: _ClassVar[int]
+    METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
+    HEALTH_JSON_FIELD_NUMBER: _ClassVar[int]
+    identity_claims: _containers.RepeatedCompositeFieldContainer[HashboardIdentityClaim]
+    unavailable_reason: str
+    position: int
+    occupancy: str
+    mac_address: str
+    serial: str
+    state: str
+    mining_state: str
+    isolated: bool
+    observed_at: _timestamp_pb2.Timestamp
+    state_observed_at: _timestamp_pb2.Timestamp
+    hashrate_hs: float
+    temperature_c: float
+    hashrail_ok: bool
+    refclks_ok: bool
+    metadata_json: bytes
+    health_json: bytes
+    def __init__(self, identity_claims: _Optional[_Iterable[_Union[HashboardIdentityClaim, _Mapping]]] = ..., unavailable_reason: _Optional[str] = ..., position: _Optional[int] = ..., occupancy: _Optional[str] = ..., mac_address: _Optional[str] = ..., serial: _Optional[str] = ..., state: _Optional[str] = ..., mining_state: _Optional[str] = ..., isolated: bool = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., state_observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., hashrate_hs: _Optional[float] = ..., temperature_c: _Optional[float] = ..., hashrail_ok: bool = ..., refclks_ok: bool = ..., metadata_json: _Optional[bytes] = ..., health_json: _Optional[bytes] = ...) -> None: ...
 
 class ContainerModuleMetrics(_message.Message):
     __slots__ = ("observed_at", "hashrate_hs", "power_w", "temperature_c")

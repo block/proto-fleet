@@ -3,7 +3,9 @@
 package ct1
 
 import (
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sort"
 	"time"
 
@@ -44,6 +46,9 @@ type Health struct {
 	PSUThermal              *PSUThermal    `json:"psuThermal"`
 }
 type Board struct {
+	Serial      string `json:"serial,omitempty"`
+	Source      string `json:"source,omitempty"`
+	raw         map[string]json.RawMessage
 	MACAddress  string  `json:"macAddress"`
 	ModuleID    string  `json:"moduleId"`
 	MiningState string  `json:"miningState"`
@@ -51,8 +56,10 @@ type Board struct {
 	Health      *Health `json:"health"`
 }
 type Slot struct {
-	Occupied  bool   `json:"occupied"`
-	Hashboard *Board `json:"hashboard"`
+	invalid    bool
+	unreported bool
+	Occupied   bool   `json:"occupied"`
+	Hashboard  *Board `json:"hashboard"`
 }
 type Module struct {
 	ID    int32  `json:"id"`
@@ -93,7 +100,7 @@ func boardState(b Board, now time.Time) sdk.ModuleState {
 	if !fresh {
 		return sdk.ModuleUnknown
 	}
-	if b.Isolated {
+	if b.Isolated && b.Source != "HASHBOARD_SOURCE_REMOTE" {
 		return sdk.ModuleIsolated
 	}
 	switch b.MiningState {
@@ -136,7 +143,7 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 	}
 	result := &sdk.ContainerSnapshot{ObservedAt: now, TopologyComplete: true, Tanks: []sdk.ContainerTank{}}
 	tankIDs := map[int32]bool{}
-	boardIDs := map[string]bool{}
+	boardIDs := boardIdentityCounts(wire)
 	issuesBudget := issueBudget{remaining: maxContainerIssueBytes}
 	for _, tank := range wire.ContainerMap.Tanks {
 		if tank.ID <= 0 || tankIDs[tank.ID] {
@@ -153,15 +160,23 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 			boards := []Board{}
 			reportedID := ""
 			identityConflict := false
-			for _, slot := range m.Slots {
-				if !slot.Occupied || slot.Hashboard == nil {
+			hashboards := hashboardObservations(m.Slots, now)
+			for index := range hashboards {
+				observation := &hashboards[index]
+				for _, key := range boardIdentityKeys(observation.MACAddress, observation.Serial) {
+					if boardIDs[key] > 1 {
+						*observation = unavailableBoard(observation.Position, sdk.HashboardIdentityConflict, m.Slots[index].Hashboard)
+						break
+					}
+				}
+				if observation.UnavailableReason != "" {
+					slog.Warn("CT1 hashboard observation unavailable", "tank", tank.ID, "module", m.ID, "position", observation.Position, "reason", observation.UnavailableReason)
+				}
+				if observation.Occupancy != "occupied" {
 					continue
 				}
-				b := *slot.Hashboard
-				if b.MACAddress == "" || boardIDs[b.MACAddress] {
-					return nil, fmt.Errorf("missing or duplicate hashboard identity")
-				}
-				boardIDs[b.MACAddress] = true
+				b := *m.Slots[index].Hashboard
+
 				if b.ModuleID != "" {
 					if reportedID != "" && reportedID != b.ModuleID {
 						identityConflict = true
@@ -175,7 +190,7 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 				reportedID = ""
 				state = sdk.ModuleUnknown
 			}
-			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, State: state, ObservedAt: moduleObservedAt(boards, state, now), Metrics: moduleMetrics(boards, now), Issues: moduleIssuesWithBudget(boards, now, identityConflict, &issuesBudget)})
+			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, State: state, ObservedAt: moduleObservedAt(boards, state, now), Metrics: moduleMetrics(boards, now), Hashboards: hashboards, Issues: moduleIssuesWithBudget(boards, now, identityConflict, &issuesBudget)})
 		}
 		sort.Slice(out.Modules, func(i, j int) bool { return out.Modules[i].Position < out.Modules[j].Position })
 		result.Tanks = append(result.Tanks, out)

@@ -43,6 +43,13 @@ func containerSnapshotToProto(s *ContainerSnapshot) *pb.ContainerSnapshot {
 					module.Issues.Items = append(module.Issues.Items, &pb.ContainerModuleIssue{Component: issue.Component, ComponentId: issue.ComponentID, Cause: issue.Cause, Severity: issue.Severity, ObservedAt: timestamppb.New(issue.ObservedAt)})
 				}
 			}
+			for _, b := range m.Hashboards {
+				var claims []*pb.HashboardIdentityClaim
+				for _, c := range b.IdentityClaims {
+					claims = append(claims, &pb.HashboardIdentityClaim{MacAddress: c.MACAddress, Serial: c.Serial})
+				}
+				module.Hashboards = append(module.Hashboards, &pb.ContainerHashboard{IdentityClaims: claims, UnavailableReason: b.UnavailableReason, Position: b.Position, Occupancy: b.Occupancy, MacAddress: b.MACAddress, Serial: b.Serial, State: string(b.State), MiningState: b.MiningState, Isolated: b.Isolated, ObservedAt: timestamppb.New(b.ObservedAt), StateObservedAt: timestamppb.New(b.StateObservedAt), HashrateHs: b.HashrateHS, TemperatureC: b.TemperatureC, HashrailOk: b.HashrailOK, RefclksOk: b.RefclksOK, MetadataJson: b.MetadataJSON, HealthJson: b.HealthJSON})
+			}
 			if v := m.Metrics; v != nil {
 				module.Metrics = &pb.ContainerModuleMetrics{ObservedAt: timestamppb.New(v.ObservedAt), HashrateHs: v.HashrateHS, PowerW: v.PowerW, TemperatureC: v.TemperatureC}
 			}
@@ -96,6 +103,16 @@ func containerSnapshotFromProto(s *pb.ContainerSnapshot) *ContainerSnapshot {
 						module.Issues.Items = append(module.Issues.Items, ContainerModuleIssue{Component: issue.Component, ComponentID: issue.ComponentId, Cause: issue.Cause, Severity: issue.Severity, ObservedAt: issue.ObservedAt.AsTime()})
 					}
 				}
+			}
+			for _, b := range m.Hashboards {
+				if b == nil {
+					continue
+				}
+				var claims []HashboardIdentityClaim
+				for _, c := range b.IdentityClaims {
+					claims = append(claims, HashboardIdentityClaim{MACAddress: c.MacAddress, Serial: c.Serial})
+				}
+				module.Hashboards = append(module.Hashboards, ContainerHashboard{IdentityClaims: claims, UnavailableReason: b.UnavailableReason, Position: b.Position, Occupancy: b.Occupancy, MACAddress: b.MacAddress, Serial: b.Serial, State: ModuleState(b.State), MiningState: b.MiningState, Isolated: b.Isolated, ObservedAt: b.ObservedAt.AsTime(), StateObservedAt: b.StateObservedAt.AsTime(), HashrateHS: b.HashrateHs, TemperatureC: b.TemperatureC, HashrailOK: b.HashrailOk, RefclksOK: b.RefclksOk, MetadataJSON: b.MetadataJson, HealthJSON: b.HealthJson})
 			}
 			if v := m.Metrics; v != nil {
 				module.Metrics = &ContainerModuleMetrics{ObservedAt: v.ObservedAt.AsTime(), HashrateHS: v.HashrateHs, PowerW: v.PowerW, TemperatureC: v.TemperatureC}

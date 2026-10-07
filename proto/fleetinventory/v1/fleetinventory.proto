@@ -11,12 +11,15 @@ import "device_set/v1/device_set.proto";
 import "containers/v1/containers.proto";
 import "google/protobuf/timestamp.proto";
 import "telemetry/v1/telemetry.proto";
+import "google/protobuf/struct.proto";
 
 // Read-only mixed inventory. Physical entities retain their own lifecycle.
 service FleetInventoryService {
   rpc ListInventory(ListInventoryRequest) returns (ListInventoryResponse);
   rpc GetTankHistory(GetTankHistoryRequest) returns (GetTankHistoryResponse);
   rpc ListModuleHistory(ListModuleHistoryRequest) returns (ListModuleHistoryResponse);
+  rpc GetModuleHashboards(GetModuleHashboardsRequest) returns (GetModuleHashboardsResponse);
+  rpc ListHashboardHistory(ListHashboardHistoryRequest) returns (ListHashboardHistoryResponse);
 }
 
 enum InventoryView {
@@ -196,4 +199,73 @@ message GetTankHistoryRequest {
 message GetTankHistoryResponse {
   // TH/s, kW, J/TH, and degrees C, matching the telemetry chart contract.
   repeated telemetry.v1.Metric metrics = 1 [(buf.validate.field).repeated.max_items = 4000];
+}
+
+message GetModuleHashboardsRequest {
+  repeated int64 module_ids = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100, unique: true, items: {int64: {gt: 0}}}];
+}
+
+// Returns only readable current modules. Missing or inaccessible IDs are omitted,
+// including for a single-ID request; omissions do not disclose their reason.
+message GetModuleHashboardsResponse {
+  repeated ModuleHashboards modules = 1;
+}
+
+message ModuleHashboards {
+  int64 module_id = 1;
+  repeated HashboardSlot slots = 2;
+}
+
+message HashboardSlot {
+  // invalid_observation, ambiguous_slot, missing_identity, identity_conflict,
+  // controller_conflict, or older_observation. Empty when no rejection is known.
+  string unavailable_reason = 5;
+  int32 position = 1;
+  string occupancy = 2; // occupied, empty, unknown; always three slots for CT1
+  google.protobuf.Timestamp observed_at = 3;
+  HashboardReading board = 4;
+}
+
+// Durable board identity and the installation under which it was observed.
+// The server derives state and suppresses stale current measurements.
+message HashboardReading {
+  int64 hashboard_id = 1;
+  int64 installation_id = 2;
+  int64 module_id = 3;
+  int32 position = 4;
+  string mac_address = 5;
+  string serial = 6;
+  string state = 7;
+  string mining_state = 8;
+  optional bool isolated = 9;
+  google.protobuf.Timestamp observed_at = 10;
+  // Collection time of the health sample, identical in current and history RPCs.
+  // Slot observation time is HashboardSlot.observed_at.
+  google.protobuf.Timestamp collected_at = 11;
+  optional double hashrate_hs = 12;
+  optional double temperature_c = 13;
+  optional bool hashrail_ok = 14;
+  optional bool refclks_ok = 15;
+  // Complete MDK v2 board fields, excluding health. Firmware units; shared PSU
+  // metadata belongs to the module. Present on current readings only.
+  google.protobuf.Struct metadata = 16;
+  // Complete MDK v2 health diagnostics in firmware units. Current responses
+  // omit stale health. lastShutdownError is historical, not an active fault.
+  google.protobuf.Struct health = 17;
+  google.protobuf.Timestamp state_observed_at = 18;
+}
+
+// Unknown boards and boards with no readable historical installation return
+// NotFound. A readable board without samples in this interval returns an empty page.
+message ListHashboardHistoryRequest {
+  int64 hashboard_id = 1 [(buf.validate.field).int64.gt = 0];
+  google.protobuf.Timestamp start_time = 2 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end_time = 3 [(buf.validate.field).required = true];
+  int32 page_size = 4 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
+  string page_token = 5 [(buf.validate.field).string.max_len = 4096];
+}
+
+message ListHashboardHistoryResponse {
+  repeated HashboardReading samples = 1;
+  string next_page_token = 2;
 }

@@ -126,6 +126,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.bumpCurtailmentTargetRetryStmt, err = db.PrepareContext(ctx, bumpCurtailmentTargetRetry); err != nil {
 		return nil, fmt.Errorf("error preparing query BumpCurtailmentTargetRetry: %w", err)
 	}
+	if q.canReadHashboardHistoryStmt, err = db.PrepareContext(ctx, canReadHashboardHistory); err != nil {
+		return nil, fmt.Errorf("error preparing query CanReadHashboardHistory: %w", err)
+	}
 	if q.cancelActiveFirmwareRolloutStmt, err = db.PrepareContext(ctx, cancelActiveFirmwareRollout); err != nil {
 		return nil, fmt.Errorf("error preparing query CancelActiveFirmwareRollout: %w", err)
 	}
@@ -206,6 +209,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.clearRolePermissionsStmt, err = db.PrepareContext(ctx, clearRolePermissions); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearRolePermissions: %w", err)
+	}
+	if q.closeHashboardInstallationsStmt, err = db.PrepareContext(ctx, closeHashboardInstallations); err != nil {
+		return nil, fmt.Errorf("error preparing query CloseHashboardInstallations: %w", err)
 	}
 	if q.closeStaleErrorsStmt, err = db.PrepareContext(ctx, closeStaleErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CloseStaleErrors: %w", err)
@@ -504,6 +510,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.ensureCurtailmentOrgConfigStmt, err = db.PrepareContext(ctx, ensureCurtailmentOrgConfig); err != nil {
 		return nil, fmt.Errorf("error preparing query EnsureCurtailmentOrgConfig: %w", err)
 	}
+	if q.ensureHashboardsStmt, err = db.PrepareContext(ctx, ensureHashboards); err != nil {
+		return nil, fmt.Errorf("error preparing query EnsureHashboards: %w", err)
+	}
 	if q.excludeFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, excludeFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ExcludeFirmwareRolloutDevices: %w", err)
 	}
@@ -521,6 +530,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.findDevicesWithSiteOrBuildingStmt, err = db.PrepareContext(ctx, findDevicesWithSiteOrBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query FindDevicesWithSiteOrBuilding: %w", err)
+	}
+	if q.findHashboardIdentitiesStmt, err = db.PrepareContext(ctx, findHashboardIdentities); err != nil {
+		return nil, fmt.Errorf("error preparing query FindHashboardIdentities: %w", err)
 	}
 	if q.finishFirmwareRolloutStmt, err = db.PrepareContext(ctx, finishFirmwareRollout); err != nil {
 		return nil, fmt.Errorf("error preparing query FinishFirmwareRollout: %w", err)
@@ -825,6 +837,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getHAProfileDatabaseIdentityStmt, err = db.PrepareContext(ctx, getHAProfileDatabaseIdentity); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHAProfileDatabaseIdentity: %w", err)
 	}
+	if q.getHashboardInstallationsStmt, err = db.PrepareContext(ctx, getHashboardInstallations); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHashboardInstallations: %w", err)
+	}
 	if q.getHostedAccountMembershipStmt, err = db.PrepareContext(ctx, getHostedAccountMembership); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHostedAccountMembership: %w", err)
 	}
@@ -893,6 +908,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, getMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerStateSnapshots: %w", err)
+	}
+	if q.getModuleHashboardsStmt, err = db.PrepareContext(ctx, getModuleHashboards); err != nil {
+		return nil, fmt.Errorf("error preparing query GetModuleHashboards: %w", err)
 	}
 	if q.getOfflineDevicesStmt, err = db.PrepareContext(ctx, getOfflineDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOfflineDevices: %w", err)
@@ -1128,6 +1146,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertErrorStmt, err = db.PrepareContext(ctx, insertError); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertError: %w", err)
 	}
+	if q.insertHashboardMetricsStmt, err = db.PrepareContext(ctx, insertHashboardMetrics); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertHashboardMetrics: %w", err)
+	}
 	if q.insertMQTTSourceConfigStmt, err = db.PrepareContext(ctx, insertMQTTSourceConfig); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertMQTTSourceConfig: %w", err)
 	}
@@ -1352,6 +1373,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listFleetNodesForOrganizationStmt, err = db.PrepareContext(ctx, listFleetNodesForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetNodesForOrganization: %w", err)
+	}
+	if q.listHashboardHistoryStmt, err = db.PrepareContext(ctx, listHashboardHistory); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHashboardHistory: %w", err)
+	}
+	if q.listHashboardModulesStmt, err = db.PrepareContext(ctx, listHashboardModules); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHashboardModules: %w", err)
 	}
 	if q.listInfrastructureDevicesByOrgStmt, err = db.PrepareContext(ctx, listInfrastructureDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListInfrastructureDevicesByOrg: %w", err)
@@ -1583,6 +1610,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockFleetNodePairingDeviceStmt, err = db.PrepareContext(ctx, lockFleetNodePairingDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query LockFleetNodePairingDevice: %w", err)
+	}
+	if q.lockHashboardOrganizationStmt, err = db.PrepareContext(ctx, lockHashboardOrganization); err != nil {
+		return nil, fmt.Errorf("error preparing query LockHashboardOrganization: %w", err)
 	}
 	if q.lockHostedAccountAdministratorsStmt, err = db.PrepareContext(ctx, lockHostedAccountAdministrators); err != nil {
 		return nil, fmt.Errorf("error preparing query LockHostedAccountAdministrators: %w", err)
@@ -2211,6 +2241,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.upsertFleetNodeSessionStmt, err = db.PrepareContext(ctx, upsertFleetNodeSession); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertFleetNodeSession: %w", err)
 	}
+	if q.upsertHashboardInstallationsStmt, err = db.PrepareContext(ctx, upsertHashboardInstallations); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertHashboardInstallations: %w", err)
+	}
+	if q.upsertHashboardSlotsStmt, err = db.PrepareContext(ctx, upsertHashboardSlots); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertHashboardSlots: %w", err)
+	}
 	if q.upsertMQTTSourceStateStmt, err = db.PrepareContext(ctx, upsertMQTTSourceState); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertMQTTSourceState: %w", err)
 	}
@@ -2401,6 +2437,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing bumpCurtailmentTargetRetryStmt: %w", cerr)
 		}
 	}
+	if q.canReadHashboardHistoryStmt != nil {
+		if cerr := q.canReadHashboardHistoryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing canReadHashboardHistoryStmt: %w", cerr)
+		}
+	}
 	if q.cancelActiveFirmwareRolloutStmt != nil {
 		if cerr := q.cancelActiveFirmwareRolloutStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing cancelActiveFirmwareRolloutStmt: %w", cerr)
@@ -2534,6 +2575,11 @@ func (q *Queries) Close() error {
 	if q.clearRolePermissionsStmt != nil {
 		if cerr := q.clearRolePermissionsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing clearRolePermissionsStmt: %w", cerr)
+		}
+	}
+	if q.closeHashboardInstallationsStmt != nil {
+		if cerr := q.closeHashboardInstallationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing closeHashboardInstallationsStmt: %w", cerr)
 		}
 	}
 	if q.closeStaleErrorsStmt != nil {
@@ -3031,6 +3077,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing ensureCurtailmentOrgConfigStmt: %w", cerr)
 		}
 	}
+	if q.ensureHashboardsStmt != nil {
+		if cerr := q.ensureHashboardsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing ensureHashboardsStmt: %w", cerr)
+		}
+	}
 	if q.excludeFirmwareRolloutDevicesStmt != nil {
 		if cerr := q.excludeFirmwareRolloutDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing excludeFirmwareRolloutDevicesStmt: %w", cerr)
@@ -3059,6 +3110,11 @@ func (q *Queries) Close() error {
 	if q.findDevicesWithSiteOrBuildingStmt != nil {
 		if cerr := q.findDevicesWithSiteOrBuildingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing findDevicesWithSiteOrBuildingStmt: %w", cerr)
+		}
+	}
+	if q.findHashboardIdentitiesStmt != nil {
+		if cerr := q.findHashboardIdentitiesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing findHashboardIdentitiesStmt: %w", cerr)
 		}
 	}
 	if q.finishFirmwareRolloutStmt != nil {
@@ -3566,6 +3622,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getHAProfileDatabaseIdentityStmt: %w", cerr)
 		}
 	}
+	if q.getHashboardInstallationsStmt != nil {
+		if cerr := q.getHashboardInstallationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHashboardInstallationsStmt: %w", cerr)
+		}
+	}
 	if q.getHostedAccountMembershipStmt != nil {
 		if cerr := q.getHostedAccountMembershipStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getHostedAccountMembershipStmt: %w", cerr)
@@ -3679,6 +3740,11 @@ func (q *Queries) Close() error {
 	if q.getMinerStateSnapshotsStmt != nil {
 		if cerr := q.getMinerStateSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getMinerStateSnapshotsStmt: %w", cerr)
+		}
+	}
+	if q.getModuleHashboardsStmt != nil {
+		if cerr := q.getModuleHashboardsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getModuleHashboardsStmt: %w", cerr)
 		}
 	}
 	if q.getOfflineDevicesStmt != nil {
@@ -4071,6 +4137,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertErrorStmt: %w", cerr)
 		}
 	}
+	if q.insertHashboardMetricsStmt != nil {
+		if cerr := q.insertHashboardMetricsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertHashboardMetricsStmt: %w", cerr)
+		}
+	}
 	if q.insertMQTTSourceConfigStmt != nil {
 		if cerr := q.insertMQTTSourceConfigStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertMQTTSourceConfigStmt: %w", cerr)
@@ -4444,6 +4515,16 @@ func (q *Queries) Close() error {
 	if q.listFleetNodesForOrganizationStmt != nil {
 		if cerr := q.listFleetNodesForOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listFleetNodesForOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.listHashboardHistoryStmt != nil {
+		if cerr := q.listHashboardHistoryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHashboardHistoryStmt: %w", cerr)
+		}
+	}
+	if q.listHashboardModulesStmt != nil {
+		if cerr := q.listHashboardModulesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHashboardModulesStmt: %w", cerr)
 		}
 	}
 	if q.listInfrastructureDevicesByOrgStmt != nil {
@@ -4829,6 +4910,11 @@ func (q *Queries) Close() error {
 	if q.lockFleetNodePairingDeviceStmt != nil {
 		if cerr := q.lockFleetNodePairingDeviceStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockFleetNodePairingDeviceStmt: %w", cerr)
+		}
+	}
+	if q.lockHashboardOrganizationStmt != nil {
+		if cerr := q.lockHashboardOrganizationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockHashboardOrganizationStmt: %w", cerr)
 		}
 	}
 	if q.lockHostedAccountAdministratorsStmt != nil {
@@ -5876,6 +5962,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertFleetNodeSessionStmt: %w", cerr)
 		}
 	}
+	if q.upsertHashboardInstallationsStmt != nil {
+		if cerr := q.upsertHashboardInstallationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertHashboardInstallationsStmt: %w", cerr)
+		}
+	}
+	if q.upsertHashboardSlotsStmt != nil {
+		if cerr := q.upsertHashboardSlotsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertHashboardSlotsStmt: %w", cerr)
+		}
+	}
 	if q.upsertMQTTSourceStateStmt != nil {
 		if cerr := q.upsertMQTTSourceStateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertMQTTSourceStateStmt: %w", cerr)
@@ -5974,6 +6070,7 @@ type Queries struct {
 	bulkRefreshAllPairedTargetReadinessStmt                      *sql.Stmt
 	bulkUpdateTicketStatusStmt                                   *sql.Stmt
 	bumpCurtailmentTargetRetryStmt                               *sql.Stmt
+	canReadHashboardHistoryStmt                                  *sql.Stmt
 	cancelActiveFirmwareRolloutStmt                              *sql.Stmt
 	cancelEnrollmentForFleetNodeStmt                             *sql.Stmt
 	cancelFirmwareRolloutStmt                                    *sql.Stmt
@@ -6001,6 +6098,7 @@ type Queries struct {
 	clearRackSlotPositionStmt                                    *sql.Stmt
 	clearReleaseChannelFirmwareStmt                              *sql.Stmt
 	clearRolePermissionsStmt                                     *sql.Stmt
+	closeHashboardInstallationsStmt                              *sql.Stmt
 	closeStaleErrorsStmt                                         *sql.Stmt
 	completeDelegatedFirmwareRolloutStmt                         *sql.Stmt
 	completeRigConfigReconciliationStmt                          *sql.Stmt
@@ -6100,12 +6198,14 @@ type Queries struct {
 	disableCurtailmentAutomationRuleByActiveEventStmt            *sql.Stmt
 	disableSyncCommitStmt                                        *sql.Stmt
 	ensureCurtailmentOrgConfigStmt                               *sql.Stmt
+	ensureHashboardsStmt                                         *sql.Stmt
 	excludeFirmwareRolloutDevicesStmt                            *sql.Stmt
 	findDeviceBuildingConflictsStmt                              *sql.Stmt
 	findDeviceSiteConflictsStmt                                  *sql.Stmt
 	findDevicesInBuildingLessPlacedRacksStmt                     *sql.Stmt
 	findDevicesInSiteLessRacksStmt                               *sql.Stmt
 	findDevicesWithSiteOrBuildingStmt                            *sql.Stmt
+	findHashboardIdentitiesStmt                                  *sql.Stmt
 	finishFirmwareRolloutStmt                                    *sql.Stmt
 	finishTerminalCommandBatchesStmt                             *sql.Stmt
 	forceReleaseCurtailmentEventStmt                             *sql.Stmt
@@ -6207,6 +6307,7 @@ type Queries struct {
 	getFleetNodeTelemetryRouteByDeviceIdentifierStmt             *sql.Stmt
 	getGroupRefsForDevicesStmt                                   *sql.Stmt
 	getHAProfileDatabaseIdentityStmt                             *sql.Stmt
+	getHashboardInstallationsStmt                                *sql.Stmt
 	getHostedAccountMembershipStmt                               *sql.Stmt
 	getHostedAccountPathStmt                                     *sql.Stmt
 	getInfrastructureControlSubnetsStmt                          *sql.Stmt
@@ -6230,6 +6331,7 @@ type Queries struct {
 	getMinerStateSnapshotDeviceRollupsDailyStmt                  *sql.Stmt
 	getMinerStateSnapshotDeviceRollupsHourlyStmt                 *sql.Stmt
 	getMinerStateSnapshotsStmt                                   *sql.Stmt
+	getModuleHashboardsStmt                                      *sql.Stmt
 	getOfflineDevicesStmt                                        *sql.Stmt
 	getOfflineFleetNodeDevicesStmt                               *sql.Stmt
 	getOpenErrorByDedupKeyStmt                                   *sql.Stmt
@@ -6308,6 +6410,7 @@ type Queries struct {
 	insertDeviceStmt                                             *sql.Stmt
 	insertDeviceMetricsStmt                                      *sql.Stmt
 	insertErrorStmt                                              *sql.Stmt
+	insertHashboardMetricsStmt                                   *sql.Stmt
 	insertMQTTSourceConfigStmt                                   *sql.Stmt
 	insertMinerStateSnapshotStmt                                 *sql.Stmt
 	insertNotificationHistoryStmt                                *sql.Stmt
@@ -6383,6 +6486,8 @@ type Queries struct {
 	listFleetNodeDevicesStmt                                     *sql.Stmt
 	listFleetNodeDiscoveredDevicesStmt                           *sql.Stmt
 	listFleetNodesForOrganizationStmt                            *sql.Stmt
+	listHashboardHistoryStmt                                     *sql.Stmt
+	listHashboardModulesStmt                                     *sql.Stmt
 	listInfrastructureDevicesByOrgStmt                           *sql.Stmt
 	listInventoryPartsStmt                                       *sql.Stmt
 	listMQTTSourceConfigsByOrgStmt                               *sql.Stmt
@@ -6460,6 +6565,7 @@ type Queries struct {
 	lockDevicesForReassignStmt                                   *sql.Stmt
 	lockFleetNodeByIDStmt                                        *sql.Stmt
 	lockFleetNodePairingDeviceStmt                               *sql.Stmt
+	lockHashboardOrganizationStmt                                *sql.Stmt
 	lockHostedAccountAdministratorsStmt                          *sql.Stmt
 	lockHostedAccountOrganizationStmt                            *sql.Stmt
 	lockInfrastructureDeviceForWriteStmt                         *sql.Stmt
@@ -6669,6 +6775,8 @@ type Queries struct {
 	upsertFleetMetricRollupsStmt                                 *sql.Stmt
 	upsertFleetNodeAuthChallengeStmt                             *sql.Stmt
 	upsertFleetNodeSessionStmt                                   *sql.Stmt
+	upsertHashboardInstallationsStmt                             *sql.Stmt
+	upsertHashboardSlotsStmt                                     *sql.Stmt
 	upsertMQTTSourceStateStmt                                    *sql.Stmt
 	upsertMinerCredentialsStmt                                   *sql.Stmt
 	upsertPermissionStmt                                         *sql.Stmt
@@ -6714,6 +6822,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		bulkRefreshAllPairedTargetReadinessStmt:                      q.bulkRefreshAllPairedTargetReadinessStmt,
 		bulkUpdateTicketStatusStmt:                                   q.bulkUpdateTicketStatusStmt,
 		bumpCurtailmentTargetRetryStmt:                               q.bumpCurtailmentTargetRetryStmt,
+		canReadHashboardHistoryStmt:                                  q.canReadHashboardHistoryStmt,
 		cancelActiveFirmwareRolloutStmt:                              q.cancelActiveFirmwareRolloutStmt,
 		cancelEnrollmentForFleetNodeStmt:                             q.cancelEnrollmentForFleetNodeStmt,
 		cancelFirmwareRolloutStmt:                                    q.cancelFirmwareRolloutStmt,
@@ -6741,6 +6850,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		clearRackSlotPositionStmt:                                    q.clearRackSlotPositionStmt,
 		clearReleaseChannelFirmwareStmt:                              q.clearReleaseChannelFirmwareStmt,
 		clearRolePermissionsStmt:                                     q.clearRolePermissionsStmt,
+		closeHashboardInstallationsStmt:                              q.closeHashboardInstallationsStmt,
 		closeStaleErrorsStmt:                                         q.closeStaleErrorsStmt,
 		completeDelegatedFirmwareRolloutStmt:                         q.completeDelegatedFirmwareRolloutStmt,
 		completeRigConfigReconciliationStmt:                          q.completeRigConfigReconciliationStmt,
@@ -6840,12 +6950,14 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		disableCurtailmentAutomationRuleByActiveEventStmt:            q.disableCurtailmentAutomationRuleByActiveEventStmt,
 		disableSyncCommitStmt:                                        q.disableSyncCommitStmt,
 		ensureCurtailmentOrgConfigStmt:                               q.ensureCurtailmentOrgConfigStmt,
+		ensureHashboardsStmt:                                         q.ensureHashboardsStmt,
 		excludeFirmwareRolloutDevicesStmt:                            q.excludeFirmwareRolloutDevicesStmt,
 		findDeviceBuildingConflictsStmt:                              q.findDeviceBuildingConflictsStmt,
 		findDeviceSiteConflictsStmt:                                  q.findDeviceSiteConflictsStmt,
 		findDevicesInBuildingLessPlacedRacksStmt:                     q.findDevicesInBuildingLessPlacedRacksStmt,
 		findDevicesInSiteLessRacksStmt:                               q.findDevicesInSiteLessRacksStmt,
 		findDevicesWithSiteOrBuildingStmt:                            q.findDevicesWithSiteOrBuildingStmt,
+		findHashboardIdentitiesStmt:                                  q.findHashboardIdentitiesStmt,
 		finishFirmwareRolloutStmt:                                    q.finishFirmwareRolloutStmt,
 		finishTerminalCommandBatchesStmt:                             q.finishTerminalCommandBatchesStmt,
 		forceReleaseCurtailmentEventStmt:                             q.forceReleaseCurtailmentEventStmt,
@@ -6947,6 +7059,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFleetNodeTelemetryRouteByDeviceIdentifierStmt:             q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt,
 		getGroupRefsForDevicesStmt:                                   q.getGroupRefsForDevicesStmt,
 		getHAProfileDatabaseIdentityStmt:                             q.getHAProfileDatabaseIdentityStmt,
+		getHashboardInstallationsStmt:                                q.getHashboardInstallationsStmt,
 		getHostedAccountMembershipStmt:                               q.getHostedAccountMembershipStmt,
 		getHostedAccountPathStmt:                                     q.getHostedAccountPathStmt,
 		getInfrastructureControlSubnetsStmt:                          q.getInfrastructureControlSubnetsStmt,
@@ -6970,6 +7083,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getMinerStateSnapshotDeviceRollupsDailyStmt:                  q.getMinerStateSnapshotDeviceRollupsDailyStmt,
 		getMinerStateSnapshotDeviceRollupsHourlyStmt:                 q.getMinerStateSnapshotDeviceRollupsHourlyStmt,
 		getMinerStateSnapshotsStmt:                                   q.getMinerStateSnapshotsStmt,
+		getModuleHashboardsStmt:                                      q.getModuleHashboardsStmt,
 		getOfflineDevicesStmt:                                        q.getOfflineDevicesStmt,
 		getOfflineFleetNodeDevicesStmt:                               q.getOfflineFleetNodeDevicesStmt,
 		getOpenErrorByDedupKeyStmt:                                   q.getOpenErrorByDedupKeyStmt,
@@ -7048,6 +7162,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertDeviceStmt:                                             q.insertDeviceStmt,
 		insertDeviceMetricsStmt:                                      q.insertDeviceMetricsStmt,
 		insertErrorStmt:                                              q.insertErrorStmt,
+		insertHashboardMetricsStmt:                                   q.insertHashboardMetricsStmt,
 		insertMQTTSourceConfigStmt:                                   q.insertMQTTSourceConfigStmt,
 		insertMinerStateSnapshotStmt:                                 q.insertMinerStateSnapshotStmt,
 		insertNotificationHistoryStmt:                                q.insertNotificationHistoryStmt,
@@ -7123,6 +7238,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listFleetNodeDevicesStmt:                                     q.listFleetNodeDevicesStmt,
 		listFleetNodeDiscoveredDevicesStmt:                           q.listFleetNodeDiscoveredDevicesStmt,
 		listFleetNodesForOrganizationStmt:                            q.listFleetNodesForOrganizationStmt,
+		listHashboardHistoryStmt:                                     q.listHashboardHistoryStmt,
+		listHashboardModulesStmt:                                     q.listHashboardModulesStmt,
 		listInfrastructureDevicesByOrgStmt:                           q.listInfrastructureDevicesByOrgStmt,
 		listInventoryPartsStmt:                                       q.listInventoryPartsStmt,
 		listMQTTSourceConfigsByOrgStmt:                               q.listMQTTSourceConfigsByOrgStmt,
@@ -7200,6 +7317,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockDevicesForReassignStmt:                                   q.lockDevicesForReassignStmt,
 		lockFleetNodeByIDStmt:                                        q.lockFleetNodeByIDStmt,
 		lockFleetNodePairingDeviceStmt:                               q.lockFleetNodePairingDeviceStmt,
+		lockHashboardOrganizationStmt:                                q.lockHashboardOrganizationStmt,
 		lockHostedAccountAdministratorsStmt:                          q.lockHostedAccountAdministratorsStmt,
 		lockHostedAccountOrganizationStmt:                            q.lockHostedAccountOrganizationStmt,
 		lockInfrastructureDeviceForWriteStmt:                         q.lockInfrastructureDeviceForWriteStmt,
@@ -7409,6 +7527,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertFleetMetricRollupsStmt:                                 q.upsertFleetMetricRollupsStmt,
 		upsertFleetNodeAuthChallengeStmt:                             q.upsertFleetNodeAuthChallengeStmt,
 		upsertFleetNodeSessionStmt:                                   q.upsertFleetNodeSessionStmt,
+		upsertHashboardInstallationsStmt:                             q.upsertHashboardInstallationsStmt,
+		upsertHashboardSlotsStmt:                                     q.upsertHashboardSlotsStmt,
 		upsertMQTTSourceStateStmt:                                    q.upsertMQTTSourceStateStmt,
 		upsertMinerCredentialsStmt:                                   q.upsertMinerCredentialsStmt,
 		upsertPermissionStmt:                                         q.upsertPermissionStmt,
