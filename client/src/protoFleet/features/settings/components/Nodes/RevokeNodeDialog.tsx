@@ -5,7 +5,7 @@ import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 interface RevokeNodeDialogProps {
   open?: boolean;
   nodeName: string;
-  affectedMiners: string[];
+  affectedDeviceTypes: string[];
   isLoadingImpact: boolean;
   impactError: string;
   onConfirm: () => void;
@@ -16,13 +16,16 @@ interface RevokeNodeDialogProps {
 const RevokeNodeDialog = ({
   open,
   nodeName,
-  affectedMiners,
+  affectedDeviceTypes,
   isLoadingImpact,
   impactError,
   onConfirm,
   onDismiss,
   isSubmitting,
 }: RevokeNodeDialogProps) => {
+  const protoRigCount = affectedDeviceTypes.filter((type) => type === "proto").length;
+  const otherMinerCount = affectedDeviceTypes.length - protoRigCount;
+
   return (
     <Dialog
       open={open}
@@ -62,16 +65,17 @@ const RevokeNodeDialog = ({
       ) : null}
       {!isLoadingImpact && !impactError ? (
         <div className="mt-3 text-300">
-          <div>
-            {affectedMiners.length} paired {affectedMiners.length === 1 ? "miner" : "miners"} will lose this Node.
-          </div>
-          {affectedMiners.length > 0 ? (
-            <ul className="mt-2 max-h-32 list-disc overflow-y-auto pl-5">
-              {affectedMiners.map((identifier) => (
-                <li key={identifier}>{identifier}</li>
-              ))}
-            </ul>
+          {protoRigCount > 0 ? (
+            <div>
+              {protoRigCount} paired Proto {protoRigCount === 1 ? "Rig" : "Rigs"} will lose connection.
+            </div>
           ) : null}
+          {otherMinerCount > 0 ? (
+            <div>
+              {otherMinerCount} paired {otherMinerCount === 1 ? "miner" : "miners"} will lose connection.
+            </div>
+          ) : null}
+          {affectedDeviceTypes.length === 0 ? <div>No paired miners will lose connection.</div> : null}
         </div>
       ) : null}
     </Dialog>

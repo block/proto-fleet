@@ -8,7 +8,7 @@ describe("RevokeNodeDialog", () => {
     const props = {
       open: true,
       nodeName: "node-01",
-      affectedMiners: [] as string[],
+      affectedDeviceTypes: [] as string[],
       isLoadingImpact: true,
       impactError: "",
       onConfirm,
@@ -23,10 +23,30 @@ describe("RevokeNodeDialog", () => {
     expect(confirm).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent("Could not load affected miners.");
 
-    rerender(<RevokeNodeDialog {...props} isLoadingImpact={false} affectedMiners={["miner-1"]} />);
-    expect(screen.getByText("1 paired miner will lose this Node.")).toBeInTheDocument();
+    rerender(<RevokeNodeDialog {...props} isLoadingImpact={false} affectedDeviceTypes={["proto"]} />);
+    expect(screen.getByText("1 paired Proto Rig will lose connection.")).toBeInTheDocument();
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
     expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows type counts without exposing miner identifiers", () => {
+    const props = {
+      open: true,
+      nodeName: "node-01",
+      affectedDeviceTypes: ["proto", "proto", "antminer"],
+      isLoadingImpact: false,
+      impactError: "",
+      onConfirm: vi.fn(),
+      onDismiss: vi.fn(),
+      isSubmitting: false,
+    };
+    const { rerender } = render(<RevokeNodeDialog {...props} />);
+
+    expect(screen.getByText("2 paired Proto Rigs will lose connection.")).toBeInTheDocument();
+    expect(screen.getByText("1 paired miner will lose connection.")).toBeInTheDocument();
+
+    rerender(<RevokeNodeDialog {...props} affectedDeviceTypes={[]} />);
+    expect(screen.getByText("No paired miners will lose connection.")).toBeInTheDocument();
   });
 });

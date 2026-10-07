@@ -45,7 +45,7 @@ const NodesPage = () => {
   const [finderRevisionByNode, setFinderRevisionByNode] = useState<Record<string, number>>({});
   const [blockedPairingByNode, setBlockedPairingByNode] = useState<Record<string, string[]>>({});
   const [revokeNodeData, setRevokeNodeData] = useState<FleetNodeItem | null>(null);
-  const [revokeMinerNames, setRevokeMinerNames] = useState<string[]>([]);
+  const [revokeDeviceTypes, setRevokeDeviceTypes] = useState<string[]>([]);
   const [revokeImpactLoading, setRevokeImpactLoading] = useState(false);
   const [revokeImpactError, setRevokeImpactError] = useState("");
   const [isRevoking, setIsRevoking] = useState(false);
@@ -123,13 +123,13 @@ const NodesPage = () => {
     (node: FleetNodeItem) => {
       const requestId = ++revokeImpactRequestRef.current;
       setRevokeNodeData(node);
-      setRevokeMinerNames([]);
+      setRevokeDeviceTypes([]);
       setRevokeImpactError("");
       setRevokeImpactLoading(true);
       void listFleetNodeDevices(node.fleetNodeId)
         .then((devices) => {
           if (requestId === revokeImpactRequestRef.current) {
-            setRevokeMinerNames(devices.map((device) => device.deviceIdentifier));
+            setRevokeDeviceTypes(devices.map((device) => device.deviceType));
           }
         })
         .catch((error) => {
@@ -291,7 +291,7 @@ const NodesPage = () => {
       <RevokeNodeDialog
         open={!!revokeNodeData}
         nodeName={revokeNodeData?.name ?? ""}
-        affectedMiners={revokeMinerNames}
+        affectedDeviceTypes={revokeDeviceTypes}
         isLoadingImpact={revokeImpactLoading}
         impactError={revokeImpactError}
         onConfirm={handleRevokeConfirm}

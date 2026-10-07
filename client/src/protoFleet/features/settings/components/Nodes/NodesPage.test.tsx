@@ -91,14 +91,14 @@ vi.mock("@/protoFleet/features/settings/components/Nodes/RevokeNodeDialog", () =
   default: ({
     open,
     nodeName,
-    affectedMiners,
+    affectedDeviceTypes,
     isLoadingImpact,
     impactError,
     onConfirm,
   }: {
     open: boolean;
     nodeName: string;
-    affectedMiners: string[];
+    affectedDeviceTypes: string[];
     isLoadingImpact: boolean;
     impactError: string;
     onConfirm: () => void;
@@ -108,7 +108,7 @@ vi.mock("@/protoFleet/features/settings/components/Nodes/RevokeNodeDialog", () =
     open ? (
       <div role="dialog" aria-label="Revoke node">
         <div>{nodeName}</div>
-        <div>{affectedMiners.length} affected miners</div>
+        <div>{affectedDeviceTypes.join(", ")}</div>
         <button type="button" onClick={onConfirm} disabled={isLoadingImpact || !!impactError}>
           Confirm revoke
         </button>
@@ -268,14 +268,18 @@ describe("NodesPage", () => {
   });
 
   it("loads the affected miners before allowing revocation", async () => {
-    listFleetNodeDevicesMock.mockResolvedValue([{ deviceIdentifier: "miner-1" }, { deviceIdentifier: "miner-2" }]);
+    listFleetNodeDevicesMock.mockResolvedValue([
+      { deviceIdentifier: "miner-1", deviceType: "proto" },
+      { deviceIdentifier: "miner-2", deviceType: "antminer" },
+    ]);
     renderNodesPage();
 
     expect(await screen.findByText("node-01")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
     await waitFor(() =>
-      expect(screen.getByRole("dialog", { name: "Revoke node" })).toHaveTextContent("2 affected miners"),
+      expect(screen.getByRole("dialog", { name: "Revoke node" })).toHaveTextContent("proto, antminer"),
     );
+    expect(screen.getByRole("dialog", { name: "Revoke node" })).not.toHaveTextContent("miner-1");
     expect(listFleetNodeDevicesMock).toHaveBeenCalledWith("7");
   });
 });
