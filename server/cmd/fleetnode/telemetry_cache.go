@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
@@ -33,7 +34,7 @@ func telemetryDeviceKey(info sdk.DeviceInfo, secret sdk.SecretBundle) ([sha256.S
 		Secret sdk.SecretBundle
 	}{info, secret})
 	if err != nil {
-		return [sha256.Size]byte{}, err
+		return [sha256.Size]byte{}, fmt.Errorf("encode telemetry client identity: %w", err)
 	}
 	return sha256.Sum256(material), nil
 }
