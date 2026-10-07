@@ -208,7 +208,7 @@ describe("NodeDetailsModal", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Pair result stream disconnected");
     expect(screen.getByText("miner-2: PAIRED")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("button", { name: "Pair selected (0)" })).toBeDisabled());
+    expect(screen.queryByRole("checkbox", { name: "Select miner-2" })).not.toBeInTheDocument();
     expect(pairOnNode).toHaveBeenCalledTimes(1);
     expect(onUpdated).not.toHaveBeenCalled();
   });
@@ -232,6 +232,52 @@ describe("NodeDetailsModal", () => {
     expect(pairOnNode).toHaveBeenCalledTimes(1);
     expect(onPairingStarted).toHaveBeenCalledWith(["miner-2"]);
     expect(onPairingCompleted).not.toHaveBeenCalled();
+  });
+
+  it("releases reported miners while leaving unreported miners blocked after a stream failure", async () => {
+    listDiscovered.mockResolvedValue({ devices: [miner, otherMiner], nextCursor: 0n });
+    pairOnNode.mockImplementation(async (_id, _ids, _credentials, onResults) => {
+      onResults([
+        create(DevicePairingResultSchema, {
+          deviceIdentifier: "miner-2",
+          pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
+        }),
+      ]);
+      throw new Error("Pair result stream disconnected");
+    });
+    const onPairingStarted = vi.fn();
+    const onPairingCompleted = vi.fn();
+    renderDetails({ onPairingStarted, onPairingCompleted });
+
+    await screen.findByText("miner-1");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner-2" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner-3" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pair selected (2)" }));
+
+    await waitFor(() => expect(onPairingCompleted).toHaveBeenCalledWith(["miner-2"]));
+    expect(onPairingStarted).toHaveBeenCalledWith(["miner-2", "miner-3"]);
+    expect(onPairingCompleted).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Pair result stream disconnected");
+  });
+
+  it("removes a reported paired miner from a stale list when recovery fails", async () => {
+    pairOnNode.mockImplementation(async (_id, _ids, _credentials, onResults) => {
+      onResults([
+        create(DevicePairingResultSchema, { deviceIdentifier: "miner-2", pairingStatus: PairingStatus.PAIRED }),
+      ]);
+      throw new Error("Pair result stream disconnected");
+    });
+    const onPairingCompleted = vi.fn();
+    renderDetails({ onPairingCompleted });
+
+    await screen.findByText("miner-1");
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner-2" }));
+    listPairs.mockRejectedValueOnce(new Error("Refresh failed"));
+    fireEvent.click(screen.getByRole("button", { name: "Pair selected (1)" }));
+
+    await waitFor(() => expect(onPairingCompleted).toHaveBeenCalledWith(["miner-2"]));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Pair result stream disconnected");
+    expect(screen.queryByRole("checkbox", { name: "Select miner-2" })).not.toBeInTheDocument();
   });
 
   it("prevents selecting a miner whose earlier pairing result is unknown", async () => {

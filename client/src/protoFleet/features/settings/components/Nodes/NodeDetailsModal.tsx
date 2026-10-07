@@ -187,6 +187,7 @@ const NodeDetailsModal = ({
     setIsPairing(true);
     const submitted = [...selected];
     onPairingStarted(submitted);
+    const unreported = new Set(submitted);
     let pairingCompleted = false;
     let receivedResults = false;
     try {
@@ -195,10 +196,27 @@ const NodeDetailsModal = ({
         : undefined;
       await pairDiscoveredDevicesOnFleetNode(node.fleetNodeId, submitted, credentials, (results) => {
         receivedResults = true;
-        if (mountedRef.current) setPairResults((current) => [...current, ...results]);
+        const completed = results
+          .map((result) => result.deviceIdentifier)
+          .filter((identifier) => unreported.delete(identifier));
+        if (completed.length > 0) onPairingCompleted(completed);
+        if (mountedRef.current) {
+          setPairResults((current) => [...current, ...results]);
+          const paired = new Set(
+            results
+              .filter(
+                (result) =>
+                  result.pairingStatus === PairingStatus.PAIRED ||
+                  result.pairingStatus === PairingStatus.DEFAULT_PASSWORD,
+              )
+              .map((result) => result.deviceIdentifier),
+          );
+          if (paired.size > 0)
+            setDiscovered((current) => current.filter((device) => !paired.has(device.deviceIdentifier)));
+        }
       });
       pairingCompleted = true;
-      onPairingCompleted(submitted);
+      if (unreported.size > 0) onPairingCompleted([...unreported]);
       if (mountedRef.current) {
         setSelected([]);
         setPassword("");
@@ -210,7 +228,7 @@ const NodeDetailsModal = ({
       // A disconnected result stream does not mean the Node stopped pairing.
       if (mountedRef.current) setSelected([]);
       if (!pairingCompleted && !receivedResults && isDefinitivePairRejection(err)) {
-        onPairingCompleted(submitted);
+        onPairingCompleted([...unreported]);
       }
       if (mountedRef.current) {
         setError(
@@ -414,16 +432,19 @@ const NodeDetailsModal = ({
               onClick={() => void pairSelected()}
               className="self-start"
             />
-            {pairResults.length > 0 ? (
-              <ul className="text-300" aria-label="Pairing results">
-                {pairResults.map((result) => (
-                  <li key={result.deviceIdentifier}>
-                    {result.deviceIdentifier}: {PairingStatus[result.pairingStatus] ?? "Unknown"}
-                    {result.error ? ` · ${result.error}` : ""}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+          </section>
+        ) : null}
+        {pairResults.length > 0 ? (
+          <section>
+            <h3 className="mb-2 text-heading-200">Pairing results</h3>
+            <ul className="text-300" aria-label="Pairing results">
+              {pairResults.map((result) => (
+                <li key={result.deviceIdentifier}>
+                  {result.deviceIdentifier}: {PairingStatus[result.pairingStatus] ?? "Unknown"}
+                  {result.error ? ` · ${result.error}` : ""}
+                </li>
+              ))}
+            </ul>
           </section>
         ) : null}
       </div>
