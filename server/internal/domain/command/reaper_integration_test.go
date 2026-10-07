@@ -293,6 +293,15 @@ func TestRigConfigTerminalFailureRequeueIsDeferredWithoutBeingLost(t *testing.T)
 	queries := sqlc.New(conn)
 	ctx := t.Context()
 	device := dbService.CreateDevice(user.OrganizationID, "proto")
+	_, err := conn.ExecContext(ctx,
+		"UPDATE discovered_device SET manufacturer = 'Proto' WHERE id = (SELECT discovered_device_id FROM device WHERE id = $1)",
+		device.DatabaseID,
+	)
+	require.NoError(t, err)
+	_, err = queries.UpsertDevicePairing(ctx, sqlc.UpsertDevicePairingParams{
+		DeviceID: device.DatabaseID, PairingStatus: sqlc.PairingStatusEnumPAIRED,
+	})
+	require.NoError(t, err)
 	require.NoError(t, queries.RequestRigConfigReconciliation(ctx, sqlc.RequestRigConfigReconciliationParams{
 		OrganizationID: user.OrganizationID,
 		RequestedBy:    user.DatabaseID,
@@ -345,10 +354,13 @@ func TestRigConfigTerminalFailureRequeueIsDeferredWithoutBeingLost(t *testing.T)
 
 	createActiveBatch("rig-config-current")
 	createActiveBatch("rig-config-retry")
-	require.NoError(t, queries.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, user.OrganizationID))
+	require.NoError(t, queries.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
+		OrganizationID: user.OrganizationID,
+		DeviceID:       device.DatabaseID,
+	}))
 	require.Equal(t, int64(2), desiredGeneration(), "terminal failure should persist while both batch slots are occupied")
 	makeRetryDue()
-	_, err := queries.ClaimRigConfigReconciliation(ctx)
+	_, err = queries.ClaimRigConfigReconciliation(ctx)
 	require.ErrorIs(t, err, sql.ErrNoRows, "reconciliation should wait while two config batches are active")
 
 	_, err = queries.MarkCommandBatchFinished(ctx, "rig-config-current")
@@ -358,7 +370,10 @@ func TestRigConfigTerminalFailureRequeueIsDeferredWithoutBeingLost(t *testing.T)
 	require.Equal(t, int64(2), claimed.DesiredGeneration, "persisted retry should be claimed when a batch slot opens")
 
 	createActiveBatch("rig-config-next-retry")
-	require.NoError(t, queries.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, user.OrganizationID))
+	require.NoError(t, queries.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
+		OrganizationID: user.OrganizationID,
+		DeviceID:       device.DatabaseID,
+	}))
 	require.NoError(t, queries.CompleteRigConfigReconciliation(ctx, sqlc.CompleteRigConfigReconciliationParams{
 		OrganizationID:     user.OrganizationID,
 		EnqueuedGeneration: 2,
