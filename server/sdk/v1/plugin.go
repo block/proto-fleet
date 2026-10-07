@@ -172,9 +172,34 @@ func (p *DriverPlugin) GRPCClient(ctx context.Context, _ *plugin.GRPCBroker, c *
 // DriverGRPCServer implements the gRPC server side (runs in plugin process)
 type DriverGRPCServer struct {
 	pb.UnimplementedDriverServer
-	Impl    Driver
-	devices map[string]Device
-	mu      sync.RWMutex
+	Impl            Driver
+	devices         map[string]Device
+	creatingDevices map[string]struct{}
+	closingDevices  map[string]*closingDevice
+	mu              sync.RWMutex
+}
+
+// Closing devices no longer accept operations, but remain owned until Close
+// succeeds. Each attempt has its own result so concurrent RPCs share one call.
+type closingDevice struct {
+	device  Device
+	attempt *deviceCloseAttempt
+}
+
+type deviceCloseAttempt struct {
+	done chan struct{}
+	err  error // Published by closing done; immutable afterward.
+}
+
+// retainClosingDeviceLocked requires s.mu and keeps cleanup addressable by
+// subsequent Close RPCs until backend cleanup actually succeeds.
+func (s *DriverGRPCServer) retainClosingDeviceLocked(deviceID string, device Device) *closingDevice {
+	if s.closingDevices == nil {
+		s.closingDevices = make(map[string]*closingDevice)
+	}
+	closing := &closingDevice{device: device}
+	s.closingDevices[deviceID] = closing
+	return closing
 }
 
 func (s *DriverGRPCServer) Handshake(ctx context.Context, _ *emptypb.Empty) (*pb.HandshakeResponse, error) {
@@ -275,6 +300,26 @@ func (s *DriverGRPCServer) GetDiscoveryPorts(ctx context.Context, _ *emptypb.Emp
 }
 
 func (s *DriverGRPCServer) NewDevice(ctx context.Context, req *pb.NewDeviceRequest) (*pb.NewDeviceResponse, error) {
+	// Preserve active replacement semantics, but serialize creation against
+	// other creators and Close for this ID. Never hold the lock over driver IO.
+	s.mu.Lock()
+	_, creating := s.creatingDevices[req.DeviceId]
+	_, closing := s.closingDevices[req.DeviceId]
+	if creating || closing {
+		s.mu.Unlock()
+		return nil, grpcStatusError("device ID is in use", codes.AlreadyExists, req.DeviceId)
+	}
+	if s.creatingDevices == nil {
+		s.creatingDevices = make(map[string]struct{})
+	}
+	s.creatingDevices[req.DeviceId] = struct{}{}
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.creatingDevices, req.DeviceId)
+		s.mu.Unlock()
+	}()
+
 	// Convert the secret bundle from proto
 	secret := secretBundleFromProto(req.Secret)
 
@@ -292,6 +337,8 @@ func (s *DriverGRPCServer) NewDevice(ctx context.Context, req *pb.NewDeviceReque
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), newDeviceCleanupTimeout)
 		defer cancel()
+		// Keep the creation reservation through cleanup. A context-ignoring
+		// backend must not let a concurrent Close report NotFound prematurely.
 		if closeErr := result.Device.Close(closeCtx); closeErr != nil {
 			slog.Warn("failed to close device created after request cancellation", "device_id", req.DeviceId, "error", closeErr)
 		}
@@ -302,6 +349,11 @@ func (s *DriverGRPCServer) NewDevice(ctx context.Context, req *pb.NewDeviceReque
 	// Verify the device uses the provided ID
 	deviceID := result.Device.ID()
 	if deviceID != req.DeviceId {
+		closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), newDeviceCleanupTimeout)
+		defer cancel()
+		if closeErr := result.Device.Close(closeCtx); closeErr != nil {
+			slog.Warn("failed to close device with mismatched ID", "device_id", req.DeviceId, "error", closeErr)
+		}
 		return nil, fmt.Errorf("device ID mismatch: expected %s, got %s", req.DeviceId, deviceID)
 	}
 
@@ -377,19 +429,59 @@ func (s *DriverGRPCServer) GetErrors(ctx context.Context, req *pb.DeviceRef) (*p
 }
 
 func (s *DriverGRPCServer) CloseDevice(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
-	s.mu.Lock()
-	device, exists := s.devices[req.DeviceId]
-	if exists {
-		delete(s.devices, req.DeviceId)
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("close device: %w", status.FromContextError(err).Err())
 	}
+	s.mu.Lock()
+	if _, creating := s.creatingDevices[req.DeviceId]; creating {
+		s.mu.Unlock()
+		return nil, grpcStatusError("device creation is still in progress", codes.Unavailable, req.DeviceId)
+	}
+	closing, exists := s.closingDevices[req.DeviceId]
+	if !exists {
+		device, active := s.devices[req.DeviceId]
+		if !active {
+			s.mu.Unlock()
+			return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+		}
+		delete(s.devices, req.DeviceId)
+		closing = s.retainClosingDeviceLocked(req.DeviceId, device)
+	}
+	if attempt := closing.attempt; attempt != nil {
+		select {
+		case <-attempt.done:
+			// A failed attempt finished; this RPC can safely retry it.
+		default:
+			s.mu.Unlock()
+			select {
+			case <-attempt.done:
+				return &emptypb.Empty{}, attempt.err
+			case <-ctx.Done():
+				return nil, fmt.Errorf("wait for device close: %w", status.FromContextError(ctx.Err()).Err())
+			}
+		}
+	}
+	attempt := &deviceCloseAttempt{done: make(chan struct{})}
+	closing.attempt = attempt
 	s.mu.Unlock()
 
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	// A canceled RPC may leave a context-ignoring Close running. Keep its
+	// registration and let retries wait, rather than invoking Close again or
+	// reporting NotFound before the backend has actually finished cleanup.
+	err := sdkErrorToGRPCStatus(closing.device.Close(ctx))
+	if status.Code(err) == codes.NotFound {
+		// NotFound from this RPC must mean the SDK no longer owns the handle,
+		// not that the backend failed to find the physical device during Close.
+		err = grpcStatusError("device cleanup incomplete", codes.Unavailable, err.Error())
 	}
-
-	err := device.Close(ctx)
-	return &emptypb.Empty{}, sdkErrorToGRPCStatus(err)
+	s.mu.Lock()
+	attempt.err = err
+	if err == nil {
+		delete(s.closingDevices, req.DeviceId)
+	}
+	close(attempt.done)
+	s.mu.Unlock()
+	return &emptypb.Empty{}, err
 }
 
 func (s *DriverGRPCServer) StartMining(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {

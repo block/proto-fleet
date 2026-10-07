@@ -28,6 +28,32 @@ to the stored miner, so it leaves that miner's pairing status unchanged. Missing
 corrupt stored credentials also leave pairing status unchanged. Fleet Node recovery
 continues to use the existing local-network workflow.
 
+Proto connections verify the miner's live identity against its expected MAC and
+serial, including when authentication is renewed. A different miner reusing the
+old address is rejected even if it accepts the same password, rather than having
+its telemetry attributed to the original miner.
+
+Fleet Node commands and telemetry use separate temporary plugin handles. Closing
+one operation cannot remove another operation's handle; gateway requests and
+reported telemetry continue to use the miner's stable Fleet identifier.
+
+Successful registrations retain their handle budget until the plugin confirms
+removal. So does a registration whose creation response was canceled or lost:
+its cleanup runs after the operation returns and keeps the budget until the
+plugin confirms the handle is absent. Failed closes retry with backoff across
+control-stream reconnects, with one cleanup worker per owned handle. Commands and
+telemetry share a limit of 1,024 active or pending handles; when it is full, new
+operations return busy before registering another handle. Plugin shutdown cancels
+cleanup retries.
+
+The Go plugin SDK keeps a handle in a closing state until the backend finishes
+cleanup. Concurrent close requests wait for that same attempt, and failed
+attempts remain retryable. A timed-out RPC therefore cannot make a still-running
+close appear absent and prematurely release the node's handle budget.
+The SDK reserves an ID during creation and rejected-result cleanup, returning a
+retryable close error while either is running. IDs being closed cannot be reused
+until cleanup succeeds.
+
 ## Development Commands
 
 ### Build and Run

@@ -37,6 +37,13 @@ func run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("parse transition command: %w", err)
 	}
+	if parsed.Command() == "check" && command.Check.State == "source" {
+		for _, flag := range parsed.Flags() {
+			if (flag.Name == "source" || flag.Name == "source-version") && !flag.Set {
+				return fmt.Errorf("check --state=source requires --%s", flag.Name)
+			}
+		}
+	}
 	if parsed.Command() == "migrate" {
 		migrated, err := db.ConnectAndMigrate(&command.DB)
 		if err != nil {

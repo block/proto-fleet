@@ -13,6 +13,35 @@ import (
 	"time"
 )
 
+func TestCheckSourceArgumentsBeforeDatabaseConnection(t *testing.T) {
+	t.Setenv("PGHOSTADDR", "")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	for _, tt := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"missing both", []string{"--state=source"}, "check --state=source requires --source"},
+		{"missing source", []string{"--state=source", "--source-version=153"}, "check --state=source requires --source"},
+		{"missing version", []string{"--state=source", "--source=public"}, "check --state=source requires --source-version"},
+		{"source provided", []string{"--state=source", "--source=public", "--source-version=153"}, "begin baseline inspection: context canceled"},
+		{"version policy remains in database check", []string{"--state=source", "--source=public", "--source-version=0"}, "begin baseline inspection: context canceled"},
+		{"target needs no source", []string{"--state=target"}, "begin baseline inspection: context canceled"},
+		{"startup needs no source", []string{"--state=startup"}, "begin baseline inspection: context canceled"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			// Cancellation exposes any attempt to inspect the database before
+			// reporting missing source arguments, without a live database.
+			args := append([]string{"--db-explicit-dsn=postgres://fleet@127.0.0.1:1/fleet?sslmode=disable", "check"}, tt.args...)
+			err := run(ctx, args)
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("run() error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestMigrateTerminatesOnSignal(t *testing.T) {
 	const helper = "FLEET_DB_TRANSITION_SIGNAL_TEST"
 	if os.Getenv(helper) == "1" {

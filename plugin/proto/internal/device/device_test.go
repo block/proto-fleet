@@ -170,6 +170,11 @@ func TestIsDefaultPasswordError(t *testing.T) {
 func TestStatusThrottlesDefaultPasswordProbe(t *testing.T) {
 	var systemStatusCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/pairing/info" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cb_sn":"proto-serial","mac":"aa:bb:cc:dd:ee:ff"}`))
+			return
+		}
 		switch {
 		case r.URL.Path == "/api/v1/auth/login":
 			w.Header().Set("Content-Type", "application/json")
@@ -223,6 +228,11 @@ func TestUpdateMinerPasswordClearsDefaultPasswordStatusCache(t *testing.T) {
 	defaultPasswordActive := true
 	var systemStatusCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/pairing/info" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cb_sn":"proto-serial","mac":"aa:bb:cc:dd:ee:ff"}`))
+			return
+		}
 		switch {
 		case r.URL.Path == "/api/v1/auth/login":
 			w.Header().Set("Content-Type", "application/json")
@@ -285,6 +295,11 @@ func TestRebootRefreshesFirmwareVersionOnNextStatus(t *testing.T) {
 	firmwareVersion := "1.0.0"
 	var firmwareVersionCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/pairing/info" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cb_sn":"proto-serial","mac":"aa:bb:cc:dd:ee:ff"}`))
+			return
+		}
 		switch {
 		case r.URL.Path == "/api/v1/auth/login":
 			w.Header().Set("Content-Type", "application/json")
@@ -348,6 +363,11 @@ func TestRebootThrottlesFirmwareVersionRetryAfterFailedProbe(t *testing.T) {
 	failFirmwareVersionProbe := false
 	var firmwareVersionCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/pairing/info" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cb_sn":"proto-serial","mac":"aa:bb:cc:dd:ee:ff"}`))
+			return
+		}
 		switch {
 		case r.URL.Path == "/api/v1/auth/login":
 			w.Header().Set("Content-Type", "application/json")
@@ -926,6 +946,11 @@ func newPowerTargetTestDevice(t *testing.T, targetStatus int, target targetRespo
 	t.Helper()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/pairing/info" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cb_sn":"proto-serial","mac":"aa:bb:cc:dd:ee:ff"}`))
+			return
+		}
 		switch {
 		case r.URL.Path == "/api/v1/auth/login":
 			w.Header().Set("Content-Type", "application/json")
@@ -988,6 +1013,11 @@ func newFullEfficiencyCurtailmentTestDevice(
 	t.Helper()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/pairing/info" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cb_sn":"proto-serial","mac":"aa:bb:cc:dd:ee:ff"}`))
+			return
+		}
 		switch {
 		case r.URL.Path == "/api/v1/auth/login":
 			w.Header().Set("Content-Type", "application/json")

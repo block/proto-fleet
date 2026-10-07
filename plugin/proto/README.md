@@ -159,6 +159,18 @@ and are repaired by the normal failed-poll remediation flow. Fleet keeps
 factory-password rigs command-eligible; Proto firmware or the driver may reject
 specific operations until `UpdateMinerPassword` clears the default password.
 
+Managed Proto handles bind to the expected miner's serial number and MAC address.
+Before each live API request, the driver reads the public pairing-info endpoint;
+at least one stable identifier must match and shared identifiers must not conflict.
+Handles created without an expected identity learn and retain the first usable
+identity. A changed or unreadable identity reports the original miner unavailable
+so Fleet can recover its address, without treating the failure as a changed password.
+The same check covers reauthentication, command retries, password changes, and
+firmware uploads. Bound handles reject redirects, and identity reads never include
+credentials. This adds one small identity request per live API request; cached
+status reads remain local. These checks assume the operator-controlled miner LAN
+and do not provide cryptographic endpoint authentication.
+
 ## Testing
 
 ### Unit Tests

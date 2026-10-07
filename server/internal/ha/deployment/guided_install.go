@@ -234,6 +234,9 @@ func prepareAndInstallCluster(ctx context.Context, source string, release cluste
 	if err := prepareInstallBundles(exportDir, metadata, applicationProfile); err != nil {
 		return fmt.Errorf("bundle generation failed; partial exports remain at %s: %w", exportDir, err)
 	}
+	if err := writeInstallerOutput(deps.output, "Administrator credential: %s\nCopy it to encrypted off-host storage, verify the copy, then remove this local export.\n", filepath.Join(exportDir, etcdRootPasswordFile)); err != nil {
+		return err
+	}
 	haABundle := filepath.Join(exportDir, hostBundleName("ha-a"))
 	bundle, err := readHostBundle(haABundle)
 	if err != nil {
@@ -273,7 +276,6 @@ func prepareAndInstallCluster(ctx context.Context, source string, release cluste
 	if err := removeCopiedExports(exportDir); err != nil {
 		return err
 	}
-	_ = os.Remove(exportDir)
 	return printPeerInstallCommands(deps.output, peerUsername, metadata)
 }
 
@@ -425,6 +427,11 @@ func prepareInstallBundles(exportDir string, metadata clusterMetadata, environme
 				return fmt.Errorf("read generated etcd root password: %w", err)
 			}
 			bundle.EtcdRootPassword = contents
+			// Keep one offline copy; peer bundles and installed bootstrap input
+			// are still removed after use.
+			if err := writeFile(filepath.Join(exportDir, etcdRootPasswordFile), contents, 0o600); err != nil {
+				return err
+			}
 		}
 		if err := writeBundle(filepath.Join(exportDir, hostBundleName(role)), bundle); err != nil {
 			return err

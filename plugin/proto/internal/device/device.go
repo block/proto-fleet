@@ -131,6 +131,7 @@ func newWithClientAuth(ctx context.Context, deviceID string, deviceInfo sdk.Devi
 		return nil, fmt.Errorf("failed to create client: %w", err)
 	}
 
+	client.BindDeviceIdentity(deviceInfo.SerialNumber, deviceInfo.MacAddress)
 	if err := configureClient(client); err != nil {
 		return nil, fmt.Errorf("failed to configure client authentication: %w", err)
 	}
@@ -232,19 +233,22 @@ func (d *Device) DescribeDevice(ctx context.Context) (sdk.DeviceInfo, sdk.Capabi
 		sdk.CapabilityCurtailFull:       true,
 		sdk.CapabilityCurtailEfficiency: true,
 	}
-	if d.deviceInfo.SerialNumber == "" && d.deviceInfo.MacAddress == "" {
-		info, err := d.client.GetDeviceInfo(ctx)
-		if err != nil {
-			return sdk.DeviceInfo{}, nil, fmt.Errorf("failed to refresh device identity: %w", err)
-		}
-		d.deviceInfo.SerialNumber = info.SerialNumber
-		d.deviceInfo.MacAddress = info.MacAddress
+	// Stored identity is an expectation, never an observation. Report only the
+	// live endpoint's identity after the client has checked it against that anchor.
+	info, err := d.client.GetDeviceInfo(ctx)
+	if err != nil {
+		return sdk.DeviceInfo{}, nil, fmt.Errorf("failed to refresh device identity: %w", err)
 	}
+	d.deviceInfo.SerialNumber = info.SerialNumber
+	d.deviceInfo.MacAddress = info.MacAddress
 
 	// Get firmware version if not already set (requires authentication, so we do it here)
 	if d.deviceInfo.FirmwareVersion == "" {
 		fwVersion, err := d.client.GetFirmwareVersion(ctx)
 		if err != nil {
+			if errors.Is(err, proto.ErrDeviceIdentity) {
+				return sdk.DeviceInfo{}, nil, err
+			}
 			slog.Debug("failed to get firmware version during DescribeDevice", "error", err)
 		} else if fwVersion != "" {
 			d.deviceInfo.FirmwareVersion = fwVersion
@@ -279,6 +283,9 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 
 	telemetryResp, err := d.client.GetTelemetryValues(ctx)
 	if err != nil {
+		if errors.Is(err, proto.ErrDeviceIdentity) {
+			return sdk.DeviceMetrics{}, err
+		}
 		slog.Warn("Plugin device failed to get telemetry values",
 			"device_id", d.id,
 			"host", d.deviceInfo.Host,
@@ -287,8 +294,12 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 
 	metrics := d.convertStatus(minerStatus, telemetryResp)
 
-	d.refreshFirmwareVersion(ctx, &metrics)
-	d.refreshDefaultPasswordStatus(ctx, &metrics)
+	if err := d.refreshFirmwareVersion(ctx, &metrics); err != nil {
+		return sdk.DeviceMetrics{}, err
+	}
+	if err := d.refreshDefaultPasswordStatus(ctx, &metrics); err != nil {
+		return sdk.DeviceMetrics{}, err
+	}
 
 	d.lastStatus = &metrics
 	d.lastStatusAt = time.Now()
@@ -298,43 +309,51 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 
 // refreshFirmwareVersion periodically re-fetches firmware version from the device
 // to detect firmware updates. Throttled to avoid excessive API calls.
-func (d *Device) refreshFirmwareVersion(ctx context.Context, metrics *sdk.DeviceMetrics) {
+func (d *Device) refreshFirmwareVersion(ctx context.Context, metrics *sdk.DeviceMetrics) error {
 	if time.Since(d.lastFirmwareCheckAt) < firmwareRefreshInterval {
-		return
+		return nil
 	}
 	fwVersion, err := d.client.GetFirmwareVersion(ctx)
 	d.lastFirmwareCheckAt = time.Now()
 	if err != nil {
+		if errors.Is(err, proto.ErrDeviceIdentity) {
+			return err
+		}
 		slog.Debug("failed to get firmware version during Status", "error", err)
-		return
+		return nil
 	}
 	if fwVersion != "" {
 		d.deviceInfo.FirmwareVersion = fwVersion
 		metrics.FirmwareVersion = fwVersion
 	}
+	return nil
 }
 
 // refreshDefaultPasswordStatus periodically re-fetches the factory-password flag.
 // The value changes only when a password update lands, so reuse the last known
 // value between probes instead of adding a system/status request to every poll.
-func (d *Device) refreshDefaultPasswordStatus(ctx context.Context, metrics *sdk.DeviceMetrics) {
+func (d *Device) refreshDefaultPasswordStatus(ctx context.Context, metrics *sdk.DeviceMetrics) error {
 	if d.lastDefaultPasswordActive != nil {
 		active := *d.lastDefaultPasswordActive
 		metrics.DefaultPasswordActive = &active
 	}
 	if time.Since(d.lastDefaultPasswordCheckAt) < defaultPasswordInterval {
-		return
+		return nil
 	}
 	defaultPasswordActive, err := d.client.IsDefaultPasswordActive(ctx)
 	d.lastDefaultPasswordCheckAt = time.Now()
 	if err != nil {
+		if errors.Is(err, proto.ErrDeviceIdentity) {
+			return err
+		}
 		// Leave unset (nil) on an initial read failure so the server treats it as
 		// undetermined and doesn't demote a still-default-password device.
 		slog.Debug("failed to read default-password status", "device_id", d.id, "error", err)
-		return
+		return nil
 	}
 	d.lastDefaultPasswordActive = &defaultPasswordActive
 	metrics.DefaultPasswordActive = &defaultPasswordActive
+	return nil
 }
 
 // GetErrors returns all active and historical errors for the device.

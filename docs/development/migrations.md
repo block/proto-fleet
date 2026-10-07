@@ -37,8 +37,12 @@ Every internal release ends at a private number. After a shared-only change, add
 an ordinary private `SELECT 1;` migration with its shared prerequisite. Public
 releases contain only shared files.
 
-The internal runner keeps shared steps dirty until the private checkpoint
-completes. Startup accepts only clean versions in the application's history:
+Migration SQL and its completed private checkpoint commit in one transaction.
+Interruption or failure rolls back to the previous checkpoint; retrying runs the
+uncommitted SQL again. A lost commit acknowledgement requires a fresh connection
+to establish which checkpoint committed. Previously dirty databases remain blocked.
+Migration files must not contain transaction-control statements such as `BEGIN`
+or `COMMIT`. Startup accepts only clean versions in the application's history:
 private for internal, shared for public. Unknown, dirty, future and wrong-application
 versions refuse. Never force a version or clear dirty state to switch repositories;
 updates and rollback never automatically run down migrations.

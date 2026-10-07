@@ -52,6 +52,7 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 	deps.operatorUsername = func() string { return "operator" }
 	var sshEvents []string
 	var expectedFingerprint string
+	var expectedRootPassword []byte
 	deps.checkPeer = func(_ context.Context, localUser, target string) error {
 		require.Equal(t, "operator", localUser)
 		sshEvents = append(sshEvents, "check "+target)
@@ -99,6 +100,8 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 		require.Equal(t, "enp1s0", config.NetworkInterface)
 		require.FileExists(t, filepath.Join(config.SecretsDir, "etcd-server.crt"))
 		require.FileExists(t, options.EtcdRootPasswordFile)
+		expectedRootPassword, err = os.ReadFile(options.EtcdRootPasswordFile)
+		require.NoError(t, err)
 		return nil
 	}
 
@@ -125,6 +128,14 @@ func TestGuidedInstallPreparesClusterAndInstallsHAA(t *testing.T) {
 		"transfer operator@" + testHostIPs[1],
 		"transfer operator@" + testHostIPs[2],
 	}, sshEvents)
+	exported, err := os.ReadFile(filepath.Join(exportDir, etcdRootPasswordFile))
+	require.NoError(t, err)
+	require.Equal(t, expectedRootPassword, exported)
+	require.NotEmpty(t, exported)
+	requireMode(t, filepath.Join(exportDir, etcdRootPasswordFile), 0o600)
+	requireMode(t, exportDir, 0o700)
+	require.NotContains(t, output.String(), strings.TrimSpace(string(exported)))
+	require.Contains(t, output.String(), filepath.Join(exportDir, etcdRootPasswordFile))
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-a")))
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-b")))
 	require.NoFileExists(t, filepath.Join(exportDir, hostBundleName("ha-c")))
