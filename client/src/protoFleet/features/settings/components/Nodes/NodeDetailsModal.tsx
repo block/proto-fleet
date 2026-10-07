@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import NodeStatusBadge from "./NodeStatusBadge";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -23,11 +23,23 @@ interface NodeDetailsModalProps {
   node: FleetNodeItem;
   canManage: boolean;
   canPair: boolean;
+  blockedPairingIdentifiers: string[];
   onDismiss: () => void;
   onUpdated: () => void;
+  onPairingStarted: (identifiers: string[]) => void;
+  onPairingCompleted: (identifiers: string[]) => void;
 }
 
-const NodeDetailsModal = ({ node, canManage, canPair, onDismiss, onUpdated }: NodeDetailsModalProps) => {
+const NodeDetailsModal = ({
+  node,
+  canManage,
+  canPair,
+  blockedPairingIdentifiers,
+  onDismiss,
+  onUpdated,
+  onPairingStarted,
+  onPairingCompleted,
+}: NodeDetailsModalProps) => {
   const {
     listFleetNodeDevices,
     listFleetNodeDiscoveredDevices,
@@ -45,21 +57,29 @@ const NodeDetailsModal = ({ node, canManage, canPair, onDismiss, onUpdated }: No
   const [scanCount, setScanCount] = useState(0);
   const [pairResults, setPairResults] = useState<DevicePairingResult[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [isPairing, setIsPairing] = useState(false);
   const [error, setError] = useState("");
   const [warning, setWarning] = useState("");
+  const discoveredGenerationRef = useRef(0);
   const selectedIdentifiers = useMemo(() => new Set(selected), [selected]);
+  const blockedIdentifiers = useMemo(() => new Set(blockedPairingIdentifiers), [blockedPairingIdentifiers]);
 
   const refresh = useCallback(async () => {
+    const generation = ++discoveredGenerationRef.current;
+    setIsLoadingMore(false);
     const [pairs, discovery] = await Promise.all([
       listFleetNodeDevices(node.fleetNodeId),
       listFleetNodeDiscoveredDevices(node.fleetNodeId),
     ]);
+    if (generation !== discoveredGenerationRef.current) return;
     setPaired(pairs);
     setDiscovered(discovery.devices);
     setNextCursor(discovery.nextCursor);
+    setSelected([]);
+    setHasLoaded(true);
   }, [listFleetNodeDevices, listFleetNodeDiscoveredDevices, node.fleetNodeId]);
 
   useEffect(() => {
@@ -70,6 +90,7 @@ const NodeDetailsModal = ({ node, canManage, canPair, onDismiss, onUpdated }: No
         setPaired(pairs);
         setDiscovered(discovery.devices);
         setNextCursor(discovery.nextCursor);
+        setHasLoaded(true);
       })
       .catch((err) => {
         if (active) setError(err instanceof Error ? err.message : "Failed to load Node details.");
@@ -83,16 +104,20 @@ const NodeDetailsModal = ({ node, canManage, canPair, onDismiss, onUpdated }: No
   }, [listFleetNodeDevices, listFleetNodeDiscoveredDevices, node.fleetNodeId]);
 
   const loadMore = async () => {
-    if (nextCursor === 0n || isLoadingMore) return;
+    if (nextCursor === 0n || isLoadingMore || isScanning || isPairing) return;
+    const generation = discoveredGenerationRef.current;
     setIsLoadingMore(true);
     try {
       const next = await listFleetNodeDiscoveredDevices(node.fleetNodeId, nextCursor);
+      if (generation !== discoveredGenerationRef.current) return;
       setDiscovered((current) => [...current, ...next.devices]);
       setNextCursor(next.nextCursor);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load more miners.");
+      if (generation === discoveredGenerationRef.current) {
+        setError(err instanceof Error ? err.message : "Failed to load more miners.");
+      }
     } finally {
-      setIsLoadingMore(false);
+      if (generation === discoveredGenerationRef.current) setIsLoadingMore(false);
     }
   };
 
@@ -126,7 +151,7 @@ const NodeDetailsModal = ({ node, canManage, canPair, onDismiss, onUpdated }: No
   };
 
   const pairSelected = async () => {
-    if (selected.length === 0) return;
+    if (selected.length === 0 || selected.some((identifier) => blockedIdentifiers.has(identifier))) return;
     if (password && !username.trim()) {
       setError("Enter a username when supplying a password.");
       return;
@@ -134,20 +159,32 @@ const NodeDetailsModal = ({ node, canManage, canPair, onDismiss, onUpdated }: No
     setError("");
     setPairResults([]);
     setIsPairing(true);
+    const submitted = [...selected];
+    onPairingStarted(submitted);
+    let pairingCompleted = false;
     try {
       const credentials = username.trim()
         ? create(CredentialsSchema, { username: username.trim(), ...(password ? { password } : {}) })
         : undefined;
-      await pairDiscoveredDevicesOnFleetNode(node.fleetNodeId, selected, credentials, (results) => {
+      await pairDiscoveredDevicesOnFleetNode(node.fleetNodeId, submitted, credentials, (results) => {
         setPairResults((current) => [...current, ...results]);
       });
+      pairingCompleted = true;
+      onPairingCompleted(submitted);
       setSelected([]);
       setPassword("");
       await refresh();
       onUpdated();
     } catch (err) {
       // A disconnected result stream does not mean the Node stopped pairing.
-      setError(err instanceof Error ? err.message : "Pairing result is unknown. Refresh before retrying.");
+      setSelected([]);
+      setError(
+        err instanceof Error
+          ? err.message
+          : pairingCompleted
+            ? "Paired miners, but failed to refresh their status."
+            : "Pairing result is unknown. Check miner state before retrying.",
+      );
       try {
         await refresh();
         onUpdated();
@@ -206,7 +243,7 @@ const NodeDetailsModal = ({ node, canManage, canPair, onDismiss, onUpdated }: No
         ) : null}
         {isLoading ? <div>Loading miners…</div> : null}
 
-        {!isLoading ? (
+        {hasLoaded ? (
           <section>
             <h3 className="mb-2 text-heading-200">Paired miners ({paired.length})</h3>
             {paired.length === 0 ? <p className="text-text-primary-50">No paired miners.</p> : null}
@@ -227,13 +264,14 @@ const NodeDetailsModal = ({ node, canManage, canPair, onDismiss, onUpdated }: No
           </section>
         ) : null}
 
-        {!isLoading ? (
+        {hasLoaded ? (
           <section>
             <h3 className="mb-2 text-heading-200">Discovered miners</h3>
             {discovered.length === 0 ? <p className="text-text-primary-50">No unpaired miners discovered.</p> : null}
             <div className="max-h-72 overflow-y-auto">
               {discovered.map((device) => {
                 const isSelected = selectedIdentifiers.has(device.deviceIdentifier);
+                const isBlocked = blockedIdentifiers.has(device.deviceIdentifier);
                 return (
                   <label
                     key={device.deviceIdentifier}
@@ -243,7 +281,7 @@ const NodeDetailsModal = ({ node, canManage, canPair, onDismiss, onUpdated }: No
                       <input
                         type="checkbox"
                         checked={isSelected}
-                        disabled={isSelected ? undefined : selected.length >= MAX_PAIRING_SELECTION}
+                        disabled={isBlocked || (!isSelected && selected.length >= MAX_PAIRING_SELECTION)}
                         onChange={() => toggleSelected(device.deviceIdentifier)}
                         aria-label={`Select ${device.deviceIdentifier}`}
                       />
@@ -262,13 +300,14 @@ const NodeDetailsModal = ({ node, canManage, canPair, onDismiss, onUpdated }: No
                 variant={variants.textOnly}
                 text={`Load next ${DISCOVERED_PAGE_SIZE}`}
                 loading={isLoadingMore}
+                disabled={isScanning || isPairing}
                 onClick={() => void loadMore()}
               />
             ) : null}
           </section>
         ) : null}
 
-        {canManage && node.controlStreamConnected && !node.commandProtocolUpgradeRequired ? (
+        {hasLoaded && canManage && node.controlStreamConnected && !node.commandProtocolUpgradeRequired ? (
           <section className="flex flex-col gap-3 border-t border-border-10 pt-4">
             <h3 className="text-heading-200">Discover on this Node</h3>
             <div className="text-300 text-text-primary-50">
@@ -298,13 +337,20 @@ const NodeDetailsModal = ({ node, canManage, canPair, onDismiss, onUpdated }: No
           </section>
         ) : null}
 
-        {canManage && canPair && discovered.length > 0 ? (
+        {hasLoaded && canManage && canPair && discovered.length > 0 ? (
           <section className="flex flex-col gap-3 border-t border-border-10 pt-4">
             <h3 className="text-heading-200">Pair selected miners</h3>
             <div className="text-300 text-text-primary-50">Leave credentials blank to use device defaults.</div>
             {selected.length === MAX_PAIRING_SELECTION ? (
               <div className="text-300 text-text-primary-50">
                 Maximum of {MAX_PAIRING_SELECTION} miners per request.
+              </div>
+            ) : null}
+            {blockedPairingIdentifiers.length > 0 ? (
+              <div role="status" className="text-300 text-intent-warning-fill">
+                {blockedPairingIdentifiers.length}{" "}
+                {blockedPairingIdentifiers.length === 1 ? "miner has" : "miners have"} an unknown pairing result. Check
+                their state before retrying; reload this page after checking to clear this block.
               </div>
             ) : null}
             <div className="grid grid-cols-2 gap-3 phone:grid-cols-1">

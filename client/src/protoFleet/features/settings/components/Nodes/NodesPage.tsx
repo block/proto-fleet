@@ -41,6 +41,7 @@ const NodesPage = () => {
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [resumeNode, setResumeNode] = useState<FleetNodeItem | null>(null);
   const [detailsNodeId, setDetailsNodeId] = useState<string | null>(null);
+  const [blockedPairingByNode, setBlockedPairingByNode] = useState<Record<string, string[]>>({});
   const [revokeNodeData, setRevokeNodeData] = useState<FleetNodeItem | null>(null);
   const [revokeMinerNames, setRevokeMinerNames] = useState<string[]>([]);
   const [revokeImpactLoading, setRevokeImpactLoading] = useState(false);
@@ -85,6 +86,24 @@ const NodesPage = () => {
   const handleNodesUpdated = useCallback(() => {
     void fetchNodes();
   }, [fetchNodes]);
+
+  const rememberPairing = useCallback((nodeId: string, identifiers: string[]) => {
+    setBlockedPairingByNode((current) => ({
+      ...current,
+      [nodeId]: [...new Set([...(current[nodeId] ?? []), ...identifiers])],
+    }));
+  }, []);
+
+  const forgetPairing = useCallback((nodeId: string, identifiers: string[]) => {
+    const completed = new Set(identifiers);
+    setBlockedPairingByNode((current) => {
+      const next = { ...current };
+      const remaining = (current[nodeId] ?? []).filter((identifier) => !completed.has(identifier));
+      if (remaining.length > 0) next[nodeId] = remaining;
+      else delete next[nodeId];
+      return next;
+    });
+  }, []);
 
   const detailsNode = nodes.find((node) => node.fleetNodeId === detailsNodeId) ?? null;
   const statusCounts = nodes.reduce(
@@ -275,8 +294,11 @@ const NodesPage = () => {
           node={detailsNode}
           canManage={canManageNodes}
           canPair={canPairMiners}
+          blockedPairingIdentifiers={blockedPairingByNode[detailsNode.fleetNodeId] ?? []}
           onDismiss={() => setDetailsNodeId(null)}
           onUpdated={handleNodesUpdated}
+          onPairingStarted={(identifiers) => rememberPairing(detailsNode.fleetNodeId, identifiers)}
+          onPairingCompleted={(identifiers) => forgetPairing(detailsNode.fleetNodeId, identifiers)}
         />
       ) : null}
       <RevokeNodeDialog

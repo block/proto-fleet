@@ -47,9 +47,31 @@ vi.mock("@/protoFleet/features/settings/components/Nodes/EnrollNodeModal", () =>
 }));
 
 vi.mock("@/protoFleet/features/settings/components/Nodes/NodeDetailsModal", () => ({
-  default: ({ node }: { node: FleetNodeItem }) => (
+  default: ({
+    node,
+    blockedPairingIdentifiers,
+    onPairingStarted,
+    onPairingCompleted,
+    onDismiss,
+  }: {
+    node: FleetNodeItem;
+    blockedPairingIdentifiers: string[];
+    onPairingStarted: (identifiers: string[]) => void;
+    onPairingCompleted: (identifiers: string[]) => void;
+    onDismiss: () => void;
+  }) => (
     <div role="dialog" aria-label="Node details">
       {node.name}
+      <span>{blockedPairingIdentifiers.length} blocked miners</span>
+      <button type="button" onClick={() => onPairingStarted(["miner-2"])}>
+        Start pairing
+      </button>
+      <button type="button" onClick={() => onPairingCompleted(["miner-2"])}>
+        Complete pairing
+      </button>
+      <button type="button" onClick={onDismiss}>
+        Close details
+      </button>
     </div>
   ),
 }));
@@ -221,6 +243,22 @@ describe("NodesPage", () => {
     expect(screen.getByLabelText("Node status totals")).toHaveTextContent("Connected1");
     fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
     expect(screen.getByRole("dialog", { name: "Node details" })).toHaveTextContent("node-01");
+  });
+
+  it("keeps uncertain pairing identifiers blocked across detail dismissal", async () => {
+    renderNodesPage();
+
+    await screen.findByText("node-01");
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start pairing" }));
+    expect(screen.getByRole("dialog", { name: "Node details" })).toHaveTextContent("1 blocked miners");
+
+    fireEvent.click(screen.getByRole("button", { name: "Close details" }));
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    expect(screen.getByRole("dialog", { name: "Node details" })).toHaveTextContent("1 blocked miners");
+
+    fireEvent.click(screen.getByRole("button", { name: "Complete pairing" }));
+    expect(screen.getByRole("dialog", { name: "Node details" })).toHaveTextContent("0 blocked miners");
   });
 
   it("loads the affected miners before allowing revocation", async () => {
