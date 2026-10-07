@@ -12,6 +12,70 @@ const modules: TankModuleState[] = Array.from({ length: COLS * ROWS }, (_, i) =>
 );
 
 describe("TankHealthModule", () => {
+  it("keeps collected physical slots anchored from the bottom left, including missing modules", () => {
+    render(
+      <TankHealthModule
+        cols={2}
+        rows={1}
+        modules={[]}
+        on={undefined}
+        label="Tank 1"
+        slots={[1, 9, 16].map((position) => ({
+          id: String(position),
+          position,
+          label: `Module ${position}`,
+          state: "healthy",
+          row: 1,
+          column: 1,
+        }))}
+      />,
+    );
+    const modules = screen.getAllByTestId("tank-module");
+    expect(modules).toHaveLength(3);
+    expect(modules[0].parentElement).toHaveStyle({ gridColumn: "1", gridRow: "2" });
+    expect(modules[1].parentElement).toHaveStyle({ gridColumn: "1", gridRow: "1" });
+    expect(modules[2].parentElement).toHaveStyle({ gridColumn: "8", gridRow: "1" });
+  });
+
+  it("preserves collected unknown, sleeping and isolated states without inventing empty modules", () => {
+    const onSelectModule = vi.fn();
+    render(
+      <TankHealthModule
+        cols={8}
+        rows={1}
+        modules={[]}
+        on={undefined}
+        label="Tank 2"
+        slots={["unknown", "sleeping", "isolated"].map((state, i) => ({
+          id: String(i),
+          label: `Module ${i + 1}`,
+          state: state as TankModuleState,
+          row: 1,
+          column: i + 1,
+        }))}
+        onSelectModule={onSelectModule}
+      />,
+    );
+    expect(screen.getAllByTestId("tank-module").map((bar) => bar.dataset.moduleState)).toEqual([
+      "unknown",
+      "sleeping",
+      "isolated",
+    ]);
+    expect(screen.queryByText("Unknown")).not.toBeInTheDocument();
+    expect(screen.getByText("1 module unknown")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Module 1.*unknown/ }).querySelector('[data-tank-status="unknown"]'),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Sleeping")).toBeInTheDocument();
+    expect(screen.queryByText("Isolated")).not.toBeInTheDocument();
+    const isolated = screen.getByRole("button", { name: /Module 3.*isolated/ });
+    expect(isolated.querySelector('[data-tank-status="attention"]')).toBeInTheDocument();
+    expect(screen.getByText("Needs Attention").parentElement).toHaveTextContent("1 module");
+
+    fireEvent.click(screen.getByRole("button", { name: /Module 1.*View module/ }));
+    expect(onSelectModule).toHaveBeenCalledWith("0");
+  });
+
   it("renders one numbered 3-segment bar per module, labelled 01..N", () => {
     render(<TankHealthModule cols={COLS} rows={ROWS} modules={modules} on label="Tank 2" />);
 
@@ -25,6 +89,17 @@ describe("TankHealthModule", () => {
     // The attention modules carry the attention state (bright centre third).
     const attention = bars.filter((b) => b.getAttribute("data-module-state") === "attention");
     expect(attention).toHaveLength(2);
+  });
+
+  it("shows the unknown annotation only while modules have unknown states", () => {
+    const props = { cols: 2, rows: 1, on: true, label: "Tank 1" };
+    const { rerender } = render(<TankHealthModule {...props} modules={["unknown", "unknown"]} />);
+    expect(screen.getByText("2 modules unknown")).toBeInTheDocument();
+    expect(screen.queryByText("Unknown")).not.toBeInTheDocument();
+
+    rerender(<TankHealthModule {...props} modules={["healthy", "sleeping"]} />);
+    expect(screen.queryByText(/modules? unknown/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Unknown")).not.toBeInTheDocument();
   });
 
   it("summarises the tank's own state model (healthy / needs attention / offline) as module counts", () => {

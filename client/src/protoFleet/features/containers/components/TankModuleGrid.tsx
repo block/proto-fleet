@@ -6,6 +6,7 @@ export type TankModuleState = "healthy" | "attention" | "offline" | "sleeping" |
 
 export interface ModuleSlot {
   id: string;
+  position?: number;
   label: string;
   state: TankModuleState;
   row: number;

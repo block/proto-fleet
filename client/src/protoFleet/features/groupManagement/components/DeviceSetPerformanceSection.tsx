@@ -19,6 +19,9 @@ import { convertCtoF, TH_TO_PH_DIVISOR, TH_TO_PH_THRESHOLD } from "@/shared/util
 
 interface DeviceSetPerformanceSectionProps {
   className?: string;
+  connectNulls?: boolean;
+  /** Known API units: TH/s, kW, J/TH, and Celsius. Auto preserves legacy telemetry normalization. */
+  inputUnits?: "display" | "auto";
   duration: FleetDuration;
   gapClassName?: string;
   /** All metrics for the device set — undefined = not loaded, empty = no data */
@@ -30,6 +33,8 @@ const COLOR_MAP = {
   max: "--color-core-success-fill",
   min: "--color-core-warning-fill",
 };
+
+const identity = (value: number) => value;
 
 const ACTIVE_KEYS = ["avg", "max", "min"];
 const TOOLTIP_KEYS = ["avg"];
@@ -50,12 +55,12 @@ function transformMetrics(metrics: Metric[], normalize: (value: number, deviceCo
   });
 }
 
-function transformEfficiencyMetrics(metrics: Metric[]): ChartData[] {
+function transformEfficiencyMetrics(metrics: Metric[], normalize = normalizeEfficiencyToJTH): ChartData[] {
   return metrics.map((metric) => {
     const findAgg = (type: AggregationType) =>
       metric.aggregatedValues.find((agg) => agg.aggregationType === type)?.value;
 
-    const normalizeOrNull = (v: number | undefined) => (v === undefined ? null : normalizeEfficiencyToJTH(v));
+    const normalizeOrNull = (v: number | undefined) => (v === undefined ? null : normalize(v));
     return {
       datetime: Number(metric.openTime?.seconds ?? 0) * 1000,
       avg: normalizeOrNull(findAgg(AggregationType.AVERAGE)),
@@ -98,8 +103,10 @@ function ChartPanel({
   duration,
   transform,
   formatStat,
+  connectNulls,
 }: {
   label: string;
+  connectNulls?: boolean;
   metrics: Metric[] | undefined;
   units: string;
   duration: FleetDuration;
@@ -155,6 +162,7 @@ function ChartPanel({
       <div className="flex w-full flex-col">
         <LineChart
           chartData={chartData}
+          connectNulls={connectNulls}
           aggregateKey="avg"
           units={displayUnits}
           activeKeys={ACTIVE_KEYS}
@@ -225,6 +233,8 @@ export function DeviceSetPerformanceSection({
   duration,
   gapClassName = "gap-4",
   metrics: allMetrics,
+  connectNulls,
+  inputUnits = "auto",
 }: DeviceSetPerformanceSectionProps) {
   const temperatureUnit = useTemperatureUnit();
   const isFahrenheit = temperatureUnit === "F";
@@ -248,7 +258,7 @@ export function DeviceSetPerformanceSection({
   );
   const hashrateTransform = useMemo(
     () => (metrics: Metric[]) => {
-      const chartData = transformMetrics(metrics, normalizeHashrateToTHs);
+      const chartData = transformMetrics(metrics, inputUnits === "display" ? identity : normalizeHashrateToTHs);
       const maxValue = Math.max(...chartData.map((d) => d.avg ?? 0));
       if (maxValue > TH_TO_PH_THRESHOLD) {
         return {
@@ -263,7 +273,7 @@ export function DeviceSetPerformanceSection({
       }
       return { chartData, units: "TH/S" };
     },
-    [],
+    [inputUnits],
   );
 
   const temperatureTransform = useMemo(
@@ -286,13 +296,19 @@ export function DeviceSetPerformanceSection({
   );
 
   const efficiencyTransform = useMemo(
-    () => (metrics: Metric[]) => ({ chartData: transformEfficiencyMetrics(metrics), units: "J/TH" }),
-    [],
+    () => (metrics: Metric[]) => ({
+      chartData: transformEfficiencyMetrics(metrics, inputUnits === "display" ? identity : normalizeEfficiencyToJTH),
+      units: "J/TH",
+    }),
+    [inputUnits],
   );
 
   const powerTransform = useMemo(
-    () => (metrics: Metric[]) => ({ chartData: transformMetrics(metrics, normalizePowerToKW), units: "kW" }),
-    [],
+    () => (metrics: Metric[]) => ({
+      chartData: transformMetrics(metrics, inputUnits === "display" ? identity : normalizePowerToKW),
+      units: "kW",
+    }),
+    [inputUnits],
   );
 
   const defaultFormatStat = useMemo(
@@ -322,6 +338,7 @@ export function DeviceSetPerformanceSection({
   return (
     <div className={clsx("grid grid-cols-2 phone:grid-cols-1", gapClassName, className)}>
       <ChartPanel
+        connectNulls={connectNulls}
         label="Hashrate"
         metrics={hashrateMetrics}
         units="TH/S"
@@ -330,6 +347,7 @@ export function DeviceSetPerformanceSection({
         formatStat={defaultFormatStat}
       />
       <ChartPanel
+        connectNulls={connectNulls}
         label="Temperature"
         metrics={temperatureMetrics}
         units={isFahrenheit ? "°F" : "°C"}
@@ -338,6 +356,7 @@ export function DeviceSetPerformanceSection({
         formatStat={temperatureFormatStat}
       />
       <ChartPanel
+        connectNulls={connectNulls}
         label="Efficiency"
         metrics={efficiencyMetrics}
         units="J/TH"
@@ -346,6 +365,7 @@ export function DeviceSetPerformanceSection({
         formatStat={defaultFormatStat}
       />
       <ChartPanel
+        connectNulls={connectNulls}
         label="Total power"
         metrics={powerMetrics}
         units="kW"

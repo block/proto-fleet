@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { buildContainerOverview } from "../buildContainerOverview";
 import { buildEquipmentOverview } from "../buildEquipmentOverview";
+import { tankPath } from "../buildTankOverview";
 import ContainerOverviewLayout from "../components/ContainerOverviewLayout";
 import ContainerPerformance from "../components/ContainerPerformance";
 import { useContainerOverview } from "../hooks/useContainerOverview";
@@ -9,7 +10,6 @@ import { equipmentState, useEquipmentCommand } from "../hooks/useEquipmentComman
 import { ModuleHistoryDialog } from "../ModuleHistoryDialog";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
-import { scopedPath } from "@/protoFleet/routing/siteScope";
 import { useTemperatureUnit } from "@/protoFleet/store";
 import Button, { variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
@@ -50,7 +50,6 @@ export default function ContainerPage() {
     selected?.container === identifier
       ? data.modules.find((item) => item.ref?.id.toString() === selected.module)
       : undefined;
-  const moduleList = (tankId: string) => scopedPath(`/fleet/miners?tank=${tankId}`, target ?? { kind: "all" });
   return (
     <>
       <ContainerOverviewLayout
@@ -93,7 +92,7 @@ export default function ContainerPage() {
             </div>
           ) : undefined
         }
-        onSelectTank={(tankId) => navigate(moduleList(tankId))}
+        onSelectTank={(tankId) => navigate(tankPath(identifier, tankId))}
         onSelectModule={(module) => setSelected({ container: identifier, module })}
         plantControls={
           <div className="text-200 text-text-primary-70">

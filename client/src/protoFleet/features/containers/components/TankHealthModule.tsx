@@ -1,14 +1,13 @@
 import clsx from "clsx";
 
-import { toTankRackView } from "./tankRackView";
+import TankStatusMarker from "./TankStatusMarker";
 import type { ModuleActionType } from "@/protoFleet/features/containers/components/moduleActions";
 import ModuleTile from "@/protoFleet/features/containers/components/ModuleTile";
-import type { TankModuleState } from "@/protoFleet/features/containers/components/TankModuleGrid";
+import type { ModuleSlot, TankModuleState } from "@/protoFleet/features/containers/components/TankModuleGrid";
 import {
   type StatusBreakdownItem,
   StatusBreakdownPanel,
 } from "@/protoFleet/features/dashboard/components/StatusBreakdownPanel";
-import { Triangle } from "@/shared/assets/icons";
 
 interface TankHealthModuleProps {
   /** Module-bar grid dimensions. A 16-module tank reads as 8 × 2. */
@@ -17,7 +16,9 @@ interface TankHealthModuleProps {
   /** One entry per module bar, row-major (matches the overview TankCard). */
   modules: TankModuleState[];
   /** Tank PDU state; when false every populated module reads offline. */
-  on: boolean;
+  on: boolean | undefined;
+  slots?: ModuleSlot[];
+  onSelectModule?: (id: string) => void;
   /** Human label for the tank, used to build per-module accessible labels. */
   label: string;
   /**
@@ -30,85 +31,112 @@ interface TankHealthModuleProps {
 
 const moduleNumber = (index: number): string => String(index + 1).padStart(2, "0");
 
-/**
- * Subtank-detail health panel (jmarr, 2026-08-10 — "reinforce the 3-segment
- * modules"). The tank analogue of RackHealthModule: the same elevated
- * two-column panel (grid on the left, status breakdown on the right), but the
- * left grid keeps the tank's own module language instead of switching to the
- * Fleet numbered-slot grid. Each module is the shared ModuleTile bar the
- * overview card uses — a flat grey bar when healthy, a bright center-third bar
- * when it needs attention, and a darker inert bar when the tank is powered off
- * — scaled up for the detail and labelled 01..N. The detail earns its name by
- * adding the per-module number and the status breakdown the compact card omits,
- * without abandoning the card's visual identity. Reusing ModuleTile keeps the
- * bar + action menu identical to the card (no drift), and toTankRackView
- * supplies the same tested counts the "tanks as racks" view uses.
- */
-const TankHealthModule = ({ cols, rows, modules, on, label, onModuleAction }: TankHealthModuleProps) => {
-  const total = cols * rows;
-  const { hashingCount, needsAttentionCount, offlineCount } = toTankRackView({ cols, rows, modules, on });
-
-  const breakdownItems: StatusBreakdownItem[] = [
-    {
-      key: "healthy",
-      color: "--color-text-primary",
-      label: "Healthy",
-      percentageLabel: `${hashingCount} ${hashingCount === 1 ? "module" : "modules"}`,
-      count: hashingCount,
-    },
-    {
-      key: "needsAttention",
-      color: "--color-intent-critical-fill",
-      label: "Needs Attention",
-      icon: <Triangle className="h-3 w-3" />,
-      percentageLabel: `${needsAttentionCount} ${needsAttentionCount === 1 ? "module" : "modules"}`,
-      count: needsAttentionCount,
-    },
-    {
-      key: "offline",
-      color: "--color-core-accent-fill",
-      label: "Offline",
-      percentageLabel: `${offlineCount} ${offlineCount === 1 ? "module" : "modules"}`,
-      count: offlineCount,
-    },
+/** Numbered module bars and health counts for both collected and preview data. */
+const TankHealthModule = ({
+  cols,
+  rows,
+  modules,
+  on,
+  label,
+  onModuleAction,
+  slots,
+  onSelectModule,
+}: TankHealthModuleProps) => {
+  const entries: ModuleSlot[] =
+    slots ??
+    Array.from({ length: cols * rows }, (_, i) => ({
+      id: String(i),
+      label: `${label} module ${moduleNumber(i)}`,
+      state: on === false ? ("offline" as const) : (modules[i] ?? "unknown"),
+      row: Math.floor(i / cols) + 1,
+      column: (i % cols) + 1,
+    }));
+  const presentations: { key: TankModuleState; label: string; color: string }[] = [
+    { key: "healthy", label: slots ? "Mining" : "Healthy", color: "--color-text-primary" },
+    { key: "attention", label: "Needs Attention", color: "--color-intent-critical-fill" },
+    { key: "offline", label: "Offline", color: "--color-core-accent-fill" },
+    { key: "sleeping", label: "Sleeping", color: "--color-text-primary-30" },
   ];
+  const breakdownItems: StatusBreakdownItem[] = presentations
+    .map(({ key, label: stateLabel, color }) => {
+      const count = entries.filter(
+        (entry) => entry.state === key || (key === "attention" && entry.state === "isolated"),
+      ).length;
+      return {
+        key,
+        color,
+        label: stateLabel,
+        count,
+        icon: <TankStatusMarker state={key} />,
+        percentageLabel: `${count} ${count === 1 ? "module" : "modules"}`,
+      };
+    })
+    .filter((item) => slots || item.count > 0 || ["healthy", "attention", "offline"].includes(item.key));
+  const unknownCount = entries.filter((entry) => entry.state === "unknown").length;
+
+  // Collected CT1 slots use the same service-side orientation as ProtoOS:
+  // 01 starts at bottom left; missing modules never shift their neighbors.
+  const columns = slots ? 8 : cols;
+  const position = (entry: ModuleSlot, index: number) =>
+    entry.position && entry.position > 0 ? entry.position : index + 1;
+  const gridRows = Math.max(slots ? 2 : rows, Math.ceil(Math.max(0, ...entries.map(position)) / columns));
 
   return (
     <div
       className="flex w-full flex-col overflow-hidden rounded-xl bg-surface-elevated-base shadow-100 laptop:flex-row"
       data-testid="tank-health-module"
     >
-      {/* Left: the tank's own 3-segment module bars, scaled up and numbered. */}
-      <div className="flex w-full items-center justify-center p-6 laptop:w-1/2 laptop:p-10">
-        {/* The wrapper carries the width so the grid's w-full has a real box to
-            fill — otherwise, inside the centering flex parent, it would shrink
-            to min-content and collapse the bars. */}
-        <div
-          className={clsx("w-full max-w-[520px]", !on && "opacity-40")}
-          // Bars carry their own action menu; a click acts on that module.
-          role="presentation"
-        >
-          <div
-            className="grid w-full gap-x-3 gap-y-4"
-            style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
-            data-testid="tank-health-grid"
-          >
-            {Array.from({ length: total }, (_, i) => (
-              <div key={i} className="flex flex-col gap-2">
-                <ModuleTile
-                  state={on ? (modules[i] ?? "healthy") : "offline"}
-                  label={`${label} module ${moduleNumber(i)}`}
-                  onAction={on && onModuleAction ? (action) => onModuleAction(i, action) : undefined}
-                />
-                <span className="text-center text-200 text-text-primary-70 tabular-nums">{moduleNumber(i)}</span>
-              </div>
-            ))}
+      <div className="w-full min-w-0 p-6 laptop:w-3/5 laptop:p-10">
+        {entries.length === 0 ? (
+          <p>No modules reported.</p>
+        ) : (
+          <div className={clsx("overflow-x-auto p-1", on === false && "opacity-40")} aria-label="Tank module positions">
+            <div
+              className="grid gap-1.5"
+              style={{
+                gridTemplateColumns: `repeat(${columns}, minmax(56px, 1fr))`,
+                gridTemplateRows: `repeat(${gridRows}, 142px)`,
+              }}
+              data-testid="tank-health-grid"
+            >
+              {entries.map((entry, i) => {
+                const slot = position(entry, i);
+                return (
+                  <div
+                    key={entry.id}
+                    style={{
+                      gridColumn: ((slot - 1) % columns) + 1,
+                      gridRow: gridRows - Math.floor((slot - 1) / columns),
+                    }}
+                  >
+                    <ModuleTile
+                      state={entry.state}
+                      label={entry.label}
+                      number={String(slot).padStart(2, "0")}
+                      onView={onSelectModule ? () => onSelectModule(entry.id) : undefined}
+                      onAction={on && onModuleAction ? (action) => onModuleAction(i, action) : undefined}
+                    />
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Right: the shared status breakdown, in the tank's own state model. */}
-      <StatusBreakdownPanel items={breakdownItems} className="w-full laptop:w-1/2" />
+      <div className="flex w-full flex-col laptop:w-2/5">
+        <StatusBreakdownPanel
+          items={breakdownItems}
+          className={clsx("flex-1", unknownCount > 0 && "pb-3 laptop:pb-3")}
+        />
+        {unknownCount > 0 ? (
+          <p className="flex items-center gap-2 px-6 pb-6 text-200 text-text-primary-70 laptop:px-10 laptop:pb-10">
+            <TankStatusMarker state="unknown" />
+            {unknownCount} {unknownCount === 1 ? "module" : "modules"} unknown
+          </p>
+        ) : null}
+      </div>
     </div>
   );
 };

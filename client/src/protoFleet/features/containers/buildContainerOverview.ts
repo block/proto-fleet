@@ -1,6 +1,7 @@
 import type { ContainerTank } from "./components/ContainerOverviewLayout";
 import type { TankModuleState } from "./components/TankModuleGrid";
 import type { ContainerOverviewData } from "./hooks/useContainerOverview";
+import { tankMetricCoverage } from "./tankMetricCoverage";
 import { EntityKind, type EntityRef } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import {
   formatEfficiencyOrDash,
@@ -62,6 +63,7 @@ export function buildContainerOverview(data: ContainerOverviewData, unit: "C" | 
         children.length === Number(tank.assetCount) && children.every((module) => !!states[module.state]);
       const slots = children.map((module, index) => ({
         id: module.ref.id.toString(),
+        position: module.position,
         label: module.name,
         state: stale ? "unknown" : (states[module.state] ?? "unknown"),
         row: Math.floor(index / cols) + 1,
@@ -75,6 +77,13 @@ export function buildContainerOverview(data: ContainerOverviewData, unit: "C" | 
         on: undefined,
         modules: slots.map((slot) => slot.state),
         slots,
+        statSubtitles: [
+          undefined,
+          !stale && tank.minTemperatureC !== undefined && tank.maxTemperatureC !== undefined
+            ? tankMetricCoverage(tank, "temperature")
+            : undefined,
+          !stale && tank.powerKw !== undefined ? tankMetricCoverage(tank, "power") : undefined,
+        ],
         stats: [
           !stale && complete
             ? `${children.filter((module) => module.state === "hashing").length}/${children.length} modules hashing`

@@ -28,6 +28,8 @@ type MinerReader interface {
 }
 
 type Store interface {
+	GetContainerTankScope(ctx context.Context, params sqlc.GetContainerTankScopeParams) (sql.NullInt64, error)
+	GetContainerTankHistory(ctx context.Context, params sqlc.GetContainerTankHistoryParams) ([]sqlc.GetContainerTankHistoryRow, error)
 	ListFleetInventoryOptions(ctx context.Context, params sqlc.ListFleetInventoryOptionsParams) (sqlc.ListFleetInventoryOptionsRow, error)
 	ListContainers(ctx context.Context, params sqlc.ListContainersParams) ([]sqlc.ListContainersRow, error)
 	ListFleetFacilities(ctx context.Context, params sqlc.ListFleetFacilitiesParams) (sqlc.ListFleetFacilitiesRow, error)
@@ -107,23 +109,25 @@ func encodeCursor(c pageCursor) (string, error) {
 }
 
 type listRow struct {
-	ModuleIssues           *sdk.ContainerModuleIssues `json:"module_issues"`
-	ModuleIssuesLastSeenAt *time.Time                 `json:"module_issues_last_seen_at"`
-	TelemetryAllowed       bool                       `json:"telemetry_allowed"`
-	BuildingDetails        json.RawMessage            `json:"building_details"`
-	RackDetails            json.RawMessage            `json:"rack_details"`
-	SiteName               string                     `json:"site_name"`
-	FacilityName           string                     `json:"facility_name"`
-	GroupName              string                     `json:"group_name"`
-	RackCount              int64                      `json:"rack_count"`
-	HashingCount           int32                      `json:"hashing_count"`
-	SleepingCount          int32                      `json:"sleeping_count"`
-	OfflineCount           int32                      `json:"offline_count"`
-	BrokenCount            int32                      `json:"broken_count"`
-	PSUIssues              int32                      `json:"psu_issues"`
-	FanIssues              int32                      `json:"fan_issues"`
-	HashboardIssues        int32                      `json:"hashboard_issues"`
-	ControlIssues          int32                      `json:"control_issues"`
+	ModuleIssues              *sdk.ContainerModuleIssues `json:"module_issues"`
+	ModuleIssuesLastSeenAt    *time.Time                 `json:"module_issues_last_seen_at"`
+	TemperatureReportingCount int64                      `json:"temperature_reporting_count"`
+	EfficiencyReportingCount  int64                      `json:"efficiency_reporting_count"`
+	TelemetryAllowed          bool                       `json:"telemetry_allowed"`
+	BuildingDetails           json.RawMessage            `json:"building_details"`
+	RackDetails               json.RawMessage            `json:"rack_details"`
+	SiteName                  string                     `json:"site_name"`
+	FacilityName              string                     `json:"facility_name"`
+	GroupName                 string                     `json:"group_name"`
+	RackCount                 int64                      `json:"rack_count"`
+	HashingCount              int32                      `json:"hashing_count"`
+	SleepingCount             int32                      `json:"sleeping_count"`
+	OfflineCount              int32                      `json:"offline_count"`
+	BrokenCount               int32                      `json:"broken_count"`
+	PSUIssues                 int32                      `json:"psu_issues"`
+	FanIssues                 int32                      `json:"fan_issues"`
+	HashboardIssues           int32                      `json:"hashboard_issues"`
+	ControlIssues             int32                      `json:"control_issues"`
 
 	Kind                   int32      `json:"kind"`
 	ID                     int64      `json:"id"`

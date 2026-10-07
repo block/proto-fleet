@@ -23,6 +23,7 @@ interface TankCardProps {
    * ["48/48 boards", "65.5°", "12.3 kW"].
    */
   stats: string[];
+  statSubtitles?: (string | undefined)[];
   onClick?: () => void;
   /**
    * When supplied, each module bar becomes an action-menu trigger (View +
@@ -49,6 +50,7 @@ const TankCard = ({
   onToggle,
   onInfo,
   stats,
+  statSubtitles,
   onClick,
   onModuleAction,
   slots,
@@ -127,7 +129,8 @@ const TankCard = ({
       >
         {stats.map((stat, i) => (
           <span key={i} className="min-w-0 flex-1 text-center" title={stat}>
-            {stat}
+            <span className="block">{stat}</span>
+            {statSubtitles?.[i] ? <span className="text-100 block">{statSubtitles[i]}</span> : null}
           </span>
         ))}
       </div>

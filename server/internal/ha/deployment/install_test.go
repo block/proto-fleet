@@ -1027,6 +1027,7 @@ func testInstallRelease(t *testing.T) string {
 		"server/monitoring/grafana/system-monitoring/dashboards.yaml":                   "apiVersion: 1\n",
 		"server/monitoring/grafana/system-monitoring/dashboards/system-monitoring.json": "{}\n",
 		"server/Dockerfile":                                      "FROM scratch\n",
+		"server/fleet-db-transition":                             "binary",
 		"server/fleetd":                                          "binary",
 		"server/proto-plugin":                                    "binary",
 		"server/antminer-plugin":                                 "binary",

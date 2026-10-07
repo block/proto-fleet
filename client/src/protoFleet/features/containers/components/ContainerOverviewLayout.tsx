@@ -18,6 +18,7 @@ export interface ContainerTank {
   modules: TankModuleState[];
   slots?: ModuleSlot[];
   stats: string[];
+  statSubtitles?: (string | undefined)[];
   tempLabel?: string;
   powerLabel?: string;
 }

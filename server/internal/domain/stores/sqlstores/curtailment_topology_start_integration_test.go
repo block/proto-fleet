@@ -1,6 +1,7 @@
 package sqlstores_test
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -272,9 +273,18 @@ func TestSQLCurtailmentStore_BeginTopologyRestoreLocksCandidatesAndMembersInDevi
 	}
 
 	testContext := testutil.InitializeDBServiceInfrastructure(t)
-	user := testContext.DatabaseService.CreateSuperAdminUser()
-	ctx := t.Context()
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
 	database := testContext.DatabaseService.DB
+	// Retention jobs can queue a table lock between the two row-lock probes.
+	// Keep automatic maintenance out of this test's disposable database.
+	_, err := database.ExecContext(ctx, `
+		SELECT alter_job(job_id, scheduled => false)
+		FROM timescaledb_information.jobs
+		WHERE proc_name = 'policy_retention'
+	`)
+	require.NoError(t, err)
+	user := testContext.DatabaseService.CreateSuperAdminUser()
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	buildingStore := sqlstores.NewSQLBuildingStore(database)
 	orgID := user.OrganizationID

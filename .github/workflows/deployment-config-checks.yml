@@ -41,6 +41,9 @@ jobs:
       - name: Validate non-interactive upgrade safety
         run: ./deployment-files/tests/test-run-fleet-upgrade.sh
 
+      - name: Validate local artifact preservation
+        run: bash deployment-files/tests/test-preserve-local-artifacts.sh
+
       - name: Validate SUPER_ADMIN password reset wrapper
         run: ./deployment-files/tests/test-reset-super-admin-password.sh
 

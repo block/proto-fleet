@@ -185,8 +185,8 @@ typed inventory API. All cursor pages are fetched before publishing a refresh.
 The page polls metadata and inventory every 15 seconds. Transient failures keep
 the topology visible with unavailable current readings and a retry; access
 denials or removal clear retained data. Navigation cancels outstanding loads.
-Tank cards open the scoped mining-assets list using the stable tank ID. Module
-tiles open stored module history. Container performance uses Fleet's telemetry
+Tank cards open `/containers/:identifier/tanks/:tankId` using the stable Fleet
+tank ID. Module tiles open stored module history. Container performance uses Fleet's telemetry
 API and existing performance charts, scoped to the controller and its site.
 Container-reported power remains distinct from summed module equipment power.
 
@@ -195,6 +195,52 @@ Fleet's dashboard owns `ChartWidget`. App-neutral primitives and telemetry
 formatters remain in `shared`. ProtoOS owns its on-device Systems view, adapters,
 and controls. Fan readings and equipment-control states are not collected by
 Fleet yet, so this page identifies those gaps and offers no device commands.
+
+### Native tank detail
+
+Container tank cards and tank rows in Racks open the native tank page. It checks
+both typed tank identity and container ancestry, inherits the container's read
+access, and uses collected Fleet data for directly managed and FleetNode-owned
+controllers. The page provides module equipment totals (separate from plant
+power), numbered module states, site/container/Buildings breadcrumbs, and a
+**View modules** link to the tank-filtered inventory. Partial totals exclude
+missing module readings; stale or entirely missing measurements remain unavailable.
+Partial metric values include their reporting-module coverage in inventory, tank
+KPIs, and container tank cards, independently of module health.
+
+The tank drawing uses outlined module cards with numbering from the bottom left
+and module status markers shared with the legend. Isolated modules retain their
+state and count under Needs Attention with the same warning marker.
+Unknown modules use an outlined marker and, only when present, a small count
+annotation below the status legend, including when the controller remains fresh.
+The three hashboard outlines remain neutral until hashboard-level Fleet data lands in #163; board states and
+drill-downs are not wired yet.
+
+Performance requests a single server-aggregated tank history response using the
+shared Fleet duration setting: 1h, 24h, 7d, 30d, 90d, or 1y. SQL averages each
+current, non-retired module within a Unix-epoch-aligned bucket, then sums those
+module averages. Staggered timestamps and different sample rates cannot dilute
+tank totals. Repeated source observations use the latest collection. Responses
+contain at most 1000 buckets. Hashrate/power bounds sum per-module minima/maxima;
+efficiency bounds use paired power/hashrate extrema and omit undefined bounds. Missing/non-finite module readings are excluded per
+metric; only buckets with no readings remain gaps. Efficiency uses paired
+hashrate/power readings from the same modules and is weighted by hashrate. Authorization checks both the tank's
+owning container and its current site, including during the aggregation query.
+The browser polls one bounded response and does no module aggregation. Tank
+charts use explicit TH/s, kW, J/TH, and Celsius units without legacy unit guessing.
+
+Module history currently has 30-day retention, so longer windows show available
+history with gaps for expired data. No historical membership reconstruction or
+long-term storage rollups are implied by the duration selector.
+
+Module clicks open Fleet's existing history dialog at the shareable
+`/containers/:identifier/tanks/:tankId/modules/:moduleId` route. The richer
+module detail page is tracked separately in #162. Tank-scoped cooling/equipment
+readings and tank commands are not available in the current Fleet API; the page
+omits the empty cooling section. Shared equipment readings remain on the
+container page.
+Storybook's **Proto Fleet / Containers / Native tank page** exercises the actual
+page and collected-data hooks with isolated API fixtures.
 
 ### API Integration
 

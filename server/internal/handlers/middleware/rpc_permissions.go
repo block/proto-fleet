@@ -132,6 +132,7 @@ var ProcedurePermissions = map[string]string{
 	containersv1connect.ContainerServiceListContainersProcedure:             authz.PermSiteRead,
 	fleetinventoryv1connect.FleetInventoryServiceListInventoryProcedure:     authz.PermSiteRead,
 	fleetinventoryv1connect.FleetInventoryServiceListModuleHistoryProcedure: authz.PermSiteRead,
+	fleetinventoryv1connect.FleetInventoryServiceGetTankHistoryProcedure:    authz.PermSiteRead,
 	containersv1connect.ContainerServiceGetContainerProcedure:               authz.PermSiteRead,
 	// Equipment results enforce the same current-site read permissions as the
 	// container. Writes also require power-target authority and all three read

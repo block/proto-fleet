@@ -615,6 +615,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getContainerModuleScopeStmt, err = db.PrepareContext(ctx, getContainerModuleScope); err != nil {
 		return nil, fmt.Errorf("error preparing query GetContainerModuleScope: %w", err)
 	}
+	if q.getContainerTankHistoryStmt, err = db.PrepareContext(ctx, getContainerTankHistory); err != nil {
+		return nil, fmt.Errorf("error preparing query GetContainerTankHistory: %w", err)
+	}
+	if q.getContainerTankScopeStmt, err = db.PrepareContext(ctx, getContainerTankScope); err != nil {
+		return nil, fmt.Errorf("error preparing query GetContainerTankScope: %w", err)
+	}
 	if q.getCurtailmentAutomationRuleByOrgStmt, err = db.PrepareContext(ctx, getCurtailmentAutomationRuleByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentAutomationRuleByOrg: %w", err)
 	}
@@ -3175,6 +3181,16 @@ func (q *Queries) Close() error {
 	if q.getContainerModuleScopeStmt != nil {
 		if cerr := q.getContainerModuleScopeStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getContainerModuleScopeStmt: %w", cerr)
+		}
+	}
+	if q.getContainerTankHistoryStmt != nil {
+		if cerr := q.getContainerTankHistoryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getContainerTankHistoryStmt: %w", cerr)
+		}
+	}
+	if q.getContainerTankScopeStmt != nil {
+		if cerr := q.getContainerTankScopeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getContainerTankScopeStmt: %w", cerr)
 		}
 	}
 	if q.getCurtailmentAutomationRuleByOrgStmt != nil {
@@ -6033,6 +6049,8 @@ type Queries struct {
 	getBuiltinRoleForOrgStmt                                     *sql.Stmt
 	getConnectedPostgresIdentityStmt                             *sql.Stmt
 	getContainerModuleScopeStmt                                  *sql.Stmt
+	getContainerTankHistoryStmt                                  *sql.Stmt
+	getContainerTankScopeStmt                                    *sql.Stmt
 	getCurtailmentAutomationRuleByOrgStmt                        *sql.Stmt
 	getCurtailmentEventByExternalReferenceStmt                   *sql.Stmt
 	getCurtailmentEventByIdempotencyKeyStmt                      *sql.Stmt
@@ -6760,6 +6778,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getBuiltinRoleForOrgStmt:                                     q.getBuiltinRoleForOrgStmt,
 		getConnectedPostgresIdentityStmt:                             q.getConnectedPostgresIdentityStmt,
 		getContainerModuleScopeStmt:                                  q.getContainerModuleScopeStmt,
+		getContainerTankHistoryStmt:                                  q.getContainerTankHistoryStmt,
+		getContainerTankScopeStmt:                                    q.getContainerTankScopeStmt,
 		getCurtailmentAutomationRuleByOrgStmt:                        q.getCurtailmentAutomationRuleByOrgStmt,
 		getCurtailmentEventByExternalReferenceStmt:                   q.getCurtailmentEventByExternalReferenceStmt,
 		getCurtailmentEventByIdempotencyKeyStmt:                      q.getCurtailmentEventByIdempotencyKeyStmt,

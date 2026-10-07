@@ -113,7 +113,7 @@ const meta: Meta<typeof SubtankDetail> = {
     docs: {
       description: {
         component:
-          "Subtank detail — a single container tank rendered as the tank analogue of RackOverviewPage: Breadcrumb + Header title bar, a KPI header, the TankHealthModule, and the shared DeviceSetPerformanceSection. Per jmarr (2026-08-10) the health section keeps the tank's own module language — the same 3-segment ModuleTile bars the overview card uses, scaled up and numbered 01..N with a status breakdown beside them — instead of switching to the Fleet numbered-slot grid, so the card and the detail read as one surface. Each bar carries the same View / Blink LEDs / Reboot / Sleep action menu the overview card exposes. Presentational and prop-driven (prototype-first) — a tank has no backend DeviceSet yet.",
+          "Tank detail presentation with breadcrumbs, KPIs, tank health, and performance charts. Outlined module cards follow the ProtoOS drawing with numbering from the bottom left and status markers shared with the legend. Hashboard outlines remain neutral pending Fleet hashboard data in #163. These presentation stories demonstrate optional module action menus; the native Fleet page opens collected module history and offers no device commands.",
       },
     },
   },
