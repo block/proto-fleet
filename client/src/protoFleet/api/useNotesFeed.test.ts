@@ -123,6 +123,7 @@ describe("mergeHeadPage", () => {
 describe("useNotesFeed", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(notesClient.listNotes).mockReset();
   });
 
   // The hook deliberately has no fetch-on-mount: the panel drives the
@@ -321,6 +322,207 @@ describe("useNotesFeed", () => {
 
     expect(result.current.notes.map((n) => n.id)).toEqual([3n, 2n, 1n]);
     expect(result.current.hasMore).toBe(false);
+  });
+
+  it("seeds pagination when an already-loaded empty feed receives new pages", async () => {
+    vi.mocked(notesClient.listNotes)
+      .mockResolvedValueOnce(mockListResponse([]))
+      .mockResolvedValueOnce(mockListResponse([makeNote(3, 300), makeNote(2, 200)], "new-tail"))
+      .mockResolvedValueOnce(mockListResponse([makeNote(1, 100)]));
+    const { result } = renderHook(() => useNotesFeed({ pageSize: 2 }));
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    expect(result.current.hasLoaded).toBe(true);
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    expect(result.current.hasMore).toBe(true);
+    act(() => {
+      result.current.loadMore();
+    });
+    await waitFor(() => {
+      expect(result.current.notes).toHaveLength(3);
+    });
+    expect(notesClient.listNotes).toHaveBeenLastCalledWith({ pageSize: 2, pageToken: "new-tail" });
+    expect(result.current.notes.map((note) => note.id)).toEqual([3n, 2n, 1n]);
+  });
+
+  it("fills a non-overlapping head gap while retaining loaded older pages", async () => {
+    vi.mocked(notesClient.listNotes)
+      .mockResolvedValueOnce(mockListResponse([makeNote(4, 400), makeNote(3, 300)], "old-tail"))
+      .mockResolvedValueOnce(mockListResponse([makeNote(2, 200), makeNote(1, 100)]))
+      .mockResolvedValueOnce(mockListResponse([makeNote(9, 900), makeNote(8, 800)], "new-8"))
+      .mockResolvedValueOnce(mockListResponse([makeNote(7, 700), makeNote(6, 600)], "new-6"))
+      .mockResolvedValueOnce(mockListResponse([makeNote(5, 500), makeNote(4, 400)], "new-4"));
+    const { result } = renderHook(() => useNotesFeed({ pageSize: 2 }));
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    act(() => {
+      result.current.loadMore();
+    });
+    await waitFor(() => {
+      expect(result.current.notes).toHaveLength(4);
+    });
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    expect(result.current.notes.map((note) => note.id)).toEqual([9n, 8n, 7n, 6n, 5n, 4n, 3n, 2n, 1n]);
+    expect(notesClient.listNotes).toHaveBeenNthCalledWith(4, { pageSize: 2, pageToken: "new-8" });
+    expect(notesClient.listNotes).toHaveBeenNthCalledWith(5, { pageSize: 2, pageToken: "new-6" });
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  it("does not duplicate rows when deletion expands the head across the old cursor", async () => {
+    vi.mocked(notesClient.listNotes)
+      .mockResolvedValueOnce(mockListResponse([makeNote(4, 400), makeNote(3, 300)], "old-tail"))
+      .mockResolvedValueOnce(mockListResponse([makeNote(4, 400), makeNote(2, 200)], "new-tail"))
+      .mockResolvedValueOnce(mockListResponse([makeNote(2, 200), makeNote(1, 100)]));
+    const { result } = renderHook(() => useNotesFeed({ pageSize: 2 }));
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    act(() => {
+      result.current.loadMore();
+    });
+    await waitFor(() => {
+      expect(result.current.hasMore).toBe(false);
+    });
+    expect(result.current.notes.map((note) => note.id)).toEqual([4n, 2n, 1n]);
+  });
+
+  it("keeps the last coherent feed if a catch-up continuation fails", async () => {
+    vi.mocked(notesClient.listNotes)
+      .mockResolvedValueOnce(mockListResponse([makeNote(2, 200), makeNote(1, 100)]))
+      .mockResolvedValueOnce(mockListResponse([makeNote(6, 600), makeNote(5, 500)], "new-tail"))
+      .mockRejectedValueOnce(new Error("continuation failed"));
+    const { result } = renderHook(() => useNotesFeed({ pageSize: 2 }));
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    expect(result.current.notes.map((note) => note.id)).toEqual([2n, 1n]);
+    expect(result.current.hasMore).toBe(false);
+    expect(result.current.error).toBeNull();
+  });
+
+  it("bounds catch-up and moves the cursor with the replacement prefix", async () => {
+    vi.mocked(notesClient.listNotes).mockResolvedValueOnce(mockListResponse([makeNote(1, 100)], "old-tail"));
+    for (let id = 30; id >= 21; id--) {
+      vi.mocked(notesClient.listNotes).mockResolvedValueOnce(mockListResponse([makeNote(id, id * 100)], `below-${id}`));
+    }
+    vi.mocked(notesClient.listNotes).mockResolvedValueOnce(mockListResponse([makeNote(20, 2000)], "below-20"));
+    const { result } = renderHook(() => useNotesFeed({ pageSize: 1 }));
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    expect(notesClient.listNotes).toHaveBeenCalledTimes(11);
+    expect(result.current.notes.map((note) => note.id)).toEqual([30n, 29n, 28n, 27n, 26n, 25n, 24n, 23n, 22n, 21n]);
+    act(() => {
+      result.current.loadMore();
+    });
+    await waitFor(() => {
+      expect(result.current.notes).toHaveLength(11);
+    });
+    expect(notesClient.listNotes).toHaveBeenLastCalledWith({ pageSize: 1, pageToken: "below-21" });
+    expect(result.current.notes[10].id).toBe(20n);
+  });
+
+  it("ignores an older head response after a newer head has replaced the feed", async () => {
+    let finishOldHead!: (response: ReturnType<typeof mockListResponse>) => void;
+    vi.mocked(notesClient.listNotes)
+      .mockResolvedValueOnce(mockListResponse([makeNote(2, 200), makeNote(1, 100)]))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOldHead = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(mockListResponse([makeNote(3, 300)]));
+    const { result } = renderHook(() => useNotesFeed());
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    let oldHead!: Promise<void>;
+    act(() => {
+      oldHead = result.current.refreshHead();
+    });
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    await act(async () => {
+      finishOldHead(mockListResponse([makeNote(2, 200), makeNote(1, 100)]));
+      await oldHead;
+    });
+    expect(result.current.notes.map((note) => note.id)).toEqual([3n]);
+  });
+
+  it("ignores a pending head after a full refresh starts a new feed", async () => {
+    let finishOldHead!: (response: ReturnType<typeof mockListResponse>) => void;
+    vi.mocked(notesClient.listNotes)
+      .mockResolvedValueOnce(mockListResponse([makeNote(2, 200), makeNote(1, 100)]))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOldHead = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(mockListResponse([makeNote(3, 300)]));
+    const { result } = renderHook(() => useNotesFeed());
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    let oldHead!: Promise<void>;
+    act(() => {
+      oldHead = result.current.refreshHead();
+      result.current.refresh();
+    });
+    await waitFor(() => {
+      expect(result.current.notes.map((note) => note.id)).toEqual([3n]);
+    });
+    await act(async () => {
+      finishOldHead(mockListResponse([makeNote(2, 200), makeNote(1, 100)]));
+      await oldHead;
+    });
+    expect(result.current.notes.map((note) => note.id)).toEqual([3n]);
+  });
+
+  it("does not let an in-flight old page resurrect rows after a complete head", async () => {
+    let finishOldPage!: (response: ReturnType<typeof mockListResponse>) => void;
+    vi.mocked(notesClient.listNotes)
+      .mockResolvedValueOnce(mockListResponse([makeNote(3, 300), makeNote(2, 200)], "old-tail"))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOldPage = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(mockListResponse([makeNote(3, 300)]));
+    const { result } = renderHook(() => useNotesFeed({ pageSize: 2 }));
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    act(() => {
+      result.current.loadMore();
+    });
+    await act(async () => {
+      await result.current.refreshHead();
+    });
+    await act(async () => {
+      finishOldPage(mockListResponse([makeNote(1, 100)], "obsolete"));
+    });
+    expect(result.current.notes.map((note) => note.id)).toEqual([3n]);
+    expect(result.current.hasMore).toBe(false);
+    expect(result.current.isLoading).toBe(false);
   });
 
   it("surfaces list errors through the shared auth handler", async () => {

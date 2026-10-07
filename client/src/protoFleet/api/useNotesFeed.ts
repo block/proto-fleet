@@ -79,8 +79,8 @@ export const mergeHeadPage = (prev: Note[], head: Note[], headIsComplete = false
 
 // Feed state for the shared team notepad: cursor accumulation +
 // Load more mirroring useActivity, plus refreshHead() for the poll
-// tick so the visible top of the feed stays live without resetting
-// scroll position or loaded pages.
+// tick so the visible top of the feed stays live while retaining
+// loaded pages whenever the refreshed window reaches the cached feed.
 export function useNotesFeed({ pageSize = 25 }: UseNotesFeedParams = {}): UseNotesFeedResult {
   const { handleAuthErrors } = useAuthErrors();
 
@@ -92,6 +92,11 @@ export function useNotesFeed({ pageSize = 25 }: UseNotesFeedParams = {}): UseNot
   const [pageToken, setPageToken] = useState("");
 
   const requestIdRef = useRef(0);
+  const headRequestIdRef = useRef(0);
+  const notesRef = useRef(notes);
+  useEffect(() => {
+    notesRef.current = notes;
+  }, [notes]);
 
   const fetchNotes = useCallback(
     async (token: string, append: boolean) => {
@@ -105,7 +110,10 @@ export function useNotesFeed({ pageSize = 25 }: UseNotesFeedParams = {}): UseNot
 
         const { notes: newNotes, nextPageToken } = response;
         if (append) {
-          setNotes((prev) => [...prev, ...newNotes]);
+          setNotes((prev) => {
+            const heldIds = new Set(prev.map((note) => note.id));
+            return [...prev, ...newNotes.filter((note) => !heldIds.has(note.id))];
+          });
         } else {
           setNotes(newNotes);
         }
@@ -174,35 +182,43 @@ export function useNotesFeed({ pageSize = 25 }: UseNotesFeedParams = {}): UseNot
     void fetchRef.current("", false);
   }, []);
 
-  // refreshHead is the poll tick: re-fetch page 1 only and merge it
-  // into the accumulated list. It deliberately bypasses the
-  // isLoading/cursor state so an in-flight Load more and a poll can't
-  // corrupt each other — the merge is associative with appends.
+  // Catch up through a contiguous window before merging into cached pages.
+  // A bounded catch-up falls back to a fresh prefix and its matching cursor,
+  // so even a large burst cannot leave an unreachable gap in the feed.
   const refreshHead = useCallback(async () => {
+    const headRequestId = ++headRequestIdRef.current;
+    const requestId = requestIdRef.current;
+    const cachedHead = notesRef.current[0];
+    const isCurrent = () => headRequestId === headRequestIdRef.current && requestId === requestIdRef.current;
     try {
-      const response = await notesClient.listNotes({ pageSize: pageSizeRef.current, pageToken: "" });
-      const { notes: head, nextPageToken } = response;
-      // The server emits a continuation token only when more rows
-      // exist below the page, so no token means the head is the
-      // entire feed.
+      const head: Note[] = [];
+      let nextPageToken = "";
+      let reachedCache = cachedHead === undefined;
+      const maxCatchUpPages = 10;
+      for (let page = 0; page < maxCatchUpPages; page++) {
+        const response = await notesClient.listNotes({
+          pageSize: pageSizeRef.current,
+          pageToken: nextPageToken,
+        });
+        if (!isCurrent()) return;
+        head.push(...response.notes);
+        nextPageToken = response.nextPageToken;
+        const floor = head[head.length - 1];
+        reachedCache = cachedHead === undefined || (floor !== undefined && feedCmp(floor, cachedHead) >= 0);
+        if (nextPageToken === "" || reachedCache) break;
+      }
       const headIsComplete = nextPageToken === "";
-      setNotes((prev) => mergeHeadPage(prev, head, headIsComplete));
+      const replaceCache = headIsComplete || !reachedCache || cachedHead === undefined;
+      setNotes((prev) => mergeHeadPage(prev, head, replaceCache));
       setHasLoaded(true);
       setError(null);
-      if (headIsComplete) {
-        // The feed now ends inside the head window: any held cursor
-        // points at deleted rows.
-        setPageToken("");
-        setHasMore(false);
-      } else if (!hasLoadedRef.current) {
-        // This tick performed the initial load (the panel's usePoll
-        // fires refreshHead immediately on open), so the head page IS
-        // the entire accumulated list and its continuation token is
-        // the correct Load-more cursor. Later ticks leave the cursor
-        // alone — it tracks the bottom of the accumulated list, not
-        // the head window.
+      if (replaceCache) {
+        // Invalidate any Load more that began against the old cache. Its
+        // response must not restore an obsolete cursor or deleted rows.
+        ++requestIdRef.current;
+        setIsLoading(false);
         setPageToken(nextPageToken);
-        setHasMore(true);
+        setHasMore(nextPageToken !== "");
       }
     } catch (err) {
       // Poll-tick failures after a successful load are deliberately
@@ -212,6 +228,7 @@ export function useNotesFeed({ pageSize = 25 }: UseNotesFeedParams = {}): UseNot
       // keeps running, and a later success clears the callout. Auth
       // errors still route through the shared handler so an expired
       // session logs out.
+      if (!isCurrent()) return;
       handleAuthErrors({
         error: err,
         onError: (e) => {
