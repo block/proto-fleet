@@ -5124,6 +5124,18 @@ func (q *retryingQuerier) ListFleetNodesForOrganization(ctx context.Context, org
 	return result, err
 }
 
+func (q *retryingQuerier) ListFleetTankOptions(ctx context.Context, arg ListFleetTankOptionsParams) ([]ListFleetTankOptionsRow, error) {
+	var result []ListFleetTankOptionsRow
+	err := q.retrier.RetryQuery(ctx, "ListFleetTankOptions", func() error {
+		callResult, callErr := q.next.ListFleetTankOptions(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListHashboardHistory(ctx context.Context, arg ListHashboardHistoryParams) ([]ListHashboardHistoryRow, error) {
 	var result []ListHashboardHistoryRow
 	err := q.retrier.RetryQuery(ctx, "ListHashboardHistory", func() error {

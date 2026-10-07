@@ -37,6 +37,7 @@ vi.mock("@/protoFleet/features/fleetManagement/components/FleetCreateFlow/FleetC
 }));
 
 import FleetLayout from "./FleetLayout";
+import { useFleetOutletContext } from "./outletContext";
 import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { SitesProvider } from "@/protoFleet/api/SitesProvider";
 import { type ActiveSite } from "@/protoFleet/store/types/activeSite";
@@ -133,7 +134,21 @@ const LocationProbe = () => {
   return <div data-testid="location-probe">{location.pathname}</div>;
 };
 
-const renderAt = (initialPath: string) =>
+const TankLabelPublisher = () => {
+  const { publishViewFilterContext } = useFleetOutletContext();
+  return (
+    <>
+      <button
+        onClick={() => publishViewFilterContext({ availableTanks: [{ id: "7", label: "CT1 North T1 · North" }] })}
+      >
+        Publish tanks
+      </button>
+      <button onClick={() => publishViewFilterContext({ availableSites: [] })}>Publish sites</button>
+    </>
+  );
+};
+
+const renderAt = (initialPath: string, minersContent = <div data-testid="tab-content-miners">miners</div>) =>
   render(
     // FleetLayout reads the site catalog from the shell-level SitesProvider,
     // which drives the (mocked) listSites + permission gating these tests
@@ -146,7 +161,7 @@ const renderAt = (initialPath: string) =>
             <Route path="sites" element={<div data-testid="tab-content-sites">sites</div>} />
             <Route path="buildings" element={<div data-testid="tab-content-buildings">buildings</div>} />
             <Route path="racks" element={<div data-testid="tab-content-racks">racks</div>} />
-            <Route path="miners" element={<div data-testid="tab-content-miners">miners</div>} />
+            <Route path="miners" element={minersContent} />
             <Route path="infrastructure" element={<div data-testid="tab-content-infrastructure">infrastructure</div>} />
           </Route>
         </Routes>
@@ -169,6 +184,14 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.clearAllMocks();
+});
+
+test("passes tank labels through the layout to saved views and preserves them on partial publishes", async () => {
+  renderAt("/fleet/miners?tank=7", <TankLabelPublisher />);
+  fireEvent.click(await screen.findByRole("button", { name: "Publish tanks" }));
+  fireEvent.click(screen.getByRole("button", { name: "Publish sites" }));
+  fireEvent.click(screen.getAllByTestId("fleet-view-tabs-new-view-button")[0]);
+  expect(await screen.findByText("CT1 North T1 · North")).toBeInTheDocument();
 });
 
 describe("FleetLayout redirect logic", () => {

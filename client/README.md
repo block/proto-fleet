@@ -250,8 +250,15 @@ page and collected-data hooks with isolated API fixtures.
 
 ### CT1 inventory filters
 
-The Miners and Racks tabs expose a separate **Containers** selector. Containers
-use controller device IDs under repeated `container` URL keys, independently of
+The Miners tab exposes separate **Containers**, **Tanks**, and **Racks** selectors;
+the Racks tab exposes **Containers**. Tanks use stable Fleet tank IDs under repeated
+`tank` URL keys. Tank labels include the owning container and site, and options
+come from all readable tanks across `ListTankOptions` cursor pages. This label-only
+catalog avoids module health and telemetry aggregation. Selections within
+Tanks combine with OR; tank, container, site, and other categories combine with AND.
+Rack and tank IDs stay independent even when their numeric values match.
+
+Containers use controller device IDs under repeated `container` URL keys, independently of
 building IDs. Multiple selected containers combine with OR. Site scope, selected
 sites, tank scope, telemetry, and other filter categories combine with AND;
 contradictory scopes return no rows. Existing tank deep links use stable tank IDs

@@ -15,6 +15,18 @@ type Handler struct{ service *fleetinventory.Service }
 
 func NewHandler(service *fleetinventory.Service) *Handler { return &Handler{service: service} }
 
+func (h *Handler) ListTankOptions(ctx context.Context, req *connect.Request[pb.ListTankOptionsRequest]) (*connect.Response[pb.ListTankOptionsResponse], error) {
+	orgID, scopes, err := readScopes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.service.TankOptions(ctx, orgID, req.Msg, scopes)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(result), nil
+}
+
 func (h *Handler) GetModuleHashboards(ctx context.Context, req *connect.Request[pb.GetModuleHashboardsRequest]) (*connect.Response[pb.GetModuleHashboardsResponse], error) {
 	orgID, scopes, err := readScopes(ctx)
 	if err != nil {

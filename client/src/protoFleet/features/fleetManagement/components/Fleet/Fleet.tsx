@@ -22,6 +22,7 @@ import { useDeviceErrors } from "@/protoFleet/api/useDeviceErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import useExportMinerListCsv from "@/protoFleet/api/useExportMinerListCsv";
 import useFleet from "@/protoFleet/api/useFleet";
+import { useTankFilterOptions } from "@/protoFleet/api/useTankFilterOptions";
 import {
   intersectSiteFilters,
   isMatchNoneSiteFilter,
@@ -160,6 +161,7 @@ const Fleet = () => {
   const [searchParams] = useSearchParams();
   const inventoryAncestors = useMemo(() => inventoryAncestorsFromURL(searchParams), [searchParams]);
   const availableContainers = useContainerFilterOptions(useInventory);
+  const availableTanks = useTankFilterOptions(useInventory);
   const urlFilter = useMemo(() => parseFilterFromURL(searchParams), [searchParams]);
   // currentFilter folds the SitePicker's active site into the URL filter so
   // every downstream query (list, count, auth-needed, CSV) is scoped.
@@ -332,6 +334,7 @@ const Fleet = () => {
       availableBuildings: readableAvailableBuildings,
       availableSites,
       availableContainers,
+      availableTanks,
     });
   }, [
     publishViewFilterContext,
@@ -340,6 +343,7 @@ const Fleet = () => {
     readableAvailableBuildings,
     availableSites,
     availableContainers,
+    availableTanks,
   ]);
 
   const refetchAll = useCallback(() => {
@@ -435,6 +439,7 @@ const Fleet = () => {
           availableSites={availableSites}
           availableBuildings={readableAvailableBuildings}
           availableContainers={useInventory ? availableContainers : undefined}
+          availableTanks={useInventory ? availableTanks : undefined}
           currentFilter={currentFilter}
           currentSortConfig={currentSortConfig}
           onExportCsv={inventoryAncestors.length > 0 ? undefined : siteScopeMatchesNoRows ? () => undefined : exportCsv}

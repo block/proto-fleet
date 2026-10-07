@@ -74,6 +74,7 @@ export type FilterSummaryContext = {
   availableBuildings: FilterLabelSource[];
   availableSites: FilterLabelSource[];
   availableContainers?: FilterLabelSource[];
+  availableTanks?: FilterLabelSource[];
 };
 
 const lookupDeviceSetLabels = (ids: string[], deviceSets: DeviceSet[]): string[] => {
@@ -161,7 +162,8 @@ const summarizeMinerFilters = (params: URLSearchParams, context: FilterSummaryCo
   }
 
   const tankValues = dedupedSorted(params, "tank");
-  if (tankValues.length) entries.push({ key: "tank", label: "Tanks", values: tankValues.map((id) => `#${id}`) });
+  if (tankValues.length)
+    entries.push({ key: "tank", label: "Tanks", values: lookupNamedLabels(tankValues, context.availableTanks ?? []) });
 
   const rackValues = dedupedSorted(params, "rack");
   if (rackValues.length) {

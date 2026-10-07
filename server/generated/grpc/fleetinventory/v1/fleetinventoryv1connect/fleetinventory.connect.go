@@ -34,6 +34,9 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// FleetInventoryServiceListTankOptionsProcedure is the fully-qualified name of the
+	// FleetInventoryService's ListTankOptions RPC.
+	FleetInventoryServiceListTankOptionsProcedure = "/fleetinventory.v1.FleetInventoryService/ListTankOptions"
 	// FleetInventoryServiceListInventoryProcedure is the fully-qualified name of the
 	// FleetInventoryService's ListInventory RPC.
 	FleetInventoryServiceListInventoryProcedure = "/fleetinventory.v1.FleetInventoryService/ListInventory"
@@ -53,6 +56,8 @@ const (
 
 // FleetInventoryServiceClient is a client for the fleetinventory.v1.FleetInventoryService service.
 type FleetInventoryServiceClient interface {
+	// Lightweight readable tank labels; does not compute mining-asset aggregates.
+	ListTankOptions(context.Context, *connect.Request[v1.ListTankOptionsRequest]) (*connect.Response[v1.ListTankOptionsResponse], error)
 	ListInventory(context.Context, *connect.Request[v1.ListInventoryRequest]) (*connect.Response[v1.ListInventoryResponse], error)
 	GetTankHistory(context.Context, *connect.Request[v1.GetTankHistoryRequest]) (*connect.Response[v1.GetTankHistoryResponse], error)
 	ListModuleHistory(context.Context, *connect.Request[v1.ListModuleHistoryRequest]) (*connect.Response[v1.ListModuleHistoryResponse], error)
@@ -70,6 +75,11 @@ type FleetInventoryServiceClient interface {
 func NewFleetInventoryServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) FleetInventoryServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &fleetInventoryServiceClient{
+		listTankOptions: connect.NewClient[v1.ListTankOptionsRequest, v1.ListTankOptionsResponse](
+			httpClient,
+			baseURL+FleetInventoryServiceListTankOptionsProcedure,
+			opts...,
+		),
 		listInventory: connect.NewClient[v1.ListInventoryRequest, v1.ListInventoryResponse](
 			httpClient,
 			baseURL+FleetInventoryServiceListInventoryProcedure,
@@ -100,11 +110,17 @@ func NewFleetInventoryServiceClient(httpClient connect.HTTPClient, baseURL strin
 
 // fleetInventoryServiceClient implements FleetInventoryServiceClient.
 type fleetInventoryServiceClient struct {
+	listTankOptions      *connect.Client[v1.ListTankOptionsRequest, v1.ListTankOptionsResponse]
 	listInventory        *connect.Client[v1.ListInventoryRequest, v1.ListInventoryResponse]
 	getTankHistory       *connect.Client[v1.GetTankHistoryRequest, v1.GetTankHistoryResponse]
 	listModuleHistory    *connect.Client[v1.ListModuleHistoryRequest, v1.ListModuleHistoryResponse]
 	getModuleHashboards  *connect.Client[v1.GetModuleHashboardsRequest, v1.GetModuleHashboardsResponse]
 	listHashboardHistory *connect.Client[v1.ListHashboardHistoryRequest, v1.ListHashboardHistoryResponse]
+}
+
+// ListTankOptions calls fleetinventory.v1.FleetInventoryService.ListTankOptions.
+func (c *fleetInventoryServiceClient) ListTankOptions(ctx context.Context, req *connect.Request[v1.ListTankOptionsRequest]) (*connect.Response[v1.ListTankOptionsResponse], error) {
+	return c.listTankOptions.CallUnary(ctx, req)
 }
 
 // ListInventory calls fleetinventory.v1.FleetInventoryService.ListInventory.
@@ -135,6 +151,8 @@ func (c *fleetInventoryServiceClient) ListHashboardHistory(ctx context.Context, 
 // FleetInventoryServiceHandler is an implementation of the fleetinventory.v1.FleetInventoryService
 // service.
 type FleetInventoryServiceHandler interface {
+	// Lightweight readable tank labels; does not compute mining-asset aggregates.
+	ListTankOptions(context.Context, *connect.Request[v1.ListTankOptionsRequest]) (*connect.Response[v1.ListTankOptionsResponse], error)
 	ListInventory(context.Context, *connect.Request[v1.ListInventoryRequest]) (*connect.Response[v1.ListInventoryResponse], error)
 	GetTankHistory(context.Context, *connect.Request[v1.GetTankHistoryRequest]) (*connect.Response[v1.GetTankHistoryResponse], error)
 	ListModuleHistory(context.Context, *connect.Request[v1.ListModuleHistoryRequest]) (*connect.Response[v1.ListModuleHistoryResponse], error)
@@ -148,6 +166,11 @@ type FleetInventoryServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewFleetInventoryServiceHandler(svc FleetInventoryServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	fleetInventoryServiceListTankOptionsHandler := connect.NewUnaryHandler(
+		FleetInventoryServiceListTankOptionsProcedure,
+		svc.ListTankOptions,
+		opts...,
+	)
 	fleetInventoryServiceListInventoryHandler := connect.NewUnaryHandler(
 		FleetInventoryServiceListInventoryProcedure,
 		svc.ListInventory,
@@ -175,6 +198,8 @@ func NewFleetInventoryServiceHandler(svc FleetInventoryServiceHandler, opts ...c
 	)
 	return "/fleetinventory.v1.FleetInventoryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case FleetInventoryServiceListTankOptionsProcedure:
+			fleetInventoryServiceListTankOptionsHandler.ServeHTTP(w, r)
 		case FleetInventoryServiceListInventoryProcedure:
 			fleetInventoryServiceListInventoryHandler.ServeHTTP(w, r)
 		case FleetInventoryServiceGetTankHistoryProcedure:
@@ -193,6 +218,10 @@ func NewFleetInventoryServiceHandler(svc FleetInventoryServiceHandler, opts ...c
 
 // UnimplementedFleetInventoryServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedFleetInventoryServiceHandler struct{}
+
+func (UnimplementedFleetInventoryServiceHandler) ListTankOptions(context.Context, *connect.Request[v1.ListTankOptionsRequest]) (*connect.Response[v1.ListTankOptionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetinventory.v1.FleetInventoryService.ListTankOptions is not implemented"))
+}
 
 func (UnimplementedFleetInventoryServiceHandler) ListInventory(context.Context, *connect.Request[v1.ListInventoryRequest]) (*connect.Response[v1.ListInventoryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetinventory.v1.FleetInventoryService.ListInventory is not implemented"))

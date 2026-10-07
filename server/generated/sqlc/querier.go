@@ -1314,6 +1314,8 @@ type Querier interface {
 	// re-enrollment), so the join is filtered to the one status the listing
 	// cares about. Without the filter the LEFT JOIN multiplies rows.
 	ListFleetNodesForOrganization(ctx context.Context, orgID int64) ([]ListFleetNodesForOrganizationRow, error)
+	// Tank labels only: deliberately avoid module, health, and telemetry joins.
+	ListFleetTankOptions(ctx context.Context, arg ListFleetTankOptionsParams) ([]ListFleetTankOptionsRow, error)
 	ListHashboardHistory(ctx context.Context, arg ListHashboardHistoryParams) ([]ListHashboardHistoryRow, error)
 	ListHashboardModules(ctx context.Context, deviceID int64) ([]ListHashboardModulesRow, error)
 	// Lists every live infrastructure device in the org. site_ids is an

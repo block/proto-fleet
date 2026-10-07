@@ -221,6 +221,7 @@ type MinerListProps = {
    */
   availableBuildings?: FilterLabelSource[];
   availableContainers?: FilterLabelSource[];
+  availableTanks?: FilterLabelSource[];
   /**
    * Exports the full paired miner list as CSV.
    */
@@ -754,6 +755,7 @@ const MinerList = ({
   availableSites = [],
   availableBuildings = [],
   availableContainers,
+  availableTanks,
   onExportCsv,
   exportCsvLoading = false,
   currentFilter,
@@ -1104,6 +1106,18 @@ const MinerList = ({
     [availableRacks],
   );
 
+  const tanksFilter: DropdownFilterItem = useMemo(
+    () => ({
+      type: "dropdown",
+      title: "Tanks",
+      pluralTitle: "tanks",
+      value: "tank",
+      options: availableTanks ?? [],
+      defaultOptionIds: [],
+    }),
+    [availableTanks],
+  );
+
   const firmwareFilter: DropdownFilterItem = useMemo(
     () => ({
       type: "dropdown",
@@ -1174,6 +1188,7 @@ const MinerList = ({
           buildingsFilter,
           ...(availableContainers ? [containersFilter] : []),
           racksFilter,
+          ...(availableTanks ? [tanksFilter] : []),
           zonesFilter,
           { ...groupsFilter, showGroupDivider: true },
           hashrateFilter,
@@ -1194,6 +1209,8 @@ const MinerList = ({
       containersFilter,
       availableContainers,
       racksFilter,
+      tanksFilter,
+      availableTanks,
       firmwareFilter,
       zonesFilter,
       hashrateFilter,

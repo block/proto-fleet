@@ -1374,6 +1374,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listFleetNodesForOrganizationStmt, err = db.PrepareContext(ctx, listFleetNodesForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetNodesForOrganization: %w", err)
 	}
+	if q.listFleetTankOptionsStmt, err = db.PrepareContext(ctx, listFleetTankOptions); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFleetTankOptions: %w", err)
+	}
 	if q.listHashboardHistoryStmt, err = db.PrepareContext(ctx, listHashboardHistory); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHashboardHistory: %w", err)
 	}
@@ -4517,6 +4520,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listFleetNodesForOrganizationStmt: %w", cerr)
 		}
 	}
+	if q.listFleetTankOptionsStmt != nil {
+		if cerr := q.listFleetTankOptionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFleetTankOptionsStmt: %w", cerr)
+		}
+	}
 	if q.listHashboardHistoryStmt != nil {
 		if cerr := q.listHashboardHistoryStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listHashboardHistoryStmt: %w", cerr)
@@ -6486,6 +6494,7 @@ type Queries struct {
 	listFleetNodeDevicesStmt                                     *sql.Stmt
 	listFleetNodeDiscoveredDevicesStmt                           *sql.Stmt
 	listFleetNodesForOrganizationStmt                            *sql.Stmt
+	listFleetTankOptionsStmt                                     *sql.Stmt
 	listHashboardHistoryStmt                                     *sql.Stmt
 	listHashboardModulesStmt                                     *sql.Stmt
 	listInfrastructureDevicesByOrgStmt                           *sql.Stmt
@@ -7238,6 +7247,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listFleetNodeDevicesStmt:                                     q.listFleetNodeDevicesStmt,
 		listFleetNodeDiscoveredDevicesStmt:                           q.listFleetNodeDiscoveredDevicesStmt,
 		listFleetNodesForOrganizationStmt:                            q.listFleetNodesForOrganizationStmt,
+		listFleetTankOptionsStmt:                                     q.listFleetTankOptionsStmt,
 		listHashboardHistoryStmt:                                     q.listHashboardHistoryStmt,
 		listHashboardModulesStmt:                                     q.listHashboardModulesStmt,
 		listInfrastructureDevicesByOrgStmt:                           q.listInfrastructureDevicesByOrgStmt,
