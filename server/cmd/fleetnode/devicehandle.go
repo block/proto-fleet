@@ -14,9 +14,10 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
-// Reserve capacity for active operations and confirmed registrations awaiting
-// cleanup. A plugin outage must apply backpressure before creating more handles.
-const maxOwnedDeviceHandles = 2 * commandPoolSize
+// Idle telemetry clients have their own allowance, preserving the capacity for
+// active operations and registrations awaiting cleanup. Plugin outages still
+// apply backpressure before creating more handles.
+const maxOwnedDeviceHandles = 2*commandPoolSize + maxCachedTelemetryDevices
 
 type deviceHandlePool struct {
 	ctx              context.Context //nolint:containedctx // Owns cleanup workers for the plugin-process lifetime, across control sessions.

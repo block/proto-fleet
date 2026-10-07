@@ -56,12 +56,14 @@ type pluginTelemetryFetcher struct {
 	inflight      map[string]*telemetrySlot
 	workerTokens  chan struct{}
 	deviceHandles *deviceHandlePool
+	cached        map[string]*cachedTelemetryDevice
 }
 
 type telemetrySlot struct {
 	fetcher          *pluginTelemetryFetcher
 	deviceIdentifier string
 	released         bool
+	abandoned        bool
 }
 
 func newPluginTelemetryFetcher(manager *plugins.Manager, minerSecrets secretProvider, deviceHandles *deviceHandlePool) (*pluginTelemetryFetcher, error) {
@@ -74,11 +76,14 @@ func newPluginTelemetryFetcher(manager *plugins.Manager, minerSecrets secretProv
 	if deviceHandles == nil {
 		return nil, fmt.Errorf("device handle pool is required")
 	}
-	return &pluginTelemetryFetcher{
+	fetcher := &pluginTelemetryFetcher{
 		manager:       manager,
 		minerSecrets:  minerSecrets,
 		deviceHandles: deviceHandles,
-	}, nil
+		cached:        make(map[string]*cachedTelemetryDevice),
+	}
+	context.AfterFunc(deviceHandles.ctx, fetcher.clearCachedDevices)
+	return fetcher, nil
 }
 
 func (r *RunCmd) handleTelemetryCommand(ctx context.Context, stream acker, commandID string, req *telemetrypb.FleetNodeTelemetryRequest, logger *slog.Logger) {
@@ -148,7 +153,7 @@ func abandonTelemetryFetch(fetcher telemetryFetcher, req *telemetrypb.FleetNodeT
 	return ok && abandoner.AbandonTelemetryFetch(req.GetDeviceIdentifier())
 }
 
-func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error) {
+func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.FleetNodeTelemetryRequest) (_ *telemetrypb.FleetNodeTelemetryResult, fetchErr error) {
 	plugin, err := f.manager.GetPluginByDriverNameWithCapability(req.GetDriverName(), sdk.CapabilityRealtimeTelemetry)
 	if err != nil {
 		return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "no telemetry-capable driver %q: %v", req.GetDriverName(), err)
@@ -184,30 +189,39 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 	}
 	defer slot.releaseWorker()
 
-	lease, err := f.deviceHandles.acquire()
+	key, err := telemetryDeviceKey(deviceInfo, secret)
 	if err != nil {
-		return nil, err
+		return nil, cmdErr(pb.AckCode_ACK_CODE_INTERNAL, "cannot identify telemetry credentials")
 	}
-
 	redactions := telemetrySecretRedactions(secret)
-	// A sample owns its registration through asynchronous close. A later sample
-	// or command for this miner must have a different SDK handle.
-	handleID := "telemetry-" + uuid.NewString()
-	created, err := plugin.Driver.NewDevice(ctx, handleID, deviceInfo, secret)
-	if err != nil {
-		lease.releaseAfterFailedCreation(ctx, plugin.Driver, handleID, err)
-		code, msg := classifyTelemetryError("create telemetry device", err, redactions...)
-		return nil, cmdErr(code, "%s", msg)
+	entry := f.takeCachedDevice(req.GetDeviceIdentifier(), plugin, key)
+	if entry == nil {
+		lease, acquireErr := f.deviceHandles.acquire()
+		if acquireErr != nil {
+			return nil, acquireErr
+		}
+		// Commands and replacement clients always get distinct registrations.
+		handleID := "telemetry-" + uuid.NewString()
+		created, createErr := plugin.Driver.NewDevice(ctx, handleID, deviceInfo, secret)
+		if createErr != nil {
+			lease.releaseAfterFailedCreation(ctx, plugin.Driver, handleID, createErr)
+			code, msg := classifyTelemetryError("create telemetry device", createErr, redactions...)
+			return nil, cmdErr(code, "%s", msg)
+		}
+		entry = &cachedTelemetryDevice{
+			device: created.Device, handleID: handleID, lease: lease, plugin: plugin, key: key,
+			expiresAt: time.Now().Add(telemetryDeviceTTL),
+		}
 	}
-	defer lease.close(created.Device)
+	defer func() { f.finishCachedDevice(ctx, slot, entry, fetchErr == nil) }()
 
-	sdkMetrics, err := created.Device.Status(ctx)
+	sdkMetrics, err := entry.device.Status(ctx)
 	if err != nil {
 		code, msg := classifyTelemetryError("fetch telemetry", err, redactions...)
 		return nil, cmdErr(code, "%s", msg)
 	}
 	v2Metrics := mappers.SDKDeviceMetricsToV2(sdkMetrics)
-	if err := validateTelemetryMetricsIdentity(req.GetDeviceIdentifier(), handleID, v2Metrics); err != nil {
+	if err := validateTelemetryMetricsIdentity(req.GetDeviceIdentifier(), entry.handleID, v2Metrics); err != nil {
 		return nil, err
 	}
 	// Gateway telemetry is keyed by the physical miner, never the SDK handle.
@@ -253,6 +267,9 @@ func (f *pluginTelemetryFetcher) AbandonTelemetryFetch(deviceIdentifier string) 
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	slot := f.inflight[deviceIdentifier]
+	if slot != nil {
+		slot.abandoned = true
+	}
 	return slot != nil
 }
 

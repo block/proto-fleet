@@ -33,16 +33,21 @@ serial, including when authentication is renewed. A different miner reusing the
 old address is rejected even if it accepts the same password, rather than having
 its telemetry attributed to the original miner.
 
-Fleet Node commands and telemetry use separate temporary plugin handles. Closing
-one operation cannot remove another operation's handle; gateway requests and
-reported telemetry continue to use the miner's stable Fleet identifier.
+Fleet Node telemetry reuses authenticated plugin devices for up to one minute,
+matching direct Fleet's client lifetime. Connection details, credentials, or
+plugin changes replace the cached device; failed or canceled polls evict it.
+Only idle devices are cached, with at most 512 retained handles. Expired devices
+are cleaned up even when polling stops. Commands use separate temporary handles,
+so closing one operation cannot remove another operation's handle. Gateway
+requests and reported telemetry keep the miner's stable Fleet identifier.
 
 Successful registrations retain their handle budget until the plugin confirms
 removal. So does a registration whose creation response was canceled or lost:
 its cleanup runs after the operation returns and keeps the budget until the
 plugin confirms the handle is absent. Failed closes retry with backoff across
 control-stream reconnects, with one cleanup worker per owned handle. Commands and
-telemetry share a limit of 1,024 active or pending handles; when it is full, new
+telemetry share a limit of 1,536 handles: 512 for idle cached devices and the
+existing 1,024 for active operations or pending cleanup. When it is full, new
 operations return busy before registering another handle. Plugin shutdown cancels
 cleanup retries.
 
