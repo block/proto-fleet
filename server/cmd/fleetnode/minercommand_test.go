@@ -176,7 +176,7 @@ func TestHandleMinerCommand_ExecutesAndAcksOK(t *testing.T) {
 	dev.EXPECT().Reboot(gomock.Any()).Return(nil)
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
 	ack := &captureAcker{}
 
@@ -204,7 +204,7 @@ func TestHandleMinerCommand_DecryptsTargetCredential(t *testing.T) {
 	})
 	require.NoError(t, err)
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
 			assert.Equal(t, sdk.UsernamePassword{Username: "root", Password: "hunter2"}, secret.Kind)
 			return sdk.NewDeviceResult{Device: dev}, nil
@@ -326,7 +326,7 @@ func TestHandleMinerCommand_UpdatesMiningPools(t *testing.T) {
 		})
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
 	ack := &captureAcker{}
 
@@ -362,7 +362,7 @@ func TestHandleMinerCommand_UpdateMinerPasswordReturnsEncryptedCredentials(t *te
 	require.NoError(t, err)
 
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	action, privateKey := encryptedPasswordUpdateAction(t, "old-password", "new-password")
 	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: codec, passwordUpdatePrivateKey: privateKey}
 	ack := &captureAcker{}
@@ -402,7 +402,7 @@ func TestHandleMinerCommand_UpdateMinerPasswordDialsWithCurrentPassword(t *testi
 
 	drv := mocks.NewMockDriver(ctrl)
 	drv.EXPECT().
-		NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).
+		NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
 			assert.Equal(t, sdk.UsernamePassword{Username: "root", Password: "current-password"}, secret.Kind)
 			return sdk.NewDeviceResult{Device: dev}, nil
@@ -445,7 +445,7 @@ func TestHandleMinerCommand_UpdateMinerPasswordAllowsPasswordOnlyCredentials(t *
 	require.NoError(t, err)
 
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	action, privateKey := encryptedPasswordUpdateAction(t, "old-password", "new-password")
 	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: codec, passwordUpdatePrivateKey: privateKey}
 	ack := &captureAcker{}
@@ -479,7 +479,7 @@ func TestHandleMinerCommand_UpdateMinerPasswordUsesCurrentPasswordWhenProtoCrede
 	codec := &credentialCodec{key: bytes.Repeat([]byte{7}, credentialKeySize)}
 	drv := mocks.NewMockDriver(ctrl)
 	drv.EXPECT().
-		NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).
+		NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, _ string, _ sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
 			assert.Equal(t, sdk.UsernamePassword{Username: minermodels.ProtoDefaultUsername, Password: "old-password"}, secret.Kind)
 			return sdk.NewDeviceResult{Device: dev}, nil
@@ -512,7 +512,7 @@ func TestHandleMinerCommand_UpdateMinerPasswordSealsBeforeUpdatingDevice(t *test
 	dev := mocks.NewMockDevice(ctrl)
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	r := &RunCmd{
 		driverGetter:             fakeDriverGetter{d: drv},
 		passwordUpdatePrivateKey: nil,
@@ -553,7 +553,7 @@ func TestHandleMinerCommand_UpdateMinerPasswordFailedPreconditionAcksUnauthentic
 	require.NoError(t, err)
 
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	action, privateKey := encryptedPasswordUpdateAction(t, "old-password", "new-password")
 	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: codec, passwordUpdatePrivateKey: privateKey}
 	ack := &captureAcker{}
@@ -653,7 +653,7 @@ func TestHandleMinerCommand_FirmwareUpdateDownloadsArtifactAndCallsDevice(t *tes
 		})
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}, firmwareTempRoot: firmwareTempRoot}
 	ack := &captureAcker{}
 
@@ -681,7 +681,7 @@ func TestHandleMinerCommand_FirmwareUpdateRejectsChecksumMismatch(t *testing.T) 
 	dev := mocks.NewMockDevice(ctrl)
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
 	ack := &captureAcker{}
 
@@ -701,7 +701,7 @@ func TestHandleMinerCommand_FirmwareUpdateRejectsOversizedArtifact(t *testing.T)
 	dev := mocks.NewMockDevice(ctrl)
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}, firmwareTempRoot: t.TempDir()}
 	ack := &captureAcker{}
 
@@ -721,7 +721,7 @@ func TestHandleMinerCommand_GetFirmwareUpdateStatusReturnsPayload(t *testing.T) 
 	dev := mocks.NewMockDevice(ctrl)
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{
 		Device: firmwareStatusDevice{
 			Device: dev,
 			status: &sdk.FirmwareUpdateStatus{
@@ -754,7 +754,7 @@ func TestHandleMinerCommand_GetFirmwareUpdateStatusWithoutProviderReturnsEmptyPa
 	dev := mocks.NewMockDevice(ctrl)
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
 	ack := &captureAcker{}
 
@@ -807,7 +807,7 @@ func TestHandleMinerCommand_GetMiningPoolsReturnsPayload(t *testing.T) {
 	}, nil)
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
 	ack := &captureAcker{}
 
@@ -858,7 +858,7 @@ func TestHandleMinerCommand_GetErrorsReturnsPayload(t *testing.T) {
 	}, nil)
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
 	ack := &captureAcker{}
 
@@ -918,7 +918,7 @@ func TestHandleMinerCommand_DownloadLogsUploadsCSVAndAcksOK(t *testing.T) {
 			dev.EXPECT().DownloadLogs(gomock.Any(), nil, "batch-1").Return(tc.logData, false, nil)
 			dev.EXPECT().Close(gomock.Any()).Return(nil)
 			drv := mocks.NewMockDriver(ctrl)
-			drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+			drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 			drv.EXPECT().DescribeDriver(gomock.Any()).Return(sdk.DriverIdentifier{}, tc.caps, nil)
 
 			sum := sha256.Sum256([]byte(tc.wantBody))
@@ -962,7 +962,7 @@ func TestHandleMinerCommand_DownloadLogsAcksFailureWhenUploadFails(t *testing.T)
 	dev.EXPECT().DownloadLogs(gomock.Any(), nil, "batch-1").Return("2026-02-24 07:52:12 log line\n", false, nil)
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	drv.EXPECT().DescribeDriver(gomock.Any()).Return(sdk.DriverIdentifier{}, sdk.Capabilities{}, nil)
 	fake := &fakeFleetNodeGateway{commandArtifactErr: connect.NewError(connect.CodeInternal, errors.New("upload failed"))}
 	server := newFakeServer(t, fake)
@@ -988,7 +988,7 @@ func TestHandleMinerCommand_DownloadLogsUploadsPartialDataThenAcksPartial(t *tes
 	dev.EXPECT().DownloadLogs(gomock.Any(), nil, "batch-1").Return(logData, true, nil)
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	drv.EXPECT().DescribeDriver(gomock.Any()).Return(sdk.DriverIdentifier{}, sdk.Capabilities{}, nil)
 	sum := sha256.Sum256([]byte(wantBody))
 	sha := hex.EncodeToString(sum[:])
@@ -1041,7 +1041,7 @@ func TestHandleMinerCommand_DownloadLogsRejectsOversizedLogs(t *testing.T) {
 			dev.EXPECT().DownloadLogs(gomock.Any(), nil, "batch-1").Return(tc.logData, false, nil)
 			dev.EXPECT().Close(gomock.Any()).Return(nil)
 			drv := mocks.NewMockDriver(ctrl)
-			drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+			drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 			drv.EXPECT().DescribeDriver(gomock.Any()).Return(sdk.DriverIdentifier{}, sdk.Capabilities{}, nil)
 			fake := &fakeFleetNodeGateway{}
 			server := newFakeServer(t, fake)
@@ -1181,7 +1181,7 @@ func TestHandleMinerCommand_GetErrorsReturnsTruncatedPayloadForOversizedPayload(
 	}, nil)
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
 	ack := &captureAcker{}
 
@@ -1216,7 +1216,7 @@ func TestHandleMinerCommand_GetMiningPoolsTrimsUnsupportedPoolSlots(t *testing.T
 	}, nil)
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
-	drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
 	ack := &captureAcker{}
 
@@ -1272,7 +1272,7 @@ func TestHandleMinerCommand_GetMiningPoolsRejectsInvalidPluginResult(t *testing.
 			dev.EXPECT().GetMiningPools(gomock.Any()).Return(tc.pools, nil)
 			dev.EXPECT().Close(gomock.Any()).Return(nil)
 			drv := mocks.NewMockDriver(ctrl)
-			drv.EXPECT().NewDevice(gomock.Any(), "dev-1", gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
+			drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 			r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
 			ack := &captureAcker{}
 

@@ -64,6 +64,9 @@ type Client struct {
 	loginMu     sync.Mutex
 	credentials sdk.UsernamePassword
 	accessToken string
+
+	identityMu       sync.Mutex
+	expectedIdentity *deviceIdentity
 }
 
 // errInvalidCredentials is returned by loginWithPassword on an HTTP 401 so callers
@@ -659,6 +662,13 @@ func (c *Client) doRequestWithHeaders(ctx context.Context, method, path string, 
 }
 
 func (c *Client) sendRequest(ctx context.Context, method, path string, bodyBytes []byte, token string, headers http.Header) (*http.Response, error) {
+	if err := c.verifyIdentity(ctx); err != nil {
+		return nil, err
+	}
+	return c.sendUncheckedRequest(ctx, method, path, bodyBytes, token, headers)
+}
+
+func (c *Client) sendUncheckedRequest(ctx context.Context, method, path string, bodyBytes []byte, token string, headers http.Header) (*http.Response, error) {
 	var bodyReader io.Reader
 	if bodyBytes != nil {
 		bodyReader = bytes.NewReader(bodyBytes)
@@ -701,6 +711,10 @@ func (c *Client) doGetWithStatus(ctx context.Context, path string, result any) (
 	if err != nil {
 		return 0, err
 	}
+	return decodeGetResponse(resp, result)
+}
+
+func decodeGetResponse(resp *http.Response, result any) (int, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
@@ -873,8 +887,8 @@ func (c *Client) GetUpdateStatus(ctx context.Context) (*swUpdateStatus, error) {
 
 // GetDeviceInfo retrieves basic device information via the pairing info endpoint.
 func (c *Client) GetDeviceInfo(ctx context.Context) (*DeviceInfo, error) {
-	var resp pairingInfoResponse
-	if err := c.doGet(ctx, "/api/v1/pairing/info", &resp); err != nil {
+	resp, err := c.observeIdentity(ctx)
+	if err != nil {
 		return nil, fmt.Errorf("failed to get pairing info: %w", err)
 	}
 
@@ -890,6 +904,8 @@ func (c *Client) GetDeviceInfo(ctx context.Context) (*DeviceInfo, error) {
 		if sysResp.SystemInfo.Manufacturer != "" {
 			manufacturer = sysResp.SystemInfo.Manufacturer
 		}
+	} else if errors.Is(err, ErrDeviceIdentity) {
+		return nil, err
 	}
 
 	return &DeviceInfo{
@@ -916,6 +932,9 @@ func (c *Client) GetStatus(ctx context.Context) (*Status, error) {
 	// The actual pool list is the source of truth because MiningState can be stale.
 	needsPool, err := c.checkNeedsMiningPool(ctx)
 	if err != nil {
+		if errors.Is(err, ErrDeviceIdentity) {
+			return nil, err
+		}
 		slog.Warn("failed to check pool configuration", "error", err)
 	} else if needsPool {
 		state = sdk.HealthNeedsMiningPool
@@ -1095,6 +1114,9 @@ func convertTelemetryResponse(resp *telemetryResponse) *TelemetryValues {
 // loginWithPassword authenticates via the miner's login endpoint and returns an access token.
 // This deliberately bypasses doRequest to avoid sending the fleet bearer token.
 func (c *Client) loginWithPassword(ctx context.Context, password string) (string, error) {
+	if err := c.verifyIdentity(ctx); err != nil {
+		return "", err
+	}
 	bodyBytes, err := json.Marshal(loginRequest{Password: password})
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal login request: %w", err)
@@ -1136,6 +1158,10 @@ func (c *Client) ChangePassword(ctx context.Context, currentPassword, newPasswor
 		if errors.Is(err, errInvalidCredentials) {
 			return fmt.Errorf("incorrect current password: %w", grpcstatus.Error(codes.FailedPrecondition, "incorrect current password"))
 		}
+		return err
+	}
+
+	if err := c.verifyIdentity(ctx); err != nil {
 		return err
 	}
 
@@ -1428,6 +1454,10 @@ func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) 
 		return err
 	}
 
+	if err := c.verifyIdentity(ctx); err != nil {
+		return err
+	}
+
 	parts, err := multipartFirmwareParts(firmware)
 	if err != nil {
 		return err
@@ -1462,7 +1492,7 @@ func (c *Client) UploadFirmware(ctx context.Context, firmware sdk.FirmwareFile) 
 	if transport == nil {
 		transport = http.DefaultTransport
 	}
-	uploadClient := &http.Client{Transport: transport}
+	uploadClient := &http.Client{Transport: transport, CheckRedirect: c.httpClient.CheckRedirect}
 
 	resp, err := uploadClient.Do(req)
 	if err != nil {

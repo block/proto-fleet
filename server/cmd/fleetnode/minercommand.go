@@ -17,6 +17,7 @@ import (
 
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
+	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -138,7 +139,17 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	cmdCtx, cancel := context.WithTimeout(ctx, minerCommandActionTimeout(mc))
 	defer cancel()
 
-	result, err := driver.NewDevice(cmdCtx, target.GetDeviceIdentifier(), sdk.DeviceInfo{
+	lease, err := r.getDeviceHandlePool().acquire()
+	if err != nil {
+		code, msg := classifyMinerCommandError("reserve device handle", err)
+		r.sendAck(stream, commandID, code, msg, logger)
+		return
+	}
+
+	// SDK IDs own a registration, not a physical miner. Concurrent commands and
+	// telemetry must not replace or close each other's device handles.
+	handleID := "command-" + uuid.NewString()
+	result, err := driver.NewDevice(cmdCtx, handleID, sdk.DeviceInfo{
 		Host:         target.GetIpAddress(),
 		Port:         port,
 		URLScheme:    target.GetUrlScheme(),
@@ -146,19 +157,13 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		MacAddress:   target.GetMacAddress(),
 	}, bundle)
 	if err != nil {
+		lease.releaseAfterFailedCreation(cmdCtx, driver, handleID, err)
 		code, msg := classifyMinerCommandError("connect to miner", err)
 		r.sendAck(stream, commandID, code, msg, logger)
 		return
 	}
 	dev := result.Device
-	defer func() {
-		// Best-effort release on a ctx that outlives a timed-out command.
-		closeCtx, closeCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer closeCancel()
-		if cerr := dev.Close(closeCtx); cerr != nil {
-			logger.Warn("closing device after command", "command_id", commandID, "err", cerr)
-		}
-	}()
+	defer lease.closeAndWait(dev)
 
 	caps, err := commandCapabilities(cmdCtx, driver, mc)
 	if err != nil {
