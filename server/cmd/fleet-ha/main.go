@@ -30,6 +30,8 @@ const (
 )
 
 type cli struct {
+	RecoverEtcdRoot   recoverEtcdRootCmd   `cmd:"" help:"rotate the etcd administrator password using the installed signing key"`
+	EtcdStatus        etcdStatusCmd        `cmd:"" help:"check etcd quorum and quota without Fleet; nonzero on warning"`
 	Preflight         preflightCmd         `cmd:"" help:"validate an HA host before installation"`
 	BootstrapEtcdAuth bootstrapEtcdAuthCmd `cmd:"" help:"enable etcd authentication and create service roles"`
 	RenderKeepalived  renderKeepalivedCmd  `cmd:"" help:"render the keepalived configuration"`
@@ -50,6 +52,15 @@ type cli struct {
 	AppStop           appStopCmd           `cmd:"" help:"stop the Fleet application services"`
 	AppStart          appStartCmd          `cmd:"" help:"start the Fleet application services"`
 	WaitTakeover      waitTakeoverCmd      `cmd:"" help:"wait for the public endpoint to serve an application version"`
+}
+
+type recoverEtcdRootCmd struct {
+	PasswordFile string `arg:"" type:"path" help:"existing protected file containing the replacement password; retained on failure"`
+	NodeEnv      string `default:"/etc/proto-fleet/ha/node.env" type:"path" help:"installed node environment file"`
+}
+
+func (c *recoverEtcdRootCmd) Run(ctx context.Context) error {
+	return deployment.RecoverEtcdRoot(ctx, c.NodeEnv, c.PasswordFile)
 }
 
 type prepareExternalCmd struct {
@@ -499,4 +510,22 @@ func triggerUpdate(ctx context.Context, operationID, targetVersion string, trigg
 		case <-time.After(updatePollInterval):
 		}
 	}
+}
+
+type etcdStatusCmd struct {
+	NodeEnv string `name:"node-env" default:"/etc/proto-fleet/ha/node.env" type:"path" help:"protected node environment file"`
+}
+
+func (c *etcdStatusCmd) Run(ctx context.Context) error {
+	report, err := deployment.EtcdStatus(ctx, c.NodeEnv)
+	if err != nil {
+		return err
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
+		return fmt.Errorf("write etcd status: %w", err)
+	}
+	if !report.Healthy {
+		return errors.New("etcd health or space check failed; inspect member capacity and alarms")
+	}
+	return nil
 }

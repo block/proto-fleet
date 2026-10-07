@@ -15,6 +15,9 @@ services:
       - /usr/local/bin/etcd
       - --name=${HA_NODE_NAME}
       - --data-dir=/var/lib/etcd
+      # Bound Patroni revision history; current keys and leases remain intact.
+      - --auto-compaction-mode=periodic
+      - --auto-compaction-retention=1h
       - --listen-client-urls=https://${HA_NODE_IP}:2379
       - --advertise-client-urls=https://${HA_NODE_IP}:2379
       - --listen-peer-urls=https://${HA_NODE_IP}:2380
