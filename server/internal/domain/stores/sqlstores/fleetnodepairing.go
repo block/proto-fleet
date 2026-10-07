@@ -101,6 +101,18 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDevices(ctx context.Context, org
 	return out, nil
 }
 
+func (s *SQLFleetNodePairingStore) CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) (map[int64]int64, error) {
+	rows, err := s.q(ctx).CountFleetNodeDevicesByNode(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[int64]int64, len(rows))
+	for _, row := range rows {
+		counts[row.FleetNodeID] = row.DeviceCount
+	}
+	return counts, nil
+}
+
 func (s *SQLFleetNodePairingStore) GetFleetNodePairedDeviceIdentifier(ctx context.Context, deviceID, orgID int64) (string, error) {
 	return s.q(ctx).GetFleetNodePairedDeviceIdentifier(ctx, sqlc.GetFleetNodePairedDeviceIdentifierParams{
 		DeviceID: deviceID,

@@ -63,6 +63,9 @@ message FleetNodeSummary {
     bool command_protocol_upgrade_required = 8;
     // True only while this node has an active ControlStream connection.
     bool control_stream_connected = 9;
+    // Number of live devices assigned to this node. Redacted for callers with
+    // miner:pair only, like the other administrative details.
+    int64 paired_device_count = 10;
 }
 
 message ConfirmFleetNodeRequest {

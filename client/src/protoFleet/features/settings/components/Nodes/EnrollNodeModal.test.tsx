@@ -23,6 +23,7 @@ const awaitingNode: FleetNodeItem = {
   identityFingerprint: "abcd1234abcd1234",
   commandProtocolUpgradeRequired: false,
   controlStreamConnected: false,
+  pairedDeviceCount: 0,
   createdAt: new Date("2026-07-09T12:00:00Z"),
   lastSeenAt: null,
 };
@@ -33,6 +34,10 @@ beforeEach(() => {
     createEnrollmentCode: mockCreateEnrollmentCode,
     confirmFleetNode: mockConfirmFleetNode,
     revokeFleetNode: mockRevokeFleetNode,
+    listFleetNodeDevices: vi.fn(),
+    listFleetNodeDiscoveredDevices: vi.fn(),
+    discoverOnFleetNode: vi.fn(),
+    pairDiscoveredDevicesOnFleetNode: vi.fn(),
   });
 
   vi.clearAllMocks();

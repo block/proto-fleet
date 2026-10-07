@@ -38,6 +38,7 @@ type Store interface { //nolint:interfacebloat // Pairing coordinates several sq
 	DeviceHasActivePairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	UnpairDevice(ctx context.Context, deviceID, orgID int64) (int64, error)
 	ListFleetNodeDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]FleetNodeDevice, error)
+	CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) (map[int64]int64, error)
 	ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64, filter FleetNodeDiscoveredDeviceFilter) ([]FleetNodeDiscoveredDevice, error)
 	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID int64, fleetNodeID int64, report DiscoveredDeviceReport) (int64, error)
 	DeviceExistsInOrg(ctx context.Context, deviceID, orgID int64) (bool, error)
@@ -342,6 +343,14 @@ func (s *Service) ListPairs(ctx context.Context, orgID int64) ([]FleetNodeDevice
 		return nil, fleeterror.LogInternal(component, "list pairs", clientErrList, err)
 	}
 	return pairs, nil
+}
+
+func (s *Service) CountDevicesByNode(ctx context.Context, orgID int64) (map[int64]int64, error) {
+	counts, err := s.store.CountFleetNodeDevicesByNode(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.LogInternal(component, "count pairs by fleet node", clientErrList, err)
+	}
+	return counts, nil
 }
 
 func (s *Service) ListDevicesForFleetNode(ctx context.Context, fleetNodeID, orgID int64) ([]FleetNodeDevice, error) {

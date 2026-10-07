@@ -12,6 +12,7 @@ const baseNode: FleetNodeItem = {
   identityFingerprint: "abcd1234abcd1234",
   commandProtocolUpgradeRequired: false,
   controlStreamConnected: false,
+  pairedDeviceCount: 0,
   createdAt: new Date("2026-07-09T12:00:00Z"),
   lastSeenAt: null,
 };
@@ -22,17 +23,27 @@ afterEach(() => {
 
 describe("NodeStatusBadge", () => {
   it.each([
-    ["Online", 30_000],
-    ["Online", 120_000],
+    ["Connected", 30_000],
+    ["Connected", 120_000],
     ["Stale", 120_001],
   ])("shows %s for a confirmed node last seen %dms ago", (label, ageMs) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-09T12:10:00Z"));
-    const node = { ...baseNode, lastSeenAt: new Date(Date.now() - ageMs) };
+    const node = { ...baseNode, controlStreamConnected: true, lastSeenAt: new Date(Date.now() - ageMs) };
 
     const { getByText } = render(<NodeStatusBadge node={node} />);
 
     expect(getByText(label)).toBeInTheDocument();
+  });
+
+  it("shows Heartbeat only when a fresh heartbeat has no control stream", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-09T12:10:00Z"));
+    const node = { ...baseNode, lastSeenAt: new Date(Date.now() - 30_000) };
+
+    const { getByText } = render(<NodeStatusBadge node={node} />);
+
+    expect(getByText("Heartbeat only")).toBeInTheDocument();
   });
 
   it("shows Never connected for a confirmed node without a heartbeat", () => {
@@ -45,11 +56,12 @@ describe("NodeStatusBadge", () => {
     const node = {
       ...baseNode,
       commandProtocolUpgradeRequired: true,
+      controlStreamConnected: true,
     };
 
     const { getByText } = render(<NodeStatusBadge node={node} />);
 
-    expect(getByText("Online - upgrade required")).toBeInTheDocument();
+    expect(getByText("Upgrade required")).toBeInTheDocument();
   });
 
   it("shows Awaiting confirmation for a registered node", () => {

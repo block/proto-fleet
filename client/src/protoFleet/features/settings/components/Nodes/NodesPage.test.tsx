@@ -10,6 +10,7 @@ import type { ListAction, ListActionValue } from "@/shared/components/List/types
 const permissionsMock = vi.hoisted(() => ({ current: [] as string[] }));
 const listFleetNodesMock = vi.hoisted(() => vi.fn());
 const revokeFleetNodeMock = vi.hoisted(() => vi.fn());
+const listFleetNodeDevicesMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: (permission: string) => permissionsMock.current.includes(permission),
@@ -21,6 +22,7 @@ vi.mock("@/protoFleet/api/useFleetNodes", () => ({
     createEnrollmentCode: vi.fn(),
     confirmFleetNode: vi.fn(),
     revokeFleetNode: revokeFleetNodeMock,
+    listFleetNodeDevices: listFleetNodeDevicesMock,
   }),
 }));
 
@@ -44,14 +46,28 @@ vi.mock("@/protoFleet/features/settings/components/Nodes/EnrollNodeModal", () =>
     ) : null,
 }));
 
+vi.mock("@/protoFleet/features/settings/components/Nodes/NodeDetailsModal", () => ({
+  default: ({ node }: { node: FleetNodeItem }) => (
+    <div role="dialog" aria-label="Node details">
+      {node.name}
+    </div>
+  ),
+}));
+
 vi.mock("@/protoFleet/features/settings/components/Nodes/RevokeNodeDialog", () => ({
   default: ({
     open,
     nodeName,
+    affectedMiners,
+    isLoadingImpact,
+    impactError,
     onConfirm,
   }: {
     open: boolean;
     nodeName: string;
+    affectedMiners: string[];
+    isLoadingImpact: boolean;
+    impactError: string;
     onConfirm: () => void;
     onDismiss: () => void;
     isSubmitting: boolean;
@@ -59,7 +75,8 @@ vi.mock("@/protoFleet/features/settings/components/Nodes/RevokeNodeDialog", () =
     open ? (
       <div role="dialog" aria-label="Revoke node">
         <div>{nodeName}</div>
-        <button type="button" onClick={onConfirm}>
+        <div>{affectedMiners.length} affected miners</div>
+        <button type="button" onClick={onConfirm} disabled={isLoadingImpact || !!impactError}>
           Confirm revoke
         </button>
       </div>
@@ -77,10 +94,12 @@ vi.mock("@/shared/components/List", () => {
       items,
       noDataElement,
       actions,
+      onRowClick,
     }: {
       items: FleetNodeItem[];
       noDataElement?: ReactNode;
       actions?: ListAction<FleetNodeItem>[];
+      onRowClick?: (node: FleetNodeItem) => void;
     }) => (
       <div data-testid="nodes-list">
         {items.length === 0
@@ -88,6 +107,11 @@ vi.mock("@/shared/components/List", () => {
           : items.map((node) => (
               <div key={node.fleetNodeId}>
                 <span>{node.name}</span>
+                {onRowClick ? (
+                  <button type="button" onClick={() => onRowClick(node)}>
+                    View {node.name}
+                  </button>
+                ) : null}
                 {actions?.map((action, index) => {
                   if (resolveActionValue(action.hidden, node)) {
                     return null;
@@ -120,6 +144,7 @@ const confirmedNode: FleetNodeItem = {
   identityFingerprint: "abcd1234abcd1234",
   commandProtocolUpgradeRequired: false,
   controlStreamConnected: true,
+  pairedDeviceCount: 0,
   createdAt: new Date("2026-07-09T12:00:00Z"),
   lastSeenAt: new Date("2026-07-09T12:01:00Z"),
 };
@@ -145,6 +170,8 @@ describe("NodesPage", () => {
     listFleetNodesMock.mockResolvedValue([confirmedNode]);
     revokeFleetNodeMock.mockReset();
     revokeFleetNodeMock.mockResolvedValue(undefined);
+    listFleetNodeDevicesMock.mockReset();
+    listFleetNodeDevicesMock.mockResolvedValue([]);
   });
 
   it("renders nodes for read-only users without management actions", async () => {
@@ -180,8 +207,31 @@ describe("NodesPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
     expect(screen.getByRole("dialog", { name: "Revoke node" })).toBeInTheDocument();
 
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm revoke" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Confirm revoke" }));
 
     await waitFor(() => expect(revokeFleetNodeMock).toHaveBeenCalledWith("7", "11"));
+  });
+
+  it("shows status totals and opens Node details", async () => {
+    listFleetNodesMock.mockResolvedValue([{ ...confirmedNode, lastSeenAt: new Date() }]);
+    renderNodesPage();
+
+    expect(await screen.findByText("node-01")).toBeInTheDocument();
+    expect(screen.getByLabelText("Node status totals")).toHaveTextContent("Connected1");
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    expect(screen.getByRole("dialog", { name: "Node details" })).toHaveTextContent("node-01");
+  });
+
+  it("loads the affected miners before allowing revocation", async () => {
+    listFleetNodeDevicesMock.mockResolvedValue([{ deviceIdentifier: "miner-1" }, { deviceIdentifier: "miner-2" }]);
+    renderNodesPage();
+
+    expect(await screen.findByText("node-01")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "Revoke node" })).toHaveTextContent("2 affected miners"),
+    );
+    expect(listFleetNodeDevicesMock).toHaveBeenCalledWith("7");
   });
 });

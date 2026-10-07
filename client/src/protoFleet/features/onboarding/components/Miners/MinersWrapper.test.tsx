@@ -66,6 +66,10 @@ beforeEach(() => {
     createEnrollmentCode: vi.fn(),
     confirmFleetNode: vi.fn(),
     revokeFleetNode: vi.fn(),
+    listFleetNodeDevices: vi.fn(),
+    listFleetNodeDiscoveredDevices: vi.fn(),
+    discoverOnFleetNode: vi.fn(),
+    pairDiscoveredDevicesOnFleetNode: vi.fn(),
   });
   vi.mocked(useHasPermission).mockReturnValue(true);
   mockListFleetNodes.mockResolvedValue([]);
@@ -104,6 +108,7 @@ function fleetNode(overrides: Partial<FleetNodeItem> = {}): FleetNodeItem {
     identityFingerprint: "hidden-fingerprint",
     commandProtocolUpgradeRequired: false,
     controlStreamConnected: true,
+    pairedDeviceCount: 0,
     createdAt: null,
     lastSeenAt: null,
     ...overrides,

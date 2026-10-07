@@ -264,6 +264,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countErrorsStmt, err = db.PrepareContext(ctx, countErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CountErrors: %w", err)
 	}
+	if q.countFleetNodeDevicesByNodeStmt, err = db.PrepareContext(ctx, countFleetNodeDevicesByNode); err != nil {
+		return nil, fmt.Errorf("error preparing query CountFleetNodeDevicesByNode: %w", err)
+	}
 	if q.countInfrastructureDevicesBySiteStmt, err = db.PrepareContext(ctx, countInfrastructureDevicesBySite); err != nil {
 		return nil, fmt.Errorf("error preparing query CountInfrastructureDevicesBySite: %w", err)
 	}
@@ -2518,6 +2521,11 @@ func (q *Queries) Close() error {
 	if q.countErrorsStmt != nil {
 		if cerr := q.countErrorsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countErrorsStmt: %w", cerr)
+		}
+	}
+	if q.countFleetNodeDevicesByNodeStmt != nil {
+		if cerr := q.countFleetNodeDevicesByNodeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countFleetNodeDevicesByNodeStmt: %w", cerr)
 		}
 	}
 	if q.countInfrastructureDevicesBySiteStmt != nil {
@@ -5724,6 +5732,7 @@ type Queries struct {
 	countCurtailmentScopeConflictsStmt                           *sql.Stmt
 	countDevicesWithErrorsStmt                                   *sql.Stmt
 	countErrorsStmt                                              *sql.Stmt
+	countFleetNodeDevicesByNodeStmt                              *sql.Stmt
 	countInfrastructureDevicesBySiteStmt                         *sql.Stmt
 	countInventoryPartsStmt                                      *sql.Stmt
 	countInventoryPartsBySiteStmt                                *sql.Stmt
@@ -6427,6 +6436,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countCurtailmentScopeConflictsStmt:                           q.countCurtailmentScopeConflictsStmt,
 		countDevicesWithErrorsStmt:                                   q.countDevicesWithErrorsStmt,
 		countErrorsStmt:                                              q.countErrorsStmt,
+		countFleetNodeDevicesByNodeStmt:                              q.countFleetNodeDevicesByNodeStmt,
 		countInfrastructureDevicesBySiteStmt:                         q.countInfrastructureDevicesBySiteStmt,
 		countInventoryPartsStmt:                                      q.countInventoryPartsStmt,
 		countInventoryPartsBySiteStmt:                                q.countInventoryPartsBySiteStmt,

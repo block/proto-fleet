@@ -318,6 +318,7 @@ type Querier interface {
 	CountDevicesWithErrors(ctx context.Context, arg CountDevicesWithErrorsParams) (int64, error)
 	// Counts errors with AND filter logic (same logic as QueryErrors without pagination).
 	CountErrors(ctx context.Context, arg CountErrorsParams) (int64, error)
+	CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) ([]CountFleetNodeDevicesByNodeRow, error)
 	CountInfrastructureDevicesBySite(ctx context.Context, arg CountInfrastructureDevicesBySiteParams) (int64, error)
 	CountInventoryParts(ctx context.Context, arg CountInventoryPartsParams) (int32, error)
 	CountInventoryPartsBySite(ctx context.Context, arg CountInventoryPartsBySiteParams) (int64, error)
