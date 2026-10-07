@@ -66,6 +66,13 @@ func TestContainerAncestorsComposeWithSiteAndTankScopes(t *testing.T) {
 	var tankA, tankB int64
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT id FROM container_tank WHERE device_id=$1 AND position=1", a).Scan(&tankA))
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT id FROM container_tank WHERE device_id=$1 AND position=1", b).Scan(&tankB))
+	// A rack with the same numeric ID must remain a distinct ancestor.
+	_, err = db.ExecContext(ctx, "INSERT INTO device_set (id,org_id,type,label) VALUES ($1,$2,'rack','Rack')", tankA, org)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, "INSERT INTO device_set_rack (device_set_id,org_id,site_id,building_id,rows,columns) VALUES ($1,$2,$3,$4,1,1)", tankA, org, north.ID, a)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, "INSERT INTO device_set_membership (org_id,device_set_id,device_set_type,device_id,device_identifier) SELECT $1,$2,'rack',id,device_identifier FROM device WHERE id=$3", org, tankA, rig)
+	require.NoError(t, err)
 	tank := func(id int64) *pb.EntityRef { return &pb.EntityRef{Kind: pb.EntityKind_ENTITY_KIND_TANK, Id: id} }
 	for _, view := range []pb.InventoryView{pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS} {
 		for _, tc := range []struct {
@@ -115,21 +122,47 @@ func TestContainerAncestorsComposeWithSiteAndTankScopes(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		ancestors []*pb.EntityRef
+		sites     []int64
 		count     int64
 	}{
-		{"matching tank", []*pb.EntityRef{container(a), tank(tankA)}, 2},
-		{"contradictory tank", []*pb.EntityRef{container(a), tank(tankB)}, 0},
-		{"multiple containers and tank", []*pb.EntityRef{container(a), container(b), tank(tankB)}, 2},
-		{"tank only", []*pb.EntityRef{tank(tankA)}, 2},
-		{"colliding building", []*pb.EntityRef{{Kind: pb.EntityKind_ENTITY_KIND_BUILDING, Id: a}}, 1},
+		{"matching tank", []*pb.EntityRef{container(a), tank(tankA)}, nil, 2},
+		{"contradictory tank", []*pb.EntityRef{container(a), tank(tankB)}, nil, 0},
+		{"multiple containers and tank", []*pb.EntityRef{container(a), container(b), tank(tankB)}, nil, 2},
+		{"tank only", []*pb.EntityRef{tank(tankA)}, nil, 2},
+		{"multiple tanks with identical positions", []*pb.EntityRef{tank(tankA), tank(tankB)}, nil, 4},
+		{"tank site intersection", []*pb.EntityRef{tank(tankA), tank(tankB)}, []int64{north.ID}, 2},
+		{"contradictory tank site", []*pb.EntityRef{tank(tankA)}, []int64{south.ID}, 0},
+		{"colliding building", []*pb.EntityRef{{Kind: pb.EntityKind_ENTITY_KIND_BUILDING, Id: a}}, nil, 1},
+		{"colliding rack", []*pb.EntityRef{{Kind: pb.EntityKind_ENTITY_KIND_RACK, Id: tankA}}, nil, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			result, err := service.List(ctx, org, &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, Ancestors: tc.ancestors}, scopes)
-			require.NoError(t, err)
-			require.Equal(t, tc.count, result.TotalCount)
-			if tc.name == "colliding building" {
-				require.Equal(t, pb.EntityKind_ENTITY_KIND_MINER, result.Items[0].Ref.Kind)
+			req := &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, Ancestors: tc.ancestors, SiteIds: tc.sites, PageSize: 1, Sort: pb.InventorySort_INVENTORY_SORT_NAME, Descending: true}
+			seen := map[int64]bool{}
+			previousName := ""
+			for {
+				result, err := service.List(ctx, org, req, scopes)
+				require.NoError(t, err)
+				require.Equal(t, tc.count, result.TotalCount)
+				for _, item := range result.Items {
+					require.False(t, seen[item.Ref.Id], "cursor must not duplicate rows")
+					seen[item.Ref.Id] = true
+					if previousName != "" {
+						require.LessOrEqual(t, item.Name, previousName)
+					}
+					previousName = item.Name
+					if tc.name == "colliding building" || tc.name == "colliding rack" {
+						require.Equal(t, pb.EntityKind_ENTITY_KIND_MINER, item.Ref.Kind)
+					} else {
+						require.Equal(t, pb.EntityKind_ENTITY_KIND_MODULE, item.Ref.Kind)
+					}
+				}
+				req.PageToken = result.NextPageToken
+				if req.PageToken == "" {
+					break
+				}
+				require.Less(t, int64(len(seen)), tc.count)
 			}
+			require.Len(t, seen, int(tc.count))
 		})
 	}
 	result, err := service.List(ctx, org, &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, Ancestors: []*pb.EntityRef{container(a)}, BuildingIds: []int64{a}}, scopes)

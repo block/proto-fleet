@@ -285,6 +285,66 @@ describe("MinerList", () => {
     expect(screen.getByTestId("path-display")).toHaveTextContent("search=module");
   });
 
+  it("selects multiple tanks separately from racks and clears only tank scope", async () => {
+    const user = userEvent.setup();
+    renderMinerList(
+      {
+        minerIds: ["miner"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        availableTanks: [
+          { id: "7", label: "CT1 North T1 · North" },
+          { id: "8", label: "CT1 South T1 · South" },
+        ],
+      },
+      ["/?container=9&site=1&rack=7&search=module&sort=name&dir=asc&view=my-view"],
+    );
+    await user.click(screen.getByRole("button", { name: "Add Filter" }));
+    await user.click(screen.getByText("Tanks", { exact: true, selector: "button *" }));
+    await user.click(screen.getByText("CT1 North T1 · North", { exact: true }));
+    await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("tank=7"));
+    await user.click(screen.getByText("CT1 South T1 · South", { exact: true }));
+    await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("tank=8"));
+    for (const param of [
+      "tank=7",
+      "container=9",
+      "site=1",
+      "rack=7",
+      "search=module",
+      "sort=name",
+      "dir=asc",
+      "view=my-view",
+    ]) {
+      expect(screen.getByTestId("path-display")).toHaveTextContent(param);
+    }
+    await user.click(screen.getByRole("button", { name: "Clear Tanks filter" }));
+    await waitFor(() => expect(screen.getByTestId("path-display")).not.toHaveTextContent("tank="));
+    for (const param of ["container=9", "site=1", "rack=7", "search=module", "sort=name", "dir=asc", "view=my-view"]) {
+      expect(screen.getByTestId("path-display")).toHaveTextContent(param);
+    }
+  });
+
+  it("restores tanks from the URL and keeps unavailable selections through unrelated filter changes", async () => {
+    const user = userEvent.setup();
+    renderMinerList(
+      {
+        minerIds: ["miner"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        availableTanks: [{ id: "7", label: "CT1 North T1 · North" }],
+      },
+      ["/?tank=7&tank=999&container=9"],
+    );
+    expect(screen.getByRole("button", { name: "Clear Tanks filter" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add Filter" }));
+    await user.click(screen.getByText("Status", { exact: true, selector: "button *" }));
+    await user.click(screen.getByText("Offline", { exact: true }));
+    await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("status=offline"));
+    for (const param of ["tank=7", "tank=999", "container=9"]) {
+      expect(screen.getByTestId("path-display")).toHaveTextContent(param);
+    }
+  });
+
   const getColumnHeaders = () =>
     within(screen.getByTestId("list-header"))
       .getAllByRole("columnheader")
