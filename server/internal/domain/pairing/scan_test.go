@@ -41,7 +41,7 @@ func newScanTestService(t *testing.T, discover discoverFunc) *Service {
 			d.DeviceIdentifier = id.DeviceIdentifier
 			return d, nil
 		}).AnyTimes()
-	return NewService(store, nil, nil, nil, discover, caps, nil, nil)
+	return NewService(store, nil, nil, nil, nil, discover, caps, nil, nil)
 }
 
 func testIdentifiedDevice() *discoverymodels.DiscoveredDevice {
@@ -380,7 +380,7 @@ func TestNetworkScanRetainsFallbackAfterCollisionSkip(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	devices := storemocks.NewMockDeviceStore(ctrl)
 	s.deviceStore = devices
-	devices.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), "AA:BB:CC:DD:EE:FF", int64(1)).Return(
+	devices.EXPECT().GetPairedDeviceByMACAddress(gomock.Any(), "AA:BB:CC:DD:EE:FF", int64(1), "").Return(
 		&interfaces.PairedDeviceInfo{DeviceIdentifier: "reconciled", DiscoveredDeviceIdentifier: "reconciled"}, nil)
 	store, ok := s.discoveredDeviceStore.(*storemocks.MockDiscoveredDeviceStore)
 	require.True(t, ok)

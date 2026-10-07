@@ -79,6 +79,7 @@ func TestFleetApplicationProfileRejectsInvalidFeatureCombinations(t *testing.T) 
 		error       string
 	}{
 		{name: "invalid boolean", environment: "ENABLE_TRACING=maybe\n", error: "must be true or false"},
+		{name: "invalid market data boolean", environment: "MARKET_DATA_ENABLED=maybe\n", error: "must be true or false"},
 		{name: "monitoring without alerts", environment: "ENABLE_BETA_ALERTS=false\nENABLE_SYSTEM_MONITORING=true\n", error: "requires ENABLE_BETA_ALERTS"},
 		{name: "tracing without API key", environment: "ENABLE_TRACING=true\n", error: "requires DD_API_KEY"},
 		{name: "unapproved Datadog site", environment: "DD_SITE=example.com\n", error: "official Datadog site"},
@@ -185,4 +186,53 @@ func TestCaptureFleetApplicationEnvironmentClearsDatadogAPIKey(t *testing.T) {
 	require.Equal(t, "captured-secret", profile["DD_API_KEY"])
 	_, stillExported := os.LookupEnv("DD_API_KEY")
 	require.False(t, stillExported)
+}
+
+func TestFleetApplicationProfilePreservesMarketDataSettings(t *testing.T) {
+	settings := map[string]string{
+		"MARKET_DATA_ENABLED":           "TRUE",
+		"MARKET_DATA_REFRESH_INTERVAL":  "5m",
+		"MARKET_DATA_PRICE_PROVIDER":    "coingecko",
+		"MARKET_DATA_COINBASE_URL":      "https://coinbase.example.invalid",
+		"MARKET_DATA_COINGECKO_URL":     "https://coingecko.example.invalid",
+		"MARKET_DATA_COINGECKO_API_KEY": "test-coingecko-key",
+		"MARKET_DATA_MEMPOOL_URL":       "https://mempool.example.invalid",
+	}
+	profile, err := fleetApplicationEnvironment(func(key string) (string, bool) {
+		value, ok := settings[key]
+		return value, ok
+	})
+	require.NoError(t, err)
+	settings["MARKET_DATA_ENABLED"] = "true"
+	for key, value := range settings {
+		require.Equal(t, value, profile[key], key)
+	}
+
+	contents := renderFleetDeploymentEnvironment(profile)
+	reloaded, err := parseFleetDeploymentEnvironment(contents)
+	require.NoError(t, err)
+	require.Equal(t, profile, reloaded)
+	path := filepath.Join(t.TempDir(), fleetEnvironmentFile)
+	require.NoError(t, os.WriteFile(path, contents, 0o600))
+	reloaded, err = loadFleetApplicationProfileFile(path, true)
+	require.NoError(t, err)
+	require.Equal(t, profile, reloaded)
+}
+
+func TestCaptureFleetApplicationEnvironmentClearsCoinGeckoAPIKey(t *testing.T) {
+	for _, enabled := range []string{"true", "invalid"} {
+		t.Run(enabled, func(t *testing.T) {
+			t.Setenv("MARKET_DATA_ENABLED", enabled)
+			t.Setenv("MARKET_DATA_COINGECKO_API_KEY", "captured-coingecko-secret")
+			profile, err := captureFleetApplicationEnvironment()
+			if enabled == "true" {
+				require.NoError(t, err)
+				require.Equal(t, "captured-coingecko-secret", profile["MARKET_DATA_COINGECKO_API_KEY"])
+			} else {
+				require.ErrorContains(t, err, "MARKET_DATA_ENABLED")
+			}
+			_, stillExported := os.LookupEnv("MARKET_DATA_COINGECKO_API_KEY")
+			require.False(t, stillExported)
+		})
+	}
 }

@@ -170,6 +170,11 @@ func TestIsDefaultPasswordError(t *testing.T) {
 func TestStatusThrottlesDefaultPasswordProbe(t *testing.T) {
 	var systemStatusCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/pairing/info" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cb_sn":"proto-serial","mac":"aa:bb:cc:dd:ee:ff"}`))
+			return
+		}
 		switch {
 		case r.URL.Path == "/api/v1/auth/login":
 			w.Header().Set("Content-Type", "application/json")
@@ -223,6 +228,11 @@ func TestUpdateMinerPasswordClearsDefaultPasswordStatusCache(t *testing.T) {
 	defaultPasswordActive := true
 	var systemStatusCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/pairing/info" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cb_sn":"proto-serial","mac":"aa:bb:cc:dd:ee:ff"}`))
+			return
+		}
 		switch {
 		case r.URL.Path == "/api/v1/auth/login":
 			w.Header().Set("Content-Type", "application/json")
@@ -285,6 +295,11 @@ func TestRebootRefreshesFirmwareVersionOnNextStatus(t *testing.T) {
 	firmwareVersion := "1.0.0"
 	var firmwareVersionCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/pairing/info" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cb_sn":"proto-serial","mac":"aa:bb:cc:dd:ee:ff"}`))
+			return
+		}
 		switch {
 		case r.URL.Path == "/api/v1/auth/login":
 			w.Header().Set("Content-Type", "application/json")
@@ -333,14 +348,14 @@ func TestRebootRefreshesFirmwareVersionOnNextStatus(t *testing.T) {
 	cached, err := dev.Status(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "1.0.0", cached.FirmwareVersion)
-	require.Equal(t, 0, firmwareVersionCalls, "known firmware should remain throttled before reboot")
+	require.Equal(t, 1, firmwareVersionCalls, "constructor should verify firmware and subsequent polls should remain throttled")
 
 	require.NoError(t, dev.Reboot(context.Background()))
 
 	refreshed, err := dev.Status(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "2.0.0", refreshed.FirmwareVersion)
-	assert.Equal(t, 1, firmwareVersionCalls, "first post-reboot status should refresh activated firmware")
+	assert.Equal(t, 2, firmwareVersionCalls, "first post-reboot status should refresh activated firmware")
 }
 
 func TestRebootThrottlesFirmwareVersionRetryAfterFailedProbe(t *testing.T) {
@@ -348,6 +363,11 @@ func TestRebootThrottlesFirmwareVersionRetryAfterFailedProbe(t *testing.T) {
 	failFirmwareVersionProbe := false
 	var firmwareVersionCalls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/pairing/info" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cb_sn":"proto-serial","mac":"aa:bb:cc:dd:ee:ff"}`))
+			return
+		}
 		switch {
 		case r.URL.Path == "/api/v1/auth/login":
 			w.Header().Set("Content-Type", "application/json")
@@ -404,18 +424,18 @@ func TestRebootThrottlesFirmwareVersionRetryAfterFailedProbe(t *testing.T) {
 	stale, err := dev.Status(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "1.0.0", stale.FirmwareVersion)
-	require.Equal(t, 1, firmwareVersionCalls, "first post-reboot firmware probe should fail")
+	require.Equal(t, 2, firmwareVersionCalls, "first post-reboot firmware probe should fail")
 
 	stillStale, err := dev.Status(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "1.0.0", stillStale.FirmwareVersion)
-	require.Equal(t, 1, firmwareVersionCalls, "failed firmware probe should throttle immediate retries")
+	require.Equal(t, 2, firmwareVersionCalls, "failed firmware probe should throttle immediate retries")
 
 	dev.lastFirmwareCheckAt = time.Now().Add(-firmwareRefreshInterval)
 	refreshed, err := dev.Status(context.Background())
 	require.NoError(t, err)
 	assert.Equal(t, "2.0.0", refreshed.FirmwareVersion)
-	assert.Equal(t, 2, firmwareVersionCalls, "firmware refresh should retry after the throttle interval")
+	assert.Equal(t, 3, firmwareVersionCalls, "firmware refresh should retry after the throttle interval")
 }
 
 func TestDevice_CurtailFullWrapsDispatchFailureAsTransient(t *testing.T) {
@@ -926,6 +946,11 @@ func newPowerTargetTestDevice(t *testing.T, targetStatus int, target targetRespo
 	t.Helper()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/pairing/info" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cb_sn":"proto-serial","mac":"aa:bb:cc:dd:ee:ff"}`))
+			return
+		}
 		switch {
 		case r.URL.Path == "/api/v1/auth/login":
 			w.Header().Set("Content-Type", "application/json")
@@ -988,6 +1013,11 @@ func newFullEfficiencyCurtailmentTestDevice(
 	t.Helper()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/pairing/info" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"cb_sn":"proto-serial","mac":"aa:bb:cc:dd:ee:ff"}`))
+			return
+		}
 		switch {
 		case r.URL.Path == "/api/v1/auth/login":
 			w.Header().Set("Content-Type", "application/json")

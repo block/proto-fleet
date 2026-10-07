@@ -74,9 +74,9 @@ func (f recoveryCleanerFunc) CloseDevice(ctx context.Context, deviceID string) e
 	return f(ctx, deviceID)
 }
 
-func TestCloseUncertainRecoveryDeviceRetriesEarlyNotFound(t *testing.T) {
+func TestCloseUncertainDeviceRetriesEarlyNotFound(t *testing.T) {
 	var calls atomic.Int32
-	closeUncertainRecoveryDevice(t.Context(), recoveryCleanerFunc(func(context.Context, string) error {
+	closeUncertainDevice(t.Context(), recoveryCleanerFunc(func(context.Context, string) error {
 		if calls.Add(1) == 1 {
 			return errors.New("device not found yet")
 		}

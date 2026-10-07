@@ -1,6 +1,58 @@
 # Fleet Service
 
+For dashboard bitcoin price, estimated hashprice, network hashrate, and outbound
+feed configuration, see [market data](../docs/market-data.md).
+
 Fleet is a Go-based service for managing a fleet of Bitcoin mining devices. It provides gRPC/HTTP API endpoints for device discovery, pairing, telemetry, command execution, and fleet management. It uses PostgreSQL/TimescaleDB for persistence and supports multiple miner types (Proto, Antminer, etc.) through a plugin-based architecture.
+
+## Automatic miner recovery
+
+Miner discovery and recovery assume an operator-controlled LAN or VPN. Keep miner
+endpoints and discovery targets within that trusted network; MAC addresses and
+serial numbers are reconciliation identifiers, not cryptographic authentication.
+
+A cloud recovery scan checks the candidate's discovery identity before reading
+stored credentials, decrypts those credentials for the driver, and confirms the
+identity returned by the authenticated probe. Stock Antminers cannot report MAC or
+serial during unauthenticated discovery, so cloud scans may probe identity-free
+Antminer candidates with stored Antminer credentials on the trusted network. The
+probe must return matching stable identity before an address change is accepted;
+conflicting discovery identity is always rejected. Matching miners recover at their
+new address without being added or authenticated again. Rediscovery preserves the
+original miner ID, handles stale discovery rows, and refuses to replace another
+paired miner occupying the endpoint.
+
+If an identity-confirmed miner rejects its saved credentials, it becomes
+authentication-needed. An identity-free Antminer probe cannot attribute a rejection
+to the stored miner, so it leaves that miner's pairing status unchanged. Missing or
+corrupt stored credentials also leave pairing status unchanged. Fleet Node recovery
+continues to use the existing local-network workflow.
+
+Proto connections verify the miner's live identity against its expected MAC and
+serial, including when authentication is renewed. A different miner reusing the
+old address is rejected even if it accepts the same password, rather than having
+its telemetry attributed to the original miner.
+
+Fleet Node commands and telemetry use separate temporary plugin handles. Closing
+one operation cannot remove another operation's handle; gateway requests and
+reported telemetry continue to use the miner's stable Fleet identifier.
+
+Successful registrations retain their handle budget until the plugin confirms
+removal. So does a registration whose creation response was canceled or lost:
+its cleanup runs after the operation returns and keeps the budget until the
+plugin confirms the handle is absent. Failed closes retry with backoff across
+control-stream reconnects, with one cleanup worker per owned handle. Commands and
+telemetry share a limit of 1,024 active or pending handles; when it is full, new
+operations return busy before registering another handle. Plugin shutdown cancels
+cleanup retries.
+
+The Go plugin SDK keeps a handle in a closing state until the backend finishes
+cleanup. Concurrent close requests wait for that same attempt, and failed
+attempts remain retryable. A timed-out RPC therefore cannot make a still-running
+close appear absent and prematurely release the node's handle budget.
+The SDK reserves an ID during creation and rejected-result cleanup, returning a
+retryable close error while either is running. IDs being closed cannot be reused
+until cleanup succeeds.
 
 ## Development Commands
 

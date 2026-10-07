@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"strconv"
 	"strings"
@@ -14,9 +15,9 @@ import (
 
 	"github.com/block/proto-fleet/server/migrations"
 	"github.com/golang-migrate/migrate/v4"
-	migratedatabase "github.com/golang-migrate/migrate/v4/database"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/stretchr/testify/require"
 )
 
 func requireBaselineDB(t *testing.T) {
@@ -422,19 +423,117 @@ func TestCheckpointMigrations(t *testing.T) {
 		files[path] = &fstest.MapFile{Data: body}
 	}
 	_, latest, err := migrationCheckpoints(migrations.Current)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sharedProbe, privateProbe := latest+1, latest+2
-	files[fmt.Sprintf("current/%06d_shared_probe.up.sql", sharedProbe)] = &fstest.MapFile{Data: []byte("CREATE TABLE checkpoint_probe(id bigint);")}
-	files[fmt.Sprintf("current/%06d_internal_checkpoint.up.sql", privateProbe)] = &fstest.MapFile{Data: []byte(fmt.Sprintf("-- requires-shared: %d\nSELECT 1;", sharedProbe))}
+	require.NoError(t, err)
+	previousCheckpoint, sharedProbe, privateProbe := latest+1, latest+2, latest+3
+	previousPath := fmt.Sprintf("current/%06d_internal_checkpoint.up.sql", previousCheckpoint)
+	sharedPath := fmt.Sprintf("current/%06d_shared_probe.up.sql", sharedProbe)
+	privatePath := fmt.Sprintf("current/%06d_internal_checkpoint.up.sql", privateProbe)
 	publicFiles := fstest.MapFS{}
 	for path, file := range files {
 		if !strings.Contains(path, "_internal_") {
 			publicFiles[path] = file
 		}
 	}
+	t.Run("internal checkpoints", func(t *testing.T) {
+		for _, test := range []struct {
+			name         string
+			privateSQL   string
+			stopShared   bool
+			disconnect   bool
+			wantRollback bool
+		}{
+			{name: "interrupted after shared step", privateSQL: "SELECT 1;", stopShared: true, wantRollback: true},
+			{name: "connection lost before checkpoint", privateSQL: "SELECT pg_sleep(2);", disconnect: true, wantRollback: true},
+			{name: "failed private step", privateSQL: "SELECT missing_checkpoint_function();", wantRollback: true},
+			{name: "completed private checkpoint", privateSQL: "SELECT 1;"},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				conn, _ := newMigrationBridgeTestDB(t)
+				internal := maps.Clone(files)
+				internal[previousPath] = &fstest.MapFile{Data: []byte("CREATE TABLE checkpoint_data(value int); INSERT INTO checkpoint_data VALUES (7);")}
+				require.NoError(t, runCurrentMigrations(t.Context(), conn, internal))
+				internal[sharedPath] = &fstest.MapFile{Data: []byte("CREATE TABLE checkpoint_probe(id bigint); UPDATE checkpoint_data SET value=value+1;")}
+				internal[privatePath] = &fstest.MapFile{Data: []byte(test.privateSQL)}
+				// Begin at a private checkpoint, then exercise the same stock
+				// migrator and checkpoint driver used by runCurrentMigrations.
+				checkpoints, _, err := migrationCheckpoints(internal)
+				require.NoError(t, err)
+				source, err := iofs.New(internal, "current")
+				require.NoError(t, err)
+				session, err := conn.Conn(t.Context())
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = session.Close() })
+				driver, err := postgres.WithConnection(t.Context(), session, &postgres.Config{})
+				require.NoError(t, err)
+				m, err := migrate.NewWithInstance("current", source, "", &checkpointDriver{Driver: driver, checkpoints: checkpoints, conn: session, ctx: t.Context()})
+				require.NoError(t, err)
+				// The test database cleanup owns conn; m.Close would close it too.
+				wantVersion := privateProbe
+				if test.stopShared {
+					require.NoError(t, m.Steps(1))
+					wantVersion = previousCheckpoint
+				} else if test.disconnect {
+					var pid int
+					require.NoError(t, session.QueryRowContext(t.Context(), `SELECT pg_backend_pid()`).Scan(&pid))
+					finished := make(chan error, 1)
+					go func() { finished <- m.Up() }()
+					require.Eventually(t, func() bool {
+						var sleeping bool
+						err := conn.QueryRowContext(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND wait_event='PgSleep')`, pid).Scan(&sleeping)
+						return err == nil && sleeping
+					}, 5*time.Second, 10*time.Millisecond)
+					_, err = conn.ExecContext(t.Context(), `SELECT pg_terminate_backend($1)`, pid)
+					require.NoError(t, err)
+					require.Error(t, <-finished)
+					wantVersion = previousCheckpoint
+				} else if test.wantRollback {
+					require.ErrorContains(t, m.Up(), "missing_checkpoint_function")
+					wantVersion = previousCheckpoint
+				} else {
+					require.NoError(t, m.Up())
+					require.NoError(t, runCurrentMigrations(t.Context(), conn, internal))
+				}
+				status, err := readBaselineStatus(t.Context(), conn)
+				require.NoError(t, err)
+				require.Equal(t, wantVersion, status.Version)
+				require.False(t, status.Dirty)
+				var exists bool
+				require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT to_regclass('checkpoint_probe') IS NOT NULL`).Scan(&exists))
+				require.Equal(t, !test.wantRollback, exists)
+				var value int
+				require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT value FROM checkpoint_data`).Scan(&value))
+				if test.wantRollback {
+					require.Equal(t, 7, value)
+				} else {
+					require.Equal(t, 8, value)
+				}
+				// Public must refuse both the previous and completed private checkpoints.
+				public := maps.Clone(publicFiles)
+				public[sharedPath] = internal[sharedPath]
+				_, err = checkBaselineStartup(t.Context(), conn, public)
+				require.Error(t, err)
+				_, err = checkBaselineStartup(t.Context(), conn, internal)
+				require.NoError(t, err)
+				if test.wantRollback && !test.stopShared && !test.disconnect {
+					_, err = conn.ExecContext(t.Context(), `CREATE FUNCTION missing_checkpoint_function() RETURNS int LANGUAGE sql AS 'SELECT 1'`)
+					require.NoError(t, err)
+				}
+				for range 2 {
+					require.NoError(t, runCurrentMigrations(t.Context(), conn, internal))
+				}
+				status, err = readBaselineStatus(t.Context(), conn)
+				require.NoError(t, err)
+				require.Equal(t, privateProbe, status.Version)
+				require.False(t, status.Dirty)
+				require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT value FROM checkpoint_data`).Scan(&value))
+				require.Equal(t, 8, value)
+			})
+		}
+	})
 	t.Run("ordinary framework upgrade and repeat", func(t *testing.T) {
+		files := maps.Clone(files)
+		files[sharedPath] = &fstest.MapFile{Data: []byte("CREATE TABLE checkpoint_probe(id bigint);")}
+		files[privatePath] = &fstest.MapFile{Data: []byte(fmt.Sprintf("-- requires-shared: %d\nSELECT 1;", sharedProbe))}
 		conn, _ := newMigrationBridgeTestDB(t)
 		if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err != nil {
 			t.Fatal(err)
@@ -455,60 +554,5 @@ func TestCheckpointMigrations(t *testing.T) {
 		if _, err := checkBaselineStartup(t.Context(), conn, migrations.Current); err == nil {
 			t.Fatal("older release accepted future database")
 		}
-		if err := runCurrentMigrations(t.Context(), conn, publicFiles); err == nil {
-			t.Fatal("public application accepted private checkpoint")
-		}
 	})
-	t.Run("interrupted shared step cannot impersonate public", func(t *testing.T) {
-		conn, _ := newMigrationBridgeTestDB(t)
-		if err := runCurrentMigrations(t.Context(), conn, migrations.Current); err != nil {
-			t.Fatal(err)
-		}
-		checkpoints, _, err := migrationCheckpoints(files)
-		if err != nil {
-			t.Fatal(err)
-		}
-		driver, err := postgres.WithInstance(conn, &postgres.Config{})
-		if err != nil {
-			t.Fatal(err)
-		}
-		source, err := iofs.New(files, "current")
-		if err != nil {
-			t.Fatal(err)
-		}
-		m, err := migrate.NewWithInstance("interruption", source, "", stopAfterSharedCheckpoint{checkpointDriver{driver, checkpoints}, sharedProbe})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err = m.Up(); err == nil {
-			t.Fatal("did not interrupt after shared step")
-		}
-		status, err := readBaselineStatus(t.Context(), conn)
-		if err != nil || status.Version != sharedProbe || !status.Dirty {
-			t.Fatalf("unsafe interrupted state: %+v %v", status, err)
-		}
-		if err := runCurrentMigrations(t.Context(), conn, files); err == nil {
-			t.Fatal("internal restart accepted dirty checkpoint")
-		}
-		// Public files contain the same shared number, but must still reject the
-		// interrupted internal database before changing it.
-		if err := runCurrentMigrations(t.Context(), conn, publicFiles); err == nil {
-			t.Fatal("public switch accepted dirty shared step")
-		}
-	})
-}
-
-type stopAfterSharedCheckpoint struct {
-	migratedatabase.Driver
-	version int
-}
-
-func (d stopAfterSharedCheckpoint) SetVersion(version int, dirty bool) error {
-	if err := d.Driver.SetVersion(version, dirty); err != nil {
-		return fmt.Errorf("record test checkpoint: %w", err)
-	}
-	if version == d.version && !dirty {
-		return fmt.Errorf("simulated process exit between migrations")
-	}
-	return nil
 }

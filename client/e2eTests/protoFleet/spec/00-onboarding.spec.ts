@@ -134,8 +134,8 @@ test.describe("Proto Fleet - Onboarding", () => {
 
       await test.step("Validate S19 miners authenticated, but S21 and S17 not", async () => {
         await homePage.validateTextInToast("You authenticated 2 of 4 miners.");
-        await homePage.validateCalloutInModal("Try your username and password again.");
-        await homePage.clickCalloutButton();
+        await homePage.validateAuthenticationError("Try your username and password again.");
+        await homePage.dismissAuthenticationError();
         await homePage.validateMinersToAuthenticate(["Antminer S21 XP", "Antminer S17 XP"]);
       });
 
@@ -148,8 +148,8 @@ test.describe("Proto Fleet - Onboarding", () => {
 
       await test.step("Validate S21 miner's authentication failed", async () => {
         await homePage.validateTextInToast("Authentication failed. Please check your credentials and try again.");
-        await homePage.validateCalloutInModal("Try your username and password again.");
-        await homePage.clickCalloutButton();
+        await homePage.validateAuthenticationError("Try your username and password again.");
+        await homePage.dismissAuthenticationError();
       });
 
       await test.step("Authenticating S21 miner", async () => {
@@ -160,7 +160,7 @@ test.describe("Proto Fleet - Onboarding", () => {
 
       await test.step("Validate S21 miner successfully authenticated", async () => {
         await homePage.validateTextInToast("1 miner authenticated.");
-        await homePage.validateNoCalloutInModal();
+        await homePage.validateNoAuthenticationError();
         await homePage.validateMinersToAuthenticate(["Antminer S17 XP"]);
       });
 

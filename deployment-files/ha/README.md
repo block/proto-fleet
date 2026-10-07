@@ -116,6 +116,26 @@ to a release supporting this key before adding it to existing `fleet.env` files:
 older HA tools reject unknown keys. Setting the process environment on
 `fleet-ha update` does not change installed configuration.
 
+Market data is off by default. HA installation and `prepare-external` also
+capture the `MARKET_DATA_*` settings documented in [market data](../../docs/market-data.md),
+including the CoinGecko paid-plan API key, and persist them in the protected
+`fleet.env` on both Fleet hosts. To enable it during interactive installation,
+read the key without echo and preserve the settings through `sudo`:
+
+```bash
+read -rsp 'CoinGecko paid-plan API key: ' MARKET_DATA_COINGECKO_API_KEY < /dev/tty && printf '\n'
+export MARKET_DATA_ENABLED=true MARKET_DATA_COINGECKO_API_KEY
+curl -fsSL https://fleet.proto.xyz/install.sh | sudo --preserve-env=SSH_AUTH_SOCK,MARKET_DATA_ENABLED,MARKET_DATA_COINGECKO_API_KEY bash -s -- --ha
+unset MARKET_DATA_COINGECKO_API_KEY
+```
+
+The installer captures and clears this key from its exported environment using
+the same handling as the Datadog key. Preserve any optional refresh/provider
+settings through `sudo` too. For an existing deployment, upgrade both hosts to
+a release supporting these keys before adding them to each host's `fleet.env`;
+updates reuse that file. Only the active host serves market-data requests and
+refreshes its on-demand cache.
+
 System monitoring is configured on both database hosts, but its runtime job
 runs only on the host that currently owns Fleet. This keeps the shared metric
 series single-writer while preserving monitoring across failover. Its disk
@@ -192,7 +212,9 @@ keepalived is enabled only on those two Fleet hosts and remains ineligible for
 the VIP until local active health passes. The witness starts etcd only.
 Only allowlisted host secret files are installed. A successful peer install
 consumes its prepared host bundle. The one-time etcd root password is removed
-from `/etc/proto-fleet/ha` after authentication is enabled.
+from `/etc/proto-fleet/ha` after authentication is enabled. Keep the separately
+exported administrator credential in encrypted off-host storage; see
+[credential recovery and capacity maintenance](etcd-maintenance.md#administrator-credential).
 
 If installation fails after changing the host, its inputs are retained
 for diagnosis. The installer intentionally has no resume or rollback state
@@ -215,6 +237,34 @@ The Docker repository setup follows the official instructions for
 [Debian](https://docs.docker.com/engine/install/debian/),
 [Ubuntu](https://docs.docker.com/engine/install/ubuntu/), and
 [64-bit Raspberry Pi OS](https://docs.docker.com/engine/install/raspberry-pi-os/).
+
+### WAL retention during a host outage
+
+New clusters retain an absent member's replication slot for 12 hours
+(`member_slots_ttl: 12h`), instead of Patroni's 30-minute default. While the
+slot exists, PostgreSQL retains the WAL needed by that member to catch up.
+After the timeout, Patroni can drop the slot and PostgreSQL can recycle that
+history; a returning member may then need its database replica rebuilt.
+
+This is an outage recovery window, not a rolling WAL archive. Disk usage grows
+with writes while the replica is absent. Budget for 12 hours of peak WAL
+generation on each database host and monitor free space: the profile does not
+cap slot-retained WAL, so a busy or stalled replica can consume more space.
+
+Existing clusters keep their configuration in etcd; changing the bootstrap
+template or updating Fleet does not change that configuration. Apply the
+setting once from either database host:
+
+```bash
+sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
+  patronictl -c /run/proto-fleet-ha/patroni.yml \
+  edit-config proto-fleet --set member_slots_ttl=12h --force
+sudo docker exec -u postgres proto-fleet-ha-patroni-1 \
+  patronictl -c /run/proto-fleet-ha/patroni.yml show-config
+```
+
+No restart is required. Increasing retention does not recover WAL that has
+already been removed.
 
 ### HA readiness alerts
 
@@ -367,3 +417,8 @@ A passive update rechecks the local role, active peer, and control path just
 before stopping Fleet. This crash-only profile accepts the small role-change
 window before process exit; if the peer fails in that interval, durable update
 recovery restarts the local application.
+
+## etcd capacity
+
+See [retention, capacity monitoring, existing-cluster adoption and supervised
+recovery](etcd-maintenance.md). Application updates do not apply etcd settings.

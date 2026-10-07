@@ -15,7 +15,7 @@
       "method": "/fleetmanagement.v1.FleetManagementService/LookupMinerByIdentifier",
       "group": "miners",
       "command": "lookup",
-      "usage": "Look up a paired miner by MAC address or serial number",
+      "usage": "Look up a paired miner by device identifier, MAC address or serial number",
       "required_fields": ["identifier"]
     },
     {

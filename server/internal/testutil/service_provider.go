@@ -132,7 +132,7 @@ func NewServiceProvider(t *testing.T, db *sql.DB, config *Config) *ServiceProvid
 
 	minerService := miner.NewMinerService(db, userStore, encryptService, filesService, pluginManager)
 
-	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, discoverer, pluginService, listenerMock, protoPairer)
+	pairingService := pairing.NewService(discoveredDeviceStore, deviceStore, transactor, tokenService, encryptService, discoverer, pluginService, listenerMock, protoPairer)
 
 	commandConfig := &command.Config{
 		MaxWorkers:                       testMaxWorkers,

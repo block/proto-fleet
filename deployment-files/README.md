@@ -212,8 +212,8 @@ Repository selection does **not** implement private-repository authentication.
 Release discovery and updater downloads currently make unauthenticated requests;
 Fleet Node also disables implicit curl configuration. CI credentials are used
 only by publishing jobs and are never embedded in artifacts. A private fork
-needs a separately designed and tested authentication flow. Custom internal
-prerelease channels (including `-internal.N`) remain outside this feature.
+needs a separately designed and tested authentication flow. Custom
+prerelease channels remain outside this feature.
 
 ## Resetting the SUPER_ADMIN password
 
@@ -350,6 +350,34 @@ configuration fails closed.
 Application allowlists do not replace OT network controls. Before enabling a
 site, restrict Modbus TCP routing with default-deny firewall rules so only the
 Proto Fleet server can reach the commissioned drive/PLC addresses and port.
+
+## Market Data (Opt-In)
+
+Dashboard bitcoin price, estimated hashprice, and network hashrate are hidden by
+default. To enable the feature, add these settings to the operator `.env`:
+
+```dotenv
+MARKET_DATA_ENABLED=true
+MARKET_DATA_PRICE_PROVIDER=coingecko
+MARKET_DATA_COINGECKO_API_KEY=your-paid-plan-api-key
+```
+
+Replace the placeholder with your own CoinGecko paid-plan API key. CoinGecko's
+Pro API is the default provider; enabling it without a key prevents `fleet-api`
+from starting. Demo keys and keyless CoinGecko access are not supported.
+
+To use Coinbase instead, set these values; no CoinGecko key is required:
+
+```dotenv
+MARKET_DATA_ENABLED=true
+MARKET_DATA_PRICE_PROVIDER=coinbase
+```
+
+Apply the settings with `./run-fleet.sh` and reload the dashboard. No client
+rebuild is required. Removing `MARKET_DATA_ENABLED` or setting it to `false`
+disables both the panel and outbound feed requests. See
+[market data](../docs/market-data.md) for sources, estimates, refresh behavior,
+and rollout caveats.
 
 ## Host Profiles
 

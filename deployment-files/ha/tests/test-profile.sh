@@ -106,6 +106,8 @@ test_compose_uses_one_host_identity() {
     assert_contains "$rendered" "https://10.40.0.11:2380"
     assert_contains "$rendered" "auth-token=jwt"
     assert_contains "$rendered" "--peer-client-cert-auth=true"
+    assert_contains "$rendered" "--auto-compaction-mode=periodic"
+    assert_contains "$rendered" "--auto-compaction-retention=1h"
 }
 
 test_patroni_contract() {
@@ -313,6 +315,8 @@ test_fleet_ha_contract() {
         assert_contains "$nginx_config" "return 404;"
     done
 }
+
+python3 -m unittest discover -s "${HA_DIR}/tests" -p test_etcd_retention.py
 
 test_compose_uses_one_host_identity
 test_patroni_contract
