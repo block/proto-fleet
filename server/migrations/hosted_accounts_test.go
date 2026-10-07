@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
 	"github.com/block/proto-fleet/server/migrations"
 )
@@ -79,4 +80,86 @@ func TestHostedAccountSchemaEnforcesHierarchyAndOrganization(t *testing.T) {
 	var remaining int
 	require.NoError(t, conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM hosted_account WHERE organization_id = $1`, orgA).Scan(&remaining))
 	require.Zero(t, remaining)
+}
+
+func TestHostedAccountsMigrationBackfillsExistingAdmins(t *testing.T) {
+	conn := dbtest.GetTestDB(t)
+	ctx := t.Context()
+	down, err := migrations.Current.ReadFile("current/001003_internal_hosted_accounts.down.sql")
+	require.NoError(t, err)
+	up, err := migrations.Current.ReadFile("current/001003_internal_hosted_accounts.up.sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(ctx, string(down))
+	require.NoError(t, err)
+
+	// Model existing roles before the hosted-account permission is introduced.
+	roles := []struct {
+		name, key      string
+		deleted        bool
+		alreadyGranted bool
+		wantGrant      bool
+		id             int64
+	}{
+		{name: "existing admin", key: "ADMIN", wantGrant: true},
+		{name: "already granted admin", key: "ADMIN", alreadyGranted: true, wantGrant: true},
+		{name: "field tech", key: "FIELD_TECH"},
+		{name: "custom role"},
+		{name: "deleted admin", key: "ADMIN", deleted: true},
+	}
+	_, err = conn.ExecContext(ctx, `INSERT INTO permission (key, description) VALUES ('account:manage', 'Existing grant')`)
+	require.NoError(t, err)
+	for i := range roles {
+		role := &roles[i]
+		var org int64
+		require.NoError(t, conn.QueryRowContext(ctx, `INSERT INTO organization (org_id, name) VALUES ($1, $2) RETURNING id`, uuid.NewString(), role.name).Scan(&org))
+		require.NoError(t, conn.QueryRowContext(ctx, `
+			INSERT INTO role (name, organization_id, is_builtin, builtin_key, deleted_at)
+			VALUES ($1, $2, $3, NULLIF($4, ''), CASE WHEN $5 THEN CURRENT_TIMESTAMP END)
+			RETURNING id`, role.name, org, role.key != "", role.key, role.deleted).Scan(&role.id))
+		_, err = conn.ExecContext(ctx, `INSERT INTO role_permission (role_id, permission_id) SELECT $1, id FROM permission WHERE key = 'miner:read'`, role.id)
+		require.NoError(t, err)
+		if role.alreadyGranted {
+			_, err = conn.ExecContext(ctx, `INSERT INTO role_permission (role_id, permission_id) SELECT $1, id FROM permission WHERE key = 'account:manage'`, role.id)
+			require.NoError(t, err)
+		}
+	}
+	_, err = conn.ExecContext(ctx, string(up))
+	require.NoError(t, err)
+	for _, role := range roles {
+		t.Run(role.name, func(t *testing.T) {
+			var grants, total, retained int
+			require.NoError(t, conn.QueryRowContext(ctx, `
+				SELECT COUNT(*) FILTER (WHERE p.key = 'account:manage'), COUNT(*),
+				       COUNT(*) FILTER (WHERE p.key = 'miner:read')
+				FROM role_permission rp JOIN permission p ON p.id = rp.permission_id
+				WHERE rp.role_id = $1`, role.id).Scan(&grants, &total, &retained))
+			want := 0
+			if role.wantGrant {
+				want = 1
+			}
+			require.Equal(t, want, grants)
+			require.Equal(t, 1, retained, "existing grants must remain intact")
+			require.Equal(t, 1+want, total, "only account:manage may be added")
+		})
+	}
+
+	var newOrg int64
+	require.NoError(t, conn.QueryRowContext(ctx, `INSERT INTO organization (org_id, name) VALUES ($1, 'New host') RETURNING id`, uuid.NewString()).Scan(&newOrg))
+	require.NoError(t, authz.Reconcile(ctx, conn))
+	var newAdminGrant int
+	require.NoError(t, conn.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM role_permission rp
+		JOIN role r ON r.id = rp.role_id JOIN permission p ON p.id = rp.permission_id
+		WHERE r.organization_id = $1 AND r.builtin_key = 'ADMIN' AND p.key = 'account:manage'`, newOrg).Scan(&newAdminGrant))
+	require.Equal(t, 1, newAdminGrant, "new and existing ADMIN roles receive the same account permission")
+
+	// Backfill once; later boot reconciliation must respect operator revocation.
+	_, err = conn.ExecContext(ctx, `DELETE FROM role_permission WHERE role_id = $1 AND permission_id IN (SELECT id FROM permission WHERE key = 'account:manage')`, roles[0].id)
+	require.NoError(t, err)
+	require.NoError(t, authz.Reconcile(ctx, conn))
+	var revokedGrant int
+	require.NoError(t, conn.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM role_permission rp JOIN permission p ON p.id = rp.permission_id
+		WHERE rp.role_id = $1 AND p.key = 'account:manage'`, roles[0].id).Scan(&revokedGrant))
+	require.Zero(t, revokedGrant, "restart must not restore the operator's revoked permission")
 }

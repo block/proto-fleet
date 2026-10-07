@@ -5,6 +5,16 @@ INSERT INTO permission (key, description) VALUES
     ('account:manage', 'Create customer accounts and control delegation beneath the host account. Does not grant private customer views or pool overrides.')
 ON CONFLICT (key) DO UPDATE SET description = EXCLUDED.description;
 
+-- ADMIN is seeded once; catalog growth only reaches newly created roles.
+-- Match the new-role seed without changing custom or deleted roles.
+INSERT INTO role_permission (role_id, permission_id)
+SELECT r.id, p.id
+FROM role r CROSS JOIN permission p
+WHERE r.builtin_key = 'ADMIN'
+  AND r.deleted_at IS NULL
+  AND p.key = 'account:manage'
+ON CONFLICT (role_id, permission_id) DO NOTHING;
+
 CREATE TABLE hosted_account (
     id BIGSERIAL PRIMARY KEY,
     account_id VARCHAR(36) NOT NULL UNIQUE,
