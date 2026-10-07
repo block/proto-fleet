@@ -28,6 +28,8 @@ const URL_PARAMS = {
   GROUP: "group",
   RACK: "rack",
   BUILDING: "building",
+  CONTAINER: "container",
+  TANK: "tank",
   SITE: "site",
   FIRMWARE: "firmware",
   ZONE: "zone",
@@ -149,6 +151,9 @@ export const parseIdFilterValuesFromURL = (
   });
   return { values: Array.from(new Set(values)), includeUnassigned };
 };
+
+export const parseCT1FilterValuesFromURL = (params: URLSearchParams, key: "container" | "tank"): string[] =>
+  Array.from(new Set(getMulti(params, key).filter((value) => /^[1-9][0-9]*$/.test(value))));
 
 export const issueComponentTypesFromValues = (issueValues: string[]): ComponentType[] => {
   const out: ComponentType[] = [];
@@ -465,6 +470,11 @@ export function parseUrlToActiveFilters(params: URLSearchParams): ActiveFilters 
     activeFilters.dropdownFilters.building = buildingValues;
   }
 
+  for (const key of ["container", "tank"] as const) {
+    const values = parseCT1FilterValuesFromURL(params, key);
+    if (values.length) activeFilters.dropdownFilters[key] = values;
+  }
+
   const siteValues = parseIdFilterValuesFromURL(params, URL_PARAMS.SITE).values;
   if (siteValues.length > 0) {
     activeFilters.dropdownFilters.site = siteValues;
@@ -518,6 +528,11 @@ export function encodeActiveFiltersToURL(filters: ActiveFilters): URLSearchParam
   const buildingFilters = filters.dropdownFilters.building;
   if (buildingFilters && buildingFilters.length > 0) {
     setMulti(params, URL_PARAMS.BUILDING, [...buildingFilters].sort());
+  }
+
+  for (const key of ["container", "tank"] as const) {
+    const values = filters.dropdownFilters[key] ?? [];
+    setMulti(params, key, [...values].sort());
   }
 
   const siteFilters = filters.dropdownFilters.site;

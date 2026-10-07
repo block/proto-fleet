@@ -109,7 +109,9 @@ export type ListInventoryRequest = Message<"fleetinventory.v1.ListInventoryReque
   includeUnassigned: boolean;
 
   /**
-   * Match any selected ancestor; a tank/rack selection is valid only for assets.
+   * Match any selected facility (building/container) AND any selected group
+   * (rack/tank). Empty levels are unrestricted; site filters also compose with AND.
+   * A tank/rack selection is valid only for assets.
    *
    * @generated from field: repeated fleetinventory.v1.EntityRef ancestors = 8;
    */

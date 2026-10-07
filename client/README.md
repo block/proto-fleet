@@ -242,6 +242,24 @@ container page.
 Storybook's **Proto Fleet / Containers / Native tank page** exercises the actual
 page and collected-data hooks with isolated API fixtures.
 
+### CT1 inventory filters
+
+The Miners and Racks tabs expose a separate **Containers** selector. Containers
+use controller device IDs under repeated `container` URL keys, independently of
+building IDs. Multiple selected containers combine with OR. Site scope, selected
+sites, tank scope, telemetry, and other filter categories combine with AND;
+contradictory scopes return no rows. Existing tank deep links use stable tank IDs
+under `tank` and survive unrelated filter changes. The Racks view accepts only
+facility ancestors; tank ancestors apply only to mining assets.
+
+Selections survive refresh and saved views, and clearing the Containers chip
+leaves other filters intact. Container options come from the readable container
+catalog with site labels. Filtering and pagination run on the unified inventory
+API; selecting a new scope hides previous-scope rows until its response arrives.
+Building, rack, and other miner-only filters keep their existing applicability
+and can therefore produce no matches when combined with a container selection.
+Container-filtered module lists do not expose conventional miner CSV export.
+
 ### API Integration
 
 CT1 health uses `ProtoOSStatusModal` with an optional `scope` (`tank` or `module`)

@@ -15,6 +15,12 @@ import {
 
 describe("savedViews helpers", () => {
   describe("canonicalizeSearchParams", () => {
+    it("saves container selections on both unified lists and tank scope on miners", () => {
+      const params = "container=9&container=8&tank=7&building=8&sort=name";
+      expect(canonicalizeSearchParams(params, "miners")).toBe("building=8&container=8&container=9&sort=name&tank=7");
+      expect(canonicalizeSearchParams(params, "racks")).toBe("building=8&container=8&container=9&sort=name");
+    });
+
     it("sorts keys and values within the miners-tab whitelist, dropping the view key", () => {
       expect(canonicalizeSearchParams("status=offline&model=S21&view=foo&status=hashing", "miners")).toBe(
         "model=S21&status=hashing&status=offline",

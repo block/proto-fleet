@@ -287,7 +287,9 @@ type ListInventoryRequest struct {
 	Descending        bool                   `protobuf:"varint,5,opt,name=descending,proto3" json:"descending,omitempty"`
 	SiteIds           []int64                `protobuf:"varint,6,rep,packed,name=site_ids,json=siteIds,proto3" json:"site_ids,omitempty"`
 	IncludeUnassigned bool                   `protobuf:"varint,7,opt,name=include_unassigned,json=includeUnassigned,proto3" json:"include_unassigned,omitempty"`
-	// Match any selected ancestor; a tank/rack selection is valid only for assets.
+	// Match any selected facility (building/container) AND any selected group
+	// (rack/tank). Empty levels are unrestricted; site filters also compose with AND.
+	// A tank/rack selection is valid only for assets.
 	Ancestors   []*EntityRef `protobuf:"bytes,8,rep,name=ancestors,proto3" json:"ancestors,omitempty"`
 	Kinds       []EntityKind `protobuf:"varint,9,rep,packed,name=kinds,proto3,enum=fleetinventory.v1.EntityKind" json:"kinds,omitempty"`
 	SearchQuery string       `protobuf:"bytes,10,opt,name=search_query,json=searchQuery,proto3" json:"search_query,omitempty"`

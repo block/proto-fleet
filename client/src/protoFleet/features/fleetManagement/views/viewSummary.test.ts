@@ -13,6 +13,15 @@ import { type DeviceSet, DeviceSetSchema } from "@/protoFleet/api/generated/devi
 const makeDeviceSet = (id: bigint, label: string): DeviceSet => create(DeviceSetSchema, { id, label });
 
 describe("summarizeFilters", () => {
+  it.each(["miners", "racks"] as const)("shows container labels separately from building IDs on %s", (tab) => {
+    const result = summarizeFilters(new URLSearchParams("container=100&container=999&building=100"), tab, {
+      ...ctx,
+      availableContainers: [{ id: "100", label: "CT1 North" }],
+    });
+    expect(result).toContainEqual({ key: "container", label: "Containers", values: ["CT1 North", "#999"] });
+    expect(result).toContainEqual({ key: "building", label: "Buildings", values: ["DC1"] });
+  });
+
   const ctx = {
     availableGroups: [makeDeviceSet(1n, "Site A"), makeDeviceSet(2n, "Site B")],
     availableRacks: [makeDeviceSet(10n, "R1"), makeDeviceSet(11n, "R2")],

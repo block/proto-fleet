@@ -214,6 +214,7 @@ type MinerListProps = {
    * Available buildings for the building filter dropdown.
    */
   availableBuildings?: FilterLabelSource[];
+  availableContainers?: FilterLabelSource[];
   /**
    * Exports the full paired miner list as CSV.
    */
@@ -666,6 +667,7 @@ const MinerList = ({
   availableRacks = [],
   availableSites = [],
   availableBuildings = [],
+  availableContainers,
   onExportCsv,
   exportCsvLoading = false,
   currentFilter,
@@ -882,7 +884,7 @@ const MinerList = ({
     () => `${(currentFilter?.siteIds ?? []).map(String).join(",")}|${currentFilter?.includeUnassigned ?? false}`,
     [currentFilter],
   );
-  const ancestorScopeKey = `${searchParams.get("container") ?? ""}:${searchParams.get("tank") ?? ""}`;
+  const ancestorScopeKey = JSON.stringify([searchParams.getAll("container"), searchParams.getAll("tank")]);
   const selectionScopeKey = useMemo(
     () => `${selectionFilterKey}:${currentPage}:${siteScopeKey}:${ancestorScopeKey}`,
     [currentPage, selectionFilterKey, siteScopeKey, ancestorScopeKey],
@@ -992,6 +994,18 @@ const MinerList = ({
     [availableBuildings],
   );
 
+  const containersFilter: DropdownFilterItem = useMemo(
+    () => ({
+      type: "dropdown",
+      title: "Containers",
+      pluralTitle: "containers",
+      value: "container",
+      options: availableContainers ?? [],
+      defaultOptionIds: [],
+    }),
+    [availableContainers],
+  );
+
   const racksFilter: DropdownFilterItem = useMemo(
     () => ({
       type: "dropdown",
@@ -1072,6 +1086,7 @@ const MinerList = ({
           { ...firmwareFilter, showGroupDivider: true },
           sitesFilter,
           buildingsFilter,
+          ...(availableContainers ? [containersFilter] : []),
           racksFilter,
           zonesFilter,
           { ...groupsFilter, showGroupDivider: true },
@@ -1090,6 +1105,8 @@ const MinerList = ({
       groupsFilter,
       sitesFilter,
       buildingsFilter,
+      containersFilter,
+      availableContainers,
       racksFilter,
       firmwareFilter,
       zonesFilter,
@@ -1245,8 +1262,7 @@ const MinerList = ({
       // view so dirtying a view doesn't lose its identity.
       const params = encodeFilterToURL(minerFilter);
       for (const key of ["tank", "container"]) {
-        const ancestor = searchParams.get(key);
-        if (ancestor) params.set(key, ancestor);
+        (filters.dropdownFilters[key] ?? []).forEach((id) => params.append(key, id));
       }
       const searchQuery = searchParams.get(MINER_SEARCH_URL_PARAM)?.trim();
       if (searchQuery) params.set(MINER_SEARCH_URL_PARAM, searchQuery);

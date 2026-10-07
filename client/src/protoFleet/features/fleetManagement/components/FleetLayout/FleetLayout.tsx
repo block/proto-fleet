@@ -218,8 +218,9 @@ const FleetLayout = () => {
     availableGroups: DeviceSet[];
     availableRacks: DeviceSet[];
     availableBuildings: FilterLabelSource[];
+    availableContainers: FilterLabelSource[];
     availableSites: FilterLabelSource[];
-  }>({ availableGroups: [], availableRacks: [], availableBuildings: [], availableSites: [] });
+  }>({ availableGroups: [], availableRacks: [], availableBuildings: [], availableContainers: [], availableSites: [] });
   // Partial publish: a child tab only overwrites the keys it knows about,
   // so racks publishing buildings doesn't clobber miners' group/rack lists.
   const publishViewFilterContext = useCallback<FleetOutletContext["publishViewFilterContext"]>((ctx) => {
@@ -228,12 +229,14 @@ const FleetLayout = () => {
         availableGroups: ctx.availableGroups ?? prev.availableGroups,
         availableRacks: ctx.availableRacks ?? prev.availableRacks,
         availableBuildings: ctx.availableBuildings ?? prev.availableBuildings,
+        availableContainers: ctx.availableContainers ?? prev.availableContainers,
         availableSites: ctx.availableSites ?? prev.availableSites,
       };
       const unchanged =
         next.availableGroups === prev.availableGroups &&
         next.availableRacks === prev.availableRacks &&
         next.availableBuildings === prev.availableBuildings &&
+        next.availableContainers === prev.availableContainers &&
         next.availableSites === prev.availableSites;
       return unchanged ? prev : next;
     });

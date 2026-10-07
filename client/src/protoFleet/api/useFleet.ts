@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { create, equals } from "@bufbuild/protobuf";
+import { create, equals, toJsonString } from "@bufbuild/protobuf";
 import { miningInventoryRequest } from "./fleetInventory";
-import type { EntityRef, InventoryItem } from "./generated/fleetinventory/v1/fleetinventory_pb";
+import {
+  type EntityRef,
+  type InventoryItem,
+  ListInventoryRequestSchema,
+} from "./generated/fleetinventory/v1/fleetinventory_pb";
 import { fleetInventoryClient, fleetManagementClient } from "@/protoFleet/api/clients";
 import { SortConfig, SortConfigSchema } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import {
@@ -35,7 +39,22 @@ type UseFleetOptions = {
 
 // Constants to prevent re-renders from unstable default values
 const DEFAULT_PAIRING_STATUSES: PairingStatus[] = [];
+const EMPTY_MINER_IDS: string[] = [];
+const EMPTY_MINERS: Record<string, MinerStateSnapshot> = {};
+const EMPTY_INVENTORY_ITEMS: InventoryItem[] = [];
 type PendingFetchMode = "refetch" | "refresh";
+
+const createMiningInventoryQuery = (
+  filter: MinerListFilter | undefined,
+  sort: SortConfig | undefined,
+  ancestors: EntityRef[] | undefined,
+  pageSize: number,
+) =>
+  create(ListInventoryRequestSchema, {
+    ...miningInventoryRequest(filter, sort),
+    ancestors: ancestors ?? [],
+    pageSize,
+  });
 
 /**
  * True when `a` was captured strictly after `b`, per the server-set snapshot
@@ -93,6 +112,15 @@ const useFleet = (options: UseFleetOptions = {}) => {
     pairingStatuses = DEFAULT_PAIRING_STATUSES, // Use stable reference to prevent re-renders
   } = options;
   const { handleAuthErrors } = useAuthErrors();
+  const inventoryQueryKey = toJsonString(
+    ListInventoryRequestSchema,
+    createMiningInventoryQuery(filter, sort, ancestors, pageSize),
+  );
+  const [inventoryResultScope, setInventoryResultScope] = useState<{
+    key: string;
+    hasData: boolean;
+    completed: boolean;
+  }>();
 
   const [inventoryMinerCount, setInventoryMinerCount] = useState(0);
   const [inventoryItems, setInventoryItems] = useState<InventoryItem[] | undefined>();
@@ -131,6 +159,8 @@ const useFleet = (options: UseFleetOptions = {}) => {
         return;
       }
 
+      const inventoryQuery = createMiningInventoryQuery(filter, sort, ancestors, pageSize);
+      const queryKey = toJsonString(ListInventoryRequestSchema, inventoryQuery);
       const requestId = ++latestRequestIdRef.current;
       setIsLoading(true);
 
@@ -140,9 +170,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
 
         const mixed = inventory
           ? await fleetInventoryClient.listInventory({
-              ...miningInventoryRequest(filter, sort),
-              ancestors: ancestors ?? [],
-              pageSize,
+              ...inventoryQuery,
               pageToken: pageCursor ?? "",
             })
           : undefined;
@@ -167,6 +195,7 @@ const useFleet = (options: UseFleetOptions = {}) => {
           return;
         }
 
+        setInventoryResultScope({ key: queryKey, hasData: true, completed: true });
         setInventoryItems(mixed?.items);
         setInventoryMinerCount(Number(mixed?.minerCount ?? response.totalMiners));
 
@@ -242,6 +271,11 @@ const useFleet = (options: UseFleetOptions = {}) => {
         });
       } finally {
         if (requestId === latestRequestIdRef.current) {
+          setInventoryResultScope((previous) => ({
+            key: queryKey,
+            completed: true,
+            hasData: previous?.key === queryKey && previous.hasData,
+          }));
           setIsLoading(false);
 
           // Mark initial load as completed when fetching page 0 (but not for refreshes)
@@ -490,16 +524,23 @@ const useFleet = (options: UseFleetOptions = {}) => {
     void fetchMinerListRef.current(filter, sort, undefined, 0);
   }, [enabled, filter, sort, inventoryScope]);
 
+  const inventoryDataCurrent =
+    enabled && inventoryResultScope?.key === inventoryQueryKey && inventoryResultScope.hasData;
+  const inventoryCompleted = inventoryResultScope?.key === inventoryQueryKey && inventoryResultScope.completed;
+  const hideInventoryData = inventory && !inventoryDataCurrent;
   return {
     ...(inventory
-      ? { inventoryItems: enabled ? inventoryItems : undefined, inventoryMinerCount: enabled ? inventoryMinerCount : 0 }
+      ? {
+          inventoryItems: inventoryDataCurrent ? inventoryItems : enabled ? EMPTY_INVENTORY_ITEMS : undefined,
+          inventoryMinerCount: inventoryDataCurrent ? inventoryMinerCount : 0,
+        }
       : {}),
-    minerIds,
-    miners,
-    totalMiners,
-    hasMore,
-    isLoading,
-    hasInitialLoadCompleted,
+    minerIds: hideInventoryData ? EMPTY_MINER_IDS : minerIds,
+    miners: hideInventoryData ? EMPTY_MINERS : miners,
+    totalMiners: hideInventoryData ? 0 : totalMiners,
+    hasMore: hideInventoryData ? false : hasMore,
+    isLoading: inventory ? enabled && (!inventoryCompleted || isLoading) : isLoading,
+    hasInitialLoadCompleted: inventory ? !!inventoryCompleted : hasInitialLoadCompleted,
     loadMore,
     currentPage,
     hasPreviousPage: currentPage > 0,

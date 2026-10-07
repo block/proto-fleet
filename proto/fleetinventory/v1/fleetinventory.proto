@@ -66,7 +66,9 @@ message ListInventoryRequest {
   bool descending = 5;
   repeated int64 site_ids = 6 [(buf.validate.field).repeated = {max_items: 1024, items: {int64: {gt: 0}}}];
   bool include_unassigned = 7;
-  // Match any selected ancestor; a tank/rack selection is valid only for assets.
+  // Match any selected facility (building/container) AND any selected group
+  // (rack/tank). Empty levels are unrestricted; site filters also compose with AND.
+  // A tank/rack selection is valid only for assets.
   repeated EntityRef ancestors = 8 [(buf.validate.field).repeated.max_items = 1024];
   repeated EntityKind kinds = 9 [(buf.validate.field).repeated = {max_items: 6, items: {enum: {defined_only: true, not_in: [0]}}}];
   string search_query = 10 [(buf.validate.field).string.max_len = 255];

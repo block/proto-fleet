@@ -40,6 +40,8 @@ vi.mock("@/protoFleet/api/useExportMinerListCsv", () => ({
   default: vi.fn(() => ({ exportCsv: mockExportCsv, isExportingCsv: false })),
 }));
 
+vi.mock("@/protoFleet/api/useContainerFilterOptions", () => ({ useContainerFilterOptions: () => [] }));
+
 // Mock all dependencies
 vi.mock("@/protoFleet/api/useFleet", () => ({
   default: vi.fn(() => ({

@@ -1,8 +1,13 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import { fleetInventoryClient, fleetManagementClient } from "./clients";
-import { EntityKind, ListInventoryResponseSchema } from "./generated/fleetinventory/v1/fleetinventory_pb";
+import { errorQueryClient, fleetInventoryClient, fleetManagementClient } from "./clients";
+import {
+  EntityKind,
+  EntityRefSchema,
+  ListInventoryResponseSchema,
+} from "./generated/fleetinventory/v1/fleetinventory_pb";
+import { useDeviceErrors } from "./useDeviceErrors";
 import useFleet from "./useFleet";
 import {
   ListMinerStateSnapshotsResponseSchema,
@@ -11,6 +16,7 @@ import {
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 
 vi.mock("./clients", () => ({
+  errorQueryClient: { query: vi.fn() },
   fleetInventoryClient: { listInventory: vi.fn() },
   fleetManagementClient: {
     listMinerStateSnapshots: vi.fn(),
@@ -58,6 +64,46 @@ describe("useFleet", () => {
     vi.clearAllMocks();
   });
 
+  it("settles with device errors while inventory is pending, failed, or disabled", async () => {
+    let rejectInventory!: (error: Error) => void;
+    vi.mocked(fleetInventoryClient.listInventory).mockImplementationOnce(
+      () =>
+        new Promise((_, reject) => {
+          rejectInventory = reject;
+        }),
+    );
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    let renders = 0;
+    const { result, rerender } = renderHook(
+      ({ enabled }) => {
+        // Fail promptly if an unstable ID array makes the error hook render endlessly.
+        if (++renders > 20) throw new Error("Inventory and device errors did not settle");
+        const fleet = useFleet({ inventory: true, enabled });
+        const errors = useDeviceErrors(fleet.minerIds);
+        return { fleet, errors };
+      },
+      { initialProps: { enabled: true } },
+    );
+    expect(result.current.fleet.isLoading).toBe(true);
+    const { minerIds, miners, inventoryItems } = result.current.fleet;
+    rerender({ enabled: true });
+    expect(result.current.fleet.minerIds).toBe(minerIds);
+    expect(result.current.fleet.miners).toBe(miners);
+    expect(result.current.fleet.inventoryItems).toBe(inventoryItems);
+
+    await act(async () => rejectInventory(new Error("Inventory unavailable")));
+    expect(result.current.fleet.isLoading).toBe(false);
+    expect(result.current.fleet.minerIds).toBe(minerIds);
+    expect(result.current.fleet.inventoryItems).toBe(inventoryItems);
+
+    rerender({ enabled: false });
+    expect(result.current.fleet.minerIds).toBe(minerIds);
+    expect(result.current.fleet.miners).toBe(miners);
+    expect(result.current.errors.errorsByDevice).toEqual({});
+    expect(errorQueryClient.query).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
   it("clears the inventory miner count and ignores in-flight results when disabled", async () => {
     const response = create(ListInventoryResponseSchema, {
       items: [{ ref: { kind: EntityKind.MINER, id: 1n }, details: { case: "miner", value: makeMiner("miner-1") } }],
@@ -87,6 +133,49 @@ describe("useFleet", () => {
     );
     rerender({ enabled: true });
     await waitFor(() => expect(result.current.inventoryMinerCount).toBe(2));
+  });
+
+  it("keeps ancestor scope across pages and hides previous rows on a contradictory scope", async () => {
+    const response = create(ListInventoryResponseSchema, {
+      items: [{ ref: { kind: EntityKind.MODULE, id: 1n }, name: "North module" }],
+      totalCount: 2n,
+      nextPageToken: "next",
+    });
+    vi.mocked(fleetInventoryClient.listInventory)
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce({ ...response, nextPageToken: "" });
+    const { result, rerender } = renderHook(
+      ({ container }) =>
+        useFleet({
+          inventory: true,
+          ancestors: [create(EntityRefSchema, { kind: EntityKind.CONTAINER, id: container })],
+          filter: create(MinerListFilterSchema, { siteIds: [1n] }),
+          pageSize: 1,
+        }),
+      { initialProps: { container: 7n } },
+    );
+    await waitFor(() => expect(result.current.inventoryItems?.[0]?.name).toBe("North module"));
+    act(() => result.current.goToNextPage());
+    await waitFor(() => expect(result.current.currentPage).toBe(1));
+    expect(vi.mocked(fleetInventoryClient.listInventory).mock.calls[1][0]).toMatchObject({
+      ancestors: [{ kind: EntityKind.CONTAINER, id: 7n }],
+      siteIds: [1n],
+      pageToken: "next",
+    });
+    let resolve!: (value: typeof response) => void;
+    vi.mocked(fleetInventoryClient.listInventory).mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    rerender({ container: 8n });
+    expect(result.current.inventoryItems).toEqual([]);
+    expect(result.current.totalMiners).toBe(0);
+    await act(async () => resolve(create(ListInventoryResponseSchema)));
+    expect(result.current.inventoryItems).toEqual([]);
+    expect(result.current.currentPage).toBe(0);
+    expect(vi.mocked(fleetInventoryClient.listInventory).mock.calls[2][0].pageToken).toBe("");
   });
 
   it("queues a refetch requested while a fetch is already in flight", async () => {

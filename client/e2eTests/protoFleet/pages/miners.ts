@@ -131,6 +131,7 @@ export class MinersPage extends BasePage {
   async filterRigMiners() {
     await this.filterMinersByModel(PROTO_RIG_MODEL);
     await this.waitForAntminersToDisappear();
+    await expect(this.page.getByTestId("list-body").locator("tr")).not.toHaveCount(0);
   }
 
   async applyPowerFilter(min: number | undefined, max: number | undefined) {

@@ -33,6 +33,7 @@ export interface FleetOutletContext {
     availableGroups?: DeviceSet[];
     availableRacks?: DeviceSet[];
     availableBuildings?: FilterLabelSource[];
+    availableContainers?: FilterLabelSource[];
     availableSites?: FilterLabelSource[];
   }) => void;
 }
