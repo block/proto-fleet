@@ -28,7 +28,7 @@ type cachedTelemetryDevice struct {
 
 // Hash decrypted credentials, not their randomized ciphertext. Never retain or
 // log an extra plaintext credential copy in the cache key.
-func telemetryDeviceKey(info sdk.DeviceInfo, secret sdk.SecretBundle) ([sha256.Size]byte, error) {
+func telemetryClientFingerprint(info sdk.DeviceInfo, secret sdk.SecretBundle) ([sha256.Size]byte, error) {
 	material, err := json.Marshal(struct {
 		Info   sdk.DeviceInfo
 		Secret sdk.SecretBundle

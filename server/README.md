@@ -34,22 +34,18 @@ old address is rejected even if it accepts the same password, rather than having
 its telemetry attributed to the original miner.
 
 Fleet Node telemetry reuses authenticated plugin devices for up to one minute,
-matching direct Fleet's client lifetime. Connection details, credentials, or
-plugin changes replace the cached device; failed or canceled polls evict it.
-Only idle devices are cached, with at most 512 retained handles. Expired devices
-are cleaned up even when polling stops. Commands use separate temporary handles,
-so closing one operation cannot remove another operation's handle. Gateway
-requests and reported telemetry keep the miner's stable Fleet identifier.
+as direct Fleet does. Connection, credential, or plugin changes replace cached
+devices; failed or canceled polls evict them. Only idle devices are cached, and
+expiry cleanup continues when polling stops. Commands use independent temporary
+handles; gateway requests and telemetry retain the miner's stable Fleet ID.
 
-Successful registrations retain their handle budget until the plugin confirms
-removal. So does a registration whose creation response was canceled or lost:
-its cleanup runs after the operation returns and keeps the budget until the
-plugin confirms the handle is absent. Failed closes retry with backoff across
-control-stream reconnects, with one cleanup worker per owned handle. Commands and
-telemetry share a limit of 1,536 handles: 512 for idle cached devices and the
-existing 1,024 for active operations or pending cleanup. When it is full, new
-operations return busy before registering another handle. Plugin shutdown cancels
-cleanup retries.
+Registrations count toward the handle limit until the plugin confirms removal,
+including those with canceled or lost creation responses. Cleanup continues after
+the operation returns, with one worker per handle retrying failed closes with
+backoff across control-stream reconnects. Plugin shutdown cancels retries.
+The shared limit is 1,536 handles: up to 512 idle cached devices plus the existing
+1,024 active or pending-cleanup allowance. At capacity, new operations return busy
+before registering a handle.
 
 The Go plugin SDK keeps a handle in a closing state until the backend finishes
 cleanup. Concurrent close requests wait for that same attempt, and failed

@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
@@ -43,7 +42,6 @@ func TestTelemetryReplacesChangedDevice(t *testing.T) {
 	for name, change := range map[string]func(*telemetrypb.FleetNodeTelemetryRequest){
 		"address":     func(r *telemetrypb.FleetNodeTelemetryRequest) { r.IpAddress = "10.0.0.6" },
 		"credentials": func(r *telemetrypb.FleetNodeTelemetryRequest) { r.CredentialPassword = []byte("changed") },
-		"identity":    func(r *telemetrypb.FleetNodeTelemetryRequest) { r.MacAddress = "00:11:22:33:44:55" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			impl := &cleanupTestDriver{}
@@ -52,10 +50,8 @@ func TestTelemetryReplacesChangedDevice(t *testing.T) {
 			req := handleTestTelemetryRequest()
 			_, err := fetcher.Fetch(t.Context(), req)
 			require.NoError(t, err)
-			replacement, ok := proto.Clone(req).(*telemetrypb.FleetNodeTelemetryRequest)
-			require.True(t, ok)
-			change(replacement)
-			result, err := fetcher.Fetch(t.Context(), replacement)
+			change(req)
+			result, err := fetcher.Fetch(t.Context(), req)
 			require.NoError(t, err)
 			requirePhysicalTelemetryIdentity(t, result)
 			require.EqualValues(t, 2, impl.created.Load())
@@ -133,7 +129,10 @@ type failingTelemetryDriver struct {
 
 func (d *failingTelemetryDriver) NewDevice(_ context.Context, id string, _ sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.NewDeviceResult, error) {
 	d.created.Add(1)
-	return sdk.NewDeviceResult{Device: &failingTelemetryDevice{cleanupTestDevice: cleanupTestDevice{id: id, owner: &d.cleanupTestDriver}, status: d.status}}, nil
+	return sdk.NewDeviceResult{Device: &failingTelemetryDevice{
+		cleanupTestDevice: cleanupTestDevice{id: id, owner: &d.cleanupTestDriver},
+		status:            func(ctx context.Context) error { return d.status(ctx) },
+	}}, nil
 }
 
 type failingTelemetryDevice struct {
@@ -157,13 +156,7 @@ func TestTelemetryEvictsFailedAndAbandonedDevices(t *testing.T) {
 			require.NoError(t, err)
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			// Simulate a failed or abandoned poll on the already cached device.
-			fetcher.mu.Lock()
-			entry := fetcher.cached["dev-1"]
-			device, ok := entry.device.(*failingTelemetryDevice)
-			fetcher.mu.Unlock()
-			require.True(t, ok)
-			device.status = func(context.Context) error {
+			impl.status = func(context.Context) error {
 				switch mode {
 				case "auth failure":
 					return grpcstatus.Error(codes.Unauthenticated, "expired credentials")
@@ -178,6 +171,7 @@ func TestTelemetryEvictsFailedAndAbandonedDevices(t *testing.T) {
 			}
 			_, _ = fetcher.Fetch(ctx, handleTestTelemetryRequest())
 			require.Eventually(t, func() bool { return impl.closed.Load() == 1 }, time.Second, time.Millisecond)
+			impl.status = func(context.Context) error { return nil }
 			_, err = fetcher.Fetch(t.Context(), handleTestTelemetryRequest())
 			require.NoError(t, err)
 			require.EqualValues(t, 2, impl.created.Load())

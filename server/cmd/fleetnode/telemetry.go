@@ -189,7 +189,7 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 	}
 	defer slot.releaseWorker()
 
-	key, err := telemetryDeviceKey(deviceInfo, secret)
+	key, err := telemetryClientFingerprint(deviceInfo, secret)
 	if err != nil {
 		return nil, cmdErr(pb.AckCode_ACK_CODE_INTERNAL, "cannot identify telemetry credentials")
 	}
