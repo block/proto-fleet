@@ -36,16 +36,20 @@ const propsFor = (history = historyState()) => ({
 });
 
 describe("MinerFirmwareHistoryModal", () => {
-  it("shows the miner's verified outcome independently of aggregate failures and labels timing", () => {
+  it("shows the miner's verified outcome and date independently of the overall rollout", () => {
     render(<MinerFirmwareHistoryModalView {...propsFor()} />);
     expect(screen.getByText("Updated")).toBeInTheDocument();
     expect(screen.queryByText("Failed")).not.toBeInTheDocument();
-    expect(screen.getByText("Miner verified:")).toBeInTheDocument();
-    expect(screen.getByText("Update finished:")).toBeInTheDocument();
+    expect(screen.getByText("Verified at")).toBeInTheDocument();
+    const row = screen.getByText("1.4.3").closest("tr")!;
+    expect(row.querySelectorAll("time")).toHaveLength(1);
+    expect(row.querySelector("time")).toHaveAttribute("dateTime", "2026-09-26T10:08:00.000Z");
+    expect(within(row).queryByText("Proto Rig")).not.toBeInTheDocument();
     expect(
-      screen.getByText("Release channel updates only. Deleting a channel removes its history."),
+      screen.getByText(
+        "History includes only release channel updates, with attempt counts reset on retry and entries removed when their channel is deleted.",
+      ),
     ).toBeInTheDocument();
-    expect(screen.getByText("Attempts reset when an update is retried.")).toBeInTheDocument();
   });
 
   it.each([RolloutDevicePhase.QUEUED, RolloutDevicePhase.IN_PROGRESS, RolloutDevicePhase.RETRYING])(
@@ -61,6 +65,9 @@ describe("MinerFirmwareHistoryModal", () => {
       expect(screen.getByText("Canceled")).toBeInTheDocument();
       expect(screen.getByText("Any update command already sent may still finish.")).toBeInTheDocument();
       expect(screen.queryByText(/^(Queued|Updating|Retrying)$/)).not.toBeInTheDocument();
+      const row = screen.getByText("1.4.3").closest("tr")!;
+      expect(within(row).getByText("—")).toBeInTheDocument();
+      expect(row.querySelector("time")).not.toBeInTheDocument();
     },
   );
 

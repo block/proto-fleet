@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { type Timestamp, timestampMs } from "@bufbuild/protobuf/wkt";
+import { timestampMs } from "@bufbuild/protobuf/wkt";
 
 import {
   type MinerFirmwareHistoryEntry,
@@ -16,14 +16,14 @@ import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal from "@/shared/components/Modal";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
-type Column = "firmware" | "channel" | "outcome" | "attempts" | "timing" | "view";
-const columns: Column[] = ["firmware", "channel", "outcome", "attempts", "timing", "view"];
+type Column = "firmware" | "channel" | "outcome" | "attempts" | "verifiedAt" | "view";
+const columns: Column[] = ["firmware", "channel", "outcome", "attempts", "verifiedAt", "view"];
 const titles: ColTitles<Column> = {
   firmware: "Firmware",
   channel: "Release channel",
   outcome: "Miner outcome",
   attempts: "Attempts",
-  timing: "Timing",
+  verifiedAt: "Verified at",
   view: "",
 };
 const unfinished = new Set([RolloutDevicePhase.QUEUED, RolloutDevicePhase.IN_PROGRESS, RolloutDevicePhase.RETRYING]);
@@ -62,18 +62,6 @@ function MinerOutcome({ entry }: { entry: MinerFirmwareHistoryEntry }) {
   );
 }
 
-function HistoryTime({ label, value }: { label: string; value?: Timestamp }) {
-  if (!value) return null;
-  return (
-    <div>
-      <span className="text-text-primary-50">{label}: </span>
-      <time dateTime={new Date(timestampMs(value)).toISOString()}>
-        {formatTimestamp(Math.floor(timestampMs(value) / 1000))}
-      </time>
-    </div>
-  );
-}
-
 interface MinerFirmwareHistoryModalProps {
   deviceIdentifier: string;
   minerName?: string;
@@ -97,29 +85,21 @@ export function MinerFirmwareHistoryModalView({
     firmware: {
       width: "w-[140px]",
       allowWrap: true,
-      component: (entry) => (
-        <div className="flex flex-col gap-1">
-          <span title={entry.firmwareChecksum}>{entry.firmwareVersion || "—"}</span>
-          <span className="text-200 text-text-primary-50">
-            {[entry.manufacturer, entry.model].filter(Boolean).join(" ")}
-          </span>
-        </div>
-      ),
+      component: (entry) => <span title={entry.firmwareChecksum}>{entry.firmwareVersion || "—"}</span>,
     },
     channel: { width: "w-[140px]", allowWrap: true, component: (entry) => entry.channelName },
     outcome: { width: "w-[210px]", allowWrap: true, component: (entry) => <MinerOutcome entry={entry} /> },
     attempts: { width: "w-[80px]", component: (entry) => entry.attempts.toLocaleString() },
-    timing: {
-      width: "w-[250px]",
+    verifiedAt: {
+      width: "w-[180px]",
       allowWrap: true,
-      component: (entry) => (
-        <div className="space-y-1 text-200">
-          <HistoryTime label="Update started" value={entry.createdAt} />
-          <HistoryTime label="Last sent" value={entry.lastSentAt} />
-          <HistoryTime label="Miner verified" value={entry.verifiedAt} />
-          <HistoryTime label="Update finished" value={entry.finishedAt} />
-        </div>
-      ),
+      component: (entry) => {
+        if (!entry.verifiedAt) return "—";
+        const verifiedAt = timestampMs(entry.verifiedAt);
+        return (
+          <time dateTime={new Date(verifiedAt).toISOString()}>{formatTimestamp(Math.floor(verifiedAt / 1000))}</time>
+        );
+      },
     },
     view: {
       width: "w-[120px]",
@@ -140,17 +120,19 @@ export function MinerFirmwareHistoryModalView({
       buttons={[{ text: "Done", variant: "primary", onClick: onClose }]}
     >
       <div className="flex flex-col gap-4" aria-busy={busy}>
-        <p className="text-200 text-text-primary-50">
-          Release channel updates only. Deleting a channel removes its history.
-        </p>
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-200 text-text-primary-50">
+            History includes only release channel updates, with attempt counts reset on retry and entries removed when
+            their channel is deleted.
+          </p>
+          {history.canRead ? (
+            <Button text="Refresh" variant="secondary" size="compact" disabled={busy} onClick={history.refresh} />
+          ) : null}
+        </div>
         {!history.canRead ? (
           <p role="status">Firmware update history is unavailable with your current permissions.</p>
         ) : (
           <>
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-200 text-text-primary-50">Attempts reset when an update is retried.</p>
-              <Button text="Refresh" variant="secondary" size="compact" disabled={busy} onClick={history.refresh} />
-            </div>
             {history.error ? (
               <div role="alert">
                 <Callout
