@@ -94,6 +94,8 @@ func runCleanupTestOperation(t *testing.T, ctx context.Context, operation string
 		return commandErr.code
 	}
 	requirePhysicalTelemetryIdentity(t, result)
+	// Exercise cleanup after cache eviction, rather than after every poll.
+	fetcher.clearCachedDevices()
 	return pb.AckCode_ACK_CODE_OK
 }
 
