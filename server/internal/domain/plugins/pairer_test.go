@@ -1045,15 +1045,17 @@ func TestPairer_PairDevice_AntminerAutoCredentials_AuthFailure(t *testing.T) {
 
 	// Create mock driver that returns a typed authentication error
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
-	mockDriver.EXPECT().
-		PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed("antminer-device-002"))
+	gomock.InOrder(
+		mockDriver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "root", Password: "root"}}).Return(sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed("antminer-device-002")),
+		mockDriver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "admin", Password: "second"}}).Return(sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed("antminer-device-002")),
+	)
 
 	// Wrap mock driver with default credentials provider
 	driverWithCreds := &mockDriverWithDefaultCredentials{
 		Driver: mockDriver,
 		defaultCredentials: []sdk.UsernamePassword{
 			{Username: "root", Password: "root"},
+			{Username: "admin", Password: "second"},
 		},
 	}
 
@@ -1093,58 +1095,70 @@ func TestPairer_PairDevice_AntminerAutoCredentials_AuthFailure(t *testing.T) {
 // TestPairer_PairDevice_AntminerAutoCredentials_NetworkError tests that network errors
 // are not retried and are propagated immediately.
 func TestPairer_PairDevice_AntminerAutoCredentials_NetworkError(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "network", err: fmt.Errorf("plugin pairing failed: connection timeout")},
+		{name: "SDK unavailable", err: sdk.NewErrorDeviceUnavailable("antminer-device-003", fmt.Errorf("connection timeout"))},
+		{name: "RPC unavailable", err: status.Error(codes.Unavailable, "connection timeout")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 
-	manager := NewManager(&Config{})
+			manager := NewManager(&Config{})
 
-	// Create mock driver that returns a network error (not an auth error)
-	mockDriver := sdkMocks.NewMockDriver(ctrl)
-	mockDriver.EXPECT().
-		PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(sdk.DeviceInfo{}, fmt.Errorf("plugin pairing failed: connection timeout")).
-		Times(1) // Should only be called once, not retried
+			// Create mock driver that returns a network error (not an auth error)
+			mockDriver := sdkMocks.NewMockDriver(ctrl)
+			mockDriver.EXPECT().
+				PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "root", Password: "root"}}).
+				Return(sdk.DeviceInfo{}, tc.err).
+				Times(1) // Should only be called once, not retried
 
-	// Wrap mock driver with default credentials provider
-	driverWithCreds := &mockDriverWithDefaultCredentials{
-		Driver: mockDriver,
-		defaultCredentials: []sdk.UsernamePassword{
-			{Username: "root", Password: "root"},
-		},
+			// Wrap mock driver with default credentials provider
+			driverWithCreds := &mockDriverWithDefaultCredentials{
+				Driver: mockDriver,
+				defaultCredentials: []sdk.UsernamePassword{
+					{Username: "root", Password: "root"},
+					{Username: "admin", Password: "second"},
+				},
+			}
+
+			// Add mock plugin with pairing capability
+			mockPlugin := &LoadedPlugin{
+				Name:       "antminer-plugin",
+				Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+				Driver:     driverWithCreds,
+				Caps: sdk.Capabilities{
+					sdk.CapabilityPairing: true,
+				},
+			}
+			manager.pluginsByDriverName["antminer"] = mockPlugin
+
+			pairer := createTestPairer(ctrl, manager)
+
+			device := &discoverymodels.DiscoveredDevice{
+				Device: pb.Device{
+					DeviceIdentifier: "antminer-device-003",
+					IpAddress:        "192.168.1.102",
+					Port:             "80",
+					DriverName:       "antminer",
+				},
+				OrgID: 1,
+			}
+
+			// NO credentials provided
+			var credentials *pb.Credentials
+
+			ctx := t.Context()
+			err := pairer.PairDevice(ctx, device, credentials)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.err.Error(), "Unavailable error should be propagated")
+			assert.NotContains(t, err.Error(), "credentials are required", "Should not convert to credentials error")
+		})
 	}
-
-	// Add mock plugin with pairing capability
-	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
-		Driver:     driverWithCreds,
-		Caps: sdk.Capabilities{
-			sdk.CapabilityPairing: true,
-		},
-	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
-
-	pairer := createTestPairer(ctrl, manager)
-
-	device := &discoverymodels.DiscoveredDevice{
-		Device: pb.Device{
-			DeviceIdentifier: "antminer-device-003",
-			IpAddress:        "192.168.1.102",
-			Port:             "80",
-			DriverName:       "antminer",
-		},
-		OrgID: 1,
-	}
-
-	// NO credentials provided
-	var credentials *pb.Credentials
-
-	ctx := t.Context()
-	err := pairer.PairDevice(ctx, device, credentials)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "connection timeout", "Network error should be propagated")
-	assert.NotContains(t, err.Error(), "credentials are required", "Should not convert to credentials error")
 }
 
 // TestPairer_PairDevice_AntminerExplicitCredentials tests that when explicit credentials

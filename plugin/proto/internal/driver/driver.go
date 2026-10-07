@@ -32,6 +32,8 @@ import (
 	"github.com/block/proto-fleet/plugin/proto/internal/device"
 	"github.com/block/proto-fleet/plugin/proto/pkg/proto"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 const (
@@ -398,7 +400,12 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		return sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed(deviceInfo.SerialNumber, err)
+		// Only the firmware's explicit rejection permits another credential trial.
+		// Transport, cancellation and malformed responses leave the result unknown.
+		if grpcstatus.Code(err) == codes.Unauthenticated {
+			return sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed(deviceInfo.SerialNumber, err)
+		}
+		return sdk.DeviceInfo{}, sdk.NewErrorDeviceUnavailable(deviceInfo.SerialNumber, err)
 	}
 
 	// Record default-password state at pair time so the server can flag remediation
