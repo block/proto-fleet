@@ -22,6 +22,7 @@ import (
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -59,6 +60,7 @@ type Config struct {
 	DeviceClass commonpb.DeviceClass
 	RPCPort     int32
 	RPCTLS      bool
+	WriteGate   interfaces.MinerWriteGate
 	// EncryptionPublicKey resolves the current node key for each pool write.
 	EncryptionPublicKey func(context.Context) ([]byte, error)
 	Sender              CommandSender
@@ -95,6 +97,7 @@ type Config struct {
 // value (no live connection), so caching the handle is safe; stream liveness is
 // resolved per command by the registry.
 type Miner struct {
+	writeGate           interfaces.MinerWriteGate
 	encryptionPublicKey func(context.Context) ([]byte, error)
 	sender              CommandSender
 	gate                Gate
@@ -139,6 +142,7 @@ func New(cfg Config) (*Miner, error) {
 		return nil, fleeterror.NewInternalErrorf("remote-node miner: connection info: %v", err)
 	}
 	return &Miner{
+		writeGate:           cfg.WriteGate,
 		sender:              cfg.Sender,
 		encryptionPublicKey: cfg.EncryptionPublicKey,
 		gate:                cfg.Gate,
@@ -320,11 +324,25 @@ func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand)
 	} else if mc.GetSetContainerControl() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2
 	}
-	ack, err := m.sender.SendCommand(ctx, m.fleetNodeID, version, cmd)
-	if err != nil {
-		return nil, mapSendCommandError(err)
+	var ack *gatewaypb.ControlAck
+	kind, physical := physicalWriteKind(mc)
+	invoke := func(ctx context.Context) error {
+		var err error
+		ack, err = m.sender.SendCommand(ctx, m.fleetNodeID, version, cmd)
+		if err != nil {
+			return mapSendCommandError(err)
+		}
+		if physical {
+			return ackToError(ack)
+		}
+		return nil
 	}
-	return ack, nil
+	if physical && m.writeGate != nil {
+		err = m.writeGate(ctx, kind, invoke)
+	} else {
+		err = invoke(ctx)
+	}
+	return ack, err
 }
 
 func (m *Miner) sendWithoutGateWithArtifactResults(ctx context.Context, mc *gatewaypb.MinerCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
@@ -336,11 +354,26 @@ func (m *Miner) sendWithoutGateWithArtifactResults(ctx context.Context, mc *gate
 	if err != nil {
 		return nil, nil, devicewrite.NotDispatched(err)
 	}
-	ack, refs, err := sender.SendCommandWithArtifactResults(ctx, m.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, artifacts)
-	if err != nil {
-		return nil, nil, mapSendCommandError(err)
+	var ack *gatewaypb.ControlAck
+	var refs []*gatewaypb.CommandArtifactRef
+	kind, physical := physicalWriteKind(mc)
+	invoke := func(ctx context.Context) error {
+		var err error
+		ack, refs, err = sender.SendCommandWithArtifactResults(ctx, m.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, artifacts)
+		if err != nil {
+			return mapSendCommandError(err)
+		}
+		if physical {
+			return ackToError(ack)
+		}
+		return nil
 	}
-	return ack, refs, nil
+	if physical && m.writeGate != nil {
+		err = m.writeGate(ctx, kind, invoke)
+	} else {
+		err = invoke(ctx)
+	}
+	return ack, refs, err
 }
 
 func (m *Miner) controlCommandForMiner(commandID string, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlCommand, error) {
@@ -913,4 +946,39 @@ func miningPoolConfigFromDTO(pool dto.MiningPool, poolName string) (*gatewaypb.M
 		Username: pool.Username,
 		Password: proto.String(pool.Password),
 	}, nil
+}
+
+// Only explicitly observation-only actions bypass physical-write admission.
+// Future actions remain fenced until their behavior has been classified.
+func physicalWriteKind(command *gatewaypb.MinerCommand) (commandtype.Type, bool) {
+	switch command.GetAction().(type) {
+	case *gatewaypb.MinerCommand_GetCoolingMode, *gatewaypb.MinerCommand_GetErrors, *gatewaypb.MinerCommand_GetMiningPools, *gatewaypb.MinerCommand_GetFirmwareUpdateStatus, *gatewaypb.MinerCommand_DownloadLogs, *gatewaypb.MinerCommand_BlinkLed:
+		return commandtype.Type(-1), false
+	case *gatewaypb.MinerCommand_Reboot:
+		return commandtype.Reboot, true
+	case *gatewaypb.MinerCommand_StartMining:
+		return commandtype.StartMining, true
+	case *gatewaypb.MinerCommand_StopMining:
+		return commandtype.StopMining, true
+	case *gatewaypb.MinerCommand_Curtail:
+		return commandtype.Curtail, true
+	case *gatewaypb.MinerCommand_Uncurtail:
+		return commandtype.Uncurtail, true
+	case *gatewaypb.MinerCommand_SetCoolingMode:
+		return commandtype.SetCoolingMode, true
+	case *gatewaypb.MinerCommand_SetPowerTarget:
+		return commandtype.SetPowerTarget, true
+	case *gatewaypb.MinerCommand_UpdateMiningPools:
+		return commandtype.UpdateMiningPools, true
+	case *gatewaypb.MinerCommand_UpdateMinerPassword:
+		return commandtype.UpdateMinerPassword, true
+	case *gatewaypb.MinerCommand_FirmwareUpdate:
+		return commandtype.FirmwareUpdate, true
+	case *gatewaypb.MinerCommand_ApplyCurtailmentConfig:
+		return commandtype.ApplyCurtailmentConfig, true
+	case *gatewaypb.MinerCommand_SetContainerControl:
+		return commandtype.SetContainerControl, true
+	default:
+		return commandtype.Type(-1), true
+	}
 }

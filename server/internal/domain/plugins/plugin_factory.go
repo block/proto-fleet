@@ -24,8 +24,9 @@ type PluginDriverGetter interface {
 
 // PluginMinerConfig contains all parameters needed to create a plugin-based miner
 type PluginMinerConfig struct {
-	RPCPort int32
-	RPCTLS  bool
+	RPCPort   int32
+	RPCTLS    bool
+	WriteGate interfaces.MinerWriteGate
 	// Device information
 	DeviceClass      sdk.DeviceClass
 	DeviceIdentifier string
@@ -134,7 +135,7 @@ func NewPluginMinerWithCredentials(
 		return nil, classifyNewDeviceError(err, config.DeviceIdentifier)
 	}
 
-	return NewPluginMiner(
+	miner := NewPluginMiner(
 		config.OrgID,
 		config.SiteID,
 		models.DeviceIdentifier(config.DeviceIdentifier),
@@ -145,7 +146,9 @@ func NewPluginMinerWithCredentials(
 		result.Device,
 		sdkDeviceInfo,
 		config.FilesService,
-	), nil
+	)
+	miner.writeGate = config.WriteGate
+	return miner, nil
 }
 
 // classifyNewDeviceError maps an error returned by Driver.NewDevice into the
