@@ -1,13 +1,20 @@
 import { useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import type { Meta, StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, spyOn, userEvent, within } from "storybook/test";
 
 import MinerListComponent from "../MinerList";
+import { fleetInventoryClient } from "@/protoFleet/api/clients";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
-import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
+import {
+  EntityKind,
+  GetModuleHashboardsResponseSchema,
+  InventoryItemSchema,
+  ModuleIssuesSchema,
+} from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import type { MinerStateSnapshot } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { miners } from "@/protoFleet/features/fleetManagement/components/MinerList/stories/mocks";
 import {
@@ -256,5 +263,118 @@ export const MinersAndModules: Story = {
     ],
     paddingLeft: { phone: "24px", tablet: "24px", laptop: "40px", desktop: "40px" },
     overflowContainer: false,
+  },
+};
+
+export const ExpandedHashboards: Story = {
+  ...MinersAndModules,
+  args: {
+    ...MinersAndModules.args,
+    inventoryItems: MinersAndModules.args?.inventoryItems?.map((item) =>
+      item.ref?.kind === EntityKind.MODULE && item.ref.id === 1n
+        ? create(InventoryItemSchema, {
+            ...item,
+            state: "attention",
+            hashrateThs: 190,
+            minTemperatureC: 35,
+            maxTemperatureC: 73,
+            moduleIssues: create(ModuleIssuesSchema, {
+              complete: true,
+              observedAt: timestampFromDate(new Date()),
+              items: [
+                {
+                  component: "hashboard",
+                  componentId: "aa:bb:cc:00:00:02",
+                  cause: "HASHRAIL_FAULT",
+                  severity: "fault",
+                  observedAt: timestampFromDate(new Date()),
+                },
+              ],
+            }),
+          })
+        : item,
+    ),
+  },
+  beforeEach: () => {
+    const request = spyOn(fleetInventoryClient, "getModuleHashboards").mockImplementation(async ({ moduleIds }) =>
+      create(GetModuleHashboardsResponseSchema, {
+        modules: (moduleIds ?? []).map((moduleId) => ({
+          moduleId,
+          slots:
+            moduleId === 1n
+              ? [
+                  {
+                    position: 1,
+                    occupancy: "occupied",
+                    board: {
+                      hashboardId: 11n,
+                      moduleId,
+                      position: 1,
+                      serial: "CT1-HB-001",
+                      state: "hashing",
+                      hashrateHs: 100e12,
+                      temperatureC: 62,
+                      hashrailOk: true,
+                      refclksOk: true,
+                      health: { errors: [], warnings: [] },
+                    },
+                  },
+                  {
+                    position: 2,
+                    occupancy: "occupied",
+                    board: {
+                      hashboardId: 12n,
+                      moduleId,
+                      position: 2,
+                      serial: "CT1-HB-002",
+                      observedAt: timestampFromDate(new Date()),
+                      state: "attention",
+                      hashrateHs: 90e12,
+                      temperatureC: 73,
+                      hashrailOk: false,
+                      refclksOk: true,
+                      health: { errors: [{ cause: "HASHRAIL_FAULT" }], warnings: [] },
+                    },
+                  },
+                  {
+                    position: 3,
+                    occupancy: "occupied",
+                    board: {
+                      hashboardId: 13n,
+                      moduleId,
+                      position: 3,
+                      serial: "CT1-HB-003",
+                      state: "isolated",
+                      isolated: true,
+                      hashrateHs: 0,
+                      temperatureC: 35,
+                      hashrailOk: true,
+                      refclksOk: true,
+                    },
+                  },
+                ]
+              : [
+                  { position: 1, occupancy: "empty" },
+                  { position: 2, occupancy: "unknown", unavailableReason: "identity_conflict" },
+                  {
+                    position: 3,
+                    occupancy: "occupied",
+                    board: { hashboardId: 23n, moduleId, position: 3, serial: "CT1-HB-023", state: "unknown" },
+                  },
+                ],
+        })),
+      }),
+    );
+    return () => request.mockRestore();
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: "Expand hashboards for Container 1 T1 M1" }));
+    await canvas.findByText("Hashboard 1 - CT1-HB-001");
+    await userEvent.click(canvas.getByRole("button", { name: "Expand hashboards for Container 1 T1 M2" }));
+    await canvas.findByText("Empty slot");
+    await expect(canvas.getAllByTestId("list-child-row")).toHaveLength(6);
+    for (const row of canvas.getAllByTestId("list-child-row"))
+      await expect(within(row).queryByRole("checkbox")).toBeNull();
   },
 };

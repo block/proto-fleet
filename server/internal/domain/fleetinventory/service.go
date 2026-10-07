@@ -28,9 +28,8 @@ type MinerReader interface {
 }
 
 type Store interface {
-	ListFleetTankOptions(ctx context.Context, params sqlc.ListFleetTankOptionsParams) ([]sqlc.ListFleetTankOptionsRow, error)
-	GetContainerTankScope(ctx context.Context, params sqlc.GetContainerTankScopeParams) (sql.NullInt64, error)
-	GetContainerTankHistory(ctx context.Context, params sqlc.GetContainerTankHistoryParams) ([]sqlc.GetContainerTankHistoryRow, error)
+	TankStore
+	HashboardStore
 	ListFleetInventoryOptions(ctx context.Context, params sqlc.ListFleetInventoryOptionsParams) (sqlc.ListFleetInventoryOptionsRow, error)
 	ListContainers(ctx context.Context, params sqlc.ListContainersParams) ([]sqlc.ListContainersRow, error)
 	ListFleetFacilities(ctx context.Context, params sqlc.ListFleetFacilitiesParams) (sqlc.ListFleetFacilitiesRow, error)
@@ -38,6 +37,18 @@ type Store interface {
 	ListFleetMiningAssets(ctx context.Context, params sqlc.ListFleetMiningAssetsParams) (sqlc.ListFleetMiningAssetsRow, error)
 	GetContainerModuleScope(ctx context.Context, params sqlc.GetContainerModuleScopeParams) (sqlc.GetContainerModuleScopeRow, error)
 	ListContainerModuleHistory(ctx context.Context, params sqlc.ListContainerModuleHistoryParams) ([]sqlc.ListContainerModuleHistoryRow, error)
+}
+
+type TankStore interface {
+	ListFleetTankOptions(ctx context.Context, params sqlc.ListFleetTankOptionsParams) ([]sqlc.ListFleetTankOptionsRow, error)
+	GetContainerTankScope(ctx context.Context, params sqlc.GetContainerTankScopeParams) (sql.NullInt64, error)
+	GetContainerTankHistory(ctx context.Context, params sqlc.GetContainerTankHistoryParams) ([]sqlc.GetContainerTankHistoryRow, error)
+}
+
+type HashboardStore interface {
+	CanReadHashboardHistory(ctx context.Context, params sqlc.CanReadHashboardHistoryParams) (bool, error)
+	GetModuleHashboards(ctx context.Context, params sqlc.GetModuleHashboardsParams) (json.RawMessage, error)
+	ListHashboardHistory(ctx context.Context, params sqlc.ListHashboardHistoryParams) ([]sqlc.ListHashboardHistoryRow, error)
 }
 
 type Service struct {

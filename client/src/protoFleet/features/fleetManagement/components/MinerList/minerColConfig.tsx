@@ -81,7 +81,7 @@ const createMinerColConfig = ({
         />
       );
     },
-    width: "w-[208px]",
+    width: "w-[208px] max-w-[208px]",
   },
   [minerCols.workerName]: {
     component: (device: DeviceListItem) => <MinerWorkerName miner={device.miner} />,

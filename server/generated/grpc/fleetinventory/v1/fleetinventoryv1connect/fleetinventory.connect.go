@@ -46,6 +46,12 @@ const (
 	// FleetInventoryServiceListModuleHistoryProcedure is the fully-qualified name of the
 	// FleetInventoryService's ListModuleHistory RPC.
 	FleetInventoryServiceListModuleHistoryProcedure = "/fleetinventory.v1.FleetInventoryService/ListModuleHistory"
+	// FleetInventoryServiceGetModuleHashboardsProcedure is the fully-qualified name of the
+	// FleetInventoryService's GetModuleHashboards RPC.
+	FleetInventoryServiceGetModuleHashboardsProcedure = "/fleetinventory.v1.FleetInventoryService/GetModuleHashboards"
+	// FleetInventoryServiceListHashboardHistoryProcedure is the fully-qualified name of the
+	// FleetInventoryService's ListHashboardHistory RPC.
+	FleetInventoryServiceListHashboardHistoryProcedure = "/fleetinventory.v1.FleetInventoryService/ListHashboardHistory"
 )
 
 // FleetInventoryServiceClient is a client for the fleetinventory.v1.FleetInventoryService service.
@@ -55,6 +61,8 @@ type FleetInventoryServiceClient interface {
 	ListInventory(context.Context, *connect.Request[v1.ListInventoryRequest]) (*connect.Response[v1.ListInventoryResponse], error)
 	GetTankHistory(context.Context, *connect.Request[v1.GetTankHistoryRequest]) (*connect.Response[v1.GetTankHistoryResponse], error)
 	ListModuleHistory(context.Context, *connect.Request[v1.ListModuleHistoryRequest]) (*connect.Response[v1.ListModuleHistoryResponse], error)
+	GetModuleHashboards(context.Context, *connect.Request[v1.GetModuleHashboardsRequest]) (*connect.Response[v1.GetModuleHashboardsResponse], error)
+	ListHashboardHistory(context.Context, *connect.Request[v1.ListHashboardHistoryRequest]) (*connect.Response[v1.ListHashboardHistoryResponse], error)
 }
 
 // NewFleetInventoryServiceClient constructs a client for the
@@ -87,15 +95,27 @@ func NewFleetInventoryServiceClient(httpClient connect.HTTPClient, baseURL strin
 			baseURL+FleetInventoryServiceListModuleHistoryProcedure,
 			opts...,
 		),
+		getModuleHashboards: connect.NewClient[v1.GetModuleHashboardsRequest, v1.GetModuleHashboardsResponse](
+			httpClient,
+			baseURL+FleetInventoryServiceGetModuleHashboardsProcedure,
+			opts...,
+		),
+		listHashboardHistory: connect.NewClient[v1.ListHashboardHistoryRequest, v1.ListHashboardHistoryResponse](
+			httpClient,
+			baseURL+FleetInventoryServiceListHashboardHistoryProcedure,
+			opts...,
+		),
 	}
 }
 
 // fleetInventoryServiceClient implements FleetInventoryServiceClient.
 type fleetInventoryServiceClient struct {
-	listTankOptions   *connect.Client[v1.ListTankOptionsRequest, v1.ListTankOptionsResponse]
-	listInventory     *connect.Client[v1.ListInventoryRequest, v1.ListInventoryResponse]
-	getTankHistory    *connect.Client[v1.GetTankHistoryRequest, v1.GetTankHistoryResponse]
-	listModuleHistory *connect.Client[v1.ListModuleHistoryRequest, v1.ListModuleHistoryResponse]
+	listTankOptions      *connect.Client[v1.ListTankOptionsRequest, v1.ListTankOptionsResponse]
+	listInventory        *connect.Client[v1.ListInventoryRequest, v1.ListInventoryResponse]
+	getTankHistory       *connect.Client[v1.GetTankHistoryRequest, v1.GetTankHistoryResponse]
+	listModuleHistory    *connect.Client[v1.ListModuleHistoryRequest, v1.ListModuleHistoryResponse]
+	getModuleHashboards  *connect.Client[v1.GetModuleHashboardsRequest, v1.GetModuleHashboardsResponse]
+	listHashboardHistory *connect.Client[v1.ListHashboardHistoryRequest, v1.ListHashboardHistoryResponse]
 }
 
 // ListTankOptions calls fleetinventory.v1.FleetInventoryService.ListTankOptions.
@@ -118,6 +138,16 @@ func (c *fleetInventoryServiceClient) ListModuleHistory(ctx context.Context, req
 	return c.listModuleHistory.CallUnary(ctx, req)
 }
 
+// GetModuleHashboards calls fleetinventory.v1.FleetInventoryService.GetModuleHashboards.
+func (c *fleetInventoryServiceClient) GetModuleHashboards(ctx context.Context, req *connect.Request[v1.GetModuleHashboardsRequest]) (*connect.Response[v1.GetModuleHashboardsResponse], error) {
+	return c.getModuleHashboards.CallUnary(ctx, req)
+}
+
+// ListHashboardHistory calls fleetinventory.v1.FleetInventoryService.ListHashboardHistory.
+func (c *fleetInventoryServiceClient) ListHashboardHistory(ctx context.Context, req *connect.Request[v1.ListHashboardHistoryRequest]) (*connect.Response[v1.ListHashboardHistoryResponse], error) {
+	return c.listHashboardHistory.CallUnary(ctx, req)
+}
+
 // FleetInventoryServiceHandler is an implementation of the fleetinventory.v1.FleetInventoryService
 // service.
 type FleetInventoryServiceHandler interface {
@@ -126,6 +156,8 @@ type FleetInventoryServiceHandler interface {
 	ListInventory(context.Context, *connect.Request[v1.ListInventoryRequest]) (*connect.Response[v1.ListInventoryResponse], error)
 	GetTankHistory(context.Context, *connect.Request[v1.GetTankHistoryRequest]) (*connect.Response[v1.GetTankHistoryResponse], error)
 	ListModuleHistory(context.Context, *connect.Request[v1.ListModuleHistoryRequest]) (*connect.Response[v1.ListModuleHistoryResponse], error)
+	GetModuleHashboards(context.Context, *connect.Request[v1.GetModuleHashboardsRequest]) (*connect.Response[v1.GetModuleHashboardsResponse], error)
+	ListHashboardHistory(context.Context, *connect.Request[v1.ListHashboardHistoryRequest]) (*connect.Response[v1.ListHashboardHistoryResponse], error)
 }
 
 // NewFleetInventoryServiceHandler builds an HTTP handler from the service implementation. It
@@ -154,6 +186,16 @@ func NewFleetInventoryServiceHandler(svc FleetInventoryServiceHandler, opts ...c
 		svc.ListModuleHistory,
 		opts...,
 	)
+	fleetInventoryServiceGetModuleHashboardsHandler := connect.NewUnaryHandler(
+		FleetInventoryServiceGetModuleHashboardsProcedure,
+		svc.GetModuleHashboards,
+		opts...,
+	)
+	fleetInventoryServiceListHashboardHistoryHandler := connect.NewUnaryHandler(
+		FleetInventoryServiceListHashboardHistoryProcedure,
+		svc.ListHashboardHistory,
+		opts...,
+	)
 	return "/fleetinventory.v1.FleetInventoryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case FleetInventoryServiceListTankOptionsProcedure:
@@ -164,6 +206,10 @@ func NewFleetInventoryServiceHandler(svc FleetInventoryServiceHandler, opts ...c
 			fleetInventoryServiceGetTankHistoryHandler.ServeHTTP(w, r)
 		case FleetInventoryServiceListModuleHistoryProcedure:
 			fleetInventoryServiceListModuleHistoryHandler.ServeHTTP(w, r)
+		case FleetInventoryServiceGetModuleHashboardsProcedure:
+			fleetInventoryServiceGetModuleHashboardsHandler.ServeHTTP(w, r)
+		case FleetInventoryServiceListHashboardHistoryProcedure:
+			fleetInventoryServiceListHashboardHistoryHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -187,4 +233,12 @@ func (UnimplementedFleetInventoryServiceHandler) GetTankHistory(context.Context,
 
 func (UnimplementedFleetInventoryServiceHandler) ListModuleHistory(context.Context, *connect.Request[v1.ListModuleHistoryRequest]) (*connect.Response[v1.ListModuleHistoryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetinventory.v1.FleetInventoryService.ListModuleHistory is not implemented"))
+}
+
+func (UnimplementedFleetInventoryServiceHandler) GetModuleHashboards(context.Context, *connect.Request[v1.GetModuleHashboardsRequest]) (*connect.Response[v1.GetModuleHashboardsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetinventory.v1.FleetInventoryService.GetModuleHashboards is not implemented"))
+}
+
+func (UnimplementedFleetInventoryServiceHandler) ListHashboardHistory(context.Context, *connect.Request[v1.ListHashboardHistoryRequest]) (*connect.Response[v1.ListHashboardHistoryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("fleetinventory.v1.FleetInventoryService.ListHashboardHistory is not implemented"))
 }

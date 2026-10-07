@@ -20,10 +20,10 @@ import { file_device_set_v1_device_set } from "../../device_set/v1/device_set_pb
 import type { Container } from "../../containers/v1/containers_pb";
 import { file_containers_v1_containers } from "../../containers/v1/containers_pb";
 import type { Timestamp } from "@bufbuild/protobuf/wkt";
-import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_struct, file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Metric } from "../../telemetry/v1/telemetry_pb";
 import { file_telemetry_v1_telemetry } from "../../telemetry/v1/telemetry_pb";
-import type { Message } from "@bufbuild/protobuf";
+import type { JsonObject, Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file fleetinventory/v1/fleetinventory.proto.
@@ -31,7 +31,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_fleetinventory_v1_fleetinventory: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "CiZmbGVldGludmVudG9yeS92MS9mbGVldGludmVudG9yeS5wcm90bxIRZmxlZXRpbnZlbnRvcnkudjEiVQoWTGlzdFRhbmtPcHRpb25zUmVxdWVzdBIdCglwYWdlX3NpemUYASABKAVCCrpIBxoFGOgHKAASHAoKcGFnZV90b2tlbhgCIAEoCUIIukgFcgMYgCAiYgoXTGlzdFRhbmtPcHRpb25zUmVzcG9uc2USLgoHb3B0aW9ucxgBIAMoCzIdLmZsZWV0aW52ZW50b3J5LnYxLlRhbmtPcHRpb24SFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJIjkKClRhbmtPcHRpb24SCgoCaWQYASABKAMSDAoEbmFtZRgCIAEoCRIRCglzaXRlX25hbWUYAyABKAkiWQoJRW50aXR5UmVmEjcKBGtpbmQYASABKA4yHS5mbGVldGludmVudG9yeS52MS5FbnRpdHlLaW5kQgq6SAeCAQQQASAAEhMKAmlkGAIgASgDQge6SAQiAiAAIv4FChRMaXN0SW52ZW50b3J5UmVxdWVzdBI6CgR2aWV3GAEgASgOMiAuZmxlZXRpbnZlbnRvcnkudjEuSW52ZW50b3J5Vmlld0IKukgHggEEEAEgABIdCglwYWdlX3NpemUYAiABKAVCCrpIBxoFGOgHKAASHAoKcGFnZV90b2tlbhgDIAEoCUIIukgFcgMYgCASOAoEc29ydBgEIAEoDjIgLmZsZWV0aW52ZW50b3J5LnYxLkludmVudG9yeVNvcnRCCLpIBYIBAhABEhIKCmRlc2NlbmRpbmcYBSABKAgSIQoIc2l0ZV9pZHMYBiADKANCD7pIDJIBCRCACCIEIgIgABIaChJpbmNsdWRlX3VuYXNzaWduZWQYByABKAgSOgoJYW5jZXN0b3JzGAggAygLMhwuZmxlZXRpbnZlbnRvcnkudjEuRW50aXR5UmVmQgm6SAaSAQMQgAgSPwoFa2luZHMYCSADKA4yHS5mbGVldGludmVudG9yeS52MS5FbnRpdHlLaW5kQhG6SA6SAQsQBiIHggEEEAEgABIeCgxzZWFyY2hfcXVlcnkYCiABKAlCCLpIBXIDGP8BEkwKEHRlbGVtZXRyeV9yYW5nZXMYCyADKAsyKC5jb21tb24udjEuRmxlZXRMaXN0VGVsZW1ldHJ5UmFuZ2VGaWx0ZXJCCLpIBZIBAhAQEjcKFWVycm9yX2NvbXBvbmVudF90eXBlcxgMIAMoDjIYLmVycm9ycy52MS5Db21wb25lbnRUeXBlEhQKDGJ1aWxkaW5nX2lkcxgNIAMoAxIbChNpbmNsdWRlX25vX2J1aWxkaW5nGA4gASgIEiUKCXpvbmVfa2V5cxgPIAMoCzISLmNvbW1vbi52MS5ab25lS2V5EhcKD2luY2x1ZGVfbm9fcmFjaxgQIAEoCBI5CgxtaW5lcl9maWx0ZXIYESABKAsyIy5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJMaXN0RmlsdGVyEg4KBnN0YXRlcxgSIAMoCSLLCAoNSW52ZW50b3J5SXRlbRIpCgNyZWYYASABKAsyHC5mbGVldGludmVudG9yeS52MS5FbnRpdHlSZWYSDAoEbmFtZRgCIAEoCRIUCgdzaXRlX2lkGAMgASgDSAGIAQESLwoJYW5jZXN0b3JzGAQgAygLMhwuZmxlZXRpbnZlbnRvcnkudjEuRW50aXR5UmVmEhkKEWRldmljZV9pZGVudGlmaWVyGAUgASgJEhAKCHBvc2l0aW9uGAYgASgFEhMKC3JlcG9ydGVkX2lkGAcgASgJEg0KBXN0YXRlGAggASgJEhMKC2Fzc2V0X2NvdW50GAkgASgDEiAKGGhhc2hyYXRlX3JlcG9ydGluZ19jb3VudBgKIAEoAxIdChVwb3dlcl9yZXBvcnRpbmdfY291bnQYCyABKAMSGQoMaGFzaHJhdGVfdGhzGAwgASgBSAKIAQESFQoIcG93ZXJfa3cYDSABKAFIA4gBARIbCg5lZmZpY2llbmN5X2p0aBgOIAEoAUgEiAEBEh4KEW1pbl90ZW1wZXJhdHVyZV9jGA8gASgBSAWIAQESHgoRbWF4X3RlbXBlcmF0dXJlX2MYECABKAFIBogBARIvCgtvYnNlcnZlZF9hdBgRIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASIgoVcmVwb3J0ZWRfaGFzaHJhdGVfdGhzGBIgASgBSAeIAQESHgoRcmVwb3J0ZWRfcG93ZXJfa3cYEyABKAFICIgBARI0CghidWlsZGluZxgUIAEoCzIgLmJ1aWxkaW5ncy52MS5CdWlsZGluZ1dpdGhDb3VudHNIABIoCgRyYWNrGBUgASgLMhguZGV2aWNlX3NldC52MS5EZXZpY2VTZXRIABI3CgVtaW5lchgWIAEoCzImLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lclN0YXRlU25hcHNob3RIABItCgljb250YWluZXIYFyABKAsyGC5jb250YWluZXJzLnYxLkNvbnRhaW5lckgAEi0KCmxpc3Rfc3RhdHMYGCABKAsyGS5jb21tb24udjEuRmxlZXRMaXN0U3RhdHMSEQoJc2l0ZV9uYW1lGBkgASgJEhUKDWZhY2lsaXR5X25hbWUYGiABKAkSEgoKZ3JvdXBfbmFtZRgbIAEoCRI2Cg1tb2R1bGVfaXNzdWVzGBwgASgLMh8uZmxlZXRpbnZlbnRvcnkudjEuTW9kdWxlSXNzdWVzQgkKB2RldGFpbHNCCgoIX3NpdGVfaWRCDwoNX2hhc2hyYXRlX3Roc0ILCglfcG93ZXJfa3dCEQoPX2VmZmljaWVuY3lfanRoQhQKEl9taW5fdGVtcGVyYXR1cmVfY0IUChJfbWF4X3RlbXBlcmF0dXJlX2NCGAoWX3JlcG9ydGVkX2hhc2hyYXRlX3Roc0IUChJfcmVwb3J0ZWRfcG93ZXJfa3citgEKFUxpc3RJbnZlbnRvcnlSZXNwb25zZRIvCgVpdGVtcxgBIAMoCzIgLmZsZWV0aW52ZW50b3J5LnYxLkludmVudG9yeUl0ZW0SFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJEhMKC3RvdGFsX2NvdW50GAMgASgDEhMKC21pbmVyX2NvdW50GAQgASgDEg4KBm1vZGVscxgFIAMoCRIZChFmaXJtd2FyZV92ZXJzaW9ucxgGIAMoCSLhAQoYTGlzdE1vZHVsZUhpc3RvcnlSZXF1ZXN0EhoKCW1vZHVsZV9pZBgBIAEoA0IHukgEIgIgABI2CgpzdGFydF90aW1lGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEIGukgDyAEBEjQKCGVuZF90aW1lGAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEIGukgDyAEBEh0KCXBhZ2Vfc2l6ZRgEIAEoBUIKukgHGgUY6AcoABIcCgpwYWdlX3Rva2VuGAUgASgJQgi6SAVyAxiAICLrAQoMTW9kdWxlU2FtcGxlEi8KC29ic2VydmVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgxjb2xsZWN0ZWRfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhgKC2hhc2hyYXRlX2hzGAMgASgBSACIAQESFAoHcG93ZXJfdxgEIAEoAUgBiAEBEhoKDXRlbXBlcmF0dXJlX2MYBSABKAFIAogBAUIOCgxfaGFzaHJhdGVfaHNCCgoIX3Bvd2VyX3dCEAoOX3RlbXBlcmF0dXJlX2MiZgoZTGlzdE1vZHVsZUhpc3RvcnlSZXNwb25zZRIwCgdzYW1wbGVzGAEgAygLMh8uZmxlZXRpbnZlbnRvcnkudjEuTW9kdWxlU2FtcGxlEhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSKPAQoMTW9kdWxlSXNzdWVzEi8KC29ic2VydmVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIQCghjb21wbGV0ZRgCIAEoCBINCgVzdGFsZRgEIAEoCBItCgVpdGVtcxgDIAMoCzIeLmZsZWV0aW52ZW50b3J5LnYxLk1vZHVsZUlzc3VlIogBCgtNb2R1bGVJc3N1ZRIRCgljb21wb25lbnQYASABKAkSFAoMY29tcG9uZW50X2lkGAIgASgJEg0KBWNhdXNlGAMgASgJEhAKCHNldmVyaXR5GAQgASgJEi8KC29ic2VydmVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCLzAQoVR2V0VGFua0hpc3RvcnlSZXF1ZXN0EigKFGNvbnRhaW5lcl9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEhgKB3RhbmtfaWQYAiABKANCB7pIBCICIAASNgoKc3RhcnRfdGltZRgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCBrpIA8gBARI0CghlbmRfdGltZRgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCBrpIA8gBARIoChNncmFudWxhcml0eV9zZWNvbmRzGAUgASgFQgu6SAgaBhiAowUoASJKChZHZXRUYW5rSGlzdG9yeVJlc3BvbnNlEjAKB21ldHJpY3MYASADKAsyFC50ZWxlbWV0cnkudjEuTWV0cmljQgm6SAaSAQMQoB8qlQEKDUludmVudG9yeVZpZXcSHgoaSU5WRU5UT1JZX1ZJRVdfVU5TUEVDSUZJRUQQABIdChlJTlZFTlRPUllfVklFV19GQUNJTElUSUVTEAESIwofSU5WRU5UT1JZX1ZJRVdfRVFVSVBNRU5UX0dST1VQUxACEiAKHElOVkVOVE9SWV9WSUVXX01JTklOR19BU1NFVFMQAyq5AQoKRW50aXR5S2luZBIbChdFTlRJVFlfS0lORF9VTlNQRUNJRklFRBAAEhgKFEVOVElUWV9LSU5EX0JVSUxESU5HEAESGQoVRU5USVRZX0tJTkRfQ09OVEFJTkVSEAISFAoQRU5USVRZX0tJTkRfUkFDSxADEhQKEEVOVElUWV9LSU5EX1RBTksQBBIVChFFTlRJVFlfS0lORF9NSU5FUhAFEhYKEkVOVElUWV9LSU5EX01PRFVMRRAGKq0DCg1JbnZlbnRvcnlTb3J0Eh4KGklOVkVOVE9SWV9TT1JUX1VOU1BFQ0lGSUVEEAASFwoTSU5WRU5UT1JZX1NPUlRfTkFNRRABEhsKF0lOVkVOVE9SWV9TT1JUX0hBU0hSQVRFEAISGAoUSU5WRU5UT1JZX1NPUlRfUE9XRVIQAxIeChpJTlZFTlRPUllfU09SVF9URU1QRVJBVFVSRRAEEh0KGUlOVkVOVE9SWV9TT1JUX0VGRklDSUVOQ1kQBRIeChpJTlZFTlRPUllfU09SVF9BU1NFVF9DT1VOVBAGEh4KGklOVkVOVE9SWV9TT1JUX0lTU1VFX0NPVU5UEAcSGAoUSU5WRU5UT1JZX1NPUlRfTU9ERUwQCBIbChdJTlZFTlRPUllfU09SVF9GSVJNV0FSRRAJEh0KGUlOVkVOVE9SWV9TT1JUX0lQX0FERFJFU1MQChIeChpJTlZFTlRPUllfU09SVF9NQUNfQUREUkVTUxALEh4KGklOVkVOVE9SWV9TT1JUX1dPUktFUl9OQU1FEAwSFwoTSU5WRU5UT1JZX1NPUlRfWk9ORRANMrwDChVGbGVldEludmVudG9yeVNlcnZpY2USaAoPTGlzdFRhbmtPcHRpb25zEikuZmxlZXRpbnZlbnRvcnkudjEuTGlzdFRhbmtPcHRpb25zUmVxdWVzdBoqLmZsZWV0aW52ZW50b3J5LnYxLkxpc3RUYW5rT3B0aW9uc1Jlc3BvbnNlEmIKDUxpc3RJbnZlbnRvcnkSJy5mbGVldGludmVudG9yeS52MS5MaXN0SW52ZW50b3J5UmVxdWVzdBooLmZsZWV0aW52ZW50b3J5LnYxLkxpc3RJbnZlbnRvcnlSZXNwb25zZRJlCg5HZXRUYW5rSGlzdG9yeRIoLmZsZWV0aW52ZW50b3J5LnYxLkdldFRhbmtIaXN0b3J5UmVxdWVzdBopLmZsZWV0aW52ZW50b3J5LnYxLkdldFRhbmtIaXN0b3J5UmVzcG9uc2USbgoRTGlzdE1vZHVsZUhpc3RvcnkSKy5mbGVldGludmVudG9yeS52MS5MaXN0TW9kdWxlSGlzdG9yeVJlcXVlc3QaLC5mbGVldGludmVudG9yeS52MS5MaXN0TW9kdWxlSGlzdG9yeVJlc3BvbnNlQugBChVjb20uZmxlZXRpbnZlbnRvcnkudjFCE0ZsZWV0aW52ZW50b3J5UHJvdG9QAVpVZ2l0aHViLmNvbS9ibG9jay9wcm90by1mbGVldC9zZXJ2ZXIvZ2VuZXJhdGVkL2dycGMvZmxlZXRpbnZlbnRvcnkvdjE7ZmxlZXRpbnZlbnRvcnl2MaICA0ZYWKoCEUZsZWV0aW52ZW50b3J5LlYxygIRRmxlZXRpbnZlbnRvcnlcVjHiAh1GbGVldGludmVudG9yeVxWMVxHUEJNZXRhZGF0YeoCEkZsZWV0aW52ZW50b3J5OjpWMWIGcHJvdG8z",
+    "CiZmbGVldGludmVudG9yeS92MS9mbGVldGludmVudG9yeS5wcm90bxIRZmxlZXRpbnZlbnRvcnkudjEiVQoWTGlzdFRhbmtPcHRpb25zUmVxdWVzdBIdCglwYWdlX3NpemUYASABKAVCCrpIBxoFGOgHKAASHAoKcGFnZV90b2tlbhgCIAEoCUIIukgFcgMYgCAiYgoXTGlzdFRhbmtPcHRpb25zUmVzcG9uc2USLgoHb3B0aW9ucxgBIAMoCzIdLmZsZWV0aW52ZW50b3J5LnYxLlRhbmtPcHRpb24SFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJIjkKClRhbmtPcHRpb24SCgoCaWQYASABKAMSDAoEbmFtZRgCIAEoCRIRCglzaXRlX25hbWUYAyABKAkiWQoJRW50aXR5UmVmEjcKBGtpbmQYASABKA4yHS5mbGVldGludmVudG9yeS52MS5FbnRpdHlLaW5kQgq6SAeCAQQQASAAEhMKAmlkGAIgASgDQge6SAQiAiAAIv4FChRMaXN0SW52ZW50b3J5UmVxdWVzdBI6CgR2aWV3GAEgASgOMiAuZmxlZXRpbnZlbnRvcnkudjEuSW52ZW50b3J5Vmlld0IKukgHggEEEAEgABIdCglwYWdlX3NpemUYAiABKAVCCrpIBxoFGOgHKAASHAoKcGFnZV90b2tlbhgDIAEoCUIIukgFcgMYgCASOAoEc29ydBgEIAEoDjIgLmZsZWV0aW52ZW50b3J5LnYxLkludmVudG9yeVNvcnRCCLpIBYIBAhABEhIKCmRlc2NlbmRpbmcYBSABKAgSIQoIc2l0ZV9pZHMYBiADKANCD7pIDJIBCRCACCIEIgIgABIaChJpbmNsdWRlX3VuYXNzaWduZWQYByABKAgSOgoJYW5jZXN0b3JzGAggAygLMhwuZmxlZXRpbnZlbnRvcnkudjEuRW50aXR5UmVmQgm6SAaSAQMQgAgSPwoFa2luZHMYCSADKA4yHS5mbGVldGludmVudG9yeS52MS5FbnRpdHlLaW5kQhG6SA6SAQsQBiIHggEEEAEgABIeCgxzZWFyY2hfcXVlcnkYCiABKAlCCLpIBXIDGP8BEkwKEHRlbGVtZXRyeV9yYW5nZXMYCyADKAsyKC5jb21tb24udjEuRmxlZXRMaXN0VGVsZW1ldHJ5UmFuZ2VGaWx0ZXJCCLpIBZIBAhAQEjcKFWVycm9yX2NvbXBvbmVudF90eXBlcxgMIAMoDjIYLmVycm9ycy52MS5Db21wb25lbnRUeXBlEhQKDGJ1aWxkaW5nX2lkcxgNIAMoAxIbChNpbmNsdWRlX25vX2J1aWxkaW5nGA4gASgIEiUKCXpvbmVfa2V5cxgPIAMoCzISLmNvbW1vbi52MS5ab25lS2V5EhcKD2luY2x1ZGVfbm9fcmFjaxgQIAEoCBI5CgxtaW5lcl9maWx0ZXIYESABKAsyIy5mbGVldG1hbmFnZW1lbnQudjEuTWluZXJMaXN0RmlsdGVyEg4KBnN0YXRlcxgSIAMoCSLLCAoNSW52ZW50b3J5SXRlbRIpCgNyZWYYASABKAsyHC5mbGVldGludmVudG9yeS52MS5FbnRpdHlSZWYSDAoEbmFtZRgCIAEoCRIUCgdzaXRlX2lkGAMgASgDSAGIAQESLwoJYW5jZXN0b3JzGAQgAygLMhwuZmxlZXRpbnZlbnRvcnkudjEuRW50aXR5UmVmEhkKEWRldmljZV9pZGVudGlmaWVyGAUgASgJEhAKCHBvc2l0aW9uGAYgASgFEhMKC3JlcG9ydGVkX2lkGAcgASgJEg0KBXN0YXRlGAggASgJEhMKC2Fzc2V0X2NvdW50GAkgASgDEiAKGGhhc2hyYXRlX3JlcG9ydGluZ19jb3VudBgKIAEoAxIdChVwb3dlcl9yZXBvcnRpbmdfY291bnQYCyABKAMSGQoMaGFzaHJhdGVfdGhzGAwgASgBSAKIAQESFQoIcG93ZXJfa3cYDSABKAFIA4gBARIbCg5lZmZpY2llbmN5X2p0aBgOIAEoAUgEiAEBEh4KEW1pbl90ZW1wZXJhdHVyZV9jGA8gASgBSAWIAQESHgoRbWF4X3RlbXBlcmF0dXJlX2MYECABKAFIBogBARIvCgtvYnNlcnZlZF9hdBgRIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASIgoVcmVwb3J0ZWRfaGFzaHJhdGVfdGhzGBIgASgBSAeIAQESHgoRcmVwb3J0ZWRfcG93ZXJfa3cYEyABKAFICIgBARI0CghidWlsZGluZxgUIAEoCzIgLmJ1aWxkaW5ncy52MS5CdWlsZGluZ1dpdGhDb3VudHNIABIoCgRyYWNrGBUgASgLMhguZGV2aWNlX3NldC52MS5EZXZpY2VTZXRIABI3CgVtaW5lchgWIAEoCzImLmZsZWV0bWFuYWdlbWVudC52MS5NaW5lclN0YXRlU25hcHNob3RIABItCgljb250YWluZXIYFyABKAsyGC5jb250YWluZXJzLnYxLkNvbnRhaW5lckgAEi0KCmxpc3Rfc3RhdHMYGCABKAsyGS5jb21tb24udjEuRmxlZXRMaXN0U3RhdHMSEQoJc2l0ZV9uYW1lGBkgASgJEhUKDWZhY2lsaXR5X25hbWUYGiABKAkSEgoKZ3JvdXBfbmFtZRgbIAEoCRI2Cg1tb2R1bGVfaXNzdWVzGBwgASgLMh8uZmxlZXRpbnZlbnRvcnkudjEuTW9kdWxlSXNzdWVzQgkKB2RldGFpbHNCCgoIX3NpdGVfaWRCDwoNX2hhc2hyYXRlX3Roc0ILCglfcG93ZXJfa3dCEQoPX2VmZmljaWVuY3lfanRoQhQKEl9taW5fdGVtcGVyYXR1cmVfY0IUChJfbWF4X3RlbXBlcmF0dXJlX2NCGAoWX3JlcG9ydGVkX2hhc2hyYXRlX3Roc0IUChJfcmVwb3J0ZWRfcG93ZXJfa3citgEKFUxpc3RJbnZlbnRvcnlSZXNwb25zZRIvCgVpdGVtcxgBIAMoCzIgLmZsZWV0aW52ZW50b3J5LnYxLkludmVudG9yeUl0ZW0SFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJEhMKC3RvdGFsX2NvdW50GAMgASgDEhMKC21pbmVyX2NvdW50GAQgASgDEg4KBm1vZGVscxgFIAMoCRIZChFmaXJtd2FyZV92ZXJzaW9ucxgGIAMoCSLhAQoYTGlzdE1vZHVsZUhpc3RvcnlSZXF1ZXN0EhoKCW1vZHVsZV9pZBgBIAEoA0IHukgEIgIgABI2CgpzdGFydF90aW1lGAIgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEIGukgDyAEBEjQKCGVuZF90aW1lGAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEIGukgDyAEBEh0KCXBhZ2Vfc2l6ZRgEIAEoBUIKukgHGgUY6AcoABIcCgpwYWdlX3Rva2VuGAUgASgJQgi6SAVyAxiAICLrAQoMTW9kdWxlU2FtcGxlEi8KC29ic2VydmVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgxjb2xsZWN0ZWRfYXQYAiABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhgKC2hhc2hyYXRlX2hzGAMgASgBSACIAQESFAoHcG93ZXJfdxgEIAEoAUgBiAEBEhoKDXRlbXBlcmF0dXJlX2MYBSABKAFIAogBAUIOCgxfaGFzaHJhdGVfaHNCCgoIX3Bvd2VyX3dCEAoOX3RlbXBlcmF0dXJlX2MiZgoZTGlzdE1vZHVsZUhpc3RvcnlSZXNwb25zZRIwCgdzYW1wbGVzGAEgAygLMh8uZmxlZXRpbnZlbnRvcnkudjEuTW9kdWxlU2FtcGxlEhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSKPAQoMTW9kdWxlSXNzdWVzEi8KC29ic2VydmVkX2F0GAEgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIQCghjb21wbGV0ZRgCIAEoCBINCgVzdGFsZRgEIAEoCBItCgVpdGVtcxgDIAMoCzIeLmZsZWV0aW52ZW50b3J5LnYxLk1vZHVsZUlzc3VlIogBCgtNb2R1bGVJc3N1ZRIRCgljb21wb25lbnQYASABKAkSFAoMY29tcG9uZW50X2lkGAIgASgJEg0KBWNhdXNlGAMgASgJEhAKCHNldmVyaXR5GAQgASgJEi8KC29ic2VydmVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCLzAQoVR2V0VGFua0hpc3RvcnlSZXF1ZXN0EigKFGNvbnRhaW5lcl9pZGVudGlmaWVyGAEgASgJQgq6SAdyBRABGP8BEhgKB3RhbmtfaWQYAiABKANCB7pIBCICIAASNgoKc3RhcnRfdGltZRgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCBrpIA8gBARI0CghlbmRfdGltZRgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCBrpIA8gBARIoChNncmFudWxhcml0eV9zZWNvbmRzGAUgASgFQgu6SAgaBhiAowUoASJKChZHZXRUYW5rSGlzdG9yeVJlc3BvbnNlEjAKB21ldHJpY3MYASADKAsyFC50ZWxlbWV0cnkudjEuTWV0cmljQgm6SAaSAQMQoB8iRAoaR2V0TW9kdWxlSGFzaGJvYXJkc1JlcXVlc3QSJgoKbW9kdWxlX2lkcxgBIAMoA0ISukgPkgEMCAEQZBgBIgQiAiAAIlMKG0dldE1vZHVsZUhhc2hib2FyZHNSZXNwb25zZRI0Cgdtb2R1bGVzGAEgAygLMiMuZmxlZXRpbnZlbnRvcnkudjEuTW9kdWxlSGFzaGJvYXJkcyJWChBNb2R1bGVIYXNoYm9hcmRzEhEKCW1vZHVsZV9pZBgBIAEoAxIvCgVzbG90cxgCIAMoCzIgLmZsZWV0aW52ZW50b3J5LnYxLkhhc2hib2FyZFNsb3QitQEKDUhhc2hib2FyZFNsb3QSGgoSdW5hdmFpbGFibGVfcmVhc29uGAUgASgJEhAKCHBvc2l0aW9uGAEgASgFEhEKCW9jY3VwYW5jeRgCIAEoCRIvCgtvYnNlcnZlZF9hdBgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMgoFYm9hcmQYBCABKAsyIy5mbGVldGludmVudG9yeS52MS5IYXNoYm9hcmRSZWFkaW5nIuwEChBIYXNoYm9hcmRSZWFkaW5nEhQKDGhhc2hib2FyZF9pZBgBIAEoAxIXCg9pbnN0YWxsYXRpb25faWQYAiABKAMSEQoJbW9kdWxlX2lkGAMgASgDEhAKCHBvc2l0aW9uGAQgASgFEhMKC21hY19hZGRyZXNzGAUgASgJEg4KBnNlcmlhbBgGIAEoCRINCgVzdGF0ZRgHIAEoCRIUCgxtaW5pbmdfc3RhdGUYCCABKAkSFQoIaXNvbGF0ZWQYCSABKAhIAIgBARIvCgtvYnNlcnZlZF9hdBgKIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoMY29sbGVjdGVkX2F0GAsgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIYCgtoYXNocmF0ZV9ocxgMIAEoAUgBiAEBEhoKDXRlbXBlcmF0dXJlX2MYDSABKAFIAogBARIYCgtoYXNocmFpbF9vaxgOIAEoCEgDiAEBEhcKCnJlZmNsa3Nfb2sYDyABKAhIBIgBARIpCghtZXRhZGF0YRgQIAEoCzIXLmdvb2dsZS5wcm90b2J1Zi5TdHJ1Y3QSJwoGaGVhbHRoGBEgASgLMhcuZ29vZ2xlLnByb3RvYnVmLlN0cnVjdBI1ChFzdGF0ZV9vYnNlcnZlZF9hdBgSIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCCwoJX2lzb2xhdGVkQg4KDF9oYXNocmF0ZV9oc0IQCg5fdGVtcGVyYXR1cmVfY0IOCgxfaGFzaHJhaWxfb2tCDQoLX3JlZmNsa3Nfb2si5wEKG0xpc3RIYXNoYm9hcmRIaXN0b3J5UmVxdWVzdBIdCgxoYXNoYm9hcmRfaWQYASABKANCB7pIBCICIAASNgoKc3RhcnRfdGltZRgCIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCBrpIA8gBARI0CghlbmRfdGltZRgDIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBCBrpIA8gBARIdCglwYWdlX3NpemUYBCABKAVCCrpIBxoFGOgHKAASHAoKcGFnZV90b2tlbhgFIAEoCUIIukgFcgMYgCAibQocTGlzdEhhc2hib2FyZEhpc3RvcnlSZXNwb25zZRI0CgdzYW1wbGVzGAEgAygLMiMuZmxlZXRpbnZlbnRvcnkudjEuSGFzaGJvYXJkUmVhZGluZxIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkqlQEKDUludmVudG9yeVZpZXcSHgoaSU5WRU5UT1JZX1ZJRVdfVU5TUEVDSUZJRUQQABIdChlJTlZFTlRPUllfVklFV19GQUNJTElUSUVTEAESIwofSU5WRU5UT1JZX1ZJRVdfRVFVSVBNRU5UX0dST1VQUxACEiAKHElOVkVOVE9SWV9WSUVXX01JTklOR19BU1NFVFMQAyq5AQoKRW50aXR5S2luZBIbChdFTlRJVFlfS0lORF9VTlNQRUNJRklFRBAAEhgKFEVOVElUWV9LSU5EX0JVSUxESU5HEAESGQoVRU5USVRZX0tJTkRfQ09OVEFJTkVSEAISFAoQRU5USVRZX0tJTkRfUkFDSxADEhQKEEVOVElUWV9LSU5EX1RBTksQBBIVChFFTlRJVFlfS0lORF9NSU5FUhAFEhYKEkVOVElUWV9LSU5EX01PRFVMRRAGKq0DCg1JbnZlbnRvcnlTb3J0Eh4KGklOVkVOVE9SWV9TT1JUX1VOU1BFQ0lGSUVEEAASFwoTSU5WRU5UT1JZX1NPUlRfTkFNRRABEhsKF0lOVkVOVE9SWV9TT1JUX0hBU0hSQVRFEAISGAoUSU5WRU5UT1JZX1NPUlRfUE9XRVIQAxIeChpJTlZFTlRPUllfU09SVF9URU1QRVJBVFVSRRAEEh0KGUlOVkVOVE9SWV9TT1JUX0VGRklDSUVOQ1kQBRIeChpJTlZFTlRPUllfU09SVF9BU1NFVF9DT1VOVBAGEh4KGklOVkVOVE9SWV9TT1JUX0lTU1VFX0NPVU5UEAcSGAoUSU5WRU5UT1JZX1NPUlRfTU9ERUwQCBIbChdJTlZFTlRPUllfU09SVF9GSVJNV0FSRRAJEh0KGUlOVkVOVE9SWV9TT1JUX0lQX0FERFJFU1MQChIeChpJTlZFTlRPUllfU09SVF9NQUNfQUREUkVTUxALEh4KGklOVkVOVE9SWV9TT1JUX1dPUktFUl9OQU1FEAwSFwoTSU5WRU5UT1JZX1NPUlRfWk9ORRANMqsFChVGbGVldEludmVudG9yeVNlcnZpY2USaAoPTGlzdFRhbmtPcHRpb25zEikuZmxlZXRpbnZlbnRvcnkudjEuTGlzdFRhbmtPcHRpb25zUmVxdWVzdBoqLmZsZWV0aW52ZW50b3J5LnYxLkxpc3RUYW5rT3B0aW9uc1Jlc3BvbnNlEmIKDUxpc3RJbnZlbnRvcnkSJy5mbGVldGludmVudG9yeS52MS5MaXN0SW52ZW50b3J5UmVxdWVzdBooLmZsZWV0aW52ZW50b3J5LnYxLkxpc3RJbnZlbnRvcnlSZXNwb25zZRJlCg5HZXRUYW5rSGlzdG9yeRIoLmZsZWV0aW52ZW50b3J5LnYxLkdldFRhbmtIaXN0b3J5UmVxdWVzdBopLmZsZWV0aW52ZW50b3J5LnYxLkdldFRhbmtIaXN0b3J5UmVzcG9uc2USbgoRTGlzdE1vZHVsZUhpc3RvcnkSKy5mbGVldGludmVudG9yeS52MS5MaXN0TW9kdWxlSGlzdG9yeVJlcXVlc3QaLC5mbGVldGludmVudG9yeS52MS5MaXN0TW9kdWxlSGlzdG9yeVJlc3BvbnNlEnQKE0dldE1vZHVsZUhhc2hib2FyZHMSLS5mbGVldGludmVudG9yeS52MS5HZXRNb2R1bGVIYXNoYm9hcmRzUmVxdWVzdBouLmZsZWV0aW52ZW50b3J5LnYxLkdldE1vZHVsZUhhc2hib2FyZHNSZXNwb25zZRJ3ChRMaXN0SGFzaGJvYXJkSGlzdG9yeRIuLmZsZWV0aW52ZW50b3J5LnYxLkxpc3RIYXNoYm9hcmRIaXN0b3J5UmVxdWVzdBovLmZsZWV0aW52ZW50b3J5LnYxLkxpc3RIYXNoYm9hcmRIaXN0b3J5UmVzcG9uc2VC6AEKFWNvbS5mbGVldGludmVudG9yeS52MUITRmxlZXRpbnZlbnRvcnlQcm90b1ABWlVnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9mbGVldGludmVudG9yeS92MTtmbGVldGludmVudG9yeXYxogIDRlhYqgIRRmxlZXRpbnZlbnRvcnkuVjHKAhFGbGVldGludmVudG9yeVxWMeICHUZsZWV0aW52ZW50b3J5XFYxXEdQQk1ldGFkYXRh6gISRmxlZXRpbnZlbnRvcnk6OlYxYgZwcm90bzM",
     [
       file_buf_validate_validate,
       file_common_v1_fleet_list_stats,
@@ -43,6 +43,7 @@ export const file_fleetinventory_v1_fleetinventory: GenFile =
       file_containers_v1_containers,
       file_google_protobuf_timestamp,
       file_telemetry_v1_telemetry,
+      file_google_protobuf_struct,
     ],
   );
 
@@ -732,6 +733,290 @@ export const GetTankHistoryResponseSchema: GenMessage<GetTankHistoryResponse> =
   messageDesc(file_fleetinventory_v1_fleetinventory, 13);
 
 /**
+ * @generated from message fleetinventory.v1.GetModuleHashboardsRequest
+ */
+export type GetModuleHashboardsRequest = Message<"fleetinventory.v1.GetModuleHashboardsRequest"> & {
+  /**
+   * @generated from field: repeated int64 module_ids = 1;
+   */
+  moduleIds: bigint[];
+};
+
+/**
+ * Describes the message fleetinventory.v1.GetModuleHashboardsRequest.
+ * Use `create(GetModuleHashboardsRequestSchema)` to create a new message.
+ */
+export const GetModuleHashboardsRequestSchema: GenMessage<GetModuleHashboardsRequest> =
+  /*@__PURE__*/
+  messageDesc(file_fleetinventory_v1_fleetinventory, 14);
+
+/**
+ * Returns only readable current modules. Missing or inaccessible IDs are omitted,
+ * including for a single-ID request; omissions do not disclose their reason.
+ *
+ * @generated from message fleetinventory.v1.GetModuleHashboardsResponse
+ */
+export type GetModuleHashboardsResponse = Message<"fleetinventory.v1.GetModuleHashboardsResponse"> & {
+  /**
+   * @generated from field: repeated fleetinventory.v1.ModuleHashboards modules = 1;
+   */
+  modules: ModuleHashboards[];
+};
+
+/**
+ * Describes the message fleetinventory.v1.GetModuleHashboardsResponse.
+ * Use `create(GetModuleHashboardsResponseSchema)` to create a new message.
+ */
+export const GetModuleHashboardsResponseSchema: GenMessage<GetModuleHashboardsResponse> =
+  /*@__PURE__*/
+  messageDesc(file_fleetinventory_v1_fleetinventory, 15);
+
+/**
+ * @generated from message fleetinventory.v1.ModuleHashboards
+ */
+export type ModuleHashboards = Message<"fleetinventory.v1.ModuleHashboards"> & {
+  /**
+   * @generated from field: int64 module_id = 1;
+   */
+  moduleId: bigint;
+
+  /**
+   * @generated from field: repeated fleetinventory.v1.HashboardSlot slots = 2;
+   */
+  slots: HashboardSlot[];
+};
+
+/**
+ * Describes the message fleetinventory.v1.ModuleHashboards.
+ * Use `create(ModuleHashboardsSchema)` to create a new message.
+ */
+export const ModuleHashboardsSchema: GenMessage<ModuleHashboards> =
+  /*@__PURE__*/
+  messageDesc(file_fleetinventory_v1_fleetinventory, 16);
+
+/**
+ * @generated from message fleetinventory.v1.HashboardSlot
+ */
+export type HashboardSlot = Message<"fleetinventory.v1.HashboardSlot"> & {
+  /**
+   * invalid_observation, ambiguous_slot, missing_identity, identity_conflict,
+   * controller_conflict, or older_observation. Empty when no rejection is known.
+   *
+   * @generated from field: string unavailable_reason = 5;
+   */
+  unavailableReason: string;
+
+  /**
+   * @generated from field: int32 position = 1;
+   */
+  position: number;
+
+  /**
+   * occupied, empty, unknown; always three slots for CT1
+   *
+   * @generated from field: string occupancy = 2;
+   */
+  occupancy: string;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp observed_at = 3;
+   */
+  observedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: fleetinventory.v1.HashboardReading board = 4;
+   */
+  board?: HashboardReading | undefined;
+};
+
+/**
+ * Describes the message fleetinventory.v1.HashboardSlot.
+ * Use `create(HashboardSlotSchema)` to create a new message.
+ */
+export const HashboardSlotSchema: GenMessage<HashboardSlot> =
+  /*@__PURE__*/
+  messageDesc(file_fleetinventory_v1_fleetinventory, 17);
+
+/**
+ * Durable board identity and the installation under which it was observed.
+ * The server derives state and suppresses stale current measurements.
+ *
+ * @generated from message fleetinventory.v1.HashboardReading
+ */
+export type HashboardReading = Message<"fleetinventory.v1.HashboardReading"> & {
+  /**
+   * @generated from field: int64 hashboard_id = 1;
+   */
+  hashboardId: bigint;
+
+  /**
+   * @generated from field: int64 installation_id = 2;
+   */
+  installationId: bigint;
+
+  /**
+   * @generated from field: int64 module_id = 3;
+   */
+  moduleId: bigint;
+
+  /**
+   * @generated from field: int32 position = 4;
+   */
+  position: number;
+
+  /**
+   * @generated from field: string mac_address = 5;
+   */
+  macAddress: string;
+
+  /**
+   * @generated from field: string serial = 6;
+   */
+  serial: string;
+
+  /**
+   * @generated from field: string state = 7;
+   */
+  state: string;
+
+  /**
+   * @generated from field: string mining_state = 8;
+   */
+  miningState: string;
+
+  /**
+   * @generated from field: optional bool isolated = 9;
+   */
+  isolated?: boolean | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp observed_at = 10;
+   */
+  observedAt?: Timestamp | undefined;
+
+  /**
+   * Collection time of the health sample, identical in current and history RPCs.
+   * Slot observation time is HashboardSlot.observed_at.
+   *
+   * @generated from field: google.protobuf.Timestamp collected_at = 11;
+   */
+  collectedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: optional double hashrate_hs = 12;
+   */
+  hashrateHs?: number | undefined;
+
+  /**
+   * @generated from field: optional double temperature_c = 13;
+   */
+  temperatureC?: number | undefined;
+
+  /**
+   * @generated from field: optional bool hashrail_ok = 14;
+   */
+  hashrailOk?: boolean | undefined;
+
+  /**
+   * @generated from field: optional bool refclks_ok = 15;
+   */
+  refclksOk?: boolean | undefined;
+
+  /**
+   * Complete MDK v2 board fields, excluding health. Firmware units; shared PSU
+   * metadata belongs to the module. Present on current readings only.
+   *
+   * @generated from field: google.protobuf.Struct metadata = 16;
+   */
+  metadata?: JsonObject | undefined;
+
+  /**
+   * Complete MDK v2 health diagnostics in firmware units. Current responses
+   * omit stale health. lastShutdownError is historical, not an active fault.
+   *
+   * @generated from field: google.protobuf.Struct health = 17;
+   */
+  health?: JsonObject | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp state_observed_at = 18;
+   */
+  stateObservedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message fleetinventory.v1.HashboardReading.
+ * Use `create(HashboardReadingSchema)` to create a new message.
+ */
+export const HashboardReadingSchema: GenMessage<HashboardReading> =
+  /*@__PURE__*/
+  messageDesc(file_fleetinventory_v1_fleetinventory, 18);
+
+/**
+ * Unknown boards and boards with no readable historical installation return
+ * NotFound. A readable board without samples in this interval returns an empty page.
+ *
+ * @generated from message fleetinventory.v1.ListHashboardHistoryRequest
+ */
+export type ListHashboardHistoryRequest = Message<"fleetinventory.v1.ListHashboardHistoryRequest"> & {
+  /**
+   * @generated from field: int64 hashboard_id = 1;
+   */
+  hashboardId: bigint;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp start_time = 2;
+   */
+  startTime?: Timestamp | undefined;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp end_time = 3;
+   */
+  endTime?: Timestamp | undefined;
+
+  /**
+   * @generated from field: int32 page_size = 4;
+   */
+  pageSize: number;
+
+  /**
+   * @generated from field: string page_token = 5;
+   */
+  pageToken: string;
+};
+
+/**
+ * Describes the message fleetinventory.v1.ListHashboardHistoryRequest.
+ * Use `create(ListHashboardHistoryRequestSchema)` to create a new message.
+ */
+export const ListHashboardHistoryRequestSchema: GenMessage<ListHashboardHistoryRequest> =
+  /*@__PURE__*/
+  messageDesc(file_fleetinventory_v1_fleetinventory, 19);
+
+/**
+ * @generated from message fleetinventory.v1.ListHashboardHistoryResponse
+ */
+export type ListHashboardHistoryResponse = Message<"fleetinventory.v1.ListHashboardHistoryResponse"> & {
+  /**
+   * @generated from field: repeated fleetinventory.v1.HashboardReading samples = 1;
+   */
+  samples: HashboardReading[];
+
+  /**
+   * @generated from field: string next_page_token = 2;
+   */
+  nextPageToken: string;
+};
+
+/**
+ * Describes the message fleetinventory.v1.ListHashboardHistoryResponse.
+ * Use `create(ListHashboardHistoryResponseSchema)` to create a new message.
+ */
+export const ListHashboardHistoryResponseSchema: GenMessage<ListHashboardHistoryResponse> =
+  /*@__PURE__*/
+  messageDesc(file_fleetinventory_v1_fleetinventory, 20);
+
+/**
  * @generated from enum fleetinventory.v1.InventoryView
  */
 export enum InventoryView {
@@ -935,5 +1220,21 @@ export const FleetInventoryService: GenService<{
     methodKind: "unary";
     input: typeof ListModuleHistoryRequestSchema;
     output: typeof ListModuleHistoryResponseSchema;
+  };
+  /**
+   * @generated from rpc fleetinventory.v1.FleetInventoryService.GetModuleHashboards
+   */
+  getModuleHashboards: {
+    methodKind: "unary";
+    input: typeof GetModuleHashboardsRequestSchema;
+    output: typeof GetModuleHashboardsResponseSchema;
+  };
+  /**
+   * @generated from rpc fleetinventory.v1.FleetInventoryService.ListHashboardHistory
+   */
+  listHashboardHistory: {
+    methodKind: "unary";
+    input: typeof ListHashboardHistoryRequestSchema;
+    output: typeof ListHashboardHistoryResponseSchema;
   };
 }> = /*@__PURE__*/ serviceDesc(file_fleetinventory_v1_fleetinventory, 0);

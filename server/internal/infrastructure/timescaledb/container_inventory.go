@@ -39,6 +39,13 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 	if snapshot.ObservedAt.IsZero() || snapshot.ObservedAt.After(time.Now().Add(5*time.Second)) {
 		return fmt.Errorf("invalid container observation time")
 	}
+	orgID, err := q.LockHashboardOrganization(ctx, identifier)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
 	modules := make([]inventoryModule, 0)
 	samples := make([]moduleSample, 0)
 	tanks := make([]struct {
@@ -134,6 +141,9 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 			}
 		}
 		if err := q.ReconcileContainerModules(ctx, sqlc.ReconcileContainerModulesParams{DeviceID: id, ObservedAt: snapshot.ObservedAt, Modules: moduleJSON}); err != nil {
+			return err
+		}
+		if err := storeHashboards(ctx, q, orgID, id, snapshot); err != nil {
 			return err
 		}
 	}

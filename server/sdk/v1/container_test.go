@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -15,6 +16,12 @@ func TestContainerSnapshotSurvivesTelemetryTransport(t *testing.T) {
 	zero, hashrate := 0.0, 300e12
 	snapshot.Tanks[0].Modules[0].Metrics = &ContainerModuleMetrics{ObservedAt: now, HashrateHS: &hashrate, PowerW: &zero}
 	snapshot.Tanks[0].Modules[0].Issues = &ContainerModuleIssues{SourceTimes: map[string]time.Time{"hashboard:board-mac": now}, ObservedAt: now, Complete: true, Items: []ContainerModuleIssue{{Component: "hashboard", ComponentID: "board-mac", Cause: "BOARD_OVER_TEMPERATURE", Severity: "fault", ObservedAt: now}}}
+	snapshot.Tanks[0].Modules[0].Hashboards = []ContainerHashboard{
+		{Position: 1, Occupancy: "occupied", MACAddress: "aa:bb:cc:dd:ee:01", Serial: "board-a", State: ModuleHashing, MiningState: "MINING_STATE_MINING", Isolated: new(false), ObservedAt: now, StateObservedAt: now, HashrateHS: &zero, HashrailOK: new(false), MetadataJSON: json.RawMessage(`{"serial":"board-a"}`), HealthJSON: json.RawMessage(`{"uptime":"9007199254740993","errors":[]}`)},
+		{Position: 2, Occupancy: "empty", State: ModuleUnknown},
+		UnavailableHashboard(3, HashboardIdentityConflict),
+	}
+	snapshot.Tanks[0].Modules[0].Hashboards[2].IdentityClaims = []HashboardIdentityClaim{{MACAddress: "rejected-mac", Serial: "rejected-serial"}}
 	snapshot.Plant = &ContainerPlant{ObservedAt: now, PUE: &pue, AlarmActive: true, DryCoolerInletTemperatureC: &zero}
 	snapshot.Fans = []ContainerFan{{ComponentID: "fan-1", ObservedAt: now.Add(-time.Minute), SpeedPercent: &zero, AlarmActive: new(false)}, {ComponentID: "fan-2", ObservedAt: now}}
 	snapshot.Controls = &ContainerControls{ObservedAt: now, Supported: new(true), Controls: []ContainerControl{{Name: "dry_cooler", Enabled: new(false)}, {Name: "coolant_pump"}}, Setpoints: []ContainerSetpoint{{Name: "coolant_pump_speed_hz", Value: &zero, Unit: "Hz"}}, MainCircuitBreakerSupported: new(true)}

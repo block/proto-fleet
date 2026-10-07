@@ -3,12 +3,18 @@ import { BrowserRouter, MemoryRouter, useLocation, useNavigate } from "react-rou
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import userEvent from "@testing-library/user-event";
 
 import MinerList from "./MinerList";
 import { getMinerTableColumnPreferencesStorageKey } from "./minerTableColumnPreferences";
 import useMinerTableColumnPreferences from "./useMinerTableColumnPreferences";
-import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
+import { fleetInventoryClient } from "@/protoFleet/api/clients";
+import {
+  EntityKind,
+  GetModuleHashboardsResponseSchema,
+  InventoryItemSchema,
+} from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import {
   type MinerStateSnapshot,
   MinerStateSnapshotSchema,
@@ -242,6 +248,174 @@ describe("MinerList", () => {
     expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("A miner");
     expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
     expect(screen.getByRole("button", { name: "Export miners CSV" })).toBeInTheDocument();
+  });
+
+  it("expands a module by keyboard into three read-only slots and preserves expansion through refresh", async () => {
+    const user = userEvent.setup();
+    const fetch = vi.spyOn(fleetInventoryClient, "getModuleHashboards").mockResolvedValue(
+      create(GetModuleHashboardsResponseSchema, {
+        modules: [
+          {
+            moduleId: 7n,
+            slots: [
+              {
+                position: 1,
+                occupancy: "occupied",
+                board: { hashboardId: 20n, state: "hashing", serial: "board-A", hashrateHs: 100e12 },
+              },
+              { position: 2, occupancy: "empty" },
+              { position: 3, occupancy: "unknown" },
+            ],
+          },
+        ],
+      }),
+    );
+    const inventoryItems = [
+      create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 7n }, name: "Module 7" }),
+    ];
+    const props = {
+      minerIds: [],
+      miners: {},
+      errorsByDevice: {},
+      errorsLoaded: true,
+      getActiveBatches: mockGetActiveBatches,
+      onAddMiners: vi.fn(),
+      totalMiners: 1,
+      inventoryMinerCount: 0,
+      inventoryItems,
+    };
+    const NavigationControls = () => {
+      const navigate = useNavigate();
+      return (
+        <>
+          <button onClick={() => navigate("?page=2")}>Next test page</button>
+          <button onClick={() => navigate(-1)}>Back test page</button>
+        </>
+      );
+    };
+    const { rerender } = render(
+      <MemoryRouter>
+        <MinerList {...props} />
+        <NavigationControls />
+      </MemoryRouter>,
+    );
+    const button = screen.getByRole("button", { name: "Expand hashboards for Module 7" });
+    button.focus();
+    await user.keyboard("{Enter}");
+    await screen.findByText("Hashboard 1 - board-A");
+    expect(screen.getAllByTestId("list-child-row")).toHaveLength(3);
+    expect(screen.getByText("Empty slot")).toBeInTheDocument();
+    expect(screen.getByText("Unavailable")).toBeInTheDocument();
+    for (const row of screen.getAllByTestId("list-child-row")) expect(within(row).queryByRole("checkbox")).toBeNull();
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(fetch.mock.calls[0][0]).toEqual({ moduleIds: [7n] });
+    rerender(
+      <MemoryRouter>
+        <MinerList {...props} inventoryItems={[...inventoryItems]} />
+        <NavigationControls />
+      </MemoryRouter>,
+    );
+    expect(screen.getAllByTestId("list-child-row")).toHaveLength(3);
+    await user.click(screen.getByRole("button", { name: "Collapse hashboards for Module 7" }));
+    expect(screen.queryAllByTestId("list-child-row")).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Expand hashboards for Module 7" }));
+    await screen.findByText("Hashboard 1 - board-A");
+    await user.click(screen.getByRole("button", { name: "Next test page" }));
+    expect(screen.queryAllByTestId("list-child-row")).toHaveLength(0);
+    await user.click(screen.getByRole("button", { name: "Back test page" }));
+    expect(screen.queryAllByTestId("list-child-row")).toHaveLength(0);
+    fetch.mockRestore();
+  });
+
+  it("renders loading, a single error and retry, while retaining other expanded boards", async () => {
+    const user = userEvent.setup();
+    let rejectLoad!: (reason: Error) => void;
+    let finishBatch!: (value: ReturnType<typeof create<typeof GetModuleHashboardsResponseSchema>>) => void;
+    const response = (serial: string) =>
+      create(GetModuleHashboardsResponseSchema, {
+        modules: [
+          {
+            moduleId: 7n,
+            slots: [
+              {
+                position: 1,
+                occupancy: "occupied",
+                board: {
+                  hashboardId: serial === "board-A" ? 20n : 21n,
+                  serial,
+                  state: "hashing",
+                  health: { errors: [{ cause: "BOARD_FAULT" }] },
+                  observedAt: timestampFromDate(new Date()),
+                },
+              },
+              { position: 2, occupancy: "unknown", unavailableReason: "identity_conflict" },
+              { position: 3, occupancy: "empty" },
+            ],
+          },
+        ],
+      });
+    const fetch = vi
+      .spyOn(fleetInventoryClient, "getModuleHashboards")
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectLoad = reject;
+          }),
+      )
+      .mockResolvedValueOnce(response("board-A"))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishBatch = resolve;
+          }),
+      )
+      .mockResolvedValue(response("replacement-board"));
+    render(
+      <MemoryRouter>
+        <MinerList
+          minerIds={[]}
+          miners={{}}
+          errorsByDevice={{}}
+          errorsLoaded
+          getActiveBatches={mockGetActiveBatches}
+          onAddMiners={vi.fn()}
+          totalMiners={2}
+          inventoryMinerCount={0}
+          inventoryItems={[
+            create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 7n }, name: "Module 7" }),
+            create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 8n }, name: "Module 8" }),
+          ]}
+        />
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByRole("button", { name: "Expand hashboards for Module 7" }));
+    const rows = screen.getAllByTestId("list-child-row");
+    expect(rows).toHaveLength(3);
+    for (const row of rows) expect(within(row).getByRole("status")).toHaveTextContent("Loading");
+    await act(async () => rejectLoad(new Error("offline")));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Hashboards unavailable");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(within(rows[0]).getByRole("button", { name: "Retry hashboards" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry hashboards" }));
+    await screen.findByText("Hashboard 1 - board-A");
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("Board identity conflict")).toBeInTheDocument();
+    await user.click(screen.getByText("Hashboard 1 failure"));
+    const details = screen.getByTestId("module-issues");
+    expect(details).toHaveTextContent("Hashboard · Fault");
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await user.click(screen.getByRole("button", { name: "Expand hashboards for Module 8" }));
+    expect(screen.getByText("Hashboard 1 - board-A")).toBeInTheDocument();
+    expect(screen.getByText("Hashboard 1 failure")).toBeInTheDocument();
+    expect(screen.getAllByTestId("list-child-row")).toHaveLength(6);
+    await act(async () => finishBatch(response("board-A")));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Hashboards unavailable");
+    expect(screen.getByText("Hashboard 1 - board-A")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry hashboards" }));
+    await screen.findByText("Hashboard 1 - replacement-board");
+    expect(screen.queryByText("Hashboard 1 - board-A")).not.toBeInTheDocument();
+    fetch.mockRestore();
   });
 
   it.each(["tank=7", "container=9", "container=9&container=10&tank=7"])(

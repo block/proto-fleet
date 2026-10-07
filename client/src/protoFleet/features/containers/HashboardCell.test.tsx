@@ -1,0 +1,37 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { expect, it } from "vitest";
+import { create } from "@bufbuild/protobuf";
+import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { HashboardCell } from "./HashboardCell";
+import { HashboardSlotSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
+
+it.each(["empty", "unknown", "occupied"])("leaves issues blank for %s slots without causes", (occupancy) => {
+  const slot = create(HashboardSlotSchema, {
+    position: 1,
+    occupancy,
+    board: occupancy === "occupied" ? { health: { errors: [], warnings: [] } } : undefined,
+  });
+  const { container } = render(<HashboardCell slot={slot} column="issues" />);
+  expect(container).toBeEmptyDOMElement();
+});
+
+it("uses miner issue summaries and shows warning, stack, and health details on click", () => {
+  const slot = create(HashboardSlotSchema, {
+    position: 2,
+    occupancy: "occupied",
+    board: {
+      serial: "CT1-379e6466-0001",
+      macAddress: "aa:bb",
+      observedAt: timestampFromDate(new Date()),
+      hashrailOk: false,
+      refclksOk: true,
+      health: { warnings: [{ cause: "HASHBOARD_ERROR_CAUSE_BOARD_OVER_TEMPERATURE", stack: 2 }] },
+    },
+  });
+  render(<HashboardCell slot={slot} column="issues" />);
+  fireEvent.click(screen.getByRole("button", { name: "Hashboard 2 - CT1-379e6466-0001 issues: Hashboard 2 failure" }));
+  expect(screen.getByTestId("module-issues")).toHaveTextContent("Over temperature (stack 2)");
+  expect(screen.getByTestId("module-issues")).toHaveTextContent("Warning");
+  expect(screen.getByTestId("module-issues")).toHaveTextContent("Hashrail: Not ready");
+  expect(screen.getByTestId("module-issues")).toHaveTextContent("Reference clocks: OK");
+});

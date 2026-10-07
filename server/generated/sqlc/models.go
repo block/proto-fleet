@@ -1253,6 +1253,78 @@ type FleetTelemetryPollHeartbeat struct {
 	SampleCount    int64
 }
 
+type Hashboard struct {
+	ID          int64
+	OrgID       int64
+	FirstSeenAt time.Time
+	LastSeenAt  time.Time
+}
+
+type HashboardIdentity struct {
+	OrgID       int64
+	Kind        string
+	Value       string
+	HashboardID int64
+}
+
+type HashboardInstallation struct {
+	ID          int64
+	HashboardID int64
+	ModuleID    int64
+	Position    int32
+	SiteID      sql.NullInt64
+	InstalledAt time.Time
+	LastSeenAt  time.Time
+	RemovedAt   sql.NullTime
+	Metadata    json.RawMessage
+}
+
+type HashboardLatestMetric struct {
+	HashboardID     int64
+	InstallationID  int64
+	Time            time.Time
+	CollectedAt     time.Time
+	State           string
+	StateObservedAt sql.NullTime
+	MiningState     string
+	Isolated        sql.NullBool
+	HashrateHs      sql.NullFloat64
+	TemperatureC    sql.NullFloat64
+	HashrailOk      sql.NullBool
+	RefclksOk       sql.NullBool
+	Health          pqtype.NullRawMessage
+}
+
+type HashboardMetric struct {
+	HashboardID     int64
+	InstallationID  int64
+	Time            time.Time
+	CollectedAt     time.Time
+	State           string
+	StateObservedAt sql.NullTime
+	MiningState     string
+	Isolated        sql.NullBool
+	HashrateHs      sql.NullFloat64
+	TemperatureC    sql.NullFloat64
+	HashrailOk      sql.NullBool
+	RefclksOk       sql.NullBool
+	Health          pqtype.NullRawMessage
+}
+
+type HashboardSlot struct {
+	ModuleID          int64
+	HashboardID       sql.NullInt64
+	Position          int32
+	UnavailableReason string
+	Occupancy         string
+	ObservedAt        time.Time
+	HealthObservedAt  sql.NullTime
+	State             string
+	StateObservedAt   sql.NullTime
+	MiningState       string
+	Isolated          sql.NullBool
+}
+
 type HostedAccount struct {
 	ID             int64
 	AccountID      string

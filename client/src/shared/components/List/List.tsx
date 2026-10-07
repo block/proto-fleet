@@ -2,6 +2,7 @@ import {
   ChangeEvent,
   cloneElement,
   type CSSProperties,
+  Fragment,
   isValidElement,
   type MouseEvent,
   type MutableRefObject,
@@ -116,6 +117,12 @@ const getOverflowMeasurementWidth = (
 
 type SelectionMode = "none" | "all" | "subset";
 
+export type ListChildRow<ColKey extends string> = {
+  key: string;
+  label: string;
+  cells: Partial<Record<ColKey, ReactNode>>;
+};
+
 type ControlledSelectionModeProps<ItemKeyValueType> = {
   customSelectedItems: ItemKeyValueType[];
   customSetSelectedItems: (selected: ItemKeyValueType[]) => void;
@@ -165,6 +172,8 @@ type RowReorderEnabledProps<ColKey extends string, ItemKeyValueType> = {
 };
 
 type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string> = {
+  /** Display-only children; excluded from filtering, counts, selection and sorting. */
+  getChildRows?: (item: ListItem) => ListChildRow<ColKey>[];
   activeCols: ColKey[];
   colTitles: ColTitles<ColKey>;
   colConfig: ColConfig<ListItem, ItemKeyValueType, ColKey>;
@@ -374,6 +383,7 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
 type SortableDragHandleProps = Pick<ReturnType<typeof useSortable>, "attributes" | "listeners">;
 
 type ListRowRenderProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string> = {
+  childRow?: ListChildRow<ColKey>;
   item: ListItem;
   index: number;
   itemKey: keyof ListItem;
@@ -421,6 +431,7 @@ type ListRowRenderProps<ListItem, ItemKeyValueType, ColKey extends string = keyo
 };
 
 const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string>({
+  childRow,
   item,
   index,
   itemKey,
@@ -461,8 +472,8 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
   rowRef,
   onRowClick,
 }: ListRowRenderProps<ListItem, ItemKeyValueType, ColKey>) => {
-  const visibleActions = actions.filter((action) => !resolveListActionValue(action.hidden, item));
-  const placeholderContent = actionPlaceholder?.(item);
+  const visibleActions = childRow ? [] : actions.filter((action) => !resolveListActionValue(action.hidden, item));
+  const placeholderContent = childRow ? undefined : actionPlaceholder?.(item);
   const singleVisibleAction = visibleActions.length === 1 ? visibleActions[0] : null;
   const singleVisibleActionTitle = singleVisibleAction
     ? resolveListActionValue(singleVisibleAction.title, item)
@@ -481,13 +492,15 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
 
   return (
     <tr
+      id={childRow?.key}
+      aria-label={childRow?.label}
       key={rowKey as string | number}
       className={clsx(rowClassName, onRowClick && "group cursor-pointer")}
       ref={(element) => {
         itemRef?.(rowKey, element);
         rowRef?.(element);
       }}
-      data-testid="list-row"
+      data-testid={childRow ? "list-child-row" : "list-row"}
       style={rowStyle}
       onClick={
         onRowClick
@@ -528,7 +541,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
               "opacity-50": rowDisabled,
             })}
           >
-            {selectionType === "radio" ? (
+            {childRow ? null : selectionType === "radio" ? (
               <Radio
                 name={radioGroupName}
                 value={String(rowKey)}
@@ -562,11 +575,13 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
           : allowWrap
             ? "overflow-hidden"
             : "truncate overflow-hidden";
-        const content = colConfig[row]?.component
-          ? colConfig[row].component(item, currentSelectedItems)
-          : typeof item === "object" && item !== null && row in item
-            ? ((item as Record<string, unknown>)[row as string] as ReactNode)
-            : null;
+        const content = childRow
+          ? (childRow.cells[row] ?? INACTIVE_PLACEHOLDER)
+          : colConfig[row]?.component
+            ? colConfig[row].component(item, currentSelectedItems)
+            : typeof item === "object" && item !== null && row in item
+              ? ((item as Record<string, unknown>)[row as string] as ReactNode)
+              : null;
         const isInactivePlaceholder = isStandaloneInactivePlaceholder(content);
         const cellContent = renderTableCellContent(content);
         const isDragHandleColumn = rowDragHandleColumn === row && dragHandleProps !== undefined;
@@ -750,6 +765,7 @@ const columnShadowBaseClassList =
 const columnShadowVisibleClassList = "before:opacity-100 after:opacity-100";
 
 const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem & string>({
+  getChildRows,
   activeCols,
   colTitles,
   colConfig,
@@ -1368,18 +1384,30 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       onRowClick,
     };
 
-    if (rowDragEnabled) {
-      return (
-        <SortableListRow<ListItem, ItemKeyValueType, ColKey>
-          key={rowKey as string | number}
-          dragId={rowKey as UniqueIdentifier}
-          {...sharedRowProps}
-          rowDragHandleColumn={rowDragHandleColumn}
-        />
-      );
-    }
-
-    return <StaticListRow<ListItem, ItemKeyValueType, ColKey> key={rowKey as string | number} {...sharedRowProps} />;
+    return (
+      <Fragment key={rowKey as string | number}>
+        {rowDragEnabled ? (
+          <SortableListRow<ListItem, ItemKeyValueType, ColKey>
+            dragId={rowKey as UniqueIdentifier}
+            {...sharedRowProps}
+            rowDragHandleColumn={rowDragHandleColumn}
+          />
+        ) : (
+          <StaticListRow<ListItem, ItemKeyValueType, ColKey> {...sharedRowProps} />
+        )}
+        {getChildRows?.(item).map((childRow) => (
+          <StaticListRow<ListItem, ItemKeyValueType, ColKey>
+            {...sharedRowProps}
+            key={childRow.key}
+            childRow={childRow}
+            itemRef={undefined}
+            onRowClick={undefined}
+            rowSelectable={false}
+            rowDisabled={false}
+          />
+        ))}
+      </Fragment>
+    );
   };
 
   const listContent = (

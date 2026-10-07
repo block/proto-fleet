@@ -164,6 +164,9 @@ type Querier interface {
 	// still lands on the next successful state-change write. EXISTS guard
 	// → zero rows → ErrCurtailmentEventStateRaceLoss on terminal parent.
 	BumpCurtailmentTargetRetry(ctx context.Context, arg BumpCurtailmentTargetRetryParams) (int64, error)
+	// Access is based on any readable installation, including closed placements.
+	// It is independent of the requested sample range and current hardware location.
+	CanReadHashboardHistory(ctx context.Context, arg CanReadHashboardHistoryParams) (bool, error)
 	// Cancels the pair's active rollout because its assignment changed:
 	// 'superseded', 'rolled_back' or 'cleared'.
 	// Finish after acquiring the header lock, never before creation or the last
@@ -286,6 +289,7 @@ type Querier interface {
 	// role's full permission set in a single transaction (delete-then-
 	// insert inside one tx so there is no zero-permission window).
 	ClearRolePermissions(ctx context.Context, roleID int64) error
+	CloseHashboardInstallations(ctx context.Context, arg CloseHashboardInstallationsParams) error
 	// Closes stale errors only when device was successfully polled after the staleness cutoff time.
 	// This ensures we have confirmed the error is absent from a recent poll.
 	CloseStaleErrors(ctx context.Context, arg CloseStaleErrorsParams) (sql.Result, error)
@@ -490,6 +494,8 @@ type Querier interface {
 	// Idempotent backfill (INSERT ... DO NOTHING + fallback SELECT). Both
 	// branches require organization.deleted_at IS NULL.
 	EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (EnsureCurtailmentOrgConfigRow, error)
+	// The caller rejects aliases that resolve to different existing hardware.
+	EnsureHashboards(ctx context.Context, arg EnsureHashboardsParams) ([]EnsureHashboardsRow, error)
 	ExcludeFirmwareRolloutDevices(ctx context.Context, arg ExcludeFirmwareRolloutDevicesParams) error
 	// Returns one row per device whose live rack has a non-NULL
 	// building_id. Devices with no rack, devices in a rack without a
@@ -535,6 +541,7 @@ type Querier interface {
 	// miner with only a direct building (site NULL, building set, e.g. one
 	// assigned to a site-less building) must trip the confirm too.
 	FindDevicesWithSiteOrBuilding(ctx context.Context, arg FindDevicesWithSiteOrBuildingParams) ([]string, error)
+	FindHashboardIdentities(ctx context.Context, arg FindHashboardIdentitiesParams) ([]FindHashboardIdentitiesRow, error)
 	// Ends an active, unpaused rollout as 'completed' or 'completed_with_failures'.
 	// Recheck the pause under the row lock so stale settled targets cannot complete
 	// work after the operator pauses it. Resuming permits a later tick to finish.
@@ -746,6 +753,7 @@ type Querier interface {
 	// Batch query to get group refs for multiple devices at once (for miner list)
 	GetGroupRefsForDevices(ctx context.Context, arg GetGroupRefsForDevicesParams) ([]GetGroupRefsForDevicesRow, error)
 	GetHAProfileDatabaseIdentity(ctx context.Context) (GetHAProfileDatabaseIdentityRow, error)
+	GetHashboardInstallations(ctx context.Context, arg GetHashboardInstallationsParams) ([]GetHashboardInstallationsRow, error)
 	GetHostedAccountMembership(ctx context.Context, arg GetHostedAccountMembershipParams) (HostedAccountMembership, error)
 	GetHostedAccountPath(ctx context.Context, arg GetHostedAccountPathParams) ([]GetHostedAccountPathRow, error)
 	// Dedicated sensitive read: this field is intentionally not projected through
@@ -792,6 +800,9 @@ type Querier interface {
 	// DISTINCT ON keeps one state per device per bucket so summed counts always
 	// equal a real fleet size regardless of snapshot alignment within the bucket.
 	GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateSnapshotsParams) ([]GetMinerStateSnapshotsRow, error)
+	// A bounded batch returns only readable current modules. Child slots never
+	// enter fleet_mining_asset or affect its counts, sorting, selection or exports.
+	GetModuleHashboards(ctx context.Context, arg GetModuleHashboardsParams) (json.RawMessage, error)
 	GetOfflineDevices(ctx context.Context, limit int32) ([]GetOfflineDevicesRow, error)
 	// Stable oldest-offline ordering lets the recovery service rotate bounded
 	// per-node batches in memory. Credentials remain the Fleet Node-encrypted
@@ -983,6 +994,7 @@ type Querier interface {
 	// VALUES form raised. Caller wraps generically (fleeterror.New
 	// InternalErrorf), so the surface is unchanged for present callers.
 	InsertError(ctx context.Context, arg InsertErrorParams) (int64, error)
+	InsertHashboardMetrics(ctx context.Context, arg InsertHashboardMetricsParams) error
 	InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (InsertMQTTSourceConfigRow, error)
 	// CASE bucket order must match CountMinersByState (device.sql) — the chart
 	// and the live legend classify devices with the same rules.
@@ -1304,6 +1316,8 @@ type Querier interface {
 	ListFleetNodesForOrganization(ctx context.Context, orgID int64) ([]ListFleetNodesForOrganizationRow, error)
 	// Tank labels only: deliberately avoid module, health, and telemetry joins.
 	ListFleetTankOptions(ctx context.Context, arg ListFleetTankOptionsParams) ([]ListFleetTankOptionsRow, error)
+	ListHashboardHistory(ctx context.Context, arg ListHashboardHistoryParams) ([]ListHashboardHistoryRow, error)
+	ListHashboardModules(ctx context.Context, deviceID int64) ([]ListHashboardModulesRow, error)
 	// Lists every live infrastructure device in the org. site_ids is an
 	// optional OR filter (empty array = no filter); excluded_site_ids
 	// removes sites from the result regardless of site_ids — the handler
@@ -1570,6 +1584,8 @@ type Querier interface {
 	// reconciliation. Call after locking the Fleet Node and before checking the
 	// device's current cloud-pairing state.
 	LockFleetNodePairingDevice(ctx context.Context, arg LockFleetNodePairingDeviceParams) ([]int64, error)
+	// Serialize cross-controller identity/placement reconciliation within an org.
+	LockHashboardOrganization(ctx context.Context, identifier string) (int64, error)
 	LockHostedAccountAdministrators(ctx context.Context, arg LockHostedAccountAdministratorsParams) ([]int64, error)
 	// Serialize hierarchy, policy, and membership mutations for one organization.
 	// Allow foreign-key KEY SHARE locks from concurrent organization role writes.
@@ -2252,6 +2268,8 @@ type Querier interface {
 	UpsertFleetMetricRollups(ctx context.Context, arg UpsertFleetMetricRollupsParams) error
 	UpsertFleetNodeAuthChallenge(ctx context.Context, arg UpsertFleetNodeAuthChallengeParams) error
 	UpsertFleetNodeSession(ctx context.Context, arg UpsertFleetNodeSessionParams) error
+	UpsertHashboardInstallations(ctx context.Context, arg UpsertHashboardInstallationsParams) error
+	UpsertHashboardSlots(ctx context.Context, arg UpsertHashboardSlotsParams) error
 	// Subscriber upserts source signal state on each successful message receive,
 	// after precedence/dedup processing. Singleton per source.
 	UpsertMQTTSourceState(ctx context.Context, arg UpsertMQTTSourceStateParams) error

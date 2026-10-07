@@ -196,7 +196,18 @@ func TestSnapshotSharesIssueBudgetAcrossModules(t *testing.T) {
 		}
 		require.Equal(t, sdk.ModuleAttention, module.State)
 	}
-	encoded, err := json.Marshal(got)
+	// Measure the module issue budget independently of raw hashboard payloads.
+	// SDK hashboard JSON embeds objects; protobuf carries those objects as bytes,
+	// so the SDK snapshot itself is no longer interchangeable with protobuf JSON.
+	issueSnapshot := *got
+	issueSnapshot.Tanks = append([]sdk.ContainerTank(nil), got.Tanks...)
+	for i := range issueSnapshot.Tanks {
+		issueSnapshot.Tanks[i].Modules = append([]sdk.ContainerModule(nil), got.Tanks[i].Modules...)
+		for j := range issueSnapshot.Tanks[i].Modules {
+			issueSnapshot.Tanks[i].Modules[j].Hashboards = nil
+		}
+	}
+	encoded, err := json.Marshal(&issueSnapshot)
 	require.NoError(t, err)
 	var container pb.ContainerSnapshot
 	require.NoError(t, protojson.Unmarshal(encoded, &container))

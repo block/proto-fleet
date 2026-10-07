@@ -27,6 +27,30 @@ func (h *Handler) ListTankOptions(ctx context.Context, req *connect.Request[pb.L
 	return connect.NewResponse(result), nil
 }
 
+func (h *Handler) GetModuleHashboards(ctx context.Context, req *connect.Request[pb.GetModuleHashboardsRequest]) (*connect.Response[pb.GetModuleHashboardsResponse], error) {
+	orgID, scopes, err := readScopes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.service.Hashboards(ctx, orgID, req.Msg, scopes)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(result), nil
+}
+
+func (h *Handler) ListHashboardHistory(ctx context.Context, req *connect.Request[pb.ListHashboardHistoryRequest]) (*connect.Response[pb.ListHashboardHistoryResponse], error) {
+	orgID, scopes, err := readScopes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.service.HashboardHistory(ctx, orgID, req.Msg, scopes)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(result), nil
+}
+
 func readScopes(ctx context.Context) (int64, []fleetinventory.Scope, error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {

@@ -408,6 +408,18 @@ func (q *retryingQuerier) BumpCurtailmentTargetRetry(ctx context.Context, arg Bu
 	return result, err
 }
 
+func (q *retryingQuerier) CanReadHashboardHistory(ctx context.Context, arg CanReadHashboardHistoryParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "CanReadHashboardHistory", func() error {
+		callResult, callErr := q.next.CanReadHashboardHistory(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CancelActiveFirmwareRollout(ctx context.Context, arg CancelActiveFirmwareRolloutParams) error {
 	return q.retrier.RetryQuery(ctx, "CancelActiveFirmwareRollout", func() error {
 		return q.next.CancelActiveFirmwareRollout(ctx, arg)
@@ -699,6 +711,12 @@ func (q *retryingQuerier) ClearReleaseChannelFirmware(ctx context.Context, arg C
 func (q *retryingQuerier) ClearRolePermissions(ctx context.Context, roleID int64) error {
 	return q.retrier.RetryQuery(ctx, "ClearRolePermissions", func() error {
 		return q.next.ClearRolePermissions(ctx, roleID)
+	})
+}
+
+func (q *retryingQuerier) CloseHashboardInstallations(ctx context.Context, arg CloseHashboardInstallationsParams) error {
+	return q.retrier.RetryQuery(ctx, "CloseHashboardInstallations", func() error {
+		return q.next.CloseHashboardInstallations(ctx, arg)
 	})
 }
 
@@ -1746,6 +1764,18 @@ func (q *retryingQuerier) EnsureCurtailmentOrgConfig(ctx context.Context, orgID 
 	return result, err
 }
 
+func (q *retryingQuerier) EnsureHashboards(ctx context.Context, arg EnsureHashboardsParams) ([]EnsureHashboardsRow, error) {
+	var result []EnsureHashboardsRow
+	err := q.retrier.RetryQuery(ctx, "EnsureHashboards", func() error {
+		callResult, callErr := q.next.EnsureHashboards(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ExcludeFirmwareRolloutDevices(ctx context.Context, arg ExcludeFirmwareRolloutDevicesParams) error {
 	return q.retrier.RetryQuery(ctx, "ExcludeFirmwareRolloutDevices", func() error {
 		return q.next.ExcludeFirmwareRolloutDevices(ctx, arg)
@@ -1804,6 +1834,18 @@ func (q *retryingQuerier) FindDevicesWithSiteOrBuilding(ctx context.Context, arg
 	var result []string
 	err := q.retrier.RetryQuery(ctx, "FindDevicesWithSiteOrBuilding", func() error {
 		callResult, callErr := q.next.FindDevicesWithSiteOrBuilding(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) FindHashboardIdentities(ctx context.Context, arg FindHashboardIdentitiesParams) ([]FindHashboardIdentitiesRow, error) {
+	var result []FindHashboardIdentitiesRow
+	err := q.retrier.RetryQuery(ctx, "FindHashboardIdentities", func() error {
+		callResult, callErr := q.next.FindHashboardIdentities(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3024,6 +3066,18 @@ func (q *retryingQuerier) GetHAProfileDatabaseIdentity(ctx context.Context) (Get
 	return result, err
 }
 
+func (q *retryingQuerier) GetHashboardInstallations(ctx context.Context, arg GetHashboardInstallationsParams) ([]GetHashboardInstallationsRow, error) {
+	var result []GetHashboardInstallationsRow
+	err := q.retrier.RetryQuery(ctx, "GetHashboardInstallations", func() error {
+		callResult, callErr := q.next.GetHashboardInstallations(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetHostedAccountMembership(ctx context.Context, arg GetHostedAccountMembershipParams) (HostedAccountMembership, error) {
 	var result HostedAccountMembership
 	err := q.retrier.RetryQuery(ctx, "GetHostedAccountMembership", func() error {
@@ -3292,6 +3346,18 @@ func (q *retryingQuerier) GetMinerStateSnapshots(ctx context.Context, arg GetMin
 	var result []GetMinerStateSnapshotsRow
 	err := q.retrier.RetryQuery(ctx, "GetMinerStateSnapshots", func() error {
 		callResult, callErr := q.next.GetMinerStateSnapshots(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetModuleHashboards(ctx context.Context, arg GetModuleHashboardsParams) (json.RawMessage, error) {
+	var result json.RawMessage
+	err := q.retrier.RetryQuery(ctx, "GetModuleHashboards", func() error {
+		callResult, callErr := q.next.GetModuleHashboards(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4188,6 +4254,12 @@ func (q *retryingQuerier) InsertError(ctx context.Context, arg InsertErrorParams
 	return result, err
 }
 
+func (q *retryingQuerier) InsertHashboardMetrics(ctx context.Context, arg InsertHashboardMetricsParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertHashboardMetrics", func() error {
+		return q.next.InsertHashboardMetrics(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (InsertMQTTSourceConfigRow, error) {
 	var result InsertMQTTSourceConfigRow
 	err := q.retrier.RetryQuery(ctx, "InsertMQTTSourceConfig", func() error {
@@ -5056,6 +5128,30 @@ func (q *retryingQuerier) ListFleetTankOptions(ctx context.Context, arg ListFlee
 	var result []ListFleetTankOptionsRow
 	err := q.retrier.RetryQuery(ctx, "ListFleetTankOptions", func() error {
 		callResult, callErr := q.next.ListFleetTankOptions(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListHashboardHistory(ctx context.Context, arg ListHashboardHistoryParams) ([]ListHashboardHistoryRow, error) {
+	var result []ListHashboardHistoryRow
+	err := q.retrier.RetryQuery(ctx, "ListHashboardHistory", func() error {
+		callResult, callErr := q.next.ListHashboardHistory(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListHashboardModules(ctx context.Context, deviceID int64) ([]ListHashboardModulesRow, error) {
+	var result []ListHashboardModulesRow
+	err := q.retrier.RetryQuery(ctx, "ListHashboardModules", func() error {
+		callResult, callErr := q.next.ListHashboardModules(ctx, deviceID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5944,6 +6040,18 @@ func (q *retryingQuerier) LockFleetNodePairingDevice(ctx context.Context, arg Lo
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "LockFleetNodePairingDevice", func() error {
 		callResult, callErr := q.next.LockFleetNodePairingDevice(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockHashboardOrganization(ctx context.Context, identifier string) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockHashboardOrganization", func() error {
+		callResult, callErr := q.next.LockHashboardOrganization(ctx, identifier)
 		if callErr == nil {
 			result = callResult
 		}
@@ -7923,6 +8031,18 @@ func (q *retryingQuerier) UpsertFleetNodeAuthChallenge(ctx context.Context, arg 
 func (q *retryingQuerier) UpsertFleetNodeSession(ctx context.Context, arg UpsertFleetNodeSessionParams) error {
 	return q.retrier.RetryQuery(ctx, "UpsertFleetNodeSession", func() error {
 		return q.next.UpsertFleetNodeSession(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) UpsertHashboardInstallations(ctx context.Context, arg UpsertHashboardInstallationsParams) error {
+	return q.retrier.RetryQuery(ctx, "UpsertHashboardInstallations", func() error {
+		return q.next.UpsertHashboardInstallations(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) UpsertHashboardSlots(ctx context.Context, arg UpsertHashboardSlotsParams) error {
+	return q.retrier.RetryQuery(ctx, "UpsertHashboardSlots", func() error {
+		return q.next.UpsertHashboardSlots(ctx, arg)
 	})
 }
 
