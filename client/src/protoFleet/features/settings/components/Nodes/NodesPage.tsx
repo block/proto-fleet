@@ -32,7 +32,7 @@ const colTitles: ColTitles<NodeColumns> = {
 const activeCols: NodeColumns[] = ["name", "status", "miners", "lastSeen"];
 
 const NodesPage = () => {
-  const { listFleetNodes, listFleetNodeDevices, revokeFleetNode } = useFleetNodes();
+  const { listFleetNodes, listFleetNodeDevices, revokeFleetNode, discoverOnFleetNode } = useFleetNodes();
   const canReadNodes = useHasPermission("fleetnode:read");
   const canManageNodes = useHasPermission("fleetnode:manage");
   const canPairMiners = useHasPermission("miner:pair");
@@ -51,6 +51,26 @@ const NodesPage = () => {
   const [isRevoking, setIsRevoking] = useState(false);
   const notifyNextLoadErrorRef = useRef(true);
   const revokeImpactRequestRef = useRef(0);
+  const scansByNodeRef = useRef(
+    new Map<string, { promise: Promise<void>; onUpdate: Parameters<typeof discoverOnFleetNode>[2] }>(),
+  );
+
+  const scanOnNode: typeof discoverOnFleetNode = useCallback(
+    (nodeId, request, onUpdate) => {
+      const running = scansByNodeRef.current.get(nodeId);
+      if (running) {
+        running.onUpdate = onUpdate;
+        return running.promise;
+      }
+      const scan = { promise: Promise.resolve(), onUpdate };
+      scan.promise = discoverOnFleetNode(nodeId, request, (update) => scan.onUpdate(update)).finally(() => {
+        scansByNodeRef.current.delete(nodeId);
+      });
+      scansByNodeRef.current.set(nodeId, scan);
+      return scan.promise;
+    },
+    [discoverOnFleetNode],
+  );
 
   const fetchNodes = useCallback(async () => {
     const notifyError = notifyNextLoadErrorRef.current;
@@ -287,6 +307,7 @@ const NodesPage = () => {
           onPairingStarted={(identifiers) => rememberPairing(findingNode.fleetNodeId, identifiers)}
           onPairingCompleted={(identifiers) => forgetPairing(findingNode.fleetNodeId, identifiers)}
           onPairingSettledAfterDismiss={() => refreshReopenedFinder(findingNode.fleetNodeId)}
+          scanOnNode={scanOnNode}
         />
       ) : null}
       <RevokeNodeDialog

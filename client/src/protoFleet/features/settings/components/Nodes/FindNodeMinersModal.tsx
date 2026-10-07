@@ -21,6 +21,8 @@ const isDefinitivePairRejection = (error: unknown): boolean => {
   return (
     cause instanceof ConnectError &&
     (cause.code === Code.InvalidArgument ||
+      (cause.code === Code.ResourceExhausted &&
+        cause.rawMessage.startsWith("fleet node is busy with another command; retry shortly:")) ||
       (cause.code === Code.FailedPrecondition &&
         [
           "fleet node has no active control stream",
@@ -40,6 +42,7 @@ interface FindNodeMinersModalProps {
   onPairingStarted: (identifiers: string[]) => void;
   onPairingCompleted: (identifiers: string[]) => void;
   onPairingSettledAfterDismiss: () => void;
+  scanOnNode: ReturnType<typeof useFleetNodes>["discoverOnFleetNode"];
 }
 
 const FindNodeMinersModal = ({
@@ -52,8 +55,9 @@ const FindNodeMinersModal = ({
   onPairingStarted,
   onPairingCompleted,
   onPairingSettledAfterDismiss,
+  scanOnNode,
 }: FindNodeMinersModalProps) => {
-  const { listFleetNodeDiscoveredDevices, discoverOnFleetNode, pairDiscoveredDevicesOnFleetNode } = useFleetNodes();
+  const { listFleetNodeDiscoveredDevices, pairDiscoveredDevicesOnFleetNode } = useFleetNodes();
   const [discovered, setDiscovered] = useState<FleetNodeDiscoveredDevice[]>([]);
   const [nextCursor, setNextCursor] = useState(0n);
   const [pairResults, setPairResults] = useState<DevicePairingResult[]>([]);
@@ -140,7 +144,7 @@ const FindNodeMinersModal = ({
     setIsScanning(true);
     let scanFailed = false;
     try {
-      await discoverOnFleetNode(
+      await scanOnNode(
         node.fleetNodeId,
         create(DiscoverRequestSchema, { mode: { case: "networkScan", value: { useFleetNodeLocalSubnet: true } } }),
         (response) => {
@@ -165,7 +169,7 @@ const FindNodeMinersModal = ({
         }
       }
     }
-  }, [discoverOnFleetNode, node.fleetNodeId, refresh]);
+  }, [scanOnNode, node.fleetNodeId, refresh]);
 
   useEffect(() => {
     let active = true;
@@ -212,12 +216,12 @@ const FindNodeMinersModal = ({
     const unreported = new Set(submitted);
     const paired = new Set<string>();
     let pairingCompleted = false;
-    let receivedResults = false;
+    let receivedPairingOutcome = false;
     try {
       await pairDiscoveredDevicesOnFleetNode(node.fleetNodeId, submitted, undefined, (results) => {
-        receivedResults = true;
         // FAILED can be a server-synthesized placeholder after a Node timeout
         // or disconnect, so it is not proof that retrying the miner is safe.
+        if (results.some((result) => result.pairingStatus !== PairingStatus.FAILED)) receivedPairingOutcome = true;
         const completed = results
           .filter(
             (result) =>
@@ -247,7 +251,7 @@ const FindNodeMinersModal = ({
       }
     } catch (err) {
       // A disconnected result stream does not mean the Node stopped pairing.
-      if (!pairingCompleted && !receivedResults && isDefinitivePairRejection(err)) {
+      if (!pairingCompleted && !receivedPairingOutcome && isDefinitivePairRejection(err)) {
         onPairingCompleted([...unreported]);
       }
       if (mountedRef.current) {

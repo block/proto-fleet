@@ -277,6 +277,44 @@ describe("NodesPage", () => {
     );
   });
 
+  it("reattaches to a running Node scan after closing and reopening the finder", async () => {
+    permissionsMock.current = ["fleetnode:read", "fleetnode:manage", "miner:pair"];
+    let finishScan: (() => void) | undefined;
+    let scanFinished = false;
+    discoverOnFleetNodeMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishScan = () => {
+            scanFinished = true;
+            resolve();
+          };
+        }),
+    );
+    listFleetNodeDiscoveredDevicesMock.mockImplementation(async () => ({
+      devices: scanFinished
+        ? [create(FleetNodeDiscoveredDeviceSchema, { deviceIdentifier: "miner-2", ipAddress: "192.168.1.2" })]
+        : [],
+      nextCursor: 0n,
+    }));
+    renderNodesPage();
+
+    await screen.findByText("node-01");
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find miners" }));
+    await waitFor(() => expect(discoverOnFleetNodeMock).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Close add miners" }));
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find miners" }));
+    await waitFor(() => expect(listFleetNodeDiscoveredDevicesMock).toHaveBeenCalledTimes(2));
+    expect(discoverOnFleetNodeMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => finishScan?.());
+
+    expect(await screen.findByRole("button", { name: "Continue with 1 miners" })).toBeInTheDocument();
+    expect(discoverOnFleetNodeMock).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the reopened finder intact when an earlier pairing settles", async () => {
     permissionsMock.current = ["fleetnode:read", "fleetnode:manage", "miner:pair"];
     listFleetNodeDiscoveredDevicesMock.mockResolvedValue({

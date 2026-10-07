@@ -62,6 +62,7 @@ const renderFinder = (props: Partial<ComponentProps<typeof FindNodeMinersModal>>
       onPairingStarted={vi.fn()}
       onPairingCompleted={vi.fn()}
       onPairingSettledAfterDismiss={vi.fn()}
+      scanOnNode={discoverOnNode}
       {...props}
     />,
   );
@@ -219,6 +220,7 @@ describe("FindNodeMinersModal", () => {
       onPairingStarted: vi.fn(),
       onPairingCompleted: vi.fn(),
       onPairingSettledAfterDismiss: vi.fn(),
+      scanOnNode: discoverOnNode,
     };
     const { rerender } = render(<FindNodeMinersModal {...props} settledPairingRevision={0} />);
 
@@ -232,12 +234,39 @@ describe("FindNodeMinersModal", () => {
   });
 
   it("releases retry blocks after definitive pre-dispatch rejection", async () => {
-    pairOnNode.mockRejectedValue(
-      createErrorWithCause(
+    pairOnNode.mockImplementation(async (_id, _ids, _credentials, onResults) => {
+      onResults([
+        create(DevicePairingResultSchema, {
+          deviceIdentifier: "miner-2",
+          pairingStatus: PairingStatus.FAILED,
+        }),
+      ]);
+      throw createErrorWithCause(
         "fleet node has no active control stream",
         new ConnectError("fleet node has no active control stream", Code.FailedPrecondition),
-      ),
-    );
+      );
+    });
+    const onPairingCompleted = vi.fn();
+    renderFinder({ onPairingCompleted });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Continue with 1 miners" }));
+
+    await waitFor(() => expect(onPairingCompleted).toHaveBeenCalledWith(["miner-2"]));
+  });
+
+  it("releases retry blocks when the Node rejects a busy pairing command", async () => {
+    pairOnNode.mockImplementation(async (_id, _ids, _credentials, onResults) => {
+      onResults([
+        create(DevicePairingResultSchema, {
+          deviceIdentifier: "miner-2",
+          pairingStatus: PairingStatus.FAILED,
+        }),
+      ]);
+      throw createErrorWithCause(
+        "fleet node is busy with another command; retry shortly: busy",
+        new ConnectError("fleet node is busy with another command; retry shortly: busy", Code.ResourceExhausted),
+      );
+    });
     const onPairingCompleted = vi.fn();
     renderFinder({ onPairingCompleted });
 
