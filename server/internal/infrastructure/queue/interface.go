@@ -14,6 +14,7 @@ type Message struct {
 	Payload      []byte
 	RetryCount   int32
 	OrgID        int64
+	WriteEpoch   int64
 }
 
 type EnqueueMessage struct {

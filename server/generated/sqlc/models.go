@@ -986,6 +986,25 @@ type DeviceStatusHourly struct {
 	DataPoints       int32
 }
 
+type DeviceWriteAttempt struct {
+	AttemptID      uuid.UUID
+	DeviceID       int64
+	OrganizationID int64
+	Epoch          int64
+	QueueMessageID int64
+	Status         string
+	CreatedAt      time.Time
+	FinishedAt     sql.NullTime
+}
+
+type DeviceWriteFence struct {
+	DeviceID       int64
+	OrganizationID int64
+	Epoch          int64
+	State          string
+	UpdatedAt      time.Time
+}
+
 type DiscoveredDevice struct {
 	ID                      int64
 	OrgID                   int64
@@ -1601,6 +1620,7 @@ type QueueMessage struct {
 	Payload             pqtype.NullRawMessage
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	WriteEpoch          int64
 }
 
 type RackSlot struct {

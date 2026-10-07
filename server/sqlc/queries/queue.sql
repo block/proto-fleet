@@ -5,14 +5,16 @@ INSERT INTO queue_message (
     device_id,
     status,
     retry_count,
-    payload
+    payload,
+    write_epoch
 ) VALUES (
      $1,
      $2,
      $3,
      $4,
      $5,
-     $6
+     $6,
+     COALESCE((SELECT epoch FROM device_write_fence WHERE device_id=$3),0)
 );
 
 -- name: CreateQueueMessages :exec
@@ -22,7 +24,8 @@ INSERT INTO queue_message (
     device_id,
     status,
     retry_count,
-    payload
+    payload,
+    write_epoch
 )
 SELECT
     sqlc.arg('command_batch_log_uuid'),
@@ -30,9 +33,11 @@ SELECT
     devices.device_id,
     'PENDING'::queue_status_enum,
     0,
-    payloads.payload::JSONB
+    payloads.payload::JSONB,
+    epochs.write_epoch
 FROM unnest(sqlc.arg('device_ids')::BIGINT[]) WITH ORDINALITY AS devices(device_id, ord)
-JOIN unnest(sqlc.arg('payloads')::TEXT[]) WITH ORDINALITY AS payloads(payload, ord) USING (ord);
+JOIN unnest(sqlc.arg('payloads')::TEXT[]) WITH ORDINALITY AS payloads(payload, ord) USING (ord)
+JOIN unnest(sqlc.arg('write_epochs')::BIGINT[]) WITH ORDINALITY AS epochs(write_epoch, ord) USING (ord);
 
 -- name: GetQueueMessagesByBatch :many
 SELECT id, device_id, status, error_info, payload
@@ -88,7 +93,7 @@ WHERE id = $1
 -- name: GetMessagesToProcess :many
 SELECT m.id, m.command_batch_log_uuid, m.device_id, m.command_type, m.status,
        m.retry_count, m.error_info, m.payload, m.created_at, m.updated_at,
-       d.org_id
+       d.org_id, m.write_epoch
 FROM queue_message m
 JOIN device d ON m.device_id = d.id
 WHERE m.status = 'PENDING'
@@ -98,9 +103,9 @@ WHERE m.status = 'PENDING'
     FROM queue_message earlier
     WHERE earlier.device_id = m.device_id
       AND (earlier.status = 'PENDING' OR earlier.status = 'PROCESSING')
-      AND earlier.created_at < m.created_at
+      AND (earlier.created_at,earlier.id) < (m.created_at,m.id)
 )
-ORDER BY m.created_at
+ORDER BY m.created_at,m.id
 LIMIT $2;
 
 -- name: ReapMessages :many

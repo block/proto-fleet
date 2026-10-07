@@ -67,3 +67,31 @@ func TestDatabaseMessageQueueEnqueueManyInsertsPerDevicePayloads(t *testing.T) {
 		secondDevice.DatabaseID: {"worker_name": "second"},
 	}, gotPayloads)
 }
+
+func TestSameTimestampDeviceCommandsDispatchInStableOrder(t *testing.T) {
+	cfg, err := testutil.GetTestConfig()
+	require.NoError(t, err)
+	database := testutil.NewDatabaseService(t, cfg)
+	user := database.CreateSuperAdminUser()
+	device := database.CreateDevice(user.OrganizationID, "proto")
+	q := sqlc.New(database.DB)
+	batch := id.GenerateID()
+	kind := commandtype.Reboot
+	_, err = q.CreateCommandBatchLog(t.Context(), sqlc.CreateCommandBatchLogParams{Uuid: batch, Type: kind.String(), CreatedBy: user.DatabaseID, CreatedAt: time.Now(), Status: sqlc.BatchStatusEnumPENDING, DevicesCount: 2, OrganizationID: sql.NullInt64{Int64: user.OrganizationID, Valid: true}})
+	require.NoError(t, err)
+	messages := queue.NewDatabaseMessageQueue(&queue.Config{MaxFailureRetries: 3}, database.DB)
+	// Both inserts share statement/transaction time. The ID breaks that tie.
+	require.NoError(t, messages.EnqueueMany(t.Context(), batch, kind, []queue.EnqueueMessage{{DeviceID: device.DatabaseID, Payload: map[string]int{"order": 1}}, {DeviceID: device.DatabaseID, Payload: map[string]int{"order": 2}}}))
+	first, err := messages.Dequeue(t.Context(), 10)
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+	blocked, err := messages.Dequeue(t.Context(), 10)
+	require.NoError(t, err)
+	require.Empty(t, blocked)
+	_, err = q.UpdateMessageStatus(t.Context(), sqlc.UpdateMessageStatusParams{ID: first[0].ID, Status: sqlc.QueueStatusEnumSUCCESS})
+	require.NoError(t, err)
+	second, err := messages.Dequeue(t.Context(), 10)
+	require.NoError(t, err)
+	require.Len(t, second, 1)
+	require.Greater(t, second[0].ID, first[0].ID)
+}

@@ -1,0 +1,76 @@
+package command
+
+import (
+	"context"
+	"database/sql"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	minerMocks "github.com/block/proto-fleet/server/internal/domain/command/mocks"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	minerIfaceMocks "github.com/block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/infrastructure/id"
+	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+)
+
+func TestQueuedDispatchCannotCrossOwnershipEpoch(t *testing.T) {
+	_, conn, _, deviceID, _ := setupPasswordCommandDevice(t, "proto", false)
+	q := sqlc.New(conn)
+	userID, err := q.CreateUser(t.Context(), sqlc.CreateUserParams{UserID: id.GenerateID(), Username: "write-fence-actor", PasswordHash: "unused", CreatedAt: time.Now()})
+	require.NoError(t, err)
+	const organizationID int64 = 1
+	batch := id.GenerateID()
+	kind := commandtype.StopMining
+	_, err = q.CreateCommandBatchLog(t.Context(), sqlc.CreateCommandBatchLogParams{Uuid: batch, Type: kind.String(), CreatedBy: userID, CreatedAt: time.Now(), Status: sqlc.BatchStatusEnumPENDING, DevicesCount: 1, OrganizationID: sql.NullInt64{Int64: organizationID, Valid: true}})
+	require.NoError(t, err)
+	messages := queue.NewDatabaseMessageQueue(&queue.Config{MaxFailureRetries: 3}, conn)
+	require.NoError(t, messages.Enqueue(t.Context(), batch, kind, []int64{deviceID}, nil))
+	rows, err := messages.Dequeue(t.Context(), 1)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	ctrl := gomock.NewController(t)
+	getter := minerMocks.NewMockCachedMinerGetter(ctrl)
+	miner := minerIfaceMocks.NewMockMiner(ctrl)
+	started := make(chan struct{})
+	complete := make(chan struct{})
+	finish := sync.OnceFunc(func() { close(complete) })
+	t.Cleanup(finish)
+	getter.EXPECT().GetMiner(gomock.Any(), deviceID).Return(miner, nil).Times(1)
+	miner.EXPECT().GetOrgID().Return(organizationID)
+	miner.EXPECT().GetSiteID().Return(int64(0))
+	miner.EXPECT().StopMining(gomock.Any()).DoAndReturn(func(context.Context) error { close(started); <-complete; return nil }).Times(1)
+	service := NewExecutionService(&Config{MaxWorkers: 1}, conn, messages, nil, nil, getter, nil, nil, nil)
+	done := make(chan error, 1)
+	go func() { _, _, err := service.executeQueuedCommand(t.Context(), rows[0]); done <- err }()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("command did not start")
+	}
+	fences := devicewrite.NewService(conn)
+	epoch, err := fences.Reserve(t.Context(), organizationID, deviceID)
+	require.NoError(t, err)
+	drained, err := fences.Drained(t.Context(), organizationID, deviceID, epoch)
+	require.NoError(t, err)
+	require.False(t, drained)
+	finish()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("command did not complete")
+	}
+	drained, err = fences.Drained(t.Context(), organizationID, deviceID, epoch)
+	require.NoError(t, err)
+	require.True(t, drained)
+	require.NoError(t, fences.ReleaseHost(t.Context(), organizationID, deviceID, epoch))
+	// No second miner resolution or firmware call is permitted for this old row.
+	_, _, err = service.executeQueuedCommand(t.Context(), rows[0])
+	require.Error(t, err)
+}
