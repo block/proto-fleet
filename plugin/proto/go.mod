@@ -10,7 +10,7 @@ require (
 	github.com/moby/moby/client v0.6.1
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go v0.44.0
-	google.golang.org/grpc v1.83.2
+	google.golang.org/grpc v1.84.0
 )
 
 replace github.com/block/proto-fleet/server => ../../server
