@@ -12,6 +12,7 @@ import {
 } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
+import { useContainerFilterOptions } from "@/protoFleet/api/useContainerFilterOptions";
 import { type NewRackInput, useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { useFleetInventory } from "@/protoFleet/api/useFleetInventory";
 import { useInventoryRacks } from "@/protoFleet/api/useInventoryRacks";
@@ -51,12 +52,14 @@ import { BUILDING_URL_PARAM } from "@/protoFleet/features/fleetManagement/utils/
 import {
   FILTER_URL_PARAM_KEYS,
   fleetListTelemetryRangesFromURL,
+  parseCT1FilterValuesFromURL,
   parseIdFilterValuesFromURL,
   parseUrlToActiveFilters,
   setTelemetryNumericFilterURLParams,
   UNASSIGNED_FILTER_OPTION,
   UNASSIGNED_URL_VALUE,
 } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
+import { inventoryAncestorsFromURL } from "@/protoFleet/features/fleetManagement/utils/inventoryFilterUrl";
 import { mapRackToCardProps } from "@/protoFleet/features/fleetManagement/utils/rackCardMapper";
 import {
   TELEMETRY_FILTER_BOUNDS,
@@ -256,11 +259,25 @@ const RacksPage = () => {
       includeUnassigned: selectedSiteFilter.includeUnassigned,
     });
   }, [activeSiteFilter, selectedSiteIds, selectedSiteFilter.includeUnassigned]);
-  const inventory = useInventoryRacks(useInventory && !effectiveSiteFilter.matchNone);
-  const effectiveSiteFilterRef = useRef(effectiveSiteFilter);
+  const selectedContainerValues = useMemo(() => parseCT1FilterValuesFromURL(searchParams, "container"), [searchParams]);
+  const containerScopeQuery = selectedContainerValues.map((id) => `container=${id}`).join("&");
+  const containerAncestors = useMemo(
+    () => inventoryAncestorsFromURL(new URLSearchParams(containerScopeQuery), false),
+    [containerScopeQuery],
+  );
+  const availableContainers = useContainerFilterOptions(useInventory);
+  const inventory = useInventoryRacks(useInventory && !effectiveSiteFilter.matchNone, containerAncestors);
+  const listSiteFilter = useMemo(
+    () => ({
+      ...effectiveSiteFilter,
+      matchNone: effectiveSiteFilter.matchNone || (!useInventory && selectedContainerValues.length > 0),
+    }),
+    [effectiveSiteFilter, useInventory, selectedContainerValues],
+  );
+  const effectiveSiteFilterRef = useRef(listSiteFilter);
   useEffect(() => {
-    effectiveSiteFilterRef.current = effectiveSiteFilter;
-  }, [effectiveSiteFilter]);
+    effectiveSiteFilterRef.current = listSiteFilter;
+  }, [listSiteFilter]);
   const getSiteFilter = useCallback(() => effectiveSiteFilterRef.current, []);
   const getSiteIds = useCallback(() => effectiveSiteFilterRef.current.siteIds, []);
   const getIncludeUnassigned = useCallback(() => effectiveSiteFilterRef.current.includeUnassigned, []);
@@ -624,9 +641,10 @@ const RacksPage = () => {
   useEffect(() => {
     outletContext?.publishViewFilterContext({
       availableBuildings: buildingSources,
+      availableContainers,
       availableSites: allSites ?? [],
     });
-  }, [outletContext, buildingSources, allSites]);
+  }, [outletContext, buildingSources, allSites, availableContainers]);
 
   const setBuildingFilter = useCallback(
     (ids: string[]) => {
@@ -672,20 +690,21 @@ const RacksPage = () => {
 
   const effectiveSiteKey = useMemo(
     () =>
-      `${effectiveSiteFilter.siteIds.map(String).join(",")}|${effectiveSiteFilter.includeUnassigned}|${effectiveSiteFilter.matchNone ?? false}`,
-    [effectiveSiteFilter],
+      `${listSiteFilter.siteIds.map(String).join(",")}|${listSiteFilter.includeUnassigned}|${listSiteFilter.matchNone ?? false}`,
+    [listSiteFilter],
   );
+  const selectionScopeKey = `${effectiveSiteKey}:${selectedContainerValues.join(",")}`;
   const prevSiteKey = useRef<string | null>(null);
   useEffect(() => {
-    if (prevSiteKey.current !== null && prevSiteKey.current !== effectiveSiteKey) {
+    if (prevSiteKey.current !== null && prevSiteKey.current !== selectionScopeKey) {
       // Drop the prior scope's selection so the bulk-action bar can't stay
       // active on racks that belong to a site the picker no longer shows.
       // (Out-of-order list responses are already dropped by
       // useDeviceSetListState's request-id guard, so rows can't go stale.)
       setSelectedRackIds([]);
     }
-    prevSiteKey.current = effectiveSiteKey;
-  }, [effectiveSiteKey]);
+    prevSiteKey.current = selectionScopeKey;
+  }, [selectionScopeKey]);
 
   const handleFilterChange = useCallback(
     (key: string, values: string[]) => {
@@ -696,6 +715,10 @@ const RacksPage = () => {
       }
       if (key === "issues") {
         writeMultiParam("issues", values);
+        return;
+      }
+      if (key === "container") {
+        writeMultiParam("container", values);
         return;
       }
       if (key === "site") {
@@ -777,6 +800,17 @@ const RacksPage = () => {
         options: [...allBuildings, UNASSIGNED_FILTER_OPTION],
         selectedValues: selectedBuildingIdStrings,
       },
+      ...(useInventory
+        ? [
+            {
+              key: "container",
+              title: "Containers",
+              pluralTitle: "containers",
+              options: availableContainers,
+              selectedValues: selectedContainerValues,
+            },
+          ]
+        : []),
       {
         key: "zone",
         title: "Zones",
@@ -786,10 +820,22 @@ const RacksPage = () => {
         showGroupDivider: true,
       },
     ],
-    [allSites, selectedSiteValues, allBuildings, selectedBuildingIdStrings, allZones, selectedZones, selectedIssues],
+    [
+      allSites,
+      selectedSiteValues,
+      allBuildings,
+      selectedBuildingIdStrings,
+      allZones,
+      selectedZones,
+      selectedIssues,
+      useInventory,
+      availableContainers,
+      selectedContainerValues,
+    ],
   );
 
   const hasActiveFilters =
+    selectedContainerValues.length > 0 ||
     selectedSiteValues.length > 0 ||
     selectedBuildingIdStrings.length > 0 ||
     selectedZones.length > 0 ||
@@ -875,6 +921,7 @@ const RacksPage = () => {
     // batch into one history entry (react-router resolves the prev against
     // the current location, not a value set by an earlier call this render).
     const hadAny =
+      selectedContainerValues.length > 0 ||
       selectedSiteValues.length > 0 ||
       selectedBuildingIdStrings.length > 0 ||
       selectedZones.length > 0 ||
@@ -898,6 +945,7 @@ const RacksPage = () => {
     selectedBuildingIdStrings,
     selectedIssues,
     selectedSiteValues,
+    selectedContainerValues,
     selectedZones,
     setSearchParams,
     telemetryRanges,

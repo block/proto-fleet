@@ -4,11 +4,15 @@ import { fleetInventoryClient } from "./clients";
 import { inventorySort } from "./fleetInventory";
 import { SortDirection } from "./generated/common/v1/sort_pb";
 import { DeviceSetStatsSchema } from "./generated/device_set/v1/device_set_pb";
-import { type InventoryItem, InventoryView } from "./generated/fleetinventory/v1/fleetinventory_pb";
+import { type EntityRef, type InventoryItem, InventoryView } from "./generated/fleetinventory/v1/fleetinventory_pb";
 import { getErrorMessage } from "./getErrorMessage";
 import type { ListDeviceSetsProps } from "./useDeviceSets";
 
-export function useInventoryRacks(enabled = true) {
+const NO_ANCESTORS: EntityRef[] = [];
+
+export function useInventoryRacks(enabled = true, ancestors: EntityRef[] = NO_ANCESTORS) {
+  const ancestorKey = ancestors.map((ref) => `${ref.kind}:${ref.id}`).join(",");
+  const [resultAncestorKey, setResultAncestorKey] = useState(ancestorKey);
   const [items, setItems] = useState<InventoryItem[]>([]);
   const requestID = useRef(0);
   const controller = useRef<AbortController | null>(null);
@@ -40,13 +44,16 @@ export function useInventoryRacks(enabled = true) {
       const abort = new AbortController();
       controller.current = abort;
       const { onSuccess: _success, onError: _error, onFinally: _finally, ...query } = options;
-      const key = JSON.stringify(query, (_, value) => (typeof value === "bigint" ? value.toString() : value));
+      const key = JSON.stringify({ ...query, ancestors }, (_, value) =>
+        typeof value === "bigint" ? value.toString() : value,
+      );
       if (key !== scopeKey.current) setItems([]);
       scopeKey.current = key;
       try {
         const response = await fleetInventoryClient.listInventory(
           {
             view: InventoryView.EQUIPMENT_GROUPS,
+            ancestors,
             pageSize: options.pageSize,
             pageToken: options.pageToken,
             sort: inventorySort(options.sort),
@@ -63,6 +70,7 @@ export function useInventoryRacks(enabled = true) {
         );
         if (id !== requestID.current) return;
         setItems(response.items);
+        setResultAncestorKey(ancestorKey);
         options.onSuccess?.(
           response.items.flatMap((item) => (item.details.case === "rack" ? [item.details.value] : [])),
           response.nextPageToken,
@@ -74,7 +82,7 @@ export function useInventoryRacks(enabled = true) {
         if (id === requestID.current) options.onFinally?.();
       }
     },
-    [enabled],
+    [enabled, ancestors, ancestorKey],
   );
   const statsMap = useMemo(
     () =>
@@ -92,5 +100,6 @@ export function useInventoryRacks(enabled = true) {
       ),
     [items],
   );
-  return { items: enabled ? items : [], listRacks, statsMap: enabled ? statsMap : new Map() };
+  const current = enabled && resultAncestorKey === ancestorKey;
+  return { items: current ? items : [], listRacks, statsMap: current ? statsMap : new Map() };
 }

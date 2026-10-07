@@ -244,14 +244,45 @@ describe("MinerList", () => {
     expect(screen.getByRole("button", { name: "Export miners CSV" })).toBeInTheDocument();
   });
 
-  it.each(["tank=7", "container=9"])("preserves ancestor scope when applying filters (%s)", async (ancestor) => {
+  it.each(["tank=7", "container=9", "container=9&container=10&tank=7"])(
+    "preserves ancestor scope when applying filters (%s)",
+    async (ancestor) => {
+      const user = userEvent.setup();
+      renderMinerList({ minerIds: ["miner"], totalMiners: 1, onAddMiners: vi.fn() }, [`/?${ancestor}`]);
+      await user.click(screen.getByRole("button", { name: "Add Filter" }));
+      await user.click(screen.getByText("Status", { exact: true, selector: "button *" }));
+      await user.click(screen.getByText("Offline", { exact: true }));
+      await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("status=offline"));
+      ancestor.split("&").forEach((param) => expect(screen.getByTestId("path-display")).toHaveTextContent(param));
+    },
+  );
+
+  it("selects and clears containers while preserving tank, search, sort, and view state", async () => {
     const user = userEvent.setup();
-    renderMinerList({ minerIds: ["miner"], totalMiners: 1, onAddMiners: vi.fn() }, [`/?${ancestor}`]);
+    renderMinerList(
+      {
+        minerIds: ["miner"],
+        totalMiners: 1,
+        onAddMiners: vi.fn(),
+        availableContainers: [
+          { id: "9", label: "CT1 North" },
+          { id: "10", label: "CT1 South" },
+        ],
+      },
+      ["/?tank=7&search=module&sort=name&dir=asc&view=my-view"],
+    );
     await user.click(screen.getByRole("button", { name: "Add Filter" }));
-    await user.click(screen.getByText("Status", { exact: true, selector: "button *" }));
-    await user.click(screen.getByText("Offline", { exact: true }));
-    await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("status=offline"));
-    expect(screen.getByTestId("path-display")).toHaveTextContent(ancestor);
+    await user.click(screen.getByText("Containers", { exact: true, selector: "button *" }));
+    await user.click(screen.getByText("CT1 North", { exact: true }));
+    await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("container=9"));
+    expect(screen.getByTestId("path-display")).toHaveTextContent("tank=7");
+    expect(screen.getByTestId("path-display")).toHaveTextContent("search=module");
+    expect(screen.getByTestId("path-display")).toHaveTextContent("sort=name");
+    expect(screen.getByTestId("path-display")).toHaveTextContent("view=my-view");
+    await user.click(screen.getByRole("button", { name: "Clear Containers filter" }));
+    await waitFor(() => expect(screen.getByTestId("path-display")).not.toHaveTextContent("container="));
+    expect(screen.getByTestId("path-display")).toHaveTextContent("tank=7");
+    expect(screen.getByTestId("path-display")).toHaveTextContent("search=module");
   });
 
   const getColumnHeaders = () =>

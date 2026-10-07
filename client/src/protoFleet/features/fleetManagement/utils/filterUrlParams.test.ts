@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import {
+  encodeActiveFiltersToURL,
   encodeFilterToURL,
   parseFilterFromURL,
   parseUrlToActiveFilters,
@@ -14,6 +15,19 @@ import {
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 
 describe("filterUrlParams", () => {
+  it("round-trips multiple containers and tank scope without confusing building IDs", () => {
+    const params = new URLSearchParams("container=7&container=8&container=7&tank=9&building=7&site=2");
+    const active = parseUrlToActiveFilters(params);
+    expect(active.dropdownFilters.container).toEqual(["7", "8"]);
+    expect(active.dropdownFilters.tank).toEqual(["9"]);
+    expect(active.dropdownFilters.building).toEqual(["7"]);
+    active.dropdownFilters.status = ["Offline"];
+    const restored = parseUrlToActiveFilters(encodeActiveFiltersToURL(active));
+    expect(restored.dropdownFilters.container).toEqual(["7", "8"]);
+    expect(restored.dropdownFilters.tank).toEqual(["9"]);
+    expect(restored.dropdownFilters.site).toEqual(["2"]);
+  });
+
   describe("encodeFilterToURL", () => {
     it("should not create duplicate status values when encoding needs-attention filter", () => {
       const filter = create(MinerListFilterSchema, {

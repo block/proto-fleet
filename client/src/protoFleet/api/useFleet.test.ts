@@ -2,7 +2,11 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { fleetInventoryClient, fleetManagementClient } from "./clients";
-import { EntityKind, ListInventoryResponseSchema } from "./generated/fleetinventory/v1/fleetinventory_pb";
+import {
+  EntityKind,
+  EntityRefSchema,
+  ListInventoryResponseSchema,
+} from "./generated/fleetinventory/v1/fleetinventory_pb";
 import useFleet from "./useFleet";
 import {
   ListMinerStateSnapshotsResponseSchema,
@@ -87,6 +91,49 @@ describe("useFleet", () => {
     );
     rerender({ enabled: true });
     await waitFor(() => expect(result.current.inventoryMinerCount).toBe(2));
+  });
+
+  it("keeps ancestor scope across pages and hides previous rows on a contradictory scope", async () => {
+    const response = create(ListInventoryResponseSchema, {
+      items: [{ ref: { kind: EntityKind.MODULE, id: 1n }, name: "North module" }],
+      totalCount: 2n,
+      nextPageToken: "next",
+    });
+    vi.mocked(fleetInventoryClient.listInventory)
+      .mockResolvedValueOnce(response)
+      .mockResolvedValueOnce({ ...response, nextPageToken: "" });
+    const { result, rerender } = renderHook(
+      ({ container }) =>
+        useFleet({
+          inventory: true,
+          ancestors: [create(EntityRefSchema, { kind: EntityKind.CONTAINER, id: container })],
+          filter: create(MinerListFilterSchema, { siteIds: [1n] }),
+          pageSize: 1,
+        }),
+      { initialProps: { container: 7n } },
+    );
+    await waitFor(() => expect(result.current.inventoryItems?.[0]?.name).toBe("North module"));
+    act(() => result.current.goToNextPage());
+    await waitFor(() => expect(result.current.currentPage).toBe(1));
+    expect(vi.mocked(fleetInventoryClient.listInventory).mock.calls[1][0]).toMatchObject({
+      ancestors: [{ kind: EntityKind.CONTAINER, id: 7n }],
+      siteIds: [1n],
+      pageToken: "next",
+    });
+    let resolve!: (value: typeof response) => void;
+    vi.mocked(fleetInventoryClient.listInventory).mockImplementationOnce(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    rerender({ container: 8n });
+    expect(result.current.inventoryItems).toEqual([]);
+    expect(result.current.totalMiners).toBe(0);
+    await act(async () => resolve(create(ListInventoryResponseSchema)));
+    expect(result.current.inventoryItems).toEqual([]);
+    expect(result.current.currentPage).toBe(0);
+    expect(vi.mocked(fleetInventoryClient.listInventory).mock.calls[2][0].pageToken).toBe("");
   });
 
   it("queues a refetch requested while a fetch is already in flight", async () => {

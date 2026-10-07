@@ -102,9 +102,17 @@ WITH assets AS (
    AND ((cardinality(sqlc.arg('site_ids')::bigint[]) = 0 AND NOT sqlc.arg('include_unassigned')::boolean)
         OR r.site_id = ANY(sqlc.arg('site_ids')::bigint[]) OR (sqlc.arg('include_unassigned')::boolean AND r.site_id IS NULL))
    AND (sqlc.arg('search_query')::text = '' OR strpos(lower(r.search_text), lower(sqlc.arg('search_query'))) > 0)
-   AND (jsonb_array_length(sqlc.arg('ancestors')::jsonb) = 0 OR EXISTS (
+   AND (NOT EXISTS (
+     SELECT 1 FROM jsonb_to_recordset(sqlc.arg('ancestors')::jsonb) AS p(kind int, id bigint) WHERE p.kind IN (1,2)
+   ) OR EXISTS (
      SELECT 1 FROM jsonb_to_recordset(sqlc.arg('ancestors')::jsonb) AS p(kind int, id bigint)
-     WHERE (r.facility_kind = p.kind AND r.facility_id = p.id) OR (r.group_kind = p.kind AND r.group_id = p.id)
+     WHERE r.facility_kind = p.kind AND r.facility_id = p.id
+   ))
+   AND (NOT EXISTS (
+     SELECT 1 FROM jsonb_to_recordset(sqlc.arg('ancestors')::jsonb) AS p(kind int, id bigint) WHERE p.kind IN (3,4)
+   ) OR EXISTS (
+     SELECT 1 FROM jsonb_to_recordset(sqlc.arg('ancestors')::jsonb) AS p(kind int, id bigint)
+     WHERE r.group_kind = p.kind AND r.group_id = p.id
    ))
    AND (NOT f.miner_only OR r.kind=5)
    AND (COALESCE(cardinality(f.states),0)=0 OR r.state=ANY(f.states))

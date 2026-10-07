@@ -216,6 +216,10 @@ export const EmptyMinerList: Story = {
 
 export const MinersAndModules: Story = {
   args: {
+    availableContainers: [
+      { id: "1", label: "Container 1 · North" },
+      { id: "2", label: "Container 2 · South" },
+    ],
     title: "Mining assets",
     minerIds: [miners[0].deviceIdentifier],
     miners: buildMinersRecord([miners[0]]),
