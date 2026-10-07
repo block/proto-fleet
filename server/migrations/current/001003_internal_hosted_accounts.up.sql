@@ -1,3 +1,4 @@
+-- requires-shared: 1000
 -- Account membership is separate from organization RBAC. This migration does
 -- not assign organization roles or customer memberships to existing users.
 INSERT INTO permission (key, description) VALUES
