@@ -172,6 +172,7 @@ The codebase follows a domain-driven design with clear separation of concerns:
 - **Commands**: Asynchronous command execution with a database-backed message queue.
 - **Fleet Management**: High-level operations for managing groups of devices (listing, filtering, monitoring status).
 - **Authentication**: Token-based auth with separate token types for clients (users) and miners (devices).
+- **Hosted Accounts**: Internal account hierarchy and fixed customer memberships, separate from organization RBAC. Live membership resolution applies ancestor restrictions and suspension; administration and audit commit together. Customer RPCs, onboarding, asset allocation, and account switching are not yet exposed.
 
 ### Rig Curtailment Configuration Delivery
 

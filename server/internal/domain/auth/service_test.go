@@ -1415,6 +1415,7 @@ func TestDeactivateUser_LastSuperAdminGuard(t *testing.T) {
 		expectGetAssignment bool
 		expectTicketCount   bool
 		activeTicketCount   int64
+		soleHostedAccounts  int64
 		expectSelfRejectMsg string
 		wantErrCode         connect.Code
 		wantErrSubstring    string
@@ -1458,6 +1459,14 @@ func TestDeactivateUser_LastSuperAdminGuard(t *testing.T) {
 			wantErrSubstring:    "active maintenance tickets",
 		},
 		{
+			name:                "sole customer administrator is refused",
+			userID:              targetExternalID,
+			expectGetAssignment: true,
+			soleHostedAccounts:  1,
+			wantErrCode:         failedPreCode,
+			wantErrSubstring:    "assign another account administrator",
+		},
+		{
 			// Self-deactivation: rejected before any store calls beyond the
 			// initial caller lookup. The handler-layer test exercises the
 			// permission gate; this asserts the domain-layer CANNOT_DEACTIVATE_SELF.
@@ -1484,6 +1493,10 @@ func TestDeactivateUser_LastSuperAdminGuard(t *testing.T) {
 				// authorizeCallerForUser → target lookup + parity check
 				mockUserStore.EXPECT().GetUserByExternalID(gomock.Any(), targetExternalID).Return(target, nil)
 				mockMgmtStore.EXPECT().GetUserRoleName(gomock.Any(), targetInternalID, orgID).Return("FIELD_TECH", nil)
+				mockMgmtStore.EXPECT().LockAndCountSoleHostedAccountAdministrations(gomock.Any(), orgID, targetInternalID).
+					Return(tc.soleHostedAccounts, nil)
+			}
+			if tc.expectGetAssignment && tc.soleHostedAccounts == 0 {
 				// In-tx assignment fetch
 				mockMgmtStore.EXPECT().GetOrgScopeAssignmentForUser(gomock.Any(), targetInternalID, orgID).
 					Return(interfaces.OrgScopeAssignment{

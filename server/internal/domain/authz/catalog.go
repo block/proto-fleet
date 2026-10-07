@@ -89,6 +89,10 @@ const (
 	// role — custom role + ADMIN/FIELD_TECH editing.
 	PermRoleManage = "role:manage"
 
+	// account — host control of the customer hierarchy. This does not grant
+	// customer membership, private views, or customer pool overrides.
+	PermAccountManage = "account:manage"
+
 	// instance — server-instance administration: seeing release update
 	// prompts, changing the release channel, and triggering upgrades.
 	PermInstanceUpdate = "instance:update"
@@ -116,6 +120,7 @@ const (
 	ResourceAPIKey      = "apikey"
 	ResourceUser        = "user"
 	ResourceRole        = "role"
+	ResourceAccount     = "account"
 	ResourceInstance    = "instance"
 	ResourceMaintenance = "maintenance"
 )
@@ -186,6 +191,7 @@ var catalog = []CatalogEntry{
 	{PermUserManage, "Create, deactivate, reset passwords, and reassign roles for users in the organization.", ResourceUser},
 
 	{PermRoleManage, "Create, edit, and delete custom roles, and view all roles and permissions. Built-in roles cannot be modified.", ResourceRole},
+	{PermAccountManage, "Create customer accounts and control delegation beneath the host account. Does not grant private customer views or pool overrides.", ResourceAccount},
 
 	{PermInstanceUpdate, "See available server updates, change the release channel, and apply server upgrades.", ResourceInstance},
 
