@@ -29,7 +29,7 @@ func (q *Queries) CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgI
 }
 
 const findDirectContainerByIP = `-- name: FindDirectContainerByIP :many
-SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer, dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata, dd.first_discovered, dd.last_seen, dd.is_active, dd.created_at, dd.updated_at, dd.deleted_at, dd.driver_name, dd.ip_address_inet, dd.discovered_by_fleet_node_id, dd.device_class, dd.rpc_port, dd.rpc_tls
+SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer, dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata, dd.first_discovered, dd.last_seen, dd.is_active, dd.created_at, dd.updated_at, dd.deleted_at, dd.driver_name, dd.ip_address_inet, dd.discovered_by_fleet_node_id, dd.device_class, dd.rpc_port, dd.rpc_tls, dd.serial_number, dd.mac_address
 FROM discovered_device dd
 WHERE dd.org_id = $1
     AND dd.ip_address = $2
@@ -94,6 +94,8 @@ func (q *Queries) FindDirectContainerByIP(ctx context.Context, arg FindDirectCon
 			&i.DeviceClass,
 			&i.RpcPort,
 			&i.RpcTls,
+			&i.SerialNumber,
+			&i.MacAddress,
 		); err != nil {
 			return nil, err
 		}
@@ -112,7 +114,7 @@ const getActiveUnpairedDiscoveredDevices = `-- name: GetActiveUnpairedDiscovered
 SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer,
        dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.rpc_port, dd.rpc_tls, dd.discovery_metadata,
        dd.first_discovered, dd.last_seen, dd.is_active,
-       dd.driver_name, dd.device_class,
+       dd.driver_name, dd.device_class, dd.serial_number, dd.mac_address,
        dd.created_at, dd.updated_at, dd.deleted_at
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
@@ -154,6 +156,8 @@ type GetActiveUnpairedDiscoveredDevicesRow struct {
 	IsActive          bool
 	DriverName        string
 	DeviceClass       int32
+	SerialNumber      string
+	MacAddress        string
 	CreatedAt         sql.NullTime
 	UpdatedAt         sql.NullTime
 	DeletedAt         sql.NullTime
@@ -188,6 +192,8 @@ func (q *Queries) GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg Ge
 			&i.IsActive,
 			&i.DriverName,
 			&i.DeviceClass,
+			&i.SerialNumber,
+			&i.MacAddress,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.DeletedAt,
@@ -206,7 +212,7 @@ func (q *Queries) GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg Ge
 }
 
 const getDiscoveredDeviceByDeviceIdentifier = `-- name: GetDiscoveredDeviceByDeviceIdentifier :one
-SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id, device_class, rpc_port, rpc_tls
+SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id, device_class, rpc_port, rpc_tls, serial_number, mac_address
 FROM discovered_device
 WHERE device_identifier = $1
     AND org_id = $2
@@ -245,12 +251,14 @@ func (q *Queries) GetDiscoveredDeviceByDeviceIdentifier(ctx context.Context, arg
 		&i.DeviceClass,
 		&i.RpcPort,
 		&i.RpcTls,
+		&i.SerialNumber,
+		&i.MacAddress,
 	)
 	return i, err
 }
 
 const getDiscoveredDeviceByID = `-- name: GetDiscoveredDeviceByID :one
-SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id, device_class, rpc_port, rpc_tls
+SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id, device_class, rpc_port, rpc_tls, serial_number, mac_address
 FROM discovered_device
 WHERE id = $1
     AND org_id = $2
@@ -289,12 +297,14 @@ func (q *Queries) GetDiscoveredDeviceByID(ctx context.Context, arg GetDiscovered
 		&i.DeviceClass,
 		&i.RpcPort,
 		&i.RpcTls,
+		&i.SerialNumber,
+		&i.MacAddress,
 	)
 	return i, err
 }
 
 const getDiscoveredDeviceByIPAndPort = `-- name: GetDiscoveredDeviceByIPAndPort :one
-SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer, dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata, dd.first_discovered, dd.last_seen, dd.is_active, dd.created_at, dd.updated_at, dd.deleted_at, dd.driver_name, dd.ip_address_inet, dd.discovered_by_fleet_node_id, dd.device_class, dd.rpc_port, dd.rpc_tls
+SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer, dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata, dd.first_discovered, dd.last_seen, dd.is_active, dd.created_at, dd.updated_at, dd.deleted_at, dd.driver_name, dd.ip_address_inet, dd.discovered_by_fleet_node_id, dd.device_class, dd.rpc_port, dd.rpc_tls, dd.serial_number, dd.mac_address
 FROM discovered_device dd
 WHERE dd.org_id = $1
     AND dd.ip_address = $2
@@ -341,6 +351,8 @@ func (q *Queries) GetDiscoveredDeviceByIPAndPort(ctx context.Context, arg GetDis
 		&i.DeviceClass,
 		&i.RpcPort,
 		&i.RpcTls,
+		&i.SerialNumber,
+		&i.MacAddress,
 	)
 	return i, err
 }
@@ -404,7 +416,9 @@ INSERT INTO discovered_device (
     driver_name,
     device_class,
     rpc_port,
-    rpc_tls
+    rpc_tls,
+    serial_number,
+    mac_address
 ) VALUES (
     $1,
     $2,
@@ -416,10 +430,16 @@ INSERT INTO discovered_device (
     $8,
     $9,
     $10,
-    $11, $12, $13
+    $11, $14, $15,
+    $12,
+    $13
 )
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     model = EXCLUDED.model,
+    -- Replace evidence on every save, including a missing identity. Retaining
+    -- an old value could associate replacement hardware with the wrong miner.
+    serial_number = EXCLUDED.serial_number,
+    mac_address = EXCLUDED.mac_address,
     device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
     manufacturer = EXCLUDED.manufacturer,
     ip_address = EXCLUDED.ip_address,
@@ -435,7 +455,7 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     -- Keep existing driver_name if already set (prevent discovery flip-flop)
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     last_seen = CURRENT_TIMESTAMP
-WHERE NOT $14::boolean OR (
+WHERE NOT $16::boolean OR (
     discovered_device.discovered_by_fleet_node_id IS NULL
     AND NOT EXISTS (
         SELECT 1 FROM device d JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
@@ -457,6 +477,8 @@ type UpsertDiscoveredDeviceParams struct {
 	IsActive         bool
 	DriverName       string
 	DeviceClass      int32
+	SerialNumber     string
+	MacAddress       string
 	RpcPort          int32
 	RpcTls           bool
 	DirectDiscovery  bool
@@ -476,6 +498,8 @@ func (q *Queries) UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscover
 		arg.IsActive,
 		arg.DriverName,
 		arg.DeviceClass,
+		arg.SerialNumber,
+		arg.MacAddress,
 		arg.RpcPort,
 		arg.RpcTls,
 		arg.DirectDiscovery,

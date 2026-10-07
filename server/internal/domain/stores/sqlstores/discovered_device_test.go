@@ -579,3 +579,61 @@ func TestSQLDiscoveredDeviceStore_CountActiveUnpairedDevices_ShouldReturnCorrect
 	require.NoError(t, err)
 	assert.Equal(t, int64(3), count)
 }
+
+func TestDiscoveryIdentitySurvivesDatabaseReloadBeforePairing(t *testing.T) {
+	conn := testutil.GetTestDB(t)
+	q := sqlc.New(conn)
+	orgID, err := q.CreateOrganization(t.Context(), sqlc.CreateOrganizationParams{OrgID: "discovery-identity", Name: "Discovery identity"})
+	require.NoError(t, err)
+	store := sqlstores.NewSQLDiscoveredDeviceStore(conn)
+	doi := discoverymodels.DeviceOrgIdentifier{DeviceIdentifier: "identity-candidate", OrgID: orgID}
+	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: doi.DeviceIdentifier, SerialNumber: "PROTO-SERIAL-1", MacAddress: "00:11:22:33:44:55", IpAddress: "192.0.2.1", Port: "443", UrlScheme: "https", DriverName: "proto"}, OrgID: orgID, IsActive: true}
+	saved, err := store.SaveDirect(t.Context(), doi, device)
+	require.NoError(t, err)
+	require.Equal(t, device.SerialNumber, saved.SerialNumber)
+	require.Equal(t, device.MacAddress, saved.MacAddress)
+	reloaded, err := store.GetDevice(t.Context(), doi)
+	require.NoError(t, err)
+	require.Equal(t, device.SerialNumber, reloaded.SerialNumber)
+	require.Equal(t, device.MacAddress, reloaded.MacAddress)
+	endpoint, err := store.GetByIPAndPort(t.Context(), orgID, device.IpAddress, device.Port)
+	require.NoError(t, err)
+	require.Equal(t, device.SerialNumber, endpoint.SerialNumber)
+	require.Equal(t, device.MacAddress, endpoint.MacAddress)
+	unpaired, cursor, err := store.GetActiveUnpairedDevices(t.Context(), orgID, "", 10)
+	require.NoError(t, err)
+	require.Empty(t, cursor)
+	require.Len(t, unpaired, 1)
+	require.Equal(t, device.SerialNumber, unpaired[0].SerialNumber)
+	require.Equal(t, device.MacAddress, unpaired[0].MacAddress)
+}
+func TestRediscoveryReplacesRatherThanInfersIdentityEvidence(t *testing.T) {
+	conn := testutil.GetTestDB(t)
+	q := sqlc.New(conn)
+	orgID, err := q.CreateOrganization(t.Context(), sqlc.CreateOrganizationParams{OrgID: "discovery-evidence", Name: "Discovery evidence"})
+	require.NoError(t, err)
+	store := sqlstores.NewSQLDiscoveredDeviceStore(conn)
+	doi := discoverymodels.DeviceOrgIdentifier{DeviceIdentifier: "evidence-candidate", OrgID: orgID}
+	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: doi.DeviceIdentifier, SerialNumber: "FIRST", MacAddress: "00:11:22:33:44:55", IpAddress: "192.0.2.1", Port: "443", UrlScheme: "https", DriverName: "proto"}, OrgID: orgID, IsActive: true}
+	_, err = store.SaveDirect(t.Context(), doi, device)
+	require.NoError(t, err)
+	device.SerialNumber = "SECOND"
+	device.MacAddress = "00:11:22:33:44:66"
+	device.IpAddress = "192.0.2.2"
+	_, err = store.SaveDirect(t.Context(), doi, device)
+	require.NoError(t, err)
+	reloaded, err := store.GetDevice(t.Context(), doi)
+	require.NoError(t, err)
+	require.Equal(t, "SECOND", reloaded.SerialNumber)
+	require.Equal(t, "00:11:22:33:44:66", reloaded.MacAddress)
+	// Missing discovery evidence is missing, even at a previously known endpoint.
+	// Carrying an old identifier forward would mistake a replacement for the old miner.
+	device.SerialNumber = ""
+	device.MacAddress = ""
+	_, err = store.SaveDirect(t.Context(), doi, device)
+	require.NoError(t, err)
+	reloaded, err = store.GetDevice(t.Context(), doi)
+	require.NoError(t, err)
+	require.Empty(t, reloaded.SerialNumber)
+	require.Empty(t, reloaded.MacAddress)
+}

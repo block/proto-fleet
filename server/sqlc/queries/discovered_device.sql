@@ -63,7 +63,9 @@ INSERT INTO discovered_device (
     driver_name,
     device_class,
     rpc_port,
-    rpc_tls
+    rpc_tls,
+    serial_number,
+    mac_address
 ) VALUES (
     $1,
     $2,
@@ -75,10 +77,16 @@ INSERT INTO discovered_device (
     $8,
     $9,
     $10,
-    $11, sqlc.arg('rpc_port'), sqlc.arg('rpc_tls')
+    $11, sqlc.arg('rpc_port'), sqlc.arg('rpc_tls'),
+    $12,
+    $13
 )
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     model = EXCLUDED.model,
+    -- Replace evidence on every save, including a missing identity. Retaining
+    -- an old value could associate replacement hardware with the wrong miner.
+    serial_number = EXCLUDED.serial_number,
+    mac_address = EXCLUDED.mac_address,
     device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
     manufacturer = EXCLUDED.manufacturer,
     ip_address = EXCLUDED.ip_address,
@@ -109,7 +117,7 @@ RETURNING id;
 SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer,
        dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.rpc_port, dd.rpc_tls, dd.discovery_metadata,
        dd.first_discovered, dd.last_seen, dd.is_active,
-       dd.driver_name, dd.device_class,
+       dd.driver_name, dd.device_class, dd.serial_number, dd.mac_address,
        dd.created_at, dd.updated_at, dd.deleted_at
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
