@@ -13,6 +13,15 @@ interface RevokeNodeDialogProps {
   isSubmitting: boolean;
 }
 
+const minerTypeLabels = new Map<string, [singular: string, plural: string]>([
+  ["proto", ["Proto Rig", "Proto Rigs"]],
+  ["antminer", ["Antminer", "Antminers"]],
+  ["asicrs", ["ASIC-RS miner", "ASIC-RS miners"]],
+  ["virtual", ["virtual miner", "virtual miners"]],
+  ["whatsminer", ["WhatsMiner", "WhatsMiners"]],
+  ["unknown", ["miner of unknown type", "miners of unknown type"]],
+]);
+
 const RevokeNodeDialog = ({
   open,
   nodeName,
@@ -23,8 +32,12 @@ const RevokeNodeDialog = ({
   onDismiss,
   isSubmitting,
 }: RevokeNodeDialogProps) => {
-  const protoRigCount = affectedDeviceTypes.filter((type) => type === "proto").length;
-  const otherMinerCount = affectedDeviceTypes.length - protoRigCount;
+  const countsByType = new Map<string, number>();
+  for (const deviceType of affectedDeviceTypes) {
+    const type = deviceType.trim().toLowerCase() || "unknown";
+    countsByType.set(type, (countsByType.get(type) ?? 0) + 1);
+  }
+  const groupedTypes = [...countsByType].sort(([first], [second]) => first.localeCompare(second));
 
   return (
     <Dialog
@@ -64,19 +77,20 @@ const RevokeNodeDialog = ({
         </div>
       ) : null}
       {!isLoadingImpact && !impactError ? (
-        <div className="mt-3 text-300">
-          {protoRigCount > 0 ? (
-            <div>
-              {protoRigCount} paired Proto {protoRigCount === 1 ? "Rig" : "Rigs"} will lose connection.
-            </div>
-          ) : null}
-          {otherMinerCount > 0 ? (
-            <div>
-              {otherMinerCount} paired {otherMinerCount === 1 ? "miner" : "miners"} will lose connection.
-            </div>
-          ) : null}
-          {affectedDeviceTypes.length === 0 ? <div>No paired miners will lose connection.</div> : null}
-        </div>
+        groupedTypes.length > 0 ? (
+          <ul className="mt-3 max-h-32 list-disc overflow-y-auto pl-5 text-300">
+            {groupedTypes.map(([type, count]) => {
+              const [singular, plural] = minerTypeLabels.get(type) ?? [`${type} miner`, `${type} miners`];
+              return (
+                <li key={type}>
+                  {count} paired {count === 1 ? singular : plural} will lose connection.
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <div className="mt-3 text-300">No paired miners will lose connection.</div>
+        )
       ) : null}
     </Dialog>
   );

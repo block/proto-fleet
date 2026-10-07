@@ -30,11 +30,11 @@ describe("RevokeNodeDialog", () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
-  it("shows type counts without exposing miner identifiers", () => {
+  it("lists every miner type separately without exposing miner identifiers", () => {
     const props = {
       open: true,
       nodeName: "node-01",
-      affectedDeviceTypes: ["proto", "proto", "antminer"],
+      affectedDeviceTypes: ["proto", "proto", "antminer", "antminer", "whatsminer", "new-driver", ""],
       isLoadingImpact: false,
       impactError: "",
       onConfirm: vi.fn(),
@@ -44,7 +44,11 @@ describe("RevokeNodeDialog", () => {
     const { rerender } = render(<RevokeNodeDialog {...props} />);
 
     expect(screen.getByText("2 paired Proto Rigs will lose connection.")).toBeInTheDocument();
-    expect(screen.getByText("1 paired miner will lose connection.")).toBeInTheDocument();
+    expect(screen.getByText("2 paired Antminers will lose connection.")).toBeInTheDocument();
+    expect(screen.getByText("1 paired WhatsMiner will lose connection.")).toBeInTheDocument();
+    expect(screen.getByText("1 paired new-driver miner will lose connection.")).toBeInTheDocument();
+    expect(screen.getByText("1 paired miner of unknown type will lose connection.")).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(5);
 
     rerender(<RevokeNodeDialog {...props} affectedDeviceTypes={[]} />);
     expect(screen.getByText("No paired miners will lose connection.")).toBeInTheDocument();
