@@ -3,7 +3,6 @@ import PoolSelectionPageWrapper from "../ActionBar/SettingsWidget/PoolSelectionP
 import BulkActionConfirmDialog from "../BulkActions/BulkActionConfirmDialog";
 import { BulkAction } from "../BulkActions/types";
 import UnsupportedMinersModal from "../BulkActions/UnsupportedMinersModal";
-import MinerFirmwareHistoryModal from "../MinerFirmwareHistoryModal/MinerFirmwareHistoryModal";
 import RowActionsMenu, { type RowAction } from "../RowActionsMenu";
 import { insertActionAfter, insertActionBefore } from "./actionMenuUtils";
 import { usePermittedActions } from "./actionPermissions";
@@ -25,14 +24,13 @@ import useUpdateWorkerNames from "@/protoFleet/api/useUpdateWorkerNames";
 import { useOpenMinerView } from "@/protoFleet/components/SingleMinerWrapper/useOpenMinerView";
 import AuthenticateFleetModal from "@/protoFleet/features/auth/components/AuthenticateFleetModal";
 import { useBatchActions } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
-import { useHasPermission } from "@/protoFleet/store";
 import { ArrowRight, Edit, MiningPools, Plus, Reboot } from "@/shared/assets/icons";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { pushToast, removeToast, STATUSES as TOAST_STATUSES, updateToast } from "@/shared/features/toaster";
 
-type SingleMinerAction = SupportedAction | "viewMiner" | "refreshStatus" | "firmwareHistory";
+type SingleMinerAction = SupportedAction | "viewMiner" | "refreshStatus";
 
-const unauthenticatedActions = new Set<SingleMinerAction>([deviceActions.unpair, "viewMiner", "firmwareHistory"]);
+const unauthenticatedActions = new Set<SingleMinerAction>([deviceActions.unpair, "viewMiner"]);
 
 interface SingleMinerActionsMenuProps {
   deviceIdentifier: string;
@@ -78,8 +76,6 @@ const SingleMinerActionsMenu = ({
   const workerNameCredentialsRef = useRef<{ username: string; password: string } | undefined>(undefined);
   const [reparentKind, setReparentKind] = useState<"rack" | "site" | "building" | null>(null);
   const [showWarnDialog, setShowWarnDialog] = useState(false);
-  const [showFirmwareHistory, setShowFirmwareHistory] = useState(false);
-  const canViewFirmwareHistory = useHasPermission("miner:firmware_update");
   const isRefreshingStatus = refreshing.has(deviceIdentifier);
   const openMinerView = useOpenMinerView();
 
@@ -365,14 +361,6 @@ const SingleMinerActionsMenu = ({
       showGroupDivider: viewMinerAction.showGroupDivider,
     };
     viewMinerAction.showGroupDivider = false;
-    const firmwareHistoryAction: BulkAction<SingleMinerAction> = {
-      action: "firmwareHistory",
-      title: "Firmware update history",
-      icon: <ArrowRight />,
-      actionHandler: () => setShowFirmwareHistory(true),
-      requiresConfirmation: false,
-    };
-    const readActions = canViewFirmwareHistory ? [viewMinerAction, firmwareHistoryAction] : [viewMinerAction];
 
     // Inserted before addToGroup so the cluster reads site → building → rack → group.
     const addToRackAction: BulkAction<SupportedAction> = {
@@ -405,7 +393,7 @@ const SingleMinerActionsMenu = ({
     const withAddToSite = insertActionBefore(withAddToBuilding, groupActions.addToBuilding, addToSiteAction);
 
     if (actionsWithRenameBeforeGroup !== actions) {
-      return [...readActions, refreshStatusAction, ...withAddToSite];
+      return [viewMinerAction, refreshStatusAction, ...withAddToSite];
     }
 
     const actionsWithRenameBeforeSecurity = insertActionBefore(withAddToSite, settingsActions.security, {
@@ -414,12 +402,11 @@ const SingleMinerActionsMenu = ({
     });
 
     if (actionsWithRenameBeforeSecurity !== withAddToSite) {
-      return [...readActions, refreshStatusAction, ...actionsWithRenameBeforeSecurity];
+      return [viewMinerAction, refreshStatusAction, ...actionsWithRenameBeforeSecurity];
     }
 
-    return [...readActions, refreshStatusAction, ...withAddToSite, renameAction];
+    return [viewMinerAction, refreshStatusAction, ...withAddToSite, renameAction];
   }, [
-    canViewFirmwareHistory,
     handleRefreshStatus,
     handleRenameOpen,
     handleUpdateWorkerNameAction,
@@ -486,14 +473,6 @@ const SingleMinerActionsMenu = ({
         testIdPrefix="single-miner-actions-popover"
         triggerTestId="single-miner-actions-menu-button"
       />
-      {showFirmwareHistory && canViewFirmwareHistory ? (
-        <MinerFirmwareHistoryModal
-          key={deviceIdentifier}
-          deviceIdentifier={deviceIdentifier}
-          minerName={minerName}
-          onClose={() => setShowFirmwareHistory(false)}
-        />
-      ) : null}
       <UnsupportedMinersModal
         open={unsupportedMinersInfo.visible}
         unsupportedGroups={unsupportedMinersInfo.unsupportedGroups}

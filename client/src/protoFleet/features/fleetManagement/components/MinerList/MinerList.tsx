@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 import clsx from "clsx";
 import { create } from "@bufbuild/protobuf";
+import MinerFirmwareHistoryModal from "../MinerFirmwareHistoryModal/MinerFirmwareHistoryModal";
 import {
   componentIssues,
   deviceStatusFilterStates,
@@ -58,7 +59,7 @@ import {
 } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import { VIEW_URL_PARAM } from "@/protoFleet/features/fleetManagement/views/savedViews";
 import type { FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
-import { useUsername } from "@/protoFleet/store";
+import { useHasPermission, useUsername } from "@/protoFleet/store";
 
 import { ChevronDown, LogoAlt, Plus, Slider } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -90,7 +91,8 @@ type MinerModalFlow =
       deviceStatus?: DeviceStatus;
       credentials: FleetCredentials;
     }
-  | { kind: "status-modal"; deviceIdentifier: string };
+  | { kind: "status-modal"; deviceIdentifier: string }
+  | { kind: "firmware-history"; deviceIdentifier: string; minerName: string };
 
 type MinerListProps = {
   // Optional — when omitted, the heading is suppressed entirely. The Fleet
@@ -521,7 +523,9 @@ const ScopedMinerListBody = ({
         onSelectionModeChange={setSelectionMode}
         isRowDisabled={isRowDisabled}
         isRowSelectable={ALL_ROWS_SELECTABLE}
-        columnsExemptFromDisabledStyling={new Set([minerCols.name, minerCols.status, minerCols.issues])}
+        columnsExemptFromDisabledStyling={
+          new Set([minerCols.name, minerCols.status, minerCols.issues, minerCols.firmware])
+        }
         sortableColumns={sortableColumnsSet}
         currentSort={currentSort}
         onSort={onSort}
@@ -629,6 +633,7 @@ const MinerList = ({
     useMinerTableColumnPreferences(username);
 
   const [modalFlow, setModalFlow] = useState<MinerModalFlow>({ kind: "closed" });
+  const canViewFirmwareHistory = useHasPermission("miner:firmware_update");
   const [showManageColumnsModal, setShowManageColumnsModal] = useState(false);
   const [refreshingMinerIds, setRefreshingMinerIds] = useState<Set<string>>(() => new Set());
 
@@ -717,6 +722,11 @@ const MinerList = ({
     setModalFlow({ kind: "closed" });
   }, []);
 
+  const handleOpenFirmwareHistory = useCallback((deviceIdentifier: string) => {
+    const miner = minersRef.current[deviceIdentifier];
+    if (miner) setModalFlow({ kind: "firmware-history", deviceIdentifier, minerName: miner.name });
+  }, []);
+
   const handleOpenStatusFlow = useCallback(
     (deviceIdentifier: string) => {
       const miner = minersRef.current[deviceIdentifier];
@@ -773,6 +783,7 @@ const MinerList = ({
       // eslint-disable-next-line react-hooks/refs -- refs are read inside the config's render-time component callbacks (not here); keeps config stable across poll-driven miners/callback identity changes
       createMinerColConfig({
         onOpenStatusFlow: handleOpenStatusFlow,
+        onOpenFirmwareHistory: canViewFirmwareHistory ? handleOpenFirmwareHistory : undefined,
         availableGroups,
         errorsLoaded,
         minersRef,
@@ -782,9 +793,9 @@ const MinerList = ({
         onMergeMinersRef,
         onMinerRefreshStateChangeRef,
       }),
-    // handleOpenStatusFlow is stable (reads from minersRef) — only recreate for groups/errors changes
+    // Open callbacks are stable (read from minersRef) — only recreate for groups/errors/permissions changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [availableGroups, errorsLoaded],
+    [availableGroups, errorsLoaded, canViewFirmwareHistory],
   );
   const activeCols = useMemo(() => buildActiveMinerColumns(columnPreferences), [columnPreferences]);
 
@@ -1382,6 +1393,15 @@ const MinerList = ({
           deviceId={modalFlow.deviceIdentifier}
           miner={miners[modalFlow.deviceIdentifier]}
           onMergeMiners={onMergeMiners}
+        />
+      ) : null}
+
+      {modalFlow.kind === "firmware-history" && canViewFirmwareHistory ? (
+        <MinerFirmwareHistoryModal
+          key={modalFlow.deviceIdentifier}
+          deviceIdentifier={modalFlow.deviceIdentifier}
+          minerName={modalFlow.minerName}
+          onClose={closeModalFlow}
         />
       ) : null}
     </>

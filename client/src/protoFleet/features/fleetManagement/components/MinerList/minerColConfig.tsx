@@ -27,6 +27,7 @@ import SkeletonBar from "@/shared/components/SkeletonBar";
 
 type CreateMinerColConfigParams = {
   onOpenStatusFlow: (deviceIdentifier: string) => void;
+  onOpenFirmwareHistory?: (deviceIdentifier: string) => void;
   availableGroups: DeviceSet[];
   errorsLoaded: boolean;
   /** Ref to avoid recreating the column config on every miners change. Read at render time. */
@@ -53,6 +54,7 @@ const renderPlacementLabel = (label: string) => (
 
 const createMinerColConfig = ({
   onOpenStatusFlow,
+  onOpenFirmwareHistory,
   availableGroups,
   errorsLoaded,
   minersRef,
@@ -138,7 +140,12 @@ const createMinerColConfig = ({
     width: "w-[80px]",
   },
   [minerCols.firmware]: {
-    component: (device: DeviceListItem) => <MinerFirmware miner={device.miner} />,
+    component: (device: DeviceListItem) => (
+      <MinerFirmware
+        miner={device.miner}
+        onViewHistory={onOpenFirmwareHistory ? () => onOpenFirmwareHistory(device.deviceIdentifier) : undefined}
+      />
+    ),
     width: "w-[120px]",
   },
   [minerCols.groups]: {
