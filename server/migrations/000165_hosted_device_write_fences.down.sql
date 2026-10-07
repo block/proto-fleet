@@ -10,4 +10,3 @@ END $$;
 DROP TABLE device_write_attempt;
 ALTER TABLE queue_message DROP COLUMN write_epoch;
 DROP TABLE device_write_fence;
-ALTER TABLE device DROP CONSTRAINT uq_device_id_org;

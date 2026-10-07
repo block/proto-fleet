@@ -38,7 +38,7 @@ func TestWriteFenceMigrationPreservesPopulatedLegacyQueue(t *testing.T) {
 	database := testutil.NewDatabaseService(t, cfg)
 	user := database.CreateSuperAdminUser()
 	seed := database.CreateDevice(user.OrganizationID, "proto")
-	for _, name := range []string{"000166_queue_pending_order_index", "000165_hosted_device_write_fences", "000164_device_org_identity_index"} {
+	for _, name := range []string{"000166_queue_pending_order_index", "000165_hosted_device_write_fences"} {
 		script, err := migrations.Migrations.ReadFile(name + ".down.sql")
 		require.NoError(t, err)
 		_, err = database.DB.ExecContext(t.Context(), string(script))
@@ -52,7 +52,7 @@ func TestWriteFenceMigrationPreservesPopulatedLegacyQueue(t *testing.T) {
 	_, err = database.DB.ExecContext(t.Context(), `INSERT INTO queue_message(command_batch_log_uuid,device_id,command_type,status,retry_count)
 	 SELECT 'legacy-batch',id,'Reboot','PENDING',0 FROM device WHERE org_id=$1`, user.OrganizationID)
 	require.NoError(t, err)
-	for _, name := range []string{"000164_device_org_identity_index", "000165_hosted_device_write_fences", "000166_queue_pending_order_index"} {
+	for _, name := range []string{"000165_hosted_device_write_fences", "000166_queue_pending_order_index"} {
 		script, err := migrations.Migrations.ReadFile(name + ".up.sql")
 		require.NoError(t, err)
 		if name == "000165_hosted_device_write_fences" {
@@ -70,14 +70,8 @@ func TestWriteFenceMigrationPreservesPopulatedLegacyQueue(t *testing.T) {
 		blocker, err := database.DB.BeginTx(t.Context(), nil)
 		require.NoError(t, err)
 		defer blocker.Rollback()
-		var holdSQL, writeSQL string
-		if name == "000164_device_org_identity_index" {
-			holdSQL = "UPDATE device SET mac_address=mac_address WHERE id=$1"
-			writeSQL = "UPDATE device SET mac_address=mac_address WHERE id<>$1"
-		} else {
-			holdSQL = "UPDATE queue_message SET retry_count=retry_count WHERE device_id=$1"
-			writeSQL = "UPDATE queue_message SET retry_count=retry_count WHERE device_id<>$1"
-		}
+		holdSQL := "UPDATE queue_message SET retry_count=retry_count WHERE device_id=$1"
+		writeSQL := "UPDATE queue_message SET retry_count=retry_count WHERE device_id<>$1"
 		_, err = blocker.ExecContext(t.Context(), holdSQL, seed.DatabaseID)
 		require.NoError(t, err)
 		indexDone := make(chan error, 1)

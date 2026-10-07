@@ -1,5 +1,4 @@
-ALTER TABLE device ADD CONSTRAINT uq_device_id_org UNIQUE USING INDEX uq_device_id_org_idx;
-
+-- Reuse the composite device identity constraint established by migration 39.
 CREATE TABLE device_write_fence (
  device_id BIGINT PRIMARY KEY,
  organization_id BIGINT NOT NULL,
