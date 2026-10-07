@@ -129,6 +129,19 @@ func TestContainerReadIncludesChildrenWithoutRackPermission(t *testing.T) {
 	}
 	_, err = handler.GetTankHistory(ctx, tankHistoryRequest)
 	require.Error(t, err, "unauthenticated requests are rejected")
+	catalogRequest := connect.NewRequest(&pb.ListTankOptionsRequest{PageSize: 1})
+	catalog, err := handler.ListTankOptions(authorized, catalogRequest)
+	require.NoError(t, err)
+	require.Len(t, catalog.Msg.Options, 1, "tank labels require no rack permission")
+	require.NotEmpty(t, catalog.Msg.NextPageToken, "empty tanks remain in the label catalog")
+	for i := range read {
+		incomplete := append(append([]string{}, read[:i]...), read[i+1:]...)
+		catalog, err = handler.ListTankOptions(withPermissions(incomplete, site.ID), catalogRequest)
+		require.NoError(t, err)
+		require.Empty(t, catalog.Msg.Options, "every container read permission is required for labels")
+	}
+	_, err = handler.ListTankOptions(ctx, catalogRequest)
+	require.Error(t, err)
 
 	for _, view := range []pb.InventoryView{pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS} {
 		response, err := handler.ListInventory(withPermissions(read, other.ID), connect.NewRequest(&pb.ListInventoryRequest{View: view}))
@@ -143,6 +156,9 @@ func TestContainerReadIncludesChildrenWithoutRackPermission(t *testing.T) {
 	}
 	_, err = db.ExecContext(ctx, "UPDATE device SET site_id=$1 WHERE device_identifier=$2", other.ID, d.DeviceIdentifier)
 	require.NoError(t, err)
+	catalog, err = handler.ListTankOptions(authorized, catalogRequest)
+	require.NoError(t, err)
+	require.Empty(t, catalog.Msg.Options, "labels follow the controller's current site after a move")
 	for _, view := range []pb.InventoryView{pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS} {
 		response, err := handler.ListInventory(authorized, connect.NewRequest(&pb.ListInventoryRequest{View: view}))
 		require.NoError(t, err)

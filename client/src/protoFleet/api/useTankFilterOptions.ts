@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { fleetInventoryClient } from "./clients";
-import { EntityKind, InventorySort, InventoryView } from "./generated/fleetinventory/v1/fleetinventory_pb";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import type { FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 import { usePoll } from "@/shared/hooks/usePoll";
@@ -21,19 +20,15 @@ export function useTankFilterOptions(enabled: boolean) {
       try {
         do {
           signal.throwIfAborted();
-          const response = await fleetInventoryClient.listInventory(
+          const response = await fleetInventoryClient.listTankOptions(
             {
-              view: InventoryView.EQUIPMENT_GROUPS,
-              kinds: [EntityKind.TANK],
-              sort: InventorySort.NAME,
               pageSize: 1000,
               pageToken,
             },
             { signal },
           );
-          for (const item of response.items) {
-            if (item.ref?.kind !== EntityKind.TANK) continue;
-            const id = item.ref.id.toString();
+          for (const item of response.options) {
+            const id = item.id.toString();
             catalog.set(id, { id, label: `${item.name} · ${item.siteName || "Unassigned"}` });
           }
           pageToken = response.nextPageToken;

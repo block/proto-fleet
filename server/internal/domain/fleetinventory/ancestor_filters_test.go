@@ -171,4 +171,53 @@ func TestContainerAncestorsComposeWithSiteAndTankScopes(t *testing.T) {
 	result, err = service.List(ctx, org, &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, Ancestors: []*pb.EntityRef{container(b)}}, []fleetinventory.Scope{{Sites: []int64{north.ID}}})
 	require.NoError(t, err)
 	require.Zero(t, result.TotalCount, "selected containers cannot broaden site authorization")
+
+	t.Run("lightweight tank catalog matches readable inventory labels across cursor pages", func(t *testing.T) {
+		_, err := db.ExecContext(ctx, "UPDATE device SET custom_name='A' WHERE id=$1", b)
+		require.NoError(t, err, "duplicate names must use stable tank IDs as the cursor tie-breaker")
+		for _, authority := range [][]fleetinventory.Scope{scopes, {{Sites: []int64{north.ID}}}, {{OrgWide: true, Sites: []int64{south.ID}}}, {{Sites: []int64{}}}} {
+			inventory, err := service.List(ctx, org, &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, Kinds: []pb.EntityKind{pb.EntityKind_ENTITY_KIND_TANK}, PageSize: 1000, Sort: pb.InventorySort_INVENTORY_SORT_NAME}, authority)
+			require.NoError(t, err)
+			var options []*pb.TankOption
+			request := &pb.ListTankOptionsRequest{PageSize: 1}
+			for {
+				catalog, err := service.TankOptions(ctx, org, request, authority)
+				require.NoError(t, err)
+				options = append(options, catalog.Options...)
+				if catalog.NextPageToken == "" {
+					break
+				}
+				request.PageToken = catalog.NextPageToken
+				require.Less(t, len(options), len(inventory.Items), "cursor must make progress")
+			}
+			require.Len(t, options, len(inventory.Items))
+			for i, item := range inventory.Items {
+				require.Equal(t, &pb.TankOption{Id: item.Ref.Id, Name: item.Name, SiteName: item.SiteName}, options[i])
+			}
+		}
+		first, err := service.TankOptions(ctx, org, &pb.ListTankOptionsRequest{PageSize: 1}, scopes)
+		require.NoError(t, err)
+		require.NotEmpty(t, first.NextPageToken)
+		_, err = service.TankOptions(ctx, org, &pb.ListTankOptionsRequest{PageToken: first.NextPageToken}, []fleetinventory.Scope{{Sites: []int64{north.ID}}})
+		require.Error(t, err, "catalog cursor must be bound to current permissions")
+		_, err = service.TankOptions(ctx, org+1, &pb.ListTankOptionsRequest{PageToken: first.NextPageToken}, scopes)
+		require.Error(t, err, "catalog cursor must be bound to current organization")
+		otherOrg, err := service.TankOptions(ctx, org+1, &pb.ListTankOptionsRequest{}, scopes)
+		require.NoError(t, err)
+		require.Empty(t, otherOrg.Options)
+	})
+	t.Run("catalog retains empty tanks and excludes absent or deleted controllers", func(t *testing.T) {
+		_, err := db.ExecContext(ctx, "UPDATE container_module SET retired_at=now() WHERE tank_id=$1", tankA)
+		require.NoError(t, err)
+		catalog, err := service.TankOptions(ctx, org, &pb.ListTankOptionsRequest{}, scopes)
+		require.NoError(t, err)
+		require.Len(t, catalog.Options, 6, "labels do not depend on module membership")
+		_, err = db.ExecContext(ctx, "UPDATE container_tank SET present=false WHERE id=$1", tankB)
+		require.NoError(t, err)
+		_, err = db.ExecContext(ctx, "UPDATE device SET deleted_at=now() WHERE id=$1", unassigned)
+		require.NoError(t, err)
+		catalog, err = service.TankOptions(ctx, org, &pb.ListTankOptionsRequest{}, scopes)
+		require.NoError(t, err)
+		require.Len(t, catalog.Options, 3)
+	})
 }

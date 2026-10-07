@@ -247,7 +247,8 @@ page and collected-data hooks with isolated API fixtures.
 The Miners tab exposes separate **Containers**, **Tanks**, and **Racks** selectors;
 the Racks tab exposes **Containers**. Tanks use stable Fleet tank IDs under repeated
 `tank` URL keys. Tank labels include the owning container and site, and options
-come from all readable tanks across inventory cursor pages. Selections within
+come from all readable tanks across `ListTankOptions` cursor pages. This label-only
+catalog avoids module health and telemetry aggregation. Selections within
 Tanks combine with OR; tank, container, site, and other categories combine with AND.
 Rack and tank IDs stay independent even when their numeric values match.
 

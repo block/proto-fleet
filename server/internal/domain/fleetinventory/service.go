@@ -28,6 +28,7 @@ type MinerReader interface {
 }
 
 type Store interface {
+	ListFleetTankOptions(ctx context.Context, params sqlc.ListFleetTankOptionsParams) ([]sqlc.ListFleetTankOptionsRow, error)
 	GetContainerTankScope(ctx context.Context, params sqlc.GetContainerTankScopeParams) (sql.NullInt64, error)
 	GetContainerTankHistory(ctx context.Context, params sqlc.GetContainerTankHistoryParams) ([]sqlc.GetContainerTankHistoryRow, error)
 	ListFleetInventoryOptions(ctx context.Context, params sqlc.ListFleetInventoryOptionsParams) (sqlc.ListFleetInventoryOptionsRow, error)

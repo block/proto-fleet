@@ -1338,6 +1338,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listFleetNodesForOrganizationStmt, err = db.PrepareContext(ctx, listFleetNodesForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetNodesForOrganization: %w", err)
 	}
+	if q.listFleetTankOptionsStmt, err = db.PrepareContext(ctx, listFleetTankOptions); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFleetTankOptions: %w", err)
+	}
 	if q.listInfrastructureDevicesByOrgStmt, err = db.PrepareContext(ctx, listInfrastructureDevicesByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query ListInfrastructureDevicesByOrg: %w", err)
 	}
@@ -4388,6 +4391,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listFleetNodesForOrganizationStmt: %w", cerr)
 		}
 	}
+	if q.listFleetTankOptionsStmt != nil {
+		if cerr := q.listFleetTankOptionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFleetTankOptionsStmt: %w", cerr)
+		}
+	}
 	if q.listInfrastructureDevicesByOrgStmt != nil {
 		if cerr := q.listInfrastructureDevicesByOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listInfrastructureDevicesByOrgStmt: %w", cerr)
@@ -6290,6 +6298,7 @@ type Queries struct {
 	listFleetNodeDevicesStmt                                     *sql.Stmt
 	listFleetNodeDiscoveredDevicesStmt                           *sql.Stmt
 	listFleetNodesForOrganizationStmt                            *sql.Stmt
+	listFleetTankOptionsStmt                                     *sql.Stmt
 	listInfrastructureDevicesByOrgStmt                           *sql.Stmt
 	listInventoryPartsStmt                                       *sql.Stmt
 	listMQTTSourceConfigsByOrgStmt                               *sql.Stmt
@@ -7019,6 +7028,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listFleetNodeDevicesStmt:                                     q.listFleetNodeDevicesStmt,
 		listFleetNodeDiscoveredDevicesStmt:                           q.listFleetNodeDiscoveredDevicesStmt,
 		listFleetNodesForOrganizationStmt:                            q.listFleetNodesForOrganizationStmt,
+		listFleetTankOptionsStmt:                                     q.listFleetTankOptionsStmt,
 		listInfrastructureDevicesByOrgStmt:                           q.listInfrastructureDevicesByOrgStmt,
 		listInventoryPartsStmt:                                       q.listInventoryPartsStmt,
 		listMQTTSourceConfigsByOrgStmt:                               q.listMQTTSourceConfigsByOrgStmt,

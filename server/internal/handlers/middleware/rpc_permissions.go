@@ -131,6 +131,7 @@ var ProcedurePermissions = map[string]string{
 	// also checks fleet:read and miner:read before exposing telemetry.
 	containersv1connect.ContainerServiceListContainersProcedure:             authz.PermSiteRead,
 	fleetinventoryv1connect.FleetInventoryServiceListInventoryProcedure:     authz.PermSiteRead,
+	fleetinventoryv1connect.FleetInventoryServiceListTankOptionsProcedure:   authz.PermSiteRead,
 	fleetinventoryv1connect.FleetInventoryServiceListModuleHistoryProcedure: authz.PermSiteRead,
 	fleetinventoryv1connect.FleetInventoryServiceGetTankHistoryProcedure:    authz.PermSiteRead,
 	containersv1connect.ContainerServiceGetContainerProcedure:               authz.PermSiteRead,

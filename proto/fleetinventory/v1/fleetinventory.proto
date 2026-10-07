@@ -14,9 +14,29 @@ import "telemetry/v1/telemetry.proto";
 
 // Read-only mixed inventory. Physical entities retain their own lifecycle.
 service FleetInventoryService {
+  // Lightweight readable tank labels; does not compute mining-asset aggregates.
+  rpc ListTankOptions(ListTankOptionsRequest) returns (ListTankOptionsResponse);
   rpc ListInventory(ListInventoryRequest) returns (ListInventoryResponse);
   rpc GetTankHistory(GetTankHistoryRequest) returns (GetTankHistoryResponse);
   rpc ListModuleHistory(ListModuleHistoryRequest) returns (ListModuleHistoryResponse);
+}
+
+message ListTankOptionsRequest {
+  int32 page_size = 1 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
+  string page_token = 2 [(buf.validate.field).string.max_len = 4096];
+}
+
+message ListTankOptionsResponse {
+  // Sorted by tank name, then stable Fleet tank ID.
+  repeated TankOption options = 1;
+  string next_page_token = 2;
+}
+
+message TankOption {
+  int64 id = 1;
+  // Includes the owning container's name and tank position.
+  string name = 2;
+  string site_name = 3;
 }
 
 enum InventoryView {
