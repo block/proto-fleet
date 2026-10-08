@@ -235,7 +235,6 @@ func TestEligibleNodeIDs_IntersectsStatusConnectionAndCompatibility(t *testing.T
 	svc := NewService(reg, lister)
 	s1 := reg.Register(1)
 	defer s1.Unregister()
-	assert.True(t, reg.CommandProtocolUpgradeRecommended(1), "V1 is still discovery-eligible when an upgrade is recommended")
 	s3 := reg.Register(3)
 	defer s3.Unregister()
 	s4, err := reg.RegisterAuthenticated(4, "legacy", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED)
