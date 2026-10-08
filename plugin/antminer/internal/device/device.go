@@ -712,7 +712,7 @@ func (d *Device) GetStoredMiningPools(ctx context.Context) ([]sdk.StoredMiningPo
 			return nil, sdk.SDKError{Code: sdk.ErrCodeInvalidConfig, Message: "complete stored pool configuration is unavailable"}
 		}
 		result[i] = sdk.StoredMiningPool{Priority: int32(i), URL: pool.URL, Username: pool.Username} // #nosec G115 -- at most three slots checked above.
-		masked := pool.Password != "" && strings.Trim(pool.Password, "*") == "" || strings.EqualFold(pool.Password, "<redacted>")
+		masked := (pool.Password != "" && strings.Trim(pool.Password, "*") == "") || strings.EqualFold(pool.Password, "<redacted>")
 		if pool.PasswordPresent && !masked {
 			result[i].Password = ptrString(pool.Password)
 		}

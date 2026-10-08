@@ -1635,53 +1635,64 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_LeavesRawPoolUsernamesUnchange
 }
 
 func TestExecuteCommandOnDevice_UpdateMiningPools_PreservesLegacyDottedFleetUsername(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+	for _, tc := range []struct {
+		name     string
+		password string
+	}{
+		{name: "explicit empty"},
+		{name: "nonempty", password: "pool-private-credential"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 
-	mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
-	mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
-	mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
+			mockMinerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+			mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+			mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
 
-	payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
-		DefaultPool: dto.MiningPool{
-			Priority:        0,
-			URL:             "stratum+tcp://pool1.example.com:3333",
-			Username:        "wallet.worker-a",
-			AppendMinerName: true,
-		},
-	})
-	require.NoError(t, err)
+			payloadBytes, err := json.Marshal(dto.UpdateMiningPoolsPayload{
+				DefaultPool: dto.MiningPool{
+					Priority:        0,
+					URL:             "stratum+tcp://pool1.example.com:3333",
+					Username:        "wallet.worker-a",
+					AppendMinerName: true,
+					Password:        tc.password,
+				},
+			})
+			require.NoError(t, err)
 
-	message := queue.Message{
-		ID:           12,
-		BatchLogUUID: "batch-pools-legacy",
-		CommandType:  commandtype.UpdateMiningPools,
-		DeviceID:     44,
-		Payload:      payloadBytes,
-	}
+			message := queue.Message{
+				ID:           12,
+				BatchLogUUID: "batch-pools-legacy",
+				CommandType:  commandtype.UpdateMiningPools,
+				DeviceID:     44,
+				Payload:      payloadBytes,
+			}
 
-	mockMinerGetter.EXPECT().
-		GetMiner(gomock.Any(), int64(44)).
-		Return(mockMiner, nil)
-	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
-	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
+			mockMinerGetter.EXPECT().
+				GetMiner(gomock.Any(), int64(44)).
+				Return(mockMiner, nil)
+			mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+			mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 
-	mockMiner.EXPECT().
-		UpdateMiningPools(gomock.Any(), gomock.AssignableToTypeOf(dto.UpdateMiningPoolsPayload{})).
-		DoAndReturn(func(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
-			assert.Equal(t, "wallet.worker-a", payload.DefaultPool.Username)
-			assert.Empty(t, payload.DefaultPool.Password, "ordinary full pool updates still forward explicitly empty credentials")
-			return nil
+			mockMiner.EXPECT().
+				UpdateMiningPools(gomock.Any(), gomock.AssignableToTypeOf(dto.UpdateMiningPoolsPayload{})).
+				DoAndReturn(func(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
+					assert.Equal(t, "wallet.worker-a", payload.DefaultPool.Username)
+					assert.Equal(t, tc.password, payload.DefaultPool.Password, "ordinary full pool updates must forward exact credentials")
+					return nil
+				})
+
+			svc := NewExecutionService(&Config{
+				MaxWorkers:             5,
+				MasterPollingInterval:  10 * time.Millisecond,
+				WorkerExecutionTimeout: 5 * time.Second,
+			}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
+
+			_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+			require.NoError(t, err)
 		})
-
-	svc := NewExecutionService(&Config{
-		MaxWorkers:             5,
-		MasterPollingInterval:  10 * time.Millisecond,
-		WorkerExecutionTimeout: 5 * time.Second,
-	}, nil, nil, nil, nil, mockMinerGetter, mockDeviceStore, nil, nil)
-
-	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
-	require.NoError(t, err)
+	}
 }
 
 func TestExecuteCommandOnDevice_UpdateMiningPools_ReappliesCurrentPoolsWithStoredWorkerName(t *testing.T) {
@@ -1985,6 +1996,16 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyNormalizesAllPoolsToSto
 
 	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
+}
+
+func TestStoredPoolToPayload_RequiresVerifiedPassword(t *testing.T) {
+	payload, err := storedPoolToPayload(minerInterfaces.MinerStoredPool{
+		Priority: 0,
+		URL:      "stratum+tcp://pool.example:3333",
+		Username: "wallet.old",
+	}, "new")
+	require.True(t, fleeterror.IsFailedPreconditionError(err))
+	require.Empty(t, payload, "unknown credentials must not produce a writable pool payload")
 }
 
 func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyRequiresVerifiedPasswords(t *testing.T) {

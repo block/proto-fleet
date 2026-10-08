@@ -83,11 +83,12 @@ func TestStoredPoolReadbackObservesFirmwareAndAllSlots(t *testing.T) {
 
 func TestStoredPoolReadbackRejectsMissingPoolsAndPreservesExplicitEmpty(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		body      string
-		errorCode sdk.ErrorCode
-		status    int
-		count     int
+		name             string
+		body             string
+		errorCode        sdk.ErrorCode
+		status           int
+		count            int
+		expectedPassword *string
 	}{
 		{name: "omitted pools", body: `{}`, errorCode: sdk.ErrCodeInvalidConfig},
 		{name: "null pools", body: `{"pools":null}`, errorCode: sdk.ErrCodeInvalidConfig},
@@ -97,6 +98,10 @@ func TestStoredPoolReadbackRejectsMissingPoolsAndPreservesExplicitEmpty(t *testi
 		{name: "missing credential", body: `{"pools":[{"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`, count: 1},
 		{name: "null credential", body: `{"pools":[{"url":"stratum+tcp://pool.example:3333","user":"worker","pass":null}]}`, count: 1},
 		{name: "masked credential", body: `{"pools":[{"url":"stratum+tcp://pool.example:3333","user":"worker","pass":"********"}]}`, count: 1},
+		{name: "redacted credential", body: `{"pools":[{"url":"stratum+tcp://pool.example:3333","user":"worker","pass":"<redacted>"}]}`, count: 1},
+		{name: "uppercase redacted credential", body: `{"pools":[{"url":"stratum+tcp://pool.example:3333","user":"worker","pass":"<REDACTED>"}]}`, count: 1},
+		{name: "literal asterisk credential", body: `{"pools":[{"url":"stratum+tcp://pool.example:3333","user":"worker","pass":"x*"}]}`, count: 1, expectedPassword: ptrString("x*")},
+		{name: "explicit empty credential", body: `{"pools":[{"url":"stratum+tcp://pool.example:3333","user":"worker","pass":""}]}`, count: 1, expectedPassword: ptrString("")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -135,7 +140,7 @@ func TestStoredPoolReadbackRejectsMissingPoolsAndPreservesExplicitEmpty(t *testi
 			require.NotNil(t, pools, "explicit empty list proves empty storage")
 			require.Len(t, pools, tc.count)
 			if tc.count != 0 {
-				require.Nil(t, pools[0].Password, "missing or masked credentials must remain unproven")
+				require.Equal(t, tc.expectedPassword, pools[0].Password, "only explicit, unmasked credentials are proven")
 			}
 		})
 	}

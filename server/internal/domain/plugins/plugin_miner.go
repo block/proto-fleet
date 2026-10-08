@@ -31,6 +31,7 @@ import (
 var _ interfaces.Miner = &PluginMiner{}
 var _ interfaces.MinerInfo = &PluginMiner{}
 var _ interfaces.MinerCurtailmentConfigurator = &PluginMiner{}
+var _ interfaces.StoredMiningPoolReader = &PluginMiner{}
 
 // PluginMiner wraps an SDK Device to implement the interfaces.Miner interface.
 //

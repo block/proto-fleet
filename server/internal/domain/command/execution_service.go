@@ -1218,26 +1218,31 @@ func buildCurrentPoolsPayloadWithWorkerName(
 		return dto.UpdateMiningPoolsPayload{}, fleeterror.NewFailedPreconditionError("cannot update worker name with invalid stored pool slots")
 	}
 	sortedPools := sortedStoredPoolsByPriority(currentPools)
-	// Reapplying a worker name must preserve the credentials of every pool
-	// being rewritten. Unknown readback is not evidence of an empty password.
 	for i, pool := range sortedPools {
 		if int(pool.Priority) != i {
 			return dto.UpdateMiningPoolsPayload{}, fleeterror.NewFailedPreconditionError("cannot update worker name with invalid stored pool slots")
 		}
-		if pool.Password == nil {
-			return dto.UpdateMiningPoolsPayload{}, fleeterror.NewFailedPreconditionError("cannot update worker name without verified stored pool credentials")
-		}
+	}
+	defaultPool, err := storedPoolToPayload(sortedPools[0], desiredWorkerName)
+	if err != nil {
+		return dto.UpdateMiningPoolsPayload{}, err
 	}
 	payload := dto.UpdateMiningPoolsPayload{
-		DefaultPool: storedPoolToPayload(sortedPools[0], desiredWorkerName),
+		DefaultPool: defaultPool,
 	}
 
 	if len(sortedPools) > 1 {
-		backup := storedPoolToPayload(sortedPools[1], desiredWorkerName)
+		backup, err := storedPoolToPayload(sortedPools[1], desiredWorkerName)
+		if err != nil {
+			return dto.UpdateMiningPoolsPayload{}, err
+		}
 		payload.Backup1Pool = &backup
 	}
 	if len(sortedPools) > 2 {
-		backup := storedPoolToPayload(sortedPools[2], desiredWorkerName)
+		backup, err := storedPoolToPayload(sortedPools[2], desiredWorkerName)
+		if err != nil {
+			return dto.UpdateMiningPoolsPayload{}, err
+		}
 		payload.Backup2Pool = &backup
 	}
 
@@ -1255,7 +1260,11 @@ func sortedStoredPoolsByPriority(currentPools []interfaces.MinerStoredPool) []in
 func storedPoolToPayload(
 	pool interfaces.MinerStoredPool,
 	desiredWorkerName string,
-) dto.MiningPool {
+) (dto.MiningPool, error) {
+	// Unknown readback is not evidence of an empty password.
+	if pool.Password == nil {
+		return dto.MiningPool{}, fleeterror.NewFailedPreconditionError("cannot update worker name without verified stored pool credentials")
+	}
 	priority := uint32(0)
 	if pool.Priority > 0 {
 		priority = uint32(pool.Priority)
@@ -1266,7 +1275,7 @@ func storedPoolToPayload(
 		URL:      pool.URL,
 		Username: rewritePoolUsernameWithStoredWorkerName(pool.Username, desiredWorkerName),
 		Password: *pool.Password,
-	}
+	}, nil
 }
 
 func rewritePoolUsernameWithStoredWorkerName(username string, desiredWorkerName string) string {
