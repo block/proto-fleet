@@ -152,6 +152,9 @@ func (i *AuthInterceptor) authenticate(ctx context.Context, procedure string, re
 	if err != nil {
 		return ctx, err
 	}
+	if _, selected := hostedaccounts.RequestAccountID(ctx); !selected && requiresSelectedAccount(procedure) {
+		return ctx, fleeterror.NewForbiddenError("pool endpoints require an explicitly selected account workspace")
+	}
 	if _, selected := hostedaccounts.RequestAccountID(ctx); selected && !allowsSelectedAccount(procedure) {
 		return ctx, fleeterror.NewForbiddenError("this endpoint is not available in an account workspace")
 	}
@@ -199,6 +202,23 @@ const hostedAccountProcedurePrefix = "/hosted.v1.HostedAccountService/"
 func publicHostedInvitation(procedure string) bool {
 	return procedure == hostedv1connect.HostedAccountServicePreviewInvitationProcedure ||
 		procedure == hostedv1connect.HostedAccountServiceRegisterInvitedUserProcedure
+}
+
+// Pool/profile operations belong to a selected customer workspace. Host
+// account administration deliberately continues to allow omitted selection.
+func requiresSelectedAccount(procedure string) bool {
+	switch procedure {
+	case hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure,
+		hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure,
+		hostedv1connect.HostedAccountServiceGetPoolRevisionProcedure,
+		hostedv1connect.HostedAccountServiceListPoolConfigurationsProcedure,
+		hostedv1connect.HostedAccountServiceArchivePoolConfigurationProcedure,
+		hostedv1connect.HostedAccountServiceGetIncomingPoolProfileProcedure,
+		hostedv1connect.HostedAccountServiceSetIncomingPoolProfileProcedure:
+		return true
+	default:
+		return false
+	}
 }
 
 func allowsAccountKey(procedure string) bool {
