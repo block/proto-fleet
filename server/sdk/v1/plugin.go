@@ -613,11 +613,20 @@ func (s *DriverGRPCServer) GetStoredMiningPools(ctx context.Context, req *pb.Get
 	}
 	pools, err := reader.GetStoredMiningPools(ctx)
 	if err != nil {
-		var sdkErr SDKError
-		if status.Code(err) == codes.Unimplemented || (errors.As(err, &sdkErr) && sdkErr.Code == ErrCodeUnsupportedCapability) {
-			return nil, grpcStatusError("stored pool configuration", codes.Unimplemented, "stored pool configuration is unavailable")
+		if ctx.Err() != nil {
+			return nil, status.FromContextError(ctx.Err()).Err()
 		}
-		return nil, grpcStatusError("stored pool configuration", codes.Unavailable, "stored pool configuration read failed")
+		// Preserve classification without forwarding private driver messages or
+		// causes. InvalidConfig here means actual stored configuration is unusable.
+		code := status.Code(sdkErrorToGRPCStatus(err))
+		var sdkErr SDKError
+		if errors.As(err, &sdkErr) && sdkErr.Code == ErrCodeInvalidConfig {
+			code = codes.FailedPrecondition
+		}
+		if code == codes.Unknown {
+			code = codes.Unavailable
+		}
+		return nil, grpcStatusError("stored pool configuration", code, "stored pool configuration read failed")
 	}
 	return &pb.GetStoredMiningPoolsResponse{Pools: storedPoolsToProto(pools)}, nil
 }

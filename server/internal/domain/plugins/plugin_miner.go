@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"connectrpc.com/connect"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	diagnosticsModels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
@@ -464,11 +465,35 @@ func (p *PluginMiner) GetStoredMiningPools(ctx context.Context) ([]interfaces.Mi
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("stored pool configuration read canceled: %w", ctx.Err())
 		}
+		// Keep only classification: driver error text and causes can contain
+		// private stored credentials and must not reach command error records.
+		code := connect.CodeInternal
 		var sdkErr sdk.SDKError
-		if grpcstatus.Code(err) == codes.Unimplemented || (errors.As(err, &sdkErr) && sdkErr.Code == sdk.ErrCodeUnsupportedCapability) {
-			return nil, fleeterror.NewUnimplementedError("complete stored pool configuration is unavailable")
+		var fleetErr fleeterror.FleetError
+		switch {
+		case errors.As(err, &sdkErr):
+			switch sdkErr.Code {
+			case sdk.ErrCodeUnsupportedCapability, sdk.ErrCodeCurtailCapabilityNotSupported:
+				code = connect.CodeUnimplemented
+			case sdk.ErrCodeInvalidConfig:
+				code = connect.CodeFailedPrecondition
+			case sdk.ErrCodeDeviceUnavailable, sdk.ErrCodeCurtailTransient:
+				code = connect.CodeUnavailable
+			case sdk.ErrCodeDeviceNotFound:
+				code = connect.CodeNotFound
+			case sdk.ErrCodeDriverShutdown:
+				code = connect.CodeAborted
+			case sdk.ErrCodeAuthenticationFailed:
+				code = connect.CodeUnauthenticated
+			}
+		case errors.As(err, &fleetErr):
+			code = fleetErr.GRPCCode
+		default:
+			if st, ok := grpcstatus.FromError(err); ok {
+				code = connect.Code(st.Code())
+			}
 		}
-		return nil, fleeterror.NewFailedPreconditionError("complete stored pool configuration could not be read")
+		return nil, fleeterror.NewPlainError("complete stored pool configuration could not be read", code)
 	}
 	return mapStoredPools(pools), nil
 }

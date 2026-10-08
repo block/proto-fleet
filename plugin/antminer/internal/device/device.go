@@ -694,15 +694,15 @@ func (d *Device) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, erro
 func (d *Device) GetStoredMiningPools(ctx context.Context) ([]sdk.StoredMiningPool, error) {
 	config, err := d.client.GetMinerConfig(ctx)
 	if err != nil {
-		return nil, errors.New("complete stored pool configuration could not be read")
+		return nil, sdk.SDKError{Code: sdk.ErrCodeDeviceUnavailable, Message: "complete stored pool configuration could not be read"}
 	}
-	if config == nil || len(config.Pools) > 3 {
-		return nil, errors.New("complete stored pool configuration is unavailable")
+	if config == nil || config.Pools == nil || len(config.Pools) > 3 {
+		return nil, sdk.SDKError{Code: sdk.ErrCodeInvalidConfig, Message: "complete stored pool configuration is unavailable"}
 	}
 	result := make([]sdk.StoredMiningPool, len(config.Pools))
 	for i, pool := range config.Pools {
 		if !pool.DestinationPresent {
-			return nil, errors.New("complete stored pool configuration is unavailable")
+			return nil, sdk.SDKError{Code: sdk.ErrCodeInvalidConfig, Message: "complete stored pool configuration is unavailable"}
 		}
 		result[i] = sdk.StoredMiningPool{Priority: int32(i), URL: pool.URL, Username: pool.Username} // #nosec G115 -- at most three slots checked above.
 		masked := pool.Password != "" && strings.Trim(pool.Password, "*") == "" || strings.EqualFold(pool.Password, "<redacted>")

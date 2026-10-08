@@ -80,3 +80,62 @@ func TestStoredPoolReadbackObservesFirmwareAndAllSlots(t *testing.T) {
 	require.Nil(t, observed, "extra slots must not be silently truncated")
 	require.NotContains(t, fmt.Sprintf("%v %+v %#v", err, err, err), "private")
 }
+
+func TestStoredPoolReadbackRejectsMissingPoolsAndPreservesExplicitEmpty(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		body      string
+		errorCode sdk.ErrorCode
+		status    int
+		count     int
+	}{
+		{name: "omitted pools", body: `{}`, errorCode: sdk.ErrCodeInvalidConfig},
+		{name: "null pools", body: `{"pools":null}`, errorCode: sdk.ErrCodeInvalidConfig},
+		{name: "temporary read failure", body: `private error must not escape`, status: http.StatusServiceUnavailable, errorCode: sdk.ErrCodeDeviceUnavailable},
+		{name: "explicit empty pools", body: `{"pools":[]}`},
+		{name: "missing credential", body: `{"pools":[{"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`, count: 1},
+		{name: "null credential", body: `{"pools":[{"url":"stratum+tcp://pool.example:3333","user":"worker","pass":null}]}`, count: 1},
+		{name: "masked credential", body: `{"pools":[{"url":"stratum+tcp://pool.example:3333","user":"worker","pass":"********"}]}`, count: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/cgi-bin/get_miner_conf.cgi", r.URL.Path)
+				if r.Header.Get("Authorization") == "" {
+					w.Header().Set("WWW-Authenticate", `Digest realm="antminer", nonce="0123456789abcdef", algorithm=MD5, qop="auth"`)
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				if tc.status != 0 {
+					w.WriteHeader(tc.status)
+				}
+				_, err := w.Write([]byte(tc.body))
+				assert.NoError(t, err)
+			}))
+			defer server.Close()
+			address, err := url.Parse(server.URL)
+			require.NoError(t, err)
+			port, err := strconv.ParseInt(address.Port(), 10, 32)
+			require.NoError(t, err)
+			client, err := antminer.NewClient(address.Hostname(), 4028, int32(port), "http") // #nosec G115 -- parsed into 32 bits above.
+			require.NoError(t, err)
+			require.NoError(t, client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "login-password"}))
+			device := &Device{client: client}
+			pools, err := device.GetStoredMiningPools(t.Context())
+			if tc.errorCode != "" {
+				require.Error(t, err)
+				require.Nil(t, pools, "incomplete response must not look like verified empty storage")
+				var sdkErr sdk.SDKError
+				require.ErrorAs(t, err, &sdkErr)
+				require.Equal(t, tc.errorCode, sdkErr.Code)
+				require.NotContains(t, fmt.Sprintf("%v %+v %#v", err, err, err), "private error")
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, pools, "explicit empty list proves empty storage")
+			require.Len(t, pools, tc.count)
+			if tc.count != 0 {
+				require.Nil(t, pools[0].Password, "missing or masked credentials must remain unproven")
+			}
+		})
+	}
+}

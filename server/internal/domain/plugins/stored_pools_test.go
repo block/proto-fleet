@@ -7,6 +7,7 @@ import (
 	"net"
 	"testing"
 
+	"connectrpc.com/connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/require"
@@ -49,7 +50,9 @@ func TestPrivateStoredPoolAdapterUsesOnlyActualStoredContract(t *testing.T) {
 		return nil, errors.New("firmware echoed " + password)
 	}
 	_, err = miner.GetStoredMiningPools(t.Context())
-	require.True(t, fleeterror.IsFailedPreconditionError(err))
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	require.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
 	require.NotContains(t, fmt.Sprintf("%v %+v %#v", err, err, err), password)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -83,15 +86,21 @@ func (d storedReadTransportDriver) NewDevice(context.Context, string, sdk.Device
 	return sdk.NewDeviceResult{Device: d.device}, nil
 }
 
-func TestPrivateStoredPoolAdapterUnsupportedThroughGRPC(t *testing.T) {
+func TestPrivateStoredPoolAdapterFailuresThroughGRPC(t *testing.T) {
 	const firmwareEcho = "firmware echoed a private configuration value"
 	for _, tc := range []struct {
-		name        string
-		unsupported error
+		name    string
+		failure error
+		code    connect.Code
 	}{
-		{name: "legacy device"},
-		{name: "typed SDK unsupported", unsupported: sdk.NewErrUnsupportedCapability(firmwareEcho)},
-		{name: "gRPC unsupported", unsupported: status.Error(codes.Unimplemented, firmwareEcho)},
+		{name: "legacy device", code: connect.CodeUnimplemented},
+		{name: "typed SDK unsupported", failure: sdk.NewErrUnsupportedCapability(firmwareEcho), code: connect.CodeUnimplemented},
+		{name: "gRPC unsupported", failure: status.Error(codes.Unimplemented, firmwareEcho), code: connect.CodeUnimplemented},
+		{name: "SDK transient", failure: sdk.NewErrorDeviceUnavailable(firmwareEcho), code: connect.CodeUnavailable},
+		{name: "gRPC unavailable", failure: status.Error(codes.Unavailable, firmwareEcho), code: connect.CodeUnavailable},
+		{name: "gRPC deadline", failure: status.Error(codes.DeadlineExceeded, firmwareEcho), code: connect.CodeDeadlineExceeded},
+		{name: "confirmed incomplete storage", failure: sdk.NewErrorInvalidConfig(firmwareEcho), code: connect.CodeFailedPrecondition},
+		{name: "gRPC failed precondition", failure: status.Error(codes.FailedPrecondition, firmwareEcho), code: connect.CodeFailedPrecondition},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			miner, device := createTestPluginMiner()
@@ -100,8 +109,8 @@ func TestPrivateStoredPoolAdapterUnsupportedThroughGRPC(t *testing.T) {
 				return nil, nil
 			}
 			var remote sdk.Device = device
-			if tc.unsupported != nil {
-				remote = &storedReadSDKDevice{mockSDKDevice: device, read: func(context.Context) ([]sdk.StoredMiningPool, error) { return nil, tc.unsupported }}
+			if tc.failure != nil {
+				remote = &storedReadSDKDevice{mockSDKDevice: device, read: func(context.Context) ([]sdk.StoredMiningPool, error) { return nil, tc.failure }}
 			}
 			bridge := &sdk.DriverPlugin{Impl: storedReadTransportDriver{device: remote}}
 			listener := bufconn.Listen(1024 * 1024)
@@ -121,8 +130,44 @@ func TestPrivateStoredPoolAdapterUnsupportedThroughGRPC(t *testing.T) {
 			require.NoError(t, err)
 			miner.sdkDevice = created.Device
 			_, err = miner.GetStoredMiningPools(t.Context())
-			require.True(t, fleeterror.IsUnimplementedError(err))
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			require.Equal(t, tc.code, fleetErr.GRPCCode)
 			require.NotContains(t, fmt.Sprintf("%v %+v %#v", err, err, err), firmwareEcho)
+		})
+	}
+}
+
+func TestPrivateStoredPoolAdapterPreservesSanitizedReadFailures(t *testing.T) {
+	const privateValue = "private-stored-pool-password"
+	for _, tc := range []struct {
+		name    string
+		failure error
+		code    connect.Code
+	}{
+		{"plugin disconnect", status.Error(codes.Unavailable, privateValue), connect.CodeUnavailable},
+		{"read deadline", status.Error(codes.DeadlineExceeded, privateValue), connect.CodeDeadlineExceeded},
+		{"SDK device unavailable", sdk.NewErrorDeviceUnavailable(privateValue), connect.CodeUnavailable},
+		{"SDK transient", sdk.NewErrCurtailTransient(privateValue, errors.New(privateValue)), connect.CodeUnavailable},
+		{"SDK shutdown", sdk.NewErrorDriverShutdown(errors.New(privateValue)), connect.CodeAborted},
+		{"unclassified read failure", errors.New(privateValue), connect.CodeInternal},
+		{"Fleet transient", fleeterror.NewUnavailableErrorf("%s", privateValue), connect.CodeUnavailable},
+		{"confirmed unavailable configuration", status.Error(codes.FailedPrecondition, privateValue), connect.CodeFailedPrecondition},
+		{"SDK invalid configuration", sdk.NewErrorInvalidConfig(privateValue), connect.CodeFailedPrecondition},
+		{"authentication rejected", status.Error(codes.Unauthenticated, privateValue), connect.CodeUnauthenticated},
+		{"SDK authentication rejected", sdk.NewErrorAuthenticationFailed(privateValue), connect.CodeUnauthenticated},
+		{"permission denied", status.Error(codes.PermissionDenied, privateValue), connect.CodePermissionDenied},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			miner, device := createTestPluginMiner()
+			miner.sdkDevice = &storedReadSDKDevice{mockSDKDevice: device, read: func(context.Context) ([]sdk.StoredMiningPool, error) { return nil, tc.failure }}
+			pools, err := miner.GetStoredMiningPools(t.Context())
+			require.Nil(t, pools)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			require.Equal(t, tc.code, fleetErr.GRPCCode)
+			require.NotContains(t, fmt.Sprintf("%v %+v %#v", err, err, err), privateValue)
+			require.Nil(t, errors.Unwrap(err), "private driver errors must not remain reachable")
 		})
 	}
 }
