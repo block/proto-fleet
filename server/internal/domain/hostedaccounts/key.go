@@ -3,7 +3,10 @@ package hostedaccounts
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -12,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/google/uuid"
 )
 
 const MachineCapabilities = View | ManagePools | ChangePools
@@ -167,16 +171,72 @@ func (s *KeyService) Authorize(ctx context.Context, keyID, issuerID, orgID int64
 	return caps, nil
 }
 
-func (s *KeyService) List(ctx context.Context, actorID, orgID int64, accountID string) ([]AccountKey, error) {
+// List rechecks live authority on every page. A continuation cannot change the
+// issuer or widen an own-key listing into an administrator's listing.
+func (s *KeyService) List(ctx context.Context, actorID, orgID int64, accountID string, pageSize int32, pageToken string) ([]AccountKey, string, error) {
+	if pageSize < 0 || pageSize > 100 {
+		return nil, "", fleeterror.NewInvalidArgumentError("key page size must be between 0 and 100")
+	}
+	if pageSize == 0 {
+		pageSize = 25
+	}
 	path, err := loadPath(ctx, s.accounts.queries, orgID, accountID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	access, err := resolve(ctx, s.accounts.queries, actorID, orgID, accountID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return s.accounts.queries.ListHostedAccountKeys(ctx, sqlc.ListHostedAccountKeysParams{OrganizationID: orgID, AccountID: path[len(path)-1].ID, UserID: sql.NullInt64{Int64: actorID, Valid: true}, IncludeAll: access.Has(ManageMembers)})
+	includeAll := access.Has(ManageMembers)
+	cursorTime, cursorID, err := accountKeyPageCursor(pageToken, actorID, orgID, accountID, includeAll)
+	if err != nil {
+		return nil, "", err
+	}
+	rows, err := s.accounts.queries.ListHostedAccountKeys(ctx, sqlc.ListHostedAccountKeysParams{
+		OrganizationID: orgID, AccountID: path[len(path)-1].ID, UserID: sql.NullInt64{Int64: actorID, Valid: true}, IncludeAll: includeAll,
+		CursorTime: cursorTime, CursorID: cursorID, PageLimit: pageSize + 1,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	if len(rows) <= int(pageSize) {
+		return rows, "", nil
+	}
+	rows = rows[:pageSize]
+	return rows, accountKeyPageToken(actorID, orgID, accountID, includeAll, rows[len(rows)-1]), nil
+}
+
+func accountKeyPageToken(actorID, orgID int64, accountID string, includeAll bool, last AccountKey) string {
+	payload := fmt.Sprintf("1|%d|%s|%d|%t|%s|%s", orgID, accountID, actorID, includeAll, last.CreatedAt.UTC().Format(time.RFC3339Nano), last.KeyID)
+	return base64.RawURLEncoding.EncodeToString([]byte(payload))
+}
+
+func accountKeyPageCursor(token string, actorID, orgID int64, accountID string, includeAll bool) (sql.NullTime, string, error) {
+	if token == "" {
+		return sql.NullTime{}, "", nil
+	}
+	invalid := fleeterror.NewInvalidArgumentError("invalid key page token for this account and listing")
+	if len(token) > 512 {
+		return sql.NullTime{}, "", invalid
+	}
+	decoded, err := base64.RawURLEncoding.Strict().DecodeString(token)
+	if err != nil || base64.RawURLEncoding.EncodeToString(decoded) != token {
+		return sql.NullTime{}, "", invalid
+	}
+	parts := strings.Split(string(decoded), "|")
+	if len(parts) != 7 || parts[0] != "1" || parts[1] != strconv.FormatInt(orgID, 10) || parts[2] != accountID || parts[3] != strconv.FormatInt(actorID, 10) || parts[4] != strconv.FormatBool(includeAll) {
+		return sql.NullTime{}, "", invalid
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, parts[5])
+	if err != nil || createdAt.IsZero() {
+		return sql.NullTime{}, "", invalid
+	}
+	id, err := uuid.Parse(parts[6])
+	if err != nil || id.String() != parts[6] {
+		return sql.NullTime{}, "", invalid
+	}
+	return sql.NullTime{Time: createdAt, Valid: true}, parts[6], nil
 }
 
 func (s *KeyService) Revoke(ctx context.Context, actorID, orgID int64, accountID, keyID string) error {

@@ -3,6 +3,7 @@ package hostedaccounts_test
 import (
 	"bytes"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -122,5 +123,39 @@ func TestAccountKeyRPCSitePolicyStaysInsideSelectedTarget(t *testing.T) {
 	for _, selected := range []string{"", parent.AccountID} {
 		_, err = f.client.GetSitePolicy(t.Context(), keyRequest(&pb.GetSitePolicyRequest{AccountId: parent.AccountID}, organizationKey, selected))
 		require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+	}
+}
+
+func TestAccountKeyRPCPaginationIsBoundedScopedAndSecretFree(t *testing.T) {
+	f := newRPCFixture(t)
+	account := f.account(t, "Customer", f.host, domain.DefaultCapabilities)
+	sibling := f.account(t, "Sibling", f.host, domain.DefaultCapabilities)
+	var secrets []string
+	for range 30 {
+		created, err := f.client.CreateAccountKey(t.Context(), rpcRequest(&pb.CreateAccountKeyRequest{AccountId: account.AccountID, Name: "Personal", Capabilities: 1}, f.cookie, account.AccountID))
+		require.NoError(t, err)
+		secrets = append(secrets, created.Msg.Secret)
+	}
+	first, err := f.client.ListAccountKeys(t.Context(), rpcRequest(&pb.ListAccountKeysRequest{AccountId: account.AccountID}, f.cookie, account.AccountID))
+	require.NoError(t, err)
+	require.Len(t, first.Msg.Keys, 25)
+	require.NotEmpty(t, first.Msg.NextPageToken)
+	next, err := f.client.ListAccountKeys(t.Context(), rpcRequest(&pb.ListAccountKeysRequest{AccountId: account.AccountID, PageToken: first.Msg.NextPageToken}, f.cookie, account.AccountID))
+	require.NoError(t, err)
+	require.Len(t, next.Msg.Keys, 5)
+	require.Empty(t, next.Msg.NextPageToken)
+	encoded := string(mustProtoJSON(t, first.Msg)) + string(mustProtoJSON(t, next.Msg))
+	for _, secret := range secrets {
+		require.NotContains(t, encoded, secret)
+	}
+	_, err = f.client.ListAccountKeys(t.Context(), rpcRequest(&pb.ListAccountKeysRequest{AccountId: sibling.AccountID, PageToken: first.Msg.NextPageToken}, f.cookie, sibling.AccountID))
+	require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	for _, request := range []*pb.ListAccountKeysRequest{
+		{AccountId: account.AccountID, PageSize: -1},
+		{AccountId: account.AccountID, PageSize: 101},
+		{AccountId: account.AccountID, PageToken: strings.Repeat("x", 513)},
+	} {
+		_, err = f.client.ListAccountKeys(t.Context(), rpcRequest(request, f.cookie, account.AccountID))
+		require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	}
 }

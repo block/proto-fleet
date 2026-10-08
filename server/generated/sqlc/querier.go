@@ -1341,6 +1341,7 @@ type Querier interface {
 	// Bound history first, then resolve each live inviter once in the same snapshot.
 	// Authority witnesses and durable-role checks match invitation acceptance.
 	ListHostedAccountInvitations(ctx context.Context, arg ListHostedAccountInvitationsParams) ([]ListHostedAccountInvitationsRow, error)
+	// Bound key rows before expanding their retained descendant scopes.
 	ListHostedAccountKeys(ctx context.Context, arg ListHostedAccountKeysParams) ([]ListHostedAccountKeysRow, error)
 	ListHostedAccountMembers(ctx context.Context, arg ListHostedAccountMembersParams) ([]ListHostedAccountMembersRow, error)
 	ListHostedAccountSites(ctx context.Context, arg ListHostedAccountSitesParams) ([]ListHostedAccountSitesRow, error)

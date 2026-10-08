@@ -136,7 +136,7 @@ export class AddMinersPage extends BasePage {
     await expect(foundMinersList).toBeVisible();
   }
 
-  async waitForNetworkScanToFinish() {
+  async waitForNetworkScanToFinish(timeout = DEFAULT_TIMEOUT) {
     await this.waitForFoundMinersList();
 
     await expect(async () => {
@@ -153,7 +153,7 @@ export class AddMinersPage extends BasePage {
       if (!this.isMobile) {
         expect(await rescanNetworkButton.isVisible().catch(() => false)).toBe(true);
       }
-    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
+    }).toPass({ timeout, intervals: [DEFAULT_INTERVAL] });
   }
 
   async waitForNetworkScanToStart() {

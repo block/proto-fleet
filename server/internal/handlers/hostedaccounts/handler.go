@@ -447,11 +447,11 @@ func (h *Handler) ListAccountKeys(ctx context.Context, req *connect.Request[pb.L
 	if err != nil {
 		return nil, err
 	}
-	keys, err := h.keys.List(ctx, info.UserID, info.OrganizationID, req.Msg.AccountId)
+	keys, next, err := h.keys.List(ctx, info.UserID, info.OrganizationID, req.Msg.AccountId, req.Msg.PageSize, req.Msg.PageToken)
 	if err != nil {
 		return nil, err
 	}
-	response := &pb.ListAccountKeysResponse{}
+	response := &pb.ListAccountKeysResponse{NextPageToken: next}
 	for _, key := range keys {
 		response.Keys = append(response.Keys, keyDTO(key))
 	}

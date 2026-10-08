@@ -112,16 +112,25 @@ func (q *Queries) GetHostedAccountKeyOwner(ctx context.Context, arg GetHostedAcc
 }
 
 const listHostedAccountKeys = `-- name: ListHostedAccountKeys :many
-SELECT k.key_id, k.name, k.prefix, k.created_at, k.expires_at, k.last_used_at,
- u.user_id AS issuer_user_id, u.username AS issuer_username, h.capabilities, h.include_future_descendants,
+WITH page AS MATERIALIZED (
+ SELECT k.id AS api_key_id, k.key_id, k.name, k.prefix, k.created_at, k.expires_at, k.last_used_at,
+  k.user_id, h.organization_id, h.capabilities, h.include_future_descendants
+ FROM hosted_account_key h JOIN api_key k ON k.id=h.api_key_id AND k.organization_id=h.organization_id
+ WHERE h.organization_id=$1 AND h.account_id=$2
+  AND k.subject_kind='account' AND k.revoked_at IS NULL
+  AND (k.user_id=$3 OR $4::boolean)
+  AND ($5::timestamptz IS NULL
+   OR k.created_at < $5::timestamptz
+   OR (k.created_at = $5::timestamptz AND k.key_id > $6::varchar))
+ ORDER BY k.created_at DESC,k.key_id ASC
+ LIMIT $7::int
+)
+SELECT page.key_id, page.name, page.prefix, page.created_at, page.expires_at, page.last_used_at,
+ u.user_id AS issuer_user_id, u.username AS issuer_username, page.capabilities, page.include_future_descendants,
  ARRAY(SELECT a.account_id FROM hosted_account_key_descendant d JOIN hosted_account a ON a.id=d.account_id AND a.organization_id=d.organization_id
-       WHERE d.organization_id=h.organization_id AND d.api_key_id=h.api_key_id ORDER BY a.account_id)::text[] AS descendant_account_ids
-FROM hosted_account_key h JOIN api_key k ON k.id=h.api_key_id AND k.organization_id=h.organization_id
-JOIN "user" u ON u.id=k.user_id
-WHERE h.organization_id=$1 AND h.account_id=$2
- AND k.subject_kind='account' AND k.revoked_at IS NULL
- AND (k.user_id=$3 OR $4::boolean)
-ORDER BY k.created_at DESC,k.key_id
+       WHERE d.organization_id=page.organization_id AND d.api_key_id=page.api_key_id ORDER BY a.account_id)::text[] AS descendant_account_ids
+FROM page JOIN "user" u ON u.id=page.user_id
+ORDER BY page.created_at DESC,page.key_id ASC
 `
 
 type ListHostedAccountKeysParams struct {
@@ -129,6 +138,9 @@ type ListHostedAccountKeysParams struct {
 	AccountID      int64
 	UserID         sql.NullInt64
 	IncludeAll     bool
+	CursorTime     sql.NullTime
+	CursorID       string
+	PageLimit      int32
 }
 
 type ListHostedAccountKeysRow struct {
@@ -145,12 +157,16 @@ type ListHostedAccountKeysRow struct {
 	DescendantAccountIds     []string
 }
 
+// Bound key rows before expanding their retained descendant scopes.
 func (q *Queries) ListHostedAccountKeys(ctx context.Context, arg ListHostedAccountKeysParams) ([]ListHostedAccountKeysRow, error) {
 	rows, err := q.query(ctx, q.listHostedAccountKeysStmt, listHostedAccountKeys,
 		arg.OrganizationID,
 		arg.AccountID,
 		arg.UserID,
 		arg.IncludeAll,
+		arg.CursorTime,
+		arg.CursorID,
+		arg.PageLimit,
 	)
 	if err != nil {
 		return nil, err

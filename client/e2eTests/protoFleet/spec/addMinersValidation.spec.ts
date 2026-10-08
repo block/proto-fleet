@@ -16,13 +16,13 @@ test.describe("Add miners scan completion", () => {
       <button>Continue with 1 miners</button>
     `);
 
-    // Keep the discovery stream open through the helper's existing timeout.
+    // Keep discovery incomplete through a short negative-assertion budget.
     // An early return would let selection miss a container arriving afterward.
     await expect(page.getByTestId("found-miners-list")).toBeVisible();
     await expect(page.getByRole("button", { name: "Continue with 1 miners", exact: true })).toBeVisible();
     let partialScanError: unknown;
     try {
-      await addMinersPage.waitForNetworkScanToFinish();
+      await addMinersPage.waitForNetworkScanToFinish(750);
     } catch (error) {
       partialScanError = error;
     }
