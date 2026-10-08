@@ -1597,7 +1597,7 @@ export type ListMinerFirmwareHistoryRequest = Message<"rollout.v1.ListMinerFirmw
   pageSize: number;
 
   /**
-   * Opaque continuation bound to the organization and current paired device.
+   * Opaque continuation bound to the organization and current device record.
    *
    * @generated from field: string cursor = 3;
    */
@@ -4277,9 +4277,10 @@ export const RolloutService: GenService<{
     output: typeof ListRolloutDevicesResponseSchema;
   };
   /**
-   * Lists saved firmware-update participation for the currently paired miner,
-   * newest rollout first, across all retained release channels. Deleting a
-   * channel removes its history. Re-pairing an identifier starts new history.
+   * Lists saved firmware-update participation for the miner's current device
+   * record, newest rollout first, across all retained release channels.
+   * Deleting a channel removes its history. Unpairing and pairing the same
+   * miner again keeps its history; deleting and re-adding it starts new history.
    *
    * @generated from rpc rollout.v1.RolloutService.ListMinerFirmwareHistory
    */

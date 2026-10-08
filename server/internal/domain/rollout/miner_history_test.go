@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/rollout/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
@@ -237,6 +238,24 @@ func TestMinerFirmwareHistoryIdentityAndOrganization(t *testing.T) {
 	assert.Empty(t, cursor)
 	_, _, err = f.svc.ListMinerFirmwareHistory(ctx, otherOrg, "other-miner", 1, oldCursor)
 	require.True(t, fleeterror.IsInvalidArgumentError(err), "%v", err)
+	// Unpairing and pairing again keep the device record, so history and its
+	// cursors survive both states.
+	q := sqlc.New(f.conn)
+	_, err = q.UpsertDevicePairing(ctx, sqlc.UpsertDevicePairingParams{DeviceID: oldDeviceID, PairingStatus: sqlc.PairingStatusEnumPAIRED})
+	require.NoError(t, err)
+	require.NoError(t, q.UpdateDevicePairingStatusByIdentifier(ctx, sqlc.UpdateDevicePairingStatusByIdentifierParams{DeviceIdentifier: "miner-0", PairingStatus: sqlc.PairingStatusEnumUNPAIRED}))
+	for _, repaired := range []bool{false, true} {
+		if repaired {
+			_, err = q.UpsertDevicePairing(ctx, sqlc.UpsertDevicePairingParams{DeviceID: oldDeviceID, PairingStatus: sqlc.PairingStatusEnumPAIRED})
+			require.NoError(t, err)
+		}
+		entries, _, err = f.svc.ListMinerFirmwareHistory(ctx, f.orgID, "miner-0", 0, "")
+		require.NoError(t, err)
+		assert.Len(t, entries, 2, "re-paired=%v", repaired)
+		page, _, err := f.svc.ListMinerFirmwareHistory(ctx, f.orgID, "miner-0", 1, oldCursor)
+		require.NoError(t, err, "re-paired=%v", repaired)
+		assert.Len(t, page, 1, "re-paired=%v", repaired)
+	}
 	_, err = f.conn.ExecContext(ctx, `UPDATE device SET deleted_at = now() WHERE id = $1`, oldDeviceID)
 	require.NoError(t, err)
 	_, _, err = f.svc.ListMinerFirmwareHistory(ctx, f.orgID, "miner-0", 1, "")

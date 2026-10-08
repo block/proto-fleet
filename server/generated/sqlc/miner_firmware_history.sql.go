@@ -83,7 +83,7 @@ type ListMinerFirmwareHistoryRow struct {
 	HaltReason       string
 }
 
-// Read only this paired device's persisted targets. History is independent
+// Read only this device record's persisted targets. History is independent
 // of its current channel membership, reported hardware, and live telemetry.
 func (q *Queries) ListMinerFirmwareHistory(ctx context.Context, arg ListMinerFirmwareHistoryParams) ([]ListMinerFirmwareHistoryRow, error) {
 	rows, err := q.query(ctx, q.listMinerFirmwareHistoryStmt, listMinerFirmwareHistory,

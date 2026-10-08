@@ -1275,7 +1275,7 @@ type Querier interface {
 	// can rename a target's reported hardware; active enrollment remains owned by
 	// its current assignment until that paired device settles or leaves scope.
 	ListManagedFirmwareUpdateDevices(ctx context.Context, arg ListManagedFirmwareUpdateDevicesParams) ([]ListManagedFirmwareUpdateDevicesRow, error)
-	// Read only this paired device's persisted targets. History is independent
+	// Read only this device record's persisted targets. History is independent
 	// of its current channel membership, reported hardware, and live telemetry.
 	ListMinerFirmwareHistory(ctx context.Context, arg ListMinerFirmwareHistoryParams) ([]ListMinerFirmwareHistoryRow, error)
 	// TYPE GENERATION STUB - This query is never executed.

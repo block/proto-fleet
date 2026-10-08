@@ -3339,7 +3339,7 @@ type ListMinerFirmwareHistoryRequest struct {
 	DeviceIdentifier string                 `protobuf:"bytes,1,opt,name=device_identifier,json=deviceIdentifier,proto3" json:"device_identifier,omitempty"`
 	// Maximum entries to return. 0 uses the server default of 100.
 	PageSize int32 `protobuf:"varint,2,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
-	// Opaque continuation bound to the organization and current paired device.
+	// Opaque continuation bound to the organization and current device record.
 	Cursor        string `protobuf:"bytes,3,opt,name=cursor,proto3" json:"cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

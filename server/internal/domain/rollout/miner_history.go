@@ -39,8 +39,9 @@ type MinerFirmwareHistoryEntry struct {
 const minerHistoryCursorVersion = "miner-history-v1"
 const maxMinerHistoryCursorLength = 256
 
-// ListMinerFirmwareHistory pages a current paired miner's retained rollout
-// history by descending (created_at, id), independently of current membership.
+// ListMinerFirmwareHistory pages the retained rollout history of a miner's
+// current device record by descending (created_at, id), independently of
+// current membership and pairing status.
 func (s *Service) ListMinerFirmwareHistory(ctx context.Context, orgID int64, deviceIdentifier string, pageSize int32, cursor string) ([]MinerFirmwareHistoryEntry, string, error) {
 	if !utf8.ValidString(deviceIdentifier) || deviceIdentifier == "" || utf8.RuneCountInString(deviceIdentifier) > 255 || strings.ContainsRune(deviceIdentifier, '\x00') {
 		return nil, "", fleeterror.NewInvalidArgumentError("invalid device_identifier")

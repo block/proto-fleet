@@ -193,9 +193,10 @@ type RolloutServiceClient interface {
 	// Lists live per-device progress for one rollout with bounded cursor
 	// pagination.
 	ListRolloutDevices(context.Context, *connect.Request[v1.ListRolloutDevicesRequest]) (*connect.Response[v1.ListRolloutDevicesResponse], error)
-	// Lists saved firmware-update participation for the currently paired miner,
-	// newest rollout first, across all retained release channels. Deleting a
-	// channel removes its history. Re-pairing an identifier starts new history.
+	// Lists saved firmware-update participation for the miner's current device
+	// record, newest rollout first, across all retained release channels.
+	// Deleting a channel removes its history. Unpairing and pairing the same
+	// miner again keeps its history; deleting and re-adding it starts new history.
 	ListMinerFirmwareHistory(context.Context, *connect.Request[v1.ListMinerFirmwareHistoryRequest]) (*connect.Response[v1.ListMinerFirmwareHistoryResponse], error)
 	// Lists rollout lifecycle events oldest first, optionally for one rollout
 	// or one channel, with bounded cursor pagination. Events are durable and
@@ -663,9 +664,10 @@ type RolloutServiceHandler interface {
 	// Lists live per-device progress for one rollout with bounded cursor
 	// pagination.
 	ListRolloutDevices(context.Context, *connect.Request[v1.ListRolloutDevicesRequest]) (*connect.Response[v1.ListRolloutDevicesResponse], error)
-	// Lists saved firmware-update participation for the currently paired miner,
-	// newest rollout first, across all retained release channels. Deleting a
-	// channel removes its history. Re-pairing an identifier starts new history.
+	// Lists saved firmware-update participation for the miner's current device
+	// record, newest rollout first, across all retained release channels.
+	// Deleting a channel removes its history. Unpairing and pairing the same
+	// miner again keeps its history; deleting and re-adding it starts new history.
 	ListMinerFirmwareHistory(context.Context, *connect.Request[v1.ListMinerFirmwareHistoryRequest]) (*connect.Response[v1.ListMinerFirmwareHistoryResponse], error)
 	// Lists rollout lifecycle events oldest first, optionally for one rollout
 	// or one channel, with bounded cursor pagination. Events are durable and

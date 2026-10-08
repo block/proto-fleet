@@ -5,7 +5,7 @@ WHERE org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
 -- name: ListMinerFirmwareHistory :many
--- Read only this paired device's persisted targets. History is independent
+-- Read only this device record's persisted targets. History is independent
 -- of its current channel membership, reported hardware, and live telemetry.
 SELECT r.id AS rollout_id, r.channel_id, c.name AS channel_name,
        r.manufacturer, r.model, r.firmware_version, r.firmware_checksum,
