@@ -7,7 +7,7 @@ CREATE TABLE hosted_account_pool (
     account_id BIGINT NOT NULL,
     archived BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (organization_id, account_id, pool_id),
+    CONSTRAINT uq_hosted_account_pool_org_account_pool UNIQUE (organization_id, account_id, pool_id),
     FOREIGN KEY (organization_id, account_id)
         REFERENCES hosted_account(organization_id, id) ON DELETE CASCADE
 );
@@ -44,8 +44,8 @@ CREATE TABLE hosted_account_pool_revision (
     name VARCHAR(255) NOT NULL CHECK (length(btrim(name)) > 0),
     slots JSONB NOT NULL CHECK (valid_hosted_account_pool_slots(slots)),
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE (pool_id, number),
-    UNIQUE (organization_id, account_id, revision_id),
+    CONSTRAINT uq_hosted_account_pool_revision_pool_number UNIQUE (pool_id, number),
+    CONSTRAINT uq_hosted_account_pool_revision_org_account_revision UNIQUE (organization_id, account_id, revision_id),
     FOREIGN KEY (organization_id, account_id, pool_id)
         REFERENCES hosted_account_pool(organization_id, account_id, pool_id) ON DELETE CASCADE
 );
