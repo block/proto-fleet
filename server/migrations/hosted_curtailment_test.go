@@ -1,6 +1,7 @@
 package migrations_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
@@ -23,6 +24,8 @@ func TestCurtailmentMigrationPreservesLegacyAttemptsAndRestrictsScope(t *testing
 	service := devicewrite.NewService(database.DB)
 	attempt, err := service.BeginHost(t.Context(), user.OrganizationID, device.DatabaseID, 0)
 	require.NoError(t, err)
+	// Only dispatched mutations retain the completed history this migration preserves.
+	require.NoError(t, devicewrite.Dispatch(attempt.Context(t.Context()), func(context.Context) error { return nil }))
 	require.NoError(t, attempt.Finish(t.Context(), nil))
 	_, err = database.DB.ExecContext(t.Context(), string(down))
 	require.NoError(t, err)
