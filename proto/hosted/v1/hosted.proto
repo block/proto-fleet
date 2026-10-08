@@ -1,0 +1,220 @@
+syntax = "proto3";
+
+package hosted.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// HostedAccountService uses account authority independently of organization RBAC.
+// Every private account operation names its account; names are display labels.
+service HostedAccountService {
+  rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse);
+  rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
+  rpc ListChildren(ListChildrenRequest) returns (ListChildrenResponse);
+  rpc CreateAccount(CreateAccountRequest) returns (CreateAccountResponse);
+  rpc ConfigureAccount(ConfigureAccountRequest) returns (ConfigureAccountResponse);
+  rpc RenameAccount(RenameAccountRequest) returns (RenameAccountResponse);
+  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
+  rpc SetMemberRole(SetMemberRoleRequest) returns (SetMemberRoleResponse);
+  rpc RevokeMember(RevokeMemberRequest) returns (RevokeMemberResponse);
+  rpc ListAncestorGrants(ListAncestorGrantsRequest) returns (ListAncestorGrantsResponse);
+  rpc SetAncestorGrant(SetAncestorGrantRequest) returns (SetAncestorGrantResponse);
+  rpc RevokeAncestorGrant(RevokeAncestorGrantRequest) returns (RevokeAncestorGrantResponse);
+  rpc GetSitePolicy(GetSitePolicyRequest) returns (GetSitePolicyResponse);
+  rpc SetSitePolicy(SetSitePolicyRequest) returns (SetSitePolicyResponse);
+  rpc ListInvitations(ListInvitationsRequest) returns (ListInvitationsResponse);
+  rpc CreateInvitation(CreateInvitationRequest) returns (CreateInvitationResponse);
+  rpc RevokeInvitation(RevokeInvitationRequest) returns (RevokeInvitationResponse);
+  rpc PreviewInvitation(PreviewInvitationRequest) returns (PreviewInvitationResponse);
+  rpc AcceptInvitation(AcceptInvitationRequest) returns (AcceptInvitationResponse);
+  rpc RegisterInvitedUser(RegisterInvitedUserRequest) returns (RegisterInvitedUserResponse);
+}
+
+enum AccountRole {
+  ACCOUNT_ROLE_UNSPECIFIED = 0;
+  ACCOUNT_ROLE_VIEWER = 1;
+  ACCOUNT_ROLE_POOL_OPERATOR = 2;
+  ACCOUNT_ROLE_ADMINISTRATOR = 3;
+}
+
+// Capability mask: view=1, manage pool configurations=2, change pools=4,
+// manage memberships=8, delegate/recall=16. Ancestor grants remain explicit.
+message Account {
+  string account_id = 1;
+  string parent_account_id = 2;
+  string name = 3;
+  uint32 depth = 4;
+  uint64 capability_ceiling = 5;
+  uint64 effective_capabilities = 6;
+  AccountRole role = 7;
+  bool suspended = 8;
+  int64 revision = 9;
+}
+
+message SitePolicy {
+  // Unrestricted here still respects restrictions of every ancestor.
+  bool restricted = 1;
+  repeated int64 site_ids = 2 [(buf.validate.field).repeated = {unique: true, items: {int64: {gt: 0}}}];
+}
+
+message Member {
+  string user_id = 1;
+  string username = 2;
+  AccountRole role = 3;
+  int64 revision = 4;
+  google.protobuf.Timestamp joined_at = 5;
+}
+
+message AncestorGrant {
+  string ancestor_account_id = 1;
+  uint64 capabilities = 2;
+  int64 revision = 3;
+}
+
+message Invitation {
+  string invitation_id = 1;
+  AccountRole role = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  google.protobuf.Timestamp revoked_at = 4;
+  google.protobuf.Timestamp accepted_at = 5;
+  google.protobuf.Timestamp created_at = 6;
+  // The server derives current usability from lifecycle and live inviter authority.
+  // Acceptance rechecks authority; this observation does not reserve access.
+  bool available = 7;
+}
+
+message ListAccountsRequest {}
+message ListAccountsResponse {
+  repeated Account accounts = 1;
+  // True only when the user can operate the host workspace.
+  bool host_access = 2;
+}
+
+message GetAccountRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message GetAccountResponse {
+  Account account = 1;
+  SitePolicy site_policy = 2;
+}
+
+message ListChildrenRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message ListChildrenResponse { repeated Account accounts = 1; }
+
+message CreateAccountRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  // Omission uses the current user; this endpoint does not enumerate users.
+  optional string administrator_user_id = 3 [(buf.validate.field).string.uuid = true];
+  uint64 capabilities = 4 [(buf.validate.field).uint64 = {gte: 1, lte: 31}];
+}
+message CreateAccountResponse { Account account = 1; }
+
+message ConfigureAccountRequest {
+  // The active parent workspace controls only its directly delegated child.
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string child_account_id = 2 [(buf.validate.field).string.uuid = true];
+  uint64 capabilities = 3 [(buf.validate.field).uint64 = {gte: 1, lte: 31}];
+  bool suspended = 4;
+}
+message ConfigureAccountResponse {}
+
+message RenameAccountRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+}
+message RenameAccountResponse {}
+
+message ListMembersRequest { string account_id = 1 [(buf.validate.field).string.uuid = true]; }
+message ListMembersResponse { repeated Member members = 1; }
+message SetMemberRoleRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string user_id = 2 [(buf.validate.field).string.uuid = true];
+  AccountRole role = 3 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+}
+message SetMemberRoleResponse {}
+message RevokeMemberRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string user_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message RevokeMemberResponse {}
+
+message ListAncestorGrantsRequest { string account_id = 1 [(buf.validate.field).string.uuid = true]; }
+message ListAncestorGrantsResponse { repeated AncestorGrant grants = 1; }
+message SetAncestorGrantRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string ancestor_account_id = 2 [(buf.validate.field).string.uuid = true];
+  uint64 capabilities = 3 [(buf.validate.field).uint64 = {gte: 1, lte: 31}];
+}
+message SetAncestorGrantResponse {}
+message RevokeAncestorGrantRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string ancestor_account_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message RevokeAncestorGrantResponse {}
+
+message SetSitePolicyRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  SitePolicy site_policy = 2 [(buf.validate.field).required = true];
+  optional string child_account_id = 3 [(buf.validate.field).string.uuid = true];
+}
+message SetSitePolicyResponse {}
+message GetSitePolicyRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  optional string child_account_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message GetSitePolicyResponse {
+  SitePolicy site_policy = 1;
+  bool effective_restricted = 2;
+  repeated int64 effective_site_ids = 3;
+}
+
+// Invitation history, including accepted, revoked and expired links, remains
+// accessible through pages; listing does not delete historical records.
+message ListInvitationsRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  // Zero uses 25. At most 100 invitations are returned per page.
+  int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  // Opaque continuation token from the same organization and account.
+  string page_token = 3 [(buf.validate.field).string.max_len = 512];
+}
+message ListInvitationsResponse {
+  repeated Invitation invitations = 1 [(buf.validate.field).repeated.max_items = 100];
+  string next_page_token = 2;
+}
+message CreateInvitationRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  AccountRole role = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  // Zero uses 24 hours. Links expire at most seven days after creation.
+  uint32 expires_in_seconds = 3 [(buf.validate.field).uint32.lte = 604800];
+}
+message CreateInvitationResponse {
+  Invitation invitation = 1;
+  // Bearer token shown once for manual sharing. Never retained in activity logs.
+  string token = 2;
+}
+message RevokeInvitationRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string invitation_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message RevokeInvitationResponse {}
+message PreviewInvitationRequest {
+  string token = 1 [(buf.validate.field).string.len = 43];
+}
+message PreviewInvitationResponse {
+  string account_name = 1;
+  AccountRole role = 2;
+  google.protobuf.Timestamp expires_at = 3;
+}
+message AcceptInvitationRequest {
+  string token = 1 [(buf.validate.field).string.len = 43];
+}
+message AcceptInvitationResponse { string account_id = 1; }
+message RegisterInvitedUserRequest {
+  string token = 1 [(buf.validate.field).string.len = 43];
+  string username = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  string password = 3 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+}
+message RegisterInvitedUserResponse { string account_id = 1; }

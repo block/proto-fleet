@@ -10,6 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
@@ -23,6 +24,9 @@ import (
 // (passwords, pool credentials, provider attestations) and must not be
 // logged at debug level.
 var RedactedRequestProcedures = []string{
+	hostedv1connect.HostedAccountServicePreviewInvitationProcedure,
+	hostedv1connect.HostedAccountServiceRegisterInvitedUserProcedure,
+	hostedv1connect.HostedAccountServiceAcceptInvitationProcedure,
 	authv1connect.AuthServiceAuthenticateProcedure,
 	authv1connect.AuthServiceUpdatePasswordProcedure,
 	authv1connect.AuthServiceVerifyCredentialsProcedure,
@@ -54,6 +58,7 @@ var RedactedRequestProcedures = []string{
 // RedactedResponseProcedures lists procedures whose responses contain secrets
 // (API keys, temporary passwords) and must not be logged at debug level.
 var RedactedResponseProcedures = []string{
+	hostedv1connect.HostedAccountServiceCreateInvitationProcedure,
 	apikeyv1connect.ApiKeyServiceCreateApiKeyProcedure,
 	authv1connect.AuthServiceCreateUserProcedure,
 	authv1connect.AuthServiceResetUserPasswordProcedure,
@@ -77,6 +82,26 @@ var RedactedResponseProcedures = []string{
 // endpoints to prevent a leaked API key from escalating to interactive
 // credentials or modifying user accounts.
 var SessionOnlyProcedures = []string{
+	// Hosted-account administration is interactive. Account-bounded machine
+	// credentials are introduced separately; organization API keys cannot enter.
+	hostedv1connect.HostedAccountServiceListAccountsProcedure,
+	hostedv1connect.HostedAccountServiceGetAccountProcedure,
+	hostedv1connect.HostedAccountServiceListChildrenProcedure,
+	hostedv1connect.HostedAccountServiceCreateAccountProcedure,
+	hostedv1connect.HostedAccountServiceConfigureAccountProcedure,
+	hostedv1connect.HostedAccountServiceRenameAccountProcedure,
+	hostedv1connect.HostedAccountServiceListMembersProcedure,
+	hostedv1connect.HostedAccountServiceSetMemberRoleProcedure,
+	hostedv1connect.HostedAccountServiceRevokeMemberProcedure,
+	hostedv1connect.HostedAccountServiceListAncestorGrantsProcedure,
+	hostedv1connect.HostedAccountServiceSetAncestorGrantProcedure,
+	hostedv1connect.HostedAccountServiceRevokeAncestorGrantProcedure,
+	hostedv1connect.HostedAccountServiceSetSitePolicyProcedure,
+	hostedv1connect.HostedAccountServiceGetSitePolicyProcedure,
+	hostedv1connect.HostedAccountServiceListInvitationsProcedure,
+	hostedv1connect.HostedAccountServiceCreateInvitationProcedure,
+	hostedv1connect.HostedAccountServiceRevokeInvitationProcedure,
+	hostedv1connect.HostedAccountServiceAcceptInvitationProcedure,
 	// API key lifecycle — prevents self-replication from a leaked key
 	apikeyv1connect.ApiKeyServiceCreateApiKeyProcedure,
 	apikeyv1connect.ApiKeyServiceListApiKeysProcedure,
@@ -178,6 +203,9 @@ var SessionOnlyProcedures = []string{
 }
 
 var UnauthenticatedProcedures = []string{
+	// The bearer invitation token is validated by the dedicated handler.
+	hostedv1connect.HostedAccountServicePreviewInvitationProcedure,
+	hostedv1connect.HostedAccountServiceRegisterInvitedUserProcedure,
 	"/health",
 	"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
 	authv1connect.AuthServiceAuthenticateProcedure,
@@ -211,6 +239,10 @@ var FleetNodeAuthenticatedProcedures = []string{
 // For streaming RPCs, this also suppresses individual message bodies in
 // loggingStreamingHandlerConn.
 var SensitiveBodyProcedures = map[string]bool{
+	hostedv1connect.HostedAccountServicePreviewInvitationProcedure:   true,
+	hostedv1connect.HostedAccountServiceRegisterInvitedUserProcedure: true,
+	hostedv1connect.HostedAccountServiceAcceptInvitationProcedure:    true,
+	hostedv1connect.HostedAccountServiceCreateInvitationProcedure:    true,
 	// Fleet topology (device IPs, site/rack placement) must not land in
 	// debug logs on every bridge poll.
 	fleetmanagementv1connect.FleetManagementServiceListMinerStateSnapshotsProcedure:   true,

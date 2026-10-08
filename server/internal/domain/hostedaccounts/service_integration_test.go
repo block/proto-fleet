@@ -258,3 +258,19 @@ func TestMembershipAuthorityIsRecheckedAndAuditCommitsWithMutation(t *testing.T)
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM activity_log WHERE organization_id = $1`, f.org).Scan(&after))
 	require.Equal(t, before, after, "rolled-back mutations produce no audit event")
 }
+
+func TestCustomerAffiliationDoesNotRequireOrganizationRole(t *testing.T) {
+	f := setup(t)
+	_, err := f.db.ExecContext(t.Context(), `UPDATE user_organization SET role_id = NULL WHERE organization_id = $1 AND user_id = $2`, f.org, f.user)
+	require.NoError(t, err)
+	role, err := sqlstores.NewSQLUserStore(f.db).GetUserRoleName(t.Context(), f.user, f.org)
+	require.NoError(t, err)
+	require.Empty(t, role)
+	effective, err := authz.LoadEffectiveTx(t.Context(), sqlc.New(f.db), f.user, f.org)
+	require.NoError(t, err)
+	require.Empty(t, effective.Keys())
+	a := f.client(t, "Customer", f.user, hostedaccounts.DefaultCapabilities)
+	access, err := f.svc.Resolve(t.Context(), f.user, f.org, a.AccountID)
+	require.NoError(t, err)
+	require.True(t, access.Has(hostedaccounts.View))
+}

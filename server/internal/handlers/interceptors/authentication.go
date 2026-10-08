@@ -8,12 +8,16 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
+
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
@@ -137,6 +141,18 @@ func (i *AuthInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc
 }
 
 func (i *AuthInterceptor) authenticate(ctx context.Context, procedure string, requestHeader http.Header) (context.Context, error) {
+	ctx, err := captureRequestAccount(ctx, requestHeader)
+	if err != nil {
+		return ctx, err
+	}
+	if _, selected := hostedaccounts.RequestAccountID(ctx); selected && !allowsSelectedAccount(procedure) {
+		return ctx, fleeterror.NewForbiddenError("this endpoint is not available in an account workspace")
+	}
+	// Customer administration is session-only until account-bounded machine
+	// credentials exist. Exemption lists cannot bypass this boundary.
+	if strings.HasPrefix(procedure, hostedAccountProcedurePrefix) && !publicHostedInvitation(procedure) {
+		return i.authenticateRequest(ctx, requestHeader, true)
+	}
 	if _, ok := i.allowList[procedure]; ok {
 		return ctx, nil
 	}
@@ -150,7 +166,71 @@ func (i *AuthInterceptor) authenticate(ctx context.Context, procedure string, re
 // AuthenticateRequest authenticates raw HTTP requests using the same credentials,
 // identity and live permissions as Connect RPCs. Procedure exemptions never apply.
 func (i *AuthInterceptor) AuthenticateRequest(ctx context.Context, requestHeader http.Header) (context.Context, error) {
+	ctx, err := captureRequestAccount(ctx, requestHeader)
+	if err != nil {
+		return ctx, err
+	}
+	if _, selected := hostedaccounts.RequestAccountID(ctx); selected {
+		return ctx, fleeterror.NewForbiddenError("raw HTTP endpoints are not available in an account workspace")
+	}
 	return i.authenticateRequest(ctx, requestHeader, false)
+}
+
+const hostedAccountProcedurePrefix = "/hosted.v1.HostedAccountService/"
+
+func publicHostedInvitation(procedure string) bool {
+	return procedure == hostedv1connect.HostedAccountServicePreviewInvitationProcedure ||
+		procedure == hostedv1connect.HostedAccountServiceRegisterInvitedUserProcedure
+}
+
+func allowsSelectedAccount(procedure string) bool {
+	// This is intentionally an exact list: new services or methods need an
+	// explicit decision before they can be called from a customer workspace.
+	// Token-bound invitation acceptance precedes selection and is excluded.
+	switch procedure {
+	case hostedv1connect.HostedAccountServiceListAccountsProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountProcedure,
+		hostedv1connect.HostedAccountServiceListChildrenProcedure,
+		hostedv1connect.HostedAccountServiceCreateAccountProcedure,
+		hostedv1connect.HostedAccountServiceConfigureAccountProcedure,
+		hostedv1connect.HostedAccountServiceRenameAccountProcedure,
+		hostedv1connect.HostedAccountServiceListMembersProcedure,
+		hostedv1connect.HostedAccountServiceSetMemberRoleProcedure,
+		hostedv1connect.HostedAccountServiceRevokeMemberProcedure,
+		hostedv1connect.HostedAccountServiceListAncestorGrantsProcedure,
+		hostedv1connect.HostedAccountServiceSetAncestorGrantProcedure,
+		hostedv1connect.HostedAccountServiceRevokeAncestorGrantProcedure,
+		hostedv1connect.HostedAccountServiceSetSitePolicyProcedure,
+		hostedv1connect.HostedAccountServiceGetSitePolicyProcedure,
+		hostedv1connect.HostedAccountServiceListInvitationsProcedure,
+		hostedv1connect.HostedAccountServiceCreateInvitationProcedure,
+		hostedv1connect.HostedAccountServiceRevokeInvitationProcedure,
+		authv1connect.AuthServiceGetUserAuditInfoProcedure, authv1connect.AuthServiceUpdatePasswordProcedure,
+		authv1connect.AuthServiceLogoutProcedure, authv1connect.AuthServiceVerifyCredentialsProcedure:
+		return true
+	default:
+		return false
+	}
+}
+
+func captureRequestAccount(ctx context.Context, header http.Header) (context.Context, error) {
+	var values []string
+	for key, entries := range header {
+		if strings.EqualFold(key, hostedaccounts.RequestAccountHeader) {
+			// A present empty field is invalid too, rather than a host-mode fallback.
+			if len(entries) == 0 {
+				return ctx, fleeterror.NewInvalidArgumentError("account header must contain exactly one UUID")
+			}
+			values = append(values, entries...)
+		}
+	}
+	if len(values) == 0 {
+		return ctx, nil
+	}
+	if len(values) != 1 {
+		return ctx, fleeterror.NewInvalidArgumentError("account header must contain exactly one UUID")
+	}
+	return hostedaccounts.WithRequestAccountID(ctx, values[0])
 }
 
 func (i *AuthInterceptor) authenticateRequest(ctx context.Context, requestHeader http.Header, sessionOnly bool) (context.Context, error) {

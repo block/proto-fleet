@@ -1320,6 +1320,7 @@ func TestUpdateUserRole_ValidationBranches(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			mockUserStore := mocks.NewMockUserStore(ctrl)
 			mockMgmtStore := mocks.NewMockUserManagementStore(ctrl)
+			mockMgmtStore.EXPECT().LockAndCountSoleHostedAccountAdministrations(gomock.Any(), orgID, int64(0)).Return(int64(0), nil).AnyTimes()
 			tc.setup(mockUserStore, mockMgmtStore)
 
 			svc := &Service{
@@ -1357,6 +1358,7 @@ func TestUpdateUserRole_NoOpWhenSameRole(t *testing.T) {
 
 	mockUserStore := mocks.NewMockUserStore(ctrl)
 	mockMgmtStore := mocks.NewMockUserManagementStore(ctrl)
+	mockMgmtStore.EXPECT().LockAndCountSoleHostedAccountAdministrations(gomock.Any(), orgID, int64(0)).Return(int64(0), nil).AnyTimes()
 
 	mockUserStore.EXPECT().GetOrganizationsForUser(gomock.Any(), callerInternalID).
 		Return([]interfaces.Organization{{ID: orgID}}, nil)
@@ -1495,6 +1497,7 @@ func TestDeactivateUser_LastSuperAdminGuard(t *testing.T) {
 				mockMgmtStore.EXPECT().GetUserRoleName(gomock.Any(), targetInternalID, orgID).Return("FIELD_TECH", nil)
 				mockMgmtStore.EXPECT().LockAndCountSoleHostedAccountAdministrations(gomock.Any(), orgID, targetInternalID).
 					Return(tc.soleHostedAccounts, nil)
+				mockMgmtStore.EXPECT().GetActiveUserRoleNameForUpdate(gomock.Any(), targetInternalID, orgID).Return("FIELD_TECH", nil)
 			}
 			if tc.expectGetAssignment && tc.soleHostedAccounts == 0 {
 				// In-tx assignment fetch
@@ -1678,6 +1681,7 @@ func TestUpdateUserRole_ParityAndLastSuperAdmin(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			mockUserStore := mocks.NewMockUserStore(ctrl)
 			mockMgmtStore := mocks.NewMockUserManagementStore(ctrl)
+			mockMgmtStore.EXPECT().LockAndCountSoleHostedAccountAdministrations(gomock.Any(), orgID, int64(0)).Return(int64(0), nil).AnyTimes()
 
 			mockUserStore.EXPECT().GetOrganizationsForUser(gomock.Any(), callerInternalID).
 				Return([]interfaces.Organization{{ID: orgID}}, nil)

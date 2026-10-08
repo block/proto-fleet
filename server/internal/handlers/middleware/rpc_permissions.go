@@ -16,6 +16,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
@@ -33,6 +34,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/telemetry/v1/telemetryv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 )
 
 // ProcedurePermissions maps gated Connect procedures to the catalog
@@ -45,6 +47,7 @@ import (
 //   - interceptors.UnauthenticatedProcedures
 //   - interceptors.FleetNodeAuthenticatedProcedures
 //   - ProcedurePermissions          (gated by catalog key)
+//   - AccountProcedureCapabilities (separate live account authority)
 //   - ProceduresPendingMigration    (declared but not yet enforced via RequirePermission)
 //
 // Adding a new RPC without registering it fails the contract test
@@ -493,4 +496,30 @@ var ProceduresPendingMigration = map[string]string{
 	// site_id. Putting it in ProcedurePermissions would force the
 	// same org-scoped site:read gate that this endpoint avoids.
 	sitesv1connect.SiteServiceResolveSiteBySlugProcedure: "inline site:read after slug resolves to site_id",
+}
+
+// AccountProcedureCapabilities records dedicated account authorization paths.
+// Zero marks workspace discovery or invitation consumption, whose authority is
+// established by the live identity/token rather than a body account. Hierarchy
+// operations also support explicit host account:manage; grants and site policy
+// have narrowly checked host recovery or direct-parent alternatives.
+var AccountProcedureCapabilities = map[string]hostedaccounts.Capabilities{
+	hostedv1connect.HostedAccountServiceListAccountsProcedure:        0,
+	hostedv1connect.HostedAccountServiceGetAccountProcedure:          hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceListChildrenProcedure:        hostedaccounts.Delegate,
+	hostedv1connect.HostedAccountServiceCreateAccountProcedure:       hostedaccounts.Delegate,
+	hostedv1connect.HostedAccountServiceConfigureAccountProcedure:    hostedaccounts.Delegate,
+	hostedv1connect.HostedAccountServiceRenameAccountProcedure:       hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceListMembersProcedure:         hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceSetMemberRoleProcedure:       hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceRevokeMemberProcedure:        hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceListAncestorGrantsProcedure:  hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceSetAncestorGrantProcedure:    hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceRevokeAncestorGrantProcedure: hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceSetSitePolicyProcedure:       hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceGetSitePolicyProcedure:       hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceListInvitationsProcedure:     hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceCreateInvitationProcedure:    hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceRevokeInvitationProcedure:    hostedaccounts.ManageMembers,
+	hostedv1connect.HostedAccountServiceAcceptInvitationProcedure:    0,
 }
