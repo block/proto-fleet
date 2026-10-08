@@ -614,7 +614,7 @@ func (s *DriverGRPCServer) GetStoredMiningPools(ctx context.Context, req *pb.Get
 	pools, err := reader.GetStoredMiningPools(ctx)
 	if err != nil {
 		if ctx.Err() != nil {
-			return nil, status.FromContextError(ctx.Err()).Err()
+			return nil, fmt.Errorf("stored pool configuration read canceled: %w", status.FromContextError(ctx.Err()).Err())
 		}
 		// Preserve classification without forwarding private driver messages or
 		// causes. InvalidConfig here means actual stored configuration is unusable.
