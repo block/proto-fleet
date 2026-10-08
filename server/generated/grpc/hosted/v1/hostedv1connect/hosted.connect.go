@@ -94,6 +94,15 @@ const (
 	// HostedAccountServiceRegisterInvitedUserProcedure is the fully-qualified name of the
 	// HostedAccountService's RegisterInvitedUser RPC.
 	HostedAccountServiceRegisterInvitedUserProcedure = "/hosted.v1.HostedAccountService/RegisterInvitedUser"
+	// HostedAccountServiceCreateAccountKeyProcedure is the fully-qualified name of the
+	// HostedAccountService's CreateAccountKey RPC.
+	HostedAccountServiceCreateAccountKeyProcedure = "/hosted.v1.HostedAccountService/CreateAccountKey"
+	// HostedAccountServiceListAccountKeysProcedure is the fully-qualified name of the
+	// HostedAccountService's ListAccountKeys RPC.
+	HostedAccountServiceListAccountKeysProcedure = "/hosted.v1.HostedAccountService/ListAccountKeys"
+	// HostedAccountServiceRevokeAccountKeyProcedure is the fully-qualified name of the
+	// HostedAccountService's RevokeAccountKey RPC.
+	HostedAccountServiceRevokeAccountKeyProcedure = "/hosted.v1.HostedAccountService/RevokeAccountKey"
 )
 
 // HostedAccountServiceClient is a client for the hosted.v1.HostedAccountService service.
@@ -118,6 +127,9 @@ type HostedAccountServiceClient interface {
 	PreviewInvitation(context.Context, *connect.Request[v1.PreviewInvitationRequest]) (*connect.Response[v1.PreviewInvitationResponse], error)
 	AcceptInvitation(context.Context, *connect.Request[v1.AcceptInvitationRequest]) (*connect.Response[v1.AcceptInvitationResponse], error)
 	RegisterInvitedUser(context.Context, *connect.Request[v1.RegisterInvitedUserRequest]) (*connect.Response[v1.RegisterInvitedUserResponse], error)
+	CreateAccountKey(context.Context, *connect.Request[v1.CreateAccountKeyRequest]) (*connect.Response[v1.CreateAccountKeyResponse], error)
+	ListAccountKeys(context.Context, *connect.Request[v1.ListAccountKeysRequest]) (*connect.Response[v1.ListAccountKeysResponse], error)
+	RevokeAccountKey(context.Context, *connect.Request[v1.RevokeAccountKeyRequest]) (*connect.Response[v1.RevokeAccountKeyResponse], error)
 }
 
 // NewHostedAccountServiceClient constructs a client for the hosted.v1.HostedAccountService service.
@@ -230,6 +242,21 @@ func NewHostedAccountServiceClient(httpClient connect.HTTPClient, baseURL string
 			baseURL+HostedAccountServiceRegisterInvitedUserProcedure,
 			opts...,
 		),
+		createAccountKey: connect.NewClient[v1.CreateAccountKeyRequest, v1.CreateAccountKeyResponse](
+			httpClient,
+			baseURL+HostedAccountServiceCreateAccountKeyProcedure,
+			opts...,
+		),
+		listAccountKeys: connect.NewClient[v1.ListAccountKeysRequest, v1.ListAccountKeysResponse](
+			httpClient,
+			baseURL+HostedAccountServiceListAccountKeysProcedure,
+			opts...,
+		),
+		revokeAccountKey: connect.NewClient[v1.RevokeAccountKeyRequest, v1.RevokeAccountKeyResponse](
+			httpClient,
+			baseURL+HostedAccountServiceRevokeAccountKeyProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -255,6 +282,9 @@ type hostedAccountServiceClient struct {
 	previewInvitation   *connect.Client[v1.PreviewInvitationRequest, v1.PreviewInvitationResponse]
 	acceptInvitation    *connect.Client[v1.AcceptInvitationRequest, v1.AcceptInvitationResponse]
 	registerInvitedUser *connect.Client[v1.RegisterInvitedUserRequest, v1.RegisterInvitedUserResponse]
+	createAccountKey    *connect.Client[v1.CreateAccountKeyRequest, v1.CreateAccountKeyResponse]
+	listAccountKeys     *connect.Client[v1.ListAccountKeysRequest, v1.ListAccountKeysResponse]
+	revokeAccountKey    *connect.Client[v1.RevokeAccountKeyRequest, v1.RevokeAccountKeyResponse]
 }
 
 // ListAccounts calls hosted.v1.HostedAccountService.ListAccounts.
@@ -357,6 +387,21 @@ func (c *hostedAccountServiceClient) RegisterInvitedUser(ctx context.Context, re
 	return c.registerInvitedUser.CallUnary(ctx, req)
 }
 
+// CreateAccountKey calls hosted.v1.HostedAccountService.CreateAccountKey.
+func (c *hostedAccountServiceClient) CreateAccountKey(ctx context.Context, req *connect.Request[v1.CreateAccountKeyRequest]) (*connect.Response[v1.CreateAccountKeyResponse], error) {
+	return c.createAccountKey.CallUnary(ctx, req)
+}
+
+// ListAccountKeys calls hosted.v1.HostedAccountService.ListAccountKeys.
+func (c *hostedAccountServiceClient) ListAccountKeys(ctx context.Context, req *connect.Request[v1.ListAccountKeysRequest]) (*connect.Response[v1.ListAccountKeysResponse], error) {
+	return c.listAccountKeys.CallUnary(ctx, req)
+}
+
+// RevokeAccountKey calls hosted.v1.HostedAccountService.RevokeAccountKey.
+func (c *hostedAccountServiceClient) RevokeAccountKey(ctx context.Context, req *connect.Request[v1.RevokeAccountKeyRequest]) (*connect.Response[v1.RevokeAccountKeyResponse], error) {
+	return c.revokeAccountKey.CallUnary(ctx, req)
+}
+
 // HostedAccountServiceHandler is an implementation of the hosted.v1.HostedAccountService service.
 type HostedAccountServiceHandler interface {
 	ListAccounts(context.Context, *connect.Request[v1.ListAccountsRequest]) (*connect.Response[v1.ListAccountsResponse], error)
@@ -379,6 +424,9 @@ type HostedAccountServiceHandler interface {
 	PreviewInvitation(context.Context, *connect.Request[v1.PreviewInvitationRequest]) (*connect.Response[v1.PreviewInvitationResponse], error)
 	AcceptInvitation(context.Context, *connect.Request[v1.AcceptInvitationRequest]) (*connect.Response[v1.AcceptInvitationResponse], error)
 	RegisterInvitedUser(context.Context, *connect.Request[v1.RegisterInvitedUserRequest]) (*connect.Response[v1.RegisterInvitedUserResponse], error)
+	CreateAccountKey(context.Context, *connect.Request[v1.CreateAccountKeyRequest]) (*connect.Response[v1.CreateAccountKeyResponse], error)
+	ListAccountKeys(context.Context, *connect.Request[v1.ListAccountKeysRequest]) (*connect.Response[v1.ListAccountKeysResponse], error)
+	RevokeAccountKey(context.Context, *connect.Request[v1.RevokeAccountKeyRequest]) (*connect.Response[v1.RevokeAccountKeyResponse], error)
 }
 
 // NewHostedAccountServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -487,6 +535,21 @@ func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...con
 		svc.RegisterInvitedUser,
 		opts...,
 	)
+	hostedAccountServiceCreateAccountKeyHandler := connect.NewUnaryHandler(
+		HostedAccountServiceCreateAccountKeyProcedure,
+		svc.CreateAccountKey,
+		opts...,
+	)
+	hostedAccountServiceListAccountKeysHandler := connect.NewUnaryHandler(
+		HostedAccountServiceListAccountKeysProcedure,
+		svc.ListAccountKeys,
+		opts...,
+	)
+	hostedAccountServiceRevokeAccountKeyHandler := connect.NewUnaryHandler(
+		HostedAccountServiceRevokeAccountKeyProcedure,
+		svc.RevokeAccountKey,
+		opts...,
+	)
 	return "/hosted.v1.HostedAccountService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case HostedAccountServiceListAccountsProcedure:
@@ -529,6 +592,12 @@ func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...con
 			hostedAccountServiceAcceptInvitationHandler.ServeHTTP(w, r)
 		case HostedAccountServiceRegisterInvitedUserProcedure:
 			hostedAccountServiceRegisterInvitedUserHandler.ServeHTTP(w, r)
+		case HostedAccountServiceCreateAccountKeyProcedure:
+			hostedAccountServiceCreateAccountKeyHandler.ServeHTTP(w, r)
+		case HostedAccountServiceListAccountKeysProcedure:
+			hostedAccountServiceListAccountKeysHandler.ServeHTTP(w, r)
+		case HostedAccountServiceRevokeAccountKeyProcedure:
+			hostedAccountServiceRevokeAccountKeyHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -616,4 +685,16 @@ func (UnimplementedHostedAccountServiceHandler) AcceptInvitation(context.Context
 
 func (UnimplementedHostedAccountServiceHandler) RegisterInvitedUser(context.Context, *connect.Request[v1.RegisterInvitedUserRequest]) (*connect.Response[v1.RegisterInvitedUserResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.RegisterInvitedUser is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) CreateAccountKey(context.Context, *connect.Request[v1.CreateAccountKeyRequest]) (*connect.Response[v1.CreateAccountKeyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.CreateAccountKey is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ListAccountKeys(context.Context, *connect.Request[v1.ListAccountKeysRequest]) (*connect.Response[v1.ListAccountKeysResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ListAccountKeys is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) RevokeAccountKey(context.Context, *connect.Request[v1.RevokeAccountKeyRequest]) (*connect.Response[v1.RevokeAccountKeyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.RevokeAccountKey is not implemented"))
 }

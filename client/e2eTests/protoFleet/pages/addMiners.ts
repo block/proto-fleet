@@ -4,7 +4,8 @@ import { PROTO_RIG_DISPLAY_NAME } from "../helpers/minerModels";
 import { BasePage } from "./base";
 
 const SHORT_CLOSE_TIMEOUT = Math.floor(DEFAULT_TIMEOUT / 6);
-const NETWORK_SCAN_SUMMARY = /(?:\d+ (?:miners?|containers?) found on your network|^No devices found)$/;
+const NETWORK_SCAN_SUMMARY =
+  /^(?:(?:\d+ containers?(?: and \d+ miners?)?|\d+ miners?) found on your network|No devices found)$/;
 
 export class AddMinersPage extends BasePage {
   getScanNetworkSection(): Locator {
@@ -135,7 +136,7 @@ export class AddMinersPage extends BasePage {
     await expect(foundMinersList).toBeVisible();
   }
 
-  async waitForNetworkScanToFinish() {
+  async waitForNetworkScanToFinish(timeout = DEFAULT_TIMEOUT) {
     await this.waitForFoundMinersList();
 
     await expect(async () => {
@@ -152,7 +153,7 @@ export class AddMinersPage extends BasePage {
       if (!this.isMobile) {
         expect(await rescanNetworkButton.isVisible().catch(() => false)).toBe(true);
       }
-    }).toPass({ timeout: DEFAULT_TIMEOUT, intervals: [DEFAULT_INTERVAL] });
+    }).toPass({ timeout, intervals: [DEFAULT_INTERVAL] });
   }
 
   async waitForNetworkScanToStart() {

@@ -58,7 +58,7 @@ func newAPIKeyEnv(t *testing.T) *apiKeyEnv {
 	sessionSvc := session.NewService(session.Config{CookieName: "fleet_session", Duration: time.Hour, IDBytes: 32}, sqlstores.NewSQLSessionStore(database.DB))
 	activitySvc := activity.NewService(sqlstores.NewSQLActivityStore(database.DB))
 	keySvc := apikey.NewService(sqlstores.NewSQLApiKeyStore(database.DB), activitySvc)
-	auth := interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, keySvc, authz.NewPermissionResolver(database.DB), nil, nil, nil)
+	auth := interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, keySvc, authz.NewPermissionResolver(database.DB), nil, nil, nil, nil)
 	t.Chdir(t.TempDir())
 	fileSvc, err := files.NewService(files.Config{})
 	require.NoError(t, err)

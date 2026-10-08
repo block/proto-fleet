@@ -353,6 +353,7 @@ func start(config *Config) (result error) {
 	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, sessionSvc, encryptSvc, activitySvc, permissionResolver)
 	hostedaccountsSvc := hostedaccountsDomain.NewService(conn)
 	hostedInvitationsSvc := hostedaccountsDomain.NewInvitationService(hostedaccountsSvc, sessionSvc)
+	hostedKeysSvc := hostedaccountsDomain.NewKeyService(hostedaccountsSvc, apiKeySvc)
 
 	identityStateCleanup := newBackgroundLoop(func(ctx context.Context) {
 		cleanupInterval := sessionSvc.CleanupInterval()
@@ -830,7 +831,7 @@ func start(config *Config) (result error) {
 
 	validateInterceptor := validate.NewInterceptor()
 
-	requestAuth := interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, permissionResolver, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures)
+	requestAuth := interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, permissionResolver, hostedKeysSvc, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures)
 
 	li := connect.WithInterceptors(
 		interceptors.NewErrorMappingInterceptor(),
@@ -880,7 +881,7 @@ func start(config *Config) (result error) {
 	}
 
 	mux.Handle(authv1connect.NewAuthServiceHandler(auth.NewHandler(authSvc), li))
-	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedaccountsHandler.NewHandler(hostedaccountsSvc, hostedInvitationsSvc, userStore, permissionResolver), li))
+	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedaccountsHandler.NewHandler(hostedaccountsSvc, hostedInvitationsSvc, hostedKeysSvc, userStore, permissionResolver), li))
 	mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboarding.NewHandler(authSvc, onboardingSvc), li))
 	mux.Handle(pairingv1connect.NewPairingServiceHandler(pairing.NewHandler(pairingSvc, fleetNodeDiscoverySvc, fleetNodePairingSvc), li))
 	mux.Handle(networkinfov1connect.NewNetworkInfoServiceHandler(networkinfo.NewHandler(pairingSvc), li))

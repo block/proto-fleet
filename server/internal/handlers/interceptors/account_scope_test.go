@@ -46,7 +46,7 @@ func TestSelectedAccountCannotFallBackToHostRPC(t *testing.T) {
 	const streamProcedure = "/telemetry.v1.TelemetryService/StreamCombinedMetricUpdates"
 	// Even a host administrator cannot use the host transport in customer mode.
 	ctx := authn.SetInfo(t.Context(), &session.Info{UserID: 1, OrganizationID: 1, Role: "ADMIN"})
-	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, []string{legacyProcedure, streamProcedure}, nil, []string{legacyProcedure, streamProcedure})
+	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, []string{legacyProcedure, streamProcedure}, nil, []string{legacyProcedure, streamProcedure})
 	header := http.Header{}
 	header.Set("X-Fleet-Account-Id", selectedAccount)
 
@@ -80,7 +80,7 @@ func TestSelectedAccountCannotFallBackToHostRPC(t *testing.T) {
 
 func TestRequestAccountHeaderValidation(t *testing.T) {
 	const procedure = "/auth.v1.AuthService/GetUserAuditInfo"
-	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, []string{procedure}, nil, nil)
+	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, []string{procedure}, nil, nil)
 	for name, header := range map[string]http.Header{
 		"empty":              {hostedaccounts.RequestAccountHeader: {""}},
 		"empty field":        {hostedaccounts.RequestAccountHeader: {}},
@@ -105,7 +105,7 @@ func TestRequestAccountHeaderValidation(t *testing.T) {
 
 func TestRequestAccountCapturedIndependentlyOfHeaders(t *testing.T) {
 	const procedure = "/auth.v1.AuthService/VerifyCredentials"
-	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, []string{procedure}, nil, nil)
+	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, []string{procedure}, nil, nil)
 	header := http.Header{hostedaccounts.RequestAccountHeader: {selectedAccount}}
 	ctx, err := interceptor.authenticate(t.Context(), procedure, header)
 	require.NoError(t, err)
@@ -127,7 +127,7 @@ func TestSelectedAccountRejectsOtherAuthAndUnknownHostedMethods(t *testing.T) {
 		hostedAccountProcedurePrefix + "FutureMethod",
 	} {
 		t.Run(procedure, func(t *testing.T) {
-			interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, []string{procedure}, nil, []string{procedure})
+			interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, []string{procedure}, nil, []string{procedure})
 			_, err := interceptor.authenticate(t.Context(), procedure, http.Header{hostedaccounts.RequestAccountHeader: {selectedAccount}})
 			require.True(t, fleeterror.IsForbiddenError(err))
 		})
@@ -141,7 +141,7 @@ func TestHostedAdministrationRejectsOrganizationAPIKeys(t *testing.T) {
 		}
 		t.Run(procedure, func(t *testing.T) {
 			// Even an accidental exemption must not let an organization key in.
-			interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, []string{procedure}, nil, []string{procedure})
+			interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, []string{procedure}, nil, []string{procedure})
 			_, err := interceptor.authenticate(t.Context(), procedure, http.Header{"Authorization": {"Bearer organization-key"}})
 			require.True(t, fleeterror.IsForbiddenError(err))
 		})
@@ -149,7 +149,7 @@ func TestHostedAdministrationRejectsOrganizationAPIKeys(t *testing.T) {
 }
 
 func TestInvitationOnboardingRemainsUnscoped(t *testing.T) {
-	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, UnauthenticatedProcedures, SessionOnlyProcedures, nil)
+	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, UnauthenticatedProcedures, SessionOnlyProcedures, nil)
 	for _, procedure := range []string{hostedAccountProcedurePrefix + "PreviewInvitation", hostedAccountProcedurePrefix + "RegisterInvitedUser"} {
 		ctx, err := interceptor.authenticate(t.Context(), procedure, http.Header{})
 		require.NoError(t, err)

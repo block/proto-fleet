@@ -1,5 +1,51 @@
 import { expect, test } from "../fixtures/pageFixtures";
 
+test.describe("Add miners scan completion", () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test("waits for discovery to finish before reading a late container and miner summary", async ({
+    page,
+    addMinersPage,
+  }) => {
+    // Mobile keeps the scanning action in its closed overflow menu. The partial
+    // summary is the visible indication that discovery has not finished yet.
+    await page.setContent(`
+      <div id="summary">Scanning… 1 miner found on your network</div>
+      <div data-testid="found-miners-list">Proto Rig</div>
+      <div hidden><button>Scanning</button></div>
+      <button>Continue with 1 miners</button>
+    `);
+
+    // Keep discovery incomplete through a short negative-assertion budget.
+    // An early return would let selection miss a container arriving afterward.
+    await expect(page.getByTestId("found-miners-list")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue with 1 miners", exact: true })).toBeVisible();
+    let partialScanError: unknown;
+    try {
+      await addMinersPage.waitForNetworkScanToFinish(750);
+    } catch (error) {
+      partialScanError = error;
+    }
+    expect(partialScanError).toBeInstanceOf(Error);
+    expect((partialScanError as Error).message).toContain("toBe");
+
+    await page.locator("#summary").evaluate((summary) => {
+      summary.textContent = "1 container and 1 miner found on your network";
+    });
+    await page.getByRole("button", { name: "Continue with 1 miners", exact: true }).evaluate((button) => {
+      button.textContent = "Continue with 2 miners";
+    });
+    await page.getByRole("button", { name: "Scanning", exact: true, includeHidden: true }).evaluate((button) => {
+      button.textContent = "Rescan network";
+      button.parentElement!.hidden = false;
+    });
+
+    await addMinersPage.waitForNetworkScanToFinish();
+    expect(await addMinersPage.getFoundMinersCount()).toBe(1);
+    await expect(page.getByRole("button", { name: "Continue with 2 miners", exact: true })).toBeVisible();
+  });
+});
+
 test.describe("Proto Fleet - Add Miners Validation", () => {
   test.beforeEach(async ({ page, commonSteps }) => {
     await page.goto("/");

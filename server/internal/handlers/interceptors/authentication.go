@@ -29,7 +29,12 @@ type EffectivePermissionResolver interface {
 	LoadEffective(ctx context.Context, userID, organizationID int64) (*authz.EffectivePermissions, error)
 }
 
+type AccountKeyAuthorizer interface {
+	Authorize(ctx context.Context, keyID, issuerID, orgID int64, targetID string) (hostedaccounts.Capabilities, error)
+}
+
 type AuthInterceptor struct {
+	accountKeys        AccountKeyAuthorizer
 	sessionService     *session.Service
 	userStore          interfaces.UserStore
 	userMgmtStore      interfaces.UserManagementStore
@@ -48,6 +53,7 @@ func NewAuthInterceptor(
 	userMgmtStore interfaces.UserManagementStore,
 	apiKeyService *apikey.Service,
 	permissionResolver EffectivePermissionResolver,
+	accountKeys AccountKeyAuthorizer,
 	allowedProcedures []string,
 	sessionOnlyProcedures []string,
 	agentAuthProcedures []string,
@@ -73,6 +79,7 @@ func NewAuthInterceptor(
 		userMgmtStore:      userMgmtStore,
 		apiKeyService:      apiKeyService,
 		permissionResolver: permissionResolver,
+		accountKeys:        accountKeys,
 		allowList:          allowList,
 		sessionOnlyList:    sessionOnlyList,
 		agentAuthList:      agentAuthList,
@@ -148,10 +155,21 @@ func (i *AuthInterceptor) authenticate(ctx context.Context, procedure string, re
 	if _, selected := hostedaccounts.RequestAccountID(ctx); selected && !allowsSelectedAccount(procedure) {
 		return ctx, fleeterror.NewForbiddenError("this endpoint is not available in an account workspace")
 	}
-	// Customer administration is session-only until account-bounded machine
-	// credentials exist. Exemption lists cannot bypass this boundary.
+	// Only explicitly classified account reads accept bounded machine keys.
+	// Exemption lists cannot widen account or interactive credential access.
 	if strings.HasPrefix(procedure, hostedAccountProcedurePrefix) && !publicHostedInvitation(procedure) {
-		return i.authenticateRequest(ctx, requestHeader, true)
+		authed, err := i.authenticateRequest(ctx, requestHeader, !allowsAccountKey(procedure))
+		if err != nil {
+			return ctx, err
+		}
+		info, err := session.GetInfo(authed)
+		if err != nil {
+			return ctx, err
+		}
+		if info.AuthMethod == session.AuthMethodAPIKey && !info.AccountKey {
+			return ctx, fleeterror.NewForbiddenError("organization keys cannot access customer accounts")
+		}
+		return authed, nil
 	}
 	if _, ok := i.allowList[procedure]; ok {
 		return ctx, nil
@@ -183,12 +201,24 @@ func publicHostedInvitation(procedure string) bool {
 		procedure == hostedv1connect.HostedAccountServiceRegisterInvitedUserProcedure
 }
 
+func allowsAccountKey(procedure string) bool {
+	switch procedure {
+	case hostedv1connect.HostedAccountServiceGetAccountProcedure, hostedv1connect.HostedAccountServiceGetSitePolicyProcedure:
+		return true
+	default:
+		return false
+	}
+}
+
 func allowsSelectedAccount(procedure string) bool {
 	// This is intentionally an exact list: new services or methods need an
 	// explicit decision before they can be called from a customer workspace.
 	// Token-bound invitation acceptance precedes selection and is excluded.
 	switch procedure {
-	case hostedv1connect.HostedAccountServiceListAccountsProcedure,
+	case hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure,
+		hostedv1connect.HostedAccountServiceListAccountKeysProcedure,
+		hostedv1connect.HostedAccountServiceRevokeAccountKeyProcedure,
+		hostedv1connect.HostedAccountServiceListAccountsProcedure,
 		hostedv1connect.HostedAccountServiceGetAccountProcedure,
 		hostedv1connect.HostedAccountServiceListChildrenProcedure,
 		hostedv1connect.HostedAccountServiceCreateAccountProcedure,
@@ -266,8 +296,31 @@ func (i *AuthInterceptor) authenticateWithApiKey(ctx context.Context, authHeader
 	}
 
 	userID, ok := apiKeyRecord.AsUser()
-	if !ok {
-		return ctx, fleeterror.NewUnauthenticatedError("invalid api key")
+	accountIssuer, isAccount := apiKeyRecord.AsAccount()
+	if isAccount {
+		userID = accountIssuer
+		selected, present := hostedaccounts.RequestAccountID(ctx)
+		if !present {
+			return ctx, fleeterror.NewForbiddenError("account keys require an explicit selected account")
+		}
+		if i.accountKeys == nil {
+			return ctx, fleeterror.NewInternalError("account credential authorizer is not configured")
+		}
+		capabilities, err := i.accountKeys.Authorize(ctx, apiKeyRecord.ID, userID, apiKeyRecord.OrganizationID, selected)
+		if err != nil {
+			return ctx, err
+		}
+		ctx, err = hostedaccounts.WithMachineScope(ctx, selected, capabilities)
+		if err != nil {
+			return ctx, err
+		}
+	} else {
+		if !ok {
+			return ctx, fleeterror.NewUnauthenticatedError("invalid api key")
+		}
+		if _, selected := hostedaccounts.RequestAccountID(ctx); selected {
+			return ctx, fleeterror.NewForbiddenError("organization keys cannot access customer accounts")
+		}
 	}
 
 	user, err := i.userStore.GetUserByID(ctx, userID)
@@ -280,11 +333,15 @@ func (i *AuthInterceptor) authenticateWithApiKey(ctx context.Context, authHeader
 		return ctx, classifyLookupError(err, "api key auth: role lookup failed", userID)
 	}
 
+	if isAccount {
+		roleName = ""
+	}
 	info := &session.Info{
 		AuthMethod:       session.AuthMethodAPIKey,
 		APIKeyID:         apiKeyRecord.KeyID,
 		APIKeyDatabaseID: apiKeyRecord.ID,
 		APIKeyName:       apiKeyRecord.Name,
+		AccountKey:       isAccount,
 		UserID:           userID,
 		OrganizationID:   apiKeyRecord.OrganizationID,
 		ExternalUserID:   user.UserID,
@@ -292,9 +349,15 @@ func (i *AuthInterceptor) authenticateWithApiKey(ctx context.Context, authHeader
 		Role:             roleName,
 	}
 
-	authedCtx, err := i.loadEffectivePermissions(ctx, info)
-	if err != nil {
-		return ctx, err
+	var authedCtx context.Context
+	if isAccount {
+		// Host roles belonging to the issuer never enter a customer credential's context.
+		authedCtx = authn.SetInfo(ctx, info)
+	} else {
+		authedCtx, err = i.loadEffectivePermissions(ctx, info)
+		if err != nil {
+			return ctx, err
+		}
 	}
 
 	// Only credit the key with a successful use once authentication is

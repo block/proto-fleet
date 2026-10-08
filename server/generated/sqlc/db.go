@@ -33,6 +33,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.addDevicesToDeviceSetStmt, err = db.PrepareContext(ctx, addDevicesToDeviceSet); err != nil {
 		return nil, fmt.Errorf("error preparing query AddDevicesToDeviceSet: %w", err)
 	}
+	if q.addHostedAccountKeyDescendantStmt, err = db.PrepareContext(ctx, addHostedAccountKeyDescendant); err != nil {
+		return nil, fmt.Errorf("error preparing query AddHostedAccountKeyDescendant: %w", err)
+	}
 	if q.addHostedAccountSiteStmt, err = db.PrepareContext(ctx, addHostedAccountSite); err != nil {
 		return nil, fmt.Errorf("error preparing query AddHostedAccountSite: %w", err)
 	}
@@ -98,6 +101,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.bindEnrollmentToFleetNodeStmt, err = db.PrepareContext(ctx, bindEnrollmentToFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query BindEnrollmentToFleetNode: %w", err)
+	}
+	if q.bindHostedAccountKeyStmt, err = db.PrepareContext(ctx, bindHostedAccountKey); err != nil {
+		return nil, fmt.Errorf("error preparing query BindHostedAccountKey: %w", err)
 	}
 	if q.buildingBelongsToOrgStmt, err = db.PrepareContext(ctx, buildingBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query BuildingBelongsToOrg: %w", err)
@@ -867,6 +873,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getHostedAccountInvitationByHashStmt, err = db.PrepareContext(ctx, getHostedAccountInvitationByHash); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHostedAccountInvitationByHash: %w", err)
 	}
+	if q.getHostedAccountKeyAuthorityStmt, err = db.PrepareContext(ctx, getHostedAccountKeyAuthority); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedAccountKeyAuthority: %w", err)
+	}
+	if q.getHostedAccountKeyOwnerStmt, err = db.PrepareContext(ctx, getHostedAccountKeyOwner); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedAccountKeyOwner: %w", err)
+	}
 	if q.getHostedAccountMembershipStmt, err = db.PrepareContext(ctx, getHostedAccountMembership); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHostedAccountMembership: %w", err)
 	}
@@ -1422,6 +1434,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listHostedAccountInvitationsStmt, err = db.PrepareContext(ctx, listHostedAccountInvitations); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountInvitations: %w", err)
 	}
+	if q.listHostedAccountKeysStmt, err = db.PrepareContext(ctx, listHostedAccountKeys); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedAccountKeys: %w", err)
+	}
 	if q.listHostedAccountMembersStmt, err = db.PrepareContext(ctx, listHostedAccountMembers); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountMembers: %w", err)
 	}
@@ -1929,6 +1944,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.revokeHostedAccountInvitationStmt, err = db.PrepareContext(ctx, revokeHostedAccountInvitation); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeHostedAccountInvitation: %w", err)
 	}
+	if q.revokeHostedAccountKeyStmt, err = db.PrepareContext(ctx, revokeHostedAccountKey); err != nil {
+		return nil, fmt.Errorf("error preparing query RevokeHostedAccountKey: %w", err)
+	}
 	if q.revokeHostedAccountMembershipStmt, err = db.PrepareContext(ctx, revokeHostedAccountMembership); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeHostedAccountMembership: %w", err)
 	}
@@ -2354,6 +2372,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing addDevicesToDeviceSetStmt: %w", cerr)
 		}
 	}
+	if q.addHostedAccountKeyDescendantStmt != nil {
+		if cerr := q.addHostedAccountKeyDescendantStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing addHostedAccountKeyDescendantStmt: %w", cerr)
+		}
+	}
 	if q.addHostedAccountSiteStmt != nil {
 		if cerr := q.addHostedAccountSiteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing addHostedAccountSiteStmt: %w", cerr)
@@ -2462,6 +2485,11 @@ func (q *Queries) Close() error {
 	if q.bindEnrollmentToFleetNodeStmt != nil {
 		if cerr := q.bindEnrollmentToFleetNodeStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing bindEnrollmentToFleetNodeStmt: %w", cerr)
+		}
+	}
+	if q.bindHostedAccountKeyStmt != nil {
+		if cerr := q.bindHostedAccountKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing bindHostedAccountKeyStmt: %w", cerr)
 		}
 	}
 	if q.buildingBelongsToOrgStmt != nil {
@@ -3744,6 +3772,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getHostedAccountInvitationByHashStmt: %w", cerr)
 		}
 	}
+	if q.getHostedAccountKeyAuthorityStmt != nil {
+		if cerr := q.getHostedAccountKeyAuthorityStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedAccountKeyAuthorityStmt: %w", cerr)
+		}
+	}
+	if q.getHostedAccountKeyOwnerStmt != nil {
+		if cerr := q.getHostedAccountKeyOwnerStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedAccountKeyOwnerStmt: %w", cerr)
+		}
+	}
 	if q.getHostedAccountMembershipStmt != nil {
 		if cerr := q.getHostedAccountMembershipStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getHostedAccountMembershipStmt: %w", cerr)
@@ -4669,6 +4707,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listHostedAccountInvitationsStmt: %w", cerr)
 		}
 	}
+	if q.listHostedAccountKeysStmt != nil {
+		if cerr := q.listHostedAccountKeysStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedAccountKeysStmt: %w", cerr)
+		}
+	}
 	if q.listHostedAccountMembersStmt != nil {
 		if cerr := q.listHostedAccountMembersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listHostedAccountMembersStmt: %w", cerr)
@@ -5514,6 +5557,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing revokeHostedAccountInvitationStmt: %w", cerr)
 		}
 	}
+	if q.revokeHostedAccountKeyStmt != nil {
+		if cerr := q.revokeHostedAccountKeyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing revokeHostedAccountKeyStmt: %w", cerr)
+		}
+	}
 	if q.revokeHostedAccountMembershipStmt != nil {
 		if cerr := q.revokeHostedAccountMembershipStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing revokeHostedAccountMembershipStmt: %w", cerr)
@@ -6231,6 +6279,7 @@ type Queries struct {
 	acquireFleetRuntimeLeaseStmt                                 *sql.Stmt
 	acquireReconcileLockStmt                                     *sql.Stmt
 	addDevicesToDeviceSetStmt                                    *sql.Stmt
+	addHostedAccountKeyDescendantStmt                            *sql.Stmt
 	addHostedAccountSiteStmt                                     *sql.Stmt
 	addHostedAccountUserAffiliationStmt                          *sql.Stmt
 	adminResetUserPasswordStmt                                   *sql.Stmt
@@ -6253,6 +6302,7 @@ type Queries struct {
 	beginCurtailmentTopologyTargetRestoreStmt                    *sql.Stmt
 	bindCurtailmentAutomationRuleResponseProfileRevisionStmt     *sql.Stmt
 	bindEnrollmentToFleetNodeStmt                                *sql.Stmt
+	bindHostedAccountKeyStmt                                     *sql.Stmt
 	buildingBelongsToOrgStmt                                     *sql.Stmt
 	buildingsByIDsStmt                                           *sql.Stmt
 	bulkAssignTicketsStmt                                        *sql.Stmt
@@ -6509,6 +6559,8 @@ type Queries struct {
 	getHashboardInstallationsStmt                                *sql.Stmt
 	getHostedAccountAncestorGrantStmt                            *sql.Stmt
 	getHostedAccountInvitationByHashStmt                         *sql.Stmt
+	getHostedAccountKeyAuthorityStmt                             *sql.Stmt
+	getHostedAccountKeyOwnerStmt                                 *sql.Stmt
 	getHostedAccountMembershipStmt                               *sql.Stmt
 	getHostedAccountPathStmt                                     *sql.Stmt
 	getInfrastructureControlSubnetsStmt                          *sql.Stmt
@@ -6694,6 +6746,7 @@ type Queries struct {
 	listHostedAccountAncestorGrantsStmt                          *sql.Stmt
 	listHostedAccountChildrenStmt                                *sql.Stmt
 	listHostedAccountInvitationsStmt                             *sql.Stmt
+	listHostedAccountKeysStmt                                    *sql.Stmt
 	listHostedAccountMembersStmt                                 *sql.Stmt
 	listHostedAccountSitesStmt                                   *sql.Stmt
 	listHostedAccountSummariesStmt                               *sql.Stmt
@@ -6863,6 +6916,7 @@ type Queries struct {
 	revokeApiKeysByFleetNodeIDStmt                               *sql.Stmt
 	revokeHostedAccountAncestorGrantStmt                         *sql.Stmt
 	revokeHostedAccountInvitationStmt                            *sql.Stmt
+	revokeHostedAccountKeyStmt                                   *sql.Stmt
 	revokeHostedAccountMembershipStmt                            *sql.Stmt
 	revokePermissionFromRoleStmt                                 *sql.Stmt
 	revokeSessionStmt                                            *sql.Stmt
@@ -7007,6 +7061,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		acquireFleetRuntimeLeaseStmt:                                 q.acquireFleetRuntimeLeaseStmt,
 		acquireReconcileLockStmt:                                     q.acquireReconcileLockStmt,
 		addDevicesToDeviceSetStmt:                                    q.addDevicesToDeviceSetStmt,
+		addHostedAccountKeyDescendantStmt:                            q.addHostedAccountKeyDescendantStmt,
 		addHostedAccountSiteStmt:                                     q.addHostedAccountSiteStmt,
 		addHostedAccountUserAffiliationStmt:                          q.addHostedAccountUserAffiliationStmt,
 		adminResetUserPasswordStmt:                                   q.adminResetUserPasswordStmt,
@@ -7029,6 +7084,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		beginCurtailmentTopologyTargetRestoreStmt:                    q.beginCurtailmentTopologyTargetRestoreStmt,
 		bindCurtailmentAutomationRuleResponseProfileRevisionStmt:     q.bindCurtailmentAutomationRuleResponseProfileRevisionStmt,
 		bindEnrollmentToFleetNodeStmt:                                q.bindEnrollmentToFleetNodeStmt,
+		bindHostedAccountKeyStmt:                                     q.bindHostedAccountKeyStmt,
 		buildingBelongsToOrgStmt:                                     q.buildingBelongsToOrgStmt,
 		buildingsByIDsStmt:                                           q.buildingsByIDsStmt,
 		bulkAssignTicketsStmt:                                        q.bulkAssignTicketsStmt,
@@ -7285,6 +7341,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getHashboardInstallationsStmt:                                q.getHashboardInstallationsStmt,
 		getHostedAccountAncestorGrantStmt:                            q.getHostedAccountAncestorGrantStmt,
 		getHostedAccountInvitationByHashStmt:                         q.getHostedAccountInvitationByHashStmt,
+		getHostedAccountKeyAuthorityStmt:                             q.getHostedAccountKeyAuthorityStmt,
+		getHostedAccountKeyOwnerStmt:                                 q.getHostedAccountKeyOwnerStmt,
 		getHostedAccountMembershipStmt:                               q.getHostedAccountMembershipStmt,
 		getHostedAccountPathStmt:                                     q.getHostedAccountPathStmt,
 		getInfrastructureControlSubnetsStmt:                          q.getInfrastructureControlSubnetsStmt,
@@ -7470,6 +7528,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listHostedAccountAncestorGrantsStmt:                          q.listHostedAccountAncestorGrantsStmt,
 		listHostedAccountChildrenStmt:                                q.listHostedAccountChildrenStmt,
 		listHostedAccountInvitationsStmt:                             q.listHostedAccountInvitationsStmt,
+		listHostedAccountKeysStmt:                                    q.listHostedAccountKeysStmt,
 		listHostedAccountMembersStmt:                                 q.listHostedAccountMembersStmt,
 		listHostedAccountSitesStmt:                                   q.listHostedAccountSitesStmt,
 		listHostedAccountSummariesStmt:                               q.listHostedAccountSummariesStmt,
@@ -7639,6 +7698,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		revokeApiKeysByFleetNodeIDStmt:                               q.revokeApiKeysByFleetNodeIDStmt,
 		revokeHostedAccountAncestorGrantStmt:                         q.revokeHostedAccountAncestorGrantStmt,
 		revokeHostedAccountInvitationStmt:                            q.revokeHostedAccountInvitationStmt,
+		revokeHostedAccountKeyStmt:                                   q.revokeHostedAccountKeyStmt,
 		revokeHostedAccountMembershipStmt:                            q.revokeHostedAccountMembershipStmt,
 		revokePermissionFromRoleStmt:                                 q.revokePermissionFromRoleStmt,
 		revokeSessionStmt:                                            q.revokeSessionStmt,

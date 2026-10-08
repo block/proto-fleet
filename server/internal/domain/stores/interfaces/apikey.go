@@ -9,12 +9,13 @@ type ApiKeySubjectKind string
 
 const (
 	ApiKeySubjectKindUser      ApiKeySubjectKind = "user"
+	ApiKeySubjectKindAccount   ApiKeySubjectKind = "account"
 	ApiKeySubjectKindFleetNode ApiKeySubjectKind = "fleet_node"
 )
 
 // ApiKey is the persisted form of an API key. Exactly one of UserID or
 // FleetNodeID is populated, matching SubjectKind; consumers should branch via
-// AsUser / AsFleetNode rather than nil-checking the pointer fields.
+// AsUser / AsAccount / AsFleetNode rather than nil-checking the pointer fields.
 type ApiKey struct {
 	ID                int64
 	KeyID             string
@@ -30,6 +31,14 @@ type ApiKey struct {
 	RevokedAt         *time.Time
 	LastUsedAt        *time.Time
 	CreatedByUsername string
+}
+
+// AsAccount returns the issuer only for a customer-bound credential.
+func (k *ApiKey) AsAccount() (int64, bool) {
+	if k.SubjectKind == ApiKeySubjectKindAccount && k.UserID != nil {
+		return *k.UserID, true
+	}
+	return 0, false
 }
 
 // AsUser returns the user_id if this key is bound to a user, with ok=false
