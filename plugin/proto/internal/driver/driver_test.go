@@ -33,6 +33,7 @@ func TestPairDevice_OnlyDefiniteCredentialRejectionReturnsSDKAuthError(t *testin
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
+			loginComplete := make(chan struct{})
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
 				case "/api/v1/pairing/info":
@@ -44,6 +45,8 @@ func TestPairDevice_OnlyDefiniteCredentialRejectionReturnsSDKAuthError(t *testin
 				case "/api/v1/auth/login":
 					if tc.cancel {
 						cancel()
+						// Wait for PairDevice to observe cancellation before returning an empty HTTP 200.
+						<-loginComplete
 						return
 					}
 					if tc.disconnect {
@@ -92,6 +95,7 @@ func TestPairDevice_OnlyDefiniteCredentialRejectionReturnsSDKAuthError(t *testin
 			}, sdk.SecretBundle{
 				Kind: sdk.UsernamePassword{Username: "admin", Password: "wrong"},
 			})
+			close(loginComplete)
 
 			require.Error(t, err)
 			var sdkErr sdk.SDKError
