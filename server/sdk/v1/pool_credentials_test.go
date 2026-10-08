@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -18,13 +19,12 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 )
 
-// storedPoolDevice simulates firmware storage, with password visibility
-// independently controlled from the values accepted by UpdateMiningPools.
+// storedPoolDevice retains exact write credentials while exposing a secret-free
+// runtime pool view.
 type storedPoolDevice struct {
 	fakeDevice
-	mu              sync.Mutex
-	pools           []MiningPoolConfig
-	hiddenPasswords map[int32]bool
+	mu    sync.Mutex
+	pools []MiningPoolConfig
 }
 
 func (d *storedPoolDevice) UpdateMiningPools(_ context.Context, pools []MiningPoolConfig) error {
@@ -40,9 +40,6 @@ func (d *storedPoolDevice) GetMiningPools(context.Context) ([]ConfiguredPool, er
 	pools := make([]ConfiguredPool, len(d.pools))
 	for i, pool := range d.pools {
 		pools[i] = ConfiguredPool{Priority: pool.Priority, URL: pool.URL, Username: pool.WorkerName}
-		if !d.hiddenPasswords[pool.Priority] {
-			pools[i].Password = ptr(pool.Password)
-		}
 	}
 	return pools, nil
 }
@@ -95,31 +92,21 @@ func TestMiningPoolCredentialsGRPCTransport(t *testing.T) {
 		assert.Equal(t, pool.Priority, readback[i].Priority)
 		assert.Equal(t, pool.URL, readback[i].URL)
 		assert.Equal(t, pool.WorkerName, readback[i].Username)
-		require.NotNil(t, readback[i].Password)
-		assert.Equal(t, pool.Password, *readback[i].Password)
 	}
 
-	// Firmware may withhold a password or report a changed stored value.
-	// Neither result may be replaced with the last desired write credential.
-	device.mu.Lock()
-	device.hiddenPasswords = map[int32]bool{0: true}
-	device.pools[1].Password = "firmware-changed-password"
-	device.mu.Unlock()
-	readback, err = client.GetMiningPools(ctx)
+	encoded, err := json.Marshal(readback)
 	require.NoError(t, err)
-	require.Len(t, readback, 3)
-	assert.Nil(t, readback[0].Password, "unproven readback must remain absent")
-	require.NotNil(t, readback[1].Password)
-	assert.Equal(t, "firmware-changed-password", *readback[1].Password)
-	require.NotNil(t, readback[2].Password, "explicit stored empty password must remain present")
-	assert.Empty(t, *readback[2].Password)
+	for _, pool := range pools[:2] {
+		require.NotContains(t, string(encoded), pool.Password, "ordinary pool readback must never contain credentials")
+	}
+	require.Nil(t, (&pb.ConfiguredPool{}).ProtoReflect().Descriptor().Fields().ByName("password"), "ordinary readback must not have a password field on the wire")
+
 }
 
 func TestMiningPoolCredentialsRedactedWhenFormattedAndLogged(t *testing.T) {
 	password := "secret-must-not-be-logged"
 	values := []any{
 		MiningPoolConfig{Priority: 0, URL: "stratum+tcp://pool.example:3333", WorkerName: "worker", Password: password},
-		ConfiguredPool{Priority: 0, URL: "stratum+tcp://pool.example:3333", Username: "worker", Password: &password},
 	}
 	for _, value := range values {
 		for _, format := range []string{"%v", "%+v", "%#v"} {

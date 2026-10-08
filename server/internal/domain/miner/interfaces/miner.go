@@ -2,7 +2,6 @@ package interfaces
 
 import (
 	"context"
-	"fmt"
 	"net/url"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -92,15 +91,4 @@ type MinerConfiguredPool struct {
 	Priority int32
 	URL      string
 	Username string
-	// Password is actual firmware readback: nil means unproven, while a pointer
-	// to "" means explicitly stored empty. It is private verification material.
-	Password *string `json:"-"`
-}
-
-func (p MinerConfiguredPool) String() string {
-	return fmt.Sprintf("MinerConfiguredPool{Priority:%d URL:%q Username:%q Password:[redacted]}", p.Priority, p.URL, p.Username)
-}
-
-func (p MinerConfiguredPool) GoString() string {
-	return p.String()
 }

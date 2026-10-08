@@ -457,7 +457,6 @@ func (p *PluginMiner) GetMiningPools(ctx context.Context) ([]interfaces.MinerCon
 			Priority: pool.Priority,
 			URL:      pool.URL,
 			Username: pool.Username,
-			Password: pool.Password,
 		}
 	}
 	return pools, nil

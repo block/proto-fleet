@@ -763,8 +763,6 @@ impl AsicRsDevice {
                     priority: i as i32,
                     url,
                     username: pool.user.clone().unwrap_or_default(),
-                    // Runtime pool telemetry does not prove stored credentials.
-                    password: None,
                 });
             }
         }

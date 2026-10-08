@@ -381,9 +381,6 @@ message ConfiguredPool {
   int32 priority = 1;        // Pool priority (0 = default, 1 = backup1, 2 = backup2)
   string url = 2;            // Pool URL (e.g., stratum+tcp://pool.example:3333)
   string username = 3;       // Worker name or username configured on the miner
-  // Actual stored credential proven by firmware readback. Absent means unknown;
-  // present empty means explicitly stored empty. Never infer from desired config.
-  optional string password = 4;
 }
 
 message GetMiningPoolsRequest {

@@ -634,16 +634,14 @@ class UpdateMiningPoolsRequest(_message.Message):
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., pools: _Optional[_Iterable[_Union[MiningPool, _Mapping]]] = ...) -> None: ...
 
 class ConfiguredPool(_message.Message):
-    __slots__ = ("priority", "url", "username", "password")
+    __slots__ = ("priority", "url", "username")
     PRIORITY_FIELD_NUMBER: _ClassVar[int]
     URL_FIELD_NUMBER: _ClassVar[int]
     USERNAME_FIELD_NUMBER: _ClassVar[int]
-    PASSWORD_FIELD_NUMBER: _ClassVar[int]
     priority: int
     url: str
     username: str
-    password: str
-    def __init__(self, priority: _Optional[int] = ..., url: _Optional[str] = ..., username: _Optional[str] = ..., password: _Optional[str] = ...) -> None: ...
+    def __init__(self, priority: _Optional[int] = ..., url: _Optional[str] = ..., username: _Optional[str] = ...) -> None: ...
 
 class GetMiningPoolsRequest(_message.Message):
     __slots__ = ("ref",)

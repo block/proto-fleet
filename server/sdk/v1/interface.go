@@ -358,18 +358,6 @@ type ConfiguredPool struct {
 	Priority int32
 	URL      string
 	Username string // Worker name / username configured on the miner
-	// Password is present only when firmware proves the actual stored value.
-	// Nil means unavailable readback; a pointer to "" means explicitly stored empty.
-	// Never populate this from desired configuration or an inferred default.
-	Password *string `json:"-"`
-}
-
-func (p ConfiguredPool) String() string {
-	return fmt.Sprintf("ConfiguredPool{Priority:%d URL:%q Username:%q Password:[redacted]}", p.Priority, p.URL, p.Username)
-}
-
-func (p ConfiguredPool) GoString() string {
-	return p.String()
 }
 
 // NewDeviceResult contains the result of creating a new device

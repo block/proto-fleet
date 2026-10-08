@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/url"
 	"os"
-	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -966,13 +964,12 @@ func TestPluginMiner_UpdateMiningPools(t *testing.T) {
 	}
 }
 
-func TestPluginMiner_GetMiningPoolsPreservesPasswordPresence(t *testing.T) {
+func TestPluginMiner_GetMiningPoolsPreservesPoolIdentity(t *testing.T) {
 	pm, mockDevice := createTestPluginMiner()
-	empty, nonempty := "", "stored-password"
 	storedPools := []sdk.ConfiguredPool{
 		{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "primary"},
-		{Priority: 1, URL: "stratum+tcp://backup1.example.com:3333", Username: "backup1", Password: &empty},
-		{Priority: 2, URL: "stratum+tcp://backup2.example.com:3333", Username: "backup2", Password: &nonempty},
+		{Priority: 1, URL: "stratum+tcp://backup1.example.com:3333", Username: "backup1"},
+		{Priority: 2, URL: "stratum+tcp://backup2.example.com:3333", Username: "backup2"},
 	}
 	mockDevice.getPoolsFunc = func(context.Context) ([]sdk.ConfiguredPool, error) { return storedPools, nil }
 
@@ -984,14 +981,7 @@ func TestPluginMiner_GetMiningPoolsPreservesPasswordPresence(t *testing.T) {
 		assert.Equal(t, pool.Priority, pools[i].Priority)
 		assert.Equal(t, pool.URL, pools[i].URL)
 		assert.Equal(t, pool.Username, pools[i].Username)
-		assert.Equal(t, pool.Password, pools[i].Password)
 	}
-	for _, format := range []string{"%v", "%+v", "%#v"} {
-		assert.NotContains(t, fmt.Sprintf(format, pools[2]), nonempty)
-	}
-	var output strings.Builder
-	slog.New(slog.NewJSONHandler(&output, nil)).Info("pools", "configured", pools)
-	assert.NotContains(t, output.String(), nonempty)
 }
 
 func TestPluginMiner_ErrorPropagation(t *testing.T) {
