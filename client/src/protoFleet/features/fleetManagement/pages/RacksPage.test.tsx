@@ -1,5 +1,5 @@
 import { MemoryRouter, useLocation, useSearchParams } from "react-router-dom";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
@@ -20,7 +20,13 @@ const {
   getDeviceSetStats,
   permissions,
   containers,
+  tankOptions,
+  setTankMining,
+  updateToast,
 } = vi.hoisted(() => ({
+  updateToast: vi.fn(),
+  tankOptions: vi.fn(),
+  setTankMining: vi.fn(),
   listInventory: vi.fn(),
   listRacks: vi.fn(),
   listRackZones: vi.fn(),
@@ -33,7 +39,15 @@ const {
     { id: "8", label: "CT1 South" },
   ],
 }));
-vi.mock("@/protoFleet/api/clients", () => ({ fleetInventoryClient: { listInventory } }));
+vi.mock("@/shared/features/toaster", () => ({
+  pushToast: () => 1,
+  updateToast,
+  STATUSES: { loading: "loading", success: "success", error: "error" },
+}));
+vi.mock("@/protoFleet/api/clients", () => ({
+  fleetInventoryClient: { listInventory },
+  containersClient: { getTankMiningOptions: tankOptions, setTankMining },
+}));
 vi.mock("@/protoFleet/api/useDeviceSets", () => ({
   useDeviceSets: () => ({ listRacks, listRackZones, getDeviceSetStats }),
 }));
@@ -47,11 +61,16 @@ vi.mock("@/protoFleet/store", async (importOriginal) => ({
 }));
 vi.mock("@/protoFleet/features/fleetManagement/hooks/useCreateRack", () => ({ useCreateRack: () => ({}) }));
 vi.mock("@/protoFleet/features/fleetManagement/hooks/useCreateRacks", () => ({ useCreateRacks: () => ({}) }));
+vi.mock("@/shared/components/Popover/usePopoverPosition", () => ({
+  default: () => ({ popoverRef: { current: null }, popoverStyle: {}, popoverAnimation: "" }),
+}));
 
 const Location = () => <output data-testid="location">{useLocation().search}</output>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  tankOptions.mockResolvedValue({ canStart: true, canStop: true, unavailableReason: "" });
+  setTankMining.mockRejectedValue(new Error("Connection lost"));
   permissions.clear();
   ["site:read", "fleet:read", "miner:read"].forEach((permission) => permissions.add(permission));
   listRackZones.mockImplementation(({ onSuccess }) => onSuccess([]));
@@ -63,6 +82,73 @@ beforeEach(() => {
       totalCount: 1n,
     }),
   );
+});
+
+it("offers scoped tank mining in the bottom action bar and restores the bar after cancellation", async () => {
+  const user = userEvent.setup();
+  render(
+    <MemoryRouter initialEntries={["/fleet/racks?display=list"]}>
+      <RacksPage />
+    </MemoryRouter>,
+  );
+  await user.click(await screen.findByRole("checkbox", { name: "Select tank:1" }));
+  const bar = screen.getByTestId("action-bar");
+  expect(bar).toHaveClass("fixed", "bottom-4");
+  expect(bar.parentElement).toBe(document.body);
+  expect(bar).toHaveTextContent("1 tank selected");
+  await user.click(within(bar).getByRole("button", { name: "Actions for Tank 1" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Stop mining" })).toBeEnabled());
+  await user.click(screen.getByRole("button", { name: "Stop mining" }));
+  expect(bar).toHaveClass("invisible");
+  expect(screen.getByTestId("tank-mining-dialog")).toHaveTextContent("All modules in this tank will stop hashing.");
+  expect(setTankMining).not.toHaveBeenCalled();
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(bar).not.toHaveClass("invisible");
+  await user.click(within(bar).getByRole("button", { name: "Clear selection" }));
+  expect(screen.queryByTestId("action-bar")).not.toBeInTheDocument();
+  expect(screen.getByRole("checkbox", { name: "Select tank:1" })).not.toBeChecked();
+});
+
+it("uses one bar for mixed rack/tank selection and dispatches only the selected tanks", async () => {
+  const user = userEvent.setup();
+  listInventory.mockResolvedValue(
+    create(ListInventoryResponseSchema, {
+      items: [
+        { ref: { kind: EntityKind.TANK, id: 1n }, name: "Tank 1" },
+        { ref: { kind: EntityKind.TANK, id: 2n }, name: "Tank 2" },
+        { ref: { kind: EntityKind.RACK, id: 1n }, details: { case: "rack", value: { id: 1n, label: "Rack 1" } } },
+      ],
+      totalCount: 3n,
+    }),
+  );
+  render(
+    <MemoryRouter initialEntries={["/fleet/racks?display=list"]}>
+      <RacksPage />
+    </MemoryRouter>,
+  );
+  await user.click(await screen.findByRole("checkbox", { name: "Select tank:1" }));
+  const bar = screen.getByTestId("action-bar");
+  await user.click(within(bar).getByRole("button", { name: "Select all visible" }));
+  expect(screen.getAllByTestId("action-bar")).toHaveLength(1);
+  expect(bar).toHaveTextContent("3 equipment groups selected");
+  await user.click(within(bar).getByRole("button", { name: "Actions for 2 selected tanks" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Stop mining" })).toBeEnabled());
+  await user.click(screen.getByRole("button", { name: "Stop mining" }));
+  const dialog = screen.getByTestId("tank-mining-dialog");
+  expect(dialog).toHaveTextContent("Stop mining on 2 tanks?");
+  expect(dialog).not.toHaveTextContent("Rack 1");
+  await user.click(within(dialog).getByRole("button", { name: "Stop mining" }));
+  expect(screen.queryByTestId("tank-mining-dialog")).not.toBeInTheDocument();
+  await waitFor(() =>
+    expect(updateToast).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({ status: "error", message: expect.stringContaining("Connection lost") }),
+    ),
+  );
+  expect(setTankMining).toHaveBeenCalledWith({ tankIds: [1n, 2n], mining: false }, expect.anything());
+  expect(bar).not.toHaveClass("invisible");
+  await user.click(within(bar).getByRole("button", { name: "Select none" }));
+  expect(screen.queryByTestId("action-bar")).not.toBeInTheDocument();
 });
 
 const ApplyContainerScope = () => {

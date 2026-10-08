@@ -1,16 +1,37 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import TankMiningDialog from "./TankMiningDialog";
 import { containersClient } from "@/protoFleet/api/clients";
 import type { GetTankMiningOptionsResponse } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { Play, Power } from "@/shared/assets/icons";
+import { ChevronDown, Play, Power } from "@/shared/assets/icons";
+import { iconSizes } from "@/shared/assets/icons/constants";
+import { variants } from "@/shared/components/Button";
 import RowActionsMenu from "@/shared/components/RowActionsMenu";
 
-export default function TankActionsMenu({ tanks, onRefresh }: { tanks: InventoryItem[]; onRefresh: () => void }) {
+export default function TankActionsMenu({
+  tanks,
+  onRefresh,
+  presentation = "row",
+  onActionStart,
+  onActionComplete,
+}: {
+  tanks: InventoryItem[];
+  onRefresh: () => void;
+  presentation?: "row" | "bulk";
+  onActionStart?: () => void;
+  onActionComplete?: () => void;
+}) {
   const [open, setOpen] = useState(false);
   const [result, setResult] = useState<{ key: string; options?: GetTankMiningOptionsResponse; error?: string }>();
   const [mining, setMining] = useState<boolean>();
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const key = tanks
     .map((tank) => String(tank.ref!.id))
     .sort()
@@ -36,6 +57,10 @@ export default function TankActionsMenu({ tanks, onRefresh }: { tanks: Inventory
   }, [open, key]);
   if (!tanks.length) return null;
   const label = tanks.length === 1 ? tanks[0].name : `${tanks.length} selected tanks`;
+  const beginMiningAction = (nextMining: boolean) => {
+    setMining(nextMining);
+    onActionStart?.();
+  };
   return (
     <div
       onClick={(event) => event.stopPropagation()}
@@ -45,7 +70,10 @@ export default function TankActionsMenu({ tanks, onRefresh }: { tanks: Inventory
     >
       <RowActionsMenu
         ariaLabel={`Actions for ${label}`}
-        triggerLabel={tanks.length > 1 ? "Tank actions" : undefined}
+        triggerLabel={presentation === "bulk" || tanks.length > 1 ? "Tank actions" : undefined}
+        triggerClassName={presentation === "bulk" ? "bg-grayscale-white-10! text-grayscale-white-90!" : undefined}
+        triggerVariant={presentation === "bulk" ? variants.secondary : undefined}
+        triggerSuffixIcon={presentation === "bulk" ? <ChevronDown width={iconSizes.xSmall} /> : undefined}
         testIdPrefix={`tank-${key}-actions`}
         onOpenChange={(nextOpen) => {
           if (nextOpen) setResult(undefined);
@@ -53,10 +81,24 @@ export default function TankActionsMenu({ tanks, onRefresh }: { tanks: Inventory
         }}
         actions={[
           ...(start || showDisabledActions
-            ? [{ label: "Start mining", icon: <Play />, disabled: !start, onClick: () => setMining(true) }]
+            ? [
+                {
+                  label: "Start mining",
+                  icon: <Play />,
+                  disabled: !start,
+                  onClick: () => beginMiningAction(true),
+                },
+              ]
             : []),
           ...(stop || showDisabledActions
-            ? [{ label: "Stop mining", icon: <Power />, disabled: !stop, onClick: () => setMining(false) }]
+            ? [
+                {
+                  label: "Stop mining",
+                  icon: <Power />,
+                  disabled: !stop,
+                  onClick: () => beginMiningAction(false),
+                },
+              ]
             : []),
           ...(showDisabledActions
             ? [
@@ -74,10 +116,15 @@ export default function TankActionsMenu({ tanks, onRefresh }: { tanks: Inventory
           key={`${key}:${mining}`}
           tanks={tanks}
           mining={mining}
-          onRefresh={onRefresh}
+          onRefresh={() => {
+            if (mounted.current) onRefresh();
+          }}
           onClose={() => {
             setMining(undefined);
             setResult(undefined);
+          }}
+          onActionComplete={() => {
+            if (mounted.current) onActionComplete?.();
           }}
         />
       ) : null}

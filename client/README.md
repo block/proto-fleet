@@ -256,11 +256,15 @@ sends one explicit module scope to `/api/v2/mining/scoped/start` or `stop`. Empt
 modules are omitted; empty or unavailable tanks fail without a write. Container
 mining intent is never changed by this path.
 
-Confirmation names every selected tank. The dialog follows each controller’s
-existing command batch and reports board-level partial failures or unconfirmed
-outcomes. Completion acknowledges the write and refreshes Fleet inventory; it
-does not claim that telemetry has already reached the requested state. Direct
-controllers use the plugin SDK; FleetNode controllers require command protocol
+Tank mining uses the same count-only confirmation dialog as miner bulk actions
+and closes when confirmed. The action bar returns after command admission,
+while a progress toast follows each controller's existing command batch.
+Success reports completed tank counts only after all batches finish. A separate
+error toast reports confirmed failures and offers a manual retry for only those
+tanks. Missing results or interrupted polling show an unconfirmed completion
+error without a retry. As with miner bulk Sleep/Wake, command completion drives
+the success toast; inventory readings update separately through normal polling.
+Direct controllers use the plugin SDK; FleetNode controllers require command protocol
 V3 and updated SDK/plugin binaries. Older nodes reject this action before
 sending it, and failed or ambiguous device writes are terminal rather than
 automatically retried. Shared equipment readings remain on the

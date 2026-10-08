@@ -910,10 +910,12 @@ const RacksPage = () => {
     const selected = new Set(selectedRackIds);
     return visibleRackScopes.filter((rack) => selected.has(rack.id.toString()));
   }, [selectedRackIds, visibleRackScopes]);
-  const handleSelectAllVisibleRacks = useCallback(
-    () => setSelectedRackIds(visibleRackScopes.map((rack) => rack.id.toString())),
-    [visibleRackScopes],
-  );
+  const handleSelectAllVisibleRacks = useCallback(() => {
+    setSelectedRackIds(visibleRackScopes.map((rack) => rack.id.toString()));
+    setSelectedTankIds(
+      inventory.items.filter((item) => item.ref?.kind === EntityKind.TANK).map((item) => String(item.ref!.id)),
+    );
+  }, [visibleRackScopes, inventory.items]);
   const handleClearRackSelection = useCallback(() => {
     setSelectedRackIds([]);
     setSelectedTankIds([]);
@@ -1425,12 +1427,6 @@ const RacksPage = () => {
             plural: useInventory ? "equipment groups" : "racks",
           })}
         </div>
-        {selectedTanks.length > 0 ? (
-          <div className="px-6 pb-4 laptop:px-10">
-            <TankActionsMenu tanks={selectedTanks} onRefresh={refreshCurrentPage} />
-            <Button variant={variants.secondary} text="Clear tank selection" onClick={() => setSelectedTankIds([])} />
-          </div>
-        ) : null}
         {error ? (
           <Callout className="mx-6 mb-4 laptop:mx-10" intent="danger" prefixIcon={<Alert />} title={error} />
         ) : null}
@@ -1446,7 +1442,9 @@ const RacksPage = () => {
               onTankClick={openTank}
               renderTankActions={(item) => <TankActionsMenu tanks={[item]} onRefresh={refreshCurrentPage} />}
               selectedTankIds={selectedTankIds}
-              onSelectedTankIdsChange={setSelectedTankIds}
+              onSelectedTankIdsChange={(ids) => {
+                if (!isBulkActionBusy) setSelectedTankIds(ids);
+              }}
               deviceSets={racks}
               statsMap={useInventory ? inventory.statsMap : statsMap}
               renderName={renderName}
@@ -1562,9 +1560,11 @@ const RacksPage = () => {
             ) : null}
           </div>
         )}
-        {selectedRackScopes.length > 0 || isBulkActionBusy ? (
+        {selectedRackScopes.length > 0 || selectedTanks.length > 0 || isBulkActionBusy ? (
           <FleetGroupListActionBar
             selectedScopes={selectedRackScopes}
+            selectedTanks={selectedTanks}
+            onRefetchTanks={refreshCurrentPage}
             kind="rack"
             bulkExtraActions={[
               {

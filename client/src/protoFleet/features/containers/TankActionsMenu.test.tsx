@@ -2,9 +2,24 @@ import { StrictMode } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { runTankMiningAction } from "./runTankMiningAction";
 import TankActionsMenu from "./TankActionsMenu";
 import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
-const mocks = vi.hoisted(() => ({ options: vi.fn(), submit: vi.fn(), results: vi.fn(), permissions: [] as string[] }));
+const mocks = vi.hoisted(() => ({
+  options: vi.fn(),
+  submit: vi.fn(),
+  results: vi.fn(),
+  pushToast: vi.fn(),
+  updateToast: vi.fn(),
+  removeToast: vi.fn(),
+  permissions: [] as string[],
+}));
+vi.mock("@/shared/features/toaster", () => ({
+  pushToast: mocks.pushToast,
+  updateToast: mocks.updateToast,
+  removeToast: mocks.removeToast,
+  STATUSES: { loading: "loading", success: "success", error: "error" },
+}));
 vi.mock("@/protoFleet/api/clients", () => ({
   containersClient: {
     getTankMiningOptions: mocks.options,
@@ -22,6 +37,8 @@ const tanks = [
 ];
 beforeEach(() => {
   vi.clearAllMocks();
+  let toastId = 0;
+  mocks.pushToast.mockReset().mockImplementation(() => ++toastId);
   mocks.permissions = ["site:read", "fleet:read", "miner:read", "miner:start_mining", "miner:stop_mining"];
   mocks.options.mockResolvedValue({ canStart: true, canStop: true, unavailableReason: "" });
   mocks.submit.mockResolvedValue({
@@ -47,7 +64,7 @@ async function openStop() {
   fireEvent.click(stop);
 }
 describe("tank actions", () => {
-  it("confirms exact selected tank identities and surfaces mixed-controller partial failure", async () => {
+  it("confirms the tank count without listing tanks and surfaces mixed-controller partial failure", async () => {
     const refresh = vi.fn();
     render(
       <StrictMode>
@@ -57,22 +74,40 @@ describe("tank actions", () => {
     await openStop();
     expect(mocks.submit).not.toHaveBeenCalled();
     const dialog = screen.getByTestId("tank-mining-dialog");
-    expect(dialog).toHaveTextContent("North CT1: Tank 1");
-    expect(dialog).toHaveTextContent("South CT1: Tank 3");
+    expect(dialog).toHaveTextContent("Stop mining on 2 tanks?");
+    expect(dialog).toHaveTextContent("All modules in these tanks will stop hashing.");
+    expect(within(dialog).queryByRole("list")).not.toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent("Tank 1");
+    expect(dialog).not.toHaveTextContent("Tank 3");
     fireEvent.click(within(dialog).getByRole("button", { name: "Stop mining" }));
-    await screen.findByText(/North CT1: Tank 1: Stop request accepted/);
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "South CT1: Tank 3: Tank partially applied: board disconnected",
+    expect(screen.queryByTestId("tank-mining-dialog")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.updateToast).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          status: "success",
+          message: "Stopped mining on 1 out of 2 tanks",
+        }),
+      ),
     );
+    expect(mocks.pushToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "error",
+        message: "Couldn't stop mining on 1 out of 2 tanks",
+      }),
+    );
+    expect(JSON.stringify(mocks.updateToast.mock.calls)).not.toMatch(/North CT1|South CT1|Tank 1|Tank 3/);
     expect(mocks.submit).toHaveBeenCalledTimes(1);
     expect(mocks.submit).toHaveBeenCalledWith({ tankIds: [11n, 13n], mining: false }, expect.anything());
     expect(refresh).toHaveBeenCalledOnce();
   });
   it("cancels before dispatch", async () => {
-    render(<TankActionsMenu tanks={tanks} onRefresh={vi.fn()} />);
+    const complete = vi.fn();
+    render(<TankActionsMenu tanks={tanks} onRefresh={vi.fn()} onActionComplete={complete} />);
     await openStop();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(mocks.submit).not.toHaveBeenCalled();
+    expect(complete).toHaveBeenCalledOnce();
   });
   it.each(["trigger", "action"])("dismisses the menu with Escape from the focused %s", async (target) => {
     render(<TankActionsMenu tanks={tanks} onRefresh={vi.fn()} />);
@@ -131,7 +166,15 @@ describe("tank actions", () => {
     expect(screen.queryByRole("button", { name: other })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: action }));
     fireEvent.click(within(screen.getByTestId("tank-mining-dialog")).getByRole("button", { name: action }));
-    await screen.findByText(new RegExp(`North CT1: Tank 1: ${mining ? "Start" : "Stop"} request accepted`));
+    await waitFor(() =>
+      expect(mocks.updateToast).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          status: "success",
+          message: `${mining ? "Started" : "Stopped"} mining on 1 out of 2 tanks`,
+        }),
+      ),
+    );
     expect(mocks.submit).toHaveBeenCalledWith({ tankIds: [11n, 13n], mining }, expect.anything());
   });
   it("keeps writes disabled when resource authorization is denied", async () => {
@@ -152,8 +195,227 @@ describe("tank actions", () => {
     render(<TankActionsMenu tanks={tanks} onRefresh={vi.fn()} />);
     await openStop();
     fireEvent.click(within(screen.getByTestId("tank-mining-dialog")).getByRole("button", { name: "Stop mining" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Connection lost");
+    await waitFor(() =>
+      expect(mocks.updateToast).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ status: "error", message: expect.stringContaining("Connection lost") }),
+      ),
+    );
+    expect(mocks.updateToast.mock.calls.every(([, toast]) => !toast.actions)).toBe(true);
     expect(screen.queryByRole("button", { name: "Stop mining" })).not.toBeInTheDocument();
     expect(mocks.submit).toHaveBeenCalledOnce();
+  });
+  it("shows completed counts only after both controller batches finish", async () => {
+    mocks.results.mockResolvedValue({ result: { status: "finished", successCount: 1, failureCount: 0 } });
+    render(<TankActionsMenu tanks={tanks} onRefresh={vi.fn()} />);
+    await openStop();
+    const dialog = screen.getByTestId("tank-mining-dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Stop mining" }));
+    await waitFor(() =>
+      expect(mocks.updateToast).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({
+          status: "success",
+          message: "Stopped mining on 2 out of 2 tanks",
+        }),
+      ),
+    );
+    expect(mocks.updateToast.mock.calls.filter(([, toast]) => toast.status === "success")).toHaveLength(1);
+    expect(mocks.pushToast).toHaveBeenCalledOnce();
+    expect(mocks.results).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(mocks.updateToast.mock.calls)).not.toMatch(/CT1|Tank 1|Tank 3/);
+  });
+  it("closes immediately while dispatch is pending and reports its result after navigation", async () => {
+    let completeDispatch!: () => void;
+    mocks.submit.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          completeDispatch = () =>
+            resolve({ commands: [{ deviceIdentifier: "north", tankIds: [11n, 13n], batchIdentifier: "a" }] });
+        }),
+    );
+    const refresh = vi.fn();
+    const complete = vi.fn();
+    const { unmount } = render(<TankActionsMenu tanks={tanks} onRefresh={refresh} onActionComplete={complete} />);
+    await openStop();
+    const confirm = within(screen.getByTestId("tank-mining-dialog")).getByRole("button", { name: "Stop mining" });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    expect(screen.queryByTestId("tank-mining-dialog")).not.toBeInTheDocument();
+    expect(complete).not.toHaveBeenCalled();
+    expect(mocks.submit).toHaveBeenCalledOnce();
+    expect(mocks.results).not.toHaveBeenCalled();
+    expect(mocks.pushToast).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "loading", message: "Stopping mining on 2 tanks" }),
+    );
+    unmount();
+    completeDispatch();
+    await waitFor(() =>
+      expect(mocks.updateToast).toHaveBeenCalledWith(1, expect.objectContaining({ status: "success" })),
+    );
+    expect(refresh).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+  });
+  it("restores the action bar after admission while command completion is still pending", async () => {
+    let admit!: () => void;
+    let finish!: () => void;
+    mocks.submit.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          admit = () =>
+            resolve({ commands: [{ deviceIdentifier: "north", tankIds: [11n, 13n], batchIdentifier: "a" }] });
+        }),
+    );
+    mocks.results.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve({ result: { status: "finished", successCount: 1, failureCount: 0 } });
+        }),
+    );
+    const complete = vi.fn();
+    render(<TankActionsMenu tanks={tanks} onRefresh={vi.fn()} onActionComplete={complete} />);
+    await openStop();
+    fireEvent.click(within(screen.getByTestId("tank-mining-dialog")).getByRole("button", { name: "Stop mining" }));
+    expect(screen.queryByTestId("tank-mining-dialog")).not.toBeInTheDocument();
+    expect(complete).not.toHaveBeenCalled();
+    admit();
+    await waitFor(() => expect(complete).toHaveBeenCalledOnce());
+    expect(mocks.updateToast).not.toHaveBeenCalled();
+    finish();
+    await waitFor(() =>
+      expect(mocks.updateToast).toHaveBeenCalledWith(1, expect.objectContaining({ status: "success" })),
+    );
+    expect(complete).toHaveBeenCalledOnce();
+  });
+  it.each([false, true])("tracks a pending result through %s timeout without repeating the write", async (timeout) => {
+    vi.useFakeTimers();
+    try {
+      mocks.submit.mockResolvedValue({
+        commands: [{ deviceIdentifier: "north", tankIds: [11n, 13n], batchIdentifier: "a" }],
+      });
+      mocks.results.mockResolvedValue({ result: { status: "processing", successCount: 1, failureCount: 0 } });
+      const refresh = vi.fn();
+      const execution = runTankMiningAction([11n, 13n], false, refresh);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.updateToast).not.toHaveBeenCalled();
+      if (!timeout) {
+        mocks.results.mockResolvedValue({ result: { status: "finished", successCount: 1, failureCount: 0 } });
+      }
+      await vi.advanceTimersByTimeAsync(timeout ? 120_000 : 1000);
+      await execution;
+      expect(mocks.updateToast).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ status: timeout ? "error" : "success" }),
+      );
+      expect(mocks.submit).toHaveBeenCalledOnce();
+      expect(refresh).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("tank bulk command results", () => {
+  it("keeps completed controller counts loading until the remaining controller finishes", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.results.mockImplementation(async ({ deviceIdentifier }) => ({
+        result: { status: deviceIdentifier === "north" ? "finished" : "processing", successCount: 1, failureCount: 0 },
+      }));
+      const execution = runTankMiningAction([11n, 13n], true, vi.fn());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.updateToast).toHaveBeenCalledWith(1, {
+        message: "Started mining on 1 out of 2 tanks",
+        status: "loading",
+      });
+      expect(mocks.updateToast.mock.calls.some(([, toast]) => toast.status === "success")).toBe(false);
+      mocks.results.mockResolvedValue({ result: { status: "finished", successCount: 1, failureCount: 0 } });
+      await vi.advanceTimersByTimeAsync(1000);
+      await execution;
+      expect(mocks.updateToast).toHaveBeenLastCalledWith(1, {
+        message: "Started mining on 2 out of 2 tanks",
+        status: "success",
+      });
+      expect(mocks.submit).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["polling interrupted", "pruned results", "missing counts"])(
+    "does not show success or offer retry with %s, even after another controller succeeds",
+    async (outcome) => {
+      mocks.results.mockImplementation(async ({ deviceIdentifier }) => {
+        if (deviceIdentifier === "north") return { result: { status: "finished", successCount: 1, failureCount: 0 } };
+        if (outcome === "polling interrupted") throw new Error("Connection lost");
+        return {
+          result: { status: "finished", successCount: 0, failureCount: 0, detailsPruned: outcome === "pruned results" },
+        };
+      });
+      await runTankMiningAction([11n, 13n], false, vi.fn());
+      expect(mocks.updateToast).toHaveBeenLastCalledWith(1, {
+        message: "Unable to confirm bulk action completion. Check tank status and try again.",
+        status: "error",
+      });
+      expect(mocks.updateToast.mock.calls.some(([, toast]) => toast.status === "success" || toast.actions)).toBe(false);
+      expect(mocks.submit).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("retries only confirmed failed tanks and prevents duplicate retry clicks", async () => {
+    const refresh = vi.fn();
+    const complete = vi.fn();
+    await runTankMiningAction([11n, 13n], false, refresh, complete);
+    expect(mocks.submit).toHaveBeenCalledOnce();
+    const retry = mocks.updateToast.mock.calls.find(([id, toast]) => id === 2 && toast.actions)?.[1].actions[0];
+    expect(retry?.label).toBe("Retry");
+    mocks.submit.mockResolvedValue({
+      commands: [{ deviceIdentifier: "south", tankIds: [13n], batchIdentifier: "retry" }],
+    });
+    mocks.results.mockResolvedValue({ result: { status: "finished", successCount: 1, failureCount: 0 } });
+    retry.onClick();
+    retry.onClick();
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(2));
+    expect(mocks.submit).toHaveBeenCalledTimes(2);
+    expect(mocks.submit).toHaveBeenLastCalledWith({ tankIds: [13n], mining: false }, expect.anything());
+    expect(mocks.removeToast).toHaveBeenCalledOnce();
+    expect(mocks.removeToast).toHaveBeenCalledWith(2);
+    expect(mocks.updateToast).toHaveBeenLastCalledWith(3, {
+      message: "Stopped mining on 1 out of 1 tank",
+      status: "success",
+    });
+    expect(mocks.pushToast).toHaveBeenLastCalledWith(expect.objectContaining({ onClose: complete }));
+    expect(complete).toHaveBeenCalledTimes(2);
+  });
+
+  it("removes the loading toast and offers retry when all controllers report a terminal failure", async () => {
+    mocks.results.mockResolvedValue({ result: { status: "finished", successCount: 0, failureCount: 1 } });
+    await runTankMiningAction([11n, 13n], true, vi.fn());
+    expect(mocks.removeToast).toHaveBeenCalledWith(1);
+    expect(mocks.updateToast).toHaveBeenCalledWith(2, {
+      message: "Couldn't start mining on 2 out of 2 tanks",
+      status: "error",
+    });
+    expect(mocks.updateToast).toHaveBeenLastCalledWith(
+      2,
+      expect.objectContaining({ actions: [expect.objectContaining({ label: "Retry" })] }),
+    );
+    expect(mocks.submit).toHaveBeenCalledOnce();
+  });
+
+  it("keeps confirmed failure counts separate from unconfirmed completion without offering retry", async () => {
+    mocks.results.mockImplementation(async ({ deviceIdentifier }) => {
+      if (deviceIdentifier === "north") throw new Error("Connection lost");
+      return { result: { status: "finished", successCount: 0, failureCount: 1 } };
+    });
+    await runTankMiningAction([11n, 13n], false, vi.fn());
+    expect(mocks.pushToast).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Couldn't stop mining on 1 out of 2 tanks", status: "error" }),
+    );
+    expect(mocks.updateToast).toHaveBeenLastCalledWith(
+      1,
+      expect.objectContaining({ status: "error", message: expect.stringContaining("Unable to confirm") }),
+    );
+    expect(mocks.updateToast.mock.calls.some(([, toast]) => toast.actions)).toBe(false);
   });
 });
