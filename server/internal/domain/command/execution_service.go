@@ -1644,9 +1644,7 @@ func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, provider 
 }
 
 func (es *ExecutionService) rebootAfterFirmwareInstall(ctx context.Context, minerInfo interfaces.Miner, deviceID int64) error {
-	if err := devicewrite.RecheckContext(ctx); err != nil {
-		return err
-	}
+	// Dispatch rechecks the fence; every failure after installation is non-retryable.
 	if err := devicewrite.Dispatch(ctx, func(ctx context.Context) error { return minerInfo.Reboot(ctx) }); err != nil {
 		slog.Error("firmware install completed but automatic reboot failed",
 			"device_id", deviceID, "error", err)
