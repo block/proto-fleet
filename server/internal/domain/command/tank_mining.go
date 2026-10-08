@@ -228,7 +228,20 @@ func (es *ExecutionService) executeTankMining(ctx context.Context, deviceID, org
 	if controller == nil || payload.OrgID != orgID || payload.SiteID != siteID || len(payload.TankIDs) != len(payload.Positions) {
 		return fleeterror.NewFailedPreconditionError("tank command ownership or site changed")
 	}
-	err := db.WithTransactionNoResult(ctx, es.conn, func(q sqlc.Querier) error {
+	// Hold placement stable through gate admission and the physical write, which
+	// must never be replayed by a transaction retry.
+	err := db.WithTransactionNoRetryNoResult(ctx, es.conn, func(q sqlc.Querier) error {
+		device, err := q.GetDeviceByID(ctx, sqlc.GetDeviceByIDParams{ID: deviceID, OrgID: orgID})
+		if err != nil {
+			return err
+		}
+		target, err := q.LockContainerCommandTarget(ctx, sqlc.LockContainerCommandTargetParams{DeviceIdentifier: device.DeviceIdentifier, OrgID: orgID})
+		if err != nil {
+			return err
+		}
+		if target.ID != deviceID || target.SiteID.Int64 != siteID {
+			return fmt.Errorf("tank command ownership or site changed")
+		}
 		rows, err := q.ListTankCommandTargets(ctx, sqlc.ListTankCommandTargetsParams{TankIds: payload.TankIDs, OrgID: orgID})
 		if err != nil {
 			return err
@@ -241,13 +254,13 @@ func (es *ExecutionService) executeTankMining(ctx context.Context, deviceID, org
 				return fmt.Errorf("tank topology or placement changed; refresh before retrying")
 			}
 		}
+		if err := controller.SetTankMining(ctx, payload.TankMiningRequest); err != nil {
+			return fmt.Errorf("tank mining outcome unconfirmed: %w", err)
+		}
 		return nil
 	})
 	if err != nil {
 		return fleeterror.NewFailedPreconditionError(err.Error())
-	}
-	if err := controller.SetTankMining(ctx, payload.TankMiningRequest); err != nil {
-		return fleeterror.NewFailedPreconditionErrorf("tank mining outcome unconfirmed: %v", err)
 	}
 	return nil
 }
