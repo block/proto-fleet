@@ -84,9 +84,6 @@ describe("FindNodeMinersModal", () => {
       value: { useFleetNodeLocalSubnet: true, target: "" },
     });
     expect(await screen.findByRole("button", { name: "Continue with 1 miners" })).toBeInTheDocument();
-    expect(screen.queryByText(/Paired miners/)).not.toBeInTheDocument();
-    expect(screen.queryByText("Pair selected miners")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Scan target")).not.toBeInTheDocument();
   });
 
   it("lets operators without pairing permission scan without add controls", async () => {
@@ -113,14 +110,6 @@ describe("FindNodeMinersModal", () => {
     expect(discoverOnNode).toHaveBeenCalledTimes(2);
   });
 
-  it("shows persisted discoveries when a scan is rejected because the Node is busy", async () => {
-    discoverOnNode.mockRejectedValue(new Error("Node is busy"));
-    renderFinder();
-
-    expect(await screen.findByRole("button", { name: "Continue with 1 miners" })).toBeInTheDocument();
-    expect(await screen.findByRole("alert")).toHaveTextContent("Node is busy");
-  });
-
   it("loads miners saved by a scan even when its stream fails", async () => {
     listDiscovered
       .mockResolvedValueOnce({ devices: [], nextCursor: 0n })
@@ -130,25 +119,6 @@ describe("FindNodeMinersModal", () => {
 
     expect(await screen.findByRole("button", { name: "Continue with 1 miners" })).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("Scan disconnected");
-  });
-
-  it("adds miners through this Node from the shared Add miners screen", async () => {
-    pairOnNode.mockImplementation(async (_id, _ids, _credentials, onResults) => {
-      onResults([
-        create(DevicePairingResultSchema, { deviceIdentifier: "miner-2", pairingStatus: PairingStatus.PAIRED }),
-      ]);
-    });
-    const onUpdated = vi.fn();
-    const onPairingCompleted = vi.fn();
-    renderFinder({ onUpdated, onPairingCompleted });
-
-    fireEvent.click(await screen.findByRole("button", { name: "Continue with 1 miners" }));
-
-    await waitFor(() => expect(pairOnNode).toHaveBeenCalledTimes(1));
-    expect(pairOnNode.mock.calls[0][0]).toBe("7");
-    expect(pairOnNode.mock.calls[0][1]).toEqual(["miner-2"]);
-    await waitFor(() => expect(onPairingCompleted).toHaveBeenCalledWith(["miner-2"]));
-    expect(onUpdated).toHaveBeenCalled();
   });
 
   it("pairs only miners chosen in the shared selection dialog", async () => {

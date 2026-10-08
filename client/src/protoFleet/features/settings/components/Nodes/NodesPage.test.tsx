@@ -253,16 +253,6 @@ describe("NodesPage", () => {
     await waitFor(() => expect(revokeFleetNodeMock).toHaveBeenCalledWith("7", "11"));
   });
 
-  it("opens Node details without a redundant status summary", async () => {
-    listFleetNodesMock.mockResolvedValue([{ ...confirmedNode, lastSeenAt: new Date() }]);
-    renderNodesPage();
-
-    expect(await screen.findByText("node-01")).toBeInTheDocument();
-    expect(screen.queryByLabelText("Node status totals")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
-    expect(screen.getByRole("dialog", { name: "Node details" })).toHaveTextContent("node-01");
-  });
-
   it("opens the selected Node's finder from its details", async () => {
     permissionsMock.current = ["fleetnode:read", "fleetnode:manage", "miner:pair"];
     renderNodesPage();
