@@ -19,6 +19,7 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
@@ -363,7 +364,7 @@ func TestPairDiscoveredDevicesOnFleetNode_NoStreamReturnsFailedPrecondition(t *t
 func TestPairDiscoveredDevicesOnFleetNode_UnconfirmedNodeReturnsFailedPrecondition(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-pairdisc-unconfirmed")
-	_, err := h.db.Exec(`UPDATE fleet_node SET enrollment_status = 'AWAITING_CONFIRMATION' WHERE id = $1`, fleetNodeID)
+	_, err := h.db.Exec(`UPDATE fleet_node SET enrollment_status = $1 WHERE id = $2`, enrollment.FleetNodeStatusPending, fleetNodeID)
 	require.NoError(t, err)
 	client := startAdminServer(t, h)
 	resp, err := client.PairDiscoveredDevicesOnFleetNode(t.Context(), connect.NewRequest(&pb.PairDiscoveredDevicesOnFleetNodeRequest{
