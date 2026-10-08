@@ -2,6 +2,7 @@ package devicewrite_test
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 	"time"
 
@@ -39,6 +40,9 @@ func TestFleetDeletionPreparationUsesBoundedSQLCalls(t *testing.T) {
 	_, err = database.DB.ExecContext(t.Context(), `INSERT INTO device_pairing(device_id,pairing_status,paired_at) SELECT id,'PAIRED',statement_timestamp() FROM device WHERE org_id=$1`, user.OrganizationID)
 	require.NoError(t, err)
 	_, err = database.DB.ExecContext(t.Context(), `INSERT INTO miner_credentials(device_id,username_enc,password_enc) SELECT id,'fixture-encrypted-user','fixture-encrypted-password' FROM device WHERE org_id=$1`, user.OrganizationID)
+	require.NoError(t, err)
+	q := sqlc.New(database.DB)
+	_, err = q.CreateCommandBatchLog(t.Context(), sqlc.CreateCommandBatchLogParams{Uuid: "deletion-batch", Type: "Reboot", CreatedBy: user.DatabaseID, CreatedAt: time.Now(), Status: sqlc.BatchStatusEnumPENDING, DevicesCount: 4000, OrganizationID: sql.NullInt64{Int64: user.OrganizationID, Valid: true}})
 	require.NoError(t, err)
 	_, err = database.DB.ExecContext(t.Context(), `INSERT INTO queue_message(command_batch_log_uuid,device_id,command_type,status,retry_count) SELECT 'deletion-batch',id,'Reboot','PENDING',0 FROM device WHERE org_id=$1`, user.OrganizationID)
 	require.NoError(t, err)
@@ -80,4 +84,12 @@ func TestFleetDeletionPreparationUsesBoundedSQLCalls(t *testing.T) {
 	require.Equal(t, 4000, epochs)
 	require.Equal(t, 4000, canceled)
 	require.Equal(t, 4000, permits)
+	counts, err := q.GetBatchStatusAndDeviceCounts(t.Context(), "deletion-batch")
+	require.NoError(t, err)
+	require.Equal(t, int64(4000), counts.FailedDevices)
+	require.Zero(t, counts.SuccessfulDevices)
+	var results int
+	require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT count(*) FROM command_on_device_log WHERE command_batch_log_id=(SELECT id FROM command_batch_log WHERE uuid='deletion-batch') AND status='FAILED'").Scan(&results))
+	require.Equal(t, 4000, results, "bulk deletion must retain every canceled miner's terminal result")
+
 }

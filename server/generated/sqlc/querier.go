@@ -190,6 +190,8 @@ type Querier interface {
 	// Canceled queue rows cannot reach the worker or reaper. Record their results
 	// atomically without firmware-completion effects: these writes never dispatched.
 	CancelPendingDeviceWrites(ctx context.Context, deviceID int64) error
+	// Canceled queue rows cannot reach the worker or reaper. Record their results
+	// atomically without firmware-completion effects: these writes never dispatched.
 	CancelPendingDeviceWritesForDeletion(ctx context.Context, deviceIds []int64) error
 	CancelPendingEnrollment(ctx context.Context, arg CancelPendingEnrollmentParams) (int64, error)
 	// Building peer of CascadeAddedDeviceSites. Rewrites device.building_id

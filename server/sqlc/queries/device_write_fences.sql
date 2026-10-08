@@ -141,8 +141,27 @@ WHERE device_id=ANY(sqlc.arg(device_ids)::bigint[]) AND organization_id=$1 AND s
 RETURNING device_id,epoch;
 
 -- name: CancelPendingDeviceWritesForDeletion :exec
-UPDATE queue_message SET status='FAILED',error_info='device command canceled by configuration handover',updated_at=statement_timestamp()
-WHERE device_id=ANY(sqlc.arg(device_ids)::bigint[]) AND status='PENDING';
+-- Canceled queue rows cannot reach the worker or reaper. Record their results
+-- atomically without firmware-completion effects: these writes never dispatched.
+WITH canceled AS (
+ UPDATE queue_message m SET status='FAILED',error_info='device command canceled by configuration handover',updated_at=statement_timestamp()
+ WHERE m.device_id=ANY(sqlc.arg(device_ids)::bigint[]) AND m.status='PENDING'
+ RETURNING m.command_batch_log_uuid,m.device_id,m.error_info,m.updated_at
+), results AS (
+ SELECT DISTINCT c.command_batch_log_uuid,c.device_id,c.error_info,c.updated_at FROM canceled c
+)
+INSERT INTO command_on_device_log (
+ command_batch_log_id,device_id,status,updated_at,error_info,org_id,site_id,
+ custom_name,manufacturer,model,ip_address,mac_address
+)
+SELECT b.id,r.device_id,'FAILED'::device_command_status_enum,r.updated_at,r.error_info,d.org_id,d.site_id,
+ d.custom_name,dd.manufacturer,dd.model,dd.ip_address,d.mac_address
+FROM results r
+JOIN command_batch_log b ON b.uuid=r.command_batch_log_uuid
+JOIN device d ON d.id=r.device_id
+JOIN discovered_device dd ON dd.id=d.discovered_device_id
+ON CONFLICT (command_batch_log_id,device_id) DO UPDATE SET
+ status=EXCLUDED.status,updated_at=EXCLUDED.updated_at,error_info=EXCLUDED.error_info;
 
 -- name: CreateDeletionUnpairPermits :exec
 INSERT INTO device_deletion_unpair_permit(device_id,organization_id,epoch,binding_hash,identity_keys)
