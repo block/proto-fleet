@@ -2,8 +2,10 @@ package sdk
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"math"
 	"os"
@@ -16,6 +18,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -177,6 +180,8 @@ type DriverGRPCServer struct {
 	creatingDevices map[string]struct{}
 	closingDevices  map[string]*closingDevice
 	mu              sync.RWMutex
+	reuseKeys       map[string][32]byte
+	reuseLocks      [64]sync.Mutex
 }
 
 // Closing devices no longer accept operations, but remain owned until Close
@@ -220,6 +225,12 @@ func (s *DriverGRPCServer) DescribeDriver(ctx context.Context, _ *emptypb.Empty)
 		return nil, err
 	}
 
+	reuseCaps := make(Capabilities, len(caps)+1)
+	for key, value := range caps {
+		reuseCaps[key] = value
+	}
+	reuseCaps[CapabilityScopedDeviceReuse] = true
+	caps = reuseCaps
 	return &pb.DescribeDriverResponse{
 		DriverName: handshake.DriverName,
 		ApiVersion: handshake.APIVersion,
@@ -300,6 +311,22 @@ func (s *DriverGRPCServer) GetDiscoveryPorts(ctx context.Context, _ *emptypb.Emp
 }
 
 func (s *DriverGRPCServer) NewDevice(ctx context.Context, req *pb.NewDeviceRequest) (*pb.NewDeviceResponse, error) {
+	var reuseDigest [32]byte
+	if req.ReuseScopeKey != "" {
+		hash := fnv.New64a()
+		_, _ = hash.Write([]byte(req.DeviceId))
+		lock := &s.reuseLocks[hash.Sum64()%uint64(len(s.reuseLocks))]
+		lock.Lock()
+		defer lock.Unlock()
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("scoped device resolution canceled: %w", status.FromContextError(err).Err())
+		}
+		encoded, err := (proto.MarshalOptions{Deterministic: true}).Marshal(req)
+		if err != nil {
+			return nil, fmt.Errorf("bind scoped device configuration: %w", err)
+		}
+		reuseDigest = sha256.Sum256(encoded)
+	}
 	// Preserve active replacement semantics, but serialize creation against
 	// other creators and Close for this ID. Never hold the lock over driver IO.
 	s.mu.Lock()
@@ -308,6 +335,14 @@ func (s *DriverGRPCServer) NewDevice(ctx context.Context, req *pb.NewDeviceReque
 	if creating || closing {
 		s.mu.Unlock()
 		return nil, grpcStatusError("device ID is in use", codes.AlreadyExists, req.DeviceId)
+	}
+	if req.ReuseScopeKey != "" {
+		if key, ok := s.reuseKeys[req.DeviceId]; ok && key == reuseDigest {
+			if _, active := s.devices[req.DeviceId]; active {
+				s.mu.Unlock()
+				return &pb.NewDeviceResponse{DeviceId: req.DeviceId, ReuseScopeKey: req.ReuseScopeKey}, nil
+			}
+		}
 	}
 	if s.creatingDevices == nil {
 		s.creatingDevices = make(map[string]struct{})
@@ -359,10 +394,19 @@ func (s *DriverGRPCServer) NewDevice(ctx context.Context, req *pb.NewDeviceReque
 
 	s.mu.Lock()
 	s.devices[deviceID] = result.Device
+	if req.ReuseScopeKey != "" {
+		if s.reuseKeys == nil {
+			s.reuseKeys = make(map[string][32]byte)
+		}
+		s.reuseKeys[deviceID] = reuseDigest
+	} else {
+		delete(s.reuseKeys, deviceID)
+	}
 	s.mu.Unlock()
 
 	return &pb.NewDeviceResponse{
-		DeviceId: deviceID,
+		DeviceId:      deviceID,
+		ReuseScopeKey: req.ReuseScopeKey,
 	}, nil
 }
 
@@ -445,6 +489,7 @@ func (s *DriverGRPCServer) CloseDevice(ctx context.Context, req *pb.DeviceRef) (
 			return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
 		}
 		delete(s.devices, req.DeviceId)
+		delete(s.reuseKeys, req.DeviceId)
 		closing = s.retainClosingDeviceLocked(req.DeviceId, device)
 	}
 	if attempt := closing.attempt; attempt != nil {
@@ -1161,6 +1206,32 @@ func (c *DriverGRPCClient) NewDevice(ctx context.Context, deviceID string, devic
 	return NewDeviceResult{
 		Device: device,
 	}, nil
+}
+
+// GetOrCreateDevice opts into runtime-registry reuse; support is checked before
+// NewDevice so an unsupported plugin cannot silently overwrite a snapshot.
+func (c *DriverGRPCClient) GetOrCreateDevice(ctx context.Context, id string, info DeviceInfo, secret SecretBundle, scope string) (NewDeviceResult, error) {
+	if scope == "" {
+		return NewDeviceResult{}, fmt.Errorf("scoped device resolution requires a binding key")
+	}
+	_, caps, err := c.DescribeDriver(ctx)
+	if err != nil {
+		return NewDeviceResult{}, err
+	}
+	if !caps[CapabilityScopedDeviceReuse] {
+		return NewDeviceResult{}, fmt.Errorf("plugin does not support scoped device resolution")
+	}
+	resp, err := c.client.NewDevice(ctx, &pb.NewDeviceRequest{DeviceId: id, Info: deviceInfoToProto(info), Secret: secretBundleToProto(secret), ReuseScopeKey: scope})
+	if err != nil {
+		return NewDeviceResult{}, err
+	}
+	if resp.DeviceId != id {
+		return NewDeviceResult{}, fmt.Errorf("plugin returned a mismatched device identity")
+	}
+	if resp.ReuseScopeKey != scope {
+		return NewDeviceResult{}, fmt.Errorf("plugin did not confirm scoped device resolution")
+	}
+	return NewDeviceResult{Device: &DeviceGRPCClient{client: c.client, deviceID: resp.DeviceId}}, nil
 }
 
 // CloseDevice compensates for an uncertain NewDevice RPC outcome. A not-found

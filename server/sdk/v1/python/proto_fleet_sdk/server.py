@@ -12,6 +12,8 @@ The go-plugin protocol requires:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import inspect
 import logging
 import os
 import signal
@@ -20,7 +22,7 @@ from typing import Any
 
 import grpc
 
-from proto_fleet_sdk.generated.pb import driver_pb2_grpc
+from proto_fleet_sdk.generated.pb import driver_pb2, driver_pb2_grpc
 
 __all__ = ["PluginServer"]
 
@@ -35,6 +37,132 @@ _CORE_PROTOCOL_VERSION = 1
 _APP_PROTOCOL_VERSION = 1
 
 
+class _SynchronousLifecycleContext:
+    """Keep blocking author lifecycle methods' gRPC context semantics."""
+
+    def __init__(self, context: Any, loop: asyncio.AbstractEventLoop) -> None:
+        self._context = context
+        self._loop = loop
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._context, name)
+
+    def abort(self, code: Any, details: str, trailing_metadata: Any = ()) -> None:
+        asyncio.run_coroutine_threadsafe(
+            self._context.abort(code, details, trailing_metadata), self._loop
+        ).result()
+
+    def abort_with_status(self, status: Any) -> None:
+        self.abort(status.code, status.details, status.trailing_metadata or ())
+
+    def is_active(self) -> bool:
+        return not self._context.done()
+
+    def add_callback(self, callback: Any) -> bool:
+        async def register() -> bool:
+            if self._context.done():
+                return False
+            self._context.add_done_callback(lambda _context: callback())
+            return True
+
+        return asyncio.run_coroutine_threadsafe(register(), self._loop).result()
+
+
+class _ScopedDriverServicer:
+    """Reuse only an identical opted-in request in the author's active registry.
+
+    Authors own the device objects and keep them valid until CloseDevice or
+    explicit NewDevice replacement. The SDK retains only request digests.
+    Other unary and streaming methods delegate without changing their shape.
+    """
+
+    def __init__(self, servicer: driver_pb2_grpc.DriverServicer) -> None:
+        self._servicer = servicer
+        self._reuse_keys: dict[str, bytes] = {}
+        self._closing: set[str] = set()
+        self._locks = [asyncio.Lock() for _ in range(64)]
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._servicer, name)
+
+    def _lock(self, identifier: str) -> asyncio.Lock:
+        stripe = hashlib.sha256(identifier.encode()).digest()[0] % len(self._locks)
+        return self._locks[stripe]
+
+    @staticmethod
+    async def _invoke(method: Any, request: Any, context: Any) -> Any:
+        if inspect.iscoroutinefunction(method):
+            return await method(request, context)
+        # Canceling to_thread does not stop the author's synchronous method.
+        # Keep its ID lock until the real registry mutation has finished.
+        synchronous_context = _SynchronousLifecycleContext(context, asyncio.get_running_loop())
+        task = asyncio.create_task(asyncio.to_thread(method, request, synchronous_context))
+        canceled = False
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                canceled = True
+            except Exception:
+                if canceled:
+                    raise asyncio.CancelledError from None
+                raise
+        if canceled:
+            # Retrieve any worker failure without replacing the cancellation.
+            if not task.cancelled():
+                task.exception()
+            raise asyncio.CancelledError
+        result = task.result()
+        return await result if inspect.isawaitable(result) else result
+
+    async def DescribeDriver(self, request: Any, context: Any) -> Any:
+        original = await self._invoke(self._servicer.DescribeDriver, request, context)
+        response = driver_pb2.DescribeDriverResponse()
+        response.CopyFrom(original)
+        response.caps.flags["sdk_scoped_device_reuse"] = True
+        return response
+
+    async def NewDevice(self, request: Any, context: Any) -> Any:
+        identifier = request.device_id
+        digest = hashlib.sha256(request.SerializeToString(deterministic=True)).digest()
+        async with self._lock(identifier):
+            if context.done():
+                await context.abort(grpc.StatusCode.CANCELLED, "device resolution canceled")
+            if identifier in self._closing:
+                await context.abort(grpc.StatusCode.UNAVAILABLE, "device cleanup incomplete")
+            if request.reuse_scope_key and self._reuse_keys.get(identifier) == digest:
+                return driver_pb2.NewDeviceResponse(
+                    device_id=identifier, reuse_scope_key=request.reuse_scope_key
+                )
+            # Failed and default creation discard evidence for the former request.
+            self._reuse_keys.pop(identifier, None)
+            original = await self._invoke(self._servicer.NewDevice, request, context)
+            if context.done():
+                await context.abort(grpc.StatusCode.CANCELLED, "device resolution canceled")
+            if original.device_id != identifier:
+                await context.abort(grpc.StatusCode.INTERNAL, "device ID mismatch")
+            response = driver_pb2.NewDeviceResponse()
+            response.CopyFrom(original)
+            response.reuse_scope_key = request.reuse_scope_key
+            if request.reuse_scope_key:
+                self._reuse_keys[identifier] = digest
+            return response
+
+    async def CloseDevice(self, request: Any, context: Any) -> Any:
+        identifier = request.device_id
+        async with self._lock(identifier):
+            self._reuse_keys.pop(identifier, None)
+            self._closing.add(identifier)
+            try:
+                result = await self._invoke(self._servicer.CloseDevice, request, context)
+            except BaseException:
+                if context.code() == grpc.StatusCode.NOT_FOUND:
+                    self._closing.discard(identifier)
+                raise
+            self._closing.discard(identifier)
+            return result
+
+
 class PluginServer:
     """gRPC server for Python plugins.
 
@@ -46,12 +174,21 @@ class PluginServer:
     protoc-generated base class). Plugin authors implement the gRPC servicer
     directly with proto types and use the @grpc_error_handler decorator from
     proto_fleet_sdk.errors for automatic SDK error → gRPC status mapping.
+
+    Scoped NewDevice calls reuse an identical complete request in the author's
+    registry. Authors keep those objects alive until CloseDevice or explicit
+    replacement; the SDK retains request digests, not a second object cache.
+    Empty reuse_scope_key preserves unconditional author NewDevice calls.
     """
 
     def __init__(
-        self, servicer: driver_pb2_grpc.DriverServicer, port: int = DEFAULT_PLUGIN_PORT, host: str = "127.0.0.1"
+        self,
+        servicer: driver_pb2_grpc.DriverServicer,
+        port: int = DEFAULT_PLUGIN_PORT,
+        host: str = "127.0.0.1",
     ) -> None:
         self.servicer = servicer
+        self._scoped_servicer = _ScopedDriverServicer(servicer)
         self.port = port
         self.host = host
         self.server: grpc.aio.Server | None = None
@@ -85,8 +222,8 @@ class PluginServer:
     async def start(self) -> None:
         self.server = grpc.aio.server()
 
-        # Register the servicer directly
-        driver_pb2_grpc.add_DriverServicer_to_server(self.servicer, self.server)  # type: ignore[no-untyped-call]  # generated gRPC code lacks type stubs
+        # Lifecycle calls pass through the SDK; all other RPCs retain author handlers.
+        driver_pb2_grpc.add_DriverServicer_to_server(self._scoped_servicer, self.server)  # type: ignore[no-untyped-call]  # generated gRPC code lacks type stubs
 
         # Bind to address (port=0 lets the OS pick a free port)
         address = f"{self.host}:{self.port}"
@@ -118,7 +255,9 @@ class PluginServer:
         signal.signal(signal.SIGINT, signal_handler)
 
     @staticmethod
-    def _asyncio_exception_handler(loop: asyncio.AbstractEventLoop, context: dict[str, Any]) -> None:
+    def _asyncio_exception_handler(
+        loop: asyncio.AbstractEventLoop, context: dict[str, Any]
+    ) -> None:
         """Global handler for unhandled exceptions in fire-and-forget tasks."""
         exception = context.get("exception")
         message = context.get("message", "Unhandled exception in async task")

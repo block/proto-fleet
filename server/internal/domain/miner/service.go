@@ -222,7 +222,21 @@ func (s *Service) resolveMiner(ctx context.Context, deviceID models.DeviceIdenti
 	if !s.pluginManager.HasPluginForDriverName(deviceData.DriverName) {
 		return nil, fmt.Errorf("no plugin available (driver_name=%q) — ensure the device has been discovered and the appropriate plugin is loaded", deviceData.DriverName)
 	}
+	// SDK scope excludes facade-only metadata; write gates still capture the entire fresh row.
+	sdkBinding := deviceData
+	sdkBinding.SiteID = sql.NullInt64{}
+	sdkBinding.Model = sql.NullString{}
+	sdkBinding.Manufacturer = sql.NullString{}
+	scope, err := devicewrite.DirectBindingHash(sdkBinding)
+	if err != nil {
+		return nil, err
+	}
+	// Current-password remediation intentionally uses a new transient credential context.
+	if protoMissingCredentials != nil && deviceData.DriverName == models.DriverNameProto && !deviceData.UsernameEnc.Valid && !deviceData.PasswordEnc.Valid {
+		scope = ""
+	}
 	m, err := plugins.NewPluginMinerWithCredentials(ctx, plugins.PluginMinerConfig{
+		SDKReuseScopeKey:   scope,
 		DeviceClass:        sdk.DeviceClass(deviceData.DeviceClass),
 		RPCPort:            deviceData.RpcPort,
 		RPCTLS:             deviceData.RpcTls,

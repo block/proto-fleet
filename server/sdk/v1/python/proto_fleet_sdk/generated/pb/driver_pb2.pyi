@@ -254,20 +254,24 @@ class DescribeDriverResponse(_message.Message):
     def __init__(self, driver_name: _Optional[str] = ..., api_version: _Optional[str] = ..., caps: _Optional[_Union[Capabilities, _Mapping]] = ...) -> None: ...
 
 class NewDeviceRequest(_message.Message):
-    __slots__ = ("device_id", "info", "secret")
+    __slots__ = ("device_id", "info", "secret", "reuse_scope_key")
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
     INFO_FIELD_NUMBER: _ClassVar[int]
     SECRET_FIELD_NUMBER: _ClassVar[int]
+    REUSE_SCOPE_KEY_FIELD_NUMBER: _ClassVar[int]
     device_id: str
     info: DeviceInfo
     secret: SecretBundle
-    def __init__(self, device_id: _Optional[str] = ..., info: _Optional[_Union[DeviceInfo, _Mapping]] = ..., secret: _Optional[_Union[SecretBundle, _Mapping]] = ...) -> None: ...
+    reuse_scope_key: str
+    def __init__(self, device_id: _Optional[str] = ..., info: _Optional[_Union[DeviceInfo, _Mapping]] = ..., secret: _Optional[_Union[SecretBundle, _Mapping]] = ..., reuse_scope_key: _Optional[str] = ...) -> None: ...
 
 class NewDeviceResponse(_message.Message):
-    __slots__ = ("device_id",)
+    __slots__ = ("device_id", "reuse_scope_key")
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    REUSE_SCOPE_KEY_FIELD_NUMBER: _ClassVar[int]
     device_id: str
-    def __init__(self, device_id: _Optional[str] = ...) -> None: ...
+    reuse_scope_key: str
+    def __init__(self, device_id: _Optional[str] = ..., reuse_scope_key: _Optional[str] = ...) -> None: ...
 
 class DeviceRef(_message.Message):
     __slots__ = ("device_id",)

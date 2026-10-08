@@ -1104,6 +1104,45 @@ func (mr *MockDriverMockRecorder) PairDevice(ctx, device, access any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PairDevice", reflect.TypeOf((*MockDriver)(nil).PairDevice), ctx, device, access)
 }
 
+// MockScopedDeviceResolver is a mock of ScopedDeviceResolver interface.
+type MockScopedDeviceResolver struct {
+	ctrl     *gomock.Controller
+	recorder *MockScopedDeviceResolverMockRecorder
+	isgomock struct{}
+}
+
+// MockScopedDeviceResolverMockRecorder is the mock recorder for MockScopedDeviceResolver.
+type MockScopedDeviceResolverMockRecorder struct {
+	mock *MockScopedDeviceResolver
+}
+
+// NewMockScopedDeviceResolver creates a new mock instance.
+func NewMockScopedDeviceResolver(ctrl *gomock.Controller) *MockScopedDeviceResolver {
+	mock := &MockScopedDeviceResolver{ctrl: ctrl}
+	mock.recorder = &MockScopedDeviceResolverMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockScopedDeviceResolver) EXPECT() *MockScopedDeviceResolverMockRecorder {
+	return m.recorder
+}
+
+// GetOrCreateDevice mocks base method.
+func (m *MockScopedDeviceResolver) GetOrCreateDevice(arg0 context.Context, arg1 string, arg2 sdk.DeviceInfo, arg3 sdk.SecretBundle, arg4 string) (sdk.NewDeviceResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOrCreateDevice", arg0, arg1, arg2, arg3, arg4)
+	ret0, _ := ret[0].(sdk.NewDeviceResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOrCreateDevice indicates an expected call of GetOrCreateDevice.
+func (mr *MockScopedDeviceResolverMockRecorder) GetOrCreateDevice(arg0, arg1, arg2, arg3, arg4 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrCreateDevice", reflect.TypeOf((*MockScopedDeviceResolver)(nil).GetOrCreateDevice), arg0, arg1, arg2, arg3, arg4)
+}
+
 // MockDefaultCredentialsProvider is a mock of DefaultCredentialsProvider interface.
 type MockDefaultCredentialsProvider struct {
 	ctrl     *gomock.Controller

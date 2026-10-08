@@ -24,8 +24,10 @@ type PluginDriverGetter interface {
 
 // PluginMinerConfig contains all parameters needed to create a plugin-based miner
 type PluginMinerConfig struct {
-	RPCPort   int32
-	RPCTLS    bool
+	RPCPort int32
+	RPCTLS bool
+	// Trusted owner/incarnation/epoch scope; never plaintext credentials.
+	SDKReuseScopeKey string
 	WriteGate interfaces.MinerWriteGate
 	// Device information
 	DeviceClass      sdk.DeviceClass
@@ -125,7 +127,16 @@ func NewPluginMinerWithCredentials(
 	}
 
 	// Create the SDK device via the plugin driver, which establishes the connection
-	result, err := driver.NewDevice(ctx, config.DeviceIdentifier, sdkDeviceInfo, secretBundle)
+	var result sdk.NewDeviceResult
+	if config.SDKReuseScopeKey != "" {
+		resolver, ok := driver.(sdk.ScopedDeviceResolver)
+		if !ok {
+			return nil, fmt.Errorf("driver does not support scoped device resolution")
+		}
+		result, err = resolver.GetOrCreateDevice(ctx, config.DeviceIdentifier, sdkDeviceInfo, secretBundle, config.SDKReuseScopeKey)
+	} else {
+		result, err = driver.NewDevice(ctx, config.DeviceIdentifier, sdkDeviceInfo, secretBundle)
+	}
 	if err != nil {
 		// Check if this is a network error and wrap it as ConnectionError
 		if isNetworkError(err) {

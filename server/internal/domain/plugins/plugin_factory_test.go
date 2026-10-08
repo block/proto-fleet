@@ -94,3 +94,12 @@ func TestContainerClassSurvivesPluginReconstruction(t *testing.T) {
 	require.ErrorContains(t, err, "stop after capturing reconstruction")
 	require.Equal(t, sdk.DeviceClassContainer, driver.info.DeviceClass)
 }
+
+func TestScopedPluginReconstructionRejectsUnsupportedResolverBeforeNewDevice(t *testing.T) {
+	driver := &capturingContainerDriver{}
+	_, err := NewPluginMinerWithCredentials(t.Context(), PluginMinerConfig{
+		SDKReuseScopeKey: "trusted-current-incarnation", DeviceIdentifier: "device-unsupported", DriverName: "custom", FilesService: &files.Service{}, DeviceIPAddress: "192.0.2.1", DevicePort: "8080", DeviceScheme: "http", DriverGetter: containerDriverGetter{driver},
+	})
+	require.ErrorContains(t, err, "scoped device resolution")
+	require.Empty(t, driver.info.Host, "unsupported resolution must not call destructive NewDevice as a fallback")
+}

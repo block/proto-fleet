@@ -28,11 +28,16 @@ message NewDeviceRequest {
   string device_id = 1;     // Unique device instance ID
   DeviceInfo info = 2;     // Device connection info
   SecretBundle secret = 3;   // Secret for device access
+  // Explicit scoped resolution. Empty preserves unconditional NewDevice replacement.
+  // Nonempty requests reuse only when scope AND complete request configuration match.
+  string reuse_scope_key = 4;
 }
 
 // Response containing the created device identifier
 message NewDeviceResponse { 
   string device_id = 1;      // Unique device instance ID
+  // Echoed only by runtimes implementing scoped resolution.
+  string reuse_scope_key = 2;
 }
 
 // Reference to a specific device instance

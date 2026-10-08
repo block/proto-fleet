@@ -563,6 +563,15 @@ type Driver interface {
 	NewDevice(ctx context.Context, deviceID string, deviceInfo DeviceInfo, secret SecretBundle) (NewDeviceResult, error)
 }
 
+// ScopedDeviceResolver preserves an existing backend for an exact trusted
+// lifecycle scope and complete connection/secret configuration. NewDevice keeps
+// its unconditional replacement semantics.
+type ScopedDeviceResolver interface {
+	GetOrCreateDevice(context.Context, string, DeviceInfo, SecretBundle, string) (NewDeviceResult, error)
+}
+
+const CapabilityScopedDeviceReuse = "sdk_scoped_device_reuse"
+
 // DefaultCredentialsProvider is an optional interface that drivers can implement
 // to provide default credentials for auto-authentication during pairing.
 // If a driver implements this interface and returns credentials, the server

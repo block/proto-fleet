@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 
 use asic_rs::MinerFactory;
 use asic_rs_core::traits::miner::{Miner, MinerAuth};
-use tokio::sync::RwLock;
+use prost::Message;
+use sha2::{Digest, Sha256};
+use tokio::sync::{Mutex, RwLock};
 use tonic::{Request, Response, Status};
 
 use pb::driver_server::Driver;
@@ -21,6 +23,21 @@ use crate::device::AsicRsDevice;
 
 const DRIVER_NAME: &str = "asicrs";
 const API_VERSION: &str = "v1";
+const CAP_SCOPED_DEVICE_REUSE: &str = "sdk_scoped_device_reuse";
+const DEVICE_STRIPES: usize = 64;
+
+struct ActiveDevice {
+    device: Arc<AsicRsDevice>,
+    request_digest: Option<[u8; 32]>,
+}
+
+fn device_stripe(device_id: &str) -> usize {
+    // Stable FNV-1a distributes IDs over a fixed, bounded set of locks.
+    let hash = device_id.bytes().fold(2166136261u32, |hash, byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(16777619)
+    });
+    hash as usize % DEVICE_STRIPES
+}
 
 #[allow(clippy::result_large_err)]
 fn extract_auth(secret: Option<&pb::SecretBundle>) -> Result<Option<MinerAuth>, Status> {
@@ -130,7 +147,8 @@ impl Drop for AbortOnDrop {
 pub struct DriverService {
     config: Arc<PluginConfig>,
     factory: Arc<MinerFactory>,
-    devices: Arc<RwLock<HashMap<String, Arc<AsicRsDevice>>>>,
+    devices: Arc<RwLock<HashMap<String, ActiveDevice>>>,
+    device_stripes: [Arc<Mutex<()>>; DEVICE_STRIPES],
     miner_cache: Arc<MinerCache>,
     _cache_eviction_task: AbortOnDrop,
 }
@@ -157,6 +175,7 @@ impl DriverService {
             config: Arc::new(config),
             factory: Arc::new(MinerFactory::new()),
             devices: Arc::new(RwLock::new(HashMap::new())),
+            device_stripes: std::array::from_fn(|_| Arc::new(Mutex::new(()))),
             miner_cache,
             _cache_eviction_task: AbortOnDrop(eviction_handle),
         }
@@ -170,7 +189,7 @@ impl DriverService {
             .read()
             .await
             .get(device_id)
-            .cloned()
+            .map(|entry| entry.device.clone())
             .ok_or_else(|| Status::not_found(format!("Device not found: {device_id}")))
     }
 
@@ -185,7 +204,8 @@ impl DriverService {
     ) -> Option<std::collections::HashMap<String, bool>> {
         let devices = self.devices.read().await;
         let mut candidates: Vec<Arc<AsicRsDevice>> = Vec::new();
-        for device in devices.values() {
+        for entry in devices.values() {
+            let device = &entry.device;
             if !device.info.manufacturer.eq_ignore_ascii_case(manufacturer) {
                 continue;
             }
@@ -199,6 +219,7 @@ impl DriverService {
                 candidates.push(device.clone());
             }
         }
+
         drop(devices);
 
         for device in candidates {
@@ -232,7 +253,11 @@ impl Driver for DriverService {
             driver_name: DRIVER_NAME.into(),
             api_version: API_VERSION.into(),
             caps: Some(pb::Capabilities {
-                flags: driver_base_capabilities(),
+                flags: {
+                    let mut flags = driver_base_capabilities();
+                    flags.insert(CAP_SCOPED_DEVICE_REUSE.into(), true);
+                    flags
+                },
             }),
         }))
     }
@@ -671,6 +696,11 @@ impl Driver for DriverService {
     ) -> Result<Response<pb::NewDeviceResponse>, Status> {
         let req = req.into_inner();
         let device_id = req.device_id.clone();
+        let reuse_scope_key = req.reuse_scope_key.clone();
+        // Complete protobuf encoding includes every device/secret field and the
+        // trusted scope. The request has no maps, so prost encoding is stable.
+        let request_digest = (!reuse_scope_key.is_empty())
+            .then(|| <[u8; 32]>::from(Sha256::digest(req.encode_to_vec())));
         let device_info = req
             .info
             .ok_or_else(|| Status::invalid_argument("Missing device info"))?;
@@ -681,6 +711,20 @@ impl Driver for DriverService {
             .host
             .parse()
             .map_err(|_| Status::invalid_argument(format!("Invalid IP: {}", device_info.host)))?;
+
+        let _stripe = self.device_stripes[device_stripe(&device_id)].lock().await;
+        if let Some(digest) = request_digest {
+            let devices = self.devices.read().await;
+            if devices
+                .get(&device_id)
+                .is_some_and(|entry| entry.request_digest == Some(digest))
+            {
+                return Ok(Response::new(pb::NewDeviceResponse {
+                    device_id,
+                    reuse_scope_key,
+                }));
+            }
+        }
 
         // Create device disconnected. The first telemetry/control call will trigger
         // ensure_connected() which runs the full identity verification (model/serial/MAC)
@@ -701,11 +745,20 @@ impl Driver for DriverService {
             auth,
         ));
 
-        self.devices.write().await.insert(device_id.clone(), device);
+        self.devices.write().await.insert(
+            device_id.clone(),
+            ActiveDevice {
+                device,
+                request_digest,
+            },
+        );
 
         tracing::debug!(device_id = %device_id, "Created device");
 
-        Ok(Response::new(pb::NewDeviceResponse { device_id }))
+        Ok(Response::new(pb::NewDeviceResponse {
+            device_id,
+            reuse_scope_key,
+        }))
     }
 
     async fn describe_device(
@@ -742,8 +795,20 @@ impl Driver for DriverService {
 
     async fn close_device(&self, req: Request<pb::DeviceRef>) -> Result<Response<()>, Status> {
         let device_id = req.into_inner().device_id;
-        if let Some(device) = self.devices.write().await.remove(&device_id) {
-            device.close().await;
+        let stripe = self.device_stripes[device_stripe(&device_id)]
+            .clone()
+            .lock_owned()
+            .await;
+        // Drop the global map lock before backend cleanup. The cleanup task owns
+        // the ID stripe even if its RPC waiter is canceled after registry removal.
+        let entry = { self.devices.write().await.remove(&device_id) };
+        if let Some(entry) = entry {
+            tokio::spawn(async move {
+                let _stripe = stripe;
+                entry.device.close().await;
+            })
+            .await
+            .map_err(|_| Status::internal("Device close cleanup failed"))?;
             tracing::debug!(device_id = %device_id, "Closed device");
             Ok(Response::new(()))
         } else {
@@ -1238,3 +1303,7 @@ miners:
         assert_eq!(err.code(), Code::Unimplemented);
     }
 }
+
+#[cfg(test)]
+#[path = "driver_lifecycle_tests.rs"]
+mod lifecycle_tests;
