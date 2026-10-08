@@ -398,6 +398,32 @@ func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.De
 	return s.addDevicesLocked(ctx, deviceID...)
 }
 
+// AddPairedDevices admits a completed Fleet Node pairing only while the
+// database still considers it paired. Revocation cleanup uses membershipMu too,
+// so a delayed pairing callback cannot re-admit a revoked miner afterward.
+func (s *TelemetryService) AddPairedDevices(ctx context.Context, deviceIDs ...models.DeviceIdentifier) error {
+	if len(deviceIDs) == 0 {
+		return nil
+	}
+	s.membershipMu.Lock()
+	defer s.membershipMu.Unlock()
+	pairedIDs, err := s.deviceStore.GetAllPairedDeviceIdentifiers(ctx)
+	if err != nil {
+		return fmt.Errorf("load paired devices before telemetry admission: %w", err)
+	}
+	paired := make(map[models.DeviceIdentifier]struct{}, len(pairedIDs))
+	for _, id := range pairedIDs {
+		paired[id] = struct{}{}
+	}
+	var eligible []models.DeviceIdentifier
+	for _, id := range deviceIDs {
+		if _, exists := paired[id]; exists {
+			eligible = append(eligible, id)
+		}
+	}
+	return s.addDevicesLocked(ctx, eligible...)
+}
+
 func (s *TelemetryService) addDevicesLocked(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
 	if len(deviceID) == 0 {
 		return nil

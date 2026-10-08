@@ -458,6 +458,12 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 	status, err := pairing.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusPaired, status)
+	siblingNodeID := createFleetNode(t, enrollment, orgID, "unaffected-node")
+	siblingIdentifier := "mac:p-revoke-sibling"
+	upsertNodeDiscovered(t, pairing, orgID, siblingNodeID, siblingIdentifier)
+	siblingStatus, err := pairing.PersistFleetNodePairResult(ctx, siblingNodeID, orgID, pairResult(siblingIdentifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
+	require.NoError(t, err)
+	require.Equal(t, fleetnodepairing.StatusPaired, siblingStatus)
 	var ddID int64
 	require.NoError(t, db.QueryRow(`SELECT id FROM discovered_device WHERE device_identifier = $1 AND org_id = $2`, identifier, orgID).Scan(&ddID))
 	devID := deviceIDByIdentifier(t, db, orgID, identifier)
@@ -484,6 +490,12 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 	require.NoError(t, db.QueryRow(`SELECT status FROM device_status WHERE device_id = $1`, devID).Scan(&deviceStatus))
 	assert.Equal(t, "UNPAIRED", pairingStatus)
 	assert.Equal(t, "OFFLINE", deviceStatus)
+	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, siblingIdentifier))
+	assert.True(t, deviceBoundToNode(t, db, orgID, siblingNodeID, siblingIdentifier))
+	var siblingDeviceStatus string
+	siblingDeviceID := deviceIDByIdentifier(t, db, orgID, siblingIdentifier)
+	require.NoError(t, db.QueryRow(`SELECT status FROM device_status WHERE device_id = $1`, siblingDeviceID).Scan(&siblingDeviceStatus))
+	assert.Equal(t, "ACTIVE", siblingDeviceStatus)
 	var statusDetails sql.NullString
 	require.NoError(t, db.QueryRow(`SELECT status_details FROM device_status WHERE device_id = $1`, devID).Scan(&statusDetails))
 	assert.Equal(t, "fleet_node_revoked", statusDetails.String)

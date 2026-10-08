@@ -503,6 +503,31 @@ func TestRemoveUnpairedDevicesContinuesAfterSchedulerError(t *testing.T) {
 	require.ErrorContains(t, err, "first")
 }
 
+func TestLateFleetNodePairingScheduleDoesNotReadmitRevokedMiner(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).Return(nil, nil).Times(2)
+	scheduler.EXPECT().RemoveDevices(gomock.Any(), models.DeviceIdentifier("revoked")).Return(nil)
+	service := NewTelemetryService(Config{}, nil, nil, scheduler, deviceStore, nil)
+	require.NoError(t, service.RemoveUnpairedDevices(t.Context(), "revoked"))
+	require.NoError(t, service.AddPairedDevices(t.Context(), "revoked"))
+	_, tracked := service.devicesForStatusPolling.Load(models.DeviceIdentifier("revoked"))
+	require.False(t, tracked)
+}
+
+func TestReplacementFleetNodePairingScheduleAdmitsPairedMiner(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).Return([]models.DeviceIdentifier{"replacement"}, nil)
+	scheduler.EXPECT().AddNewDevices(gomock.Any(), models.DeviceIdentifier("replacement")).Return(nil)
+	service := NewTelemetryService(Config{}, nil, nil, scheduler, deviceStore, nil)
+	require.NoError(t, service.AddPairedDevices(t.Context(), "replacement"))
+	_, tracked := service.devicesForStatusPolling.Load(models.DeviceIdentifier("replacement"))
+	require.True(t, tracked)
+}
+
 func TestPairedReloadFinishesBeforeRevocationRemoval(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	deviceStore := storesMocks.NewMockDeviceStore(ctrl)
@@ -527,6 +552,7 @@ func TestPairedReloadFinishesBeforeRevocationRemoval(t *testing.T) {
 	<-queryStarted
 	removeDone := make(chan error, 1)
 	go func() { removeDone <- service.RemoveUnpairedDevices(t.Context(), "revoked") }()
+	assert.Never(t, func() bool { return len(removeDone) > 0 }, 30*time.Millisecond, 5*time.Millisecond)
 	close(releaseQuery)
 	require.NoError(t, <-loadDone)
 	require.NoError(t, <-removeDone)
@@ -557,6 +583,7 @@ func TestReplacementScheduleWaitsForRevocationRemoval(t *testing.T) {
 	<-queryStarted
 	addDone := make(chan error, 1)
 	go func() { addDone <- service.AddDevices(t.Context(), "replacement") }()
+	assert.Never(t, func() bool { return len(addDone) > 0 }, 30*time.Millisecond, 5*time.Millisecond)
 	close(releaseQuery)
 	require.NoError(t, <-removeDone)
 	require.NoError(t, <-addDone)

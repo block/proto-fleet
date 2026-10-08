@@ -263,7 +263,12 @@ describe("NodesPage", () => {
     expect(screen.queryByRole("dialog", { name: "Node details" })).not.toBeInTheDocument();
     expect(screen.getByText("Add miners")).toBeInTheDocument();
     await waitFor(() =>
-      expect(discoverOnFleetNodeMock).toHaveBeenCalledWith("7", expect.anything(), expect.anything()),
+      expect(discoverOnFleetNodeMock).toHaveBeenCalledWith(
+        "7",
+        expect.anything(),
+        expect.anything(),
+        expect.any(AbortSignal),
+      ),
     );
   });
 
@@ -303,6 +308,23 @@ describe("NodesPage", () => {
 
     expect(await screen.findByRole("button", { name: "Continue with 1 miners" })).toBeInTheDocument();
     expect(discoverOnFleetNodeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts running Node scans when the page unmounts", async () => {
+    permissionsMock.current = ["fleetnode:read", "fleetnode:manage", "miner:pair"];
+    discoverOnFleetNodeMock.mockImplementation(() => new Promise<void>(() => {}));
+    const { unmount } = renderNodesPage();
+
+    await screen.findByText("node-01");
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find miners" }));
+    await waitFor(() => expect(discoverOnFleetNodeMock).toHaveBeenCalledTimes(1));
+    const signal = discoverOnFleetNodeMock.mock.calls[0][3] as AbortSignal;
+    expect(signal.aborted).toBe(false);
+
+    unmount();
+
+    expect(signal.aborted).toBe(true);
   });
 
   it("keeps the reopened finder intact when an earlier pairing settles", async () => {

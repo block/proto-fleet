@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
@@ -52,8 +52,19 @@ const NodesPage = () => {
   const notifyNextLoadErrorRef = useRef(true);
   const revokeImpactRequestRef = useRef(0);
   const scansByNodeRef = useRef(
-    new Map<string, { promise: Promise<void>; onUpdate: Parameters<typeof discoverOnFleetNode>[2] }>(),
+    new Map<
+      string,
+      { promise: Promise<void>; onUpdate: Parameters<typeof discoverOnFleetNode>[2]; controller: AbortController }
+    >(),
   );
+
+  useEffect(() => {
+    const scans = scansByNodeRef.current;
+    return () => {
+      for (const scan of scans.values()) scan.controller.abort();
+      scans.clear();
+    };
+  }, []);
 
   const scanOnNode: typeof discoverOnFleetNode = useCallback(
     (nodeId, request, onUpdate) => {
@@ -62,9 +73,14 @@ const NodesPage = () => {
         running.onUpdate = onUpdate;
         return running.promise;
       }
-      const scan = { promise: Promise.resolve(), onUpdate };
-      scan.promise = discoverOnFleetNode(nodeId, request, (update) => scan.onUpdate(update)).finally(() => {
-        scansByNodeRef.current.delete(nodeId);
+      const scan = { promise: Promise.resolve(), onUpdate, controller: new AbortController() };
+      scan.promise = discoverOnFleetNode(
+        nodeId,
+        request,
+        (update) => scan.onUpdate(update),
+        scan.controller.signal,
+      ).finally(() => {
+        if (scansByNodeRef.current.get(nodeId) === scan) scansByNodeRef.current.delete(nodeId);
       });
       scansByNodeRef.current.set(nodeId, scan);
       return scan.promise;

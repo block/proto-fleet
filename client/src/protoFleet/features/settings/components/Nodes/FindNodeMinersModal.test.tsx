@@ -156,6 +156,47 @@ describe("FindNodeMinersModal", () => {
     expect(onPairingCompleted).toHaveBeenCalledTimes(1);
   });
 
+  it("dismisses after every selected miner is reported paired", async () => {
+    listDiscovered.mockResolvedValue({ devices: [miner, otherMiner], nextCursor: 0n });
+    pairOnNode.mockImplementation(async (_id, _ids, _credentials, onResults) => {
+      onResults([
+        create(DevicePairingResultSchema, { deviceIdentifier: "miner-2", pairingStatus: PairingStatus.PAIRED }),
+        create(DevicePairingResultSchema, { deviceIdentifier: "miner-3", pairingStatus: PairingStatus.PAIRED }),
+      ]);
+    });
+    const onDismiss = vi.fn();
+    const onPairingCompleted = vi.fn();
+    renderFinder({ onDismiss, onPairingCompleted });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Continue with 2 miners" }));
+
+    await waitFor(() => expect(onDismiss).toHaveBeenCalledTimes(1));
+    expect(onPairingCompleted).toHaveBeenCalledWith(["miner-2", "miner-3"]);
+    expect(onPairingCompleted).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the finder open when a completed stream has authentication-needed and unreported miners", async () => {
+    listDiscovered.mockResolvedValue({ devices: [miner, otherMiner], nextCursor: 0n });
+    pairOnNode.mockImplementation(async (_id, _ids, _credentials, onResults) => {
+      onResults([
+        create(DevicePairingResultSchema, {
+          deviceIdentifier: "miner-2",
+          pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
+        }),
+      ]);
+    });
+    const onDismiss = vi.fn();
+    const onPairingCompleted = vi.fn();
+    renderFinder({ onDismiss, onPairingCompleted });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Continue with 2 miners" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Some pairing results need attention");
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(onPairingCompleted).toHaveBeenCalledWith(["miner-2"]);
+    expect(onPairingCompleted).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps synthetic FAILED pairing results blocked after a stream failure", async () => {
     pairOnNode.mockImplementation(async (_id, _ids, _credentials, onResults) => {
       onResults([

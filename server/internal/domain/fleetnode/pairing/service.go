@@ -64,7 +64,7 @@ type FleetNodeDiscoveredDeviceFilter struct {
 }
 
 type TelemetryScheduler interface {
-	AddDevices(ctx context.Context, deviceID ...telemetrymodels.DeviceIdentifier) error
+	AddPairedDevices(ctx context.Context, deviceID ...telemetrymodels.DeviceIdentifier) error
 }
 
 type Service struct {
@@ -275,7 +275,7 @@ func (s *Service) scheduleTelemetryIdentifier(ctx context.Context, identifier te
 	if s.telemetry == nil {
 		return nil
 	}
-	if err := s.telemetry.AddDevices(ctx, identifier); err != nil {
+	if err := s.telemetry.AddPairedDevices(ctx, identifier); err != nil {
 		return fleeterror.LogInternal(component, "schedule telemetry", clientErrPair, err)
 	}
 	return nil

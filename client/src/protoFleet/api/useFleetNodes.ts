@@ -141,12 +141,17 @@ const useFleetNodes = () => {
   );
 
   const discoverOnFleetNode = useCallback(
-    async (fleetNodeId: string, request: DiscoverRequest, onResponse: (response: DiscoverResponse) => void) => {
+    async (
+      fleetNodeId: string,
+      request: DiscoverRequest,
+      onResponse: (response: DiscoverResponse) => void,
+      signal?: AbortSignal,
+    ) => {
       try {
-        for await (const update of fleetNodeAdminClient.discoverOnFleetNode({
-          fleetNodeId: BigInt(fleetNodeId),
-          request,
-        })) {
+        for await (const update of fleetNodeAdminClient.discoverOnFleetNode(
+          { fleetNodeId: BigInt(fleetNodeId), request },
+          { signal },
+        )) {
           if (update.response) onResponse(update.response);
         }
       } catch (err) {

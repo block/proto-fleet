@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
-import { Code, ConnectError } from "@connectrpc/connect";
+import { isDefinitivePairRejection } from "@/protoFleet/api/fleetNodePairingErrors";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import type {
   DevicePairingResult,
   FleetNodeDiscoveredDevice,
 } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { DeviceSchema, DiscoverRequestSchema } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
-import { getErrorCause } from "@/protoFleet/api/requestErrors";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 import Miners from "@/protoFleet/features/onboarding/components/Miners/Miners";
@@ -15,22 +14,6 @@ import Button, { variants } from "@/shared/components/Button";
 
 const DISCOVERED_PAGE_SIZE = 100;
 const MAX_PAIRING_SELECTION = 1024;
-
-const isDefinitivePairRejection = (error: unknown): boolean => {
-  const cause = getErrorCause(error);
-  return (
-    cause instanceof ConnectError &&
-    (cause.code === Code.InvalidArgument ||
-      (cause.code === Code.ResourceExhausted &&
-        cause.rawMessage.startsWith("fleet node is busy with another command; retry shortly:")) ||
-      (cause.code === Code.FailedPrecondition &&
-        [
-          "fleet node has no active control stream",
-          "fleet node is not CONFIRMED",
-          "fleet node is not confirmed; cannot pair until enrollment completes",
-        ].includes(cause.rawMessage)))
-  );
-};
 
 interface FindNodeMinersModalProps {
   node: FleetNodeItem;
