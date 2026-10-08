@@ -39,7 +39,7 @@ func TestInvitationPaginationRetainsLifecycleHistoryAndTraversesTies(t *testing.
 	tx, err := f.db.BeginTx(t.Context(), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = tx.Rollback() })
-	for i := 0; i < 103; i++ {
+	for i := range 103 {
 		id := uuid.NewString()
 		hash := sha256.Sum256([]byte(id))
 		timestamp := createdAt

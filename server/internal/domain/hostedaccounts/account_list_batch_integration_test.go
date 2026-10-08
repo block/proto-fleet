@@ -24,7 +24,11 @@ type accountListDB struct {
 
 func (d *accountListDB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	d.calls++
-	return d.DB.QueryContext(ctx, query, args...)
+	rows, err := d.DB.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("account list query: %w", err)
+	}
+	return rows, nil
 }
 
 func (d *accountListDB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
@@ -204,7 +208,7 @@ func TestAccountListsUseConstantDatabaseRoundTrips(t *testing.T) {
 	parent := f.create(t, f.root, "Parent", f.host, f.user)
 	var childCalls int
 	for _, size := range []int{1, 40} {
-		for i := 0; i < size; i++ {
+		for i := range size {
 			_ = f.create(t, parent.AccountID, fmt.Sprintf("Child %d-%d", size, i), f.user, f.user)
 		}
 		f.conn.calls = 0
