@@ -109,6 +109,7 @@ func (s *Service) Reserve(ctx context.Context, organizationID, deviceID int64) (
 		if err != nil {
 			return 0, lookupError(err)
 		}
+		// Cancellation also records terminal device results in this transaction.
 		if err := q.CancelPendingDeviceWrites(ctx, deviceID); err != nil {
 			return 0, fmt.Errorf("cancel superseded device commands: %w", err)
 		}

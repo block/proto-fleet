@@ -184,6 +184,8 @@ type Querier interface {
 	// Record the first terminal time after the header lock, bounded by the
 	// rollout's preceding lifecycle events, and clear any active pause.
 	CancelFirmwareRollout(ctx context.Context, arg CancelFirmwareRolloutParams) (int64, error)
+	// Canceled queue rows cannot reach the worker or reaper. Record their results
+	// atomically without firmware-completion effects: these writes never dispatched.
 	CancelPendingDeviceWrites(ctx context.Context, deviceID int64) error
 	CancelPendingEnrollment(ctx context.Context, arg CancelPendingEnrollmentParams) (int64, error)
 	// Building peer of CascadeAddedDeviceSites. Rewrites device.building_id

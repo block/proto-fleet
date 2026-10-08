@@ -616,8 +616,13 @@ func (es *ExecutionService) executeQueuedCommand(ctx context.Context, message qu
 	defer func() {
 		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)
 		defer cancel()
-		if err := attempt.Finish(finishCtx, resultErr); err != nil && resultErr == nil {
-			resultErr = err
+		if err := attempt.Finish(finishCtx, resultErr); err != nil {
+			// Completion bookkeeping cannot change the physical execution outcome:
+			// retrying a successful command would repeat its device side effects.
+			// Finish leaves the unresolved attempt persisted for drain checks.
+			slog.Error("failed to persist device write attempt completion",
+				"message_id", message.ID, "device_id", message.DeviceID,
+				"batch_uuid", message.BatchLogUUID, "error", err)
 		}
 	}()
 	return es.executeCommandOnDevice(attempt.Context(ctx), message.CommandType, message)
