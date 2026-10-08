@@ -2041,6 +2041,45 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyRequiresVerifiedPasswor
 	}
 }
 
+func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyRejectsInvalidStoredShape(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		priorities []int32
+	}{
+		{"extra slot", []int32{0, 1, 2, 3}},
+		{"duplicate slot", []int32{0, 0}},
+		{"missing slot", []int32{0, 2}},
+		{"missing primary", []int32{1}},
+		{"negative slot", []int32{-1, 0}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			getter := minerMocks.NewMockCachedMinerGetter(ctrl)
+			miner := minerIfaceMocks.NewMockMiner(ctrl)
+			reader := minerIfaceMocks.NewMockStoredMiningPoolReader(ctrl)
+			store := storeMocks.NewMockDeviceStore(ctrl)
+			password := "private-pool-credential"
+			pools := make([]minerInterfaces.MinerStoredPool, len(tc.priorities))
+			for i, priority := range tc.priorities {
+				pools[i] = minerInterfaces.MinerStoredPool{Priority: priority, URL: "stratum+tcp://pool.example:3333", Username: "wallet.old", Password: &password}
+			}
+			body, err := json.Marshal(dto.UpdateMiningPoolsPayload{ReapplyCurrentPoolsWithStoredWorkerName: true, DesiredWorkerName: "new"})
+			require.NoError(t, err)
+			message := queue.Message{DeviceID: 149, CommandType: commandtype.UpdateMiningPools, Payload: body}
+			getter.EXPECT().GetMiner(gomock.Any(), int64(149)).Return(storedPoolMiner{Miner: miner, StoredMiningPoolReader: reader}, nil)
+			miner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+			miner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
+			miner.EXPECT().GetID().Return(models.DeviceIdentifier("invalid-stored-shape")).AnyTimes()
+			reader.EXPECT().GetStoredMiningPools(gomock.Any()).Return(pools, nil)
+			// Neither device writes nor worker-name persistence may occur.
+			svc := NewExecutionService(&Config{MaxWorkers: 5, MasterPollingInterval: time.Millisecond, WorkerExecutionTimeout: time.Second}, nil, nil, nil, nil, getter, store, nil, nil)
+			_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+			require.True(t, fleeterror.IsFailedPreconditionError(err))
+			require.NotContains(t, fmt.Sprintf("%v %+v %#v", err, err, err), password)
+		})
+	}
+}
+
 func TestExecuteCommandOnDevice_UpdateMiningPools_PersistsWorkerNameWhenNoCurrentPoolsExist(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

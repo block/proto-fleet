@@ -1214,10 +1214,16 @@ func buildCurrentPoolsPayloadWithWorkerName(
 	currentPools []interfaces.MinerStoredPool,
 	desiredWorkerName string,
 ) (dto.UpdateMiningPoolsPayload, error) {
+	if len(currentPools) == 0 || len(currentPools) > 3 {
+		return dto.UpdateMiningPoolsPayload{}, fleeterror.NewFailedPreconditionError("cannot update worker name with invalid stored pool slots")
+	}
 	sortedPools := sortedStoredPoolsByPriority(currentPools)
 	// Reapplying a worker name must preserve the credentials of every pool
 	// being rewritten. Unknown readback is not evidence of an empty password.
-	for _, pool := range sortedPools[:min(3, len(sortedPools))] {
+	for i, pool := range sortedPools {
+		if int(pool.Priority) != i {
+			return dto.UpdateMiningPoolsPayload{}, fleeterror.NewFailedPreconditionError("cannot update worker name with invalid stored pool slots")
+		}
 		if pool.Password == nil {
 			return dto.UpdateMiningPoolsPayload{}, fleeterror.NewFailedPreconditionError("cannot update worker name without verified stored pool credentials")
 		}
