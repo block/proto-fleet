@@ -1,3 +1,5 @@
+-- requires-shared: 1000
+
 -- Customer pool destinations are usable immediately, without host allowlists.
 CREATE TABLE hosted_account_pool (
     pool_id VARCHAR(36) PRIMARY KEY,

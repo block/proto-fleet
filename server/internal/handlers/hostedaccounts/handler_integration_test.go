@@ -2,8 +2,8 @@ package hostedaccounts_test
 
 import (
 	"database/sql"
-	"fmt"
 	"encoding/base64"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
