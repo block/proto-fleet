@@ -801,21 +801,31 @@ func isDefaultPasswordMessage(msg string) bool {
 		strings.Contains(lower, defaultPasswordCodeMarker)
 }
 
-func classifyForbiddenResponse(body []byte) error {
+func isDefaultPasswordForbidden(body []byte) bool {
 	var payload errorResponse
 	if err := json.Unmarshal(body, &payload); err == nil && payload.Error != nil {
 		if strings.EqualFold(payload.Error.Code, ErrCodeDefaultPasswordActive) || isDefaultPasswordMessage(payload.Error.Message) {
-			return fmt.Errorf("forbidden: %s", defaultPasswordMessageMarker)
+			return true
 		}
+		if payload.Error.Message != "" {
+			return false
+		}
+	}
+	return isDefaultPasswordMessage(strings.TrimSpace(string(body)))
+}
+
+func classifyForbiddenResponse(body []byte) error {
+	if isDefaultPasswordForbidden(body) {
+		return fmt.Errorf("forbidden: %s", defaultPasswordMessageMarker)
+	}
+	var payload errorResponse
+	if err := json.Unmarshal(body, &payload); err == nil && payload.Error != nil {
 		if payload.Error.Message != "" {
 			return fmt.Errorf("forbidden: %s", payload.Error.Message)
 		}
 	}
 
 	rawMessage := strings.TrimSpace(string(body))
-	if isDefaultPasswordMessage(rawMessage) {
-		return fmt.Errorf("forbidden: %s", defaultPasswordMessageMarker)
-	}
 	if rawMessage != "" {
 		return fmt.Errorf("forbidden: %s", rawMessage)
 	}
@@ -1398,7 +1408,7 @@ func (c *Client) UpdatePools(ctx context.Context, pools []Pool) error {
 		}
 		// Pool errors can echo submitted credentials. Keep the firmware's
 		// default-password classification without returning its response text.
-		if isDefaultPasswordMessage(classifyForbiddenResponse(body).Error()) {
+		if isDefaultPasswordForbidden(body) {
 			return fmt.Errorf("forbidden: %s", defaultPasswordMessageMarker)
 		}
 		return errors.New("forbidden: access denied")

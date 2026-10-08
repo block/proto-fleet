@@ -795,19 +795,7 @@ impl AsicRsDevice {
             pools: pool_configs,
         };
 
-        let result = catch_panic(tokio::time::timeout(
-            OP_TIMEOUT,
-            miner.set_pools_config(vec![group]),
-        ))
-        .await?;
-        let ok = result
-            .map_err(|_| anyhow::anyhow!("set_pools timed out"))?
-            .map_err(|e| anyhow::anyhow!("set_pools failed: {e}"))?;
-        if !ok {
-            return Err(anyhow::anyhow!("set_pools command returned false"));
-        }
-
-        Ok(())
+        set_pools_safely(miner.set_pools_config(vec![group])).await
     }
 
     pub async fn set_power_target(&self, mode: pb::PerformanceMode) -> anyhow::Result<()> {
@@ -1067,6 +1055,36 @@ fn is_benign_command_error(err: &str) -> bool {
         || lower.contains("deadline exceeded")
 }
 
+/// Pool-write responses and panic payloads may echo the submitted credentials.
+/// Never retain them in the returned error or forward them to tracing.
+async fn set_pools_safely<F>(fut: F) -> anyhow::Result<()>
+where
+    F: std::future::Future<Output = anyhow::Result<bool>>,
+{
+    let result = AssertUnwindSafe(tokio::time::timeout(OP_TIMEOUT, fut))
+        .catch_unwind()
+        .await
+        .map_err(|_| anyhow::anyhow!("set_pools panicked"))?
+        .map_err(|_| anyhow::anyhow!("set_pools timed out"))?
+        .map_err(|error| {
+            // Preserve the existing endpoint's authentication classification,
+            // while discarding the upstream error and its entire source chain.
+            let lower = error.to_string().to_lowercase();
+            if ["auth", "password", "credential", "forbidden", "401", "403"]
+                .iter()
+                .any(|marker| lower.contains(marker))
+            {
+                anyhow::anyhow!("[unauthenticated] set_pools failed")
+            } else {
+                anyhow::anyhow!("set_pools failed")
+            }
+        })?;
+    if !result {
+        return Err(anyhow::anyhow!("set_pools command returned false"));
+    }
+    Ok(())
+}
+
 /// Wrap an async call with catch_unwind to convert panics into errors.
 pub async fn catch_panic<F, T>(fut: F) -> anyhow::Result<T>
 where
@@ -1294,6 +1312,70 @@ fn classify_error(msg: MinerMessage) -> (pb::MinerError, pb::Severity, pb::Compo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn pool_write_errors_discard_firmware_echo_and_source_chain() {
+        let secret = "pool-private-value";
+        for (firmware_error, expected) in [
+            (
+                format!("401 rejected {secret}"),
+                "[unauthenticated] set_pools failed",
+            ),
+            (
+                format!("403 rejected {secret}"),
+                "[unauthenticated] set_pools failed",
+            ),
+            (
+                format!("invalid password {secret}"),
+                "[unauthenticated] set_pools failed",
+            ),
+            (
+                format!("authentication failed {secret}"),
+                "[unauthenticated] set_pools failed",
+            ),
+            (
+                format!("invalid credential {secret}"),
+                "[unauthenticated] set_pools failed",
+            ),
+            (
+                format!("forbidden {secret}"),
+                "[unauthenticated] set_pools failed",
+            ),
+            (format!("firmware rejected {secret}"), "set_pools failed"),
+        ] {
+            let error = set_pools_safely(async {
+                Err(anyhow::anyhow!(secret.to_string()).context(firmware_error))
+            })
+            .await
+            .unwrap_err();
+            assert_eq!(error.to_string(), expected);
+            assert_eq!(error.chain().count(), 1);
+            assert!(!format!("{error:#?} {error:#}").contains(secret));
+        }
+    }
+
+    #[tokio::test]
+    async fn pool_write_panic_discards_payload() {
+        let error = set_pools_safely(async {
+            panic!("firmware panic includes pool-private-value");
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(error.to_string(), "set_pools panicked");
+        assert!(!format!("{error:#?} {error:#}").contains("pool-private-value"));
+    }
+
+    #[tokio::test]
+    async fn pool_write_result_preserves_success_and_rejection() {
+        set_pools_safely(async { Ok(true) }).await.unwrap();
+        assert_eq!(
+            set_pools_safely(async { Ok(false) })
+                .await
+                .unwrap_err()
+                .to_string(),
+            "set_pools command returned false"
+        );
+    }
 
     struct ProbeLuxosSession {
         calls: std::sync::Mutex<Vec<&'static str>>,
