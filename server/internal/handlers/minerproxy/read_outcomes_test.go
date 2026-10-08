@@ -25,7 +25,7 @@ type proxyRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f proxyRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-type proxyFailingWriter struct{ *httptest.ResponseRecorder }
+type proxyFailingWriter struct{ *deadlineProxyRecorder }
 
 func (w proxyFailingWriter) Write([]byte) (int, error) { return 0, errors.New("fixture-copy-secret") }
 
@@ -35,7 +35,7 @@ func TestRepeatedProxyPollingRetiresCompletedAdmission(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("{}"))}, nil
 	})}
 	for range 20 {
-		response := httptest.NewRecorder()
+		response := newDeadlineProxyRecorder()
 		h.ServeHTTP(response, authenticatedProxyRequest(t, database, h, target))
 		require.Equal(t, http.StatusOK, response.Code)
 		require.Equal(t, "{}", response.Body.String())
@@ -60,7 +60,7 @@ func TestCanceledProxyReadAllowsRetiredIdentityReuse(t *testing.T) {
 	h.httpClient = &http.Client{Transport: transport}
 	source := authenticatedProxyRequest(t, database, h, target).WithContext(ctx)
 	done := make(chan struct{})
-	go func() { h.ServeHTTP(httptest.NewRecorder(), source); close(done) }()
+	go func() { h.ServeHTTP(newDeadlineProxyRecorder(), source); close(done) }()
 	awaitProxyBarrier(t, body.readStarted)
 	cancel()
 	require.Equal(t, "running", proxyAttemptStatus(t, database, deviceID))
@@ -106,9 +106,9 @@ func TestProxyObservationFailuresDoNotPoisonDrain(t *testing.T) {
 				if failure == "network" {
 					h.httpClient.Transport = proxyRoundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("fixture-network-secret") })
 				}
-				var response http.ResponseWriter = httptest.NewRecorder()
+				var response http.ResponseWriter = newDeadlineProxyRecorder()
 				if failure == "copy" {
-					response = proxyFailingWriter{httptest.NewRecorder()}
+					response = proxyFailingWriter{newDeadlineProxyRecorder()}
 				}
 				started := false
 				err := h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
@@ -145,9 +145,9 @@ func TestProxyMutationFailuresStillPoisonDrain(t *testing.T) {
 				if failure == "network" {
 					h.httpClient.Transport = proxyRoundTripFunc(func(*http.Request) (*http.Response, error) { return nil, errors.New("fixture-network-secret") })
 				}
-				var response http.ResponseWriter = httptest.NewRecorder()
+				var response http.ResponseWriter = newDeadlineProxyRecorder()
 				if failure == "copy" {
-					response = proxyFailingWriter{httptest.NewRecorder()}
+					response = proxyFailingWriter{newDeadlineProxyRecorder()}
 				}
 				started := false
 				err := h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
@@ -183,7 +183,7 @@ func TestProxyMutation401ThenFailedLoginRetainsUnknownOutcome(t *testing.T) {
 	})}
 	started := false
 	err = h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
-		return h.forwardAndCopy(ctx, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil), target, "/api/v1/system", nil, &started)
+		return h.forwardAndCopy(ctx, newDeadlineProxyRecorder(), httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil), target, "/api/v1/system", nil, &started)
 	})
 	require.Error(t, err)
 	require.Equal(t, []string{"/api/v1/system", "/api/v1/auth/login"}, paths)
@@ -222,7 +222,7 @@ func TestProxyMutationFailureStillBlocksRetiredIdentityReuse(t *testing.T) {
 	})}
 	started := false
 	err := h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
-		return h.forwardAndCopy(ctx, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil), target, "/api/v2/mining/start", nil, &started)
+		return h.forwardAndCopy(ctx, newDeadlineProxyRecorder(), httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil), target, "/api/v2/mining/start", nil, &started)
 	})
 	require.Error(t, err)
 	require.Equal(t, "unknown", proxyAttemptStatus(t, database, deviceID))

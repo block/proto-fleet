@@ -238,6 +238,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) forwardAndCopy(ctx context.Context, w http.ResponseWriter, r *http.Request, target proxyTarget, proxyPath string, body []byte, responseStarted *bool) (resultErr error) {
+	// An upstream timeout cannot interrupt a blocked downstream Write. Bound
+	// the response before forwarding any miner request, including cancellation.
+	writeTimeout := h.clientFor(target.baseURL).Timeout
+	if writeTimeout <= 0 {
+		writeTimeout = proxyClientTimeout
+	}
+	finishResponse, err := boundProxyResponse(ctx, w, writeTimeout)
+	if err != nil {
+		return err
+	}
+	defer finishResponse()
 	resp, err := h.forward(ctx, r, target, proxyPath, body, false)
 	if err != nil {
 		return err
@@ -274,6 +285,26 @@ func (h *Handler) forwardAndCopy(ctx context.Context, w http.ResponseWriter, r *
 		return fleeterror.NewUnavailableErrorf("miner response stream did not complete")
 	}
 	return nil
+}
+
+func boundProxyResponse(ctx context.Context, w http.ResponseWriter, timeout time.Duration) (func(), error) {
+	controller := http.NewResponseController(w)
+	if err := controller.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+		return nil, fleeterror.NewUnavailableErrorf("miner response write deadline could not be enforced")
+	}
+	interrupted := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		defer close(interrupted)
+		_ = controller.SetWriteDeadline(time.Now())
+	})
+	return func() {
+		// A stopped callback may already be setting the deadline. Join it before
+		// resetting the connection or returning its writer to the HTTP server.
+		if !stop() {
+			<-interrupted
+		}
+		_ = controller.SetWriteDeadline(time.Time{})
+	}, nil
 }
 
 func (h *Handler) authenticate(r *http.Request) (context.Context, *session.Info, error) {

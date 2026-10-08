@@ -122,7 +122,7 @@ func TestProxyAttemptRetainsResponseReadAndCloseLifetime(t *testing.T) {
 	transport := &proxyResponseTransport{status: http.StatusOK, body: body}
 	h.httpClient = &http.Client{Transport: transport}
 	source := authenticatedProxyRequest(t, database, h, target)
-	response := httptest.NewRecorder()
+	response := newDeadlineProxyRecorder()
 	done := make(chan struct{})
 	go func() {
 		h.ServeHTTP(response, source)
@@ -172,7 +172,7 @@ func TestProxyReservationBefore401RetrySendsNoLoginOrResend(t *testing.T) {
 	source := httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil)
 	path := "/api/v1/system"
 	require.True(t, requiresMinerAuthentication(path))
-	response := httptest.NewRecorder()
+	response := newDeadlineProxyRecorder()
 	started := false
 	done := make(chan error, 1)
 	go func() {
@@ -216,7 +216,7 @@ func TestProxyResponseFailuresRetainUnknownOutcome(t *testing.T) {
 			transport := &proxyResponseTransport{status: http.StatusOK, body: body}
 			h.httpClient = &http.Client{Transport: transport}
 			source := httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil)
-			response := httptest.NewRecorder()
+			response := newDeadlineProxyRecorder()
 			started := false
 			err := h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
 				return h.forwardAndCopy(ctx, response, source, target, "/api/v2/mining/start", nil, &started)
@@ -289,7 +289,7 @@ func TestProxyFailedLoginResponseCannotCacheTokenOrForward(t *testing.T) {
 					return nil, errors.New("fixture-network-secret")
 				})
 			}
-			response := httptest.NewRecorder()
+			response := newDeadlineProxyRecorder()
 			started := false
 			err = h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
 				return h.forwardAndCopy(ctx, response, httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil), target, "/api/v1/system", nil, &started)
@@ -360,7 +360,7 @@ func TestProxyTransportCannotReplayAcrossReservation(t *testing.T) {
 		}
 		return &proxyWriteFailureConn{Conn: conn, failNext: &failNext}, nil
 	}
-	warm := httptest.NewRecorder()
+	warm := newDeadlineProxyRecorder()
 	started := false
 	require.NoError(t, h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
 		return h.forwardAndCopy(ctx, warm, httptest.NewRequest(http.MethodGet, "http://fleet.test/", nil), target, "/api/v2/system/info", nil, &started)
@@ -369,7 +369,7 @@ func TestProxyTransportCannotReplayAcrossReservation(t *testing.T) {
 	failNext.Store(true)
 	done := make(chan error, 1)
 	go func() {
-		response := httptest.NewRecorder()
+		response := newDeadlineProxyRecorder()
 		started := false
 		done <- h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
 			return h.forwardAndCopy(ctx, response, httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil), target, "/api/v2/mining/start", []byte("{}"), &started)
@@ -464,7 +464,7 @@ func TestProxyServeHTTPResponseFailureDoesNotAppendError(t *testing.T) {
 			}
 			transport := &proxyResponseTransport{status: http.StatusOK, body: body}
 			h.httpClient = &http.Client{Transport: transport}
-			response := httptest.NewRecorder()
+			response := newDeadlineProxyRecorder()
 			h.ServeHTTP(response, authenticatedProxyRequest(t, database, h, target))
 			require.Equal(t, http.StatusOK, response.Code)
 			require.Equal(t, "{}", response.Body.String(), "an error must not be appended after miner response headers")
@@ -537,7 +537,7 @@ func TestProxyRevalidatesAfterLoginCloseBeforeControlRequest(t *testing.T) {
 	go func() {
 		started := false
 		done <- h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
-			return h.forwardAndCopy(ctx, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil), target, "/api/v1/system", nil, &started)
+			return h.forwardAndCopy(ctx, newDeadlineProxyRecorder(), httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil), target, "/api/v1/system", nil, &started)
 		})
 	}()
 	awaitProxyBarrier(t, body.closeStarted)
