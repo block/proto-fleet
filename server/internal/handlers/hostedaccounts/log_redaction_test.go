@@ -67,3 +67,35 @@ func TestHostedRPCInvitationSecretsStayOutOfLogsAndLaterResponses(t *testing.T) 
 	require.NotContains(t, activity, tokenHash)
 	require.NotContains(t, activity, rpcPassword)
 }
+
+func TestHostedRPCPoolPasswordsAndCiphertextStayOutOfLogs(t *testing.T) {
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	f := newRPCFixture(t)
+	account := f.account(t, "Customer", f.host, domain.DefaultCapabilities)
+	secret := "secret-for-customer-stratum-password"
+	created, err := f.client.CreatePoolConfiguration(t.Context(), rpcRequest(&pb.CreatePoolConfigurationRequest{AccountId: account.AccountID, Configuration: &pb.PoolRevisionInput{Name: "Private credentials", Slots: []*pb.PoolSlotInput{{Url: "stratum+tcp://private.customer.example:3333", Username: "customer.wallet", Password: &secret}}}}, f.cookie, account.AccountID))
+	require.NoError(t, err)
+	revisionID := created.Msg.Revision.RevisionId
+	_, err = f.client.SetIncomingPoolProfile(t.Context(), rpcRequest(&pb.SetIncomingPoolProfileRequest{AccountId: account.AccountID, RevisionId: &revisionID, Password: rpcPassword}, f.cookie, account.AccountID))
+	require.NoError(t, err)
+	var ciphertext, activity string
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT slots->0->>'password_ciphertext' FROM hosted_account_pool_revision WHERE revision_id=$1`, revisionID).Scan(&ciphertext))
+	require.NotEmpty(t, ciphertext)
+	listed, err := f.client.ListPoolConfigurations(t.Context(), rpcRequest(&pb.ListPoolConfigurationsRequest{AccountId: account.AccountID}, f.cookie, account.AccountID))
+	require.NoError(t, err)
+	response := string(mustProtoJSON(t, listed.Msg))
+	require.NotContains(t, response, secret)
+	require.NotContains(t, response, ciphertext)
+	require.Contains(t, output.String(), "CreatePoolConfiguration", "debug logging actually ran")
+	require.Contains(t, output.String(), "SetIncomingPoolProfile")
+	require.NotContains(t, output.String(), secret)
+	require.NotContains(t, output.String(), rpcPassword)
+	require.NotContains(t, output.String(), ciphertext)
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT COALESCE(string_agg(row_to_json(a)::text,E'\n'),'') FROM activity_log a WHERE organization_id=$1`, f.org).Scan(&activity))
+	require.NotContains(t, activity, secret)
+	require.NotContains(t, activity, ciphertext)
+	require.NotContains(t, activity, rpcPassword)
+}

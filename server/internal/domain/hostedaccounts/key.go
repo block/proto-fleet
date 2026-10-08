@@ -141,11 +141,15 @@ func (s *KeyService) Create(ctx context.Context, actorID, orgID int64, accountID
 // account membership. The future-descendant opt-in includes all current and future
 // direct children, each of which still needs live issuer access.
 func (s *KeyService) Authorize(ctx context.Context, keyID, issuerID, orgID int64, targetID string) (Capabilities, error) {
-	ctx = context.WithValue(ctx, machineScopeKey{}, nil)
 	q := s.accounts.queries
 	if tx := db.GetTxQueries(ctx); tx != nil {
 		q = tx
 	}
+	return s.authorize(ctx, q, keyID, issuerID, orgID, targetID)
+}
+
+func (s *KeyService) authorize(ctx context.Context, q sqlc.Querier, keyID, issuerID, orgID int64, targetID string) (Capabilities, error) {
+	ctx = context.WithValue(ctx, machineScopeKey{}, nil)
 	key, err := q.GetHostedAccountKeyAuthority(ctx, sqlc.GetHostedAccountKeyAuthorityParams{ApiKeyID: keyID, OrganizationID: orgID, UserID: sql.NullInt64{Int64: issuerID, Valid: true}})
 	if err != nil {
 		return 0, accessError(err)

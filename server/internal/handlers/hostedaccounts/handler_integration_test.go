@@ -2,6 +2,7 @@ package hostedaccounts_test
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -27,6 +28,7 @@ import (
 	hostedhandler "github.com/block/proto-fleet/server/internal/handlers/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
+	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -63,8 +65,12 @@ func newRPCFixture(t *testing.T) rpcFixture {
 	permissions := authz.NewPermissionResolver(db)
 	accounts := domain.NewService(db)
 	keys := apikey.NewService(sqlstores.NewSQLApiKeyStore(db), nil)
+	accountKeys := domain.NewKeyService(accounts, keys)
 	authService := domainauth.NewService(users, users, sqlstores.NewSQLTransactor(db), nil, sessions, nil, nil, permissions)
-	requestAuth := interceptors.NewAuthInterceptor(sessions, users, users, keys, permissions, domain.NewKeyService(accounts, keys), interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures)
+	poolSecrets, err := encrypt.NewService(&encrypt.Config{ServiceMasterKey: base64.StdEncoding.EncodeToString(make([]byte, 32))})
+	require.NoError(t, err)
+	pools := domain.NewPoolService(accounts, poolSecrets, accountKeys, authService)
+	requestAuth := interceptors.NewAuthInterceptor(sessions, users, users, keys, permissions, accountKeys, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures)
 	options := connect.WithInterceptors(
 		interceptors.NewErrorMappingInterceptor(),
 		interceptors.NewRequestLoggingInterceptor(slog.LevelDebug, interceptors.RedactedRequestProcedures, interceptors.RedactedResponseProcedures),
@@ -72,7 +78,7 @@ func newRPCFixture(t *testing.T) rpcFixture {
 		validate.NewInterceptor(),
 	)
 	mux := http.NewServeMux()
-	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedhandler.NewHandler(accounts, domain.NewInvitationService(accounts, sessions), domain.NewKeyService(accounts, keys), users, permissions), options))
+	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedhandler.NewHandler(accounts, domain.NewInvitationService(accounts, sessions), accountKeys, pools, users, permissions), options))
 	mux.Handle(authv1connect.NewAuthServiceHandler(authhandler.NewHandler(authService), options))
 	clientIP, err := middleware.NewClientIPMiddleware("")
 	require.NoError(t, err)

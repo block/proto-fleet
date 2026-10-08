@@ -186,6 +186,18 @@ func (q *retryingQuerier) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context
 	return result, err
 }
 
+func (q *retryingQuerier) ArchiveHostedAccountPool(ctx context.Context, arg ArchiveHostedAccountPoolParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ArchiveHostedAccountPool", func() error {
+		callResult, callErr := q.next.ArchiveHostedAccountPool(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) AssignBuildingToSite(ctx context.Context, arg AssignBuildingToSiteParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "AssignBuildingToSite", func() error {
@@ -1354,6 +1366,30 @@ func (q *retryingQuerier) CreateHostedAccountInvitation(ctx context.Context, arg
 	var result HostedAccountInvitation
 	err := q.retrier.RetryQuery(ctx, "CreateHostedAccountInvitation", func() error {
 		callResult, callErr := q.next.CreateHostedAccountInvitation(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CreateHostedAccountPool(ctx context.Context, arg CreateHostedAccountPoolParams) (HostedAccountPool, error) {
+	var result HostedAccountPool
+	err := q.retrier.RetryQuery(ctx, "CreateHostedAccountPool", func() error {
+		callResult, callErr := q.next.CreateHostedAccountPool(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CreateHostedAccountPoolRevision(ctx context.Context, arg CreateHostedAccountPoolRevisionParams) (HostedAccountPoolRevision, error) {
+	var result HostedAccountPoolRevision
+	err := q.retrier.RetryQuery(ctx, "CreateHostedAccountPoolRevision", func() error {
+		callResult, callErr := q.next.CreateHostedAccountPoolRevision(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3262,6 +3298,54 @@ func (q *retryingQuerier) GetHostedAccountPath(ctx context.Context, arg GetHoste
 	var result []GetHostedAccountPathRow
 	err := q.retrier.RetryQuery(ctx, "GetHostedAccountPath", func() error {
 		callResult, callErr := q.next.GetHostedAccountPath(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetHostedAccountPool(ctx context.Context, arg GetHostedAccountPoolParams) (HostedAccountPool, error) {
+	var result HostedAccountPool
+	err := q.retrier.RetryQuery(ctx, "GetHostedAccountPool", func() error {
+		callResult, callErr := q.next.GetHostedAccountPool(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetHostedAccountPoolProfile(ctx context.Context, arg GetHostedAccountPoolProfileParams) (GetHostedAccountPoolProfileRow, error) {
+	var result GetHostedAccountPoolProfileRow
+	err := q.retrier.RetryQuery(ctx, "GetHostedAccountPoolProfile", func() error {
+		callResult, callErr := q.next.GetHostedAccountPoolProfile(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetHostedAccountPoolRevision(ctx context.Context, arg GetHostedAccountPoolRevisionParams) (HostedAccountPoolRevision, error) {
+	var result HostedAccountPoolRevision
+	err := q.retrier.RetryQuery(ctx, "GetHostedAccountPoolRevision", func() error {
+		callResult, callErr := q.next.GetHostedAccountPoolRevision(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetHostedAccountPoolRevisionByID(ctx context.Context, arg GetHostedAccountPoolRevisionByIDParams) (HostedAccountPoolRevision, error) {
+	var result HostedAccountPoolRevision
+	err := q.retrier.RetryQuery(ctx, "GetHostedAccountPoolRevisionByID", func() error {
+		callResult, callErr := q.next.GetHostedAccountPoolRevisionByID(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5400,6 +5484,18 @@ func (q *retryingQuerier) ListHostedAccountMembers(ctx context.Context, arg List
 	return result, err
 }
 
+func (q *retryingQuerier) ListHostedAccountPools(ctx context.Context, arg ListHostedAccountPoolsParams) ([]ListHostedAccountPoolsRow, error) {
+	var result []ListHostedAccountPoolsRow
+	err := q.retrier.RetryQuery(ctx, "ListHostedAccountPools", func() error {
+		callResult, callErr := q.next.ListHostedAccountPools(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListHostedAccountSites(ctx context.Context, arg ListHostedAccountSitesParams) ([]ListHostedAccountSitesRow, error) {
 	var result []ListHostedAccountSitesRow
 	err := q.retrier.RetryQuery(ctx, "ListHostedAccountSites", func() error {
@@ -7330,6 +7426,18 @@ func (q *retryingQuerier) SetHostedAccountMembership(ctx context.Context, arg Se
 	return q.retrier.RetryQuery(ctx, "SetHostedAccountMembership", func() error {
 		return q.next.SetHostedAccountMembership(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) SetHostedAccountPoolProfile(ctx context.Context, arg SetHostedAccountPoolProfileParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "SetHostedAccountPoolProfile", func() error {
+		callResult, callErr := q.next.SetHostedAccountPoolProfile(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) SetHostedAccountSitesRestricted(ctx context.Context, arg SetHostedAccountSitesRestrictedParams) error {

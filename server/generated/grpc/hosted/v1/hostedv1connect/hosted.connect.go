@@ -94,6 +94,27 @@ const (
 	// HostedAccountServiceRegisterInvitedUserProcedure is the fully-qualified name of the
 	// HostedAccountService's RegisterInvitedUser RPC.
 	HostedAccountServiceRegisterInvitedUserProcedure = "/hosted.v1.HostedAccountService/RegisterInvitedUser"
+	// HostedAccountServiceCreatePoolConfigurationProcedure is the fully-qualified name of the
+	// HostedAccountService's CreatePoolConfiguration RPC.
+	HostedAccountServiceCreatePoolConfigurationProcedure = "/hosted.v1.HostedAccountService/CreatePoolConfiguration"
+	// HostedAccountServiceRevisePoolConfigurationProcedure is the fully-qualified name of the
+	// HostedAccountService's RevisePoolConfiguration RPC.
+	HostedAccountServiceRevisePoolConfigurationProcedure = "/hosted.v1.HostedAccountService/RevisePoolConfiguration"
+	// HostedAccountServiceGetPoolRevisionProcedure is the fully-qualified name of the
+	// HostedAccountService's GetPoolRevision RPC.
+	HostedAccountServiceGetPoolRevisionProcedure = "/hosted.v1.HostedAccountService/GetPoolRevision"
+	// HostedAccountServiceListPoolConfigurationsProcedure is the fully-qualified name of the
+	// HostedAccountService's ListPoolConfigurations RPC.
+	HostedAccountServiceListPoolConfigurationsProcedure = "/hosted.v1.HostedAccountService/ListPoolConfigurations"
+	// HostedAccountServiceArchivePoolConfigurationProcedure is the fully-qualified name of the
+	// HostedAccountService's ArchivePoolConfiguration RPC.
+	HostedAccountServiceArchivePoolConfigurationProcedure = "/hosted.v1.HostedAccountService/ArchivePoolConfiguration"
+	// HostedAccountServiceGetIncomingPoolProfileProcedure is the fully-qualified name of the
+	// HostedAccountService's GetIncomingPoolProfile RPC.
+	HostedAccountServiceGetIncomingPoolProfileProcedure = "/hosted.v1.HostedAccountService/GetIncomingPoolProfile"
+	// HostedAccountServiceSetIncomingPoolProfileProcedure is the fully-qualified name of the
+	// HostedAccountService's SetIncomingPoolProfile RPC.
+	HostedAccountServiceSetIncomingPoolProfileProcedure = "/hosted.v1.HostedAccountService/SetIncomingPoolProfile"
 	// HostedAccountServiceCreateAccountKeyProcedure is the fully-qualified name of the
 	// HostedAccountService's CreateAccountKey RPC.
 	HostedAccountServiceCreateAccountKeyProcedure = "/hosted.v1.HostedAccountService/CreateAccountKey"
@@ -127,6 +148,13 @@ type HostedAccountServiceClient interface {
 	PreviewInvitation(context.Context, *connect.Request[v1.PreviewInvitationRequest]) (*connect.Response[v1.PreviewInvitationResponse], error)
 	AcceptInvitation(context.Context, *connect.Request[v1.AcceptInvitationRequest]) (*connect.Response[v1.AcceptInvitationResponse], error)
 	RegisterInvitedUser(context.Context, *connect.Request[v1.RegisterInvitedUserRequest]) (*connect.Response[v1.RegisterInvitedUserResponse], error)
+	CreatePoolConfiguration(context.Context, *connect.Request[v1.CreatePoolConfigurationRequest]) (*connect.Response[v1.CreatePoolConfigurationResponse], error)
+	RevisePoolConfiguration(context.Context, *connect.Request[v1.RevisePoolConfigurationRequest]) (*connect.Response[v1.RevisePoolConfigurationResponse], error)
+	GetPoolRevision(context.Context, *connect.Request[v1.GetPoolRevisionRequest]) (*connect.Response[v1.GetPoolRevisionResponse], error)
+	ListPoolConfigurations(context.Context, *connect.Request[v1.ListPoolConfigurationsRequest]) (*connect.Response[v1.ListPoolConfigurationsResponse], error)
+	ArchivePoolConfiguration(context.Context, *connect.Request[v1.ArchivePoolConfigurationRequest]) (*connect.Response[v1.ArchivePoolConfigurationResponse], error)
+	GetIncomingPoolProfile(context.Context, *connect.Request[v1.GetIncomingPoolProfileRequest]) (*connect.Response[v1.GetIncomingPoolProfileResponse], error)
+	SetIncomingPoolProfile(context.Context, *connect.Request[v1.SetIncomingPoolProfileRequest]) (*connect.Response[v1.SetIncomingPoolProfileResponse], error)
 	CreateAccountKey(context.Context, *connect.Request[v1.CreateAccountKeyRequest]) (*connect.Response[v1.CreateAccountKeyResponse], error)
 	ListAccountKeys(context.Context, *connect.Request[v1.ListAccountKeysRequest]) (*connect.Response[v1.ListAccountKeysResponse], error)
 	RevokeAccountKey(context.Context, *connect.Request[v1.RevokeAccountKeyRequest]) (*connect.Response[v1.RevokeAccountKeyResponse], error)
@@ -242,6 +270,41 @@ func NewHostedAccountServiceClient(httpClient connect.HTTPClient, baseURL string
 			baseURL+HostedAccountServiceRegisterInvitedUserProcedure,
 			opts...,
 		),
+		createPoolConfiguration: connect.NewClient[v1.CreatePoolConfigurationRequest, v1.CreatePoolConfigurationResponse](
+			httpClient,
+			baseURL+HostedAccountServiceCreatePoolConfigurationProcedure,
+			opts...,
+		),
+		revisePoolConfiguration: connect.NewClient[v1.RevisePoolConfigurationRequest, v1.RevisePoolConfigurationResponse](
+			httpClient,
+			baseURL+HostedAccountServiceRevisePoolConfigurationProcedure,
+			opts...,
+		),
+		getPoolRevision: connect.NewClient[v1.GetPoolRevisionRequest, v1.GetPoolRevisionResponse](
+			httpClient,
+			baseURL+HostedAccountServiceGetPoolRevisionProcedure,
+			opts...,
+		),
+		listPoolConfigurations: connect.NewClient[v1.ListPoolConfigurationsRequest, v1.ListPoolConfigurationsResponse](
+			httpClient,
+			baseURL+HostedAccountServiceListPoolConfigurationsProcedure,
+			opts...,
+		),
+		archivePoolConfiguration: connect.NewClient[v1.ArchivePoolConfigurationRequest, v1.ArchivePoolConfigurationResponse](
+			httpClient,
+			baseURL+HostedAccountServiceArchivePoolConfigurationProcedure,
+			opts...,
+		),
+		getIncomingPoolProfile: connect.NewClient[v1.GetIncomingPoolProfileRequest, v1.GetIncomingPoolProfileResponse](
+			httpClient,
+			baseURL+HostedAccountServiceGetIncomingPoolProfileProcedure,
+			opts...,
+		),
+		setIncomingPoolProfile: connect.NewClient[v1.SetIncomingPoolProfileRequest, v1.SetIncomingPoolProfileResponse](
+			httpClient,
+			baseURL+HostedAccountServiceSetIncomingPoolProfileProcedure,
+			opts...,
+		),
 		createAccountKey: connect.NewClient[v1.CreateAccountKeyRequest, v1.CreateAccountKeyResponse](
 			httpClient,
 			baseURL+HostedAccountServiceCreateAccountKeyProcedure,
@@ -262,29 +325,36 @@ func NewHostedAccountServiceClient(httpClient connect.HTTPClient, baseURL string
 
 // hostedAccountServiceClient implements HostedAccountServiceClient.
 type hostedAccountServiceClient struct {
-	listAccounts        *connect.Client[v1.ListAccountsRequest, v1.ListAccountsResponse]
-	getAccount          *connect.Client[v1.GetAccountRequest, v1.GetAccountResponse]
-	listChildren        *connect.Client[v1.ListChildrenRequest, v1.ListChildrenResponse]
-	createAccount       *connect.Client[v1.CreateAccountRequest, v1.CreateAccountResponse]
-	configureAccount    *connect.Client[v1.ConfigureAccountRequest, v1.ConfigureAccountResponse]
-	renameAccount       *connect.Client[v1.RenameAccountRequest, v1.RenameAccountResponse]
-	listMembers         *connect.Client[v1.ListMembersRequest, v1.ListMembersResponse]
-	setMemberRole       *connect.Client[v1.SetMemberRoleRequest, v1.SetMemberRoleResponse]
-	revokeMember        *connect.Client[v1.RevokeMemberRequest, v1.RevokeMemberResponse]
-	listAncestorGrants  *connect.Client[v1.ListAncestorGrantsRequest, v1.ListAncestorGrantsResponse]
-	setAncestorGrant    *connect.Client[v1.SetAncestorGrantRequest, v1.SetAncestorGrantResponse]
-	revokeAncestorGrant *connect.Client[v1.RevokeAncestorGrantRequest, v1.RevokeAncestorGrantResponse]
-	getSitePolicy       *connect.Client[v1.GetSitePolicyRequest, v1.GetSitePolicyResponse]
-	setSitePolicy       *connect.Client[v1.SetSitePolicyRequest, v1.SetSitePolicyResponse]
-	listInvitations     *connect.Client[v1.ListInvitationsRequest, v1.ListInvitationsResponse]
-	createInvitation    *connect.Client[v1.CreateInvitationRequest, v1.CreateInvitationResponse]
-	revokeInvitation    *connect.Client[v1.RevokeInvitationRequest, v1.RevokeInvitationResponse]
-	previewInvitation   *connect.Client[v1.PreviewInvitationRequest, v1.PreviewInvitationResponse]
-	acceptInvitation    *connect.Client[v1.AcceptInvitationRequest, v1.AcceptInvitationResponse]
-	registerInvitedUser *connect.Client[v1.RegisterInvitedUserRequest, v1.RegisterInvitedUserResponse]
-	createAccountKey    *connect.Client[v1.CreateAccountKeyRequest, v1.CreateAccountKeyResponse]
-	listAccountKeys     *connect.Client[v1.ListAccountKeysRequest, v1.ListAccountKeysResponse]
-	revokeAccountKey    *connect.Client[v1.RevokeAccountKeyRequest, v1.RevokeAccountKeyResponse]
+	listAccounts             *connect.Client[v1.ListAccountsRequest, v1.ListAccountsResponse]
+	getAccount               *connect.Client[v1.GetAccountRequest, v1.GetAccountResponse]
+	listChildren             *connect.Client[v1.ListChildrenRequest, v1.ListChildrenResponse]
+	createAccount            *connect.Client[v1.CreateAccountRequest, v1.CreateAccountResponse]
+	configureAccount         *connect.Client[v1.ConfigureAccountRequest, v1.ConfigureAccountResponse]
+	renameAccount            *connect.Client[v1.RenameAccountRequest, v1.RenameAccountResponse]
+	listMembers              *connect.Client[v1.ListMembersRequest, v1.ListMembersResponse]
+	setMemberRole            *connect.Client[v1.SetMemberRoleRequest, v1.SetMemberRoleResponse]
+	revokeMember             *connect.Client[v1.RevokeMemberRequest, v1.RevokeMemberResponse]
+	listAncestorGrants       *connect.Client[v1.ListAncestorGrantsRequest, v1.ListAncestorGrantsResponse]
+	setAncestorGrant         *connect.Client[v1.SetAncestorGrantRequest, v1.SetAncestorGrantResponse]
+	revokeAncestorGrant      *connect.Client[v1.RevokeAncestorGrantRequest, v1.RevokeAncestorGrantResponse]
+	getSitePolicy            *connect.Client[v1.GetSitePolicyRequest, v1.GetSitePolicyResponse]
+	setSitePolicy            *connect.Client[v1.SetSitePolicyRequest, v1.SetSitePolicyResponse]
+	listInvitations          *connect.Client[v1.ListInvitationsRequest, v1.ListInvitationsResponse]
+	createInvitation         *connect.Client[v1.CreateInvitationRequest, v1.CreateInvitationResponse]
+	revokeInvitation         *connect.Client[v1.RevokeInvitationRequest, v1.RevokeInvitationResponse]
+	previewInvitation        *connect.Client[v1.PreviewInvitationRequest, v1.PreviewInvitationResponse]
+	acceptInvitation         *connect.Client[v1.AcceptInvitationRequest, v1.AcceptInvitationResponse]
+	registerInvitedUser      *connect.Client[v1.RegisterInvitedUserRequest, v1.RegisterInvitedUserResponse]
+	createPoolConfiguration  *connect.Client[v1.CreatePoolConfigurationRequest, v1.CreatePoolConfigurationResponse]
+	revisePoolConfiguration  *connect.Client[v1.RevisePoolConfigurationRequest, v1.RevisePoolConfigurationResponse]
+	getPoolRevision          *connect.Client[v1.GetPoolRevisionRequest, v1.GetPoolRevisionResponse]
+	listPoolConfigurations   *connect.Client[v1.ListPoolConfigurationsRequest, v1.ListPoolConfigurationsResponse]
+	archivePoolConfiguration *connect.Client[v1.ArchivePoolConfigurationRequest, v1.ArchivePoolConfigurationResponse]
+	getIncomingPoolProfile   *connect.Client[v1.GetIncomingPoolProfileRequest, v1.GetIncomingPoolProfileResponse]
+	setIncomingPoolProfile   *connect.Client[v1.SetIncomingPoolProfileRequest, v1.SetIncomingPoolProfileResponse]
+	createAccountKey         *connect.Client[v1.CreateAccountKeyRequest, v1.CreateAccountKeyResponse]
+	listAccountKeys          *connect.Client[v1.ListAccountKeysRequest, v1.ListAccountKeysResponse]
+	revokeAccountKey         *connect.Client[v1.RevokeAccountKeyRequest, v1.RevokeAccountKeyResponse]
 }
 
 // ListAccounts calls hosted.v1.HostedAccountService.ListAccounts.
@@ -387,6 +457,41 @@ func (c *hostedAccountServiceClient) RegisterInvitedUser(ctx context.Context, re
 	return c.registerInvitedUser.CallUnary(ctx, req)
 }
 
+// CreatePoolConfiguration calls hosted.v1.HostedAccountService.CreatePoolConfiguration.
+func (c *hostedAccountServiceClient) CreatePoolConfiguration(ctx context.Context, req *connect.Request[v1.CreatePoolConfigurationRequest]) (*connect.Response[v1.CreatePoolConfigurationResponse], error) {
+	return c.createPoolConfiguration.CallUnary(ctx, req)
+}
+
+// RevisePoolConfiguration calls hosted.v1.HostedAccountService.RevisePoolConfiguration.
+func (c *hostedAccountServiceClient) RevisePoolConfiguration(ctx context.Context, req *connect.Request[v1.RevisePoolConfigurationRequest]) (*connect.Response[v1.RevisePoolConfigurationResponse], error) {
+	return c.revisePoolConfiguration.CallUnary(ctx, req)
+}
+
+// GetPoolRevision calls hosted.v1.HostedAccountService.GetPoolRevision.
+func (c *hostedAccountServiceClient) GetPoolRevision(ctx context.Context, req *connect.Request[v1.GetPoolRevisionRequest]) (*connect.Response[v1.GetPoolRevisionResponse], error) {
+	return c.getPoolRevision.CallUnary(ctx, req)
+}
+
+// ListPoolConfigurations calls hosted.v1.HostedAccountService.ListPoolConfigurations.
+func (c *hostedAccountServiceClient) ListPoolConfigurations(ctx context.Context, req *connect.Request[v1.ListPoolConfigurationsRequest]) (*connect.Response[v1.ListPoolConfigurationsResponse], error) {
+	return c.listPoolConfigurations.CallUnary(ctx, req)
+}
+
+// ArchivePoolConfiguration calls hosted.v1.HostedAccountService.ArchivePoolConfiguration.
+func (c *hostedAccountServiceClient) ArchivePoolConfiguration(ctx context.Context, req *connect.Request[v1.ArchivePoolConfigurationRequest]) (*connect.Response[v1.ArchivePoolConfigurationResponse], error) {
+	return c.archivePoolConfiguration.CallUnary(ctx, req)
+}
+
+// GetIncomingPoolProfile calls hosted.v1.HostedAccountService.GetIncomingPoolProfile.
+func (c *hostedAccountServiceClient) GetIncomingPoolProfile(ctx context.Context, req *connect.Request[v1.GetIncomingPoolProfileRequest]) (*connect.Response[v1.GetIncomingPoolProfileResponse], error) {
+	return c.getIncomingPoolProfile.CallUnary(ctx, req)
+}
+
+// SetIncomingPoolProfile calls hosted.v1.HostedAccountService.SetIncomingPoolProfile.
+func (c *hostedAccountServiceClient) SetIncomingPoolProfile(ctx context.Context, req *connect.Request[v1.SetIncomingPoolProfileRequest]) (*connect.Response[v1.SetIncomingPoolProfileResponse], error) {
+	return c.setIncomingPoolProfile.CallUnary(ctx, req)
+}
+
 // CreateAccountKey calls hosted.v1.HostedAccountService.CreateAccountKey.
 func (c *hostedAccountServiceClient) CreateAccountKey(ctx context.Context, req *connect.Request[v1.CreateAccountKeyRequest]) (*connect.Response[v1.CreateAccountKeyResponse], error) {
 	return c.createAccountKey.CallUnary(ctx, req)
@@ -424,6 +529,13 @@ type HostedAccountServiceHandler interface {
 	PreviewInvitation(context.Context, *connect.Request[v1.PreviewInvitationRequest]) (*connect.Response[v1.PreviewInvitationResponse], error)
 	AcceptInvitation(context.Context, *connect.Request[v1.AcceptInvitationRequest]) (*connect.Response[v1.AcceptInvitationResponse], error)
 	RegisterInvitedUser(context.Context, *connect.Request[v1.RegisterInvitedUserRequest]) (*connect.Response[v1.RegisterInvitedUserResponse], error)
+	CreatePoolConfiguration(context.Context, *connect.Request[v1.CreatePoolConfigurationRequest]) (*connect.Response[v1.CreatePoolConfigurationResponse], error)
+	RevisePoolConfiguration(context.Context, *connect.Request[v1.RevisePoolConfigurationRequest]) (*connect.Response[v1.RevisePoolConfigurationResponse], error)
+	GetPoolRevision(context.Context, *connect.Request[v1.GetPoolRevisionRequest]) (*connect.Response[v1.GetPoolRevisionResponse], error)
+	ListPoolConfigurations(context.Context, *connect.Request[v1.ListPoolConfigurationsRequest]) (*connect.Response[v1.ListPoolConfigurationsResponse], error)
+	ArchivePoolConfiguration(context.Context, *connect.Request[v1.ArchivePoolConfigurationRequest]) (*connect.Response[v1.ArchivePoolConfigurationResponse], error)
+	GetIncomingPoolProfile(context.Context, *connect.Request[v1.GetIncomingPoolProfileRequest]) (*connect.Response[v1.GetIncomingPoolProfileResponse], error)
+	SetIncomingPoolProfile(context.Context, *connect.Request[v1.SetIncomingPoolProfileRequest]) (*connect.Response[v1.SetIncomingPoolProfileResponse], error)
 	CreateAccountKey(context.Context, *connect.Request[v1.CreateAccountKeyRequest]) (*connect.Response[v1.CreateAccountKeyResponse], error)
 	ListAccountKeys(context.Context, *connect.Request[v1.ListAccountKeysRequest]) (*connect.Response[v1.ListAccountKeysResponse], error)
 	RevokeAccountKey(context.Context, *connect.Request[v1.RevokeAccountKeyRequest]) (*connect.Response[v1.RevokeAccountKeyResponse], error)
@@ -535,6 +647,41 @@ func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...con
 		svc.RegisterInvitedUser,
 		opts...,
 	)
+	hostedAccountServiceCreatePoolConfigurationHandler := connect.NewUnaryHandler(
+		HostedAccountServiceCreatePoolConfigurationProcedure,
+		svc.CreatePoolConfiguration,
+		opts...,
+	)
+	hostedAccountServiceRevisePoolConfigurationHandler := connect.NewUnaryHandler(
+		HostedAccountServiceRevisePoolConfigurationProcedure,
+		svc.RevisePoolConfiguration,
+		opts...,
+	)
+	hostedAccountServiceGetPoolRevisionHandler := connect.NewUnaryHandler(
+		HostedAccountServiceGetPoolRevisionProcedure,
+		svc.GetPoolRevision,
+		opts...,
+	)
+	hostedAccountServiceListPoolConfigurationsHandler := connect.NewUnaryHandler(
+		HostedAccountServiceListPoolConfigurationsProcedure,
+		svc.ListPoolConfigurations,
+		opts...,
+	)
+	hostedAccountServiceArchivePoolConfigurationHandler := connect.NewUnaryHandler(
+		HostedAccountServiceArchivePoolConfigurationProcedure,
+		svc.ArchivePoolConfiguration,
+		opts...,
+	)
+	hostedAccountServiceGetIncomingPoolProfileHandler := connect.NewUnaryHandler(
+		HostedAccountServiceGetIncomingPoolProfileProcedure,
+		svc.GetIncomingPoolProfile,
+		opts...,
+	)
+	hostedAccountServiceSetIncomingPoolProfileHandler := connect.NewUnaryHandler(
+		HostedAccountServiceSetIncomingPoolProfileProcedure,
+		svc.SetIncomingPoolProfile,
+		opts...,
+	)
 	hostedAccountServiceCreateAccountKeyHandler := connect.NewUnaryHandler(
 		HostedAccountServiceCreateAccountKeyProcedure,
 		svc.CreateAccountKey,
@@ -592,6 +739,20 @@ func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...con
 			hostedAccountServiceAcceptInvitationHandler.ServeHTTP(w, r)
 		case HostedAccountServiceRegisterInvitedUserProcedure:
 			hostedAccountServiceRegisterInvitedUserHandler.ServeHTTP(w, r)
+		case HostedAccountServiceCreatePoolConfigurationProcedure:
+			hostedAccountServiceCreatePoolConfigurationHandler.ServeHTTP(w, r)
+		case HostedAccountServiceRevisePoolConfigurationProcedure:
+			hostedAccountServiceRevisePoolConfigurationHandler.ServeHTTP(w, r)
+		case HostedAccountServiceGetPoolRevisionProcedure:
+			hostedAccountServiceGetPoolRevisionHandler.ServeHTTP(w, r)
+		case HostedAccountServiceListPoolConfigurationsProcedure:
+			hostedAccountServiceListPoolConfigurationsHandler.ServeHTTP(w, r)
+		case HostedAccountServiceArchivePoolConfigurationProcedure:
+			hostedAccountServiceArchivePoolConfigurationHandler.ServeHTTP(w, r)
+		case HostedAccountServiceGetIncomingPoolProfileProcedure:
+			hostedAccountServiceGetIncomingPoolProfileHandler.ServeHTTP(w, r)
+		case HostedAccountServiceSetIncomingPoolProfileProcedure:
+			hostedAccountServiceSetIncomingPoolProfileHandler.ServeHTTP(w, r)
 		case HostedAccountServiceCreateAccountKeyProcedure:
 			hostedAccountServiceCreateAccountKeyHandler.ServeHTTP(w, r)
 		case HostedAccountServiceListAccountKeysProcedure:
@@ -685,6 +846,34 @@ func (UnimplementedHostedAccountServiceHandler) AcceptInvitation(context.Context
 
 func (UnimplementedHostedAccountServiceHandler) RegisterInvitedUser(context.Context, *connect.Request[v1.RegisterInvitedUserRequest]) (*connect.Response[v1.RegisterInvitedUserResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.RegisterInvitedUser is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) CreatePoolConfiguration(context.Context, *connect.Request[v1.CreatePoolConfigurationRequest]) (*connect.Response[v1.CreatePoolConfigurationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.CreatePoolConfiguration is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) RevisePoolConfiguration(context.Context, *connect.Request[v1.RevisePoolConfigurationRequest]) (*connect.Response[v1.RevisePoolConfigurationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.RevisePoolConfiguration is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) GetPoolRevision(context.Context, *connect.Request[v1.GetPoolRevisionRequest]) (*connect.Response[v1.GetPoolRevisionResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.GetPoolRevision is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ListPoolConfigurations(context.Context, *connect.Request[v1.ListPoolConfigurationsRequest]) (*connect.Response[v1.ListPoolConfigurationsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ListPoolConfigurations is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ArchivePoolConfiguration(context.Context, *connect.Request[v1.ArchivePoolConfigurationRequest]) (*connect.Response[v1.ArchivePoolConfigurationResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ArchivePoolConfiguration is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) GetIncomingPoolProfile(context.Context, *connect.Request[v1.GetIncomingPoolProfileRequest]) (*connect.Response[v1.GetIncomingPoolProfileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.GetIncomingPoolProfile is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) SetIncomingPoolProfile(context.Context, *connect.Request[v1.SetIncomingPoolProfileRequest]) (*connect.Response[v1.SetIncomingPoolProfileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.SetIncomingPoolProfile is not implemented"))
 }
 
 func (UnimplementedHostedAccountServiceHandler) CreateAccountKey(context.Context, *connect.Request[v1.CreateAccountKeyRequest]) (*connect.Response[v1.CreateAccountKeyResponse], error) {

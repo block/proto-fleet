@@ -28,6 +28,14 @@ service HostedAccountService {
   rpc PreviewInvitation(PreviewInvitationRequest) returns (PreviewInvitationResponse);
   rpc AcceptInvitation(AcceptInvitationRequest) returns (AcceptInvitationResponse);
   rpc RegisterInvitedUser(RegisterInvitedUserRequest) returns (RegisterInvitedUserResponse);
+  rpc CreatePoolConfiguration(CreatePoolConfigurationRequest) returns (CreatePoolConfigurationResponse);
+  rpc RevisePoolConfiguration(RevisePoolConfigurationRequest) returns (RevisePoolConfigurationResponse);
+  rpc GetPoolRevision(GetPoolRevisionRequest) returns (GetPoolRevisionResponse);
+  rpc ListPoolConfigurations(ListPoolConfigurationsRequest) returns (ListPoolConfigurationsResponse);
+  rpc ArchivePoolConfiguration(ArchivePoolConfigurationRequest) returns (ArchivePoolConfigurationResponse);
+  rpc GetIncomingPoolProfile(GetIncomingPoolProfileRequest) returns (GetIncomingPoolProfileResponse);
+  rpc SetIncomingPoolProfile(SetIncomingPoolProfileRequest) returns (SetIncomingPoolProfileResponse);
+
   rpc CreateAccountKey(CreateAccountKeyRequest) returns (CreateAccountKeyResponse);
   rpc ListAccountKeys(ListAccountKeysRequest) returns (ListAccountKeysResponse);
   rpc RevokeAccountKey(RevokeAccountKeyRequest) returns (RevokeAccountKeyResponse);
@@ -270,3 +278,96 @@ message RevokeAccountKeyRequest {
   string key_id = 2 [(buf.validate.field).string.uuid = true];
 }
 message RevokeAccountKeyResponse {}
+
+// Input array order is priority: primary, then up to two backups. A revision
+// replaces the complete array; removing a backup does not edit older revisions.
+message PoolSlotInput {
+  string url = 1 [(buf.validate.field).string = {min_len: 1, max_bytes: 256}];
+  string username = 2 [(buf.validate.field).string = {min_len: 1, max_bytes: 255}];
+  // Empty uses the exact payout username. Otherwise append '.' and this suffix,
+  // replacing {miner_id} and {miner_name}; other placeholders are rejected.
+  string worker_template = 3 [(buf.validate.field).string.max_bytes = 128];
+  // Omission preserves this priority's secret only if its URL and username are
+  // unchanged. Revising either requires an explicit password (empty clears it).
+  // New slots default to empty. Secrets are never returned.
+  optional string password = 4 [(buf.validate.field).string.max_bytes = 255];
+}
+message PoolRevisionInput {
+  string name = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  repeated PoolSlotInput slots = 2 [(buf.validate.field).repeated = {min_items: 1, max_items: 3}];
+}
+message PoolEndpoint {
+  int32 priority = 1;
+  string url = 2;
+  string username = 3;
+  string worker_template = 4;
+  bool has_password = 5;
+}
+message PoolRevision {
+  string pool_id = 1;
+  string revision_id = 2;
+  int64 number = 3;
+  string name = 4;
+  repeated PoolEndpoint slots = 5;
+  google.protobuf.Timestamp created_at = 6;
+  bool archived = 7;
+}
+message CreatePoolConfigurationRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  PoolRevisionInput configuration = 2 [(buf.validate.field).required = true];
+}
+message CreatePoolConfigurationResponse { PoolRevision revision = 1; }
+message RevisePoolConfigurationRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string pool_id = 2 [(buf.validate.field).string.uuid = true];
+  string expected_revision_id = 3 [(buf.validate.field).string.uuid = true];
+  PoolRevisionInput configuration = 4 [(buf.validate.field).required = true];
+}
+message RevisePoolConfigurationResponse { PoolRevision revision = 1; }
+message GetPoolRevisionRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string pool_id = 2 [(buf.validate.field).string.uuid = true];
+  // Omission reads the latest revision; archived revisions remain readable.
+  optional string revision_id = 3 [(buf.validate.field).string.uuid = true];
+}
+message GetPoolRevisionResponse { PoolRevision revision = 1; }
+message ListPoolConfigurationsRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  uint32 page_size = 2 [(buf.validate.field).uint32.lte = 100];
+  string page_token = 3 [(buf.validate.field).string.max_bytes = 2048];
+  bool include_archived = 4;
+}
+message ListPoolConfigurationsResponse {
+  repeated PoolRevision configurations = 1;
+  string next_page_token = 2;
+}
+message ArchivePoolConfigurationRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string pool_id = 2 [(buf.validate.field).string.uuid = true];
+}
+message ArchivePoolConfigurationResponse {}
+message IncomingPoolProfile {
+  // Owning configuration permits fetching the exact pinned revision. Empty after clear.
+  string pool_id = 4;
+  string revision_id = 1;
+  // Monotonic profile change counter, independent of the selected pool revision number.
+  // Increases on each selection or clear.
+  int64 revision = 2;
+  google.protobuf.Timestamp updated_at = 3;
+}
+message GetIncomingPoolProfileRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message GetIncomingPoolProfileResponse {
+  // Absent before the first profile change. Clearing retains a profile with empty
+  // pool_id and revision_id and an incremented profile change counter.
+  IncomingPoolProfile profile = 1;
+}
+message SetIncomingPoolProfileRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  // Omission clears the incoming profile, without changing applied miner pools.
+  optional string revision_id = 2 [(buf.validate.field).string.uuid = true];
+  // Session-only: the server verifies the current login's credentials in this mutation.
+  string password = 3 [(buf.validate.field).string = {min_len: 1, max_bytes: 72}];
+}
+message SetIncomingPoolProfileResponse {}

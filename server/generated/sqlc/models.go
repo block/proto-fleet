@@ -1393,6 +1393,33 @@ type HostedAccountMembership struct {
 	UpdatedAt      time.Time
 }
 
+type HostedAccountPool struct {
+	PoolID         string
+	OrganizationID int64
+	AccountID      int64
+	Archived       bool
+	CreatedAt      time.Time
+}
+
+type HostedAccountPoolProfile struct {
+	OrganizationID int64
+	AccountID      int64
+	RevisionID     sql.NullString
+	Revision       int64
+	UpdatedAt      time.Time
+}
+
+type HostedAccountPoolRevision struct {
+	RevisionID     string
+	OrganizationID int64
+	AccountID      int64
+	PoolID         string
+	Number         int64
+	Name           string
+	Slots          json.RawMessage
+	CreatedAt      time.Time
+}
+
 type HostedAccountSite struct {
 	OrganizationID   int64
 	AccountID        int64
