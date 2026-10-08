@@ -1,3 +1,7 @@
+-- Exclude key creators before taking the live-key snapshot; retain this lock
+-- through conversion so no account credential can enter the old schema.
+LOCK TABLE api_key IN ACCESS EXCLUSIVE MODE;
+
 -- Never turn a live customer credential into an organization credential.
 DO $$ BEGIN
     IF EXISTS (SELECT 1 FROM api_key WHERE subject_kind='account' AND revoked_at IS NULL) THEN
