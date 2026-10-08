@@ -329,6 +329,9 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 		if err := s.deviceStore.UpsertDevicePairing(ctx, &dd.Device, orgID, persisted); err != nil {
 			return logInternal("set pairing status", clientErrPair, err)
 		}
+		if _, err := s.store.ClearFleetNodeRevokedStatus(ctx, fleetNodeID, deviceID, orgID); err != nil {
+			return logInternal("clear revoked status", clientErrPair, err)
+		}
 		// Reachable during pairing, so seed an ACTIVE status.
 		if err := s.deviceStore.UpsertDeviceStatus(ctx, minermodels.DeviceIdentifier(identifier), minermodels.MinerStatusActive, ""); err != nil {
 			return logInternal("set device status", clientErrPair, err)

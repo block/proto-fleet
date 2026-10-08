@@ -33,6 +33,21 @@ func (s *SQLFleetNodePairingStore) PairDeviceToFleetNode(ctx context.Context, fl
 	})
 }
 
+func (s *SQLFleetNodePairingStore) DeviceHasRevokedFleetNodeStatus(ctx context.Context, deviceID, orgID int64) (bool, error) {
+	return s.q(ctx).DeviceHasRevokedFleetNodeStatus(ctx, sqlc.DeviceHasRevokedFleetNodeStatusParams{
+		DeviceID: deviceID,
+		OrgID:    orgID,
+	})
+}
+
+func (s *SQLFleetNodePairingStore) ClearFleetNodeRevokedStatus(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error) {
+	return s.q(ctx).ClearFleetNodeRevokedStatus(ctx, sqlc.ClearFleetNodeRevokedStatusParams{
+		FleetNodeID: fleetNodeID,
+		DeviceID:    deviceID,
+		OrgID:       orgID,
+	})
+}
+
 func (s *SQLFleetNodePairingStore) LockDeviceForFleetNodePairing(ctx context.Context, deviceID, orgID int64) (bool, error) {
 	rows, err := s.q(ctx).LockFleetNodePairingDevice(ctx, sqlc.LockFleetNodePairingDeviceParams{
 		DeviceID: deviceID,
@@ -100,6 +115,18 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDevices(ctx context.Context, org
 		})
 	}
 	return out, nil
+}
+
+func (s *SQLFleetNodePairingStore) CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) (map[int64]int64, error) {
+	rows, err := s.q(ctx).CountFleetNodeDevicesByNode(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[int64]int64, len(rows))
+	for _, row := range rows {
+		counts[row.FleetNodeID] = row.DeviceCount
+	}
+	return counts, nil
 }
 
 func (s *SQLFleetNodePairingStore) GetFleetNodePairedDeviceIdentifier(ctx context.Context, deviceID, orgID int64) (string, error) {

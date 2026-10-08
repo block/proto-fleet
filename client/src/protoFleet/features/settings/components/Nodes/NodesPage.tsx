@@ -1,10 +1,12 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import EnrollNodeModal from "@/protoFleet/features/settings/components/Nodes/EnrollNodeModal";
+import FindNodeMinersModal from "@/protoFleet/features/settings/components/Nodes/FindNodeMinersModal";
+import NodeDetailsModal from "@/protoFleet/features/settings/components/Nodes/NodeDetailsModal";
 import NodeStatusBadge from "@/protoFleet/features/settings/components/Nodes/NodeStatusBadge";
 import RevokeNodeDialog from "@/protoFleet/features/settings/components/Nodes/RevokeNodeDialog";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
@@ -17,31 +19,74 @@ import { ColConfig, ColTitles } from "@/shared/components/List/types";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { getRelativeTimeFromEpoch } from "@/shared/utils/datetime";
-import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
-type NodeColumns = "name" | "status" | "fingerprint" | "lastSeen" | "enrolled";
+type NodeColumns = "name" | "status" | "miners" | "lastSeen";
 
 const colTitles: ColTitles<NodeColumns> = {
   name: "Name",
   status: "Status",
-  fingerprint: "Fingerprint",
+  miners: "Paired miners",
   lastSeen: "Last Seen",
-  enrolled: "Enrolled",
 };
 
-const activeCols: NodeColumns[] = ["name", "status", "fingerprint", "lastSeen", "enrolled"];
+const activeCols: NodeColumns[] = ["name", "status", "miners", "lastSeen"];
 
 const NodesPage = () => {
-  const { listFleetNodes, revokeFleetNode } = useFleetNodes();
+  const { listFleetNodes, listFleetNodeDevices, revokeFleetNode, discoverOnFleetNode } = useFleetNodes();
   const canReadNodes = useHasPermission("fleetnode:read");
   const canManageNodes = useHasPermission("fleetnode:manage");
+  const canPairMiners = useHasPermission("miner:pair");
   const [nodes, setNodes] = useState<FleetNodeItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [resumeNode, setResumeNode] = useState<FleetNodeItem | null>(null);
+  const [detailsNodeId, setDetailsNodeId] = useState<string | null>(null);
+  const [findingNodeId, setFindingNodeId] = useState<string | null>(null);
+  const [finderRevisionByNode, setFinderRevisionByNode] = useState<Record<string, number>>({});
+  const [blockedPairingByNode, setBlockedPairingByNode] = useState<Record<string, string[]>>({});
   const [revokeNodeData, setRevokeNodeData] = useState<FleetNodeItem | null>(null);
+  const [revokeDeviceTypes, setRevokeDeviceTypes] = useState<string[]>([]);
+  const [revokeImpactLoading, setRevokeImpactLoading] = useState(false);
+  const [revokeImpactError, setRevokeImpactError] = useState("");
   const [isRevoking, setIsRevoking] = useState(false);
   const notifyNextLoadErrorRef = useRef(true);
+  const revokeImpactRequestRef = useRef(0);
+  const scansByNodeRef = useRef(
+    new Map<
+      string,
+      { promise: Promise<void>; onUpdate: Parameters<typeof discoverOnFleetNode>[2]; controller: AbortController }
+    >(),
+  );
+
+  useEffect(() => {
+    const scans = scansByNodeRef.current;
+    return () => {
+      for (const scan of scans.values()) scan.controller.abort();
+      scans.clear();
+    };
+  }, []);
+
+  const scanOnNode: typeof discoverOnFleetNode = useCallback(
+    (nodeId, request, onUpdate) => {
+      const running = scansByNodeRef.current.get(nodeId);
+      if (running) {
+        running.onUpdate = onUpdate;
+        return running.promise;
+      }
+      const scan = { promise: Promise.resolve(), onUpdate, controller: new AbortController() };
+      scan.promise = discoverOnFleetNode(
+        nodeId,
+        request,
+        (update) => scan.onUpdate(update),
+        scan.controller.signal,
+      ).finally(() => {
+        if (scansByNodeRef.current.get(nodeId) === scan) scansByNodeRef.current.delete(nodeId);
+      });
+      scansByNodeRef.current.set(nodeId, scan);
+      return scan.promise;
+    },
+    [discoverOnFleetNode],
+  );
 
   const fetchNodes = useCallback(async () => {
     const notifyError = notifyNextLoadErrorRef.current;
@@ -80,8 +125,63 @@ const NodesPage = () => {
     void fetchNodes();
   }, [fetchNodes]);
 
+  const rememberPairing = useCallback((nodeId: string, identifiers: string[]) => {
+    setBlockedPairingByNode((current) => ({
+      ...current,
+      [nodeId]: [...new Set([...(current[nodeId] ?? []), ...identifiers])],
+    }));
+  }, []);
+
+  const forgetPairing = useCallback((nodeId: string, identifiers: string[]) => {
+    const completed = new Set(identifiers);
+    setBlockedPairingByNode((current) => {
+      const next = { ...current };
+      const remaining = (current[nodeId] ?? []).filter((identifier) => !completed.has(identifier));
+      if (remaining.length > 0) next[nodeId] = remaining;
+      else delete next[nodeId];
+      return next;
+    });
+  }, []);
+
+  const refreshReopenedFinder = useCallback((nodeId: string) => {
+    setFinderRevisionByNode((current) => ({ ...current, [nodeId]: (current[nodeId] ?? 0) + 1 }));
+  }, []);
+
+  const detailsNode = nodes.find((node) => node.fleetNodeId === detailsNodeId) ?? null;
+  const findingNode = nodes.find((node) => node.fleetNodeId === findingNodeId) ?? null;
+
+  const dismissRevoke = useCallback(() => {
+    revokeImpactRequestRef.current++;
+    setRevokeNodeData(null);
+  }, []);
+
+  const openRevoke = useCallback(
+    (node: FleetNodeItem) => {
+      const requestId = ++revokeImpactRequestRef.current;
+      setRevokeNodeData(node);
+      setRevokeDeviceTypes([]);
+      setRevokeImpactError("");
+      setRevokeImpactLoading(true);
+      void listFleetNodeDevices(node.fleetNodeId)
+        .then((devices) => {
+          if (requestId === revokeImpactRequestRef.current) {
+            setRevokeDeviceTypes(devices.map((device) => device.deviceType));
+          }
+        })
+        .catch((error) => {
+          if (requestId === revokeImpactRequestRef.current) {
+            setRevokeImpactError(error instanceof Error ? error.message : "Could not load affected miners.");
+          }
+        })
+        .finally(() => {
+          if (requestId === revokeImpactRequestRef.current) setRevokeImpactLoading(false);
+        });
+    },
+    [listFleetNodeDevices],
+  );
+
   const handleRevokeConfirm = useCallback(() => {
-    if (!revokeNodeData) return;
+    if (!revokeNodeData || revokeImpactLoading || revokeImpactError || isRevoking) return;
     setIsRevoking(true);
     void (async () => {
       try {
@@ -90,7 +190,7 @@ const NodesPage = () => {
           message: `Node "${revokeNodeData.name}" has been revoked`,
           status: STATUSES.success,
         });
-        setRevokeNodeData(null);
+        dismissRevoke();
         void fetchNodes();
       } catch (error) {
         pushToast({
@@ -101,7 +201,7 @@ const NodesPage = () => {
         setIsRevoking(false);
       }
     })();
-  }, [revokeNodeData, revokeFleetNode, fetchNodes]);
+  }, [revokeNodeData, revokeImpactLoading, revokeImpactError, isRevoking, revokeFleetNode, fetchNodes, dismissRevoke]);
 
   const availableActions = useMemo(
     () => [
@@ -118,10 +218,10 @@ const NodesPage = () => {
         title: "Revoke",
         icon: <Trash />,
         variant: "destructive" as const,
-        actionHandler: (node: FleetNodeItem) => setRevokeNodeData(node),
+        actionHandler: openRevoke,
       },
     ],
-    [],
+    [openRevoke],
   );
 
   const colConfig: ColConfig<FleetNodeItem, string, NodeColumns> = useMemo(
@@ -134,21 +234,13 @@ const NodesPage = () => {
         component: (node: FleetNodeItem) => <NodeStatusBadge node={node} />,
         width: "w-56",
       },
-      fingerprint: {
-        component: (node: FleetNodeItem) => (
-          <span className="font-mono text-200 text-text-primary-50">{node.identityFingerprint}</span>
-        ),
-        width: "w-44",
+      miners: {
+        component: (node: FleetNodeItem) => <span>{node.pairedDeviceCount}</span>,
+        width: "w-32",
       },
       lastSeen: {
         component: (node: FleetNodeItem) => (
           <span>{node.lastSeenAt ? getRelativeTimeFromEpoch(node.lastSeenAt.getTime()) : "Never"}</span>
-        ),
-        width: "w-40",
-      },
-      enrolled: {
-        component: (node: FleetNodeItem) => (
-          <span>{node.createdAt ? formatTimestamp(Math.floor(node.createdAt.getTime() / 1000)) : "—"}</span>
         ),
         width: "w-40",
       },
@@ -197,6 +289,7 @@ const NodesPage = () => {
               description="Enroll a host running the fleet-node daemon to discover and manage the miners on its network."
             />
           }
+          onRowClick={(node) => setDetailsNodeId(node.fleetNodeId)}
           actions={canManageNodes ? availableActions : undefined}
         />
       )}
@@ -207,11 +300,42 @@ const NodesPage = () => {
         onDismiss={handleEnrollDismiss}
         onUpdated={handleNodesUpdated}
       />
+      {detailsNode ? (
+        <NodeDetailsModal
+          node={detailsNode}
+          canFindMiners={Boolean(canManageNodes)}
+          onDismiss={() => setDetailsNodeId(null)}
+          onFindMiners={() => {
+            setDetailsNodeId(null);
+            setFindingNodeId(detailsNode.fleetNodeId);
+          }}
+        />
+      ) : null}
+      {findingNode ? (
+        <FindNodeMinersModal
+          key={findingNode.fleetNodeId}
+          node={findingNode}
+          canPair={Boolean(canPairMiners)}
+          blockedPairingIdentifiers={blockedPairingByNode[findingNode.fleetNodeId] ?? []}
+          settledPairingRevision={finderRevisionByNode[findingNode.fleetNodeId] ?? 0}
+          onDismiss={() => setFindingNodeId(null)}
+          onUpdated={handleNodesUpdated}
+          onPairingStarted={(identifiers) => rememberPairing(findingNode.fleetNodeId, identifiers)}
+          onPairingCompleted={(identifiers) => forgetPairing(findingNode.fleetNodeId, identifiers)}
+          onPairingSettledAfterDismiss={() => refreshReopenedFinder(findingNode.fleetNodeId)}
+          scanOnNode={scanOnNode}
+        />
+      ) : null}
       <RevokeNodeDialog
         open={!!revokeNodeData}
         nodeName={revokeNodeData?.name ?? ""}
+        affectedDeviceTypes={revokeDeviceTypes}
+        isLoadingImpact={revokeImpactLoading}
+        impactError={revokeImpactError}
         onConfirm={handleRevokeConfirm}
-        onDismiss={() => setRevokeNodeData(null)}
+        onDismiss={() => {
+          if (!isRevoking) dismissRevoke();
+        }}
         isSubmitting={isRevoking}
       />
     </div>

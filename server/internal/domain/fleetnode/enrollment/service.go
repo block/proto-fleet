@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/activity"
@@ -16,6 +17,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/infrastructure/cryptohash"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
@@ -67,9 +69,16 @@ type AgentStore interface {
 }
 
 type RevocationCleanupStore interface {
-	ListDeviceIDsForFleetNode(ctx context.Context, fleetNodeID, orgID int64) ([]int64, error)
+	ListDevicesForFleetNodeRevocation(ctx context.Context, fleetNodeID, orgID int64) ([]RevokedDevice, error)
+	UnpairDevicesForFleetNodeRevocation(ctx context.Context, fleetNodeID, orgID int64) (int64, error)
+	OfflineDevicesForFleetNodeRevocation(ctx context.Context, fleetNodeID, orgID int64) (int64, error)
 	DeleteMinerCredentialsForFleetNode(ctx context.Context, fleetNodeID, orgID int64) (int64, error)
 	DeletePairingsForFleetNode(ctx context.Context, fleetNodeID, orgID int64) (int64, error)
+}
+
+type RevokedDevice struct {
+	ID         int64
+	Identifier telemetrymodels.DeviceIdentifier
 }
 
 type Store interface {
@@ -86,6 +95,7 @@ type Service struct {
 
 	invalidateMiner         func(context.Context, int64)
 	invalidateControlStream func(int64)
+	removeTelemetry         func(context.Context, ...telemetrymodels.DeviceIdentifier) error
 }
 
 func NewService(store Store, apiKeySvc *apikey.Service, transactor stores.Transactor, activitySvc *activity.Service) *Service {
@@ -97,6 +107,10 @@ func NewService(store Store, apiKeySvc *apikey.Service, transactor stores.Transa
 // for those devices must be evicted before another command can reuse its descriptor.
 func (s *Service) WithMinerInvalidator(invalidate func(context.Context, int64)) {
 	s.invalidateMiner = invalidate
+}
+
+func (s *Service) WithTelemetryRemover(remove func(context.Context, ...telemetrymodels.DeviceIdentifier) error) {
+	s.removeTelemetry = remove
 }
 
 // WithControlStreamInvalidator wires active stream eviction for node revocation.
@@ -282,7 +296,7 @@ func (s *Service) RevokeFleetNodeForEnrollment(ctx context.Context, agentID, org
 
 func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedPendingEnrollmentID int64) error {
 	var agentName string
-	var deviceIDs []int64
+	var devices []RevokedDevice
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Lock-then-mutate the fleet node row first; matches Confirm's lock order
 		// (agent -> pending_enrollment) so the two flows can't deadlock.
@@ -320,9 +334,15 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 			return err
 		}
 		var listErr error
-		deviceIDs, listErr = s.store.ListDeviceIDsForFleetNode(ctx, agentID, orgID)
+		devices, listErr = s.store.ListDevicesForFleetNodeRevocation(ctx, agentID, orgID)
 		if listErr != nil {
-			return logInternal("list fleet node device ids", clientErrRevokeFleetNode, listErr)
+			return logInternal("list fleet node devices", clientErrRevokeFleetNode, listErr)
+		}
+		if _, err := s.store.UnpairDevicesForFleetNodeRevocation(ctx, agentID, orgID); err != nil {
+			return logInternal("unpair fleet node devices", clientErrRevokeFleetNode, err)
+		}
+		if _, err := s.store.OfflineDevicesForFleetNodeRevocation(ctx, agentID, orgID); err != nil {
+			return logInternal("offline fleet node devices", clientErrRevokeFleetNode, err)
 		}
 		if _, err := s.store.DeleteMinerCredentialsForFleetNode(ctx, agentID, orgID); err != nil {
 			return logInternal("delete miner credentials for fleet node", clientErrRevokeFleetNode, err)
@@ -341,9 +361,22 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 	if s.invalidateControlStream != nil {
 		s.invalidateControlStream(agentID)
 	}
+	if s.removeTelemetry != nil {
+		// Revocation has committed, so a canceled request must not leave these
+		// devices scheduled for another poll.
+		removeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		identifiers := make([]telemetrymodels.DeviceIdentifier, 0, len(devices))
+		for _, device := range devices {
+			identifiers = append(identifiers, device.Identifier)
+		}
+		if err := s.removeTelemetry(removeCtx, identifiers...); err != nil {
+			slog.Warn("failed to stop telemetry for revoked fleet node devices", "fleet_node_id", agentID, "err", err)
+		}
+	}
 	if s.invalidateMiner != nil {
-		for _, deviceID := range deviceIDs {
-			s.invalidateMiner(ctx, deviceID)
+		for _, device := range devices {
+			s.invalidateMiner(ctx, device.ID)
 		}
 	}
 	s.logActivity(ctx, "revoke_fleet_node", fmt.Sprintf("Revoked fleet node '%s' (id=%d)", agentName, agentID))

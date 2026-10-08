@@ -110,7 +110,7 @@ type recordingTelemetryScheduler struct {
 	devices chan []telemetrymodels.DeviceIdentifier
 }
 
-func (s recordingTelemetryScheduler) AddDevices(_ context.Context, deviceID ...telemetrymodels.DeviceIdentifier) error {
+func (s recordingTelemetryScheduler) AddPairedDevices(_ context.Context, deviceID ...telemetrymodels.DeviceIdentifier) error {
 	copied := append([]telemetrymodels.DeviceIdentifier(nil), deviceID...)
 	s.devices <- copied
 	return nil

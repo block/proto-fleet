@@ -714,6 +714,18 @@ func (q *retryingQuerier) ClearDeviceSitesAndBuildings(ctx context.Context, arg 
 	return result, err
 }
 
+func (q *retryingQuerier) ClearFleetNodeRevokedStatus(ctx context.Context, arg ClearFleetNodeRevokedStatusParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ClearFleetNodeRevokedStatus", func() error {
+		callResult, callErr := q.next.ClearFleetNodeRevokedStatus(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ClearRackPlacementForSoftDelete(ctx context.Context, arg ClearRackPlacementForSoftDeleteParams) error {
 	return q.retrier.RetryQuery(ctx, "ClearRackPlacementForSoftDelete", func() error {
 		return q.next.ClearRackPlacementForSoftDelete(ctx, arg)
@@ -1012,6 +1024,18 @@ func (q *retryingQuerier) CountErrors(ctx context.Context, arg CountErrorsParams
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountErrors", func() error {
 		callResult, callErr := q.next.CountErrors(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) ([]CountFleetNodeDevicesByNodeRow, error) {
+	var result []CountFleetNodeDevicesByNodeRow
+	err := q.retrier.RetryQuery(ctx, "CountFleetNodeDevicesByNode", func() error {
+		callResult, callErr := q.next.CountFleetNodeDevicesByNode(ctx, orgID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -1762,6 +1786,18 @@ func (q *retryingQuerier) DeviceHasActivePairing(ctx context.Context, arg Device
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "DeviceHasActivePairing", func() error {
 		callResult, callErr := q.next.DeviceHasActivePairing(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) DeviceHasRevokedFleetNodeStatus(ctx context.Context, arg DeviceHasRevokedFleetNodeStatusParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "DeviceHasRevokedFleetNodeStatus", func() error {
+		callResult, callErr := q.next.DeviceHasRevokedFleetNodeStatus(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5220,10 +5256,10 @@ func (q *retryingQuerier) ListFleetMiningAssets(ctx context.Context, arg ListFle
 	return result, err
 }
 
-func (q *retryingQuerier) ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error) {
-	var result []int64
-	err := q.retrier.RetryQuery(ctx, "ListFleetNodeDeviceIDsForRevocation", func() error {
-		callResult, callErr := q.next.ListFleetNodeDeviceIDsForRevocation(ctx, arg)
+func (q *retryingQuerier) ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDevicesParams) ([]ListFleetNodeDevicesRow, error) {
+	var result []ListFleetNodeDevicesRow
+	err := q.retrier.RetryQuery(ctx, "ListFleetNodeDevices", func() error {
+		callResult, callErr := q.next.ListFleetNodeDevices(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5232,10 +5268,10 @@ func (q *retryingQuerier) ListFleetNodeDeviceIDsForRevocation(ctx context.Contex
 	return result, err
 }
 
-func (q *retryingQuerier) ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDevicesParams) ([]ListFleetNodeDevicesRow, error) {
-	var result []ListFleetNodeDevicesRow
-	err := q.retrier.RetryQuery(ctx, "ListFleetNodeDevices", func() error {
-		callResult, callErr := q.next.ListFleetNodeDevices(ctx, arg)
+func (q *retryingQuerier) ListFleetNodeDevicesForRevocation(ctx context.Context, arg ListFleetNodeDevicesForRevocationParams) ([]ListFleetNodeDevicesForRevocationRow, error) {
+	var result []ListFleetNodeDevicesForRevocationRow
+	err := q.retrier.RetryQuery(ctx, "ListFleetNodeDevicesForRevocation", func() error {
+		callResult, callErr := q.next.ListFleetNodeDevicesForRevocation(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6576,6 +6612,18 @@ func (q *retryingQuerier) ObserveFirmwareRolloutReservationsOffline(ctx context.
 	})
 }
 
+func (q *retryingQuerier) OfflineDevicesForFleetNodeRevocation(ctx context.Context, arg OfflineDevicesForFleetNodeRevocationParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "OfflineDevicesForFleetNodeRevocation", func() error {
+		callResult, callErr := q.next.OfflineDevicesForFleetNodeRevocation(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "PairDeviceToFleetNode", func() error {
@@ -7774,6 +7822,18 @@ func (q *retryingQuerier) UnpairDevice(ctx context.Context, arg UnpairDevicePara
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "UnpairDevice", func() error {
 		callResult, callErr := q.next.UnpairDevice(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) UnpairDevicesForFleetNodeRevocation(ctx context.Context, arg UnpairDevicesForFleetNodeRevocationParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "UnpairDevicesForFleetNodeRevocation", func() error {
+		callResult, callErr := q.next.UnpairDevicesForFleetNodeRevocation(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

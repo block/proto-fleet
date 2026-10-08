@@ -278,6 +278,9 @@ type Querier interface {
 	// can't keep a direct site/building. IS DISTINCT FROM guard skips rows
 	// already fully cleared. Returns the count actually stripped.
 	ClearDeviceSitesAndBuildings(ctx context.Context, arg ClearDeviceSitesAndBuildingsParams) (int64, error)
+	// Pairing has rebound this device in the same transaction, so the new owner
+	// may replace the revocation's OFFLINE status with a fresh status.
+	ClearFleetNodeRevokedStatus(ctx context.Context, arg ClearFleetNodeRevokedStatusParams) (int64, error)
 	// Companion to SoftDeleteDeviceSet for rack-typed collections. Clears
 	// the device_set_rack placement so a soft-deleted rack doesn't leave
 	// an orphan (building_id, aisle_index, position_in_aisle) tuple that
@@ -334,6 +337,7 @@ type Querier interface {
 	CountDevicesWithErrors(ctx context.Context, arg CountDevicesWithErrorsParams) (int64, error)
 	// Counts errors with AND filter logic (same logic as QueryErrors without pagination).
 	CountErrors(ctx context.Context, arg CountErrorsParams) (int64, error)
+	CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) ([]CountFleetNodeDevicesByNodeRow, error)
 	// Administration must remain recoverable after suspension is lifted. Check
 	// live identities and capability ceilings even for currently suspended accounts.
 	CountHostedAccountsWithoutAdministrator(ctx context.Context, arg CountHostedAccountsWithoutAdministratorParams) (int64, error)
@@ -492,6 +496,10 @@ type Querier interface {
 	// resolution and persistence, another node (or the cloud) may have paired the
 	// device, and a stale AUTH_NEEDED result must not clobber that paired-like status.
 	DeviceHasActivePairing(ctx context.Context, arg DeviceHasActivePairingParams) (bool, error)
+	// Direct binding cannot recover a miner unpaired by revocation. Check after
+	// the binding attempt so a concurrent revoke that deleted the old assignment
+	// is visible before the direct-binding transaction commits.
+	DeviceHasRevokedFleetNodeStatus(ctx context.Context, arg DeviceHasRevokedFleetNodeStatusParams) (bool, error)
 	DeviceSetBelongsToOrg(ctx context.Context, arg DeviceSetBelongsToOrgParams) (bool, error)
 	// Returns the subset of requested IDs that are live device sets of the given type in the org;
 	// the caller diffs against the request to detect cross-org, wrong-type, or missing IDs.
@@ -1309,8 +1317,8 @@ type Querier interface {
 	// Mining assets: filter and paginate miners/modules without parent aggregation.
 	// Each authority scope uses org-wide/denylist or site-allowlist semantics.
 	ListFleetMiningAssets(ctx context.Context, arg ListFleetMiningAssetsParams) (ListFleetMiningAssetsRow, error)
-	ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error)
 	ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDevicesParams) ([]ListFleetNodeDevicesRow, error)
+	ListFleetNodeDevicesForRevocation(ctx context.Context, arg ListFleetNodeDevicesForRevocationParams) ([]ListFleetNodeDevicesForRevocationRow, error)
 	// Fleet-node-discovered devices available for pairing or credential retry. A
 	// discovered device is excluded when ANY live device row is cloud-paired-like
 	// or bound to another node. A row bound to the requesting node surfaces only
@@ -1708,6 +1716,7 @@ type Querier interface {
 	// completion arrives later. This observation survives exclusion, cancellation,
 	// retries and completed rollout history.
 	ObserveFirmwareRolloutReservationsOffline(ctx context.Context, channelID sql.NullInt64) error
+	OfflineDevicesForFleetNodeRevocation(ctx context.Context, arg OfflineDevicesForFleetNodeRevocationParams) (int64, error)
 	PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error)
 	PasswordUpdatedAt(ctx context.Context, id int64) (sql.NullTime, error)
 	PauseActiveSchedule(ctx context.Context, arg PauseActiveScheduleParams) (int64, error)
@@ -2091,6 +2100,7 @@ type Querier interface {
 	UndeleteOrganization(ctx context.Context, id int64) error
 	UndeleteRole(ctx context.Context, id int64) error
 	UnpairDevice(ctx context.Context, arg UnpairDeviceParams) (int64, error)
+	UnpairDevicesForFleetNodeRevocation(ctx context.Context, arg UnpairDevicesForFleetNodeRevocationParams) (int64, error)
 	// Reopens convergence for verified miners the enforcement loop sees drifting
 	// from the assignment (reported version or provenance no longer match) while
 	// the rollout runs, so they are updated again.
@@ -2294,6 +2304,9 @@ type Querier interface {
 	// When the caller's filter includes BuildingIDs, IncludeNoBuilding,
 	// ZoneKeys, or IncludeNoRack, the Go store routes to the dynamic
 	// query builder (see device_filters.go) so counts match the list.
+	// A queued result from a revoked Node cannot restore a now-unpaired miner's
+	// status. The status-row marker also blocks writes that began before the
+	// revocation committed and waited on this row's lock.
 	UpsertDeviceStatus(ctx context.Context, arg UpsertDeviceStatusParams) error
 	// PostgreSQL version returns the id directly using RETURNING
 	UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscoveredDeviceParams) (int64, error)

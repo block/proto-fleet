@@ -23,6 +23,7 @@ const node = (upgradeRequired: boolean): FleetNodeItem => ({
   identityFingerprint: "abcd1234abcd1234",
   commandProtocolUpgradeRequired: upgradeRequired,
   controlStreamConnected: true,
+  pairedDeviceCount: 0,
   createdAt: null,
   lastSeenAt: new Date(),
 });
@@ -62,6 +63,10 @@ describe("useFleetNodeUpgradeIndicator", () => {
       createEnrollmentCode: vi.fn(),
       confirmFleetNode: vi.fn(),
       revokeFleetNode: vi.fn(),
+      listFleetNodeDevices: vi.fn(),
+      listFleetNodeDiscoveredDevices: vi.fn(),
+      discoverOnFleetNode: vi.fn(),
+      pairDiscoveredDevicesOnFleetNode: vi.fn(),
     });
   });
 

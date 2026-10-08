@@ -477,6 +477,120 @@ func TestTelemetryService_RemoveDevices(t *testing.T) {
 	}
 }
 
+func TestRemoveUnpairedDevicesPreservesReplacementPairing(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).Return([]models.DeviceIdentifier{"replacement"}, nil)
+	service := NewTelemetryService(Config{}, nil, nil, scheduler, deviceStore, nil)
+	service.devicesForStatusPolling.Store(models.DeviceIdentifier("replacement"), struct{}{})
+
+	require.NoError(t, service.RemoveUnpairedDevices(t.Context(), "replacement"))
+	_, tracked := service.devicesForStatusPolling.Load(models.DeviceIdentifier("replacement"))
+	require.True(t, tracked)
+}
+
+func TestRemoveUnpairedDevicesContinuesAfterSchedulerError(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).Return(nil, nil)
+	scheduler.EXPECT().RemoveDevices(gomock.Any(), models.DeviceIdentifier("first")).Return(errors.New("not managed"))
+	scheduler.EXPECT().RemoveDevices(gomock.Any(), models.DeviceIdentifier("second")).Return(nil)
+	service := NewTelemetryService(Config{}, nil, nil, scheduler, deviceStore, nil)
+
+	err := service.RemoveUnpairedDevices(t.Context(), "first", "second")
+	require.ErrorContains(t, err, "first")
+}
+
+func TestLateFleetNodePairingScheduleDoesNotReadmitRevokedMiner(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).Return(nil, nil).Times(2)
+	scheduler.EXPECT().RemoveDevices(gomock.Any(), models.DeviceIdentifier("revoked")).Return(nil)
+	service := NewTelemetryService(Config{}, nil, nil, scheduler, deviceStore, nil)
+	require.NoError(t, service.RemoveUnpairedDevices(t.Context(), "revoked"))
+	require.NoError(t, service.AddPairedDevices(t.Context(), "revoked"))
+	_, tracked := service.devicesForStatusPolling.Load(models.DeviceIdentifier("revoked"))
+	require.False(t, tracked)
+}
+
+func TestReplacementFleetNodePairingScheduleAdmitsPairedMiner(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).Return([]models.DeviceIdentifier{"replacement"}, nil)
+	scheduler.EXPECT().AddNewDevices(gomock.Any(), models.DeviceIdentifier("replacement")).Return(nil)
+	service := NewTelemetryService(Config{}, nil, nil, scheduler, deviceStore, nil)
+	require.NoError(t, service.AddPairedDevices(t.Context(), "replacement"))
+	_, tracked := service.devicesForStatusPolling.Load(models.DeviceIdentifier("replacement"))
+	require.True(t, tracked)
+}
+
+func TestPairedReloadFinishesBeforeRevocationRemoval(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	queryStarted := make(chan struct{})
+	releaseQuery := make(chan struct{})
+	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).DoAndReturn(
+		func(context.Context) ([]models.DeviceIdentifier, error) {
+			close(queryStarted)
+			<-releaseQuery
+			return []models.DeviceIdentifier{"revoked"}, nil
+		},
+	)
+	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).Return(nil, nil)
+	gomock.InOrder(
+		scheduler.EXPECT().AddNewDevices(gomock.Any(), models.DeviceIdentifier("revoked")).Return(nil),
+		scheduler.EXPECT().RemoveDevices(gomock.Any(), models.DeviceIdentifier("revoked")).Return(nil),
+	)
+	service := NewTelemetryService(Config{}, nil, nil, scheduler, deviceStore, nil)
+	loadDone := make(chan error, 1)
+	go func() { loadDone <- service.loadPairedDevices(t.Context()) }()
+	<-queryStarted
+	removeDone := make(chan error, 1)
+	go func() { removeDone <- service.RemoveUnpairedDevices(t.Context(), "revoked") }()
+	assert.Never(t, func() bool { return len(removeDone) > 0 }, 30*time.Millisecond, 5*time.Millisecond)
+	close(releaseQuery)
+	require.NoError(t, <-loadDone)
+	require.NoError(t, <-removeDone)
+	_, tracked := service.devicesForStatusPolling.Load(models.DeviceIdentifier("revoked"))
+	require.False(t, tracked)
+}
+
+func TestReplacementScheduleWaitsForRevocationRemoval(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storesMocks.NewMockDeviceStore(ctrl)
+	scheduler := mock.NewMockUpdateScheduler(ctrl)
+	queryStarted := make(chan struct{})
+	releaseQuery := make(chan struct{})
+	deviceStore.EXPECT().GetAllPairedDeviceIdentifiers(gomock.Any()).DoAndReturn(
+		func(context.Context) ([]models.DeviceIdentifier, error) {
+			close(queryStarted)
+			<-releaseQuery
+			return nil, nil
+		},
+	)
+	gomock.InOrder(
+		scheduler.EXPECT().RemoveDevices(gomock.Any(), models.DeviceIdentifier("replacement")).Return(nil),
+		scheduler.EXPECT().AddNewDevices(gomock.Any(), models.DeviceIdentifier("replacement")).Return(nil),
+	)
+	service := NewTelemetryService(Config{}, nil, nil, scheduler, deviceStore, nil)
+	removeDone := make(chan error, 1)
+	go func() { removeDone <- service.RemoveUnpairedDevices(t.Context(), "replacement") }()
+	<-queryStarted
+	addDone := make(chan error, 1)
+	go func() { addDone <- service.AddDevices(t.Context(), "replacement") }()
+	assert.Never(t, func() bool { return len(addDone) > 0 }, 30*time.Millisecond, 5*time.Millisecond)
+	close(releaseQuery)
+	require.NoError(t, <-removeDone)
+	require.NoError(t, <-addDone)
+	_, tracked := service.devicesForStatusPolling.Load(models.DeviceIdentifier("replacement"))
+	require.True(t, tracked)
+}
+
 func TestTelemetryService_CanRestartAfterActivationCancellationOrStop(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	mockDataStore := mock.NewMockTelemetryDataStore(ctrl)

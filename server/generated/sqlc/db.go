@@ -210,6 +210,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.clearDeviceSitesAndBuildingsStmt, err = db.PrepareContext(ctx, clearDeviceSitesAndBuildings); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearDeviceSitesAndBuildings: %w", err)
 	}
+	if q.clearFleetNodeRevokedStatusStmt, err = db.PrepareContext(ctx, clearFleetNodeRevokedStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearFleetNodeRevokedStatus: %w", err)
+	}
 	if q.clearRackPlacementForSoftDeleteStmt, err = db.PrepareContext(ctx, clearRackPlacementForSoftDelete); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearRackPlacementForSoftDelete: %w", err)
 	}
@@ -296,6 +299,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.countErrorsStmt, err = db.PrepareContext(ctx, countErrors); err != nil {
 		return nil, fmt.Errorf("error preparing query CountErrors: %w", err)
+	}
+	if q.countFleetNodeDevicesByNodeStmt, err = db.PrepareContext(ctx, countFleetNodeDevicesByNode); err != nil {
+		return nil, fmt.Errorf("error preparing query CountFleetNodeDevicesByNode: %w", err)
 	}
 	if q.countHostedAccountsWithoutAdministratorStmt, err = db.PrepareContext(ctx, countHostedAccountsWithoutAdministrator); err != nil {
 		return nil, fmt.Errorf("error preparing query CountHostedAccountsWithoutAdministrator: %w", err)
@@ -515,6 +521,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.deviceHasActivePairingStmt, err = db.PrepareContext(ctx, deviceHasActivePairing); err != nil {
 		return nil, fmt.Errorf("error preparing query DeviceHasActivePairing: %w", err)
+	}
+	if q.deviceHasRevokedFleetNodeStatusStmt, err = db.PrepareContext(ctx, deviceHasRevokedFleetNodeStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query DeviceHasRevokedFleetNodeStatus: %w", err)
 	}
 	if q.deviceSetBelongsToOrgStmt, err = db.PrepareContext(ctx, deviceSetBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeviceSetBelongsToOrg: %w", err)
@@ -1404,11 +1413,11 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listFleetMiningAssetsStmt, err = db.PrepareContext(ctx, listFleetMiningAssets); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetMiningAssets: %w", err)
 	}
-	if q.listFleetNodeDeviceIDsForRevocationStmt, err = db.PrepareContext(ctx, listFleetNodeDeviceIDsForRevocation); err != nil {
-		return nil, fmt.Errorf("error preparing query ListFleetNodeDeviceIDsForRevocation: %w", err)
-	}
 	if q.listFleetNodeDevicesStmt, err = db.PrepareContext(ctx, listFleetNodeDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetNodeDevices: %w", err)
+	}
+	if q.listFleetNodeDevicesForRevocationStmt, err = db.PrepareContext(ctx, listFleetNodeDevicesForRevocation); err != nil {
+		return nil, fmt.Errorf("error preparing query ListFleetNodeDevicesForRevocation: %w", err)
 	}
 	if q.listFleetNodeDiscoveredDevicesStmt, err = db.PrepareContext(ctx, listFleetNodeDiscoveredDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ListFleetNodeDiscoveredDevices: %w", err)
@@ -1766,6 +1775,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.observeFirmwareRolloutReservationsOfflineStmt, err = db.PrepareContext(ctx, observeFirmwareRolloutReservationsOffline); err != nil {
 		return nil, fmt.Errorf("error preparing query ObserveFirmwareRolloutReservationsOffline: %w", err)
+	}
+	if q.offlineDevicesForFleetNodeRevocationStmt, err = db.PrepareContext(ctx, offlineDevicesForFleetNodeRevocation); err != nil {
+		return nil, fmt.Errorf("error preparing query OfflineDevicesForFleetNodeRevocation: %w", err)
 	}
 	if q.pairDeviceToFleetNodeStmt, err = db.PrepareContext(ctx, pairDeviceToFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query PairDeviceToFleetNode: %w", err)
@@ -2138,6 +2150,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.unpairDeviceStmt, err = db.PrepareContext(ctx, unpairDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query UnpairDevice: %w", err)
+	}
+	if q.unpairDevicesForFleetNodeRevocationStmt, err = db.PrepareContext(ctx, unpairDevicesForFleetNodeRevocation); err != nil {
+		return nil, fmt.Errorf("error preparing query UnpairDevicesForFleetNodeRevocation: %w", err)
 	}
 	if q.unverifyFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, unverifyFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query UnverifyFirmwareRolloutDevices: %w", err)
@@ -2667,6 +2682,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing clearDeviceSitesAndBuildingsStmt: %w", cerr)
 		}
 	}
+	if q.clearFleetNodeRevokedStatusStmt != nil {
+		if cerr := q.clearFleetNodeRevokedStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearFleetNodeRevokedStatusStmt: %w", cerr)
+		}
+	}
 	if q.clearRackPlacementForSoftDeleteStmt != nil {
 		if cerr := q.clearRackPlacementForSoftDeleteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing clearRackPlacementForSoftDeleteStmt: %w", cerr)
@@ -2810,6 +2830,11 @@ func (q *Queries) Close() error {
 	if q.countErrorsStmt != nil {
 		if cerr := q.countErrorsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countErrorsStmt: %w", cerr)
+		}
+	}
+	if q.countFleetNodeDevicesByNodeStmt != nil {
+		if cerr := q.countFleetNodeDevicesByNodeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countFleetNodeDevicesByNodeStmt: %w", cerr)
 		}
 	}
 	if q.countHostedAccountsWithoutAdministratorStmt != nil {
@@ -3175,6 +3200,11 @@ func (q *Queries) Close() error {
 	if q.deviceHasActivePairingStmt != nil {
 		if cerr := q.deviceHasActivePairingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deviceHasActivePairingStmt: %w", cerr)
+		}
+	}
+	if q.deviceHasRevokedFleetNodeStatusStmt != nil {
+		if cerr := q.deviceHasRevokedFleetNodeStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deviceHasRevokedFleetNodeStatusStmt: %w", cerr)
 		}
 	}
 	if q.deviceSetBelongsToOrgStmt != nil {
@@ -4657,14 +4687,14 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listFleetMiningAssetsStmt: %w", cerr)
 		}
 	}
-	if q.listFleetNodeDeviceIDsForRevocationStmt != nil {
-		if cerr := q.listFleetNodeDeviceIDsForRevocationStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing listFleetNodeDeviceIDsForRevocationStmt: %w", cerr)
-		}
-	}
 	if q.listFleetNodeDevicesStmt != nil {
 		if cerr := q.listFleetNodeDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listFleetNodeDevicesStmt: %w", cerr)
+		}
+	}
+	if q.listFleetNodeDevicesForRevocationStmt != nil {
+		if cerr := q.listFleetNodeDevicesForRevocationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listFleetNodeDevicesForRevocationStmt: %w", cerr)
 		}
 	}
 	if q.listFleetNodeDiscoveredDevicesStmt != nil {
@@ -5260,6 +5290,11 @@ func (q *Queries) Close() error {
 	if q.observeFirmwareRolloutReservationsOfflineStmt != nil {
 		if cerr := q.observeFirmwareRolloutReservationsOfflineStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing observeFirmwareRolloutReservationsOfflineStmt: %w", cerr)
+		}
+	}
+	if q.offlineDevicesForFleetNodeRevocationStmt != nil {
+		if cerr := q.offlineDevicesForFleetNodeRevocationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing offlineDevicesForFleetNodeRevocationStmt: %w", cerr)
 		}
 	}
 	if q.pairDeviceToFleetNodeStmt != nil {
@@ -5882,6 +5917,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing unpairDeviceStmt: %w", cerr)
 		}
 	}
+	if q.unpairDevicesForFleetNodeRevocationStmt != nil {
+		if cerr := q.unpairDevicesForFleetNodeRevocationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing unpairDevicesForFleetNodeRevocationStmt: %w", cerr)
+		}
+	}
 	if q.unverifyFirmwareRolloutDevicesStmt != nil {
 		if cerr := q.unverifyFirmwareRolloutDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing unverifyFirmwareRolloutDevicesStmt: %w", cerr)
@@ -6338,6 +6378,7 @@ type Queries struct {
 	clearDeviceBuildingsBySiteStmt                               *sql.Stmt
 	clearDeviceBuildingsOnSiteMismatchStmt                       *sql.Stmt
 	clearDeviceSitesAndBuildingsStmt                             *sql.Stmt
+	clearFleetNodeRevokedStatusStmt                              *sql.Stmt
 	clearRackPlacementForSoftDeleteStmt                          *sql.Stmt
 	clearRackSlotPositionStmt                                    *sql.Stmt
 	clearReleaseChannelFirmwareStmt                              *sql.Stmt
@@ -6367,6 +6408,7 @@ type Queries struct {
 	countCurtailmentScopeConflictsStmt                           *sql.Stmt
 	countDevicesWithErrorsStmt                                   *sql.Stmt
 	countErrorsStmt                                              *sql.Stmt
+	countFleetNodeDevicesByNodeStmt                              *sql.Stmt
 	countHostedAccountsWithoutAdministratorStmt                  *sql.Stmt
 	countInfrastructureDevicesBySiteStmt                         *sql.Stmt
 	countInventoryPartsStmt                                      *sql.Stmt
@@ -6440,6 +6482,7 @@ type Queries struct {
 	deleteScheduleTargetsStmt                                    *sql.Stmt
 	deviceHasActiveCloudPairingStmt                              *sql.Stmt
 	deviceHasActivePairingStmt                                   *sql.Stmt
+	deviceHasRevokedFleetNodeStatusStmt                          *sql.Stmt
 	deviceSetBelongsToOrgStmt                                    *sql.Stmt
 	deviceSetsByIDsStmt                                          *sql.Stmt
 	disableCurtailmentAutomationRuleByActiveEventStmt            *sql.Stmt
@@ -6736,8 +6779,8 @@ type Queries struct {
 	listFleetFacilitiesStmt                                      *sql.Stmt
 	listFleetInventoryOptionsStmt                                *sql.Stmt
 	listFleetMiningAssetsStmt                                    *sql.Stmt
-	listFleetNodeDeviceIDsForRevocationStmt                      *sql.Stmt
 	listFleetNodeDevicesStmt                                     *sql.Stmt
+	listFleetNodeDevicesForRevocationStmt                        *sql.Stmt
 	listFleetNodeDiscoveredDevicesStmt                           *sql.Stmt
 	listFleetNodesForOrganizationStmt                            *sql.Stmt
 	listFleetTankOptionsStmt                                     *sql.Stmt
@@ -6857,6 +6900,7 @@ type Queries struct {
 	negateSchedulePrioritiesStmt                                 *sql.Stmt
 	nextRepairTicketNumberStmt                                   *sql.Stmt
 	observeFirmwareRolloutReservationsOfflineStmt                *sql.Stmt
+	offlineDevicesForFleetNodeRevocationStmt                     *sql.Stmt
 	pairDeviceToFleetNodeStmt                                    *sql.Stmt
 	passwordUpdatedAtStmt                                        *sql.Stmt
 	pauseActiveScheduleStmt                                      *sql.Stmt
@@ -6981,6 +7025,7 @@ type Queries struct {
 	undeleteOrganizationStmt                                     *sql.Stmt
 	undeleteRoleStmt                                             *sql.Stmt
 	unpairDeviceStmt                                             *sql.Stmt
+	unpairDevicesForFleetNodeRevocationStmt                      *sql.Stmt
 	unverifyFirmwareRolloutDevicesStmt                           *sql.Stmt
 	updateAlertChannelStmt                                       *sql.Stmt
 	updateAlertMaintenanceWindowStmt                             *sql.Stmt
@@ -7120,6 +7165,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		clearDeviceBuildingsBySiteStmt:                               q.clearDeviceBuildingsBySiteStmt,
 		clearDeviceBuildingsOnSiteMismatchStmt:                       q.clearDeviceBuildingsOnSiteMismatchStmt,
 		clearDeviceSitesAndBuildingsStmt:                             q.clearDeviceSitesAndBuildingsStmt,
+		clearFleetNodeRevokedStatusStmt:                              q.clearFleetNodeRevokedStatusStmt,
 		clearRackPlacementForSoftDeleteStmt:                          q.clearRackPlacementForSoftDeleteStmt,
 		clearRackSlotPositionStmt:                                    q.clearRackSlotPositionStmt,
 		clearReleaseChannelFirmwareStmt:                              q.clearReleaseChannelFirmwareStmt,
@@ -7149,6 +7195,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		countCurtailmentScopeConflictsStmt:                           q.countCurtailmentScopeConflictsStmt,
 		countDevicesWithErrorsStmt:                                   q.countDevicesWithErrorsStmt,
 		countErrorsStmt:                                              q.countErrorsStmt,
+		countFleetNodeDevicesByNodeStmt:                              q.countFleetNodeDevicesByNodeStmt,
 		countHostedAccountsWithoutAdministratorStmt:                  q.countHostedAccountsWithoutAdministratorStmt,
 		countInfrastructureDevicesBySiteStmt:                         q.countInfrastructureDevicesBySiteStmt,
 		countInventoryPartsStmt:                                      q.countInventoryPartsStmt,
@@ -7222,6 +7269,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteScheduleTargetsStmt:                                    q.deleteScheduleTargetsStmt,
 		deviceHasActiveCloudPairingStmt:                              q.deviceHasActiveCloudPairingStmt,
 		deviceHasActivePairingStmt:                                   q.deviceHasActivePairingStmt,
+		deviceHasRevokedFleetNodeStatusStmt:                          q.deviceHasRevokedFleetNodeStatusStmt,
 		deviceSetBelongsToOrgStmt:                                    q.deviceSetBelongsToOrgStmt,
 		deviceSetsByIDsStmt:                                          q.deviceSetsByIDsStmt,
 		disableCurtailmentAutomationRuleByActiveEventStmt:            q.disableCurtailmentAutomationRuleByActiveEventStmt,
@@ -7518,8 +7566,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listFleetFacilitiesStmt:                                      q.listFleetFacilitiesStmt,
 		listFleetInventoryOptionsStmt:                                q.listFleetInventoryOptionsStmt,
 		listFleetMiningAssetsStmt:                                    q.listFleetMiningAssetsStmt,
-		listFleetNodeDeviceIDsForRevocationStmt:                      q.listFleetNodeDeviceIDsForRevocationStmt,
 		listFleetNodeDevicesStmt:                                     q.listFleetNodeDevicesStmt,
+		listFleetNodeDevicesForRevocationStmt:                        q.listFleetNodeDevicesForRevocationStmt,
 		listFleetNodeDiscoveredDevicesStmt:                           q.listFleetNodeDiscoveredDevicesStmt,
 		listFleetNodesForOrganizationStmt:                            q.listFleetNodesForOrganizationStmt,
 		listFleetTankOptionsStmt:                                     q.listFleetTankOptionsStmt,
@@ -7639,6 +7687,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		negateSchedulePrioritiesStmt:                                 q.negateSchedulePrioritiesStmt,
 		nextRepairTicketNumberStmt:                                   q.nextRepairTicketNumberStmt,
 		observeFirmwareRolloutReservationsOfflineStmt:                q.observeFirmwareRolloutReservationsOfflineStmt,
+		offlineDevicesForFleetNodeRevocationStmt:                     q.offlineDevicesForFleetNodeRevocationStmt,
 		pairDeviceToFleetNodeStmt:                                    q.pairDeviceToFleetNodeStmt,
 		passwordUpdatedAtStmt:                                        q.passwordUpdatedAtStmt,
 		pauseActiveScheduleStmt:                                      q.pauseActiveScheduleStmt,
@@ -7763,6 +7812,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		undeleteOrganizationStmt:                                     q.undeleteOrganizationStmt,
 		undeleteRoleStmt:                                             q.undeleteRoleStmt,
 		unpairDeviceStmt:                                             q.unpairDeviceStmt,
+		unpairDevicesForFleetNodeRevocationStmt:                      q.unpairDevicesForFleetNodeRevocationStmt,
 		unverifyFirmwareRolloutDevicesStmt:                           q.unverifyFirmwareRolloutDevicesStmt,
 		updateAlertChannelStmt:                                       q.updateAlertChannelStmt,
 		updateAlertMaintenanceWindowStmt:                             q.updateAlertMaintenanceWindowStmt,

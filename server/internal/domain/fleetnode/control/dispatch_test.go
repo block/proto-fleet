@@ -72,6 +72,16 @@ func TestAckFailure_MapsCodes(t *testing.T) {
 	}
 }
 
+func TestAckFailure_BusyPairMessageContract(t *testing.T) {
+	err := AckFailure(&gatewaypb.ControlAck{
+		Code: gatewaypb.AckCode_ACK_CODE_BUSY, ErrorMessage: "pair in progress",
+	}, "pair")
+	var fe fleeterror.FleetError
+	require.ErrorAs(t, err, &fe)
+	assert.Equal(t, connect.CodeResourceExhausted, fe.ConnectError().Code())
+	assert.Equal(t, "fleet node is busy with another command; retry shortly: pair in progress", fe.ConnectError().Message())
+}
+
 func TestRunCommand_PartialAckReachesCallback(t *testing.T) {
 	for _, callbackErr := range []error{nil, errors.New("operator disconnected")} {
 		t.Run(fmt.Sprint(callbackErr), func(t *testing.T) {
