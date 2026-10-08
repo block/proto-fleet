@@ -49,6 +49,71 @@ func TestAccountKeyRollbackNeverWidensLiveCredentials(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestAccountKeyRollbackIsAtomicWithoutOuterTransaction(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		bound   bool
+		expired bool
+	}{
+		{name: "live bound", bound: true},
+		{name: "live unbound"},
+		{name: "expired unrevoked", bound: true, expired: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			conn := dbtest.GetTestDB(t)
+			ctx := t.Context()
+			org, user, account := accountKeyRollbackScope(t, conn)
+			var key int64
+			keyHash := uuid.NewString()
+			require.NoError(t, conn.QueryRowContext(ctx, `INSERT INTO api_key(key_id,name,prefix,key_hash,user_id,organization_id,subject_kind,expires_at)
+VALUES($1,'Customer','test-prefix',$2,$3,$4,'account',CASE WHEN $5 THEN now()-interval '1 day' END) RETURNING id`, uuid.NewString(), keyHash, user, org, tc.expired).Scan(&key))
+			if tc.bound {
+				_, err := conn.ExecContext(ctx, `INSERT INTO hosted_account_key(api_key_id,organization_id,account_id,capabilities) VALUES($1,$2,$3,1)`, key, org, account)
+				require.NoError(t, err)
+			}
+			down, err := migrations.Current.ReadFile("current/001006_internal_hosted_account_keys.down.sql")
+			require.NoError(t, err)
+			// Preparing rejects multiple top-level statements. Executing the
+			// file this way ensures no destructive SQL can run as a separate
+			// autocommit statement after a failed guard, as plain psql would allow.
+			rollback, err := conn.PrepareContext(ctx, string(down))
+			require.NoError(t, err, "rollback must be a single guarded SQL statement")
+			defer rollback.Close()
+			_, err = rollback.ExecContext(ctx)
+			require.ErrorContains(t, err, "revoke all account API keys")
+			var kind, storedHash string
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT subject_kind,key_hash FROM api_key WHERE id=$1 AND revoked_at IS NULL`, key).Scan(&kind, &storedHash))
+			require.Equal(t, "account", kind)
+			require.Equal(t, keyHash, storedHash)
+			var schemaIntact bool
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT
+ to_regclass('hosted_account_key') IS NOT NULL AND
+ to_regclass('hosted_account_key_descendant') IS NOT NULL AND
+ to_regprocedure('check_hosted_account_key()') IS NOT NULL AND
+ to_regprocedure('check_hosted_account_key_descendant()') IS NOT NULL AND
+ (SELECT count(*) FROM pg_constraint WHERE conrelid='api_key'::regclass AND conname IN ('uq_api_key_org_id','ck_api_key_subject'))=2`).Scan(&schemaIntact))
+			require.True(t, schemaIntact, "a failed guard must leave the account key schema intact")
+			var bindings int
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT count(*) FROM hosted_account_key WHERE api_key_id=$1`, key).Scan(&bindings))
+			if tc.bound {
+				require.Equal(t, 1, bindings)
+			} else {
+				require.Zero(t, bindings)
+			}
+			_, err = conn.ExecContext(ctx, `UPDATE api_key SET revoked_at=now() WHERE id=$1`, key)
+			require.NoError(t, err)
+			_, err = rollback.ExecContext(ctx)
+			require.NoError(t, err)
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT subject_kind,key_hash FROM api_key WHERE id=$1 AND revoked_at IS NOT NULL`, key).Scan(&kind, &storedHash))
+			require.Equal(t, "user", kind)
+			require.Equal(t, keyHash, storedHash)
+			var tablesDropped bool
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT to_regclass('hosted_account_key') IS NULL AND to_regclass('hosted_account_key_descendant') IS NULL`).Scan(&tablesDropped))
+			require.True(t, tablesDropped)
+		})
+	}
+}
+
 func accountKeyRollbackScope(t *testing.T, conn *sql.DB) (org, user, account int64) {
 	t.Helper()
 	var root int64

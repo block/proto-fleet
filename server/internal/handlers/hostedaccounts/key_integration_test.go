@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
 	domain "github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -158,4 +159,21 @@ func TestAccountKeyRPCPaginationIsBoundedScopedAndSecretFree(t *testing.T) {
 		_, err = f.client.ListAccountKeys(t.Context(), rpcRequest(request, f.cookie, account.AccountID))
 		require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
 	}
+}
+
+func TestAccountKeyRPCRejectsOversizedDescendantScope(t *testing.T) {
+	f := newRPCFixture(t)
+	account := f.account(t, "Customer", f.host, domain.AllCapabilities)
+	descendants := make([]string, 101)
+	for i := range descendants {
+		descendants[i] = uuid.NewString()
+	}
+	_, err := f.client.CreateAccountKey(t.Context(), rpcRequest(&pb.CreateAccountKeyRequest{
+		AccountId: account.AccountID, Name: "Oversized", Capabilities: 1, DescendantAccountIds: descendants,
+	}, f.cookie, account.AccountID))
+	require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	require.ErrorContains(t, err, "descendant_account_ids", "request validation rejects the scope before account resolution")
+	var count int
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM api_key WHERE organization_id=$1`, f.org).Scan(&count))
+	require.Zero(t, count, "an invalid scope must not issue a credential")
 }

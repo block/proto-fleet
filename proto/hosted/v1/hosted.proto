@@ -229,7 +229,9 @@ message AccountKey {
   string name = 2;
   string prefix = 3;
   uint64 capabilities = 4;
+  // Explicitly selected direct children; not exhaustive when the opt-in below is set.
   repeated string descendant_account_ids = 5;
+  // Includes all current and future direct children, subject to live issuer access.
   bool include_future_descendants = 6;
   google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp expires_at = 8;
@@ -241,8 +243,9 @@ message CreateAccountKeyRequest {
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
   uint64 capabilities = 3 [(buf.validate.field).uint64 = {gte: 1, lte: 7}];
-  repeated string descendant_account_ids = 4 [(buf.validate.field).repeated = {unique: true, items: {string: {uuid: true}}}];
-  // Explicit opt-in; unavailable for subclients, which cannot have descendants.
+  repeated string descendant_account_ids = 4 [(buf.validate.field).repeated = {max_items: 100, unique: true, items: {string: {uuid: true}}}];
+  // Opts in to all current and future direct children, including unlisted ones.
+  // Each child still requires live issuer access; unavailable for subclients.
   bool include_future_descendants = 5;
   google.protobuf.Timestamp expires_at = 6;
 }

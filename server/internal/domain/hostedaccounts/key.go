@@ -48,6 +48,9 @@ func NewKeyService(accounts *Service, credentials *apikey.Service) *KeyService {
 // Create permits personal keys within the issuer's current customer authority.
 // Account administrators can subsequently list and revoke all keys of that account.
 func (s *KeyService) Create(ctx context.Context, actorID, orgID int64, accountID string, options KeyOptions) (IssuedAccountKey, error) {
+	if len(options.DescendantAccountIDs) > 100 {
+		return IssuedAccountKey{}, fleeterror.NewInvalidArgumentError("account keys may select at most 100 descendants")
+	}
 	options.Name = strings.TrimSpace(options.Name)
 	if options.Name == "" || !utf8.ValidString(options.Name) || utf8.RuneCountInString(options.Name) > 255 {
 		return IssuedAccountKey{}, fleeterror.NewInvalidArgumentError("key name must contain 1 to 255 characters")
@@ -135,7 +138,8 @@ func (s *KeyService) Create(ctx context.Context, actorID, orgID int64, accountID
 
 // Authorize rechecks the credential, explicit bounds, and live issuer authority
 // on both the issuing account and selected target. A descendant bound grants no
-// account membership. Future-descendant access is opt-in and still needs live access.
+// account membership. The future-descendant opt-in includes all current and future
+// direct children, each of which still needs live issuer access.
 func (s *KeyService) Authorize(ctx context.Context, keyID, issuerID, orgID int64, targetID string) (Capabilities, error) {
 	ctx = context.WithValue(ctx, machineScopeKey{}, nil)
 	q := s.accounts.queries
