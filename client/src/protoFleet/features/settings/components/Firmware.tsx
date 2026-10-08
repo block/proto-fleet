@@ -14,7 +14,10 @@ import ActiveUpdatesMonitor, {
   type MonitorRequest,
 } from "@/protoFleet/features/settings/components/ReleaseChannels/ActiveUpdatesMonitor";
 import ReleaseChannelsTab from "@/protoFleet/features/settings/components/ReleaseChannels/ReleaseChannelsTab";
-import { useLinkedRollout } from "@/protoFleet/features/settings/components/ReleaseChannels/useLinkedRollout";
+import {
+  LINKED_ROLLOUT_PARAM,
+  useLinkedRollout,
+} from "@/protoFleet/features/settings/components/ReleaseChannels/useLinkedRollout";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import { Alert, ChevronDown, Edit, Trash } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -400,10 +403,11 @@ const Firmware = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = searchParams.get("tab") === RELEASE_CHANNELS_TAB_PARAM ? TAB_RELEASE_CHANNELS : TAB_FILES;
   const channelsApi = useReleaseChannels();
-  const linkedRolloutId = searchParams.get("rollout");
+  const linkedRolloutId = searchParams.get(LINKED_ROLLOUT_PARAM);
   const linkedRollout = useLinkedRollout(linkedRolloutId);
   const [actionContainer, setActionContainer] = useState<HTMLDivElement | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
+  const [isRetryingLinkedChannel, setIsRetryingLinkedChannel] = useState(false);
 
   const retryChannels = () => {
     if (isRetrying) return;
@@ -425,7 +429,7 @@ const Firmware = () => {
     setSearchParams(
       (current) => {
         const next = new URLSearchParams(current);
-        next.delete("rollout");
+        next.delete(LINKED_ROLLOUT_PARAM);
         return next;
       },
       { replace: true },
@@ -442,6 +446,20 @@ const Firmware = () => {
     (linkedRollout.data && channelsApi.hasLoaded && !channelsApi.error && !linkedChannelAvailable
       ? "This firmware update's channel is no longer available."
       : null);
+  const isRetryingLink = isRetryingLinkedChannel || linkedRollout.isLoading;
+  // Each channel refresh is a full scan, so retry only the read that failed.
+  const retryLinkedRollout = () => {
+    if (isRetryingLink) return;
+    if (linkedRollout.error) {
+      linkedRollout.refresh();
+      return;
+    }
+    setIsRetryingLinkedChannel(true);
+    channelsApi
+      .refresh()
+      .catch(() => undefined)
+      .finally(() => setIsRetryingLinkedChannel(false));
+  };
 
   const showChannels = () => setSearchParams({ tab: RELEASE_CHANNELS_TAB_PARAM }, { replace: true });
   const manageChannel = (channelId: bigint) => {
@@ -490,17 +508,14 @@ const Firmware = () => {
             </p>
           ) : null}
           {linkedError ? (
-            <div role="alert">
+            <div role="alert" aria-busy={isRetryingLink}>
               <Callout
                 intent={intents.warning}
                 prefixIcon={<Alert />}
                 title="Couldn't open firmware update"
                 subtitle={linkedError}
-                buttonText="Retry"
-                buttonOnClick={() => {
-                  linkedRollout.refresh();
-                  void channelsApi.refresh().catch(() => undefined);
-                }}
+                buttonText={isRetryingLink ? "Retrying..." : "Retry"}
+                buttonOnClick={retryLinkedRollout}
               />
               <Button text="Dismiss" variant={variants.textOnly} onClick={clearLinkedRollout} />
             </div>

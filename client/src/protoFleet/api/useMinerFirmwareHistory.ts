@@ -3,6 +3,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 
 import { rolloutClient } from "@/protoFleet/api/clients";
 import type { MinerFirmwareHistoryEntry } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import {
   useAuthErrors,
   useFleetStore,
@@ -119,7 +120,7 @@ export function useMinerFirmwareHistory(deviceIdentifier: string): MinerFirmware
           ...(unavailable ? { entries: [], cursor: "", hasLoaded: false } : {}),
           isLoading: false,
           isLoadingMore: false,
-          error: error instanceof Error && error.message ? error.message : "Couldn't load firmware update history.",
+          error: getErrorMessage(error, "Couldn't load firmware update history."),
         }));
       } finally {
         if (controller === request) controller = null;

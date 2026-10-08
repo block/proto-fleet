@@ -39,7 +39,8 @@ interface ActiveUpdatesMonitorProps {
   >;
   // Drills into the release channel behind a rollout.
   onManageChannel: (channelId: bigint) => void;
-  // From another surface (e.g. the history modal); cleared via onRequestHandled.
+  // From another surface (e.g. the history modal); cleared via onRequestHandled,
+  // which also fires whenever the operator opens a detail here.
   request?: MonitorRequest | null;
   onRequestHandled?: () => void;
   refreshWarning?: ReactNode;
@@ -292,7 +293,9 @@ const ActiveUpdatesMonitor = ({
 
   const openDetail = (rollout: Rollout) => {
     selectionChanged();
-    if (request) onRequestHandled?.();
+    // The parent may still be loading a request (e.g. a history link) that
+    // must not replace this choice once it arrives.
+    onRequestHandled?.();
     setViewUpdate(rollout);
   };
   const liveViewProps = (rollout: Rollout) => ({

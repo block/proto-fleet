@@ -7,7 +7,13 @@ import {
   RolloutStatus,
 } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
 import { type MinerFirmwareHistoryState, useMinerFirmwareHistory } from "@/protoFleet/api/useMinerFirmwareHistory";
+import {
+  isUnfinishedPhase,
+  phaseLabels,
+  phaseTone,
+} from "@/protoFleet/features/settings/components/ReleaseChannels/rolloutStatus";
 import StatusChip from "@/protoFleet/features/settings/components/ReleaseChannels/StatusChip";
+import { linkedRolloutPath } from "@/protoFleet/features/settings/components/ReleaseChannels/useLinkedRollout";
 import { Alert } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
@@ -26,26 +32,16 @@ const titles: ColTitles<Column> = {
   verifiedAt: "Verified at",
   view: "",
 };
-const unfinished = new Set([RolloutDevicePhase.QUEUED, RolloutDevicePhase.IN_PROGRESS, RolloutDevicePhase.RETRYING]);
-
 function MinerOutcome({ entry }: { entry: MinerFirmwareHistoryEntry }) {
-  const canceled = entry.rolloutStatus === RolloutStatus.CANCELED && unfinished.has(entry.phase);
+  const unfinished = isUnfinishedPhase(entry.phase);
+  const canceled = entry.rolloutStatus === RolloutStatus.CANCELED && unfinished;
   const outcome = canceled
     ? { label: "Canceled", tone: "neutral" as const }
-    : ({
-        [RolloutDevicePhase.UNSPECIFIED]: { label: "Unknown", tone: "neutral" as const },
-        [RolloutDevicePhase.QUEUED]: { label: "Queued", tone: "neutral" as const },
-        [RolloutDevicePhase.IN_PROGRESS]: { label: "Updating", tone: "progress" as const },
-        [RolloutDevicePhase.DONE]: { label: "Updated", tone: "success" as const },
-        [RolloutDevicePhase.FAILED]: { label: "Failed", tone: "critical" as const },
-        [RolloutDevicePhase.RETRYING]: { label: "Retrying", tone: "progress" as const },
-        [RolloutDevicePhase.EXCLUDED]: { label: "Excluded", tone: "neutral" as const },
-        [RolloutDevicePhase.SKIPPED]: { label: "Skipped", tone: "neutral" as const },
-      }[entry.phase] ?? { label: "Unknown", tone: "neutral" as const });
+    : { label: phaseLabels[entry.phase] || "Unknown", tone: phaseTone(entry.phase) };
   return (
     <div className="flex flex-col items-start gap-1">
       <StatusChip {...outcome} />
-      {entry.paused && entry.rolloutStatus === RolloutStatus.ACTIVE && unfinished.has(entry.phase) ? (
+      {entry.paused && entry.rolloutStatus === RolloutStatus.ACTIVE && unfinished ? (
         <span className="text-200 text-text-primary-50">Update paused</span>
       ) : null}
       {entry.lastError ? <span className="text-200 break-words text-text-primary-70">{entry.lastError}</span> : null}
@@ -191,7 +187,7 @@ export default function MinerFirmwareHistoryModal(props: MinerFirmwareHistoryMod
     <MinerFirmwareHistoryModalView
       {...props}
       history={history}
-      onViewUpdate={(rolloutId) => navigate(`/settings/firmware?tab=release-channels&rollout=${rolloutId}`)}
+      onViewUpdate={(rolloutId) => navigate(linkedRolloutPath(rolloutId))}
     />
   );
 }

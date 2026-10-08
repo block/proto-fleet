@@ -110,7 +110,7 @@ describe("useMinerFirmwareHistory", () => {
       await waitFor(() => expect(result.current.hasLoaded).toBe(true));
       listHistory.mockRejectedValueOnce(new ConnectError("History unavailable", code));
       act(() => result.current.loadMore());
-      await waitFor(() => expect(result.current.error).toContain("History unavailable"));
+      await waitFor(() => expect(result.current.error).toBe("History unavailable"));
       expect(result.current.entries).toEqual([]);
       expect(result.current.hasLoaded).toBe(false);
       expect(result.current.hasMore).toBe(false);
@@ -142,6 +142,20 @@ describe("useMinerFirmwareHistory", () => {
     await act(async () => older.resolve(page([2n])));
     expect(result.current.entries).toEqual([]);
     expect(result.current.canRead).toBe(false);
+  });
+
+  it.each(["first page", "older page"])("logs out when the current session expires on the %s", async (target) => {
+    if (target === "older page") listHistory.mockResolvedValueOnce(page([3n], "older"));
+    listHistory.mockRejectedValueOnce(new ConnectError("Expired", Code.Unauthenticated));
+    const { result } = renderHook(() => useMinerFirmwareHistory("a"));
+    if (target === "older page") {
+      await waitFor(() => expect(result.current.hasLoaded).toBe(true));
+      act(() => result.current.loadMore());
+    }
+    await waitFor(() => expect(useFleetStore.getState().auth.isAuthenticated).toBe(false));
+    expect(result.current.canRead).toBe(false);
+    expect(result.current.error).toBeNull();
+    expect(result.current.entries).toEqual([]);
   });
 
   it("rejects a stale authentication error after the same user starts a new session", async () => {

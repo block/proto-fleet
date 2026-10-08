@@ -1,15 +1,19 @@
 import { MemoryRouter, useNavigate, useSearchParams } from "react-router-dom";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import Firmware from "./Firmware";
 import { deferred, releaseChannelsApi } from "./ReleaseChannels/__tests__/helpers";
+import { apiWithBanners } from "./ReleaseChannels/__tests__/monitorHelpers";
 import {
   activeRigRollout,
   canaryChannel,
   completedRigRollout,
   completedWithFailuresRigRollout,
 } from "./ReleaseChannels/ReleaseChannels.fixtures";
+import { LINKED_ROLLOUT_PARAM, linkedRolloutPath } from "./ReleaseChannels/useLinkedRollout";
+import type { Rollout } from "@/protoFleet/api/generated/rollout/v1/rollout_pb";
+import { RELEASE_CHANNELS_PATH } from "@/protoFleet/components/PageHeader/RolloutPill";
 import { useFleetStore } from "@/protoFleet/store";
 
 const { getRollout, useChannels, listFirmwareFiles } = vi.hoisted(() => ({
@@ -22,7 +26,21 @@ vi.mock("@/protoFleet/api/useReleaseChannels", () => ({ useReleaseChannels: useC
 vi.mock("@/protoFleet/api/useFirmwareApi", () => ({
   useFirmwareApi: () => ({ listFirmwareFiles }),
 }));
-vi.mock("./ReleaseChannels/ReleaseChannelsTab", () => ({ default: () => <p>Release channels table</p> }));
+vi.mock("./ReleaseChannels/ReleaseChannelsTab", () => ({
+  default: ({
+    onViewRollout,
+    onRollbackRollout,
+  }: {
+    onViewRollout: (rollout: Rollout) => void;
+    onRollbackRollout: (rollout: Rollout) => void;
+  }) => (
+    <>
+      <p>Release channels table</p>
+      <button onClick={() => onViewRollout(activeRigRollout)}>View channel update</button>
+      <button onClick={() => onRollbackRollout(activeRigRollout)}>Roll back channel update</button>
+    </>
+  ),
+}));
 
 const initialAuth = useFleetStore.getState().auth;
 const historical = { ...completedRigRollout, channelId: canaryChannel.id, channelName: canaryChannel.name };
@@ -32,13 +50,13 @@ function Navigation() {
   return (
     <>
       <output data-testid="query">{params.toString()}</output>
-      <button onClick={() => navigate("/settings/firmware?tab=release-channels&rollout=123")}>Another update</button>
+      <button onClick={() => navigate(linkedRolloutPath(123n))}>Another update</button>
     </>
   );
 }
 function page(id = historical.id.toString()) {
   return (
-    <MemoryRouter initialEntries={[`/settings/firmware?tab=release-channels&rollout=${id}`]}>
+    <MemoryRouter initialEntries={[`${RELEASE_CHANNELS_PATH}&${LINKED_ROLLOUT_PARAM}=${id}`]}>
       <Navigation />
       <Firmware />
     </MemoryRouter>
@@ -131,15 +149,65 @@ describe("firmware history links", () => {
   });
 
   it.each(["abc", "0", "-1", "9223372036854775808"])("rejects invalid link %s without a request", async (id) => {
+    const api = useChannels();
     render(page(id));
     expect(screen.getByRole("alert")).toHaveTextContent("This firmware update link is invalid");
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(getRollout).not.toHaveBeenCalled();
+    expect(api.refresh).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByTestId("query")).toHaveTextContent("tab=release-channels");
+    expect(screen.getByTestId("query")).not.toHaveTextContent("rollout=");
   });
 
-  it("does not open a deleted channel's update", async () => {
-    useChannels.mockReturnValue({ ...releaseChannelsApi(), channels: [], rollouts: [] });
+  it("does not open a deleted channel's update and retries the channel scan once at a time", async () => {
+    const scan = deferred();
+    const api = { ...releaseChannelsApi(), channels: [], rollouts: [] };
+    api.refresh.mockReturnValue(scan.promise);
+    useChannels.mockReturnValue(api);
     render(page());
     expect(await screen.findByRole("alert")).toHaveTextContent("channel is no longer available");
+    expect(screen.queryByTestId(`rollout-detail-${historical.id}`)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retrying..." }));
+    expect(api.refresh).toHaveBeenCalledOnce();
+    expect(getRollout).toHaveBeenCalledOnce();
+    expect(screen.getByRole("alert")).toHaveAttribute("aria-busy", "true");
+    await act(async () => scan.resolve());
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveAttribute("aria-busy", "false");
+  });
+
+  it.each([
+    ["View channel update", true],
+    ["Roll back channel update", false],
+  ])("lets %s from the channels tab replace a pending link", async (action, opensDetail) => {
+    const pending = deferred<{ rollout: typeof historical }>();
+    getRollout.mockReturnValueOnce(pending.promise);
+    render(page());
+    await waitFor(() => expect(getRollout).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: action }));
+    expect(screen.getByTestId("query")).not.toHaveTextContent("rollout=");
+    await act(async () => pending.resolve({ rollout: historical }));
+    expect(screen.queryByTestId(`rollout-detail-${historical.id}`)).not.toBeInTheDocument();
+    if (opensDetail) expect(screen.getByTestId(`rollout-detail-${activeRigRollout.id}`)).toBeInTheDocument();
+  });
+
+  it("keeps an update opened from a banner when a pending link resolves later", async () => {
+    const pending = deferred<{ rollout: typeof historical }>();
+    getRollout.mockReturnValueOnce(pending.promise);
+    useChannels.mockReturnValue(apiWithBanners(activeRigRollout));
+    render(page());
+    await waitFor(() => expect(getRollout).toHaveBeenCalledOnce());
+    expect(screen.queryByTestId(`rollout-detail-${historical.id}`)).not.toBeInTheDocument();
+    fireEvent.click(
+      within(screen.getByTestId(`update-banner-${activeRigRollout.id}`)).getByRole("button", { name: "View update" }),
+    );
+    expect(screen.getByTestId(`rollout-detail-${activeRigRollout.id}`)).toBeInTheDocument();
+    expect(screen.getByTestId("query")).not.toHaveTextContent("rollout=");
+    await act(async () => pending.resolve({ rollout: historical }));
+    expect(screen.getByTestId(`rollout-detail-${activeRigRollout.id}`)).toBeInTheDocument();
     expect(screen.queryByTestId(`rollout-detail-${historical.id}`)).not.toBeInTheDocument();
   });
 

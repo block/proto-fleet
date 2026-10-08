@@ -2,7 +2,12 @@ import { useCallback } from "react";
 
 import { useRefreshingRead } from "./useRefreshingRead";
 import { rolloutClient } from "@/protoFleet/api/clients";
+import { RELEASE_CHANNELS_PATH } from "@/protoFleet/components/PageHeader/RolloutPill";
 import { useHasPermission, useIsAuthenticated } from "@/protoFleet/store";
+
+export const LINKED_ROLLOUT_PARAM = "rollout";
+
+export const linkedRolloutPath = (rolloutId: bigint) => `${RELEASE_CHANNELS_PATH}&${LINKED_ROLLOUT_PARAM}=${rolloutId}`;
 
 // History can link to a finished update that isn't in the active polling cache.
 export function useLinkedRollout(id: string | null) {
