@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -311,6 +312,7 @@ func TestHandleMinerCommand_GetsCoolingMode(t *testing.T) {
 
 func TestHandleMinerCommand_UpdatesMiningPools(t *testing.T) {
 	// Arrange
+	poolPassword := fmt.Sprintf("pool-credential-%s", t.Name())
 	ctrl := gomock.NewController(t)
 	dev := mocks.NewMockDevice(ctrl)
 	dev.EXPECT().
@@ -320,9 +322,20 @@ func TestHandleMinerCommand_UpdatesMiningPools(t *testing.T) {
 			assert.Equal(t, int32(0), pools[0].Priority)
 			assert.Equal(t, "stratum+tcp://pool1.example.com:3333", pools[0].URL)
 			assert.Equal(t, "worker1", pools[0].WorkerName)
+			assert.Equal(t, poolPassword, pools[0].Password)
 			assert.Equal(t, int32(1), pools[1].Priority)
 			assert.Equal(t, "stratum+tcp://pool2.example.com:3333", pools[1].URL)
 			assert.Equal(t, "worker2", pools[1].WorkerName)
+			assert.Empty(t, pools[1].Password)
+			for _, format := range []string{"%v", "%+v", "%#v"} {
+				assert.NotContains(t, fmt.Sprintf(format, pools), poolPassword)
+			}
+			encoded, err := json.Marshal(pools)
+			require.NoError(t, err)
+			assert.NotContains(t, string(encoded), poolPassword)
+			var output strings.Builder
+			slog.New(slog.NewJSONHandler(&output, nil)).Info("pool write", "pools", pools)
+			assert.NotContains(t, output.String(), poolPassword)
 			return nil
 		})
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
@@ -330,21 +343,24 @@ func TestHandleMinerCommand_UpdatesMiningPools(t *testing.T) {
 	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
 	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
 	ack := &captureAcker{}
+	var output strings.Builder
+	logger := slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// Act
 	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMiningPools{UpdateMiningPools: &pb.UpdateMiningPoolsAction{
-			Pools: []*pb.MiningPoolConfig{
-				{Priority: 0, Url: "stratum+tcp://pool1.example.com:3333", Username: "worker1"},
-				{Priority: 1, Url: "stratum+tcp://pool2.example.com:3333", Username: "worker2"},
+			Pools: []*pb.MiningPoolWriteConfig{
+				{Priority: 0, Url: "stratum+tcp://pool1.example.com:3333", Username: "worker1", Password: poolPassword},
+				{Priority: 1, Url: "stratum+tcp://pool2.example.com:3333", Username: "worker2", Password: ""},
 			},
-		}}}), discardLogger(t))
+		}}}), logger)
 
 	// Assert
 	got := ack.only(t)
 	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
 	assert.True(t, got.GetSucceeded())
 	assert.Empty(t, got.GetPayload())
+	assert.NotContains(t, output.String(), poolPassword)
 }
 
 func TestHandleMinerCommand_UpdateMinerPasswordReturnsEncryptedCredentials(t *testing.T) {
@@ -799,6 +815,7 @@ func TestPrepareFirmwareArtifactTempRootRemovesOrphans(t *testing.T) {
 }
 
 func TestHandleMinerCommand_GetMiningPoolsReturnsPayload(t *testing.T) {
+	require.Nil(t, (&pb.MiningPoolConfig{}).ProtoReflect().Descriptor().Fields().ByName("password"), "ordinary pool readback must not have a password field on the wire")
 	// Arrange
 	ctrl := gomock.NewController(t)
 	dev := mocks.NewMockDevice(ctrl)

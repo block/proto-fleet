@@ -758,13 +758,14 @@ func commandArtifactRefsEqual(a, b *pb.CommandArtifactRef) bool {
 		a.GetSha256() == b.GetSha256()
 }
 
-func toSDKMiningPoolConfigs(pools []*pb.MiningPoolConfig) []sdk.MiningPoolConfig {
+func toSDKMiningPoolConfigs(pools []*pb.MiningPoolWriteConfig) []sdk.MiningPoolConfig {
 	sdkPools := make([]sdk.MiningPoolConfig, 0, len(pools))
 	for _, pool := range pools {
 		sdkPools = append(sdkPools, sdk.MiningPoolConfig{
 			Priority:   pool.GetPriority(),
 			URL:        pool.GetUrl(),
 			WorkerName: pool.GetUsername(),
+			Password:   pool.GetPassword(),
 		})
 	}
 	return sdkPools

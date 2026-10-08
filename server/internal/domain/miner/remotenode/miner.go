@@ -830,8 +830,8 @@ func cloneEncryptedCredentials(creds *gatewaypb.EncryptedCredentials) *gatewaypb
 	}
 }
 
-func miningPoolConfigsFromPayload(payload dto.UpdateMiningPoolsPayload) ([]*gatewaypb.MiningPoolConfig, error) {
-	pools := make([]*gatewaypb.MiningPoolConfig, 0, 3)
+func miningPoolConfigsFromPayload(payload dto.UpdateMiningPoolsPayload) ([]*gatewaypb.MiningPoolWriteConfig, error) {
+	pools := make([]*gatewaypb.MiningPoolWriteConfig, 0, 3)
 
 	pool, err := miningPoolConfigFromDTO(payload.DefaultPool, "default")
 	if err != nil {
@@ -856,14 +856,15 @@ func miningPoolConfigsFromPayload(payload dto.UpdateMiningPoolsPayload) ([]*gate
 	return pools, nil
 }
 
-func miningPoolConfigFromDTO(pool dto.MiningPool, poolName string) (*gatewaypb.MiningPoolConfig, error) {
+func miningPoolConfigFromDTO(pool dto.MiningPool, poolName string) (*gatewaypb.MiningPoolWriteConfig, error) {
 	if pool.Priority > math.MaxInt32 {
 		return nil, fleeterror.NewInvalidArgumentErrorf(
 			"%s pool priority %d exceeds int32 maximum", poolName, pool.Priority)
 	}
-	return &gatewaypb.MiningPoolConfig{
+	return &gatewaypb.MiningPoolWriteConfig{
 		Priority: int32(pool.Priority), //nolint:gosec // G115: Priority validated above to fit in int32.
 		Url:      pool.URL,
 		Username: pool.Username,
+		Password: pool.Password,
 	}, nil
 }

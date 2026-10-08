@@ -180,6 +180,7 @@ func decodeSent(t *testing.T, s *fakeSender) *gatewaypb.MinerCommand {
 
 func TestMiner_EncodesActionAndTarget(t *testing.T) {
 	ctx := context.Background()
+	poolPassword := fmt.Sprintf("pool-credential-%s", t.Name())
 	cases := []struct {
 		name  string
 		call  func(*Miner, *fakeSender) error
@@ -221,16 +222,19 @@ func TestMiner_EncodesActionAndTarget(t *testing.T) {
 					Priority: 0,
 					URL:      "stratum+tcp://pool1.example.com:3333",
 					Username: "worker1",
+					Password: poolPassword,
 				},
 				Backup1Pool: &dto.MiningPool{
 					Priority: 1,
 					URL:      "stratum+tcp://pool2.example.com:3333",
 					Username: "worker2",
+					Password: "",
 				},
 				Backup2Pool: &dto.MiningPool{
 					Priority: 2,
 					URL:      "stratum+tcp://pool4.example.com:3333",
 					Username: "worker4",
+					Password: poolPassword + "-backup",
 				},
 			})
 		}, func(t *testing.T, mc *gatewaypb.MinerCommand) {
@@ -239,12 +243,15 @@ func TestMiner_EncodesActionAndTarget(t *testing.T) {
 			assert.Equal(t, int32(0), pools[0].GetPriority())
 			assert.Equal(t, "stratum+tcp://pool1.example.com:3333", pools[0].GetUrl())
 			assert.Equal(t, "worker1", pools[0].GetUsername())
+			assert.Equal(t, poolPassword, pools[0].GetPassword())
 			assert.Equal(t, int32(1), pools[1].GetPriority())
 			assert.Equal(t, "stratum+tcp://pool2.example.com:3333", pools[1].GetUrl())
 			assert.Equal(t, "worker2", pools[1].GetUsername())
+			assert.Empty(t, pools[1].GetPassword())
 			assert.Equal(t, int32(2), pools[2].GetPriority())
 			assert.Equal(t, "stratum+tcp://pool4.example.com:3333", pools[2].GetUrl())
 			assert.Equal(t, "worker4", pools[2].GetUsername())
+			assert.Equal(t, poolPassword+"-backup", pools[2].GetPassword())
 		}},
 		{"update miner password", func(m *Miner, s *fakeSender) error {
 			payload, err := proto.Marshal(&gatewaypb.UpdateMinerPasswordResult{
