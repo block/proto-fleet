@@ -2,7 +2,7 @@ package interfaces
 
 import (
 	"context"
- "fmt"
+	"fmt"
 	"net/url"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -104,15 +104,14 @@ type MinerConfiguredPool struct {
 // Password is nil when unavailable or masked; a pointer to "" proves empty.
 // Never infer this value from desired configuration or a write acknowledgement.
 type MinerStoredPool struct {
- Priority int32
- URL string
- Username string
- Password *string `json:"-"`
+	Priority int32
+	URL      string
+	Username string
+	Password *string `json:"-"`
 }
 
 func (p MinerStoredPool) String() string {
- return fmt.Sprintf("MinerStoredPool{Priority:%d URL:%q Username:%q Password:[redacted]}", p.Priority, p.URL, p.Username)
+	return fmt.Sprintf("MinerStoredPool{Priority:%d URL:%q Username:%q Password:[redacted]}", p.Priority, p.URL, p.Username)
 }
 
 func (p MinerStoredPool) GoString() string { return p.String() }
-

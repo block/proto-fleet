@@ -11,7 +11,7 @@ import (
 // verifyStoredPools consumes a complete stored-configuration read, never runtime
 // pool telemetry. Slots beyond the desired list must be explicitly empty; every
 // credential must be observed rather than inferred from a successful write.
-func verifyStoredPools(expected []sdk.MiningPoolConfig, actual []interfaces.MinerConfiguredPool) error {
+func verifyStoredPools(expected []sdk.MiningPoolConfig, actual []interfaces.MinerStoredPool) error {
 	mismatch := func() error {
 		return fleeterror.NewFailedPreconditionError("stored pool configuration could not be verified")
 	}

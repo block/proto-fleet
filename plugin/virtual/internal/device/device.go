@@ -309,15 +309,17 @@ func (d *Device) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, erro
 
 // GetStoredMiningPools observes the virtual firmware's actual complete storage.
 func (d *Device) GetStoredMiningPools(ctx context.Context) ([]sdk.StoredMiningPool, error) {
- if err := d.waitForLatency(ctx, false); err != nil { return nil, err }
- d.mutex.RLock()
- defer d.mutex.RUnlock()
- result := make([]sdk.StoredMiningPool, len(d.pools))
- for i, p := range d.pools {
-  password := p.Password
-  result[i] = sdk.StoredMiningPool{Priority: p.Priority, URL: p.URL, Username: p.WorkerName, Password: &password}
- }
- return result, nil
+	if err := d.waitForLatency(ctx, false); err != nil {
+		return nil, err
+	}
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	result := make([]sdk.StoredMiningPool, len(d.pools))
+	for i, p := range d.pools {
+		password := p.Password
+		result[i] = sdk.StoredMiningPool{Priority: p.Priority, URL: p.URL, Username: p.WorkerName, Password: &password}
+	}
+	return result, nil
 }
 
 // UpdateMinerPassword implements sdk.DeviceConfiguration.

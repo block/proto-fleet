@@ -492,7 +492,7 @@ func mapStoredPools(sdkPools []sdk.StoredMiningPool) []interfaces.MinerStoredPoo
 			Priority: pool.Priority,
 			URL:      pool.URL,
 			Username: pool.Username,
- Password: pool.Password,
+			Password: pool.Password,
 		}
 	}
 	return pools

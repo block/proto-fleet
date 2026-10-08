@@ -364,14 +364,14 @@ type ConfiguredPool struct {
 // Password is nil when unavailable or masked; a pointer to "" proves empty.
 // Never infer this value from desired configuration or a write acknowledgement.
 type StoredMiningPool struct {
- Priority int32
- URL string
- Username string
- Password *string `json:"-"`
+	Priority int32
+	URL      string
+	Username string
+	Password *string `json:"-"`
 }
 
 func (p StoredMiningPool) String() string {
- return fmt.Sprintf("StoredMiningPool{Priority:%d URL:%q Username:%q Password:[redacted]}", p.Priority, p.URL, p.Username)
+	return fmt.Sprintf("StoredMiningPool{Priority:%d URL:%q Username:%q Password:[redacted]}", p.Priority, p.URL, p.Username)
 }
 
 func (p StoredMiningPool) GoString() string { return p.String() }

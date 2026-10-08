@@ -14,9 +14,9 @@ func TestVerifyStoredPoolsRejectsIncompleteOrDifferentConfiguration(t *testing.T
 		{Priority: 0, URL: "stratum+tcp://primary.example:3333", WorkerName: "payout.with.periods.worker", Password: "private-primary"},
 		{Priority: 1, URL: "stratum+ssl://backup.example:443", WorkerName: "backup.worker", Password: ""},
 	}
-	base := func() []interfaces.MinerConfiguredPool {
+	base := func() []interfaces.MinerStoredPool {
 		primary, empty := "private-primary", ""
-		return []interfaces.MinerConfiguredPool{
+		return []interfaces.MinerStoredPool{
 			{Priority: 0, URL: expected[0].URL, Username: expected[0].WorkerName, Password: &primary},
 			{Priority: 1, URL: expected[1].URL, Username: expected[1].WorkerName, Password: &empty},
 		}
@@ -24,57 +24,57 @@ func TestVerifyStoredPoolsRejectsIncompleteOrDifferentConfiguration(t *testing.T
 	require.NoError(t, verifyStoredPools(expected, base()))
 	cases := []struct {
 		name   string
-		change func([]interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool
+		change func([]interfaces.MinerStoredPool) []interfaces.MinerStoredPool
 	}{
-		{"hidden primary password", func(p []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
+		{"hidden primary password", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool {
 			p[0].Password = nil
 			return p
 		}},
-		{"unknown empty password", func(p []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
+		{"unknown empty password", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool {
 			p[1].Password = nil
 			return p
 		}},
-		{"changed stored password", func(p []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
+		{"changed stored password", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool {
 			v := "different-private"
 			p[0].Password = &v
 			return p
 		}},
-		{"changed destination", func(p []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
+		{"changed destination", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool {
 			p[0].URL = "stratum+tcp://old-owner.example:3333"
 			return p
 		}},
-		{"changed worker", func(p []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
+		{"changed worker", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool {
 			p[0].Username = "old-owner.worker"
 			return p
 		}},
-		{"transport changed", func(p []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
+		{"transport changed", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool {
 			p[1].URL = "stratum+tcp://backup.example:443"
 			return p
 		}},
-		{"duplicate priority", func(p []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool { p[1].Priority = 0; return p }},
-		{"negative priority", func(p []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
+		{"duplicate priority", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool { p[1].Priority = 0; return p }},
+		{"negative priority", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool {
 			p[1].Priority = -1
 			return p
 		}},
-		{"missing backup", func(p []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool { return p[:1] }},
-		{"populated extra backup", func(p []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
+		{"missing backup", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool { return p[:1] }},
+		{"populated extra backup", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool {
 			v := "old-private"
-			return append(p, interfaces.MinerConfiguredPool{Priority: 2, URL: "stratum+tcp://old.example:3333", Username: "old.worker", Password: &v})
+			return append(p, interfaces.MinerStoredPool{Priority: 2, URL: "stratum+tcp://old.example:3333", Username: "old.worker", Password: &v})
 		}},
-		{"unknown disabled backup credential", func(p []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
-			return append(p, interfaces.MinerConfiguredPool{Priority: 2})
+		{"unknown disabled backup credential", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool {
+			return append(p, interfaces.MinerStoredPool{Priority: 2})
 		}},
-		{"extra backup retains worker", func(p []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
+		{"extra backup retains worker", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool {
 			v := ""
-			return append(p, interfaces.MinerConfiguredPool{Priority: 2, Username: "old.worker", Password: &v})
+			return append(p, interfaces.MinerStoredPool{Priority: 2, Username: "old.worker", Password: &v})
 		}},
-		{"extra backup retains password", func(p []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
+		{"extra backup retains password", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool {
 			v := "old-private"
-			return append(p, interfaces.MinerConfiguredPool{Priority: 2, Password: &v})
+			return append(p, interfaces.MinerStoredPool{Priority: 2, Password: &v})
 		}},
-		{"too many slots", func(p []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
+		{"too many slots", func(p []interfaces.MinerStoredPool) []interfaces.MinerStoredPool {
 			v := ""
-			return append(p, interfaces.MinerConfiguredPool{Priority: 2, Password: &v}, interfaces.MinerConfiguredPool{Priority: 3, Password: &v})
+			return append(p, interfaces.MinerStoredPool{Priority: 2, Password: &v}, interfaces.MinerStoredPool{Priority: 3, Password: &v})
 		}},
 	}
 	for _, tc := range cases {
@@ -87,7 +87,7 @@ func TestVerifyStoredPoolsRejectsIncompleteOrDifferentConfiguration(t *testing.T
 	}
 	// The getter must expose disabled slots, and verification must check them too.
 	empty := ""
-	require.NoError(t, verifyStoredPools(expected, append(base(), interfaces.MinerConfiguredPool{Priority: 2, Password: &empty})))
+	require.NoError(t, verifyStoredPools(expected, append(base(), interfaces.MinerStoredPool{Priority: 2, Password: &empty})))
 	// Read order is irrelevant; explicit firmware priorities must still be exact.
 	reversed := base()
 	reversed[0], reversed[1] = reversed[1], reversed[0]
