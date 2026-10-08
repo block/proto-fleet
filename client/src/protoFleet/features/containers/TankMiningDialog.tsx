@@ -116,14 +116,16 @@ export default function TankMiningDialog({
             ]
       }
     >
-      <ul className="flex flex-col gap-2">
-        {tanks.map((tank) => (
-          <li key={String(tank.ref!.id)}>
-            {tank.facilityName ? `${tank.facilityName}: ` : ""}
-            {tank.name}
-          </li>
-        ))}
-      </ul>
+      {tanks.length > 1 ? (
+        <ul className="flex flex-col gap-2">
+          {tanks.map((tank) => (
+            <li key={String(tank.ref!.id)}>
+              {tank.facilityName ? `${tank.facilityName}: ` : ""}
+              {tank.name}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {busy ? (
         <p role="status" className="mt-4">
           {action} pending for the selected tanks…
