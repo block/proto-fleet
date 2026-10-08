@@ -1665,6 +1665,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PreservesLegacyDottedFleetUser
 		UpdateMiningPools(gomock.Any(), gomock.AssignableToTypeOf(dto.UpdateMiningPoolsPayload{})).
 		DoAndReturn(func(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
 			assert.Equal(t, "wallet.worker-a", payload.DefaultPool.Username)
+			assert.Empty(t, payload.DefaultPool.Password, "ordinary full pool updates still forward explicitly empty credentials")
 			return nil
 		})
 
@@ -1679,6 +1680,9 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PreservesLegacyDottedFleetUser
 }
 
 func TestExecuteCommandOnDevice_UpdateMiningPools_ReappliesCurrentPoolsWithStoredWorkerName(t *testing.T) {
+	storedPassword := "primary-credential"
+	backupPassword := ""
+	secondBackupPassword := "second-backup-credential"
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -1707,9 +1711,9 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReappliesCurrentPoolsWithStore
 	mockMiner.EXPECT().
 		GetMiningPools(gomock.Any()).
 		Return([]minerInterfaces.MinerConfiguredPool{
-			{Priority: 1, URL: "stratum+tcp://backup.example.com:3333", Username: "wallet-backup.old-worker"},
-			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet.old-worker"},
-			{Priority: 2, URL: "stratum+tcp://custom.example.com:3333", Username: "custom.username"},
+			{Priority: 1, URL: "stratum+tcp://backup.example.com:3333", Username: "wallet-backup.old-worker", Password: &backupPassword},
+			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet.old-worker", Password: &storedPassword},
+			{Priority: 2, URL: "stratum+tcp://custom.example.com:3333", Username: "custom.username", Password: &secondBackupPassword},
 		}, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(11)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
@@ -1719,10 +1723,13 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReappliesCurrentPoolsWithStore
 		UpdateMiningPools(gomock.Any(), gomock.AssignableToTypeOf(dto.UpdateMiningPoolsPayload{})).
 		DoAndReturn(func(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
 			assert.Equal(t, "wallet.new-worker", payload.DefaultPool.Username)
+			assert.Equal(t, storedPassword, payload.DefaultPool.Password)
 			require.NotNil(t, payload.Backup1Pool)
 			assert.Equal(t, "wallet-backup.new-worker", payload.Backup1Pool.Username)
+			assert.Equal(t, backupPassword, payload.Backup1Pool.Password)
 			require.NotNil(t, payload.Backup2Pool)
 			assert.Equal(t, "custom.new-worker", payload.Backup2Pool.Username)
+			assert.Equal(t, secondBackupPassword, payload.Backup2Pool.Password)
 			return nil
 		})
 	mockDeviceStore.EXPECT().
@@ -1740,6 +1747,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReappliesCurrentPoolsWithStore
 }
 
 func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyUsesDesiredWorkerNameFromPayload(t *testing.T) {
+	storedPassword := ""
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -1770,7 +1778,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyUsesDesiredWorkerNameFr
 	mockMiner.EXPECT().
 		GetMiningPools(gomock.Any()).
 		Return([]minerInterfaces.MinerConfiguredPool{
-			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet.old-worker"},
+			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet.old-worker", Password: &storedPassword},
 		}, nil)
 	mockMiner.EXPECT().GetID().Return(models.DeviceIdentifier("device-reapply-payload")).AnyTimes()
 
@@ -1795,6 +1803,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyUsesDesiredWorkerNameFr
 }
 
 func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyAppendsStoredWorkerNameWhenCurrentUsernameHasNoSuffix(t *testing.T) {
+	storedPassword := ""
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -1823,7 +1832,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyAppendsStoredWorkerName
 	mockMiner.EXPECT().
 		GetMiningPools(gomock.Any()).
 		Return([]minerInterfaces.MinerConfiguredPool{
-			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet"},
+			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet", Password: &storedPassword},
 		}, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(12)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
@@ -1851,6 +1860,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyAppendsStoredWorkerName
 }
 
 func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyReplacesEntireDottedWorkerSuffix(t *testing.T) {
+	storedPassword := ""
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -1879,7 +1889,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyReplacesEntireDottedWor
 	mockMiner.EXPECT().
 		GetMiningPools(gomock.Any()).
 		Return([]minerInterfaces.MinerConfiguredPool{
-			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet.primary.worker"},
+			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet.primary.worker", Password: &storedPassword},
 		}, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(13)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
@@ -1906,6 +1916,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyReplacesEntireDottedWor
 }
 
 func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyNormalizesAllPoolsToStoredWorkerName(t *testing.T) {
+	storedPassword := ""
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
@@ -1934,9 +1945,9 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyNormalizesAllPoolsToSto
 	mockMiner.EXPECT().
 		GetMiningPools(gomock.Any()).
 		Return([]minerInterfaces.MinerConfiguredPool{
-			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet"},
-			{Priority: 1, URL: "stratum+tcp://backup.example.com:3333", Username: "wallet-backup.old-worker"},
-			{Priority: 2, URL: "stratum+tcp://custom.example.com:3333", Username: "custom.username"},
+			{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "wallet", Password: &storedPassword},
+			{Priority: 1, URL: "stratum+tcp://backup.example.com:3333", Username: "wallet-backup.old-worker", Password: &storedPassword},
+			{Priority: 2, URL: "stratum+tcp://custom.example.com:3333", Username: "custom.username", Password: &storedPassword},
 		}, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(14)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
@@ -1964,6 +1975,59 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyNormalizesAllPoolsToSto
 
 	_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
 	require.NoError(t, err)
+}
+
+func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyRequiresVerifiedPasswords(t *testing.T) {
+	for _, unknown := range []int{-1, 0, 1, 2} {
+		name := "verified_empty_primary"
+		if unknown >= 0 {
+			name = fmt.Sprintf("unknown_selected_pool_%d", unknown)
+		}
+		t.Run(name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			minerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
+			miner := minerIfaceMocks.NewMockMiner(ctrl)
+			deviceStore := storeMocks.NewMockDeviceStore(ctrl)
+			passwords := []string{"", "backup-credential", "second-backup-credential"}
+			pools := []minerInterfaces.MinerConfiguredPool{
+				{Priority: 2, URL: "stratum+tcp://backup2.example:3333", Username: "backup2.old", Password: &passwords[2]},
+				{Priority: 0, URL: "stratum+tcp://primary.example:3333", Username: "primary.old", Password: &passwords[0]},
+				{Priority: 1, URL: "stratum+tcp://backup.example:3333", Username: "backup.old", Password: &passwords[1]},
+			}
+			for i := range pools {
+				if int(pools[i].Priority) == unknown {
+					pools[i].Password = nil
+				}
+			}
+			body, err := json.Marshal(dto.UpdateMiningPoolsPayload{ReapplyCurrentPoolsWithStoredWorkerName: true, DesiredWorkerName: "new"})
+			require.NoError(t, err)
+			message := queue.Message{ID: 117, DeviceID: 149, CommandType: commandtype.UpdateMiningPools, Payload: body}
+			minerGetter.EXPECT().GetMiner(gomock.Any(), int64(149)).Return(miner, nil)
+			miner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
+			miner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
+			miner.EXPECT().GetID().Return(models.DeviceIdentifier("credential-preserving-rename")).AnyTimes()
+			miner.EXPECT().GetMiningPools(gomock.Any()).Return(pools, nil)
+			if unknown < 0 {
+				miner.EXPECT().UpdateMiningPools(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, payload dto.UpdateMiningPoolsPayload) error {
+					assert.Equal(t, passwords[0], payload.DefaultPool.Password)
+					require.NotNil(t, payload.Backup1Pool)
+					assert.Equal(t, passwords[1], payload.Backup1Pool.Password)
+					require.NotNil(t, payload.Backup2Pool)
+					assert.Equal(t, passwords[2], payload.Backup2Pool.Password)
+					return nil
+				})
+				deviceStore.EXPECT().UpdateWorkerName(gomock.Any(), models.DeviceIdentifier("credential-preserving-rename"), "new").Return(nil)
+			}
+			// Unknown readback permits neither a miner write nor worker-name persistence.
+			svc := NewExecutionService(&Config{MaxWorkers: 5, MasterPollingInterval: 10 * time.Millisecond, WorkerExecutionTimeout: 5 * time.Second}, nil, nil, nil, nil, minerGetter, deviceStore, nil, nil)
+			_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, message)
+			if unknown >= 0 {
+				require.True(t, fleeterror.IsFailedPreconditionError(err))
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
 }
 
 func TestExecuteCommandOnDevice_UpdateMiningPools_PersistsWorkerNameWhenNoCurrentPoolsExist(t *testing.T) {

@@ -1038,7 +1038,11 @@ func (es *ExecutionService) reapplyCurrentPoolsWithDesiredWorkerName(
 		return dto.UpdateMiningPoolsPayload{}, desiredWorkerName, false, nil
 	}
 
-	return buildCurrentPoolsPayloadWithWorkerName(currentPools, desiredWorkerName), desiredWorkerName, true, nil
+	rebuilt, err := buildCurrentPoolsPayloadWithWorkerName(currentPools, desiredWorkerName)
+	if err != nil {
+		return dto.UpdateMiningPoolsPayload{}, "", false, err
+	}
+	return rebuilt, desiredWorkerName, true, nil
 }
 
 func payloadRequiresMinerName(payload dto.UpdateMiningPoolsPayload) bool {
@@ -1205,8 +1209,15 @@ func (es *ExecutionService) persistWorkerNameAfterPoolUpdate(
 func buildCurrentPoolsPayloadWithWorkerName(
 	currentPools []interfaces.MinerConfiguredPool,
 	desiredWorkerName string,
-) dto.UpdateMiningPoolsPayload {
+) (dto.UpdateMiningPoolsPayload, error) {
 	sortedPools := sortedConfiguredPoolsByPriority(currentPools)
+	// Reapplying a worker name must preserve the credentials of every pool
+	// being rewritten. Unknown readback is not evidence of an empty password.
+	for _, pool := range sortedPools[:min(3, len(sortedPools))] {
+		if pool.Password == nil {
+			return dto.UpdateMiningPoolsPayload{}, fleeterror.NewFailedPreconditionError("cannot update worker name without verified stored pool credentials")
+		}
+	}
 	payload := dto.UpdateMiningPoolsPayload{
 		DefaultPool: configuredPoolToPayload(sortedPools[0], desiredWorkerName),
 	}
@@ -1220,7 +1231,7 @@ func buildCurrentPoolsPayloadWithWorkerName(
 		payload.Backup2Pool = &backup
 	}
 
-	return payload
+	return payload, nil
 }
 
 func sortedConfiguredPoolsByPriority(currentPools []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
@@ -1244,6 +1255,7 @@ func configuredPoolToPayload(
 		Priority: priority,
 		URL:      pool.URL,
 		Username: rewritePoolUsernameWithStoredWorkerName(pool.Username, desiredWorkerName),
+		Password: *pool.Password,
 	}
 }
 
