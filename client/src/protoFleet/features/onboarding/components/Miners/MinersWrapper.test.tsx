@@ -107,6 +107,7 @@ function fleetNode(overrides: Partial<FleetNodeItem> = {}): FleetNodeItem {
     enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
     identityFingerprint: "hidden-fingerprint",
     commandProtocolUpgradeRequired: false,
+    commandProtocolUpgradeRecommended: false,
     controlStreamConnected: true,
     pairedDeviceCount: 0,
     createdAt: null,

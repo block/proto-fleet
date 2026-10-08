@@ -11,6 +11,7 @@ const baseNode: FleetNodeItem = {
   enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
   identityFingerprint: "abcd1234abcd1234",
   commandProtocolUpgradeRequired: false,
+  commandProtocolUpgradeRecommended: false,
   controlStreamConnected: false,
   pairedDeviceCount: 0,
   createdAt: new Date("2026-07-09T12:00:00Z"),
@@ -46,6 +47,22 @@ describe("NodeStatusBadge", () => {
     expect(getByText("Heartbeat only")).toBeInTheDocument();
   });
 
+  it("keeps stale heartbeat status ahead of an upgrade recommendation", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-09T12:10:00Z"));
+    const { getByText } = render(
+      <NodeStatusBadge
+        node={{
+          ...baseNode,
+          controlStreamConnected: true,
+          commandProtocolUpgradeRecommended: true,
+          lastSeenAt: baseNode.createdAt,
+        }}
+      />,
+    );
+    expect(getByText("Stale")).toBeInTheDocument();
+  });
+
   it("shows Never connected for a confirmed node without a heartbeat", () => {
     const { getByText } = render(<NodeStatusBadge node={baseNode} />);
 
@@ -70,5 +87,23 @@ describe("NodeStatusBadge", () => {
     );
 
     expect(getByText("Awaiting confirmation")).toBeInTheDocument();
+  });
+
+  it.each([
+    [true, false, "Upgrade recommended"],
+    [true, true, "Upgrade required"],
+    [false, false, "Never connected"],
+  ])("separates recommendations from required upgrades and disconnection (%s, %s)", (connected, required, label) => {
+    const { getByText } = render(
+      <NodeStatusBadge
+        node={{
+          ...baseNode,
+          controlStreamConnected: connected,
+          commandProtocolUpgradeRequired: required,
+          commandProtocolUpgradeRecommended: true,
+        }}
+      />,
+    );
+    expect(getByText(label)).toBeInTheDocument();
   });
 });

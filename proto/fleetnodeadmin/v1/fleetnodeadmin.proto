@@ -60,13 +60,16 @@ message FleetNodeSummary {
     // pending enrollment.
     optional int64 pending_enrollment_id = 7 [(buf.validate.field).int64.gt = 0];
     // True only while this node has an active control connection that cannot
-    // process the server's current commands.
+    // process baseline V1 commands, including discovery.
     bool command_protocol_upgrade_required = 8;
     // True only while this node has an active ControlStream connection.
     bool control_stream_connected = 9;
     // Number of live devices assigned to this node. Redacted for callers with
     // miner:pair only, like the other administrative details.
     int64 paired_device_count = 10;
+    // True only for a connected node behind the server's latest command protocol.
+    // Advisory only; command eligibility uses each command's minimum version.
+    bool command_protocol_upgrade_recommended = 12;
 }
 
 message ConfirmFleetNodeRequest {

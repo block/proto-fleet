@@ -32,6 +32,7 @@ const node: FleetNodeItem = {
   enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
   identityFingerprint: "abcd1234abcd1234",
   commandProtocolUpgradeRequired: false,
+  commandProtocolUpgradeRecommended: false,
   controlStreamConnected: true,
   pairedDeviceCount: 1,
   createdAt: new Date("2026-07-09T12:00:00Z"),
@@ -74,8 +75,8 @@ beforeEach(() => {
 });
 
 describe("FindNodeMinersModal", () => {
-  it("automatically scans only this Node's local subnet", async () => {
-    renderFinder();
+  it("scans this Node's local subnet even when an upgrade is recommended", async () => {
+    renderFinder({ node: { ...node, commandProtocolUpgradeRecommended: true } });
 
     await waitFor(() => expect(discoverOnNode).toHaveBeenCalledTimes(1));
     expect(discoverOnNode.mock.calls[0][0]).toBe("7");
