@@ -278,11 +278,11 @@ func (s *Service) SetTankMining(ctx context.Context, ids []int64, mining *bool, 
 	return result, err
 }
 
-func (es *ExecutionService) executeTankMining(ctx context.Context, deviceID, orgID, siteID int64, payload tankMiningPayload, controller sdk.DeviceTankMiner) error {
+func (es *ExecutionService) executeTankMining(ctx context.Context, deviceID, orgID int64, payload tankMiningPayload, controller sdk.DeviceTankMiner) error {
 	if err := payload.Validate(); err != nil {
 		return fleeterror.NewFailedPreconditionError(err.Error())
 	}
-	if controller == nil || payload.OrgID != orgID || payload.SiteID != siteID || len(payload.TankIDs) != len(payload.Positions) {
+	if controller == nil || payload.OrgID != orgID || len(payload.TankIDs) != len(payload.Positions) {
 		return fleeterror.NewFailedPreconditionError("tank command ownership or site changed")
 	}
 	// Hold placement stable through gate admission and the physical write, which
@@ -303,7 +303,7 @@ func (es *ExecutionService) executeTankMining(ctx context.Context, deviceID, org
 		if err != nil {
 			return err
 		}
-		if target.ID != deviceID || target.SiteID.Int64 != siteID {
+		if target.ID != deviceID || target.SiteID.Int64 != payload.SiteID {
 			return fleeterror.NewFailedPreconditionError("tank command ownership or site changed")
 		}
 		rows, err := q.ListTankCommandTargets(ctx, sqlc.ListTankCommandTargetsParams{TankIds: payload.TankIDs, OrgID: orgID})
@@ -314,7 +314,7 @@ func (es *ExecutionService) executeTankMining(ctx context.Context, deviceID, org
 			return fleeterror.NewFailedPreconditionError("selected tank no longer exists")
 		}
 		for i, row := range rows {
-			if row.DeviceID != deviceID || row.SiteID.Int64 != siteID || row.TankID != payload.TankIDs[i] || row.Position != payload.Positions[i] || !currentTankTarget(row, time.Now()) {
+			if row.DeviceID != deviceID || row.SiteID.Int64 != payload.SiteID || row.TankID != payload.TankIDs[i] || row.Position != payload.Positions[i] || !currentTankTarget(row, time.Now()) {
 				return fleeterror.NewFailedPreconditionError("tank topology or placement changed; refresh before retrying")
 			}
 		}

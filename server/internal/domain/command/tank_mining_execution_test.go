@@ -7,15 +7,24 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	minerDomain "github.com/block/proto-fleet/server/internal/domain/miner"
 	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
+	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
+	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	sdkMocks "github.com/block/proto-fleet/server/sdk/v1/mocks"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 type executionTankController struct {
@@ -53,24 +62,96 @@ func TestTankMiningExecutionRechecksPresenceSiteAndScope(t *testing.T) {
 	svc, conn, deviceID, _, payload := setupTankMiningExecution(t)
 	orgID := payload.OrgID
 	controller := &executionTankController{}
-	require.NoError(t, svc.executeTankMining(t.Context(), deviceID, orgID, 0, payload, controller))
+	require.NoError(t, svc.executeTankMining(t.Context(), deviceID, orgID, payload, controller))
 	require.Equal(t, 1, controller.writes)
 	require.False(t, *controller.received.Mining)
 	controller.err = errors.New("connection lost")
-	require.True(t, fleeterror.IsFailedPreconditionError(svc.executeTankMining(t.Context(), deviceID, orgID, 0, payload, controller)))
+	require.True(t, fleeterror.IsFailedPreconditionError(svc.executeTankMining(t.Context(), deviceID, orgID, payload, controller)))
 	require.Equal(t, 2, controller.writes)
 	for _, sql := range []string{`UPDATE container_tank SET present=false`, `UPDATE container_tank SET last_seen_at=now()-interval '3 minutes'`, `UPDATE container_tank SET position=2`} {
 		_, err := conn.ExecContext(t.Context(), `UPDATE container_tank SET present=true,position=1,last_seen_at=now()`)
 		require.NoError(t, err)
 		_, err = conn.ExecContext(t.Context(), sql)
 		require.NoError(t, err)
-		require.True(t, fleeterror.IsFailedPreconditionError(svc.executeTankMining(t.Context(), deviceID, orgID, 0, payload, controller)))
+		require.True(t, fleeterror.IsFailedPreconditionError(svc.executeTankMining(t.Context(), deviceID, orgID, payload, controller)))
 		require.Equal(t, 2, controller.writes)
 	}
 	_, err := conn.ExecContext(t.Context(), `UPDATE container_tank SET present=true,position=1,last_seen_at=now()`)
 	require.NoError(t, err)
-	require.True(t, fleeterror.IsFailedPreconditionError(svc.executeTankMining(t.Context(), deviceID, orgID, 55, payload, controller)))
+	wrongSite := payload
+	wrongSite.SiteID = 55
+	require.True(t, fleeterror.IsFailedPreconditionError(svc.executeTankMining(t.Context(), deviceID, orgID, wrongSite, controller)))
 	require.Equal(t, 2, controller.writes)
+}
+
+type executionTankDevice struct {
+	sdk.Device
+	*executionTankController
+}
+
+type executionTankPluginManager struct{ commandTestPluginManager }
+
+func (m *executionTankPluginManager) GetCapabilitiesForDriverName(string) sdk.Capabilities {
+	return sdk.Capabilities{sdk.CapabilityTankMining: true}
+}
+
+func (m *executionTankPluginManager) GetRawCapabilitiesForDevice(context.Context, string, string, string) sdk.Capabilities {
+	return m.GetCapabilitiesForDriverName("proto")
+}
+
+func TestTankMiningExecutionUsesAdmittedSiteWithCachedController(t *testing.T) {
+	es, conn, deviceID, identifier, oldPayload := setupTankMiningExecution(t)
+	ctrl := gomock.NewController(t)
+	controller := &executionTankController{}
+	driver := sdkMocks.NewMockDriver(ctrl)
+	driver.EXPECT().NewDevice(gomock.Any(), identifier, gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{
+		Device: &executionTankDevice{Device: sdkMocks.NewMockDevice(ctrl), executionTankController: controller},
+	}, nil).Times(1)
+	pluginManager := &executionTankPluginManager{commandTestPluginManager{driverName: "proto", driver: driver}}
+	filesSvc, err := files.NewService(files.Config{})
+	require.NoError(t, err)
+	minerSvc := minerDomain.NewMinerService(conn, sqlstores.NewSQLUserStore(conn), es.encryptService, filesSvc, pluginManager)
+	es.minerService = minerSvc
+	cached, err := minerSvc.GetMiner(t.Context(), deviceID)
+	require.NoError(t, err)
+	require.Zero(t, cached.GetSiteID())
+	q := sqlc.New(conn)
+	site, err := q.CreateSite(t.Context(), sqlc.CreateSiteParams{OrgID: oldPayload.OrgID, Name: "New site", Slug: "new-site"})
+	require.NoError(t, err)
+	_, err = q.AssignDevicesToSite(t.Context(), sqlc.AssignDevicesToSiteParams{
+		OrgID: oldPayload.OrgID, DeviceIdentifiers: []string{identifier}, TargetSiteID: sql.NullInt64{Int64: site.ID, Valid: true},
+	})
+	require.NoError(t, err)
+	userID, err := q.CreateUser(t.Context(), sqlc.CreateUserParams{UserID: "tank-operator", Username: "tank-operator", PasswordHash: "test", CreatedAt: time.Now()})
+	require.NoError(t, err)
+	ctx := authn.SetInfo(t.Context(), &session.Info{UserID: userID, OrganizationID: oldPayload.OrgID})
+	messageQueue := queue.NewDatabaseMessageQueue(&queue.Config{MaxFailureRetries: 1}, conn)
+	es.run = newExecutionRun(t.Context())
+	t.Cleanup(es.run.cancelAdmission)
+	t.Cleanup(es.run.cancelWork)
+	svc := NewService(es.config, conn, es, messageQueue, NewStatusService(conn, messageQueue), es.encryptService, filesSvc, nil, nil, nil, nil, nil, nil)
+	svc.SetPluginCapabilitiesProvider(pluginManager)
+	svc.startStatusUpdateRoutineOverride = func(string, onFinishedCallbackFunc) {}
+	_, err = svc.SetTankMining(ctx, oldPayload.TankIDs, new(false), func(_ context.Context, admittedSite *int64, _ bool) error {
+		require.NotNil(t, admittedSite)
+		require.Equal(t, site.ID, *admittedSite, "admission must authorize the new site")
+		return nil
+	})
+	require.NoError(t, err)
+	messages, err := messageQueue.Dequeue(t.Context(), 1)
+	require.NoError(t, err)
+	require.Len(t, messages, 1)
+	orgID, siteID, err := es.executeCommandOnDevice(t.Context(), commandtype.SetTankMining, messages[0])
+	require.NoError(t, err, "the cached old site must not reject a command admitted at the new site")
+	require.Equal(t, oldPayload.OrgID, orgID)
+	require.Equal(t, site.ID, siteID)
+	require.Equal(t, 1, controller.writes)
+	stillCached, err := minerSvc.GetMiner(t.Context(), deviceID)
+	require.NoError(t, err)
+	require.Same(t, cached, stillCached)
+	require.Zero(t, stillCached.GetSiteID(), "the test must retain stale cached metadata")
+	require.True(t, fleeterror.IsFailedPreconditionError(es.executeTankMining(t.Context(), deviceID, oldPayload.OrgID, oldPayload, controller)))
+	require.Equal(t, 1, controller.writes, "a command admitted before reassignment must still be rejected")
 }
 
 func TestTankMiningExecutionSerializesSiteReassignmentThroughDispatch(t *testing.T) {
@@ -94,7 +175,7 @@ func TestTankMiningExecutionSerializesSiteReassignmentThroughDispatch(t *testing
 	}}
 	dispatched := make(chan error, 1)
 	go func() {
-		dispatched <- svc.executeTankMining(ctx, deviceID, payload.OrgID, 0, payload, controller)
+		dispatched <- svc.executeTankMining(ctx, deviceID, payload.OrgID, payload, controller)
 	}()
 	select {
 	case <-entered:
@@ -124,14 +205,14 @@ func TestTankMiningExecutionSerializesSiteReassignmentThroughDispatch(t *testing
 	require.NoError(t, err)
 	require.Equal(t, site.ID, device.SiteID.Int64)
 	staleController := &executionTankController{}
-	require.True(t, fleeterror.IsFailedPreconditionError(svc.executeTankMining(ctx, deviceID, payload.OrgID, 0, payload, staleController)))
+	require.True(t, fleeterror.IsFailedPreconditionError(svc.executeTankMining(ctx, deviceID, payload.OrgID, payload, staleController)))
 	require.Zero(t, staleController.writes, "a command admitted before reassignment must not dispatch afterward")
 }
 
 func TestTankMiningExecutionDoesNotReplayPhysicalWrite(t *testing.T) {
 	svc, _, deviceID, _, payload := setupTankMiningExecution(t)
 	controller := &executionTankController{err: &pgconn.PgError{Code: "40001", Message: "serialization failure after dispatch"}}
-	err := svc.executeTankMining(t.Context(), deviceID, payload.OrgID, 0, payload, controller)
+	err := svc.executeTankMining(t.Context(), deviceID, payload.OrgID, payload, controller)
 	require.True(t, fleeterror.IsFailedPreconditionError(err))
 	require.ErrorContains(t, err, "tank mining outcome unconfirmed")
 	require.NotContains(t, sanitizedErrorInfo(err).String, controller.err.Error(), "controller diagnostics must not enter operator results")
@@ -157,14 +238,14 @@ func TestTankMiningExecutionRetriesDatabaseErrorsBeforeDispatch(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
 			defer cancel()
 			controller := &executionTankController{}
-			err = svc.executeTankMining(ctx, deviceID, payload.OrgID, 0, payload, controller)
+			err = svc.executeTankMining(ctx, deviceID, payload.OrgID, payload, controller)
 			var fleetErr fleeterror.FleetError
 			require.ErrorAs(t, err, &fleetErr)
 			require.Equal(t, connect.CodeInternal, fleetErr.GRPCCode, "a pre-dispatch database failure must remain retryable")
 			require.Zero(t, controller.writes)
 			require.Equal(t, "internal: tank mining preparation failed; retry shortly", sanitizedErrorInfo(err).String)
 			require.NoError(t, blocker.Rollback())
-			require.NoError(t, svc.executeTankMining(t.Context(), deviceID, payload.OrgID, 0, payload, controller))
+			require.NoError(t, svc.executeTankMining(t.Context(), deviceID, payload.OrgID, payload, controller))
 			require.Equal(t, 1, controller.writes, "retry after database recovery may dispatch once")
 		})
 	}
@@ -180,7 +261,7 @@ func TestTankMiningExecutionMissingControllerIsTerminal(t *testing.T) {
 			_, err := conn.ExecContext(t.Context(), mutation)
 			require.NoError(t, err)
 			controller := &executionTankController{}
-			err = svc.executeTankMining(t.Context(), deviceID, payload.OrgID, 0, payload, controller)
+			err = svc.executeTankMining(t.Context(), deviceID, payload.OrgID, payload, controller)
 			require.True(t, fleeterror.IsFailedPreconditionError(err))
 			require.ErrorContains(t, err, "selected tank controller unavailable")
 			require.Zero(t, controller.writes)
@@ -201,7 +282,7 @@ func TestTankMiningExecutionCommitFailureDoesNotReplayPhysicalWrite(t *testing.T
 		require.True(t, terminated)
 		return nil
 	}}
-	err := svc.executeTankMining(t.Context(), deviceID, payload.OrgID, 0, payload, controller)
+	err := svc.executeTankMining(t.Context(), deviceID, payload.OrgID, payload, controller)
 	require.True(t, fleeterror.IsFailedPreconditionError(err))
 	require.Equal(t, "failed_precondition: tank mining outcome unconfirmed", sanitizedErrorInfo(err).String)
 	require.Equal(t, 1, controller.writes)
@@ -218,7 +299,7 @@ func TestTankMiningExecutionSurfacesFleetNodeUpgradeBeforeEnqueue(t *testing.T) 
 		DeviceIdentifier: identifier, DriverName: "proto", IPAddress: "192.0.2.10", Port: "443", URLScheme: "https",
 	})
 	require.NoError(t, err)
-	err = svc.executeTankMining(t.Context(), deviceID, payload.OrgID, 0, payload, controller)
+	err = svc.executeTankMining(t.Context(), deviceID, payload.OrgID, payload, controller)
 	require.True(t, fleeterror.IsFailedPreconditionError(err))
 	require.Equal(t, "failed_precondition: tank mining requires Fleet Node command protocol version 3; upgrade Fleet Node before retrying", sanitizedErrorInfo(err).String)
 	select {
@@ -231,7 +312,7 @@ func TestTankMiningExecutionSurfacesFleetNodeUpgradeBeforeEnqueue(t *testing.T) 
 func TestTankMiningExecutionSanitizesControllerFleetErrors(t *testing.T) {
 	svc, _, deviceID, _, payload := setupTankMiningExecution(t)
 	controller := &executionTankController{err: fleeterror.NewFailedPreconditionError("untrusted controller diagnostic")}
-	err := svc.executeTankMining(t.Context(), deviceID, payload.OrgID, 0, payload, controller)
+	err := svc.executeTankMining(t.Context(), deviceID, payload.OrgID, payload, controller)
 	require.True(t, fleeterror.IsFailedPreconditionError(err))
 	require.Equal(t, "failed_precondition: tank mining outcome unconfirmed", sanitizedErrorInfo(err).String)
 	require.Equal(t, 1, controller.writes)

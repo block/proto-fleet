@@ -877,7 +877,8 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		if !ok {
 			return orgID, siteID, fleeterror.NewUnimplementedError("tank mining unsupported")
 		}
-		err = es.executeTankMining(ctx, message.DeviceID, orgID, siteID, payload, controller)
+		siteID = payload.SiteID
+		err = es.executeTankMining(ctx, message.DeviceID, orgID, payload, controller)
 	case commandtype.SetContainerControl:
 		var payload sdk.ContainerControlRequest
 		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
