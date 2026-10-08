@@ -348,12 +348,13 @@ export type UserInfo = Message<"auth.v1.UserInfo"> & {
   requiresPasswordChange: boolean;
 
   /**
-   * Org/default-scoped permission keys for the caller, sorted. Populated
+   * Org/default-scoped permission keys for the caller, plus org-shared
+   * notepad capabilities held under any assignment, sorted. Populated
    * only when the UserInfo represents the caller's own identity (e.g. the
    * Authenticate response). Other surfaces that return UserInfo for peer
    * users (ListUsers) leave this empty: per-user permission queries belong
    * on a dedicated authz RPC, not bundled into peer listing where they
-   * would leak authority across the org. Future narrower scopes (site,
+   * would leak authority across the org. Other narrower scopes (site,
    * building) should be exposed through dedicated resource-scoped fields
    * or RPCs instead of broadening this default projection.
    *

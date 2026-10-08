@@ -296,7 +296,7 @@ func TestService_VerifyCredentials_SecurityProperties(t *testing.T) {
 	})
 }
 
-func TestService_AuthenticateUser_ReturnsOrgScopedPermissions(t *testing.T) {
+func TestService_AuthenticateUser_ReturnsOrgAndSharedNotePermissions(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	password := "correctpass"
@@ -343,7 +343,7 @@ func TestService_AuthenticateUser_ReturnsOrgScopedPermissions(t *testing.T) {
 					AssignmentID: 2,
 					ScopeType:    authz.ScopeSite,
 					SiteID:       &siteID,
-					Permissions:  []string{authz.PermSiteRead, authz.PermMinerBlinkLED},
+					Permissions:  []string{authz.PermSiteRead, authz.PermMinerBlinkLED, authz.PermNoteRead, authz.PermNoteCreate, authz.PermNoteManage},
 				},
 			}),
 		}},
@@ -356,7 +356,7 @@ func TestService_AuthenticateUser_ReturnsOrgScopedPermissions(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, resp.UserInfo)
-	assert.Equal(t, []string{authz.PermFleetRead, authz.PermMinerRead}, resp.UserInfo.Permissions)
+	assert.Equal(t, []string{authz.PermFleetRead, authz.PermMinerRead, authz.PermNoteCreate, authz.PermNoteManage, authz.PermNoteRead}, resp.UserInfo.Permissions)
 }
 
 func TestActivityLogging_NilActivitySvc(t *testing.T) {

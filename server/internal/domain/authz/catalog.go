@@ -96,6 +96,13 @@ const (
 	// maintenance — organization-wide repair ticket lifecycle.
 	PermMaintenanceRead   = "maintenance:read"
 	PermMaintenanceManage = "maintenance:manage"
+
+	// note — the shared team notepad: an org-wide feed every member can
+	// read and post to. note:manage is the moderation key (delete any
+	// note); editing stays author-only regardless of role.
+	PermNoteRead   = "note:read"
+	PermNoteCreate = "note:create"
+	PermNoteManage = "note:manage"
 )
 
 // Resource identifiers used to group catalog entries for the admin UI
@@ -118,6 +125,7 @@ const (
 	ResourceRole        = "role"
 	ResourceInstance    = "instance"
 	ResourceMaintenance = "maintenance"
+	ResourceNote        = "note"
 )
 
 // CatalogEntry is the in-code shape of a single permission. The wire-level
@@ -191,6 +199,10 @@ var catalog = []CatalogEntry{
 
 	{PermMaintenanceRead, "View repair tickets, maintenance history, and parts inventory.", ResourceMaintenance},
 	{PermMaintenanceManage, "Create, assign, update, and close repair tickets; manage parts inventory.", ResourceMaintenance},
+
+	{PermNoteRead, "View the shared team notepad.", ResourceNote},
+	{PermNoteCreate, "Add notes to the shared team notepad and edit or delete your own notes.", ResourceNote},
+	{PermNoteManage, "Delete any note on the shared team notepad.", ResourceNote},
 }
 
 // AllPermissions returns the canonical permission keys in catalog order. The

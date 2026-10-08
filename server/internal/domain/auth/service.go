@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -205,9 +207,9 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 		return nil, nil, fleeterror.NewInternalErrorf("error getting user role: %v", err)
 	}
 
-	// Default/org-scoped permission keys for the caller. The client uses
-	// this projection for UI gates that map to org-scoped RPCs; narrower
-	// resource-scoped grants should be exposed through a dedicated surface.
+	// Default/org-scoped permission keys for the caller, plus org-shared
+	// note capabilities held under any assignment. Other resource-scoped
+	// grants should be exposed through a dedicated surface.
 	eff, err := s.permResolver.LoadEffective(ctx, user.ID, orgs[0].ID)
 	if err != nil {
 		return nil, nil, fleeterror.NewInternalErrorf("error loading effective permissions: %v", err)
@@ -235,9 +237,23 @@ func (s *Service) AuthenticateUser(ctx context.Context, req *authv1.Authenticate
 			LastLoginAt:            toTimestampProto(loginTime),
 			Role:                   roleName,
 			RequiresPasswordChange: user.RequiresPasswordChange,
-			Permissions:            eff.Keys(),
+			Permissions:            userInfoPermissions(eff),
 		},
 	}, cookie, nil
+}
+
+// userInfoPermissions keeps the default permission projection while exposing
+// the org-shared notepad capabilities whose server gates use HasAnywhere.
+// Other permissions held only at site scope stay off this coarse UI surface.
+func userInfoPermissions(eff *authz.EffectivePermissions) []string {
+	keys := eff.Keys()
+	for _, key := range []string{authz.PermNoteRead, authz.PermNoteCreate, authz.PermNoteManage} {
+		if eff.HasAnywhere(key) && !slices.Contains(keys, key) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // Logout invalidates the current session and returns a cookie to clear the session.

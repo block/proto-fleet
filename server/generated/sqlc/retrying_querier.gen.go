@@ -1224,6 +1224,18 @@ func (q *retryingQuerier) CreateInventoryPart(ctx context.Context, arg CreateInv
 	return result, err
 }
 
+func (q *retryingQuerier) CreateNote(ctx context.Context, arg CreateNoteParams) (Note, error) {
+	var result Note
+	err := q.retrier.RetryQuery(ctx, "CreateNote", func() error {
+		callResult, callErr := q.next.CreateNote(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CreateOrganization(ctx context.Context, arg CreateOrganizationParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CreateOrganization", func() error {
@@ -3174,6 +3186,18 @@ func (q *retryingQuerier) GetMinerStateSnapshots(ctx context.Context, arg GetMin
 	return result, err
 }
 
+func (q *retryingQuerier) GetNote(ctx context.Context, arg GetNoteParams) (Note, error) {
+	var result Note
+	err := q.retrier.RetryQuery(ctx, "GetNote", func() error {
+		callResult, callErr := q.next.GetNote(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetOfflineDevices(ctx context.Context, limit int32) ([]GetOfflineDevicesRow, error) {
 	var result []GetOfflineDevicesRow
 	err := q.retrier.RetryQuery(ctx, "GetOfflineDevices", func() error {
@@ -4918,6 +4942,18 @@ func (q *retryingQuerier) ListNonTerminalCurtailmentEvents(ctx context.Context) 
 	var result []CurtailmentEvent
 	err := q.retrier.RetryQuery(ctx, "ListNonTerminalCurtailmentEvents", func() error {
 		callResult, callErr := q.next.ListNonTerminalCurtailmentEvents(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListNotes(ctx context.Context, arg ListNotesParams) ([]ListNotesRow, error) {
+	var result []ListNotesRow
+	err := q.retrier.RetryQuery(ctx, "ListNotes", func() error {
+		callResult, callErr := q.next.ListNotes(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6786,6 +6822,18 @@ func (q *retryingQuerier) SoftDeleteInventoryPart(ctx context.Context, arg SoftD
 	return result, err
 }
 
+func (q *retryingQuerier) SoftDeleteNote(ctx context.Context, arg SoftDeleteNoteParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "SoftDeleteNote", func() error {
+		callResult, callErr := q.next.SoftDeleteNote(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) SoftDeleteOrganization(ctx context.Context, id int64) error {
 	return q.retrier.RetryQuery(ctx, "SoftDeleteOrganization", func() error {
 		return q.next.SoftDeleteOrganization(ctx, id)
@@ -7318,6 +7366,18 @@ func (q *retryingQuerier) UpdateMinerPassword(ctx context.Context, arg UpdateMin
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "UpdateMinerPassword", func() error {
 		callResult, callErr := q.next.UpdateMinerPassword(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) UpdateNoteContent(ctx context.Context, arg UpdateNoteContentParams) (Note, error) {
+	var result Note
+	err := q.retrier.RetryQuery(ctx, "UpdateNoteContent", func() error {
+		callResult, callErr := q.next.UpdateNoteContent(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

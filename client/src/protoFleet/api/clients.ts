@@ -24,6 +24,7 @@ import { MaintenanceService } from "@/protoFleet/api/generated/maintenance/v1/ma
 import { MarketDataService } from "@/protoFleet/api/generated/marketdata/v1/marketdata_pb";
 import { MinerCommandService } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
 import { NetworkInfoService } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
+import { NoteService } from "@/protoFleet/api/generated/notes/v1/notes_pb";
 import { OnboardingService } from "@/protoFleet/api/generated/onboarding/v1/onboarding_pb";
 import { PairingService } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { PoolsService } from "@/protoFleet/api/generated/pools/v1/pools_pb";
@@ -41,6 +42,7 @@ const authzClient = createClient(AuthzService, transport);
 const curtailmentClient = createClient(CurtailmentService, transport);
 const errorQueryClient = createClient(ErrorQueryService, transport);
 const networkInfoClient = createClient(NetworkInfoService, transport);
+const notesClient = createClient(NoteService, transport);
 const pairingClient = createClient(PairingService, transport);
 const fleetManagementClient = createClient(FleetManagementService, transport);
 const fleetNodeAdminClient = createClient(FleetNodeAdminService, transport);
@@ -80,6 +82,7 @@ export {
   deviceSetClient,
   errorQueryClient,
   networkInfoClient,
+  notesClient,
   pairingClient,
   fleetManagementClient,
   fleetNodeAdminClient,

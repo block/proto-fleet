@@ -112,6 +112,30 @@ func (e *EffectivePermissions) Has(key string, rc ResourceContext) bool {
 	return e.orgScope[key]
 }
 
+// HasAnywhere reports whether the user holds the key under ANY
+// assignment in this org — org scope or any site bucket. It is the
+// decision-time gate for org-shared collaborative resources (the team
+// notepad) where a role assignment at any scope makes the caller a
+// member of the surface the resource serves; such resources have no
+// site dimension, so narrowing has nothing to act on and union
+// semantics are deliberate. The auth service projects only these
+// org-shared note capabilities into UserInfo.permissions from any
+// assignment; other permission keys retain the default-scope projection.
+func (e *EffectivePermissions) HasAnywhere(key string) bool {
+	if e == nil {
+		return false
+	}
+	if e.orgScope[key] {
+		return true
+	}
+	for _, siteKeys := range e.bySite {
+		if siteKeys[key] {
+			return true
+		}
+	}
+	return false
+}
+
 // SiteScopeFor projects the user's site-level authority for one
 // permission key into a shape a store-layer query can consume, so list
 // endpoints can filter rows in SQL instead of fetching everything and

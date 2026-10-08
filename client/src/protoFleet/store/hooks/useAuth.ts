@@ -19,8 +19,9 @@ export const useRole = () => useFleetStore((state) => state.auth.role);
 export const usePermissions = () => useFleetStore((state) => state.auth.permissions);
 
 // useHasPermission is the canonical UI gate for capability checks.
-// It checks UserInfo.permissions, the caller's default/org-scoped authority.
-// Narrower resource-scoped permissions should use a separate resource-aware
+// It checks UserInfo.permissions: default/org authority and org-shared note
+// capabilities held under any assignment. Other narrower resource-scoped
+// permissions should use a separate resource-aware
 // surface when that lands. The server still enforces every gate regardless;
 // this selector is purely for show/hide decisions.
 export const useHasPermission = (key: string): boolean =>

@@ -107,6 +107,10 @@ const iconMap: Record<string, (props: IconProps) => ReactNode> = {
   update_pool: MiningPools,
   delete_pool: MinusFilled,
 
+  "note.created": PlusFilled,
+  "note.updated": Edit,
+  "note.deleted": MinusFilled,
+
   update_role: Edit,
   delete_role: MinusFilled,
 

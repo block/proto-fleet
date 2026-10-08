@@ -61,6 +61,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/marketdata/v1/marketdatav1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/notes/v1/notesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
@@ -94,6 +95,7 @@ import (
 	infrastructureDomain "github.com/block/proto-fleet/server/internal/domain/infrastructure"
 	inventoryDomain "github.com/block/proto-fleet/server/internal/domain/inventory"
 	maintenanceDomain "github.com/block/proto-fleet/server/internal/domain/maintenance"
+	notesDomain "github.com/block/proto-fleet/server/internal/domain/notes"
 	onboardingDomain "github.com/block/proto-fleet/server/internal/domain/onboarding"
 	pairingDomain "github.com/block/proto-fleet/server/internal/domain/pairing"
 	poolsDomain "github.com/block/proto-fleet/server/internal/domain/pools"
@@ -134,6 +136,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	minerProxyHandler "github.com/block/proto-fleet/server/internal/handlers/minerproxy"
 	"github.com/block/proto-fleet/server/internal/handlers/networkinfo"
+	notesHandler "github.com/block/proto-fleet/server/internal/handlers/notes"
 	"github.com/block/proto-fleet/server/internal/handlers/onboarding"
 	"github.com/block/proto-fleet/server/internal/handlers/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/pools"
@@ -568,6 +571,8 @@ func start(config *Config) (result error) {
 
 	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
+	noteStore := sqlstores.NewSQLNoteStore(conn)
+	notesSvc := notesDomain.NewService(noteStore, activitySvc)
 	infrastructureSvc := infrastructureDomain.NewService(infrastructureStore, siteStore, infrastructureDriverRegistry, transactor, activitySvc)
 	sitemapSvc := sitemapDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, fleetMgmtSvc, transactor, activitySvc)
 
@@ -884,6 +889,7 @@ func start(config *Config) (result error) {
 	))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
+	mux.Handle(notesv1connect.NewNoteServiceHandler(notesHandler.NewHandler(notesSvc), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))
 	mux.Handle(sitemapv1connect.NewSiteMapServiceHandler(
 		sitemapHandler.NewHandler(sitemapSvc),

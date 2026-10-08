@@ -38,6 +38,12 @@ vi.mock("@/protoFleet/components/PageHeader", () => ({
   default: ({ navigationToggle }: { navigationToggle?: ReactNode }) => <div>Page header{navigationToggle}</div>,
 }));
 
+// Notepad behavior has its own component tests; keep the shell tests focused
+// on header layout and polling rather than importing its store/API hooks.
+vi.mock("@/protoFleet/features/notes", () => ({
+  NotepadPanel: () => null,
+}));
+
 vi.mock("@/protoFleet/components/PageHeader/useSchedulePillData", () => ({
   useSchedulePillData: () => mockUseSchedulePillData(),
 }));

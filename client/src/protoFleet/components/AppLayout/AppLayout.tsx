@@ -21,6 +21,7 @@ import { useFleetNodeUpgradeIndicator } from "@/protoFleet/components/PageHeader
 import { useRolloutPillData } from "@/protoFleet/components/PageHeader/useRolloutPillData";
 import { useSchedulePillData } from "@/protoFleet/components/PageHeader/useSchedulePillData";
 import { primaryNavItems } from "@/protoFleet/config/navItems";
+import { NotepadPanel } from "@/protoFleet/features/notes";
 import { useUpdateIndicator } from "@/protoFleet/features/updates/useUpdateIndicator";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { useHasPermission } from "@/protoFleet/store";
@@ -158,6 +159,8 @@ const AppLayoutContent = ({ children, hideShellHeader = false }: Props) => {
       >
         {children}
       </div>
+
+      <NotepadPanel />
     </div>
   );
 };

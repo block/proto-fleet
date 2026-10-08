@@ -76,6 +76,9 @@ func TestCatalogCompleteness(t *testing.T) {
 		PermInstanceUpdate,
 		PermMaintenanceRead,
 		PermMaintenanceManage,
+		PermNoteRead,
+		PermNoteCreate,
+		PermNoteManage,
 	}
 
 	for _, key := range expectedKeys {
@@ -158,6 +161,7 @@ func TestResourceOrder_MatchesCatalogDeclarationOrder(t *testing.T) {
 		ResourceRole,
 		ResourceInstance,
 		ResourceMaintenance,
+		ResourceNote,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("ResourceOrder mismatch:\n  got:  %v\n  want: %v", got, want)
