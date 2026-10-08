@@ -1129,18 +1129,18 @@ func (m *MockScopedDeviceResolver) EXPECT() *MockScopedDeviceResolverMockRecorde
 }
 
 // GetOrCreateDevice mocks base method.
-func (m *MockScopedDeviceResolver) GetOrCreateDevice(arg0 context.Context, arg1 string, arg2 sdk.DeviceInfo, arg3 sdk.SecretBundle, arg4 string) (sdk.NewDeviceResult, error) {
+func (m *MockScopedDeviceResolver) GetOrCreateDevice(ctx context.Context, id string, info sdk.DeviceInfo, secret sdk.SecretBundle, scope string) (sdk.NewDeviceResult, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetOrCreateDevice", arg0, arg1, arg2, arg3, arg4)
+	ret := m.ctrl.Call(m, "GetOrCreateDevice", ctx, id, info, secret, scope)
 	ret0, _ := ret[0].(sdk.NewDeviceResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetOrCreateDevice indicates an expected call of GetOrCreateDevice.
-func (mr *MockScopedDeviceResolverMockRecorder) GetOrCreateDevice(arg0, arg1, arg2, arg3, arg4 any) *gomock.Call {
+func (mr *MockScopedDeviceResolverMockRecorder) GetOrCreateDevice(ctx, id, info, secret, scope any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrCreateDevice", reflect.TypeOf((*MockScopedDeviceResolver)(nil).GetOrCreateDevice), arg0, arg1, arg2, arg3, arg4)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOrCreateDevice", reflect.TypeOf((*MockScopedDeviceResolver)(nil).GetOrCreateDevice), ctx, id, info, secret, scope)
 }
 
 // MockDefaultCredentialsProvider is a mock of DefaultCredentialsProvider interface.

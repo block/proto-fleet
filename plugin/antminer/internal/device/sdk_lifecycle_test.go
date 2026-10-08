@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -52,7 +53,11 @@ func TestSDKResolutionPreservesActualAntminerFullRestoreSnapshot(t *testing.T) {
 			var creates atomic.Int64
 			driver := snapshotLifecycleDriver{create: func(ctx context.Context, id string, info sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
 				creates.Add(1)
-				device, err := New(id, info, secret.Kind.(sdk.UsernamePassword), mockClientFactory(client))
+				credentials, ok := secret.Kind.(sdk.UsernamePassword)
+				if !ok {
+					return sdk.NewDeviceResult{}, fmt.Errorf("lifecycle fixture requires username/password secret")
+				}
+				device, err := New(id, info, credentials, mockClientFactory(client))
 				if err != nil {
 					return sdk.NewDeviceResult{}, err
 				}
@@ -70,19 +75,27 @@ func TestSDKResolutionPreservesActualAntminerFullRestoreSnapshot(t *testing.T) {
 			t.Cleanup(func() { _ = connection.Close() })
 			raw, err := plugin.GRPCClient(t.Context(), nil, connection)
 			require.NoError(t, err)
-			resolver := raw.(sdk.ScopedDeviceResolver)
+			resolver, ok := raw.(sdk.ScopedDeviceResolver)
+			require.True(t, ok, "SDK plugin client must implement scoped resolution")
 			resolve := func() sdk.Device {
 				result, err := resolver.GetOrCreateDevice(t.Context(), testDeviceID, testDeviceInfo(), sdk.SecretBundle{Version: "v1", Kind: testCredentials()}, "same-incarnation-org-epoch")
 				require.NoError(t, err)
 				return result.Device
 			}
 			first := resolve()
-			require.NoError(t, first.(sdk.DeviceCurtailment).Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
+			require.NoError(t, antminerLifecycleCurtailer(t, first).Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
 			second := resolve()
 			require.NotSame(t, first, second, "fresh RPC handles must address the retained actual backend")
-			require.NoError(t, second.(sdk.DeviceCurtailment).Uncurtail(t.Context(), sdk.UncurtailRequest{}))
+			require.NoError(t, antminerLifecycleCurtailer(t, second).Uncurtail(t.Context(), sdk.UncurtailRequest{}))
 			require.Equal(t, int64(1), creates.Load())
 			require.NoError(t, second.Close(t.Context()))
 		})
 	}
+}
+
+func antminerLifecycleCurtailer(t *testing.T, device sdk.Device) sdk.DeviceCurtailment {
+	t.Helper()
+	curtailer, ok := device.(sdk.DeviceCurtailment)
+	require.True(t, ok, "actual Antminer SDK handle must implement curtailment")
+	return curtailer
 }

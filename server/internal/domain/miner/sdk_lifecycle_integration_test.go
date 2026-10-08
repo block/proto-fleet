@@ -86,7 +86,9 @@ func registryIntegrationClientWithStop(t *testing.T, name string, creates, calls
 	t.Cleanup(func() { _ = conn.Close() })
 	client, err := plugin.GRPCClient(t.Context(), nil, conn)
 	require.NoError(t, err)
-	return client.(sdk.Driver)
+	driver, ok := client.(sdk.Driver)
+	require.True(t, ok, "SDK plugin client must implement Driver")
+	return driver
 }
 
 func TestFreshCommandFacadesRetainRealSDKBackendAcrossReadCacheExpiry(t *testing.T) {

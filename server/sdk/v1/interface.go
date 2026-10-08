@@ -567,7 +567,7 @@ type Driver interface {
 // lifecycle scope and complete connection/secret configuration. NewDevice keeps
 // its unconditional replacement semantics.
 type ScopedDeviceResolver interface {
-	GetOrCreateDevice(context.Context, string, DeviceInfo, SecretBundle, string) (NewDeviceResult, error)
+	GetOrCreateDevice(ctx context.Context, id string, info DeviceInfo, secret SecretBundle, scope string) (NewDeviceResult, error)
 }
 
 const CapabilityScopedDeviceReuse = "sdk_scoped_device_reuse"

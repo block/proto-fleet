@@ -82,11 +82,11 @@ func TestScopedDeviceResolutionBindsCompleteActualRequest(t *testing.T) {
 			request := scopedRequest()
 			_, err := s.NewDevice(t.Context(), request)
 			require.NoError(t, err)
-			changed := proto.Clone(request).(*pb.NewDeviceRequest)
+			changed := cloneScopedRequest(t, request)
 			change(changed)
 			_, err = s.NewDevice(t.Context(), changed)
 			require.NoError(t, err)
-			_, err = s.NewDevice(t.Context(), proto.Clone(changed).(*pb.NewDeviceRequest))
+			_, err = s.NewDevice(t.Context(), cloneScopedRequest(t, changed))
 			require.NoError(t, err)
 			require.Equal(t, 2, creates, "a changed actual request must replace even when trusted scope is unchanged")
 		})
@@ -102,7 +102,7 @@ func TestDefaultNewDeviceStillReplacesAndInvalidatesScopedEvidence(t *testing.T)
 	request := scopedRequest()
 	_, err := s.NewDevice(t.Context(), request)
 	require.NoError(t, err)
-	plain := proto.Clone(request).(*pb.NewDeviceRequest)
+	plain := cloneScopedRequest(t, request)
 	plain.ReuseScopeKey = ""
 	for range 2 {
 		response, err := s.NewDevice(t.Context(), plain)
@@ -191,4 +191,11 @@ func TestScopedClientRejectsUnsupportedRuntimeAndMismatchedConfirmation(t *testi
 			require.Equal(t, test.creates, peer.creates)
 		})
 	}
+}
+
+func cloneScopedRequest(t *testing.T, request *pb.NewDeviceRequest) *pb.NewDeviceRequest {
+	t.Helper()
+	cloned, ok := proto.Clone(request).(*pb.NewDeviceRequest)
+	require.True(t, ok, "cloned request must preserve its concrete message type")
+	return cloned
 }

@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync/atomic"
 	"testing"
@@ -29,7 +30,7 @@ func (d lifecycleDriver) NewDevice(ctx context.Context, id string, info sdk.Devi
 }
 
 type scopedLifecycleDriver interface {
-	GetOrCreateDevice(context.Context, string, sdk.DeviceInfo, sdk.SecretBundle, string) (sdk.NewDeviceResult, error)
+	GetOrCreateDevice(ctx context.Context, id string, info sdk.DeviceInfo, secret sdk.SecretBundle, scope string) (sdk.NewDeviceResult, error)
 }
 
 func connectLifecycleDriver(t *testing.T, driver sdk.Driver) sdk.Driver {
@@ -45,7 +46,9 @@ func connectLifecycleDriver(t *testing.T, driver sdk.Driver) sdk.Driver {
 	t.Cleanup(func() { _ = conn.Close() })
 	client, err := plugin.GRPCClient(t.Context(), nil, conn)
 	require.NoError(t, err)
-	return client.(sdk.Driver)
+	result, ok := client.(sdk.Driver)
+	require.True(t, ok, "SDK plugin client must implement Driver")
+	return result
 }
 
 func resolveLifecycleDevice(t *testing.T, client sdk.Driver, info sdk.DeviceInfo) sdk.Device {
@@ -74,12 +77,16 @@ func TestSDKResolutionPreservesRealProtoFullStoppedSnapshot(t *testing.T) {
 	var creates atomic.Int64
 	client := connectLifecycleDriver(t, lifecycleDriver{create: func(ctx context.Context, id string, info sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
 		creates.Add(1)
-		dev, err := New(ctx, id, info, secret.Kind.(sdk.UsernamePassword), SetStatusTTL(0))
+		credentials, ok := secret.Kind.(sdk.UsernamePassword)
+		if !ok {
+			return sdk.NewDeviceResult{}, fmt.Errorf("lifecycle fixture requires username/password secret")
+		}
+		dev, err := New(ctx, id, info, credentials, SetStatusTTL(0))
 		return sdk.NewDeviceResult{Device: dev}, err
 	}})
-	first := resolveLifecycleDevice(t, client, fixture.deviceInfo).(sdk.DeviceCurtailment)
+	first := lifecycleCurtailer(t, resolveLifecycleDevice(t, client, fixture.deviceInfo))
 	require.NoError(t, first.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}))
-	second := resolveLifecycleDevice(t, client, fixture.deviceInfo).(sdk.DeviceCurtailment)
+	second := lifecycleCurtailer(t, resolveLifecycleDevice(t, client, fixture.deviceInfo))
 	require.NoError(t, second.Uncurtail(t.Context(), sdk.UncurtailRequest{}))
 	t.Logf("actual SDK backend creations=%d, physical start requests=%d", creates.Load(), starts.Load())
 	require.Zero(t, starts.Load(), "fresh facades must not discard the real SDK backend's stopped snapshot")
@@ -87,21 +94,42 @@ func TestSDKResolutionPreservesRealProtoFullStoppedSnapshot(t *testing.T) {
 }
 
 func TestSDKResolutionPreservesRealProtoEfficiencySnapshot(t *testing.T) {
-	var requests []powerTargetRequest
-	fixture := newFullEfficiencyCurtailmentTestDevice(t, "Mining", targetResponse{PowerTargetWatts: 2800, PowerTargetMinWatts: 1200, PowerTargetMaxWatts: 3200, DefaultPowerTargetWatts: 1800, PerformanceMode: "MaximumHashrate"}, &requests, nil)
-	var creates atomic.Int64
-	client := connectLifecycleDriver(t, lifecycleDriver{create: func(ctx context.Context, id string, info sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
-		creates.Add(1)
-		dev, err := New(ctx, id, info, secret.Kind.(sdk.UsernamePassword), SetStatusTTL(0))
-		return sdk.NewDeviceResult{Device: dev}, err
-	}})
-	first := resolveLifecycleDevice(t, client, fixture.deviceInfo).(sdk.DeviceCurtailment)
-	require.NoError(t, first.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelEfficiency}))
-	second := resolveLifecycleDevice(t, client, fixture.deviceInfo).(sdk.DeviceCurtailment)
-	require.NoError(t, second.Uncurtail(t.Context(), sdk.UncurtailRequest{}))
-	t.Logf("actual SDK backend creations=%d, power target requests=%d", creates.Load(), len(requests))
-	require.Len(t, requests, 2, "real SDK instance must retain the pre-efficiency power target")
-	require.Equal(t, 2800, *requests[1].PowerTargetWatts)
-	require.Equal(t, "MaximumHashrate", requests[1].PerformanceMode)
-	require.Equal(t, int64(1), creates.Load())
+	for _, miningState := range []string{"Mining", "Stopped"} {
+		t.Run(miningState, func(t *testing.T) {
+			var requests []powerTargetRequest
+			var starts atomic.Int64
+			fixture := newFullEfficiencyCurtailmentTestDevice(t, miningState, targetResponse{PowerTargetWatts: 2800, PowerTargetMinWatts: 1200, PowerTargetMaxWatts: 3200, DefaultPowerTargetWatts: 1800, PerformanceMode: "MaximumHashrate"}, &requests, func(path string) {
+				if path == "/api/v1/mining/start" {
+					starts.Add(1)
+				}
+			})
+			var creates atomic.Int64
+			client := connectLifecycleDriver(t, lifecycleDriver{create: func(ctx context.Context, id string, info sdk.DeviceInfo, secret sdk.SecretBundle) (sdk.NewDeviceResult, error) {
+				creates.Add(1)
+				credentials, ok := secret.Kind.(sdk.UsernamePassword)
+				if !ok {
+					return sdk.NewDeviceResult{}, fmt.Errorf("lifecycle fixture requires username/password secret")
+				}
+				dev, err := New(ctx, id, info, credentials, SetStatusTTL(0))
+				return sdk.NewDeviceResult{Device: dev}, err
+			}})
+			first := lifecycleCurtailer(t, resolveLifecycleDevice(t, client, fixture.deviceInfo))
+			require.NoError(t, first.Curtail(t.Context(), sdk.CurtailRequest{Level: sdk.CurtailLevelEfficiency}))
+			second := lifecycleCurtailer(t, resolveLifecycleDevice(t, client, fixture.deviceInfo))
+			require.NoError(t, second.Uncurtail(t.Context(), sdk.UncurtailRequest{}))
+			t.Logf("actual SDK backend creations=%d, power target requests=%d", creates.Load(), len(requests))
+			require.Len(t, requests, 2, "real SDK instance must retain the pre-efficiency power target")
+			require.Equal(t, 2800, *requests[1].PowerTargetWatts)
+			require.Equal(t, "MaximumHashrate", requests[1].PerformanceMode)
+			require.Equal(t, int64(1), creates.Load())
+			require.Zero(t, starts.Load(), "efficiency restoration must not start a miner, including one already stopped")
+		})
+	}
+}
+
+func lifecycleCurtailer(t *testing.T, device sdk.Device) sdk.DeviceCurtailment {
+	t.Helper()
+	curtailer, ok := device.(sdk.DeviceCurtailment)
+	require.True(t, ok, "actual Proto SDK handle must implement curtailment")
+	return curtailer
 }
