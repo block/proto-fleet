@@ -1,3 +1,5 @@
+-- requires-shared: 1000
+
 -- Account keys remain a distinct credential kind even if their account is removed.
 ALTER TABLE api_key DROP CONSTRAINT ck_api_key_subject;
 ALTER TABLE api_key ADD CONSTRAINT ck_api_key_subject CHECK (
