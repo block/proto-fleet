@@ -13,11 +13,11 @@ CREATE TABLE hosted_account_key (
     account_id BIGINT NOT NULL,
     capabilities BIGINT NOT NULL CHECK (capabilities BETWEEN 1 AND 7 AND (capabilities & 1) = 1),
     include_future_descendants BOOLEAN NOT NULL DEFAULT FALSE,
-    UNIQUE (organization_id, api_key_id),
+    CONSTRAINT uq_hosted_account_key_org_api_key UNIQUE (organization_id, api_key_id),
     FOREIGN KEY (organization_id, api_key_id) REFERENCES api_key(organization_id, id) ON DELETE CASCADE,
     FOREIGN KEY (organization_id, account_id) REFERENCES hosted_account(organization_id, id) ON DELETE CASCADE
 );
-CREATE INDEX hosted_account_key_account ON hosted_account_key (organization_id, account_id);
+CREATE INDEX idx_hosted_account_key_account ON hosted_account_key (organization_id, account_id);
 CREATE TABLE hosted_account_key_descendant (
     organization_id BIGINT NOT NULL,
     api_key_id BIGINT NOT NULL,
@@ -26,7 +26,7 @@ CREATE TABLE hosted_account_key_descendant (
     FOREIGN KEY (organization_id, api_key_id) REFERENCES hosted_account_key(organization_id, api_key_id) ON DELETE CASCADE,
     FOREIGN KEY (organization_id, account_id) REFERENCES hosted_account(organization_id, id) ON DELETE CASCADE
 );
-CREATE INDEX hosted_account_key_descendant_account ON hosted_account_key_descendant (organization_id, account_id);
+CREATE INDEX idx_hosted_account_key_descendant_account ON hosted_account_key_descendant (organization_id, account_id);
 CREATE FUNCTION check_hosted_account_key() RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
     IF NOT EXISTS (

@@ -75,7 +75,7 @@ WHERE organization_id = $1 AND account_id = $2`, f.org, child.ID).Scan(&encoded)
 	require.Equal(t, float64(100), plan[0].Plan.Rows)
 	var usesIndex func(planNode) bool
 	usesIndex = func(node planNode) bool {
-		if node.IndexName == "hosted_account_key_descendant_account" {
+		if node.IndexName == "idx_hosted_account_key_descendant_account" {
 			return true
 		}
 		for _, child := range node.Plans {

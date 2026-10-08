@@ -162,7 +162,9 @@ Codex users can run the same shared skill with `$pr-describe`.
    `just db-migration-new internal_<name>`.
 2. Write both up and down migrations in `server/migrations/current/`.
    Follow the [migration policy](docs/development/migrations.md) for shared
-   promotion, private prerequisites and existing-database upgrades.
+   promotion, private prerequisites and existing-database upgrades. Name unique
+   constraints and indexes using the
+   [naming convention](docs/development/migrations.md#constraint-and-index-names).
 3. Update queries in `server/sqlc/queries/` if needed
 4. Run `just gen-db-queries` from the repo root to regenerate sqlc bindings
    (see [Code Generation](#code-generation) for command selection)
