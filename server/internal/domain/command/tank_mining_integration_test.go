@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -97,4 +98,47 @@ func TestTankMiningAdmissionGroupsExactSelectionAndRejectsStaleForeignAndDenied(
 	results, err := svc.GetContainerControlResult(ctx, identifier, result.Commands[0].BatchIdentifier, func(context.Context, *int64) error { return nil })
 	require.NoError(t, err)
 	require.Equal(t, int32(1), results.TotalCount)
+}
+
+func TestTankMiningOptionsExplainMixedSitePermissions(t *testing.T) {
+	conn, dbs, user := setupRetentionTest(t)
+	_, northDevice, northTanks := seedTankController(t, conn, dbs, user.OrganizationID)
+	_, southDevice, southTanks := seedTankController(t, conn, dbs, user.OrganizationID)
+	q := sqlc.New(conn)
+	north, err := q.CreateSite(t.Context(), sqlc.CreateSiteParams{OrgID: user.OrganizationID, Name: "North", Slug: "north"})
+	require.NoError(t, err)
+	south, err := q.CreateSite(t.Context(), sqlc.CreateSiteParams{OrgID: user.OrganizationID, Name: "South", Slug: "south"})
+	require.NoError(t, err)
+	for _, target := range []struct{ device, site int64 }{{northDevice, north.ID}, {southDevice, south.ID}} {
+		_, err := conn.ExecContext(t.Context(), `UPDATE device SET site_id=$1 WHERE id=$2`, target.site, target.device)
+		require.NoError(t, err)
+	}
+	svc := newDispatchIntegrationTestService(t, conn, failingEnqueueQueue{delegate: queue.NewDatabaseMessageQueue(&queue.Config{DequeLimit: 10, MaxFailureRetries: 1}, conn)})
+	svc.SetPluginCapabilitiesProvider(tankCapabilities{true})
+	ctx := testutil.MockAuthContextForTesting(t.Context(), user.DatabaseID, user.OrganizationID)
+	authorize := func(_ context.Context, site *int64, mining bool) error {
+		if site != nil && ((*site == north.ID && mining) || (*site == south.ID && !mining)) {
+			return nil
+		}
+		return fleeterror.NewForbiddenError("action denied at this site")
+	}
+	for _, selection := range []struct {
+		ids   []int64
+		start bool
+		stop  bool
+	}{
+		{[]int64{northTanks[0]}, true, false},
+		{[]int64{southTanks[0]}, false, true},
+		{[]int64{northTanks[0], southTanks[0]}, false, false},
+	} {
+		options, err := svc.GetTankMiningOptions(ctx, selection.ids, authorize)
+		require.NoError(t, err)
+		require.Equal(t, selection.start, options.CanStart)
+		require.Equal(t, selection.stop, options.CanStop)
+		if selection.start || selection.stop {
+			require.Empty(t, options.UnavailableReason)
+		} else {
+			require.Equal(t, "No mining action is authorized for every selected tank.", options.UnavailableReason)
+		}
+	}
 }

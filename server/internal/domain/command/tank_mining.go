@@ -111,6 +111,9 @@ func (s *Service) GetTankMiningOptions(ctx context.Context, ids []int64, authori
 				options.UnavailableReason = "A tank mining command is already pending for this container."
 			}
 		}
+		if !options.CanStart && !options.CanStop && options.UnavailableReason == "" {
+			options.UnavailableReason = "No mining action is authorized for every selected tank."
+		}
 		return options, nil
 	})
 }
