@@ -7,6 +7,7 @@ package sqlc
 
 import (
 	"context"
+	"database/sql"
 )
 
 const findHostedAccountMemberByUUID = `-- name: FindHostedAccountMemberByUUID :one
@@ -79,64 +80,105 @@ func (q *Queries) HasHostedAccountHostAuthority(ctx context.Context, arg HasHost
 	return authorized, err
 }
 
-const listAuthorizedHostedAccounts = `-- name: ListAuthorizedHostedAccounts :many
-SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision FROM hosted_account a
-JOIN hosted_account root ON root.organization_id=a.organization_id AND root.depth=0
-LEFT JOIN hosted_account parent ON parent.id=a.parent_id AND parent.organization_id=a.organization_id
-JOIN organization o ON o.id=a.organization_id AND o.deleted_at IS NULL
-JOIN user_organization uo ON uo.organization_id=a.organization_id AND uo.user_id=$1 AND uo.deleted_at IS NULL
-JOIN "user" u ON u.id=uo.user_id AND u.deleted_at IS NULL
-WHERE a.organization_id=$2 AND NOT a.suspended AND NOT root.suspended AND NOT COALESCE(parent.suspended,FALSE)
-AND (a.capabilities & COALESCE(parent.capabilities,31) & root.capabilities & 1)<>0
-AND ((a.depth=0 AND EXISTS (
- SELECT 1 FROM user_organization_role ur JOIN role r ON r.id=ur.role_id AND r.organization_id=ur.organization_id AND r.deleted_at IS NULL
- JOIN role_permission rp ON rp.role_id=r.id JOIN permission p ON p.id=rp.permission_id AND p.key='account:manage'
- WHERE ur.user_id=u.id AND ur.organization_id=a.organization_id AND ur.deleted_at IS NULL AND ur.scope_type='org'
-)) OR (a.depth>0 AND (EXISTS (
- SELECT 1 FROM hosted_account_membership m WHERE m.account_id=a.id AND m.organization_id=a.organization_id AND m.user_id=u.id AND m.revoked_at IS NULL
-) OR EXISTS (
- SELECT 1 FROM hosted_account_ancestor_grant g
- JOIN hosted_account ancestor ON ancestor.id=g.ancestor_id AND ancestor.organization_id=g.organization_id
- WHERE g.organization_id=a.organization_id AND g.account_id=a.id AND g.revoked_at IS NULL AND (g.capabilities & 1)<>0
- AND ((ancestor.depth>0 AND EXISTS (
-  SELECT 1 FROM hosted_account_membership m WHERE m.account_id=ancestor.id AND m.organization_id=a.organization_id AND m.user_id=u.id AND m.revoked_at IS NULL
- )) OR (ancestor.depth=0 AND EXISTS (
-  SELECT 1 FROM user_organization_role ur JOIN role r ON r.id=ur.role_id AND r.organization_id=ur.organization_id AND r.deleted_at IS NULL
-  JOIN role_permission rp ON rp.role_id=r.id JOIN permission p ON p.id=rp.permission_id AND p.key='account:manage'
-  WHERE ur.user_id=u.id AND ur.organization_id=a.organization_id AND ur.deleted_at IS NULL AND ur.scope_type='org'
- )))
-)))) ORDER BY a.depth,a.name,a.account_id
+const listHostedAccountSummaries = `-- name: ListHostedAccountSummaries :many
+WITH actor AS (
+ SELECT u.id FROM "user" u
+ JOIN user_organization uo ON uo.user_id=u.id AND uo.organization_id=$2 AND uo.deleted_at IS NULL
+ JOIN organization o ON o.id=uo.organization_id AND o.deleted_at IS NULL
+ WHERE u.id=$3 AND u.deleted_at IS NULL
+), host_authority AS (
+ SELECT EXISTS (
+  SELECT 1 FROM user_organization_role ur
+  JOIN role r ON r.id=ur.role_id AND r.organization_id=ur.organization_id AND r.deleted_at IS NULL
+  JOIN role_permission rp ON rp.role_id=r.id
+  JOIN permission p ON p.id=rp.permission_id AND p.key='account:manage'
+  JOIN actor ON actor.id=ur.user_id
+  WHERE ur.organization_id=$2 AND ur.deleted_at IS NULL AND ur.scope_type='org'
+ ) AS authorized
+), memberships AS (
+ SELECT m.account_id, m.role,
+        CASE m.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END::bigint AS capabilities
+ FROM hosted_account_membership m JOIN actor ON actor.id=m.user_id
+ WHERE m.organization_id=$2 AND m.revoked_at IS NULL
+), accounts AS (
+ SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision, COALESCE(parent.account_id,'')::text AS parent_account_id,
+        (a.capabilities & COALESCE(parent.capabilities,31) & root.capabilities)::bigint AS ceiling,
+        (a.suspended OR root.suspended OR COALESCE(parent.suspended,FALSE)) AS path_suspended,
+        root.id AS root_id
+ FROM hosted_account a
+ JOIN hosted_account root ON root.organization_id=a.organization_id AND root.depth=0
+ LEFT JOIN hosted_account parent ON parent.id=a.parent_id AND parent.organization_id=a.organization_id
+ WHERE a.organization_id=$2 AND EXISTS (SELECT 1 FROM actor)
+ AND ($1::bigint IS NULL OR a.parent_id=$1::bigint)
+), sources AS (
+ SELECT a.id, m.role, m.capabilities
+ FROM accounts a JOIN memberships m ON m.account_id=a.id WHERE a.depth>0
+ UNION ALL
+ SELECT a.id, ''::text, (g.capabilities & CASE WHEN ancestor.depth=0 THEN 31 ELSE m.capabilities END)::bigint
+ FROM accounts a
+ JOIN hosted_account_ancestor_grant g ON g.account_id=a.id AND g.organization_id=a.organization_id AND g.revoked_at IS NULL
+ JOIN hosted_account ancestor ON ancestor.id=g.ancestor_id AND ancestor.organization_id=g.organization_id AND ancestor.depth<a.depth
+ LEFT JOIN memberships m ON m.account_id=ancestor.id
+ CROSS JOIN host_authority h
+ WHERE (ancestor.id=a.parent_id OR ancestor.id=a.root_id)
+ AND ((ancestor.depth=0 AND h.authorized) OR (ancestor.depth>0 AND m.account_id IS NOT NULL))
+), authority AS (
+ SELECT id, COALESCE(MAX(NULLIF(role,'')),'')::text AS role, bit_or(capabilities)::bigint AS capabilities
+ FROM sources GROUP BY id
+), summaries AS (
+ SELECT a.account_id, a.parent_account_id, a.name, a.depth, a.capabilities, a.suspended, a.revision,
+        CASE WHEN a.depth=0 AND h.authorized AND NOT a.path_suspended AND (a.ceiling & 1)<>0 THEN 16
+             WHEN a.depth>0 AND NOT a.path_suspended AND (COALESCE(auth.capabilities,0) & a.ceiling & 1)<>0
+             THEN COALESCE(auth.capabilities,0) & a.ceiling ELSE 0 END::bigint AS effective_capabilities,
+        CASE WHEN a.depth>0 AND NOT a.path_suspended AND (COALESCE(auth.capabilities,0) & a.ceiling & 1)<>0
+             THEN COALESCE(auth.role,'') ELSE '' END::text AS role
+ FROM accounts a CROSS JOIN host_authority h LEFT JOIN authority auth ON auth.id=a.id
+)
+SELECT account_id, parent_account_id, name, depth, capabilities, suspended, revision, effective_capabilities, role FROM summaries
+WHERE $1::bigint IS NOT NULL OR effective_capabilities<>0
+ORDER BY depth,name,account_id
 `
 
-type ListAuthorizedHostedAccountsParams struct {
-	UserID         int64
+type ListHostedAccountSummariesParams struct {
+	ParentID       sql.NullInt64
 	OrganizationID int64
+	UserID         int64
 }
 
-func (q *Queries) ListAuthorizedHostedAccounts(ctx context.Context, arg ListAuthorizedHostedAccountsParams) ([]HostedAccount, error) {
-	rows, err := q.query(ctx, q.listAuthorizedHostedAccountsStmt, listAuthorizedHostedAccounts, arg.UserID, arg.OrganizationID)
+type ListHostedAccountSummariesRow struct {
+	AccountID             string
+	ParentAccountID       string
+	Name                  string
+	Depth                 int32
+	Capabilities          int64
+	Suspended             bool
+	Revision              int64
+	EffectiveCapabilities int64
+	Role                  string
+}
+
+// Resolve the entire account list in one snapshot. A parent filter is used only
+// after delegation authorization and includes policy-only children, with no
+// private role or capabilities unless explicit live authority grants viewing.
+func (q *Queries) ListHostedAccountSummaries(ctx context.Context, arg ListHostedAccountSummariesParams) ([]ListHostedAccountSummariesRow, error) {
+	rows, err := q.query(ctx, q.listHostedAccountSummariesStmt, listHostedAccountSummaries, arg.ParentID, arg.OrganizationID, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []HostedAccount
+	var items []ListHostedAccountSummariesRow
 	for rows.Next() {
-		var i HostedAccount
+		var i ListHostedAccountSummariesRow
 		if err := rows.Scan(
-			&i.ID,
 			&i.AccountID,
-			&i.OrganizationID,
-			&i.ParentID,
-			&i.Depth,
+			&i.ParentAccountID,
 			&i.Name,
+			&i.Depth,
 			&i.Capabilities,
 			&i.Suspended,
 			&i.Revision,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.SitesRestricted,
-			&i.SiteCeilingRestricted,
-			&i.AuthorityRevision,
+			&i.EffectiveCapabilities,
+			&i.Role,
 		); err != nil {
 			return nil, err
 		}

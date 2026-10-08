@@ -1257,9 +1257,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listAssignmentsForUserStmt, err = db.PrepareContext(ctx, listAssignmentsForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query ListAssignmentsForUser: %w", err)
 	}
-	if q.listAuthorizedHostedAccountsStmt, err = db.PrepareContext(ctx, listAuthorizedHostedAccounts); err != nil {
-		return nil, fmt.Errorf("error preparing query ListAuthorizedHostedAccounts: %w", err)
-	}
 	if q.listBatchDeviceResultsStmt, err = db.PrepareContext(ctx, listBatchDeviceResults); err != nil {
 		return nil, fmt.Errorf("error preparing query ListBatchDeviceResults: %w", err)
 	}
@@ -1430,6 +1427,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listHostedAccountSitesStmt, err = db.PrepareContext(ctx, listHostedAccountSites); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountSites: %w", err)
+	}
+	if q.listHostedAccountSummariesStmt, err = db.PrepareContext(ctx, listHostedAccountSummaries); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedAccountSummaries: %w", err)
 	}
 	if q.listHostedAccountsStmt, err = db.PrepareContext(ctx, listHostedAccounts); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccounts: %w", err)
@@ -4394,11 +4394,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listAssignmentsForUserStmt: %w", cerr)
 		}
 	}
-	if q.listAuthorizedHostedAccountsStmt != nil {
-		if cerr := q.listAuthorizedHostedAccountsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing listAuthorizedHostedAccountsStmt: %w", cerr)
-		}
-	}
 	if q.listBatchDeviceResultsStmt != nil {
 		if cerr := q.listBatchDeviceResultsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listBatchDeviceResultsStmt: %w", cerr)
@@ -4682,6 +4677,11 @@ func (q *Queries) Close() error {
 	if q.listHostedAccountSitesStmt != nil {
 		if cerr := q.listHostedAccountSitesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listHostedAccountSitesStmt: %w", cerr)
+		}
+	}
+	if q.listHostedAccountSummariesStmt != nil {
+		if cerr := q.listHostedAccountSummariesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedAccountSummariesStmt: %w", cerr)
 		}
 	}
 	if q.listHostedAccountsStmt != nil {
@@ -6639,7 +6639,6 @@ type Queries struct {
 	listApiKeysByOrganizationStmt                                *sql.Stmt
 	listAssignmentsForRoleStmt                                   *sql.Stmt
 	listAssignmentsForUserStmt                                   *sql.Stmt
-	listAuthorizedHostedAccountsStmt                             *sql.Stmt
 	listBatchDeviceResultsStmt                                   *sql.Stmt
 	listBuildingNamesBySiteStmt                                  *sql.Stmt
 	listBuildingRacksStmt                                        *sql.Stmt
@@ -6697,6 +6696,7 @@ type Queries struct {
 	listHostedAccountInvitationsStmt                             *sql.Stmt
 	listHostedAccountMembersStmt                                 *sql.Stmt
 	listHostedAccountSitesStmt                                   *sql.Stmt
+	listHostedAccountSummariesStmt                               *sql.Stmt
 	listHostedAccountsStmt                                       *sql.Stmt
 	listInfrastructureDevicesByOrgStmt                           *sql.Stmt
 	listInventoryPartsStmt                                       *sql.Stmt
@@ -7415,7 +7415,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listApiKeysByOrganizationStmt:                                q.listApiKeysByOrganizationStmt,
 		listAssignmentsForRoleStmt:                                   q.listAssignmentsForRoleStmt,
 		listAssignmentsForUserStmt:                                   q.listAssignmentsForUserStmt,
-		listAuthorizedHostedAccountsStmt:                             q.listAuthorizedHostedAccountsStmt,
 		listBatchDeviceResultsStmt:                                   q.listBatchDeviceResultsStmt,
 		listBuildingNamesBySiteStmt:                                  q.listBuildingNamesBySiteStmt,
 		listBuildingRacksStmt:                                        q.listBuildingRacksStmt,
@@ -7473,6 +7472,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listHostedAccountInvitationsStmt:                             q.listHostedAccountInvitationsStmt,
 		listHostedAccountMembersStmt:                                 q.listHostedAccountMembersStmt,
 		listHostedAccountSitesStmt:                                   q.listHostedAccountSitesStmt,
+		listHostedAccountSummariesStmt:                               q.listHostedAccountSummariesStmt,
 		listHostedAccountsStmt:                                       q.listHostedAccountsStmt,
 		listInfrastructureDevicesByOrgStmt:                           q.listInfrastructureDevicesByOrgStmt,
 		listInventoryPartsStmt:                                       q.listInventoryPartsStmt,

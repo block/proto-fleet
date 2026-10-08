@@ -60,28 +60,26 @@ func summary(a Account, path []Account) AccountSummary {
 }
 
 func (s *Service) ListAccounts(ctx context.Context, actorID, orgID int64) ([]AccountSummary, error) {
-	accounts, err := s.queries.ListAuthorizedHostedAccounts(ctx, sqlc.ListAuthorizedHostedAccountsParams{UserID: actorID, OrganizationID: orgID})
+	return s.listAccountSummaries(ctx, actorID, orgID, sql.NullInt64{})
+}
+
+// A single snapshot returns account metadata and live private authority for the
+// whole list. A parent filter includes policy children with no private access.
+func (s *Service) listAccountSummaries(ctx context.Context, actorID, orgID int64, parentID sql.NullInt64) ([]AccountSummary, error) {
+	rows, err := s.queries.ListHostedAccountSummaries(ctx, sqlc.ListHostedAccountSummariesParams{
+		UserID: actorID, OrganizationID: orgID, ParentID: parentID,
+	})
 	if err != nil {
 		return nil, err
 	}
-	result := make([]AccountSummary, 0, len(accounts))
-	for _, a := range accounts {
-		path, err := loadPath(ctx, s.queries, orgID, a.AccountID)
-		if err != nil {
-			return nil, err
-		}
-		item := summary(a, path)
-		if a.Depth == 0 {
-			item.EffectiveCapabilities = Delegate
-		} else {
-			access, err := resolve(ctx, s.queries, actorID, orgID, a.AccountID)
-			if err != nil {
-				return nil, err
-			}
-			item.EffectiveCapabilities = access.Capabilities
-			item.Role = access.Role
-		}
-		result = append(result, item)
+	result := make([]AccountSummary, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, AccountSummary{
+			AccountID: row.AccountID, ParentAccountID: row.ParentAccountID,
+			Name: row.Name, Depth: row.Depth, Capabilities: Capabilities(row.Capabilities),
+			Suspended: row.Suspended, Revision: row.Revision,
+			EffectiveCapabilities: Capabilities(row.EffectiveCapabilities), Role: Role(row.Role),
+		})
 	}
 	return result, nil
 }
@@ -112,24 +110,7 @@ func (s *Service) ListChildren(ctx context.Context, actorID, orgID int64, parent
 		return nil, err
 	}
 	parent := path[len(path)-1]
-	children, err := s.queries.ListHostedAccountChildren(ctx, sqlc.ListHostedAccountChildrenParams{OrganizationID: orgID, ParentID: sql.NullInt64{Int64: parent.ID, Valid: true}})
-	if err != nil {
-		return nil, err
-	}
-	result := make([]AccountSummary, 0, len(children))
-	for _, child := range children {
-		item := summary(child, append(path, child))
-		access, err := resolve(ctx, s.queries, actorID, orgID, child.AccountID)
-		if err != nil && !fleeterror.IsForbiddenError(err) {
-			return nil, err
-		}
-		if err == nil {
-			item.EffectiveCapabilities = access.Capabilities
-			item.Role = access.Role
-		}
-		result = append(result, item)
-	}
-	return result, nil
+	return s.listAccountSummaries(ctx, actorID, orgID, sql.NullInt64{Int64: parent.ID, Valid: true})
 }
 
 func (s *Service) ListMembers(ctx context.Context, actorID, orgID int64, accountID string) ([]Member, error) {

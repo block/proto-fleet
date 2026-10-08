@@ -66,4 +66,4 @@ CREATE TABLE hosted_account_invitation (
     CHECK (expires_at > created_at),
     CHECK ((accepted_at IS NULL) = (accepted_user_id IS NULL))
 );
-CREATE INDEX hosted_account_invitation_account ON hosted_account_invitation(organization_id, account_id, created_at);
+CREATE INDEX hosted_account_invitation_account ON hosted_account_invitation(organization_id, account_id, created_at DESC, invitation_id DESC);

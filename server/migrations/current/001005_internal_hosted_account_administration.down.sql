@@ -1,3 +1,11 @@
+-- Fence new organizations before taking the global rollback snapshot. Existing
+-- account writers use the organization row serializer; retain all row locks
+-- through the checks and destructive DDL in this migration transaction.
+LOCK TABLE organization IN SHARE ROW EXCLUSIVE MODE;
+-- Match the writer lock mode so concurrent foreign-key KEY SHARE checks can
+-- finish while rollback waits for another organization's writer.
+SELECT id FROM organization ORDER BY id FOR NO KEY UPDATE;
+
 -- Check before any destructive rollback steps. Older servers cannot represent
 -- customer-only affiliations; leave all data intact until those affiliations
 -- have an explicitly assigned organization role.

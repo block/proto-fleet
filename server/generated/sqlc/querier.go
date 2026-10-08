@@ -1097,7 +1097,6 @@ type Querier interface {
 	// permission resolver joins this against role_permission to produce
 	// the effective permission set.
 	ListAssignmentsForUser(ctx context.Context, arg ListAssignmentsForUserParams) ([]UserOrganizationRole, error)
-	ListAuthorizedHostedAccounts(ctx context.Context, arg ListAuthorizedHostedAccountsParams) ([]HostedAccount, error)
 	// Returns one row per device in the batch, ordered deterministically so the
 	// client can page or virtualize without reshuffling results across polls.
 	// The LEFT JOIN to device preserves identifiers for soft-deleted devices.
@@ -1338,6 +1337,10 @@ type Querier interface {
 	ListHostedAccountInvitations(ctx context.Context, arg ListHostedAccountInvitationsParams) ([]ListHostedAccountInvitationsRow, error)
 	ListHostedAccountMembers(ctx context.Context, arg ListHostedAccountMembersParams) ([]ListHostedAccountMembersRow, error)
 	ListHostedAccountSites(ctx context.Context, arg ListHostedAccountSitesParams) ([]ListHostedAccountSitesRow, error)
+	// Resolve the entire account list in one snapshot. A parent filter is used only
+	// after delegation authorization and includes policy-only children, with no
+	// private role or capabilities unless explicit live authority grants viewing.
+	ListHostedAccountSummaries(ctx context.Context, arg ListHostedAccountSummariesParams) ([]ListHostedAccountSummariesRow, error)
 	ListHostedAccounts(ctx context.Context, organizationID int64) ([]HostedAccount, error)
 	// Lists every live infrastructure device in the org. site_ids is an
 	// optional OR filter (empty array = no filter); excluded_site_ids

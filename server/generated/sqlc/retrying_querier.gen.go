@@ -4644,18 +4644,6 @@ func (q *retryingQuerier) ListAssignmentsForUser(ctx context.Context, arg ListAs
 	return result, err
 }
 
-func (q *retryingQuerier) ListAuthorizedHostedAccounts(ctx context.Context, arg ListAuthorizedHostedAccountsParams) ([]HostedAccount, error) {
-	var result []HostedAccount
-	err := q.retrier.RetryQuery(ctx, "ListAuthorizedHostedAccounts", func() error {
-		callResult, callErr := q.next.ListAuthorizedHostedAccounts(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) ListBatchDeviceResults(ctx context.Context, arg ListBatchDeviceResultsParams) ([]ListBatchDeviceResultsRow, error) {
 	var result []ListBatchDeviceResultsRow
 	err := q.retrier.RetryQuery(ctx, "ListBatchDeviceResults", func() error {
@@ -5332,6 +5320,18 @@ func (q *retryingQuerier) ListHostedAccountSites(ctx context.Context, arg ListHo
 	var result []ListHostedAccountSitesRow
 	err := q.retrier.RetryQuery(ctx, "ListHostedAccountSites", func() error {
 		callResult, callErr := q.next.ListHostedAccountSites(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListHostedAccountSummaries(ctx context.Context, arg ListHostedAccountSummariesParams) ([]ListHostedAccountSummariesRow, error) {
+	var result []ListHostedAccountSummariesRow
+	err := q.retrier.RetryQuery(ctx, "ListHostedAccountSummaries", func() error {
+		callResult, callErr := q.next.ListHostedAccountSummaries(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

@@ -316,13 +316,20 @@ func (q *Queries) ListHostedAccountChildren(ctx context.Context, arg ListHostedA
 
 const listHostedAccountInvitations = `-- name: ListHostedAccountInvitations :many
 SELECT invitation_id, role, expires_at, revoked_at, accepted_at, created_at
-FROM hosted_account_invitation WHERE organization_id = $1 AND account_id = $2
-ORDER BY created_at DESC, invitation_id
+FROM hosted_account_invitation
+WHERE organization_id = $1 AND account_id = $2
+  AND ($3::timestamptz IS NULL
+       OR (created_at, invitation_id) < ($3::timestamptz, $4::varchar))
+ORDER BY created_at DESC, invitation_id DESC
+LIMIT $5::int
 `
 
 type ListHostedAccountInvitationsParams struct {
 	OrganizationID int64
 	AccountID      int64
+	CursorTime     sql.NullTime
+	CursorID       string
+	PageLimit      int32
 }
 
 type ListHostedAccountInvitationsRow struct {
@@ -335,7 +342,13 @@ type ListHostedAccountInvitationsRow struct {
 }
 
 func (q *Queries) ListHostedAccountInvitations(ctx context.Context, arg ListHostedAccountInvitationsParams) ([]ListHostedAccountInvitationsRow, error) {
-	rows, err := q.query(ctx, q.listHostedAccountInvitationsStmt, listHostedAccountInvitations, arg.OrganizationID, arg.AccountID)
+	rows, err := q.query(ctx, q.listHostedAccountInvitationsStmt, listHostedAccountInvitations,
+		arg.OrganizationID,
+		arg.AccountID,
+		arg.CursorTime,
+		arg.CursorID,
+		arg.PageLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

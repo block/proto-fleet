@@ -63,8 +63,12 @@ WHERE i.token_hash = $1;
 
 -- name: ListHostedAccountInvitations :many
 SELECT invitation_id, role, expires_at, revoked_at, accepted_at, created_at
-FROM hosted_account_invitation WHERE organization_id = $1 AND account_id = $2
-ORDER BY created_at DESC, invitation_id;
+FROM hosted_account_invitation
+WHERE organization_id = sqlc.arg('organization_id') AND account_id = sqlc.arg('account_id')
+  AND (sqlc.narg('cursor_time')::timestamptz IS NULL
+       OR (created_at, invitation_id) < (sqlc.narg('cursor_time')::timestamptz, sqlc.arg('cursor_id')::varchar))
+ORDER BY created_at DESC, invitation_id DESC
+LIMIT sqlc.arg('page_limit')::int;
 
 -- name: RevokeHostedAccountInvitation :execrows
 UPDATE hosted_account_invitation SET revoked_at = CURRENT_TIMESTAMP

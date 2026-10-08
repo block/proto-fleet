@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -116,15 +117,71 @@ func (s *InvitationService) Create(ctx context.Context, actorID, orgID int64, ac
 	})
 }
 
-func (s *InvitationService) List(ctx context.Context, actorID, orgID int64, accountID string) ([]Invitation, error) {
+// List reads a bounded page of the retained invitation history. Every page
+// rechecks current membership authority; the token grants no access itself.
+func (s *InvitationService) List(ctx context.Context, actorID, orgID int64, accountID string, pageSize int32, pageToken string) ([]Invitation, string, error) {
+	if pageSize < 0 || pageSize > 100 {
+		return nil, "", fleeterror.NewInvalidArgumentError("invitation page size must be between 0 and 100")
+	}
+	if pageSize == 0 {
+		pageSize = 25
+	}
+	cursorTime, cursorID, err := invitationPageCursor(pageToken, orgID, accountID)
+	if err != nil {
+		return nil, "", err
+	}
 	path, err := loadPath(ctx, s.accounts.queries, orgID, accountID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if _, err = authorize(ctx, s.accounts.queries, actorID, orgID, path, ManageMembers); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return s.accounts.queries.ListHostedAccountInvitations(ctx, sqlc.ListHostedAccountInvitationsParams{OrganizationID: orgID, AccountID: path[len(path)-1].ID})
+	rows, err := s.accounts.queries.ListHostedAccountInvitations(ctx, sqlc.ListHostedAccountInvitationsParams{
+		OrganizationID: orgID, AccountID: path[len(path)-1].ID,
+		CursorTime: cursorTime, CursorID: cursorID, PageLimit: pageSize + 1,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	if len(rows) <= int(pageSize) {
+		return rows, "", nil
+	}
+	rows = rows[:pageSize]
+	last := rows[len(rows)-1]
+	return rows, invitationPageToken(orgID, accountID, last), nil
+}
+
+func invitationPageToken(orgID int64, accountID string, last Invitation) string {
+	payload := fmt.Sprintf("1|%d|%s|%s|%s", orgID, accountID, last.CreatedAt.UTC().Format(time.RFC3339Nano), last.InvitationID)
+	return base64.RawURLEncoding.EncodeToString([]byte(payload))
+}
+
+func invitationPageCursor(token string, orgID int64, accountID string) (sql.NullTime, string, error) {
+	if token == "" {
+		return sql.NullTime{}, "", nil
+	}
+	invalid := fleeterror.NewInvalidArgumentError("invalid invitation page token for this account")
+	if len(token) > 512 {
+		return sql.NullTime{}, "", invalid
+	}
+	decoded, err := base64.RawURLEncoding.Strict().DecodeString(token)
+	if err != nil || base64.RawURLEncoding.EncodeToString(decoded) != token {
+		return sql.NullTime{}, "", invalid
+	}
+	parts := strings.Split(string(decoded), "|")
+	if len(parts) != 5 || parts[0] != "1" || parts[1] != strconv.FormatInt(orgID, 10) || parts[2] != accountID {
+		return sql.NullTime{}, "", invalid
+	}
+	createdAt, err := time.Parse(time.RFC3339Nano, parts[3])
+	if err != nil || createdAt.IsZero() {
+		return sql.NullTime{}, "", invalid
+	}
+	id, err := uuid.Parse(parts[4])
+	if err != nil || id.String() != parts[4] {
+		return sql.NullTime{}, "", invalid
+	}
+	return sql.NullTime{Time: createdAt, Valid: true}, parts[4], nil
 }
 
 func (s *InvitationService) Revoke(ctx context.Context, actorID, orgID int64, accountID, invitationID string) error {

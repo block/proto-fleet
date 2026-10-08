@@ -296,11 +296,11 @@ func (h *Handler) ListInvitations(ctx context.Context, req *connect.Request[pb.L
 	if err != nil {
 		return nil, err
 	}
-	rows, err := h.invitations.List(ctx, info.UserID, info.OrganizationID, req.Msg.AccountId)
+	rows, next, err := h.invitations.List(ctx, info.UserID, info.OrganizationID, req.Msg.AccountId, req.Msg.PageSize, req.Msg.PageToken)
 	if err != nil {
 		return nil, err
 	}
-	response := &pb.ListInvitationsResponse{}
+	response := &pb.ListInvitationsResponse{NextPageToken: next}
 	for _, row := range rows {
 		response.Invitations = append(response.Invitations, invitationDTO(row))
 	}
