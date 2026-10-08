@@ -1,1 +1,1 @@
-DROP INDEX CONCURRENTLY idx_queue_message_pending_created_id;
+DROP INDEX idx_queue_message_pending_created_id;
