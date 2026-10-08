@@ -259,9 +259,11 @@ mining intent is never changed by this path.
 Tank mining uses the same count-only confirmation dialog as miner bulk actions
 and closes when confirmed. The action bar returns after command admission,
 while a progress toast follows each controller's existing command batch.
-Success reports completed tank counts only after all batches finish. A separate
-error toast reports confirmed failures and offers a manual retry for only those
-tanks. Missing results or interrupted polling show an unconfirmed completion
+Success reports completed tank counts only after all batches finish. Failed
+controller batches can contain partial or unknown writes, so they do not count
+as confirmed tank failures or offer a retry. Their completion error preserves
+counts from successful controllers and asks the operator to check the remaining
+tanks. Missing results or interrupted polling also show an unconfirmed completion
 error without a retry. As with miner bulk Sleep/Wake, command completion drives
 the success toast; inventory readings update separately through normal polling.
 Direct controllers use the plugin SDK; FleetNode controllers require command protocol

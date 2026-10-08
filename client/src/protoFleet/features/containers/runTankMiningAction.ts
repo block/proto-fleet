@@ -1,6 +1,6 @@
 import { containersClient } from "@/protoFleet/api/clients";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { pushToast, removeToast, STATUSES, updateToast } from "@/shared/features/toaster";
+import { pushToast, STATUSES, updateToast } from "@/shared/features/toaster";
 
 export async function runTankMiningAction(
   tankIds: bigint[],
@@ -21,8 +21,6 @@ export async function runTankMiningAction(
     onActionComplete?.();
 
     let successCount = 0;
-    const failedTankIds: bigint[] = [];
-    let errorToastId: number | undefined;
     let unconfirmed = false;
     const successMessage = () =>
       `${mining ? "Started" : "Stopped"} mining on ${successCount} out of ${tankIds.length} ${tankNoun}`;
@@ -42,23 +40,14 @@ export async function runTankMiningAction(
               continue;
             }
             const succeeded = result.successCount === 1 && result.failureCount === 0;
-            const failed = result.failureCount === 1 && result.successCount === 0;
-            if (result.detailsPruned || (!succeeded && !failed)) {
+            // A failed controller batch can contain partial or unknown writes;
+            // it cannot identify confirmed failures of individual tanks.
+            if (result.detailsPruned || !succeeded) {
               unconfirmed = true;
               return;
             }
-            if (succeeded) {
-              successCount += command.tankIds.length;
-              updateToast(toastId, { message: successMessage(), status: STATUSES.loading });
-              return;
-            }
-            failedTankIds.push(...command.tankIds);
-            const message = `Couldn't ${mining ? "start" : "stop"} mining on ${failedTankIds.length} out of ${tankIds.length} ${tankNoun}`;
-            if (errorToastId === undefined) {
-              errorToastId = pushToast({ message, status: STATUSES.error, longRunning: true });
-            } else {
-              updateToast(errorToastId, { message, status: STATUSES.error });
-            }
+            successCount += command.tankIds.length;
+            updateToast(toastId, { message: successMessage(), status: STATUSES.loading });
             return;
           }
           unconfirmed = true;
@@ -70,33 +59,15 @@ export async function runTankMiningAction(
 
     if (unconfirmed) {
       updateToast(toastId, {
-        message: "Unable to confirm bulk action completion. Check tank status and try again.",
+        message:
+          successCount > 0
+            ? `${successMessage()}. Unable to confirm the remaining tanks. Check tank status before trying again.`
+            : "Unable to confirm bulk action completion. Check tank status before trying again.",
         status: STATUSES.error,
       });
       return;
     }
-    if (successCount > 0) {
-      updateToast(toastId, { message: successMessage(), status: STATUSES.success });
-    } else {
-      removeToast(toastId);
-    }
-    if (errorToastId === undefined) return;
-    const retryToastId = errorToastId;
-    const retryTankIds = [...failedTankIds];
-    let retried = false;
-    updateToast(retryToastId, {
-      actions: [
-        {
-          label: "Retry",
-          onClick: () => {
-            if (retried) return;
-            retried = true;
-            removeToast(retryToastId);
-            void runTankMiningAction(retryTankIds, mining, onRefresh, onActionComplete);
-          },
-        },
-      ],
-    });
+    updateToast(toastId, { message: successMessage(), status: STATUSES.success });
   } catch (cause) {
     updateToast(toastId, { message: getErrorMessage(cause), status: STATUSES.error });
     onActionComplete?.();
