@@ -302,7 +302,6 @@ func (d *Device) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, erro
 			Priority: p.Priority,
 			URL:      p.URL,
 			Username: p.WorkerName,
-			Password: &p.Password,
 		}
 	}
 	return result, nil
