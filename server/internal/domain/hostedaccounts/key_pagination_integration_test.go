@@ -102,16 +102,25 @@ func TestAccountKeyPaginationTraversesTiesAndRetainsPrivateMetadata(t *testing.T
 	for _, row := range own {
 		require.Empty(t, row.DescendantAccountIds)
 	}
+	// Revoke a viewer-issued key as the administrator on every run.
+	revokedID := own[0].KeyID
+	// Keep expiry and revocation distinct even when random UUID ordering
+	// puts that viewer-issued key first in the combined listing.
+	expiredID := all[0].KeyID
+	if expiredID == revokedID {
+		expiredID = all[1].KeyID
+	}
+	require.NotEqual(t, revokedID, expiredID)
 	// Expired keys remain visible; revocation removes only the revoked entry.
-	_, err = f.db.ExecContext(t.Context(), `UPDATE api_key SET expires_at=$1 WHERE key_id=$2`, timestamp, all[0].KeyID)
+	_, err = f.db.ExecContext(t.Context(), `UPDATE api_key SET expires_at=$1 WHERE key_id=$2`, timestamp, expiredID)
 	require.NoError(t, err)
-	require.NoError(t, keys.Revoke(t.Context(), f.host, f.org, account.AccountID, all[1].KeyID))
+	require.NoError(t, keys.Revoke(t.Context(), f.host, f.org, account.AccountID, revokedID))
 	page, _, err := keys.List(t.Context(), f.host, f.org, account.AccountID, 100, "")
 	require.NoError(t, err)
-	require.Equal(t, all[0].KeyID, page[0].KeyID)
+	require.Equal(t, expiredID, page[0].KeyID)
 	require.True(t, page[0].ExpiresAt.Valid)
 	for _, row := range page {
-		require.NotEqual(t, all[1].KeyID, row.KeyID)
+		require.NotEqual(t, revokedID, row.KeyID)
 	}
 	// EXPLAIN the actual generated SQL, proving the descendant subplan runs
 	// only on the materialized page, not the complete credential population.
