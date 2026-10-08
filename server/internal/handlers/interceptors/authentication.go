@@ -229,7 +229,6 @@ func allowsAccountKey(procedure string) bool {
 		hostedv1connect.HostedAccountServiceListPoolConfigurationsProcedure,
 		hostedv1connect.HostedAccountServiceArchivePoolConfigurationProcedure,
 		hostedv1connect.HostedAccountServiceGetIncomingPoolProfileProcedure,
-		hostedv1connect.HostedAccountServiceSetIncomingPoolProfileProcedure,
 		hostedv1connect.HostedAccountServiceGetAccountProcedure, hostedv1connect.HostedAccountServiceGetSitePolicyProcedure:
 		return true
 	default:

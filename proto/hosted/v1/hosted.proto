@@ -287,8 +287,9 @@ message PoolSlotInput {
   // Empty uses the exact payout username. Otherwise append '.' and this suffix,
   // replacing {miner_id} and {miner_name}; other placeholders are rejected.
   string worker_template = 3 [(buf.validate.field).string.max_bytes = 128];
-  // Omission preserves this priority's secret when revising; creation defaults
-  // to empty. An explicit empty password clears it. Secrets are never returned.
+  // Omission preserves this priority's secret only if its URL and username are
+  // unchanged. Revising either requires an explicit password (empty clears it).
+  // New slots default to empty. Secrets are never returned.
   optional string password = 4 [(buf.validate.field).string.max_bytes = 255];
 }
 message PoolRevisionInput {
@@ -366,7 +367,7 @@ message SetIncomingPoolProfileRequest {
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   // Omission clears the incoming profile, without changing applied miner pools.
   optional string revision_id = 2 [(buf.validate.field).string.uuid = true];
-  // Server verifies the current login's credentials in this mutation.
+  // Session-only: the server verifies the current login's credentials in this mutation.
   string password = 3 [(buf.validate.field).string = {min_len: 1, max_bytes: 72}];
 }
 message SetIncomingPoolProfileResponse {}

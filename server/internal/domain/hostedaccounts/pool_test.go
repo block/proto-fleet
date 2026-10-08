@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"buf.build/go/protovalidate"
+	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -38,14 +40,15 @@ func TestRenderPoolWorkerPreservesPayoutAndExpandsOnlyExplicitSuffix(t *testing.
 
 func TestPoolValidationBoundariesAndSupportedSchemes(t *testing.T) {
 	for _, destination := range []string{
-		"stratum+tcp://pool.example", "stratum+tcp://pool.example:65535/", "stratum+ssl://127.0.0.1:443", "stratum+ws://[::1]:3333",
+		"stratum+tcp://pool.example", "stratum+tcp://pool.example:65535", "stratum+ssl://127.0.0.1:443", "stratum+ws://[::1]:3333",
 		"stratum2+tcp://pool.example:3333/79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
 	} {
 		options, err := validatePoolOptions(PoolRevisionOptions{Name: "  Choice  ", Slots: []PoolSlotOptions{{URL: destination, Username: "payout.with.periods"}}})
 		require.NoError(t, err, destination)
+		require.NoError(t, protovalidate.Validate(&poolspb.PoolConfig{Url: destination}), "saved hosted destinations must satisfy the host pool contract")
 		require.Equal(t, "Choice", options.Name)
 	}
-	for _, destination := range []string{"stratum+tcp://-invalid.example", "stratum+tcp://pool..example", "stratum+tcp://pool.example:", "stratum+tcp://pool.example?", "stratum+tcp://pool.example#", "stratum+tcp://[invalid-ip]", "stratum+tcp://"} {
+	for _, destination := range []string{"stratum+tcp://-invalid.example", "stratum+tcp://pool..example", "stratum+tcp://pool.example:", "stratum+tcp://pool.example?", "stratum+tcp://pool.example#", "stratum+tcp://[invalid-ip]", "stratum+tcp://", "stratum+tcp://localhost:3333", "stratum+tcp://10.0.0:3333", "stratum+tcp://pool.example:3333/", "stratum+tcp://pool.example:65536"} {
 		require.False(t, validPoolURL(destination), destination)
 	}
 	password := " secret with spaces "

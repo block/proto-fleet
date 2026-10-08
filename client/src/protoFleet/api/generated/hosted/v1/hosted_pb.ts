@@ -1320,8 +1320,9 @@ export type PoolSlotInput = Message<"hosted.v1.PoolSlotInput"> & {
   workerTemplate: string;
 
   /**
-   * Omission preserves this priority's secret when revising; creation defaults
-   * to empty. An explicit empty password clears it. Secrets are never returned.
+   * Omission preserves this priority's secret only if its URL and username are
+   * unchanged. Revising either requires an explicit password (empty clears it).
+   * New slots default to empty. Secrets are never returned.
    *
    * @generated from field: optional string password = 4;
    */
@@ -1765,7 +1766,7 @@ export type SetIncomingPoolProfileRequest = Message<"hosted.v1.SetIncomingPoolPr
   revisionId?: string | undefined;
 
   /**
-   * Server verifies the current login's credentials in this mutation.
+   * Session-only: the server verifies the current login's credentials in this mutation.
    *
    * @generated from field: string password = 3;
    */

@@ -61,7 +61,8 @@ func TestHostedRPCIncomingPoolProfileRequiresServerStepUp(t *testing.T) {
 	require.Equal(t, revisionID, profile.Msg.Profile.RevisionId)
 
 	require.Equal(t, created.Msg.Revision.PoolId, profile.Msg.Profile.PoolId)
-	changed, err := f.client.RevisePoolConfiguration(t.Context(), rpcRequest(&pb.RevisePoolConfigurationRequest{AccountId: account.AccountID, PoolId: created.Msg.Revision.PoolId, ExpectedRevisionId: revisionID, Configuration: &pb.PoolRevisionInput{Name: "Edited", Slots: []*pb.PoolSlotInput{{Url: "stratum+tcp://new.customer.example:3333", Username: "new.wallet"}}}}, f.cookie, account.AccountID))
+	emptyPassword := ""
+	changed, err := f.client.RevisePoolConfiguration(t.Context(), rpcRequest(&pb.RevisePoolConfigurationRequest{AccountId: account.AccountID, PoolId: created.Msg.Revision.PoolId, ExpectedRevisionId: revisionID, Configuration: &pb.PoolRevisionInput{Name: "Edited", Slots: []*pb.PoolSlotInput{{Url: "stratum+tcp://new.customer.example:3333", Username: "new.wallet", Password: &emptyPassword}}}}, f.cookie, account.AccountID))
 	require.NoError(t, err)
 	require.NotEqual(t, revisionID, changed.Msg.Revision.RevisionId)
 	profile, err = f.client.GetIncomingPoolProfile(t.Context(), rpcRequest(&pb.GetIncomingPoolProfileRequest{AccountId: account.AccountID}, f.cookie, account.AccountID))
@@ -80,6 +81,47 @@ func TestHostedRPCIncomingPoolProfileRequiresServerStepUp(t *testing.T) {
 	require.Empty(t, profile.Msg.Profile.RevisionId)
 	require.Empty(t, profile.Msg.Profile.PoolId)
 	require.Equal(t, int64(2), profile.Msg.Profile.Revision)
+}
+
+func TestHostedRPCIncomingPoolProfileRequiresSession(t *testing.T) {
+	f := newRPCFixture(t)
+	account := f.account(t, "Customer", f.host, domain.DefaultCapabilities)
+	key, err := f.client.CreateAccountKey(t.Context(), rpcRequest(&pb.CreateAccountKeyRequest{AccountId: account.AccountID, Name: "Pool automation", Capabilities: uint64(domain.MachineCapabilities)}, f.cookie, account.AccountID))
+	require.NoError(t, err)
+	configuration := &pb.PoolRevisionInput{Name: "Original", Slots: []*pb.PoolSlotInput{{Url: "stratum+tcp://pool.customer.example:3333", Username: "customer.wallet"}}}
+	created, err := f.client.CreatePoolConfiguration(t.Context(), keyRequest(&pb.CreatePoolConfigurationRequest{AccountId: account.AccountID, Configuration: configuration}, key.Msg.Secret, account.AccountID))
+	require.NoError(t, err, "account keys retain permission to manage configurations")
+	revisionID := created.Msg.Revision.RevisionId
+	_, err = f.client.SetIncomingPoolProfile(t.Context(), keyRequest(&pb.SetIncomingPoolProfileRequest{AccountId: account.AccountID, RevisionId: &revisionID, Password: rpcPassword}, key.Msg.Secret, account.AccountID))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "even ChangePools and the issuer password cannot select a profile through an account key")
+	profile, err := f.client.GetIncomingPoolProfile(t.Context(), keyRequest(&pb.GetIncomingPoolProfileRequest{AccountId: account.AccountID}, key.Msg.Secret, account.AccountID))
+	require.NoError(t, err, "account keys retain permission to read profiles")
+	require.Nil(t, profile.Msg.Profile)
+
+	_, err = f.client.SetIncomingPoolProfile(t.Context(), rpcRequest(&pb.SetIncomingPoolProfileRequest{AccountId: account.AccountID, RevisionId: &revisionID, Password: rpcPassword}, f.cookie, account.AccountID))
+	require.NoError(t, err, "a session can select a profile with password step-up")
+	profile, err = f.client.GetIncomingPoolProfile(t.Context(), keyRequest(&pb.GetIncomingPoolProfileRequest{AccountId: account.AccountID}, key.Msg.Secret, account.AccountID))
+	require.NoError(t, err)
+	require.Equal(t, revisionID, profile.Msg.Profile.RevisionId)
+	before := string(mustProtoJSON(t, profile.Msg))
+	configuration.Name = "Revised"
+	revised, err := f.client.RevisePoolConfiguration(t.Context(), keyRequest(&pb.RevisePoolConfigurationRequest{AccountId: account.AccountID, PoolId: created.Msg.Revision.PoolId, ExpectedRevisionId: revisionID, Configuration: configuration}, key.Msg.Secret, account.AccountID))
+	require.NoError(t, err)
+	for _, change := range []struct {
+		name       string
+		revisionID *string
+	}{
+		{name: "select", revisionID: &revised.Msg.Revision.RevisionId},
+		{name: "clear"},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			_, err := f.client.SetIncomingPoolProfile(t.Context(), keyRequest(&pb.SetIncomingPoolProfileRequest{AccountId: account.AccountID, RevisionId: change.revisionID, Password: rpcPassword}, key.Msg.Secret, account.AccountID))
+			require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+			profile, err := f.client.GetIncomingPoolProfile(t.Context(), keyRequest(&pb.GetIncomingPoolProfileRequest{AccountId: account.AccountID}, key.Msg.Secret, account.AccountID))
+			require.NoError(t, err)
+			require.Equal(t, before, string(mustProtoJSON(t, profile.Msg)), "a rejected machine request must preserve the profile and its revision")
+		})
+	}
 }
 
 func TestHostedRPCPoolKeysRespectCapabilitiesAndRevocation(t *testing.T) {

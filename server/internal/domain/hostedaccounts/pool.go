@@ -14,7 +14,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"buf.build/go/protovalidate"
 	"github.com/google/uuid"
+
+	poolspb "github.com/block/proto-fleet/server/generated/grpc/pools/v1"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -26,8 +29,9 @@ import (
 
 type PoolSlotOptions struct {
 	URL, Username, WorkerTemplate string
-	// Nil retains the previous password at this priority when revising; a new
-	// slot gets an encrypted empty password. Explicit empty clears it.
+	// Nil retains the previous password only when URL and username at this
+	// priority are unchanged. Other existing slots require an explicit password;
+	// a new slot defaults to encrypted empty. Explicit empty clears it.
 	Password *string
 }
 
@@ -278,7 +282,7 @@ func (s *PoolService) SetIncomingProfile(ctx context.Context, actorID, orgID int
 		return fleeterror.NewInvalidArgumentError("invalid pool revision identifier")
 	}
 	info, err := session.GetInfo(ctx)
-	if err != nil || info.UserID != actorID || info.OrganizationID != orgID {
+	if err != nil || info.UserID != actorID || info.OrganizationID != orgID || info.AuthMethod != session.AuthMethodSession || info.AccountKey {
 		return denied()
 	}
 	// Reject callers without live pool-change authority before loading credentials
@@ -389,6 +393,9 @@ func (s *PoolService) encryptSlots(options []PoolSlotOptions, previous []storedP
 	for i, slot := range options {
 		item := storedPoolSlot{URL: slot.URL, Username: slot.Username, WorkerTemplate: slot.WorkerTemplate}
 		if slot.Password == nil && i < len(previous) {
+			if slot.URL != previous[i].URL || slot.Username != previous[i].Username {
+				return nil, fleeterror.NewInvalidArgumentError("changed pool destination or username requires an explicit password; use empty to clear")
+			}
 			item.PasswordCiphertext, item.HasPassword = previous[i].PasswordCiphertext, previous[i].HasPassword
 		} else {
 			password := ""
@@ -489,7 +496,9 @@ func validPoolText(value string, maxBytes int, allowSpace bool) bool {
 }
 
 func validPoolURL(raw string) bool {
-	if raw == "" || !validPoolText(raw, 256, false) {
+	// Use the host pool contract as the common destination grammar. Additional
+	// checks below reject malformed hosts, unsafe ports and invalid V2 keys.
+	if !validPoolText(raw, 256, false) || protovalidate.Validate(&poolspb.PoolConfig{Url: raw}) != nil {
 		return false
 	}
 	u, err := url.Parse(raw)

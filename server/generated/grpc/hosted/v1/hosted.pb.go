@@ -2892,8 +2892,9 @@ type PoolSlotInput struct {
 	// Empty uses the exact payout username. Otherwise append '.' and this suffix,
 	// replacing {miner_id} and {miner_name}; other placeholders are rejected.
 	WorkerTemplate string `protobuf:"bytes,3,opt,name=worker_template,json=workerTemplate,proto3" json:"worker_template,omitempty"`
-	// Omission preserves this priority's secret when revising; creation defaults
-	// to empty. An explicit empty password clears it. Secrets are never returned.
+	// Omission preserves this priority's secret only if its URL and username are
+	// unchanged. Revising either requires an explicit password (empty clears it).
+	// New slots default to empty. Secrets are never returned.
 	Password      *string `protobuf:"bytes,4,opt,name=password,proto3,oneof" json:"password,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3864,7 +3865,7 @@ type SetIncomingPoolProfileRequest struct {
 	AccountId string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
 	// Omission clears the incoming profile, without changing applied miner pools.
 	RevisionId *string `protobuf:"bytes,2,opt,name=revision_id,json=revisionId,proto3,oneof" json:"revision_id,omitempty"`
-	// Server verifies the current login's credentials in this mutation.
+	// Session-only: the server verifies the current login's credentials in this mutation.
 	Password      string `protobuf:"bytes,3,opt,name=password,proto3" json:"password,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

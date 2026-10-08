@@ -338,3 +338,61 @@ func TestPoolProfileRejectsPasswordResetAfterStepUpVerification(t *testing.T) {
 	require.NoError(t, f.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM activity_log WHERE organization_id=$1 AND event_type='set_hosted_account_pool_profile'`, f.org).Scan(&successful))
 	require.Zero(t, successful)
 }
+
+func TestPoolRevisionRequiresExplicitPasswordsWhenDestinationsMove(t *testing.T) {
+	for _, change := range []string{"drop-primary", "reorder", "change-url", "change-username"} {
+		t.Run(change, func(t *testing.T) {
+			f := setup(t)
+			account := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+			pools, _, _, cipher, ctx := poolFixture(t, f)
+			primaryPassword, backupPassword := "primary-secret", "backup-secret"
+			original := poolOptions(&primaryPassword)
+			original.Slots[1].Password = &backupPassword
+			first, err := pools.Create(ctx, f.user, f.org, account.AccountID, original)
+			require.NoError(t, err)
+			options := poolOptions(nil)
+			switch change {
+			case "drop-primary":
+				options.Slots = options.Slots[1:]
+			case "reorder":
+				options.Slots[0], options.Slots[1] = options.Slots[1], options.Slots[0]
+			case "change-url":
+				options.Slots[0].URL = "stratum+tcp://different.example:3333"
+			case "change-username":
+				options.Slots[0].Username = "another.payout"
+			}
+			_, err = pools.Revise(ctx, f.user, f.org, account.AccountID, first.PoolID, first.RevisionID, options)
+			require.True(t, fleeterror.IsInvalidArgumentError(err))
+			require.NotContains(t, err.Error(), primaryPassword)
+			require.NotContains(t, err.Error(), backupPassword)
+			latest, err := pools.Get(ctx, f.user, f.org, account.AccountID, first.PoolID, "")
+			require.NoError(t, err)
+			require.Equal(t, first, latest, "rejection must preserve the latest immutable revision")
+
+			// A caller can explicitly clear credentials at the new destinations.
+			empty := ""
+			for i := range options.Slots {
+				options.Slots[i].Password = &empty
+			}
+			revised, err := pools.Revise(ctx, f.user, f.org, account.AccountID, first.PoolID, first.RevisionID, options)
+			require.NoError(t, err)
+			for _, slot := range revised.Slots {
+				require.False(t, slot.HasPassword)
+			}
+			var encoded []byte
+			require.NoError(t, f.db.QueryRowContext(ctx, `SELECT slots FROM hosted_account_pool_revision WHERE revision_id=$1`, revised.RevisionID).Scan(&encoded))
+			var stored []struct {
+				PasswordCiphertext string `json:"password_ciphertext"`
+			}
+			require.NoError(t, json.Unmarshal(encoded, &stored))
+			for _, slot := range stored {
+				plaintext, err := cipher.Decrypt(slot.PasswordCiphertext)
+				require.NoError(t, err)
+				require.Empty(t, plaintext, "new destinations must not inherit an earlier slot's password")
+			}
+			old, err := pools.Get(ctx, f.user, f.org, account.AccountID, first.PoolID, first.RevisionID)
+			require.NoError(t, err)
+			require.Equal(t, first, old, "explicit clearing cannot mutate earlier revisions")
+		})
+	}
+}

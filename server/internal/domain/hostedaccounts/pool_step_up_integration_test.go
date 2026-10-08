@@ -142,38 +142,39 @@ func TestPoolStepUpRequiresLiveAuthorityBeforeVerifier(t *testing.T) {
 	}
 }
 
-func TestAuthorizedPoolStepUpStillVerifiesCredentials(t *testing.T) {
-	for _, principal := range []string{"session", "account-key"} {
-		t.Run(principal, func(t *testing.T) {
-			f := newPoolStepUpFixture(t)
-			ctx := f.sessionContext(t)
-			if principal == "account-key" {
-				ctx, _, _ = f.keyContext(t, hostedaccounts.View|hostedaccounts.ChangePools)
-			}
-			require.Error(t, f.pools.SetIncomingProfile(ctx, f.user, f.org, f.account.AccountID, "", "wrong-password"))
-			require.Equal(t, 1, f.verifier.calls)
-			f.requireUnchangedProfile(t)
-			require.NoError(t, f.pools.SetIncomingProfile(ctx, f.user, f.org, f.account.AccountID, "", "actor-password"))
-			require.Equal(t, 2, f.verifier.calls)
-			profile, err := f.pools.IncomingProfile(f.sessionContext(t), f.user, f.org, f.account.AccountID)
-			require.NoError(t, err)
-			require.Equal(t, int64(1), profile.Revision)
-		})
+func TestPoolChangeKeyCannotSpendIssuerStepUpBudget(t *testing.T) {
+	f := newPoolStepUpFixture(t)
+	ctx, _, _ := f.keyContext(t, hostedaccounts.View|hostedaccounts.ChangePools)
+	for _, password := range []string{"wrong-password", "actor-password"} {
+		for range 12 {
+			require.Error(t, f.pools.SetIncomingProfile(ctx, f.user, f.org, f.account.AccountID, "", password))
+		}
 	}
+	require.Zero(t, f.verifier.calls, "even authorized machine keys must not load or verify issuer credentials")
+	f.requireUnchangedProfile(t)
+	require.NoError(t, f.verifier.real.VerifySessionCredentials(f.sessionContext(t), f.info.Username, "actor-password"), "key traffic must not exhaust the issuer's step-up allowance")
+}
+
+func TestAuthorizedPoolStepUpStillVerifiesCredentials(t *testing.T) {
+	f := newPoolStepUpFixture(t)
+	ctx := f.sessionContext(t)
+	require.Error(t, f.pools.SetIncomingProfile(ctx, f.user, f.org, f.account.AccountID, "", "wrong-password"))
+	require.Equal(t, 1, f.verifier.calls)
+	f.requireUnchangedProfile(t)
+	require.NoError(t, f.pools.SetIncomingProfile(ctx, f.user, f.org, f.account.AccountID, "", "actor-password"))
+	require.Equal(t, 2, f.verifier.calls)
+	profile, err := f.pools.IncomingProfile(ctx, f.user, f.org, f.account.AccountID)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), profile.Revision)
 }
 
 func TestPoolStepUpRechecksAuthorityAfterVerification(t *testing.T) {
-	for _, change := range []string{"membership", "key-revocation", "key-capabilities", "hierarchy-ceiling"} {
+	for _, change := range []string{"membership", "hierarchy-ceiling"} {
 		t.Run(change, func(t *testing.T) {
 			f := newPoolStepUpFixture(t)
 			// Provide another administrator so a live membership removal is valid.
 			require.NoError(t, f.svc.SetMembership(t.Context(), f.user, f.org, f.account.AccountID, f.host, hostedaccounts.RoleAdministrator))
 			source := f.sessionContext(t)
-			var keyID int64
-			var issued hostedaccounts.IssuedAccountKey
-			if change == "key-revocation" || change == "key-capabilities" {
-				source, issued, keyID = f.keyContext(t, hostedaccounts.MachineCapabilities)
-			}
 			ctx, cancel := context.WithTimeout(source, 10*time.Second)
 			defer cancel()
 			changed := false
@@ -186,10 +187,6 @@ func TestPoolStepUpRechecksAuthorityAfterVerification(t *testing.T) {
 				switch change {
 				case "membership":
 					changeErr = f.svc.SetMembership(mutationCtx, f.host, f.org, f.account.AccountID, f.user, hostedaccounts.RoleViewer)
-				case "key-revocation":
-					changeErr = f.keys.Revoke(mutationCtx, f.user, f.org, f.account.AccountID, issued.Key.KeyID)
-				case "key-capabilities":
-					_, changeErr = f.db.ExecContext(mutationCtx, `UPDATE hosted_account_key SET capabilities=$1 WHERE api_key_id=$2`, int64(hostedaccounts.View), keyID)
 				case "hierarchy-ceiling":
 					changeErr = f.svc.ConfigureChild(mutationCtx, f.host, f.org, f.account.AccountID, hostedaccounts.AllCapabilities&^hostedaccounts.ChangePools, false)
 				}
