@@ -3701,8 +3701,10 @@ func (*ArchivePoolConfigurationResponse) Descriptor() ([]byte, []int) {
 type IncomingPoolProfile struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Owning configuration permits fetching the exact pinned revision. Empty after clear.
-	PoolId        string                 `protobuf:"bytes,4,opt,name=pool_id,json=poolId,proto3" json:"pool_id,omitempty"`
-	RevisionId    string                 `protobuf:"bytes,1,opt,name=revision_id,json=revisionId,proto3" json:"revision_id,omitempty"`
+	PoolId     string `protobuf:"bytes,4,opt,name=pool_id,json=poolId,proto3" json:"pool_id,omitempty"`
+	RevisionId string `protobuf:"bytes,1,opt,name=revision_id,json=revisionId,proto3" json:"revision_id,omitempty"`
+	// Monotonic profile change counter, independent of the selected pool revision number.
+	// Increases on each selection or clear.
 	Revision      int64                  `protobuf:"varint,2,opt,name=revision,proto3" json:"revision,omitempty"`
 	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=updated_at,json=updatedAt,proto3" json:"updated_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -3813,7 +3815,8 @@ func (x *GetIncomingPoolProfileRequest) GetAccountId() string {
 
 type GetIncomingPoolProfileResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Absent until the customer selects a configuration for incoming miners.
+	// Absent before the first profile change. Clearing retains a profile with empty
+	// pool_id and revision_id and an incremented profile change counter.
 	Profile       *IncomingPoolProfile `protobuf:"bytes,1,opt,name=profile,proto3" json:"profile,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

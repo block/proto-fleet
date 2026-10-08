@@ -3,16 +3,22 @@ package hostedaccounts_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"connectrpc.com/authn"
+	"connectrpc.com/connect"
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	domainauth "github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -198,4 +204,51 @@ func TestPoolStepUpRechecksAuthorityAfterVerification(t *testing.T) {
 			f.requireUnchangedProfile(t)
 		})
 	}
+}
+
+func TestPoolStepUpPreservesCredentialLookupDatabaseFailure(t *testing.T) {
+	f := newPoolStepUpFixture(t)
+	// Keep SET ROLE and the service queries on the same real PostgreSQL connection.
+	f.db.SetMaxOpenConns(1)
+	f.db.SetMaxIdleConns(1)
+	role := "pool_credential_test_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	_, err := f.db.ExecContext(t.Context(), "CREATE ROLE "+pgx.Identifier{role}.Sanitize()+" NOLOGIN")
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
+		defer cancel()
+		_, cleanupErr := f.db.ExecContext(ctx, "RESET ROLE")
+		require.NoError(t, cleanupErr)
+		_, cleanupErr = f.db.ExecContext(ctx, "DROP OWNED BY "+pgx.Identifier{role}.Sanitize())
+		require.NoError(t, cleanupErr)
+		_, cleanupErr = f.db.ExecContext(ctx, "DROP ROLE "+pgx.Identifier{role}.Sanitize())
+		require.NoError(t, cleanupErr)
+	})
+	_, err = f.db.ExecContext(t.Context(), `SELECT set_config('pool_test.credential_role', $1, false)`, role)
+	require.NoError(t, err)
+	// Bind the role name as data and quote identifiers with PostgreSQL's %I.
+	// Live authority needs only id/deleted_at; the full credential projection
+	// must fail with a real insufficient-privilege error.
+	_, err = f.db.ExecContext(t.Context(), `DO $$ BEGIN
+		EXECUTE format('GRANT USAGE ON SCHEMA public TO %I', current_setting('pool_test.credential_role'));
+		EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA public TO %I', current_setting('pool_test.credential_role'));
+		EXECUTE format('REVOKE SELECT ON "user" FROM %I', current_setting('pool_test.credential_role'));
+		EXECUTE format('GRANT SELECT (id, deleted_at) ON "user" TO %I', current_setting('pool_test.credential_role'));
+	END $$`)
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(t.Context(), "SET ROLE "+pgx.Identifier{role}.Sanitize())
+	require.NoError(t, err)
+	_, err = f.svc.Resolve(f.sessionContext(t), f.user, f.org, f.account.AccountID)
+	require.NoError(t, err, "live account admission must remain authorized")
+	err = f.pools.SetIncomingProfile(f.sessionContext(t), f.user, f.org, f.account.AccountID, "", "actor-password")
+	_, resetErr := f.db.ExecContext(t.Context(), "RESET ROLE")
+	require.NoError(t, resetErr)
+	require.Zero(t, f.verifier.calls, "credential loading must fail before password verification")
+	f.requireUnchangedProfile(t)
+	var fleetErr fleeterror.FleetError
+	require.ErrorAs(t, err, &fleetErr)
+	require.Equal(t, connect.CodeInternal, fleetErr.GRPCCode, "database failure must not become an authorization denial")
+	var postgresErr *pgconn.PgError
+	require.ErrorAs(t, err, &postgresErr, "the database cause must remain available to callers")
+	require.Equal(t, "42501", postgresErr.Code)
 }

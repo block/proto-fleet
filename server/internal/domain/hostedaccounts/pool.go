@@ -295,7 +295,7 @@ func (s *PoolService) SetIncomingProfile(ctx context.Context, actorID, orgID int
 	// from racing the actual profile mutation.
 	credential, err := s.accounts.queries.GetUserById(ctx, actorID)
 	if err != nil {
-		return denied()
+		return accessError(err)
 	}
 	if err := s.verifier.VerifySessionCredentials(ctx, info.Username, password); err != nil {
 		return err

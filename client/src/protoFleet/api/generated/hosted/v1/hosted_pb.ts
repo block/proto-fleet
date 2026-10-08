@@ -1688,6 +1688,9 @@ export type IncomingPoolProfile = Message<"hosted.v1.IncomingPoolProfile"> & {
   revisionId: string;
 
   /**
+   * Monotonic profile change counter, independent of the selected pool revision number.
+   * Increases on each selection or clear.
+   *
    * @generated from field: int64 revision = 2;
    */
   revision: bigint;
@@ -1729,7 +1732,8 @@ export const GetIncomingPoolProfileRequestSchema: GenMessage<GetIncomingPoolProf
  */
 export type GetIncomingPoolProfileResponse = Message<"hosted.v1.GetIncomingPoolProfileResponse"> & {
   /**
-   * Absent until the customer selects a configuration for incoming miners.
+   * Absent before the first profile change. Clearing retains a profile with empty
+   * pool_id and revision_id and an incremented profile change counter.
    *
    * @generated from field: hosted.v1.IncomingPoolProfile profile = 1;
    */

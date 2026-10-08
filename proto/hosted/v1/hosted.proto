@@ -349,6 +349,8 @@ message IncomingPoolProfile {
   // Owning configuration permits fetching the exact pinned revision. Empty after clear.
   string pool_id = 4;
   string revision_id = 1;
+  // Monotonic profile change counter, independent of the selected pool revision number.
+  // Increases on each selection or clear.
   int64 revision = 2;
   google.protobuf.Timestamp updated_at = 3;
 }
@@ -356,7 +358,8 @@ message GetIncomingPoolProfileRequest {
   string account_id = 1 [(buf.validate.field).string.uuid = true];
 }
 message GetIncomingPoolProfileResponse {
-  // Absent until the customer selects a configuration for incoming miners.
+  // Absent before the first profile change. Clearing retains a profile with empty
+  // pool_id and revision_id and an incremented profile change counter.
   IncomingPoolProfile profile = 1;
 }
 message SetIncomingPoolProfileRequest {
