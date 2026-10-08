@@ -132,6 +132,14 @@ func (a *Attempt) Finish(ctx context.Context, outcome error) error {
 		if status == "unknown" && outcome != nil {
 			return q.QuarantineDeviceWriteFence(ctx, sqlc.QuarantineDeviceWriteFenceParams{DeviceID: a.deviceID, OrganizationID: a.organizationID})
 		}
+		if !a.dispatched.Load() {
+			// The owning callback and its response lifetime have ended. This is
+			// transient direct admission, not durable physical-outcome history.
+			// Queue and claimed deletion-permit rows remain retained by the query.
+			if err := q.DeleteCompletedObservationAttempt(ctx, sqlc.DeleteCompletedObservationAttemptParams{AttemptID: a.id, DeviceID: a.deviceID, OrganizationID: a.organizationID}); err != nil {
+				return fmt.Errorf("retire completed observation admission: %w", err)
+			}
+		}
 		return nil
 	})
 }

@@ -471,6 +471,9 @@ type Querier interface {
 	DeleteAlertRouteChannels(ctx context.Context, policyID int64) error
 	DeleteAlertRoutePolicy(ctx context.Context, arg DeleteAlertRoutePolicyParams) (int64, error)
 	DeleteAlertRuleConfig(ctx context.Context, arg DeleteAlertRuleConfigParams) error
+	// The owning process calls this only after full operation completion without
+	// any dispatched mutation. Keep queue, deletion-permit and unresolved evidence.
+	DeleteCompletedObservationAttempt(ctx context.Context, arg DeleteCompletedObservationAttemptParams) error
 	DeleteContainerControls(ctx context.Context, deviceID int64) error
 	DeleteContainerSetpoints(ctx context.Context, deviceID int64) error
 	DeleteCurtailmentAutomationRuleByOrg(ctx context.Context, arg DeleteCurtailmentAutomationRuleByOrgParams) (int64, error)

@@ -492,6 +492,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteAlertRuleConfigStmt, err = db.PrepareContext(ctx, deleteAlertRuleConfig); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteAlertRuleConfig: %w", err)
 	}
+	if q.deleteCompletedObservationAttemptStmt, err = db.PrepareContext(ctx, deleteCompletedObservationAttempt); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteCompletedObservationAttempt: %w", err)
+	}
 	if q.deleteContainerControlsStmt, err = db.PrepareContext(ctx, deleteContainerControls); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteContainerControls: %w", err)
 	}
@@ -3327,6 +3330,11 @@ func (q *Queries) Close() error {
 	if q.deleteAlertRuleConfigStmt != nil {
 		if cerr := q.deleteAlertRuleConfigStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteAlertRuleConfigStmt: %w", cerr)
+		}
+	}
+	if q.deleteCompletedObservationAttemptStmt != nil {
+		if cerr := q.deleteCompletedObservationAttemptStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteCompletedObservationAttemptStmt: %w", cerr)
 		}
 	}
 	if q.deleteContainerControlsStmt != nil {
@@ -6944,6 +6952,7 @@ type Queries struct {
 	deleteAlertRouteChannelsStmt                                 *sql.Stmt
 	deleteAlertRoutePolicyStmt                                   *sql.Stmt
 	deleteAlertRuleConfigStmt                                    *sql.Stmt
+	deleteCompletedObservationAttemptStmt                        *sql.Stmt
 	deleteContainerControlsStmt                                  *sql.Stmt
 	deleteContainerSetpointsStmt                                 *sql.Stmt
 	deleteCurtailmentAutomationRuleByOrgStmt                     *sql.Stmt
@@ -7790,6 +7799,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteAlertRouteChannelsStmt:                                 q.deleteAlertRouteChannelsStmt,
 		deleteAlertRoutePolicyStmt:                                   q.deleteAlertRoutePolicyStmt,
 		deleteAlertRuleConfigStmt:                                    q.deleteAlertRuleConfigStmt,
+		deleteCompletedObservationAttemptStmt:                        q.deleteCompletedObservationAttemptStmt,
 		deleteContainerControlsStmt:                                  q.deleteContainerControlsStmt,
 		deleteContainerSetpointsStmt:                                 q.deleteContainerSetpointsStmt,
 		deleteCurtailmentAutomationRuleByOrgStmt:                     q.deleteCurtailmentAutomationRuleByOrgStmt,

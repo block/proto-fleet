@@ -154,7 +154,7 @@ func TestProxyAttemptRetainsResponseReadAndCloseLifetime(t *testing.T) {
 	drained, err = fences.Drained(t.Context(), orgID, deviceID, epoch)
 	require.NoError(t, err)
 	require.True(t, drained)
-	require.Equal(t, "complete", proxyAttemptStatus(t, database, deviceID))
+	assertNoProxyAttempt(t, database, deviceID)
 }
 func TestProxyReservationBefore401RetrySendsNoLoginOrResend(t *testing.T) {
 	database, orgID, deviceID, h, target := proxyFenceFixture(t)
@@ -300,9 +300,7 @@ func TestProxyFailedLoginResponseCannotCacheTokenOrForward(t *testing.T) {
 			require.Equal(t, int64(1), transport.calls.Load(), "failed login response must not lead to a control request")
 			_, cached := h.lookupToken(target.cacheKey())
 			require.False(t, cached)
-			var status string
-			require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT status FROM device_write_attempt WHERE device_id=$1", deviceID).Scan(&status))
-			require.Equal(t, "complete", status)
+			assertNoProxyAttempt(t, database, deviceID)
 			epoch, err := h.writeService.Reserve(t.Context(), orgID, deviceID)
 			require.NoError(t, err)
 			drained, err := h.writeService.Drained(t.Context(), orgID, deviceID, epoch)
@@ -447,6 +445,13 @@ func proxyAttemptStatus(t *testing.T, database *testutil.DatabaseService, device
 	require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT status FROM device_write_attempt WHERE device_id=$1 ORDER BY created_at DESC LIMIT 1", deviceID).Scan(&status))
 	return status
 }
+
+func assertNoProxyAttempt(t *testing.T, database *testutil.DatabaseService, deviceID int64) {
+	t.Helper()
+	var count int
+	require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT count(*) FROM device_write_attempt WHERE device_id=$1", deviceID).Scan(&count))
+	require.Zero(t, count, "a completed undispatched direct observation should retire its admission row")
+}
 func TestProxyServeHTTPResponseFailureDoesNotAppendError(t *testing.T) {
 	for _, failure := range []string{"read", "close"} {
 		t.Run(failure, func(t *testing.T) {
@@ -463,7 +468,7 @@ func TestProxyServeHTTPResponseFailureDoesNotAppendError(t *testing.T) {
 			h.ServeHTTP(response, authenticatedProxyRequest(t, database, h, target))
 			require.Equal(t, http.StatusOK, response.Code)
 			require.Equal(t, "{}", response.Body.String(), "an error must not be appended after miner response headers")
-			require.Equal(t, "complete", proxyAttemptStatus(t, database, deviceID))
+			assertNoProxyAttempt(t, database, deviceID)
 			epoch, err := h.writeService.Reserve(t.Context(), orgID, deviceID)
 			require.NoError(t, err)
 			drained, err := h.writeService.Drained(t.Context(), orgID, deviceID, epoch)
@@ -547,7 +552,7 @@ func TestProxyRevalidatesAfterLoginCloseBeforeControlRequest(t *testing.T) {
 		t.Fatal("proxy did not finish after login close")
 	}
 	require.Equal(t, int64(1), transport.calls.Load(), "binding must be checked again before sending the authenticated control request")
-	require.Equal(t, "complete", proxyAttemptStatus(t, database, deviceID))
+	assertNoProxyAttempt(t, database, deviceID)
 	var epoch int64
 	require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT epoch FROM device_write_fence WHERE device_id=$1", deviceID).Scan(&epoch))
 	require.Equal(t, target.binding.WriteEpoch, epoch)

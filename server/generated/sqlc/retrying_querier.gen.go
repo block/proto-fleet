@@ -1700,6 +1700,12 @@ func (q *retryingQuerier) DeleteAlertRuleConfig(ctx context.Context, arg DeleteA
 	})
 }
 
+func (q *retryingQuerier) DeleteCompletedObservationAttempt(ctx context.Context, arg DeleteCompletedObservationAttemptParams) error {
+	return q.retrier.RetryQuery(ctx, "DeleteCompletedObservationAttempt", func() error {
+		return q.next.DeleteCompletedObservationAttempt(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) DeleteContainerControls(ctx context.Context, deviceID int64) error {
 	return q.retrier.RetryQuery(ctx, "DeleteContainerControls", func() error {
 		return q.next.DeleteContainerControls(ctx, deviceID)

@@ -14,7 +14,6 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,6 +28,20 @@ func (f proxyRoundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 type proxyFailingWriter struct{ *httptest.ResponseRecorder }
 
 func (w proxyFailingWriter) Write([]byte) (int, error) { return 0, errors.New("fixture-copy-secret") }
+
+func TestRepeatedProxyPollingRetiresCompletedAdmission(t *testing.T) {
+	database, _, deviceID, h, target := proxyFenceFixture(t)
+	h.httpClient = &http.Client{Transport: proxyRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("{}"))}, nil
+	})}
+	for range 20 {
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, authenticatedProxyRequest(t, database, h, target))
+		require.Equal(t, http.StatusOK, response.Code)
+		require.Equal(t, "{}", response.Body.String())
+	}
+	assertNoProxyAttempt(t, database, deviceID)
+}
 
 func TestCanceledProxyReadAllowsRetiredIdentityReuse(t *testing.T) {
 	database, orgID, deviceID, h, target := proxyFenceFixture(t)
@@ -60,7 +73,7 @@ func TestCanceledProxyReadAllowsRetiredIdentityReuse(t *testing.T) {
 	releaseClose()
 	awaitProxyBarrier(t, done)
 	require.Equal(t, int64(1), transport.calls.Load())
-	assert.Equal(t, "complete", proxyAttemptStatus(t, database, deviceID), "a failed observation has no uncertain physical write")
+	assertNoProxyAttempt(t, database, deviceID)
 	// Retire through the production store, then reuse the exact physical identity.
 	successorID := retireAndRediscoverProxyIdentity(t, database, target)
 	attempt, err := h.writeService.BeginHost(t.Context(), orgID, successorID, 0)
@@ -103,7 +116,7 @@ func TestProxyObservationFailuresDoNotPoisonDrain(t *testing.T) {
 				})
 				require.Error(t, err)
 				require.NotContains(t, err.Error(), "fixture-")
-				require.Equal(t, "complete", proxyAttemptStatus(t, database, deviceID))
+				assertNoProxyAttempt(t, database, deviceID)
 				epoch, err := h.writeService.Reserve(t.Context(), orgID, deviceID)
 				require.NoError(t, err)
 				drained, err := h.writeService.Drained(t.Context(), orgID, deviceID, epoch)
