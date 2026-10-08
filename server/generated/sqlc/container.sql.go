@@ -18,7 +18,7 @@ const containerOwnsCommandBatch = `-- name: ContainerOwnsCommandBatch :one
 SELECT EXISTS (
  SELECT 1 FROM command_batch_log b JOIN queue_message m ON m.command_batch_log_uuid=b.uuid
  WHERE b.uuid=$1 AND b.organization_id=$2
- AND b.type='SetContainerControl' AND b.devices_count=1 AND m.device_id=$3
+ AND b.type IN ('SetContainerControl', 'SetTankMining') AND b.devices_count=1 AND m.device_id=$3
 )::boolean
 `
 
@@ -45,6 +45,20 @@ SELECT EXISTS (
 
 func (q *Queries) HasPendingContainerControl(ctx context.Context, deviceID int64) (bool, error) {
 	row := q.queryRow(ctx, q.hasPendingContainerControlStmt, hasPendingContainerControl, deviceID)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
+const hasPendingTankMining = `-- name: HasPendingTankMining :one
+SELECT EXISTS (
+ SELECT 1 FROM queue_message WHERE device_id=$1
+ AND command_type='SetTankMining' AND status IN ('PENDING','PROCESSING')
+)::boolean
+`
+
+func (q *Queries) HasPendingTankMining(ctx context.Context, deviceID int64) (bool, error) {
+	row := q.queryRow(ctx, q.hasPendingTankMiningStmt, hasPendingTankMining, deviceID)
 	var column_1 bool
 	err := row.Scan(&column_1)
 	return column_1, err
@@ -191,6 +205,75 @@ func (q *Queries) ListContainers(ctx context.Context, arg ListContainersParams) 
 			&i.HashRateHs,
 			&i.PowerW,
 			&i.TempC,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listTankCommandTargets = `-- name: ListTankCommandTargets :many
+SELECT t.id AS tank_id, t.device_id, t.position, t.last_seen_at, ci.observed_at,
+       d.device_identifier, d.site_id, COALESCE(NULLIF(d.custom_name, ''), NULLIF(d.serial_number, ''), d.device_identifier)::text AS container_name,
+       dd.manufacturer, dd.model, dd.driver_name
+FROM container_tank t
+JOIN container_inventory ci ON ci.device_id=t.device_id
+JOIN device d ON d.id=t.device_id
+JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+JOIN device_pairing dp ON dp.device_id=d.id
+WHERE t.id=ANY($1::bigint[]) AND t.present
+  AND d.org_id=$2 AND d.deleted_at IS NULL AND dd.deleted_at IS NULL
+  AND dd.device_class=2 AND dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD')
+ORDER BY d.id, t.id
+`
+
+type ListTankCommandTargetsParams struct {
+	TankIds []int64
+	OrgID   int64
+}
+
+type ListTankCommandTargetsRow struct {
+	TankID           int64
+	DeviceID         int64
+	Position         int32
+	LastSeenAt       time.Time
+	ObservedAt       time.Time
+	DeviceIdentifier string
+	SiteID           sql.NullInt64
+	ContainerName    string
+	Manufacturer     sql.NullString
+	Model            sql.NullString
+	DriverName       string
+}
+
+func (q *Queries) ListTankCommandTargets(ctx context.Context, arg ListTankCommandTargetsParams) ([]ListTankCommandTargetsRow, error) {
+	rows, err := q.query(ctx, q.listTankCommandTargetsStmt, listTankCommandTargets, pq.Array(arg.TankIds), arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListTankCommandTargetsRow
+	for rows.Next() {
+		var i ListTankCommandTargetsRow
+		if err := rows.Scan(
+			&i.TankID,
+			&i.DeviceID,
+			&i.Position,
+			&i.LastSeenAt,
+			&i.ObservedAt,
+			&i.DeviceIdentifier,
+			&i.SiteID,
+			&i.ContainerName,
+			&i.Manufacturer,
+			&i.Model,
+			&i.DriverName,
 		); err != nil {
 			return nil, err
 		}

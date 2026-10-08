@@ -4116,6 +4116,18 @@ func (q *retryingQuerier) HasPendingContainerControl(ctx context.Context, device
 	return result, err
 }
 
+func (q *retryingQuerier) HasPendingTankMining(ctx context.Context, deviceID int64) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "HasPendingTankMining", func() error {
+		callResult, callErr := q.next.HasPendingTankMining(ctx, deviceID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) HasUser(ctx context.Context) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "HasUser", func() error {
@@ -5728,6 +5740,18 @@ func (q *retryingQuerier) ListTakenDeviceSetLabels(ctx context.Context, arg List
 	var result []string
 	err := q.retrier.RetryQuery(ctx, "ListTakenDeviceSetLabels", func() error {
 		callResult, callErr := q.next.ListTakenDeviceSetLabels(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListTankCommandTargets(ctx context.Context, arg ListTankCommandTargetsParams) ([]ListTankCommandTargetsRow, error) {
+	var result []ListTankCommandTargetsRow
+	err := q.retrier.RetryQuery(ctx, "ListTankCommandTargets", func() error {
+		callResult, callErr := q.next.ListTankCommandTargets(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

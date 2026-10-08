@@ -31,6 +31,7 @@ export interface SubtankDetailProps {
   slots?: ModuleSlot[];
   onSelectModule?: (id: string) => void;
   notice?: ReactNode;
+  actions?: ReactNode;
   performance?: ReactNode;
   /** Short tank label for per-module accessible names (e.g. "Tank 2"); defaults to `title`. */
   tankLabel?: string;
@@ -65,6 +66,7 @@ const SubtankDetail = ({
   slots,
   onSelectModule,
   notice,
+  actions,
   performance,
 }: SubtankDetailProps) => {
   const [duration, setDuration] = useState<FleetDuration>("24h");
@@ -96,6 +98,7 @@ const SubtankDetail = ({
           buttonSize={sizes.compact}
           testId="subtank-detail-title"
         />
+        {actions}
       </div>
 
       {notice}

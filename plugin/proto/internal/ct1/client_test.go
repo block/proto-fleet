@@ -23,6 +23,7 @@ func TestCollectBulkMapAuthenticatesAndCountsModulesOnce(t *testing.T) {
 	}
 	wire := MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{{ID: 1, Modules: []Module{{ID: 1, Slots: boards}}}}}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "proto-fleet", r.Header.Get("X-Frigate-Actor"))
 		calls[r.URL.Path]++
 		w.Header().Set("Content-Type", "application/json")
 		if r.URL.Path == "/api/v2/auth/login" {

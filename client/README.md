@@ -242,8 +242,28 @@ long-term storage rollups are implied by the duration selector.
 Module clicks open Fleet's existing history dialog at the shareable
 `/containers/:identifier/tanks/:tankId/modules/:moduleId` route. The richer
 module detail page is tracked separately in #162. Tank-scoped cooling/equipment
-readings and tank commands are not available in the current Fleet API; the page
-omits the empty cooling section. Shared equipment readings remain on the
+readings are not available in the current Fleet API; the page omits the empty
+cooling section. Tank rows, cards, and the native tank page expose scoped mining
+start/stop through the tank actions menu. List selection keeps tank IDs separate
+from rack IDs; bulk tank actions apply only to the selected tanks.
+
+Fleet resolves stable tank IDs to the current controller/site and queues one
+command per controller. Admission requires current topology, driver tank-mining
+support, and the requested mining permission at every selected tank’s site. A
+pending tank command blocks another command for the same controller. Execution
+rechecks tank presence and placement, then reads the controller’s live map and
+sends one explicit module scope to `/api/v2/mining/scoped/start` or `stop`. Empty
+modules are omitted; empty or unavailable tanks fail without a write. Container
+mining intent is never changed by this path.
+
+Confirmation names every selected tank. The dialog follows each controller’s
+existing command batch and reports board-level partial failures or unconfirmed
+outcomes. Completion acknowledges the write and refreshes Fleet inventory; it
+does not claim that telemetry has already reached the requested state. Direct
+controllers use the plugin SDK; FleetNode controllers require command protocol
+V3 and updated SDK/plugin binaries. Older nodes reject this action before
+sending it, and failed or ambiguous device writes are terminal rather than
+automatically retried. Shared equipment readings remain on the
 container page.
 Storybook's **Proto Fleet / Containers / Native tank page** exercises the actual
 page and collected-data hooks with isolated API fixtures.

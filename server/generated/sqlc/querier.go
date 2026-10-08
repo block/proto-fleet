@@ -943,6 +943,7 @@ type Querier interface {
 	// settled them without updating, with its note).
 	HaltFirmwareRolloutDevices(ctx context.Context, arg HaltFirmwareRolloutDevicesParams) error
 	HasPendingContainerControl(ctx context.Context, deviceID int64) (bool, error)
+	HasPendingTankMining(ctx context.Context, deviceID int64) (bool, error)
 	HasUser(ctx context.Context) (bool, error)
 	// The unique partial index on (batch_id, event_type) for '*.completed' event
 	// types lets the Go layer detect idempotent re-inserts via pq unique_violation.
@@ -1472,6 +1473,7 @@ type Querier interface {
 	// create's duplicate check: uk_device_collection_org_type_label spans
 	// (org_id, type, label), so a site/building-scoped rack list can't answer it.
 	ListTakenDeviceSetLabels(ctx context.Context, arg ListTakenDeviceSetLabelsParams) ([]string, error)
+	ListTankCommandTargets(ctx context.Context, arg ListTankCommandTargetsParams) ([]ListTankCommandTargetsRow, error)
 	// Cancellation and completion cannot revoke a firmware command already sent.
 	// Only load terminal rollouts whose retained dispatch and current completion
 	// witness both succeeded for the artifact, with a matching live report and

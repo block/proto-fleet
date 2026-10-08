@@ -284,6 +284,8 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V1 = 1;
     // V2 adds named container equipment desired-state commands.
     COMMAND_PROTOCOL_VERSION_V2 = 2;
+    // V3 adds explicitly scoped tank mining commands.
+    COMMAND_PROTOCOL_VERSION_V3 = 3;
 }
 
 message ControlHello {
@@ -411,6 +413,7 @@ message MinerCommand {
         GetCoolingModeAction get_cooling_mode = 17;
         ApplyCurtailmentConfigAction apply_curtailment_config = 18;
         SetContainerControlAction set_container_control = 19;
+        SetTankMiningAction set_tank_mining = 20;
     }
 }
 
@@ -597,4 +600,9 @@ enum AckCode {
 message SetContainerControlAction {
   string name = 1 [(buf.validate.field).string = {in: ["dry_cooler", "dry_cooler_auto", "tank_led_light", "coolant_pump", "air_conditioner_1", "air_conditioner_2", "main_circuit_breaker"]}];
   optional bool enabled = 2 [(buf.validate.field).required = true];
+}
+
+message SetTankMiningAction {
+  repeated int32 positions = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100, unique: true, items: {int32: {gt: 0}}}];
+  optional bool mining = 2 [(buf.validate.field).required = true];
 }

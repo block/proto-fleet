@@ -1440,3 +1440,18 @@ func TestRegistryEquipmentRejectsV1BeforeEnqueue(t *testing.T) {
 	default:
 	}
 }
+
+func TestRegistryTankMiningRejectsV2BeforeEnqueue(t *testing.T) {
+	r := NewRegistry()
+	stream, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2)
+	require.NoError(t, err)
+	defer stream.Unregister()
+	_, err = r.SendCommand(t.Context(), 7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3, &gatewaypb.ControlCommand{CommandId: "tanks"})
+	require.True(t, fleeterror.IsFailedPreconditionError(err))
+	require.ErrorContains(t, err, "requires version 3")
+	select {
+	case <-stream.Outgoing:
+		t.Fatal("unsupported tank command enqueued")
+	default:
+	}
+}

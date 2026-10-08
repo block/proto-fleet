@@ -94,6 +94,35 @@ describe("DeviceSetList", () => {
     expect(onTankClick).toHaveBeenCalledWith(tank);
   });
 
+  it("keeps tank selection separate when a rack has the same numeric ID", () => {
+    const rack = createMockDeviceSet(1n, "A rack");
+    const tank = create(InventoryItemSchema, { ref: { kind: EntityKind.TANK, id: 1n }, name: "Tank 1" });
+    const selectRack = vi.fn();
+    const selectTank = vi.fn();
+    render(
+      <DeviceSetList
+        {...defaultProps}
+        deviceSets={[rack]}
+        statsMap={new Map()}
+        inventoryItems={[
+          tank,
+          create(InventoryItemSchema, {
+            ref: { kind: EntityKind.RACK, id: 1n },
+            details: { case: "rack", value: rack },
+          }),
+        ]}
+        selectedIds={[]}
+        onSelectedIdsChange={selectRack}
+        selectedTankIds={[]}
+        onSelectedTankIdsChange={selectTank}
+      />,
+    );
+    const body = screen.getByTestId("list-body");
+    fireEvent.click(body.querySelector('input[type="checkbox"]')!);
+    expect(selectTank).toHaveBeenCalledWith(["1"]);
+    expect(selectRack).toHaveBeenCalledWith([]);
+  });
+
   it("includes tanks in the pagination range", () => {
     const tanks = Array.from({ length: 10 }, (_, i) =>
       create(InventoryItemSchema, {

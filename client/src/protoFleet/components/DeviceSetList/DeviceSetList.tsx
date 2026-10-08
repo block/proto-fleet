@@ -37,6 +37,9 @@ const DEFAULT_ACTIVE_COLS: DeviceSetColumn[] = [
 
 type DeviceSetListProps = {
   inventoryItems?: InventoryItem[];
+  renderTankActions?: (item: InventoryItem) => ReactNode;
+  selectedTankIds?: string[];
+  onSelectedTankIdsChange?: (ids: string[]) => void;
   onTankClick?: (item: InventoryItem) => void;
   deviceSets: DeviceSet[];
   statsMap: Map<bigint, DeviceSetStats>;
@@ -77,6 +80,9 @@ type DeviceSetListProps = {
 const DeviceSetList = ({
   inventoryItems,
   onTankClick,
+  renderTankActions,
+  selectedTankIds = [],
+  onSelectedTankIdsChange,
   deviceSets,
   statsMap,
   renderName,
@@ -135,12 +141,15 @@ const DeviceSetList = ({
           item.kind === "rack" ? (
             config.component?.(item.row, selected)
           ) : (
-            <InventoryCell item={item.row} column={column} />
+            <div className="flex items-center justify-between gap-3">
+              <InventoryCell item={item.row} column={column} />
+              {column === "name" ? renderTankActions?.(item.row) : null}
+            </div>
           ),
       };
     }
     return result;
-  }, [colConfig]);
+  }, [colConfig, renderTankActions]);
 
   const handleNextPage = useCallback(() => {
     onNextPage?.();
@@ -157,8 +166,8 @@ const DeviceSetList = ({
   const shouldRenderPagination = !loading && total !== undefined && total > 0;
   const handleSelectionModeChange = useCallback(() => undefined, []);
   const isRowSelectable = useCallback(
-    (item: EquipmentItem) => item.kind === "rack" && item.row.deviceSet.id !== 0n,
-    [],
+    (item: EquipmentItem) => (item.kind === "tank" ? !!onSelectedTankIdsChange : item.row.deviceSet.id !== 0n),
+    [onSelectedTankIdsChange],
   );
 
   const commonListProps = {
@@ -212,15 +221,18 @@ const DeviceSetList = ({
   ) : null;
 
   if (selectedIds !== undefined && onSelectedIdsChange !== undefined) {
-    const selectionMode: SelectionMode = selectedIds.length > 0 ? "subset" : "none";
+    const selectionMode: SelectionMode = selectedIds.length + selectedTankIds.length > 0 ? "subset" : "none";
     return (
       <>
         <div ref={topRef} />
         <List<EquipmentItem, string, DeviceSetColumn>
           {...commonListProps}
           itemSelectable
-          customSelectedItems={selectedIds}
-          customSetSelectedItems={onSelectedIdsChange}
+          customSelectedItems={[...selectedIds, ...selectedTankIds.map((id) => `tank:${id}`)]}
+          customSetSelectedItems={(ids) => {
+            onSelectedIdsChange(ids.filter((id) => !id.startsWith("tank:")));
+            onSelectedTankIdsChange?.(ids.filter((id) => id.startsWith("tank:")).map((id) => id.slice(5)));
+          }}
           customSelectionMode={selectionMode}
           onSelectionModeChange={handleSelectionModeChange}
           pageScopedSelection

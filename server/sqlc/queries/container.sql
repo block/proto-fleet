@@ -93,5 +93,25 @@ SELECT EXISTS (
 SELECT EXISTS (
  SELECT 1 FROM command_batch_log b JOIN queue_message m ON m.command_batch_log_uuid=b.uuid
  WHERE b.uuid=sqlc.arg('batch_identifier') AND b.organization_id=sqlc.arg('org_id')
- AND b.type='SetContainerControl' AND b.devices_count=1 AND m.device_id=sqlc.arg('device_id')
+ AND b.type IN ('SetContainerControl', 'SetTankMining') AND b.devices_count=1 AND m.device_id=sqlc.arg('device_id')
+)::boolean;
+
+-- name: ListTankCommandTargets :many
+SELECT t.id AS tank_id, t.device_id, t.position, t.last_seen_at, ci.observed_at,
+       d.device_identifier, d.site_id, COALESCE(NULLIF(d.custom_name, ''), NULLIF(d.serial_number, ''), d.device_identifier)::text AS container_name,
+       dd.manufacturer, dd.model, dd.driver_name
+FROM container_tank t
+JOIN container_inventory ci ON ci.device_id=t.device_id
+JOIN device d ON d.id=t.device_id
+JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+JOIN device_pairing dp ON dp.device_id=d.id
+WHERE t.id=ANY(sqlc.arg('tank_ids')::bigint[]) AND t.present
+  AND d.org_id=sqlc.arg('org_id') AND d.deleted_at IS NULL AND dd.deleted_at IS NULL
+  AND dd.device_class=2 AND dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD')
+ORDER BY d.id, t.id;
+
+-- name: HasPendingTankMining :one
+SELECT EXISTS (
+ SELECT 1 FROM queue_message WHERE device_id=sqlc.arg('device_id')
+ AND command_type='SetTankMining' AND status IN ('PENDING','PROCESSING')
 )::boolean;

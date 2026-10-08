@@ -300,7 +300,9 @@ func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand)
 		return nil, err
 	}
 	version := gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
-	if mc.GetSetContainerControl() != nil {
+	if mc.GetSetTankMining() != nil {
+		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3
+	} else if mc.GetSetContainerControl() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2
 	}
 	ack, err := m.sender.SendCommand(ctx, m.fleetNodeID, version, cmd)

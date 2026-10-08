@@ -50,6 +50,7 @@ func (c *Client) request(ctx context.Context, method, path string, body any, out
 		return 0, fmt.Errorf("prepare CT1 request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
+	req.Header.Set("X-Frigate-Actor", "proto-fleet")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
