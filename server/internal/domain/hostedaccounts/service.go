@@ -75,18 +75,21 @@ func NewService(conn *sql.DB) *Service {
 	return &Service{conn: conn, queries: db.NewFailoverResettingQuerier(db.NewRetryDB(conn))}
 }
 
-// Resolve reads live account authority in one SQL snapshot. Organization
-// permissions and ancestor memberships never substitute for direct membership.
-// Explicit ancestor grants will be a separate authorization path.
+// Resolve combines direct membership and explicit ancestor grants in one live
+// snapshot. Physical custody and ancestor membership alone confer no access.
 func (s *Service) Resolve(ctx context.Context, userID, orgID int64, accountID string) (Access, error) {
-	row, err := s.queries.ResolveHostedAccountMembership(ctx, sqlc.ResolveHostedAccountMembershipParams{
+	return resolve(ctx, s.queries, userID, orgID, accountID)
+}
+
+func resolve(ctx context.Context, q sqlc.Querier, userID, orgID int64, accountID string) (Access, error) {
+	row, err := q.ResolveHostedAccountAuthority(ctx, sqlc.ResolveHostedAccountAuthorityParams{
 		OrganizationID: orgID, AccountID: accountID, UserID: userID,
 	})
 	if err != nil {
 		return Access{}, accessError(err)
 	}
 	role := Role(row.Role)
-	capabilities := role.capabilities() & Capabilities(row.Capabilities)
+	capabilities := Capabilities(row.Capabilities)
 	if capabilities&View == 0 {
 		return Access{}, denied()
 	}
@@ -174,6 +177,9 @@ func (s *Service) ConfigureChild(ctx context.Context, actorID, orgID int64, acco
 			return err
 		}
 		account.Revision++
+		if err := requireAdministrators(ctx, q, orgID); err != nil {
+			return err
+		}
 		return audit(ctx, q, actor, account, "configure_hosted_account", map[string]any{"previous_capabilities": account.Capabilities, "capabilities": capabilities, "previous_suspended": account.Suspended, "suspended": suspended})
 	})
 }
@@ -202,8 +208,14 @@ func (s *Service) changeMembership(ctx context.Context, actorID, orgID int64, ac
 		if err != nil {
 			return err
 		}
-		if _, err := authorize(ctx, q, actorID, orgID, path, ManageMembers); err != nil {
+		_, err = authorize(ctx, q, actorID, orgID, path, ManageMembers)
+		if err != nil {
 			return err
+		}
+		if role != nil {
+			if err := requireRoleGrant(ctx, q, actorID, orgID, accountID, *role); err != nil {
+				return err
+			}
 		}
 		account := path[len(path)-1]
 		if account.Depth == 0 {
@@ -232,12 +244,8 @@ func (s *Service) changeMembership(ctx context.Context, actorID, orgID int64, ac
 				return err
 			}
 		}
-		admins, err := q.LockHostedAccountAdministrators(ctx, sqlc.LockHostedAccountAdministratorsParams{OrganizationID: orgID, AccountID: account.ID})
-		if err != nil {
+		if err := requireAdministrators(ctx, q, orgID); err != nil {
 			return err
-		}
-		if len(admins) == 0 {
-			return fleeterror.NewFailedPreconditionError("account must retain an active administrator")
 		}
 		return audit(ctx, q, actor, account, event, metadata)
 	})
@@ -280,29 +288,32 @@ func authorize(ctx context.Context, q sqlc.Querier, actorID, orgID int64, path [
 	account := path[len(path)-1]
 	if account.Depth == 0 {
 		// Root control is a host permission, never inherited customer access.
+		live, err := q.HasHostedAccountHostAuthority(ctx, sqlc.HasHostedAccountHostAuthorityParams{UserID: actorID, OrganizationID: orgID})
+		if err != nil {
+			return 0, err
+		}
 		effective, err := authz.LoadEffectiveForUpdate(ctx, q, actorID, orgID)
 		if err != nil {
 			return 0, err
 		}
-		if required != Delegate || !effective.Has(authz.PermAccountManage, authz.ResourceContext{}) {
+		if required != Delegate || !live || !effective.Has(authz.PermAccountManage, authz.ResourceContext{}) {
 			return 0, denied()
 		}
 		return ceiling, nil
 	}
-	member, err := q.GetHostedAccountMembership(ctx, sqlc.GetHostedAccountMembershipParams{OrganizationID: orgID, AccountID: account.ID, UserID: actorID})
+	access, err := resolve(ctx, q, actorID, orgID, account.AccountID)
 	if err != nil {
-		return 0, accessError(err)
+		return 0, err
 	}
-	capabilities := Role(member.Role).capabilities() & ceiling
-	if !(Access{Capabilities: capabilities}).Has(required) {
+	if !access.Has(required) {
 		return 0, denied()
 	}
-	return capabilities, nil
+	return access.Capabilities, nil
 }
 
 func validateCapabilities(capabilities Capabilities) error {
-	// Until explicit ancestor administration is implemented, every account
-	// retains effective direct administration as well as read access.
+	// Both direct and explicitly granted administration remain subject to the
+	// hierarchy ceiling. Removing this bit would leave no recovery authority.
 	if capabilities&^AllCapabilities != 0 || capabilities&(View|ManageMembers) != View|ManageMembers {
 		return fleeterror.NewInvalidArgumentError("account capabilities must permit viewing and membership administration")
 	}
@@ -333,4 +344,18 @@ func audit(ctx context.Context, q sqlc.Querier, actor sqlc.User, account Account
 		ScopeType:      sql.NullString{String: "account", Valid: true}, ScopeLabel: sql.NullString{String: account.Name, Valid: true},
 		Metadata: pqtype.NullRawMessage{RawMessage: encoded, Valid: true}, MemberSiteIds: []int64{},
 	})
+}
+
+// Fixed roles persist after hierarchy ceilings change. Check their full
+// capabilities against live membership/grant sources before those ceilings.
+// Callers separately require effective membership-management authority.
+func requireRoleGrant(ctx context.Context, q sqlc.Querier, actorID, orgID int64, accountID string, role Role) error {
+	authority, err := q.ResolveHostedAccountAuthority(ctx, sqlc.ResolveHostedAccountAuthorityParams{OrganizationID: orgID, AccountID: accountID, UserID: actorID})
+	if err != nil {
+		return accessError(err)
+	}
+	if role.capabilities() & ^Capabilities(authority.SourceCapabilities) != 0 {
+		return fleeterror.NewForbiddenError("cannot grant a role beyond current account authority")
+	}
+	return nil
 }

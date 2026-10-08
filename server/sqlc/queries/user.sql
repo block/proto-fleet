@@ -66,11 +66,11 @@ WHERE
     id = $1;
 
 -- name: ListUsersForOrganization :many
-SELECT u.id, u.user_id, u.username, u.created_at, u.updated_at, u.deleted_at, u.password_updated_at, u.last_login_at, u.requires_password_change, r.name as role_name
+SELECT u.id, u.user_id, u.username, u.created_at, u.updated_at, u.deleted_at, u.password_updated_at, u.last_login_at, u.requires_password_change, COALESCE(r.name, '')::text as role_name
 FROM
     "user" u
     JOIN user_organization uo ON u.id = uo.user_id
-    JOIN role r ON uo.role_id = r.id
+    JOIN role r ON uo.role_id = r.id AND r.organization_id = uo.organization_id AND r.deleted_at IS NULL
 WHERE
     uo.organization_id = $1
     AND u.deleted_at IS NULL

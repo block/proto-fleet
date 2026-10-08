@@ -3,22 +3,6 @@
 -- Allow foreign-key KEY SHARE locks from concurrent organization role writes.
 SELECT id FROM organization WHERE id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE;
 
--- name: CountSoleHostedAccountAdministrations :one
--- Call after locking the organization, before user/role locks. Also guard
--- suspended accounts so reactivation cannot expose an account without an admin.
-SELECT COUNT(*) FROM hosted_account_membership target
-WHERE target.organization_id = $1 AND target.user_id = $2
-    AND target.role = 'account_administrator' AND target.revoked_at IS NULL
-    AND NOT EXISTS (
-        SELECT 1 FROM hosted_account_membership other
-        JOIN "user" u ON u.id = other.user_id AND u.deleted_at IS NULL
-        JOIN user_organization uo ON uo.user_id = u.id
-            AND uo.organization_id = other.organization_id AND uo.deleted_at IS NULL
-        WHERE other.organization_id = target.organization_id
-            AND other.account_id = target.account_id AND other.user_id <> target.user_id
-            AND other.role = 'account_administrator' AND other.revoked_at IS NULL
-    );
-
 -- name: GetHostedAccountPath :many
 WITH RECURSIVE path AS (
     SELECT a.* FROM hosted_account a
@@ -42,7 +26,7 @@ VALUES ($1, $2, $3, $4, $5, $6) RETURNING *;
 
 -- name: ConfigureHostedAccount :exec
 UPDATE hosted_account SET capabilities = $1, suspended = $2,
-    revision = revision + 1, updated_at = CURRENT_TIMESTAMP
+    revision = revision + 1, authority_revision = authority_revision + 1, updated_at = CURRENT_TIMESTAMP
 WHERE organization_id = $3 AND id = $4;
 
 -- name: SetHostedAccountMembership :exec

@@ -50,7 +50,7 @@ func newAPIKeyEnv(t *testing.T) *apiKeyEnv {
 	require.NoError(t, err)
 	userID, err := q.CreateUser(t.Context(), sqlc.CreateUserParams{UserID: "firmware-operator", Username: "operator@example.com", PasswordHash: "unused", CreatedAt: time.Now()})
 	require.NoError(t, err)
-	require.NoError(t, q.CreateUserOrganization(t.Context(), sqlc.CreateUserOrganizationParams{UserID: userID, OrganizationID: admin.OrganizationID, RoleID: role.ID}))
+	require.NoError(t, q.CreateUserOrganization(t.Context(), sqlc.CreateUserOrganizationParams{UserID: userID, OrganizationID: admin.OrganizationID, RoleID: sql.NullInt64{Int64: role.ID, Valid: true}}))
 	_, err = q.AssignRole(t.Context(), sqlc.AssignRoleParams{UserID: userID, OrganizationID: admin.OrganizationID, RoleID: role.ID, ScopeType: "org"})
 	require.NoError(t, err)
 
@@ -166,7 +166,7 @@ func TestAPIKeyFirmwareAuthorizationAndUploadOwnership(t *testing.T) {
 	require.NoError(t, err)
 	sameOrgUserID, err := env.queries.CreateUser(t.Context(), sqlc.CreateUserParams{UserID: "another-operator", Username: "another@example.com", PasswordHash: "unused", CreatedAt: time.Now()})
 	require.NoError(t, err)
-	require.NoError(t, env.queries.CreateUserOrganization(t.Context(), sqlc.CreateUserOrganizationParams{UserID: sameOrgUserID, OrganizationID: env.orgID, RoleID: env.roleID}))
+	require.NoError(t, env.queries.CreateUserOrganization(t.Context(), sqlc.CreateUserOrganizationParams{UserID: sameOrgUserID, OrganizationID: env.orgID, RoleID: sql.NullInt64{Int64: env.roleID, Valid: true}}))
 	_, err = env.queries.AssignRole(t.Context(), sqlc.AssignRoleParams{UserID: sameOrgUserID, OrganizationID: env.orgID, RoleID: env.roleID, ScopeType: "org"})
 	require.NoError(t, err)
 	sameOrgKey, _, err := env.keySvc.Create(t.Context(), sameOrgUserID, env.orgID, "another-operator", "another@example.com", "another user", nil)

@@ -920,3 +920,15 @@ func TestCT1ModuleActionPermissionGates(t *testing.T) {
 		})
 	}
 }
+
+func TestAccountSelectionDeniesRawMinerProxy(t *testing.T) {
+	h := newForwardTestHandler(t)
+	h.sessionService = session.NewService(session.Config{CookieName: "fleet_session"}, nil)
+	req := httptest.NewRequest(http.MethodGet, "/miners/miner/api/v1/pools", nil)
+	req.Header.Set("X-Fleet-Account-Id", "d9a46a3a-1f64-4bd5-94ea-c0d241be9df0")
+	response := httptest.NewRecorder()
+	h.ServeHTTP(response, req)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("account-selected proxy status = %d, want 403", response.Code)
+	}
+}

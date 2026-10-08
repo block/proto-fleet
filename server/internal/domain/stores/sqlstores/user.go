@@ -147,7 +147,7 @@ func (s *SQLUserStore) CreateAdminUserWithOrganization(ctx context.Context, user
 
 	if err := q.CreateUserOrganization(ctx, sqlc.CreateUserOrganizationParams{
 		UserID:         userInternalID,
-		RoleID:         superAdminRoleID,
+		RoleID:         sql.NullInt64{Int64: superAdminRoleID, Valid: true},
 		OrganizationID: orgInternalID,
 	}); err != nil {
 		return fleeterror.NewInternalErrorf("error creating user_organization row: %v", err)
@@ -204,7 +204,7 @@ func (s *SQLUserStore) CreateUserOrganizationRole(ctx context.Context, userID in
 	if err := q.CreateUserOrganization(ctx, sqlc.CreateUserOrganizationParams{
 		UserID:         userID,
 		OrganizationID: organizationID,
-		RoleID:         roleID,
+		RoleID:         sql.NullInt64{Int64: roleID, Valid: true},
 	}); err != nil {
 		return err
 	}
@@ -295,7 +295,7 @@ func (s *SQLUserStore) LockAndCountOrgScopeSuperAdmins(ctx context.Context, orga
 func (s *SQLUserStore) UpdateUserOrganizationRole(ctx context.Context, userID int64, organizationID int64, oldAssignmentID int64, newRoleID int64) error {
 	q := s.getQueries(ctx)
 	if err := q.UpdateUserRole(ctx, sqlc.UpdateUserRoleParams{
-		RoleID:         newRoleID,
+		RoleID:         sql.NullInt64{Int64: newRoleID, Valid: true},
 		UserID:         userID,
 		OrganizationID: organizationID,
 	}); err != nil {
@@ -383,9 +383,9 @@ func (s *SQLUserStore) LockAndCountSoleHostedAccountAdministrations(ctx context.
 	if _, err := q.LockHostedAccountOrganization(ctx, organizationID); err != nil {
 		return 0, err
 	}
-	return q.CountSoleHostedAccountAdministrations(ctx, sqlc.CountSoleHostedAccountAdministrationsParams{
+	return q.CountHostedAccountsWithoutAdministrator(ctx, sqlc.CountHostedAccountsWithoutAdministratorParams{
 		OrganizationID: organizationID,
-		UserID:         userID,
+		ExcludedUserID: userID,
 	})
 }
 
@@ -420,6 +420,16 @@ func (s *SQLUserStore) GetUserRoleName(ctx context.Context, userID int64, organi
 	return s.getQueries(ctx).GetUserRoleName(ctx, sqlc.GetUserRoleNameParams{
 		UserID:         userID,
 		OrganizationID: organizationID,
+	})
+}
+
+func (s *SQLUserStore) GetActiveUserRoleNameForUpdate(ctx context.Context, userID, organizationID int64) (string, error) {
+	q := s.GetTxQueries(ctx)
+	if q == nil {
+		return "", fleeterror.NewInternalError("active organization role lookup requires a transaction")
+	}
+	return q.GetActiveUserRoleNameForUpdate(ctx, sqlc.GetActiveUserRoleNameForUpdateParams{
+		UserID: userID, OrganizationID: organizationID,
 	})
 }
 

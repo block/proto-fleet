@@ -70,7 +70,7 @@ func (s *Service) Create(ctx context.Context, userID, orgID int64, userAgent, ip
 	}
 
 	if err := s.store.CreateSession(ctx, session); err != nil {
-		return nil, fleeterror.NewInternalErrorf("failed to create session: %v", err)
+		return nil, fleeterror.NewInternalErrorf("failed to create session: %w", err)
 	}
 
 	return session, nil

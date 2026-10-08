@@ -25,6 +25,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
@@ -150,6 +151,12 @@ func (h *Handler) clientFor(baseURL string) *http.Client {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	for header := range r.Header {
+		if strings.EqualFold(header, hostedaccounts.RequestAccountHeader) {
+			writeError(w, http.StatusForbidden, "miner proxy is not available in an account workspace")
+			return
+		}
+	}
 	ctx, info, err := h.authenticate(r)
 	if err != nil {
 		slog.Warn("miner proxy authentication failed", "error", err)
