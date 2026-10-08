@@ -97,6 +97,8 @@ func TestPrivateStoredPoolAdapterFailuresThroughGRPC(t *testing.T) {
 		{name: "typed SDK unsupported", failure: sdk.NewErrUnsupportedCapability(firmwareEcho), code: connect.CodeUnimplemented},
 		{name: "gRPC unsupported", failure: status.Error(codes.Unimplemented, firmwareEcho), code: connect.CodeUnimplemented},
 		{name: "SDK transient", failure: sdk.NewErrorDeviceUnavailable(firmwareEcho), code: connect.CodeUnavailable},
+		{name: "SDK authentication rejected", failure: sdk.NewErrorAuthenticationFailed(firmwareEcho), code: connect.CodeUnauthenticated},
+		{name: "gRPC authentication rejected", failure: status.Error(codes.Unauthenticated, firmwareEcho), code: connect.CodeUnauthenticated},
 		{name: "gRPC unavailable", failure: status.Error(codes.Unavailable, firmwareEcho), code: connect.CodeUnavailable},
 		{name: "gRPC deadline", failure: status.Error(codes.DeadlineExceeded, firmwareEcho), code: connect.CodeDeadlineExceeded},
 		{name: "confirmed incomplete storage", failure: sdk.NewErrorInvalidConfig(firmwareEcho), code: connect.CodeFailedPrecondition},

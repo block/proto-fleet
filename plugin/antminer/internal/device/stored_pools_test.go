@@ -92,6 +92,7 @@ func TestStoredPoolReadbackRejectsMissingPoolsAndPreservesExplicitEmpty(t *testi
 		{name: "omitted pools", body: `{}`, errorCode: sdk.ErrCodeInvalidConfig},
 		{name: "null pools", body: `{"pools":null}`, errorCode: sdk.ErrCodeInvalidConfig},
 		{name: "temporary read failure", body: `private error must not escape`, status: http.StatusServiceUnavailable, errorCode: sdk.ErrCodeDeviceUnavailable},
+		{name: "cached credentials rejected", body: `private error must not escape`, status: http.StatusUnauthorized, errorCode: sdk.ErrCodeAuthenticationFailed},
 		{name: "explicit empty pools", body: `{"pools":[]}`},
 		{name: "missing credential", body: `{"pools":[{"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`, count: 1},
 		{name: "null credential", body: `{"pools":[{"url":"stratum+tcp://pool.example:3333","user":"worker","pass":null}]}`, count: 1},
