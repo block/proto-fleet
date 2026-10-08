@@ -9,6 +9,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Querier interface {
@@ -182,6 +184,7 @@ type Querier interface {
 	// Record the first terminal time after the header lock, bounded by the
 	// rollout's preceding lifecycle events, and clear any active pause.
 	CancelFirmwareRollout(ctx context.Context, arg CancelFirmwareRolloutParams) (int64, error)
+	CancelPendingDeviceWrites(ctx context.Context, deviceID int64) error
 	CancelPendingEnrollment(ctx context.Context, arg CancelPendingEnrollmentParams) (int64, error)
 	// Building peer of CascadeAddedDeviceSites. Rewrites device.building_id
 	// to rack.building_id for added rack members whose current building
@@ -232,6 +235,7 @@ type Querier interface {
 	// NULL target unassigns. IS DISTINCT FROM skips no-op rows. Returns
 	// the total affected row count across all racks.
 	CascadeRackDeviceSitesBulk(ctx context.Context, arg CascadeRackDeviceSitesBulkParams) (int64, error)
+	CheckDeviceWriteAttempt(ctx context.Context, attemptID uuid.UUID) (bool, error)
 	// Uploaded artifacts are global. Assignments protect continuous enforcement,
 	// active rollouts protect in-progress targets, and queued commands protect
 	// dispatches that may outlive a rollout or use a legacy file ID.
@@ -403,6 +407,7 @@ type Querier interface {
 	CreateCommandBatchLog(ctx context.Context, arg CreateCommandBatchLogParams) (sql.Result, error)
 	CreateCustomRole(ctx context.Context, arg CreateCustomRoleParams) (Role, error)
 	CreateDeviceSet(ctx context.Context, arg CreateDeviceSetParams) (CreateDeviceSetRow, error)
+	CreateDeviceWriteAttempt(ctx context.Context, arg CreateDeviceWriteAttemptParams) error
 	// --- Rollouts ---
 	// Creation follows assignment/scope locks; start the initial stage at this
 	// write rather than at the beginning of a transaction that may have waited.
@@ -512,6 +517,7 @@ type Querier interface {
 	// Idempotent backfill (INSERT ... DO NOTHING + fallback SELECT). Both
 	// branches require organization.deleted_at IS NULL.
 	EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (EnsureCurtailmentOrgConfigRow, error)
+	EnsureDeviceWriteFences(ctx context.Context, deviceIds []int64) error
 	// The caller rejects aliases that resolve to different existing hardware.
 	EnsureHashboards(ctx context.Context, arg EnsureHashboardsParams) ([]EnsureHashboardsRow, error)
 	ExcludeFirmwareRolloutDevices(ctx context.Context, arg ExcludeFirmwareRolloutDevicesParams) error
@@ -562,6 +568,7 @@ type Querier interface {
 	FindHashboardIdentities(ctx context.Context, arg FindHashboardIdentitiesParams) ([]FindHashboardIdentitiesRow, error)
 	// Membership administration may look up only members of the selected account.
 	FindHostedAccountMemberByUUID(ctx context.Context, arg FindHostedAccountMemberByUUIDParams) (int64, error)
+	FinishDeviceWriteAttempt(ctx context.Context, arg FinishDeviceWriteAttemptParams) (int64, error)
 	// Ends an active, unpaused rollout as 'completed' or 'completed_with_failures'.
 	// Recheck the pause under the row lock so stale settled targets cannot complete
 	// work after the operator pauses it. Resuming permits a later tick to finish.
@@ -626,8 +633,8 @@ type Querier interface {
 	// caller's session org. Rows with organization_id IS NULL (pre-migration
 	// history) are intentionally invisible to this query.
 	GetBatchHeaderForOrg(ctx context.Context, arg GetBatchHeaderForOrgParams) (GetBatchHeaderForOrgRow, error)
-	GetBatchLog(ctx context.Context, uuid string) (GetBatchLogRow, error)
-	GetBatchStatusAndDeviceCounts(ctx context.Context, uuid string) (GetBatchStatusAndDeviceCountsRow, error)
+	GetBatchLog(ctx context.Context, argUuid string) (GetBatchLogRow, error)
+	GetBatchStatusAndDeviceCounts(ctx context.Context, argUuid string) (GetBatchStatusAndDeviceCountsRow, error)
 	GetBuilding(ctx context.Context, arg GetBuildingParams) (GetBuildingRow, error)
 	// Returns the building's parent site_id, excluding soft-deleted rows.
 	GetBuildingSite(ctx context.Context, arg GetBuildingSiteParams) (sql.NullInt64, error)
@@ -1050,6 +1057,7 @@ type Querier interface {
 	InsertRepairTicketPart(ctx context.Context, arg InsertRepairTicketPartParams) error
 	InventoryPartExistsBySiteAndName(ctx context.Context, arg InventoryPartExistsBySiteAndNameParams) (bool, error)
 	IsBatchFinished(ctx context.Context, commandBatchLogUuid string) (bool, error)
+	IsDeviceWriteFenceDrained(ctx context.Context, arg IsDeviceWriteFenceDrainedParams) (bool, error)
 	// The delivery-path read: only windows covering sqlc.arg('now'), so the expired tail never loads.
 	ListActiveAlertMaintenanceWindows(ctx context.Context, arg ListActiveAlertMaintenanceWindowsParams) ([]AlertMaintenanceWindow, error)
 	// Devices locked in a non-terminal event; excluded from candidates to
@@ -1572,7 +1580,7 @@ type Querier interface {
 	// the locked ids (result is informational; the FOR UPDATE side-effect
 	// is what matters).
 	LockBuildingsBySiteForWrite(ctx context.Context, arg LockBuildingsBySiteForWriteParams) ([]int64, error)
-	LockCommandBatch(ctx context.Context, uuid string) (BatchStatusEnum, error)
+	LockCommandBatch(ctx context.Context, argUuid string) (BatchStatusEnum, error)
 	// Lock current ownership/site through dispatch; child inventory IDs are never targets.
 	LockContainerCommandTarget(ctx context.Context, arg LockContainerCommandTargetParams) (LockContainerCommandTargetRow, error)
 	// Keep the current event and its immutable selector in the same transaction
@@ -1628,6 +1636,10 @@ type Querier interface {
 	// and credential repair. Callers recheck their predicates in a subsequent
 	// statement so they see the winner at READ COMMITTED.
 	LockDeviceByIdentifier(ctx context.Context, arg LockDeviceByIdentifierParams) ([]int64, error)
+	// Completion must retain evidence even if the successful operation soft-deleted
+	// the device. Starting a new operation still requires a live device.
+	LockDeviceWriteFenceRecord(ctx context.Context, arg LockDeviceWriteFenceRecordParams) (DeviceWriteFence, error)
+	LockDeviceWriteFences(ctx context.Context, deviceIds []int64) ([]DeviceWriteFence, error)
 	// Takes a row lock on each device row for the duration of the
 	// surrounding transaction so the conflict check and the UPDATE are
 	// atomic against a concurrent reassign. Empty result means none of the
@@ -1667,6 +1679,7 @@ type Querier interface {
 	// Match rack placement writers' dsr → ds table order.
 	LockMaintenanceRackForTicket(ctx context.Context, arg LockMaintenanceRackForTicketParams) (int64, error)
 	LockMaintenanceSiteForTicket(ctx context.Context, arg LockMaintenanceSiteForTicketParams) (int64, error)
+	LockQueuedDeviceWrite(ctx context.Context, id int64) (LockQueuedDeviceWriteRow, error)
 	// Locks device_set + rack rows FOR UPDATE and returns current placement.
 	// Must run after the site/building locks (canonical lock order).
 	LockRackPlacementForWrite(ctx context.Context, arg LockRackPlacementForWriteParams) (LockRackPlacementForWriteRow, error)
@@ -1710,9 +1723,9 @@ type Querier interface {
 	// site id when alive; sql.ErrNoRows when soft-deleted or missing.
 	LockSiteForWrite(ctx context.Context, arg LockSiteForWriteParams) (int64, error)
 	MarkAbsentContainerTanks(ctx context.Context, arg MarkAbsentContainerTanksParams) error
-	MarkCommandBatchFinished(ctx context.Context, uuid string) (int64, error)
-	MarkCommandBatchFinishedWithStartedAt(ctx context.Context, uuid string) (int64, error)
-	MarkCommandBatchProcessing(ctx context.Context, uuid string) (int64, error)
+	MarkCommandBatchFinished(ctx context.Context, argUuid string) (int64, error)
+	MarkCommandBatchFinishedWithStartedAt(ctx context.Context, argUuid string) (int64, error)
+	MarkCommandBatchProcessing(ctx context.Context, argUuid string) (int64, error)
 	// Every attempted target advances retry pacing, including preflight skips.
 	// Only targets actually dispatched to may authorize a later provenance write.
 	// Lock targets before sampling one monotonic clock per attempt. A timestamp
@@ -1748,6 +1761,7 @@ type Querier interface {
 	// whose key is in the supplied set. ADMIN/FIELD_TECH reconciliation
 	// never calls this — they are additive-only.
 	PrunePermissionsOutsideKeys(ctx context.Context, arg PrunePermissionsOutsideKeysParams) error
+	QuarantineDeviceWriteFence(ctx context.Context, arg QuarantineDeviceWriteFenceParams) error
 	// ============================================================================
 	// Component-Based Pagination Queries
 	// ============================================================================
@@ -1830,6 +1844,7 @@ type Querier interface {
 	// their batch, order and baseline but must verify again: their firmware may
 	// have changed while they were out of scope.
 	ReincludeFirmwareRolloutDevices(ctx context.Context, arg ReincludeFirmwareRolloutDevicesParams) error
+	ReleaseDeviceWriteFenceToHost(ctx context.Context, arg ReleaseDeviceWriteFenceToHostParams) (int64, error)
 	ReleaseInventoryPart(ctx context.Context, arg ReleaseInventoryPartParams) (int64, error)
 	// Targets that never received a Curtail command do not need Uncurtail. Release
 	// them before the restore reset so graceful Stop does not enqueue commands
@@ -1883,6 +1898,7 @@ type Querier interface {
 	// The command queue has bounded per-message retries. Retain only the failed
 	// eligible device for another attempt; successful devices need no new command.
 	RequeueRigConfigReconciliationAfterTerminalFailure(ctx context.Context, arg RequeueRigConfigReconciliationAfterTerminalFailureParams) error
+	ReserveDeviceWriteFence(ctx context.Context, arg ReserveDeviceWriteFenceParams) (int64, error)
 	ReserveInventoryPart(ctx context.Context, arg ReserveInventoryPartParams) (int64, error)
 	// Reopen restore targets for curtailment. Counts let the store reject partial
 	// resets when another non-terminal event already has unresolved work for one

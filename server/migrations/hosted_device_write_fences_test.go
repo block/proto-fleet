@@ -22,7 +22,7 @@ func TestWriteFenceRollbackCannotEraseOwnershipEpoch(t *testing.T) {
 	service := devicewrite.NewService(database.DB)
 	epoch, err := service.Reserve(t.Context(), user.OrganizationID, device.DatabaseID)
 	require.NoError(t, err)
-	down, err := migrations.Migrations.ReadFile("000165_hosted_device_write_fences.down.sql")
+	down, err := migrations.Current.ReadFile("current/001008_internal_hosted_device_write_fences.down.sql")
 	require.NoError(t, err)
 	_, err = database.DB.ExecContext(t.Context(), string(down))
 	require.ErrorContains(t, err, "rollback is unsafe")
@@ -38,8 +38,8 @@ func TestWriteFenceMigrationPreservesPopulatedLegacyQueue(t *testing.T) {
 	database := testutil.NewDatabaseService(t, cfg)
 	user := database.CreateSuperAdminUser()
 	seed := database.CreateDevice(user.OrganizationID, "proto")
-	for _, name := range []string{"000166_queue_pending_order_index", "000165_hosted_device_write_fences"} {
-		script, err := migrations.Migrations.ReadFile(name + ".down.sql")
+	for _, name := range []string{"current/001009_internal_queue_pending_order_index", "current/001008_internal_hosted_device_write_fences"} {
+		script, err := migrations.Current.ReadFile(name + ".down.sql")
 		require.NoError(t, err)
 		_, err = database.DB.ExecContext(t.Context(), string(script))
 		require.NoError(t, err)
@@ -52,10 +52,10 @@ func TestWriteFenceMigrationPreservesPopulatedLegacyQueue(t *testing.T) {
 	_, err = database.DB.ExecContext(t.Context(), `INSERT INTO queue_message(command_batch_log_uuid,device_id,command_type,status,retry_count)
 	 SELECT 'legacy-batch',id,'Reboot','PENDING',0 FROM device WHERE org_id=$1`, user.OrganizationID)
 	require.NoError(t, err)
-	for _, name := range []string{"000165_hosted_device_write_fences", "000166_queue_pending_order_index"} {
-		script, err := migrations.Migrations.ReadFile(name + ".up.sql")
+	for _, name := range []string{"current/001008_internal_hosted_device_write_fences", "current/001009_internal_queue_pending_order_index"} {
+		script, err := migrations.Current.ReadFile(name + ".up.sql")
 		require.NoError(t, err)
-		if name == "000165_hosted_device_write_fences" {
+		if name == "current/001008_internal_hosted_device_write_fences" {
 			_, err = database.DB.ExecContext(t.Context(), string(script))
 			require.NoError(t, err)
 			continue

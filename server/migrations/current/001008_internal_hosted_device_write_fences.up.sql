@@ -1,3 +1,5 @@
+-- requires-shared: 1000
+
 -- Reuse the composite device identity constraint established by migration 39.
 CREATE TABLE device_write_fence (
  device_id BIGINT PRIMARY KEY,

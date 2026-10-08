@@ -7,6 +7,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type QueryRetrier interface {
@@ -492,6 +494,12 @@ func (q *retryingQuerier) CancelFirmwareRollout(ctx context.Context, arg CancelF
 	return result, err
 }
 
+func (q *retryingQuerier) CancelPendingDeviceWrites(ctx context.Context, deviceID int64) error {
+	return q.retrier.RetryQuery(ctx, "CancelPendingDeviceWrites", func() error {
+		return q.next.CancelPendingDeviceWrites(ctx, deviceID)
+	})
+}
+
 func (q *retryingQuerier) CancelPendingEnrollment(ctx context.Context, arg CancelPendingEnrollmentParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CancelPendingEnrollment", func() error {
@@ -592,6 +600,18 @@ func (q *retryingQuerier) CascadeRackDeviceSitesBulk(ctx context.Context, arg Ca
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CascadeRackDeviceSitesBulk", func() error {
 		callResult, callErr := q.next.CascadeRackDeviceSitesBulk(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) CheckDeviceWriteAttempt(ctx context.Context, attemptID uuid.UUID) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "CheckDeviceWriteAttempt", func() error {
+		callResult, callErr := q.next.CheckDeviceWriteAttempt(ctx, attemptID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -1314,6 +1334,12 @@ func (q *retryingQuerier) CreateDeviceSet(ctx context.Context, arg CreateDeviceS
 	return result, err
 }
 
+func (q *retryingQuerier) CreateDeviceWriteAttempt(ctx context.Context, arg CreateDeviceWriteAttemptParams) error {
+	return q.retrier.RetryQuery(ctx, "CreateDeviceWriteAttempt", func() error {
+		return q.next.CreateDeviceWriteAttempt(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) CreateFirmwareRollout(ctx context.Context, arg CreateFirmwareRolloutParams) (FirmwareRollout, error) {
 	var result FirmwareRollout
 	err := q.retrier.RetryQuery(ctx, "CreateFirmwareRollout", func() error {
@@ -1896,6 +1922,12 @@ func (q *retryingQuerier) EnsureCurtailmentOrgConfig(ctx context.Context, orgID 
 	return result, err
 }
 
+func (q *retryingQuerier) EnsureDeviceWriteFences(ctx context.Context, deviceIds []int64) error {
+	return q.retrier.RetryQuery(ctx, "EnsureDeviceWriteFences", func() error {
+		return q.next.EnsureDeviceWriteFences(ctx, deviceIds)
+	})
+}
+
 func (q *retryingQuerier) EnsureHashboards(ctx context.Context, arg EnsureHashboardsParams) ([]EnsureHashboardsRow, error) {
 	var result []EnsureHashboardsRow
 	err := q.retrier.RetryQuery(ctx, "EnsureHashboards", func() error {
@@ -1990,6 +2022,18 @@ func (q *retryingQuerier) FindHostedAccountMemberByUUID(ctx context.Context, arg
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "FindHostedAccountMemberByUUID", func() error {
 		callResult, callErr := q.next.FindHostedAccountMemberByUUID(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) FinishDeviceWriteAttempt(ctx context.Context, arg FinishDeviceWriteAttemptParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "FinishDeviceWriteAttempt", func() error {
+		callResult, callErr := q.next.FinishDeviceWriteAttempt(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -2322,10 +2366,10 @@ func (q *retryingQuerier) GetBatchHeaderForOrg(ctx context.Context, arg GetBatch
 	return result, err
 }
 
-func (q *retryingQuerier) GetBatchLog(ctx context.Context, uuid string) (GetBatchLogRow, error) {
+func (q *retryingQuerier) GetBatchLog(ctx context.Context, argUuid string) (GetBatchLogRow, error) {
 	var result GetBatchLogRow
 	err := q.retrier.RetryQuery(ctx, "GetBatchLog", func() error {
-		callResult, callErr := q.next.GetBatchLog(ctx, uuid)
+		callResult, callErr := q.next.GetBatchLog(ctx, argUuid)
 		if callErr == nil {
 			result = callResult
 		}
@@ -2334,10 +2378,10 @@ func (q *retryingQuerier) GetBatchLog(ctx context.Context, uuid string) (GetBatc
 	return result, err
 }
 
-func (q *retryingQuerier) GetBatchStatusAndDeviceCounts(ctx context.Context, uuid string) (GetBatchStatusAndDeviceCountsRow, error) {
+func (q *retryingQuerier) GetBatchStatusAndDeviceCounts(ctx context.Context, argUuid string) (GetBatchStatusAndDeviceCountsRow, error) {
 	var result GetBatchStatusAndDeviceCountsRow
 	err := q.retrier.RetryQuery(ctx, "GetBatchStatusAndDeviceCounts", func() error {
-		callResult, callErr := q.next.GetBatchStatusAndDeviceCounts(ctx, uuid)
+		callResult, callErr := q.next.GetBatchStatusAndDeviceCounts(ctx, argUuid)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4620,6 +4664,18 @@ func (q *retryingQuerier) IsBatchFinished(ctx context.Context, commandBatchLogUu
 	return result, err
 }
 
+func (q *retryingQuerier) IsDeviceWriteFenceDrained(ctx context.Context, arg IsDeviceWriteFenceDrainedParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "IsDeviceWriteFenceDrained", func() error {
+		callResult, callErr := q.next.IsDeviceWriteFenceDrained(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListActiveAlertMaintenanceWindows(ctx context.Context, arg ListActiveAlertMaintenanceWindowsParams) ([]AlertMaintenanceWindow, error) {
 	var result []AlertMaintenanceWindow
 	err := q.retrier.RetryQuery(ctx, "ListActiveAlertMaintenanceWindows", func() error {
@@ -6246,10 +6302,10 @@ func (q *retryingQuerier) LockBuildingsBySiteForWrite(ctx context.Context, arg L
 	return result, err
 }
 
-func (q *retryingQuerier) LockCommandBatch(ctx context.Context, uuid string) (BatchStatusEnum, error) {
+func (q *retryingQuerier) LockCommandBatch(ctx context.Context, argUuid string) (BatchStatusEnum, error) {
 	var result BatchStatusEnum
 	err := q.retrier.RetryQuery(ctx, "LockCommandBatch", func() error {
-		callResult, callErr := q.next.LockCommandBatch(ctx, uuid)
+		callResult, callErr := q.next.LockCommandBatch(ctx, argUuid)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6424,6 +6480,30 @@ func (q *retryingQuerier) LockDeviceByIdentifier(ctx context.Context, arg LockDe
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "LockDeviceByIdentifier", func() error {
 		callResult, callErr := q.next.LockDeviceByIdentifier(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockDeviceWriteFenceRecord(ctx context.Context, arg LockDeviceWriteFenceRecordParams) (DeviceWriteFence, error) {
+	var result DeviceWriteFence
+	err := q.retrier.RetryQuery(ctx, "LockDeviceWriteFenceRecord", func() error {
+		callResult, callErr := q.next.LockDeviceWriteFenceRecord(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockDeviceWriteFences(ctx context.Context, deviceIds []int64) ([]DeviceWriteFence, error) {
+	var result []DeviceWriteFence
+	err := q.retrier.RetryQuery(ctx, "LockDeviceWriteFences", func() error {
+		callResult, callErr := q.next.LockDeviceWriteFences(ctx, deviceIds)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6612,6 +6692,18 @@ func (q *retryingQuerier) LockMaintenanceSiteForTicket(ctx context.Context, arg 
 	return result, err
 }
 
+func (q *retryingQuerier) LockQueuedDeviceWrite(ctx context.Context, id int64) (LockQueuedDeviceWriteRow, error) {
+	var result LockQueuedDeviceWriteRow
+	err := q.retrier.RetryQuery(ctx, "LockQueuedDeviceWrite", func() error {
+		callResult, callErr := q.next.LockQueuedDeviceWrite(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockRackPlacementForWrite(ctx context.Context, arg LockRackPlacementForWriteParams) (LockRackPlacementForWriteRow, error) {
 	var result LockRackPlacementForWriteRow
 	err := q.retrier.RetryQuery(ctx, "LockRackPlacementForWrite", func() error {
@@ -6678,10 +6770,10 @@ func (q *retryingQuerier) MarkAbsentContainerTanks(ctx context.Context, arg Mark
 	})
 }
 
-func (q *retryingQuerier) MarkCommandBatchFinished(ctx context.Context, uuid string) (int64, error) {
+func (q *retryingQuerier) MarkCommandBatchFinished(ctx context.Context, argUuid string) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "MarkCommandBatchFinished", func() error {
-		callResult, callErr := q.next.MarkCommandBatchFinished(ctx, uuid)
+		callResult, callErr := q.next.MarkCommandBatchFinished(ctx, argUuid)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6690,10 +6782,10 @@ func (q *retryingQuerier) MarkCommandBatchFinished(ctx context.Context, uuid str
 	return result, err
 }
 
-func (q *retryingQuerier) MarkCommandBatchFinishedWithStartedAt(ctx context.Context, uuid string) (int64, error) {
+func (q *retryingQuerier) MarkCommandBatchFinishedWithStartedAt(ctx context.Context, argUuid string) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "MarkCommandBatchFinishedWithStartedAt", func() error {
-		callResult, callErr := q.next.MarkCommandBatchFinishedWithStartedAt(ctx, uuid)
+		callResult, callErr := q.next.MarkCommandBatchFinishedWithStartedAt(ctx, argUuid)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6702,10 +6794,10 @@ func (q *retryingQuerier) MarkCommandBatchFinishedWithStartedAt(ctx context.Cont
 	return result, err
 }
 
-func (q *retryingQuerier) MarkCommandBatchProcessing(ctx context.Context, uuid string) (int64, error) {
+func (q *retryingQuerier) MarkCommandBatchProcessing(ctx context.Context, argUuid string) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "MarkCommandBatchProcessing", func() error {
-		callResult, callErr := q.next.MarkCommandBatchProcessing(ctx, uuid)
+		callResult, callErr := q.next.MarkCommandBatchProcessing(ctx, argUuid)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6837,6 +6929,12 @@ func (q *retryingQuerier) PruneExpiredAlertMaintenanceWindows(ctx context.Contex
 func (q *retryingQuerier) PrunePermissionsOutsideKeys(ctx context.Context, arg PrunePermissionsOutsideKeysParams) error {
 	return q.retrier.RetryQuery(ctx, "PrunePermissionsOutsideKeys", func() error {
 		return q.next.PrunePermissionsOutsideKeys(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) QuarantineDeviceWriteFence(ctx context.Context, arg QuarantineDeviceWriteFenceParams) error {
+	return q.retrier.RetryQuery(ctx, "QuarantineDeviceWriteFence", func() error {
+		return q.next.QuarantineDeviceWriteFence(ctx, arg)
 	})
 }
 
@@ -7026,6 +7124,18 @@ func (q *retryingQuerier) ReincludeFirmwareRolloutDevices(ctx context.Context, a
 	})
 }
 
+func (q *retryingQuerier) ReleaseDeviceWriteFenceToHost(ctx context.Context, arg ReleaseDeviceWriteFenceToHostParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ReleaseDeviceWriteFenceToHost", func() error {
+		callResult, callErr := q.next.ReleaseDeviceWriteFenceToHost(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ReleaseInventoryPart(ctx context.Context, arg ReleaseInventoryPartParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ReleaseInventoryPart", func() error {
@@ -7132,6 +7242,18 @@ func (q *retryingQuerier) RequeueRigConfigReconciliationAfterTerminalFailure(ctx
 	return q.retrier.RetryQuery(ctx, "RequeueRigConfigReconciliationAfterTerminalFailure", func() error {
 		return q.next.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) ReserveDeviceWriteFence(ctx context.Context, arg ReserveDeviceWriteFenceParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ReserveDeviceWriteFence", func() error {
+		callResult, callErr := q.next.ReserveDeviceWriteFence(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) ReserveInventoryPart(ctx context.Context, arg ReserveInventoryPartParams) (int64, error) {
