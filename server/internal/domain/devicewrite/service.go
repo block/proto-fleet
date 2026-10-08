@@ -46,18 +46,20 @@ func NewService(conn *sql.DB) *Service {
 }
 
 type Attempt struct {
-	service         *Service
-	id              uuid.UUID
-	deviceID        int64
-	organizationID  int64
-	epoch           int64
-	dispatched      atomic.Bool
-	ordered         atomic.Bool
-	deletionBinding string
-	observation     bool
+	service            *Service
+	id                 uuid.UUID
+	deviceID           int64
+	organizationID     int64
+	epoch              int64
+	dispatched         atomic.Bool
+	ordered            atomic.Bool
+	deletionBinding    string
+	observation        bool
+	curtailmentCommand string
 }
 
-// BeginQueuedHost checks the persisted message as well as its current epoch.
+// BeginQueuedHost checks persisted host work. Curtailment control is independent
+// of configuration ownership; other commands must retain their captured epoch.
 // The device lock precedes the queue lock, matching reservation/enqueue order.
 func (s *Service) BeginQueuedHost(ctx context.Context, message queue.Message) (*Attempt, error) {
 	return db.WithTransactionTimeout(ctx, s.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) (*Attempt, error) {
@@ -69,19 +71,23 @@ func (s *Service) BeginQueuedHost(ctx context.Context, message queue.Message) (*
 		if err != nil {
 			return nil, err
 		}
-		if fence.State != "host" || fence.Epoch != message.WriteEpoch {
+		curtailmentCommand := ""
+		if message.CommandType.IsCurtailmentControl() {
+			curtailmentCommand = message.CommandType.String()
+		}
+		if curtailmentCommand == "" && (fence.State != "host" || fence.Epoch != message.WriteEpoch) {
 			return nil, blocked()
 		}
 		persisted, err := q.LockQueuedDeviceWrite(ctx, message.ID)
 		if err != nil {
 			return nil, lookupError(err)
 		}
-		if persisted.DeviceID != message.DeviceID || persisted.OrgID != message.OrgID || persisted.WriteEpoch != fence.Epoch || persisted.CommandType != message.CommandType.String() || persisted.CommandBatchLogUuid != message.BatchLogUUID {
+		if persisted.DeviceID != message.DeviceID || persisted.OrgID != message.OrgID || persisted.WriteEpoch != message.WriteEpoch || persisted.CommandType != message.CommandType.String() || persisted.CommandBatchLogUuid != message.BatchLogUUID {
 			return nil, blocked()
 		}
-		attempt := &Attempt{service: s, id: uuid.New(), deviceID: message.DeviceID, organizationID: message.OrgID, epoch: fence.Epoch}
+		attempt := &Attempt{service: s, id: uuid.New(), deviceID: message.DeviceID, organizationID: message.OrgID, epoch: fence.Epoch, curtailmentCommand: curtailmentCommand}
 		attempt.ordered.Store(isOrderedWrite(message.CommandType))
-		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: message.DeviceID, OrganizationID: message.OrgID, Epoch: fence.Epoch, QueueMessageID: sql.NullInt64{Int64: message.ID, Valid: true}, IdentityKeys: keys, OwnerInstanceID: processInstanceID, OperationKind: operationMutation}); err != nil {
+		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: message.DeviceID, OrganizationID: message.OrgID, Epoch: fence.Epoch, QueueMessageID: sql.NullInt64{Int64: message.ID, Valid: true}, IdentityKeys: keys, OwnerInstanceID: processInstanceID, OperationKind: operationMutation, CurtailmentCommand: sql.NullString{String: curtailmentCommand, Valid: curtailmentCommand != ""}}); err != nil {
 			return nil, fmt.Errorf("record device write attempt: %w", err)
 		}
 		return attempt, nil
@@ -288,10 +294,10 @@ func dispatch(ctx context.Context, operation func(context.Context) error, mutati
 // BeginHost commits an attempt before direct device I/O. The captured epoch
 // prevents a cached handle from reviving after ownership returns to the host.
 func (s *Service) BeginHost(ctx context.Context, organizationID, deviceID, epoch int64) (*Attempt, error) {
-	return s.beginHost(ctx, organizationID, deviceID, epoch, false)
+	return s.beginHost(ctx, organizationID, deviceID, epoch, false, "")
 }
 
-func (s *Service) beginHost(ctx context.Context, organizationID, deviceID, epoch int64, observation bool) (*Attempt, error) {
+func (s *Service) beginHost(ctx context.Context, organizationID, deviceID, epoch int64, observation bool, curtailmentCommand string) (*Attempt, error) {
 	if db.GetTxQueries(ctx) != nil {
 		return nil, fleeterror.NewFailedPreconditionError("device I/O requires committed admission")
 	}
@@ -304,15 +310,18 @@ func (s *Service) beginHost(ctx context.Context, organizationID, deviceID, epoch
 		if err != nil {
 			return nil, err
 		}
-		if fence.State != "host" || fence.Epoch != epoch {
+		if curtailmentCommand == "" && (fence.State != "host" || fence.Epoch != epoch) {
 			return nil, blocked()
+		}
+		if curtailmentCommand != "" {
+			epoch = fence.Epoch
 		}
 		kind := operationMutation
 		if observation {
 			kind = operationObservation
 		}
-		attempt := &Attempt{service: s, id: uuid.New(), deviceID: deviceID, organizationID: organizationID, epoch: epoch, observation: observation}
-		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: deviceID, OrganizationID: organizationID, Epoch: epoch, IdentityKeys: keys, OwnerInstanceID: processInstanceID, OperationKind: kind}); err != nil {
+		attempt := &Attempt{service: s, id: uuid.New(), deviceID: deviceID, organizationID: organizationID, epoch: epoch, observation: observation, curtailmentCommand: curtailmentCommand}
+		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: deviceID, OrganizationID: organizationID, Epoch: epoch, IdentityKeys: keys, OwnerInstanceID: processInstanceID, OperationKind: kind, CurtailmentCommand: sql.NullString{String: curtailmentCommand, Valid: curtailmentCommand != ""}}); err != nil {
 			return nil, fmt.Errorf("record direct device write: %w", err)
 		}
 		return attempt, nil
@@ -323,21 +332,30 @@ func (s *Service) beginHost(ctx context.Context, organizationID, deviceID, epoch
 // The callback uses Dispatch for mutations and Observe for reads after validation.
 // A carried attempt may authorize only its exact database, device and epoch.
 func (s *Service) WithHostAttempt(ctx context.Context, organizationID, deviceID, epoch int64, kind commandtype.Type, call func(context.Context) error) (resultErr error) {
-	return s.withHostAttempt(ctx, organizationID, deviceID, epoch, kind, false, call)
+	return s.withHostAttempt(ctx, organizationID, deviceID, epoch, kind, false, "", call)
 }
 
 // WithHostObservation durably declares a read before I/O. Its context cannot
 // dispatch mutations, so interrupted reads require only owner termination evidence.
 func (s *Service) WithHostObservation(ctx context.Context, organizationID, deviceID, epoch int64, call func(context.Context) error) error {
-	return s.withHostAttempt(ctx, organizationID, deviceID, epoch, commandtype.Type(-1), true, call)
+	return s.withHostAttempt(ctx, organizationID, deviceID, epoch, commandtype.Type(-1), true, "", call)
 }
 
-func (s *Service) withHostAttempt(ctx context.Context, organizationID, deviceID, epoch int64, kind commandtype.Type, observation bool, call func(context.Context) error) (resultErr error) {
+// WithCurtailmentAttempt retains host fleet authority for exactly one curtailment
+// command; it cannot authorize configuration writes or another control command.
+func (s *Service) WithCurtailmentAttempt(ctx context.Context, organizationID, deviceID, epoch int64, kind commandtype.Type, call func(context.Context) error) error {
+	if !kind.IsCurtailmentControl() {
+		return blocked()
+	}
+	return s.withHostAttempt(ctx, organizationID, deviceID, epoch, kind, false, kind.String(), call)
+}
+
+func (s *Service) withHostAttempt(ctx context.Context, organizationID, deviceID, epoch int64, kind commandtype.Type, observation bool, curtailmentCommand string, call func(context.Context) error) (resultErr error) {
 	if db.GetTxQueries(ctx) != nil {
 		return fleeterror.NewFailedPreconditionError("device I/O requires committed admission")
 	}
 	if attempt, ok := ctx.Value(attemptContextKey{}).(*Attempt); ok {
-		if attempt.deletionBinding != "" || attempt.service.conn != s.conn || attempt.organizationID != organizationID || attempt.deviceID != deviceID || attempt.epoch != epoch {
+		if attempt.deletionBinding != "" || attempt.service.conn != s.conn || attempt.organizationID != organizationID || attempt.deviceID != deviceID || attempt.curtailmentCommand != curtailmentCommand || (curtailmentCommand == "" && attempt.epoch != epoch) {
 			return blocked()
 		}
 		// An asynchronous step cannot inherit a synchronous outer command's policy.
@@ -347,7 +365,7 @@ func (s *Service) withHostAttempt(ctx context.Context, organizationID, deviceID,
 		}
 		return call(ctx)
 	}
-	attempt, err := s.beginHost(ctx, organizationID, deviceID, epoch, observation)
+	attempt, err := s.beginHost(ctx, organizationID, deviceID, epoch, observation, curtailmentCommand)
 	if err != nil {
 		return err
 	}

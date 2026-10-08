@@ -84,6 +84,7 @@ const cancelPendingDeviceWrites = `-- name: CancelPendingDeviceWrites :exec
 WITH canceled AS (
  UPDATE queue_message m SET status='FAILED',error_info='device command canceled by configuration handover',updated_at=statement_timestamp()
  WHERE m.device_id=$1 AND m.status='PENDING'
+ AND m.command_type NOT IN ('Curtail','Uncurtail','ApplyCurtailmentConfig')
  RETURNING m.command_batch_log_uuid,m.device_id,m.error_info,m.updated_at
 ), results AS (
  SELECT DISTINCT c.command_batch_log_uuid,c.device_id,c.error_info,c.updated_at FROM canceled c
@@ -143,11 +144,12 @@ SELECT EXISTS (
  SELECT 1 FROM device_write_attempt a JOIN device_write_fence f ON f.device_id=a.device_id AND f.organization_id=a.organization_id
  JOIN device d ON d.id=f.device_id AND d.org_id=f.organization_id
  LEFT JOIN queue_message m ON m.id=a.queue_message_id
- WHERE a.attempt_id=$1 AND a.status='running' AND f.epoch=a.epoch AND f.state='host'
+ WHERE a.attempt_id=$1 AND a.status='running' AND (a.curtailment_command IS NOT NULL OR (f.epoch=a.epoch AND f.state='host'))
  AND ((d.deleted_at IS NULL AND a.identity_keys=device_write_identity_keys(d.id)) OR (d.deleted_at IS NOT NULL
-  AND EXISTS (SELECT 1 FROM device_deletion_unpair_permit p WHERE p.attempt_id=a.attempt_id AND p.device_id=a.device_id AND p.epoch=a.epoch)
+  AND a.curtailment_command IS NULL AND EXISTS (SELECT 1 FROM device_deletion_unpair_permit p WHERE p.attempt_id=a.attempt_id AND p.device_id=a.device_id AND p.epoch=a.epoch)
   AND NOT EXISTS (SELECT 1 FROM device successor WHERE successor.org_id=a.organization_id AND successor.deleted_at IS NULL AND device_write_identity_keys(successor.id) && a.identity_keys)))
- AND (a.queue_message_id IS NULL OR m.status='PROCESSING')
+ AND (a.queue_message_id IS NULL OR (m.status='PROCESSING'
+  AND (a.curtailment_command IS NULL OR m.command_type=a.curtailment_command)))
 )::boolean AS valid
 `
 
@@ -211,24 +213,25 @@ func (q *Queries) CreateDeletionUnpairPermits(ctx context.Context, permits json.
 }
 
 const createDeviceWriteAttempt = `-- name: CreateDeviceWriteAttempt :exec
-INSERT INTO device_write_attempt(attempt_id,device_id,organization_id,epoch,queue_message_id,owner_instance_id,operation_kind,identity_keys,identity_snapshot)
-SELECT $1,d.id,d.org_id,$2,$3,$4,$5,$6::text[],
+INSERT INTO device_write_attempt(attempt_id,device_id,organization_id,epoch,queue_message_id,owner_instance_id,operation_kind,identity_keys,curtailment_command,identity_snapshot)
+SELECT $1,d.id,d.org_id,$2,$3,$4,$5,$6::text[],$7,
  jsonb_build_object('device_identifier',d.device_identifier,'serial_number',d.serial_number,'mac_address',d.mac_address,
  'ip_address',dd.ip_address,'port',dd.port,'url_scheme',dd.url_scheme,
  'routing_scope',COALESCE((SELECT fnd.fleet_node_id::text FROM fleet_node_device fnd WHERE fnd.device_id=d.id AND fnd.org_id=d.org_id),'local'))
 FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id
-WHERE d.id=$7 AND d.org_id=$8
+WHERE d.id=$8 AND d.org_id=$9
 `
 
 type CreateDeviceWriteAttemptParams struct {
-	AttemptID       uuid.UUID
-	Epoch           int64
-	QueueMessageID  sql.NullInt64
-	OwnerInstanceID uuid.UUID
-	OperationKind   string
-	IdentityKeys    []string
-	DeviceID        int64
-	OrganizationID  int64
+	AttemptID          uuid.UUID
+	Epoch              int64
+	QueueMessageID     sql.NullInt64
+	OwnerInstanceID    uuid.UUID
+	OperationKind      string
+	IdentityKeys       []string
+	CurtailmentCommand sql.NullString
+	DeviceID           int64
+	OrganizationID     int64
 }
 
 func (q *Queries) CreateDeviceWriteAttempt(ctx context.Context, arg CreateDeviceWriteAttemptParams) error {
@@ -239,6 +242,7 @@ func (q *Queries) CreateDeviceWriteAttempt(ctx context.Context, arg CreateDevice
 		arg.OwnerInstanceID,
 		arg.OperationKind,
 		pq.Array(arg.IdentityKeys),
+		arg.CurtailmentCommand,
 		arg.DeviceID,
 		arg.OrganizationID,
 	)
@@ -427,7 +431,7 @@ func (q *Queries) IsRetiredDeviceWriteDrained(ctx context.Context, identityKeys 
 }
 
 const listUnresolvedDeviceWriteAttempts = `-- name: ListUnresolvedDeviceWriteAttempts :many
-SELECT a.attempt_id, a.device_id, a.organization_id, a.epoch, a.queue_message_id, a.owner_instance_id, a.operation_kind, a.identity_snapshot, a.status, a.created_at, a.finished_at, a.identity_keys FROM device_write_attempt a
+SELECT a.attempt_id, a.device_id, a.organization_id, a.epoch, a.queue_message_id, a.owner_instance_id, a.operation_kind, a.identity_snapshot, a.status, a.created_at, a.finished_at, a.identity_keys, a.curtailment_command FROM device_write_attempt a
 WHERE a.organization_id=$1 AND a.device_id=$2 AND a.status IN ('running','unknown')
 ORDER BY a.created_at,a.attempt_id
 `
@@ -459,6 +463,7 @@ func (q *Queries) ListUnresolvedDeviceWriteAttempts(ctx context.Context, arg Lis
 			&i.CreatedAt,
 			&i.FinishedAt,
 			pq.Array(&i.IdentityKeys),
+			&i.CurtailmentCommand,
 		); err != nil {
 			return nil, err
 		}
@@ -500,7 +505,7 @@ func (q *Queries) LockDeletionUnpairPermit(ctx context.Context, arg LockDeletion
 }
 
 const lockDeviceWriteAttemptForRecovery = `-- name: LockDeviceWriteAttemptForRecovery :one
-SELECT attempt_id, device_id, organization_id, epoch, queue_message_id, owner_instance_id, operation_kind, identity_snapshot, status, created_at, finished_at, identity_keys FROM device_write_attempt WHERE attempt_id=$1 FOR UPDATE
+SELECT attempt_id, device_id, organization_id, epoch, queue_message_id, owner_instance_id, operation_kind, identity_snapshot, status, created_at, finished_at, identity_keys, curtailment_command FROM device_write_attempt WHERE attempt_id=$1 FOR UPDATE
 `
 
 func (q *Queries) LockDeviceWriteAttemptForRecovery(ctx context.Context, attemptID uuid.UUID) (DeviceWriteAttempt, error) {
@@ -519,6 +524,7 @@ func (q *Queries) LockDeviceWriteAttemptForRecovery(ctx context.Context, attempt
 		&i.CreatedAt,
 		&i.FinishedAt,
 		pq.Array(&i.IdentityKeys),
+		&i.CurtailmentCommand,
 	)
 	return i, err
 }

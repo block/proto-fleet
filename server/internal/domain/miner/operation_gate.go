@@ -28,6 +28,9 @@ func (s *Service) directWriteGate(binding sqlc.GetDeviceWithCredentialsAndIPByDe
 		}
 		validate := func(q sqlc.Querier) error {
 			fresh, err := q.GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, binding.DeviceIdentifier)
+			if kind.IsCurtailmentControl() {
+				fresh.WriteEpoch = binding.WriteEpoch
+			}
 			if err != nil {
 				s.InvalidateMiner(models.DeviceIdentifier(binding.DeviceIdentifier))
 				return operationBindingReadError(ctx, err)
@@ -41,9 +44,13 @@ func (s *Service) directWriteGate(binding sqlc.GetDeviceWithCredentialsAndIPByDe
 		if err := s.writeService.ValidateBinding(ctx, validate); err != nil {
 			return err
 		}
-		return s.writeService.WithHostAttempt(ctx, binding.OrgID, binding.ID, binding.WriteEpoch, kind, func(ctx context.Context) error {
+		callWithAdmission := func(ctx context.Context) error {
 			return s.writeService.WithBindingDispatch(ctx, binding.ID, validate, call)
-		})
+		}
+		if kind.IsCurtailmentControl() {
+			return s.writeService.WithCurtailmentAttempt(ctx, binding.OrgID, binding.ID, binding.WriteEpoch, kind, callWithAdmission)
+		}
+		return s.writeService.WithHostAttempt(ctx, binding.OrgID, binding.ID, binding.WriteEpoch, kind, callWithAdmission)
 	}
 }
 
@@ -54,6 +61,9 @@ func (s *Service) remoteWriteGate(binding sqlc.GetFleetNodeTelemetryRouteByDevic
 			// Telemetry's firmware label can change during an ordinary install. It does
 			// not change the connection or encrypted identity bound to this handle.
 			fresh.FirmwareVersion = binding.FirmwareVersion
+			if kind.IsCurtailmentControl() {
+				fresh.WriteEpoch = binding.WriteEpoch
+			}
 			if err != nil {
 				s.InvalidateMiner(models.DeviceIdentifier(binding.DeviceIdentifier))
 				return operationBindingReadError(ctx, err)
@@ -67,9 +77,13 @@ func (s *Service) remoteWriteGate(binding sqlc.GetFleetNodeTelemetryRouteByDevic
 		if err := s.writeService.ValidateBinding(ctx, validate); err != nil {
 			return err
 		}
-		return s.writeService.WithHostAttempt(ctx, binding.OrgID, binding.ID, binding.WriteEpoch, kind, func(ctx context.Context) error {
+		callWithAdmission := func(ctx context.Context) error {
 			return s.writeService.WithBindingDispatch(ctx, binding.ID, validate, call)
-		})
+		}
+		if kind.IsCurtailmentControl() {
+			return s.writeService.WithCurtailmentAttempt(ctx, binding.OrgID, binding.ID, binding.WriteEpoch, kind, callWithAdmission)
+		}
+		return s.writeService.WithHostAttempt(ctx, binding.OrgID, binding.ID, binding.WriteEpoch, kind, callWithAdmission)
 	}
 }
 

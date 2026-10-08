@@ -104,6 +104,19 @@ qualification must confirm that the endpoint exposes complete stored slots and
 exact passwords, including explicit empty values, rather than another mask or
 placeholder. Live firmware qualification remains outstanding.
 
+## Hosted ownership and curtailment
+
+Host curtailment applies across the fleet regardless of hosted account ownership.
+Curtail, restore, and fallback-config delivery remain available during ownership
+handoffs and in reserved, active, or quarantined ownership states. Handoffs retain
+these queued commands while canceling superseded configuration commands.
+
+Curtailment attempts bind to the exact command and physical miner. They retain
+connection, credential, identity, deletion, and actual completion checks; an
+unknown device outcome still blocks handoff completion. Pool, reboot, firmware,
+and other configuration writes retain their ownership and epoch checks. Customer
+account transports cannot invoke host curtailment RPCs.
+
 ## Development Commands
 
 ### Build and Run
@@ -374,10 +387,12 @@ devices:
 
 ### Batch ownership admission
 
-A selected command batch is rejected in full if any selected miner is unavailable
+An ordinary selected command batch is rejected in full if any selected miner is unavailable
 or fenced by configuration ownership. The caller receives `FailedPrecondition`
 with the blocked device ID; no part of that selected batch is enqueued and no
 successful dispatch count is returned. This admission rule also applies to
 per-device payloads. Filters may still report their existing skipped-device
 results before queue admission. See the [migration maintenance procedure](../docs/development/migrations.md#hosted-write-fence-upgrade)
-for the write-fence upgrade.
+for the write-fence upgrade. Host curtailment commands remain fleet-wide and
+bypass configuration ownership; a retired or unavailable miner still rejects the
+selected batch.

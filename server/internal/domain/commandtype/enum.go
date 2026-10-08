@@ -76,6 +76,11 @@ func (t *Type) String() string {
 	}
 }
 
+// IsCurtailmentControl identifies host fleet operations independent of pool ownership.
+func (t *Type) IsCurtailmentControl() bool {
+	return *t == Curtail || *t == Uncurtail || *t == ApplyCurtailmentConfig
+}
+
 func FromString(s string) (Type, error) {
 	switch s {
 	case "StartMining":
