@@ -1030,7 +1030,11 @@ func (es *ExecutionService) reapplyCurrentPoolsWithDesiredWorkerName(
 		return dto.UpdateMiningPoolsPayload{}, "", false, nil
 	}
 
-	currentPools, err := minerInfo.GetMiningPools(ctx)
+	reader, ok := minerInfo.(interfaces.StoredMiningPoolReader)
+	if !ok {
+		return dto.UpdateMiningPoolsPayload{}, "", false, fleeterror.NewFailedPreconditionError("cannot update worker name without verified stored pool credentials")
+	}
+	currentPools, err := reader.GetStoredMiningPools(ctx)
 	if err != nil {
 		return dto.UpdateMiningPoolsPayload{}, "", false, err
 	}
@@ -1207,10 +1211,10 @@ func (es *ExecutionService) persistWorkerNameAfterPoolUpdate(
 }
 
 func buildCurrentPoolsPayloadWithWorkerName(
-	currentPools []interfaces.MinerConfiguredPool,
+	currentPools []interfaces.MinerStoredPool,
 	desiredWorkerName string,
 ) (dto.UpdateMiningPoolsPayload, error) {
-	sortedPools := sortedConfiguredPoolsByPriority(currentPools)
+	sortedPools := sortedStoredPoolsByPriority(currentPools)
 	// Reapplying a worker name must preserve the credentials of every pool
 	// being rewritten. Unknown readback is not evidence of an empty password.
 	for _, pool := range sortedPools[:min(3, len(sortedPools))] {
@@ -1219,31 +1223,31 @@ func buildCurrentPoolsPayloadWithWorkerName(
 		}
 	}
 	payload := dto.UpdateMiningPoolsPayload{
-		DefaultPool: configuredPoolToPayload(sortedPools[0], desiredWorkerName),
+		DefaultPool: storedPoolToPayload(sortedPools[0], desiredWorkerName),
 	}
 
 	if len(sortedPools) > 1 {
-		backup := configuredPoolToPayload(sortedPools[1], desiredWorkerName)
+		backup := storedPoolToPayload(sortedPools[1], desiredWorkerName)
 		payload.Backup1Pool = &backup
 	}
 	if len(sortedPools) > 2 {
-		backup := configuredPoolToPayload(sortedPools[2], desiredWorkerName)
+		backup := storedPoolToPayload(sortedPools[2], desiredWorkerName)
 		payload.Backup2Pool = &backup
 	}
 
 	return payload, nil
 }
 
-func sortedConfiguredPoolsByPriority(currentPools []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
-	sortedPools := append([]interfaces.MinerConfiguredPool(nil), currentPools...)
+func sortedStoredPoolsByPriority(currentPools []interfaces.MinerStoredPool) []interfaces.MinerStoredPool {
+	sortedPools := append([]interfaces.MinerStoredPool(nil), currentPools...)
 	sort.SliceStable(sortedPools, func(i, j int) bool {
 		return sortedPools[i].Priority < sortedPools[j].Priority
 	})
 	return sortedPools
 }
 
-func configuredPoolToPayload(
-	pool interfaces.MinerConfiguredPool,
+func storedPoolToPayload(
+	pool interfaces.MinerStoredPool,
 	desiredWorkerName string,
 ) dto.MiningPool {
 	priority := uint32(0)
