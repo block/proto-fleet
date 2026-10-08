@@ -45,7 +45,7 @@ const (
 
 //go:generate go run go.uber.org/mock/mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter,CachedMinerGetter
 type MinerGetter interface {
-	GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error)
+	GetMinerForCommand(ctx context.Context, deviceID int64) (interfaces.Miner, error)
 	GetMinerForPasswordUpdate(ctx context.Context, deviceID int64, currentPassword string) (interfaces.Miner, error)
 }
 
@@ -1033,7 +1033,7 @@ func (es *ExecutionService) resolveMinerForCommand(ctx context.Context, commandT
 	if commandType == commandtype.UpdateMinerPassword && passwordPayload != nil && passwordPayload.EncryptedPasswordUpdate == nil {
 		miner, err = es.minerService.GetMinerForPasswordUpdate(ctx, deviceID, passwordPayload.CurrentPassword)
 	} else {
-		miner, err = es.minerService.GetMiner(ctx, deviceID)
+		miner, err = es.minerService.GetMinerForCommand(ctx, deviceID)
 	}
 	if err != nil {
 		return nil, err

@@ -115,9 +115,13 @@ RETURNING *;
 SELECT COALESCE(device_write_identity_keys($1),'{}'::text[])::text[] AS identity_keys;
 
 -- name: LockDeviceWriteIdentities :exec
-SELECT pg_advisory_xact_lock(k) FROM (
- SELECT DISTINCT hashtextextended(identity,0) AS k FROM unnest(sqlc.arg(identity_keys)::text[]) AS identity ORDER BY k
-) AS ordered_keys;
+-- Bound all identity admission paths to 256 transaction locks, including fleet
+-- deletion. The two-int DWID namespace is separate from bigint advisory keys.
+-- Collisions only serialize admission; physical identity comparisons stay exact.
+SELECT pg_advisory_xact_lock(1146571076, stripe) FROM (
+ SELECT DISTINCT (hashtextextended(identity,0) & 255)::integer AS stripe
+ FROM unnest(sqlc.arg(identity_keys)::text[]) AS identity ORDER BY stripe
+) AS ordered_stripes;
 
 -- name: IsRetiredDeviceWriteDrained :one
 SELECT EXISTS (SELECT 1 WHERE NOT EXISTS (

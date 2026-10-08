@@ -1661,6 +1661,9 @@ type Querier interface {
 	// the device. Starting a new operation still requires a live device.
 	LockDeviceWriteFenceRecord(ctx context.Context, arg LockDeviceWriteFenceRecordParams) (DeviceWriteFence, error)
 	LockDeviceWriteFences(ctx context.Context, deviceIds []int64) ([]DeviceWriteFence, error)
+	// Bound all identity admission paths to 256 transaction locks, including fleet
+	// deletion. The two-int DWID namespace is separate from bigint advisory keys.
+	// Collisions only serialize admission; physical identity comparisons stay exact.
 	LockDeviceWriteIdentities(ctx context.Context, identityKeys []string) error
 	// Takes a row lock on each device row for the duration of the
 	// surrounding transaction so the conflict check and the UPDATE are

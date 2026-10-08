@@ -537,7 +537,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		}
 
 		mockMinerGetter.EXPECT().
-			GetMiner(gomock.Any(), int64(42)).
+			GetMinerForCommand(gomock.Any(), int64(42)).
 			Return(mockMiner, nil)
 
 		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
@@ -578,7 +578,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		}
 
 		mockMinerGetter.EXPECT().
-			GetMiner(gomock.Any(), int64(43)).
+			GetMinerForCommand(gomock.Any(), int64(43)).
 			Return(mockMiner, nil)
 		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 		mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
@@ -618,7 +618,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		}
 
 		mockMinerGetter.EXPECT().
-			GetMiner(gomock.Any(), int64(44)).
+			GetMinerForCommand(gomock.Any(), int64(44)).
 			Return(mockMiner, nil)
 		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 		mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
@@ -657,7 +657,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		}
 
 		mockMinerGetter.EXPECT().
-			GetMiner(gomock.Any(), int64(45)).
+			GetMinerForCommand(gomock.Any(), int64(45)).
 			Return(nil, errors.New("device not found"))
 
 		svc := NewExecutionService(&Config{
@@ -695,7 +695,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 
 		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 		mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
-		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(50)).Return(mockMiner, nil)
+		mockMinerGetter.EXPECT().GetMinerForCommand(gomock.Any(), int64(50)).Return(mockMiner, nil)
 		mockMiner.EXPECT().
 			Curtail(gomock.Any(), sdk.CurtailRequest{Level: sdk.CurtailLevelFull}).
 			Return(nil)
@@ -727,7 +727,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 
 		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 		mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
-		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(51)).Return(mockMiner, nil)
+		mockMinerGetter.EXPECT().GetMinerForCommand(gomock.Any(), int64(51)).Return(mockMiner, nil)
 		// Curtail must NOT be called when payload unmarshal fails.
 
 		svc := NewExecutionService(&Config{
@@ -765,7 +765,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 
 			mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 			mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
-			mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(53)).Return(mockMiner, nil)
+			mockMinerGetter.EXPECT().GetMinerForCommand(gomock.Any(), int64(53)).Return(mockMiner, nil)
 			// No mockMiner.EXPECT().Curtail(...) — bounds check must short-circuit.
 
 			svc := NewExecutionService(&Config{
@@ -797,7 +797,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 
 		mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 		mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
-		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(52)).Return(mockMiner, nil)
+		mockMinerGetter.EXPECT().GetMinerForCommand(gomock.Any(), int64(52)).Return(mockMiner, nil)
 		mockMiner.EXPECT().
 			Uncurtail(gomock.Any(), sdk.UncurtailRequest{}).
 			Return(nil)
@@ -840,7 +840,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 
 		mockMiner.EXPECT().GetOrgID().Return(int64(12))
 		mockMiner.EXPECT().GetSiteID().Return(int64(34))
-		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(54)).Return(configurator, nil)
+		mockMinerGetter.EXPECT().GetMinerForCommand(gomock.Any(), int64(54)).Return(configurator, nil)
 
 		svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, mockQueue, encryptSvc, nil, mockMinerGetter, nil, nil, nil)
 		orgID, siteID, err := svc.executeCommandOnDevice(t.Context(), commandtype.ApplyCurtailmentConfig, queue.Message{
@@ -878,7 +878,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 
 		mockMiner.EXPECT().GetOrgID().Return(int64(12))
 		mockMiner.EXPECT().GetSiteID().Return(int64(34))
-		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(58)).Return(configurator, nil)
+		mockMinerGetter.EXPECT().GetMinerForCommand(gomock.Any(), int64(58)).Return(configurator, nil)
 
 		svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 		_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.ApplyCurtailmentConfig, queue.Message{
@@ -902,7 +902,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 		configurator := &recordingCurtailmentConfigMiner{Miner: mockMiner}
 		mockMiner.EXPECT().GetOrgID().Return(int64(0))
 		mockMiner.EXPECT().GetSiteID().Return(int64(0))
-		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(55)).Return(configurator, nil)
+		mockMinerGetter.EXPECT().GetMinerForCommand(gomock.Any(), int64(55)).Return(configurator, nil)
 
 		svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 		_, _, err := svc.executeCommandOnDevice(t.Context(), commandtype.ApplyCurtailmentConfig, queue.Message{
@@ -930,7 +930,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 
 		mockMiner.EXPECT().GetOrgID().Return(int64(0))
 		mockMiner.EXPECT().GetSiteID().Return(int64(0))
-		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(57)).Return(configurator, nil)
+		mockMinerGetter.EXPECT().GetMinerForCommand(gomock.Any(), int64(57)).Return(configurator, nil)
 
 		svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 		_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.ApplyCurtailmentConfig, queue.Message{
@@ -957,7 +957,7 @@ func TestExecuteCommandOnDevice(t *testing.T) {
 
 		mockMiner.EXPECT().GetOrgID().Return(int64(0))
 		mockMiner.EXPECT().GetSiteID().Return(int64(0))
-		mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(56)).Return(mockMiner, nil)
+		mockMinerGetter.EXPECT().GetMinerForCommand(gomock.Any(), int64(56)).Return(mockMiner, nil)
 
 		svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, mockQueue, nil, nil, mockMinerGetter, nil, nil, nil)
 		_, _, err = svc.executeCommandOnDevice(t.Context(), commandtype.ApplyCurtailmentConfig, queue.Message{
@@ -1197,7 +1197,7 @@ func TestExecuteCommandOnDevice_FirmwareUpdatePassesFileMetadata(t *testing.T) {
 			mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
 			mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 			mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
-			mockMinerGetter.EXPECT().GetMiner(gomock.Any(), int64(42)).Return(mockMiner, nil)
+			mockMinerGetter.EXPECT().GetMinerForCommand(gomock.Any(), int64(42)).Return(mockMiner, nil)
 			if tc.wantError == "" {
 				mockMiner.EXPECT().FirmwareUpdate(gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, firmware sdk.FirmwareFile) error {
@@ -1272,7 +1272,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_UsesStoredWorkerName(t *testin
 	}
 
 	mockMinerGetter.EXPECT().
-		GetMiner(gomock.Any(), int64(42)).
+		GetMinerForCommand(gomock.Any(), int64(42)).
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(7)).AnyTimes()
@@ -1342,7 +1342,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_UsesStoredWorkerNameAfterLooku
 	defer cancel()
 
 	mockMinerGetter.EXPECT().
-		GetMiner(gomock.Any(), int64(48)).
+		GetMinerForCommand(gomock.Any(), int64(48)).
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(10)).AnyTimes()
@@ -1417,7 +1417,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PrefersCurrentPrimaryPoolWorke
 	}
 
 	mockMinerGetter.EXPECT().
-		GetMiner(gomock.Any(), int64(47)).
+		GetMinerForCommand(gomock.Any(), int64(47)).
 		Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
@@ -1483,7 +1483,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_FallsBackToStoredMacAddress(t 
 	}
 
 	mockMinerGetter.EXPECT().
-		GetMiner(gomock.Any(), int64(45)).
+		GetMinerForCommand(gomock.Any(), int64(45)).
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(8)).AnyTimes()
@@ -1546,7 +1546,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_LeavesUsernameUnchangedWhenWor
 	}
 
 	mockMinerGetter.EXPECT().
-		GetMiner(gomock.Any(), int64(46)).
+		GetMinerForCommand(gomock.Any(), int64(46)).
 		Return(mockMiner, nil)
 
 	mockMiner.EXPECT().GetOrgID().Return(int64(9)).AnyTimes()
@@ -1612,7 +1612,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_LeavesRawPoolUsernamesUnchange
 	}
 
 	mockMinerGetter.EXPECT().
-		GetMiner(gomock.Any(), int64(43)).
+		GetMinerForCommand(gomock.Any(), int64(43)).
 		Return(mockMiner, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
@@ -1670,7 +1670,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PreservesLegacyDottedFleetUser
 			}
 
 			mockMinerGetter.EXPECT().
-				GetMiner(gomock.Any(), int64(44)).
+				GetMinerForCommand(gomock.Any(), int64(44)).
 				Return(mockMiner, nil)
 			mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 			mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
@@ -1722,7 +1722,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReappliesCurrentPoolsWithStore
 	}
 
 	mockMinerGetter.EXPECT().
-		GetMiner(gomock.Any(), int64(49)).
+		GetMinerForCommand(gomock.Any(), int64(49)).
 		Return(storedPoolMiner{Miner: mockMiner, StoredMiningPoolReader: storedReader}, nil)
 
 	storedReader.EXPECT().
@@ -1788,7 +1788,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyUsesDesiredWorkerNameFr
 	}
 
 	mockMinerGetter.EXPECT().
-		GetMiner(gomock.Any(), int64(149)).
+		GetMinerForCommand(gomock.Any(), int64(149)).
 		Return(storedPoolMiner{Miner: mockMiner, StoredMiningPoolReader: storedReader}, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
@@ -1845,7 +1845,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyAppendsStoredWorkerName
 	}
 
 	mockMinerGetter.EXPECT().
-		GetMiner(gomock.Any(), int64(50)).
+		GetMinerForCommand(gomock.Any(), int64(50)).
 		Return(storedPoolMiner{Miner: mockMiner, StoredMiningPoolReader: storedReader}, nil)
 
 	storedReader.EXPECT().
@@ -1903,7 +1903,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyReplacesEntireDottedWor
 	}
 
 	mockMinerGetter.EXPECT().
-		GetMiner(gomock.Any(), int64(52)).
+		GetMinerForCommand(gomock.Any(), int64(52)).
 		Return(storedPoolMiner{Miner: mockMiner, StoredMiningPoolReader: storedReader}, nil)
 
 	storedReader.EXPECT().
@@ -1960,7 +1960,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyNormalizesAllPoolsToSto
 	}
 
 	mockMinerGetter.EXPECT().
-		GetMiner(gomock.Any(), int64(53)).
+		GetMinerForCommand(gomock.Any(), int64(53)).
 		Return(storedPoolMiner{Miner: mockMiner, StoredMiningPoolReader: storedReader}, nil)
 
 	storedReader.EXPECT().
@@ -2034,7 +2034,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyRequiresVerifiedPasswor
 			body, err := json.Marshal(dto.UpdateMiningPoolsPayload{ReapplyCurrentPoolsWithStoredWorkerName: true, DesiredWorkerName: "new"})
 			require.NoError(t, err)
 			message := queue.Message{ID: 117, DeviceID: 149, CommandType: commandtype.UpdateMiningPools, Payload: body}
-			minerGetter.EXPECT().GetMiner(gomock.Any(), int64(149)).Return(storedPoolMiner{Miner: miner, StoredMiningPoolReader: storedReader}, nil)
+			minerGetter.EXPECT().GetMinerForCommand(gomock.Any(), int64(149)).Return(storedPoolMiner{Miner: miner, StoredMiningPoolReader: storedReader}, nil)
 			miner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 			miner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 			miner.EXPECT().GetID().Return(models.DeviceIdentifier("credential-preserving-rename")).AnyTimes()
@@ -2125,7 +2125,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_PersistsWorkerNameWhenNoCurren
 	}
 
 	mockMinerGetter.EXPECT().
-		GetMiner(gomock.Any(), int64(51)).
+		GetMinerForCommand(gomock.Any(), int64(51)).
 		Return(storedPoolMiner{Miner: mockMiner, StoredMiningPoolReader: storedReader}, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
@@ -2171,7 +2171,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyPreservesGetPoolsErrorC
 	}
 
 	mockMinerGetter.EXPECT().
-		GetMiner(gomock.Any(), int64(54)).
+		GetMinerForCommand(gomock.Any(), int64(54)).
 		Return(storedPoolMiner{Miner: mockMiner, StoredMiningPoolReader: storedReader}, nil)
 	mockMiner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 	mockMiner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()

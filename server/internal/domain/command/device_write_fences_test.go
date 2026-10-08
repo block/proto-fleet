@@ -42,7 +42,7 @@ func TestQueuedDispatchCannotCrossOwnershipEpoch(t *testing.T) {
 	complete := make(chan struct{})
 	finish := sync.OnceFunc(func() { close(complete) })
 	t.Cleanup(finish)
-	getter.EXPECT().GetMiner(gomock.Any(), deviceID).Return(miner, nil).Times(1)
+	getter.EXPECT().GetMinerForCommand(gomock.Any(), deviceID).Return(miner, nil).Times(1)
 	miner.EXPECT().GetOrgID().Return(organizationID)
 	miner.EXPECT().GetSiteID().Return(int64(0))
 	miner.EXPECT().StopMining(gomock.Any()).DoAndReturn(func(context.Context) error { close(started); <-complete; return nil }).Times(1)

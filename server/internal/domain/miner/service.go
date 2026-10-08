@@ -128,6 +128,20 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 	return s.getMinerFromDeviceIdentifier(ctx, deviceID, nil, true)
 }
 
+// GetMinerForCommand resolves the current binding once for a new execution.
+// Cached read handles can predate a site, route, credential or epoch change;
+// they remain independently guarded and must not be refreshed during dispatch.
+func (s *Service) GetMinerForCommand(ctx context.Context, deviceID int64) (interfaces.Miner, error) {
+	identifier, err := s.GetQueries(ctx).GetDeviceIdentifierByID(ctx, deviceID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundErrorf("device not found: %d", deviceID)
+		}
+		return nil, fmt.Errorf("failed to get device identifier: %w", err)
+	}
+	return s.getMinerFromDeviceIdentifier(ctx, models.DeviceIdentifier(identifier), nil, false)
+}
+
 func (s *Service) GetMinerForPasswordUpdate(ctx context.Context, deviceID int64, currentPassword string) (interfaces.Miner, error) {
 	identifier, err := s.GetQueries(ctx).GetDeviceIdentifierByID(ctx, deviceID)
 	if err != nil {

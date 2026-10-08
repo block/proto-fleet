@@ -539,11 +539,15 @@ func (q *Queries) LockDeviceWriteFences(ctx context.Context, deviceIds []int64) 
 }
 
 const lockDeviceWriteIdentities = `-- name: LockDeviceWriteIdentities :exec
-SELECT pg_advisory_xact_lock(k) FROM (
- SELECT DISTINCT hashtextextended(identity,0) AS k FROM unnest($1::text[]) AS identity ORDER BY k
-) AS ordered_keys
+SELECT pg_advisory_xact_lock(1146571076, stripe) FROM (
+ SELECT DISTINCT (hashtextextended(identity,0) & 255)::integer AS stripe
+ FROM unnest($1::text[]) AS identity ORDER BY stripe
+) AS ordered_stripes
 `
 
+// Bound all identity admission paths to 256 transaction locks, including fleet
+// deletion. The two-int DWID namespace is separate from bigint advisory keys.
+// Collisions only serialize admission; physical identity comparisons stay exact.
 func (q *Queries) LockDeviceWriteIdentities(ctx context.Context, identityKeys []string) error {
 	_, err := q.exec(ctx, q.lockDeviceWriteIdentitiesStmt, lockDeviceWriteIdentities, pq.Array(identityKeys))
 	return err
