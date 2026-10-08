@@ -516,6 +516,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deviceHasActivePairingStmt, err = db.PrepareContext(ctx, deviceHasActivePairing); err != nil {
 		return nil, fmt.Errorf("error preparing query DeviceHasActivePairing: %w", err)
 	}
+	if q.deviceHasRevokedFleetNodeStatusStmt, err = db.PrepareContext(ctx, deviceHasRevokedFleetNodeStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query DeviceHasRevokedFleetNodeStatus: %w", err)
+	}
 	if q.deviceSetBelongsToOrgStmt, err = db.PrepareContext(ctx, deviceSetBelongsToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query DeviceSetBelongsToOrg: %w", err)
 	}
@@ -3169,6 +3172,11 @@ func (q *Queries) Close() error {
 	if q.deviceHasActivePairingStmt != nil {
 		if cerr := q.deviceHasActivePairingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deviceHasActivePairingStmt: %w", cerr)
+		}
+	}
+	if q.deviceHasRevokedFleetNodeStatusStmt != nil {
+		if cerr := q.deviceHasRevokedFleetNodeStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deviceHasRevokedFleetNodeStatusStmt: %w", cerr)
 		}
 	}
 	if q.deviceSetBelongsToOrgStmt != nil {
@@ -6424,6 +6432,7 @@ type Queries struct {
 	deleteScheduleTargetsStmt                                    *sql.Stmt
 	deviceHasActiveCloudPairingStmt                              *sql.Stmt
 	deviceHasActivePairingStmt                                   *sql.Stmt
+	deviceHasRevokedFleetNodeStatusStmt                          *sql.Stmt
 	deviceSetBelongsToOrgStmt                                    *sql.Stmt
 	deviceSetsByIDsStmt                                          *sql.Stmt
 	disableCurtailmentAutomationRuleByActiveEventStmt            *sql.Stmt
@@ -7204,6 +7213,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteScheduleTargetsStmt:                                    q.deleteScheduleTargetsStmt,
 		deviceHasActiveCloudPairingStmt:                              q.deviceHasActiveCloudPairingStmt,
 		deviceHasActivePairingStmt:                                   q.deviceHasActivePairingStmt,
+		deviceHasRevokedFleetNodeStatusStmt:                          q.deviceHasRevokedFleetNodeStatusStmt,
 		deviceSetBelongsToOrgStmt:                                    q.deviceSetBelongsToOrgStmt,
 		deviceSetsByIDsStmt:                                          q.deviceSetsByIDsStmt,
 		disableCurtailmentAutomationRuleByActiveEventStmt:            q.disableCurtailmentAutomationRuleByActiveEventStmt,

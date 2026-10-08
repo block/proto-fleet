@@ -93,6 +93,20 @@ INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id, assigned_by)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (device_id) DO NOTHING;
 
+-- name: DeviceHasRevokedFleetNodeStatus :one
+-- Direct binding cannot recover a miner unpaired by revocation. Check after
+-- the binding attempt so a concurrent revoke that deleted the old assignment
+-- is visible before the direct-binding transaction commits.
+SELECT EXISTS (
+    SELECT 1
+    FROM device d
+    JOIN device_status ds ON ds.device_id = d.id
+    WHERE d.id = sqlc.arg('device_id')
+      AND d.org_id = sqlc.arg('org_id')
+      AND d.deleted_at IS NULL
+      AND ds.status_details = 'fleet_node_revoked'
+);
+
 -- name: LockFleetNodePairingDevice :many
 -- Serialize ownership assignment with cloud IP-recovery authentication
 -- reconciliation. Call after locking the Fleet Node and before checking the

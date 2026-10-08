@@ -500,8 +500,19 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 	require.NoError(t, db.QueryRow(`SELECT status FROM device_status WHERE device_id = $1`, devID).Scan(&deviceStatus))
 	assert.Equal(t, "OFFLINE", deviceStatus)
 
-	// The replacement Node can rediscover and pair the same miner.
+	// Direct binding must not claim a revoked miner before provisioning has
+	// restored its pairing and status.
 	replacementID := createFleetNode(t, enrollment, orgID, "replacement-node")
+	err = pairing.PairDevice(ctx, replacementID, devID, orgID, &assignedBy)
+	require.Error(t, err)
+	assert.True(t, fleeterror.IsFailedPreconditionError(err))
+	assert.ErrorContains(t, err, "discover and pair")
+	assert.False(t, deviceBoundToNode(t, db, orgID, replacementID, identifier))
+	eligible, err := deviceStore.GetAllPairedDeviceIdentifiers(ctx)
+	require.NoError(t, err)
+	assert.NotContains(t, eligible, telemetrymodels.DeviceIdentifier(identifier))
+
+	// The replacement Node can still rediscover and pair the same miner.
 	upsertNodeDiscovered(t, pairing, orgID, replacementID, identifier)
 	// Rediscovery changes attribution but must not re-enable stale status writes.
 	require.NoError(t, deviceStore.UpsertDeviceStatus(ctx, telemetrymodels.DeviceIdentifier(identifier), minermodels.MinerStatusActive, ""))
@@ -519,6 +530,9 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 	assert.Equal(t, "ACTIVE", deviceStatus)
 	require.NoError(t, db.QueryRow(`SELECT status_details FROM device_status WHERE device_id = $1`, devID).Scan(&statusDetails))
 	assert.False(t, statusDetails.Valid)
+	eligible, err = deviceStore.GetAllPairedDeviceIdentifiers(ctx)
+	require.NoError(t, err)
+	assert.Contains(t, eligible, telemetrymodels.DeviceIdentifier(identifier))
 }
 
 func TestRevocationBlocksTelemetryStartedBeforeCommit(t *testing.T) {

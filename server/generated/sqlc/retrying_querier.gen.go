@@ -1782,6 +1782,18 @@ func (q *retryingQuerier) DeviceHasActivePairing(ctx context.Context, arg Device
 	return result, err
 }
 
+func (q *retryingQuerier) DeviceHasRevokedFleetNodeStatus(ctx context.Context, arg DeviceHasRevokedFleetNodeStatusParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "DeviceHasRevokedFleetNodeStatus", func() error {
+		callResult, callErr := q.next.DeviceHasRevokedFleetNodeStatus(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) DeviceSetBelongsToOrg(ctx context.Context, arg DeviceSetBelongsToOrgParams) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "DeviceSetBelongsToOrg", func() error {

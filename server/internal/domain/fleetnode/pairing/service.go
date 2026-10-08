@@ -33,6 +33,7 @@ var telemetryScheduleTimeout = 5 * time.Second
 
 type Store interface { //nolint:interfacebloat // Pairing coordinates several sqlc-backed persistence operations in one transaction boundary.
 	PairDeviceToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) (int64, error)
+	DeviceHasRevokedFleetNodeStatus(ctx context.Context, deviceID, orgID int64) (bool, error)
 	LockDeviceForFleetNodePairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	TransferDiscoveredDeviceAttribution(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error)
 	ClearFleetNodeRevokedStatus(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error)
@@ -158,7 +159,20 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 	if err := s.lockDeviceForPairing(ctx, deviceID, orgID); err != nil {
 		return err
 	}
-	return s.pairDeviceWithLocks(ctx, fleetNodeID, deviceID, orgID, assignedBy)
+	if err := s.pairDeviceWithLocks(ctx, fleetNodeID, deviceID, orgID, assignedBy); err != nil {
+		return err
+	}
+	// A direct binding does not run miner provisioning. If revocation removed
+	// the previous assignment while this transaction waited, this final check
+	// sees its committed status marker and rolls back the new binding.
+	revoked, err := s.store.DeviceHasRevokedFleetNodeStatus(ctx, deviceID, orgID)
+	if err != nil {
+		return logInternal("check revoked fleet node status", clientErrPair, err)
+	}
+	if revoked {
+		return fleeterror.NewFailedPreconditionError("miner was unpaired by fleet node revocation; discover and pair it through the replacement node")
+	}
+	return nil
 }
 
 func (s *Service) lockFleetNodeForPairing(ctx context.Context, fleetNodeID, orgID int64) error {

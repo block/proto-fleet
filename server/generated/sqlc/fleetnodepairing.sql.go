@@ -159,6 +159,33 @@ func (q *Queries) DeviceHasActivePairing(ctx context.Context, arg DeviceHasActiv
 	return exists, err
 }
 
+const deviceHasRevokedFleetNodeStatus = `-- name: DeviceHasRevokedFleetNodeStatus :one
+SELECT EXISTS (
+    SELECT 1
+    FROM device d
+    JOIN device_status ds ON ds.device_id = d.id
+    WHERE d.id = $1
+      AND d.org_id = $2
+      AND d.deleted_at IS NULL
+      AND ds.status_details = 'fleet_node_revoked'
+)
+`
+
+type DeviceHasRevokedFleetNodeStatusParams struct {
+	DeviceID int64
+	OrgID    int64
+}
+
+// Direct binding cannot recover a miner unpaired by revocation. Check after
+// the binding attempt so a concurrent revoke that deleted the old assignment
+// is visible before the direct-binding transaction commits.
+func (q *Queries) DeviceHasRevokedFleetNodeStatus(ctx context.Context, arg DeviceHasRevokedFleetNodeStatusParams) (bool, error) {
+	row := q.queryRow(ctx, q.deviceHasRevokedFleetNodeStatusStmt, deviceHasRevokedFleetNodeStatus, arg.DeviceID, arg.OrgID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const getFleetNodePairedDeviceIdentifier = `-- name: GetFleetNodePairedDeviceIdentifier :one
 SELECT d.device_identifier
 FROM fleet_node_device fnd

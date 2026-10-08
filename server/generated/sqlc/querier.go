@@ -494,6 +494,10 @@ type Querier interface {
 	// resolution and persistence, another node (or the cloud) may have paired the
 	// device, and a stale AUTH_NEEDED result must not clobber that paired-like status.
 	DeviceHasActivePairing(ctx context.Context, arg DeviceHasActivePairingParams) (bool, error)
+	// Direct binding cannot recover a miner unpaired by revocation. Check after
+	// the binding attempt so a concurrent revoke that deleted the old assignment
+	// is visible before the direct-binding transaction commits.
+	DeviceHasRevokedFleetNodeStatus(ctx context.Context, arg DeviceHasRevokedFleetNodeStatusParams) (bool, error)
 	DeviceSetBelongsToOrg(ctx context.Context, arg DeviceSetBelongsToOrgParams) (bool, error)
 	// Returns the subset of requested IDs that are live device sets of the given type in the org;
 	// the caller diffs against the request to detect cross-org, wrong-type, or missing IDs.

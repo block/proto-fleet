@@ -33,6 +33,13 @@ func (s *SQLFleetNodePairingStore) PairDeviceToFleetNode(ctx context.Context, fl
 	})
 }
 
+func (s *SQLFleetNodePairingStore) DeviceHasRevokedFleetNodeStatus(ctx context.Context, deviceID, orgID int64) (bool, error) {
+	return s.q(ctx).DeviceHasRevokedFleetNodeStatus(ctx, sqlc.DeviceHasRevokedFleetNodeStatusParams{
+		DeviceID: deviceID,
+		OrgID:    orgID,
+	})
+}
+
 func (s *SQLFleetNodePairingStore) ClearFleetNodeRevokedStatus(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error) {
 	return s.q(ctx).ClearFleetNodeRevokedStatus(ctx, sqlc.ClearFleetNodeRevokedStatusParams{
 		FleetNodeID: fleetNodeID,
