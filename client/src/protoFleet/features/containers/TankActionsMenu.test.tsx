@@ -59,8 +59,8 @@ describe("tank actions", () => {
     const dialog = screen.getByTestId("tank-mining-dialog");
     expect(dialog).toHaveTextContent("North CT1: Tank 1");
     expect(dialog).toHaveTextContent("South CT1: Tank 3");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
-    await screen.findByText(/North CT1: Tank 1: Stop mining acknowledged/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Stop mining" }));
+    await screen.findByText(/North CT1: Tank 1: Stop request accepted/);
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "South CT1: Tank 3: Tank partially applied: board disconnected",
     );
@@ -86,7 +86,7 @@ describe("tank actions", () => {
     expect(screen.queryByTestId("tank-11,13-actions-popover")).not.toBeInTheDocument();
     expect(mocks.submit).not.toHaveBeenCalled();
   });
-  it.each(["Cancel", "Confirm"])("dismisses confirmation with Escape from the focused %s button", async (label) => {
+  it.each(["Cancel", "Stop mining"])("dismisses confirmation with Escape from the focused %s button", async (label) => {
     render(<TankActionsMenu tanks={tanks} onRefresh={vi.fn()} />);
     await openStop();
     const control = within(screen.getByTestId("tank-mining-dialog")).getByRole("button", { name: label });
@@ -130,8 +130,8 @@ describe("tank actions", () => {
     expect(mocks.options).toHaveBeenCalledWith({ tankIds: [11n, 13n] }, expect.anything());
     expect(screen.queryByRole("button", { name: other })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: action }));
-    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
-    await screen.findByText(new RegExp(`North CT1: Tank 1: ${action} acknowledged`));
+    fireEvent.click(within(screen.getByTestId("tank-mining-dialog")).getByRole("button", { name: action }));
+    await screen.findByText(new RegExp(`North CT1: Tank 1: ${mining ? "Start" : "Stop"} request accepted`));
     expect(mocks.submit).toHaveBeenCalledWith({ tankIds: [11n, 13n], mining }, expect.anything());
   });
   it("keeps writes disabled when resource authorization is denied", async () => {
@@ -151,9 +151,9 @@ describe("tank actions", () => {
     mocks.submit.mockRejectedValue(new Error("Connection lost"));
     render(<TankActionsMenu tanks={tanks} onRefresh={vi.fn()} />);
     await openStop();
-    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    fireEvent.click(within(screen.getByTestId("tank-mining-dialog")).getByRole("button", { name: "Stop mining" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Connection lost");
-    expect(screen.queryByRole("button", { name: "Confirm" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop mining" })).not.toBeInTheDocument();
     expect(mocks.submit).toHaveBeenCalledOnce();
   });
 });

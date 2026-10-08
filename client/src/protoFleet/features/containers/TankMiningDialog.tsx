@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { containersClient } from "@/protoFleet/api/clients";
 import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { Play, Power } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
-import Dialog from "@/shared/components/Dialog";
+import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 
 export default function TankMiningDialog({
   tanks,
@@ -28,6 +29,8 @@ export default function TankMiningDialog({
     return () => controller.abort();
   }, []);
   const action = mining ? "Start mining" : "Stop mining";
+  const target = tanks.length === 1 ? tanks[0].name : `the ${tanks.length} selected tanks`;
+  const pendingMessage = `${mining ? "Starting" : "Stopping"} mining…`;
   const submit = async () => {
     if (submitted.current) return;
     submitted.current = true;
@@ -38,7 +41,7 @@ export default function TankMiningDialog({
         { tankIds: tanks.map((tank) => tank.ref!.id), mining },
         { signal, timeoutMs: 10_000 },
       );
-      if (!commands.length) throw new Error("No command result returned; outcome unconfirmed.");
+      if (!commands.length) throw new Error("Couldn't confirm whether the request was sent.");
       const outcomes = await Promise.all(
         commands.map(async (command) => {
           const names = tanks
@@ -60,8 +63,8 @@ export default function TankMiningDialog({
                   failed,
                   text: failed
                     ? result.deviceResults.find((device) => device.errorMessage)?.errorMessage ||
-                      "Command failed; state unconfirmed."
-                    : `${action} acknowledged. Current readings will refresh.`,
+                      "Couldn't confirm the mining state. Check the readings before trying again."
+                    : `${mining ? "Start" : "Stop"} request accepted. Check the readings to confirm mining has ${mining ? "started" : "stopped"}.`,
                 };
               }
               await new Promise<void>((resolve, reject) => {
@@ -71,13 +74,13 @@ export default function TankMiningDialog({
                 }, 1000);
                 const cancel = () => {
                   clearTimeout(timer);
-                  reject(new Error("Command outcome unconfirmed."));
+                  reject(new Error("Couldn't confirm the result."));
                 };
                 signal.addEventListener("abort", cancel, { once: true });
                 if (signal.aborted) cancel();
               });
             }
-            throw new Error("Command outcome unconfirmed. Refresh before retrying.");
+            throw new Error("Couldn't confirm the result. Refresh the readings before trying again.");
           } catch (cause) {
             return { label, failed: true, text: getErrorMessage(cause) };
           }
@@ -85,7 +88,7 @@ export default function TankMiningDialog({
       );
       if (!signal.aborted) setResults(outcomes);
     } catch (cause) {
-      if (!signal.aborted) setError(`${getErrorMessage(cause)} Refresh before retrying.`);
+      if (!signal.aborted) setError(`${getErrorMessage(cause)} Refresh the readings before trying again.`);
     } finally {
       if (!signal.aborted) {
         setPhase("done");
@@ -96,15 +99,24 @@ export default function TankMiningDialog({
   return (
     <Dialog
       open
-      title={`${action}: ${tanks.length === 1 ? tanks[0].name : `${tanks.length} tanks`}`}
-      subtitle="Applies to all modules in the selected tanks. The controller reports any boards it cannot update."
+      title={phase === "confirm" ? `${action}${tanks.length > 1 ? ` on ${tanks.length} tanks` : ""}?` : action}
+      subtitle={
+        phase === "confirm"
+          ? `All modules in ${target} will ${mining ? "start" : "stop"} hashing.`
+          : tanks.length === 1
+            ? tanks[0].name
+            : `${tanks.length} selected tanks`
+      }
+      subtitleSize="text-300"
+      icon={<DialogIcon intent={mining ? "success" : "info"}>{mining ? <Play /> : <Power />}</DialogIcon>}
+      loading={busy}
       testId="tank-mining-dialog"
       onDismiss={busy ? undefined : onClose}
       buttons={
         phase !== "confirm"
           ? [
               {
-                text: busy ? "Command pending…" : "Done",
+                text: busy ? pendingMessage : "Done",
                 variant: variants.secondary,
                 onClick: onClose,
                 disabled: busy,
@@ -112,7 +124,7 @@ export default function TankMiningDialog({
             ]
           : [
               { text: "Cancel", variant: variants.secondary, onClick: onClose },
-              { text: "Confirm", variant: variants.primary, onClick: () => void submit() },
+              { text: action, variant: variants.primary, onClick: () => void submit() },
             ]
       }
     >
@@ -120,7 +132,7 @@ export default function TankMiningDialog({
         <ul className="flex flex-col gap-2">
           {tanks.map((tank) => (
             <li key={String(tank.ref!.id)}>
-              {tank.facilityName ? `${tank.facilityName}: ` : ""}
+              {tank.facilityName && !tank.name.startsWith(tank.facilityName) ? `${tank.facilityName}: ` : ""}
               {tank.name}
             </li>
           ))}
@@ -128,7 +140,7 @@ export default function TankMiningDialog({
       ) : null}
       {busy ? (
         <p role="status" className="mt-4">
-          {action} pending for the selected tanks…
+          {pendingMessage}
         </p>
       ) : null}
       {error ? (
@@ -138,7 +150,8 @@ export default function TankMiningDialog({
       ) : null}
       {results.map((result) => (
         <p key={result.label} role={result.failed ? "alert" : "status"} className="mt-4">
-          {result.label}: {result.text}
+          {tanks.length > 1 ? `${result.label}: ` : ""}
+          {result.text}
         </p>
       ))}
     </Dialog>
