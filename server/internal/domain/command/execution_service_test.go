@@ -2058,7 +2058,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyRejectsInvalidStoredSha
 			miner := minerIfaceMocks.NewMockMiner(ctrl)
 			reader := minerIfaceMocks.NewMockStoredMiningPoolReader(ctrl)
 			store := storeMocks.NewMockDeviceStore(ctrl)
-			password := "private-pool-credential"
+			password := fmt.Sprintf("test-pool-%d", len(tc.priorities))
 			pools := make([]minerInterfaces.MinerStoredPool, len(tc.priorities))
 			for i, priority := range tc.priorities {
 				pools[i] = minerInterfaces.MinerStoredPool{Priority: priority, URL: "stratum+tcp://pool.example:3333", Username: "wallet.old", Password: &password}
