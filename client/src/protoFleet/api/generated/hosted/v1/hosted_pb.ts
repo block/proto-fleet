@@ -15,7 +15,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_hosted_v1_hosted: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChZob3N0ZWQvdjEvaG9zdGVkLnByb3RvEglob3N0ZWQudjEi3AEKB0FjY291bnQSEgoKYWNjb3VudF9pZBgBIAEoCRIZChFwYXJlbnRfYWNjb3VudF9pZBgCIAEoCRIMCgRuYW1lGAMgASgJEg0KBWRlcHRoGAQgASgNEhoKEmNhcGFiaWxpdHlfY2VpbGluZxgFIAEoBBIeChZlZmZlY3RpdmVfY2FwYWJpbGl0aWVzGAYgASgEEiQKBHJvbGUYByABKA4yFi5ob3N0ZWQudjEuQWNjb3VudFJvbGUSEQoJc3VzcGVuZGVkGAggASgIEhAKCHJldmlzaW9uGAkgASgDIkIKClNpdGVQb2xpY3kSEgoKcmVzdHJpY3RlZBgBIAEoCBIgCghzaXRlX2lkcxgCIAMoA0IOukgLkgEIGAEiBCICIAAikgEKBk1lbWJlchIPCgd1c2VyX2lkGAEgASgJEhAKCHVzZXJuYW1lGAIgASgJEiQKBHJvbGUYAyABKA4yFi5ob3N0ZWQudjEuQWNjb3VudFJvbGUSEAoIcmV2aXNpb24YBCABKAMSLQoJam9pbmVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJUCg1BbmNlc3RvckdyYW50EhsKE2FuY2VzdG9yX2FjY291bnRfaWQYASABKAkSFAoMY2FwYWJpbGl0aWVzGAIgASgEEhAKCHJldmlzaW9uGAMgASgDIp0CCgpJbnZpdGF0aW9uEhUKDWludml0YXRpb25faWQYASABKAkSJAoEcm9sZRgCIAEoDjIWLmhvc3RlZC52MS5BY2NvdW50Um9sZRIuCgpleHBpcmVzX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpyZXZva2VkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgthY2NlcHRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEQoJYXZhaWxhYmxlGAcgASgIIhUKE0xpc3RBY2NvdW50c1JlcXVlc3QiUQoUTGlzdEFjY291bnRzUmVzcG9uc2USJAoIYWNjb3VudHMYASADKAsyEi5ob3N0ZWQudjEuQWNjb3VudBITCgtob3N0X2FjY2VzcxgCIAEoCCIxChFHZXRBY2NvdW50UmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABASJlChJHZXRBY2NvdW50UmVzcG9uc2USIwoHYWNjb3VudBgBIAEoCzISLmhvc3RlZC52MS5BY2NvdW50EioKC3NpdGVfcG9saWN5GAIgASgLMhUuaG9zdGVkLnYxLlNpdGVQb2xpY3kiMwoTTGlzdENoaWxkcmVuUmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABASI8ChRMaXN0Q2hpbGRyZW5SZXNwb25zZRIkCghhY2NvdW50cxgBIAMoCzISLmhvc3RlZC52MS5BY2NvdW50IrcBChRDcmVhdGVBY2NvdW50UmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABARIYCgRuYW1lGAIgASgJQgq6SAdyBRABGP8BEiwKFWFkbWluaXN0cmF0b3JfdXNlcl9pZBgDIAEoCUIIukgFcgOwAQFIAIgBARIfCgxjYXBhYmlsaXRpZXMYBCABKARCCbpIBjIEGB8oAUIYChZfYWRtaW5pc3RyYXRvcl91c2VyX2lkIjwKFUNyZWF0ZUFjY291bnRSZXNwb25zZRIjCgdhY2NvdW50GAEgASgLMhIuaG9zdGVkLnYxLkFjY291bnQijwEKF0NvbmZpZ3VyZUFjY291bnRSZXF1ZXN0EhwKCmFjY291bnRfaWQYASABKAlCCLpIBXIDsAEBEiIKEGNoaWxkX2FjY291bnRfaWQYAiABKAlCCLpIBXIDsAEBEh8KDGNhcGFiaWxpdGllcxgDIAEoBEIJukgGMgQYHygBEhEKCXN1c3BlbmRlZBgEIAEoCCIaChhDb25maWd1cmVBY2NvdW50UmVzcG9uc2UiTgoUUmVuYW1lQWNjb3VudFJlcXVlc3QSHAoKYWNjb3VudF9pZBgBIAEoCUIIukgFcgOwAQESGAoEbmFtZRgCIAEoCUIKukgHcgUQARj/ASIXChVSZW5hbWVBY2NvdW50UmVzcG9uc2UiMgoSTGlzdE1lbWJlcnNSZXF1ZXN0EhwKCmFjY291bnRfaWQYASABKAlCCLpIBXIDsAEBIjkKE0xpc3RNZW1iZXJzUmVzcG9uc2USIgoHbWVtYmVycxgBIAMoCzIRLmhvc3RlZC52MS5NZW1iZXIigQEKFFNldE1lbWJlclJvbGVSZXF1ZXN0EhwKCmFjY291bnRfaWQYASABKAlCCLpIBXIDsAEBEhkKB3VzZXJfaWQYAiABKAlCCLpIBXIDsAEBEjAKBHJvbGUYAyABKA4yFi5ob3N0ZWQudjEuQWNjb3VudFJvbGVCCrpIB4IBBBABIAAiFwoVU2V0TWVtYmVyUm9sZVJlc3BvbnNlIk4KE1Jldm9rZU1lbWJlclJlcXVlc3QSHAoKYWNjb3VudF9pZBgBIAEoCUIIukgFcgOwAQESGQoHdXNlcl9pZBgCIAEoCUIIukgFcgOwAQEiFgoUUmV2b2tlTWVtYmVyUmVzcG9uc2UiOQoZTGlzdEFuY2VzdG9yR3JhbnRzUmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABASJGChpMaXN0QW5jZXN0b3JHcmFudHNSZXNwb25zZRIoCgZncmFudHMYASADKAsyGC5ob3N0ZWQudjEuQW5jZXN0b3JHcmFudCJ/ChdTZXRBbmNlc3RvckdyYW50UmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABARIlChNhbmNlc3Rvcl9hY2NvdW50X2lkGAIgASgJQgi6SAVyA7ABARIfCgxjYXBhYmlsaXRpZXMYAyABKARCCbpIBjIEGB8oASIaChhTZXRBbmNlc3RvckdyYW50UmVzcG9uc2UiYQoaUmV2b2tlQW5jZXN0b3JHcmFudFJlcXVlc3QSHAoKYWNjb3VudF9pZBgBIAEoCUIIukgFcgOwAQESJQoTYW5jZXN0b3JfYWNjb3VudF9pZBgCIAEoCUIIukgFcgOwAQEiHQobUmV2b2tlQW5jZXN0b3JHcmFudFJlc3BvbnNlIqYBChRTZXRTaXRlUG9saWN5UmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABARIyCgtzaXRlX3BvbGljeRgCIAEoCzIVLmhvc3RlZC52MS5TaXRlUG9saWN5Qga6SAPIAQESJwoQY2hpbGRfYWNjb3VudF9pZBgDIAEoCUIIukgFcgOwAQFIAIgBAUITChFfY2hpbGRfYWNjb3VudF9pZCIXChVTZXRTaXRlUG9saWN5UmVzcG9uc2UicgoUR2V0U2l0ZVBvbGljeVJlcXVlc3QSHAoKYWNjb3VudF9pZBgBIAEoCUIIukgFcgOwAQESJwoQY2hpbGRfYWNjb3VudF9pZBgCIAEoCUIIukgFcgOwAQFIAIgBAUITChFfY2hpbGRfYWNjb3VudF9pZCJ9ChVHZXRTaXRlUG9saWN5UmVzcG9uc2USKgoLc2l0ZV9wb2xpY3kYASABKAsyFS5ob3N0ZWQudjEuU2l0ZVBvbGljeRIcChRlZmZlY3RpdmVfcmVzdHJpY3RlZBgCIAEoCBIaChJlZmZlY3RpdmVfc2l0ZV9pZHMYAyADKAMicgoWTGlzdEludml0YXRpb25zUmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABARIcCglwYWdlX3NpemUYAiABKAVCCbpIBhoEGGQoABIcCgpwYWdlX3Rva2VuGAMgASgJQgi6SAVyAxiABCJoChdMaXN0SW52aXRhdGlvbnNSZXNwb25zZRI0CgtpbnZpdGF0aW9ucxgBIAMoCzIVLmhvc3RlZC52MS5JbnZpdGF0aW9uQgi6SAWSAQIQZBIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkikAEKF0NyZWF0ZUludml0YXRpb25SZXF1ZXN0EhwKCmFjY291bnRfaWQYASABKAlCCLpIBXIDsAEBEjAKBHJvbGUYAiABKA4yFi5ob3N0ZWQudjEuQWNjb3VudFJvbGVCCrpIB4IBBBABIAASJQoSZXhwaXJlc19pbl9zZWNvbmRzGAMgASgNQgm6SAYqBBiA9SQiVAoYQ3JlYXRlSW52aXRhdGlvblJlc3BvbnNlEikKCmludml0YXRpb24YASABKAsyFS5ob3N0ZWQudjEuSW52aXRhdGlvbhINCgV0b2tlbhgCIAEoCSJYChdSZXZva2VJbnZpdGF0aW9uUmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABARIfCg1pbnZpdGF0aW9uX2lkGAIgASgJQgi6SAVyA7ABASIaChhSZXZva2VJbnZpdGF0aW9uUmVzcG9uc2UiMwoYUHJldmlld0ludml0YXRpb25SZXF1ZXN0EhcKBXRva2VuGAEgASgJQgi6SAVyA5gBKyKHAQoZUHJldmlld0ludml0YXRpb25SZXNwb25zZRIUCgxhY2NvdW50X25hbWUYASABKAkSJAoEcm9sZRgCIAEoDjIWLmhvc3RlZC52MS5BY2NvdW50Um9sZRIuCgpleHBpcmVzX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIyChdBY2NlcHRJbnZpdGF0aW9uUmVxdWVzdBIXCgV0b2tlbhgBIAEoCUIIukgFcgOYASsiLgoYQWNjZXB0SW52aXRhdGlvblJlc3BvbnNlEhIKCmFjY291bnRfaWQYASABKAkicQoaUmVnaXN0ZXJJbnZpdGVkVXNlclJlcXVlc3QSFwoFdG9rZW4YASABKAlCCLpIBXIDmAErEhwKCHVzZXJuYW1lGAIgASgJQgq6SAdyBRABGP8BEhwKCHBhc3N3b3JkGAMgASgJQgq6SAdyBRABGIABIjEKG1JlZ2lzdGVySW52aXRlZFVzZXJSZXNwb25zZRISCgphY2NvdW50X2lkGAEgASgJItcCCgpBY2NvdW50S2V5Eg4KBmtleV9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEg4KBnByZWZpeBgDIAEoCRIUCgxjYXBhYmlsaXRpZXMYBCABKAQSHgoWZGVzY2VuZGFudF9hY2NvdW50X2lkcxgFIAMoCRIiChppbmNsdWRlX2Z1dHVyZV9kZXNjZW5kYW50cxgGIAEoCBIuCgpjcmVhdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpleHBpcmVzX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgxsYXN0X3VzZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhYKDmlzc3Vlcl91c2VyX2lkGAogASgJEhcKD2lzc3Vlcl91c2VybmFtZRgLIAEoCSL5AQoXQ3JlYXRlQWNjb3VudEtleVJlcXVlc3QSHAoKYWNjb3VudF9pZBgBIAEoCUIIukgFcgOwAQESGAoEbmFtZRgCIAEoCUIKukgHcgUQARj/ARIfCgxjYXBhYmlsaXRpZXMYAyABKARCCbpIBjIEGAcoARIxChZkZXNjZW5kYW50X2FjY291bnRfaWRzGAQgAygJQhG6SA6SAQsQZBgBIgVyA7ABARIiChppbmNsdWRlX2Z1dHVyZV9kZXNjZW5kYW50cxgFIAEoCBIuCgpleHBpcmVzX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJOChhDcmVhdGVBY2NvdW50S2V5UmVzcG9uc2USIgoDa2V5GAEgASgLMhUuaG9zdGVkLnYxLkFjY291bnRLZXkSDgoGc2VjcmV0GAIgASgJInIKFkxpc3RBY2NvdW50S2V5c1JlcXVlc3QSHAoKYWNjb3VudF9pZBgBIAEoCUIIukgFcgOwAQESHAoJcGFnZV9zaXplGAIgASgFQgm6SAYaBBhkKAASHAoKcGFnZV90b2tlbhgDIAEoCUIIukgFcgMYgAQiYQoXTGlzdEFjY291bnRLZXlzUmVzcG9uc2USLQoEa2V5cxgBIAMoCzIVLmhvc3RlZC52MS5BY2NvdW50S2V5Qgi6SAWSAQIQZBIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkiUQoXUmV2b2tlQWNjb3VudEtleVJlcXVlc3QSHAoKYWNjb3VudF9pZBgBIAEoCUIIukgFcgOwAQESGAoGa2V5X2lkGAIgASgJQgi6SAVyA7ABASIaChhSZXZva2VBY2NvdW50S2V5UmVzcG9uc2UqhAEKC0FjY291bnRSb2xlEhwKGEFDQ09VTlRfUk9MRV9VTlNQRUNJRklFRBAAEhcKE0FDQ09VTlRfUk9MRV9WSUVXRVIQARIeChpBQ0NPVU5UX1JPTEVfUE9PTF9PUEVSQVRPUhACEh4KGkFDQ09VTlRfUk9MRV9BRE1JTklTVFJBVE9SEAMylBAKFEhvc3RlZEFjY291bnRTZXJ2aWNlEk8KDExpc3RBY2NvdW50cxIeLmhvc3RlZC52MS5MaXN0QWNjb3VudHNSZXF1ZXN0Gh8uaG9zdGVkLnYxLkxpc3RBY2NvdW50c1Jlc3BvbnNlEkkKCkdldEFjY291bnQSHC5ob3N0ZWQudjEuR2V0QWNjb3VudFJlcXVlc3QaHS5ob3N0ZWQudjEuR2V0QWNjb3VudFJlc3BvbnNlEk8KDExpc3RDaGlsZHJlbhIeLmhvc3RlZC52MS5MaXN0Q2hpbGRyZW5SZXF1ZXN0Gh8uaG9zdGVkLnYxLkxpc3RDaGlsZHJlblJlc3BvbnNlElIKDUNyZWF0ZUFjY291bnQSHy5ob3N0ZWQudjEuQ3JlYXRlQWNjb3VudFJlcXVlc3QaIC5ob3N0ZWQudjEuQ3JlYXRlQWNjb3VudFJlc3BvbnNlElsKEENvbmZpZ3VyZUFjY291bnQSIi5ob3N0ZWQudjEuQ29uZmlndXJlQWNjb3VudFJlcXVlc3QaIy5ob3N0ZWQudjEuQ29uZmlndXJlQWNjb3VudFJlc3BvbnNlElIKDVJlbmFtZUFjY291bnQSHy5ob3N0ZWQudjEuUmVuYW1lQWNjb3VudFJlcXVlc3QaIC5ob3N0ZWQudjEuUmVuYW1lQWNjb3VudFJlc3BvbnNlEkwKC0xpc3RNZW1iZXJzEh0uaG9zdGVkLnYxLkxpc3RNZW1iZXJzUmVxdWVzdBoeLmhvc3RlZC52MS5MaXN0TWVtYmVyc1Jlc3BvbnNlElIKDVNldE1lbWJlclJvbGUSHy5ob3N0ZWQudjEuU2V0TWVtYmVyUm9sZVJlcXVlc3QaIC5ob3N0ZWQudjEuU2V0TWVtYmVyUm9sZVJlc3BvbnNlEk8KDFJldm9rZU1lbWJlchIeLmhvc3RlZC52MS5SZXZva2VNZW1iZXJSZXF1ZXN0Gh8uaG9zdGVkLnYxLlJldm9rZU1lbWJlclJlc3BvbnNlEmEKEkxpc3RBbmNlc3RvckdyYW50cxIkLmhvc3RlZC52MS5MaXN0QW5jZXN0b3JHcmFudHNSZXF1ZXN0GiUuaG9zdGVkLnYxLkxpc3RBbmNlc3RvckdyYW50c1Jlc3BvbnNlElsKEFNldEFuY2VzdG9yR3JhbnQSIi5ob3N0ZWQudjEuU2V0QW5jZXN0b3JHcmFudFJlcXVlc3QaIy5ob3N0ZWQudjEuU2V0QW5jZXN0b3JHcmFudFJlc3BvbnNlEmQKE1Jldm9rZUFuY2VzdG9yR3JhbnQSJS5ob3N0ZWQudjEuUmV2b2tlQW5jZXN0b3JHcmFudFJlcXVlc3QaJi5ob3N0ZWQudjEuUmV2b2tlQW5jZXN0b3JHcmFudFJlc3BvbnNlElIKDUdldFNpdGVQb2xpY3kSHy5ob3N0ZWQudjEuR2V0U2l0ZVBvbGljeVJlcXVlc3QaIC5ob3N0ZWQudjEuR2V0U2l0ZVBvbGljeVJlc3BvbnNlElIKDVNldFNpdGVQb2xpY3kSHy5ob3N0ZWQudjEuU2V0U2l0ZVBvbGljeVJlcXVlc3QaIC5ob3N0ZWQudjEuU2V0U2l0ZVBvbGljeVJlc3BvbnNlElgKD0xpc3RJbnZpdGF0aW9ucxIhLmhvc3RlZC52MS5MaXN0SW52aXRhdGlvbnNSZXF1ZXN0GiIuaG9zdGVkLnYxLkxpc3RJbnZpdGF0aW9uc1Jlc3BvbnNlElsKEENyZWF0ZUludml0YXRpb24SIi5ob3N0ZWQudjEuQ3JlYXRlSW52aXRhdGlvblJlcXVlc3QaIy5ob3N0ZWQudjEuQ3JlYXRlSW52aXRhdGlvblJlc3BvbnNlElsKEFJldm9rZUludml0YXRpb24SIi5ob3N0ZWQudjEuUmV2b2tlSW52aXRhdGlvblJlcXVlc3QaIy5ob3N0ZWQudjEuUmV2b2tlSW52aXRhdGlvblJlc3BvbnNlEl4KEVByZXZpZXdJbnZpdGF0aW9uEiMuaG9zdGVkLnYxLlByZXZpZXdJbnZpdGF0aW9uUmVxdWVzdBokLmhvc3RlZC52MS5QcmV2aWV3SW52aXRhdGlvblJlc3BvbnNlElsKEEFjY2VwdEludml0YXRpb24SIi5ob3N0ZWQudjEuQWNjZXB0SW52aXRhdGlvblJlcXVlc3QaIy5ob3N0ZWQudjEuQWNjZXB0SW52aXRhdGlvblJlc3BvbnNlEmQKE1JlZ2lzdGVySW52aXRlZFVzZXISJS5ob3N0ZWQudjEuUmVnaXN0ZXJJbnZpdGVkVXNlclJlcXVlc3QaJi5ob3N0ZWQudjEuUmVnaXN0ZXJJbnZpdGVkVXNlclJlc3BvbnNlElsKEENyZWF0ZUFjY291bnRLZXkSIi5ob3N0ZWQudjEuQ3JlYXRlQWNjb3VudEtleVJlcXVlc3QaIy5ob3N0ZWQudjEuQ3JlYXRlQWNjb3VudEtleVJlc3BvbnNlElgKD0xpc3RBY2NvdW50S2V5cxIhLmhvc3RlZC52MS5MaXN0QWNjb3VudEtleXNSZXF1ZXN0GiIuaG9zdGVkLnYxLkxpc3RBY2NvdW50S2V5c1Jlc3BvbnNlElsKEFJldm9rZUFjY291bnRLZXkSIi5ob3N0ZWQudjEuUmV2b2tlQWNjb3VudEtleVJlcXVlc3QaIy5ob3N0ZWQudjEuUmV2b2tlQWNjb3VudEtleVJlc3BvbnNlQqgBCg1jb20uaG9zdGVkLnYxQgtIb3N0ZWRQcm90b1ABWkVnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9ob3N0ZWQvdjE7aG9zdGVkdjGiAgNIWFiqAglIb3N0ZWQuVjHKAglIb3N0ZWRcVjHiAhVIb3N0ZWRcVjFcR1BCTWV0YWRhdGHqAgpIb3N0ZWQ6OlYxYgZwcm90bzM",
+    "ChZob3N0ZWQvdjEvaG9zdGVkLnByb3RvEglob3N0ZWQudjEi3AEKB0FjY291bnQSEgoKYWNjb3VudF9pZBgBIAEoCRIZChFwYXJlbnRfYWNjb3VudF9pZBgCIAEoCRIMCgRuYW1lGAMgASgJEg0KBWRlcHRoGAQgASgNEhoKEmNhcGFiaWxpdHlfY2VpbGluZxgFIAEoBBIeChZlZmZlY3RpdmVfY2FwYWJpbGl0aWVzGAYgASgEEiQKBHJvbGUYByABKA4yFi5ob3N0ZWQudjEuQWNjb3VudFJvbGUSEQoJc3VzcGVuZGVkGAggASgIEhAKCHJldmlzaW9uGAkgASgDIkIKClNpdGVQb2xpY3kSEgoKcmVzdHJpY3RlZBgBIAEoCBIgCghzaXRlX2lkcxgCIAMoA0IOukgLkgEIGAEiBCICIAAikgEKBk1lbWJlchIPCgd1c2VyX2lkGAEgASgJEhAKCHVzZXJuYW1lGAIgASgJEiQKBHJvbGUYAyABKA4yFi5ob3N0ZWQudjEuQWNjb3VudFJvbGUSEAoIcmV2aXNpb24YBCABKAMSLQoJam9pbmVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJUCg1BbmNlc3RvckdyYW50EhsKE2FuY2VzdG9yX2FjY291bnRfaWQYASABKAkSFAoMY2FwYWJpbGl0aWVzGAIgASgEEhAKCHJldmlzaW9uGAMgASgDIp0CCgpJbnZpdGF0aW9uEhUKDWludml0YXRpb25faWQYASABKAkSJAoEcm9sZRgCIAEoDjIWLmhvc3RlZC52MS5BY2NvdW50Um9sZRIuCgpleHBpcmVzX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpyZXZva2VkX2F0GAQgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIvCgthY2NlcHRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASLgoKY3JlYXRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASEQoJYXZhaWxhYmxlGAcgASgIIhUKE0xpc3RBY2NvdW50c1JlcXVlc3QiUQoUTGlzdEFjY291bnRzUmVzcG9uc2USJAoIYWNjb3VudHMYASADKAsyEi5ob3N0ZWQudjEuQWNjb3VudBITCgtob3N0X2FjY2VzcxgCIAEoCCIxChFHZXRBY2NvdW50UmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABASJlChJHZXRBY2NvdW50UmVzcG9uc2USIwoHYWNjb3VudBgBIAEoCzISLmhvc3RlZC52MS5BY2NvdW50EioKC3NpdGVfcG9saWN5GAIgASgLMhUuaG9zdGVkLnYxLlNpdGVQb2xpY3kiMwoTTGlzdENoaWxkcmVuUmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABASI8ChRMaXN0Q2hpbGRyZW5SZXNwb25zZRIkCghhY2NvdW50cxgBIAMoCzISLmhvc3RlZC52MS5BY2NvdW50IrcBChRDcmVhdGVBY2NvdW50UmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABARIYCgRuYW1lGAIgASgJQgq6SAdyBRABGP8BEiwKFWFkbWluaXN0cmF0b3JfdXNlcl9pZBgDIAEoCUIIukgFcgOwAQFIAIgBARIfCgxjYXBhYmlsaXRpZXMYBCABKARCCbpIBjIEGB8oAUIYChZfYWRtaW5pc3RyYXRvcl91c2VyX2lkIjwKFUNyZWF0ZUFjY291bnRSZXNwb25zZRIjCgdhY2NvdW50GAEgASgLMhIuaG9zdGVkLnYxLkFjY291bnQijwEKF0NvbmZpZ3VyZUFjY291bnRSZXF1ZXN0EhwKCmFjY291bnRfaWQYASABKAlCCLpIBXIDsAEBEiIKEGNoaWxkX2FjY291bnRfaWQYAiABKAlCCLpIBXIDsAEBEh8KDGNhcGFiaWxpdGllcxgDIAEoBEIJukgGMgQYHygBEhEKCXN1c3BlbmRlZBgEIAEoCCIaChhDb25maWd1cmVBY2NvdW50UmVzcG9uc2UiTgoUUmVuYW1lQWNjb3VudFJlcXVlc3QSHAoKYWNjb3VudF9pZBgBIAEoCUIIukgFcgOwAQESGAoEbmFtZRgCIAEoCUIKukgHcgUQARj/ASIXChVSZW5hbWVBY2NvdW50UmVzcG9uc2UiMgoSTGlzdE1lbWJlcnNSZXF1ZXN0EhwKCmFjY291bnRfaWQYASABKAlCCLpIBXIDsAEBIjkKE0xpc3RNZW1iZXJzUmVzcG9uc2USIgoHbWVtYmVycxgBIAMoCzIRLmhvc3RlZC52MS5NZW1iZXIigQEKFFNldE1lbWJlclJvbGVSZXF1ZXN0EhwKCmFjY291bnRfaWQYASABKAlCCLpIBXIDsAEBEhkKB3VzZXJfaWQYAiABKAlCCLpIBXIDsAEBEjAKBHJvbGUYAyABKA4yFi5ob3N0ZWQudjEuQWNjb3VudFJvbGVCCrpIB4IBBBABIAAiFwoVU2V0TWVtYmVyUm9sZVJlc3BvbnNlIk4KE1Jldm9rZU1lbWJlclJlcXVlc3QSHAoKYWNjb3VudF9pZBgBIAEoCUIIukgFcgOwAQESGQoHdXNlcl9pZBgCIAEoCUIIukgFcgOwAQEiFgoUUmV2b2tlTWVtYmVyUmVzcG9uc2UiOQoZTGlzdEFuY2VzdG9yR3JhbnRzUmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABASJGChpMaXN0QW5jZXN0b3JHcmFudHNSZXNwb25zZRIoCgZncmFudHMYASADKAsyGC5ob3N0ZWQudjEuQW5jZXN0b3JHcmFudCJ/ChdTZXRBbmNlc3RvckdyYW50UmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABARIlChNhbmNlc3Rvcl9hY2NvdW50X2lkGAIgASgJQgi6SAVyA7ABARIfCgxjYXBhYmlsaXRpZXMYAyABKARCCbpIBjIEGB8oASIaChhTZXRBbmNlc3RvckdyYW50UmVzcG9uc2UiYQoaUmV2b2tlQW5jZXN0b3JHcmFudFJlcXVlc3QSHAoKYWNjb3VudF9pZBgBIAEoCUIIukgFcgOwAQESJQoTYW5jZXN0b3JfYWNjb3VudF9pZBgCIAEoCUIIukgFcgOwAQEiHQobUmV2b2tlQW5jZXN0b3JHcmFudFJlc3BvbnNlIqYBChRTZXRTaXRlUG9saWN5UmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABARIyCgtzaXRlX3BvbGljeRgCIAEoCzIVLmhvc3RlZC52MS5TaXRlUG9saWN5Qga6SAPIAQESJwoQY2hpbGRfYWNjb3VudF9pZBgDIAEoCUIIukgFcgOwAQFIAIgBAUITChFfY2hpbGRfYWNjb3VudF9pZCIXChVTZXRTaXRlUG9saWN5UmVzcG9uc2UicgoUR2V0U2l0ZVBvbGljeVJlcXVlc3QSHAoKYWNjb3VudF9pZBgBIAEoCUIIukgFcgOwAQESJwoQY2hpbGRfYWNjb3VudF9pZBgCIAEoCUIIukgFcgOwAQFIAIgBAUITChFfY2hpbGRfYWNjb3VudF9pZCJ9ChVHZXRTaXRlUG9saWN5UmVzcG9uc2USKgoLc2l0ZV9wb2xpY3kYASABKAsyFS5ob3N0ZWQudjEuU2l0ZVBvbGljeRIcChRlZmZlY3RpdmVfcmVzdHJpY3RlZBgCIAEoCBIaChJlZmZlY3RpdmVfc2l0ZV9pZHMYAyADKAMicgoWTGlzdEludml0YXRpb25zUmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABARIcCglwYWdlX3NpemUYAiABKAVCCbpIBhoEGGQoABIcCgpwYWdlX3Rva2VuGAMgASgJQgi6SAVyAxiABCJoChdMaXN0SW52aXRhdGlvbnNSZXNwb25zZRI0CgtpbnZpdGF0aW9ucxgBIAMoCzIVLmhvc3RlZC52MS5JbnZpdGF0aW9uQgi6SAWSAQIQZBIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkikAEKF0NyZWF0ZUludml0YXRpb25SZXF1ZXN0EhwKCmFjY291bnRfaWQYASABKAlCCLpIBXIDsAEBEjAKBHJvbGUYAiABKA4yFi5ob3N0ZWQudjEuQWNjb3VudFJvbGVCCrpIB4IBBBABIAASJQoSZXhwaXJlc19pbl9zZWNvbmRzGAMgASgNQgm6SAYqBBiA9SQiVAoYQ3JlYXRlSW52aXRhdGlvblJlc3BvbnNlEikKCmludml0YXRpb24YASABKAsyFS5ob3N0ZWQudjEuSW52aXRhdGlvbhINCgV0b2tlbhgCIAEoCSJYChdSZXZva2VJbnZpdGF0aW9uUmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABARIfCg1pbnZpdGF0aW9uX2lkGAIgASgJQgi6SAVyA7ABASIaChhSZXZva2VJbnZpdGF0aW9uUmVzcG9uc2UiMwoYUHJldmlld0ludml0YXRpb25SZXF1ZXN0EhcKBXRva2VuGAEgASgJQgi6SAVyA5gBKyKHAQoZUHJldmlld0ludml0YXRpb25SZXNwb25zZRIUCgxhY2NvdW50X25hbWUYASABKAkSJAoEcm9sZRgCIAEoDjIWLmhvc3RlZC52MS5BY2NvdW50Um9sZRIuCgpleHBpcmVzX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCIyChdBY2NlcHRJbnZpdGF0aW9uUmVxdWVzdBIXCgV0b2tlbhgBIAEoCUIIukgFcgOYASsiLgoYQWNjZXB0SW52aXRhdGlvblJlc3BvbnNlEhIKCmFjY291bnRfaWQYASABKAkicQoaUmVnaXN0ZXJJbnZpdGVkVXNlclJlcXVlc3QSFwoFdG9rZW4YASABKAlCCLpIBXIDmAErEhwKCHVzZXJuYW1lGAIgASgJQgq6SAdyBRABGP8BEhwKCHBhc3N3b3JkGAMgASgJQgq6SAdyBRABGIABIjEKG1JlZ2lzdGVySW52aXRlZFVzZXJSZXNwb25zZRISCgphY2NvdW50X2lkGAEgASgJItcCCgpBY2NvdW50S2V5Eg4KBmtleV9pZBgBIAEoCRIMCgRuYW1lGAIgASgJEg4KBnByZWZpeBgDIAEoCRIUCgxjYXBhYmlsaXRpZXMYBCABKAQSHgoWZGVzY2VuZGFudF9hY2NvdW50X2lkcxgFIAMoCRIiChppbmNsdWRlX2Z1dHVyZV9kZXNjZW5kYW50cxgGIAEoCBIuCgpjcmVhdGVkX2F0GAcgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIuCgpleHBpcmVzX2F0GAggASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIwCgxsYXN0X3VzZWRfYXQYCSABKAsyGi5nb29nbGUucHJvdG9idWYuVGltZXN0YW1wEhYKDmlzc3Vlcl91c2VyX2lkGAogASgJEhcKD2lzc3Vlcl91c2VybmFtZRgLIAEoCSL5AQoXQ3JlYXRlQWNjb3VudEtleVJlcXVlc3QSHAoKYWNjb3VudF9pZBgBIAEoCUIIukgFcgOwAQESGAoEbmFtZRgCIAEoCUIKukgHcgUQARj/ARIfCgxjYXBhYmlsaXRpZXMYAyABKARCCbpIBjIEGAcoARIxChZkZXNjZW5kYW50X2FjY291bnRfaWRzGAQgAygJQhG6SA6SAQsQZBgBIgVyA7ABARIiChppbmNsdWRlX2Z1dHVyZV9kZXNjZW5kYW50cxgFIAEoCBIuCgpleHBpcmVzX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCJOChhDcmVhdGVBY2NvdW50S2V5UmVzcG9uc2USIgoDa2V5GAEgASgLMhUuaG9zdGVkLnYxLkFjY291bnRLZXkSDgoGc2VjcmV0GAIgASgJInIKFkxpc3RBY2NvdW50S2V5c1JlcXVlc3QSHAoKYWNjb3VudF9pZBgBIAEoCUIIukgFcgOwAQESHAoJcGFnZV9zaXplGAIgASgFQgm6SAYaBBhkKAASHAoKcGFnZV90b2tlbhgDIAEoCUIIukgFcgMYgAQiYQoXTGlzdEFjY291bnRLZXlzUmVzcG9uc2USLQoEa2V5cxgBIAMoCzIVLmhvc3RlZC52MS5BY2NvdW50S2V5Qgi6SAWSAQIQZBIXCg9uZXh0X3BhZ2VfdG9rZW4YAiABKAkiUQoXUmV2b2tlQWNjb3VudEtleVJlcXVlc3QSHAoKYWNjb3VudF9pZBgBIAEoCUIIukgFcgOwAQESGAoGa2V5X2lkGAIgASgJQgi6SAVyA7ABASIaChhSZXZva2VBY2NvdW50S2V5UmVzcG9uc2UilwEKDVBvb2xTbG90SW5wdXQSFwoDdXJsGAEgASgJQgq6SAdyBRABKIACEhwKCHVzZXJuYW1lGAIgASgJQgq6SAdyBRABKP8BEiEKD3dvcmtlcl90ZW1wbGF0ZRgDIAEoCUIIukgFcgMogAESHwoIcGFzc3dvcmQYBCABKAlCCLpIBXIDKP8BSACIAQFCCwoJX3Bhc3N3b3JkImIKEVBvb2xSZXZpc2lvbklucHV0EhgKBG5hbWUYASABKAlCCrpIB3IFEAEY/wESMwoFc2xvdHMYAiADKAsyGC5ob3N0ZWQudjEuUG9vbFNsb3RJbnB1dEIKukgHkgEECAEQAyJuCgxQb29sRW5kcG9pbnQSEAoIcHJpb3JpdHkYASABKAUSCwoDdXJsGAIgASgJEhAKCHVzZXJuYW1lGAMgASgJEhcKD3dvcmtlcl90ZW1wbGF0ZRgEIAEoCRIUCgxoYXNfcGFzc3dvcmQYBSABKAgivAEKDFBvb2xSZXZpc2lvbhIPCgdwb29sX2lkGAEgASgJEhMKC3JldmlzaW9uX2lkGAIgASgJEg4KBm51bWJlchgDIAEoAxIMCgRuYW1lGAQgASgJEiYKBXNsb3RzGAUgAygLMhcuaG9zdGVkLnYxLlBvb2xFbmRwb2ludBIuCgpjcmVhdGVkX2F0GAYgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIQCghhcmNoaXZlZBgHIAEoCCJ7Ch5DcmVhdGVQb29sQ29uZmlndXJhdGlvblJlcXVlc3QSHAoKYWNjb3VudF9pZBgBIAEoCUIIukgFcgOwAQESOwoNY29uZmlndXJhdGlvbhgCIAEoCzIcLmhvc3RlZC52MS5Qb29sUmV2aXNpb25JbnB1dEIGukgDyAEBIkwKH0NyZWF0ZVBvb2xDb25maWd1cmF0aW9uUmVzcG9uc2USKQoIcmV2aXNpb24YASABKAsyFy5ob3N0ZWQudjEuUG9vbFJldmlzaW9uIr4BCh5SZXZpc2VQb29sQ29uZmlndXJhdGlvblJlcXVlc3QSHAoKYWNjb3VudF9pZBgBIAEoCUIIukgFcgOwAQESGQoHcG9vbF9pZBgCIAEoCUIIukgFcgOwAQESJgoUZXhwZWN0ZWRfcmV2aXNpb25faWQYAyABKAlCCLpIBXIDsAEBEjsKDWNvbmZpZ3VyYXRpb24YBCABKAsyHC5ob3N0ZWQudjEuUG9vbFJldmlzaW9uSW5wdXRCBrpIA8gBASJMCh9SZXZpc2VQb29sQ29uZmlndXJhdGlvblJlc3BvbnNlEikKCHJldmlzaW9uGAEgASgLMhcuaG9zdGVkLnYxLlBvb2xSZXZpc2lvbiKFAQoWR2V0UG9vbFJldmlzaW9uUmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABARIZCgdwb29sX2lkGAIgASgJQgi6SAVyA7ABARIiCgtyZXZpc2lvbl9pZBgDIAEoCUIIukgFcgOwAQFIAIgBAUIOCgxfcmV2aXNpb25faWQiRAoXR2V0UG9vbFJldmlzaW9uUmVzcG9uc2USKQoIcmV2aXNpb24YASABKAsyFy5ob3N0ZWQudjEuUG9vbFJldmlzaW9uIpEBCh1MaXN0UG9vbENvbmZpZ3VyYXRpb25zUmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABARIaCglwYWdlX3NpemUYAiABKA1CB7pIBCoCGGQSHAoKcGFnZV90b2tlbhgDIAEoCUIIukgFcgMogBASGAoQaW5jbHVkZV9hcmNoaXZlZBgEIAEoCCJqCh5MaXN0UG9vbENvbmZpZ3VyYXRpb25zUmVzcG9uc2USLwoOY29uZmlndXJhdGlvbnMYASADKAsyFy5ob3N0ZWQudjEuUG9vbFJldmlzaW9uEhcKD25leHRfcGFnZV90b2tlbhgCIAEoCSJaCh9BcmNoaXZlUG9vbENvbmZpZ3VyYXRpb25SZXF1ZXN0EhwKCmFjY291bnRfaWQYASABKAlCCLpIBXIDsAEBEhkKB3Bvb2xfaWQYAiABKAlCCLpIBXIDsAEBIiIKIEFyY2hpdmVQb29sQ29uZmlndXJhdGlvblJlc3BvbnNlIn0KE0luY29taW5nUG9vbFByb2ZpbGUSDwoHcG9vbF9pZBgEIAEoCRITCgtyZXZpc2lvbl9pZBgBIAEoCRIQCghyZXZpc2lvbhgCIAEoAxIuCgp1cGRhdGVkX2F0GAMgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcCI9Ch1HZXRJbmNvbWluZ1Bvb2xQcm9maWxlUmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABASJRCh5HZXRJbmNvbWluZ1Bvb2xQcm9maWxlUmVzcG9uc2USLwoHcHJvZmlsZRgBIAEoCzIeLmhvc3RlZC52MS5JbmNvbWluZ1Bvb2xQcm9maWxlIo4BCh1TZXRJbmNvbWluZ1Bvb2xQcm9maWxlUmVxdWVzdBIcCgphY2NvdW50X2lkGAEgASgJQgi6SAVyA7ABARIiCgtyZXZpc2lvbl9pZBgCIAEoCUIIukgFcgOwAQFIAIgBARIbCghwYXNzd29yZBgDIAEoCUIJukgGcgQQAShIQg4KDF9yZXZpc2lvbl9pZCIgCh5TZXRJbmNvbWluZ1Bvb2xQcm9maWxlUmVzcG9uc2UqhAEKC0FjY291bnRSb2xlEhwKGEFDQ09VTlRfUk9MRV9VTlNQRUNJRklFRBAAEhcKE0FDQ09VTlRfUk9MRV9WSUVXRVIQARIeChpBQ0NPVU5UX1JPTEVfUE9PTF9PUEVSQVRPUhACEh4KGkFDQ09VTlRfUk9MRV9BRE1JTklTVFJBVE9SEAMylBYKFEhvc3RlZEFjY291bnRTZXJ2aWNlEk8KDExpc3RBY2NvdW50cxIeLmhvc3RlZC52MS5MaXN0QWNjb3VudHNSZXF1ZXN0Gh8uaG9zdGVkLnYxLkxpc3RBY2NvdW50c1Jlc3BvbnNlEkkKCkdldEFjY291bnQSHC5ob3N0ZWQudjEuR2V0QWNjb3VudFJlcXVlc3QaHS5ob3N0ZWQudjEuR2V0QWNjb3VudFJlc3BvbnNlEk8KDExpc3RDaGlsZHJlbhIeLmhvc3RlZC52MS5MaXN0Q2hpbGRyZW5SZXF1ZXN0Gh8uaG9zdGVkLnYxLkxpc3RDaGlsZHJlblJlc3BvbnNlElIKDUNyZWF0ZUFjY291bnQSHy5ob3N0ZWQudjEuQ3JlYXRlQWNjb3VudFJlcXVlc3QaIC5ob3N0ZWQudjEuQ3JlYXRlQWNjb3VudFJlc3BvbnNlElsKEENvbmZpZ3VyZUFjY291bnQSIi5ob3N0ZWQudjEuQ29uZmlndXJlQWNjb3VudFJlcXVlc3QaIy5ob3N0ZWQudjEuQ29uZmlndXJlQWNjb3VudFJlc3BvbnNlElIKDVJlbmFtZUFjY291bnQSHy5ob3N0ZWQudjEuUmVuYW1lQWNjb3VudFJlcXVlc3QaIC5ob3N0ZWQudjEuUmVuYW1lQWNjb3VudFJlc3BvbnNlEkwKC0xpc3RNZW1iZXJzEh0uaG9zdGVkLnYxLkxpc3RNZW1iZXJzUmVxdWVzdBoeLmhvc3RlZC52MS5MaXN0TWVtYmVyc1Jlc3BvbnNlElIKDVNldE1lbWJlclJvbGUSHy5ob3N0ZWQudjEuU2V0TWVtYmVyUm9sZVJlcXVlc3QaIC5ob3N0ZWQudjEuU2V0TWVtYmVyUm9sZVJlc3BvbnNlEk8KDFJldm9rZU1lbWJlchIeLmhvc3RlZC52MS5SZXZva2VNZW1iZXJSZXF1ZXN0Gh8uaG9zdGVkLnYxLlJldm9rZU1lbWJlclJlc3BvbnNlEmEKEkxpc3RBbmNlc3RvckdyYW50cxIkLmhvc3RlZC52MS5MaXN0QW5jZXN0b3JHcmFudHNSZXF1ZXN0GiUuaG9zdGVkLnYxLkxpc3RBbmNlc3RvckdyYW50c1Jlc3BvbnNlElsKEFNldEFuY2VzdG9yR3JhbnQSIi5ob3N0ZWQudjEuU2V0QW5jZXN0b3JHcmFudFJlcXVlc3QaIy5ob3N0ZWQudjEuU2V0QW5jZXN0b3JHcmFudFJlc3BvbnNlEmQKE1Jldm9rZUFuY2VzdG9yR3JhbnQSJS5ob3N0ZWQudjEuUmV2b2tlQW5jZXN0b3JHcmFudFJlcXVlc3QaJi5ob3N0ZWQudjEuUmV2b2tlQW5jZXN0b3JHcmFudFJlc3BvbnNlElIKDUdldFNpdGVQb2xpY3kSHy5ob3N0ZWQudjEuR2V0U2l0ZVBvbGljeVJlcXVlc3QaIC5ob3N0ZWQudjEuR2V0U2l0ZVBvbGljeVJlc3BvbnNlElIKDVNldFNpdGVQb2xpY3kSHy5ob3N0ZWQudjEuU2V0U2l0ZVBvbGljeVJlcXVlc3QaIC5ob3N0ZWQudjEuU2V0U2l0ZVBvbGljeVJlc3BvbnNlElgKD0xpc3RJbnZpdGF0aW9ucxIhLmhvc3RlZC52MS5MaXN0SW52aXRhdGlvbnNSZXF1ZXN0GiIuaG9zdGVkLnYxLkxpc3RJbnZpdGF0aW9uc1Jlc3BvbnNlElsKEENyZWF0ZUludml0YXRpb24SIi5ob3N0ZWQudjEuQ3JlYXRlSW52aXRhdGlvblJlcXVlc3QaIy5ob3N0ZWQudjEuQ3JlYXRlSW52aXRhdGlvblJlc3BvbnNlElsKEFJldm9rZUludml0YXRpb24SIi5ob3N0ZWQudjEuUmV2b2tlSW52aXRhdGlvblJlcXVlc3QaIy5ob3N0ZWQudjEuUmV2b2tlSW52aXRhdGlvblJlc3BvbnNlEl4KEVByZXZpZXdJbnZpdGF0aW9uEiMuaG9zdGVkLnYxLlByZXZpZXdJbnZpdGF0aW9uUmVxdWVzdBokLmhvc3RlZC52MS5QcmV2aWV3SW52aXRhdGlvblJlc3BvbnNlElsKEEFjY2VwdEludml0YXRpb24SIi5ob3N0ZWQudjEuQWNjZXB0SW52aXRhdGlvblJlcXVlc3QaIy5ob3N0ZWQudjEuQWNjZXB0SW52aXRhdGlvblJlc3BvbnNlEmQKE1JlZ2lzdGVySW52aXRlZFVzZXISJS5ob3N0ZWQudjEuUmVnaXN0ZXJJbnZpdGVkVXNlclJlcXVlc3QaJi5ob3N0ZWQudjEuUmVnaXN0ZXJJbnZpdGVkVXNlclJlc3BvbnNlEnAKF0NyZWF0ZVBvb2xDb25maWd1cmF0aW9uEikuaG9zdGVkLnYxLkNyZWF0ZVBvb2xDb25maWd1cmF0aW9uUmVxdWVzdBoqLmhvc3RlZC52MS5DcmVhdGVQb29sQ29uZmlndXJhdGlvblJlc3BvbnNlEnAKF1JldmlzZVBvb2xDb25maWd1cmF0aW9uEikuaG9zdGVkLnYxLlJldmlzZVBvb2xDb25maWd1cmF0aW9uUmVxdWVzdBoqLmhvc3RlZC52MS5SZXZpc2VQb29sQ29uZmlndXJhdGlvblJlc3BvbnNlElgKD0dldFBvb2xSZXZpc2lvbhIhLmhvc3RlZC52MS5HZXRQb29sUmV2aXNpb25SZXF1ZXN0GiIuaG9zdGVkLnYxLkdldFBvb2xSZXZpc2lvblJlc3BvbnNlEm0KFkxpc3RQb29sQ29uZmlndXJhdGlvbnMSKC5ob3N0ZWQudjEuTGlzdFBvb2xDb25maWd1cmF0aW9uc1JlcXVlc3QaKS5ob3N0ZWQudjEuTGlzdFBvb2xDb25maWd1cmF0aW9uc1Jlc3BvbnNlEnMKGEFyY2hpdmVQb29sQ29uZmlndXJhdGlvbhIqLmhvc3RlZC52MS5BcmNoaXZlUG9vbENvbmZpZ3VyYXRpb25SZXF1ZXN0GisuaG9zdGVkLnYxLkFyY2hpdmVQb29sQ29uZmlndXJhdGlvblJlc3BvbnNlEm0KFkdldEluY29taW5nUG9vbFByb2ZpbGUSKC5ob3N0ZWQudjEuR2V0SW5jb21pbmdQb29sUHJvZmlsZVJlcXVlc3QaKS5ob3N0ZWQudjEuR2V0SW5jb21pbmdQb29sUHJvZmlsZVJlc3BvbnNlEm0KFlNldEluY29taW5nUG9vbFByb2ZpbGUSKC5ob3N0ZWQudjEuU2V0SW5jb21pbmdQb29sUHJvZmlsZVJlcXVlc3QaKS5ob3N0ZWQudjEuU2V0SW5jb21pbmdQb29sUHJvZmlsZVJlc3BvbnNlElsKEENyZWF0ZUFjY291bnRLZXkSIi5ob3N0ZWQudjEuQ3JlYXRlQWNjb3VudEtleVJlcXVlc3QaIy5ob3N0ZWQudjEuQ3JlYXRlQWNjb3VudEtleVJlc3BvbnNlElgKD0xpc3RBY2NvdW50S2V5cxIhLmhvc3RlZC52MS5MaXN0QWNjb3VudEtleXNSZXF1ZXN0GiIuaG9zdGVkLnYxLkxpc3RBY2NvdW50S2V5c1Jlc3BvbnNlElsKEFJldm9rZUFjY291bnRLZXkSIi5ob3N0ZWQudjEuUmV2b2tlQWNjb3VudEtleVJlcXVlc3QaIy5ob3N0ZWQudjEuUmV2b2tlQWNjb3VudEtleVJlc3BvbnNlQqgBCg1jb20uaG9zdGVkLnYxQgtIb3N0ZWRQcm90b1ABWkVnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9ob3N0ZWQvdjE7aG9zdGVkdjGiAgNIWFiqAglIb3N0ZWQuVjHKAglIb3N0ZWRcVjHiAhVIb3N0ZWRcVjFcR1BCTWV0YWRhdGHqAgpIb3N0ZWQ6OlYxYgZwcm90bzM",
     [file_buf_validate_validate, file_google_protobuf_timestamp],
   );
 
@@ -1295,6 +1295,501 @@ export const RevokeAccountKeyResponseSchema: GenMessage<RevokeAccountKeyResponse
   messageDesc(file_hosted_v1_hosted, 51);
 
 /**
+ * Input array order is priority: primary, then up to two backups. A revision
+ * replaces the complete array; removing a backup does not edit older revisions.
+ *
+ * @generated from message hosted.v1.PoolSlotInput
+ */
+export type PoolSlotInput = Message<"hosted.v1.PoolSlotInput"> & {
+  /**
+   * @generated from field: string url = 1;
+   */
+  url: string;
+
+  /**
+   * @generated from field: string username = 2;
+   */
+  username: string;
+
+  /**
+   * Empty uses the exact payout username. Otherwise append '.' and this suffix,
+   * replacing {miner_id} and {miner_name}; other placeholders are rejected.
+   *
+   * @generated from field: string worker_template = 3;
+   */
+  workerTemplate: string;
+
+  /**
+   * Omission preserves this priority's secret when revising; creation defaults
+   * to empty. An explicit empty password clears it. Secrets are never returned.
+   *
+   * @generated from field: optional string password = 4;
+   */
+  password?: string | undefined;
+};
+
+/**
+ * Describes the message hosted.v1.PoolSlotInput.
+ * Use `create(PoolSlotInputSchema)` to create a new message.
+ */
+export const PoolSlotInputSchema: GenMessage<PoolSlotInput> = /*@__PURE__*/ messageDesc(file_hosted_v1_hosted, 52);
+
+/**
+ * @generated from message hosted.v1.PoolRevisionInput
+ */
+export type PoolRevisionInput = Message<"hosted.v1.PoolRevisionInput"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: repeated hosted.v1.PoolSlotInput slots = 2;
+   */
+  slots: PoolSlotInput[];
+};
+
+/**
+ * Describes the message hosted.v1.PoolRevisionInput.
+ * Use `create(PoolRevisionInputSchema)` to create a new message.
+ */
+export const PoolRevisionInputSchema: GenMessage<PoolRevisionInput> =
+  /*@__PURE__*/
+  messageDesc(file_hosted_v1_hosted, 53);
+
+/**
+ * @generated from message hosted.v1.PoolEndpoint
+ */
+export type PoolEndpoint = Message<"hosted.v1.PoolEndpoint"> & {
+  /**
+   * @generated from field: int32 priority = 1;
+   */
+  priority: number;
+
+  /**
+   * @generated from field: string url = 2;
+   */
+  url: string;
+
+  /**
+   * @generated from field: string username = 3;
+   */
+  username: string;
+
+  /**
+   * @generated from field: string worker_template = 4;
+   */
+  workerTemplate: string;
+
+  /**
+   * @generated from field: bool has_password = 5;
+   */
+  hasPassword: boolean;
+};
+
+/**
+ * Describes the message hosted.v1.PoolEndpoint.
+ * Use `create(PoolEndpointSchema)` to create a new message.
+ */
+export const PoolEndpointSchema: GenMessage<PoolEndpoint> = /*@__PURE__*/ messageDesc(file_hosted_v1_hosted, 54);
+
+/**
+ * @generated from message hosted.v1.PoolRevision
+ */
+export type PoolRevision = Message<"hosted.v1.PoolRevision"> & {
+  /**
+   * @generated from field: string pool_id = 1;
+   */
+  poolId: string;
+
+  /**
+   * @generated from field: string revision_id = 2;
+   */
+  revisionId: string;
+
+  /**
+   * @generated from field: int64 number = 3;
+   */
+  number: bigint;
+
+  /**
+   * @generated from field: string name = 4;
+   */
+  name: string;
+
+  /**
+   * @generated from field: repeated hosted.v1.PoolEndpoint slots = 5;
+   */
+  slots: PoolEndpoint[];
+
+  /**
+   * @generated from field: google.protobuf.Timestamp created_at = 6;
+   */
+  createdAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: bool archived = 7;
+   */
+  archived: boolean;
+};
+
+/**
+ * Describes the message hosted.v1.PoolRevision.
+ * Use `create(PoolRevisionSchema)` to create a new message.
+ */
+export const PoolRevisionSchema: GenMessage<PoolRevision> = /*@__PURE__*/ messageDesc(file_hosted_v1_hosted, 55);
+
+/**
+ * @generated from message hosted.v1.CreatePoolConfigurationRequest
+ */
+export type CreatePoolConfigurationRequest = Message<"hosted.v1.CreatePoolConfigurationRequest"> & {
+  /**
+   * @generated from field: string account_id = 1;
+   */
+  accountId: string;
+
+  /**
+   * @generated from field: hosted.v1.PoolRevisionInput configuration = 2;
+   */
+  configuration?: PoolRevisionInput | undefined;
+};
+
+/**
+ * Describes the message hosted.v1.CreatePoolConfigurationRequest.
+ * Use `create(CreatePoolConfigurationRequestSchema)` to create a new message.
+ */
+export const CreatePoolConfigurationRequestSchema: GenMessage<CreatePoolConfigurationRequest> =
+  /*@__PURE__*/
+  messageDesc(file_hosted_v1_hosted, 56);
+
+/**
+ * @generated from message hosted.v1.CreatePoolConfigurationResponse
+ */
+export type CreatePoolConfigurationResponse = Message<"hosted.v1.CreatePoolConfigurationResponse"> & {
+  /**
+   * @generated from field: hosted.v1.PoolRevision revision = 1;
+   */
+  revision?: PoolRevision | undefined;
+};
+
+/**
+ * Describes the message hosted.v1.CreatePoolConfigurationResponse.
+ * Use `create(CreatePoolConfigurationResponseSchema)` to create a new message.
+ */
+export const CreatePoolConfigurationResponseSchema: GenMessage<CreatePoolConfigurationResponse> =
+  /*@__PURE__*/
+  messageDesc(file_hosted_v1_hosted, 57);
+
+/**
+ * @generated from message hosted.v1.RevisePoolConfigurationRequest
+ */
+export type RevisePoolConfigurationRequest = Message<"hosted.v1.RevisePoolConfigurationRequest"> & {
+  /**
+   * @generated from field: string account_id = 1;
+   */
+  accountId: string;
+
+  /**
+   * @generated from field: string pool_id = 2;
+   */
+  poolId: string;
+
+  /**
+   * @generated from field: string expected_revision_id = 3;
+   */
+  expectedRevisionId: string;
+
+  /**
+   * @generated from field: hosted.v1.PoolRevisionInput configuration = 4;
+   */
+  configuration?: PoolRevisionInput | undefined;
+};
+
+/**
+ * Describes the message hosted.v1.RevisePoolConfigurationRequest.
+ * Use `create(RevisePoolConfigurationRequestSchema)` to create a new message.
+ */
+export const RevisePoolConfigurationRequestSchema: GenMessage<RevisePoolConfigurationRequest> =
+  /*@__PURE__*/
+  messageDesc(file_hosted_v1_hosted, 58);
+
+/**
+ * @generated from message hosted.v1.RevisePoolConfigurationResponse
+ */
+export type RevisePoolConfigurationResponse = Message<"hosted.v1.RevisePoolConfigurationResponse"> & {
+  /**
+   * @generated from field: hosted.v1.PoolRevision revision = 1;
+   */
+  revision?: PoolRevision | undefined;
+};
+
+/**
+ * Describes the message hosted.v1.RevisePoolConfigurationResponse.
+ * Use `create(RevisePoolConfigurationResponseSchema)` to create a new message.
+ */
+export const RevisePoolConfigurationResponseSchema: GenMessage<RevisePoolConfigurationResponse> =
+  /*@__PURE__*/
+  messageDesc(file_hosted_v1_hosted, 59);
+
+/**
+ * @generated from message hosted.v1.GetPoolRevisionRequest
+ */
+export type GetPoolRevisionRequest = Message<"hosted.v1.GetPoolRevisionRequest"> & {
+  /**
+   * @generated from field: string account_id = 1;
+   */
+  accountId: string;
+
+  /**
+   * @generated from field: string pool_id = 2;
+   */
+  poolId: string;
+
+  /**
+   * Omission reads the latest revision; archived revisions remain readable.
+   *
+   * @generated from field: optional string revision_id = 3;
+   */
+  revisionId?: string | undefined;
+};
+
+/**
+ * Describes the message hosted.v1.GetPoolRevisionRequest.
+ * Use `create(GetPoolRevisionRequestSchema)` to create a new message.
+ */
+export const GetPoolRevisionRequestSchema: GenMessage<GetPoolRevisionRequest> =
+  /*@__PURE__*/
+  messageDesc(file_hosted_v1_hosted, 60);
+
+/**
+ * @generated from message hosted.v1.GetPoolRevisionResponse
+ */
+export type GetPoolRevisionResponse = Message<"hosted.v1.GetPoolRevisionResponse"> & {
+  /**
+   * @generated from field: hosted.v1.PoolRevision revision = 1;
+   */
+  revision?: PoolRevision | undefined;
+};
+
+/**
+ * Describes the message hosted.v1.GetPoolRevisionResponse.
+ * Use `create(GetPoolRevisionResponseSchema)` to create a new message.
+ */
+export const GetPoolRevisionResponseSchema: GenMessage<GetPoolRevisionResponse> =
+  /*@__PURE__*/
+  messageDesc(file_hosted_v1_hosted, 61);
+
+/**
+ * @generated from message hosted.v1.ListPoolConfigurationsRequest
+ */
+export type ListPoolConfigurationsRequest = Message<"hosted.v1.ListPoolConfigurationsRequest"> & {
+  /**
+   * @generated from field: string account_id = 1;
+   */
+  accountId: string;
+
+  /**
+   * @generated from field: uint32 page_size = 2;
+   */
+  pageSize: number;
+
+  /**
+   * @generated from field: string page_token = 3;
+   */
+  pageToken: string;
+
+  /**
+   * @generated from field: bool include_archived = 4;
+   */
+  includeArchived: boolean;
+};
+
+/**
+ * Describes the message hosted.v1.ListPoolConfigurationsRequest.
+ * Use `create(ListPoolConfigurationsRequestSchema)` to create a new message.
+ */
+export const ListPoolConfigurationsRequestSchema: GenMessage<ListPoolConfigurationsRequest> =
+  /*@__PURE__*/
+  messageDesc(file_hosted_v1_hosted, 62);
+
+/**
+ * @generated from message hosted.v1.ListPoolConfigurationsResponse
+ */
+export type ListPoolConfigurationsResponse = Message<"hosted.v1.ListPoolConfigurationsResponse"> & {
+  /**
+   * @generated from field: repeated hosted.v1.PoolRevision configurations = 1;
+   */
+  configurations: PoolRevision[];
+
+  /**
+   * @generated from field: string next_page_token = 2;
+   */
+  nextPageToken: string;
+};
+
+/**
+ * Describes the message hosted.v1.ListPoolConfigurationsResponse.
+ * Use `create(ListPoolConfigurationsResponseSchema)` to create a new message.
+ */
+export const ListPoolConfigurationsResponseSchema: GenMessage<ListPoolConfigurationsResponse> =
+  /*@__PURE__*/
+  messageDesc(file_hosted_v1_hosted, 63);
+
+/**
+ * @generated from message hosted.v1.ArchivePoolConfigurationRequest
+ */
+export type ArchivePoolConfigurationRequest = Message<"hosted.v1.ArchivePoolConfigurationRequest"> & {
+  /**
+   * @generated from field: string account_id = 1;
+   */
+  accountId: string;
+
+  /**
+   * @generated from field: string pool_id = 2;
+   */
+  poolId: string;
+};
+
+/**
+ * Describes the message hosted.v1.ArchivePoolConfigurationRequest.
+ * Use `create(ArchivePoolConfigurationRequestSchema)` to create a new message.
+ */
+export const ArchivePoolConfigurationRequestSchema: GenMessage<ArchivePoolConfigurationRequest> =
+  /*@__PURE__*/
+  messageDesc(file_hosted_v1_hosted, 64);
+
+/**
+ * @generated from message hosted.v1.ArchivePoolConfigurationResponse
+ */
+export type ArchivePoolConfigurationResponse = Message<"hosted.v1.ArchivePoolConfigurationResponse"> & {};
+
+/**
+ * Describes the message hosted.v1.ArchivePoolConfigurationResponse.
+ * Use `create(ArchivePoolConfigurationResponseSchema)` to create a new message.
+ */
+export const ArchivePoolConfigurationResponseSchema: GenMessage<ArchivePoolConfigurationResponse> =
+  /*@__PURE__*/
+  messageDesc(file_hosted_v1_hosted, 65);
+
+/**
+ * @generated from message hosted.v1.IncomingPoolProfile
+ */
+export type IncomingPoolProfile = Message<"hosted.v1.IncomingPoolProfile"> & {
+  /**
+   * Owning configuration permits fetching the exact pinned revision. Empty after clear.
+   *
+   * @generated from field: string pool_id = 4;
+   */
+  poolId: string;
+
+  /**
+   * @generated from field: string revision_id = 1;
+   */
+  revisionId: string;
+
+  /**
+   * @generated from field: int64 revision = 2;
+   */
+  revision: bigint;
+
+  /**
+   * @generated from field: google.protobuf.Timestamp updated_at = 3;
+   */
+  updatedAt?: Timestamp | undefined;
+};
+
+/**
+ * Describes the message hosted.v1.IncomingPoolProfile.
+ * Use `create(IncomingPoolProfileSchema)` to create a new message.
+ */
+export const IncomingPoolProfileSchema: GenMessage<IncomingPoolProfile> =
+  /*@__PURE__*/
+  messageDesc(file_hosted_v1_hosted, 66);
+
+/**
+ * @generated from message hosted.v1.GetIncomingPoolProfileRequest
+ */
+export type GetIncomingPoolProfileRequest = Message<"hosted.v1.GetIncomingPoolProfileRequest"> & {
+  /**
+   * @generated from field: string account_id = 1;
+   */
+  accountId: string;
+};
+
+/**
+ * Describes the message hosted.v1.GetIncomingPoolProfileRequest.
+ * Use `create(GetIncomingPoolProfileRequestSchema)` to create a new message.
+ */
+export const GetIncomingPoolProfileRequestSchema: GenMessage<GetIncomingPoolProfileRequest> =
+  /*@__PURE__*/
+  messageDesc(file_hosted_v1_hosted, 67);
+
+/**
+ * @generated from message hosted.v1.GetIncomingPoolProfileResponse
+ */
+export type GetIncomingPoolProfileResponse = Message<"hosted.v1.GetIncomingPoolProfileResponse"> & {
+  /**
+   * Absent until the customer selects a configuration for incoming miners.
+   *
+   * @generated from field: hosted.v1.IncomingPoolProfile profile = 1;
+   */
+  profile?: IncomingPoolProfile | undefined;
+};
+
+/**
+ * Describes the message hosted.v1.GetIncomingPoolProfileResponse.
+ * Use `create(GetIncomingPoolProfileResponseSchema)` to create a new message.
+ */
+export const GetIncomingPoolProfileResponseSchema: GenMessage<GetIncomingPoolProfileResponse> =
+  /*@__PURE__*/
+  messageDesc(file_hosted_v1_hosted, 68);
+
+/**
+ * @generated from message hosted.v1.SetIncomingPoolProfileRequest
+ */
+export type SetIncomingPoolProfileRequest = Message<"hosted.v1.SetIncomingPoolProfileRequest"> & {
+  /**
+   * @generated from field: string account_id = 1;
+   */
+  accountId: string;
+
+  /**
+   * Omission clears the incoming profile, without changing applied miner pools.
+   *
+   * @generated from field: optional string revision_id = 2;
+   */
+  revisionId?: string | undefined;
+
+  /**
+   * Server verifies the current login's credentials in this mutation.
+   *
+   * @generated from field: string password = 3;
+   */
+  password: string;
+};
+
+/**
+ * Describes the message hosted.v1.SetIncomingPoolProfileRequest.
+ * Use `create(SetIncomingPoolProfileRequestSchema)` to create a new message.
+ */
+export const SetIncomingPoolProfileRequestSchema: GenMessage<SetIncomingPoolProfileRequest> =
+  /*@__PURE__*/
+  messageDesc(file_hosted_v1_hosted, 69);
+
+/**
+ * @generated from message hosted.v1.SetIncomingPoolProfileResponse
+ */
+export type SetIncomingPoolProfileResponse = Message<"hosted.v1.SetIncomingPoolProfileResponse"> & {};
+
+/**
+ * Describes the message hosted.v1.SetIncomingPoolProfileResponse.
+ * Use `create(SetIncomingPoolProfileResponseSchema)` to create a new message.
+ */
+export const SetIncomingPoolProfileResponseSchema: GenMessage<SetIncomingPoolProfileResponse> =
+  /*@__PURE__*/
+  messageDesc(file_hosted_v1_hosted, 70);
+
+/**
  * @generated from enum hosted.v1.AccountRole
  */
 export enum AccountRole {
@@ -1490,6 +1985,62 @@ export const HostedAccountService: GenService<{
     methodKind: "unary";
     input: typeof RegisterInvitedUserRequestSchema;
     output: typeof RegisterInvitedUserResponseSchema;
+  };
+  /**
+   * @generated from rpc hosted.v1.HostedAccountService.CreatePoolConfiguration
+   */
+  createPoolConfiguration: {
+    methodKind: "unary";
+    input: typeof CreatePoolConfigurationRequestSchema;
+    output: typeof CreatePoolConfigurationResponseSchema;
+  };
+  /**
+   * @generated from rpc hosted.v1.HostedAccountService.RevisePoolConfiguration
+   */
+  revisePoolConfiguration: {
+    methodKind: "unary";
+    input: typeof RevisePoolConfigurationRequestSchema;
+    output: typeof RevisePoolConfigurationResponseSchema;
+  };
+  /**
+   * @generated from rpc hosted.v1.HostedAccountService.GetPoolRevision
+   */
+  getPoolRevision: {
+    methodKind: "unary";
+    input: typeof GetPoolRevisionRequestSchema;
+    output: typeof GetPoolRevisionResponseSchema;
+  };
+  /**
+   * @generated from rpc hosted.v1.HostedAccountService.ListPoolConfigurations
+   */
+  listPoolConfigurations: {
+    methodKind: "unary";
+    input: typeof ListPoolConfigurationsRequestSchema;
+    output: typeof ListPoolConfigurationsResponseSchema;
+  };
+  /**
+   * @generated from rpc hosted.v1.HostedAccountService.ArchivePoolConfiguration
+   */
+  archivePoolConfiguration: {
+    methodKind: "unary";
+    input: typeof ArchivePoolConfigurationRequestSchema;
+    output: typeof ArchivePoolConfigurationResponseSchema;
+  };
+  /**
+   * @generated from rpc hosted.v1.HostedAccountService.GetIncomingPoolProfile
+   */
+  getIncomingPoolProfile: {
+    methodKind: "unary";
+    input: typeof GetIncomingPoolProfileRequestSchema;
+    output: typeof GetIncomingPoolProfileResponseSchema;
+  };
+  /**
+   * @generated from rpc hosted.v1.HostedAccountService.SetIncomingPoolProfile
+   */
+  setIncomingPoolProfile: {
+    methodKind: "unary";
+    input: typeof SetIncomingPoolProfileRequestSchema;
+    output: typeof SetIncomingPoolProfileResponseSchema;
   };
   /**
    * @generated from rpc hosted.v1.HostedAccountService.CreateAccountKey
