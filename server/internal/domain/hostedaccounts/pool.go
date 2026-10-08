@@ -271,8 +271,8 @@ func (s *PoolService) IncomingProfile(ctx context.Context, actorID, orgID int64,
 }
 
 // SetIncomingProfile selects a pinned revision for future incoming allocations.
-// No current miner configuration changes here. Password verification precedes
-// the organization lock; the transaction then rechecks every authority bound.
+// No current miner configuration changes here. Live authority admission precedes
+// password verification without locks; the transaction rechecks every bound.
 func (s *PoolService) SetIncomingProfile(ctx context.Context, actorID, orgID int64, accountID, revisionID, password string) error {
 	if revisionID != "" && !validPoolID(revisionID) {
 		return fleeterror.NewInvalidArgumentError("invalid pool revision identifier")
@@ -280,6 +280,11 @@ func (s *PoolService) SetIncomingProfile(ctx context.Context, actorID, orgID int
 	info, err := session.GetInfo(ctx)
 	if err != nil || info.UserID != actorID || info.OrganizationID != orgID {
 		return denied()
+	}
+	// Reject callers without live pool-change authority before loading credentials
+	// or spending the issuer's shared password-verification allowance.
+	if _, err := s.authorizePoolAccess(ctx, s.accounts.queries, actorID, orgID, accountID, ChangePools); err != nil {
+		return err
 	}
 	if s.verifier == nil {
 		return fleeterror.NewInternalError("credential verification is unavailable")
@@ -340,33 +345,43 @@ func (s *PoolService) authorizeWrite(ctx context.Context, q sqlc.Querier, actorI
 	if err != nil {
 		return sqlc.User{}, Account{}, err
 	}
-	path, err := loadPath(ctx, q, orgID, accountID)
+	account, err := s.authorizePoolAccess(ctx, q, actorID, orgID, accountID, required)
 	if err != nil {
 		return sqlc.User{}, Account{}, err
 	}
+	return actor, account, nil
+}
+
+// authorizePoolAccess is the same live authority check for cheap admission and
+// locked mutation. It performs no actor/organization locking on its own.
+func (s *PoolService) authorizePoolAccess(ctx context.Context, q sqlc.Querier, actorID, orgID int64, accountID string, required Capabilities) (Account, error) {
+	path, err := loadPath(ctx, q, orgID, accountID)
+	if err != nil {
+		return Account{}, err
+	}
 	caps, err := authorize(ctx, q, actorID, orgID, path, required)
 	if err != nil {
-		return sqlc.User{}, Account{}, err
+		return Account{}, err
 	}
 	account := path[len(path)-1]
 	info, infoErr := session.GetInfo(ctx)
 	scope, scoped := ctx.Value(machineScopeKey{}).(machineScope)
 	if infoErr == nil && (info.UserID != actorID || info.OrganizationID != orgID) {
-		return sqlc.User{}, Account{}, denied()
+		return Account{}, denied()
 	}
 	if scoped || (infoErr == nil && info.AccountKey) {
 		if infoErr != nil || !info.AccountKey || info.AuthMethod != session.AuthMethodAPIKey || info.APIKeyDatabaseID <= 0 || s.keys == nil || !scoped || scope.accountID != account.AccountID {
-			return sqlc.User{}, Account{}, denied()
+			return Account{}, denied()
 		}
-		fresh, err := s.keys.Authorize(db.WithTxQueries(ctx, q), info.APIKeyDatabaseID, actorID, orgID, account.AccountID)
+		fresh, err := s.keys.authorize(ctx, q, info.APIKeyDatabaseID, actorID, orgID, account.AccountID)
 		if err != nil {
-			return sqlc.User{}, Account{}, err
+			return Account{}, err
 		}
 		if fresh&caps&scope.capabilities&required != required {
-			return sqlc.User{}, Account{}, denied()
+			return Account{}, denied()
 		}
 	}
-	return actor, account, nil
+	return account, nil
 }
 
 func (s *PoolService) encryptSlots(options []PoolSlotOptions, previous []storedPoolSlot) ([]byte, error) {
