@@ -326,8 +326,11 @@ type TelemetryService struct {
 	errorPoller        ErrorPoller
 	metricsObserver    *metricsObserver
 	lookBackDuration   time.Duration
-	lifecycleMu        sync.Mutex
-	activation         *telemetryActivation
+	// Keep paired-device reloads and scheduler changes in one order. A reload
+	// started before revocation must finish admitting devices before cleanup.
+	membershipMu sync.Mutex
+	lifecycleMu  sync.Mutex
+	activation   *telemetryActivation
 	// devicesForStatusPolling tracks all paired devices that need periodic status checks.
 	// This ensures failed devices (removed from scheduler after MaxConsecutiveFailures)
 	// continue to be polled for status so they can recover when they come back online.
@@ -390,6 +393,12 @@ func (s *TelemetryService) WithMetricsEmitter(emitter MetricsEmitter) *Telemetry
 }
 
 func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
+	s.membershipMu.Lock()
+	defer s.membershipMu.Unlock()
+	return s.addDevicesLocked(ctx, deviceID...)
+}
+
+func (s *TelemetryService) addDevicesLocked(ctx context.Context, deviceID ...models.DeviceIdentifier) error {
 	if len(deviceID) == 0 {
 		return nil
 	}
@@ -417,6 +426,40 @@ func (s *TelemetryService) AddDevices(ctx context.Context, deviceID ...models.De
 }
 
 func (s *TelemetryService) RemoveDevices(ctx context.Context, deviceIDs ...models.DeviceIdentifier) error {
+	s.membershipMu.Lock()
+	defer s.membershipMu.Unlock()
+	return s.removeDevicesLocked(ctx, deviceIDs...)
+}
+
+// RemoveUnpairedDevices preserves a replacement Node's registration if it
+// paired the miner after the revoked Node's transaction committed. Pairing's
+// AddDevices waits on the same lock if it commits during this fresh DB read.
+func (s *TelemetryService) RemoveUnpairedDevices(ctx context.Context, deviceIDs ...models.DeviceIdentifier) error {
+	if len(deviceIDs) == 0 {
+		return nil
+	}
+	s.membershipMu.Lock()
+	defer s.membershipMu.Unlock()
+	pairedIDs, err := s.deviceStore.GetAllPairedDeviceIdentifiers(ctx)
+	if err != nil {
+		return fmt.Errorf("load paired devices before telemetry removal: %w", err)
+	}
+	paired := make(map[models.DeviceIdentifier]struct{}, len(pairedIDs))
+	for _, id := range pairedIDs {
+		paired[id] = struct{}{}
+	}
+	var removeErr error
+	for _, id := range deviceIDs {
+		if _, exists := paired[id]; !exists {
+			if err := s.removeDevicesLocked(ctx, id); err != nil {
+				removeErr = errors.Join(removeErr, fmt.Errorf("remove %s: %w", id, err))
+			}
+		}
+	}
+	return removeErr
+}
+
+func (s *TelemetryService) removeDevicesLocked(ctx context.Context, deviceIDs ...models.DeviceIdentifier) error {
 	if len(deviceIDs) == 0 {
 		return nil
 	}
@@ -648,6 +691,8 @@ func (s *TelemetryService) devicePollingRoutine(ctx context.Context) {
 }
 
 func (s *TelemetryService) loadPairedDevices(ctx context.Context) error {
+	s.membershipMu.Lock()
+	defer s.membershipMu.Unlock()
 	deviceIDs, err := s.deviceStore.GetAllPairedDeviceIdentifiers(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get paired device identifiers: %w", err)
@@ -659,7 +704,7 @@ func (s *TelemetryService) loadPairedDevices(ctx context.Context) error {
 
 	// AddDevices errors are expected to happen from time to time and are not critical.
 	// We intentionally ignore them to allow the service to continue.
-	_ = s.AddDevices(ctx, deviceIDs...)
+	_ = s.addDevicesLocked(ctx, deviceIDs...)
 
 	return nil
 }

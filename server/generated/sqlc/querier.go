@@ -276,6 +276,9 @@ type Querier interface {
 	// can't keep a direct site/building. IS DISTINCT FROM guard skips rows
 	// already fully cleared. Returns the count actually stripped.
 	ClearDeviceSitesAndBuildings(ctx context.Context, arg ClearDeviceSitesAndBuildingsParams) (int64, error)
+	// Pairing has rebound this device in the same transaction, so the new owner
+	// may replace the revocation's OFFLINE status with a fresh status.
+	ClearFleetNodeRevokedStatus(ctx context.Context, arg ClearFleetNodeRevokedStatusParams) (int64, error)
 	// Companion to SoftDeleteDeviceSet for rack-typed collections. Clears
 	// the device_set_rack placement so a soft-deleted rack doesn't leave
 	// an orphan (building_id, aisle_index, position_in_aisle) tuple that
@@ -2291,7 +2294,8 @@ type Querier interface {
 	// ZoneKeys, or IncludeNoRack, the Go store routes to the dynamic
 	// query builder (see device_filters.go) so counts match the list.
 	// A queued result from a revoked Node cannot restore a now-unpaired miner's
-	// status. A replacement Node's assignment (or renewed pairing) permits writes.
+	// status. The status-row marker also blocks writes that began before the
+	// revocation committed and waited on this row's lock.
 	UpsertDeviceStatus(ctx context.Context, arg UpsertDeviceStatusParams) error
 	// PostgreSQL version returns the id directly using RETURNING
 	UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscoveredDeviceParams) (int64, error)

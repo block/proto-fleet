@@ -484,6 +484,9 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 	require.NoError(t, db.QueryRow(`SELECT status FROM device_status WHERE device_id = $1`, devID).Scan(&deviceStatus))
 	assert.Equal(t, "UNPAIRED", pairingStatus)
 	assert.Equal(t, "OFFLINE", deviceStatus)
+	var statusDetails sql.NullString
+	require.NoError(t, db.QueryRow(`SELECT status_details FROM device_status WHERE device_id = $1`, devID).Scan(&statusDetails))
+	assert.Equal(t, "fleet_node_revoked", statusDetails.String)
 	var attributed sql.NullInt64
 	require.NoError(t, db.QueryRow(`SELECT discovered_by_fleet_node_id FROM discovered_device WHERE id = $1`, ddID).Scan(&attributed))
 	require.True(t, attributed.Valid, "revoke must NOT clear discovered_by_fleet_node_id (immutable origin)")
@@ -500,6 +503,13 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 	// The replacement Node can rediscover and pair the same miner.
 	replacementID := createFleetNode(t, enrollment, orgID, "replacement-node")
 	upsertNodeDiscovered(t, pairing, orgID, replacementID, identifier)
+	// Rediscovery changes attribution but must not re-enable stale status writes.
+	require.NoError(t, deviceStore.UpsertDeviceStatus(ctx, telemetrymodels.DeviceIdentifier(identifier), minermodels.MinerStatusActive, ""))
+	require.NoError(t, deviceStore.UpsertDeviceStatuses(ctx, []interfaces.DeviceStatusUpdate{{
+		DeviceIdentifier: telemetrymodels.DeviceIdentifier(identifier), Status: minermodels.MinerStatusActive,
+	}}))
+	require.NoError(t, db.QueryRow(`SELECT status FROM device_status WHERE device_id = $1`, devID).Scan(&deviceStatus))
+	assert.Equal(t, "OFFLINE", deviceStatus)
 	status, err = pairing.PersistFleetNodePairResult(ctx, replacementID, orgID, pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
 	require.NoError(t, err)
 	assert.Equal(t, fleetnodepairing.StatusPaired, status)
@@ -507,6 +517,60 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 	assert.True(t, deviceBoundToNode(t, db, orgID, replacementID, identifier))
 	require.NoError(t, db.QueryRow(`SELECT status FROM device_status WHERE device_id = $1`, devID).Scan(&deviceStatus))
 	assert.Equal(t, "ACTIVE", deviceStatus)
+	require.NoError(t, db.QueryRow(`SELECT status_details FROM device_status WHERE device_id = $1`, devID).Scan(&statusDetails))
+	assert.False(t, statusDetails.Valid)
+}
+
+func TestRevocationBlocksTelemetryStartedBeforeCommit(t *testing.T) {
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	nodeID := createFleetNode(t, enrollment, orgID, "node-revoke-racing-status")
+	identifier := "mac:p-revoke-racing-status"
+	upsertNodeDiscovered(t, pairing, orgID, nodeID, identifier)
+	assignedBy := int64(1)
+	status, err := pairing.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
+	require.NoError(t, err)
+	require.Equal(t, fleetnodepairing.StatusPaired, status)
+	deviceID := deviceIDByIdentifier(t, db, orgID, identifier)
+
+	// Hold the status row lock until the telemetry upsert has started with the
+	// pre-revocation snapshot. This reproduces the ON CONFLICT wait in Postgres.
+	tx, err := db.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(ctx, `UPDATE device_status SET status = 'OFFLINE', status_details = 'fleet_node_revoked' WHERE device_id = $1`, deviceID)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, `UPDATE device_pairing SET pairing_status = 'UNPAIRED' WHERE device_id = $1`, deviceID)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, `DELETE FROM fleet_node_device WHERE device_id = $1`, deviceID)
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, `UPDATE fleet_node SET enrollment_status = 'REVOKED' WHERE id = $1 AND org_id = $2`, nodeID, orgID)
+	require.NoError(t, err)
+
+	store := sqlstores.NewSQLDeviceStore(db)
+	writeDone := make(chan error, 1)
+	go func() {
+		writeDone <- store.UpsertDeviceStatuses(ctx, []interfaces.DeviceStatusUpdate{{
+			DeviceIdentifier: telemetrymodels.DeviceIdentifier(identifier), Status: minermodels.MinerStatusActive,
+		}})
+	}()
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := db.QueryRowContext(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM pg_stat_activity
+				WHERE datname = current_database()
+				  AND wait_event_type = 'Lock'
+				  AND query LIKE 'INSERT INTO device_status%'
+			)`).Scan(&waiting)
+		return err == nil && waiting
+	}, 5*time.Second, 10*time.Millisecond)
+	require.NoError(t, tx.Commit())
+	require.NoError(t, <-writeDone)
+	var finalStatus, details string
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT status, status_details FROM device_status WHERE device_id = $1`, deviceID).Scan(&finalStatus, &details))
+	require.Equal(t, "OFFLINE", finalStatus)
+	require.Equal(t, "fleet_node_revoked", details)
 }
 
 func TestUnpair_PreservesAttribution(t *testing.T) {

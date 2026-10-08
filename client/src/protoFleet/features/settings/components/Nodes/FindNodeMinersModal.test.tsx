@@ -107,8 +107,9 @@ describe("FindNodeMinersModal", () => {
     await screen.findByRole("button", { name: "Continue with 1 miners" });
     fireEvent.click(screen.getByRole("button", { name: "Rescan network" }));
 
-    expect(await screen.findByRole("button", { name: "Continue with 1 miners" })).toBeInTheDocument();
-    expect(listDiscovered).toHaveBeenCalledTimes(3);
+    await waitFor(() => expect(listDiscovered).toHaveBeenCalledTimes(3));
+    fireEvent.click(screen.getByRole("button", { name: "Continue with 1 miners" }));
+    expect(pairOnNode).toHaveBeenCalledWith("7", ["miner-3"], undefined, expect.any(Function));
     expect(discoverOnNode).toHaveBeenCalledTimes(2);
   });
 
@@ -208,9 +209,22 @@ describe("FindNodeMinersModal", () => {
   });
 
   it("keeps later pages visible after a late pairing result refresh", async () => {
-    listDiscovered.mockImplementation(async (_nodeId, cursor = 0n) =>
-      cursor === 0n ? { devices: [miner], nextCursor: 42n } : { devices: [otherMiner], nextCursor: 0n },
-    );
+    const refreshedMiner = create(FleetNodeDiscoveredDeviceSchema, {
+      fleetNodeId: 7n,
+      deviceIdentifier: "miner-4",
+      ipAddress: "192.168.1.4",
+      model: "Proto Rig",
+    });
+    let refreshed = false;
+    const refreshedPageLoaded = vi.fn();
+    listDiscovered.mockImplementation(async (_nodeId, cursor = 0n) => {
+      if (cursor === 0n) return { devices: [miner], nextCursor: 42n };
+      if (refreshed) {
+        refreshedPageLoaded();
+        return { devices: [refreshedMiner], nextCursor: 0n };
+      }
+      return { devices: [otherMiner], nextCursor: 0n };
+    });
     const props = {
       node,
       canPair: true,
@@ -227,10 +241,13 @@ describe("FindNodeMinersModal", () => {
     await screen.findByRole("button", { name: "Continue with 1 miners" });
     fireEvent.click(screen.getByRole("button", { name: "Load next 100" }));
     expect(await screen.findByRole("button", { name: "Continue with 2 miners" })).toBeInTheDocument();
+    refreshed = true;
     rerender(<FindNodeMinersModal {...props} settledPairingRevision={1} />);
 
-    await waitFor(() => expect(listDiscovered).toHaveBeenCalledWith("7", 42n));
-    expect(screen.getByRole("button", { name: "Continue with 2 miners" })).toBeInTheDocument();
+    await waitFor(() => expect(refreshedPageLoaded).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Choose miners" }));
+    expect(await screen.findByText("192.168.1.4")).toBeInTheDocument();
+    expect(screen.queryByText("192.168.1.3")).not.toBeInTheDocument();
   });
 
   it("releases retry blocks after definitive pre-dispatch rejection", async () => {

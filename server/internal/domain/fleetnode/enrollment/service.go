@@ -361,20 +361,22 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 	if s.invalidateControlStream != nil {
 		s.invalidateControlStream(agentID)
 	}
-	if s.invalidateMiner != nil {
-		for _, device := range devices {
-			s.invalidateMiner(ctx, device.ID)
-		}
-	}
 	if s.removeTelemetry != nil {
 		// Revocation has committed, so a canceled request must not leave these
 		// devices scheduled for another poll.
 		removeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
+		identifiers := make([]telemetrymodels.DeviceIdentifier, 0, len(devices))
 		for _, device := range devices {
-			if err := s.removeTelemetry(removeCtx, device.Identifier); err != nil {
-				slog.Warn("failed to stop telemetry for revoked fleet node device", "fleet_node_id", agentID, "device_id", device.ID, "err", err)
-			}
+			identifiers = append(identifiers, device.Identifier)
+		}
+		if err := s.removeTelemetry(removeCtx, identifiers...); err != nil {
+			slog.Warn("failed to stop telemetry for revoked fleet node devices", "fleet_node_id", agentID, "err", err)
+		}
+	}
+	if s.invalidateMiner != nil {
+		for _, device := range devices {
+			s.invalidateMiner(ctx, device.ID)
 		}
 	}
 	s.logActivity(ctx, "revoke_fleet_node", fmt.Sprintf("Revoked fleet node '%s' (id=%d)", agentName, agentID))

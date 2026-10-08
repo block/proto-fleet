@@ -115,16 +115,22 @@ func TestRevokeFleetNodeRemovesTelemetryForEveryDevice(t *testing.T) {
 	}}
 	service := NewService(store, apikey.NewService(revokeAPIKeyStore{}, nil), inlineTransactor{}, nil)
 	var removed []telemetrymodels.DeviceIdentifier
+	var events []string
 	service.WithTelemetryRemover(func(_ context.Context, identifiers ...telemetrymodels.DeviceIdentifier) error {
+		events = append(events, "remove telemetry")
 		removed = append(removed, identifiers...)
 		if identifiers[0] == "first" {
 			return errors.New("not managed")
 		}
 		return nil
 	})
+	service.WithMinerInvalidator(func(_ context.Context, _ int64) {
+		events = append(events, "invalidate miner")
+	})
 
 	require.NoError(t, service.RevokeFleetNode(t.Context(), 42, 7))
 	assert.Equal(t, []telemetrymodels.DeviceIdentifier{"first", "second"}, removed)
+	assert.Equal(t, []string{"remove telemetry", "invalidate miner", "invalidate miner"}, events)
 }
 
 type inlineTransactor struct{}

@@ -35,6 +35,7 @@ type Store interface { //nolint:interfacebloat // Pairing coordinates several sq
 	PairDeviceToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) (int64, error)
 	LockDeviceForFleetNodePairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	TransferDiscoveredDeviceAttribution(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error)
+	ClearFleetNodeRevokedStatus(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error)
 	DeviceHasActiveCloudPairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	DeviceHasActivePairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	UnpairDevice(ctx context.Context, deviceID, orgID int64) (int64, error)

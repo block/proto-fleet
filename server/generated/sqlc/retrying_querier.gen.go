@@ -702,6 +702,18 @@ func (q *retryingQuerier) ClearDeviceSitesAndBuildings(ctx context.Context, arg 
 	return result, err
 }
 
+func (q *retryingQuerier) ClearFleetNodeRevokedStatus(ctx context.Context, arg ClearFleetNodeRevokedStatusParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ClearFleetNodeRevokedStatus", func() error {
+		callResult, callErr := q.next.ClearFleetNodeRevokedStatus(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ClearRackPlacementForSoftDelete(ctx context.Context, arg ClearRackPlacementForSoftDeleteParams) error {
 	return q.retrier.RetryQuery(ctx, "ClearRackPlacementForSoftDelete", func() error {
 		return q.next.ClearRackPlacementForSoftDelete(ctx, arg)

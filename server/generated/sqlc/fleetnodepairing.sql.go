@@ -13,6 +13,33 @@ import (
 	"github.com/lib/pq"
 )
 
+const clearFleetNodeRevokedStatus = `-- name: ClearFleetNodeRevokedStatus :execrows
+UPDATE device_status ds
+SET status_details = NULL
+FROM fleet_node_device fnd
+WHERE ds.device_id = $1
+  AND fnd.device_id = ds.device_id
+  AND fnd.org_id = $2
+  AND fnd.fleet_node_id = $3
+  AND ds.status_details = 'fleet_node_revoked'
+`
+
+type ClearFleetNodeRevokedStatusParams struct {
+	DeviceID    int64
+	OrgID       int64
+	FleetNodeID int64
+}
+
+// Pairing has rebound this device in the same transaction, so the new owner
+// may replace the revocation's OFFLINE status with a fresh status.
+func (q *Queries) ClearFleetNodeRevokedStatus(ctx context.Context, arg ClearFleetNodeRevokedStatusParams) (int64, error) {
+	result, err := q.exec(ctx, q.clearFleetNodeRevokedStatusStmt, clearFleetNodeRevokedStatus, arg.DeviceID, arg.OrgID, arg.FleetNodeID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const countFleetNodeDevicesByNode = `-- name: CountFleetNodeDevicesByNode :many
 SELECT fnd.fleet_node_id, count(*)::bigint AS device_count
 FROM fleet_node_device fnd
@@ -474,9 +501,10 @@ func (q *Queries) LockFleetNodePairingDevice(ctx context.Context, arg LockFleetN
 
 const offlineDevicesForFleetNodeRevocation = `-- name: OfflineDevicesForFleetNodeRevocation :execrows
 INSERT INTO device_status (device_id, status, status_timestamp, status_details)
-SELECT fnd.device_id, 'OFFLINE', CURRENT_TIMESTAMP, NULL
+SELECT fnd.device_id, 'OFFLINE', CURRENT_TIMESTAMP, 'fleet_node_revoked'
 FROM fleet_node_device fnd
 WHERE fnd.fleet_node_id = $1 AND fnd.org_id = $2
+ORDER BY fnd.device_id
 ON CONFLICT (device_id) DO UPDATE SET
     status = EXCLUDED.status,
     status_timestamp = EXCLUDED.status_timestamp,

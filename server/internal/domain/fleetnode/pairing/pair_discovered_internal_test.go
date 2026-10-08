@@ -49,6 +49,11 @@ func (s *orderedPersistStore) PairDeviceToFleetNode(context.Context, int64, int6
 	return 1, nil
 }
 
+func (s *orderedPersistStore) ClearFleetNodeRevokedStatus(context.Context, int64, int64, int64) (int64, error) {
+	*s.events = append(*s.events, "clear_revoked_status")
+	return 0, nil
+}
+
 func (s *orderedPersistStore) DeleteMinerCredentialsByDeviceIDAndOrgID(context.Context, int64, int64) (int64, error) {
 	return 0, nil
 }
@@ -128,6 +133,7 @@ func TestPersistPairResultLocksNodeThenDeviceBeforeWrites(t *testing.T) {
 					},
 				)
 				if tc.outcome == gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
+					wantEvents = append(wantEvents, "clear_revoked_status")
 					deviceStore.EXPECT().UpsertDevicePairing(gomock.Any(), gomock.Any(), orgID, StatusPaired).Return(nil)
 					deviceStore.EXPECT().UpsertDeviceStatus(gomock.Any(), gomock.Any(), gomock.Any(), "").Return(nil)
 				} else {

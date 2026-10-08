@@ -175,13 +175,26 @@ WHERE dp.device_id = fnd.device_id
 
 -- name: OfflineDevicesForFleetNodeRevocation :execrows
 INSERT INTO device_status (device_id, status, status_timestamp, status_details)
-SELECT fnd.device_id, 'OFFLINE', CURRENT_TIMESTAMP, NULL
+SELECT fnd.device_id, 'OFFLINE', CURRENT_TIMESTAMP, 'fleet_node_revoked'
 FROM fleet_node_device fnd
 WHERE fnd.fleet_node_id = $1 AND fnd.org_id = $2
+ORDER BY fnd.device_id
 ON CONFLICT (device_id) DO UPDATE SET
     status = EXCLUDED.status,
     status_timestamp = EXCLUDED.status_timestamp,
     status_details = EXCLUDED.status_details;
+
+-- name: ClearFleetNodeRevokedStatus :execrows
+-- Pairing has rebound this device in the same transaction, so the new owner
+-- may replace the revocation's OFFLINE status with a fresh status.
+UPDATE device_status ds
+SET status_details = NULL
+FROM fleet_node_device fnd
+WHERE ds.device_id = $1
+  AND fnd.device_id = ds.device_id
+  AND fnd.org_id = $2
+  AND fnd.fleet_node_id = $3
+  AND ds.status_details = 'fleet_node_revoked';
 
 -- name: ListFleetNodeDevicesForRevocation :many
 SELECT fnd.device_id, d.device_identifier

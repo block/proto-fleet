@@ -551,7 +551,8 @@ WHERE d.deleted_at IS NULL
 -- query builder (see device_filters.go) so counts match the list.
 
 -- A queued result from a revoked Node cannot restore a now-unpaired miner's
--- status. A replacement Node's assignment (or renewed pairing) permits writes.
+-- status. The status-row marker also blocks writes that began before the
+-- revocation committed and waited on this row's lock.
 -- name: UpsertDeviceStatus :exec
 INSERT INTO device_status (
     device_id,
@@ -568,15 +569,16 @@ ON CONFLICT (device_id) DO UPDATE SET
     status = EXCLUDED.status,
     status_timestamp = EXCLUDED.status_timestamp,
     status_details = EXCLUDED.status_details
-WHERE NOT EXISTS (
+WHERE device_status.status_details IS DISTINCT FROM 'fleet_node_revoked'
+  AND NOT EXISTS (
     SELECT 1
     FROM device d
     JOIN device_pairing dp ON dp.device_id = d.id AND dp.pairing_status = 'UNPAIRED'
     JOIN discovered_device dd ON dd.id = d.discovered_device_id
-    JOIN fleet_node fn ON fn.id = dd.discovered_by_fleet_node_id AND fn.enrollment_status = 'REVOKED'
     WHERE d.id = EXCLUDED.device_id
+      AND dd.discovered_by_fleet_node_id IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = d.id)
-);
+  );
 
 -- name: GetDeviceStatus :one
 SELECT

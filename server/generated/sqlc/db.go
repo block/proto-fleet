@@ -204,6 +204,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.clearDeviceSitesAndBuildingsStmt, err = db.PrepareContext(ctx, clearDeviceSitesAndBuildings); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearDeviceSitesAndBuildings: %w", err)
 	}
+	if q.clearFleetNodeRevokedStatusStmt, err = db.PrepareContext(ctx, clearFleetNodeRevokedStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query ClearFleetNodeRevokedStatus: %w", err)
+	}
 	if q.clearRackPlacementForSoftDeleteStmt, err = db.PrepareContext(ctx, clearRackPlacementForSoftDelete); err != nil {
 		return nil, fmt.Errorf("error preparing query ClearRackPlacementForSoftDelete: %w", err)
 	}
@@ -2646,6 +2649,11 @@ func (q *Queries) Close() error {
 	if q.clearDeviceSitesAndBuildingsStmt != nil {
 		if cerr := q.clearDeviceSitesAndBuildingsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing clearDeviceSitesAndBuildingsStmt: %w", cerr)
+		}
+	}
+	if q.clearFleetNodeRevokedStatusStmt != nil {
+		if cerr := q.clearFleetNodeRevokedStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing clearFleetNodeRevokedStatusStmt: %w", cerr)
 		}
 	}
 	if q.clearRackPlacementForSoftDeleteStmt != nil {
@@ -6312,6 +6320,7 @@ type Queries struct {
 	clearDeviceBuildingsBySiteStmt                               *sql.Stmt
 	clearDeviceBuildingsOnSiteMismatchStmt                       *sql.Stmt
 	clearDeviceSitesAndBuildingsStmt                             *sql.Stmt
+	clearFleetNodeRevokedStatusStmt                              *sql.Stmt
 	clearRackPlacementForSoftDeleteStmt                          *sql.Stmt
 	clearRackSlotPositionStmt                                    *sql.Stmt
 	clearReleaseChannelFirmwareStmt                              *sql.Stmt
@@ -7091,6 +7100,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		clearDeviceBuildingsBySiteStmt:                               q.clearDeviceBuildingsBySiteStmt,
 		clearDeviceBuildingsOnSiteMismatchStmt:                       q.clearDeviceBuildingsOnSiteMismatchStmt,
 		clearDeviceSitesAndBuildingsStmt:                             q.clearDeviceSitesAndBuildingsStmt,
+		clearFleetNodeRevokedStatusStmt:                              q.clearFleetNodeRevokedStatusStmt,
 		clearRackPlacementForSoftDeleteStmt:                          q.clearRackPlacementForSoftDeleteStmt,
 		clearRackSlotPositionStmt:                                    q.clearRackSlotPositionStmt,
 		clearReleaseChannelFirmwareStmt:                              q.clearReleaseChannelFirmwareStmt,
