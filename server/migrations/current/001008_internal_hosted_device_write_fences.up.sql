@@ -8,7 +8,7 @@ CREATE TABLE device_write_fence (
  state TEXT NOT NULL DEFAULT 'host' CHECK (state IN ('host','reserved','active','quarantined')),
  updated_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
  FOREIGN KEY (device_id, organization_id) REFERENCES device(id,org_id),
- UNIQUE (device_id, organization_id)
+ CONSTRAINT uq_device_write_fence_device_org UNIQUE (device_id, organization_id)
 );
 
 ALTER TABLE queue_message ADD COLUMN write_epoch BIGINT NOT NULL DEFAULT 0 CHECK (write_epoch >= 0);
@@ -27,5 +27,5 @@ CREATE TABLE device_write_attempt (
  FOREIGN KEY (device_id, organization_id) REFERENCES device_write_fence(device_id,organization_id),
  CHECK ((status='running') = (finished_at IS NULL))
 );
-CREATE INDEX device_write_attempt_outstanding ON device_write_attempt(device_id) WHERE status <> 'complete';
-CREATE INDEX device_write_attempt_queue ON device_write_attempt(queue_message_id);
+CREATE INDEX idx_device_write_attempt_outstanding ON device_write_attempt(device_id) WHERE status <> 'complete';
+CREATE INDEX idx_device_write_attempt_queue ON device_write_attempt(queue_message_id);
