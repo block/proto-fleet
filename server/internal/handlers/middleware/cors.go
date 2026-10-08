@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 
+	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/infrastructure/server"
 	"github.com/rs/cors"
 )
@@ -24,7 +25,7 @@ func NewCORSMiddleware(suppressCors bool) *CORSMiddleware {
 		middleware = cors.New(cors.Options{
 			AllowedOrigins:   []string{"*"},
 			AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-			AllowedHeaders:   []string{"Authorization", "Content-Type", "Content-Range", "Accept", "Connect-Protocol-Version"},
+			AllowedHeaders:   []string{"Authorization", "Content-Type", "Content-Range", "Accept", "Connect-Protocol-Version", hostedaccounts.RequestAccountHeader},
 			AllowCredentials: true,
 		})
 	} else {

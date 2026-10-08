@@ -126,6 +126,11 @@ func (s *Service) CreateChild(ctx context.Context, actorID, orgID int64, parentI
 		if capabilities&^ceiling != 0 {
 			return Account{}, fleeterror.NewForbiddenError("cannot delegate capabilities excluded by the parent")
 		}
+		if parent.Depth > 0 {
+			if err := requireRoleGrant(ctx, q, actorID, orgID, parent.AccountID, RoleAdministrator); err != nil {
+				return Account{}, err
+			}
+		}
 		if _, err := q.LockActiveHostedAccountUser(ctx, sqlc.LockActiveHostedAccountUserParams{ID: adminID, OrganizationID: orgID}); err != nil {
 			return Account{}, accessError(err)
 		}
