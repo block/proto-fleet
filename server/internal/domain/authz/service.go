@@ -256,13 +256,6 @@ func (s *Service) UpdateCustomRole(ctx context.Context, callerID, orgID, roleID 
 			return RoleView{}, err
 		}
 		updated, err := q.GetRoleByID(ctx, roleID)
-		unadministered, guardErr := q.CountHostedAccountsWithoutAdministrator(ctx, sqlc.CountHostedAccountsWithoutAdministratorParams{OrganizationID: orgID, ExcludedUserID: 0})
-		if guardErr != nil {
-			return RoleView{}, guardErr
-		}
-		if unadministered != 0 {
-			return RoleView{}, fleeterror.NewFailedPreconditionError("account must retain an active direct or explicitly authorized ancestor administrator")
-		}
 		if err != nil {
 			// A concurrent DeleteCustomRole between getRoleInOrg above
 			// and this reload would soft-delete the row out from under
@@ -273,6 +266,13 @@ func (s *Service) UpdateCustomRole(ctx context.Context, callerID, orgID, roleID 
 				return RoleView{}, fleeterror.NewInvalidArgumentError("invalid role_id")
 			}
 			return RoleView{}, fleeterror.NewInternalErrorf("authz: reload role: %w", err)
+		}
+		unadministered, guardErr := q.CountHostedAccountsWithoutAdministrator(ctx, sqlc.CountHostedAccountsWithoutAdministratorParams{OrganizationID: orgID, ExcludedUserID: 0})
+		if guardErr != nil {
+			return RoleView{}, guardErr
+		}
+		if unadministered != 0 {
+			return RoleView{}, fleeterror.NewFailedPreconditionError("account must retain an active direct or explicitly authorized ancestor administrator")
 		}
 		return hydrateRole(ctx, q, updated)
 	})

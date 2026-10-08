@@ -315,13 +315,66 @@ func (q *Queries) ListHostedAccountChildren(ctx context.Context, arg ListHostedA
 }
 
 const listHostedAccountInvitations = `-- name: ListHostedAccountInvitations :many
-SELECT invitation_id, role, expires_at, revoked_at, accepted_at, created_at
-FROM hosted_account_invitation
-WHERE organization_id = $1 AND account_id = $2
+WITH RECURSIVE page AS MATERIALIZED (
+ SELECT invitation.invitation_id, invitation.organization_id, invitation.account_id, invitation.inviter_id, invitation.authority_fingerprint, invitation.token_hash, invitation.role, invitation.expires_at, invitation.revoked_at, invitation.accepted_at, invitation.accepted_user_id, invitation.created_at FROM hosted_account_invitation invitation
+ WHERE invitation.organization_id = $1 AND invitation.account_id = $2
   AND ($3::timestamptz IS NULL
-       OR (created_at, invitation_id) < ($3::timestamptz, $4::varchar))
-ORDER BY created_at DESC, invitation_id DESC
-LIMIT $5::int
+   OR (invitation.created_at, invitation.invitation_id) < ($3::timestamptz, $4::varchar))
+ ORDER BY invitation.created_at DESC, invitation.invitation_id DESC LIMIT $5::int
+), path AS (
+ SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision FROM hosted_account a WHERE a.organization_id=$1 AND a.id=$2
+ UNION ALL
+ SELECT p.id, p.account_id, p.organization_id, p.parent_id, p.depth, p.name, p.capabilities, p.suspended, p.revision, p.created_at, p.updated_at, p.sites_restricted, p.site_ceiling_restricted, p.authority_revision FROM hosted_account p JOIN path c ON p.id=c.parent_id AND p.organization_id=c.organization_id
+), target AS (
+ SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision FROM path a ORDER BY depth DESC LIMIT 1
+), policy AS (
+ SELECT bit_and(capabilities)::bigint AS ceiling, bool_or(suspended) AS suspended,
+  string_agg(id::text || ':' || authority_revision::text, ',' ORDER BY depth) AS state FROM path
+), inviters AS (
+ SELECT DISTINCT inviter_id FROM page WHERE revoked_at IS NULL AND accepted_at IS NULL AND expires_at>statement_timestamp()
+), sources AS (
+ SELECT i.inviter_id, CASE m.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END::bigint AS capabilities,
+  'member:' || m.revision::text AS witness
+ FROM inviters i JOIN hosted_account_membership m ON m.user_id=i.inviter_id
+ JOIN target t ON t.id=m.account_id AND t.organization_id=m.organization_id WHERE m.revoked_at IS NULL
+ UNION ALL
+ SELECT i.inviter_id, (g.capabilities & CASE WHEN ancestor.depth=0 THEN 31 ELSE
+  CASE member.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END END)::bigint,
+  'grant:' || g.ancestor_id::text || ':' || g.revision::text || ':' ||
+  CASE WHEN ancestor.depth=0 THEN COALESCE((
+   SELECT string_agg(ur.id::text || ':' || ur.updated_at::text || ':' || r.updated_at::text, ',' ORDER BY ur.id)
+   FROM user_organization_role ur JOIN role r ON r.id=ur.role_id AND r.organization_id=ur.organization_id AND r.deleted_at IS NULL
+   JOIN role_permission rp ON rp.role_id=r.id JOIN permission p ON p.id=rp.permission_id AND p.key='account:manage'
+   WHERE ur.organization_id=g.organization_id AND ur.user_id=i.inviter_id AND ur.deleted_at IS NULL AND ur.scope_type='org'
+  ),'') ELSE member.revision::text END
+ FROM inviters i CROSS JOIN hosted_account_ancestor_grant g
+ JOIN target t ON t.id=g.account_id AND t.organization_id=g.organization_id
+ JOIN path ancestor ON ancestor.id=g.ancestor_id AND ancestor.depth<t.depth
+ LEFT JOIN hosted_account_membership member ON member.organization_id=g.organization_id AND member.account_id=g.ancestor_id
+  AND member.user_id=i.inviter_id AND member.revoked_at IS NULL
+ WHERE g.revoked_at IS NULL AND ((ancestor.depth>0 AND member.user_id IS NOT NULL) OR (ancestor.depth=0 AND EXISTS (
+  SELECT 1 FROM user_organization_role ur JOIN role r ON r.id=ur.role_id AND r.organization_id=ur.organization_id AND r.deleted_at IS NULL
+  JOIN role_permission rp ON rp.role_id=r.id JOIN permission p ON p.id=rp.permission_id AND p.key='account:manage'
+  WHERE ur.organization_id=g.organization_id AND ur.user_id=i.inviter_id AND ur.deleted_at IS NULL AND ur.scope_type='org'
+ )))
+), authorities AS (
+ SELECT i.inviter_id, COALESCE(bit_or(s.capabilities),0)::bigint AS source_capabilities,
+  (COALESCE(bit_or(s.capabilities),0) & policy.ceiling)::bigint AS capabilities,
+  encode(sha256(convert_to(policy.state || '/' || COALESCE(string_agg(s.witness, ';' ORDER BY s.witness),''),'UTF8')),'hex') AS fingerprint
+ FROM inviters i CROSS JOIN target t CROSS JOIN policy
+ JOIN organization o ON o.id=t.organization_id AND o.deleted_at IS NULL
+ JOIN user_organization uo ON uo.organization_id=t.organization_id AND uo.user_id=i.inviter_id AND uo.deleted_at IS NULL
+ JOIN "user" u ON u.id=uo.user_id AND u.deleted_at IS NULL
+ LEFT JOIN sources s ON s.inviter_id=i.inviter_id
+ WHERE t.depth>0 AND NOT policy.suspended GROUP BY i.inviter_id,policy.ceiling,policy.state
+)
+SELECT p.invitation_id,p.role,p.expires_at,p.revoked_at,p.accepted_at,p.created_at,
+ COALESCE(p.revoked_at IS NULL AND p.accepted_at IS NULL AND p.expires_at>statement_timestamp()
+  AND (a.capabilities & 8)<>0 AND a.fingerprint=p.authority_fingerprint
+  AND (a.source_capabilities & CASE p.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END)
+   = CASE p.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END,false)::boolean AS available
+FROM page p LEFT JOIN authorities a ON a.inviter_id=p.inviter_id
+ORDER BY p.created_at DESC,p.invitation_id DESC
 `
 
 type ListHostedAccountInvitationsParams struct {
@@ -339,8 +392,11 @@ type ListHostedAccountInvitationsRow struct {
 	RevokedAt    sql.NullTime
 	AcceptedAt   sql.NullTime
 	CreatedAt    time.Time
+	Available    bool
 }
 
+// Bound history first, then resolve each live inviter once in the same snapshot.
+// Authority witnesses and durable-role checks match invitation acceptance.
 func (q *Queries) ListHostedAccountInvitations(ctx context.Context, arg ListHostedAccountInvitationsParams) ([]ListHostedAccountInvitationsRow, error) {
 	rows, err := q.query(ctx, q.listHostedAccountInvitationsStmt, listHostedAccountInvitations,
 		arg.OrganizationID,
@@ -363,6 +419,7 @@ func (q *Queries) ListHostedAccountInvitations(ctx context.Context, arg ListHost
 			&i.RevokedAt,
 			&i.AcceptedAt,
 			&i.CreatedAt,
+			&i.Available,
 		); err != nil {
 			return nil, err
 		}

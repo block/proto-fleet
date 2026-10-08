@@ -1334,6 +1334,8 @@ type Querier interface {
 	ListHashboardModules(ctx context.Context, deviceID int64) ([]ListHashboardModulesRow, error)
 	ListHostedAccountAncestorGrants(ctx context.Context, arg ListHostedAccountAncestorGrantsParams) ([]HostedAccountAncestorGrant, error)
 	ListHostedAccountChildren(ctx context.Context, arg ListHostedAccountChildrenParams) ([]HostedAccount, error)
+	// Bound history first, then resolve each live inviter once in the same snapshot.
+	// Authority witnesses and durable-role checks match invitation acceptance.
 	ListHostedAccountInvitations(ctx context.Context, arg ListHostedAccountInvitationsParams) ([]ListHostedAccountInvitationsRow, error)
 	ListHostedAccountMembers(ctx context.Context, arg ListHostedAccountMembersParams) ([]ListHostedAccountMembersRow, error)
 	ListHostedAccountSites(ctx context.Context, arg ListHostedAccountSitesParams) ([]ListHostedAccountSitesRow, error)

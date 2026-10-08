@@ -312,12 +312,10 @@ func sitePolicyAuthority(ctx context.Context, q sqlc.Querier, actorID, orgID int
 	if scoped && selected != path[len(path)-1].AccountID {
 		return false, denied()
 	}
+	// An account-only request consistently selects its own policy. Parent
+	// ceilings require an explicitly selected parent workspace or child target.
 	_, err := authorize(ctx, q, actorID, orgID, path, required)
-	if err == nil || scoped {
-		return false, err
-	}
-	_, err = authorize(ctx, q, actorID, orgID, parent, Delegate)
-	return true, err
+	return false, err
 }
 
 func sitePolicy(ctx context.Context, q sqlc.Querier, orgID int64, path []Account, parentControlled bool) (Sites, error) {

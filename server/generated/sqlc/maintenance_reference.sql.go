@@ -14,7 +14,7 @@ const listMaintenanceAssignees = `-- name: ListMaintenanceAssignees :many
 SELECT u.id AS user_id, u.username, COALESCE(r.name, '') AS role_name
 FROM user_organization uo
 JOIN "user" u ON u.id = uo.user_id AND u.deleted_at IS NULL
-LEFT JOIN role r ON r.id = uo.role_id AND r.deleted_at IS NULL
+JOIN role r ON r.id = uo.role_id AND r.organization_id = uo.organization_id AND r.deleted_at IS NULL
 WHERE uo.organization_id = $1 AND uo.deleted_at IS NULL
 ORDER BY LOWER(u.username), u.id
 `
@@ -139,7 +139,7 @@ const resolveMaintenanceAssignee = `-- name: ResolveMaintenanceAssignee :one
 SELECT u.id AS user_id, u.username, COALESCE(r.name, '') AS role_name
 FROM user_organization uo
 JOIN "user" u ON u.id = uo.user_id AND u.deleted_at IS NULL
-LEFT JOIN role r ON r.id = uo.role_id AND r.deleted_at IS NULL
+JOIN role r ON r.id = uo.role_id AND r.organization_id = uo.organization_id AND r.deleted_at IS NULL
 WHERE uo.organization_id = $1 AND uo.user_id = $2
   AND uo.deleted_at IS NULL
 FOR SHARE OF uo, u

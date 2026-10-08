@@ -78,6 +78,9 @@ message Invitation {
   google.protobuf.Timestamp revoked_at = 4;
   google.protobuf.Timestamp accepted_at = 5;
   google.protobuf.Timestamp created_at = 6;
+  // The server derives current usability from lifecycle and live inviter authority.
+  // Acceptance rechecks authority; this observation does not reserve access.
+  bool available = 7;
 }
 
 message ListAccountsRequest {}

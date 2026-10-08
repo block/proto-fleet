@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -58,7 +59,9 @@ func TestSitePoliciesIntersectAndCannotGrantForeignOrganizationSites(t *testing.
 	var first, second int64
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO site (name,org_id,slug) VALUES ('First',$1,'first') RETURNING id`, f.org).Scan(&first))
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO site (name,org_id,slug) VALUES ('Second',$1,'second') RETURNING id`, f.org).Scan(&second))
-	require.NoError(t, f.svc.ConfigureSites(t.Context(), f.host, f.org, parent.AccountID, true, []int64{first}))
+	rootCtx, err := hostedaccounts.WithRequestAccountID(t.Context(), f.root)
+	require.NoError(t, err)
+	require.NoError(t, f.svc.ConfigureSites(rootCtx, f.host, f.org, parent.AccountID, true, []int64{first}))
 	require.NoError(t, f.svc.ConfigureSites(t.Context(), f.host, f.org, child.AccountID, true, []int64{second}))
 	sites, err := f.svc.SitePolicy(t.Context(), f.host, f.org, child.AccountID)
 	require.NoError(t, err)
@@ -162,7 +165,23 @@ func TestExplicitAncestorCanReplaceDirectAdministrator(t *testing.T) {
 	require.NoError(t, f.svc.SetAncestorGrant(t.Context(), f.host, f.org, child.AccountID, parent.AccountID, hostedaccounts.DefaultCapabilities))
 	require.NoError(t, f.svc.RevokeMembership(t.Context(), f.host, f.org, child.AccountID, f.host))
 	require.Error(t, f.svc.RevokeAncestorGrant(t.Context(), f.user, f.org, child.AccountID, parent.AccountID), "sole ancestor administration must survive")
-	require.Error(t, f.svc.SetMembership(t.Context(), f.user, f.org, parent.AccountID, f.user, hostedaccounts.RoleViewer), "parent demotion cannot strand its child")
+	// The parent retains independent recovery; only the child depends on
+	// this source membership remaining an administrator.
+	require.NoError(t, f.svc.SetAncestorGrant(t.Context(), f.host, f.org, parent.AccountID, f.root, hostedaccounts.AllCapabilities))
+	q := sqlc.New(f.db)
+	before, err := q.ResolveHostedAccountAuthority(t.Context(), sqlc.ResolveHostedAccountAuthorityParams{OrganizationID: f.org, AccountID: child.AccountID, UserID: f.user})
+	require.NoError(t, err)
+	err = f.svc.SetMembership(t.Context(), f.user, f.org, parent.AccountID, f.user, hostedaccounts.RoleViewer)
+	require.True(t, fleeterror.IsFailedPreconditionError(err), "parent demotion cannot strand its child: %v", err)
+	after, err := q.ResolveHostedAccountAuthority(t.Context(), sqlc.ResolveHostedAccountAuthorityParams{OrganizationID: f.org, AccountID: child.AccountID, UserID: f.user})
+	require.NoError(t, err)
+	require.Equal(t, before, after, "refused demotion rolls back the source membership and child authority")
+	parentAccess, err := f.svc.Resolve(t.Context(), f.user, f.org, parent.AccountID)
+	require.NoError(t, err)
+	require.Equal(t, hostedaccounts.RoleAdministrator, parentAccess.Role)
+	recovery, err := f.svc.Resolve(t.Context(), f.host, f.org, parent.AccountID)
+	require.NoError(t, err)
+	require.True(t, recovery.Has(hostedaccounts.ManageMembers))
 	require.Error(t, f.svc.SetMembership(t.Context(), f.user, f.org, child.AccountID, f.host, hostedaccounts.RoleAdministrator), "a limited ancestor grant cannot assign a full durable administrator role")
 	// Establish full source authority before narrowing the mutable ceiling.
 	require.NoError(t, f.svc.ConfigureChild(t.Context(), f.user, f.org, child.AccountID, hostedaccounts.AllCapabilities, false))
@@ -170,6 +189,56 @@ func TestExplicitAncestorCanReplaceDirectAdministrator(t *testing.T) {
 	require.NoError(t, f.svc.ConfigureChild(t.Context(), f.user, f.org, child.AccountID, hostedaccounts.DefaultCapabilities, false))
 	require.NoError(t, f.svc.SetMembership(t.Context(), f.user, f.org, child.AccountID, f.host, hostedaccounts.RoleAdministrator))
 	require.NoError(t, f.svc.RevokeAncestorGrant(t.Context(), f.user, f.org, child.AccountID, parent.AccountID))
+}
+
+func TestChildAdministratorContinuityRequiresLiveAncestorMembership(t *testing.T) {
+	for _, mutation := range []string{"revoke-parent-membership", "deactivate-parent-administrator"} {
+		t.Run(mutation, func(t *testing.T) {
+			f := setup(t)
+			parent := f.client(t, "Parent", f.user, hostedaccounts.AllCapabilities)
+			child, err := f.svc.CreateChild(t.Context(), f.user, f.org, parent.AccountID, "Child", f.host, hostedaccounts.DefaultCapabilities)
+			require.NoError(t, err)
+			// Root recovery protects the parent independently, but supplies no
+			// implicit child access. The child's only administrator is f.user
+			// through their live parent membership and this explicit grant.
+			require.NoError(t, f.svc.SetAncestorGrant(t.Context(), f.host, f.org, parent.AccountID, f.root, hostedaccounts.AllCapabilities))
+			require.NoError(t, f.svc.SetAncestorGrant(t.Context(), f.host, f.org, child.AccountID, parent.AccountID, hostedaccounts.DefaultCapabilities))
+			require.NoError(t, f.svc.RevokeMembership(t.Context(), f.host, f.org, child.AccountID, f.host))
+			_, err = f.svc.Resolve(t.Context(), f.host, f.org, child.AccountID)
+			require.Error(t, err, "parent recovery must not administer the child implicitly")
+			change := func() error {
+				return f.svc.RevokeMembership(t.Context(), f.host, f.org, parent.AccountID, f.user)
+			}
+			if mutation == "deactivate-parent-administrator" {
+				change = f.deactivation(t)
+			}
+			q := sqlc.New(f.db)
+			before, err := q.ResolveHostedAccountAuthority(t.Context(), sqlc.ResolveHostedAccountAuthorityParams{OrganizationID: f.org, AccountID: child.AccountID, UserID: f.user})
+			require.NoError(t, err)
+			err = change()
+			require.True(t, fleeterror.IsFailedPreconditionError(err), "removing the child's sole ancestor administrator must fail: %v", err)
+			after, err := q.ResolveHostedAccountAuthority(t.Context(), sqlc.ResolveHostedAccountAuthorityParams{OrganizationID: f.org, AccountID: child.AccountID, UserID: f.user})
+			require.NoError(t, err)
+			require.Equal(t, before, after, "refused mutation leaves child authority and its source unchanged")
+			source, err := f.svc.Resolve(t.Context(), f.user, f.org, parent.AccountID)
+			require.NoError(t, err)
+			require.Equal(t, hostedaccounts.RoleAdministrator, source.Role)
+			var deleted bool
+			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT deleted_at IS NOT NULL FROM "user" WHERE id = $1`, f.user).Scan(&deleted))
+			require.False(t, deleted, "refused deactivation leaves the identity live")
+			// Supplying independent child recovery removes the sole blocker:
+			// the same mutation succeeds, while both accounts remain managed.
+			require.NoError(t, f.svc.SetAncestorGrant(t.Context(), f.host, f.org, child.AccountID, f.root, hostedaccounts.DefaultCapabilities))
+			require.NoError(t, change())
+			for _, account := range []string{parent.AccountID, child.AccountID} {
+				recovery, err := f.svc.Resolve(t.Context(), f.host, f.org, account)
+				require.NoError(t, err)
+				require.True(t, recovery.Has(hostedaccounts.ManageMembers))
+			}
+			_, err = f.svc.Resolve(t.Context(), f.user, f.org, child.AccountID)
+			require.Error(t, err, "a revoked or deactivated source cannot retain child access")
+		})
+	}
 }
 
 func TestHostExplicitGrantDoesNotCreateImplicitCustomerAccess(t *testing.T) {

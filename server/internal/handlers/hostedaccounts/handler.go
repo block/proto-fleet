@@ -389,7 +389,7 @@ func roleDomain(role pb.AccountRole) domain.Role {
 	}
 }
 func invitationDTO(i domain.Invitation) *pb.Invitation {
-	return &pb.Invitation{InvitationId: i.InvitationID, Role: roleDTO(domain.Role(i.Role)), ExpiresAt: timestamppb.New(i.ExpiresAt), RevokedAt: nullableTimestamp(i.RevokedAt), AcceptedAt: nullableTimestamp(i.AcceptedAt), CreatedAt: timestamppb.New(i.CreatedAt)}
+	return &pb.Invitation{InvitationId: i.InvitationID, Role: roleDTO(domain.Role(i.Role)), ExpiresAt: timestamppb.New(i.ExpiresAt), RevokedAt: nullableTimestamp(i.RevokedAt), AcceptedAt: nullableTimestamp(i.AcceptedAt), CreatedAt: timestamppb.New(i.CreatedAt), Available: i.Available}
 }
 func nullableTimestamp(t sql.NullTime) *timestamppb.Timestamp {
 	if !t.Valid {

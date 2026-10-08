@@ -62,13 +62,68 @@ FROM hosted_account_invitation i JOIN hosted_account a ON a.id = i.account_id AN
 WHERE i.token_hash = $1;
 
 -- name: ListHostedAccountInvitations :many
-SELECT invitation_id, role, expires_at, revoked_at, accepted_at, created_at
-FROM hosted_account_invitation
-WHERE organization_id = sqlc.arg('organization_id') AND account_id = sqlc.arg('account_id')
+-- Bound history first, then resolve each live inviter once in the same snapshot.
+-- Authority witnesses and durable-role checks match invitation acceptance.
+WITH RECURSIVE page AS MATERIALIZED (
+ SELECT invitation.* FROM hosted_account_invitation invitation
+ WHERE invitation.organization_id = sqlc.arg('organization_id') AND invitation.account_id = sqlc.arg('account_id')
   AND (sqlc.narg('cursor_time')::timestamptz IS NULL
-       OR (created_at, invitation_id) < (sqlc.narg('cursor_time')::timestamptz, sqlc.arg('cursor_id')::varchar))
-ORDER BY created_at DESC, invitation_id DESC
-LIMIT sqlc.arg('page_limit')::int;
+   OR (invitation.created_at, invitation.invitation_id) < (sqlc.narg('cursor_time')::timestamptz, sqlc.arg('cursor_id')::varchar))
+ ORDER BY invitation.created_at DESC, invitation.invitation_id DESC LIMIT sqlc.arg('page_limit')::int
+), path AS (
+ SELECT a.* FROM hosted_account a WHERE a.organization_id=sqlc.arg('organization_id') AND a.id=sqlc.arg('account_id')
+ UNION ALL
+ SELECT p.* FROM hosted_account p JOIN path c ON p.id=c.parent_id AND p.organization_id=c.organization_id
+), target AS (
+ SELECT a.* FROM path a ORDER BY depth DESC LIMIT 1
+), policy AS (
+ SELECT bit_and(capabilities)::bigint AS ceiling, bool_or(suspended) AS suspended,
+  string_agg(id::text || ':' || authority_revision::text, ',' ORDER BY depth) AS state FROM path
+), inviters AS (
+ SELECT DISTINCT inviter_id FROM page WHERE revoked_at IS NULL AND accepted_at IS NULL AND expires_at>statement_timestamp()
+), sources AS (
+ SELECT i.inviter_id, CASE m.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END::bigint AS capabilities,
+  'member:' || m.revision::text AS witness
+ FROM inviters i JOIN hosted_account_membership m ON m.user_id=i.inviter_id
+ JOIN target t ON t.id=m.account_id AND t.organization_id=m.organization_id WHERE m.revoked_at IS NULL
+ UNION ALL
+ SELECT i.inviter_id, (g.capabilities & CASE WHEN ancestor.depth=0 THEN 31 ELSE
+  CASE member.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END END)::bigint,
+  'grant:' || g.ancestor_id::text || ':' || g.revision::text || ':' ||
+  CASE WHEN ancestor.depth=0 THEN COALESCE((
+   SELECT string_agg(ur.id::text || ':' || ur.updated_at::text || ':' || r.updated_at::text, ',' ORDER BY ur.id)
+   FROM user_organization_role ur JOIN role r ON r.id=ur.role_id AND r.organization_id=ur.organization_id AND r.deleted_at IS NULL
+   JOIN role_permission rp ON rp.role_id=r.id JOIN permission p ON p.id=rp.permission_id AND p.key='account:manage'
+   WHERE ur.organization_id=g.organization_id AND ur.user_id=i.inviter_id AND ur.deleted_at IS NULL AND ur.scope_type='org'
+  ),'') ELSE member.revision::text END
+ FROM inviters i CROSS JOIN hosted_account_ancestor_grant g
+ JOIN target t ON t.id=g.account_id AND t.organization_id=g.organization_id
+ JOIN path ancestor ON ancestor.id=g.ancestor_id AND ancestor.depth<t.depth
+ LEFT JOIN hosted_account_membership member ON member.organization_id=g.organization_id AND member.account_id=g.ancestor_id
+  AND member.user_id=i.inviter_id AND member.revoked_at IS NULL
+ WHERE g.revoked_at IS NULL AND ((ancestor.depth>0 AND member.user_id IS NOT NULL) OR (ancestor.depth=0 AND EXISTS (
+  SELECT 1 FROM user_organization_role ur JOIN role r ON r.id=ur.role_id AND r.organization_id=ur.organization_id AND r.deleted_at IS NULL
+  JOIN role_permission rp ON rp.role_id=r.id JOIN permission p ON p.id=rp.permission_id AND p.key='account:manage'
+  WHERE ur.organization_id=g.organization_id AND ur.user_id=i.inviter_id AND ur.deleted_at IS NULL AND ur.scope_type='org'
+ )))
+), authorities AS (
+ SELECT i.inviter_id, COALESCE(bit_or(s.capabilities),0)::bigint AS source_capabilities,
+  (COALESCE(bit_or(s.capabilities),0) & policy.ceiling)::bigint AS capabilities,
+  encode(sha256(convert_to(policy.state || '/' || COALESCE(string_agg(s.witness, ';' ORDER BY s.witness),''),'UTF8')),'hex') AS fingerprint
+ FROM inviters i CROSS JOIN target t CROSS JOIN policy
+ JOIN organization o ON o.id=t.organization_id AND o.deleted_at IS NULL
+ JOIN user_organization uo ON uo.organization_id=t.organization_id AND uo.user_id=i.inviter_id AND uo.deleted_at IS NULL
+ JOIN "user" u ON u.id=uo.user_id AND u.deleted_at IS NULL
+ LEFT JOIN sources s ON s.inviter_id=i.inviter_id
+ WHERE t.depth>0 AND NOT policy.suspended GROUP BY i.inviter_id,policy.ceiling,policy.state
+)
+SELECT p.invitation_id,p.role,p.expires_at,p.revoked_at,p.accepted_at,p.created_at,
+ COALESCE(p.revoked_at IS NULL AND p.accepted_at IS NULL AND p.expires_at>statement_timestamp()
+  AND (a.capabilities & 8)<>0 AND a.fingerprint=p.authority_fingerprint
+  AND (a.source_capabilities & CASE p.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END)
+   = CASE p.role WHEN 'viewer' THEN 1 WHEN 'pool_operator' THEN 7 WHEN 'account_administrator' THEN 31 ELSE 0 END,false)::boolean AS available
+FROM page p LEFT JOIN authorities a ON a.inviter_id=p.inviter_id
+ORDER BY p.created_at DESC,p.invitation_id DESC;
 
 -- name: RevokeHostedAccountInvitation :execrows
 UPDATE hosted_account_invitation SET revoked_at = CURRENT_TIMESTAMP

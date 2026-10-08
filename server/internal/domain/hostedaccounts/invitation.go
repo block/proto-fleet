@@ -113,7 +113,7 @@ func (s *InvitationService) Create(ctx context.Context, actorID, orgID int64, ac
 		if err = audit(ctx, q, actor, account, "create_hosted_account_invitation", map[string]any{"invitation_id": row.InvitationID, "role": role, "expires_at": row.ExpiresAt}); err != nil {
 			return IssuedInvitation{}, err
 		}
-		return IssuedInvitation{Token: token, Invitation: Invitation{InvitationID: row.InvitationID, Role: row.Role, ExpiresAt: row.ExpiresAt, CreatedAt: row.CreatedAt}}, nil
+		return IssuedInvitation{Token: token, Invitation: Invitation{InvitationID: row.InvitationID, Role: row.Role, ExpiresAt: row.ExpiresAt, CreatedAt: row.CreatedAt, Available: true}}, nil
 	})
 }
 
