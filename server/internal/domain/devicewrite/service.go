@@ -236,9 +236,20 @@ func RecheckContext(ctx context.Context) error {
 	return attempt.Recheck(ctx)
 }
 
-// Dispatch checks ownership immediately before invoking a device operation and
-// records whether an error may represent an ambiguous physical result.
+// Dispatch checks ownership immediately before a mutation. Neither a nil SDK
+// result nor an HTTP/Fleet Node acknowledgement certifies physical completion.
 func Dispatch(ctx context.Context, operation func(context.Context) error) error {
+	return dispatch(ctx, operation, true)
+}
+
+// Observe retains the same durable ownership check as Dispatch without marking
+// a physical mutation. It never clears evidence of an earlier mutation in the
+// same attempt; callers must retain admission through the response lifetime.
+func Observe(ctx context.Context, operation func(context.Context) error) error {
+	return dispatch(ctx, operation, false)
+}
+
+func dispatch(ctx context.Context, operation func(context.Context) error, mutation bool) error {
 	attempt, ok := ctx.Value(attemptContextKey{}).(*Attempt)
 	if ok {
 		if err := attempt.Recheck(ctx); err != nil {
@@ -252,7 +263,7 @@ func Dispatch(ctx context.Context, operation func(context.Context) error) error 
 	// The durable attempt remains running during the operation, including if
 	// the process crashes. A confirmed admission rejection cannot erase a
 	// previous invocation that may already have reached the device.
-	if ok && !IsNotDispatched(outcome) {
+	if ok && mutation && !IsNotDispatched(outcome) {
 		attempt.dispatched.Store(true)
 		// Preserve uncertainty even if an outer handler sanitizes the error.
 		if isUncertainDelivery(outcome) {
@@ -289,7 +300,7 @@ func (s *Service) BeginHost(ctx context.Context, organizationID, deviceID, epoch
 }
 
 // WithHostAttempt retains the whole operation lifetime after committed admission.
-// The callback marks only actual transport calls with Dispatch after validation.
+// The callback uses Dispatch for mutations and Observe for reads after validation.
 // A carried attempt may authorize only its exact database, device and epoch.
 func (s *Service) WithHostAttempt(ctx context.Context, organizationID, deviceID, epoch int64, kind commandtype.Type, call func(context.Context) error) (resultErr error) {
 	if db.GetTxQueries(ctx) != nil {

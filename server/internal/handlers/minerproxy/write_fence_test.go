@@ -215,11 +215,11 @@ func TestProxyResponseFailuresRetainUnknownOutcome(t *testing.T) {
 			}
 			transport := &proxyResponseTransport{status: http.StatusOK, body: body}
 			h.httpClient = &http.Client{Transport: transport}
-			source := httptest.NewRequest(http.MethodGet, "http://fleet.test/", nil)
+			source := httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil)
 			response := httptest.NewRecorder()
 			started := false
 			err := h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
-				return h.forwardAndCopy(ctx, response, source, target, "/api/v2/system/info", nil, &started)
+				return h.forwardAndCopy(ctx, response, source, target, "/api/v2/mining/start", nil, &started)
 			})
 			require.Error(t, err)
 			require.NotContains(t, err.Error(), "fixture-")
@@ -257,7 +257,7 @@ func TestProxyRejectsAmbientTransactionBeforeTransport(t *testing.T) {
 }
 
 func TestProxyFailedLoginResponseCannotCacheTokenOrForward(t *testing.T) {
-	for _, failure := range []string{"read", "close", "truncated-tail", "oversized"} {
+	for _, failure := range []string{"read", "close", "truncated-tail", "oversized", "network", "unauthorized", "unavailable-status"} {
 		t.Run(failure, func(t *testing.T) {
 			database, orgID, deviceID, h, target := proxyFenceFixture(t)
 			encrypted, err := h.encryptService.Encrypt([]byte("proxy-fixture-password"))
@@ -272,11 +272,23 @@ func TestProxyFailedLoginResponseCannotCacheTokenOrForward(t *testing.T) {
 				body.reader = io.MultiReader(body.reader, proxyTruncatedReader{})
 			} else if failure == "oversized" {
 				body.reader = strings.NewReader(`{"access_token":"fixture-login-token"}` + strings.Repeat(" ", maxLoginResponseBytes))
-			} else {
+			} else if failure == "close" {
 				body.closeErr = errors.New("fixture-close-secret")
 			}
-			transport := &proxyResponseTransport{status: http.StatusOK, body: body}
+			responseStatus := http.StatusOK
+			if failure == "unauthorized" {
+				responseStatus = http.StatusUnauthorized
+			} else if failure == "unavailable-status" {
+				responseStatus = http.StatusServiceUnavailable
+			}
+			transport := &proxyResponseTransport{status: responseStatus, body: body}
 			h.httpClient = &http.Client{Transport: transport}
+			if failure == "network" {
+				h.httpClient.Transport = proxyRoundTripFunc(func(*http.Request) (*http.Response, error) {
+					transport.calls.Add(1)
+					return nil, errors.New("fixture-network-secret")
+				})
+			}
 			response := httptest.NewRecorder()
 			started := false
 			err = h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
@@ -290,12 +302,12 @@ func TestProxyFailedLoginResponseCannotCacheTokenOrForward(t *testing.T) {
 			require.False(t, cached)
 			var status string
 			require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT status FROM device_write_attempt WHERE device_id=$1", deviceID).Scan(&status))
-			require.Equal(t, "unknown", status)
+			require.Equal(t, "complete", status)
 			epoch, err := h.writeService.Reserve(t.Context(), orgID, deviceID)
 			require.NoError(t, err)
 			drained, err := h.writeService.Drained(t.Context(), orgID, deviceID, epoch)
 			require.NoError(t, err)
-			require.False(t, drained)
+			require.True(t, drained)
 		})
 	}
 }
@@ -451,12 +463,12 @@ func TestProxyServeHTTPResponseFailureDoesNotAppendError(t *testing.T) {
 			h.ServeHTTP(response, authenticatedProxyRequest(t, database, h, target))
 			require.Equal(t, http.StatusOK, response.Code)
 			require.Equal(t, "{}", response.Body.String(), "an error must not be appended after miner response headers")
-			require.Equal(t, "unknown", proxyAttemptStatus(t, database, deviceID))
+			require.Equal(t, "complete", proxyAttemptStatus(t, database, deviceID))
 			epoch, err := h.writeService.Reserve(t.Context(), orgID, deviceID)
 			require.NoError(t, err)
 			drained, err := h.writeService.Drained(t.Context(), orgID, deviceID, epoch)
 			require.NoError(t, err)
-			require.False(t, drained)
+			require.True(t, drained)
 		})
 	}
 }
@@ -535,7 +547,7 @@ func TestProxyRevalidatesAfterLoginCloseBeforeControlRequest(t *testing.T) {
 		t.Fatal("proxy did not finish after login close")
 	}
 	require.Equal(t, int64(1), transport.calls.Load(), "binding must be checked again before sending the authenticated control request")
-	require.Equal(t, "unknown", proxyAttemptStatus(t, database, deviceID))
+	require.Equal(t, "complete", proxyAttemptStatus(t, database, deviceID))
 	var epoch int64
 	require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT epoch FROM device_write_fence WHERE device_id=$1", deviceID).Scan(&epoch))
 	require.Equal(t, target.binding.WriteEpoch, epoch)

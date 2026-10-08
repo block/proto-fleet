@@ -35,6 +35,7 @@ import (
 )
 
 const (
+	minerLoginPath        = "/api/v1/auth/login"
 	proxyClientTimeout    = 30 * time.Second
 	maxProxyBodyBytes     = 64 << 20
 	maxLoginResponseBytes = 64 << 10
@@ -79,7 +80,7 @@ type Handler struct {
 }
 
 type proxyTarget struct {
-	dispatch         func(context.Context, func(context.Context) error) error
+	dispatch         func(context.Context, bool, func(context.Context) error) error
 	binding          sqlc.GetDirectProtoMinerProxyTargetRow
 	deviceIdentifier string
 	baseURL          string
@@ -352,11 +353,11 @@ func (h *Handler) resolveTarget(ctx context.Context, deviceIdentifier string, or
 
 	return proxyTarget{
 		binding: row,
-		dispatch: func(ctx context.Context, call func(context.Context) error) error {
+		dispatch: func(ctx context.Context, mutation bool, call func(context.Context) error) error {
 			if err := h.revalidateTarget(ctx, row); err != nil {
 				return err
 			}
-			return devicewrite.Dispatch(ctx, call)
+			return dispatchProxyOperation(ctx, mutation, call)
 		},
 		deviceIdentifier: row.DeviceIdentifier,
 		baseURL:          base.String(),
@@ -403,7 +404,7 @@ func (h *Handler) forward(
 	}
 
 	var resp *http.Response
-	err = h.dispatchTarget(ctx, target, func(ctx context.Context) error {
+	err = h.dispatchTarget(ctx, target, proxyMutatesMiner(source.Method, proxyPath), func(ctx context.Context) error {
 		var callErr error
 		//nolint:bodyclose // forwardAndCopy closes the returned response within the admitted attempt.
 		resp, callErr = h.clientFor(target.baseURL).Do(req.WithContext(ctx))
@@ -499,7 +500,7 @@ func (h *Handler) clearToken(key string) {
 
 func (h *Handler) loginTarget(ctx context.Context, target proxyTarget, password string) (string, error) {
 	var token string
-	err := h.dispatchTarget(ctx, target, func(ctx context.Context) error {
+	err := h.dispatchTarget(ctx, target, false, func(ctx context.Context) error {
 		var err error
 		token, err = h.login(ctx, target.baseURL, password)
 		return err
@@ -521,11 +522,35 @@ func (h *Handler) revalidateTarget(ctx context.Context, binding sqlc.GetDirectPr
 	return nil
 }
 
-func (h *Handler) dispatchTarget(ctx context.Context, target proxyTarget, call func(context.Context) error) error {
+func (h *Handler) dispatchTarget(ctx context.Context, target proxyTarget, mutation bool, call func(context.Context) error) error {
 	if target.dispatch == nil {
 		return fleeterror.NewFailedPreconditionError("miner proxy target admission missing")
 	}
-	return target.dispatch(ctx, call)
+	return target.dispatch(ctx, mutation, call)
+}
+
+// Binding validation precedes this dispatch; both kinds retain the attempt's
+// durable ownership check immediately before transport I/O.
+func dispatchProxyOperation(ctx context.Context, mutation bool, call func(context.Context) error) error {
+	if mutation {
+		return devicewrite.Dispatch(ctx, call)
+	}
+	return devicewrite.Observe(ctx, call)
+}
+
+// The authorization contract already distinguishes observations, including
+// POST timeseries and downloadable logs. Login only establishes authentication;
+// all other operations retain conservative physical-mutation evidence.
+func proxyMutatesMiner(method, proxyPath string) bool {
+	if method == http.MethodPost && proxyPath == minerLoginPath {
+		return false
+	}
+	for _, permission := range permissionsFor(method, proxyPath) {
+		if permission != authz.PermMinerRead && permission != authz.PermMinerDownloadLogs {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) login(ctx context.Context, baseURL string, password string) (token string, resultErr error) {
@@ -534,7 +559,7 @@ func (h *Handler) login(ctx context.Context, baseURL string, password string) (t
 		return "", fleeterror.NewInternalErrorf("failed to create miner login request: %v", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/v1/auth/login", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+minerLoginPath, bytes.NewReader(body))
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("failed to create miner login request: %v", err)
 	}
