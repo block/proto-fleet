@@ -188,7 +188,9 @@ func assertAccountKeyPagePlan(t *testing.T, conn *sql.DB, orgID, accountID, acto
 		}
 		if children, ok := node["Plans"].([]any); ok {
 			for _, child := range children {
-				visit(child.(map[string]any))
+				childPlan, ok := child.(map[string]any)
+				require.True(t, ok)
+				visit(childPlan)
 			}
 		}
 	}
