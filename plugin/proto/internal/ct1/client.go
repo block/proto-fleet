@@ -101,6 +101,10 @@ func (c *Client) get(ctx context.Context, path string, out any) error {
 func (c *Client) Discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceInfo, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.discover(ctx, info)
+}
+
+func (c *Client) discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceInfo, error) {
 	var result struct {
 		Info *struct {
 			ID      string `json:"id"`

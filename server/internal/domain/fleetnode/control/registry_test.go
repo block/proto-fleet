@@ -98,6 +98,33 @@ func TestRegistry_CommandProtocolUpgradeRequiredNeedsActiveConnection(t *testing
 	assert.False(t, r.CommandProtocolUpgradeRequired(7))
 }
 
+func TestRegistry_CommandProtocolUpgradeRequiredForVersion(t *testing.T) {
+	for _, installed := range []gatewaypb.CommandProtocolVersion{
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3,
+		gatewaypb.CommandProtocolVersion(4),
+	} {
+		t.Run(installed.String(), func(t *testing.T) {
+			r := NewRegistry()
+			stream, err := r.RegisterAuthenticated(7, "session", installed)
+			require.NoError(t, err)
+			defer stream.Unregister()
+			for _, minimum := range []gatewaypb.CommandProtocolVersion{
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2,
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3,
+			} {
+				require.Equal(t, installed < minimum, r.CommandProtocolUpgradeRequiredForVersion(7, minimum))
+			}
+			require.Equal(t, installed < gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, r.CommandProtocolUpgradeRequired(7), "the global upgrade threshold must remain V1")
+			stream.Unregister()
+			require.False(t, r.CommandProtocolUpgradeRequiredForVersion(7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3), "an inactive connection is not an upgrade diagnosis")
+		})
+	}
+}
+
 func TestRegistry_RejectsUnsupportedCommandProtocolBeforeDispatch(t *testing.T) {
 	r := NewRegistry()
 	stream, err := r.RegisterAuthenticated(
@@ -1448,7 +1475,9 @@ func TestRegistryTankMiningRejectsV2BeforeEnqueue(t *testing.T) {
 	defer stream.Unregister()
 	_, err = r.SendCommand(t.Context(), 7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3, &gatewaypb.ControlCommand{CommandId: "tanks"})
 	require.True(t, fleeterror.IsFailedPreconditionError(err))
+	require.ErrorIs(t, err, ErrCommandProtocolUpgradeRequired)
 	require.ErrorContains(t, err, "requires version 3")
+	require.ErrorContains(t, err, "upgrade Fleet Node")
 	select {
 	case <-stream.Outgoing:
 		t.Fatal("unsupported tank command enqueued")

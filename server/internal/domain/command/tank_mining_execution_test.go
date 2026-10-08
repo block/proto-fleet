@@ -7,8 +7,12 @@ import (
 	"testing"
 	"time"
 
+	"connectrpc.com/connect"
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
@@ -132,4 +136,103 @@ func TestTankMiningExecutionDoesNotReplayPhysicalWrite(t *testing.T) {
 	require.ErrorContains(t, err, "tank mining outcome unconfirmed")
 	require.NotContains(t, sanitizedErrorInfo(err).String, controller.err.Error(), "controller diagnostics must not enter operator results")
 	require.Equal(t, 1, controller.writes, "even a retryable error must not replay a physical write")
+}
+
+func TestTankMiningExecutionRetriesDatabaseErrorsBeforeDispatch(t *testing.T) {
+	for _, failure := range []struct {
+		name string
+		lock string
+	}{
+		{name: "get device", lock: `LOCK TABLE device IN ACCESS EXCLUSIVE MODE`},
+		{name: "lock controller", lock: `LOCK TABLE device_pairing IN ACCESS EXCLUSIVE MODE`},
+		{name: "list tanks", lock: `LOCK TABLE container_tank IN ACCESS EXCLUSIVE MODE`},
+	} {
+		t.Run(failure.name, func(t *testing.T) {
+			svc, conn, deviceID, _, payload := setupTankMiningExecution(t)
+			blocker, err := conn.BeginTx(t.Context(), nil)
+			require.NoError(t, err)
+			defer blocker.Rollback()
+			_, err = blocker.ExecContext(t.Context(), failure.lock)
+			require.NoError(t, err)
+			ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+			defer cancel()
+			controller := &executionTankController{}
+			err = svc.executeTankMining(ctx, deviceID, payload.OrgID, 0, payload, controller)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			require.Equal(t, connect.CodeInternal, fleetErr.GRPCCode, "a pre-dispatch database failure must remain retryable")
+			require.Zero(t, controller.writes)
+			require.Equal(t, "internal: tank mining preparation failed; retry shortly", sanitizedErrorInfo(err).String)
+			require.NoError(t, blocker.Rollback())
+			require.NoError(t, svc.executeTankMining(t.Context(), deviceID, payload.OrgID, 0, payload, controller))
+			require.Equal(t, 1, controller.writes, "retry after database recovery may dispatch once")
+		})
+	}
+}
+
+func TestTankMiningExecutionMissingControllerIsTerminal(t *testing.T) {
+	for _, mutation := range []string{
+		`UPDATE device SET deleted_at=now()`,
+		`UPDATE device_pairing SET pairing_status='UNPAIRED'`,
+	} {
+		t.Run(mutation, func(t *testing.T) {
+			svc, conn, deviceID, _, payload := setupTankMiningExecution(t)
+			_, err := conn.ExecContext(t.Context(), mutation)
+			require.NoError(t, err)
+			controller := &executionTankController{}
+			err = svc.executeTankMining(t.Context(), deviceID, payload.OrgID, 0, payload, controller)
+			require.True(t, fleeterror.IsFailedPreconditionError(err))
+			require.ErrorContains(t, err, "selected tank controller unavailable")
+			require.Zero(t, controller.writes)
+		})
+	}
+}
+
+func TestTankMiningExecutionCommitFailureDoesNotReplayPhysicalWrite(t *testing.T) {
+	svc, conn, deviceID, _, payload := setupTankMiningExecution(t)
+	controller := &executionTankController{onWrite: func(ctx context.Context) error {
+		// Terminate the transaction after the controller write succeeds, so
+		// Commit fails with an unknown outcome rather than replaying the write.
+		var terminated bool
+		err := conn.QueryRowContext(ctx, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+			WHERE datname=current_database() AND state='idle in transaction'
+			AND query LIKE '%ListTankCommandTargets%'`).Scan(&terminated)
+		require.NoError(t, err)
+		require.True(t, terminated)
+		return nil
+	}}
+	err := svc.executeTankMining(t.Context(), deviceID, payload.OrgID, 0, payload, controller)
+	require.True(t, fleeterror.IsFailedPreconditionError(err))
+	require.Equal(t, "failed_precondition: tank mining outcome unconfirmed", sanitizedErrorInfo(err).String)
+	require.Equal(t, 1, controller.writes)
+}
+
+func TestTankMiningExecutionSurfacesFleetNodeUpgradeBeforeEnqueue(t *testing.T) {
+	svc, _, deviceID, identifier, payload := setupTankMiningExecution(t)
+	registry := control.NewRegistry()
+	stream, err := registry.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2)
+	require.NoError(t, err)
+	defer stream.Unregister()
+	controller, err := remotenode.New(remotenode.Config{
+		Sender: registry, FleetNodeID: 7, OrgID: payload.OrgID,
+		DeviceIdentifier: identifier, DriverName: "proto", IPAddress: "192.0.2.10", Port: "443", URLScheme: "https",
+	})
+	require.NoError(t, err)
+	err = svc.executeTankMining(t.Context(), deviceID, payload.OrgID, 0, payload, controller)
+	require.True(t, fleeterror.IsFailedPreconditionError(err))
+	require.Equal(t, "failed_precondition: tank mining requires Fleet Node command protocol version 3; upgrade Fleet Node before retrying", sanitizedErrorInfo(err).String)
+	select {
+	case <-stream.Outgoing:
+		t.Fatal("an unsupported tank command must not reach the Fleet Node")
+	default:
+	}
+}
+
+func TestTankMiningExecutionSanitizesControllerFleetErrors(t *testing.T) {
+	svc, _, deviceID, _, payload := setupTankMiningExecution(t)
+	controller := &executionTankController{err: fleeterror.NewFailedPreconditionError("untrusted controller diagnostic")}
+	err := svc.executeTankMining(t.Context(), deviceID, payload.OrgID, 0, payload, controller)
+	require.True(t, fleeterror.IsFailedPreconditionError(err))
+	require.Equal(t, "failed_precondition: tank mining outcome unconfirmed", sanitizedErrorInfo(err).String)
+	require.Equal(t, 1, controller.writes)
 }

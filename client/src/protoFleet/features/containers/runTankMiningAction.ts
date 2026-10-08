@@ -14,7 +14,6 @@ export async function runTankMiningAction(
     message: `${mining ? "Starting" : "Stopping"} mining on ${tankIds.length} ${tankNoun}`,
     status: STATUSES.loading,
     longRunning: true,
-    onClose: onActionComplete,
   });
   try {
     const { commands } = await containersClient.setTankMining({ tankIds, mining }, { timeoutMs: 10_000 });

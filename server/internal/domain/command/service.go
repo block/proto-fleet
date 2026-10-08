@@ -53,6 +53,10 @@ type PluginCapabilitiesProvider interface {
 	GetRawCapabilitiesForDevice(ctx context.Context, driverName, manufacturer, model string) sdk.Capabilities
 }
 
+type CommandProtocolChecker interface {
+	CommandProtocolUpgradeRequiredForVersion(fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion) bool
+}
+
 // UserCredentialsVerifier provides interface for verifying user credentials
 type UserCredentialsVerifier interface {
 	VerifySessionCredentials(ctx context.Context, username, password string) error
@@ -73,6 +77,7 @@ type Service struct {
 	credentialsVerifier UserCredentialsVerifier
 	telemetryListener   TelemetryListener
 	pluginCaps          PluginCapabilitiesProvider
+	protocolChecker     CommandProtocolChecker
 	capabilityChecker   *CapabilityChecker
 	activitySvc         *activity.Service
 	deviceResolver      DeviceIdentifierResolver
@@ -105,6 +110,12 @@ type curtailmentConfigQueuePayload struct {
 // SetPluginCapabilitiesProvider — nil disables the SV2 gate (test default).
 func (s *Service) SetPluginCapabilitiesProvider(p PluginCapabilitiesProvider) {
 	s.pluginCaps = p
+}
+
+// SetCommandProtocolChecker supplies the active Fleet Node protocol versions
+// used to check command availability before admission.
+func (s *Service) SetCommandProtocolChecker(checker CommandProtocolChecker) {
+	s.protocolChecker = checker
 }
 
 // SetDeviceIdentifierResolver injects the rich-filter resolver used by the

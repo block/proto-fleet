@@ -68,6 +68,10 @@ var (
 	// ErrNoActiveStream: no ControlStream for the fleet_node (callers map to FailedPrecondition).
 	ErrNoActiveStream = errors.New("no active control stream for fleet_node")
 
+	// ErrCommandProtocolUpgradeRequired marks a server-side rejection before
+	// enqueue, so callers can surface an upgrade diagnostic without trusting node text.
+	ErrCommandProtocolUpgradeRequired = errors.New("upgrade Fleet Node")
+
 	// errSessionInvalidated: the authenticated session was replaced or revoked
 	// before its ControlStream could register.
 	errSessionInvalidated = errors.New("fleet_node session was replaced or revoked")
@@ -250,6 +254,16 @@ func (r *Registry) CommandProtocolUpgradeRequired(fleetNodeID int64) bool {
 	return conn != nil && conn.maxCommandProtocolVersion < gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
 }
 
+// CommandProtocolUpgradeRequiredForVersion reports whether a connected node
+// needs an upgrade for a specific command. Disconnected nodes retain their
+// existing connection handling.
+func (r *Registry) CommandProtocolUpgradeRequiredForVersion(fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	conn := r.conns[fleetNodeID]
+	return conn != nil && conn.maxCommandProtocolVersion < minimumCommandProtocolVersion
+}
+
 // teardown closes connection.done and every in-flight command's done. Caller holds
 // Registry.mu and must then remove/replace the conn so teardown can't run twice.
 func teardown(conn *connection) {
@@ -284,9 +298,10 @@ func (r *Registry) addCmd(fleetNodeID int64, minimumCommandProtocolVersion gatew
 	}
 	if conn.maxCommandProtocolVersion < minimumCommandProtocolVersion {
 		return nil, nil, fleeterror.NewFailedPreconditionErrorf(
-			"fleet node command protocol version %d does not support this command; requires version %d; upgrade Fleet Node",
+			"fleet node command protocol version %d does not support this command; requires version %d; %w",
 			conn.maxCommandProtocolVersion,
 			minimumCommandProtocolVersion,
+			ErrCommandProtocolUpgradeRequired,
 		)
 	}
 	if _, dup := conn.cmds[c.id]; dup {

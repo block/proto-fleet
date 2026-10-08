@@ -255,7 +255,7 @@ describe("tank actions", () => {
     expect(refresh).not.toHaveBeenCalled();
     expect(complete).not.toHaveBeenCalled();
   });
-  it("restores the action bar after admission while command completion is still pending", async () => {
+  it("restores the action bar after admission, independently of toast dismissal", async () => {
     let admit!: () => void;
     let finish!: () => void;
     mocks.submit.mockImplementationOnce(
@@ -276,6 +276,8 @@ describe("tank actions", () => {
     await openStop();
     fireEvent.click(within(screen.getByTestId("tank-mining-dialog")).getByRole("button", { name: "Stop mining" }));
     expect(screen.queryByTestId("tank-mining-dialog")).not.toBeInTheDocument();
+    const toast = mocks.pushToast.mock.calls[0][0];
+    toast.onClose?.();
     expect(complete).not.toHaveBeenCalled();
     admit();
     await waitFor(() => expect(complete).toHaveBeenCalledOnce());
@@ -284,6 +286,7 @@ describe("tank actions", () => {
     await waitFor(() =>
       expect(mocks.updateToast).toHaveBeenCalledWith(1, expect.objectContaining({ status: "success" })),
     );
+    toast.onClose?.();
     expect(complete).toHaveBeenCalledOnce();
   });
   it.each([false, true])("tracks a pending result through %s timeout without repeating the write", async (timeout) => {

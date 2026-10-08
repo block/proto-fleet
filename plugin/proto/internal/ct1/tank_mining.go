@@ -17,6 +17,17 @@ func (d *Device) SetTankMining(ctx context.Context, req sdk.TankMiningRequest) e
 	c := d.client
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	expectedSerial := strings.TrimSpace(d.info.SerialNumber)
+	if expectedSerial == "" {
+		return fmt.Errorf("container identity unavailable")
+	}
+	info, err := c.discover(ctx, d.info)
+	if err != nil {
+		return fmt.Errorf("container identity unavailable: %w", err)
+	}
+	if strings.TrimSpace(info.SerialNumber) != expectedSerial {
+		return fmt.Errorf("container identity changed")
+	}
 	var wire MapResponse
 	if err := c.get(ctx, "/api/v2/container/map", &wire); err != nil {
 		return err
