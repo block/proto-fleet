@@ -21,7 +21,8 @@ CREATE TABLE device_deletion_unpair_permit (
  epoch bigint NOT NULL CHECK(epoch>0),
  binding_hash text NOT NULL,
  identity_keys text[] NOT NULL,
- attempt_id uuid UNIQUE REFERENCES device_write_attempt(attempt_id),
+ attempt_id uuid REFERENCES device_write_attempt(attempt_id),
  created_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+ CONSTRAINT uq_device_deletion_unpair_permit_attempt_id UNIQUE (attempt_id),
  FOREIGN KEY(device_id,organization_id) REFERENCES device_write_fence(device_id,organization_id)
 );
