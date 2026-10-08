@@ -130,5 +130,6 @@ func TestTankMiningExecutionDoesNotReplayPhysicalWrite(t *testing.T) {
 	err := svc.executeTankMining(t.Context(), deviceID, payload.OrgID, 0, payload, controller)
 	require.True(t, fleeterror.IsFailedPreconditionError(err))
 	require.ErrorContains(t, err, "tank mining outcome unconfirmed")
+	require.NotContains(t, sanitizedErrorInfo(err).String, controller.err.Error(), "controller diagnostics must not enter operator results")
 	require.Equal(t, 1, controller.writes, "even a retryable error must not replay a physical write")
 }

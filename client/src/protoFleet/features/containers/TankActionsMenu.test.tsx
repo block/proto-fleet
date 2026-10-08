@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { runTankMiningAction } from "./runTankMiningAction";
 import TankActionsMenu from "./TankActionsMenu";
 import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
@@ -314,6 +315,31 @@ describe("tank actions", () => {
 });
 
 describe("tank bulk command results", () => {
+  it.each([false, true])("tolerates timed-out result reads through completion-window expiry: %s", async (expire) => {
+    vi.useFakeTimers();
+    try {
+      mocks.results.mockRejectedValue(new ConnectError("Ownership lock wait", Code.DeadlineExceeded));
+      const refresh = vi.fn();
+      const execution = runTankMiningAction([11n, 13n], false, refresh);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mocks.updateToast).not.toHaveBeenCalled();
+      if (!expire) {
+        mocks.results.mockResolvedValue({ result: { status: "finished", successCount: 1, failureCount: 0 } });
+      }
+      await vi.advanceTimersByTimeAsync(expire ? 120_000 : 1000);
+      await execution;
+      expect(mocks.updateToast).toHaveBeenLastCalledWith(
+        1,
+        expect.objectContaining({ status: expire ? "error" : "success" }),
+      );
+      expect(mocks.results.mock.calls.length).toBeGreaterThan(2);
+      expect(mocks.submit).toHaveBeenCalledOnce();
+      expect(refresh).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps completed controller counts loading until the remaining controller finishes", async () => {
     vi.useFakeTimers();
     try {

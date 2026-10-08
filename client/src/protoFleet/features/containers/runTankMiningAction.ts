@@ -1,3 +1,4 @@
+import { Code, ConnectError } from "@connectrpc/connect";
 import { containersClient } from "@/protoFleet/api/clients";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { pushToast, STATUSES, updateToast } from "@/shared/features/toaster";
@@ -30,10 +31,17 @@ export async function runTankMiningAction(
         const deadline = Date.now() + 120_000;
         try {
           while (Date.now() < deadline) {
-            const { result } = await containersClient.getEquipmentCommandResult(
-              { deviceIdentifier: command.deviceIdentifier, batchIdentifier: command.batchIdentifier },
-              { timeoutMs: 10_000 },
-            );
+            const { result } = await containersClient
+              .getEquipmentCommandResult(
+                { deviceIdentifier: command.deviceIdentifier, batchIdentifier: command.batchIdentifier },
+                { timeoutMs: 10_000 },
+              )
+              .catch((cause: unknown) => {
+                // Dispatch holds the ownership lock used by result reads. A
+                // timed-out read can be retried without resending the action.
+                if (ConnectError.from(cause).code === Code.DeadlineExceeded) return { result: undefined };
+                throw cause;
+              });
             // As with miner bulk actions, counts alone do not confirm completion.
             if (result?.status !== "finished") {
               await new Promise<void>((resolve) => setTimeout(resolve, 1000));

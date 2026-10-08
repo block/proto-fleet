@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -255,7 +256,8 @@ func (es *ExecutionService) executeTankMining(ctx context.Context, deviceID, org
 			}
 		}
 		if err := controller.SetTankMining(ctx, payload.TankMiningRequest); err != nil {
-			return fmt.Errorf("tank mining outcome unconfirmed: %w", err)
+			slog.ErrorContext(ctx, "tank mining outcome unconfirmed", "device_id", deviceID, "error", err)
+			return errors.New("tank mining outcome unconfirmed")
 		}
 		return nil
 	})
