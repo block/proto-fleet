@@ -26,6 +26,7 @@ CREATE TABLE hosted_account_key_descendant (
     FOREIGN KEY (organization_id, api_key_id) REFERENCES hosted_account_key(organization_id, api_key_id) ON DELETE CASCADE,
     FOREIGN KEY (organization_id, account_id) REFERENCES hosted_account(organization_id, id) ON DELETE CASCADE
 );
+CREATE INDEX hosted_account_key_descendant_account ON hosted_account_key_descendant (organization_id, account_id);
 CREATE FUNCTION check_hosted_account_key() RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
     IF NOT EXISTS (
