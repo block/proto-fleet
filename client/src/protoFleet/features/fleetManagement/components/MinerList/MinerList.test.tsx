@@ -83,6 +83,26 @@ vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu/Singl
   default: () => null,
 }));
 
+vi.mock("../MinerFirmwareHistoryModal/MinerFirmwareHistoryModal", () => ({
+  default: ({
+    deviceIdentifier,
+    minerName,
+    onClose,
+  }: {
+    deviceIdentifier: string;
+    minerName: string;
+    onClose: () => void;
+  }) => (
+    <div role="dialog" aria-label="Firmware update history">
+      <span>{deviceIdentifier}</span>
+      <span>{minerName}</span>
+      <button type="button" onClick={onClose}>
+        Close history
+      </button>
+    </div>
+  ),
+}));
+
 const mockGetActiveBatches = vi.fn(() => []);
 
 const installLocalStorageMock = () => {
@@ -212,6 +232,7 @@ describe("MinerList", () => {
       auth: {
         ...state.auth,
         username: "",
+        permissions: [],
       },
     }));
   });
@@ -221,6 +242,87 @@ describe("MinerList", () => {
       .getAllByRole("columnheader")
       .map((header) => header.textContent?.trim() ?? "")
       .filter(Boolean);
+
+  describe("firmware history", () => {
+    const permitHistory = (allowed: boolean) =>
+      act(() => {
+        useFleetStore.setState((state) => ({
+          auth: { ...state.auth, permissions: allowed ? ["miner:firmware_update"] : ["miner:read"] },
+        }));
+      });
+
+    it.each([
+      [DeviceStatus.ONLINE, PairingStatus.PAIRED],
+      [DeviceStatus.OFFLINE, PairingStatus.PAIRED],
+      [DeviceStatus.OFFLINE, PairingStatus.AUTHENTICATION_NEEDED],
+    ])("opens history without navigating or selecting a miner (%s, %s)", async (deviceStatus, pairingStatus) => {
+      const user = userEvent.setup();
+      const miner = createMinerSnapshot("miner-a", pairingStatus);
+      miner.name = "Rack 1";
+      miner.deviceStatus = deviceStatus;
+      miner.firmwareVersion = "1.2.3";
+      miner.embeddedWebViewAvailable = true;
+      permitHistory(true);
+      renderMinerList(
+        { minerIds: [miner.deviceIdentifier], miners: { [miner.deviceIdentifier]: miner }, onAddMiners: vi.fn() },
+        ["/fleet/miners"],
+      );
+
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      const trigger = screen.getByRole("button", { name: "View firmware history for Rack 1" });
+      expect(trigger.parentElement).not.toHaveClass("opacity-50");
+      await user.click(trigger);
+      const dialog = screen.getByRole("dialog", { name: "Firmware update history" });
+      expect(dialog).toHaveTextContent("miner-a");
+      expect(dialog).toHaveTextContent("Rack 1");
+      expect(screen.getByTestId("path-display")).toHaveTextContent("/fleet/miners");
+      expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
+
+      await user.click(within(dialog).getByRole("button", { name: "Close history" }));
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      trigger.focus();
+      await user.keyboard("{Enter}");
+      expect(screen.getByRole("dialog", { name: "Firmware update history" })).toBeInTheDocument();
+      expect(screen.getByTestId("path-display")).toHaveTextContent("/fleet/miners");
+    });
+
+    it("updates the entry point when permission changes and hides an open history when access is revoked", async () => {
+      const user = userEvent.setup();
+      renderMinerList({ minerIds: ["miner-a"], onAddMiners: vi.fn() });
+      expect(screen.getByText("Unknown")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /View firmware history/ })).not.toBeInTheDocument();
+
+      permitHistory(true);
+      await user.click(screen.getByRole("button", { name: "View firmware history for miner-a" }));
+      expect(screen.getByRole("dialog", { name: "Firmware update history" })).toBeInTheDocument();
+      permitHistory(false);
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /View firmware history/ })).not.toBeInTheDocument();
+    });
+
+    it("keeps the selected miner's history open when the table moves to another page", async () => {
+      const user = userEvent.setup();
+      permitHistory(true);
+      const view = (id: string) => (
+        <MemoryRouter>
+          <MinerList
+            minerIds={[id]}
+            miners={autoMiners([id])}
+            errorsByDevice={{}}
+            errorsLoaded
+            getActiveBatches={mockGetActiveBatches}
+            onAddMiners={vi.fn()}
+          />
+        </MemoryRouter>
+      );
+      const { rerender } = render(view("miner-a"));
+      await user.click(screen.getByRole("button", { name: "View firmware history for miner-a" }));
+      rerender(view("miner-b"));
+      const dialog = screen.getByRole("dialog", { name: "Firmware update history" });
+      expect(dialog).toHaveTextContent("miner-a");
+      expect(dialog).not.toHaveTextContent("miner-b");
+    });
+  });
 
   describe("miner count subtitle", () => {
     it("shows total miner count", () => {

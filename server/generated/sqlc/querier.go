@@ -748,6 +748,7 @@ type Querier interface {
 	GetMaxPriority(ctx context.Context, orgID int64) (int32, error)
 	GetMessagesToProcess(ctx context.Context, arg GetMessagesToProcessParams) ([]GetMessagesToProcessRow, error)
 	GetMinerCredentialsByDeviceID(ctx context.Context, deviceID int64) (MinerCredential, error)
+	GetMinerFirmwareHistoryDeviceID(ctx context.Context, arg GetMinerFirmwareHistoryDeviceIDParams) (int64, error)
 	// Zone / building filters are not handled by this static query;
 	// callers with those filters route to executeModelGroupsDynamicQuery.
 	GetMinerModelGroups(ctx context.Context, arg GetMinerModelGroupsParams) ([]GetMinerModelGroupsRow, error)
@@ -1274,6 +1275,9 @@ type Querier interface {
 	// can rename a target's reported hardware; active enrollment remains owned by
 	// its current assignment until that paired device settles or leaves scope.
 	ListManagedFirmwareUpdateDevices(ctx context.Context, arg ListManagedFirmwareUpdateDevicesParams) ([]ListManagedFirmwareUpdateDevicesRow, error)
+	// Read only this device record's persisted targets. History is independent
+	// of its current channel membership, reported hardware, and live telemetry.
+	ListMinerFirmwareHistory(ctx context.Context, arg ListMinerFirmwareHistoryParams) ([]ListMinerFirmwareHistoryRow, error)
 	// TYPE GENERATION STUB - This query is never executed.
 	// The actual list query uses a hand-written query builder in device.go
 	// because sqlc cannot parameterize ORDER BY direction or dynamic columns.

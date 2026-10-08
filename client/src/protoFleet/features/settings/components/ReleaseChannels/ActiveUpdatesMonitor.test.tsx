@@ -161,7 +161,8 @@ describe("delayed mutation selection", () => {
 
     expect(screen.getByTestId(`rollout-detail-${other.id.toString()}`)).toBeInTheDocument();
     expect(screen.queryByTestId(`rollout-detail-${successor.id.toString()}`)).not.toBeInTheDocument();
-    expect(handled).toHaveBeenCalledOnce();
+    // Back released the request; opening the banner also drops any pending one.
+    expect(handled).toHaveBeenCalledTimes(2);
   });
 
   it.each([

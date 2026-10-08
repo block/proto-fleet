@@ -10,6 +10,7 @@ let minersById: Record<string, { pairingStatus: PairingStatus; deviceStatus: Dev
 
 vi.mock("@/protoFleet/store", () => ({
   useUsername: () => "",
+  useHasPermission: () => false,
 }));
 
 vi.mock("./minerColConfig", () => ({
