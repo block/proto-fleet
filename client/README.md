@@ -260,7 +260,10 @@ catalog avoids module health and telemetry aggregation.
 Selections within Buildings (buildings/containers) or Racks (racks/tanks) combine
 with OR; the two categories, site scope, and other filters combine with AND.
 Unassigned options retain their conventional placement scope and combine with
-selected CT1 entities using the same OR rule.
+selected CT1 entities using the same OR rule within each typed category.
+When a container or tank is selected, both placement categories independently
+restrict rows. A building plus Unassigned Racks then excludes fully unplaced
+miners unless Unassigned Buildings is also selected.
 Conventional-only miner selections use the native miner filter so the list,
 CSV export, authentication counts, and commands share placement semantics.
 For example, a building plus Unassigned Racks also includes fully unplaced miners.

@@ -242,6 +242,14 @@ func TestContainerAncestorsComposeWithSiteAndTankScopes(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, result.TotalCount, "selected containers cannot broaden site authorization")
 
+	t.Run("building-only equipment scope excludes colliding container tanks", func(t *testing.T) {
+		request := &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, Ancestors: []*pb.EntityRef{{Kind: pb.EntityKind_ENTITY_KIND_BUILDING, Id: a}}}
+		result, err := service.List(ctx, org, request, scopes)
+		require.NoError(t, err)
+		require.EqualValues(t, 1, result.TotalCount)
+		require.Len(t, result.Items, 1)
+		require.Equal(t, &pb.EntityRef{Kind: pb.EntityKind_ENTITY_KIND_RACK, Id: tankA}, result.Items[0].Ref)
+	})
 	t.Run("mixed facility scope includes racks and tanks", func(t *testing.T) {
 		request := &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, Ancestors: []*pb.EntityRef{container(a), {Kind: pb.EntityKind_ENTITY_KIND_BUILDING, Id: a}}}
 		result, err := service.List(ctx, org, request, scopes)
@@ -262,6 +270,13 @@ func TestContainerAncestorsComposeWithSiteAndTankScopes(t *testing.T) {
 			_, err := db.ExecContext(ctx, "UPDATE device_set_rack SET building_id=$1 WHERE device_set_id=$2", a, tankA)
 			require.NoError(t, err)
 		}()
+		t.Run("unassigned-only equipment scope excludes all tanks", func(t *testing.T) {
+			result, err := service.List(ctx, org, &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, IncludeNoFacility: true}, scopes)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, result.TotalCount)
+			require.Len(t, result.Items, 1)
+			require.Equal(t, &pb.EntityRef{Kind: pb.EntityKind_ENTITY_KIND_RACK, Id: tankA}, result.Items[0].Ref)
+		})
 		for _, tc := range []struct {
 			name  string
 			req   *pb.ListInventoryRequest

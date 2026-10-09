@@ -54,6 +54,7 @@ import {
   combinedInventoryOptions,
   combineInventoryFilters,
   separateInventoryFilters,
+  splitInventoryValues,
 } from "@/protoFleet/features/fleetManagement/utils/combinedInventoryFilters";
 import {
   encodeActiveFiltersToURL,
@@ -358,8 +359,8 @@ const ScopedMinerListBody = ({
   const [selectedMinerIds, setSelectedMinerIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
   const hasCT1PlacementFilter =
-    initialActiveFilters.dropdownFilters.building?.some((value) => value.startsWith("container:")) ||
-    initialActiveFilters.dropdownFilters.rack?.some((value) => value.startsWith("tank:"));
+    splitInventoryValues(initialActiveFilters.dropdownFilters.building ?? [], "container").ct1.length > 0 ||
+    splitInventoryValues(initialActiveFilters.dropdownFilters.rack ?? [], "tank").ct1.length > 0;
   const [searchExpanded, setSearchExpanded] = useState(Boolean(searchQuery));
   // Reset selection when the scope key changes (filter or page) without remounting the
   // subtree — uses the during-render derive pattern so children keep their own state.

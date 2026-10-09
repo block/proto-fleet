@@ -1322,6 +1322,35 @@ describe("MinerList", () => {
       expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
     });
 
+    it("resets full-result selection when a container is added through Buildings", async () => {
+      const user = userEvent.setup();
+      renderMinerList(
+        {
+          minerIds: ["m1", "m2"],
+          totalMiners: 37,
+          onAddMiners: vi.fn(),
+          availableContainers: [{ id: "9", label: "CT1 North" }],
+        },
+        ["/?building=7"],
+      );
+      await user.click(screen.getByTestId("list-header").querySelector('input[type="checkbox"]')!);
+      await user.click(screen.getByTestId("mock-action-bar-select-all"));
+      expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
+      expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("37");
+
+      await user.click(screen.getByRole("button", { name: "Add Filter" }));
+      await user.click(screen.getByText("Buildings", { exact: true, selector: "button *" }));
+      await user.click(screen.getByText("CT1 North (Container)", { exact: true }));
+      await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("container=9"));
+      expect(screen.getByTestId("path-display")).toHaveTextContent("building=7");
+      expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
+
+      await user.click(screen.getByTestId("list-header").querySelector('input[type="checkbox"]')!);
+      expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
+      expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("2");
+      expect(screen.queryByTestId("mock-action-bar-select-all")).not.toBeInTheDocument();
+    });
+
     it.each(["container=9", "tank=9"])(
       "keeps bulk selection limited to displayed miner IDs for a mixed %s scope",
       async (ct1Scope) => {
