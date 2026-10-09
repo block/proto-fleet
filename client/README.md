@@ -281,6 +281,9 @@ API; selecting a new scope hides previous-scope rows until its response arrives.
 Other miner-only filters keep their existing applicability and can therefore
 produce no module matches even when a container or tank is selected.
 Container-filtered module lists do not expose conventional miner CSV export.
+When a container or tank filter is active, miner actions use explicitly selected
+rows from the displayed page. Full-result Select all is unavailable because
+native miner command filters cannot express those typed placement scopes.
 
 ### API Integration
 

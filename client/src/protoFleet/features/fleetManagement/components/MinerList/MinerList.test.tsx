@@ -1322,6 +1322,39 @@ describe("MinerList", () => {
       expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
     });
 
+    it.each(["container=9", "tank=9"])(
+      "keeps bulk selection limited to displayed miner IDs for a mixed %s scope",
+      async (ct1Scope) => {
+        const user = userEvent.setup();
+        const visible = createMinerSnapshot("in-building");
+        const unplaced = createMinerSnapshot("fully-unplaced");
+        renderMinerList(
+          {
+            onAddMiners: vi.fn(),
+            minerIds: ["in-building"],
+            miners: { "in-building": visible, "fully-unplaced": unplaced },
+            totalMiners: 1,
+            inventoryMinerCount: 1,
+            inventoryItems: [
+              create(InventoryItemSchema, {
+                ref: { kind: EntityKind.MINER, id: 1n },
+                deviceIdentifier: "in-building",
+                details: { case: "miner", value: visible },
+              }),
+            ],
+            loading: false,
+          },
+          [`/?building=7&${ct1Scope}&rack=null`],
+        );
+        await user.click(screen.getByTestId("list-header").querySelector('input[type="checkbox"]')!);
+        expect(screen.queryByTestId("mock-action-bar-select-all")).not.toBeInTheDocument();
+        expect(screen.getByTestId("mock-action-bar-select-none")).toBeInTheDocument();
+        expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
+        expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent(/^in-building$/);
+        expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
+      },
+    );
+
     it("disarms an all-mode selection on the first search keystroke, before the debounced filter applies", async () => {
       const user = userEvent.setup();
 

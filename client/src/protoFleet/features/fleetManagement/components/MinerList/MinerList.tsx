@@ -357,6 +357,9 @@ const ScopedMinerListBody = ({
 }: ScopedMinerListBodyProps) => {
   const [selectedMinerIds, setSelectedMinerIds] = useState<string[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
+  const hasCT1PlacementFilter =
+    initialActiveFilters.dropdownFilters.building?.some((value) => value.startsWith("container:")) ||
+    initialActiveFilters.dropdownFilters.rack?.some((value) => value.startsWith("tank:"));
   const [searchExpanded, setSearchExpanded] = useState(Boolean(searchQuery));
   // Reset selection when the scope key changes (filter or page) without remounting the
   // subtree — uses the during-render derive pattern so children keep their own state.
@@ -477,9 +480,11 @@ const ScopedMinerListBody = ({
   );
 
   const handleSelectAllMiners = useCallback(() => {
+    // Filter-based commands cannot express typed CT1 placement scopes.
+    if (hasCT1PlacementFilter) return;
     setSelectedMinerIds(currentPageSelectableMinerIds);
     setSelectionMode("all");
-  }, [currentPageSelectableMinerIds]);
+  }, [currentPageSelectableMinerIds, hasCT1PlacementFilter]);
 
   const handleSelectNoneMiners = useCallback(() => {
     setSelectedMinerIds([]);
@@ -619,7 +624,7 @@ const ScopedMinerListBody = ({
             <MinerListActionBar
               selectedMiners={selectedItems}
               onClearSelection={clearSelection}
-              onSelectAll={handleSelectAllMiners}
+              onSelectAll={hasCT1PlacementFilter ? undefined : handleSelectAllMiners}
               onSelectNone={handleSelectNoneMiners}
               filtersActive={hasActiveFilters}
               selectionMode={currentSelectionMode}
