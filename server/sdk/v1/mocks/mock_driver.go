@@ -591,9 +591,9 @@ func (m *MockDeviceOptional) EXPECT() *MockDeviceOptionalMockRecorder {
 }
 
 // TryBatchStatus mocks base method.
-func (m *MockDeviceOptional) TryBatchStatus(ctx context.Context, ids []string) (map[string]sdk.DeviceMetrics, bool, error) {
+func (m *MockDeviceOptional) TryBatchStatus(ctx context.Context, devices []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "TryBatchStatus", ctx, ids)
+	ret := m.ctrl.Call(m, "TryBatchStatus", ctx, devices)
 	ret0, _ := ret[0].(map[string]sdk.DeviceMetrics)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
@@ -601,9 +601,9 @@ func (m *MockDeviceOptional) TryBatchStatus(ctx context.Context, ids []string) (
 }
 
 // TryBatchStatus indicates an expected call of TryBatchStatus.
-func (mr *MockDeviceOptionalMockRecorder) TryBatchStatus(ctx, ids any) *gomock.Call {
+func (mr *MockDeviceOptionalMockRecorder) TryBatchStatus(ctx, devices any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryBatchStatus", reflect.TypeOf((*MockDeviceOptional)(nil).TryBatchStatus), ctx, ids)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryBatchStatus", reflect.TypeOf((*MockDeviceOptional)(nil).TryBatchStatus), ctx, devices)
 }
 
 // TryGetTimeSeriesData mocks base method.
@@ -898,9 +898,9 @@ func (mr *MockDeviceMockRecorder) StopMining(ctx any) *gomock.Call {
 }
 
 // TryBatchStatus mocks base method.
-func (m *MockDevice) TryBatchStatus(ctx context.Context, ids []string) (map[string]sdk.DeviceMetrics, bool, error) {
+func (m *MockDevice) TryBatchStatus(ctx context.Context, devices []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "TryBatchStatus", ctx, ids)
+	ret := m.ctrl.Call(m, "TryBatchStatus", ctx, devices)
 	ret0, _ := ret[0].(map[string]sdk.DeviceMetrics)
 	ret1, _ := ret[1].(bool)
 	ret2, _ := ret[2].(error)
@@ -908,9 +908,9 @@ func (m *MockDevice) TryBatchStatus(ctx context.Context, ids []string) (map[stri
 }
 
 // TryBatchStatus indicates an expected call of TryBatchStatus.
-func (mr *MockDeviceMockRecorder) TryBatchStatus(ctx, ids any) *gomock.Call {
+func (mr *MockDeviceMockRecorder) TryBatchStatus(ctx, devices any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryBatchStatus", reflect.TypeOf((*MockDevice)(nil).TryBatchStatus), ctx, ids)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TryBatchStatus", reflect.TypeOf((*MockDevice)(nil).TryBatchStatus), ctx, devices)
 }
 
 // TryGetTimeSeriesData mocks base method.

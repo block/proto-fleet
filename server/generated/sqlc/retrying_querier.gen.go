@@ -6662,6 +6662,36 @@ func (q *retryingQuerier) LockDeviceWriteAttemptForRecovery(ctx context.Context,
 	return result, err
 }
 
+func (q *retryingQuerier) LockDeviceWriteDeletionCredentials(ctx context.Context, deviceIds []int64) error {
+	return q.retrier.RetryQuery(ctx, "LockDeviceWriteDeletionCredentials", func() error {
+		return q.next.LockDeviceWriteDeletionCredentials(ctx, deviceIds)
+	})
+}
+
+func (q *retryingQuerier) LockDeviceWriteDeletionDevices(ctx context.Context, deviceIds []int64) error {
+	return q.retrier.RetryQuery(ctx, "LockDeviceWriteDeletionDevices", func() error {
+		return q.next.LockDeviceWriteDeletionDevices(ctx, deviceIds)
+	})
+}
+
+func (q *retryingQuerier) LockDeviceWriteDeletionDiscoveries(ctx context.Context, deviceIds []int64) error {
+	return q.retrier.RetryQuery(ctx, "LockDeviceWriteDeletionDiscoveries", func() error {
+		return q.next.LockDeviceWriteDeletionDiscoveries(ctx, deviceIds)
+	})
+}
+
+func (q *retryingQuerier) LockDeviceWriteDeletionPairings(ctx context.Context, deviceIds []int64) error {
+	return q.retrier.RetryQuery(ctx, "LockDeviceWriteDeletionPairings", func() error {
+		return q.next.LockDeviceWriteDeletionPairings(ctx, deviceIds)
+	})
+}
+
+func (q *retryingQuerier) LockDeviceWriteDeletionRoutes(ctx context.Context, deviceIds []int64) error {
+	return q.retrier.RetryQuery(ctx, "LockDeviceWriteDeletionRoutes", func() error {
+		return q.next.LockDeviceWriteDeletionRoutes(ctx, deviceIds)
+	})
+}
+
 func (q *retryingQuerier) LockDeviceWriteFenceRecord(ctx context.Context, arg LockDeviceWriteFenceRecordParams) (DeviceWriteFence, error) {
 	var result DeviceWriteFence
 	err := q.retrier.RetryQuery(ctx, "LockDeviceWriteFenceRecord", func() error {

@@ -1659,6 +1659,14 @@ type Querier interface {
 	// statement so they see the winner at READ COMMITTED.
 	LockDeviceByIdentifier(ctx context.Context, arg LockDeviceByIdentifierParams) ([]int64, error)
 	LockDeviceWriteAttemptForRecovery(ctx context.Context, attemptID uuid.UUID) (DeviceWriteAttempt, error)
+	LockDeviceWriteDeletionCredentials(ctx context.Context, deviceIds []int64) error
+	// Retirement locks binding parents and children in the same order as dispatch.
+	// Device FOR UPDATE also prevents insertion of missing binding children.
+	LockDeviceWriteDeletionDevices(ctx context.Context, deviceIds []int64) error
+	LockDeviceWriteDeletionDiscoveries(ctx context.Context, deviceIds []int64) error
+	LockDeviceWriteDeletionPairings(ctx context.Context, deviceIds []int64) error
+	// Lock only the association: Fleet Node recovery locks its node before device.
+	LockDeviceWriteDeletionRoutes(ctx context.Context, deviceIds []int64) error
 	// Completion must retain evidence even if the successful operation soft-deleted
 	// the device. Starting a new operation still requires a live device.
 	LockDeviceWriteFenceRecord(ctx context.Context, arg LockDeviceWriteFenceRecordParams) (DeviceWriteFence, error)

@@ -532,7 +532,9 @@ type DeviceErrorReporting interface {
 // DeviceOptional represents optional device capabilities
 type DeviceOptional interface {
 	// Optional capabilities - return (result, false, nil) if unsupported
-	TryBatchStatus(ctx context.Context, ids []string) (map[string]DeviceMetrics, bool, error)
+	// TryBatchStatus accepts captured device handles so remote adapters retain
+	// each backend generation; callers must not substitute newer registrations.
+	TryBatchStatus(ctx context.Context, devices []Device) (map[string]DeviceMetrics, bool, error)
 	TrySubscribe(ctx context.Context, ids []string) (<-chan DeviceMetrics, bool, error)
 	TryGetWebViewURL(ctx context.Context) (string, bool, error)
 	TryGetTimeSeriesData(ctx context.Context, metricNames []string, startTime, endTime time.Time, granularity *time.Duration, maxPoints int32, pageToken string) (series []DeviceMetrics, nextPageToken string, supported bool, err error)

@@ -931,30 +931,21 @@ func (s *DriverGRPCServer) GetDeviceWebViewURL(ctx context.Context, req *pb.GetD
 }
 
 func (s *DriverGRPCServer) BatchStatus(ctx context.Context, req *pb.BatchStatusRequest) (*pb.StatusBatchResponse, error) {
-	for _, ref := range req.Refs {
-		if _, err := s.selectDevice(ref); err != nil {
+	devices := make([]Device, len(req.Refs))
+	for i, ref := range req.Refs {
+		device, err := s.selectDevice(ref)
+		if err != nil {
 			return nil, err
 		}
+		devices[i] = device
 	}
-	// Try to find a device that supports batch status
-	s.mu.RLock()
-	var batchDevice Device
-	for _, device := range s.devices {
-		batchDevice = device
-		break
-	}
-	s.mu.RUnlock()
-
-	if batchDevice == nil {
+	if len(devices) == 0 {
 		return nil, sdkErrorToGRPCStatus(NewErrUnsupportedCapability("batch_status"))
 	}
 
-	deviceIDs := make([]string, len(req.Refs))
-	for i, ref := range req.Refs {
-		deviceIDs[i] = ref.DeviceId
-	}
-
-	results, supported, err := batchDevice.TryBatchStatus(ctx, deviceIDs)
+	// Use the captured backend, rather than reselecting a registry entry after
+	// generation validation. Replacements cannot redirect the admitted batch.
+	results, supported, err := devices[0].TryBatchStatus(ctx, devices)
 	if !supported {
 		return nil, sdkErrorToGRPCStatus(NewErrUnsupportedCapability("batch_status"))
 	}
@@ -1580,13 +1571,14 @@ func (d *DeviceGRPCClient) TryGetTimeSeriesData(ctx context.Context, metricNames
 	return series, resp.NextPageToken, true, nil
 }
 
-func (d *DeviceGRPCClient) TryBatchStatus(ctx context.Context, ids []string) (map[string]DeviceMetrics, bool, error) {
-	refs := make([]*pb.DeviceRef, len(ids))
-	for i, id := range ids {
-		refs[i] = &pb.DeviceRef{DeviceId: id}
-		if id == d.deviceID {
-			refs[i] = d.deviceRef()
+func (d *DeviceGRPCClient) TryBatchStatus(ctx context.Context, devices []Device) (map[string]DeviceMetrics, bool, error) {
+	refs := make([]*pb.DeviceRef, len(devices))
+	for i, device := range devices {
+		remote, ok := device.(*DeviceGRPCClient)
+		if !ok || remote == nil || remote.client != d.client {
+			return nil, false, fmt.Errorf("batch status requires captured devices from the same plugin client")
 		}
+		refs[i] = remote.deviceRef()
 	}
 
 	resp, err := d.client.BatchStatus(ctx, &pb.BatchStatusRequest{Refs: refs})

@@ -398,7 +398,7 @@ func (d *Device) sampleLatency(includeInternal bool) time.Duration {
 }
 
 // TryBatchStatus implements sdk.DeviceOptional.
-func (d *Device) TryBatchStatus(_ context.Context, _ []string) (map[string]sdk.DeviceMetrics, bool, error) {
+func (d *Device) TryBatchStatus(_ context.Context, _ []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil
 }
 

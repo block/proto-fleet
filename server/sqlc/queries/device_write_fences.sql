@@ -136,6 +136,35 @@ SELECT d.id,d.device_identifier,COALESCE(device_write_identity_keys(d.id),'{}'::
 WHERE d.org_id=$1 AND d.device_identifier=ANY(sqlc.arg(device_identifiers)::text[]) AND d.deleted_at IS NULL
 ORDER BY d.id;
 
+-- name: LockDeviceWriteDeletionDevices :exec
+-- Retirement locks binding parents and children in the same order as dispatch.
+-- Device FOR UPDATE also prevents insertion of missing binding children.
+SELECT id FROM device
+WHERE id=ANY(sqlc.arg(device_ids)::bigint[]) AND deleted_at IS NULL
+ORDER BY id FOR UPDATE;
+
+-- name: LockDeviceWriteDeletionDiscoveries :exec
+SELECT id FROM discovered_device
+WHERE id IN (SELECT discovered_device_id FROM device
+ WHERE id=ANY(sqlc.arg(device_ids)::bigint[]) AND deleted_at IS NULL)
+ORDER BY id FOR UPDATE;
+
+-- name: LockDeviceWriteDeletionPairings :exec
+SELECT dp.id FROM device_pairing dp
+WHERE dp.device_id=ANY(sqlc.arg(device_ids)::bigint[])
+ORDER BY dp.device_id,dp.id FOR UPDATE;
+
+-- name: LockDeviceWriteDeletionCredentials :exec
+SELECT mc.id FROM miner_credentials mc
+WHERE mc.device_id=ANY(sqlc.arg(device_ids)::bigint[])
+ORDER BY mc.device_id,mc.id FOR UPDATE;
+
+-- name: LockDeviceWriteDeletionRoutes :exec
+-- Lock only the association: Fleet Node recovery locks its node before device.
+SELECT fnd.device_id FROM fleet_node_device fnd
+WHERE fnd.device_id=ANY(sqlc.arg(device_ids)::bigint[])
+ORDER BY fnd.device_id,fnd.fleet_node_id FOR UPDATE;
+
 -- name: AdvanceDeletedDeviceWriteFences :many
 UPDATE device_write_fence SET epoch=epoch+1,updated_at=statement_timestamp()
 WHERE device_id=ANY(sqlc.arg(device_ids)::bigint[]) AND organization_id=$1 AND state='host'

@@ -1782,6 +1782,21 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockDeviceWriteAttemptForRecoveryStmt, err = db.PrepareContext(ctx, lockDeviceWriteAttemptForRecovery); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDeviceWriteAttemptForRecovery: %w", err)
 	}
+	if q.lockDeviceWriteDeletionCredentialsStmt, err = db.PrepareContext(ctx, lockDeviceWriteDeletionCredentials); err != nil {
+		return nil, fmt.Errorf("error preparing query LockDeviceWriteDeletionCredentials: %w", err)
+	}
+	if q.lockDeviceWriteDeletionDevicesStmt, err = db.PrepareContext(ctx, lockDeviceWriteDeletionDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query LockDeviceWriteDeletionDevices: %w", err)
+	}
+	if q.lockDeviceWriteDeletionDiscoveriesStmt, err = db.PrepareContext(ctx, lockDeviceWriteDeletionDiscoveries); err != nil {
+		return nil, fmt.Errorf("error preparing query LockDeviceWriteDeletionDiscoveries: %w", err)
+	}
+	if q.lockDeviceWriteDeletionPairingsStmt, err = db.PrepareContext(ctx, lockDeviceWriteDeletionPairings); err != nil {
+		return nil, fmt.Errorf("error preparing query LockDeviceWriteDeletionPairings: %w", err)
+	}
+	if q.lockDeviceWriteDeletionRoutesStmt, err = db.PrepareContext(ctx, lockDeviceWriteDeletionRoutes); err != nil {
+		return nil, fmt.Errorf("error preparing query LockDeviceWriteDeletionRoutes: %w", err)
+	}
 	if q.lockDeviceWriteFenceRecordStmt, err = db.PrepareContext(ctx, lockDeviceWriteFenceRecord); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDeviceWriteFenceRecord: %w", err)
 	}
@@ -5449,6 +5464,31 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockDeviceWriteAttemptForRecoveryStmt: %w", cerr)
 		}
 	}
+	if q.lockDeviceWriteDeletionCredentialsStmt != nil {
+		if cerr := q.lockDeviceWriteDeletionCredentialsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockDeviceWriteDeletionCredentialsStmt: %w", cerr)
+		}
+	}
+	if q.lockDeviceWriteDeletionDevicesStmt != nil {
+		if cerr := q.lockDeviceWriteDeletionDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockDeviceWriteDeletionDevicesStmt: %w", cerr)
+		}
+	}
+	if q.lockDeviceWriteDeletionDiscoveriesStmt != nil {
+		if cerr := q.lockDeviceWriteDeletionDiscoveriesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockDeviceWriteDeletionDiscoveriesStmt: %w", cerr)
+		}
+	}
+	if q.lockDeviceWriteDeletionPairingsStmt != nil {
+		if cerr := q.lockDeviceWriteDeletionPairingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockDeviceWriteDeletionPairingsStmt: %w", cerr)
+		}
+	}
+	if q.lockDeviceWriteDeletionRoutesStmt != nil {
+		if cerr := q.lockDeviceWriteDeletionRoutesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockDeviceWriteDeletionRoutesStmt: %w", cerr)
+		}
+	}
 	if q.lockDeviceWriteFenceRecordStmt != nil {
 		if cerr := q.lockDeviceWriteFenceRecordStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockDeviceWriteFenceRecordStmt: %w", cerr)
@@ -7294,6 +7334,11 @@ type Queries struct {
 	lockDeletionUnpairPermitStmt                                 *sql.Stmt
 	lockDeviceByIdentifierStmt                                   *sql.Stmt
 	lockDeviceWriteAttemptForRecoveryStmt                        *sql.Stmt
+	lockDeviceWriteDeletionCredentialsStmt                       *sql.Stmt
+	lockDeviceWriteDeletionDevicesStmt                           *sql.Stmt
+	lockDeviceWriteDeletionDiscoveriesStmt                       *sql.Stmt
+	lockDeviceWriteDeletionPairingsStmt                          *sql.Stmt
+	lockDeviceWriteDeletionRoutesStmt                            *sql.Stmt
 	lockDeviceWriteFenceRecordStmt                               *sql.Stmt
 	lockDeviceWriteFencesStmt                                    *sql.Stmt
 	lockDeviceWriteIdentitiesStmt                                *sql.Stmt
@@ -8130,6 +8175,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockDeletionUnpairPermitStmt:                                 q.lockDeletionUnpairPermitStmt,
 		lockDeviceByIdentifierStmt:                                   q.lockDeviceByIdentifierStmt,
 		lockDeviceWriteAttemptForRecoveryStmt:                        q.lockDeviceWriteAttemptForRecoveryStmt,
+		lockDeviceWriteDeletionCredentialsStmt:                       q.lockDeviceWriteDeletionCredentialsStmt,
+		lockDeviceWriteDeletionDevicesStmt:                           q.lockDeviceWriteDeletionDevicesStmt,
+		lockDeviceWriteDeletionDiscoveriesStmt:                       q.lockDeviceWriteDeletionDiscoveriesStmt,
+		lockDeviceWriteDeletionPairingsStmt:                          q.lockDeviceWriteDeletionPairingsStmt,
+		lockDeviceWriteDeletionRoutesStmt:                            q.lockDeviceWriteDeletionRoutesStmt,
 		lockDeviceWriteFenceRecordStmt:                               q.lockDeviceWriteFenceRecordStmt,
 		lockDeviceWriteFencesStmt:                                    q.lockDeviceWriteFencesStmt,
 		lockDeviceWriteIdentitiesStmt:                                q.lockDeviceWriteIdentitiesStmt,

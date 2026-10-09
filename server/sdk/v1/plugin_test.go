@@ -343,7 +343,7 @@ func (f fakeDevice) FirmwareUpdate(ctx context.Context, firmware FirmwareFile) e
 }
 func (f fakeDevice) Unpair(ctx context.Context) error                    { return nil }
 func (f fakeDevice) GetErrors(ctx context.Context) (DeviceErrors, error) { return DeviceErrors{}, nil }
-func (f fakeDevice) TryBatchStatus(ctx context.Context, ids []string) (map[string]DeviceMetrics, bool, error) {
+func (f fakeDevice) TryBatchStatus(ctx context.Context, devices []Device) (map[string]DeviceMetrics, bool, error) {
 	return nil, false, nil
 }
 func (f fakeDevice) TrySubscribe(ctx context.Context, ids []string) (<-chan DeviceMetrics, bool, error) {

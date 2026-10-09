@@ -497,6 +497,65 @@ func (q *Queries) LockDeviceWriteAttemptForRecovery(ctx context.Context, attempt
 	return i, err
 }
 
+const lockDeviceWriteDeletionCredentials = `-- name: LockDeviceWriteDeletionCredentials :exec
+SELECT mc.id FROM miner_credentials mc
+WHERE mc.device_id=ANY($1::bigint[])
+ORDER BY mc.device_id,mc.id FOR UPDATE
+`
+
+func (q *Queries) LockDeviceWriteDeletionCredentials(ctx context.Context, deviceIds []int64) error {
+	_, err := q.exec(ctx, q.lockDeviceWriteDeletionCredentialsStmt, lockDeviceWriteDeletionCredentials, pq.Array(deviceIds))
+	return err
+}
+
+const lockDeviceWriteDeletionDevices = `-- name: LockDeviceWriteDeletionDevices :exec
+SELECT id FROM device
+WHERE id=ANY($1::bigint[]) AND deleted_at IS NULL
+ORDER BY id FOR UPDATE
+`
+
+// Retirement locks binding parents and children in the same order as dispatch.
+// Device FOR UPDATE also prevents insertion of missing binding children.
+func (q *Queries) LockDeviceWriteDeletionDevices(ctx context.Context, deviceIds []int64) error {
+	_, err := q.exec(ctx, q.lockDeviceWriteDeletionDevicesStmt, lockDeviceWriteDeletionDevices, pq.Array(deviceIds))
+	return err
+}
+
+const lockDeviceWriteDeletionDiscoveries = `-- name: LockDeviceWriteDeletionDiscoveries :exec
+SELECT id FROM discovered_device
+WHERE id IN (SELECT discovered_device_id FROM device
+ WHERE id=ANY($1::bigint[]) AND deleted_at IS NULL)
+ORDER BY id FOR UPDATE
+`
+
+func (q *Queries) LockDeviceWriteDeletionDiscoveries(ctx context.Context, deviceIds []int64) error {
+	_, err := q.exec(ctx, q.lockDeviceWriteDeletionDiscoveriesStmt, lockDeviceWriteDeletionDiscoveries, pq.Array(deviceIds))
+	return err
+}
+
+const lockDeviceWriteDeletionPairings = `-- name: LockDeviceWriteDeletionPairings :exec
+SELECT dp.id FROM device_pairing dp
+WHERE dp.device_id=ANY($1::bigint[])
+ORDER BY dp.device_id,dp.id FOR UPDATE
+`
+
+func (q *Queries) LockDeviceWriteDeletionPairings(ctx context.Context, deviceIds []int64) error {
+	_, err := q.exec(ctx, q.lockDeviceWriteDeletionPairingsStmt, lockDeviceWriteDeletionPairings, pq.Array(deviceIds))
+	return err
+}
+
+const lockDeviceWriteDeletionRoutes = `-- name: LockDeviceWriteDeletionRoutes :exec
+SELECT fnd.device_id FROM fleet_node_device fnd
+WHERE fnd.device_id=ANY($1::bigint[])
+ORDER BY fnd.device_id,fnd.fleet_node_id FOR UPDATE
+`
+
+// Lock only the association: Fleet Node recovery locks its node before device.
+func (q *Queries) LockDeviceWriteDeletionRoutes(ctx context.Context, deviceIds []int64) error {
+	_, err := q.exec(ctx, q.lockDeviceWriteDeletionRoutesStmt, lockDeviceWriteDeletionRoutes, pq.Array(deviceIds))
+	return err
+}
+
 const lockDeviceWriteFenceRecord = `-- name: LockDeviceWriteFenceRecord :one
 SELECT device_id, organization_id, epoch, state, quarantine_origin, updated_at FROM device_write_fence WHERE device_id=$1 AND organization_id=$2 FOR UPDATE
 `

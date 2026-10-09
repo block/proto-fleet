@@ -227,3 +227,95 @@ func TestClosedScopedBackendRejectsBeforeDispatch(t *testing.T) {
 	_, err = server.StartMining(t.Context(), &pb.DeviceRef{DeviceId: response.DeviceId})
 	require.Equal(t, codes.NotFound, status.Code(err))
 }
+
+// A real batch backend observes the concrete handles admitted by the registry.
+type batchStatusBackend struct {
+	namedBackend
+	calls *atomic.Int32
+}
+
+func (d batchStatusBackend) TryBatchStatus(_ context.Context, devices []Device) (map[string]DeviceMetrics, bool, error) {
+	d.calls.Add(1)
+	results := make(map[string]DeviceMetrics, len(devices))
+	for _, device := range devices {
+		results[device.ID()] = DeviceMetrics{DeviceID: device.ID()}
+	}
+	return results, true, nil
+}
+
+func TestScopedBatchStatusUsesEachCapturedGenerationOnActualGRPC(t *testing.T) {
+	var calls atomic.Int32
+	server := scopedServer(func(_ context.Context, id string, _ DeviceInfo, _ SecretBundle) (NewDeviceResult, error) {
+		return NewDeviceResult{Device: batchStatusBackend{namedBackend: namedBackend{id: id}, calls: &calls}}, nil
+	})
+	listener := bufconn.Listen(1 << 20)
+	wire := grpc.NewServer()
+	pb.RegisterDriverServer(wire, server)
+	go func() { _ = wire.Serve(listener) }()
+	t.Cleanup(wire.Stop)
+	conn, err := grpc.NewClient("passthrough:///batch-test", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	client := &DriverGRPCClient{client: pb.NewDriverClient(conn)}
+	first, err := client.GetOrCreateDevice(t.Context(), "first", DeviceInfo{}, SecretBundle{}, "first-binding")
+	require.NoError(t, err)
+	second, err := client.GetOrCreateDevice(t.Context(), "second", DeviceInfo{}, SecretBundle{}, "second-binding")
+	require.NoError(t, err)
+
+	metrics, supported, err := first.Device.TryBatchStatus(t.Context(), []Device{first.Device, second.Device})
+	require.NoError(t, err)
+	require.True(t, supported)
+	require.Contains(t, metrics, "first")
+	require.Contains(t, metrics, "second")
+	require.EqualValues(t, 1, calls.Load())
+
+	replacement, err := client.GetOrCreateDevice(t.Context(), "second", DeviceInfo{}, SecretBundle{}, "replacement-binding")
+	require.NoError(t, err)
+	_, _, err = first.Device.TryBatchStatus(t.Context(), []Device{first.Device, second.Device})
+	require.True(t, IsBackendGenerationRejected(err), "a stale non-calling member must reject the entire batch")
+	require.EqualValues(t, 1, calls.Load(), "no backend I/O is allowed for a rejected batch")
+	_, _, err = second.Device.TryBatchStatus(t.Context(), []Device{second.Device, first.Device})
+	require.True(t, IsBackendGenerationRejected(err), "a stale first member must also reject the batch")
+	require.EqualValues(t, 1, calls.Load())
+	_, supported, err = first.Device.TryBatchStatus(t.Context(), []Device{first.Device, replacement.Device})
+	require.NoError(t, err)
+	require.True(t, supported)
+	require.EqualValues(t, 2, calls.Load())
+
+	// Even a different adapter for this same transport must not mix client scopes.
+	foreign := &DriverGRPCClient{client: pb.NewDriverClient(conn)}
+	foreignDevice, err := foreign.GetOrCreateDevice(t.Context(), "foreign", DeviceInfo{}, SecretBundle{}, "foreign-binding")
+	require.NoError(t, err)
+	var nilRemote *DeviceGRPCClient
+	for _, invalid := range []Device{foreignDevice.Device, fakeDevice{}, nilRemote, nil} {
+		_, _, err = first.Device.TryBatchStatus(t.Context(), []Device{first.Device, invalid})
+		require.ErrorContains(t, err, "same plugin client")
+		require.EqualValues(t, 2, calls.Load())
+	}
+	_, supported, err = first.Device.TryBatchStatus(t.Context(), nil)
+	require.NoError(t, err)
+	require.False(t, supported, "an empty batch is unsupported")
+	require.EqualValues(t, 2, calls.Load())
+}
+
+func TestScopedBatchStatusPreservesUnsupportedOnActualGRPC(t *testing.T) {
+	server := scopedServer(func(_ context.Context, id string, _ DeviceInfo, _ SecretBundle) (NewDeviceResult, error) {
+		return NewDeviceResult{Device: namedBackend{id: id}}, nil
+	})
+	listener := bufconn.Listen(1 << 20)
+	wire := grpc.NewServer()
+	pb.RegisterDriverServer(wire, server)
+	go func() { _ = wire.Serve(listener) }()
+	t.Cleanup(wire.Stop)
+	conn, err := grpc.NewClient("passthrough:///batch-test", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+	client := &DriverGRPCClient{client: pb.NewDriverClient(conn)}
+	first, err := client.GetOrCreateDevice(t.Context(), "first", DeviceInfo{}, SecretBundle{}, "first-binding")
+	require.NoError(t, err)
+	second, err := client.GetOrCreateDevice(t.Context(), "second", DeviceInfo{}, SecretBundle{}, "second-binding")
+	require.NoError(t, err)
+	_, supported, err := first.Device.TryBatchStatus(t.Context(), []Device{first.Device, second.Device})
+	require.NoError(t, err)
+	require.False(t, supported)
+}

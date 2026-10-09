@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
+	"slices"
 
 	"github.com/google/uuid"
 
@@ -59,6 +60,34 @@ func PrepareDeletion(ctx context.Context, q sqlc.Querier, organizationID int64, 
 	}
 	for _, fence := range fences {
 		if fence.OrganizationID != organizationID || fence.State != "host" {
+			return blocked()
+		}
+	}
+	// Keep the admission lock order: identity stripes, fence, then binding rows.
+	// Rediscovery can change a binding before these row locks are acquired. A
+	// changed identity must restart retirement rather than acquire new stripes
+	// after row locks, which could invert another admission's lock order.
+	for _, lock := range []func(context.Context, []int64) error{
+		q.LockDeviceWriteDeletionDevices,
+		q.LockDeviceWriteDeletionDiscoveries,
+		q.LockDeviceWriteDeletionPairings,
+		q.LockDeviceWriteDeletionCredentials,
+		q.LockDeviceWriteDeletionRoutes,
+	} {
+		if err := lock(ctx, ids); err != nil {
+			return err
+		}
+	}
+	lockedTargets, err := q.GetDeviceWriteDeletionTargets(ctx, sqlc.GetDeviceWriteDeletionTargetsParams{OrgID: organizationID, DeviceIdentifiers: identifiers})
+	if err != nil {
+		return err
+	}
+	if len(lockedTargets) != len(targets) {
+		return blocked()
+	}
+	for _, target := range lockedTargets {
+		keys, exists := keysByID[target.ID]
+		if !exists || !slices.Equal(keys, target.IdentityKeys) {
 			return blocked()
 		}
 	}
