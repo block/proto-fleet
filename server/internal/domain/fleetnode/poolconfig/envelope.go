@@ -148,7 +148,11 @@ func marshalSecret(deviceIdentifier string, config *gatewaypb.MiningPoolWriteCon
 	if err != nil {
 		return nil, fmt.Errorf("marshal pool config: %w", err)
 	}
-	return json.Marshal(Secret{Version: envelopeVersion, DeviceIdentifier: deviceIdentifier, Config: encoded})
+	plaintext, err := json.Marshal(Secret{Version: envelopeVersion, DeviceIdentifier: deviceIdentifier, Config: encoded})
+	if err != nil {
+		return nil, fmt.Errorf("marshal pool config envelope: %w", err)
+	}
+	return plaintext, nil
 }
 
 func validateConfig(deviceIdentifier string, config *gatewaypb.MiningPoolWriteConfiguration) error {

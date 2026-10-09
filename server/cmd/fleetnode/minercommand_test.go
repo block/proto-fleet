@@ -1500,7 +1500,7 @@ func TestHandleMinerCommand_RejectsInvalidEncryptedPoolsBeforeOpeningDevice(t *t
 	require.NoError(t, err)
 	wrongTarget, err := poolconfig.Encrypt(public, "other-device", config)
 	require.NoError(t, err)
-	tampered := proto.Clone(valid).(*pb.NodeEncryptedPayload)
+	tampered := proto.CloneOf(valid)
 	tampered.Ciphertext[0] ^= 1
 	for _, tc := range []struct {
 		name      string

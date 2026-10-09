@@ -50,11 +50,11 @@ func TestDecryptRejectsInvalidEnvelope(t *testing.T) {
 	require.NoError(t, err)
 	valid, err := Encrypt(key.PublicKey().Bytes(), "dev-1", testConfig())
 	require.NoError(t, err)
-	tampered := proto.Clone(valid).(*gatewaypb.NodeEncryptedPayload)
+	tampered := proto.CloneOf(valid)
 	tampered.Ciphertext[0] ^= 1
-	oversized := proto.Clone(valid).(*gatewaypb.NodeEncryptedPayload)
+	oversized := proto.CloneOf(valid)
 	oversized.Ciphertext = make([]byte, maxCiphertext+1)
-	wrongAlgorithm := proto.Clone(valid).(*gatewaypb.NodeEncryptedPayload)
+	wrongAlgorithm := proto.CloneOf(valid)
 	wrongAlgorithm.Algorithm = "unknown"
 	for _, tc := range []struct {
 		name    string
@@ -70,7 +70,11 @@ func TestDecryptRejectsInvalidEnvelope(t *testing.T) {
 		{"oversized", key.Bytes(), oversized, "dev-1"},
 		{"algorithm", key.Bytes(), wrongAlgorithm, "dev-1"},
 	} {
-		t.Run(tc.name, func(t *testing.T) { _, err := Decrypt(tc.key, tc.payload, tc.device); require.Error(t, err) })
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := Decrypt(tc.key, tc.payload, tc.device)
+			require.Error(t, err)
+		})
 	}
 	// Other sealed command domains cannot be interpreted as pool writes.
 	otherDomain, err := curtailmentconfig.Encrypt(key.PublicKey().Bytes(), "dev-1", sdk.CurtailmentConfig{})
@@ -93,13 +97,14 @@ func TestEncryptRejectsInvalidConfiguration(t *testing.T) {
 		{"duplicate priority", func(c *gatewaypb.MiningPoolWriteConfiguration) { c.Pools[1].Priority = 0 }},
 		{"no pools", func(c *gatewaypb.MiningPoolWriteConfiguration) { c.Pools = nil }},
 		{"too many pools", func(c *gatewaypb.MiningPoolWriteConfiguration) {
-			c.Pools = append(c.Pools, proto.Clone(c.Pools[0]).(*gatewaypb.MiningPoolWriteConfig))
+			c.Pools = append(c.Pools, proto.CloneOf(c.Pools[0]))
 		}},
 		{"oversized", func(c *gatewaypb.MiningPoolWriteConfiguration) {
 			c.Pools[0].Password = proto.String(strings.Repeat("p", maxCiphertext))
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			c := testConfig()
 			tc.change(c)
 			_, err := Encrypt(key.PublicKey().Bytes(), "dev-1", c)
@@ -140,12 +145,14 @@ func TestDecryptValidatesInnerConfiguration(t *testing.T) {
 		{"absent password", func(s *Secret) {
 			c := testConfig()
 			c.Pools[0].Password = nil
-			s.Config, err = proto.Marshal(c)
+			encoded, err := proto.Marshal(c)
 			require.NoError(t, err)
+			s.Config = encoded
 		}},
 		{"empty config", func(s *Secret) { s.Config = nil }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 			encoded, err := proto.Marshal(testConfig())
 			require.NoError(t, err)
 			secret := Secret{Version: envelopeVersion, DeviceIdentifier: "dev-1", Config: encoded}
