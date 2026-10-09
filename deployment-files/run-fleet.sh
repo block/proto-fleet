@@ -2785,8 +2785,8 @@ provision_grafana_db_role() {
 
     # `up --wait` only confirms containers are running, not that fleet-api's migrations finished.
     # The GRANT block below references each object under ON_ERROR_STOP, so poll until every one exists.
-    echo "Waiting for notification_metric_sample, fleet_telemetry_poll_heartbeat, fleet_pollable_device_presence, fleet_active_organization, fleet_device_placement and fleet_node to be available…"
-    if ! wait_for_psql_true "SELECT to_regclass('public.notification_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL AND to_regclass('public.fleet_pollable_device_presence') IS NOT NULL AND to_regclass('public.fleet_active_organization') IS NOT NULL AND to_regclass('public.fleet_device_placement') IS NOT NULL AND to_regclass('public.fleet_node') IS NOT NULL"; then
+    echo "Waiting for notification_metric_sample, fleet_telemetry_poll_heartbeat, fleet_pollable_device_presence, fleet_active_organization, fleet_device_placement and fleet_node_live to be available…"
+    if ! wait_for_psql_true "SELECT to_regclass('public.notification_metric_sample') IS NOT NULL AND to_regclass('public.fleet_telemetry_poll_heartbeat') IS NOT NULL AND to_regclass('public.fleet_pollable_device_presence') IS NOT NULL AND to_regclass('public.fleet_active_organization') IS NOT NULL AND to_regclass('public.fleet_device_placement') IS NOT NULL AND to_regclass('public.fleet_node_live') IS NOT NULL"; then
         echo "Warning: required Grafana alert objects did not appear; Grafana role not provisioned (datasource will fail until fleet-api migrations finish)." >&2
         return 1
     fi
@@ -2897,7 +2897,7 @@ GRANT SELECT ON fleet_active_organization TO "${grafana_user}";
 GRANT SELECT ON fleet_device_placement TO "${grafana_user}";
 -- Column-level access exposes heartbeat state without granting access to Fleet Node keys or names.
 GRANT SELECT (org_id, id, last_seen_at, enrollment_status, deleted_at)
-    ON fleet_node TO "${grafana_user}";
+    ON fleet_node_live TO "${grafana_user}";
 ${stats_grant}
 
 -- smoke check
@@ -2908,7 +2908,7 @@ SELECT 1 FROM fleet_pollable_device_presence LIMIT 0;
 SELECT 1 FROM fleet_active_organization LIMIT 0;
 SELECT 1 FROM fleet_device_placement LIMIT 0;
 SELECT org_id, id, last_seen_at
-FROM fleet_node
+FROM fleet_node_live
 WHERE enrollment_status = 'CONFIRMED' AND deleted_at IS NULL
 LIMIT 0;
 ${stats_smoke}

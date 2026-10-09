@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -155,9 +156,12 @@ func firstTxOpts(opts []*sql.TxOptions) *sql.TxOptions {
 
 // WithDispatchTransaction acquires its connection using the caller's context,
 // then retains SQL locks until action returns, even if that context is canceled.
-// The action may perform external I/O and is never retried. It must use the
-// original context for lock acquisition and transport calls. No tx is exposed
-// through the context, since physical admission must already be committed.
+// The transaction only reads and locks binding state; action may perform
+// external I/O and is never retried. A finalization error is logged without
+// replacing a successful action, which could cause an accepted command to replay.
+// The action must use the original context for lock acquisition and transport
+// calls. No tx is exposed through the context, since physical admission must
+// already be committed.
 func WithDispatchTransaction(ctx context.Context, database *sql.DB, action func(sqlc.Querier) error) error {
 	connection, err := database.Conn(ctx)
 	if err != nil {
@@ -174,7 +178,7 @@ func WithDispatchTransaction(ctx context.Context, database *sql.DB, action func(
 		return err
 	}
 	if err := tx.Commit(); err != nil {
-		return fleeterror.NewInternalErrorf("commit dispatch transaction: %w", err)
+		slog.Error("failed to finalize dispatch binding locks", "error", err)
 	}
 	return nil
 }

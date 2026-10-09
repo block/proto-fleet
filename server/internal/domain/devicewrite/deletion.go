@@ -5,7 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	"log/slog"
 
 	"github.com/google/uuid"
 
@@ -182,8 +182,11 @@ func (s *Service) RunDeletionUnpair(ctx context.Context, organizationID, deviceI
 		}
 		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), runtimepolicy.CommandTransactionBound)
 		defer cancel()
-		if err := attempt.Finish(finishCtx, resultErr); err != nil && resultErr == nil {
-			resultErr = fmt.Errorf("finish deleted miner unpair: %w", err)
+		if err := attempt.Finish(finishCtx, resultErr); err != nil {
+			// Preserve the unpair outcome and leave its claimed attempt
+			// blocking physical reuse until recovery supplies evidence.
+			slog.Error("failed to persist deleted miner unpair completion",
+				"attempt_id", attempt.id, "device_id", deviceID, "error", err)
 		}
 	}()
 	resultErr = call(attempt.Context(ctx))

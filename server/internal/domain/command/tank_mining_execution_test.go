@@ -278,7 +278,7 @@ func TestTankMiningExecutionCommitFailureDoesNotReplayPhysicalWrite(t *testing.T
 	svc, conn, deviceID, _, payload := setupTankMiningExecution(t)
 	controller := &executionTankController{onWrite: func(ctx context.Context) error {
 		// Terminate the transaction after the controller write succeeds, so
-		// Commit fails with an unknown outcome rather than replaying the write.
+		// Commit fails after the accepted write, without changing its outcome.
 		var terminated bool
 		err := conn.QueryRowContext(ctx, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
 			WHERE datname=current_database() AND state='idle in transaction'
@@ -288,8 +288,7 @@ func TestTankMiningExecutionCommitFailureDoesNotReplayPhysicalWrite(t *testing.T
 		return nil
 	}}
 	err := svc.executeTankMining(t.Context(), deviceID, payload.OrgID, payload, controller)
-	require.True(t, fleeterror.IsFailedPreconditionError(err))
-	require.Equal(t, "failed_precondition: tank mining outcome unconfirmed", sanitizedErrorInfo(err).String)
+	require.NoError(t, err, "lock transaction cleanup must not replace an accepted tank write")
 	require.Equal(t, 1, controller.writes)
 }
 

@@ -176,7 +176,7 @@ func (q *Queries) CreatePendingEnrollment(ctx context.Context, arg CreatePending
 const getFleetNodeByID = `-- name: GetFleetNodeByID :one
 SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
-FROM fleet_node
+FROM fleet_node_live
 WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL
 `
 
@@ -217,7 +217,7 @@ func (q *Queries) GetFleetNodeByID(ctx context.Context, arg GetFleetNodeByIDPara
 const getFleetNodeByIDUnscoped = `-- name: GetFleetNodeByIDUnscoped :one
 SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
-FROM fleet_node
+FROM fleet_node_live
 WHERE id = $1 AND deleted_at IS NULL
 `
 
@@ -309,7 +309,7 @@ SELECT a.id, a.org_id, a.name, a.identity_pubkey,
        a.enrollment_status, a.last_seen_at, a.created_at, a.updated_at,
        COALESCE(pe.status, '')::text AS pending_enrollment_status,
        pe.id AS pending_enrollment_id
-FROM fleet_node a
+FROM fleet_node_live a
 LEFT JOIN pending_enrollment pe
   ON pe.fleet_node_id = a.id
  AND pe.status = 'AWAITING_CONFIRMATION'
@@ -370,11 +370,12 @@ func (q *Queries) ListFleetNodesForOrganization(ctx context.Context, orgID int64
 }
 
 const lockFleetNodeByID = `-- name: LockFleetNodeByID :one
-SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
-       enrollment_status, last_seen_at, created_at, updated_at
-FROM fleet_node
-WHERE id = $1 AND org_id = $2 AND deleted_at IS NULL
-FOR UPDATE
+SELECT fn.id, fn.org_id, fn.name, fn.identity_pubkey, fn.encryption_pubkey,
+       fn.enrollment_status, h.last_seen_at, fn.created_at, fn.updated_at
+FROM fleet_node fn
+LEFT JOIN fleet_node_heartbeat h ON h.fleet_node_id=fn.id AND h.org_id=fn.org_id
+WHERE fn.id = $1 AND fn.org_id = $2 AND fn.deleted_at IS NULL
+FOR UPDATE OF fn
 `
 
 type LockFleetNodeByIDParams struct {
@@ -485,13 +486,15 @@ func (q *Queries) SweepExpiredEnrollments(ctx context.Context, expiresAt time.Ti
 }
 
 const updateFleetNodeLastSeenAt = `-- name: UpdateFleetNodeLastSeenAt :execrows
-UPDATE fleet_node
-SET last_seen_at = $1
-WHERE id = $2 AND org_id = $3 AND deleted_at IS NULL
+INSERT INTO fleet_node_heartbeat (fleet_node_id,org_id,last_seen_at)
+SELECT fn.id,fn.org_id,$1::timestamptz FROM fleet_node fn
+WHERE fn.id=$2 AND fn.org_id=$3 AND fn.deleted_at IS NULL
+ON CONFLICT (fleet_node_id) DO UPDATE
+SET last_seen_at=GREATEST(fleet_node_heartbeat.last_seen_at,EXCLUDED.last_seen_at)
 `
 
 type UpdateFleetNodeLastSeenAtParams struct {
-	LastSeenAt sql.NullTime
+	LastSeenAt time.Time
 	ID         int64
 	OrgID      int64
 }

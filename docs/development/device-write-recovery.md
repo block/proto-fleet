@@ -43,6 +43,17 @@ until it returns; canceled callers do not release locks while a context-ignoring
 adapter continues. Admission commits before these locks are taken. The lock
 transaction performs no retry and reuses its connection for the final attempt
 check, so it neither replays physical I/O nor requires a second pool slot.
+A failure to finalize this lock-only transaction or record attempt completion is
+logged without turning an accepted command into a retryable failure. Unresolved
+attempt evidence still blocks ownership transfer until audited recovery.
+
+Fleet Node heartbeats write `fleet_node_heartbeat` independently of the routing
+row. Enrollment, miner status and unavailable-node alerts read `fleet_node_live`.
+Dispatch still locks the node row, so revocation and route changes wait for the
+adapter while heartbeats continue. Migration 1013 backfills existing timestamps;
+its rollback copies the latest heartbeat into the retained baseline column.
+Deploy it during the application-stopped maintenance window, so an older writer
+cannot update the retained snapshot after the backfill.
 
 Scoped SDK references also carry an opaque backend generation. Replacing the
 same external identifier cannot redirect that reference; a stale token is

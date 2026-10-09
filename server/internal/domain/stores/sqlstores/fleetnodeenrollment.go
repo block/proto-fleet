@@ -182,7 +182,7 @@ func (s *SQLFleetNodeEnrollmentStore) SoftDeleteFleetNodesForExpiredEnrollments(
 
 func (s *SQLFleetNodeEnrollmentStore) UpdateLastSeen(ctx context.Context, fleetNodeID, orgID int64, now time.Time) (int64, error) {
 	return s.q(ctx).UpdateFleetNodeLastSeenAt(ctx, sqlc.UpdateFleetNodeLastSeenAtParams{
-		LastSeenAt: sql.NullTime{Time: now, Valid: true},
+		LastSeenAt: now,
 		ID:         fleetNodeID,
 		OrgID:      orgID,
 	})

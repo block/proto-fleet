@@ -42,13 +42,21 @@ async def test_example_process_handshake_and_scoped_resolution() -> None:
                 response = await driver.NewDevice(request)
                 assert response.reuse_scope_key == request.reuse_scope_key
             request.info.host = "127.0.0.2"
-            await driver.NewDevice(request)
-            resolved = await driver.DescribeDevice(pb.DescribeDeviceRequest(device_id="example"))
+            response = await driver.NewDevice(request)
+            resolved = await driver.DescribeDevice(
+                pb.DescribeDeviceRequest(device_id="example", backend_generation=response.backend_generation)
+            )
             assert resolved.device.host == "127.0.0.2"
-            await driver.CloseDevice(pb.DeviceRef(device_id="example"))
-            await driver.NewDevice(request)
+            await driver.CloseDevice(
+                pb.DeviceRef(device_id="example", backend_generation=response.backend_generation)
+            )
+            response = await driver.NewDevice(request)
             assert (
-                await driver.DescribeDevice(pb.DescribeDeviceRequest(device_id="example"))
+                await driver.DescribeDevice(
+                    pb.DescribeDeviceRequest(
+                        device_id="example", backend_generation=response.backend_generation
+                    )
+                )
             ).device.host == "127.0.0.2"
     finally:
         # This test owns the fake plugin process; cleanup does not depend on

@@ -306,8 +306,12 @@ func (s *Service) WithHostAttempt(ctx context.Context, organizationID, deviceID,
 		}
 		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), runtimepolicy.CommandTransactionBound)
 		defer cancel()
-		if err := attempt.Finish(finishCtx, resultErr); err != nil && resultErr == nil {
-			resultErr = err
+		if err := attempt.Finish(finishCtx, resultErr); err != nil {
+			// Keep the transport outcome: callers must not replay an accepted
+			// command because completion bookkeeping failed. The durable
+			// unresolved attempt continues to block ownership transfer.
+			slog.Error("failed to persist direct device write completion",
+				"attempt_id", attempt.id, "device_id", deviceID, "error", err)
 		}
 	}()
 	resultErr = call(attempt.Context(ctx))

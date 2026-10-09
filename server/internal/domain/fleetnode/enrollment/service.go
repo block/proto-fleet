@@ -383,7 +383,7 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 	return nil
 }
 
-// UpdateLastSeen advances last_seen_at on the fleet_node row. 0 rows
+// UpdateLastSeen advances the Fleet Node heartbeat without locking its routing row. 0 rows
 // affected means the fleet_node was soft-deleted (or scoped to a different
 // org) between the auth interceptor's session lookup and now; surface
 // NotFound so the daemon's session resolver fails on its next refresh.

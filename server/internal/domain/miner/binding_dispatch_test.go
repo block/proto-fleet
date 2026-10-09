@@ -115,7 +115,7 @@ func (s *bindingBlockingSender) SendCommand(context.Context, int64, gatewaypb.Co
 }
 
 func TestRemoteDispatchSerializesExistingRouteAndNodeWriters(t *testing.T) {
-	for _, change := range []string{"route deletion", "node retirement", "endpoint", "RPC port", "RPC TLS", "credentials"} {
+	for _, change := range []string{"route deletion", "node retirement", "node revocation", "endpoint", "RPC port", "RPC TLS", "credentials"} {
 		t.Run(change, func(t *testing.T) {
 			conn, crypto, files := setupTestDB(t)
 			identifier := models.DeviceIdentifier("remote-binding-lock-" + change)
@@ -149,6 +149,8 @@ func TestRemoteDispatchSerializesExistingRouteAndNodeWriters(t *testing.T) {
 					_, err = writer.ExecContext(t.Context(), "DELETE FROM fleet_node_device WHERE device_id=$1", deviceID)
 				case "node retirement":
 					_, err = writer.ExecContext(t.Context(), "UPDATE fleet_node SET deleted_at=statement_timestamp() WHERE id=$1", nodeID)
+				case "node revocation":
+					_, err = writer.ExecContext(t.Context(), "UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1", nodeID)
 				case "endpoint":
 					err = sqlc.New(writer).UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{ID: deviceID, IpAddress: "192.0.2.65", Port: "4028", UrlScheme: "http"})
 				case "RPC port":
@@ -211,4 +213,48 @@ func TestSDKGenerationRejectionSurvivesFleetAdapterMapping(t *testing.T) {
 	require.Zero(t, unresolved)
 	_, err = devicewrite.NewService(conn).Reserve(t.Context(), 1, deviceID)
 	require.NoError(t, err, "pre-backend rejection must not prevent handoff")
+}
+
+func TestRemoteDispatchAllowsInitialAndExistingHeartbeats(t *testing.T) {
+	conn, crypto, files := setupTestDB(t)
+	identifier := models.DeviceIdentifier("remote-binding-heartbeat")
+	deviceID := createTestDevice(t, conn, string(identifier))
+	nodeID := createTestFleetNode(t, conn, "heartbeat-lock-node", []byte("heartbeat-lock-node"))
+	_, err := conn.ExecContext(t.Context(), "INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,1)", nodeID, deviceID)
+	require.NoError(t, err)
+	sender := &bindingBlockingSender{entered: make(chan struct{}), release: make(chan struct{})}
+	finish := sync.OnceFunc(func() { close(sender.release) })
+	t.Cleanup(finish)
+	service := miner.NewMinerService(conn, sqlstores.NewSQLUserStore(conn), crypto, files, &fakePluginManager{driverName: "antminer"}).WithCommandSender(sender)
+	handle, err := service.GetMinerFromDeviceIdentifier(t.Context(), identifier)
+	require.NoError(t, err)
+	callDone := make(chan error, 1)
+	go func() { callDone <- handle.Reboot(t.Context()) }()
+	select {
+	case <-sender.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("node send did not start")
+	}
+	q := sqlc.New(conn)
+	for i := range 2 {
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		seen := time.Now().UTC().Add(time.Duration(i) * time.Second)
+		rows, err := q.UpdateFleetNodeLastSeenAt(ctx, sqlc.UpdateFleetNodeLastSeenAtParams{ID: nodeID, OrgID: 1, LastSeenAt: seen})
+		cancel()
+		require.NoError(t, err, "a heartbeat must finish while the remote command is still executing")
+		require.Equal(t, int64(1), rows)
+		node, err := q.GetFleetNodeByID(t.Context(), sqlc.GetFleetNodeByIDParams{ID: nodeID, OrgID: 1})
+		require.NoError(t, err)
+		require.WithinDuration(t, seen, node.LastSeenAt.Time, time.Microsecond)
+	}
+	rows, err := q.UpdateFleetNodeLastSeenAt(t.Context(), sqlc.UpdateFleetNodeLastSeenAtParams{ID: nodeID, OrgID: 2, LastSeenAt: time.Now()})
+	require.NoError(t, err)
+	require.Zero(t, rows, "another organization cannot update this node's heartbeat")
+	select {
+	case err := <-callDone:
+		t.Fatalf("remote command returned before the test released it: %v", err)
+	default:
+	}
+	finish()
+	require.NoError(t, <-callDone)
 }

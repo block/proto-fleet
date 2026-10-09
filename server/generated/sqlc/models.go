@@ -1275,6 +1275,25 @@ type FleetNodeDevice struct {
 	AssignedBy  sql.NullInt64
 }
 
+type FleetNodeHeartbeat struct {
+	FleetNodeID int64
+	OrgID       int64
+	LastSeenAt  time.Time
+}
+
+type FleetNodeLive struct {
+	ID               int64
+	OrgID            int64
+	Name             string
+	IdentityPubkey   []byte
+	EncryptionPubkey []byte
+	EnrollmentStatus string
+	LastSeenAt       sql.NullTime
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	DeletedAt        sql.NullTime
+}
+
 type FleetNodeSession struct {
 	TokenHash   string
 	FleetNodeID int64

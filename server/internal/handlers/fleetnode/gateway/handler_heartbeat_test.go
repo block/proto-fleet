@@ -79,7 +79,7 @@ func TestUploadHeartbeat_AdvancesLastSeen(t *testing.T) {
 	require.NotNil(t, resp.Msg.GetReceivedAt())
 	assert.WithinDuration(t, time.Now(), resp.Msg.GetReceivedAt().AsTime(), 2*time.Second)
 	var lastSeen sql.NullTime
-	require.NoError(t, db.QueryRow(`SELECT last_seen_at FROM fleet_node WHERE id = $1`, fleetNodeID).Scan(&lastSeen))
+	require.NoError(t, db.QueryRow(`SELECT last_seen_at FROM fleet_node_live WHERE id = $1`, fleetNodeID).Scan(&lastSeen))
 	require.True(t, lastSeen.Valid)
 	assert.WithinDuration(t, time.Now(), lastSeen.Time, 2*time.Second)
 }
