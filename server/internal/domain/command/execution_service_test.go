@@ -2087,7 +2087,7 @@ func TestExecuteCommandOnDevice_UpdateMiningPools_ReapplyRejectsInvalidStoredSha
 			body, err := json.Marshal(dto.UpdateMiningPoolsPayload{ReapplyCurrentPoolsWithStoredWorkerName: true, DesiredWorkerName: "new"})
 			require.NoError(t, err)
 			message := queue.Message{DeviceID: 149, CommandType: commandtype.UpdateMiningPools, Payload: body}
-			getter.EXPECT().GetMiner(gomock.Any(), int64(149)).Return(storedPoolMiner{Miner: miner, StoredMiningPoolReader: reader}, nil)
+			getter.EXPECT().GetMinerForCommand(gomock.Any(), int64(149)).Return(storedPoolMiner{Miner: miner, StoredMiningPoolReader: reader}, nil)
 			miner.EXPECT().GetOrgID().Return(int64(0)).AnyTimes()
 			miner.EXPECT().GetSiteID().Return(int64(0)).AnyTimes()
 			miner.EXPECT().GetID().Return(models.DeviceIdentifier("invalid-stored-shape")).AnyTimes()
