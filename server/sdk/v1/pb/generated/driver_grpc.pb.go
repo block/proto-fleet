@@ -41,6 +41,7 @@ const (
 	Driver_SetPowerTarget_FullMethodName          = "/sdk.v1.Driver/SetPowerTarget"
 	Driver_UpdateMiningPools_FullMethodName       = "/sdk.v1.Driver/UpdateMiningPools"
 	Driver_GetMiningPools_FullMethodName          = "/sdk.v1.Driver/GetMiningPools"
+	Driver_GetStoredMiningPools_FullMethodName    = "/sdk.v1.Driver/GetStoredMiningPools"
 	Driver_DownloadLogs_FullMethodName            = "/sdk.v1.Driver/DownloadLogs"
 	Driver_UpdateFirmware_FullMethodName          = "/sdk.v1.Driver/UpdateFirmware"
 	Driver_GetFirmwareUpdateStatus_FullMethodName = "/sdk.v1.Driver/GetFirmwareUpdateStatus"
@@ -90,6 +91,9 @@ type DriverClient interface {
 	SetPowerTarget(ctx context.Context, in *SetPowerTargetRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	UpdateMiningPools(ctx context.Context, in *UpdateMiningPoolsRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetMiningPools(ctx context.Context, in *GetMiningPoolsRequest, opts ...grpc.CallOption) (*GetMiningPoolsResponse, error)
+	// Private complete stored configuration, including disabled slots. Unsupported
+	// firmware returns UNIMPLEMENTED; runtime telemetry is not a substitute.
+	GetStoredMiningPools(ctx context.Context, in *GetStoredMiningPoolsRequest, opts ...grpc.CallOption) (*GetStoredMiningPoolsResponse, error)
 	DownloadLogs(ctx context.Context, in *DownloadLogsRequest, opts ...grpc.CallOption) (*DownloadLogsResponse, error)
 	UpdateFirmware(ctx context.Context, in *UpdateFirmwareRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	GetFirmwareUpdateStatus(ctx context.Context, in *DeviceRef, opts ...grpc.CallOption) (*GetFirmwareUpdateStatusResponse, error)
@@ -302,6 +306,15 @@ func (c *driverClient) GetMiningPools(ctx context.Context, in *GetMiningPoolsReq
 	return out, nil
 }
 
+func (c *driverClient) GetStoredMiningPools(ctx context.Context, in *GetStoredMiningPoolsRequest, opts ...grpc.CallOption) (*GetStoredMiningPoolsResponse, error) {
+	out := new(GetStoredMiningPoolsResponse)
+	err := c.cc.Invoke(ctx, Driver_GetStoredMiningPools_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *driverClient) DownloadLogs(ctx context.Context, in *DownloadLogsRequest, opts ...grpc.CallOption) (*DownloadLogsResponse, error) {
 	out := new(DownloadLogsResponse)
 	err := c.cc.Invoke(ctx, Driver_DownloadLogs_FullMethodName, in, out, opts...)
@@ -484,6 +497,9 @@ type DriverServer interface {
 	SetPowerTarget(context.Context, *SetPowerTargetRequest) (*emptypb.Empty, error)
 	UpdateMiningPools(context.Context, *UpdateMiningPoolsRequest) (*emptypb.Empty, error)
 	GetMiningPools(context.Context, *GetMiningPoolsRequest) (*GetMiningPoolsResponse, error)
+	// Private complete stored configuration, including disabled slots. Unsupported
+	// firmware returns UNIMPLEMENTED; runtime telemetry is not a substitute.
+	GetStoredMiningPools(context.Context, *GetStoredMiningPoolsRequest) (*GetStoredMiningPoolsResponse, error)
 	DownloadLogs(context.Context, *DownloadLogsRequest) (*DownloadLogsResponse, error)
 	UpdateFirmware(context.Context, *UpdateFirmwareRequest) (*emptypb.Empty, error)
 	GetFirmwareUpdateStatus(context.Context, *DeviceRef) (*GetFirmwareUpdateStatusResponse, error)
@@ -572,6 +588,9 @@ func (UnimplementedDriverServer) UpdateMiningPools(context.Context, *UpdateMinin
 }
 func (UnimplementedDriverServer) GetMiningPools(context.Context, *GetMiningPoolsRequest) (*GetMiningPoolsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetMiningPools not implemented")
+}
+func (UnimplementedDriverServer) GetStoredMiningPools(context.Context, *GetStoredMiningPoolsRequest) (*GetStoredMiningPoolsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetStoredMiningPools not implemented")
 }
 func (UnimplementedDriverServer) DownloadLogs(context.Context, *DownloadLogsRequest) (*DownloadLogsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DownloadLogs not implemented")
@@ -988,6 +1007,24 @@ func _Driver_GetMiningPools_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Driver_GetStoredMiningPools_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetStoredMiningPoolsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DriverServer).GetStoredMiningPools(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Driver_GetStoredMiningPools_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DriverServer).GetStoredMiningPools(ctx, req.(*GetStoredMiningPoolsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Driver_DownloadLogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(DownloadLogsRequest)
 	if err := dec(in); err != nil {
@@ -1329,6 +1366,10 @@ var Driver_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetMiningPools",
 			Handler:    _Driver_GetMiningPools_Handler,
+		},
+		{
+			MethodName: "GetStoredMiningPools",
+			Handler:    _Driver_GetStoredMiningPools_Handler,
 		},
 		{
 			MethodName: "DownloadLogs",

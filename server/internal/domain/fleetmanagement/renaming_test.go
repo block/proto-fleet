@@ -1104,3 +1104,23 @@ func TestUpdateWorkerNames_ReappliesPoolsWhenWorkerNameAlreadyUpdatedButPoolSync
 	assert.Equal(t, 1, workerNamePoolSvc.reapplyCalls)
 	assert.Equal(t, map[string]string{"dev-1": "R01-01"}, workerNamePoolSvc.lastDesiredWorkerNames)
 }
+
+func TestUpdateWorkerNames_PreflightFailureDoesNotReportUpdatedMiners(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := storemocks.NewMockDeviceStore(ctrl)
+	deviceStore.EXPECT().AllDevicesBelongToOrg(gomock.Any(), []string{"dev-1"}, int64(2)).Return(true, nil)
+	deviceStore.EXPECT().GetDevicePropertiesForRename(gomock.Any(), int64(2), []string{"dev-1"}, false).
+		Return([]interfaces.DeviceRenameProperties{{DeviceIdentifier: "dev-1", WorkerName: "old"}}, nil)
+	preflightErr := fleeterror.NewFailedPreconditionError("complete stored pool readback is unsupported")
+	workerNames := &workerNamePoolServiceStub{reapplyErr: preflightErr}
+	service := &Service{
+		deviceStore: deviceStore, deviceResolver: deviceresolver.New(deviceStore), workerNamePoolService: workerNames,
+	}
+	resp, err := service.UpdateWorkerNames(authn.SetInfo(t.Context(), &session.Info{UserID: 1, OrganizationID: 2}), &pb.UpdateWorkerNamesRequest{
+		DeviceSelector: &pb.DeviceSelector{SelectionType: &pb.DeviceSelector_IncludeDevices{IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{"dev-1"}}}},
+		NameConfig:     &pb.MinerNameConfig{Properties: []*pb.NameProperty{{Kind: &pb.NameProperty_StringValue{StringValue: &pb.StringProperty{Value: "new"}}}}},
+	})
+	require.ErrorIs(t, err, preflightErr)
+	require.Nil(t, resp, "failed admission must not return UpdatedCount or a batch identifier")
+	require.Equal(t, 1, workerNames.reapplyCalls)
+}

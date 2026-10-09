@@ -30,3 +30,15 @@ def test_pool_write_without_password_retains_absence() -> None:
 
 def test_runtime_pool_readback_has_no_password_field() -> None:
     assert "password" not in driver_pb2.ConfiguredPool.DESCRIPTOR.fields_by_name
+
+
+@pytest.mark.parametrize("password", [None, "", "stored-password"])
+def test_private_stored_pool_preserves_password_presence(password: str | None) -> None:
+    pool = driver_pb2.StoredMiningPool(priority=0, url="pool", username="worker")
+    if password is not None:
+        pool.password = password
+    response = driver_pb2.GetStoredMiningPoolsResponse(pools=[pool])
+    received = driver_pb2.GetStoredMiningPoolsResponse.FromString(response.SerializeToString()).pools[0]
+    assert received.HasField("password") == (password is not None)
+    if password is not None:
+        assert received.password == password

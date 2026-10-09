@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
@@ -1017,6 +1019,42 @@ func (es *ExecutionService) applyMinerNameToPoolUsernames(
 	return payload, nil
 }
 
+// preflightWorkerNameReapply bounds concurrent device reads for large selections.
+// No pool credentials or rebuilt payloads are retained in the command queue.
+func (es *ExecutionService) preflightWorkerNameReapply(
+	ctx context.Context,
+	identifiers []string,
+	deviceIDs map[string]int64,
+	desiredWorkerNames map[string]string,
+) error {
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(16)
+	for _, identifier := range identifiers {
+		group.Go(func() error {
+			readCtx, cancel := context.WithTimeout(groupCtx, workerNameLookupTimeout)
+			defer cancel()
+			if err := readCtx.Err(); err != nil {
+				return fmt.Errorf("worker-name preflight canceled: %w", err)
+			}
+			minerInfo, err := es.minerService.GetMiner(readCtx, deviceIDs[identifier])
+			if err != nil {
+				return err
+			}
+			_, _, _, err = es.reapplyCurrentPoolsWithDesiredWorkerName(readCtx, minerInfo, dto.UpdateMiningPoolsPayload{
+				DesiredWorkerName: desiredWorkerNames[identifier],
+			})
+			if fleeterror.IsUnimplementedError(err) {
+				return fleeterror.NewFailedPreconditionErrorf("cannot update worker name for device %s: complete stored pool readback is unsupported", identifier)
+			}
+			return err
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return fmt.Errorf("worker-name preflight: %w", err)
+	}
+	return nil
+}
+
 func (es *ExecutionService) reapplyCurrentPoolsWithDesiredWorkerName(
 	ctx context.Context,
 	minerInfo interfaces.Miner,
@@ -1030,7 +1068,11 @@ func (es *ExecutionService) reapplyCurrentPoolsWithDesiredWorkerName(
 		return dto.UpdateMiningPoolsPayload{}, "", false, nil
 	}
 
-	currentPools, err := minerInfo.GetMiningPools(ctx)
+	reader, ok := minerInfo.(interfaces.StoredMiningPoolReader)
+	if !ok {
+		return dto.UpdateMiningPoolsPayload{}, "", false, fleeterror.NewFailedPreconditionError("cannot update worker name without verified stored pool credentials")
+	}
+	currentPools, err := reader.GetStoredMiningPools(ctx)
 	if err != nil {
 		return dto.UpdateMiningPoolsPayload{}, "", false, err
 	}
@@ -1038,7 +1080,11 @@ func (es *ExecutionService) reapplyCurrentPoolsWithDesiredWorkerName(
 		return dto.UpdateMiningPoolsPayload{}, desiredWorkerName, false, nil
 	}
 
-	return buildCurrentPoolsPayloadWithWorkerName(currentPools, desiredWorkerName), desiredWorkerName, true, nil
+	rebuilt, err := buildCurrentPoolsPayloadWithWorkerName(currentPools, desiredWorkerName)
+	if err != nil {
+		return dto.UpdateMiningPoolsPayload{}, "", false, err
+	}
+	return rebuilt, desiredWorkerName, true, nil
 }
 
 func payloadRequiresMinerName(payload dto.UpdateMiningPoolsPayload) bool {
@@ -1203,38 +1249,60 @@ func (es *ExecutionService) persistWorkerNameAfterPoolUpdate(
 }
 
 func buildCurrentPoolsPayloadWithWorkerName(
-	currentPools []interfaces.MinerConfiguredPool,
+	currentPools []interfaces.MinerStoredPool,
 	desiredWorkerName string,
-) dto.UpdateMiningPoolsPayload {
-	sortedPools := sortedConfiguredPoolsByPriority(currentPools)
+) (dto.UpdateMiningPoolsPayload, error) {
+	if len(currentPools) == 0 || len(currentPools) > 3 {
+		return dto.UpdateMiningPoolsPayload{}, fleeterror.NewFailedPreconditionError("cannot update worker name with invalid stored pool slots")
+	}
+	sortedPools := sortedStoredPoolsByPriority(currentPools)
+	for i, pool := range sortedPools {
+		if int(pool.Priority) != i {
+			return dto.UpdateMiningPoolsPayload{}, fleeterror.NewFailedPreconditionError("cannot update worker name with invalid stored pool slots")
+		}
+	}
+	defaultPool, err := storedPoolToPayload(sortedPools[0], desiredWorkerName)
+	if err != nil {
+		return dto.UpdateMiningPoolsPayload{}, err
+	}
 	payload := dto.UpdateMiningPoolsPayload{
-		DefaultPool: configuredPoolToPayload(sortedPools[0], desiredWorkerName),
+		DefaultPool: defaultPool,
 	}
 
 	if len(sortedPools) > 1 {
-		backup := configuredPoolToPayload(sortedPools[1], desiredWorkerName)
+		backup, err := storedPoolToPayload(sortedPools[1], desiredWorkerName)
+		if err != nil {
+			return dto.UpdateMiningPoolsPayload{}, err
+		}
 		payload.Backup1Pool = &backup
 	}
 	if len(sortedPools) > 2 {
-		backup := configuredPoolToPayload(sortedPools[2], desiredWorkerName)
+		backup, err := storedPoolToPayload(sortedPools[2], desiredWorkerName)
+		if err != nil {
+			return dto.UpdateMiningPoolsPayload{}, err
+		}
 		payload.Backup2Pool = &backup
 	}
 
-	return payload
+	return payload, nil
 }
 
-func sortedConfiguredPoolsByPriority(currentPools []interfaces.MinerConfiguredPool) []interfaces.MinerConfiguredPool {
-	sortedPools := append([]interfaces.MinerConfiguredPool(nil), currentPools...)
+func sortedStoredPoolsByPriority(currentPools []interfaces.MinerStoredPool) []interfaces.MinerStoredPool {
+	sortedPools := append([]interfaces.MinerStoredPool(nil), currentPools...)
 	sort.SliceStable(sortedPools, func(i, j int) bool {
 		return sortedPools[i].Priority < sortedPools[j].Priority
 	})
 	return sortedPools
 }
 
-func configuredPoolToPayload(
-	pool interfaces.MinerConfiguredPool,
+func storedPoolToPayload(
+	pool interfaces.MinerStoredPool,
 	desiredWorkerName string,
-) dto.MiningPool {
+) (dto.MiningPool, error) {
+	// Unknown readback is not evidence of an empty password.
+	if pool.Password == nil {
+		return dto.MiningPool{}, fleeterror.NewFailedPreconditionError("cannot update worker name without verified stored pool credentials")
+	}
 	priority := uint32(0)
 	if pool.Priority > 0 {
 		priority = uint32(pool.Priority)
@@ -1244,7 +1312,8 @@ func configuredPoolToPayload(
 		Priority: priority,
 		URL:      pool.URL,
 		Username: rewritePoolUsernameWithStoredWorkerName(pool.Username, desiredWorkerName),
-	}
+		Password: *pool.Password,
+	}, nil
 }
 
 func rewritePoolUsernameWithStoredWorkerName(username string, desiredWorkerName string) string {

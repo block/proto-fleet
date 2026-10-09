@@ -21,25 +21,30 @@ func TestMiningPoolsKeepIndependentStoredCredentials(t *testing.T) {
 	pools[0].WorkerName = "mutated-worker"
 	pools[0].Password = "mutated-password"
 
-	actual, err := device.GetMiningPools(t.Context())
+	actual, err := device.GetStoredMiningPools(t.Context())
 	require.NoError(t, err)
 	require.Len(t, actual, len(expected))
 	for i, pool := range expected {
 		assert.Equal(t, pool.Priority, actual[i].Priority)
 		assert.Equal(t, pool.URL, actual[i].URL)
 		assert.Equal(t, pool.WorkerName, actual[i].Username)
-		assert.Equal(t, pool.Password, device.pools[i].Password)
+		require.NotNil(t, actual[i].Password, "stored empty password must be distinguished from missing readback")
+		assert.Equal(t, pool.Password, *actual[i].Password)
 	}
 	actual[0].URL = "stratum+tcp://output-mutated.example:3333"
-	again, err := device.GetMiningPools(t.Context())
+	*actual[0].Password = "output-mutated-password"
+	again, err := device.GetStoredMiningPools(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, expected[0].URL, again[0].URL)
-	assert.Equal(t, expected[0].Password, device.pools[0].Password)
+	require.NotNil(t, again[0].Password)
+	assert.Equal(t, expected[0].Password, *again[0].Password)
+	assert.NotSame(t, actual[0].Password, again[0].Password)
 
 	replacement := []sdk.MiningPoolConfig{{Priority: 0, URL: "stratum+tcp://replacement.example:3333", WorkerName: "replacement", Password: ""}}
 	require.NoError(t, device.UpdateMiningPools(t.Context(), replacement))
-	replaced, err := device.GetMiningPools(t.Context())
+	replaced, err := device.GetStoredMiningPools(t.Context())
 	require.NoError(t, err)
 	require.Len(t, replaced, 1, "removed backups must not remain")
-	assert.Empty(t, device.pools[0].Password)
+	require.NotNil(t, replaced[0].Password)
+	assert.Empty(t, *replaced[0].Password)
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 
+	"connectrpc.com/connect"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	diagnosticsModels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
@@ -30,6 +31,7 @@ import (
 var _ interfaces.Miner = &PluginMiner{}
 var _ interfaces.MinerInfo = &PluginMiner{}
 var _ interfaces.MinerCurtailmentConfigurator = &PluginMiner{}
+var _ interfaces.StoredMiningPoolReader = &PluginMiner{}
 
 // PluginMiner wraps an SDK Device to implement the interfaces.Miner interface.
 //
@@ -451,6 +453,53 @@ func (p *PluginMiner) GetMiningPools(ctx context.Context) ([]interfaces.MinerCon
 		return nil, wrapPluginError(err, "failed to get mining pools")
 	}
 
+	return mapConfiguredPools(sdkPools), nil
+}
+
+func (p *PluginMiner) GetStoredMiningPools(ctx context.Context) ([]interfaces.MinerStoredPool, error) {
+	reader, ok := p.sdkDevice.(sdk.DeviceStoredPoolReader)
+	if !ok {
+		return nil, fleeterror.NewUnimplementedError("complete stored pool configuration is unavailable")
+	}
+	pools, err := reader.GetStoredMiningPools(ctx)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("stored pool configuration read canceled: %w", ctx.Err())
+		}
+		// Keep only classification: driver error text and causes can contain
+		// private stored credentials and must not reach command error records.
+		code := connect.CodeInternal
+		var sdkErr sdk.SDKError
+		var fleetErr fleeterror.FleetError
+		switch {
+		case errors.As(err, &sdkErr):
+			switch sdkErr.Code {
+			case sdk.ErrCodeUnsupportedCapability, sdk.ErrCodeCurtailCapabilityNotSupported:
+				code = connect.CodeUnimplemented
+			case sdk.ErrCodeInvalidConfig:
+				code = connect.CodeFailedPrecondition
+			case sdk.ErrCodeDeviceUnavailable, sdk.ErrCodeCurtailTransient:
+				code = connect.CodeUnavailable
+			case sdk.ErrCodeDeviceNotFound:
+				code = connect.CodeNotFound
+			case sdk.ErrCodeDriverShutdown:
+				code = connect.CodeAborted
+			case sdk.ErrCodeAuthenticationFailed:
+				code = connect.CodeUnauthenticated
+			}
+		case errors.As(err, &fleetErr):
+			code = fleetErr.GRPCCode
+		default:
+			if st, ok := grpcstatus.FromError(err); ok {
+				code = connect.Code(st.Code())
+			}
+		}
+		return nil, fleeterror.NewPlainError("complete stored pool configuration could not be read", code)
+	}
+	return mapStoredPools(pools), nil
+}
+
+func mapConfiguredPools(sdkPools []sdk.ConfiguredPool) []interfaces.MinerConfiguredPool {
 	pools := make([]interfaces.MinerConfiguredPool, len(sdkPools))
 	for i, pool := range sdkPools {
 		pools[i] = interfaces.MinerConfiguredPool{
@@ -459,7 +508,20 @@ func (p *PluginMiner) GetMiningPools(ctx context.Context) ([]interfaces.MinerCon
 			Username: pool.Username,
 		}
 	}
-	return pools, nil
+	return pools
+}
+
+func mapStoredPools(sdkPools []sdk.StoredMiningPool) []interfaces.MinerStoredPool {
+	pools := make([]interfaces.MinerStoredPool, len(sdkPools))
+	for i, pool := range sdkPools {
+		pools[i] = interfaces.MinerStoredPool{
+			Priority: pool.Priority,
+			URL:      pool.URL,
+			Username: pool.Username,
+			Password: pool.Password,
+		}
+	}
+	return pools
 }
 
 // validateAndConvertPoolConfig validates and converts a mining pool config from Fleet format to SDK format.
