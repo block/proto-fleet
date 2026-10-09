@@ -54,6 +54,7 @@ type Attempt struct {
 	dispatched      atomic.Bool
 	ordered         atomic.Bool
 	deletionBinding string
+	observation     bool
 }
 
 // BeginQueuedHost checks the persisted message as well as its current epoch.
@@ -260,6 +261,9 @@ func Observe(ctx context.Context, operation func(context.Context) error) error {
 func dispatch(ctx context.Context, operation func(context.Context) error, mutation bool) error {
 	attempt, ok := ctx.Value(attemptContextKey{}).(*Attempt)
 	if ok {
+		if mutation && attempt.observation {
+			return blocked()
+		}
 		if err := attempt.Recheck(ctx); err != nil {
 			return err
 		}
@@ -284,6 +288,10 @@ func dispatch(ctx context.Context, operation func(context.Context) error, mutati
 // BeginHost commits an attempt before direct device I/O. The captured epoch
 // prevents a cached handle from reviving after ownership returns to the host.
 func (s *Service) BeginHost(ctx context.Context, organizationID, deviceID, epoch int64) (*Attempt, error) {
+	return s.beginHost(ctx, organizationID, deviceID, epoch, false)
+}
+
+func (s *Service) beginHost(ctx context.Context, organizationID, deviceID, epoch int64, observation bool) (*Attempt, error) {
 	if db.GetTxQueries(ctx) != nil {
 		return nil, fleeterror.NewFailedPreconditionError("device I/O requires committed admission")
 	}
@@ -299,8 +307,12 @@ func (s *Service) BeginHost(ctx context.Context, organizationID, deviceID, epoch
 		if fence.State != "host" || fence.Epoch != epoch {
 			return nil, blocked()
 		}
-		attempt := &Attempt{service: s, id: uuid.New(), deviceID: deviceID, organizationID: organizationID, epoch: epoch}
-		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: deviceID, OrganizationID: organizationID, Epoch: epoch, IdentityKeys: keys, OwnerInstanceID: processInstanceID, OperationKind: operationMutation}); err != nil {
+		kind := operationMutation
+		if observation {
+			kind = operationObservation
+		}
+		attempt := &Attempt{service: s, id: uuid.New(), deviceID: deviceID, organizationID: organizationID, epoch: epoch, observation: observation}
+		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: deviceID, OrganizationID: organizationID, Epoch: epoch, IdentityKeys: keys, OwnerInstanceID: processInstanceID, OperationKind: kind}); err != nil {
 			return nil, fmt.Errorf("record direct device write: %w", err)
 		}
 		return attempt, nil
@@ -311,6 +323,16 @@ func (s *Service) BeginHost(ctx context.Context, organizationID, deviceID, epoch
 // The callback uses Dispatch for mutations and Observe for reads after validation.
 // A carried attempt may authorize only its exact database, device and epoch.
 func (s *Service) WithHostAttempt(ctx context.Context, organizationID, deviceID, epoch int64, kind commandtype.Type, call func(context.Context) error) (resultErr error) {
+	return s.withHostAttempt(ctx, organizationID, deviceID, epoch, kind, false, call)
+}
+
+// WithHostObservation durably declares a read before I/O. Its context cannot
+// dispatch mutations, so interrupted reads require only owner termination evidence.
+func (s *Service) WithHostObservation(ctx context.Context, organizationID, deviceID, epoch int64, call func(context.Context) error) error {
+	return s.withHostAttempt(ctx, organizationID, deviceID, epoch, commandtype.Type(-1), true, call)
+}
+
+func (s *Service) withHostAttempt(ctx context.Context, organizationID, deviceID, epoch int64, kind commandtype.Type, observation bool, call func(context.Context) error) (resultErr error) {
 	if db.GetTxQueries(ctx) != nil {
 		return fleeterror.NewFailedPreconditionError("device I/O requires committed admission")
 	}
@@ -325,7 +347,7 @@ func (s *Service) WithHostAttempt(ctx context.Context, organizationID, deviceID,
 		}
 		return call(ctx)
 	}
-	attempt, err := s.BeginHost(ctx, organizationID, deviceID, epoch)
+	attempt, err := s.beginHost(ctx, organizationID, deviceID, epoch, observation)
 	if err != nil {
 		return err
 	}

@@ -179,3 +179,18 @@ Keep dispatchers stopped until the result and audit record have been reviewed,
 then restart them. Retain backup and recovery evidence under normal operational
 retention. Never delete attempt history, force migration versions, or directly
 update statuses to get out of a block.
+
+### Interrupted proxy reads
+
+The miner proxy commits `observation` admission before forwarding endpoints
+classified as reads by its authorization contract. The admitted context cannot
+dispatch a mutation. Response reads, downstream writes, and upstream body close
+remain inside that admission's lifetime. A completed read removes its transient
+admission; process interruption or failed completion leaves a running record.
+
+Recover that record only after authoritative termination of its recorded owner
+and the maintenance shutdown described above. No device mutation verification
+is required for a durably classified observation, unless restoring host custody.
+Deletion and rediscovery do not clear the block. Other direct calls and queued
+commands remain conservatively classified as mutations, even when they fail
+before a mutation can be proven to have occurred.

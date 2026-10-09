@@ -227,11 +227,8 @@ func TestProxyResponseFailuresRetainUnknownOutcome(t *testing.T) {
 			var status string
 			require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT status FROM device_write_attempt WHERE device_id=$1", deviceID).Scan(&status))
 			require.Equal(t, "unknown", status)
-			epoch, err := devicewrite.NewService(database.DB).Reserve(t.Context(), orgID, deviceID)
-			require.NoError(t, err)
-			drained, err := devicewrite.NewService(database.DB).Drained(t.Context(), orgID, deviceID, epoch)
-			require.NoError(t, err)
-			require.False(t, drained)
+			_, err = devicewrite.NewService(database.DB).Reserve(t.Context(), orgID, deviceID)
+			require.True(t, fleeterror.IsFailedPreconditionError(err))
 		})
 	}
 }

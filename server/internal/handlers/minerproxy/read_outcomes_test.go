@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/require"
@@ -155,11 +156,8 @@ func TestProxyMutationFailuresStillPoisonDrain(t *testing.T) {
 				})
 				require.Error(t, err)
 				require.Equal(t, "unknown", proxyAttemptStatus(t, database, deviceID))
-				epoch, err := h.writeService.Reserve(t.Context(), orgID, deviceID)
-				require.NoError(t, err)
-				drained, err := h.writeService.Drained(t.Context(), orgID, deviceID, epoch)
-				require.NoError(t, err)
-				require.False(t, drained, "a dispatched mutation must retain uncertain physical outcome")
+				_, err = h.writeService.Reserve(t.Context(), orgID, deviceID)
+				require.True(t, fleeterror.IsFailedPreconditionError(err))
 			})
 		}
 	}
@@ -188,11 +186,8 @@ func TestProxyMutation401ThenFailedLoginRetainsUnknownOutcome(t *testing.T) {
 	require.Error(t, err)
 	require.Equal(t, []string{"/api/v1/system", "/api/v1/auth/login"}, paths)
 	require.Equal(t, "unknown", proxyAttemptStatus(t, database, deviceID), "observational login must never clear a prior mutation marker")
-	epoch, err := h.writeService.Reserve(t.Context(), orgID, deviceID)
-	require.NoError(t, err)
-	drained, err := h.writeService.Drained(t.Context(), orgID, deviceID, epoch)
-	require.NoError(t, err)
-	require.False(t, drained)
+	_, err = h.writeService.Reserve(t.Context(), orgID, deviceID)
+	require.True(t, fleeterror.IsFailedPreconditionError(err))
 }
 
 func retireAndRediscoverProxyIdentity(t *testing.T, database *testutil.DatabaseService, target proxyTarget) int64 {

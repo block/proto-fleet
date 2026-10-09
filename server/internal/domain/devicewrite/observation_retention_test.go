@@ -79,7 +79,10 @@ func TestObservationCleanupPreservesDurableEvidence(t *testing.T) {
 				want = "running"
 			}
 			require.Equal(t, want, status)
-			if kind == "running observation" || kind == "unknown mutation" {
+			if kind == "unknown mutation" {
+				_, err := service.Reserve(t.Context(), orgID, deviceID)
+				require.Error(t, err)
+			} else if kind == "running observation" {
 				epoch, err := service.Reserve(t.Context(), orgID, deviceID)
 				require.NoError(t, err)
 				drained, err := devicewrite.NewService(database.DB).Drained(t.Context(), orgID, deviceID, epoch)

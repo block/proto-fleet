@@ -229,7 +229,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	responseStarted := false
-	err = h.writeService.WithHostAttempt(ctx, target.binding.OrgID, target.binding.ID, target.binding.WriteEpoch, func(ctx context.Context) error {
+	admit := h.writeService.WithHostAttempt
+	if !proxyMutatesMiner(r.Method, proxyPath) {
+		admit = h.writeService.WithHostObservation
+	}
+	err = admit(ctx, target.binding.OrgID, target.binding.ID, target.binding.WriteEpoch, func(ctx context.Context) error {
 		return h.forwardAndCopy(ctx, w, r, target, proxyPath, body, &responseStarted)
 	})
 	if err != nil && !responseStarted {
