@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
@@ -100,5 +102,68 @@ func TestMiner_BusyAcknowledgementIsNotDispatchedOnlyWhenRejected(t *testing.T) 
 			require.False(t, fleeterror.IsFailedPreconditionError(err), "BUSY remains retryable")
 			require.NotNil(t, sender.cmd)
 		})
+	}
+}
+
+func TestMiner_RegistryAdmissionEvidencePreservesTransportUncertainty(t *testing.T) {
+	firmware := sdk.FirmwareFile{ID: "artifact", Filename: "update.swu", Size: 1, SHA256: strings.Repeat("a", 64)}
+	for _, operation := range []struct {
+		name string
+		run  func(context.Context, *Miner) error
+	}{
+		{"ordinary", func(ctx context.Context, m *Miner) error { return m.StopMining(ctx) }},
+		{"artifacts", func(ctx context.Context, m *Miner) error { return m.FirmwareUpdate(ctx, firmware) }},
+	} {
+		for _, failure := range []string{"missing stream", "protocol", "disconnect", "deadline"} {
+			t.Run(operation.name+"/"+failure, func(t *testing.T) {
+				registry := control.NewRegistry()
+				if failure == "missing stream" || failure == "protocol" {
+					if failure == "protocol" {
+						stream, err := registry.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED)
+						require.NoError(t, err)
+						defer stream.Unregister()
+					}
+					err := operation.run(t.Context(), newTestMiner(t, registry))
+					require.Error(t, err)
+					require.True(t, devicewrite.IsNotDispatched(err))
+					if failure == "missing stream" {
+						require.True(t, fleeterror.IsUnavailableError(err))
+						require.ErrorContains(t, err, "fleet node has no active control stream; retry shortly")
+					} else {
+						require.True(t, fleeterror.IsFailedPreconditionError(err))
+					}
+					return
+				}
+				stream := registry.Register(7)
+				defer stream.Unregister()
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+				defer cancel()
+				result := make(chan error, 1)
+				miner := newTestMiner(t, registry)
+				go func() { result <- operation.run(ctx, miner) }()
+				select {
+				case command := <-stream.Outgoing:
+					require.NotNil(t, command)
+				case <-ctx.Done():
+					t.Fatal("command was not enqueued before deadline")
+				}
+				if failure == "disconnect" {
+					stream.Unregister()
+				}
+				var err error
+				select {
+				case err = <-result:
+				case <-time.After(2 * time.Second):
+					t.Fatal("command did not finish after transport failure")
+				}
+				require.Error(t, err)
+				require.False(t, devicewrite.IsNotDispatched(err))
+				if failure == "disconnect" {
+					require.True(t, fleeterror.IsUnavailableError(err))
+				} else {
+					require.ErrorIs(t, err, context.DeadlineExceeded)
+				}
+			})
+		}
 	}
 }

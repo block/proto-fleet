@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -13,6 +14,7 @@ import (
 	minerMocks "github.com/block/proto-fleet/server/internal/domain/command/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 )
@@ -119,5 +121,52 @@ func TestQueuedRemoteBusyRetryAllowsPhysicalDrain(t *testing.T) {
 	drained, err := writes.Drained(t.Context(), 1, deviceID, epoch)
 	require.NoError(t, err)
 	require.True(t, drained, "rejected BUSY followed by successful retry must not strand ownership")
+	require.NoError(t, writes.ReleaseHost(t.Context(), 1, deviceID, epoch))
+}
+
+func TestQueuedRemoteMissingStreamRetryAllowsPhysicalDrain(t *testing.T) {
+	service, conn, _, deviceID, identifier := setupPasswordCommandDevice(t, "proto", false)
+	message, messages := enqueueFenceTestCommand(t, conn, deviceID, commandtype.StopMining, nil)
+	registry := control.NewRegistry()
+	miner, err := remotenode.New(remotenode.Config{Sender: registry, FleetNodeID: 7, OrgID: 1, DeviceIdentifier: identifier, DriverName: "proto", IPAddress: "192.0.2.10", Port: "443", URLScheme: "https"})
+	require.NoError(t, err)
+	ctrl := gomock.NewController(t)
+	getter := minerMocks.NewMockCachedMinerGetter(ctrl)
+	getter.EXPECT().GetMiner(gomock.Any(), deviceID).Return(miner, nil).Times(2)
+	service.minerService = getter
+	service.messageQueue = messages
+	service.workerProcessCommand(t.Context(), message)
+	var attemptStatus string
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT status FROM device_write_attempt WHERE queue_message_id = $1`, message.ID).Scan(&attemptStatus))
+	require.Equal(t, "complete", attemptStatus, "the registry had no stream and could not enqueue a physical write")
+	retry, err := messages.Dequeue(t.Context(), 1)
+	require.NoError(t, err)
+	require.Len(t, retry, 1, "missing stream remains retryable")
+	require.Equal(t, message.ID, retry[0].ID)
+	stream := registry.Register(7)
+	defer stream.Unregister()
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	acknowledged := make(chan bool, 1)
+	go func() {
+		select {
+		case command := <-stream.Outgoing:
+			stream.PublishAck(&gatewaypb.ControlAck{CommandId: command.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_OK, Succeeded: true})
+			acknowledged <- true
+		case <-ctx.Done():
+			acknowledged <- false
+		}
+	}()
+	service.workerProcessCommand(ctx, retry[0])
+	require.True(t, <-acknowledged, "the successful retry reached the real registry stream")
+	var unresolved int
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT count(*) FROM device_write_attempt WHERE queue_message_id = $1 AND status != 'complete'`, message.ID).Scan(&unresolved))
+	require.Zero(t, unresolved)
+	writes := devicewrite.NewService(conn)
+	epoch, err := writes.Reserve(t.Context(), 1, deviceID)
+	require.NoError(t, err)
+	drained, err := writes.Drained(t.Context(), 1, deviceID, epoch)
+	require.NoError(t, err)
+	require.True(t, drained, "a proven pre-enqueue rejection cannot strand ownership after a successful retry")
 	require.NoError(t, writes.ReleaseHost(t.Context(), 1, deviceID, epoch))
 }

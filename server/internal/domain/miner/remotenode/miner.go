@@ -355,10 +355,14 @@ func (m *Miner) controlCommandForMiner(commandID string, mc *gatewaypb.MinerComm
 }
 
 func mapSendCommandError(err error) error {
+	notEnqueued := control.IsCommandNotEnqueued(err)
 	if errors.Is(err, control.ErrNoActiveStream) {
 		// Retryable, not permanent (Unavailable is not in the queue's permanent-fail
 		// set), so a node mid-reconnect re-attempts rather than dropping the command.
-		return fleeterror.NewUnavailableErrorf("fleet node has no active control stream; retry shortly")
+		err = fleeterror.NewUnavailableErrorf("fleet node has no active control stream; retry shortly")
+	}
+	if notEnqueued {
+		return devicewrite.NotDispatched(err)
 	}
 	return err
 }

@@ -470,6 +470,7 @@ func TestRegistry_SendCommandUnblocksOnCtxCancel(t *testing.T) {
 	// Assert: it returns an error and frees the slot for a re-send of the same id.
 	res := recvResult(t, results)
 	require.Error(t, res.err)
+	require.False(t, IsCommandNotEnqueued(res.err), "cancellation after enqueue remains uncertain")
 	assert.Nil(t, res.ack)
 	_, err := r.SendCommand(canceledCtx(), 1, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &gatewaypb.ControlCommand{CommandId: "m1"})
 	require.Error(t, err) // not errDuplicateCommandID; the slot was freed
@@ -623,6 +624,7 @@ func TestRegistry_SendCommandWithArtifactResultsRejectsOKAckWithoutCompletedUplo
 
 	res := recvArtifactResult(t, results)
 	require.Error(t, res.err)
+	require.False(t, IsCommandNotEnqueued(res.err), "post-send artifact validation is not admission evidence")
 	assert.Contains(t, res.err.Error(), "expected artifact upload")
 	require.NotNil(t, res.ack)
 	assert.Empty(t, res.refs)
