@@ -82,13 +82,12 @@ as loopback nginx and the ALB subnet CIDRs. The middleware follows the trusted
 proxy chain to find the source IP. It ignores caller-supplied forwarding headers
 from untrusted peers. With incorrect proxy configuration, unrelated clients may
 share a proxy's quota. AWS WAF adds separate, approximate limits at the network
-edge. See the infrastructure repository's `fleet-ha/SECURITY.md` for rollout
-and rollback.
+edge. See the infrastructure repository's `fleet-ha/SECURITY.md` for WAF
+configuration and monitoring.
 
-### Security follow-ups
+### Security limitations
 
-The connection review found no demonstrated authentication bypass in the paths
-examined. Rate limits do not fix these issues:
+Rate limits do not address these limitations:
 
 - Bootstrap messages have no size cap before decoding. Validation happens after
   decoding, so one large or compressed request that passes the rate limit can
