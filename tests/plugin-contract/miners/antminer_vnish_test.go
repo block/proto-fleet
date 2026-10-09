@@ -2,7 +2,9 @@ package miners_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,6 +73,31 @@ miners:
 			t.Cleanup(mock.ResetOverrides)
 
 			miners.AssertConfiguration(t, tc, device, caps)
+		})
+		t.Run("PoolCredentials", func(t *testing.T) {
+			submitted := []sdk.MiningPoolConfig{
+				{Priority: 2, URL: "stratum+tcp://last.example:3333", WorkerName: "last.wallet", Password: ""},
+				{Priority: 0, URL: "stratum+tcp://primary.example:3333", WorkerName: "primary.wallet", Password: "primary-customer-secret"},
+				{Priority: 1, URL: "stratum+tcp://backup.example:3333", WorkerName: "backup.wallet", Password: "backup-customer-secret"},
+			}
+			require.NoError(t, device.UpdateMiningPools(miners.TestCtx(t), submitted))
+			var actual struct {
+				Miner struct {
+					Pools []struct {
+						URL      string  `json:"url"`
+						User     string  `json:"user"`
+						Password *string `json:"pass"`
+					} `json:"pools"`
+				} `json:"miner"`
+			}
+			require.NoError(t, json.Unmarshal(mock.PostedSettings(), &actual))
+			require.Len(t, actual.Miner.Pools, 3, "the actual firmware request must carry all slots")
+			for i, source := range []int{1, 2, 0} {
+				require.NotNil(t, actual.Miner.Pools[i].Password, "firmware request must explicitly include even an empty password")
+				require.Equal(t, submitted[source].Password, *actual.Miner.Pools[i].Password)
+				require.Equal(t, strings.TrimPrefix(submitted[source].URL, "stratum+tcp://"), actual.Miner.Pools[i].URL)
+				require.Equal(t, submitted[source].WorkerName, actual.Miner.Pools[i].User)
+			}
 		})
 		t.Run("Errors", func(t *testing.T) { miners.AssertErrors(t, tc, device) })
 		t.Run("Capabilities", func(t *testing.T) { miners.AssertCapabilities(t, tc, device) })

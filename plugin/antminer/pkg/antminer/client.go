@@ -136,7 +136,14 @@ type Pool struct {
 	Priority   int
 	URL        string
 	WorkerName string
+	Password   string `json:"-"`
 }
+
+func (p Pool) String() string {
+	return fmt.Sprintf("Pool{Priority:%d URL:%q WorkerName:%q Password:[redacted]}", p.Priority, p.URL, p.WorkerName)
+}
+
+func (p Pool) GoString() string { return p.String() }
 
 // NewClient creates a new Antminer client
 func NewClient(host string, rpcPort, webPort int32, urlScheme string) (*Client, error) {
@@ -642,6 +649,7 @@ func (c *Client) UpdatePools(ctx context.Context, pools []Pool) error {
 		webPools[i] = web.Pool{
 			URL:      pool.URL,
 			Username: pool.WorkerName,
+			Password: pool.Password,
 		}
 	}
 
