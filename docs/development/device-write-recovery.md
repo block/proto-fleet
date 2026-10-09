@@ -57,7 +57,9 @@ cannot update the retained snapshot after the backfill.
 
 Scoped SDK references also carry an opaque backend generation. Replacing the
 same external identifier cannot redirect that reference; a stale token is
-rejected before backend I/O. That specific SDK rejection is recorded as an
+rejected before backend I/O. Fleet requires scoped resolution for persisted miner
+handles, including a fresh transient scope for password recovery. That specific
+SDK rejection is recorded as an
 undispatched attempt. Other transport/device errors retain unknown evidence.
 ASIC-rs rechecks live hardware identity before writes and on fresh telemetry,
 while keeping the state needed to restore curtailment.
@@ -76,11 +78,10 @@ release does not implement that handoff; untrusted node reports cannot create
 such an association. Do not move a miner with unresolved work to another
 organization to bypass recovery.
 
-Migration 1012 preserves attempt-time snapshot identities rather than today's
-device row. Old snapshots do not establish the old Fleet Node route, so captured
-serial/MAC is required when routing scope was not recorded. An upgrade refusal
-must be resolved by audited recovery on the predecessor release while all
-dispatchers remain stopped; never rewrite the historical identity snapshot.
+Hosted ships as one feature. Migration 1012 requires empty attempt history;
+upgrades from intermediate hosted development runtimes are unsupported. Runtime
+admission captures identity keys and snapshots when each attempt is created.
+Never reconstruct an old attempt's identity from today's device row.
 
 ## Evidence and maintenance
 

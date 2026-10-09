@@ -14,6 +14,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	sdkMocks "github.com/block/proto-fleet/server/sdk/v1/mocks"
 )
 
 func TestClassifyNewDeviceError(t *testing.T) {
@@ -89,7 +90,7 @@ func (g containerDriverGetter) GetDriverByDriverName(string) (sdk.Driver, error)
 func TestContainerClassSurvivesPluginReconstruction(t *testing.T) {
 	driver := &capturingContainerDriver{}
 	_, err := NewPluginMinerWithCredentials(t.Context(), PluginMinerConfig{
-		DeviceIdentifier: "ct1", DeviceClass: sdk.DeviceClassContainer, DriverName: "proto", DeviceIPAddress: "192.0.2.1", DevicePort: "8080", DeviceScheme: "http", FilesService: &files.Service{}, DriverGetter: containerDriverGetter{driver},
+		SDKReuseScopeKey: "container-binding", DeviceIdentifier: "ct1", DeviceClass: sdk.DeviceClassContainer, DriverName: "proto", DeviceIPAddress: "192.0.2.1", DevicePort: "8080", DeviceScheme: "http", FilesService: &files.Service{}, DriverGetter: containerDriverGetter{&sdkMocks.ScopedDriverFixture{Driver: driver}},
 	})
 	require.ErrorContains(t, err, "stop after capturing reconstruction")
 	require.Equal(t, sdk.DeviceClassContainer, driver.info.DeviceClass)
@@ -102,4 +103,13 @@ func TestScopedPluginReconstructionRejectsUnsupportedResolverBeforeNewDevice(t *
 	})
 	require.ErrorContains(t, err, "scoped device resolution")
 	require.Empty(t, driver.info.Host, "unsupported resolution must not call destructive NewDevice as a fallback")
+}
+
+func TestPluginReconstructionRequiresScopeBeforeDeviceCreation(t *testing.T) {
+	driver := &capturingContainerDriver{}
+	_, err := NewPluginMinerWithCredentials(t.Context(), PluginMinerConfig{
+		DeviceIdentifier: "device-unscoped", DriverName: "custom", FilesService: &files.Service{}, DeviceIPAddress: "192.0.2.1", DevicePort: "8080", DeviceScheme: "http", DriverGetter: containerDriverGetter{driver},
+	})
+	require.ErrorContains(t, err, "miner resolution requires a binding scope")
+	require.Empty(t, driver.info.Host, "a missing scope must not create or replace a backend")
 }

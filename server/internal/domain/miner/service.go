@@ -23,6 +23,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/telemetry"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
+	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	lru "github.com/hashicorp/golang-lru/v2/expirable"
 )
@@ -209,10 +210,10 @@ func (s *Service) resolveMiner(ctx context.Context, deviceID models.DeviceIdenti
 
 	deviceUsername := deviceData.UsernameEnc.String
 	devicePassword := deviceData.PasswordEnc.String
-	if protoMissingCredentials != nil &&
+	useTransientCredentials := protoMissingCredentials != nil &&
 		deviceData.DriverName == models.DriverNameProto &&
-		!deviceData.UsernameEnc.Valid &&
-		!deviceData.PasswordEnc.Valid {
+		!deviceData.UsernameEnc.Valid && !deviceData.PasswordEnc.Valid
+	if useTransientCredentials {
 		deviceUsername, devicePassword, err = s.encryptTransientCredentials(*protoMissingCredentials)
 		if err != nil {
 			return nil, err
@@ -231,9 +232,10 @@ func (s *Service) resolveMiner(ctx context.Context, deviceID models.DeviceIdenti
 	if err != nil {
 		return nil, err
 	}
-	// Current-password remediation intentionally uses a new transient credential context.
-	if protoMissingCredentials != nil && deviceData.DriverName == models.DriverNameProto && !deviceData.UsernameEnc.Valid && !deviceData.PasswordEnc.Valid {
-		scope = ""
+	// Password recovery gets a fresh scoped backend, preserving generation fencing
+	// without reusing transient credentials or bypassing normal scoped resolution.
+	if useTransientCredentials {
+		scope += ":password-recovery:" + id.GenerateID()
 	}
 	m, err := plugins.NewPluginMinerWithCredentials(ctx, plugins.PluginMinerConfig{
 		SDKReuseScopeKey:   scope,

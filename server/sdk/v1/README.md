@@ -234,6 +234,18 @@ type DeviceOptional interface {
 }
 ```
 
+### Fleet device resolution
+
+Fleet resolves persisted miners through `GetOrCreateDevice` with a required
+binding scope. An unchanged scope and connection configuration reuse the backend;
+a replacement returns a new generation that every captured handle carries.
+Password recovery uses a fresh transient scope, so earlier recovery handles
+cannot reach a later backend and credentials stay out of ordinary resolution.
+
+Pairing probes use `NewDevice` with an isolated probe identifier and close their
+handle afterward. Fleet validates plugin support and the returned scope, device
+identifier, and generation before accepting a scoped handle.
+
 ### Cooling Modes
 
 The SDK supports different cooling modes for devices:

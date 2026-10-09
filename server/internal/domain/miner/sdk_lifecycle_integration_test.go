@@ -215,3 +215,31 @@ func TestFreshCommandSDKReuseRejectsChangedAuthoritativeBindings(t *testing.T) {
 		})
 	}
 }
+
+func TestPasswordRecoveryHandlesRetainBackendGeneration(t *testing.T) {
+	conn, crypto, files := setupTestDB(t)
+	identifier := models.DeviceIdentifier("password-recovery-generation")
+	deviceID := createTestDevice(t, conn, string(identifier))
+	_, err := conn.ExecContext(t.Context(), "UPDATE discovered_device SET driver_name='proto' WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)", deviceID)
+	require.NoError(t, err)
+	var creates, calls atomic.Int64
+	manager := &registryIntegrationManager{
+		clients: map[string]sdk.Driver{"proto": registryIntegrationClient(t, "proto", &creates, &calls)},
+		caps:    sdk.Capabilities{sdk.CapabilityBasicAuth: true},
+	}
+	service := miner.NewMinerService(conn, sqlstores.NewSQLUserStore(conn), crypto, files, manager)
+	first, err := service.GetMinerForPasswordUpdate(t.Context(), deviceID, "test-current-password")
+	require.NoError(t, err)
+	second, err := service.GetMinerForPasswordUpdate(t.Context(), deviceID, "test-current-password")
+	require.NoError(t, err)
+	require.Equal(t, int64(2), creates.Load(), "each recovery must use a fresh transient backend")
+	require.Error(t, first.Reboot(t.Context()), "an earlier recovery handle must not select its replacement")
+	require.Zero(t, calls.Load())
+	require.NoError(t, second.Reboot(t.Context()))
+	require.Equal(t, int64(1), calls.Load())
+	_, err = service.GetMinerFromDeviceIdentifier(t.Context(), identifier)
+	require.Error(t, err, "transient recovery must not populate ordinary credential resolution")
+	var credentialCount int
+	require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT count(*) FROM miner_credentials WHERE device_id=$1", deviceID).Scan(&credentialCount))
+	require.Zero(t, credentialCount, "transient credentials must remain unpersisted")
+}
