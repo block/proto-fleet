@@ -59,6 +59,7 @@ type Config struct {
 	DeviceClass commonpb.DeviceClass
 	RPCPort     int32
 	RPCTLS      bool
+	WriteGate   interfaces.MinerWriteGate
 	// EncryptionPublicKey resolves the current node key for each pool write.
 	EncryptionPublicKey func(context.Context) ([]byte, error)
 	Sender              CommandSender
@@ -95,6 +96,7 @@ type Config struct {
 // value (no live connection), so caching the handle is safe; stream liveness is
 // resolved per command by the registry.
 type Miner struct {
+	writeGate           interfaces.MinerWriteGate
 	encryptionPublicKey func(context.Context) ([]byte, error)
 	sender              CommandSender
 	gate                Gate
@@ -139,6 +141,7 @@ func New(cfg Config) (*Miner, error) {
 		return nil, fleeterror.NewInternalErrorf("remote-node miner: connection info: %v", err)
 	}
 	return &Miner{
+		writeGate:           cfg.WriteGate,
 		sender:              cfg.Sender,
 		encryptionPublicKey: cfg.EncryptionPublicKey,
 		gate:                cfg.Gate,
@@ -244,11 +247,8 @@ func (m *Miner) dispatchWithArtifacts(ctx context.Context, mc *gatewaypb.MinerCo
 		return err
 	}
 	defer release()
-	ack, _, err := m.sendWithoutGateWithArtifactResults(ctx, mc, artifacts)
-	if err != nil {
-		return err
-	}
-	return ackToError(ack)
+	_, _, err = m.sendInSlotWithArtifactResults(ctx, mc, artifacts)
+	return err
 }
 
 func (m *Miner) send(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
@@ -257,7 +257,7 @@ func (m *Miner) send(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewayp
 		return nil, err
 	}
 	defer release()
-	return m.sendWithoutGate(ctx, mc)
+	return m.sendInSlot(ctx, mc)
 }
 
 func (m *Miner) sendWithCommandTimeout(ctx context.Context, timeout time.Duration, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
@@ -270,7 +270,7 @@ func (m *Miner) sendWithCommandTimeout(ctx context.Context, timeout time.Duratio
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	ack, err := m.sendWithoutGate(commandCtx, mc)
+	ack, err := m.sendInSlot(commandCtx, mc)
 	if err != nil && errors.Is(err, context.DeadlineExceeded) {
 		return nil, fleeterror.NewConnectionError(m.desc.GetDeviceIdentifier(), err)
 	}
@@ -307,7 +307,7 @@ func acquireFleetNodeGate(ctx context.Context, gate Gate, fleetNodeID int64, slo
 	return release, nil
 }
 
-func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
+func (m *Miner) sendInSlot(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
 	cmd, err := m.controlCommandForMiner(id.GenerateID(), mc)
 	if err != nil {
 		return nil, devicewrite.NotDispatched(err)
@@ -320,14 +320,16 @@ func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand)
 	} else if mc.GetSetContainerControl() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2
 	}
-	ack, err := m.sender.SendCommand(ctx, m.fleetNodeID, version, cmd)
-	if err != nil {
-		return nil, mapSendCommandError(err)
-	}
-	return ack, nil
+	var ack *gatewaypb.ControlAck
+	err = m.withPhysicalWriteAdmission(ctx, mc, func(ctx context.Context) (*gatewaypb.ControlAck, error) {
+		var err error
+		ack, err = m.sender.SendCommand(ctx, m.fleetNodeID, version, cmd)
+		return ack, err
+	})
+	return ack, err
 }
 
-func (m *Miner) sendWithoutGateWithArtifactResults(ctx context.Context, mc *gatewaypb.MinerCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
+func (m *Miner) sendInSlotWithArtifactResults(ctx context.Context, mc *gatewaypb.MinerCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
 	sender, ok := m.sender.(ArtifactCommandSender)
 	if !ok {
 		return nil, nil, devicewrite.NotDispatched(fleeterror.NewInternalError("fleet node command sender does not support artifact results"))
@@ -336,11 +338,14 @@ func (m *Miner) sendWithoutGateWithArtifactResults(ctx context.Context, mc *gate
 	if err != nil {
 		return nil, nil, devicewrite.NotDispatched(err)
 	}
-	ack, refs, err := sender.SendCommandWithArtifactResults(ctx, m.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, artifacts)
-	if err != nil {
-		return nil, nil, mapSendCommandError(err)
-	}
-	return ack, refs, nil
+	var ack *gatewaypb.ControlAck
+	var refs []*gatewaypb.CommandArtifactRef
+	err = m.withPhysicalWriteAdmission(ctx, mc, func(ctx context.Context) (*gatewaypb.ControlAck, error) {
+		var err error
+		ack, refs, err = sender.SendCommandWithArtifactResults(ctx, m.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, artifacts)
+		return ack, err
+	})
+	return ack, refs, err
 }
 
 func (m *Miner) controlCommandForMiner(commandID string, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlCommand, error) {
@@ -453,11 +458,8 @@ func (m *Miner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningP
 		return devicewrite.NotDispatched(fleeterror.NewInvalidArgumentErrorf("seal fleet node pool config: %v", err))
 	}
 	command.GetUpdateMiningPools().EncryptedConfig = encrypted
-	ack, err := m.sendWithoutGate(ctx, command)
-	if err != nil {
-		return err
-	}
-	return ackToError(ack)
+	_, err = m.sendInSlot(ctx, command)
+	return err
 }
 
 func (m *Miner) UpdateMinerPassword(ctx context.Context, payload dto.UpdateMinerPasswordPayload) error {
@@ -475,9 +477,6 @@ func (m *Miner) UpdateMinerPasswordWithCredentials(ctx context.Context, payload 
 		},
 	}})
 	if err != nil {
-		return nil, err
-	}
-	if err := ackToError(ack); err != nil {
 		return nil, err
 	}
 
@@ -522,7 +521,7 @@ func (m *Miner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
 	}
 	defer release()
 
-	ack, refs, err := m.sendWithoutGateWithArtifactResults(ctx, command, []control.ArtifactExpectation{{
+	ack, refs, err := m.sendInSlotWithArtifactResults(ctx, command, []control.ArtifactExpectation{{
 		Direction:        control.ArtifactDirectionUpload,
 		Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
 		DeviceIdentifier: m.desc.GetDeviceIdentifier(),
