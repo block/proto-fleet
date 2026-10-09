@@ -22,6 +22,11 @@ import (
 )
 
 // One immutable owner ID is shared by every service instance in this process.
+const (
+	operationMutation    = "mutation"
+	operationObservation = "observation"
+)
+
 var processInstanceID = uuid.New()
 var logProcessOwner sync.Once
 
@@ -65,7 +70,7 @@ func (s *Service) BeginQueuedHost(ctx context.Context, message queue.Message) (*
 			return nil, blocked()
 		}
 		attempt := &Attempt{service: s, id: uuid.New(), deviceID: message.DeviceID, organizationID: message.OrgID}
-		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: message.DeviceID, OrganizationID: message.OrgID, Epoch: fence.Epoch, QueueMessageID: message.ID, OwnerInstanceID: processInstanceID, OperationKind: "mutation"}); err != nil {
+		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: message.DeviceID, OrganizationID: message.OrgID, Epoch: fence.Epoch, QueueMessageID: message.ID, OwnerInstanceID: processInstanceID, OperationKind: operationMutation}); err != nil {
 			return nil, fmt.Errorf("record device write attempt: %w", err)
 		}
 		return attempt, nil

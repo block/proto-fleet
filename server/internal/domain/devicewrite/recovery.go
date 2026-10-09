@@ -87,7 +87,7 @@ func (s *Service) InspectRecovery(ctx context.Context, organizationID, deviceID 
 func (s *Service) ResolveOffline(ctx context.Context, evidence RecoveryEvidence, apply bool) (RecoveryResult, error) {
 	var empty RecoveryResult
 	required := map[string]string{"operator": evidence.Operator, "maintenance termination": evidence.MaintenanceTermination, "owner termination": evidence.OwnerTermination}
-	if evidence.OperationKind == "mutation" {
+	if evidence.OperationKind == operationMutation {
 		required["transport quiescence"] = evidence.TransportQuiescence
 		required["device quiescence"] = evidence.DeviceQuiescence
 		required["configuration verification"] = evidence.ConfigurationVerification
@@ -115,7 +115,7 @@ func (s *Service) ResolveOffline(ctx context.Context, evidence RecoveryEvidence,
 		if attempt.DeviceID != evidence.DeviceID || attempt.OrganizationID != evidence.OrganizationID || attempt.Epoch != evidence.AttemptEpoch || attempt.OwnerInstanceID != evidence.OwnerInstanceID || attempt.OperationKind != evidence.OperationKind || attempt.Status != evidence.PriorStatus || (attempt.Status != "running" && attempt.Status != "unknown") || fence.Epoch != evidence.FenceEpoch || fence.State != evidence.FenceState || fence.QuarantineOrigin.String != evidence.QuarantineOrigin || identityDigest(attempt.IdentitySnapshot) != evidence.IdentitySHA256 {
 			return empty, fleeterror.NewFailedPreconditionError("recovery evidence does not match the unresolved attempt and current custody; inspect again")
 		}
-		if evidence.OperationKind != "mutation" && evidence.OperationKind != "observation" {
+		if evidence.OperationKind != operationMutation && evidence.OperationKind != operationObservation {
 			return empty, blocked()
 		}
 		if evidence.RestoreHost && fence.State != "reserved" && !(fence.State == "quarantined" && fence.QuarantineOrigin.String == "reserved") {
