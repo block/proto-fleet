@@ -93,7 +93,7 @@ func TestQueuedCurtailmentWorkerDispatchesAcrossOwnershipHandoff(t *testing.T) {
 			var scope, state string
 			require.NoError(t, conn.QueryRowContext(ctx, `SELECT curtailment_command,status FROM device_write_attempt WHERE queue_message_id=$1`, rows[0].ID).Scan(&scope, &state))
 			require.Equal(t, kind.String(), scope)
-			require.Equal(t, "complete", state)
+			require.Equal(t, "unknown", state, "fleet-wide command success does not certify physical completion")
 		})
 	}
 }

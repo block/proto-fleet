@@ -116,7 +116,8 @@ func TestCurtailmentSurvivesPendingAndRunningHandoffs(t *testing.T) {
 			require.NoError(t, attempt.Finish(ctx, nil))
 			drained, err = service.Drained(ctx, org, device, epoch+1)
 			require.NoError(t, err)
-			require.True(t, drained)
+			require.False(t, drained, "global curtailment acknowledgement still requires physical completion evidence")
+			require.Error(t, service.ReleaseHost(ctx, org, device, epoch+1))
 			require.Error(t, devicewrite.Dispatch(attempt.Context(ctx), func(context.Context) error { t.Fatal("completed authority reused"); return nil }))
 		})
 	}
