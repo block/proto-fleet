@@ -12,6 +12,7 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	minerDomain "github.com/block/proto-fleet/server/internal/domain/miner"
@@ -316,4 +317,44 @@ func TestTankMiningExecutionSanitizesControllerFleetErrors(t *testing.T) {
 	require.True(t, fleeterror.IsFailedPreconditionError(err))
 	require.Equal(t, "failed_precondition: tank mining outcome unconfirmed", sanitizedErrorInfo(err).String)
 	require.Equal(t, 1, controller.writes)
+}
+
+func TestTankMiningRetainsPhysicalOutcomeEvidence(t *testing.T) {
+	for _, scenario := range []string{"accepted", "failed", "stale topology"} {
+		t.Run(scenario, func(t *testing.T) {
+			svc, conn, deviceID, _, payload := setupTankMiningExecution(t)
+			message, _ := enqueueFenceTestCommand(t, conn, deviceID, commandtype.SetTankMining, payload)
+			fences := devicewrite.NewService(conn)
+			attempt, err := fences.BeginQueuedHost(t.Context(), message)
+			require.NoError(t, err)
+			controller := &executionTankController{}
+			if scenario == "failed" {
+				controller.err = errors.New("connection lost after send")
+			}
+			if scenario == "stale topology" {
+				_, err = conn.ExecContext(t.Context(), `UPDATE container_tank SET present=false WHERE device_id=$1`, deviceID)
+				require.NoError(t, err)
+			}
+			outcome := svc.executeTankMining(attempt.Context(t.Context()), deviceID, payload.OrgID, payload, controller)
+			if scenario == "accepted" {
+				require.NoError(t, outcome)
+			} else {
+				require.Error(t, outcome)
+			}
+			require.NoError(t, attempt.Finish(t.Context(), outcome))
+			var status string
+			require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT status FROM device_write_attempt WHERE queue_message_id=$1`, message.ID).Scan(&status))
+			if scenario == "stale topology" {
+				require.Zero(t, controller.writes)
+				require.Equal(t, "complete", status)
+				_, err = fences.Reserve(t.Context(), payload.OrgID, deviceID)
+				require.NoError(t, err)
+			} else {
+				require.Equal(t, 1, controller.writes)
+				require.Equal(t, "unknown", status)
+				_, err = fences.Reserve(t.Context(), payload.OrgID, deviceID)
+				require.True(t, fleeterror.IsFailedPreconditionError(err))
+			}
+		})
+	}
 }
