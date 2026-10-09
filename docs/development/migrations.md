@@ -17,6 +17,32 @@ Reconciliation requires application and scheduled database writers to be stopped
 Unknown or dirty schemas and internal-to-public switches are refused. Application
 rollback does not reverse committed database changes.
 
+## Hosted write-fence upgrade
+
+Private migrations 1008 and 1009 require a stopped-application maintenance
+window. Stop every Fleet API replica and scheduled database writer before
+running the target release's `fleet-db-transition migrate` command. Keep them
+stopped until that command succeeds and `fleet-db-transition check --state=startup`
+accepts the completed checkpoint, then start the target release.
+
+Migration 1008 validates the queue's epoch constraint under an exclusive table
+lock. Migration 1009 builds the pending-order index in its checkpoint transaction.
+The queue retains historical rows, so miner count alone does not bound upgrade
+time. Rehearse on a recent database backup and size the maintenance window from
+its queue row count, relation sizes, observed lock wait, and migration duration.
+The 4,000-device upgrade regression verifies data and checkpoint correctness;
+it does not establish a production downtime budget.
+
+An interrupted or failed migration rolls back to its last completed checkpoint.
+After a lost commit acknowledgement, reconnect and inspect the checkpoint before
+retrying. Do not force a version, delete attempt history, or run a down migration
+to recover availability. Migration 1008 refuses rollback once physical-outcome
+or ownership evidence exists; preserve the database and fix forward.
+
+The new `(created_at, id)` pending index keeps deterministic dequeue ordering.
+The older pending index remains part of the shared baseline catalog contract;
+removing it requires a separate shared migration and baseline decision.
+
 ## Author and promote
 
 1. Allocate numbers from internal main with

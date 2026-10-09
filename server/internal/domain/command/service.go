@@ -1188,6 +1188,10 @@ func (s *Service) admitCommand(ctx context.Context, command *Command) (*CommandR
 		switch {
 		case errors.Is(err, errExecutionStoppedBeforeEnqueue):
 			enqueueErr = fleeterror.NewInternalError("command execution service stopped before enqueue")
+		case fleeterror.IsFailedPreconditionError(err):
+			// Ownership admission rejects the whole selected batch. Preserve the
+			// actionable caller error rather than describing it as a server fault.
+			enqueueErr = err
 		case len(queuePayloads) == 0:
 			enqueueErr = fleeterror.NewInternalErrorf("error enqueuing a batch of commands: %v", err)
 		default:
