@@ -19,7 +19,7 @@ rollback does not reverse committed database changes.
 
 ## Hosted write-fence upgrade
 
-Private migrations 1008 through 1012 require a stopped-application maintenance
+Private migrations 1008 through 1013 require a stopped-application maintenance
 window. Stop every Fleet API replica and scheduled database writer before
 running the target release's `fleet-db-transition migrate` command. Keep them
 stopped until that command succeeds and `fleet-db-transition check --state=startup`
@@ -30,12 +30,16 @@ lock. Migration 1009 builds the pending-order index in its checkpoint transactio
 Migration 1010 adds the MDKv2 RPC endpoint fields without changing queue or
 attempt evidence.
 Migration 1011 makes queue claims optional for direct attempts. Migration 1012
-backfills captured physical identity keys and builds a partial GIN index on
-outstanding attempts. Stop API replicas, plugins, Fleet Node dispatchers and
-scheduled writers together for these migrations. The queue and attempt tables
-retain historical rows, so miner count alone does not bound upgrade
-time. Rehearse on a recent database backup and size the maintenance window from
-its queue row count, relation sizes, observed lock wait, and migration duration.
+adds captured physical identity keys and a partial GIN index on outstanding
+attempts. Hosted ships as one feature, so these checkpoints do not represent
+supported intermediate runtimes. Migration 1012 requires an empty attempt table;
+it refuses any history rather than reconstructing identities from an unfinished
+implementation. Migration 1013 separates node heartbeats from locked route rows
+and backfills existing node timestamps. Stop API replicas, plugins, Fleet Node
+dispatchers and scheduled writers together for these migrations. The existing
+queue retains historical rows, so miner count alone does not bound upgrade time.
+Rehearse on a recent database backup and size the maintenance window from its
+queue row count, relation sizes, observed lock wait, and migration duration.
 The 4,000-device upgrade regression verifies data and checkpoint correctness;
 it does not establish a production downtime budget.
 
@@ -45,21 +49,14 @@ retrying. Do not force a version, delete attempt history, or run a down migratio
 to recover availability. Migration 1008 refuses rollback once physical-outcome
 or ownership evidence exists; preserve the database and fix forward.
 
-Before migration 1012, inspect outstanding attempts' `identity_snapshot` values.
-The backfill preserves captured serial/MAC values even if today's device row now
-describes another miner. Old snapshots lack Fleet Node routing scope, so their
-endpoint alone cannot prove the route used by the operation. Migration 1012
-refuses outstanding attempts with neither captured serial/MAC nor an explicitly
-captured endpoint routing scope. Resolve those attempts using the predecessor
-release's audited operator recovery executable while dispatchers remain stopped;
-retain the original snapshot and recovery receipts, then retry the upgrade.
-Do not fill gaps with today's row or edit snapshots/statuses directly.
+If migration 1012 finds attempt history from an intermediate development build,
+stop and preserve the database. That upgrade path is unsupported; do not delete
+attempts, rewrite snapshots/statuses, or force a version to proceed. Disposable
+development databases can be recreated. A database with real operation history
+requires an explicit evidence-preserving migration decision.
 
-After migration, require clean checkpoint 1012 and preserved attempt IDs,
-statuses and snapshots. Verify every outstanding attempt has nonempty
-`identity_keys` that reflect its captured snapshot and that
-`idx_device_write_attempt_outstanding_identity_keys` is valid. Rehearse a
-representative retired-history overlap query with `EXPLAIN (ANALYZE, BUFFERS)`.
+After migration, require clean checkpoint 1013 and preserved queue history.
+Verify that `idx_device_write_attempt_outstanding_identity_keys` is valid.
 Downgrade 1012 refuses retained unresolved attempts or deletion permits;
 downgrade 1011 refuses any direct-attempt history, including completed attempts.
 Preserve that evidence and fix forward.

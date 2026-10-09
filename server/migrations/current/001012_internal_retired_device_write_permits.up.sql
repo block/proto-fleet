@@ -18,27 +18,15 @@ LANGUAGE sql STABLE AS $$
  WHERE d.id=target_id
 $$;
 
--- Old snapshots did not capture Fleet Node routing scope. Today's association
--- cannot establish the route used by an old operation. Outstanding attempts
--- require a captured stable identity, or an explicitly captured endpoint scope.
+-- Hosted ships as one feature. Earlier schema checkpoints are migration steps,
+-- not supported runtimes that can create attempts before this final schema.
+LOCK TABLE device_write_attempt IN ACCESS EXCLUSIVE MODE;
 DO $$ BEGIN
- IF EXISTS (
-  SELECT 1 FROM device_write_attempt a WHERE a.status NOT IN ('complete','resolved')
-  AND cardinality(device_write_identity_keys_values(a.organization_id,
-   a.identity_snapshot->>'serial_number',a.identity_snapshot->>'mac_address',
-   a.identity_snapshot->>'routing_scope',a.identity_snapshot->>'ip_address',a.identity_snapshot->>'port'))=0
- ) THEN
-  RAISE EXCEPTION 'outstanding device write lacks captured identity; resolve with audited operator recovery before migration 1011';
+ IF EXISTS (SELECT 1 FROM device_write_attempt) THEN
+  RAISE EXCEPTION 'device write history exists; intermediate hosted schema upgrades are unsupported';
  END IF;
 END $$;
 ALTER TABLE device_write_attempt ADD COLUMN identity_keys text[] NOT NULL DEFAULT '{}';
--- Present snapshot values (including blank values) are authoritative. Only
--- completed/resolved history may fall back to current values for missing fields.
-UPDATE device_write_attempt a SET identity_keys=device_write_identity_keys_values(a.organization_id,
- CASE WHEN a.status NOT IN ('complete','resolved') OR a.identity_snapshot ? 'serial_number' THEN a.identity_snapshot->>'serial_number' ELSE d.serial_number END,
- CASE WHEN a.status NOT IN ('complete','resolved') OR a.identity_snapshot ? 'mac_address' THEN a.identity_snapshot->>'mac_address' ELSE d.mac_address END,
- a.identity_snapshot->>'routing_scope',a.identity_snapshot->>'ip_address',a.identity_snapshot->>'port')
-FROM device d WHERE d.id=a.device_id AND d.org_id=a.organization_id;
 CREATE INDEX idx_device_write_attempt_outstanding_identity_keys
  ON device_write_attempt USING gin(identity_keys) WHERE status NOT IN ('complete','resolved');
 CREATE TABLE device_deletion_unpair_permit (
