@@ -42,7 +42,7 @@ func TestWriteFenceMigrationPreservesPopulatedLegacyQueue(t *testing.T) {
 	database := testutil.NewDatabaseService(t, cfg)
 	user := database.CreateSuperAdminUser()
 	seed := database.CreateDevice(user.OrganizationID, "proto")
-	for _, name := range []string{"current/001014_internal_hosted_curtailment_control", "current/001012_internal_retired_device_write_permits", "current/001011_internal_direct_device_write_attempts", "current/001009_internal_queue_pending_order_index", "current/001008_internal_hosted_device_write_fences"} {
+	for _, name := range []string{"current/001015_internal_hosted_curtailment_control", "current/001012_internal_retired_device_write_permits", "current/001011_internal_direct_device_write_attempts", "current/001009_internal_queue_pending_order_index", "current/001008_internal_hosted_device_write_fences"} {
 		script, err := migrations.Current.ReadFile(name + ".down.sql")
 		require.NoError(t, err)
 		_, err = database.DB.ExecContext(t.Context(), string(script))
@@ -61,7 +61,7 @@ func TestWriteFenceMigrationPreservesPopulatedLegacyQueue(t *testing.T) {
 	upgrade, err := database.DB.BeginTx(t.Context(), nil)
 	require.NoError(t, err)
 	defer upgrade.Rollback()
-	for _, name := range []string{"current/001008_internal_hosted_device_write_fences", "current/001009_internal_queue_pending_order_index", "current/001011_internal_direct_device_write_attempts", "current/001012_internal_retired_device_write_permits", "current/001014_internal_hosted_curtailment_control"} {
+	for _, name := range []string{"current/001008_internal_hosted_device_write_fences", "current/001009_internal_queue_pending_order_index", "current/001011_internal_direct_device_write_attempts", "current/001012_internal_retired_device_write_permits", "current/001015_internal_hosted_curtailment_control"} {
 		script, err := migrations.Current.ReadFile(name + ".up.sql")
 		require.NoError(t, err)
 		_, err = upgrade.ExecContext(t.Context(), string(script))
