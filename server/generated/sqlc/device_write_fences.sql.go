@@ -16,7 +16,7 @@ import (
 const advanceRecoveredDeviceWriteFence = `-- name: AdvanceRecoveredDeviceWriteFence :one
 UPDATE device_write_fence SET epoch=epoch+1,updated_at=statement_timestamp()
 WHERE device_id=$1 AND organization_id=$2 AND epoch=$3
-RETURNING device_id, organization_id, epoch, state, updated_at
+RETURNING device_id, organization_id, epoch, state, quarantine_origin, updated_at
 `
 
 type AdvanceRecoveredDeviceWriteFenceParams struct {
@@ -34,6 +34,7 @@ func (q *Queries) AdvanceRecoveredDeviceWriteFence(ctx context.Context, arg Adva
 		&i.OrganizationID,
 		&i.Epoch,
 		&i.State,
+		&i.QuarantineOrigin,
 		&i.UpdatedAt,
 	)
 	return i, err
@@ -236,7 +237,7 @@ func (q *Queries) LockDeviceWriteAttemptForRecovery(ctx context.Context, attempt
 }
 
 const lockDeviceWriteFenceRecord = `-- name: LockDeviceWriteFenceRecord :one
-SELECT device_id, organization_id, epoch, state, updated_at FROM device_write_fence WHERE device_id=$1 AND organization_id=$2 FOR UPDATE
+SELECT device_id, organization_id, epoch, state, quarantine_origin, updated_at FROM device_write_fence WHERE device_id=$1 AND organization_id=$2 FOR UPDATE
 `
 
 type LockDeviceWriteFenceRecordParams struct {
@@ -254,13 +255,14 @@ func (q *Queries) LockDeviceWriteFenceRecord(ctx context.Context, arg LockDevice
 		&i.OrganizationID,
 		&i.Epoch,
 		&i.State,
+		&i.QuarantineOrigin,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
 const lockDeviceWriteFences = `-- name: LockDeviceWriteFences :many
-SELECT f.device_id, f.organization_id, f.epoch, f.state, f.updated_at FROM device_write_fence f JOIN device d ON d.id=f.device_id AND d.org_id=f.organization_id
+SELECT f.device_id, f.organization_id, f.epoch, f.state, f.quarantine_origin, f.updated_at FROM device_write_fence f JOIN device d ON d.id=f.device_id AND d.org_id=f.organization_id
 WHERE f.device_id=ANY($1::bigint[]) AND d.deleted_at IS NULL
 ORDER BY f.device_id FOR UPDATE OF f
 `
@@ -279,6 +281,7 @@ func (q *Queries) LockDeviceWriteFences(ctx context.Context, deviceIds []int64) 
 			&i.OrganizationID,
 			&i.Epoch,
 			&i.State,
+			&i.QuarantineOrigin,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -325,7 +328,7 @@ func (q *Queries) LockQueuedDeviceWrite(ctx context.Context, id int64) (LockQueu
 }
 
 const quarantineDeviceWriteFence = `-- name: QuarantineDeviceWriteFence :exec
-UPDATE device_write_fence SET state='quarantined',updated_at=statement_timestamp()
+UPDATE device_write_fence SET quarantine_origin=CASE WHEN state='quarantined' THEN quarantine_origin ELSE state END,state='quarantined',updated_at=statement_timestamp()
 WHERE device_id=$1 AND organization_id=$2 AND state<>'host'
 `
 
@@ -368,8 +371,8 @@ func (q *Queries) RecordDeviceWriteRecovery(ctx context.Context, arg RecordDevic
 }
 
 const releaseDeviceWriteFenceToHost = `-- name: ReleaseDeviceWriteFenceToHost :execrows
-UPDATE device_write_fence f SET state='host',updated_at=statement_timestamp()
-WHERE f.device_id=$1 AND f.organization_id=$2 AND f.epoch=$3 AND f.state IN ('reserved','quarantined')
+UPDATE device_write_fence f SET state='host',quarantine_origin=NULL,updated_at=statement_timestamp()
+WHERE f.device_id=$1 AND f.organization_id=$2 AND f.epoch=$3 AND (f.state='reserved' OR (f.state='quarantined' AND f.quarantine_origin='reserved'))
 AND NOT EXISTS (SELECT 1 FROM device_write_attempt a WHERE a.device_id=f.device_id AND a.status NOT IN ('complete','resolved'))
 `
 

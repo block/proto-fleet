@@ -36,7 +36,7 @@ UPDATE device_write_attempt SET status=$1,finished_at=statement_timestamp()
 WHERE attempt_id=$2 AND status='running';
 
 -- name: QuarantineDeviceWriteFence :exec
-UPDATE device_write_fence SET state='quarantined',updated_at=statement_timestamp()
+UPDATE device_write_fence SET quarantine_origin=CASE WHEN state='quarantined' THEN quarantine_origin ELSE state END,state='quarantined',updated_at=statement_timestamp()
 WHERE device_id=$1 AND organization_id=$2 AND state<>'host';
 
 -- name: ReserveDeviceWriteFence :one
@@ -75,8 +75,8 @@ SELECT EXISTS (
 )::boolean AS drained;
 
 -- name: ReleaseDeviceWriteFenceToHost :execrows
-UPDATE device_write_fence f SET state='host',updated_at=statement_timestamp()
-WHERE f.device_id=$1 AND f.organization_id=$2 AND f.epoch=$3 AND f.state IN ('reserved','quarantined')
+UPDATE device_write_fence f SET state='host',quarantine_origin=NULL,updated_at=statement_timestamp()
+WHERE f.device_id=$1 AND f.organization_id=$2 AND f.epoch=$3 AND (f.state='reserved' OR (f.state='quarantined' AND f.quarantine_origin='reserved'))
 AND NOT EXISTS (SELECT 1 FROM device_write_attempt a WHERE a.device_id=f.device_id AND a.status NOT IN ('complete','resolved'));
 
 -- name: LockDeviceWriteFenceRecord :one

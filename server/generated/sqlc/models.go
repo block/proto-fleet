@@ -1001,11 +1001,12 @@ type DeviceWriteAttempt struct {
 }
 
 type DeviceWriteFence struct {
-	DeviceID       int64
-	OrganizationID int64
-	Epoch          int64
-	State          string
-	UpdatedAt      time.Time
+	DeviceID         int64
+	OrganizationID   int64
+	Epoch            int64
+	State            string
+	QuarantineOrigin sql.NullString
+	UpdatedAt        time.Time
 }
 
 type DeviceWriteRecovery struct {

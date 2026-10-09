@@ -6,6 +6,7 @@ CREATE TABLE device_write_fence (
  organization_id BIGINT NOT NULL,
  epoch BIGINT NOT NULL DEFAULT 0 CHECK (epoch >= 0),
  state TEXT NOT NULL DEFAULT 'host' CHECK (state IN ('host','reserved','active','quarantined')),
+ quarantine_origin TEXT CHECK (quarantine_origin IN ('reserved','active')),
  updated_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
  FOREIGN KEY (device_id, organization_id) REFERENCES device(id,org_id),
  CONSTRAINT uq_device_write_fence_device_org UNIQUE (device_id, organization_id)

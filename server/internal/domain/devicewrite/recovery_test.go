@@ -27,7 +27,7 @@ func TestOfflineRecoveryBindsEvidenceAndRestoresReservationPath(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, inspections, 1)
 	i := inspections[0]
-	evidence := devicewrite.RecoveryEvidence{AttemptID: i.Attempt.AttemptID, OrganizationID: org, DeviceID: device, AttemptEpoch: i.Attempt.Epoch, FenceEpoch: i.FenceEpoch, FenceState: i.FenceState, OwnerInstanceID: i.Attempt.OwnerInstanceID, OperationKind: i.Attempt.OperationKind, PriorStatus: i.Attempt.Status, IdentitySHA256: i.IdentitySHA256, Operator: "host operator", MaintenanceTermination: "supervisor receipt: all dispatchers stopped", OwnerTermination: "supervisor receipt: exact owner exited", TransportQuiescence: "node and plugin dispatchers stopped", DeviceQuiescence: "physical isolation and completed cold reset", ConfigurationVerification: "qualified verification receipt"}
+	evidence := devicewrite.RecoveryEvidence{AttemptID: i.Attempt.AttemptID, OrganizationID: org, DeviceID: device, AttemptEpoch: i.Attempt.Epoch, FenceEpoch: i.FenceEpoch, FenceState: i.FenceState, QuarantineOrigin: i.QuarantineOrigin, OwnerInstanceID: i.Attempt.OwnerInstanceID, OperationKind: i.Attempt.OperationKind, PriorStatus: i.Attempt.Status, IdentitySHA256: i.IdentitySHA256, Operator: "host operator", MaintenanceTermination: "supervisor receipt: all dispatchers stopped", OwnerTermination: "supervisor receipt: exact owner exited", TransportQuiescence: "node and plugin dispatchers stopped", DeviceQuiescence: "physical isolation and completed cold reset", ConfigurationVerification: "qualified verification receipt"}
 	for _, field := range []string{"owner", "epoch", "device", "identity", "classification", "termination", "quiescence", "configuration"} {
 		t.Run(field, func(t *testing.T) {
 			bad := evidence
@@ -95,26 +95,41 @@ func TestOfflineRecoveryBindsEvidenceAndRestoresReservationPath(t *testing.T) {
 }
 
 func TestOfflineRecoveryCanRestoreVerifiedQuarantinedHostCustody(t *testing.T) {
-	database, org, device, message, _ := queuedFenceFixture(t)
-	service := devicewrite.NewService(database.DB)
-	attempt, err := service.BeginQueuedHost(t.Context(), message)
-	require.NoError(t, err)
-	uncertainty := errors.New("physical operation uncertain")
-	require.Error(t, devicewrite.Dispatch(attempt.Context(t.Context()), func(context.Context) error { return uncertainty }))
-	_, err = service.Reserve(t.Context(), org, device)
-	require.NoError(t, err)
-	require.NoError(t, attempt.Finish(t.Context(), uncertainty))
-	rows, err := service.InspectRecovery(t.Context(), org, device)
-	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	i := rows[0]
-	require.Equal(t, "quarantined", i.FenceState)
-	evidence := devicewrite.RecoveryEvidence{AttemptID: i.Attempt.AttemptID, OrganizationID: org, DeviceID: device, AttemptEpoch: i.Attempt.Epoch, FenceEpoch: i.FenceEpoch, FenceState: i.FenceState, OwnerInstanceID: i.Attempt.OwnerInstanceID, OperationKind: i.Attempt.OperationKind, PriorStatus: i.Attempt.Status, IdentitySHA256: i.IdentitySHA256, Operator: "host operator", MaintenanceTermination: "all dispatchers stopped", OwnerTermination: "exact process terminated", TransportQuiescence: "all transport work ended", DeviceQuiescence: "device jobs conclusively ended", ConfigurationVerification: "host destination and exact credentials verified", RestoreHost: true}
-	result, err := service.ResolveOffline(t.Context(), evidence, true)
-	require.NoError(t, err)
-	require.Equal(t, "host", result.FenceState)
-	require.Error(t, attempt.Recheck(t.Context()))
-	fence, err := sqlc.New(database.DB).LockDeviceWriteFenceRecord(t.Context(), sqlc.LockDeviceWriteFenceRecordParams{DeviceID: device, OrganizationID: org})
-	require.NoError(t, err)
-	require.Equal(t, "host", fence.State)
+	for _, origin := range []string{"reserved", "active"} {
+		t.Run(origin, func(t *testing.T) {
+			database, org, device, message, _ := queuedFenceFixture(t)
+			service := devicewrite.NewService(database.DB)
+			attempt, err := service.BeginQueuedHost(t.Context(), message)
+			require.NoError(t, err)
+			uncertainty := errors.New("physical operation uncertain")
+			require.Error(t, devicewrite.Dispatch(attempt.Context(t.Context()), func(context.Context) error { return uncertainty }))
+			_, err = service.Reserve(t.Context(), org, device)
+			require.NoError(t, err)
+			if origin == "active" {
+				_, err = database.DB.ExecContext(t.Context(), `UPDATE device_write_fence SET state='active' WHERE device_id=$1`, device)
+				require.NoError(t, err)
+			}
+			require.NoError(t, attempt.Finish(t.Context(), uncertainty))
+			rows, err := service.InspectRecovery(t.Context(), org, device)
+			require.NoError(t, err)
+			require.Len(t, rows, 1)
+			i := rows[0]
+			require.Equal(t, "quarantined", i.FenceState)
+			evidence := devicewrite.RecoveryEvidence{AttemptID: i.Attempt.AttemptID, OrganizationID: org, DeviceID: device, AttemptEpoch: i.Attempt.Epoch, FenceEpoch: i.FenceEpoch, FenceState: i.FenceState, QuarantineOrigin: i.QuarantineOrigin, OwnerInstanceID: i.Attempt.OwnerInstanceID, OperationKind: i.Attempt.OperationKind, PriorStatus: i.Attempt.Status, IdentitySHA256: i.IdentitySHA256, Operator: "host operator", MaintenanceTermination: "all dispatchers stopped", OwnerTermination: "exact process terminated", TransportQuiescence: "all transport work ended", DeviceQuiescence: "device jobs conclusively ended", ConfigurationVerification: "host destination and exact credentials verified", RestoreHost: true}
+			result, err := service.ResolveOffline(t.Context(), evidence, true)
+			if origin == "active" {
+				require.True(t, fleeterror.IsFailedPreconditionError(err))
+				var count int
+				require.NoError(t, database.DB.QueryRowContext(t.Context(), `SELECT count(*) FROM device_write_recovery`).Scan(&count))
+				require.Zero(t, count)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, "host", result.FenceState)
+			require.Error(t, attempt.Recheck(t.Context()))
+			fence, err := sqlc.New(database.DB).LockDeviceWriteFenceRecord(t.Context(), sqlc.LockDeviceWriteFenceRecordParams{DeviceID: device, OrganizationID: org})
+			require.NoError(t, err)
+			require.Equal(t, "host", fence.State)
+		})
+	}
 }

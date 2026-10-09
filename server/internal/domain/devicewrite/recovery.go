@@ -38,6 +38,7 @@ type RecoveryEvidence struct {
 	DeviceQuiescence          string    `json:"device_quiescence_evidence,omitempty"`
 	ConfigurationVerification string    `json:"configuration_verification_evidence,omitempty"`
 	RestoreHost               bool      `json:"restore_host"`
+	QuarantineOrigin          string    `json:"quarantine_origin"`
 }
 
 type RecoveryInspection struct {
@@ -46,6 +47,7 @@ type RecoveryInspection struct {
 	FenceState       string                  `json:"fence_state"`
 	IdentitySHA256   string                  `json:"identity_sha256"`
 	EvidenceTemplate RecoveryEvidence        `json:"evidence_template"`
+	QuarantineOrigin string                  `json:"quarantine_origin"`
 }
 
 type RecoveryResult struct {
@@ -73,7 +75,7 @@ func (s *Service) InspectRecovery(ctx context.Context, organizationID, deviceID 
 	}
 	out := make([]RecoveryInspection, 0, len(attempts))
 	for _, a := range attempts {
-		out = append(out, RecoveryInspection{Attempt: a, FenceEpoch: fence.Epoch, FenceState: fence.State, IdentitySHA256: identityDigest(a.IdentitySnapshot), EvidenceTemplate: RecoveryEvidence{AttemptID: a.AttemptID, OrganizationID: a.OrganizationID, DeviceID: a.DeviceID, AttemptEpoch: a.Epoch, FenceEpoch: fence.Epoch, FenceState: fence.State, OwnerInstanceID: a.OwnerInstanceID, OperationKind: a.OperationKind, PriorStatus: a.Status, IdentitySHA256: identityDigest(a.IdentitySnapshot)}})
+		out = append(out, RecoveryInspection{Attempt: a, FenceEpoch: fence.Epoch, FenceState: fence.State, QuarantineOrigin: fence.QuarantineOrigin.String, IdentitySHA256: identityDigest(a.IdentitySnapshot), EvidenceTemplate: RecoveryEvidence{AttemptID: a.AttemptID, OrganizationID: a.OrganizationID, DeviceID: a.DeviceID, AttemptEpoch: a.Epoch, FenceEpoch: fence.Epoch, FenceState: fence.State, QuarantineOrigin: fence.QuarantineOrigin.String, OwnerInstanceID: a.OwnerInstanceID, OperationKind: a.OperationKind, PriorStatus: a.Status, IdentitySHA256: identityDigest(a.IdentitySnapshot)}})
 	}
 	return out, nil
 }
@@ -110,14 +112,14 @@ func (s *Service) ResolveOffline(ctx context.Context, evidence RecoveryEvidence,
 		if err != nil {
 			return empty, lookupError(err)
 		}
-		if attempt.DeviceID != evidence.DeviceID || attempt.OrganizationID != evidence.OrganizationID || attempt.Epoch != evidence.AttemptEpoch || attempt.OwnerInstanceID != evidence.OwnerInstanceID || attempt.OperationKind != evidence.OperationKind || attempt.Status != evidence.PriorStatus || (attempt.Status != "running" && attempt.Status != "unknown") || fence.Epoch != evidence.FenceEpoch || fence.State != evidence.FenceState || identityDigest(attempt.IdentitySnapshot) != evidence.IdentitySHA256 {
+		if attempt.DeviceID != evidence.DeviceID || attempt.OrganizationID != evidence.OrganizationID || attempt.Epoch != evidence.AttemptEpoch || attempt.OwnerInstanceID != evidence.OwnerInstanceID || attempt.OperationKind != evidence.OperationKind || attempt.Status != evidence.PriorStatus || (attempt.Status != "running" && attempt.Status != "unknown") || fence.Epoch != evidence.FenceEpoch || fence.State != evidence.FenceState || fence.QuarantineOrigin.String != evidence.QuarantineOrigin || identityDigest(attempt.IdentitySnapshot) != evidence.IdentitySHA256 {
 			return empty, fleeterror.NewFailedPreconditionError("recovery evidence does not match the unresolved attempt and current custody; inspect again")
 		}
 		if evidence.OperationKind != "mutation" && evidence.OperationKind != "observation" {
 			return empty, blocked()
 		}
-		if evidence.RestoreHost && fence.State != "reserved" && fence.State != "quarantined" {
-			return empty, fleeterror.NewFailedPreconditionError("host restoration requires reserved or quarantined custody; active allocations cannot be released by this command")
+		if evidence.RestoreHost && fence.State != "reserved" && !(fence.State == "quarantined" && fence.QuarantineOrigin.String == "reserved") {
+			return empty, fleeterror.NewFailedPreconditionError("host restoration requires reserved custody or quarantine originating from reservation; active allocations cannot be released by this command")
 		}
 		result := RecoveryResult{Preview: !apply, AttemptID: attempt.AttemptID, FenceEpoch: fence.Epoch, FenceState: fence.State}
 		if !apply {

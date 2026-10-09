@@ -77,7 +77,8 @@ Host custody remains host custody, so after its last unknown attempt is resolved
 a new reservation can succeed. To abandon reserved or quarantined custody, set
 `restore_host` only after the host configuration or reliable stopped state is
 verified and include its verification reference. Restoration is refused while
-other attempts are unresolved, or when custody is active. It does not release an
+other attempts are unresolved, or when custody is active or quarantined from an
+active allocation. The persisted quarantine origin preserves that distinction. It does not release an
 active customer allocation. Otherwise the existing custody state is retained.
 
 Keep dispatchers stopped until the result and audit record have been reviewed,
