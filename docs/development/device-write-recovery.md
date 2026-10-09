@@ -165,14 +165,17 @@ Preview performs the binding checks without changing safety evidence. Apply
 locks the fence and attempt, checks the exact device/organization, immutable
 identity digest, process owner, operation class, status, and both epochs, then
 commits the audit record, `resolved` status, epoch advancement, and cancellation
-of pending stale commands together. The original attempt remains retained;
+of pending stale ordinary commands together. The original attempt remains retained;
 operator resolution is distinguishable from successful physical execution.
 Reusing stale evidence is refused. A database failure rolls the transaction back.
 
 Inspect again before resolving another attempt because each resolution advances
 the fence epoch. Resolving one attempt never clears another outstanding attempt.
 Processing queue status is not changed into proof of physical completion; old
-processing/retried commands fail their epoch check before device I/O.
+ordinary processing/retried commands fail their epoch check before device I/O.
+Global host curtailment remains independent of configuration ownership and can
+run at the current custody state; resolving one attempt does not revoke that
+fleet authority. Its physical uncertainty still requires mutation recovery evidence.
 
 Host custody remains host custody, so after its last unknown attempt is resolved,
 a new reservation can succeed. To abandon reserved or quarantined custody, set
