@@ -366,6 +366,11 @@ func (s *Service) withHostAttempt(ctx context.Context, organizationID, deviceID,
 			// unresolved attempt continues to block ownership transfer.
 			slog.Error("failed to persist direct device write completion",
 				"attempt_id", attempt.id, "device_id", deviceID, "error", err)
+			// Read-only admissions can report cleanup failure without replaying
+			// a physical mutation. Their retained owner still needs recovery.
+			if observation && resultErr == nil {
+				resultErr = err
+			}
 		}
 	}()
 	resultErr = call(attempt.Context(ctx))
