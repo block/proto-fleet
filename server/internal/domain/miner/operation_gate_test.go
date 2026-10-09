@@ -153,9 +153,10 @@ func TestDirectSDKAttemptBlocksDrainAndOldHandleRevival(t *testing.T) {
 	}
 	drained, err = fences.Drained(t.Context(), 1, deviceID, epoch)
 	require.NoError(t, err)
-	require.True(t, drained)
-	require.NoError(t, fences.ReleaseHost(t.Context(), 1, deviceID, epoch))
-	require.Error(t, handle.Reboot(t.Context()), "an old handle cannot revive after reservation and host release")
+	require.False(t, drained, "SDK acceptance must not prove that reboot ended")
+	require.Error(t, fences.ReleaseHost(t.Context(), 1, deviceID, epoch))
+	resolveTestPhysicalAttempt(t, fences, deviceID)
+	require.Error(t, handle.Reboot(t.Context()), "an old handle cannot revive after audited recovery and host restoration")
 }
 
 func TestDirectSDKErrorRetainsUnknownOutcome(t *testing.T) {
@@ -334,13 +335,14 @@ func TestClaimedDeletionAttemptFencesRediscoveredDevice(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("captured unpair did not finish")
 			}
+			_, err = fences.BeginHost(t.Context(), 1, successor, 0)
+			require.Error(t, err, "rediscovery cannot clear either uncertain or accepted predecessor work")
+			_, err = fences.Reserve(t.Context(), 1, successor)
+			require.Error(t, err, "SDK acknowledgement cannot permit incoming reservation")
+			resolveTestPhysicalAttempt(t, fences, deviceID)
 			next, err := fences.BeginHost(t.Context(), 1, successor, 0)
-			if uncertain {
-				require.Error(t, err, "a new row must not erase an uncertain predecessor")
-			} else {
-				require.NoError(t, err)
-				require.NoError(t, next.Finish(t.Context(), nil))
-			}
+			require.NoError(t, err, "audited completion restores physical identity admission")
+			require.NoError(t, next.Finish(t.Context(), nil))
 		})
 	}
 }
@@ -446,4 +448,23 @@ func TestDeletionPermitRejectsAmbientTransactionWithoutClaim(t *testing.T) {
 	require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT attempt_id IS NOT NULL FROM device_deletion_unpair_permit WHERE device_id=$1", id).Scan(&claimed))
 	require.False(t, claimed)
 	require.NoError(t, service.UnpairDeletedMiner(t.Context(), 1, handle), "refused transactional I/O must leave the permit usable")
+}
+
+// Fixture evidence represents the offline operator procedure after all mocked
+// operations returned. No production code infers quiescence from that return.
+func resolveTestPhysicalAttempt(t *testing.T, fences *devicewrite.Service, deviceID int64) {
+	t.Helper()
+	inspections, err := fences.InspectRecovery(t.Context(), 1, deviceID)
+	require.NoError(t, err)
+	require.Len(t, inspections, 1)
+	evidence := inspections[0].EvidenceTemplate
+	evidence.Operator = "fixture host operator"
+	evidence.MaintenanceTermination = "fixture supervisor: all dispatchers stopped"
+	evidence.OwnerTermination = "fixture supervisor: exact recorded owner exited"
+	evidence.TransportQuiescence = "fixture transport quiescence receipt"
+	evidence.DeviceQuiescence = "fixture authoritative device operation completion"
+	evidence.ConfigurationVerification = "fixture qualified configuration receipt"
+	evidence.RestoreHost = inspections[0].FenceState == "reserved"
+	_, err = fences.ResolveOffline(t.Context(), evidence, true)
+	require.NoError(t, err)
 }

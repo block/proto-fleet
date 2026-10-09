@@ -21,7 +21,7 @@ func TestAcceptedRebootSucceedsWithoutReleasingPhysicalFence(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	getter := minerMocks.NewMockCachedMinerGetter(ctrl)
 	miner := minerIfaceMocks.NewMockMiner(ctrl)
-	getter.EXPECT().GetMiner(gomock.Any(), deviceID).Return(miner, nil)
+	getter.EXPECT().GetMinerForCommand(gomock.Any(), deviceID).Return(miner, nil)
 	miner.EXPECT().GetOrgID().Return(int64(1))
 	miner.EXPECT().GetSiteID().Return(int64(0))
 	// This represents the existing error-only SDK's successful HTTP 202 response.
