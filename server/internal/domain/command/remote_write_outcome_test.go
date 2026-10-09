@@ -58,11 +58,13 @@ func TestRemotePoolPreparationFailureDoesNotPoisonDrain(t *testing.T) {
 				}
 			}
 			message, _ := enqueueFenceTestCommand(t, conn, deviceID, kind, queuedPayload)
-			miner, err := remotenode.New(remotenode.Config{Sender: sender, FleetNodeID: 7, OrgID: 1, DeviceIdentifier: identifier, DriverName: "proto", IPAddress: "192.0.2.10", Port: "443", URLScheme: "https", EncryptionPublicKey: key})
+			miner, err := remotenode.New(remotenode.Config{WriteGate: func(ctx context.Context, _ commandtype.Type, call func(context.Context) error) error {
+				return devicewrite.NewService(conn).RunHost(ctx, 1, deviceID, message.WriteEpoch, call)
+			}, Sender: sender, FleetNodeID: 7, OrgID: 1, DeviceIdentifier: identifier, DriverName: "proto", IPAddress: "192.0.2.10", Port: "443", URLScheme: "https", EncryptionPublicKey: key})
 			require.NoError(t, err)
 			ctrl := gomock.NewController(t)
 			getter := minerMocks.NewMockCachedMinerGetter(ctrl)
-			getter.EXPECT().GetMiner(gomock.Any(), deviceID).Return(miner, nil)
+			getter.EXPECT().GetMinerForCommand(gomock.Any(), deviceID).Return(miner, nil)
 			service.minerService = getter
 			_, _, err = service.executeQueuedCommand(t.Context(), message)
 			require.Error(t, err)
@@ -97,11 +99,13 @@ func TestQueuedRemoteBusyRetryRetainsAcceptedPhysicalAttempt(t *testing.T) {
 	service, conn, _, deviceID, identifier := setupPasswordCommandDevice(t, "proto", false)
 	message, messages := enqueueFenceTestCommand(t, conn, deviceID, commandtype.StopMining, nil)
 	sender := &writeOutcomeSender{ack: &gatewaypb.ControlAck{Code: gatewaypb.AckCode_ACK_CODE_BUSY}}
-	miner, err := remotenode.New(remotenode.Config{Sender: sender, FleetNodeID: 7, OrgID: 1, DeviceIdentifier: identifier, DriverName: "proto", IPAddress: "192.0.2.10", Port: "443", URLScheme: "https"})
+	miner, err := remotenode.New(remotenode.Config{WriteGate: func(ctx context.Context, _ commandtype.Type, call func(context.Context) error) error {
+		return devicewrite.NewService(conn).RunHost(ctx, 1, deviceID, message.WriteEpoch, call)
+	}, Sender: sender, FleetNodeID: 7, OrgID: 1, DeviceIdentifier: identifier, DriverName: "proto", IPAddress: "192.0.2.10", Port: "443", URLScheme: "https"})
 	require.NoError(t, err)
 	ctrl := gomock.NewController(t)
 	getter := minerMocks.NewMockCachedMinerGetter(ctrl)
-	getter.EXPECT().GetMiner(gomock.Any(), deviceID).Return(miner, nil).Times(2)
+	getter.EXPECT().GetMinerForCommand(gomock.Any(), deviceID).Return(miner, nil).Times(2)
 	service.minerService = getter
 	service.messageQueue = messages
 	service.workerProcessCommand(t.Context(), message)
@@ -135,7 +139,7 @@ func TestQueuedRemoteMissingStreamRetryRetainsAcceptedPhysicalAttempt(t *testing
 	require.NoError(t, err)
 	ctrl := gomock.NewController(t)
 	getter := minerMocks.NewMockCachedMinerGetter(ctrl)
-	getter.EXPECT().GetMiner(gomock.Any(), deviceID).Return(miner, nil).Times(2)
+	getter.EXPECT().GetMinerForCommand(gomock.Any(), deviceID).Return(miner, nil).Times(2)
 	service.minerService = getter
 	service.messageQueue = messages
 	service.workerProcessCommand(t.Context(), message)
