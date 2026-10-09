@@ -2,6 +2,7 @@ package devicewrite
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
@@ -47,7 +48,7 @@ func (s *Service) WithBindingDispatch(ctx context.Context, deviceID int64, valid
 			return err
 		}
 		if err := ctx.Err(); err != nil {
-			return err
+			return fmt.Errorf("dispatch binding canceled: %w", err)
 		}
 		return Dispatch(ctx, func(ctx context.Context) error { invoked = true; return call(ctx) })
 	})

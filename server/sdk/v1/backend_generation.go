@@ -3,6 +3,7 @@ package sdk
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"sync"
 
 	pb "github.com/block/proto-fleet/server/sdk/v1/pb/generated"
@@ -18,7 +19,7 @@ func backendGenerationRejected() error {
 	if err != nil {
 		panic(err)
 	}
-	return rejection.Err()
+	return fmt.Errorf("select SDK backend: %w", rejection.Err())
 }
 
 // IsBackendGenerationRejected identifies the SDK's pre-backend admission failure.
@@ -40,7 +41,7 @@ func IsBackendGenerationRejected(err error) bool {
 // Later registry replacements cannot redirect an admitted call to another object.
 func (s *DriverGRPCServer) selectDevice(ref *pb.DeviceRef) (Device, error) {
 	if ref == nil || ref.DeviceId == "" {
-		return nil, status.Error(codes.InvalidArgument, "device reference is required")
+		return nil, grpcStatusError("select SDK backend", codes.InvalidArgument, "device reference is required")
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -74,7 +75,7 @@ type deviceIDLock struct {
 
 func (locks *deviceIDLocks) lock(ctx context.Context, id string) (func(), error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("acquire device lifecycle lock: %w", err)
 	}
 	locks.mu.Lock()
 	if locks.entries == nil {
@@ -99,12 +100,12 @@ func (locks *deviceIDLocks) lock(ctx context.Context, id string) (func(), error)
 	select {
 	case <-ctx.Done():
 		releaseRef()
-		return nil, ctx.Err()
+		return nil, fmt.Errorf("wait for device lifecycle lock: %w", ctx.Err())
 	case <-entry.token:
 		if err := ctx.Err(); err != nil {
 			entry.token <- struct{}{}
 			releaseRef()
-			return nil, err
+			return nil, fmt.Errorf("acquire device lifecycle lock: %w", err)
 		}
 		return func() { entry.token <- struct{}{}; releaseRef() }, nil
 	}
