@@ -203,7 +203,13 @@ func Dispatch(ctx context.Context, operation func(context.Context) error) error 
 		if err := attempt.Recheck(ctx); err != nil {
 			return err
 		}
+	}
+	outcome := operation(ctx)
+	// The durable attempt remains running during the operation, including if
+	// the process crashes. A confirmed admission rejection cannot erase a
+	// previous invocation that may already have reached the device.
+	if ok && !IsNotDispatched(outcome) {
 		attempt.dispatched.Store(true)
 	}
-	return operation(ctx)
+	return outcome
 }

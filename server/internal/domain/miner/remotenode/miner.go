@@ -22,6 +22,7 @@ import (
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/commandresult"
@@ -291,10 +292,11 @@ func acquireFleetNodeGate(ctx context.Context, gate Gate, fleetNodeID int64, slo
 	// the DB command queue holds the backlog while this worker waits for a slot.
 	release, err := gate.Acquire(ctx, fleetNodeID)
 	if err != nil {
-		return nil, fleeterror.NewPlainError(
+		// Admission failed before any command was submitted to the node.
+		return nil, devicewrite.NotDispatched(fleeterror.NewPlainError(
 			fmt.Sprintf("timed out waiting for a %s slot: %v", slotName, err),
 			connect.CodeResourceExhausted,
-		)
+		))
 	}
 	return release, nil
 }

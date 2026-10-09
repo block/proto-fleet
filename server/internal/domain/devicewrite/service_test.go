@@ -10,9 +10,12 @@ import (
 	"github.com/sqlc-dev/pqtype"
 	"github.com/stretchr/testify/require"
 
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
@@ -358,4 +361,67 @@ func TestReapedAttemptRejectsFurtherDispatch(t *testing.T) {
 	drained, err := service.Drained(t.Context(), orgID, deviceID, epoch)
 	require.NoError(t, err)
 	require.True(t, drained)
+}
+
+// The real remote adapter rejects admission before SendCommand. Only that
+// confirmed outcome may allow a failed attempt to become drain evidence.
+func TestRemoteAdmissionFailureDoesNotStrandOwnership(t *testing.T) {
+	for _, priorWrite := range []bool{false, true} {
+		t.Run(map[bool]string{false: "admission then retry", true: "prior write remains unresolved"}[priorWrite], func(t *testing.T) {
+			database, orgID, deviceID, message, _ := queuedFenceFixture(t)
+			service := devicewrite.NewService(database.DB)
+			attempt, err := service.BeginQueuedHost(t.Context(), message)
+			require.NoError(t, err)
+			sender := &admissionTestSender{}
+			gate := &admissionTestGate{reject: true}
+			miner, err := remotenode.New(remotenode.Config{
+				Sender: sender, Gate: gate, FleetNodeID: 7, OrgID: orgID,
+				DeviceIdentifier: "dev-1", DriverName: "virtual",
+				IPAddress: "10.0.0.5", Port: "4028", URLScheme: "http",
+			})
+			require.NoError(t, err)
+			if priorWrite {
+				require.NoError(t, devicewrite.Dispatch(attempt.Context(t.Context()), func(context.Context) error { return nil }))
+			}
+			outcome := devicewrite.Dispatch(attempt.Context(t.Context()), miner.Reboot)
+			require.ErrorContains(t, outcome, "timed out waiting for a fleet node command slot")
+			require.True(t, fleeterror.IsResourceExhaustedError(outcome), "classification must preserve admission and retry error semantics")
+			require.Zero(t, sender.calls, "admission rejection must not reach the node sender")
+			require.NoError(t, attempt.Finish(t.Context(), outcome))
+			if !priorWrite {
+				retry, err := service.BeginQueuedHost(t.Context(), message)
+				require.NoError(t, err, "confirmed non-dispatch must not quarantine host custody")
+				gate.reject = false
+				require.NoError(t, devicewrite.Dispatch(retry.Context(t.Context()), miner.Reboot))
+				require.Equal(t, 1, sender.calls)
+				require.NoError(t, retry.Finish(t.Context(), nil))
+			}
+			epoch, err := service.Reserve(t.Context(), orgID, deviceID)
+			require.NoError(t, err)
+			drained, err := service.Drained(t.Context(), orgID, deviceID, epoch)
+			require.NoError(t, err)
+			require.Equal(t, !priorWrite, drained, "later admission rejection cannot erase a previous physical write")
+			if priorWrite {
+				require.Error(t, service.ReleaseHost(t.Context(), orgID, deviceID, epoch))
+			} else {
+				require.NoError(t, service.ReleaseHost(t.Context(), orgID, deviceID, epoch))
+			}
+		})
+	}
+}
+
+type admissionTestGate struct{ reject bool }
+
+func (g *admissionTestGate) Acquire(context.Context, int64) (func(), error) {
+	if g.reject {
+		return nil, context.DeadlineExceeded
+	}
+	return func() {}, nil
+}
+
+type admissionTestSender struct{ calls int }
+
+func (s *admissionTestSender) SendCommand(context.Context, int64, gatewaypb.CommandProtocolVersion, *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {
+	s.calls++
+	return &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK}, nil
 }
