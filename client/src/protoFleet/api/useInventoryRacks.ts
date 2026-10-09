@@ -4,7 +4,12 @@ import { fleetInventoryClient } from "./clients";
 import { inventorySort } from "./fleetInventory";
 import { SortDirection } from "./generated/common/v1/sort_pb";
 import { DeviceSetStatsSchema } from "./generated/device_set/v1/device_set_pb";
-import { type EntityRef, type InventoryItem, InventoryView } from "./generated/fleetinventory/v1/fleetinventory_pb";
+import {
+  EntityKind,
+  type EntityRef,
+  type InventoryItem,
+  InventoryView,
+} from "./generated/fleetinventory/v1/fleetinventory_pb";
 import { getErrorMessage } from "./getErrorMessage";
 import type { ListDeviceSetsProps } from "./useDeviceSets";
 
@@ -53,15 +58,14 @@ export function useInventoryRacks(enabled = true, ancestors: EntityRef[] = NO_AN
         const response = await fleetInventoryClient.listInventory(
           {
             view: InventoryView.EQUIPMENT_GROUPS,
-            ancestors,
+            ancestors: [...ancestors, ...(options.buildingIds ?? []).map((id) => ({ kind: EntityKind.BUILDING, id }))],
             pageSize: options.pageSize,
             pageToken: options.pageToken,
             sort: inventorySort(options.sort),
             descending: options.sort?.direction === SortDirection.DESC,
             siteIds: options.siteIds,
             includeUnassigned: options.includeUnassigned,
-            buildingIds: options.buildingIds,
-            includeNoBuilding: options.includeNoBuilding,
+            includeNoFacility: options.includeNoBuilding,
             zoneKeys: options.zones?.map((zone) => ({ zone, buildingId: 0n })),
             errorComponentTypes: options.errorComponentTypes,
             telemetryRanges: options.telemetryRanges,

@@ -443,23 +443,24 @@ describe("MinerList", () => {
           { id: "10", label: "CT1 South" },
         ],
       },
-      ["/?tank=7&search=module&sort=name&dir=asc&view=my-view"],
+      ["/?building=9&tank=7&search=module&sort=name&dir=asc&view=my-view"],
     );
     await user.click(screen.getByRole("button", { name: "Add Filter" }));
-    await user.click(screen.getByText("Containers", { exact: true, selector: "button *" }));
-    await user.click(screen.getByText("CT1 North", { exact: true }));
+    await user.click(screen.getByText("Buildings", { exact: true, selector: "button *" }));
+    await user.click(screen.getByText("CT1 North (Container)", { exact: true }));
     await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("container=9"));
     expect(screen.getByTestId("path-display")).toHaveTextContent("tank=7");
     expect(screen.getByTestId("path-display")).toHaveTextContent("search=module");
     expect(screen.getByTestId("path-display")).toHaveTextContent("sort=name");
     expect(screen.getByTestId("path-display")).toHaveTextContent("view=my-view");
-    await user.click(screen.getByRole("button", { name: "Clear Containers filter" }));
+    await user.click(screen.getByRole("button", { name: "Clear Buildings filter" }));
     await waitFor(() => expect(screen.getByTestId("path-display")).not.toHaveTextContent("container="));
+    expect(screen.getByTestId("path-display")).not.toHaveTextContent("building=");
     expect(screen.getByTestId("path-display")).toHaveTextContent("tank=7");
     expect(screen.getByTestId("path-display")).toHaveTextContent("search=module");
   });
 
-  it("selects multiple tanks separately from racks and clears only tank scope", async () => {
+  it("selects colliding tanks and racks in one selector and clears the whole category", async () => {
     const user = userEvent.setup();
     renderMinerList(
       {
@@ -474,10 +475,10 @@ describe("MinerList", () => {
       ["/?container=9&site=1&rack=7&search=module&sort=name&dir=asc&view=my-view"],
     );
     await user.click(screen.getByRole("button", { name: "Add Filter" }));
-    await user.click(screen.getByText("Tanks", { exact: true, selector: "button *" }));
-    await user.click(screen.getByText("CT1 North T1 · North", { exact: true }));
+    await user.click(screen.getByText("Racks", { exact: true, selector: "button *" }));
+    await user.click(screen.getByText("CT1 North T1 · North (Tank)", { exact: true }));
     await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("tank=7"));
-    await user.click(screen.getByText("CT1 South T1 · South", { exact: true }));
+    await user.click(screen.getByText("CT1 South T1 · South (Tank)", { exact: true }));
     await waitFor(() => expect(screen.getByTestId("path-display")).toHaveTextContent("tank=8"));
     for (const param of [
       "tank=7",
@@ -491,9 +492,10 @@ describe("MinerList", () => {
     ]) {
       expect(screen.getByTestId("path-display")).toHaveTextContent(param);
     }
-    await user.click(screen.getByRole("button", { name: "Clear Tanks filter" }));
+    await user.click(screen.getByRole("button", { name: "Clear Racks filter" }));
     await waitFor(() => expect(screen.getByTestId("path-display")).not.toHaveTextContent("tank="));
-    for (const param of ["container=9", "site=1", "rack=7", "search=module", "sort=name", "dir=asc", "view=my-view"]) {
+    expect(screen.getByTestId("path-display")).not.toHaveTextContent("rack=");
+    for (const param of ["container=9", "site=1", "search=module", "sort=name", "dir=asc", "view=my-view"]) {
       expect(screen.getByTestId("path-display")).toHaveTextContent(param);
     }
   });
@@ -509,7 +511,7 @@ describe("MinerList", () => {
       },
       ["/?tank=7&tank=999&container=9"],
     );
-    expect(screen.getByRole("button", { name: "Clear Tanks filter" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Clear Racks filter" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add Filter" }));
     await user.click(screen.getByText("Status", { exact: true, selector: "button *" }));
     await user.click(screen.getByText("Offline", { exact: true }));

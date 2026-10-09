@@ -51,6 +51,11 @@ import MinerListActionBar from "@/protoFleet/features/fleetManagement/components
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 
 import {
+  combinedInventoryOptions,
+  combineInventoryFilters,
+  separateInventoryFilters,
+} from "@/protoFleet/features/fleetManagement/utils/combinedInventoryFilters";
+import {
   encodeActiveFiltersToURL,
   encodeFilterToURL,
   FILTER_URL_PARAM_KEYS,
@@ -830,7 +835,10 @@ const MinerList = ({
     [disabledMinerIdSet],
   );
 
-  const initialActiveFilters = useMemo(() => parseUrlToActiveFilters(searchParams), [searchParams]);
+  const initialActiveFilters = useMemo(
+    () => combineInventoryFilters(parseUrlToActiveFilters(searchParams)),
+    [searchParams],
+  );
 
   // Refs for values that change frequently but are only read at call/render time.
   // Keeps callbacks and minerColConfig stable across polls.
@@ -958,7 +966,7 @@ const MinerList = ({
   );
 
   const selectionFilterKey = useMemo(() => {
-    const encodedFilters = encodeActiveFiltersToURL(initialActiveFilters);
+    const encodedFilters = encodeActiveFiltersToURL(separateInventoryFilters(initialActiveFilters));
     const searchQuery = searchParams.get(MINER_SEARCH_URL_PARAM)?.trim();
     if (searchQuery) encodedFilters.set(MINER_SEARCH_URL_PARAM, searchQuery);
     return encodedFilters.toString();
@@ -1076,22 +1084,14 @@ const MinerList = ({
       title: "Buildings",
       pluralTitle: "buildings",
       value: "building",
-      options: [...availableBuildings, UNASSIGNED_FILTER_OPTION],
+      options: combinedInventoryOptions(
+        [...availableBuildings, UNASSIGNED_FILTER_OPTION],
+        "container",
+        availableContainers,
+      ),
       defaultOptionIds: [],
     }),
-    [availableBuildings],
-  );
-
-  const containersFilter: DropdownFilterItem = useMemo(
-    () => ({
-      type: "dropdown",
-      title: "Containers",
-      pluralTitle: "containers",
-      value: "container",
-      options: availableContainers ?? [],
-      defaultOptionIds: [],
-    }),
-    [availableContainers],
+    [availableBuildings, availableContainers],
   );
 
   const racksFilter: DropdownFilterItem = useMemo(
@@ -1100,22 +1100,14 @@ const MinerList = ({
       title: "Racks",
       pluralTitle: "racks",
       value: "rack",
-      options: [...availableRacks.map((r) => ({ id: String(r.id), label: r.label })), UNASSIGNED_FILTER_OPTION],
+      options: combinedInventoryOptions(
+        [...availableRacks.map((r) => ({ id: String(r.id), label: r.label })), UNASSIGNED_FILTER_OPTION],
+        "tank",
+        availableTanks,
+      ),
       defaultOptionIds: [],
     }),
-    [availableRacks],
-  );
-
-  const tanksFilter: DropdownFilterItem = useMemo(
-    () => ({
-      type: "dropdown",
-      title: "Tanks",
-      pluralTitle: "tanks",
-      value: "tank",
-      options: availableTanks ?? [],
-      defaultOptionIds: [],
-    }),
-    [availableTanks],
+    [availableRacks, availableTanks],
   );
 
   const firmwareFilter: DropdownFilterItem = useMemo(
@@ -1186,9 +1178,7 @@ const MinerList = ({
           { ...firmwareFilter, showGroupDivider: true },
           sitesFilter,
           buildingsFilter,
-          ...(availableContainers ? [containersFilter] : []),
           racksFilter,
-          ...(availableTanks ? [tanksFilter] : []),
           zonesFilter,
           { ...groupsFilter, showGroupDivider: true },
           hashrateFilter,
@@ -1206,11 +1196,7 @@ const MinerList = ({
       groupsFilter,
       sitesFilter,
       buildingsFilter,
-      containersFilter,
-      availableContainers,
       racksFilter,
-      tanksFilter,
-      availableTanks,
       firmwareFilter,
       zonesFilter,
       hashrateFilter,
@@ -1222,7 +1208,8 @@ const MinerList = ({
   );
 
   const handleServerFilter = useCallback(
-    async (filters: ActiveFilters) => {
+    async (combinedFilters: ActiveFilters) => {
+      const filters = separateInventoryFilters(combinedFilters);
       const minerFilter = create(MinerListFilterSchema, {
         errorComponentTypes: [],
       });
