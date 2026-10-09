@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"sync"
 	"time"
@@ -31,6 +32,7 @@ type bootstrapRateBudget struct {
 	mu         sync.Mutex
 	limit      int
 	entries    map[string]bootstrapRateWindowState
+	overflow   bootstrapRateWindowState
 	nextExpiry time.Time
 	nextLog    time.Time
 }
@@ -57,8 +59,25 @@ func bootstrapRateLimitOption(now func() time.Time) connect.HandlerOption {
 			return ctx, nil
 		}
 		// An unresolved address shares one bucket rather than bypassing admission.
-		return ctx, budget.check(middleware.ClientIP(ctx), now())
+		return ctx, budget.check(bootstrapRateKey(middleware.ClientIP(ctx)), now())
 	})
+}
+
+// bootstrapRateKey counts IPv6 clients per /64 so a single host cannot dodge
+// the quota by rotating addresses within its delegated prefix.
+func bootstrapRateKey(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	switch {
+	case addr.Is4In6():
+		return addr.Unmap().String()
+	case addr.Is6():
+		return netip.PrefixFrom(addr, 64).Masked().String()
+	default:
+		return addr.String()
+	}
 }
 
 func (b *bootstrapRateBudget) check(ip string, now time.Time) error {
@@ -70,7 +89,7 @@ func (b *bootstrapRateBudget) check(ip string, now time.Time) error {
 	entry, exists := b.entries[ip]
 	if exists && now.Before(entry.started.Add(bootstrapRateWindow)) {
 		if entry.count >= b.limit {
-			return b.reject(entry.started.Add(bootstrapRateWindow).Sub(now), now)
+			return b.reject("ip_quota", entry.started.Add(bootstrapRateWindow).Sub(now), now)
 		}
 		entry.count++
 		b.entries[ip] = entry
@@ -91,7 +110,7 @@ func (b *bootstrapRateBudget) check(ip string, now time.Time) error {
 			}
 		}
 		if len(b.entries) >= bootstrapRateMaxIPs {
-			return b.reject(b.nextExpiry.Sub(now), now)
+			return b.admitOverflow(now)
 		}
 	}
 	b.entries[ip] = bootstrapRateWindowState{started: now, count: 1}
@@ -101,11 +120,26 @@ func (b *bootstrapRateBudget) check(ip string, now time.Time) error {
 	return nil
 }
 
+// admitOverflow runs under mu. Untracked IPs share one budget while the table
+// is full, so IP churn cannot lock out new legitimate clients entirely.
+func (b *bootstrapRateBudget) admitOverflow(now time.Time) error {
+	expires := b.overflow.started.Add(bootstrapRateWindow)
+	if !now.Before(expires) {
+		b.overflow = bootstrapRateWindowState{started: now}
+		expires = now.Add(bootstrapRateWindow)
+	}
+	if b.overflow.count >= b.limit {
+		return b.reject("table_full", expires.Sub(now), now)
+	}
+	b.overflow.count++
+	return nil
+}
+
 // reject runs under mu and logs at most once per budget per minute. Gate
 // rejections bypass the usual logging interceptor; do not log IPs or credentials.
-func (b *bootstrapRateBudget) reject(wait time.Duration, now time.Time) error {
+func (b *bootstrapRateBudget) reject(reason string, wait time.Duration, now time.Time) error {
 	if !now.Before(b.nextLog) {
-		slog.Warn("fleet node bootstrap throttled", "event", "fleet_node_bootstrap_throttled", "requests_per_minute", b.limit)
+		slog.Warn("fleet node bootstrap throttled", "event", "fleet_node_bootstrap_throttled", "reason", reason, "requests_per_minute", b.limit)
 		b.nextLog = now.Add(bootstrapRateWindow)
 	}
 	seconds := max(1, int((wait+time.Second-1)/time.Second))

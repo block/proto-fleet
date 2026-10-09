@@ -26,6 +26,7 @@ import (
 )
 
 func TestBootstrapRateLimitsAllow100NodesBehindOneIP(t *testing.T) {
+	// Arrange
 	harness := newControlHarness(t)
 	apiKeys := apikey.NewService(sqlstores.NewSQLApiKeyStore(harness.db), nil)
 	store := sqlstores.NewSQLFleetNodeEnrollmentStore(harness.db)
@@ -92,6 +93,8 @@ func TestBootstrapRateLimitsAllow100NodesBehindOneIP(t *testing.T) {
 		}
 		return nil
 	}
+
+	// Act
 	var wg sync.WaitGroup
 	results := make(chan error, len(nodes))
 	for _, n := range nodes {
@@ -99,6 +102,8 @@ func TestBootstrapRateLimitsAllow100NodesBehindOneIP(t *testing.T) {
 	}
 	wg.Wait()
 	close(results)
+
+	// Assert
 	for result := range results {
 		require.NoError(t, result)
 	}

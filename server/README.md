@@ -71,8 +71,9 @@ Fleet rejects excess requests before decoding or database work with
 credentials and retries on its next heartbeat tick, including after WAF HTTP 429.
 
 Each budget uses fixed 60-second windows from an IP's first request and holds
-at most 10,000 IPs. At capacity, only expired entries are removed; new IPs are
-rejected until space is available. Counters reset on restart or HA failover.
+at most 10,000 IPs, counting IPv6 clients per /64. At capacity, only expired
+entries are removed; untracked IPs share one overflow budget with the same
+limit. Counters reset on restart or HA failover.
 Unresolved IPs share a counter. Fleet logs at most one throttle event per budget per minute, without
 IPs or credentials.
 
