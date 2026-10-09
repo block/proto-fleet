@@ -25,6 +25,10 @@ func TestDirectWriteRollbackPreservesCompletedDirectEvidence(t *testing.T) {
 	attempt, err := devicewrite.NewService(database.DB).BeginHost(t.Context(), user.OrganizationID, device.DatabaseID, 0)
 	require.NoError(t, err)
 	require.NoError(t, attempt.Finish(t.Context(), nil))
+	// Explicitly seed qualified completion history for the rollback fixture.
+	// A nil adapter result above now leaves the real attempt unresolved.
+	_, err = database.DB.ExecContext(t.Context(), "UPDATE device_write_attempt SET status='complete' WHERE device_id=$1", device.DatabaseID)
+	require.NoError(t, err)
 	down, err := migrations.Current.ReadFile("current/001010_internal_direct_device_write_attempts.down.sql")
 	require.NoError(t, err)
 	_, err = database.DB.ExecContext(t.Context(), string(down))
