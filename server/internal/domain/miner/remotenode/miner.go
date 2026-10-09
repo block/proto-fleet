@@ -22,7 +22,6 @@ import (
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
-	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -248,11 +247,8 @@ func (m *Miner) dispatchWithArtifacts(ctx context.Context, mc *gatewaypb.MinerCo
 		return err
 	}
 	defer release()
-	ack, _, err := m.sendWithoutGateWithArtifactResults(ctx, mc, artifacts)
-	if err != nil {
-		return err
-	}
-	return ackToError(ack)
+	_, _, err = m.sendInSlotWithArtifactResults(ctx, mc, artifacts)
+	return err
 }
 
 func (m *Miner) send(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
@@ -261,7 +257,7 @@ func (m *Miner) send(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewayp
 		return nil, err
 	}
 	defer release()
-	return m.sendWithoutGate(ctx, mc)
+	return m.sendInSlot(ctx, mc)
 }
 
 func (m *Miner) sendWithCommandTimeout(ctx context.Context, timeout time.Duration, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
@@ -274,7 +270,7 @@ func (m *Miner) sendWithCommandTimeout(ctx context.Context, timeout time.Duratio
 	commandCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	ack, err := m.sendWithoutGate(commandCtx, mc)
+	ack, err := m.sendInSlot(commandCtx, mc)
 	if err != nil && errors.Is(err, context.DeadlineExceeded) {
 		return nil, fleeterror.NewConnectionError(m.desc.GetDeviceIdentifier(), err)
 	}
@@ -311,7 +307,7 @@ func acquireFleetNodeGate(ctx context.Context, gate Gate, fleetNodeID int64, slo
 	return release, nil
 }
 
-func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
+func (m *Miner) sendInSlot(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
 	cmd, err := m.controlCommandForMiner(id.GenerateID(), mc)
 	if err != nil {
 		return nil, devicewrite.NotDispatched(err)
@@ -325,27 +321,15 @@ func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand)
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2
 	}
 	var ack *gatewaypb.ControlAck
-	kind, physical := physicalWriteKind(mc)
-	invoke := func(ctx context.Context) error {
+	err = m.withPhysicalWriteAdmission(ctx, mc, func(ctx context.Context) (*gatewaypb.ControlAck, error) {
 		var err error
 		ack, err = m.sender.SendCommand(ctx, m.fleetNodeID, version, cmd)
-		if err != nil {
-			return mapSendCommandError(err)
-		}
-		if physical {
-			return ackToError(ack)
-		}
-		return nil
-	}
-	if physical && m.writeGate != nil {
-		err = m.writeGate(ctx, kind, invoke)
-	} else {
-		err = invoke(ctx)
-	}
+		return ack, err
+	})
 	return ack, err
 }
 
-func (m *Miner) sendWithoutGateWithArtifactResults(ctx context.Context, mc *gatewaypb.MinerCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
+func (m *Miner) sendInSlotWithArtifactResults(ctx context.Context, mc *gatewaypb.MinerCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
 	sender, ok := m.sender.(ArtifactCommandSender)
 	if !ok {
 		return nil, nil, devicewrite.NotDispatched(fleeterror.NewInternalError("fleet node command sender does not support artifact results"))
@@ -356,23 +340,11 @@ func (m *Miner) sendWithoutGateWithArtifactResults(ctx context.Context, mc *gate
 	}
 	var ack *gatewaypb.ControlAck
 	var refs []*gatewaypb.CommandArtifactRef
-	kind, physical := physicalWriteKind(mc)
-	invoke := func(ctx context.Context) error {
+	err = m.withPhysicalWriteAdmission(ctx, mc, func(ctx context.Context) (*gatewaypb.ControlAck, error) {
 		var err error
 		ack, refs, err = sender.SendCommandWithArtifactResults(ctx, m.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, artifacts)
-		if err != nil {
-			return mapSendCommandError(err)
-		}
-		if physical {
-			return ackToError(ack)
-		}
-		return nil
-	}
-	if physical && m.writeGate != nil {
-		err = m.writeGate(ctx, kind, invoke)
-	} else {
-		err = invoke(ctx)
-	}
+		return ack, err
+	})
 	return ack, refs, err
 }
 
@@ -486,11 +458,8 @@ func (m *Miner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningP
 		return devicewrite.NotDispatched(fleeterror.NewInvalidArgumentErrorf("seal fleet node pool config: %v", err))
 	}
 	command.GetUpdateMiningPools().EncryptedConfig = encrypted
-	ack, err := m.sendWithoutGate(ctx, command)
-	if err != nil {
-		return err
-	}
-	return ackToError(ack)
+	_, err = m.sendInSlot(ctx, command)
+	return err
 }
 
 func (m *Miner) UpdateMinerPassword(ctx context.Context, payload dto.UpdateMinerPasswordPayload) error {
@@ -508,9 +477,6 @@ func (m *Miner) UpdateMinerPasswordWithCredentials(ctx context.Context, payload 
 		},
 	}})
 	if err != nil {
-		return nil, err
-	}
-	if err := ackToError(ack); err != nil {
 		return nil, err
 	}
 
@@ -555,7 +521,7 @@ func (m *Miner) DownloadLogs(ctx context.Context, batchLogUUID string) error {
 	}
 	defer release()
 
-	ack, refs, err := m.sendWithoutGateWithArtifactResults(ctx, command, []control.ArtifactExpectation{{
+	ack, refs, err := m.sendInSlotWithArtifactResults(ctx, command, []control.ArtifactExpectation{{
 		Direction:        control.ArtifactDirectionUpload,
 		Purpose:          gatewaypb.CommandArtifactPurpose_COMMAND_ARTIFACT_PURPOSE_MINER_LOGS,
 		DeviceIdentifier: m.desc.GetDeviceIdentifier(),
@@ -946,41 +912,4 @@ func miningPoolConfigFromDTO(pool dto.MiningPool, poolName string) (*gatewaypb.M
 		Username: pool.Username,
 		Password: proto.String(pool.Password),
 	}, nil
-}
-
-// Only explicitly observation-only actions bypass physical-write admission.
-// Future actions remain fenced until their behavior has been classified.
-func physicalWriteKind(command *gatewaypb.MinerCommand) (commandtype.Type, bool) {
-	switch command.GetAction().(type) {
-	case *gatewaypb.MinerCommand_GetCoolingMode, *gatewaypb.MinerCommand_GetErrors, *gatewaypb.MinerCommand_GetMiningPools, *gatewaypb.MinerCommand_GetFirmwareUpdateStatus, *gatewaypb.MinerCommand_DownloadLogs, *gatewaypb.MinerCommand_BlinkLed:
-		return commandtype.Type(-1), false
-	case *gatewaypb.MinerCommand_Reboot:
-		return commandtype.Reboot, true
-	case *gatewaypb.MinerCommand_StartMining:
-		return commandtype.StartMining, true
-	case *gatewaypb.MinerCommand_StopMining:
-		return commandtype.StopMining, true
-	case *gatewaypb.MinerCommand_Curtail:
-		return commandtype.Curtail, true
-	case *gatewaypb.MinerCommand_Uncurtail:
-		return commandtype.Uncurtail, true
-	case *gatewaypb.MinerCommand_SetCoolingMode:
-		return commandtype.SetCoolingMode, true
-	case *gatewaypb.MinerCommand_SetPowerTarget:
-		return commandtype.SetPowerTarget, true
-	case *gatewaypb.MinerCommand_UpdateMiningPools:
-		return commandtype.UpdateMiningPools, true
-	case *gatewaypb.MinerCommand_UpdateMinerPassword:
-		return commandtype.UpdateMinerPassword, true
-	case *gatewaypb.MinerCommand_FirmwareUpdate:
-		return commandtype.FirmwareUpdate, true
-	case *gatewaypb.MinerCommand_ApplyCurtailmentConfig:
-		return commandtype.ApplyCurtailmentConfig, true
-	case *gatewaypb.MinerCommand_SetTankMining:
-		return commandtype.SetTankMining, true
-	case *gatewaypb.MinerCommand_SetContainerControl:
-		return commandtype.SetContainerControl, true
-	default:
-		return commandtype.Type(-1), true
-	}
 }

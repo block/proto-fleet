@@ -2,9 +2,9 @@ package devicewrite
 
 import "errors"
 
-// NotDispatched marks an error from preparation or admission that is known to
-// have failed before any outbound device operation. Never use it for transport
-// or acknowledgement errors, whose physical outcome may be ambiguous.
+// NotDispatched marks explicit evidence that no outbound device operation began.
+// Preparation/admission refusals and documented pre-execution transport refusals
+// qualify; generic transport or acknowledgement errors do not.
 func NotDispatched(err error) error {
 	if err == nil {
 		return nil

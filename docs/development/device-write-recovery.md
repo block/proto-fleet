@@ -16,6 +16,14 @@ quarantines custody. Completing a later request, polling an install before its
 follow-on reboot, or rejecting a later call before dispatch cannot clear an
 earlier unresolved mutation.
 
+A local admission refusal is known to be undispatched when the adapter never
+invoked its device or transport callback. Fleet Node `BAD_REQUEST` and
+`AGENT_INCAPABLE` acknowledgements may describe early refusals, but their codes
+do not certify that backend work never began. They retain unknown evidence after
+a send. A failed `BUSY` acknowledgement is the documented exception: the node
+refuses it before device dispatch. Broader automatic release requires an explicit
+node execution-stage guarantee; error-message text is not that guarantee.
+
 Uncertain device operations retain their attempt records indefinitely. Timeouts,
 queue reaping, disconnected transports, a new process starting, and successful
 configuration readback do not prove an earlier operation ended. Unknown attempts

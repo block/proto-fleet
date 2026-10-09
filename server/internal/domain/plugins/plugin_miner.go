@@ -15,6 +15,7 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	diagnosticsModels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
@@ -739,7 +740,15 @@ func isNetworkError(err error) bool {
 
 func (p *PluginMiner) dispatchWrite(ctx context.Context, kind commandtype.Type, call func(context.Context) error) error {
 	if p.writeGate != nil {
-		return p.writeGate(ctx, kind, call)
+		invoked := false
+		err := p.writeGate(ctx, kind, func(ctx context.Context) error {
+			invoked = true
+			return call(ctx)
+		})
+		if err != nil && !invoked {
+			return devicewrite.NotDispatched(err)
+		}
+		return err
 	}
 	return call(ctx)
 }
