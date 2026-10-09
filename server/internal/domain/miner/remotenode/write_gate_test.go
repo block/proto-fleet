@@ -23,6 +23,9 @@ func TestRemotePhysicalWritesRequireAdmissionBeforeTransport(t *testing.T) {
 		kind commandtype.Type
 		run  func(*Miner) error
 	}{
+		{commandtype.SetTankMining, func(m *Miner) error {
+			return m.SetTankMining(t.Context(), sdk.TankMiningRequest{Positions: []int32{1}, Mining: new(false)})
+		}},
 		{commandtype.Reboot, func(m *Miner) error { return m.Reboot(t.Context()) }},
 		{commandtype.StartMining, func(m *Miner) error { return m.StartMining(t.Context()) }},
 		{commandtype.StopMining, func(m *Miner) error { return m.StopMining(t.Context()) }},

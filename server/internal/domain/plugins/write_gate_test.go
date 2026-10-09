@@ -30,12 +30,17 @@ func (d *gatedSDKDevice) SetContainerControl(context.Context, sdk.ContainerContr
 	return nil
 }
 
+func (d *gatedSDKDevice) SetTankMining(context.Context, sdk.TankMiningRequest) error {
+	d.writes++
+	return nil
+}
+
 func TestPluginPhysicalWritesRequireAdmissionAtDispatch(t *testing.T) {
 	denied := errors.New("operation admission denied")
 	_, base := createTestPluginMiner()
 	device := &gatedSDKDevice{mockSDKDevice: base}
 	miner := createTestPluginMinerWithDevice(device)
-	miner.caps = sdk.Capabilities{sdk.CapabilityCurtailFull: true}
+	miner.caps = sdk.Capabilities{sdk.CapabilityCurtailFull: true, sdk.CapabilityTankMining: true}
 	device.rebootFunc = func(context.Context) error { device.writes++; return nil }
 	device.startMiningFunc = func(context.Context) error { device.writes++; return nil }
 	device.stopMiningFunc = func(context.Context) error { device.writes++; return nil }
@@ -57,6 +62,9 @@ func TestPluginPhysicalWritesRequireAdmissionAtDispatch(t *testing.T) {
 	}{
 		{commandtype.SetContainerControl, func(ctx context.Context) error {
 			return miner.SetContainerControl(ctx, sdk.ContainerControlRequest{Name: "dry_cooler", Enabled: new(false)})
+		}},
+		{commandtype.SetTankMining, func(ctx context.Context) error {
+			return miner.SetTankMining(ctx, sdk.TankMiningRequest{Positions: []int32{1}, Mining: new(false)})
 		}},
 		{commandtype.Reboot, miner.Reboot},
 		{commandtype.StartMining, miner.StartMining},

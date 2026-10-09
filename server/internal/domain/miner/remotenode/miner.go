@@ -976,6 +976,8 @@ func physicalWriteKind(command *gatewaypb.MinerCommand) (commandtype.Type, bool)
 		return commandtype.FirmwareUpdate, true
 	case *gatewaypb.MinerCommand_ApplyCurtailmentConfig:
 		return commandtype.ApplyCurtailmentConfig, true
+	case *gatewaypb.MinerCommand_SetTankMining:
+		return commandtype.SetTankMining, true
 	case *gatewaypb.MinerCommand_SetContainerControl:
 		return commandtype.SetContainerControl, true
 	default:

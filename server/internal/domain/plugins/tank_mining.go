@@ -3,6 +3,7 @@ package plugins
 import (
 	"context"
 
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
@@ -12,5 +13,7 @@ func (p *PluginMiner) SetTankMining(ctx context.Context, req sdk.TankMiningReque
 	if !ok || !p.caps[sdk.CapabilityTankMining] {
 		return fleeterror.NewUnimplementedError("tank mining unsupported")
 	}
-	return wrapPluginError(controller.SetTankMining(ctx, req), "tank mining")
+	return p.dispatchWrite(ctx, commandtype.SetTankMining, func(ctx context.Context) error {
+		return wrapPluginError(controller.SetTankMining(ctx, req), "tank mining")
+	})
 }
