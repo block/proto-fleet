@@ -43,7 +43,7 @@ func TestBootstrapRateBudgetWindow(t *testing.T) {
 }
 
 func TestBootstrapRateBudgetConcurrent(t *testing.T) {
-	b := &bootstrapRateBudget{limit: 600}
+	b := &bootstrapRateBudget{limit: bootstrapHandshakeLimit}
 	now := time.Now()
 	var accepted atomic.Int64
 	var wg sync.WaitGroup
@@ -114,13 +114,13 @@ func TestBootstrapRateGateProtocolsAndSharedHandshakeBudget(t *testing.T) {
 			t.Cleanup(srv.Close)
 			client := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(srv.Client(), srv.URL, tc.opts...)
 			// Failed authentication also spends the budget, independently of codec.
-			for range 120 {
+			for range bootstrapRegistrationLimit {
 				_, err = client.Register(t.Context(), connect.NewRequest(&pb.RegisterRequest{}))
 				require.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 			}
 			_, err = client.Register(t.Context(), connect.NewRequest(&pb.RegisterRequest{}))
 			requireBootstrapThrottle(t, err, "60")
-			for range 300 {
+			for range bootstrapHandshakeLimit / 2 {
 				_, err = client.BeginAuthHandshake(t.Context(), connect.NewRequest(&pb.BeginAuthHandshakeRequest{}))
 				require.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 				_, err = client.CompleteAuthHandshake(t.Context(), connect.NewRequest(&pb.CompleteAuthHandshakeRequest{}))
@@ -172,7 +172,7 @@ func TestBootstrapRateGateRejectsBeforeDecodingAndIgnoresSpoofedIP(t *testing.T)
 			ip, err := middleware.NewClientIPMiddleware(tc.trusted)
 			require.NoError(t, err)
 			wrapped := ip.Wrap(h)
-			for i := range 120 {
+			for i := range bootstrapRegistrationLimit {
 				req := httptest.NewRequest(http.MethodPost, fleetnodegatewayv1connect.FleetNodeGatewayServiceRegisterProcedure, strings.NewReader("{}"))
 				req.Header.Set("Content-Type", "application/json")
 				req.Header.Set("X-Forwarded-For", fmt.Sprintf("198.51.100.%d%s", i, tc.forwarded))
@@ -209,7 +209,7 @@ func TestBootstrapRateGateRejectsBeforeDecodingAndIgnoresSpoofedIP(t *testing.T)
 				}, gate)
 			// No IP middleware: bootstrap calls would use the exhausted fallback
 			// bucket, but operational procedures must still be admitted.
-			for range 601 {
+			for range bootstrapHandshakeLimit + 1 {
 				req := httptest.NewRequest(http.MethodPost, procedure, bytes.NewReader(nil))
 				req.Header.Set("Content-Type", "application/proto")
 				rr := httptest.NewRecorder()

@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	bootstrapRateWindow = time.Minute
-	bootstrapRateMaxIPs = 10000
+	bootstrapRegistrationLimit = 120
+	bootstrapHandshakeLimit    = 600
+	bootstrapRateWindow        = time.Minute
+	bootstrapRateMaxIPs        = 10000
 )
 
 type bootstrapRateWindowState struct {
@@ -41,8 +43,8 @@ func BootstrapRateLimitOption() connect.HandlerOption {
 }
 
 func bootstrapRateLimitOption(now func() time.Time) connect.HandlerOption {
-	registration := &bootstrapRateBudget{limit: 120}
-	handshake := &bootstrapRateBudget{limit: 600}
+	registration := &bootstrapRateBudget{limit: bootstrapRegistrationLimit}
+	handshake := &bootstrapRateBudget{limit: bootstrapHandshakeLimit}
 	return connect.WithRequestGate(func(ctx context.Context, spec connect.Spec, _ connect.Peer, _ http.Header) (context.Context, error) {
 		var budget *bootstrapRateBudget
 		switch spec.Procedure {
