@@ -96,8 +96,8 @@ func TestRetiredIdentityUpgradePreservesOutstandingAttempts(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, database.DB.QueryRowContext(t.Context(), "INSERT INTO queue_message(command_batch_log_uuid,device_id,command_type,status,retry_count) VALUES('retired-upgrade',$1,'Reboot','PROCESSING',0) RETURNING id", retired.DatabaseID).Scan(&messageID))
 			attemptID := uuid.New()
-			// Version 167 has no identity_keys column; populate the actual old shape.
-			_, err = database.DB.ExecContext(t.Context(), "INSERT INTO device_write_attempt(attempt_id,device_id,organization_id,epoch,queue_message_id,status,finished_at) VALUES($1,$2,$3,0,$4,$5,CASE WHEN $5='running' THEN NULL ELSE statement_timestamp() END)", attemptID, retired.DatabaseID, user.OrganizationID, messageID, status)
+			// The predecessor has owner and snapshot evidence but no identity_keys column.
+			_, err = database.DB.ExecContext(t.Context(), "INSERT INTO device_write_attempt(attempt_id,device_id,organization_id,epoch,queue_message_id,status,owner_instance_id,identity_snapshot,finished_at) VALUES($1,$2,$3,0,$4,$5,$6,'{}'::jsonb,CASE WHEN $5='running' THEN NULL ELSE statement_timestamp() END)", attemptID, retired.DatabaseID, user.OrganizationID, messageID, status, uuid.New())
 			require.NoError(t, err)
 			_, err = database.DB.ExecContext(t.Context(), "UPDATE device SET deleted_at=statement_timestamp() WHERE id=$1", retired.DatabaseID)
 			require.NoError(t, err)

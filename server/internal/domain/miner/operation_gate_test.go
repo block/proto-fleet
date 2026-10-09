@@ -173,12 +173,12 @@ func TestDirectSDKErrorRetainsUnknownOutcome(t *testing.T) {
 	require.NoError(t, err)
 	require.Error(t, handle.Reboot(t.Context()))
 	fences := devicewrite.NewService(conn)
-	epoch, err := fences.Reserve(t.Context(), 1, deviceID)
-	require.NoError(t, err)
-	drained, err := fences.Drained(t.Context(), 1, deviceID, epoch)
-	require.NoError(t, err)
-	require.False(t, drained)
-	require.Error(t, fences.ReleaseHost(t.Context(), 1, deviceID, epoch))
+	_, err = fences.Reserve(t.Context(), 1, deviceID)
+	require.True(t, fleeterror.IsFailedPreconditionError(err))
+	var status string
+	require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT status FROM device_write_attempt WHERE device_id=$1", deviceID).Scan(&status))
+	require.Equal(t, "unknown", status)
+
 }
 
 func TestReservedMinerCannotBeDeleted(t *testing.T) {
