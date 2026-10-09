@@ -39,6 +39,7 @@ type mockSDKDevice struct {
 	getCoolingModeFunc      func(ctx context.Context) (sdk.CoolingMode, error)
 	setPowerTargetFunc      func(ctx context.Context, performanceMode sdk.PerformanceMode) error
 	updatePoolsFunc         func(ctx context.Context, pools []sdk.MiningPoolConfig) error
+	getPoolsFunc            func(ctx context.Context) ([]sdk.ConfiguredPool, error)
 	downloadLogsFunc        func(ctx context.Context, since *time.Time, uuid string) (string, bool, error)
 	firmwareUpdateFunc      func(ctx context.Context, firmware sdk.FirmwareFile) error
 	getErrorsFunc           func(ctx context.Context) (sdk.DeviceErrors, error)
@@ -195,6 +196,9 @@ func (m *mockSDKDevice) TryGetTimeSeriesData(ctx context.Context, _ []string, _,
 }
 
 func (m *mockSDKDevice) GetMiningPools(ctx context.Context) ([]sdk.ConfiguredPool, error) {
+	if m.getPoolsFunc != nil {
+		return m.getPoolsFunc(ctx)
+	}
 	return nil, nil
 }
 
@@ -932,21 +936,52 @@ func TestPluginMiner_UpdateMiningPools(t *testing.T) {
 			Priority: 1,
 			URL:      "stratum+tcp://pool1.example.com:3333",
 			Username: "worker1",
+			Password: "primary-password",
 		},
 		Backup1Pool: &dto.MiningPool{
 			Priority: 2,
 			URL:      "stratum+tcp://pool2.example.com:3333",
 			Username: "worker2",
+			Password: "backup-password",
+		},
+		Backup2Pool: &dto.MiningPool{
+			Priority: 3,
+			URL:      "stratum+tcp://pool3.example.com:3333",
+			Username: "worker3",
+			Password: "",
 		},
 	}
 
 	err := pm.UpdateMiningPools(t.Context(), payload)
 
 	require.NoError(t, err)
-	assert.Len(t, receivedPools, 2)
-	assert.Equal(t, int32(1), receivedPools[0].Priority)
-	assert.Equal(t, "stratum+tcp://pool1.example.com:3333", receivedPools[0].URL)
-	assert.Equal(t, "worker1", receivedPools[0].WorkerName)
+	require.Len(t, receivedPools, 3)
+	for i, pool := range []dto.MiningPool{payload.DefaultPool, *payload.Backup1Pool, *payload.Backup2Pool} {
+		assert.EqualValues(t, pool.Priority, receivedPools[i].Priority)
+		assert.Equal(t, pool.URL, receivedPools[i].URL)
+		assert.Equal(t, pool.Username, receivedPools[i].WorkerName)
+		assert.Equal(t, pool.Password, receivedPools[i].Password)
+	}
+}
+
+func TestPluginMiner_GetMiningPoolsPreservesPoolIdentity(t *testing.T) {
+	pm, mockDevice := createTestPluginMiner()
+	storedPools := []sdk.ConfiguredPool{
+		{Priority: 0, URL: "stratum+tcp://primary.example.com:3333", Username: "primary"},
+		{Priority: 1, URL: "stratum+tcp://backup1.example.com:3333", Username: "backup1"},
+		{Priority: 2, URL: "stratum+tcp://backup2.example.com:3333", Username: "backup2"},
+	}
+	mockDevice.getPoolsFunc = func(context.Context) ([]sdk.ConfiguredPool, error) { return storedPools, nil }
+
+	pools, err := pm.GetMiningPools(t.Context())
+
+	require.NoError(t, err)
+	require.Len(t, pools, len(storedPools))
+	for i, pool := range storedPools {
+		assert.Equal(t, pool.Priority, pools[i].Priority)
+		assert.Equal(t, pool.URL, pools[i].URL)
+		assert.Equal(t, pool.Username, pools[i].Username)
+	}
 }
 
 func TestPluginMiner_ErrorPropagation(t *testing.T) {

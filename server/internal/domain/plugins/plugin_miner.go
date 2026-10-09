@@ -474,6 +474,7 @@ func validateAndConvertPoolConfig(pool dto.MiningPool, poolName string) (sdk.Min
 		Priority:   int32(pool.Priority), //nolint:gosec // G115: Priority validated above to fit in int32
 		URL:        pool.URL,
 		WorkerName: pool.Username,
+		Password:   pool.Password,
 	}, nil
 }
 

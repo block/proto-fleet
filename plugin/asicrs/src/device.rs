@@ -770,6 +770,9 @@ impl AsicRsDevice {
     }
 
     pub async fn update_mining_pools(&self, pools: Vec<pb::MiningPool>) -> anyhow::Result<()> {
+        if pools.iter().any(|pool| pool.password.is_none()) {
+            return Err(anyhow::anyhow!("every pool requires an explicit password"));
+        }
         let guard = self.connected_miner().await?;
         self.require_cap(CAP_UPDATE_MINING_POOLS).await?;
         let miner = guard.as_ref().unwrap();

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
@@ -253,7 +254,10 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 	// No server-side plugin gate: the fleet node (not the server) dials the miner
 	// and loads the driver plugin; the server only routes the command.
 	remoteCommandMiner, err := remotenode.New(remotenode.Config{
-		Sender:             s.commandSender,
+		Sender: s.commandSender,
+		EncryptionPublicKey: func(ctx context.Context) ([]byte, error) {
+			return s.poolConfigEncryptionPublicKey(ctx, telemetryRoute.OrgID, telemetryRoute.DeviceIdentifier, telemetryRoute.FleetNodeID)
+		},
 		Gate:               s.nodeLimiter,
 		DeferrableReadGate: s.nodeDeferrableReadLimiter,
 		LogDownloadGate:    s.nodeLogDownloadLimiter,
@@ -283,6 +287,22 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 		return nil, false, err
 	}
 	return telemetryMiner, true, nil
+}
+
+// Resolve the key at write time so cached miner handles cannot use a rotated key
+// or send credentials to a node after the device has moved.
+func (s *Service) poolConfigEncryptionPublicKey(ctx context.Context, orgID int64, deviceIdentifier string, fleetNodeID int64) ([]byte, error) {
+	routes, err := s.GetQueries(ctx).GetDeviceCommandRoutes(ctx, sqlc.GetDeviceCommandRoutesParams{
+		OrgID:             orgID,
+		DeviceIdentifiers: []string{deviceIdentifier},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("resolve pool configuration encryption key: %w", err)
+	}
+	if len(routes) != 1 || routes[0].DeviceIdentifier != deviceIdentifier || !routes[0].FleetNodeID.Valid || routes[0].FleetNodeID.Int64 != fleetNodeID {
+		return nil, errors.New("pool configuration node route changed")
+	}
+	return append([]byte(nil), routes[0].EncryptionPubkey...), nil
 }
 
 func fleetNodeCredentialBytes(value sql.NullString) []byte {
