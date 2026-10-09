@@ -4,9 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -31,13 +31,13 @@ func TestEquipmentControlRequiresLiveSupportAndExplicitState(t *testing.T) {
 		{"breaker", `{"mainCircuitBreakerSupported":true,"mainCircuitBreakerClosed":false}`, "main_circuit_breaker", new(true), false, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			writes := 0
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var writes atomic.Int32
+			server := newGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodGet {
 					_, _ = w.Write([]byte(tc.controls))
 					return
 				}
-				writes++
+				writes.Add(1)
 				var body map[string]bool
 				require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 				key := "enabled"
@@ -51,22 +51,23 @@ func TestEquipmentControlRequiresLiveSupportAndExplicitState(t *testing.T) {
 				if key == "closed" {
 					_, _ = w.Write([]byte(`{"closed":true}`))
 				} else {
-					require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"control": map[string]any{"name": tc.control, "enabled": *tc.enabled}}))
+					require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"control": map[string]any{"name": tc.control, "enabled": *tc.enabled}, "confirmation": map[string]any{"requestedEnabled": *tc.enabled, "observedEnabled": *tc.enabled, "state": "PLANT_WRITE_CONFIRMATION_STATE_CONFIRMED", "source": "PLANT_WRITE_CONFIRMATION_SOURCE_CONTROLLER_REGISTER"}}))
 				}
 			}))
 			defer server.Close()
 			u, _ := url.Parse(server.URL)
 			port, err := strconv.ParseInt(u.Port(), 10, 32)
 			require.NoError(t, err)
-			dev, err := NewDevice("ct1", sdk.DeviceInfo{Host: u.Hostname(), Port: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
+			dev, err := NewDevice(t.Context(), "ct1", sdk.DeviceInfo{Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
 			require.NoError(t, err)
+			defer dev.client.Close()
 			err = dev.SetContainerControl(t.Context(), sdk.ContainerControlRequest{Name: tc.control, Enabled: tc.enabled})
 			if tc.reject {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
 			}
-			require.Equal(t, tc.wantWrites, writes)
+			require.Equal(t, tc.wantWrites, int(writes.Load()))
 		})
 	}
 }
@@ -83,13 +84,13 @@ func TestEquipmentWriteFailureIsNotRetried(t *testing.T) {
 		{name: "timeout", hang: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			writes := 0
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var writes atomic.Int32
+			server := newGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodGet {
 					_, _ = w.Write([]byte(`{"supported":true,"controls":[{"name":"dry_cooler","stateKnown":true,"enabled":true}]}`))
 					return
 				}
-				writes++
+				writes.Add(1)
 				if tc.hang {
 					select {
 					case <-r.Context().Done():
@@ -104,13 +105,14 @@ func TestEquipmentWriteFailureIsNotRetried(t *testing.T) {
 			u, _ := url.Parse(server.URL)
 			port, err := strconv.ParseInt(u.Port(), 10, 32)
 			require.NoError(t, err)
-			dev, err := NewDevice("ct1", sdk.DeviceInfo{Host: u.Hostname(), Port: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
+			dev, err := NewDevice(t.Context(), "ct1", sdk.DeviceInfo{Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
 			require.NoError(t, err)
+			defer dev.client.Close()
 			ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 			defer cancel()
 			err = dev.SetContainerControl(ctx, sdk.ContainerControlRequest{Name: "dry_cooler", Enabled: new(false)})
 			require.Error(t, err)
-			require.Equal(t, 1, writes)
+			require.Equal(t, int32(1), writes.Load())
 		})
 	}
 }

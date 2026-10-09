@@ -172,6 +172,8 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 		Host:            req.GetIpAddress(),
 		Port:            port,
 		URLScheme:       req.GetUrlScheme(),
+		RPCPort:         req.GetRpcPort(),
+		RPCTLS:          req.GetRpcTls(),
 		SerialNumber:    req.GetSerialNumber(),
 		Model:           req.GetModel(),
 		Manufacturer:    req.GetManufacturer(),
@@ -295,11 +297,14 @@ func validateTelemetryMetricsIdentity(requestedDeviceIdentifier, handleID string
 
 func telemetryDialTarget(req *telemetrypb.FleetNodeTelemetryRequest) *pb.MinerConnectionDescriptor {
 	return &pb.MinerConnectionDescriptor{
+		DeviceClass:        req.GetDeviceClass(),
 		DeviceIdentifier:   req.GetDeviceIdentifier(),
 		DriverName:         req.GetDriverName(),
 		IpAddress:          req.GetIpAddress(),
 		Port:               req.GetPort(),
 		UrlScheme:          req.GetUrlScheme(),
+		RpcPort:            req.GetRpcPort(),
+		RpcTls:             req.GetRpcTls(),
 		SerialNumber:       req.GetSerialNumber(),
 		MacAddress:         req.GetMacAddress(),
 		CredentialUsername: req.GetCredentialUsername(),

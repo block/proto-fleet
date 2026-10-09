@@ -85,6 +85,8 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 		Host:            target.GetIpAddress(),
 		Port:            port,
 		URLScheme:       target.GetUrlScheme(),
+		RPCPort:         target.GetRpcPort(),
+		RPCTLS:          target.GetRpcTls(),
 		Manufacturer:    target.GetManufacturer(),
 		FirmwareVersion: target.GetFirmwareVersion(),
 		DeviceClass:     sdk.DeviceClass(target.GetDeviceClass()),

@@ -147,6 +147,7 @@ changed-checks:
         - "deployment-files/*.sh"
         - "deployment-files/scripts/**"
         - "plugin/proto/**"
+        - "sdk/mdk/**"
         - "server/go.mod"
         - "server/go.sum"
         - "server/sdk/**"

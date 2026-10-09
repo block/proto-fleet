@@ -3,6 +3,7 @@ module github.com/block/proto-fleet/plugin/proto
 go 1.26.0
 
 require (
+	github.com/block/proto-fleet/sdk/mdk v0.0.0
 	github.com/block/proto-fleet/server v0.0.0-20261007052907-473e33e96af5
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-plugin v1.8.0
@@ -15,6 +16,8 @@ require (
 )
 
 replace github.com/block/proto-fleet/server => ../../server
+
+replace github.com/block/proto-fleet/sdk/mdk => ../../sdk/mdk
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
@@ -37,6 +40,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
+	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/hashicorp/go-hclog v1.6.3 // indirect
 	github.com/hashicorp/yamux v0.1.2 // indirect
 	github.com/klauspost/compress v1.20.1 // indirect
@@ -70,5 +74,6 @@ require (
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260928230214-8a89bd6388cc // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260928230214-8a89bd6388cc // indirect
 )

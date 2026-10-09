@@ -627,6 +627,8 @@ func convertFleetDeviceToSDKDeviceInfo(device *pb.Device) sdk.DeviceInfo {
 		Host:            device.IpAddress,
 		Port:            port,
 		URLScheme:       device.UrlScheme,
+		RPCPort:         device.RpcPort,
+		RPCTLS:          device.RpcTls,
 		SerialNumber:    device.SerialNumber,
 		Model:           device.Model,
 		DeviceClass:     sdk.DeviceClass(device.DeviceClass),

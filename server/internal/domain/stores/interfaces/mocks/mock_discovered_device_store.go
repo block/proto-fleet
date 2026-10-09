@@ -117,6 +117,21 @@ func (mr *MockDiscoveredDeviceStoreMockRecorder) GetDevice(ctx, doi any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevice", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).GetDevice), ctx, doi)
 }
 
+// GetDirectContainerByIP mocks base method.
+func (m *MockDiscoveredDeviceStore) GetDirectContainerByIP(ctx context.Context, orgID int64, ipAddress, driverName, model, manufacturer string) (*models.DiscoveredDevice, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDirectContainerByIP", ctx, orgID, ipAddress, driverName, model, manufacturer)
+	ret0, _ := ret[0].(*models.DiscoveredDevice)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDirectContainerByIP indicates an expected call of GetDirectContainerByIP.
+func (mr *MockDiscoveredDeviceStoreMockRecorder) GetDirectContainerByIP(ctx, orgID, ipAddress, driverName, model, manufacturer any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDirectContainerByIP", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).GetDirectContainerByIP), ctx, orgID, ipAddress, driverName, model, manufacturer)
+}
+
 // Save mocks base method.
 func (m *MockDiscoveredDeviceStore) Save(ctx context.Context, doi models.DeviceOrgIdentifier, device *models.DiscoveredDevice) (*models.DiscoveredDevice, error) {
 	m.ctrl.T.Helper()

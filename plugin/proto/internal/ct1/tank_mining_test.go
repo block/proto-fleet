@@ -3,7 +3,6 @@ package ct1
 import (
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"sync/atomic"
@@ -36,7 +35,7 @@ func TestTankMiningVerifiesContainerIdentityBeforeWriting(t *testing.T) {
 			t.Run(tc.name+"/"+strconv.FormatBool(mining), func(t *testing.T) {
 				var writes atomic.Int32
 				var mapReads atomic.Int32
-				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				srv := newTankGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					switch r.URL.Path {
 					case "/api/v2/system/info":
 						require.Equal(t, http.MethodGet, r.Method)
@@ -56,7 +55,7 @@ func TestTankMiningVerifiesContainerIdentityBeforeWriting(t *testing.T) {
 				require.NoError(t, err)
 				port, err := strconv.ParseInt(u.Port(), 10, 32)
 				require.NoError(t, err)
-				dev, err := NewDevice("device-id", sdk.DeviceInfo{SerialNumber: tc.expectedSerial, Host: u.Hostname(), Port: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
+				dev, err := newTankTestDevice(t, "device-id", sdk.DeviceInfo{SerialNumber: tc.expectedSerial, Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme})
 				require.NoError(t, err)
 				err = dev.SetTankMining(t.Context(), sdk.TankMiningRequest{Positions: []int32{1}, Mining: &mining})
 				if tc.wantError {
@@ -87,7 +86,7 @@ func TestTankMiningRejectsIncompleteModuleSlotsBeforeWriting(t *testing.T) {
 		for _, mining := range []bool{false, true} {
 			t.Run(module.name+"/"+strconv.FormatBool(mining), func(t *testing.T) {
 				var writes atomic.Int32
-				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				srv := newTankGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					if r.URL.Path == "/api/v2/system/info" {
 						_, _ = w.Write([]byte(`{"info":{"id":"ct1","model":"CT1"}}`))
 						return
@@ -104,7 +103,7 @@ func TestTankMiningRejectsIncompleteModuleSlotsBeforeWriting(t *testing.T) {
 				require.NoError(t, err)
 				port, err := strconv.ParseInt(u.Port(), 10, 32)
 				require.NoError(t, err)
-				dev, err := NewDevice("ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
+				dev, err := newTankTestDevice(t, "ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme})
 				require.NoError(t, err)
 				err = dev.SetTankMining(t.Context(), sdk.TankMiningRequest{Positions: []int32{1}, Mining: &mining})
 				require.Zero(t, writes.Load(), "incomplete slot topology must prevent every write")
@@ -130,16 +129,17 @@ func TestTankMiningRejectsAmbiguousBoardIdentitiesBeforeWriting(t *testing.T) {
 	} {
 		for _, mining := range []bool{false, true} {
 			t.Run(tc.name+"/"+strconv.FormatBool(mining), func(t *testing.T) {
+				tc.other.MiningState = "MINING_STATE_IDLE"
 				wire := MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{
 					{ID: 1, Modules: []Module{{ID: 1, Slots: []Slot{
-						{Occupied: true, Hashboard: &Board{MACAddress: "aa:bb:cc:dd:ee:01", Serial: "selected"}}, {}, {},
+						{Occupied: true, Hashboard: &Board{MACAddress: "aa:bb:cc:dd:ee:01", Serial: "selected", MiningState: "MINING_STATE_IDLE"}}, {}, {},
 					}}}},
 					{ID: 2, Modules: []Module{{ID: 1, Slots: []Slot{
 						{Occupied: !tc.emptySlot, Hashboard: &tc.other}, {}, {},
 					}}}},
 				}}}
 				var writes atomic.Int32
-				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				srv := newTankGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					if r.URL.Path == "/api/v2/system/info" {
 						_, _ = w.Write([]byte(`{"info":{"id":"ct1","model":"CT1"}}`))
 						return
@@ -156,7 +156,7 @@ func TestTankMiningRejectsAmbiguousBoardIdentitiesBeforeWriting(t *testing.T) {
 				require.NoError(t, err)
 				port, err := strconv.ParseInt(u.Port(), 10, 32)
 				require.NoError(t, err)
-				dev, err := NewDevice("ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
+				dev, err := newTankTestDevice(t, "ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme})
 				require.NoError(t, err)
 				err = dev.SetTankMining(t.Context(), sdk.TankMiningRequest{Positions: tc.positions, Mining: &mining})
 				require.Zero(t, writes.Load(), "ambiguous placement must prevent every write")
@@ -168,7 +168,7 @@ func TestTankMiningRejectsAmbiguousBoardIdentitiesBeforeWriting(t *testing.T) {
 
 func TestTankMiningMatchesNormalizedBoardResults(t *testing.T) {
 	var writes atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := newTankGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v2/system/info" {
 			_, _ = w.Write([]byte(`{"info":{"id":"ct1","model":"CT1"}}`))
 			return
@@ -185,7 +185,7 @@ func TestTankMiningMatchesNormalizedBoardResults(t *testing.T) {
 	require.NoError(t, err)
 	port, err := strconv.ParseInt(u.Port(), 10, 32)
 	require.NoError(t, err)
-	dev, err := NewDevice("ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
+	dev, err := newTankTestDevice(t, "ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme})
 	require.NoError(t, err)
 	require.NoError(t, dev.SetTankMining(t.Context(), sdk.TankMiningRequest{Positions: []int32{1}, Mining: new(false)}))
 	require.EqualValues(t, 1, writes.Load())
@@ -196,7 +196,7 @@ func TestTankMiningUsesOneScopedWriteAndReportsPartialBoardFailures(t *testing.T
 		for _, partial := range []bool{false, true} {
 			t.Run(strconv.FormatBool(mining)+"/"+strconv.FormatBool(partial), func(t *testing.T) {
 				writes := 0
-				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				srv := newTankGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					if r.URL.Path == "/api/v2/system/info" {
 						_, _ = w.Write([]byte(`{"info":{"id":"ct1","model":"CT1"}}`))
 						return
@@ -223,7 +223,7 @@ func TestTankMiningUsesOneScopedWriteAndReportsPartialBoardFailures(t *testing.T
 				u, _ := url.Parse(srv.URL)
 				port, err := strconv.ParseInt(u.Port(), 10, 32)
 				require.NoError(t, err)
-				dev, err := NewDevice("ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
+				dev, err := newTankTestDevice(t, "ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme})
 				require.NoError(t, err)
 				err = dev.SetTankMining(t.Context(), sdk.TankMiningRequest{Positions: []int32{3, 1}, Mining: &mining})
 				if partial {
@@ -241,7 +241,7 @@ func TestTankMiningUsesOneScopedWriteAndReportsPartialBoardFailures(t *testing.T
 func TestTankMiningNeverBroadensMissingOrInvalidScope(t *testing.T) {
 	for _, positions := range [][]int32{nil, {0}, {1, 1}, {2}, {1, 2}} {
 		writes := 0
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := newTankGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/api/v2/system/info" {
 				_, _ = w.Write([]byte(`{"info":{"id":"ct1","model":"CT1"}}`))
 				return
@@ -255,7 +255,7 @@ func TestTankMiningNeverBroadensMissingOrInvalidScope(t *testing.T) {
 		u, _ := url.Parse(srv.URL)
 		port, err := strconv.ParseInt(u.Port(), 10, 32)
 		require.NoError(t, err)
-		dev, err := NewDevice("ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
+		dev, err := newTankTestDevice(t, "ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme})
 		require.NoError(t, err)
 		require.Error(t, dev.SetTankMining(t.Context(), sdk.TankMiningRequest{Positions: positions, Mining: new(false)}))
 		require.Zero(t, writes)
@@ -266,7 +266,7 @@ func TestTankMiningNeverBroadensMissingOrInvalidScope(t *testing.T) {
 func TestTankMiningDoesNotRetryAmbiguousOrRejectedWrites(t *testing.T) {
 	for _, response := range []string{`{}`, `{"results":[{"macAddress":"other","applied":true}]}`, `{"results":[{"macAddress":"a","applied":true},{"macAddress":"a","applied":true}]}`} {
 		writes := 0
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := newTankGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == "/api/v2/system/info" {
 				_, _ = w.Write([]byte(`{"info":{"id":"ct1","model":"CT1"}}`))
 				return
@@ -281,10 +281,21 @@ func TestTankMiningDoesNotRetryAmbiguousOrRejectedWrites(t *testing.T) {
 		u, _ := url.Parse(srv.URL)
 		port, err := strconv.ParseInt(u.Port(), 10, 32)
 		require.NoError(t, err)
-		dev, err := NewDevice("ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
+		dev, err := newTankTestDevice(t, "ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme})
 		require.NoError(t, err)
 		require.Error(t, dev.SetTankMining(t.Context(), sdk.TankMiningRequest{Positions: []int32{1}, Mining: new(false)}))
 		require.Equal(t, 1, writes)
 		srv.Close()
 	}
+}
+
+// Identity failures are exercised at control time on an already-created handle.
+func newTankTestDevice(t *testing.T, id string, info sdk.DeviceInfo) (*Device, error) {
+	t.Helper()
+	c, err := NewClient(info, sdk.UsernamePassword{})
+	if err != nil {
+		return nil, err
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	return &Device{id: id, info: info, client: c}, nil
 }

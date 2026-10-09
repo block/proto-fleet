@@ -20,7 +20,13 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
+	"time"
+
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 
 	"github.com/block/proto-fleet/plugin/proto/internal/ct1"
 	"github.com/block/proto-fleet/plugin/proto/internal/device"
@@ -152,7 +158,7 @@ func (d *Driver) GetDiscoveryPorts(_ context.Context) []string {
 	if d.requiredPort > 0 {
 		return []string{fmt.Sprintf("%d", d.requiredPort)}
 	}
-	return []string{"443", "80", "8080"}
+	return []string{"443", "80", "8080", "9095"}
 }
 
 // DiscoverDevice implements the SDK Driver interface.
@@ -185,6 +191,19 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeInvalidConfig, fmt.Errorf("host address cannot be empty"))
 	}
 
+	if portInt32 == ct1.DefaultRPCPort {
+		return discoverContainer(ctx, ipAddress, portInt32)
+	}
+	if d.requiredPort > 0 {
+		info, err := discoverContainer(ctx, ipAddress, portInt32)
+		if err == nil {
+			return info, nil
+		}
+		if code := grpcstatus.Code(err); terminalRPCDiscoveryError(err) || code != codes.Unavailable && code != codes.DeadlineExceeded && code != codes.Unimplemented && code != codes.Unknown {
+			return sdk.DeviceInfo{}, err
+		}
+	}
+
 	schemes := []string{"https", "http"}
 
 	var conclusiveErr error
@@ -212,6 +231,13 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 			incompleteErr = err
 		}
 	}
+	if portInt32 != ct1.DefaultRPCPort && d.requiredPort == 0 {
+		if info, err := discoverContainer(ctx, ipAddress, portInt32); err == nil {
+			return info, nil
+		} else if terminalRPCDiscoveryError(err) {
+			return sdk.DeviceInfo{}, err
+		}
+	}
 	// A response successfully negotiated over either scheme is authoritative.
 	// The expected failure of trying the other transport must not turn a 404,
 	// 405, or structurally non-Proto response into an incomplete subnet scan.
@@ -229,6 +255,19 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 
 	return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeDeviceNotFound,
 		fmt.Errorf("failed to discover proto miner at %s:%s", ipAddress, port))
+}
+
+func terminalRPCDiscoveryError(err error) bool {
+	var config sdk.SDKError
+	if errors.As(err, &config) && config.Code == sdk.ErrCodeInvalidConfig {
+		return true
+	}
+	switch grpcstatus.Code(err) { //nolint:exhaustive // other statuses allow probing the existing R2 protocol
+	case codes.Unauthenticated, codes.PermissionDenied, codes.InvalidArgument, codes.FailedPrecondition, codes.Canceled:
+		return true
+	default:
+		return false
+	}
 }
 
 func typedDiscoveryError(code sdk.ErrorCode, err error) sdk.SDKError {
@@ -283,16 +322,7 @@ func (d *Driver) discoverWithScheme(ctx context.Context, ipAddress string, port 
 
 	info, err := getAndValidateDeviceInfo(ctx, client)
 	if err != nil {
-		endpoint := sdk.DeviceInfo{Host: ipAddress, Port: port, URLScheme: scheme}
-		containerClient, clientErr := ct1.NewClient(endpoint, sdk.UsernamePassword{})
-		if clientErr != nil {
-			return sdk.DeviceInfo{}, clientErr
-		}
-		discovered, discoverErr := containerClient.Discover(ctx, endpoint)
-		if discoverErr != nil {
-			return sdk.DeviceInfo{}, err
-		}
-		return discovered, nil
+		return sdk.DeviceInfo{}, err
 	}
 
 	// Get firmware version during discovery
@@ -334,6 +364,7 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 		if err != nil {
 			return sdk.DeviceInfo{}, err
 		}
+		defer c.Close()
 		return c.Discover(ctx, deviceInfo)
 	}
 
@@ -409,7 +440,7 @@ func newDeviceFromSecret(ctx context.Context, deviceID string, deviceInfo sdk.De
 		if err != nil {
 			return nil, err
 		}
-		return ct1.NewDevice(deviceID, deviceInfo, credentials)
+		return ct1.NewDevice(ctx, deviceID, deviceInfo, credentials)
 	}
 	credentials, err := credentialsFromSecret(secret)
 	if err != nil {
@@ -457,11 +488,41 @@ func (d *Driver) GetCapabilitiesForModel(ctx context.Context, manufacturer, mode
 	return base
 }
 
-// Current Frigate endpoints allow unauthenticated reads; optional credentials
-// support controllers configured to require authentication.
+// Stored REST credentials remain accepted as input but are never sent as RPC
+// metadata. Authenticated native MDK connections are not supported.
 func containerCredentials(secret sdk.SecretBundle) (sdk.UsernamePassword, error) {
 	if secret.Kind == nil {
 		return sdk.UsernamePassword{}, nil
 	}
 	return credentialsFromSecret(secret)
+}
+
+// A discovered RPC port never replaces the HTTP endpoint used by ProtoOS.
+func discoverContainer(ctx context.Context, host string, port int32) (sdk.DeviceInfo, error) {
+	info := sdk.DeviceInfo{Host: host, Port: 8080, URLScheme: "http", RPCPort: port}
+	if value := os.Getenv("CT1_WEB_PORT"); value != "" {
+		p, err := sdk.ParsePort(value)
+		if err != nil {
+			return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeInvalidConfig, err)
+		}
+		info.Port = p
+	}
+	if value := os.Getenv("CT1_WEB_SCHEME"); value != "" {
+		info.URLScheme = value
+	}
+	if value := os.Getenv("CT1_RPC_TLS"); value != "" {
+		tls, err := strconv.ParseBool(value)
+		if err != nil {
+			return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeInvalidConfig, fmt.Errorf("invalid CT1_RPC_TLS: %w", err))
+		}
+		info.RPCTLS = tls
+	}
+	c, err := ct1.NewClient(info, sdk.UsernamePassword{})
+	if err != nil {
+		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeInvalidConfig, err)
+	}
+	defer c.Close()
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	return c.Discover(ctx, info)
 }

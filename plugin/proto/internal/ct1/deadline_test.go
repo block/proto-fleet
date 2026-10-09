@@ -3,7 +3,6 @@ package ct1
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"testing"
@@ -14,7 +13,7 @@ import (
 )
 
 func TestOptionalPlantTimeoutPreservesCoreMetrics(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v2/container/map":
 			_, _ = w.Write([]byte(`{"containerMap":{"tanks":[{"id":1,"modules":[]}]}}`))
@@ -29,8 +28,9 @@ func TestOptionalPlantTimeoutPreservesCoreMetrics(t *testing.T) {
 	require.NoError(t, err)
 	port, err := strconv.ParseInt(u.Port(), 10, 32)
 	require.NoError(t, err)
-	client, err := NewClient(sdk.DeviceInfo{Host: u.Hostname(), Port: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
+	client, err := NewClient(sdk.DeviceInfo{Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
 	require.NoError(t, err)
+	defer client.Close()
 	ctx, cancel := context.WithTimeout(t.Context(), 1200*time.Millisecond)
 	defer cancel()
 	metrics, err := client.Collect(ctx, "ct1")
@@ -46,7 +46,7 @@ func TestOptionalPlantTimeoutPreservesCoreMetrics(t *testing.T) {
 }
 
 func TestMissingContainerTotalsPreservesModuleObservation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := newGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v2/container/map" {
 			_, _ = w.Write([]byte(`{"containerMap":{"tanks":[{"id":1,"modules":[{"id":1,"slots":[]}]}]}}`))
 			return
@@ -58,8 +58,9 @@ func TestMissingContainerTotalsPreservesModuleObservation(t *testing.T) {
 	require.NoError(t, err)
 	port, err := strconv.ParseInt(u.Port(), 10, 32)
 	require.NoError(t, err)
-	client, err := NewClient(sdk.DeviceInfo{Host: u.Hostname(), Port: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
+	client, err := NewClient(sdk.DeviceInfo{Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
 	require.NoError(t, err)
+	defer client.Close()
 	m, err := client.Collect(t.Context(), "ct1")
 	require.NoError(t, err)
 	require.True(t, m.Container.TopologyComplete)

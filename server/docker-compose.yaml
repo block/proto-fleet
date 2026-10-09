@@ -42,7 +42,8 @@ services:
       INFRASTRUCTURE_OT_CONTROL_SUBNETS: "${INFRASTRUCTURE_OT_CONTROL_SUBNETS:-}"
       PLUGINS_DIR: "/app/plugins"
       PLUGINS_ENABLED: "true"
-      PROTO_MINER_PORT: "8080"
+      # Use the driver defaults: R2 HTTP(S) plus CT1 native gRPC on 9095.
+      PROTO_MINER_PORT: "0"
     depends_on:
       timescaledb:
         condition: service_healthy
@@ -332,7 +333,7 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
-  # Fake CT1 container simulator (MDK v2 REST surface). A single instance
+  # Fake CT1 container simulator (MDK v2 REST and native gRPC). A single instance
   # models a full container (96 modules x 3 = 288 boards), so unlike the R2
   # rigs it runs as one replica rather than five.
   fake-ct1:
@@ -341,6 +342,7 @@ services:
       dockerfile: server/fake-ct1/Dockerfile
     environment:
       HTTP_PORT: "8080"
+      GRPC_PORT: "9095"
       SERVER_ID: "ct1-sim-001"
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://localhost:8080/health" ]

@@ -18,13 +18,20 @@ INSERT INTO discovered_device (
     firmware_version,
     discovered_by_fleet_node_id,
     is_active,
-    device_class
+    device_class,
+    rpc_port,
+    rpc_tls
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11, sqlc.arg('rpc_port'), sqlc.arg('rpc_tls'))
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     ip_address = EXCLUDED.ip_address,
-    port = EXCLUDED.port,
-    url_scheme = EXCLUDED.url_scheme,
+    -- Native CT1 rediscovery must retain the existing browser endpoint.
+    port = CASE WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
+                THEN discovered_device.port ELSE EXCLUDED.port END,
+    url_scheme = CASE WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
+                      THEN discovered_device.url_scheme ELSE EXCLUDED.url_scheme END,
+    rpc_port = EXCLUDED.rpc_port,
+    rpc_tls = EXCLUDED.rpc_tls,
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     model = EXCLUDED.model,
     device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
@@ -269,7 +276,7 @@ WITH candidate AS (
          dd.discovered_by_fleet_node_id,
          dd.ip_address,
          dd.port,
-         dd.url_scheme,
+         dd.url_scheme, dd.rpc_port, dd.rpc_tls,
          dd.driver_name,
          dd.model,
          dd.device_class,

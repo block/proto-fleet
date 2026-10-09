@@ -698,7 +698,7 @@ class DownloadLogsResponse(_message.Message):
     def __init__(self, log_data: _Optional[str] = ..., more_data: bool = ...) -> None: ...
 
 class DeviceInfo(_message.Message):
-    __slots__ = ("host", "port", "url_scheme", "serial_number", "model", "manufacturer", "mac_address", "firmware_version", "default_password_active", "device_class")
+    __slots__ = ("host", "port", "url_scheme", "serial_number", "model", "manufacturer", "mac_address", "firmware_version", "default_password_active", "device_class", "rpc_port", "rpc_tls")
     HOST_FIELD_NUMBER: _ClassVar[int]
     PORT_FIELD_NUMBER: _ClassVar[int]
     URL_SCHEME_FIELD_NUMBER: _ClassVar[int]
@@ -709,6 +709,8 @@ class DeviceInfo(_message.Message):
     FIRMWARE_VERSION_FIELD_NUMBER: _ClassVar[int]
     DEFAULT_PASSWORD_ACTIVE_FIELD_NUMBER: _ClassVar[int]
     DEVICE_CLASS_FIELD_NUMBER: _ClassVar[int]
+    RPC_PORT_FIELD_NUMBER: _ClassVar[int]
+    RPC_TLS_FIELD_NUMBER: _ClassVar[int]
     host: str
     port: int
     url_scheme: str
@@ -719,7 +721,9 @@ class DeviceInfo(_message.Message):
     firmware_version: str
     default_password_active: bool
     device_class: DeviceClass
-    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., serial_number: _Optional[str] = ..., model: _Optional[str] = ..., manufacturer: _Optional[str] = ..., mac_address: _Optional[str] = ..., firmware_version: _Optional[str] = ..., default_password_active: bool = ..., device_class: _Optional[_Union[DeviceClass, str]] = ...) -> None: ...
+    rpc_port: int
+    rpc_tls: bool
+    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., serial_number: _Optional[str] = ..., model: _Optional[str] = ..., manufacturer: _Optional[str] = ..., mac_address: _Optional[str] = ..., firmware_version: _Optional[str] = ..., default_password_active: bool = ..., device_class: _Optional[_Union[DeviceClass, str]] = ..., rpc_port: _Optional[int] = ..., rpc_tls: bool = ...) -> None: ...
 
 class DiscoverDeviceRequest(_message.Message):
     __slots__ = ("ip_address", "port")

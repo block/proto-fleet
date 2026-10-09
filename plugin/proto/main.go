@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	requiredPort = 0 // No override: scan the driver's HTTPS and MDK v2 HTTP ports.
+	requiredPort = 0 // No override: scan the driver's R2 HTTP(S) and CT1 gRPC ports.
 )
 
 func main() {

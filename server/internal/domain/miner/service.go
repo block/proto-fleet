@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"time"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
@@ -217,6 +218,7 @@ func (s *Service) resolveMiner(ctx context.Context, deviceID models.DeviceIdenti
 		deviceData.SerialNumber.String,
 		deviceData.MacAddress,
 		sdk.DeviceClass(deviceData.DeviceClass),
+		deviceData.RpcPort, deviceData.RpcTls,
 	)
 	if err != nil {
 		return nil, err
@@ -254,7 +256,8 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 	// No server-side plugin gate: the fleet node (not the server) dials the miner
 	// and loads the driver plugin; the server only routes the command.
 	remoteCommandMiner, err := remotenode.New(remotenode.Config{
-		Sender: s.commandSender,
+		DeviceClass: commonpb.DeviceClass(telemetryRoute.DeviceClass),
+		Sender:      s.commandSender,
 		EncryptionPublicKey: func(ctx context.Context) ([]byte, error) {
 			return s.poolConfigEncryptionPublicKey(ctx, telemetryRoute.OrgID, telemetryRoute.DeviceIdentifier, telemetryRoute.FleetNodeID)
 		},
@@ -270,6 +273,8 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 		IPAddress:          telemetryRoute.IpAddress,
 		Port:               telemetryRoute.Port,
 		URLScheme:          telemetryRoute.UrlScheme,
+		RPCPort:            telemetryRoute.RpcPort,
+		RPCTLS:             telemetryRoute.RpcTls,
 		SerialNumber:       telemetryRoute.SerialNumber.String,
 		MacAddress:         telemetryRoute.MacAddress,
 		CredentialUsername: fleetNodeCredentialBytes(telemetryRoute.UsernameEnc),
@@ -341,12 +346,14 @@ func (s *Service) InvalidateMinerByID(ctx context.Context, deviceID int64) {
 	s.InvalidateMiner(models.DeviceIdentifier(identifier))
 }
 
-func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, siteID int64, devicePort string, driverName string, deviceManufacturer string, deviceModel string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string, macAddress string, deviceClass sdk.DeviceClass) (interfaces.Miner, error) {
+func (s *Service) createMiner(ctx context.Context, deviceIdentifier string, orgID int64, siteID int64, devicePort string, driverName string, deviceManufacturer string, deviceModel string, deviceUsername string, devicePassword string, deviceIPAddress string, deviceScheme string, deviceSerialNumber string, macAddress string, deviceClass sdk.DeviceClass, rpcPort int32, rpcTLS bool) (interfaces.Miner, error) {
 	if !s.pluginManager.HasPluginForDriverName(driverName) {
 		return nil, fmt.Errorf("no plugin available (driver_name=%q) — ensure the device has been discovered and the appropriate plugin is loaded", driverName)
 	}
 	return plugins.NewPluginMinerWithCredentials(ctx, plugins.PluginMinerConfig{
 		DeviceClass:        deviceClass,
+		RPCPort:            rpcPort,
+		RPCTLS:             rpcTLS,
 		DeviceIdentifier:   deviceIdentifier,
 		DriverName:         driverName,
 		Caps:               s.effectiveCapabilitiesForDevice(ctx, driverName, deviceManufacturer, deviceModel),

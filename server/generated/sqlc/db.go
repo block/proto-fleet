@@ -585,6 +585,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.findDevicesWithSiteOrBuildingStmt, err = db.PrepareContext(ctx, findDevicesWithSiteOrBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query FindDevicesWithSiteOrBuilding: %w", err)
 	}
+	if q.findDirectContainerByIPStmt, err = db.PrepareContext(ctx, findDirectContainerByIP); err != nil {
+		return nil, fmt.Errorf("error preparing query FindDirectContainerByIP: %w", err)
+	}
 	if q.findHashboardIdentitiesStmt, err = db.PrepareContext(ctx, findHashboardIdentities); err != nil {
 		return nil, fmt.Errorf("error preparing query FindHashboardIdentities: %w", err)
 	}
@@ -3395,6 +3398,11 @@ func (q *Queries) Close() error {
 	if q.findDevicesWithSiteOrBuildingStmt != nil {
 		if cerr := q.findDevicesWithSiteOrBuildingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing findDevicesWithSiteOrBuildingStmt: %w", cerr)
+		}
+	}
+	if q.findDirectContainerByIPStmt != nil {
+		if cerr := q.findDirectContainerByIPStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing findDirectContainerByIPStmt: %w", cerr)
 		}
 	}
 	if q.findHashboardIdentitiesStmt != nil {
@@ -6743,6 +6751,7 @@ type Queries struct {
 	findDevicesInBuildingLessPlacedRacksStmt                     *sql.Stmt
 	findDevicesInSiteLessRacksStmt                               *sql.Stmt
 	findDevicesWithSiteOrBuildingStmt                            *sql.Stmt
+	findDirectContainerByIPStmt                                  *sql.Stmt
 	findHashboardIdentitiesStmt                                  *sql.Stmt
 	findHostedAccountMemberByUUIDStmt                            *sql.Stmt
 	finishDeviceWriteAttemptStmt                                 *sql.Stmt
@@ -7560,6 +7569,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		findDevicesInBuildingLessPlacedRacksStmt:                     q.findDevicesInBuildingLessPlacedRacksStmt,
 		findDevicesInSiteLessRacksStmt:                               q.findDevicesInSiteLessRacksStmt,
 		findDevicesWithSiteOrBuildingStmt:                            q.findDevicesWithSiteOrBuildingStmt,
+		findDirectContainerByIPStmt:                                  q.findDirectContainerByIPStmt,
 		findHashboardIdentitiesStmt:                                  q.findHashboardIdentitiesStmt,
 		findHostedAccountMemberByUUIDStmt:                            q.findHostedAccountMemberByUUIDStmt,
 		finishDeviceWriteAttemptStmt:                                 q.finishDeviceWriteAttemptStmt,

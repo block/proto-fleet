@@ -2244,3 +2244,26 @@ func TestContainerIdentifierFollowsEndpointAcrossControllerFailover(t *testing.T
 	require.NotEqual(t, first.DeviceIdentifier, reportFromDiscovered(controller, "10.0.0.8", "80", 1).DeviceIdentifier)
 	require.NotEqual(t, first.DeviceIdentifier, reportFromDiscovered(controller, "10.0.0.7", "80", 2).DeviceIdentifier)
 }
+
+func TestFanOutProbes_PreservesVerifiedContainerRPCAndWebPorts(t *testing.T) {
+	for _, rpcPort := range []int32{9443, 9555} {
+		t.Run(fmt.Sprint(rpcPort), func(t *testing.T) {
+			probe := func(_ context.Context, ip, port string) (*pb.DiscoveredDeviceReport, error) {
+				return &pb.DiscoveredDeviceReport{DeviceIdentifier: "serial:ct1", IpAddress: "203.0.113.99", Port: "8181", UrlScheme: "http", DriverName: "proto", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, RpcPort: rpcPort, RpcTls: true}, nil
+			}
+			result, truncated := fanOutProbes(t.Context(), slices.Values([]endpoint{{ip: "10.0.0.1", port: "9443"}}), 1, probe, discardLogger(t))
+			require.False(t, truncated)
+			require.Len(t, result, 1)
+			require.Equal(t, "10.0.0.1", result[0].IpAddress)
+			if rpcPort == 9443 {
+				require.Equal(t, "8181", result[0].Port)
+				require.Equal(t, rpcPort, result[0].RpcPort)
+				require.True(t, result[0].RpcTls)
+			} else {
+				require.Equal(t, "9443", result[0].Port)
+				require.Zero(t, result[0].RpcPort)
+				require.False(t, result[0].RpcTls)
+			}
+		})
+	}
+}

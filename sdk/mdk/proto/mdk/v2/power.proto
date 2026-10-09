@@ -1,0 +1,465 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/common.proto";
+import "mdk/v2/options.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// PowerService provides device, power-feed, and container plant-control data.
+service PowerService {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "Power"
+    description: "Device, hashboard, power-feed, and container plant-control data."
+  };
+  // GetDevicePower returns aggregate device power consumption.
+  rpc GetDevicePower(GetDevicePowerRequest) returns (GetDevicePowerResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/power/device"};
+  }
+
+  // ListHashboardPower returns per-hashboard power consumption.
+  rpc ListHashboardPower(ListHashboardPowerRequest) returns (ListHashboardPowerResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/power/hashboards"};
+  }
+
+  // ListPowerFeeds returns power-feed state and optional electrical telemetry.
+  rpc ListPowerFeeds(ListPowerFeedsRequest) returns (ListPowerFeedsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/power/feeds"};
+  }
+
+  // SetPowerFeedState enables or disables one container power feed.
+  rpc SetPowerFeedState(SetPowerFeedStateRequest) returns (SetPowerFeedStateResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/power/feeds/{power_feed_id}/state"
+      body: "*"
+    };
+  }
+
+  // CyclePowerFeed disables one enabled container power feed, holds it off for
+  // 30 seconds, and restores it as one durable Frigate-owned operation. The
+  // restore survives disconnects, restart, and HA handoff. CT1 only.
+  rpc CyclePowerFeed(CyclePowerFeedRequest) returns (CyclePowerFeedResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/power/feeds/{power_feed_id}:cycle"
+      body: "*"
+    };
+  }
+
+  // GetActivePowerRecoveryCycle returns the singleton durable outlet restore
+  // obligation, whether initiated by an operator or automatic recovery.
+  rpc GetActivePowerRecoveryCycle(GetActivePowerRecoveryCycleRequest) returns (GetActivePowerRecoveryCycleResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/power/recovery/active"};
+  }
+
+  // ClearPowerFeedOverride removes the process-local operator marker from one
+  // power feed without changing its backend target or physical state. CT1 only.
+  rpc ClearPowerFeedOverride(ClearPowerFeedOverrideRequest) returns (ClearPowerFeedOverrideResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/power/feeds/{power_feed_id}/override/clear"
+      body: "*"
+    };
+  }
+
+  // GetContainerControls returns the tank/container plant controls (boolean
+  // switches) and analog setpoints exposed by the container backend, with their
+  // current states where the backend can read them back. Backends without
+  // control support report supported=false with empty lists. CT1 only.
+  rpc GetContainerControls(GetContainerControlsRequest) returns (GetContainerControlsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/power/container/controls"};
+  }
+
+  // SetContainerControl switches one boolean tank/container control
+  // (tank_led_light, coolant_pump, dry_cooler, dry_cooler_auto,
+  // air_conditioner_1, or air_conditioner_2) and echoes the state written.
+  // The PLC is authoritative for plant protection and command acceptance.
+  // CT1 only.
+  rpc SetContainerControl(SetContainerControlRequest) returns (SetContainerControlResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/power/container/controls/{name}"
+      body: "*"
+    };
+  }
+
+  // SetContainerSetpoint writes one analog tank/container setpoint and echoes
+  // the applied value. Temperature setpoints are Celsius. Frigate validates
+  // only the finite float32 wire representation; the PLC owns operational
+  // limits and final command acceptance. CT1 only.
+  rpc SetContainerSetpoint(SetContainerSetpointRequest) returns (SetContainerSetpointResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/power/container/setpoints/{name}"
+      body: "*"
+    };
+  }
+
+  // ResetContainerAlarm pulses the container controller's alarm reset. CT1 only.
+  rpc ResetContainerAlarm(ResetContainerAlarmRequest) returns (ResetContainerAlarmResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/power/container/alarm/reset"
+      body: "*"
+    };
+  }
+
+  // MuteContainerAlarm pulses the container controller's alarm mute. CT1 only.
+  rpc MuteContainerAlarm(MuteContainerAlarmRequest) returns (MuteContainerAlarmResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/power/container/alarm/mute"
+      body: "*"
+    };
+  }
+
+  // SetMainCircuitBreakerState requests an idempotent closed/open target and
+  // returns the controller's authoritative closed-state readback. CT1 only.
+  rpc SetMainCircuitBreakerState(SetMainCircuitBreakerStateRequest) returns (SetMainCircuitBreakerStateResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/power/container/main-circuit-breaker"
+      body: "*"
+    };
+  }
+
+  // RunDryCoolerFanReverse applies a retained 3-10 whole-minute duration,
+  // starts the PLC-owned procedure, and returns after terminal completion.
+  // The operation never exposes or writes a manual stop command. CT1 only.
+  rpc RunDryCoolerFanReverse(RunDryCoolerFanReverseRequest) returns (RunDryCoolerFanReverseResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/power/container/dry-cooler/fan-reverse"
+      body: "*"
+    };
+  }
+}
+
+message GetDevicePowerRequest {}
+
+// GetDevicePowerResponse contains aggregate device power consumption.
+message GetDevicePowerResponse {
+  double total_watts = 1;
+  double total_amps = 2;
+  double avg_voltage = 3;
+  double efficiency = 4;
+  int32 board_count = 5;
+  google.protobuf.Timestamp timestamp = 6;
+}
+
+// HashboardPower contains power consumption data for a single hashboard.
+message HashboardPower {
+  // mac_address is the legacy CT1 board identity. It is empty for R2 and must
+  // never contain a synthesized address.
+  string mac_address = 1;
+  // watts is instantaneous board power in watts.
+  double watts = 2;
+  // voltage is board input voltage in volts.
+  double voltage = 3;
+  // current is board input current in amperes.
+  double current = 4;
+  // hashrate is board hashrate in terahashes per second.
+  double hashrate = 5;
+  // serial is the stable R2 board identity.
+  string serial = 6;
+  // slot is the optional one-based R2 chassis slot.
+  optional uint32 slot = 7;
+}
+
+message ListHashboardPowerRequest {}
+
+message ListHashboardPowerResponse {
+  repeated HashboardPower hashboards = 1;
+}
+
+// PowerFeed contains one container power feed and optional telemetry.
+message PowerFeed {
+  string power_feed_id = 1;
+  optional double voltage_v = 2;
+  optional double current_a = 3;
+  optional double power_w = 4;
+  optional PowerFeedState state = 5;
+  optional bool active = 6;
+  optional bool faulted = 7;
+  Phase phase = 8;
+  bool overridden = 9;
+  optional double voltage_ab_v = 10;
+  optional double voltage_bc_v = 11;
+  optional double voltage_ca_v = 12;
+  optional double current_a_a = 13;
+  optional double current_b_a = 14;
+  optional double current_c_a = 15;
+}
+
+message ListPowerFeedsRequest {}
+
+message ListPowerFeedsResponse {
+  repeated PowerFeed power_feeds = 1;
+  // snapshot_ready distinguishes a successful empty controller poll from the
+  // startup window before the container monitor has completed its first poll.
+  // Optional presence keeps older servers distinguishable from an explicit
+  // false value.
+  optional bool snapshot_ready = 2;
+}
+
+message SetPowerFeedStateRequest {
+  string power_feed_id = 1;
+  bool disabled = 2;
+  // Deprecated compatibility bit for Frigate versions that enforced
+  // application-side plant safety policy. Current servers ignore it.
+  bool force = 3 [deprecated = true];
+}
+
+message SetPowerFeedStateResponse {
+  PowerFeed power_feed = 1;
+}
+
+message CyclePowerFeedRequest {
+  // power_feed_id is the enabled, non-faulted container power-feed identifier.
+  string power_feed_id = 1;
+}
+
+message CyclePowerFeedResponse {
+  PowerFeed power_feed = 1;
+}
+
+message GetActivePowerRecoveryCycleRequest {}
+
+message GetActivePowerRecoveryCycleResponse {
+  PowerRecoveryCycle cycle = 1;
+}
+
+message PowerRecoveryCycle {
+  string id = 1;
+  string scope = 2;
+  string phase = 3;
+  repeated string outlet_ids = 4;
+  google.protobuf.Timestamp restore_after = 5;
+  google.protobuf.Timestamp created_at = 6;
+  string last_error = 7;
+}
+
+// ClearPowerFeedOverrideRequest clears one power feed's process-local operator
+// marker.
+message ClearPowerFeedOverrideRequest {
+  // power_feed_id is the container power-feed identifier, e.g.
+  // "pdu-1-outlet-03"; bound from the path.
+  string power_feed_id = 1;
+}
+
+// ClearPowerFeedOverrideResponse returns the unchanged power-feed state with
+// its operator marker cleared.
+message ClearPowerFeedOverrideResponse {
+  PowerFeed power_feed = 1;
+}
+
+// ContainerControl is one boolean tank/container plant control.
+message ContainerControl {
+  // name is the backend control identifier, e.g. "coolant_pump" or
+  // "tank_led_light".
+  string name = 1;
+  // enabled is the control's current (or just-written) state. Only meaningful
+  // when state_known is true.
+  bool enabled = 2;
+  string description = 3;
+  // state_known is true when enabled reflects a state read back from the
+  // controller rather than an unknown default.
+  bool state_known = 4;
+  // Deprecated application-side safety classification. Current servers always
+  // return false because the PLC owns plant safety interlocks.
+  bool cooling_critical = 5 [deprecated = true];
+}
+
+// ContainerSetpoint is one writable analog tank/container setting.
+message ContainerSetpoint {
+  // name is the backend setting identifier, e.g. "coolant_pump_speed_hz" or
+  // "dry_cooler_auto_temp_c".
+  string name = 1;
+  // value is the current (or just-applied) setpoint value.
+  double value = 2;
+  string unit = 3;
+  // Documented PLC range metadata for operator display. Frigate does not use
+  // these values as an application-side write limit.
+  double min = 4;
+  double max = 5;
+  string description = 6;
+  // Legacy presence marker. True means min and max contain documented range
+  // metadata; it does not imply application-side enforcement.
+  optional bool bounds_known = 7;
+}
+
+message GetContainerControlsRequest {}
+
+// GetContainerControlsResponse lists the container plant controls and setpoints.
+message GetContainerControlsResponse {
+  repeated ContainerControl controls = 1;
+  repeated ContainerSetpoint setpoints = 2;
+  // supported is false when the configured container backend has no plant
+  // controls (for example, ANEN); controls and setpoints are then empty.
+  bool supported = 3;
+  // Alarm commands are separate capabilities because some controllers expose
+  // persistent plant controls without alarm reset or mute endpoints. Optional
+  // presence lets newer clients preserve alarm actions against older servers
+  // that predate these capability fields.
+  optional bool alarm_reset_supported = 4;
+  optional bool alarm_mute_supported = 5;
+  // main_circuit_breaker_supported advertises the dedicated open/close
+  // command. main_circuit_breaker_closed is authoritative PLC readback.
+  optional bool main_circuit_breaker_supported = 6;
+  optional bool main_circuit_breaker_closed = 7;
+  repeated ContainerOperatingParameter operating_parameters = 8;
+  optional DryCoolerDirectionMode dry_cooler_direction = 9 [deprecated = true];
+  optional DryCoolerFanReverseStatus dry_cooler_fan_reverse = 10;
+  optional bool dry_cooler_fan_reverse_supported = 11;
+}
+
+message ContainerOperatingParameter {
+  string code = 1;
+  string boundary = 2;
+  double value = 3;
+  string unit = 4;
+}
+
+enum DryCoolerDirectionMode {
+  DRY_COOLER_DIRECTION_MODE_UNSPECIFIED = 0;
+  DRY_COOLER_DIRECTION_MODE_FORWARD = 1;
+  DRY_COOLER_DIRECTION_MODE_REVERSE = 2;
+  DRY_COOLER_DIRECTION_MODE_UNKNOWN = 3;
+}
+
+// SetContainerControlRequest switches one boolean container control.
+message SetContainerControlRequest {
+  // name is the control identifier; bound from the path.
+  string name = 1;
+  // enabled selects the target state: true starts/enables, false stops/disables.
+  bool enabled = 2;
+  // Deprecated compatibility bit for Frigate versions that enforced
+  // application-side plant safety policy. Current servers ignore it.
+  bool force = 3 [deprecated = true];
+}
+
+// SetContainerControlResponse preserves the command echo and adds independent
+// controller-register confirmation. Confirmation is not physical feedback.
+message SetContainerControlResponse {
+  ContainerControl control = 1;
+  ContainerControlConfirmation confirmation = 2;
+}
+
+// SetContainerSetpointRequest writes one analog container setpoint.
+message SetContainerSetpointRequest {
+  // name is the setpoint identifier; bound from the path.
+  string name = 1;
+  // value must be representable as a finite float32 PLC wire value. The PLC
+  // owns operational limits and final command acceptance.
+  double value = 2;
+  // Deprecated compatibility bit for Frigate versions that enforced
+  // application-side plant safety policy. Current servers ignore it.
+  bool force = 3 [deprecated = true];
+}
+
+// SetContainerSetpointResponse preserves the command echo and adds independent
+// controller-register confirmation. Confirmation is not physical feedback.
+message SetContainerSetpointResponse {
+  ContainerSetpoint setpoint = 1;
+  ContainerSetpointConfirmation confirmation = 2;
+}
+
+enum PlantWriteConfirmationState {
+  PLANT_WRITE_CONFIRMATION_STATE_UNSPECIFIED = 0;
+  PLANT_WRITE_CONFIRMATION_STATE_CONFIRMED = 1;
+  PLANT_WRITE_CONFIRMATION_STATE_MISMATCH = 2;
+  // The write succeeded, but authoritative observation is unavailable.
+  PLANT_WRITE_CONFIRMATION_STATE_UNAVAILABLE = 3;
+}
+
+enum PlantWriteConfirmationSource {
+  PLANT_WRITE_CONFIRMATION_SOURCE_UNSPECIFIED = 0;
+  PLANT_WRITE_CONFIRMATION_SOURCE_CONTROLLER_REGISTER = 1;
+}
+
+// ContainerControlConfirmation records one fresh register read after a write.
+// Cached or echoed desired values never establish confirmation.
+message ContainerControlConfirmation {
+  bool requested_enabled = 1;
+  optional bool observed_enabled = 2;
+  google.protobuf.Timestamp observed_at = 3;
+  PlantWriteConfirmationState state = 4;
+  PlantWriteConfirmationSource source = 5;
+}
+
+// ContainerSetpointConfirmation compares readback with the float32 wire value,
+// retaining the original request separately so rounding is explicit.
+message ContainerSetpointConfirmation {
+  double requested_value = 1;
+  double wire_value = 2;
+  optional double observed_value = 3;
+  google.protobuf.Timestamp observed_at = 4;
+  PlantWriteConfirmationState state = 5;
+  PlantWriteConfirmationSource source = 6;
+}
+
+message ResetContainerAlarmRequest {}
+
+message ResetContainerAlarmResponse {}
+
+message MuteContainerAlarmRequest {}
+
+message MuteContainerAlarmResponse {}
+
+message SetMainCircuitBreakerStateRequest {
+  // closed=true requests CLOSE; false requests OPEN.
+  bool closed = 1;
+}
+
+message SetMainCircuitBreakerStateResponse {
+  // closed is the authoritative controller readback after the request.
+  bool closed = 1;
+  // changed is false when the controller was already at the target state.
+  bool changed = 2;
+}
+
+enum DryCoolerFanReverseState {
+  DRY_COOLER_FAN_REVERSE_STATE_UNSPECIFIED = 0;
+  DRY_COOLER_FAN_REVERSE_STATE_STOPPED = 1;
+  DRY_COOLER_FAN_REVERSE_STATE_STARTING = 2;
+  DRY_COOLER_FAN_REVERSE_STATE_IN_PROGRESS = 3;
+  DRY_COOLER_FAN_REVERSE_STATE_FINISHED = 4;
+  DRY_COOLER_FAN_REVERSE_STATE_UNKNOWN = 5;
+}
+
+message DryCoolerFanReverseStatus {
+  DryCoolerFanReverseState state = 1;
+  uint32 duration_minutes = 2;
+}
+
+message RunDryCoolerFanReverseRequest {
+  uint32 duration_minutes = 1;
+}
+
+message RunDryCoolerFanReverseResponse {
+  DryCoolerFanReverseStatus status = 1;
+}

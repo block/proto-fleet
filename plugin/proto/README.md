@@ -127,7 +127,7 @@ plugin/proto/                  # Plugin root
 
 ### Device Discovery
 
-The plugin discovers Proto rigs and Frigate CT1 controllers on ports `443`, `80`, and `8080`. `PROTO_MINER_PORT` restricts discovery to a single configured port. Discovery tries HTTPS first, then HTTP:
+The plugin discovers Proto rigs over HTTP(S) on ports `443`, `80`, and `8080`, and Frigate CT1 controllers over native gRPC on port `9095`. A positive `PROTO_MINER_PORT` restricts discovery to that single port; leave it unset or set it to `0` to use all defaults. The development stack uses these defaults. R2 discovery tries HTTPS first, then HTTP. CT1 configuration and credentials are described in [the gRPC transport guide](../../docs/development/ct1-grpc.md).
 
 ```go
 // Automatic discovery on the configured Proto port

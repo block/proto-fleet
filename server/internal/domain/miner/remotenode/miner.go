@@ -56,6 +56,9 @@ type LogArtifactSaver interface {
 
 // Config carries everything the adapter needs to address a fleet-node-paired miner.
 type Config struct {
+	DeviceClass commonpb.DeviceClass
+	RPCPort     int32
+	RPCTLS      bool
 	// EncryptionPublicKey resolves the current node key for each pool write.
 	EncryptionPublicKey func(context.Context) ([]byte, error)
 	Sender              CommandSender
@@ -147,10 +150,13 @@ func New(cfg Config) (*Miner, error) {
 		siteID:              cfg.SiteID,
 		desc: &gatewaypb.MinerConnectionDescriptor{
 			DeviceIdentifier:   cfg.DeviceIdentifier,
+			DeviceClass:        cfg.DeviceClass,
 			DriverName:         cfg.DriverName,
 			IpAddress:          cfg.IPAddress,
 			Port:               cfg.Port,
 			UrlScheme:          cfg.URLScheme,
+			RpcPort:            cfg.RPCPort,
+			RpcTls:             cfg.RPCTLS,
 			SerialNumber:       cfg.SerialNumber,
 			MacAddress:         cfg.MacAddress,
 			CredentialUsername: cfg.CredentialUsername,

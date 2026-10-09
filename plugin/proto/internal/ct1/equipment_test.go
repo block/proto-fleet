@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"testing"
@@ -61,7 +60,7 @@ func TestCollectEquipmentSupplementFailuresKeepInventory(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			now := time.Now().UTC()
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := newGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
 				case "/api/v2/container/map":
 					_, _ = w.Write([]byte(`{"containerMap":{"tanks":[{"id":1,"modules":[]}]}}`))
@@ -88,8 +87,9 @@ func TestCollectEquipmentSupplementFailuresKeepInventory(t *testing.T) {
 			require.NoError(t, err)
 			port, err := strconv.ParseInt(u.Port(), 10, 32)
 			require.NoError(t, err)
-			c, err := NewClient(sdk.DeviceInfo{Host: u.Hostname(), Port: int32(port), URLScheme: "http"}, sdk.UsernamePassword{})
+			c, err := NewClient(sdk.DeviceInfo{Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: "http"}, sdk.UsernamePassword{})
 			require.NoError(t, err)
+			defer c.Close()
 			got, err := c.Collect(t.Context(), "ct1")
 			require.NoError(t, err)
 			require.Len(t, got.Container.Tanks, 1)
@@ -99,7 +99,7 @@ func TestCollectEquipmentSupplementFailuresKeepInventory(t *testing.T) {
 				require.Len(t, got.Container.Fans, 1)
 				require.Equal(t, now, got.Container.Fans[0].ObservedAt)
 			}
-			if tc.failControls || tc.controls == `{}` {
+			if tc.failControls {
 				require.Nil(t, got.Container.Controls)
 			} else {
 				require.NotNil(t, got.Container.Controls)

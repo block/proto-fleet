@@ -1,6 +1,6 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-go_workspace_manifests := "go.work go.work.sum server/go.mod server/go.sum plugin/antminer/go.mod plugin/antminer/go.sum plugin/proto/go.mod plugin/proto/go.sum plugin/virtual/go.mod plugin/virtual/go.sum tests/plugin-contract/go.mod tests/plugin-contract/go.sum"
+go_workspace_manifests := "go.work go.work.sum sdk/mdk/go.mod sdk/mdk/go.sum server/go.mod server/go.sum plugin/antminer/go.mod plugin/antminer/go.sum plugin/proto/go.mod plugin/proto/go.sum plugin/virtual/go.mod plugin/virtual/go.sum tests/plugin-contract/go.mod tests/plugin-contract/go.sum"
 
 default:
   just --list
@@ -133,12 +133,18 @@ gen: gen-protos gen-db-queries gen-go
   just _format-server
 
 # regenerate protobuf consumers and the protobuf-driven Fleet CLI
-gen-protos: _server-init _client-init _lint-protos _gen-protos _gen-fleet-cli
+gen-protos: _server-init _client-init _lint-protos _gen-protos _gen-fleet-cli gen-mdk-protos
   #!/usr/bin/env bash
   set -euo pipefail
   (cd server && just gen-sdk-protos)
   goimports -w server/generated/grpc server/cmd/fleetcli
   (cd client && npx prettier --write 'src/protoFleet/api/generated/**/*.ts')
+
+# regenerate pinned internal Frigate contracts (Go only)
+[working-directory: 'sdk/mdk']
+gen-mdk-protos:
+  buf generate
+  goimports -w generated
 
 # regenerate sqlc bindings only
 [working-directory: 'server']
@@ -600,7 +606,7 @@ _build-go-plugins-native outdir: _go-work-sync
   #!/usr/bin/env bash
   set -euo pipefail
   # Plugins import from ../../server, so server module files also affect the graph.
-  SOURCES="plugin/proto plugin/antminer server/sdk/v1 {{go_workspace_manifests}}"
+  SOURCES="plugin/proto plugin/antminer sdk/mdk server/sdk/v1 {{go_workspace_manifests}}"
   PROTO_BIN={{outdir}}/proto-plugin
   ANT_BIN={{outdir}}/antminer-plugin
   PLATFORM_MARKER={{outdir}}/.go-plugins-platform
@@ -625,7 +631,7 @@ _build-go-plugins-cross goos goarch outdir force="": _go-work-sync
   set -euo pipefail
   PLATFORM_MARKER={{outdir}}/.go-plugins-platform
   WANT_PLATFORM="{{goos}}/{{goarch}}"
-  COMMON_SOURCES="server/sdk/v1 {{go_workspace_manifests}}"
+  COMMON_SOURCES="sdk/mdk server/sdk/v1 {{go_workspace_manifests}}"
   rm -f {{outdir}}/virtual-plugin {{outdir}}/virtual-plugin.json {{outdir}}/config.json
   mkdir -p {{outdir}}
   built=false

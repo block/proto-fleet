@@ -2406,16 +2406,16 @@ func TestContainerDiscoveryRetainsIdentityAcrossControllerFailover(t *testing.T)
 
 func TestContainerDirectDiscoveryDoesNotReuseFleetNodeEndpoint(t *testing.T) {
 	for _, assigned := range []bool{false, true} {
-		for _, port := range []string{"80", "443"} {
+		for _, port := range []string{"80", "443", "9095"} {
 			t.Run(fmt.Sprintf("assigned=%t/port=%s", assigned, port), func(t *testing.T) {
 				infra := testutil.InitializeDBServiceInfrastructure(t)
 				admin := infra.DatabaseService.CreateSuperAdminUser()
 				db := infra.ServiceProvider.DB
-				registerDiscoveryPortsPlugin(t, infra, "proto", []string{"80", "443"})
+				registerDiscoveryPortsPlugin(t, infra, "proto", []string{"80", "443", "9095"})
 				var nodeID int64
 				require.NoError(t, db.QueryRow(`INSERT INTO fleet_node (org_id,name,identity_pubkey,encryption_pubkey,enrollment_status) VALUES ($1,'node',$2,$3,'CONFIRMED') RETURNING id`, admin.OrganizationID, []byte("node-key"), make([]byte, 32)).Scan(&nodeID))
 				store := sqlstores.NewSQLDiscoveredDeviceStore(db)
-				remote := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "remote-ct1", DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Manufacturer: "Proto", IpAddress: "192.168.1.20", Port: "80", UrlScheme: "http"}, OrgID: admin.OrganizationID, IsActive: true}
+				remote := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "remote-ct1", DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Manufacturer: "Proto", IpAddress: "192.168.1.20", Port: "8181", UrlScheme: "http"}, OrgID: admin.OrganizationID, IsActive: true}
 				ctx := testutil.MockAuthContextForTesting(t.Context(), admin.DatabaseID, admin.OrganizationID)
 				doi := remote.GetDeviceOrgIdentifier()
 				_, err := store.Save(ctx, doi, remote)
@@ -2431,6 +2431,10 @@ func TestContainerDirectDiscoveryDoesNotReuseFleetNodeEndpoint(t *testing.T) {
 				require.NoError(t, err)
 				discoverer := &MockDiscoverer{}
 				local := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Manufacturer: "Proto", IpAddress: remote.IpAddress, Port: port, UrlScheme: "http", SerialNumber: "local-controller"}}
+				if port == "9095" {
+					local.Port = "8080"
+					local.RpcPort = 9095
+				}
 				discoverer.On("Discover", mock.Anything, local.IpAddress, port).Return(local, nil).Once()
 				pairer := pairingMocks.NewMockPairer(gomock.NewController(t))
 				pairer.EXPECT().PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
@@ -2446,7 +2450,7 @@ func TestContainerDirectDiscoveryDoesNotReuseFleetNodeEndpoint(t *testing.T) {
 				require.NotEqual(t, remote.DeviceIdentifier, found[0].DeviceIdentifier)
 				saved, err := store.GetDevice(ctx, doi)
 				require.NoError(t, err)
-				require.Equal(t, "80", saved.Port)
+				require.Equal(t, "8181", saved.Port)
 				// Even a caller supplying the remote identifier cannot overwrite it via direct discovery.
 				attempted := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", IpAddress: "192.168.1.99", Port: "8080", UrlScheme: "http"}, IsActive: true}
 				_, err = store.SaveDirect(ctx, doi, attempted)
@@ -2454,7 +2458,7 @@ func TestContainerDirectDiscoveryDoesNotReuseFleetNodeEndpoint(t *testing.T) {
 				unchanged, err := store.GetDevice(ctx, doi)
 				require.NoError(t, err)
 				require.Equal(t, remote.IpAddress, unchanged.IpAddress)
-				require.Equal(t, "80", unchanged.Port)
+				require.Equal(t, "8181", unchanged.Port)
 
 				localSaved, err := store.GetDevice(ctx, discoverymodels.DeviceOrgIdentifier{OrgID: admin.OrganizationID, DeviceIdentifier: found[0].DeviceIdentifier})
 				require.NoError(t, err)

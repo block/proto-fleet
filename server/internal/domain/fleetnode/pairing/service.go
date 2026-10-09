@@ -464,6 +464,12 @@ func validateReport(r DiscoveredDeviceReport) error {
 	// stratum+tcp) so an injection payload such as "javascript:alert(1)//"
 	// can't be stored. The clickable web URL is separately restricted to
 	// http/https at construction (constructWebViewURL).
+	if r.RPCPort < 0 || r.RPCPort > 65535 {
+		return fmt.Errorf("rpc_port must be in 0..65535")
+	}
+	if (r.RPCPort != 0 || r.RPCTLS) && r.DeviceClass != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		return fmt.Errorf("RPC endpoint requires a container")
+	}
 	if r.URLScheme != "" && !networking.IsValidURLScheme(r.URLScheme) {
 		return fmt.Errorf("url_scheme %q is not a valid scheme", r.URLScheme)
 	}

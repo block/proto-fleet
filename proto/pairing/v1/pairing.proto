@@ -46,6 +46,9 @@ message Device {
   // Driver name identifies which plugin handles this device (e.g., "proto", "antminer").
   // Used for plugin routing; distinct from device_class which describes hardware identity.
   string driver_name = 12;
+  // Independent native RPC listener on the same host; zero uses the driver default.
+  int32 rpc_port = 13 [(buf.validate.field).int32 = {gte: 0, lte: 65535}];
+  bool rpc_tls = 14;
 }
 
 // Represents login credentials used for device pairing
@@ -191,6 +194,8 @@ message FleetNodePairTarget {
   string manufacturer = 6 [(buf.validate.field).string.max_len = 255];
   string firmware_version = 7 [(buf.validate.field).string.max_len = 255];
   common.v1.DeviceClass device_class = 8 [(buf.validate.field).enum.defined_only = true];
+  int32 rpc_port = 9 [(buf.validate.field).int32 = {gte: 0, lte: 65535}];
+  bool rpc_tls = 10;
 }
 
 // Service for discovering and pairing with network devices

@@ -155,6 +155,9 @@ type OfflineDeviceInfo struct {
 // FleetNodeRecoveryTarget is an offline, paired-like miner whose owning Fleet
 // Node can scan the miner's private LAN for a changed endpoint.
 type FleetNodeRecoveryTarget struct {
+	RPCPort            int32
+	RPCTLS             bool
+	DeviceClass        int32
 	FleetNodeID        int64
 	DeviceIdentifier   string
 	OrgID              int64

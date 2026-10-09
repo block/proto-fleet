@@ -615,8 +615,13 @@ type moduleVoltageSetting struct {
 // ---------------------------------------------------------------------------
 
 func (h *RESTApiHandler) handleSystemInfo(w http.ResponseWriter, r *http.Request) {
-	s := h.state
-	s.mu.RLock()
+	h.state.mu.RLock()
+	resp := h.state.systemInfoDTO()
+	h.state.mu.RUnlock()
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *ContainerState) systemInfoDTO() systemInfoResponse {
 	resp := systemInfoResponse{Info: systemInfo{
 		ID:            s.ServerID,
 		Version:       s.Version,
@@ -639,8 +644,8 @@ func (h *RESTApiHandler) handleSystemInfo(w http.ResponseWriter, r *http.Request
 			MachineName:  s.Hostname,
 		},
 	}}
-	s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, resp)
+
+	return resp
 }
 
 func (h *RESTApiHandler) handleSystemStatus(w http.ResponseWriter, r *http.Request) {
@@ -664,8 +669,13 @@ func (h *RESTApiHandler) handleSystemStatus(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *RESTApiHandler) handleContainerMap(w http.ResponseWriter, r *http.Request) {
-	s := h.state
-	s.mu.RLock()
+	h.state.mu.RLock()
+	resp := h.state.containerMapDTO()
+	h.state.mu.RUnlock()
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *ContainerState) containerMapDTO() containerMapResponse {
 	cm := containerMap{}
 	for _, tank := range s.Tanks {
 		td := tankDTO{ID: tank.ID}
@@ -686,13 +696,18 @@ func (h *RESTApiHandler) handleContainerMap(w http.ResponseWriter, r *http.Reque
 		}
 		cm.Tanks = append(cm.Tanks, td)
 	}
-	s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, containerMapResponse{ContainerMap: cm})
+
+	return containerMapResponse{ContainerMap: cm}
 }
 
 func (h *RESTApiHandler) handleMiningStatus(w http.ResponseWriter, r *http.Request) {
-	s := h.state
-	s.mu.RLock()
+	h.state.mu.RLock()
+	resp := h.state.miningStatusDTO()
+	h.state.mu.RUnlock()
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *ContainerState) miningStatusDTO() miningStatusResponse {
 	var (
 		hashrate, ideal, power, asicTempSum, boardTempSum float64
 		active, total                                     int
@@ -736,8 +751,8 @@ func (h *RESTApiHandler) handleMiningStatus(w http.ResponseWriter, r *http.Reque
 		AverageAsicTemperatureC:      avgAsic,
 		AverageHashboardTemperatureC: avgBoard,
 	}
-	s.mu.RUnlock()
-	writeJSON(w, http.StatusOK, resp)
+
+	return resp
 }
 
 func (h *RESTApiHandler) handleMiningStart(w http.ResponseWriter, r *http.Request) {

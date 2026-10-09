@@ -50,6 +50,8 @@ func (h *Handler) ListFleetNodeDiscoveredDevices(ctx context.Context, req *conne
 			IpAddress:        d.IPAddress,
 			Port:             d.Port,
 			UrlScheme:        d.URLScheme,
+			RpcPort:          d.RPCPort,
+			RpcTls:           d.RPCTLS,
 			DriverName:       d.DriverName,
 			Model:            d.Model,
 			Manufacturer:     d.Manufacturer,

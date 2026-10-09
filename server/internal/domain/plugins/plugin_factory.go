@@ -24,6 +24,8 @@ type PluginDriverGetter interface {
 
 // PluginMinerConfig contains all parameters needed to create a plugin-based miner
 type PluginMinerConfig struct {
+	RPCPort int32
+	RPCTLS  bool
 	// Device information
 	DeviceClass      sdk.DeviceClass
 	DeviceIdentifier string
@@ -80,6 +82,8 @@ func NewPluginMinerWithCredentials(
 		Host:         config.DeviceIPAddress,
 		Port:         portInt32,
 		URLScheme:    config.DeviceScheme,
+		RPCPort:      config.RPCPort,
+		RPCTLS:       config.RPCTLS,
 		SerialNumber: config.DeviceSerialNumber,
 		MacAddress:   config.MacAddress,
 	}

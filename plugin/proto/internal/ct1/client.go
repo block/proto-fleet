@@ -1,150 +1,125 @@
 package ct1
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
+	"crypto/tls"
 	"fmt"
-	"io"
 	"log/slog"
 	"math"
 	"net"
-	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
-// Client serializes token refresh with collection. Credentials never enter URLs
-// or error messages, and redirects cannot forward them to a different endpoint.
+const DefaultRPCPort int32 = 9095
+const maxReceiveBytes = 8 << 20
+
+// Client owns one controller connection. Poll/control sequencing is unchanged.
 type Client struct {
-	baseURL     string
-	http        *http.Client
-	credentials sdk.UsernamePassword
-	token       string
-	mu          sync.Mutex
+	closeOnce sync.Once
+	closeErr  error
+	baseURL   string
+	conn      *grpc.ClientConn
+	system    mdk.SystemServiceClient
+	boards    mdk.HashboardServiceClient
+	mining    mdk.MiningServiceClient
+	telemetry mdk.TelemetryServiceClient
+	power     mdk.PowerServiceClient
+	mu        sync.Mutex
 }
 
-func NewClient(info sdk.DeviceInfo, credentials sdk.UsernamePassword) (*Client, error) {
+func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
 	if info.Host == "" || info.Port <= 0 || info.Port > 65535 || (info.URLScheme != "http" && info.URLScheme != "https") {
-		return nil, fmt.Errorf("invalid CT1 endpoint")
+		return nil, fmt.Errorf("invalid CT1 web endpoint")
 	}
-	u := url.URL{Scheme: info.URLScheme, Host: net.JoinHostPort(info.Host, strconv.Itoa(int(info.Port)))}
-	return &Client{baseURL: u.String(), credentials: credentials, http: &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
-}
-func (c *Client) request(ctx context.Context, method, path string, body any, out any) (int, error) {
-	var payload io.Reader
-	if body != nil {
-		b, err := json.Marshal(body)
-		if err != nil {
-			return 0, fmt.Errorf("prepare CT1 request: %w", err)
-		}
-		payload = bytes.NewReader(b)
+	port := info.RPCPort
+	if port == 0 {
+		port = DefaultRPCPort
 	}
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, payload)
+	if port < 1 || port > 65535 {
+		return nil, fmt.Errorf("invalid CT1 RPC port")
+	}
+	if os.Getenv("CT1_RPC_TOKEN_FILE") != "" {
+		return nil, fmt.Errorf("CT1_RPC_TOKEN_FILE is unsupported; authenticated CT1 RPC connections are not supported")
+	}
+	var transport credentials.TransportCredentials = insecure.NewCredentials()
+	if info.RPCTLS {
+		transport = credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12, ServerName: info.Host})
+	}
+	// Disable configured application retry policies. gRPC's transparent retries
+	// are limited to attempts known not to have reached application processing.
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(transport), grpc.WithDisableRetry(), grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(maxReceiveBytes))}
+	// Preserve Frigate audit attribution across the transport change. This is not authentication.
+	opts = append(opts, grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoke grpc.UnaryInvoker, options ...grpc.CallOption) error {
+		return invoke(metadata.AppendToOutgoingContext(ctx, "x-frigate-actor", "proto-fleet"), method, req, reply, cc, options...)
+	}))
+	conn, err := grpc.NewClient("dns:///"+net.JoinHostPort(info.Host, strconv.Itoa(int(port))), opts...)
 	if err != nil {
-		return 0, fmt.Errorf("prepare CT1 request: %w", err)
+		return nil, fmt.Errorf("create CT1 connection: %w", err)
 	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("X-Frigate-Actor", "proto-fleet")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return 0, fmt.Errorf("CT1 %s: %w", path, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return resp.StatusCode, fmt.Errorf("CT1 %s returned HTTP %d", path, resp.StatusCode)
-	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(out); err != nil {
-		return resp.StatusCode, fmt.Errorf("decode CT1 %s: %w", path, err)
-	}
-	return resp.StatusCode, nil
+	web := url.URL{Scheme: info.URLScheme, Host: net.JoinHostPort(info.Host, strconv.Itoa(int(info.Port)))}
+	return &Client{baseURL: web.String(), conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn)}, nil
 }
-func (c *Client) login(ctx context.Context) error {
-	var result struct {
-		Token string `json:"token"`
-	}
-	c.token = ""
-	_, err := c.request(ctx, http.MethodPost, "/api/v2/auth/login", map[string]string{"username": c.credentials.Username, "password": c.credentials.Password}, &result)
-	if err != nil {
-		return sdk.NewErrorAuthenticationFailed("CT1", err)
-	}
-	if result.Token == "" {
-		return sdk.NewErrorAuthenticationFailed("CT1", fmt.Errorf("login returned no token"))
-	}
-	c.token = result.Token
-	return nil
-}
-func (c *Client) get(ctx context.Context, path string, out any) error {
-	status, err := c.request(ctx, http.MethodGet, path, nil, out)
-	if status == http.StatusUnauthorized && c.credentials.Password != "" {
-		if err = c.login(ctx); err != nil {
-			return err
-		}
-		status, err = c.request(ctx, http.MethodGet, path, nil, out)
-	}
-	if status == http.StatusUnauthorized || status == http.StatusForbidden {
-		return sdk.NewErrorAuthenticationFailed("CT1", err)
-	}
-	return err
-}
-func (c *Client) Discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceInfo, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.discover(ctx, info)
+func (c *Client) Close() error {
+	c.closeOnce.Do(func() { c.closeErr = c.conn.Close() })
+	return c.closeErr
 }
 
-func (c *Client) discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceInfo, error) {
-	var result struct {
-		Info *struct {
-			ID      string `json:"id"`
-			Product string `json:"product"`
-			Model   string `json:"model"`
-			Version string `json:"version"`
-		} `json:"info"`
-	}
-	if err := c.get(ctx, "/api/v2/system/info", &result); err != nil {
+func (c *Client) Discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	result, err := c.system.GetSystemInfo(ctx, &mdk.GetSystemInfoRequest{})
+	if err != nil {
 		return sdk.DeviceInfo{}, err
 	}
-	if result.Info == nil || strings.TrimSpace(result.Info.ID) == "" || (!strings.EqualFold(result.Info.Product, "Frigate") && !strings.EqualFold(result.Info.Product, "CT1") && !strings.EqualFold(result.Info.Model, "CT1")) {
+	v := result.GetInfo()
+	if v == nil || strings.TrimSpace(v.Id) == "" || (!strings.EqualFold(v.Product, "Frigate") && !strings.EqualFold(v.Product, "CT1") && !strings.EqualFold(v.Model, "CT1")) {
 		return sdk.DeviceInfo{}, fmt.Errorf("endpoint is not a CT1 container")
 	}
+	if info.SerialNumber != "" && info.SerialNumber != v.Id {
+		return sdk.DeviceInfo{}, fmt.Errorf("CT1 controller identity mismatch")
+	}
 	info.DeviceClass = sdk.DeviceClassContainer
-	info.SerialNumber = result.Info.ID
+	info.SerialNumber = v.Id
 	info.Model = "CT1"
 	info.Manufacturer = "Proto"
-	info.FirmwareVersion = result.Info.Version
+	info.FirmwareVersion = v.Version
+	if info.RPCPort == 0 {
+		info.RPCPort = DefaultRPCPort
+	}
 	return info, nil
 }
+
 func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	var wire MapResponse
-	if err := c.get(ctx, "/api/v2/container/map", &wire); err != nil {
+	wire, err := c.boards.GetContainerMap(ctx, &mdk.GetContainerMapRequest{})
+	if err != nil {
 		return sdk.DeviceMetrics{}, err
 	}
 	observed := time.Now().UTC()
-	topology, err := snapshot(wire, observed)
+	topology, err := snapshot(mapResponse(wire), observed)
 	if err != nil {
 		return sdk.DeviceMetrics{}, err
 	}
-	var mining struct {
-		Hashrate *float64 `json:"hashrate"`
-		Power    *float64 `json:"power"`
-		Mining   bool     `json:"mining"`
-	}
 	result := sdk.DeviceMetrics{DeviceID: id, Timestamp: observed, Container: topology, Health: sdk.HealthWarning}
-	if err := c.collectSupplement(ctx, "/api/v2/mining/status", &mining); err != nil {
+	miningCtx, miningCancel := supplementContext(ctx)
+	mining, miningErr := c.mining.GetMiningStatus(miningCtx, &mdk.GetMiningStatusRequest{})
+	miningCancel()
+	if err := miningErr; err != nil {
 		slog.WarnContext(ctx, "CT1 mining totals unavailable", "device_id", id, "error", err)
 	} else {
 		result.Health = sdk.HealthHealthyInactive
@@ -152,8 +127,12 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 			result.Health = sdk.HealthHealthyActive
 		}
 		// MDK v2 hashrate is TH/s; the SDK and Timescale use H/s.
-		result.HashrateHS = metric(mining.Hashrate, 1e12)
-		result.PowerW = metric(mining.Power, 1)
+		// This scalar has no presence/validity marker; do not turn its
+		// ambiguous default into an observed zero.
+		if mining.Hashrate != 0 {
+			result.HashrateHS = metric(&mining.Hashrate, 1e12)
+		}
+		result.PowerW = metric(miningPower(mining), 1)
 	}
 	for _, tank := range topology.Tanks {
 		for _, m := range tank.Modules {
@@ -162,8 +141,11 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 			}
 		}
 	}
-	var plant plantResponse
-	if err := c.collectSupplement(ctx, "/api/v2/telemetry/container", &plant); err != nil {
+	plantCtx, plantCancel := supplementContext(ctx)
+	plantWire, plantErr := c.telemetry.GetContainerHealth(plantCtx, &mdk.GetContainerHealthRequest{})
+	plantCancel()
+	plant := plantObservation(plantWire)
+	if err := plantErr; err != nil {
 		plant = plantResponse{}
 		slog.WarnContext(ctx, "CT1 plant observation unavailable", "device_id", id, "error", err)
 	} else if topology.Plant = plant.observation(time.Now().UTC()); topology.Plant != nil {
@@ -182,11 +164,13 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 	// Fans have their own source observation time and do not depend on plant
 	// aggregate availability. A failed read leaves them absent.
 	topology.Fans = plant.fanObservations(time.Now().UTC())
-	var controls controlsResponse
-	if err := c.collectSupplement(ctx, "/api/v2/power/container/controls", &controls); err != nil {
+	controlsCtx, controlsCancel := supplementContext(ctx)
+	controlsWire, controlsErr := c.power.GetContainerControls(controlsCtx, &mdk.GetContainerControlsRequest{})
+	controlsCancel()
+	if err := controlsErr; err != nil {
 		slog.WarnContext(ctx, "CT1 equipment controls unavailable", "device_id", id, "error", err)
 	} else {
-		topology.Controls = controls.observation(time.Now().UTC())
+		topology.Controls = controlObservation(controlsWire).observation(time.Now().UTC())
 	}
 	// CT1 does not report efficiency. Use the final controller power selection
 	// (including facility loads when available), not summed module PSU power.
@@ -202,19 +186,24 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 	return result, nil
 }
 
-// Supplementary totals are optional. Bound request/login/retry and leave
-// time for the core result to cross the plugin RPC before the caller expires.
-func (c *Client) collectSupplement(ctx context.Context, path string, out any) error {
+// Reserve time for the accepted core result to cross the plugin RPC.
+func supplementContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	budget := time.Second
 	if deadline, ok := ctx.Deadline(); ok {
 		budget = min(budget, time.Until(deadline)-500*time.Millisecond)
 	}
-	if budget <= 0 {
-		return fmt.Errorf("insufficient collection time for supplementary observation")
+	return context.WithTimeout(ctx, max(budget, 0))
+}
+
+// The pinned producer's legacy power scalar is only meaningful with complete
+// shared-assignment coverage. A numeric default alone cannot establish zero.
+func miningPower(v *mdk.GetMiningStatusResponse) *float64 {
+	m := v.GetCurrentMeasurements()
+	p := m.GetHashboardPowerW()
+	if m.GetScope() != mdk.MiningMeasurementScope_MINING_MEASUREMENT_SCOPE_SHARED_ASSIGNMENTS || !p.GetComplete() {
+		return nil
 	}
-	plantCtx, cancel := context.WithTimeout(ctx, budget)
-	defer cancel()
-	return c.get(plantCtx, path, out)
+	return p.Value
 }
 
 func metric(value *float64, multiplier float64) *sdk.MetricValue {

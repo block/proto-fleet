@@ -631,7 +631,11 @@ func fanOutProbes(ctx context.Context, endpoints iter.Seq[endpoint], concurrency
 		// spoofed endpoint and poison the server's discovery state.
 		// Override with what we actually probed before validating.
 		report.IpAddress = e.ip
-		report.Port = e.port
+		if report.DeviceClass != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER || report.RpcPort <= 0 || strconv.Itoa(int(report.RpcPort)) != e.port {
+			report.Port = e.port
+			report.RpcPort = 0
+			report.RpcTls = false
+		}
 		// One device that violates the gateway's buf-validate rules
 		// (oversized model string, wrong url_scheme, etc.) would fail
 		// the whole ReportDiscoveredDevices batch server-side and lose
@@ -833,9 +837,13 @@ func (p *pluginDiscoverer) DefaultDiscoveryPorts(ctx context.Context) []string {
 
 // SDK drivers often leave DeviceIdentifier empty; the agent has no DB so it
 // synthesizes a stable identifier. ip/port are the trusted probed endpoint
-// (what fanOutProbes also stamps onto the report), not the plugin-reported one,
-// which may be blank or wrong.
+// (what fanOutProbes also stamps onto the report). A CT1 RPC probe keeps its
+// separate web port only when the reported RPC port matches the scanned port.
 func reportFromDiscovered(dev *discoverymodels.DiscoveredDevice, ip, port string, fleetNodeID int64) *pb.DiscoveredDeviceReport {
+	webPort := port
+	if dev.GetDeviceClass() == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER && dev.GetRpcPort() > 0 && strconv.Itoa(int(dev.GetRpcPort())) == port {
+		webPort = dev.GetPort()
+	}
 	deviceID := dev.GetDeviceIdentifier()
 	if deviceID == "" {
 		deviceID = synthesizeIdentifier(dev, ip, port, fleetNodeID)
@@ -843,8 +851,10 @@ func reportFromDiscovered(dev *discoverymodels.DiscoveredDevice, ip, port string
 	return &pb.DiscoveredDeviceReport{
 		DeviceIdentifier: deviceID,
 		IpAddress:        ip,
-		Port:             port,
+		Port:             webPort,
 		UrlScheme:        dev.GetUrlScheme(),
+		RpcPort:          dev.GetRpcPort(),
+		RpcTls:           dev.GetRpcTls(),
 		DriverName:       dev.GetDriverName(),
 		Model:            dev.GetModel(),
 		DeviceClass:      dev.GetDeviceClass(),

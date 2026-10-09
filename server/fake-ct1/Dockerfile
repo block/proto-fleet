@@ -4,6 +4,7 @@ WORKDIR /app/server/fake-ct1
 
 # Copy go.mod files for dependency caching
 COPY server/fake-ct1/go.mod server/fake-ct1/go.sum ./
+COPY sdk/mdk/ /app/sdk/mdk/
 RUN go mod download
 
 # Copy source and build. fake-ct1 is a standalone module (not in go.work),
@@ -18,6 +19,6 @@ RUN apk add --no-cache ca-certificates wget
 
 COPY --from=builder /fake-ct1 /fake-ct1
 
-EXPOSE 8080
+EXPOSE 8080 9095
 
 ENTRYPOINT ["/fake-ct1"]

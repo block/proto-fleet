@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+
 	"buf.build/go/protovalidate"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
@@ -117,11 +119,23 @@ func (r *RunCmd) recoverMinerEndpoints(ctx context.Context, targets []*pb.MinerC
 		}
 
 		credentialKey := recoveryCredentialKey(target.GetDriverName(), bundle)
+		if target.GetDeviceClass() == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+			credentialKey += fmt.Sprintf("\x00%s\x00%d\x00%t", target.GetSerialNumber(), target.GetRpcPort(), target.GetRpcTls())
+		}
 		cacheKey := func(candidate recoveryEndpoint) string {
 			return recoveryEndpointKey(candidate) + "\x00" + credentialKey
 		}
 		var candidates, pending []recoveryEndpoint
 		for _, candidate := range endpoints {
+			if target.GetDeviceClass() == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+				rpcPort := target.GetRpcPort()
+				if rpcPort == 0 {
+					rpcPort = 9095
+				}
+				if candidate.port != strconv.Itoa(int(rpcPort)) {
+					continue
+				}
+			}
 			if candidate.driverName != target.GetDriverName() {
 				continue
 			}
@@ -313,9 +327,16 @@ func (r *RunCmd) inspectRecoveryEndpoint(ctx context.Context, target *pb.MinerCo
 	// Automatic recovery deliberately assumes a trusted LAN for this rollout.
 	// Discovery MAC/serial values do not authenticate endpoints: a spoofed LAN
 	// service can receive these saved credentials before identity is checked.
-	result, err := driver.NewDevice(ctx, deviceID, sdk.DeviceInfo{
-		Host: endpoint.ip, Port: port, URLScheme: scheme,
-	}, bundle)
+	info := sdk.DeviceInfo{Host: endpoint.ip, Port: port, URLScheme: scheme, DeviceClass: sdk.DeviceClass(target.GetDeviceClass()), RPCPort: target.GetRpcPort(), RPCTLS: target.GetRpcTls()}
+	if info.DeviceClass == sdk.DeviceClassContainer {
+		info.Port, err = sdk.ParsePort(target.GetPort())
+		if err != nil {
+			return stableidentity.Identity{}, err
+		}
+		info.URLScheme = target.GetUrlScheme()
+		info.SerialNumber = target.GetSerialNumber()
+	}
+	result, err := driver.NewDevice(ctx, deviceID, info, bundle)
 	if err != nil {
 		// Recovery cleans up inline during its endpoint scan and holds no handle
 		// capacity, so it waits only for creations that may still be registering.
@@ -332,7 +353,7 @@ func (r *RunCmd) inspectRecoveryEndpoint(ctx context.Context, target *pb.MinerCo
 		defer cancel()
 		_ = result.Device.Close(closeCtx)
 	}()
-	info, _, err := result.Device.DescribeDevice(ctx)
+	info, _, err = result.Device.DescribeDevice(ctx)
 	if err != nil {
 		return stableidentity.Identity{}, err
 	}
@@ -361,6 +382,10 @@ func isAuthenticationError(err error) bool {
 }
 
 func recoveryResult(target *pb.MinerConnectionDescriptor, outcome pb.MinerEndpointRecoveryOutcome, endpoint recoveryEndpoint, message string) *pb.MinerEndpointRecoveryResult {
+	if target.GetDeviceClass() == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER && endpoint.ip != "" {
+		endpoint.port = target.GetPort()
+		endpoint.urlScheme = target.GetUrlScheme()
+	}
 	result := &pb.MinerEndpointRecoveryResult{
 		DeviceIdentifier: target.GetDeviceIdentifier(),
 		Outcome:          outcome,

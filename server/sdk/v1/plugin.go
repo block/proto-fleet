@@ -2040,6 +2040,8 @@ func secretBundleFromProto(p *pb.SecretBundle) SecretBundle {
 // DeviceInfo conversion functions
 func deviceInfoToProto(d DeviceInfo) *pb.DeviceInfo {
 	return &pb.DeviceInfo{
+		RpcPort:               d.RPCPort,
+		RpcTls:                d.RPCTLS,
 		Host:                  d.Host,
 		Port:                  d.Port,
 		UrlScheme:             d.URLScheme,
@@ -2055,6 +2057,8 @@ func deviceInfoToProto(d DeviceInfo) *pb.DeviceInfo {
 
 func deviceInfoFromProto(p *pb.DeviceInfo) DeviceInfo {
 	return DeviceInfo{
+		RPCPort:               p.RpcPort,
+		RPCTLS:                p.RpcTls,
 		Host:                  p.Host,
 		Port:                  p.Port,
 		URLScheme:             p.UrlScheme,

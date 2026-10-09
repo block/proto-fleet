@@ -180,3 +180,17 @@ func TestTelemetryEvictsFailedAndAbandonedDevices(t *testing.T) {
 		})
 	}
 }
+
+func TestTelemetryFingerprintIncludesRPCEndpoint(t *testing.T) {
+	info := sdk.DeviceInfo{Host: "10.0.0.2", Port: 8080, URLScheme: "http", RPCPort: 9095}
+	first, err := telemetryClientFingerprint(info, sdk.SecretBundle{})
+	require.NoError(t, err)
+	info.RPCPort = 9443
+	second, err := telemetryClientFingerprint(info, sdk.SecretBundle{})
+	require.NoError(t, err)
+	require.NotEqual(t, first, second)
+	info.RPCTLS = true
+	third, err := telemetryClientFingerprint(info, sdk.SecretBundle{})
+	require.NoError(t, err)
+	require.NotEqual(t, second, third)
+}

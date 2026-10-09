@@ -415,6 +415,8 @@ impl Driver for DriverService {
                 mac_address,
                 firmware_version,
                 default_password_active: None,
+                rpc_port: 0,
+                rpc_tls: false,
             }),
         }))
     }
@@ -573,6 +575,8 @@ impl Driver for DriverService {
                 mac_address: fresh_mac,
                 firmware_version,
                 default_password_active: None,
+                rpc_port: 0,
+                rpc_tls: false,
             }),
         }))
     }

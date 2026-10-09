@@ -81,6 +81,8 @@ func (s *SQLDiscoveredDeviceStore) save(ctx context.Context, doi discoverymodels
 		IpAddress:        device.IpAddress,
 		Port:             device.Port,
 		UrlScheme:        device.UrlScheme,
+		RpcPort:          device.RpcPort,
+		RpcTls:           device.RpcTls,
 		IsActive:         device.IsActive,
 		DriverName:       device.Device.DriverName,
 		DeviceClass:      int32(device.DeviceClass),
@@ -132,6 +134,23 @@ func (s *SQLDiscoveredDeviceStore) GetByIPAndPort(ctx context.Context, orgID int
 	}
 
 	return toDiscoveredDevice(dbDevice), nil
+}
+
+func (s *SQLDiscoveredDeviceStore) GetDirectContainerByIP(ctx context.Context, orgID int64, ipAddress, driverName, model, manufacturer string) (*discoverymodels.DiscoveredDevice, error) {
+	rows, err := s.getQueries(ctx).FindDirectContainerByIP(ctx, sqlc.FindDirectContainerByIPParams{
+		OrgID: orgID, IpAddress: ipAddress, DriverName: driverName, Model: model, Manufacturer: manufacturer,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to find container at shared IP: %v", err)
+	}
+	switch len(rows) {
+	case 0:
+		return nil, minerdiscovery.MinerNotFoundFleetError
+	case 1:
+		return toDiscoveredDevice(rows[0]), nil
+	default:
+		return nil, fleeterror.NewFailedPreconditionError("multiple containers match this IP; resolve duplicate inventory before rediscovery")
+	}
 }
 
 // GetDatabaseID retrieves the database ID (primary key) for a discovered device
@@ -201,6 +220,8 @@ func toDiscoveredDeviceFromRow(dbDevice sqlc.GetActiveUnpairedDiscoveredDevicesR
 			IpAddress:        dbDevice.IpAddress,
 			Port:             dbDevice.Port,
 			UrlScheme:        dbDevice.UrlScheme,
+			RpcPort:          dbDevice.RpcPort,
+			RpcTls:           dbDevice.RpcTls,
 			DriverName:       dbDevice.DriverName,
 		},
 		IsActive:        dbDevice.IsActive,
@@ -249,6 +270,8 @@ func toDiscoveredDevice(dbDevice sqlc.DiscoveredDevice) *discoverymodels.Discove
 			IpAddress:        dbDevice.IpAddress,
 			Port:             dbDevice.Port,
 			UrlScheme:        dbDevice.UrlScheme,
+			RpcPort:          dbDevice.RpcPort,
+			RpcTls:           dbDevice.RpcTls,
 			DriverName:       dbDevice.DriverName,
 		},
 		IsActive:                dbDevice.IsActive,

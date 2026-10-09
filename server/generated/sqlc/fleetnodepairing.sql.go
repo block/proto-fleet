@@ -315,7 +315,7 @@ WITH candidate AS (
          dd.discovered_by_fleet_node_id,
          dd.ip_address,
          dd.port,
-         dd.url_scheme,
+         dd.url_scheme, dd.rpc_port, dd.rpc_tls,
          dd.driver_name,
          dd.model,
          dd.device_class,
@@ -387,7 +387,7 @@ WITH candidate AS (
     AND ($9::bigint IS NULL OR dd.id > $9::bigint)
   ORDER BY dd.id ASC, d.id DESC NULLS LAST
 )
-SELECT id, org_id, device_identifier, discovered_by_fleet_node_id, ip_address, port, url_scheme, driver_name, model, device_class, manufacturer, firmware_version, last_seen, pairing_status
+SELECT id, org_id, device_identifier, discovered_by_fleet_node_id, ip_address, port, url_scheme, rpc_port, rpc_tls, driver_name, model, device_class, manufacturer, firmware_version, last_seen, pairing_status
 FROM candidate
 WHERE ($2::text[] IS NULL OR pairing_status = ANY($2::text[]))
 ORDER BY id ASC
@@ -414,6 +414,8 @@ type ListFleetNodeDiscoveredDevicesRow struct {
 	IpAddress               string
 	Port                    string
 	UrlScheme               string
+	RpcPort                 int32
+	RpcTls                  bool
 	DriverName              string
 	Model                   sql.NullString
 	DeviceClass             int32
@@ -465,6 +467,8 @@ func (q *Queries) ListFleetNodeDiscoveredDevices(ctx context.Context, arg ListFl
 			&i.IpAddress,
 			&i.Port,
 			&i.UrlScheme,
+			&i.RpcPort,
+			&i.RpcTls,
 			&i.DriverName,
 			&i.Model,
 			&i.DeviceClass,
@@ -659,13 +663,20 @@ INSERT INTO discovered_device (
     firmware_version,
     discovered_by_fleet_node_id,
     is_active,
-    device_class
+    device_class,
+    rpc_port,
+    rpc_tls
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11, $12, $13)
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     ip_address = EXCLUDED.ip_address,
-    port = EXCLUDED.port,
-    url_scheme = EXCLUDED.url_scheme,
+    -- Native CT1 rediscovery must retain the existing browser endpoint.
+    port = CASE WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
+                THEN discovered_device.port ELSE EXCLUDED.port END,
+    url_scheme = CASE WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
+                      THEN discovered_device.url_scheme ELSE EXCLUDED.url_scheme END,
+    rpc_port = EXCLUDED.rpc_port,
+    rpc_tls = EXCLUDED.rpc_tls,
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     model = EXCLUDED.model,
     device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
@@ -742,6 +753,8 @@ type UpsertDiscoveredDeviceFromFleetNodeParams struct {
 	FirmwareVersion         sql.NullString
 	DiscoveredByFleetNodeID sql.NullInt64
 	DeviceClass             int32
+	RpcPort                 int32
+	RpcTls                  bool
 }
 
 // No returned row on conflict signals rejection. A remote report must not redirect the
@@ -764,6 +777,8 @@ func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg U
 		arg.FirmwareVersion,
 		arg.DiscoveredByFleetNodeID,
 		arg.DeviceClass,
+		arg.RpcPort,
+		arg.RpcTls,
 	)
 	var device_class int32
 	err := row.Scan(&device_class)

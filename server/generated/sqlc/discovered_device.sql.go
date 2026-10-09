@@ -28,9 +28,89 @@ func (q *Queries) CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgI
 	return total, err
 }
 
+const findDirectContainerByIP = `-- name: FindDirectContainerByIP :many
+SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer, dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata, dd.first_discovered, dd.last_seen, dd.is_active, dd.created_at, dd.updated_at, dd.deleted_at, dd.driver_name, dd.ip_address_inet, dd.discovered_by_fleet_node_id, dd.device_class, dd.rpc_port, dd.rpc_tls
+FROM discovered_device dd
+WHERE dd.org_id = $1
+    AND dd.ip_address = $2
+    AND dd.device_class = 2
+    AND dd.driver_name = $3::text
+    AND lower(dd.model) = lower($4::text)
+    AND lower(dd.manufacturer) = lower($5::text)
+    AND dd.deleted_at IS NULL
+    AND dd.discovered_by_fleet_node_id IS NULL
+    AND NOT EXISTS (
+        SELECT 1 FROM device d JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
+        WHERE d.discovered_device_id=dd.id AND d.org_id=dd.org_id AND d.deleted_at IS NULL
+    )
+LIMIT 2
+`
+
+type FindDirectContainerByIPParams struct {
+	OrgID        int64
+	IpAddress    string
+	DriverName   string
+	Model        string
+	Manufacturer string
+}
+
+// Container identity follows its shared IP, independently of either service port.
+// Return two candidates so callers can reject ambiguous existing inventory.
+func (q *Queries) FindDirectContainerByIP(ctx context.Context, arg FindDirectContainerByIPParams) ([]DiscoveredDevice, error) {
+	rows, err := q.query(ctx, q.findDirectContainerByIPStmt, findDirectContainerByIP,
+		arg.OrgID,
+		arg.IpAddress,
+		arg.DriverName,
+		arg.Model,
+		arg.Manufacturer,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DiscoveredDevice
+	for rows.Next() {
+		var i DiscoveredDevice
+		if err := rows.Scan(
+			&i.ID,
+			&i.OrgID,
+			&i.DeviceIdentifier,
+			&i.Model,
+			&i.Manufacturer,
+			&i.FirmwareVersion,
+			&i.IpAddress,
+			&i.Port,
+			&i.UrlScheme,
+			&i.DiscoveryMetadata,
+			&i.FirstDiscovered,
+			&i.LastSeen,
+			&i.IsActive,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.DeletedAt,
+			&i.DriverName,
+			&i.IpAddressInet,
+			&i.DiscoveredByFleetNodeID,
+			&i.DeviceClass,
+			&i.RpcPort,
+			&i.RpcTls,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getActiveUnpairedDiscoveredDevices = `-- name: GetActiveUnpairedDiscoveredDevices :many
 SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer,
-       dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata,
+       dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.rpc_port, dd.rpc_tls, dd.discovery_metadata,
        dd.first_discovered, dd.last_seen, dd.is_active,
        dd.driver_name, dd.device_class,
        dd.created_at, dd.updated_at, dd.deleted_at
@@ -66,6 +146,8 @@ type GetActiveUnpairedDiscoveredDevicesRow struct {
 	IpAddress         string
 	Port              string
 	UrlScheme         string
+	RpcPort           int32
+	RpcTls            bool
 	DiscoveryMetadata sql.NullString
 	FirstDiscovered   sql.NullTime
 	LastSeen          sql.NullTime
@@ -98,6 +180,8 @@ func (q *Queries) GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg Ge
 			&i.IpAddress,
 			&i.Port,
 			&i.UrlScheme,
+			&i.RpcPort,
+			&i.RpcTls,
 			&i.DiscoveryMetadata,
 			&i.FirstDiscovered,
 			&i.LastSeen,
@@ -122,7 +206,7 @@ func (q *Queries) GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg Ge
 }
 
 const getDiscoveredDeviceByDeviceIdentifier = `-- name: GetDiscoveredDeviceByDeviceIdentifier :one
-SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id, device_class
+SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id, device_class, rpc_port, rpc_tls
 FROM discovered_device
 WHERE device_identifier = $1
     AND org_id = $2
@@ -159,12 +243,14 @@ func (q *Queries) GetDiscoveredDeviceByDeviceIdentifier(ctx context.Context, arg
 		&i.IpAddressInet,
 		&i.DiscoveredByFleetNodeID,
 		&i.DeviceClass,
+		&i.RpcPort,
+		&i.RpcTls,
 	)
 	return i, err
 }
 
 const getDiscoveredDeviceByID = `-- name: GetDiscoveredDeviceByID :one
-SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id, device_class
+SELECT id, org_id, device_identifier, model, manufacturer, firmware_version, ip_address, port, url_scheme, discovery_metadata, first_discovered, last_seen, is_active, created_at, updated_at, deleted_at, driver_name, ip_address_inet, discovered_by_fleet_node_id, device_class, rpc_port, rpc_tls
 FROM discovered_device
 WHERE id = $1
     AND org_id = $2
@@ -201,12 +287,14 @@ func (q *Queries) GetDiscoveredDeviceByID(ctx context.Context, arg GetDiscovered
 		&i.IpAddressInet,
 		&i.DiscoveredByFleetNodeID,
 		&i.DeviceClass,
+		&i.RpcPort,
+		&i.RpcTls,
 	)
 	return i, err
 }
 
 const getDiscoveredDeviceByIPAndPort = `-- name: GetDiscoveredDeviceByIPAndPort :one
-SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer, dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata, dd.first_discovered, dd.last_seen, dd.is_active, dd.created_at, dd.updated_at, dd.deleted_at, dd.driver_name, dd.ip_address_inet, dd.discovered_by_fleet_node_id, dd.device_class
+SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer, dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata, dd.first_discovered, dd.last_seen, dd.is_active, dd.created_at, dd.updated_at, dd.deleted_at, dd.driver_name, dd.ip_address_inet, dd.discovered_by_fleet_node_id, dd.device_class, dd.rpc_port, dd.rpc_tls
 FROM discovered_device dd
 WHERE dd.org_id = $1
     AND dd.ip_address = $2
@@ -251,6 +339,8 @@ func (q *Queries) GetDiscoveredDeviceByIPAndPort(ctx context.Context, arg GetDis
 		&i.IpAddressInet,
 		&i.DiscoveredByFleetNodeID,
 		&i.DeviceClass,
+		&i.RpcPort,
+		&i.RpcTls,
 	)
 	return i, err
 }
@@ -312,7 +402,9 @@ INSERT INTO discovered_device (
     url_scheme,
     is_active,
     driver_name,
-    device_class
+    device_class,
+    rpc_port,
+    rpc_tls
 ) VALUES (
     $1,
     $2,
@@ -324,21 +416,26 @@ INSERT INTO discovered_device (
     $8,
     $9,
     $10,
-    $11
+    $11, $12, $13
 )
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     model = EXCLUDED.model,
     device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
     manufacturer = EXCLUDED.manufacturer,
     ip_address = EXCLUDED.ip_address,
-    port = EXCLUDED.port,
-    url_scheme = EXCLUDED.url_scheme,
+    -- Native CT1 rediscovery must retain the existing browser endpoint.
+    port = CASE WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
+                THEN discovered_device.port ELSE EXCLUDED.port END,
+    url_scheme = CASE WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
+                      THEN discovered_device.url_scheme ELSE EXCLUDED.url_scheme END,
+    rpc_port = EXCLUDED.rpc_port,
+    rpc_tls = EXCLUDED.rpc_tls,
     firmware_version = EXCLUDED.firmware_version,
     is_active = EXCLUDED.is_active,
     -- Keep existing driver_name if already set (prevent discovery flip-flop)
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     last_seen = CURRENT_TIMESTAMP
-WHERE NOT $12::boolean OR (
+WHERE NOT $14::boolean OR (
     discovered_device.discovered_by_fleet_node_id IS NULL
     AND NOT EXISTS (
         SELECT 1 FROM device d JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
@@ -360,6 +457,8 @@ type UpsertDiscoveredDeviceParams struct {
 	IsActive         bool
 	DriverName       string
 	DeviceClass      int32
+	RpcPort          int32
+	RpcTls           bool
 	DirectDiscovery  bool
 }
 
@@ -377,6 +476,8 @@ func (q *Queries) UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscover
 		arg.IsActive,
 		arg.DriverName,
 		arg.DeviceClass,
+		arg.RpcPort,
+		arg.RpcTls,
 		arg.DirectDiscovery,
 	)
 	var id int64

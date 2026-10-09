@@ -19,6 +19,8 @@ const (
 )
 
 type DiscoveredDeviceReport struct {
+	RPCPort          int32
+	RPCTLS           bool
 	DeviceIdentifier string
 	IPAddress        string
 	Port             string
@@ -43,6 +45,8 @@ type FleetNodeDevice struct {
 // or credential retry. PairingStatus is empty when never attempted, or
 // "AUTHENTICATION_NEEDED" after pairing or recovery needs new credentials.
 type FleetNodeDiscoveredDevice struct {
+	RPCPort          int32
+	RPCTLS           bool
 	ID               int64
 	FleetNodeID      int64
 	DeviceIdentifier string

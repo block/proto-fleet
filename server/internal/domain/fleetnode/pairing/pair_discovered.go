@@ -131,6 +131,8 @@ func pairTargetsFromDiscoveredDevices(devices []FleetNodeDiscoveredDevice) []*pa
 			IpAddress:        d.IPAddress,
 			Port:             d.Port,
 			UrlScheme:        d.URLScheme,
+			RpcPort:          d.RPCPort,
+			RpcTls:           d.RPCTLS,
 			DriverName:       d.DriverName,
 			Manufacturer:     d.Manufacturer,
 			FirmwareVersion:  d.FirmwareVersion,

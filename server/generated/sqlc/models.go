@@ -1042,6 +1042,8 @@ type DiscoveredDevice struct {
 	IpAddressInet           pqtype.Inet
 	DiscoveredByFleetNodeID sql.NullInt64
 	DeviceClass             int32
+	RpcPort                 int32
+	RpcTls                  bool
 }
 
 type Error struct {

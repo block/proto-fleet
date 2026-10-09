@@ -15,9 +15,14 @@ type Device struct {
 
 var _ sdk.Device = (*Device)(nil)
 
-func NewDevice(id string, info sdk.DeviceInfo, credentials sdk.UsernamePassword) (*Device, error) {
+func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials sdk.UsernamePassword) (*Device, error) {
 	c, err := NewClient(info, credentials)
 	if err != nil {
+		return nil, err
+	}
+	info, err = c.Discover(ctx, info)
+	if err != nil {
+		_ = c.Close()
 		return nil, err
 	}
 	return &Device{id: id, info: info, client: c}, nil
@@ -34,7 +39,7 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	metrics.FirmwareVersion = d.info.FirmwareVersion
 	return metrics, err
 }
-func (d *Device) Close(context.Context) error { return nil }
+func (d *Device) Close(context.Context) error { return d.client.Close() }
 
 // Unpair is a Fleet-side removal. It does not reset the container or its peers.
 func (d *Device) Unpair(context.Context) error { return nil }

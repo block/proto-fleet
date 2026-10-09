@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -525,6 +526,20 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 	// Use existing device identifier if available
 	deviceIdentifier := discoveredDevice.DeviceIdentifier
 	preserveMissingFirmware := deviceIdentifier != ""
+	if deviceIdentifier == "" && discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		// Containers keep one shared IP even when their HTTP/RPC ports differ.
+		// Resolve them before the generic scanned-port path, which may refer to
+		// an unrelated service and cannot find custom HTTP ports.
+		existing, err := s.discoveredDeviceStore.GetDirectContainerByIP(ctx, info.OrganizationID, scannedIP, discoveredDevice.DriverName, discoveredDevice.Model, discoveredDevice.Manufacturer)
+		switch {
+		case fleeterror.IsNotFoundError(err):
+			deviceIdentifier = id.GenerateID()
+		case err != nil:
+			return false, err
+		default:
+			deviceIdentifier = existing.DeviceIdentifier
+		}
+	}
 	if deviceIdentifier == "" {
 		reconciledIdentifier, err := s.reconcileByMAC(ctx, discoveredDevice, info.OrganizationID, scannedIP, scannedPort)
 		if err != nil {
@@ -608,11 +623,12 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 		OrgID:            info.OrganizationID,
 	}
 
-	// Override the IP/port with the scanned values to ensure consistency
-	// The discovered device may report a different IP if it has multiple interfaces
-	// or if its configuration has changed, but we want to store it at the IP:port we scanned
+	// The scanned host is authoritative. A verified container RPC probe carries
+	// a separate HTTP endpoint for the ProtoOS proxy; do not replace it with RPC.
 	discoveredDevice.IpAddress = scannedIP
-	discoveredDevice.Port = scannedPort
+	if discoveredDevice.DeviceClass != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER || discoveredDevice.RpcPort <= 0 || strconv.Itoa(int(discoveredDevice.RpcPort)) != scannedPort {
+		discoveredDevice.Port = scannedPort
+	}
 	if err := s.hydrateMissingFirmwareVersion(ctx, discoverymodels.DeviceOrgIdentifier{
 		DeviceIdentifier: deviceIdentifier,
 		OrgID:            info.OrganizationID,
@@ -710,8 +726,7 @@ func (s *Service) reconcileByIPAcrossDiscoveryPorts(ctx context.Context, discove
 	if scannedIP == "" || scannedPort == "" || discoveredDevice.DriverName == "" {
 		return "", nil
 	}
-	if discoveredDevice.DeviceClass != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER &&
-		(discoveredDevice.MacAddress != "" || discoveredDevice.SerialNumber != "") {
+	if discoveredDevice.MacAddress != "" || discoveredDevice.SerialNumber != "" {
 		return "", nil
 	}
 

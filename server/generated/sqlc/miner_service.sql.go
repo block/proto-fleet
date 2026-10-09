@@ -26,6 +26,8 @@ SELECT
     dd.ip_address,
     dd.port,
     dd.url_scheme,
+    dd.rpc_port,
+    dd.rpc_tls,
     d.site_id
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
@@ -58,6 +60,8 @@ type GetDeviceWithCredentialsAndIPByDeviceIdentifierRow struct {
 	IpAddress        string
 	Port             string
 	UrlScheme        string
+	RpcPort          int32
+	RpcTls           bool
 	SiteID           sql.NullInt64
 }
 
@@ -79,6 +83,8 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Co
 		&i.IpAddress,
 		&i.Port,
 		&i.UrlScheme,
+		&i.RpcPort,
+		&i.RpcTls,
 		&i.SiteID,
 	)
 	return i, err
@@ -95,6 +101,8 @@ SELECT
     dd.ip_address,
     dd.port,
     dd.url_scheme,
+    dd.rpc_port,
+    dd.rpc_tls,
     dd.driver_name,
     mc.username_enc,
     mc.password_enc
@@ -136,6 +144,8 @@ type GetDirectProtoMinerProxyTargetRow struct {
 	IpAddress        string
 	Port             string
 	UrlScheme        string
+	RpcPort          int32
+	RpcTls           bool
 	DriverName       string
 	UsernameEnc      sql.NullString
 	PasswordEnc      sql.NullString
@@ -154,6 +164,8 @@ func (q *Queries) GetDirectProtoMinerProxyTarget(ctx context.Context, arg GetDir
 		&i.IpAddress,
 		&i.Port,
 		&i.UrlScheme,
+		&i.RpcPort,
+		&i.RpcTls,
 		&i.DriverName,
 		&i.UsernameEnc,
 		&i.PasswordEnc,
@@ -179,6 +191,8 @@ SELECT
     dd.ip_address,
     dd.port,
     dd.url_scheme,
+    dd.rpc_port,
+    dd.rpc_tls,
     dd.firmware_version
 FROM fleet_node_device fnd
 JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
@@ -210,6 +224,8 @@ type GetFleetNodeTelemetryRouteByDeviceIdentifierRow struct {
 	IpAddress        string
 	Port             string
 	UrlScheme        string
+	RpcPort          int32
+	RpcTls           bool
 	FirmwareVersion  sql.NullString
 }
 
@@ -237,6 +253,8 @@ func (q *Queries) GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Conte
 		&i.IpAddress,
 		&i.Port,
 		&i.UrlScheme,
+		&i.RpcPort,
+		&i.RpcTls,
 		&i.FirmwareVersion,
 	)
 	return i, err

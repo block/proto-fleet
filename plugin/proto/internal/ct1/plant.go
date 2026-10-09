@@ -11,16 +11,18 @@ import (
 type plantResponse struct {
 	CoolingFans []fanResponse `json:"coolingFans"`
 	Timestamp   time.Time     `json:"timestamp"`
-	Plant       *struct {
-		DryCoolerInletTemperatureC *float64 `json:"dryCoolerInletTemperatureC"`
-		TotalPowerW                *float64 `json:"totalPowerW"`
-		FacilityPowerW             *float64 `json:"facilityPowerW"`
-		PUE                        *float64 `json:"pue"`
-		InletTemperatureC          *float64 `json:"inletTemperatureC"`
-		OutletTemperatureC         *float64 `json:"outletTemperatureC"`
-		AlarmActive                bool     `json:"alarmActive"`
-		CriticalAlarmActive        bool     `json:"criticalAlarmActive"`
-	} `json:"plant"`
+	Plant       *plantFields  `json:"plant"`
+}
+
+type plantFields struct {
+	DryCoolerInletTemperatureC *float64 `json:"dryCoolerInletTemperatureC"`
+	TotalPowerW                *float64 `json:"totalPowerW"`
+	FacilityPowerW             *float64 `json:"facilityPowerW"`
+	PUE                        *float64 `json:"pue"`
+	InletTemperatureC          *float64 `json:"inletTemperatureC"`
+	OutletTemperatureC         *float64 `json:"outletTemperatureC"`
+	AlarmActive                bool     `json:"alarmActive"`
+	CriticalAlarmActive        bool     `json:"criticalAlarmActive"`
 }
 
 func (p plantResponse) observation(now time.Time) *sdk.ContainerPlant {

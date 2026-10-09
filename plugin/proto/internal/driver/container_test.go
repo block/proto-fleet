@@ -1,60 +1,101 @@
 package driver
 
 import (
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"strconv"
+	"context"
+	"net"
+	"os"
+	"path/filepath"
 	"testing"
-	"time"
 
+	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// A real HTTP boundary covers classification, credential-free pairing on current
-// Frigate, and reconstruction by a fresh driver after the plugin restarts.
+type containerServer struct {
+	mdk.UnimplementedSystemServiceServer
+	mdk.UnimplementedHashboardServiceServer
+	mdk.UnimplementedMiningServiceServer
+	mdk.UnimplementedTelemetryServiceServer
+}
+
+func (containerServer) GetSystemInfo(context.Context, *mdk.GetSystemInfoRequest) (*mdk.GetSystemInfoResponse, error) {
+	return &mdk.GetSystemInfoResponse{Info: &mdk.SystemInfo{Id: "controller-a", Product: "Frigate", Version: "v1"}}, nil
+}
+func (containerServer) GetContainerMap(context.Context, *mdk.GetContainerMapRequest) (*mdk.GetContainerMapResponse, error) {
+	return &mdk.GetContainerMapResponse{ContainerMap: &mdk.ContainerMap{Tanks: []*mdk.Tank{{Id: 1, Modules: []*mdk.Module{{Id: 1}}}}}}, nil
+}
+func (containerServer) GetMiningStatus(context.Context, *mdk.GetMiningStatusRequest) (*mdk.GetMiningStatusResponse, error) {
+	return &mdk.GetMiningStatusResponse{Hashrate: 100, Mining: true}, nil
+}
+func (containerServer) GetContainerHealth(context.Context, *mdk.GetContainerHealthRequest) (*mdk.GetContainerHealthResponse, error) {
+	return &mdk.GetContainerHealthResponse{Timestamp: timestamppb.Now(), Plant: &mdk.PlantHealth{TotalPowerW: new(3200.0)}}, nil
+}
+
 func TestContainerLifecycle(t *testing.T) {
-	now := time.Now().UTC()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/api/v2/system/info":
-			_, _ = w.Write([]byte(`{"info":{"id":"controller-a","product":"Frigate","version":"v1"}}`))
-		case "/api/v2/container/map":
-			_, _ = w.Write([]byte(`{"containerMap":{"tanks":[{"id":1,"modules":[{"id":1}]}]}}`))
-		case "/api/v2/mining/status":
-			_, _ = w.Write([]byte(`{"hashrate":100,"mining":true}`))
-		case "/api/v2/telemetry/container":
-			require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"timestamp": now, "plant": map[string]any{"totalPowerW": 3200}}))
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer server.Close()
-	u, err := url.Parse(server.URL)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
-	port, err := strconv.Atoi(u.Port())
+	server := grpc.NewServer()
+	fixture := containerServer{}
+	mdk.RegisterSystemServiceServer(server, fixture)
+	mdk.RegisterHashboardServiceServer(server, fixture)
+	mdk.RegisterMiningServiceServer(server, fixture)
+	mdk.RegisterTelemetryServiceServer(server, fixture)
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+	_, portText, err := net.SplitHostPort(listener.Addr().String())
 	require.NoError(t, err)
-	driver, err := New(port)
+	port, err := sdk.ParsePort(portText)
 	require.NoError(t, err)
-	info, err := driver.DiscoverDevice(t.Context(), u.Hostname(), u.Port())
+	t.Setenv("CT1_WEB_PORT", "8181")
+	driver, err := New(int(port))
+	require.NoError(t, err)
+	info, err := driver.DiscoverDevice(t.Context(), "127.0.0.1", portText)
 	require.NoError(t, err)
 	require.Equal(t, sdk.DeviceClassContainer, info.DeviceClass)
+	require.Equal(t, int32(8181), info.Port)
+	require.Equal(t, port, info.RPCPort)
 	info, err = driver.PairDevice(t.Context(), info, sdk.SecretBundle{})
 	require.NoError(t, err)
-	restarted, err := New(port)
+	restarted, err := New(int(port))
 	require.NoError(t, err)
 	result, err := restarted.NewDevice(t.Context(), "container-1", info, sdk.SecretBundle{})
 	require.NoError(t, err)
+	defer result.Device.Close(t.Context())
 	metrics, err := result.Device.Status(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, "container-1", metrics.DeviceID)
 	require.Equal(t, "v1", metrics.FirmwareVersion)
+	require.Equal(t, 100e12, metrics.HashrateHS.Value)
+	require.Equal(t, 3200.0, metrics.PowerW.Value)
 	require.Equal(t, sdk.ModuleUnknown, metrics.Container.Tanks[0].Modules[0].State)
+	web, ok, err := result.Device.TryGetWebViewURL(t.Context())
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "http://127.0.0.1:8181", web)
 	caps := restarted.GetCapabilitiesForModel(t.Context(), info.Manufacturer, info.Model)
 	require.True(t, caps[sdk.CapabilityRealtimeTelemetry])
 	require.False(t, caps[sdk.CapabilityMiningStop])
 	require.False(t, caps[sdk.CapabilityBasicAuth])
+	info.SerialNumber = "another-controller"
+	_, err = restarted.NewDevice(t.Context(), "wrong", info, sdk.SecretBundle{})
+	require.ErrorContains(t, err, "identity mismatch")
+	_, err = driver.PairDevice(t.Context(), info, sdk.SecretBundle{})
+	require.ErrorContains(t, err, "identity mismatch")
+}
+
+func TestContainerDiscoveryRejectsConfiguredBearerToken(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token")
+	require.NoError(t, os.WriteFile(path, []byte("test-token\n"), 0o600))
+	t.Setenv("CT1_RPC_TOKEN_FILE", path)
+	driver, err := New(0)
+	require.NoError(t, err)
+	_, err = driver.DiscoverDevice(t.Context(), "127.0.0.1", "9095")
+	var sdkErr sdk.SDKError
+	require.ErrorAs(t, err, &sdkErr)
+	require.Equal(t, sdk.ErrCodeInvalidConfig, sdkErr.Code)
+	require.ErrorContains(t, err, "CT1_RPC_TOKEN_FILE is unsupported")
+	require.NotContains(t, err.Error(), "test-token")
 }

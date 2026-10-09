@@ -1,6 +1,6 @@
 // Package main implements a fake CT1 container simulator for testing.
 //
-// This simulator implements the MDK v2 REST API surface a fleet client hits
+// This simulator implements the MDK v2 REST and native gRPC surfaces a fleet client hits
 // against a real CT1 container, allowing the fleet management system to be
 // developed and tested without real hardware and without running Frigate's
 // heavy full-stack simulator (TimescaleDB + hbsim + containersim + ...).
@@ -36,7 +36,7 @@ func main() {
 	webRoot := flag.String("web-root", "", "Serve a built ProtoOS directory on the API origin (disabled by default)")
 	flag.Parse()
 
-	instanceID := uuid.New().String()[:8]
+	instanceID := simulatorInstanceID()
 
 	cfg := ContainerConfig{
 		InstanceID:       instanceID,
@@ -61,8 +61,22 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	port := getEnvInt("HTTP_PORT", defaultHTTPPort)
-	err := startHTTPServer(ctx, state, port, *webRoot)
+	rpcListener, err := net.Listen("tcp", fmt.Sprintf(":%d", getEnvPort("GRPC_PORT", 9095)))
+	if err != nil {
+		cancel()
+		log.Fatalf("Failed to listen for gRPC: %v", err)
+	}
+	rpcServer := newGRPCServer(state)
+	defer rpcServer.Stop()
+	go func() {
+		if err := rpcServer.Serve(rpcListener); err != nil {
+			log.Printf("gRPC server failed: %v", err)
+			cancel()
+		}
+	}()
+	log.Printf("gRPC server listening on %s", rpcListener.Addr())
+	port := getEnvPort("HTTP_PORT", defaultHTTPPort)
+	err = startHTTPServer(ctx, state, port, *webRoot)
 	cancel()
 	if err != nil {
 		log.Fatalf("Failed to start HTTP server: %v", err)
@@ -115,7 +129,7 @@ func startHTTPServer(ctx context.Context, state *ContainerState, port int, webRo
 		}
 	}()
 
-	log.Printf("HTTP server listening on :%d", port)
+	log.Printf("HTTP server listening on %s", listener.Addr())
 	if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("server error: %w", err)
 	}
@@ -131,6 +145,20 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// getEnvPort allows an ephemeral listener (0) for isolated process tests.
+func getEnvPort(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	port, err := strconv.Atoi(value)
+	if err != nil || port < 0 || port > 65535 {
+		log.Printf("invalid %s=%q; using %d", key, value, fallback)
+		return fallback
+	}
+	return port
 }
 
 // getEnvInt reads a positive integer env var. Topology knobs (CT1_TANKS, etc.)
@@ -162,4 +190,16 @@ func getOutboundIP() net.IP {
 		return net.ParseIP("127.0.0.1")
 	}
 	return localAddr.IP
+}
+
+// A configured controller must retain its board serials across process restarts.
+// CT1_INSTANCE_ID preserves the random prefix of an already-paired legacy fixture.
+func simulatorInstanceID() string {
+	if id := os.Getenv("CT1_INSTANCE_ID"); id != "" {
+		return id
+	}
+	if id := os.Getenv("SERVER_ID"); id != "" {
+		return id
+	}
+	return uuid.New().String()[:8]
 }

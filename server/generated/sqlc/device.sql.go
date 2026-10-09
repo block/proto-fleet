@@ -44,7 +44,7 @@ WITH eligible AS MATERIALIZED (
     WHERE d.device_identifier = $4
       AND d.org_id = $5
       AND d.deleted_at IS NULL
-      AND fnd.fleet_node_id = $11
+      AND fnd.fleet_node_id = $13
       AND ds.status = 'OFFLINE'
     FOR UPDATE OF fnd, ds
 )
@@ -64,6 +64,8 @@ WHERE d.discovered_device_id = dd.id
   AND dd.ip_address = $8
   AND dd.port = $9
   AND dd.url_scheme = $10
+  AND dd.rpc_port = $11
+  AND dd.rpc_tls = $12
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE
@@ -82,6 +84,8 @@ type ApplyFleetNodeRecoveredEndpointParams struct {
 	ExpectedIpAddress string
 	ExpectedPort      string
 	ExpectedUrlScheme string
+	ExpectedRpcPort   int32
+	ExpectedRpcTls    bool
 	FleetNodeID       int64
 }
 
@@ -102,6 +106,8 @@ func (q *Queries) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, arg Apply
 		arg.ExpectedIpAddress,
 		arg.ExpectedPort,
 		arg.ExpectedUrlScheme,
+		arg.ExpectedRpcPort,
+		arg.ExpectedRpcTls,
 		arg.FleetNodeID,
 	)
 	var id int64
@@ -124,6 +130,8 @@ WITH eligible AS MATERIALIZED (
       AND dd.ip_address = $7
       AND dd.port = $8
       AND dd.url_scheme = $9
+  AND dd.rpc_port = $10
+  AND dd.rpc_tls = $11
       AND dd.deleted_at IS NULL
       AND dd.is_active = TRUE
     FOR UPDATE OF fnd, ds, dd
@@ -137,20 +145,22 @@ WITH eligible AS MATERIALIZED (
     WHERE dp.device_id = d.id
       AND d.device_identifier = $4
       AND d.org_id = $5
-      AND COALESCE(d.serial_number, '') = $10
-      AND d.mac_address = $11
+      AND COALESCE(d.serial_number, '') = $12
+      AND d.mac_address = $13
       AND dd.ip_address = $7
       AND dd.port = $8
       AND dd.url_scheme = $9
+  AND dd.rpc_port = $10
+  AND dd.rpc_tls = $11
       AND d.deleted_at IS NULL
       AND dd.deleted_at IS NULL
       AND dd.is_active = TRUE
       AND (
           (mc.device_id IS NULL
-           AND $12::text = ''
-           AND $13::text = '')
-          OR (mc.username_enc = $12
-              AND mc.password_enc = $13)
+           AND $14::text = ''
+           AND $15::text = '')
+          OR (mc.username_enc = $14
+              AND mc.password_enc = $15)
       )
       AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
     RETURNING d.id, d.discovered_device_id
@@ -175,6 +185,8 @@ type ApplyFleetNodeRecoveryAuthenticationNeededParams struct {
 	ExpectedIpAddress     string
 	ExpectedPort          string
 	ExpectedUrlScheme     string
+	ExpectedRpcPort       int32
+	ExpectedRpcTls        bool
 	SerialNumber          sql.NullString
 	MacAddress            string
 	CredentialUsernameEnc string
@@ -198,6 +210,8 @@ func (q *Queries) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context
 		arg.ExpectedIpAddress,
 		arg.ExpectedPort,
 		arg.ExpectedUrlScheme,
+		arg.ExpectedRpcPort,
+		arg.ExpectedRpcTls,
 		arg.SerialNumber,
 		arg.MacAddress,
 		arg.CredentialUsernameEnc,
@@ -1711,6 +1725,7 @@ SELECT
     dd.ip_address,
     dd.port,
     dd.url_scheme,
+    dd.rpc_port, dd.rpc_tls, dd.device_class,
     mc.username_enc,
     mc.password_enc
 FROM fleet_node_device fnd
@@ -1742,6 +1757,9 @@ type GetOfflineFleetNodeDevicesRow struct {
 	IpAddress        string
 	Port             string
 	UrlScheme        string
+	RpcPort          int32
+	RpcTls           bool
+	DeviceClass      int32
 	UsernameEnc      sql.NullString
 	PasswordEnc      sql.NullString
 }
@@ -1768,6 +1786,9 @@ func (q *Queries) GetOfflineFleetNodeDevices(ctx context.Context) ([]GetOfflineF
 			&i.IpAddress,
 			&i.Port,
 			&i.UrlScheme,
+			&i.RpcPort,
+			&i.RpcTls,
+			&i.DeviceClass,
 			&i.UsernameEnc,
 			&i.PasswordEnc,
 		); err != nil {

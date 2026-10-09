@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"sync"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
@@ -519,7 +521,16 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 	inScope := make([]*pb.DiscoveredDeviceReport, 0, len(in))
 	var outOfScope int64
 	for _, d := range in {
-		if ok && (scope == nil || scope(d.GetIpAddress(), d.GetPort())) {
+		port := d.GetPort()
+		if d.GetDeviceClass() == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER && d.GetRpcPort() != 0 {
+			if d.GetRpcPort() < 1 || d.GetRpcPort() > 65535 {
+				outOfScope++
+				continue
+			}
+			// Native CT1 discovery probes RPC; Port remains its separate HTTP endpoint.
+			port = strconv.Itoa(int(d.GetRpcPort()))
+		}
+		if ok && (scope == nil || scope(d.GetIpAddress(), port)) {
 			inScope = append(inScope, d)
 		} else {
 			outOfScope++
@@ -533,6 +544,8 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 			IPAddress:        d.GetIpAddress(),
 			Port:             d.GetPort(),
 			URLScheme:        d.GetUrlScheme(),
+			RPCPort:          d.GetRpcPort(),
+			RPCTLS:           d.GetRpcTls(),
 			DriverName:       d.GetDriverName(),
 			Model:            d.GetModel(),
 			DeviceClass:      d.GetDeviceClass(),
@@ -663,6 +676,8 @@ func toPairingDevice(d pairing.DiscoveredDeviceReport) *pairingpb.Device {
 		IpAddress:        d.IPAddress,
 		Port:             d.Port,
 		UrlScheme:        d.URLScheme,
+		RpcPort:          d.RPCPort,
+		RpcTls:           d.RPCTLS,
 		DriverName:       d.DriverName,
 		Model:            d.Model,
 		DeviceClass:      d.DeviceClass,

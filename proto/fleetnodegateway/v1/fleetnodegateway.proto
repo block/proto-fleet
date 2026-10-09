@@ -191,6 +191,9 @@ message DiscoveredDeviceReport {
     string manufacturer     = 7 [(buf.validate.field).string.max_len = 255];
     string firmware_version = 8 [(buf.validate.field).string.max_len = 255];
     common.v1.DeviceClass device_class = 9 [(buf.validate.field).enum.defined_only = true];
+  // Independent native RPC listener on the same host; zero uses the driver default.
+  int32 rpc_port = 10 [(buf.validate.field).int32 = {gte: 0, lte: 65535}];
+  bool rpc_tls = 11;
 }
 
 message ReportDiscoveredDevicesResponse {
@@ -328,6 +331,10 @@ message MinerConnectionDescriptor {
     // 0001.
     bytes credential_username = 8 [(buf.validate.field).bytes.max_len = 4096];
     bytes credential_password = 9 [(buf.validate.field).bytes.max_len = 4096];
+  // Independent native RPC listener on the same host; zero uses the driver default.
+  int32 rpc_port = 10 [(buf.validate.field).int32 = {gte: 0, lte: 65535}];
+  bool rpc_tls = 11;
+  common.v1.DeviceClass device_class = 12 [(buf.validate.field).enum.defined_only = true];
 }
 
 // RecoverMinerEndpointsRequest asks a fleet node to find the current endpoints

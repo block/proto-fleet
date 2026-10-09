@@ -1,0 +1,745 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/api/annotations.proto";
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/options.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// RunInService manages factory run-in tasks for hashboards and PSU modules.
+service RunInService {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "Run-In"
+    description: "Factory run-in for individual hashboards and PSU modules."
+  };
+
+  // StartHashboardRunIn starts a factory run-in task for one hashboard.
+  rpc StartHashboardRunIn(StartHashboardRunInRequest) returns (StartHashboardRunInResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/hashboards/{identifier}/run-in"
+      body: "config"
+    };
+  }
+
+  // StartModuleRunIn starts one synchronized tuning sweep across the connected hashboards in a PSU module.
+  rpc StartModuleRunIn(StartModuleRunInRequest) returns (StartModuleRunInResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/modules/{module_id}/run-in"
+      body: "config"
+    };
+  }
+
+  // GetHashboardRunInStatus returns the current status for a run-in task.
+  rpc GetHashboardRunInStatus(GetHashboardRunInStatusRequest) returns (GetHashboardRunInStatusResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/run-in/{task_id}"};
+  }
+
+  // ListHashboardRunInTasks lists active and completed run-in tasks.
+  rpc ListHashboardRunInTasks(ListHashboardRunInTasksRequest) returns (ListHashboardRunInTasksResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/run-in"};
+  }
+
+  // GetRunInCapabilities advertises scheduler-critical run-in protocol support.
+  rpc GetRunInCapabilities(GetRunInCapabilitiesRequest) returns (GetRunInCapabilitiesResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+  }
+
+  // CancelHashboardRunIn requests cancellation for a run-in task.
+  rpc CancelHashboardRunIn(CancelHashboardRunInRequest) returns (CancelHashboardRunInResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {post: "/api/v2/run-in/{task_id}/cancel"};
+  }
+
+  // ReadHashboardRunInResultChunk reads a bounded chunk of a completed SQLite result.
+  rpc ReadHashboardRunInResultChunk(ReadHashboardRunInResultChunkRequest) returns (ReadHashboardRunInResultChunkResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+  }
+
+  // CreateRunInDefinition creates a reusable prepared campaign definition.
+  rpc CreateRunInDefinition(CreateRunInDefinitionRequest) returns (CreateRunInDefinitionResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+
+  // UpdateRunInDefinition replaces a definition using optimistic revision fencing.
+  rpc UpdateRunInDefinition(UpdateRunInDefinitionRequest) returns (UpdateRunInDefinitionResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+
+  // DeleteRunInDefinition deletes a definition without changing queued snapshots.
+  rpc DeleteRunInDefinition(DeleteRunInDefinitionRequest) returns (DeleteRunInDefinitionResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+
+  // GetRunInDefinition returns one prepared definition.
+  rpc GetRunInDefinition(GetRunInDefinitionRequest) returns (GetRunInDefinitionResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+  }
+
+  // ListRunInDefinitions lists prepared definitions ordered by name.
+  rpc ListRunInDefinitions(ListRunInDefinitionsRequest) returns (ListRunInDefinitionsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+  }
+
+  // EnqueueRunInCampaign snapshots a definition into the strict queue.
+  rpc EnqueueRunInCampaign(EnqueueRunInCampaignRequest) returns (EnqueueRunInCampaignResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+
+  // GetRunInCampaign returns one queued or historical campaign.
+  rpc GetRunInCampaign(GetRunInCampaignRequest) returns (GetRunInCampaignResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+  }
+
+  // ListRunInCampaigns returns the active queue followed by recent history.
+  rpc ListRunInCampaigns(ListRunInCampaignsRequest) returns (ListRunInCampaignsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+  }
+  // ListRunInCampaignExecutions returns one bounded ledger-backed manifest page.
+  rpc ListRunInCampaignExecutions(ListRunInCampaignExecutionsRequest) returns (ListRunInCampaignExecutionsResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+  }
+
+  // MoveRunInCampaign moves a queued campaign by one position.
+  rpc MoveRunInCampaign(MoveRunInCampaignRequest) returns (MoveRunInCampaignResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+
+  // CancelRunInCampaign requests cancellation or removes queued work.
+  rpc CancelRunInCampaign(CancelRunInCampaignRequest) returns (CancelRunInCampaignResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+}
+
+// HashboardRunInStatus is the lifecycle state of a run-in task.
+enum HashboardRunInStatus {
+  HASHBOARD_RUN_IN_STATUS_UNSPECIFIED = 0;
+  HASHBOARD_RUN_IN_STATUS_QUEUED = 1;
+  HASHBOARD_RUN_IN_STATUS_RUNNING = 2;
+  HASHBOARD_RUN_IN_STATUS_COOLDOWN = 3;
+  HASHBOARD_RUN_IN_STATUS_COMPLETED = 4;
+  HASHBOARD_RUN_IN_STATUS_COMPLETED_WITH_WARNINGS = 5;
+  HASHBOARD_RUN_IN_STATUS_FAILED = 6;
+  HASHBOARD_RUN_IN_STATUS_CANCELED = 7;
+}
+// RunInArtifactDetail controls the telemetry detail persisted in a result artifact.
+enum RunInArtifactDetail {
+  RUN_IN_ARTIFACT_DETAIL_UNSPECIFIED = 0;
+  RUN_IN_ARTIFACT_DETAIL_FULL = 1;
+  RUN_IN_ARTIFACT_DETAIL_SUMMARY = 2;
+}
+
+
+// HashboardRunInConfig configures a single hashboard run-in task.
+message HashboardRunInConfig {
+  google.protobuf.Duration duration = 1;
+  double board_power_target_watts = 2;
+  google.protobuf.Duration sample_interval = 3;
+  PerformanceSweep performance_sweep = 4;
+  google.protobuf.Duration cooldown_duration = 5;
+  HashboardRunInStopCriteria stop_criteria = 6;
+  TuningSweep tuning_sweep = 7;
+  bool stop_mining_on_finish = 8;
+  RunInArtifactDetail artifact_detail = 9;
+}
+
+// PerformanceSweep configures optional target-power sweep steps.
+message PerformanceSweep {
+  repeated PerformanceSweepStep steps = 1;
+}
+
+// PerformanceSweepStep is one target-power step in a sweep.
+message PerformanceSweepStep {
+  double board_power_target_watts = 1;
+  google.protobuf.Duration duration = 2;
+}
+
+// TuningSweep configures fixed-voltage points crossed with either fixed-frequency or power-target/PLL-algorithm points.
+message TuningSweep {
+  VoltageRange voltage = 1;
+  FrequencyRange frequency = 2;
+  google.protobuf.Duration dwell_duration = 3;
+  TuningSweepFailurePolicy failure_policy = 4;
+  PowerTargetRange power_target = 5;
+  repeated PLLAlgorithm pll_algorithms = 6;
+}
+
+// VoltageRange defines requested PSU voltage sweep points in volts.
+message VoltageRange {
+  double start_voltage = 1;
+  double end_voltage = 2;
+  double step_voltage = 3;
+}
+
+// FrequencyRange defines requested ASIC PLL frequency sweep points in MHz.
+message FrequencyRange {
+  uint32 start_frequency_mhz = 1;
+  uint32 end_frequency_mhz = 2;
+  uint32 step_frequency_mhz = 3;
+}
+
+// PowerTargetRange defines requested board power-target sweep points in watts.
+message PowerTargetRange {
+  double start_power_target_watts = 1;
+  double end_power_target_watts = 2;
+  double step_power_target_watts = 3;
+}
+
+// PLLAlgorithm selects firmware PLL tuning used with a power-target point.
+enum PLLAlgorithm {
+  PLL_ALGORITHM_UNSPECIFIED = 0;
+  PLL_ALGORITHM_NONE = 1;
+  PLL_ALGORITHM_VOLTAGE_IMBALANCE = 2;
+  PLL_ALGORITHM_TEMPERATURE_GRADIENT_WITH_VOLTAGE = 3;
+  PLL_ALGORITHM_FMARGIN = 4;
+  PLL_ALGORITHM_DEBUG_FUZZING = 5;
+  PLL_ALGORITHM_FMARGIN_THERMAL_THROTTLE = 6;
+  PLL_ALGORITHM_FMARGIN_DELTA_THERMAL_THROTTLE = 7;
+}
+
+// TuningSweepFailurePolicy controls sweep behavior when applying a point fails.
+enum TuningSweepFailurePolicy {
+  TUNING_SWEEP_FAILURE_POLICY_UNSPECIFIED = 0;
+  TUNING_SWEEP_FAILURE_POLICY_FAIL_FAST = 1;
+  TUNING_SWEEP_FAILURE_POLICY_WARN_AND_CONTINUE = 2;
+}
+
+// HashboardRunInStopCriteria configures failure criteria.
+message HashboardRunInStopCriteria {
+  HashboardStopCriteria hashboard = 1;
+  ASICStopCriteria asic = 2;
+}
+
+// HashboardStopCriteria applies to board-level telemetry.
+message HashboardStopCriteria {
+  double min_hashrate = 1;
+  double max_power = 2;
+  double max_temperature = 3;
+  double min_voltage = 4;
+  double max_voltage = 5;
+  double min_hashrate_ideal_ratio = 6;
+  // mining_dropout_duration is the continuous post-ramp zero-hash or
+  // non-operational window before the run fails. Zero defaults to 30 seconds.
+  google.protobuf.Duration mining_dropout_duration = 7;
+}
+
+// ASICStopCriteria applies to ASIC-level telemetry.
+message ASICStopCriteria {
+  reserved 4;
+  reserved "max_uecc";
+
+  double max_temperature = 1;
+  double min_pass_rate = 2;
+  double min_hashrate = 3;
+  int32 max_failing_asics = 5;
+  int32 expected_asic_count = 6;
+}
+
+message StartHashboardRunInRequest {
+  string identifier = 1;
+  HashboardRunInConfig config = 2;
+  // task_id is an optional caller-generated idempotency key for this task.
+  string task_id = 3;
+}
+
+message StartHashboardRunInResponse {
+  string task_id = 1;
+  string mac_address = 2;
+  string serial = 3;
+  HashboardRunInStatus status = 4;
+}
+
+message StartModuleRunInRequest {
+  string module_id = 1;
+  HashboardRunInConfig config = 2;
+  // task_id is an optional caller-generated idempotency key for this task.
+  string task_id = 3;
+}
+
+message StartModuleRunInResponse {
+  string task_id = 1;
+  string module_id = 2;
+  string voltage_leader_mac = 3;
+  repeated RunInTaskBoard boards = 4;
+  HashboardRunInStatus status = 5;
+}
+
+message GetHashboardRunInStatusRequest {
+  string task_id = 1;
+  // Blank preserves the legacy local-only lookup during rolling deployment.
+  string server_id = 2;
+}
+
+message GetHashboardRunInStatusResponse {
+  HashboardRunInTask task = 1;
+}
+
+message ListHashboardRunInTasksRequest {
+  // local_only prevents peer fanout loops on peer-internal reads.
+  bool local_only = 1;
+}
+
+message ListHashboardRunInTasksResponse {
+  repeated HashboardRunInTask tasks = 1;
+  repeated RunInSourceCoverage sources = 2;
+  bool complete = 3;
+}
+
+// RunInSourceCoverage reports one HA owner's read capability and reachability.
+message RunInSourceCoverage {
+  string server_id = 1;
+  bool reachable = 2;
+  bool supported = 3;
+  string error = 4;
+}
+
+message GetRunInCapabilitiesRequest {}
+
+message GetRunInCapabilitiesResponse {
+  bool idempotent_task_start = 1;
+  // pll_algorithm_sweeps permits tuning_sweep, including pll_algorithms.
+  bool pll_algorithm_sweeps = 2;
+  // prepared_tuning_sweeps permits tuning_sweep in durable prepared definitions.
+  bool prepared_tuning_sweeps = 3;
+  // module_tuning_sweep permits synchronized tuning across one PSU module.
+  bool module_tuning_sweep = 4;
+  // summary_artifacts permits run-in results without raw per-ASIC rows.
+  bool summary_artifacts = 5;
+  // owner_aware_reads permits exact-owner get, cancel, and result reads.
+  bool owner_aware_reads = 6;
+  // artifact_integrity_metadata permits ledger-backed prepared campaigns.
+  bool artifact_integrity_metadata = 7;
+  // expected_asic_count_stop_criterion permits expected_asic_count enforcement.
+  bool expected_asic_count_stop_criterion = 8;
+  // configurable_mining_dropout_duration permits a non-default
+  // HashboardStopCriteria.mining_dropout_duration.
+  bool configurable_mining_dropout_duration = 9;
+  // outside_ambient_start permits queue eligibility based on a fresh held
+  // outside-ambient temperature band with a required deadline.
+  bool outside_ambient_start = 10;
+}
+
+message CancelHashboardRunInRequest {
+  string task_id = 1;
+  // Blank preserves the legacy local-only lookup during rolling deployment.
+  string server_id = 2;
+}
+
+message CancelHashboardRunInResponse {
+  HashboardRunInTask task = 1;
+}
+
+message ReadHashboardRunInResultChunkRequest {
+  string task_id = 1;
+  int64 offset = 2;
+  int32 max_bytes = 3;
+  // Blank preserves the legacy local-only lookup during rolling deployment.
+  string server_id = 4;
+}
+
+message ReadHashboardRunInResultChunkResponse {
+  string task_id = 1;
+  bytes data = 2;
+  int64 total_size = 3;
+  bool done = 4;
+  string filename = 5;
+  string server_id = 6;
+  string sha256 = 7;
+}
+
+// HashboardRunInTask is a status snapshot for a run-in task.
+message HashboardRunInTask {
+  string task_id = 1;
+  string original_identifier = 2;
+  string mac_address = 3;
+  string serial = 4;
+  HashboardRunInStatus status = 5;
+  google.protobuf.Timestamp started_at = 6;
+  google.protobuf.Timestamp ended_at = 7;
+  string reason = 8;
+  bool result_ready = 9;
+  string module_id = 10;
+  string voltage_leader_mac = 11;
+  repeated RunInTaskBoard boards = 12;
+  // Requested fixed PSU voltage for the active tuning-sweep point. Zero when
+  // the task is not currently executing a fixed-voltage point.
+  uint32 active_voltage_setpoint_millivolts = 13;
+  string server_id = 14;
+  RunInArtifactDetail artifact_detail = 15;
+  int32 artifact_version = 16;
+  string final_filename = 17;
+  int64 compressed_size = 18;
+  int64 uncompressed_size = 19;
+  string compressed_sha256 = 20;
+  string artifact_state = 21;
+  string validation_state = 22;
+  string validation_stage = 23;
+  google.protobuf.Timestamp artifact_finalized_at = 24;
+  google.protobuf.Timestamp retention_expires_at = 25;
+}
+
+// RunInTaskBoard is one board's participation state in a module run-in.
+message RunInTaskBoard {
+  string mac_address = 1;
+  string serial = 2;
+  RunInBoardStatus status = 3;
+  string reason = 4;
+  uint32 recoveries = 5;
+  uint32 points_run = 6;
+  uint32 points_missed = 7;
+}
+
+// RunInBoardStatus is a module member's independent run-in state.
+enum RunInBoardStatus {
+  RUN_IN_BOARD_STATUS_UNSPECIFIED = 0;
+  RUN_IN_BOARD_STATUS_QUEUED = 1;
+  RUN_IN_BOARD_STATUS_STARTING = 2;
+  RUN_IN_BOARD_STATUS_RUNNING = 3;
+  RUN_IN_BOARD_STATUS_RECOVERING = 4;
+  RUN_IN_BOARD_STATUS_COMPLETED = 5;
+  RUN_IN_BOARD_STATUS_COMPLETED_WITH_WARNINGS = 6;
+  RUN_IN_BOARD_STATUS_FAILED = 7;
+  RUN_IN_BOARD_STATUS_CANCELED = 8;
+}
+
+enum RunInTimeoutPolicy {
+  RUN_IN_TIMEOUT_POLICY_UNSPECIFIED = 0;
+  RUN_IN_TIMEOUT_POLICY_PROCEED_UNCONVERGED = 1;
+  RUN_IN_TIMEOUT_POLICY_ABORT = 2;
+}
+
+enum RunInWaitMode {
+  RUN_IN_WAIT_MODE_UNSPECIFIED = 0;
+  RUN_IN_WAIT_MODE_NONE = 1;
+  RUN_IN_WAIT_MODE_DURATION = 2;
+  RUN_IN_WAIT_MODE_INLET_AT_OR_BELOW = 3;
+}
+
+message RunInBoardSelector {
+  bool all = 1;
+  repeated string serials = 2;
+}
+
+message RunInStabilization {
+  double tolerance_c = 1;
+  google.protobuf.Duration hold = 2;
+  google.protobuf.Duration timeout = 3;
+  RunInTimeoutPolicy timeout_policy = 4;
+}
+
+message RunInPowerTrial {
+  double watts = 1;
+  google.protobuf.Duration duration = 2;
+}
+
+message RunInWaitCondition {
+  RunInWaitMode mode = 1;
+  google.protobuf.Duration duration = 2;
+  double temperature_c = 3;
+  google.protobuf.Duration hold = 4;
+  google.protobuf.Duration timeout = 5;
+  RunInTimeoutPolicy timeout_policy = 6;
+}
+
+message RunInFirmwareArtifact {
+  string upload_id = 1;
+  int32 source = 2;
+  string release_tag = 3;
+  string asset_name = 4;
+  int64 asset_id = 5;
+  int32 pr_number = 6;
+  int64 artifact_id = 7;
+  string artifact_name = 8;
+  string branch = 9;
+  string head_sha = 10;
+}
+
+message RunInFirmwareImage {
+  string name = 1;
+  string sha256 = 2;
+  string version = 3;
+  string hardware_revision = 4;
+  string build = 5;
+  string git_id = 6;
+  string git_branch = 7;
+  string hash = 8;
+}
+
+message RunInPinnedFirmware {
+  RunInFirmwareArtifact artifact = 1;
+  string build = 2;
+  repeated RunInFirmwareImage images = 3;
+}
+
+message RunInDefinition {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  int64 revision = 4;
+  RunInBoardSelector boards = 5;
+  double min_participation = 6;
+  google.protobuf.Duration sample_interval = 7;
+  HashboardRunInStopCriteria stop_criteria = 8;
+  repeated double temperatures_c = 9;
+  double conditioning_watts = 10;
+  RunInStabilization stabilization = 11;
+  repeated RunInPowerTrial trials = 12;
+  // between_trials runs between power-trial/temperature pairs. For a tuning
+  // workload, it runs only between complete matrices at successive temperatures.
+  RunInWaitCondition between_trials = 13;
+  RunInWaitCondition after_campaign = 14;
+  string created_by = 15;
+  string updated_by = 16;
+  google.protobuf.Timestamp created_at = 17;
+  google.protobuf.Timestamp updated_at = 18;
+  // trial_count is the total measured power trials or tuning points across all
+  // requested temperatures; a tuning matrix remains one atomic scheduled task.
+  int32 trial_count = 19;
+  google.protobuf.Duration nominal_duration = 20;
+  google.protobuf.Duration worst_case_duration = 21;
+  // firmware is an optional exact artifact requirement flashed before any
+  // campaign task starts. The scheduler durably excludes selected boards from
+  // normal policy until cleanup restores the container target.
+  RunInPinnedFirmware firmware = 22;
+  // tuning_sweep is mutually exclusive with trials. Temperature conditioning,
+  // when configured, runs before the full matrix at each requested temperature.
+  TuningSweep tuning_sweep = 23;
+}
+
+message CreateRunInDefinitionRequest {
+  RunInDefinition definition = 1;
+}
+
+message CreateRunInDefinitionResponse {
+  RunInDefinition definition = 1;
+}
+
+message UpdateRunInDefinitionRequest {
+  RunInDefinition definition = 1;
+  int64 expected_revision = 2;
+}
+
+message UpdateRunInDefinitionResponse {
+  RunInDefinition definition = 1;
+}
+
+message DeleteRunInDefinitionRequest {
+  string id = 1;
+  int64 expected_revision = 2;
+}
+
+message DeleteRunInDefinitionResponse {}
+
+message GetRunInDefinitionRequest {
+  string id = 1;
+}
+
+message GetRunInDefinitionResponse {
+  RunInDefinition definition = 1;
+}
+
+message ListRunInDefinitionsRequest {}
+
+message ListRunInDefinitionsResponse {
+  repeated RunInDefinition definitions = 1;
+}
+
+enum RunInCampaignStatus {
+  RUN_IN_CAMPAIGN_STATUS_UNSPECIFIED = 0;
+  RUN_IN_CAMPAIGN_STATUS_QUEUED = 1;
+  RUN_IN_CAMPAIGN_STATUS_RUNNING = 2;
+  RUN_IN_CAMPAIGN_STATUS_COMPLETED = 3;
+  RUN_IN_CAMPAIGN_STATUS_COMPLETED_WITH_WARNINGS = 4;
+  RUN_IN_CAMPAIGN_STATUS_FAILED = 5;
+  RUN_IN_CAMPAIGN_STATUS_CANCELED = 6;
+}
+// RunInAmbientStartCondition gates the strict queue head without changing
+// plant controls or reserving boards before the condition is satisfied.
+message RunInAmbientStartCondition {
+  double target_temperature_c = 1;
+  double tolerance_c = 2;
+  google.protobuf.Duration hold = 3;
+  google.protobuf.Timestamp deadline = 4;
+}
+
+
+message RunInCampaignTask {
+  string task_id = 1;
+  string server_id = 2;
+  string identifier = 3;
+  string serial = 4;
+  HashboardRunInStatus status = 5;
+  string reason = 6;
+  uint64 attempt = 7;
+}
+
+message RunInCampaign {
+  string id = 1;
+  string definition_id = 2;
+  string definition_name = 3;
+  int64 definition_revision = 4;
+  RunInDefinition definition = 5;
+  RunInCampaignStatus status = 6;
+  int64 queue_position = 7;
+  google.protobuf.Timestamp not_before = 8;
+  string requested_by = 9;
+  google.protobuf.Timestamp requested_at = 10;
+  google.protobuf.Timestamp started_at = 11;
+  google.protobuf.Timestamp ended_at = 12;
+  string phase = 13;
+  int32 temperature_index = 14;
+  int32 trial_index = 15;
+  string convergence = 16;
+  string reason = 17;
+  string warning = 18;
+  repeated RunInCampaignTask tasks = 19;
+  bool cancel_requested = 20;
+  // task_issues retains bounded anomalous terminal child outcomes.
+  repeated RunInCampaignTask task_issues = 21;
+  int32 task_issues_omitted = 22;
+  RunInCampaignOutcomeCounts outcome = 23;
+  bool outcome_ledger_available = 24;
+  RunInAmbientStartCondition ambient_start = 25;
+}
+
+// RunInCampaignOutcomeCounts separates terminal board outcomes from artifacts.
+message RunInCampaignOutcomeCounts {
+  int32 selected_boards = 1;
+  int32 successful_boards = 2;
+  int32 warning_boards = 3;
+  int32 failed_boards = 4;
+  int32 canceled_boards = 5;
+  int32 unknown_boards = 6;
+  int32 expected_artifacts = 7;
+  int32 ready_artifacts = 8;
+  int32 unavailable_artifacts = 9;
+  int32 expired_artifacts = 10;
+  int32 finalization_failed_artifacts = 11;
+  int64 compressed_bytes = 12;
+}
+
+// RunInCampaignExecution is one durable child execution and artifact manifest row.
+message RunInCampaignExecution {
+  string campaign_id = 1;
+  string definition_id = 2;
+  int64 definition_revision = 3;
+  string board_mac = 4;
+  string board_serial = 5;
+  string selected_identifier = 6;
+  string server_id = 7;
+  string task_id = 8;
+  uint64 attempt = 9;
+  int32 temperature_index = 10;
+  double temperature_c = 11;
+  string phase_kind = 12;
+  int32 workload_index = 13;
+  string state = 14;
+  string terminal_reason = 15;
+  google.protobuf.Timestamp requested_at = 16;
+  google.protobuf.Timestamp started_at = 17;
+  google.protobuf.Timestamp ended_at = 18;
+  google.protobuf.Timestamp updated_at = 19;
+  RunInArtifactDetail artifact_detail = 20;
+  int32 artifact_version = 21;
+  string artifact_state = 22;
+  string artifact_filename = 23;
+  int64 artifact_compressed_size = 24;
+  int64 artifact_uncompressed_size = 25;
+  string artifact_sha256 = 26;
+  string artifact_validation_state = 27;
+  string artifact_validation_stage = 28;
+  google.protobuf.Timestamp artifact_finalized_at = 29;
+  google.protobuf.Timestamp artifact_retention_expires_at = 30;
+}
+
+message ListRunInCampaignExecutionsRequest {
+  string campaign_id = 1;
+  int32 offset = 2;
+  int32 limit = 3;
+}
+
+message ListRunInCampaignExecutionsResponse {
+  repeated RunInCampaignExecution executions = 1;
+  int32 offset = 2;
+  int32 limit = 3;
+  int32 total = 4;
+  RunInCampaignOutcomeCounts outcome = 5;
+}
+
+message EnqueueRunInCampaignRequest {
+  string definition_id = 1;
+  google.protobuf.Timestamp not_before = 2;
+  // idempotency_key durably deduplicates an enqueue across Flotilla restarts.
+  string idempotency_key = 3;
+  // ambient_start is mutually exclusive with not_before. The campaign remains
+  // queued until fresh outside-ambient telemetry holds inside the target band.
+  RunInAmbientStartCondition ambient_start = 4;
+}
+
+message EnqueueRunInCampaignResponse {
+  RunInCampaign campaign = 1;
+}
+
+message GetRunInCampaignRequest {
+  string id = 1;
+}
+
+message GetRunInCampaignResponse {
+  RunInCampaign campaign = 1;
+}
+
+message ListRunInCampaignsRequest {
+  int32 limit = 1;
+}
+
+message ListRunInCampaignsResponse {
+  repeated RunInCampaign campaigns = 1;
+}
+
+enum RunInQueueDirection {
+  RUN_IN_QUEUE_DIRECTION_UNSPECIFIED = 0;
+  RUN_IN_QUEUE_DIRECTION_UP = 1;
+  RUN_IN_QUEUE_DIRECTION_DOWN = 2;
+}
+
+message MoveRunInCampaignRequest {
+  string id = 1;
+  RunInQueueDirection direction = 2;
+}
+
+message MoveRunInCampaignResponse {
+  repeated RunInCampaign campaigns = 1;
+}
+
+message CancelRunInCampaignRequest {
+  string id = 1;
+}
+
+message CancelRunInCampaignResponse {
+  RunInCampaign campaign = 1;
+}

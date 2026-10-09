@@ -12,7 +12,7 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
-// Frigate health is sampled independently of HTTP responses. A successful poll
+// Frigate health is sampled independently of RPC responses. A successful poll
 // does not make an old board sample fresh. Allow brief replication/poll delays.
 const healthMaxAge = 2 * time.Minute
 const clockSkewAllowance = 5 * time.Second

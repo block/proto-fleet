@@ -158,9 +158,12 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	// telemetry must not replace or close each other's device handles.
 	handleID := "command-" + uuid.NewString()
 	deviceInfo := sdk.DeviceInfo{
+		DeviceClass:  sdk.DeviceClass(target.GetDeviceClass()),
 		Host:         target.GetIpAddress(),
 		Port:         port,
 		URLScheme:    target.GetUrlScheme(),
+		RPCPort:      target.GetRpcPort(),
+		RPCTLS:       target.GetRpcTls(),
 		SerialNumber: target.GetSerialNumber(),
 		MacAddress:   target.GetMacAddress(),
 	}

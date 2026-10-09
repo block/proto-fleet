@@ -463,6 +463,10 @@ message DeviceInfo {
   // first telemetry poll.
   optional bool default_password_active = 10;
   DeviceClass device_class = 11;
+  // Native RPC listener on host; zero selects the driver's default.
+  // port/url_scheme continue to describe the web endpoint.
+  int32 rpc_port = 12;
+  bool rpc_tls = 13;
 }
 
 message DiscoverDeviceRequest {

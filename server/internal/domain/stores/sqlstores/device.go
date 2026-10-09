@@ -136,6 +136,8 @@ func (s *SQLDeviceStore) GetDeviceByDeviceIdentifier(ctx context.Context, identi
 		IpAddress:        discoveredDevice.IpAddress,
 		Port:             discoveredDevice.Port,
 		UrlScheme:        discoveredDevice.UrlScheme,
+		RpcPort:          discoveredDevice.RpcPort,
+		RpcTls:           discoveredDevice.RpcTls,
 	}
 
 	return result, nil
@@ -425,6 +427,8 @@ func (s *SQLDeviceStore) GetDeviceWithIPAssignment(ctx context.Context, deviceId
 			IpAddress:        discoveredDevice.IpAddress,
 			Port:             discoveredDevice.Port,
 			UrlScheme:        discoveredDevice.UrlScheme,
+			RpcPort:          discoveredDevice.RpcPort,
+			RpcTls:           discoveredDevice.RpcTls,
 		},
 		OrgID: orgID,
 	}, nil
@@ -1022,6 +1026,7 @@ func (s *SQLDeviceStore) GetOfflineFleetNodeDevices(ctx context.Context) ([]stor
 	targets := make([]stores.FleetNodeRecoveryTarget, 0, len(rows))
 	for _, row := range rows {
 		targets = append(targets, stores.FleetNodeRecoveryTarget{
+			RPCPort: row.RpcPort, RPCTLS: row.RpcTls, DeviceClass: row.DeviceClass,
 			FleetNodeID: row.FleetNodeID, DeviceIdentifier: row.DeviceIdentifier,
 			OrgID: row.OrgID, SerialNumber: row.SerialNumber.String, MacAddress: row.MacAddress,
 			DriverName: row.DriverName, LastKnownIP: row.IpAddress, LastKnownPort: row.Port,
@@ -1054,6 +1059,7 @@ func (s *SQLDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, ta
 			DeviceIdentifier: target.DeviceIdentifier, OrgID: target.OrgID, SerialNumber: sql.NullString{String: target.SerialNumber, Valid: true},
 			MacAddress: target.MacAddress, FleetNodeID: target.FleetNodeID,
 			ExpectedIpAddress: target.LastKnownIP, ExpectedPort: target.LastKnownPort, ExpectedUrlScheme: target.LastKnownScheme,
+			ExpectedRpcPort: target.RPCPort, ExpectedRpcTls: target.RPCTLS,
 		})
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
@@ -1080,17 +1086,18 @@ func (s *SQLDeviceStore) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.
 			return false, err
 		}
 		_, err = q.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, sqlc.ApplyFleetNodeRecoveryAuthenticationNeededParams{
-			IpAddress:             ipAddress,
-			Port:                  port,
-			UrlScheme:             urlScheme,
-			DeviceIdentifier:      target.DeviceIdentifier,
-			OrgID:                 target.OrgID,
-			SerialNumber:          sql.NullString{String: target.SerialNumber, Valid: true},
-			MacAddress:            target.MacAddress,
-			FleetNodeID:           target.FleetNodeID,
-			ExpectedIpAddress:     target.LastKnownIP,
-			ExpectedPort:          target.LastKnownPort,
-			ExpectedUrlScheme:     target.LastKnownScheme,
+			IpAddress:         ipAddress,
+			Port:              port,
+			UrlScheme:         urlScheme,
+			DeviceIdentifier:  target.DeviceIdentifier,
+			OrgID:             target.OrgID,
+			SerialNumber:      sql.NullString{String: target.SerialNumber, Valid: true},
+			MacAddress:        target.MacAddress,
+			FleetNodeID:       target.FleetNodeID,
+			ExpectedIpAddress: target.LastKnownIP,
+			ExpectedPort:      target.LastKnownPort,
+			ExpectedUrlScheme: target.LastKnownScheme,
+			ExpectedRpcPort:   target.RPCPort, ExpectedRpcTls: target.RPCTLS,
 			CredentialUsernameEnc: base64.StdEncoding.EncodeToString(target.CredentialUsername),
 			CredentialPasswordEnc: base64.StdEncoding.EncodeToString(target.CredentialPassword),
 		})

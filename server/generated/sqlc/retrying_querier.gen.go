@@ -2018,6 +2018,18 @@ func (q *retryingQuerier) FindDevicesWithSiteOrBuilding(ctx context.Context, arg
 	return result, err
 }
 
+func (q *retryingQuerier) FindDirectContainerByIP(ctx context.Context, arg FindDirectContainerByIPParams) ([]DiscoveredDevice, error) {
+	var result []DiscoveredDevice
+	err := q.retrier.RetryQuery(ctx, "FindDirectContainerByIP", func() error {
+		callResult, callErr := q.next.FindDirectContainerByIP(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) FindHashboardIdentities(ctx context.Context, arg FindHashboardIdentitiesParams) ([]FindHashboardIdentitiesRow, error) {
 	var result []FindHashboardIdentitiesRow
 	err := q.retrier.RetryQuery(ctx, "FindHashboardIdentities", func() error {

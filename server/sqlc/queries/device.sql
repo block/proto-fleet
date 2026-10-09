@@ -724,6 +724,7 @@ SELECT
     dd.ip_address,
     dd.port,
     dd.url_scheme,
+    dd.rpc_port, dd.rpc_tls, dd.device_class,
     mc.username_enc,
     mc.password_enc
 FROM fleet_node_device fnd
@@ -778,6 +779,8 @@ WHERE d.discovered_device_id = dd.id
   AND dd.ip_address = sqlc.arg(expected_ip_address)
   AND dd.port = sqlc.arg(expected_port)
   AND dd.url_scheme = sqlc.arg(expected_url_scheme)
+  AND dd.rpc_port = sqlc.arg(expected_rpc_port)
+  AND dd.rpc_tls = sqlc.arg(expected_rpc_tls)
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
   AND dd.is_active = TRUE
@@ -805,6 +808,8 @@ WITH eligible AS MATERIALIZED (
       AND dd.ip_address = sqlc.arg(expected_ip_address)
       AND dd.port = sqlc.arg(expected_port)
       AND dd.url_scheme = sqlc.arg(expected_url_scheme)
+  AND dd.rpc_port = sqlc.arg(expected_rpc_port)
+  AND dd.rpc_tls = sqlc.arg(expected_rpc_tls)
       AND dd.deleted_at IS NULL
       AND dd.is_active = TRUE
     FOR UPDATE OF fnd, ds, dd
@@ -823,6 +828,8 @@ WITH eligible AS MATERIALIZED (
       AND dd.ip_address = sqlc.arg(expected_ip_address)
       AND dd.port = sqlc.arg(expected_port)
       AND dd.url_scheme = sqlc.arg(expected_url_scheme)
+  AND dd.rpc_port = sqlc.arg(expected_rpc_port)
+  AND dd.rpc_tls = sqlc.arg(expected_rpc_tls)
       AND d.deleted_at IS NULL
       AND dd.deleted_at IS NULL
       AND dd.is_active = TRUE

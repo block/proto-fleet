@@ -22,6 +22,10 @@ type DiscoveredDeviceStore interface {
 	// GetByIPAndPort retrieves a discovered device by its IP address and port for a given organization
 	GetByIPAndPort(ctx context.Context, orgID int64, ipAddress string, port string) (*discoverymodels.DiscoveredDevice, error)
 
+	// GetDirectContainerByIP matches a server-managed container independently of its ports.
+	// Ambiguous matches fail; FleetNode-owned inventory is excluded.
+	GetDirectContainerByIP(ctx context.Context, orgID int64, ipAddress, driverName, model, manufacturer string) (*discoverymodels.DiscoveredDevice, error)
+
 	// GetDatabaseID retrieves the database ID (primary key) for a discovered device
 	GetDatabaseID(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier) (int64, error)
 

@@ -450,3 +450,12 @@ func TestMultiTypeDiscoverer_Discover_ParallelExecution_VerifyConcurrency(t *tes
 	require.NotNil(t, device)
 	assert.GreaterOrEqual(t, maxConcurrent.Load(), int32(2), "Plugins should run concurrently")
 }
+
+func TestContainerDiscoveryKeepsWebAndRPCPortsSeparate(t *testing.T) {
+	info := sdk.DeviceInfo{Host: "10.0.0.9", Port: 8181, URLScheme: "http", RPCPort: 9443, RPCTLS: true, DeviceClass: sdk.DeviceClassContainer}
+	got := convertSDKDeviceInfoToFleetDevice(info, "10.0.0.9", "9443", "proto")
+	require.Equal(t, "8181", got.Port)
+	require.Equal(t, int32(9443), got.RpcPort)
+	require.True(t, got.RpcTls)
+	require.Equal(t, "http", got.UrlScheme)
+}

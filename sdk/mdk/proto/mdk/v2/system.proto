@@ -1,0 +1,745 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/common.proto";
+import "mdk/v2/options.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// SystemService provides system information, configuration, and management.
+service SystemService {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "System"
+    description: "System info, hardware details, firmware, networking, SSH, cooling, and device management."
+  };
+  // GetSystemInfo returns static system information.
+  rpc GetSystemInfo(GetSystemInfoRequest) returns (GetSystemInfoResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/system/info"};
+  }
+
+  // GetSystemStatus returns current system status.
+  rpc GetSystemStatus(GetSystemStatusRequest) returns (GetSystemStatusResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/system/status"};
+  }
+
+  // GetHardwareInfo returns hardware details.
+  rpc GetHardwareInfo(GetHardwareInfoRequest) returns (GetHardwareInfoResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/system/hardware"};
+  }
+
+  // ListPowerSupplies returns information about installed PSUs.
+  rpc ListPowerSupplies(ListPowerSuppliesRequest) returns (ListPowerSuppliesResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/system/psu"};
+  }
+
+  // UpdatePSUFirmware initiates a firmware update on a PSU.
+  rpc UpdatePSUFirmware(UpdatePSUFirmwareRequest) returns (UpdatePSUFirmwareResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {post: "/api/v2/system/psu/{psu_id}/update"};
+  }
+
+  // ListTags returns the system's tag set.
+  rpc ListTags(ListTagsRequest) returns (ListTagsResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (google.api.http) = {get: "/api/v2/system/tags"};
+  }
+
+  // SetTags replaces the system's tag set.
+  rpc SetTags(SetTagsRequest) returns (SetTagsResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (google.api.http) = {
+      put: "/api/v2/system/tags"
+      body: "*"
+    };
+  }
+
+  // Reboot reboots the device.
+  rpc Reboot(RebootRequest) returns (RebootResponse) {
+    option (mdk.v2.product) = PRODUCT_R2;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {post: "/api/v2/system/reboot"};
+  }
+
+  // LocateDevice activates the device locator LED.
+  rpc LocateDevice(LocateDeviceRequest) returns (LocateDeviceResponse) {
+    option (mdk.v2.product) = PRODUCT_R2;
+    option (google.api.http) = {
+      post: "/api/v2/system/locate"
+      body: "*"
+    };
+  }
+
+  // GetLogs returns a stream of system log entries.
+  rpc GetLogs(GetLogsRequest) returns (stream GetLogsResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/system/logs"};
+  }
+
+  // CheckFirmwareUpdate checks for available firmware updates.
+  rpc CheckFirmwareUpdate(CheckFirmwareUpdateRequest) returns (CheckFirmwareUpdateResponse) {
+    option (mdk.v2.product) = PRODUCT_R2;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/system/firmware/check"};
+  }
+
+  // ApplyFirmwareUpdate applies a firmware update.
+  rpc ApplyFirmwareUpdate(ApplyFirmwareUpdateRequest) returns (ApplyFirmwareUpdateResponse) {
+    option (mdk.v2.product) = PRODUCT_R2;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      post: "/api/v2/system/firmware/apply"
+      body: "*"
+    };
+  }
+
+  // GetSSHConfig returns the SSH configuration.
+  rpc GetSSHConfig(GetSSHConfigRequest) returns (GetSSHConfigResponse) {
+    option (mdk.v2.product) = PRODUCT_R2;
+    option (google.api.http) = {get: "/api/v2/system/ssh"};
+  }
+
+  // SetSSHConfig updates the SSH configuration.
+  rpc SetSSHConfig(SetSSHConfigRequest) returns (SetSSHConfigResponse) {
+    option (mdk.v2.product) = PRODUCT_R2;
+    option (google.api.http) = {
+      put: "/api/v2/system/ssh"
+      body: "*"
+    };
+  }
+
+  // GetNetworkConfig returns the network configuration.
+  rpc GetNetworkConfig(GetNetworkConfigRequest) returns (GetNetworkConfigResponse) {
+    option (mdk.v2.product) = PRODUCT_R2;
+    option (google.api.http) = {get: "/api/v2/system/network"};
+  }
+
+  // SetNetworkConfig updates the network configuration.
+  rpc SetNetworkConfig(SetNetworkConfigRequest) returns (SetNetworkConfigResponse) {
+    option (mdk.v2.product) = PRODUCT_R2;
+    option (google.api.http) = {
+      put: "/api/v2/system/network"
+      body: "*"
+    };
+  }
+
+  // GetCoolingConfig returns the cooling configuration.
+  rpc GetCoolingConfig(GetCoolingConfigRequest) returns (GetCoolingConfigResponse) {
+    option (mdk.v2.product) = PRODUCT_R2;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/system/cooling"};
+  }
+
+  // SetCoolingConfig updates the cooling configuration.
+  rpc SetCoolingConfig(SetCoolingConfigRequest) returns (SetCoolingConfigResponse) {
+    option (mdk.v2.product) = PRODUCT_R2;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (google.api.http) = {
+      put: "/api/v2/system/cooling"
+      body: "*"
+    };
+  }
+
+  // GetUnlockStatus returns the R2 hardware lock status. CT1 Frigate servers
+  // do not implement this R2-only RPC. Implementations without an authoritative
+  // hardware observation must report LOCK_STATE_UNKNOWN, never infer UNLOCKED.
+  rpc GetUnlockStatus(GetUnlockStatusRequest) returns (GetUnlockStatusResponse) {
+    option (mdk.v2.product) = PRODUCT_R2;
+    option (google.api.http) = {get: "/api/v2/system/unlock"};
+  }
+
+  // ListAuditEvents returns recent audit-log entries, newest first.
+  rpc ListAuditEvents(ListAuditEventsRequest) returns (ListAuditEventsResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/system/audit"};
+  }
+}
+
+// OSBuildVariant identifies the operating-system image variant.
+enum OSBuildVariant {
+  OS_BUILD_VARIANT_UNSPECIFIED = 0;
+  OS_BUILD_VARIANT_RELEASE = 1;
+  OS_BUILD_VARIANT_MANUFACTURING = 2;
+  OS_BUILD_VARIANT_DEVELOPMENT = 3;
+  OS_BUILD_VARIANT_UNKNOWN = 4;
+}
+
+// OSBuildInfo contains immutable operating-system image identity.
+message OSBuildInfo {
+  string name = 1;
+  string version = 2;
+  string git_hash = 3;
+  OSBuildVariant variant = 4;
+  google.protobuf.Timestamp built_at = 5;
+  string machine = 6;
+}
+
+// SoftwareComponentVersion identifies one product software component.
+message SoftwareComponentVersion {
+  string name = 1;
+  string version = 2;
+}
+
+// ControlBoardInfo contains stable control-board hardware identity.
+message ControlBoardInfo {
+  string manufacturer = 1;
+  string board_model = 2;
+  string soc_model = 3;
+  string serial_number = 4;
+  string machine_name = 5;
+  string hardware_revision = 6;
+}
+
+// SoftwareUpdateState identifies the product software update lifecycle.
+enum SoftwareUpdateState {
+  SOFTWARE_UPDATE_STATE_UNSPECIFIED = 0;
+  SOFTWARE_UPDATE_STATE_CURRENT = 1;
+  SOFTWARE_UPDATE_STATE_AVAILABLE = 2;
+  SOFTWARE_UPDATE_STATE_DOWNLOADING = 3;
+  SOFTWARE_UPDATE_STATE_DOWNLOADED = 4;
+  SOFTWARE_UPDATE_STATE_INSTALLING = 5;
+  SOFTWARE_UPDATE_STATE_INSTALLED = 6;
+  SOFTWARE_UPDATE_STATE_CONFIRMING = 7;
+  SOFTWARE_UPDATE_STATE_SUCCESS = 8;
+  SOFTWARE_UPDATE_STATE_ERROR = 9;
+}
+
+// SoftwareUpdateStatus contains current and available product image status.
+message SoftwareUpdateStatus {
+  SoftwareUpdateState state = 1;
+  string previous_version = 2;
+  string current_version = 3;
+  string available_version = 4;
+  string message = 5;
+  optional uint32 progress_percent = 6;
+  string error = 7;
+  string release_notes = 8;
+}
+
+// SystemInfo contains static system information.
+message SystemInfo {
+  string id = 1;
+  string version = 2;
+  string product = 3;
+  string hostname = 4;
+  int64 uptime_seconds = 5;
+  // IpAddresses contains active non-loopback host addresses.
+  repeated string ip_addresses = 6;
+  string manufacturer = 7;
+  string model = 8;
+  OSBuildInfo os_build = 9;
+  repeated SoftwareComponentVersion component_versions = 10;
+  ControlBoardInfo control_board = 11;
+  SoftwareUpdateStatus software_update = 12;
+  // Resources is an optional point-in-time host and process sample. Older
+  // implementations omit it while preserving the static identity fields.
+  SystemResources resources = 13;
+}
+
+message GetSystemInfoRequest {}
+
+message GetSystemInfoResponse {
+  SystemInfo info = 1;
+}
+
+// HARole identifies this server's role in a high-availability cluster.
+enum HARole {
+  HA_ROLE_UNSPECIFIED = 0;
+  HA_ROLE_PRIMARY = 1;
+  HA_ROLE_STANDBY = 2;
+  HA_ROLE_FENCED = 3;
+}
+
+// HARecoveryState describes whether this Frigate process has returned to a
+// trustworthy steady state after a Patroni primary transition.
+enum HARecoveryState {
+  HA_RECOVERY_STATE_UNSPECIFIED = 0;
+  HA_RECOVERY_STATE_STEADY = 1;
+  HA_RECOVERY_STATE_RECONCILING = 2;
+  HA_RECOVERY_STATE_DEGRADED = 3;
+}
+
+// HARecoveryPhase identifies the highest-priority recovery work still in
+// progress. Values are ordered by the runtime sequence, not by severity.
+enum HARecoveryPhase {
+  HA_RECOVERY_PHASE_UNSPECIFIED = 0;
+  HA_RECOVERY_PHASE_STEADY = 1;
+  HA_RECOVERY_PHASE_DATABASE = 2;
+  HA_RECOVERY_PHASE_CONTROL_STATE = 3;
+  HA_RECOVERY_PHASE_ASSIGNMENTS = 4;
+  HA_RECOVERY_PHASE_FLOTILLA_SYNC = 5;
+}
+
+// HARecoveryStatus is bounded, machine-readable progress for one post-Patroni
+// recovery episode. It is process-local status backed by shared assignment
+// authority; it is not a durable workflow record.
+message HARecoveryStatus {
+  HARecoveryState state = 1;
+  HARecoveryPhase phase = 2;
+  google.protobuf.Timestamp started_at = 3;
+  google.protobuf.Timestamp updated_at = 4;
+  string primary_instance = 5;
+  uint32 expected_boards = 6;
+  uint32 reconciled_boards = 7;
+  map<string, uint32> assignment_counts = 8;
+  uint32 deferred_full_syncs = 9;
+  bool history_deferred = 10;
+  string detail = 11;
+}
+
+// SystemStatus contains current system status.
+message SystemStatus {
+  HealthStatus health = 1;
+  bool mining = 2;
+  int32 active_boards = 3;
+  int32 total_boards = 4;
+  string active_pool = 5;
+  bool database_connected = 6;
+  string server_id = 7;
+  HARole ha_role = 8;
+  string version = 9;
+  bool container_write_primary = 10;
+  // Authentication posture belongs to AuthService.GetAuthStatus. Reserve the
+  // draft field identities so they cannot later gain conflicting semantics.
+  reserved 11, 12;
+  reserved "onboarded", "password_set";
+  HARecoveryStatus ha_recovery = 13;
+  // DcsHealthy reports whether the latest distributed-configuration-store
+  // snapshot read succeeded and validated. It is absent for standalone
+  // deployments and older Frigate versions that do not publish DCS health.
+  optional bool dcs_healthy = 14;
+  // FlotillaTunnelConnected is populated by Flotilla when projecting a
+  // container. It reports raw tunnel transport independently from the legacy
+  // composite Container.connection field and is absent on older servers.
+  optional bool flotilla_tunnel_connected = 15;
+  // FlotillaOperationalHealth is populated by Flotilla from its retained
+  // Frigate status. It is independent of health, whose publication boundary
+  // remains unchanged for legacy clients, and is absent on older servers.
+  optional HealthStatus flotilla_operational_health = 16;
+  // HostDiagnostics reports additive, locally observed host safety signals.
+  // Older Frigate/Flotilla versions omit it, so consumers must render absence
+  // as "not reported" rather than healthy.
+  HostDiagnostics host_diagnostics = 17;
+}
+
+// HostDiagnostics contains bounded host signals that remain useful when the
+// application or database is degraded. Presence distinguishes an observed
+// false value from a platform that cannot report the signal.
+message HostDiagnostics {
+  optional bool root_filesystem_read_only = 1;
+  optional bool clock_synchronized = 2;
+  google.protobuf.Timestamp observed_at = 3;
+}
+
+message GetSystemStatusRequest {}
+
+message GetSystemStatusResponse {
+  SystemStatus status = 1;
+}
+
+// SystemResources contains one point-in-time host and Frigate process sample.
+message SystemResources {
+  double host_cpu_usage_percent = 1;
+  uint64 host_memory_used_bytes = 2;
+  uint64 host_memory_total_bytes = 3;
+  double process_cpu_usage_percent = 4;
+  double process_cpu_usage_cores = 5;
+  uint64 process_memory_bytes = 6;
+  uint32 host_logical_cpu_count = 7;
+  google.protobuf.Timestamp observed_at = 8;
+  // Host disk values describe the root filesystem visible to Frigate.
+  uint64 host_disk_used_bytes = 9;
+  uint64 host_disk_total_bytes = 10;
+}
+
+// CoolingFanInfo contains one installed fan's immutable operating range.
+message CoolingFanInfo {
+  // fan_id is a required, nonzero device-local identity. It is unique within
+  // HardwareInfo.cooling_fans and joins this inventory entry to
+  // CoolingFanStatus.fan_id.
+  uint32 fan_id = 1 [(google.api.field_behavior) = REQUIRED];
+  string name = 2;
+  optional uint32 minimum_rpm = 3;
+  optional uint32 maximum_rpm = 4;
+  // slot is one-based when the platform reports a physical fan position.
+  optional uint32 slot = 5;
+}
+
+// RecordedHashboardInventory contains the device's latest recorded static
+// metadata for one hashboard. It is display-only evidence: it does not prove
+// that the hashboard is currently present in the recorded slot and must never
+// authorize a board-scoped read or mutation. Current serial identity is
+// deliberately absent.
+message RecordedHashboardInventory {
+  // slot is the one-based physical position associated with this record.
+  uint32 slot = 1 [(google.api.field_behavior) = REQUIRED];
+  string serial_number = 2 [(google.api.field_behavior) = REQUIRED];
+  string hardware_revision = 3;
+  string firmware_version = 4;
+  // firmware_build_id is the recorded immutable firmware build identity when
+  // the device reports one independently of the display version.
+  string firmware_build_id = 5;
+  string api_version = 6;
+  string chip_id = 7;
+  string asic_model = 8;
+  optional uint32 expected_asic_count = 9;
+}
+
+// HardwareInfo contains hardware details.
+message HardwareInfo {
+  string model = 1;
+  int32 slot_count = 2;
+  int32 psu_count = 3;
+  repeated CoolingFanInfo cooling_fans = 4;
+  ControlBoardInfo control_board = 5;
+  repeated PowerSupplySummary power_supplies = 6;
+  // recorded_hashboards contains only static, display-only inventory evidence.
+  // An empty collection means there is no recorded evidence; it does not
+  // establish that the chassis currently contains no hashboards. Consumers
+  // must use HashboardService for current presence.
+  repeated RecordedHashboardInventory recorded_hashboards = 7;
+}
+
+message GetHardwareInfoRequest {}
+
+message GetHardwareInfoResponse {
+  HardwareInfo hardware = 1;
+}
+
+// PowerSupplyStatus represents the operational state of a PSU.
+enum PowerSupplyStatus {
+  POWER_SUPPLY_STATUS_UNSPECIFIED = 0;
+  POWER_SUPPLY_STATUS_ONLINE = 1;
+  POWER_SUPPLY_STATUS_OFFLINE = 2;
+  POWER_SUPPLY_STATUS_WARNING = 3;
+  POWER_SUPPLY_STATUS_ERROR = 4;
+}
+
+// PowerSupplyFirmwareUpdateState identifies one PSU update lifecycle.
+enum PowerSupplyFirmwareUpdateState {
+  POWER_SUPPLY_FIRMWARE_UPDATE_STATE_UNSPECIFIED = 0;
+  POWER_SUPPLY_FIRMWARE_UPDATE_STATE_IDLE = 1;
+  POWER_SUPPLY_FIRMWARE_UPDATE_STATE_UPLOADING = 2;
+  POWER_SUPPLY_FIRMWARE_UPDATE_STATE_VERIFYING = 3;
+  POWER_SUPPLY_FIRMWARE_UPDATE_STATE_COMPLETE = 4;
+  POWER_SUPPLY_FIRMWARE_UPDATE_STATE_FAILED = 5;
+}
+
+// PowerSupplyFirmwareUpdateStatus contains update metadata rather than live
+// electrical telemetry.
+message PowerSupplyFirmwareUpdateStatus {
+  PowerSupplyFirmwareUpdateState state = 1;
+  string available_version = 2;
+  optional double progress_percent = 3;
+  string message = 4;
+}
+
+// PowerSupplySummary contains PSU inventory identity without duplicating live
+// electrical telemetry.
+message PowerSupplySummary {
+  string id = 1;
+  string serial_number = 2;
+  // slot is one-based when reported by the platform.
+  optional uint32 slot = 3;
+  string manufacturer = 4;
+  string vendor = 5;
+  string model = 6;
+  string hardware_revision = 7;
+  string firmware_version = 8;
+  // bootloader_version is absent when the PSU cannot report it independently
+  // of its application firmware version.
+  optional string bootloader_version = 9;
+  PowerSupplyStatus status = 10;
+  PowerSupplyFirmwareUpdateStatus firmware_update = 11;
+}
+
+// PowerSupply represents an installed power supply unit.
+message PowerSupply {
+  string id = 1;
+  string model = 2;
+  string firmware_version = 3;
+  double voltage = 4;
+  double current = 5;
+  double power = 6;
+  double temperature = 7;
+  PowerSupplyStatus status = 8;
+  string serial_number = 9;
+  // slot is one-based when reported by the platform.
+  optional uint32 slot = 10;
+  string manufacturer = 11;
+  string vendor = 12;
+  string hardware_revision = 13;
+  // bootloader_version is absent when the PSU cannot report it independently
+  // of its application firmware version.
+  optional string bootloader_version = 14;
+  PowerSupplyFirmwareUpdateStatus firmware_update = 15;
+}
+
+message ListPowerSuppliesRequest {}
+
+message ListPowerSuppliesResponse {
+  repeated PowerSupply power_supplies = 1;
+}
+
+message UpdatePSUFirmwareRequest {
+  string psu_id = 1;
+}
+
+message UpdatePSUFirmwareResponse {
+  bool accepted = 1;
+  string message = 2;
+}
+
+// Tag represents a key-value metadata tag.
+message Tag {
+  string key = 1;
+  string value = 2;
+}
+
+message ListTagsRequest {}
+
+message ListTagsResponse {
+  repeated Tag tags = 1;
+}
+
+message SetTagsRequest {
+  repeated Tag tags = 1;
+}
+
+message SetTagsResponse {
+  repeated Tag tags = 1;
+}
+
+message RebootRequest {}
+
+message RebootResponse {
+  string message = 1;
+}
+
+message LocateDeviceRequest {
+  bool enable = 1;
+}
+
+message LocateDeviceResponse {
+  bool active = 1;
+}
+
+message GetLogsRequest {
+  LogLevel level = 1;
+  string component = 2;
+  int32 tail = 3;
+}
+
+// GetLogsResponse contains a single log entry from the stream.
+message GetLogsResponse {
+  google.protobuf.Timestamp timestamp = 1;
+  LogLevel level = 2;
+  string component = 3;
+  string message = 4;
+}
+
+message CheckFirmwareUpdateRequest {}
+
+// CheckFirmwareUpdateResponse contains firmware update availability details.
+message CheckFirmwareUpdateResponse {
+  string version = 1;
+  string release_notes_url = 2;
+  bool available = 3;
+  int64 size_bytes = 4;
+}
+
+message ApplyFirmwareUpdateRequest {
+  string version = 1;
+}
+
+message ApplyFirmwareUpdateResponse {
+  bool accepted = 1;
+  string message = 2;
+}
+
+// SSHConfig contains SSH daemon configuration.
+message SSHConfig {
+  bool enabled = 1;
+  int32 port = 2;
+  repeated string authorized_keys = 3;
+}
+
+message GetSSHConfigRequest {}
+
+message GetSSHConfigResponse {
+  SSHConfig config = 1;
+}
+
+message SetSSHConfigRequest {
+  SSHConfig config = 1;
+}
+
+message SetSSHConfigResponse {
+  SSHConfig config = 1;
+}
+
+// NetworkMode represents the network interface configuration mode.
+enum NetworkMode {
+  NETWORK_MODE_UNSPECIFIED = 0;
+  NETWORK_MODE_DHCP = 1;
+  NETWORK_MODE_STATIC = 2;
+}
+
+// NetworkConfig contains network interface configuration.
+message NetworkConfig {
+  NetworkMode mode = 1;
+  string ip_address = 2;
+  string subnet_mask = 3;
+  string gateway = 4;
+  string dns_primary = 5;
+  string dns_secondary = 6;
+  string hostname = 7;
+  // mac_address is observation-only and absent when the interface identity
+  // cannot be reported. SetNetworkConfig ignores this field and returns the
+  // independently observed value in its response when available.
+  optional string mac_address = 8 [(google.api.field_behavior) = OUTPUT_ONLY];
+}
+
+message GetNetworkConfigRequest {}
+
+message GetNetworkConfigResponse {
+  NetworkConfig config = 1;
+}
+
+message SetNetworkConfigRequest {
+  NetworkConfig config = 1;
+}
+
+message SetNetworkConfigResponse {
+  NetworkConfig config = 1;
+}
+
+// FanMode represents the fan control strategy.
+enum FanMode {
+  FAN_MODE_UNSPECIFIED = 0;
+  FAN_MODE_AUTO = 1;
+  FAN_MODE_MANUAL = 2;
+  // OFF explicitly disables fans when platform cooling policy permits it.
+  FAN_MODE_OFF = 3;
+}
+
+// CoolingConfig contains cooling system configuration.
+message CoolingConfig {
+  FanMode fan_mode = 1;
+  int32 fan_speed_percent = 2;
+  double target_temperature = 3;
+}
+
+// CoolingFanStatus contains one fan's observed operating state.
+message CoolingFanStatus {
+  // fan_id is a required, nonzero device-local identity. It is unique within
+  // GetCoolingConfigResponse.fans and must match a CoolingFanInfo.fan_id
+  // returned by GetHardwareInfo.
+  uint32 fan_id = 1 [(google.api.field_behavior) = REQUIRED];
+  optional uint32 rpm = 2;
+  optional uint32 speed_percent = 3;
+  // slot is one-based when the platform reports a physical fan position.
+  optional uint32 slot = 4;
+}
+
+message GetCoolingConfigRequest {}
+
+message GetCoolingConfigResponse {
+  CoolingConfig config = 1;
+  repeated CoolingFanStatus fans = 2;
+}
+
+message SetCoolingConfigRequest {
+  CoolingConfig config = 1;
+}
+
+message SetCoolingConfigResponse {
+  CoolingConfig config = 1;
+}
+
+// AuditEvent is one recorded operator- or system-initiated action.
+message AuditEvent {
+  int64 id = 1;
+  google.protobuf.Timestamp time = 2;
+  // Actor is the client-supplied identity ("user@host") or subsystem name.
+  string actor = 3;
+  // Source is "grpc:<addr>", "rest:<addr>", or "system".
+  string source = 4;
+  // Node is the server ID of the node that performed the action.
+  string node = 5;
+  // Action is a dotted verb, e.g. "mining.stop".
+  string action = 6;
+  string target = 7;
+  // Result is "ok" or "error".
+  string result = 8;
+  string error = 9;
+  // Structured JSON payload; empty when the action recorded no details.
+  string details_json = 10;
+}
+
+message ListAuditEventsRequest {
+  // Window to query; defaults to the last 24 hours, capped at 7 days.
+  TimeRange range = 1;
+  // Maximum entries to return; 0 applies the server default (200), capped
+  // at 1000.
+  int32 limit = 2;
+  // Exact-match filters; empty means no filter.
+  string action = 3;
+  string actor = 4;
+  string source = 5;
+  string target = 6;
+  string result = 7;
+}
+
+message ListAuditEventsResponse {
+  repeated AuditEvent events = 1;
+}
+
+// LockState is the hardware lock state reported by the device. It is
+// independent of any effective secure-policy override. Devices without an
+// initialized hardware lock are reported as UNINITIALIZED, while failed,
+// missing, or unrecognized observations are reported as UNKNOWN.
+enum LockState {
+  // UNKNOWN is the intentional wire default because a missing observation has
+  // the same semantics as an unrecognized hardware state. Consumers must not
+  // treat UNKNOWN as unlocked.
+  // buf:lint:ignore ENUM_ZERO_VALUE_SUFFIX
+  LOCK_STATE_UNKNOWN = 0;
+  LOCK_STATE_OPEN = 1;
+  LOCK_STATE_CLOSED = 2;
+  LOCK_STATE_UNLOCKED = 3;
+  LOCK_STATE_UNINITIALIZED = 4;
+}
+
+// UnlockStatus contains the device hardware lock state, independent of any
+// effective secure-policy override.
+message UnlockStatus {
+  // Deprecated compatibility projection. R2 producers must set this to true
+  // exactly when state is LOCK_STATE_UNLOCKED while legacy clients remain.
+  bool unlocked = 1 [deprecated = true];
+  google.protobuf.Timestamp expires_at = 2;
+  // Authoritative R2 hardware lock observation. Producers must explicitly set
+  // this when known; absence and observation failures remain UNKNOWN.
+  LockState state = 3;
+}
+
+message GetUnlockStatusRequest {}
+
+message GetUnlockStatusResponse {
+  UnlockStatus status = 1;
+}

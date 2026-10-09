@@ -36,6 +36,11 @@ func (s *ContainerState) recordSample() recordedSample {
 // retain actual minute samples and control transitions, including while no one
 // is polling. Advancing happens before a mutation, so it cannot rewrite history.
 func (s *ContainerState) initHistory() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.history != nil {
+		return
+	}
 	baseline := newContainerState(s.Config, s.StartTime)
 	s.history = &simulationHistory{Baseline: baseline, Samples: []recordedSample{s.recordSample()}}
 }

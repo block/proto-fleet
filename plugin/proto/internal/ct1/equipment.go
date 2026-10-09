@@ -38,12 +38,8 @@ func (p plantResponse) fanObservations(now time.Time) []sdk.ContainerFan {
 }
 
 type controlsResponse struct {
-	Supported *bool `json:"supported"`
-	Controls  []struct {
-		Name       string `json:"name"`
-		Enabled    bool   `json:"enabled"`
-		StateKnown bool   `json:"stateKnown"`
-	} `json:"controls"`
+	Supported                    *bool                   `json:"supported"`
+	Controls                     []controlFields         `json:"controls"`
 	Setpoints                    []sdk.ContainerSetpoint `json:"setpoints"`
 	MainCircuitBreakerSupported  *bool                   `json:"mainCircuitBreakerSupported"`
 	MainCircuitBreakerClosed     *bool                   `json:"mainCircuitBreakerClosed"`
@@ -83,4 +79,10 @@ func (w controlsResponse) observation(now time.Time) *sdk.ContainerControls {
 		out.Setpoints = append(out.Setpoints, s)
 	}
 	return out
+}
+
+type controlFields struct {
+	Name       string `json:"name"`
+	Enabled    bool   `json:"enabled"`
+	StateKnown bool   `json:"stateKnown"`
 }

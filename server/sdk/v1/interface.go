@@ -401,6 +401,10 @@ const (
 
 // DeviceInfo represents information about a discovered device
 type DeviceInfo struct {
+	// RPCPort and RPCTLS select a separate native RPC listener on Host.
+	// Zero port uses the driver's default; Port/URLScheme remain the web endpoint.
+	RPCPort         int32
+	RPCTLS          bool
 	DeviceClass     DeviceClass
 	Host            string // e.g., "192.168.1.100" (maps to proto 'host')
 	Port            int32  // e.g., 4028 (maps to proto 'port')

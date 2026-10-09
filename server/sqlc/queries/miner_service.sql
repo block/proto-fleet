@@ -14,6 +14,8 @@ SELECT
     dd.ip_address,
     dd.port,
     dd.url_scheme,
+    dd.rpc_port,
+    dd.rpc_tls,
     d.site_id
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
@@ -41,6 +43,8 @@ SELECT
     dd.ip_address,
     dd.port,
     dd.url_scheme,
+    dd.rpc_port,
+    dd.rpc_tls,
     dd.driver_name,
     mc.username_enc,
     mc.password_enc
@@ -88,6 +92,8 @@ SELECT
     dd.ip_address,
     dd.port,
     dd.url_scheme,
+    dd.rpc_port,
+    dd.rpc_tls,
     dd.firmware_version
 FROM fleet_node_device fnd
 JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL

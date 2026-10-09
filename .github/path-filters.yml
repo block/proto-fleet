@@ -68,7 +68,9 @@ proto_plugin:
   - just/go-plugin.just
   - proto/**
   - plugin/proto/**
+  - sdk/mdk/**
   - server/fake-proto-rig/**
+  - server/fake-ct1/**
   - server/go.mod
   - server/go.sum
   - server/sdk/**
@@ -108,6 +110,7 @@ contract_tests:
   - plugin/antminer/**
   - plugin/asicrs/**
   - plugin/proto/**
+  - sdk/mdk/**
   - sdk/rust/**
   - server/go.mod
   - server/go.sum
@@ -161,10 +164,12 @@ protofleet_e2e:
   - go.work.sum
   - plugin/antminer/**
   - plugin/proto/**
+  - sdk/mdk/**
   - server/**
 
 protoos_e2e:
   - *global
+  - sdk/mdk/**
   - client/.npmrc
   - client/e2eTests/protoOS/**
   - client/package.json

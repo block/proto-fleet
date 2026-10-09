@@ -1475,11 +1475,18 @@ func TestEquipmentCommandBuildsControllerAndPreservesDesiredState(t *testing.T) 
 	device := &equipmentControlDevice{Device: base}
 	driver.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, _ string, info sdk.DeviceInfo, _ sdk.SecretBundle) (sdk.NewDeviceResult, error) {
 		require.Equal(t, sdk.DeviceClassContainer, info.DeviceClass)
+		require.Equal(t, int32(9443), info.RPCPort)
+		require.True(t, info.RPCTLS)
+		require.Equal(t, int32(8181), info.Port)
 		return sdk.NewDeviceResult{Device: device}, nil
 	})
 	run := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
 	acker := &captureAcker{}
-	run.handleMinerCommand(t.Context(), nil, acker, "equipment", withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_SetContainerControl{SetContainerControl: &pb.SetContainerControlAction{Name: "dry_cooler", Enabled: new(false)}}}), slog.Default())
+	command := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_SetContainerControl{SetContainerControl: &pb.SetContainerControlAction{Name: "dry_cooler", Enabled: new(false)}}})
+	command.Target.RpcPort = 9443
+	command.Target.RpcTls = true
+	command.Target.Port = "8181"
+	run.handleMinerCommand(t.Context(), nil, acker, "equipment", command, slog.Default())
 	require.True(t, acker.only(t).Succeeded)
 	require.NotNil(t, device.received.Enabled)
 	require.False(t, *device.received.Enabled)

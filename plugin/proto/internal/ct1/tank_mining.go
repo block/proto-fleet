@@ -3,10 +3,11 @@ package ct1
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"sort"
 	"strings"
+	"time"
 
+	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -14,6 +15,8 @@ func (d *Device) SetTankMining(ctx context.Context, req sdk.TankMiningRequest) e
 	if err := req.Validate(); err != nil {
 		return err
 	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	c := d.client
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -21,26 +24,23 @@ func (d *Device) SetTankMining(ctx context.Context, req sdk.TankMiningRequest) e
 	if expectedSerial == "" {
 		return fmt.Errorf("container identity unavailable")
 	}
-	info, err := c.discover(ctx, d.info)
+	info, err := c.Discover(ctx, d.info)
 	if err != nil {
 		return fmt.Errorf("container identity unavailable: %w", err)
 	}
 	if strings.TrimSpace(info.SerialNumber) != expectedSerial {
 		return fmt.Errorf("container identity changed")
 	}
-	var wire MapResponse
-	if err := c.get(ctx, "/api/v2/container/map", &wire); err != nil {
+	mapWire, err := c.boards.GetContainerMap(ctx, &mdk.GetContainerMapRequest{})
+	if err != nil {
 		return err
 	}
+	wire := mapResponse(mapWire)
 	if wire.ContainerMap == nil {
 		return fmt.Errorf("tank topology unavailable")
 	}
 	identityCounts := boardIdentityCounts(wire)
-	type selector struct {
-		Tank   int32 `json:"tank"`
-		Module int32 `json:"module"`
-	}
-	modules := []selector{}
+	modules := []*mdk.ModuleSelector{}
 	expected := map[string]bool{}
 	for _, position := range req.Positions {
 		found := false
@@ -64,7 +64,10 @@ func (d *Device) SetTankMining(ctx context.Context, req sdk.TankMiningRequest) e
 				}
 				moduleBoards := 0
 				for _, slot := range module.Slots {
-					if slot.invalid || slot.unreported || (slot.Occupied && slot.Hashboard == nil) {
+					if slot.unreported {
+						return fmt.Errorf("tank %d module %d slot topology unavailable", position, module.ID)
+					}
+					if slot.invalid || (slot.Occupied && slot.Hashboard == nil) {
 						return fmt.Errorf("tank %d board topology unavailable", position)
 					}
 					if !slot.Occupied {
@@ -83,7 +86,7 @@ func (d *Device) SetTankMining(ctx context.Context, req sdk.TankMiningRequest) e
 					moduleBoards++
 				}
 				if moduleBoards > 0 {
-					modules = append(modules, selector{position, module.ID})
+					modules = append(modules, &mdk.ModuleSelector{Tank: position, Module: module.ID})
 				}
 			}
 			if len(expected) == before {
@@ -103,31 +106,30 @@ func (d *Device) SetTankMining(ctx context.Context, req sdk.TankMiningRequest) e
 		}
 		return modules[i].Module < modules[j].Module
 	})
-	action := "stop"
+	scope := &mdk.BoardScope{Modules: modules}
+	var results []*mdk.BoardResult
 	if *req.Mining {
-		action = "start"
+		response, rpcErr := c.mining.StartMiningScoped(ctx, &mdk.StartMiningScopedRequest{Scope: scope})
+		err = rpcErr
+		results = response.GetResults()
+	} else {
+		response, rpcErr := c.mining.StopMiningScoped(ctx, &mdk.StopMiningScopedRequest{Scope: scope})
+		err = rpcErr
+		results = response.GetResults()
 	}
-	var response struct {
-		Results []struct {
-			MAC     string `json:"macAddress"`
-			Applied bool   `json:"applied"`
-			Message string `json:"message"`
-		} `json:"results"`
-	}
-	body := map[string]any{"scope": map[string]any{"modules": modules}}
-	if _, err := c.request(ctx, http.MethodPost, "/api/v2/mining/scoped/"+action, body, &response); err != nil {
+	if err != nil {
 		return fmt.Errorf("tank mining outcome unconfirmed: %w", err)
 	}
 	failures := []string{}
 	seen := map[string]bool{}
-	for _, result := range response.Results {
-		mac := normalizedBoardMAC(result.MAC)
+	for _, result := range results {
+		mac := normalizedBoardMAC(result.GetMacAddress())
 		if !expected[mac] || seen[mac] {
 			return fmt.Errorf("controller returned unexpected board results; outcome unconfirmed")
 		}
 		seen[mac] = true
-		if !result.Applied {
-			failures = append(failures, result.MAC+": "+result.Message)
+		if !result.GetApplied() {
+			failures = append(failures, result.GetMacAddress()+": "+result.GetMessage())
 		}
 	}
 	if len(seen) != len(expected) {

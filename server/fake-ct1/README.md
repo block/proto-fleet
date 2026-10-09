@@ -1,7 +1,7 @@
 # Fake CT1
 
 A lightweight, dockerized simulator for a **CT1 container**, implementing the
-MDK v2 REST API surface a fleet client hits against real hardware.
+MDK v2 REST API for ProtoOS and native gRPC for the Fleet CT1 plugin.
 
 It is the CT1 counterpart to [`server/fake-proto-rig`](../fake-proto-rig)
 (which fakes R2 rigs on the MDK v1 surface). It lets the fleet dev environment
@@ -33,6 +33,17 @@ Telemetry uses a shared five-second simulation clock, slow
 seeded variation, and stable device differences. Reads within a sample interval
 reconcile across endpoints. `CT1_SEED` changes the pattern; identical seeds and
 elapsed times reproduce it, independent of request order.
+
+## Native gRPC
+
+The listener defaults to `:9095` (`GRPC_PORT`; zero selects an ephemeral port).
+SystemInfo, ContainerMap, MiningStatus, ContainerHealth and ContainerControls
+reads share the REST state and clock. SetContainerControl writes update that same
+state and return controller-register confirmation. The dedicated main breaker
+remains unsupported, matching the REST fixture. Other generated services and
+historical RPCs are not enabled. This development listener is plaintext without
+authentication; see [CT1 transport configuration](../../docs/development/ct1-grpc.md)
+for the production plugin's TLS/token settings.
 
 ## Implemented endpoints
 
@@ -127,14 +138,16 @@ builds the production bundle and launches its own simulator on port 18081.
 
 ```bash
 docker build -t fake-ct1 -f server/fake-ct1/Dockerfile .
-docker run -p 8080:8080 fake-ct1
+docker run -p 8080:8080 -p 9095:9095 fake-ct1
 ```
 
 ## Environment variables
 
 | Variable                 | Description                                                                                                                                    | Default           |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| `HTTP_PORT`              | Port to listen on                                                                                                                              | `8080`            |
+| `GRPC_PORT`              | Native gRPC listener port (zero selects an ephemeral port) | `9095` |
+| `HTTP_PORT`              | HTTP listener port (zero selects an ephemeral port)                                                                                                                              | `8080`            |
+| `CT1_INSTANCE_ID`        | Board serial prefix; defaults to `SERVER_ID` when configured. Set to an existing fixture’s old prefix to retain previously paired inventory. | `SERVER_ID` or random |
 | `SERVER_ID`              | Container server id                                                                                                                            | `ct1-sim-<uuid>`  |
 | `HOSTNAME`               | Reported hostname                                                                                                                              | `fake-ct1-<uuid>` |
 | `CT1_VERSION`            | Reported firmware/OS version                                                                                                                   | `2.0.0`           |
@@ -206,11 +219,11 @@ them.
 
 ## Contract fidelity
 
-Response shapes mirror the `mdk.v2` grpc-gateway JSON (camelCase field names,
-`*_STATE_*` string enums), captured from
-`proto-rig-api/openapi/MDK-v2-API.json`. Once `gen/mdk/v2` Go stubs are
-vendored into the buf workspace (see issue #32 open decisions), the simulator
-should be contract-locked to those generated types so it can't silently drift.
+Native service types come from the pinned [shared MDK module](../../sdk/mdk/README.md).
+REST retains its existing DTOs and browser surface. gRPC projects the same DTO
+builders into generated types, dropping only older REST diagnostic fields that
+are absent from the pinned protobuf contract. The integration test exercises the
+real plugin against a full 288-board process and checks HTTP coexistence.
 
 Use the real `task dev:full` stack as a reference oracle to refine shapes/values:
 

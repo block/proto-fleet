@@ -4,6 +4,7 @@ use (
 	./plugin/antminer
 	./plugin/proto
 	./plugin/virtual
+	./sdk/mdk
 	./server
 	./tests/plugin-contract
 )
