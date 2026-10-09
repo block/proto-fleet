@@ -9,6 +9,8 @@ import "google/protobuf/timestamp.proto";
 // Containers are paired controllers with observed internal topology. Their
 // modules are not Fleet miners, and tanks are not user-managed racks.
 service ContainerService {
+  rpc GetModuleMiningOptions(GetModuleMiningOptionsRequest) returns (GetModuleMiningOptionsResponse);
+  rpc SetModuleMining(SetModuleMiningRequest) returns (SetModuleMiningResponse);
   rpc GetTankMiningOptions(GetTankMiningOptionsRequest) returns (GetTankMiningOptionsResponse);
   rpc SetTankMining(SetTankMiningRequest) returns (SetTankMiningResponse);
   rpc GetEquipmentCommandResult(GetEquipmentCommandResultRequest) returns (GetEquipmentCommandResultResponse);
@@ -148,4 +150,27 @@ message TankMiningCommand {
 message SetTankMiningResponse {
   // One existing command batch per controller, with exact selected tank scope.
   repeated TankMiningCommand commands = 1;
+}
+
+message GetModuleMiningOptionsRequest {
+  repeated int64 module_ids = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100, items: {int64: {gt: 0}}}];
+}
+message GetModuleMiningOptionsResponse {
+  bool can_start = 1;
+  bool can_stop = 2;
+  string unavailable_reason = 3;
+}
+message SetModuleMiningRequest {
+  repeated int64 module_ids = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100, items: {int64: {gt: 0}}}];
+  optional bool mining = 2 [(buf.validate.field).required = true];
+}
+message ModuleMiningCommand {
+  string device_identifier = 1;
+  string container_name = 2;
+  repeated int64 module_ids = 3;
+  string batch_identifier = 4;
+}
+message SetModuleMiningResponse {
+  // One batch per controller; the server resolves exact module scope and identity.
+  repeated ModuleMiningCommand commands = 1;
 }

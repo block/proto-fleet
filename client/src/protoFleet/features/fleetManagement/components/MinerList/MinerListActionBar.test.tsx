@@ -1,22 +1,36 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
+import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
+
+const selections = vi.hoisted(() => ({ miners: vi.fn(), modules: vi.fn() }));
+vi.mock("@/protoFleet/features/containers/ModuleActionsMenu", () => ({
+  default: (props: { modules: { ref?: { id: bigint } }[] }) => {
+    selections.modules(props);
+    return <span data-testid="module-actions-menu">Module actions</span>;
+  },
+}));
 
 // useMinerActions imports batch operation hooks from the store that were removed
 // during the fleet slice refactor. Mock the hook so tests don't crash.
 // MinerActionsMenu imports hooks from the removed fleet store slice.
 // Mock it so the tests don't crash.
 vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu", () => ({
-  default: ({ onActionStart }: { onActionStart?: () => void }) => (
-    <div data-testid="actions-menu-button" onClick={onActionStart}>
-      <button data-testid="reboot-popover-button" onClick={onActionStart}>
-        Reboot
-      </button>
-      <button data-testid="mining-pool-popover-button" onClick={onActionStart}>
-        Mining Pools
-      </button>
-    </div>
-  ),
+  default: (props: { onActionStart?: () => void; selectedMiners: string[]; selectionMode: string }) => {
+    const { onActionStart } = props;
+    selections.miners(props);
+    return (
+      <div data-testid="actions-menu-button" onClick={onActionStart}>
+        <button data-testid="reboot-popover-button" onClick={onActionStart}>
+          Reboot
+        </button>
+        <button data-testid="mining-pool-popover-button" onClick={onActionStart}>
+          Mining Pools
+        </button>
+      </div>
+    );
+  },
 }));
 
 vi.mock("@/protoFleet/api/usePools", () => ({
@@ -123,4 +137,45 @@ describe("Miner list action bar", () => {
     expect(queryAllByTestId("select-all-miners-button")).toHaveLength(0);
     expect(queryAllByTestId("select-none-miners-button")).toHaveLength(1);
   });
+});
+
+test("mixed selections keep modules out of conventional miner dispatch and prevent all-mode broadening", () => {
+  selections.miners.mockClear();
+  selections.modules.mockClear();
+  const module = create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 11n }, name: "CT1 T1 M2" });
+  const { rerender, queryByTestId, getByTestId } = render(
+    <MinerListActionBar
+      selectedMiners={["miner-a", "module:11"]}
+      modules={[module]}
+      selectionMode="all"
+      totalCount={40}
+    />,
+  );
+  expect(selections.miners).toHaveBeenLastCalledWith(
+    expect.objectContaining({ selectedMiners: ["miner-a"], selectionMode: "subset", totalCount: 1 }),
+  );
+  expect(selections.modules).toHaveBeenLastCalledWith(expect.objectContaining({ modules: [module] }));
+  expect(getByTestId("action-bar")).toHaveTextContent("2 miners selected");
+  expect(getByTestId("action-bar")).not.toHaveTextContent("40");
+  selections.miners.mockClear();
+  rerender(<MinerListActionBar selectedMiners={["module:11"]} modules={[module]} selectionMode="subset" />);
+  expect(queryByTestId("actions-menu-button")).not.toBeInTheDocument();
+  expect(selections.miners).not.toHaveBeenCalled();
+});
+
+test("miner-only all mode retains the full result count and dispatch scope", () => {
+  const { getByTestId } = render(
+    <MinerListActionBar selectedMiners={["miner-a"]} selectionMode="all" totalCount={200} />,
+  );
+  expect(getByTestId("action-bar")).toHaveTextContent("All 200 miners selected");
+  expect(selections.miners).toHaveBeenLastCalledWith(
+    expect.objectContaining({ selectedMiners: ["miner-a"], selectionMode: "all", totalCount: 200 }),
+  );
+});
+
+test("module pages identify the select-all control as page scoped", () => {
+  const { getByTestId } = render(
+    <MinerListActionBar selectedMiners={["miner-a"]} selectionMode="subset" selectAllOnPage onSelectAll={vi.fn()} />,
+  );
+  expect(getByTestId("select-all-miners-button")).toHaveTextContent("Select all visible");
 });

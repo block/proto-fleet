@@ -28,7 +28,7 @@ func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials 
 	return &Device{id: id, info: info, client: c}, nil
 }
 func Capabilities() sdk.Capabilities {
-	return sdk.Capabilities{sdk.CapabilityTankMining: true, sdk.CapabilityContainerControl: true, sdk.CapabilityPollingHost: true, sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true, sdk.CapabilityRealtimeTelemetry: true, sdk.CapabilityHashrateReported: true, sdk.CapabilityPowerUsage: true}
+	return sdk.Capabilities{sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true, sdk.CapabilityContainerControl: true, sdk.CapabilityPollingHost: true, sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true, sdk.CapabilityRealtimeTelemetry: true, sdk.CapabilityHashrateReported: true, sdk.CapabilityPowerUsage: true}
 }
 func (d *Device) ID() string { return d.id }
 func (d *Device) DescribeDevice(context.Context) (sdk.DeviceInfo, sdk.Capabilities, error) {

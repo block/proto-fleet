@@ -49,6 +49,8 @@ message AuthenticationCapabilities {
 message CommandCapabilities {
   // Explicit tank scope; independent of container-wide or rig start/stop.
   bool tank_mining_supported = 16;
+  // Exact module scope with expected identity.
+  bool module_mining_supported = 17;
   // Basic operations
   bool reboot_supported = 1;
   bool mining_start_supported = 2;

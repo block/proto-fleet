@@ -91,6 +91,7 @@ export default function TankPage() {
         <ModuleHistoryDialog
           key={`${identifier}:${tankId}:${moduleId}`}
           item={module}
+          onRefresh={retry}
           onDismiss={() => navigate(path)}
         />
       ) : null}

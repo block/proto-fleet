@@ -783,6 +783,13 @@ impl Driver for DriverService {
 
     // --- Configuration ---
 
+    async fn set_module_mining(
+        &self,
+        _req: Request<pb::SetModuleMiningRequest>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented("module mining is unsupported"))
+    }
+
     async fn set_tank_mining(
         &self,
         _req: Request<pb::SetTankMiningRequest>,

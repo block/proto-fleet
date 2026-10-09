@@ -1,17 +1,19 @@
 import { useRef } from "react";
-import { runTankMiningAction } from "./runTankMiningAction";
+import { runMiningAction } from "./runMiningAction";
 import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import BulkActionConfirmDialog from "@/protoFleet/features/fleetManagement/components/BulkActions/BulkActionConfirmDialog";
 import { variants } from "@/shared/components/Button";
 
-export default function TankMiningDialog({
-  tanks,
+export default function MiningDialog({
+  items,
+  kind,
   mining,
   onClose,
   onRefresh,
   onActionComplete,
 }: {
-  tanks: InventoryItem[];
+  items: InventoryItem[];
+  kind: "tank" | "module";
   mining: boolean;
   onClose: () => void;
   onRefresh: () => void;
@@ -22,19 +24,22 @@ export default function TankMiningDialog({
   const submit = () => {
     if (submitted.current) return;
     submitted.current = true;
-    const tankIds = tanks.map((tank) => tank.ref!.id);
+    const ids = items.map((item) => item.ref!.id);
     onClose();
-    void runTankMiningAction(tankIds, mining, onRefresh, onActionComplete);
+    void runMiningAction(ids, kind, mining, onRefresh, onActionComplete);
   };
   return (
     <BulkActionConfirmDialog
       open
-      testId="tank-mining-dialog"
+      testId={`${kind}-mining-dialog`}
       actionConfirmation={{
-        title: `${action} on ${tanks.length} ${tanks.length === 1 ? "tank" : "tanks"}?`,
-        subtitle: `All modules in ${tanks.length === 1 ? "this tank" : "these tanks"} will ${mining ? "start" : "stop"} hashing.`,
+        title: `${action} on ${items.length} ${items.length === 1 ? kind : `${kind}s`}?`,
+        subtitle:
+          kind === "tank"
+            ? `All modules in ${items.length === 1 ? "this tank" : "these tanks"} will ${mining ? "start" : "stop"} hashing.`
+            : `${items.map((module) => module.name).join(", ")} will ${mining ? "start" : "stop"} hashing.`,
         confirmAction: { title: action, variant: variants.primary },
-        testId: "tank-mining-confirm-button",
+        testId: `${kind}-mining-confirm-button`,
       }}
       onConfirmation={submit}
       onCancel={() => {

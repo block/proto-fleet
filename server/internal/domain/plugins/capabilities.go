@@ -51,6 +51,7 @@ func convertCommandCapabilities(caps sdk.Capabilities) *capabilitiespb.CommandCa
 
 	return &capabilitiespb.CommandCapabilities{
 		TankMiningSupported:          caps[sdk.CapabilityTankMining],
+		ModuleMiningSupported:        caps[sdk.CapabilityModuleMining],
 		RebootSupported:              caps[sdk.CapabilityReboot],
 		MiningStartSupported:         caps[sdk.CapabilityMiningStart],
 		MiningStopSupported:          caps[sdk.CapabilityMiningStop],

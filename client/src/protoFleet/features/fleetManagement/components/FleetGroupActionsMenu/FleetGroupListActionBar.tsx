@@ -5,8 +5,7 @@ import FleetGroupActionsMenu, { type GroupScope } from "./FleetGroupActionsMenu"
 import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import TankActionsMenu from "@/protoFleet/features/containers/TankActionsMenu";
 import { useSetActionBarVisible } from "@/protoFleet/store";
-import ActionBar from "@/shared/components/ActionBar";
-import Button, { sizes, variants } from "@/shared/components/Button";
+import ActionBar, { ActionBarSelectionControls } from "@/shared/components/ActionBar";
 import { type RowAction } from "@/shared/components/RowActionsMenu";
 
 interface FleetGroupListActionBarProps {
@@ -99,30 +98,13 @@ const FleetGroupListActionBar = ({
       itemNoun={itemNoun}
       onClose={onClearSelection}
       selectionControls={
-        <>
-          <Button
-            className="py-1"
-            size={sizes.textOnly}
-            variant={variants.textOnly}
-            textColor="text-core-accent-fill"
-            textOnlyUnderlineOnHover={false}
-            testId={`select-all-visible-${pluralKind}-button`}
-            onClick={onSelectAllVisible}
-          >
-            Select all visible
-          </Button>
-          <Button
-            className="py-1"
-            size={sizes.textOnly}
-            variant={variants.textOnly}
-            textColor="text-core-accent-fill"
-            textOnlyUnderlineOnHover={false}
-            testId={`select-none-${pluralKind}-button`}
-            onClick={onClearSelection}
-          >
-            Select none
-          </Button>
-        </>
+        <ActionBarSelectionControls
+          onSelectAll={onSelectAllVisible}
+          onSelectNone={onClearSelection}
+          visibleOnly
+          selectAllTestId={`select-all-visible-${pluralKind}-button`}
+          selectNoneTestId={`select-none-${pluralKind}-button`}
+        />
       }
       renderActions={(setHidden) => {
         const onActionStart = () => {

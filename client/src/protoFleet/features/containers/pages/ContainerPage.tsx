@@ -108,6 +108,7 @@ export default function ContainerPage() {
         <ModuleHistoryDialog
           key={`${identifier}:${module.ref?.id}`}
           item={module}
+          onRefresh={retry}
           onDismiss={() => setSelected(undefined)}
         />
       ) : null}

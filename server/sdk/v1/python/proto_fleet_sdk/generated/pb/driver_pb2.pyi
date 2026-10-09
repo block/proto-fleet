@@ -1142,3 +1142,23 @@ class SetTankMiningRequest(_message.Message):
     positions: _containers.RepeatedScalarFieldContainer[int]
     mining: bool
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., positions: _Optional[_Iterable[int]] = ..., mining: bool = ...) -> None: ...
+
+class ModuleMiningTarget(_message.Message):
+    __slots__ = ("tank", "module", "reported_id")
+    TANK_FIELD_NUMBER: _ClassVar[int]
+    MODULE_FIELD_NUMBER: _ClassVar[int]
+    REPORTED_ID_FIELD_NUMBER: _ClassVar[int]
+    tank: int
+    module: int
+    reported_id: str
+    def __init__(self, tank: _Optional[int] = ..., module: _Optional[int] = ..., reported_id: _Optional[str] = ...) -> None: ...
+
+class SetModuleMiningRequest(_message.Message):
+    __slots__ = ("ref", "modules", "mining")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    MODULES_FIELD_NUMBER: _ClassVar[int]
+    MINING_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    modules: _containers.RepeatedCompositeFieldContainer[ModuleMiningTarget]
+    mining: bool
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., modules: _Optional[_Iterable[_Union[ModuleMiningTarget, _Mapping]]] = ..., mining: bool = ...) -> None: ...

@@ -589,7 +589,7 @@ func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
 	// Assert: the loop reconnected at least once.
 	assert.GreaterOrEqual(t, fake.helloCount(), 2)
 	for _, got := range fake.helloCommandProtocolVersionsCopy() {
-		assert.Equal(t, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4, got)
+		assert.Equal(t, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5, got)
 	}
 }
 

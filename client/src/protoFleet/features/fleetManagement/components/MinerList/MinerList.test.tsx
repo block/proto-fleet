@@ -244,7 +244,7 @@ describe("MinerList", () => {
     }));
   });
 
-  it("keeps modules in server order but selects only actual miners", () => {
+  it("keeps modules in server order and selects exact module and miner identities", () => {
     const miner = createMinerSnapshot("A miner");
     renderMinerList({
       onAddMiners: vi.fn(),
@@ -263,12 +263,75 @@ describe("MinerList", () => {
     });
     const body = screen.getByTestId("list-body");
     expect(body.textContent!.indexOf("Z module")).toBeLessThan(body.textContent!.indexOf("A miner"));
-    expect(body.querySelectorAll('input[type="checkbox"]:not(:disabled)')).toHaveLength(1);
-    expect(body.querySelectorAll('input[type="checkbox"]:disabled')).toHaveLength(1);
+    expect(body.querySelectorAll('input[type="checkbox"]:not(:disabled)')).toHaveLength(2);
+    expect(body.querySelectorAll('input[type="checkbox"]:disabled')).toHaveLength(0);
     fireEvent.click(body.querySelector('input[type="checkbox"]:not(:disabled)')!);
-    expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("A miner");
+    expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("module:1");
+    expect(screen.getByTestId("mock-miner-list-selected-miners")).not.toHaveTextContent("A miner");
     expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
     expect(screen.getByRole("button", { name: "Export miners CSV" })).toBeInTheDocument();
+  });
+
+  it.each([false, true])("keeps Select all page scoped when modules are present (mixed: %s)", (mixed) => {
+    const miner = createMinerSnapshot("miner-a");
+    const module = create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 1n }, name: "Module" });
+    renderMinerList({
+      onAddMiners: vi.fn(),
+      minerIds: mixed ? ["miner-a"] : [],
+      miners: mixed ? { "miner-a": miner } : {},
+      totalMiners: 200,
+      inventoryMinerCount: mixed ? 100 : 0,
+      inventoryItems: mixed
+        ? [
+            module,
+            create(InventoryItemSchema, {
+              ref: { kind: EntityKind.MINER, id: 2n },
+              deviceIdentifier: "miner-a",
+              details: { case: "miner", value: miner },
+            }),
+          ]
+        : [module],
+    });
+    fireEvent.click(screen.getByTestId("list-body").querySelector('input[type="checkbox"]')!);
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
+
+    expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
+    expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent(mixed ? "2" : "1");
+    expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent(
+      mixed ? "module:1,miner-a" : "module:1",
+    );
+    expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({ selectAllOnPage: true, selectionMode: "subset", modules: [module] }),
+      undefined,
+    );
+  });
+
+  it("keeps Select all page scoped when modules are only on other pages", () => {
+    const miner = createMinerSnapshot("miner-a");
+    renderMinerList({
+      onAddMiners: vi.fn(),
+      minerIds: ["miner-a"],
+      miners: { "miner-a": miner },
+      totalMiners: 200,
+      inventoryMinerCount: 100,
+      inventoryItems: [
+        create(InventoryItemSchema, {
+          ref: { kind: EntityKind.MINER, id: 1n },
+          deviceIdentifier: "miner-a",
+          details: { case: "miner", value: miner },
+        }),
+      ],
+    });
+    fireEvent.click(screen.getByTestId("list-body").querySelector('input[type="checkbox"]')!);
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
+
+    expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
+    expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("miner-a");
+    expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({ selectAllOnPage: true, selectionMode: "subset", modules: [] }),
+      undefined,
+    );
   });
 
   it("expands a module by keyboard into three read-only slots and preserves expansion through refresh", async () => {

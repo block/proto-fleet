@@ -1197,8 +1197,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.hasPendingContainerControlStmt, err = db.PrepareContext(ctx, hasPendingContainerControl); err != nil {
 		return nil, fmt.Errorf("error preparing query HasPendingContainerControl: %w", err)
 	}
-	if q.hasPendingTankMiningStmt, err = db.PrepareContext(ctx, hasPendingTankMining); err != nil {
-		return nil, fmt.Errorf("error preparing query HasPendingTankMining: %w", err)
+	if q.hasPendingScopedMiningStmt, err = db.PrepareContext(ctx, hasPendingScopedMining); err != nil {
+		return nil, fmt.Errorf("error preparing query HasPendingScopedMining: %w", err)
 	}
 	if q.hasUserStmt, err = db.PrepareContext(ctx, hasUser); err != nil {
 		return nil, fmt.Errorf("error preparing query HasUser: %w", err)
@@ -1538,6 +1538,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, listMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMinerStateSnapshots: %w", err)
+	}
+	if q.listModuleCommandTargetsStmt, err = db.PrepareContext(ctx, listModuleCommandTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query ListModuleCommandTargets: %w", err)
 	}
 	if q.listNonTerminalCurtailmentEventsStmt, err = db.PrepareContext(ctx, listNonTerminalCurtailmentEvents); err != nil {
 		return nil, fmt.Errorf("error preparing query ListNonTerminalCurtailmentEvents: %w", err)
@@ -4420,9 +4423,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing hasPendingContainerControlStmt: %w", cerr)
 		}
 	}
-	if q.hasPendingTankMiningStmt != nil {
-		if cerr := q.hasPendingTankMiningStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing hasPendingTankMiningStmt: %w", cerr)
+	if q.hasPendingScopedMiningStmt != nil {
+		if cerr := q.hasPendingScopedMiningStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasPendingScopedMiningStmt: %w", cerr)
 		}
 	}
 	if q.hasUserStmt != nil {
@@ -4988,6 +4991,11 @@ func (q *Queries) Close() error {
 	if q.listMinerStateSnapshotsStmt != nil {
 		if cerr := q.listMinerStateSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listMinerStateSnapshotsStmt: %w", cerr)
+		}
+	}
+	if q.listModuleCommandTargetsStmt != nil {
+		if cerr := q.listModuleCommandTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listModuleCommandTargetsStmt: %w", cerr)
 		}
 	}
 	if q.listNonTerminalCurtailmentEventsStmt != nil {
@@ -6955,7 +6963,7 @@ type Queries struct {
 	haltFirmwareRolloutDevicesStmt                               *sql.Stmt
 	hasHostedAccountHostAuthorityStmt                            *sql.Stmt
 	hasPendingContainerControlStmt                               *sql.Stmt
-	hasPendingTankMiningStmt                                     *sql.Stmt
+	hasPendingScopedMiningStmt                                   *sql.Stmt
 	hasUserStmt                                                  *sql.Stmt
 	insertActivityLogStmt                                        *sql.Stmt
 	insertAlertChannelStmt                                       *sql.Stmt
@@ -7069,6 +7077,7 @@ type Queries struct {
 	listManagedFirmwareUpdateDevicesStmt                         *sql.Stmt
 	listMinerFirmwareHistoryStmt                                 *sql.Stmt
 	listMinerStateSnapshotsStmt                                  *sql.Stmt
+	listModuleCommandTargetsStmt                                 *sql.Stmt
 	listNonTerminalCurtailmentEventsStmt                         *sql.Stmt
 	listNotificationHistoryStmt                                  *sql.Stmt
 	listOrganizationsStmt                                        *sql.Stmt
@@ -7773,7 +7782,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		haltFirmwareRolloutDevicesStmt:                               q.haltFirmwareRolloutDevicesStmt,
 		hasHostedAccountHostAuthorityStmt:                            q.hasHostedAccountHostAuthorityStmt,
 		hasPendingContainerControlStmt:                               q.hasPendingContainerControlStmt,
-		hasPendingTankMiningStmt:                                     q.hasPendingTankMiningStmt,
+		hasPendingScopedMiningStmt:                                   q.hasPendingScopedMiningStmt,
 		hasUserStmt:                                                  q.hasUserStmt,
 		insertActivityLogStmt:                                        q.insertActivityLogStmt,
 		insertAlertChannelStmt:                                       q.insertAlertChannelStmt,
@@ -7887,6 +7896,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listManagedFirmwareUpdateDevicesStmt:                         q.listManagedFirmwareUpdateDevicesStmt,
 		listMinerFirmwareHistoryStmt:                                 q.listMinerFirmwareHistoryStmt,
 		listMinerStateSnapshotsStmt:                                  q.listMinerStateSnapshotsStmt,
+		listModuleCommandTargetsStmt:                                 q.listModuleCommandTargetsStmt,
 		listNonTerminalCurtailmentEventsStmt:                         q.listNonTerminalCurtailmentEventsStmt,
 		listNotificationHistoryStmt:                                  q.listNotificationHistoryStmt,
 		listOrganizationsStmt:                                        q.listOrganizationsStmt,

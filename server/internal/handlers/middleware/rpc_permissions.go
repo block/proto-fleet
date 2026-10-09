@@ -145,8 +145,10 @@ var ProcedurePermissions = map[string]string{
 	// permissions; cooling-mode is the primary classification recorded here.
 	containersv1connect.ContainerServiceGetEquipmentCommandResultProcedure: authz.PermSiteRead,
 	containersv1connect.ContainerServiceGetTankMiningOptionsProcedure:      authz.PermSiteRead,
-	// Handler resolves every tank and enforces the requested mining permission at its current site.
+	containersv1connect.ContainerServiceGetModuleMiningOptionsProcedure:    authz.PermSiteRead,
+	// Handler resolves every tank/module and enforces the requested mining permission at its current site.
 	containersv1connect.ContainerServiceSetTankMiningProcedure:       authz.PermSiteRead,
+	containersv1connect.ContainerServiceSetModuleMiningProcedure:     authz.PermSiteRead,
 	containersv1connect.ContainerServiceSetEquipmentControlProcedure: authz.PermMinerSetCoolingMode,
 	// CreateBuilding optionally seeds racks + devices atomically (#559). This
 	// site:manage entry is the primary gate; when the caller opts into

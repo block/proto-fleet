@@ -34,6 +34,12 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// ContainerServiceGetModuleMiningOptionsProcedure is the fully-qualified name of the
+	// ContainerService's GetModuleMiningOptions RPC.
+	ContainerServiceGetModuleMiningOptionsProcedure = "/containers.v1.ContainerService/GetModuleMiningOptions"
+	// ContainerServiceSetModuleMiningProcedure is the fully-qualified name of the ContainerService's
+	// SetModuleMining RPC.
+	ContainerServiceSetModuleMiningProcedure = "/containers.v1.ContainerService/SetModuleMining"
 	// ContainerServiceGetTankMiningOptionsProcedure is the fully-qualified name of the
 	// ContainerService's GetTankMiningOptions RPC.
 	ContainerServiceGetTankMiningOptionsProcedure = "/containers.v1.ContainerService/GetTankMiningOptions"
@@ -56,6 +62,8 @@ const (
 
 // ContainerServiceClient is a client for the containers.v1.ContainerService service.
 type ContainerServiceClient interface {
+	GetModuleMiningOptions(context.Context, *connect.Request[v1.GetModuleMiningOptionsRequest]) (*connect.Response[v1.GetModuleMiningOptionsResponse], error)
+	SetModuleMining(context.Context, *connect.Request[v1.SetModuleMiningRequest]) (*connect.Response[v1.SetModuleMiningResponse], error)
 	GetTankMiningOptions(context.Context, *connect.Request[v1.GetTankMiningOptionsRequest]) (*connect.Response[v1.GetTankMiningOptionsResponse], error)
 	SetTankMining(context.Context, *connect.Request[v1.SetTankMiningRequest]) (*connect.Response[v1.SetTankMiningResponse], error)
 	GetEquipmentCommandResult(context.Context, *connect.Request[v1.GetEquipmentCommandResultRequest]) (*connect.Response[v1.GetEquipmentCommandResultResponse], error)
@@ -74,6 +82,16 @@ type ContainerServiceClient interface {
 func NewContainerServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ContainerServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &containerServiceClient{
+		getModuleMiningOptions: connect.NewClient[v1.GetModuleMiningOptionsRequest, v1.GetModuleMiningOptionsResponse](
+			httpClient,
+			baseURL+ContainerServiceGetModuleMiningOptionsProcedure,
+			opts...,
+		),
+		setModuleMining: connect.NewClient[v1.SetModuleMiningRequest, v1.SetModuleMiningResponse](
+			httpClient,
+			baseURL+ContainerServiceSetModuleMiningProcedure,
+			opts...,
+		),
 		getTankMiningOptions: connect.NewClient[v1.GetTankMiningOptionsRequest, v1.GetTankMiningOptionsResponse](
 			httpClient,
 			baseURL+ContainerServiceGetTankMiningOptionsProcedure,
@@ -109,12 +127,24 @@ func NewContainerServiceClient(httpClient connect.HTTPClient, baseURL string, op
 
 // containerServiceClient implements ContainerServiceClient.
 type containerServiceClient struct {
+	getModuleMiningOptions    *connect.Client[v1.GetModuleMiningOptionsRequest, v1.GetModuleMiningOptionsResponse]
+	setModuleMining           *connect.Client[v1.SetModuleMiningRequest, v1.SetModuleMiningResponse]
 	getTankMiningOptions      *connect.Client[v1.GetTankMiningOptionsRequest, v1.GetTankMiningOptionsResponse]
 	setTankMining             *connect.Client[v1.SetTankMiningRequest, v1.SetTankMiningResponse]
 	getEquipmentCommandResult *connect.Client[v1.GetEquipmentCommandResultRequest, v1.GetEquipmentCommandResultResponse]
 	setEquipmentControl       *connect.Client[v1.SetEquipmentControlRequest, v1.SetEquipmentControlResponse]
 	getContainer              *connect.Client[v1.GetContainerRequest, v1.GetContainerResponse]
 	listContainers            *connect.Client[v1.ListContainersRequest, v1.ListContainersResponse]
+}
+
+// GetModuleMiningOptions calls containers.v1.ContainerService.GetModuleMiningOptions.
+func (c *containerServiceClient) GetModuleMiningOptions(ctx context.Context, req *connect.Request[v1.GetModuleMiningOptionsRequest]) (*connect.Response[v1.GetModuleMiningOptionsResponse], error) {
+	return c.getModuleMiningOptions.CallUnary(ctx, req)
+}
+
+// SetModuleMining calls containers.v1.ContainerService.SetModuleMining.
+func (c *containerServiceClient) SetModuleMining(ctx context.Context, req *connect.Request[v1.SetModuleMiningRequest]) (*connect.Response[v1.SetModuleMiningResponse], error) {
+	return c.setModuleMining.CallUnary(ctx, req)
 }
 
 // GetTankMiningOptions calls containers.v1.ContainerService.GetTankMiningOptions.
@@ -149,6 +179,8 @@ func (c *containerServiceClient) ListContainers(ctx context.Context, req *connec
 
 // ContainerServiceHandler is an implementation of the containers.v1.ContainerService service.
 type ContainerServiceHandler interface {
+	GetModuleMiningOptions(context.Context, *connect.Request[v1.GetModuleMiningOptionsRequest]) (*connect.Response[v1.GetModuleMiningOptionsResponse], error)
+	SetModuleMining(context.Context, *connect.Request[v1.SetModuleMiningRequest]) (*connect.Response[v1.SetModuleMiningResponse], error)
 	GetTankMiningOptions(context.Context, *connect.Request[v1.GetTankMiningOptionsRequest]) (*connect.Response[v1.GetTankMiningOptionsResponse], error)
 	SetTankMining(context.Context, *connect.Request[v1.SetTankMiningRequest]) (*connect.Response[v1.SetTankMiningResponse], error)
 	GetEquipmentCommandResult(context.Context, *connect.Request[v1.GetEquipmentCommandResultRequest]) (*connect.Response[v1.GetEquipmentCommandResultResponse], error)
@@ -163,6 +195,16 @@ type ContainerServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	containerServiceGetModuleMiningOptionsHandler := connect.NewUnaryHandler(
+		ContainerServiceGetModuleMiningOptionsProcedure,
+		svc.GetModuleMiningOptions,
+		opts...,
+	)
+	containerServiceSetModuleMiningHandler := connect.NewUnaryHandler(
+		ContainerServiceSetModuleMiningProcedure,
+		svc.SetModuleMining,
+		opts...,
+	)
 	containerServiceGetTankMiningOptionsHandler := connect.NewUnaryHandler(
 		ContainerServiceGetTankMiningOptionsProcedure,
 		svc.GetTankMiningOptions,
@@ -195,6 +237,10 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 	)
 	return "/containers.v1.ContainerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case ContainerServiceGetModuleMiningOptionsProcedure:
+			containerServiceGetModuleMiningOptionsHandler.ServeHTTP(w, r)
+		case ContainerServiceSetModuleMiningProcedure:
+			containerServiceSetModuleMiningHandler.ServeHTTP(w, r)
 		case ContainerServiceGetTankMiningOptionsProcedure:
 			containerServiceGetTankMiningOptionsHandler.ServeHTTP(w, r)
 		case ContainerServiceSetTankMiningProcedure:
@@ -215,6 +261,14 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 
 // UnimplementedContainerServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedContainerServiceHandler struct{}
+
+func (UnimplementedContainerServiceHandler) GetModuleMiningOptions(context.Context, *connect.Request[v1.GetModuleMiningOptionsRequest]) (*connect.Response[v1.GetModuleMiningOptionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.GetModuleMiningOptions is not implemented"))
+}
+
+func (UnimplementedContainerServiceHandler) SetModuleMining(context.Context, *connect.Request[v1.SetModuleMiningRequest]) (*connect.Response[v1.SetModuleMiningResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.SetModuleMining is not implemented"))
+}
 
 func (UnimplementedContainerServiceHandler) GetTankMiningOptions(context.Context, *connect.Request[v1.GetTankMiningOptionsRequest]) (*connect.Response[v1.GetTankMiningOptionsResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.GetTankMiningOptions is not implemented"))

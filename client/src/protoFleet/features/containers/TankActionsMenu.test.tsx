@@ -252,7 +252,7 @@ describe("tank actions", () => {
     await waitFor(() =>
       expect(mocks.updateToast).toHaveBeenCalledWith(1, expect.objectContaining({ status: "success" })),
     );
-    expect(refresh).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalledOnce();
     expect(complete).not.toHaveBeenCalled();
   });
   it("restores the action bar after admission, independently of toast dismissal", async () => {

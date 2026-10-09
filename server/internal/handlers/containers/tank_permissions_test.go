@@ -25,13 +25,13 @@ func TestTankActionsRequireRequestedPermissionAtCurrentSite(t *testing.T) {
 			}
 			ctx := middleware.WithEffectivePermissions(authn.SetInfo(t.Context(), &session.Info{UserID: 1, OrganizationID: 1}), authz.NewEffectivePermissions([]authz.Assignment{{ScopeType: authz.ScopeSite, SiteID: &site, Permissions: perms}}))
 			if missing < 0 {
-				require.NoError(t, authorizeTankMining(ctx, &site, mining))
-				require.Error(t, authorizeTankMining(ctx, &site, !mining))
+				require.NoError(t, authorizeScopedMining(ctx, &site, mining))
+				require.Error(t, authorizeScopedMining(ctx, &site, !mining))
 			} else {
-				require.Error(t, authorizeTankMining(ctx, &site, mining))
+				require.Error(t, authorizeScopedMining(ctx, &site, mining))
 			}
-			require.Error(t, authorizeTankMining(ctx, &other, mining))
-			require.Error(t, authorizeTankMining(ctx, nil, mining))
+			require.Error(t, authorizeScopedMining(ctx, &other, mining))
+			require.Error(t, authorizeScopedMining(ctx, nil, mining))
 		}
 	}
 }

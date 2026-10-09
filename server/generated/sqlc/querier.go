@@ -991,7 +991,7 @@ type Querier interface {
 	HaltFirmwareRolloutDevices(ctx context.Context, arg HaltFirmwareRolloutDevicesParams) error
 	HasHostedAccountHostAuthority(ctx context.Context, arg HasHostedAccountHostAuthorityParams) (bool, error)
 	HasPendingContainerControl(ctx context.Context, deviceID int64) (bool, error)
-	HasPendingTankMining(ctx context.Context, deviceID int64) (bool, error)
+	HasPendingScopedMining(ctx context.Context, deviceID int64) (bool, error)
 	HasUser(ctx context.Context) (bool, error)
 	// The unique partial index on (batch_id, event_type) for '*.completed' event
 	// types lets the Go layer detect idempotent re-inserts via pq unique_violation.
@@ -1411,6 +1411,7 @@ type Querier interface {
 	// because sqlc cannot parameterize ORDER BY direction or dynamic columns.
 	// This stub exists solely to generate the ListMinerStateSnapshotsRow type.
 	ListMinerStateSnapshots(ctx context.Context) ([]ListMinerStateSnapshotsRow, error)
+	ListModuleCommandTargets(ctx context.Context, arg ListModuleCommandTargetsParams) ([]ListModuleCommandTargetsRow, error)
 	// System-scope (no org filter); reconciler is a singleton driving all orgs.
 	// Order by id keeps per-tick processing deterministic.
 	ListNonTerminalCurtailmentEvents(ctx context.Context) ([]CurtailmentEvent, error)

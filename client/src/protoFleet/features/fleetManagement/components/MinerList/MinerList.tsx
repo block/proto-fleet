@@ -46,6 +46,7 @@ import AuthenticateFleetModal from "@/protoFleet/features/auth/components/Authen
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import { HashboardCell } from "@/protoFleet/features/containers/HashboardCell";
 import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
+import ModuleActionsMenu from "@/protoFleet/features/containers/ModuleActionsMenu";
 import { ModuleHistoryDialog } from "@/protoFleet/features/containers/ModuleHistoryDialog";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
@@ -437,6 +438,7 @@ const ScopedMinerListBody = ({
               <div className="min-w-0 flex-1">
                 <InventoryCell item={item.row} column={column} />
               </div>
+              <ModuleActionsMenu modules={[item.row]} onRefresh={onRefetchMiners ?? (() => undefined)} />
             </div>
           ) : (
             <InventoryCell item={item.row} column={column} />
@@ -444,8 +446,11 @@ const ScopedMinerListBody = ({
       };
     }
     return result;
-  }, [minerColConfig, expanded, toggleModule]);
-  const currentPageSelectableMinerIds = deviceItems.map((item) => item.deviceIdentifier);
+  }, [minerColConfig, expanded, toggleModule, onRefetchMiners]);
+  const currentPageSelectableMinerIds = listItems.map((item) => item.deviceIdentifier);
+  const selectAllOnPage =
+    listItems.some((item) => item.kind === "module") ||
+    (inventoryMinerCount !== undefined && totalMiners !== undefined && inventoryMinerCount < totalMiners);
   const headerActionButtons = useMemo<ResponsiveActionButton[]>(
     () => [
       {
@@ -475,8 +480,8 @@ const ScopedMinerListBody = ({
 
   const handleSelectAllMiners = useCallback(() => {
     setSelectedMinerIds(currentPageSelectableMinerIds);
-    setSelectionMode("all");
-  }, [currentPageSelectableMinerIds]);
+    setSelectionMode(selectAllOnPage ? "subset" : "all");
+  }, [currentPageSelectableMinerIds, selectAllOnPage]);
 
   const handleSelectNoneMiners = useCallback(() => {
     setSelectedMinerIds([]);
@@ -615,8 +620,12 @@ const ScopedMinerListBody = ({
           <div className="flex w-full justify-center">
             <MinerListActionBar
               selectedMiners={selectedItems}
+              modules={listItems.flatMap((item) =>
+                item.kind === "module" && selectedItems.includes(item.deviceIdentifier) ? [item.row] : [],
+              )}
               onClearSelection={clearSelection}
               onSelectAll={handleSelectAllMiners}
+              selectAllOnPage={selectAllOnPage}
               onSelectNone={handleSelectNoneMiners}
               filtersActive={hasActiveFilters}
               selectionMode={currentSelectionMode}
@@ -644,8 +653,7 @@ const ScopedMinerListBody = ({
         applyColumnWidthsToCells
         total={totalMiners}
         totalUnfiltered={totalUnfilteredMiners}
-        // Bulk miner actions exclude module rows from their selection count.
-        totalDisabled={inventoryMinerCount === undefined ? 0 : (totalMiners ?? 0) - inventoryMinerCount}
+        totalDisabled={0}
         itemName={
           inventoryItems
             ? { singular: "mining asset", plural: "mining assets" }
@@ -655,7 +663,7 @@ const ScopedMinerListBody = ({
         initialActiveFilters={initialActiveFilters}
         onSelectionModeChange={setSelectionMode}
         isRowDisabled={(item) => item.kind === "miner" && isRowDisabled(item.row)}
-        isRowSelectable={(item) => item.kind === "miner"}
+        isRowSelectable={() => true}
         columnsExemptFromDisabledStyling={
           new Set([minerCols.name, minerCols.status, minerCols.issues, minerCols.firmware])
         }
@@ -717,6 +725,7 @@ const ScopedMinerListBody = ({
         <ModuleHistoryDialog
           key={openModule.ref?.id.toString()}
           item={openModule}
+          onRefresh={onRefetchMiners}
           onDismiss={() => setOpenModule(undefined)}
         />
       ) : null}

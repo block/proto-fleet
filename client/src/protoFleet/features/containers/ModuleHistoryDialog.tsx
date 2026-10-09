@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import ModuleActionsMenu from "./ModuleActionsMenu";
 import { ModuleStatus } from "./ModuleStatus";
 import { fleetInventoryClient } from "@/protoFleet/api/clients";
 import type { InventoryItem, ModuleSample } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
@@ -8,12 +9,21 @@ import Button, { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
 import { usePoll } from "@/shared/hooks/usePoll";
 
-export function ModuleHistoryDialog({ item, onDismiss }: { item: InventoryItem; onDismiss: () => void }) {
+export function ModuleHistoryDialog({
+  item,
+  onDismiss,
+  onRefresh,
+}: {
+  item: InventoryItem;
+  onDismiss: () => void;
+  onRefresh?: () => void;
+}) {
   const [window] = useState(() => ({ end: new Date(), start: new Date(Date.now() - 60 * 60 * 1000) }));
   const [cursor, setCursor] = useState("");
+  const [revision, setRevision] = useState(0);
   const [result, setResult] = useState<{ samples: ModuleSample[]; next: string; error?: string }>();
   usePoll({
-    params: cursor,
+    params: `${cursor}:${revision}`,
     fetchData: async (signal) => {
       try {
         const response = await fleetInventoryClient.listModuleHistory(
@@ -43,6 +53,15 @@ export function ModuleHistoryDialog({ item, onDismiss }: { item: InventoryItem; 
       <div className="flex flex-wrap items-center gap-2">
         <span>{[item.facilityName, item.groupName].filter(Boolean).join(" / ")}</span>
         <ModuleStatus state={item.state} />
+        <ModuleActionsMenu
+          modules={[item]}
+          onRefresh={() => {
+            setCursor("");
+            setResult(undefined);
+            setRevision((value) => value + 1);
+            onRefresh?.();
+          }}
+        />
       </div>
       <p className="py-3 text-text-primary-70">Module telemetry · past hour</p>
       {result?.error ? (

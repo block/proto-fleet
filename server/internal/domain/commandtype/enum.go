@@ -34,6 +34,7 @@ const (
 	ApplyCurtailmentConfig
 	SetContainerControl
 	SetTankMining
+	SetModuleMining
 )
 
 func (t *Type) String() string {
@@ -64,6 +65,8 @@ func (t *Type) String() string {
 		return "Curtail"
 	case Uncurtail:
 		return "Uncurtail"
+	case SetModuleMining:
+		return "SetModuleMining"
 	case SetTankMining:
 		return "SetTankMining"
 	case SetContainerControl:
@@ -104,6 +107,8 @@ func FromString(s string) (Type, error) {
 		return Curtail, nil
 	case "Uncurtail":
 		return Uncurtail, nil
+	case "SetModuleMining":
+		return SetModuleMining, nil
 	case "SetTankMining":
 		return SetTankMining, nil
 	case "SetContainerControl":

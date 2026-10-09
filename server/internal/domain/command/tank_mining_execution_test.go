@@ -44,7 +44,7 @@ func (c *executionTankController) SetTankMining(ctx context.Context, r sdk.TankM
 	return c.err
 }
 
-func setupTankMiningExecution(t *testing.T) (*ExecutionService, *sql.DB, int64, string, tankMiningPayload) {
+func setupTankMiningExecution(t *testing.T) (*ExecutionService, *sql.DB, int64, string, scopedMiningPayload) {
 	t.Helper()
 	svc, conn, _, deviceID, identifier := setupPasswordCommandDevice(t, "proto", false)
 	const orgID int64 = 1
@@ -55,7 +55,7 @@ func setupTankMiningExecution(t *testing.T) (*ExecutionService, *sql.DB, int64, 
 	require.NoError(t, err)
 	var tank int64
 	require.NoError(t, conn.QueryRowContext(t.Context(), `INSERT INTO container_tank(device_id,position,first_seen_at,last_seen_at) VALUES($1,1,now(),now()) RETURNING id`, deviceID).Scan(&tank))
-	payload := tankMiningPayload{TankMiningRequest: sdk.TankMiningRequest{Positions: []int32{1}, Mining: new(false)}, TankIDs: []int64{tank}, OrgID: orgID}
+	payload := scopedMiningPayload{TankMiningRequest: sdk.TankMiningRequest{Positions: []int32{1}, Mining: new(false)}, TankIDs: []int64{tank}, OrgID: orgID}
 	return svc, conn, deviceID, identifier, payload
 }
 

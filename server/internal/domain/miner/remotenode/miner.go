@@ -313,7 +313,9 @@ func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand)
 		return nil, devicewrite.NotDispatched(err)
 	}
 	version := gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
-	if mc.GetSetTankMining() != nil {
+	if mc.GetSetModuleMining() != nil {
+		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5
+	} else if mc.GetSetTankMining() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4
 	} else if mc.GetUpdateMiningPools() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3

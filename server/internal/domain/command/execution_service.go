@@ -914,7 +914,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 	case commandtype.Uncurtail:
 		err = devicewrite.Dispatch(ctx, func(ctx context.Context) error { return minerInfo.Uncurtail(ctx, sdk.UncurtailRequest{}) })
 	case commandtype.SetTankMining:
-		var payload tankMiningPayload
+		var payload scopedMiningPayload
 		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
 			return orgID, siteID, fleeterror.NewFailedPreconditionError("invalid tank mining payload")
 		}
@@ -924,6 +924,17 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		}
 		siteID = payload.SiteID
 		err = es.executeTankMining(ctx, message.DeviceID, orgID, payload, controller)
+	case commandtype.SetModuleMining:
+		var payload scopedMiningPayload
+		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("invalid module mining payload")
+		}
+		controller, ok := minerInfo.(sdk.DeviceModuleMiner)
+		if !ok {
+			return orgID, siteID, fleeterror.NewUnimplementedError("module mining unsupported")
+		}
+		siteID = payload.SiteID
+		err = es.executeModuleMining(ctx, message.DeviceID, orgID, payload, controller)
 	case commandtype.SetContainerControl:
 		var payload sdk.ContainerControlRequest
 		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {

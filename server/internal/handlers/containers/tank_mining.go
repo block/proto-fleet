@@ -10,7 +10,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
-func authorizeTankMining(ctx context.Context, site *int64, mining bool) error {
+func authorizeScopedMining(ctx context.Context, site *int64, mining bool) error {
 	action := authz.PermMinerStopMining
 	if mining {
 		action = authz.PermMinerStartMining
@@ -26,7 +26,7 @@ func (h *Handler) GetTankMiningOptions(ctx context.Context, req *connect.Request
 	if h.commands == nil {
 		return nil, fleeterror.NewUnimplementedError("tank commands unavailable")
 	}
-	result, err := h.commands.GetTankMiningOptions(ctx, req.Msg.TankIds, authorizeTankMining)
+	result, err := h.commands.GetTankMiningOptions(ctx, req.Msg.TankIds, authorizeScopedMining)
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +36,7 @@ func (h *Handler) SetTankMining(ctx context.Context, req *connect.Request[pb.Set
 	if h.commands == nil {
 		return nil, fleeterror.NewUnimplementedError("tank commands unavailable")
 	}
-	result, err := h.commands.SetTankMining(ctx, req.Msg.TankIds, req.Msg.Mining, authorizeTankMining)
+	result, err := h.commands.SetTankMining(ctx, req.Msg.TankIds, req.Msg.Mining, authorizeScopedMining)
 	if err != nil {
 		return nil, err
 	}
