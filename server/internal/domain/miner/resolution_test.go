@@ -11,7 +11,10 @@ import (
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/poolconfig"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
+	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 )
@@ -301,4 +304,38 @@ func TestGetDeviceWithCredentialsAndIP_ResolvesDeviceWithSoftDeletedDiscoveryRow
 	// Assert: still resolves; the soft-deleted linked discovery row does not drop it.
 	require.NoError(t, err)
 	assert.Equal(t, deviceID, row.ID)
+}
+
+func TestMinerService_PoolWritesUseFreshNodeKeyAndRejectChangedRoute(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	db, encryptService, filesService := setupTestDB(t)
+	identifier := "pool-write-fresh-key"
+	deviceID := createTestDevice(t, db, identifier)
+	nodeID := createTestFleetNode(t, db, "pool-write-node", []byte("pool-write-node-identity"))
+	_, err := db.Exec("INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id) VALUES ($1, $2, 1)", nodeID, deviceID)
+	require.NoError(t, err)
+	sender := &fakeCommandSender{}
+	svc := miner.NewMinerService(db, sqlstores.NewSQLUserStore(db), encryptService, filesService, &fakePluginManager{driverName: "antminer"}).WithCommandSender(sender)
+	m, err := svc.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(identifier))
+	require.NoError(t, err)
+	pools := dto.UpdateMiningPoolsPayload{DefaultPool: dto.MiningPool{Priority: 0, URL: "stratum+tcp://pool.example.com:3333", Username: "worker", Password: "exact-password"}}
+	for range 2 {
+		public, private, err := passwordupdate.GenerateKeypair()
+		require.NoError(t, err)
+		_, err = db.Exec("UPDATE fleet_node SET encryption_pubkey = $1 WHERE id = $2", public, nodeID)
+		require.NoError(t, err)
+		require.NoError(t, m.UpdateMiningPools(t.Context(), pools))
+		config, err := poolconfig.Decrypt(private, sentMinerCommand(t, sender).GetUpdateMiningPools().GetEncryptedConfig(), identifier)
+		require.NoError(t, err)
+		require.Len(t, config.GetPools(), 1)
+		assert.Equal(t, "exact-password", config.GetPools()[0].GetPassword())
+	}
+	otherNode := createTestFleetNode(t, db, "pool-write-new-node", []byte("pool-write-new-node-identity"))
+	_, err = db.Exec("UPDATE fleet_node_device SET fleet_node_id = $1 WHERE device_id = $2", otherNode, deviceID)
+	require.NoError(t, err)
+	sender.called = false
+	require.ErrorContains(t, m.UpdateMiningPools(t.Context(), pools), "node route changed")
+	assert.False(t, sender.called)
 }

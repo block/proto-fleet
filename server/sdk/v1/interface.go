@@ -340,6 +340,16 @@ type MiningPoolConfig struct {
 	Priority   int32
 	URL        string
 	WorkerName string
+	// Password is the credential to write, including an explicitly empty value.
+	Password string `json:"-"`
+}
+
+func (p MiningPoolConfig) String() string {
+	return fmt.Sprintf("MiningPoolConfig{Priority:%d URL:%q WorkerName:%q Password:[redacted]}", p.Priority, p.URL, p.WorkerName)
+}
+
+func (p MiningPoolConfig) GoString() string {
+	return p.String()
 }
 
 // ConfiguredPool represents a pool currently configured on a device
