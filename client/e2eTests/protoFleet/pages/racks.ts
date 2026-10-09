@@ -376,7 +376,9 @@ export class RacksPage extends BasePage {
   }
 
   async validateMinerPositionsToast(label: string) {
-    await this.validateTextInToast(`Miner positions saved for "${label}"`);
+    await expect(
+      this.page.getByTestId("toast").filter({ hasText: `Miner positions saved for "${label}"` }),
+    ).toBeVisible({ timeout: DEFAULT_TIMEOUT });
   }
 
   async validateRackCardVisible(label: string, zone: string) {
