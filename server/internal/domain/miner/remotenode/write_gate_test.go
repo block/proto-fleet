@@ -204,7 +204,7 @@ func TestPhysicalWriteKindCoversEveryProtocolAction(t *testing.T) {
 	}
 	actions := (&gatewaypb.MinerCommand{}).ProtoReflect().Descriptor().Oneofs().ByName("action").Fields()
 	require.Equal(t, len(readAndIndicator)+len(mutationKinds), actions.Len(), "classify new protocol actions explicitly")
-	for i := 0; i < actions.Len(); i++ {
+	for i := range actions.Len() {
 		field := actions.Get(i)
 		t.Run(string(field.Name()), func(t *testing.T) {
 			command := &gatewaypb.MinerCommand{}
