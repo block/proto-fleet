@@ -46,14 +46,16 @@ INSERT INTO queue_message (
     device_id,
     status,
     retry_count,
-    payload
+    payload,
+    write_epoch
 ) VALUES (
      $1,
      $2,
      $3,
      $4,
      $5,
-     $6
+     $6,
+     COALESCE((SELECT epoch FROM device_write_fence WHERE device_id=$3),0)
 )
 `
 
@@ -85,7 +87,8 @@ INSERT INTO queue_message (
     device_id,
     status,
     retry_count,
-    payload
+    payload,
+    write_epoch
 )
 SELECT
     $1,
@@ -93,9 +96,11 @@ SELECT
     devices.device_id,
     'PENDING'::queue_status_enum,
     0,
-    payloads.payload::JSONB
+    payloads.payload::JSONB,
+    epochs.write_epoch
 FROM unnest($3::BIGINT[]) WITH ORDINALITY AS devices(device_id, ord)
 JOIN unnest($4::TEXT[]) WITH ORDINALITY AS payloads(payload, ord) USING (ord)
+JOIN unnest($5::BIGINT[]) WITH ORDINALITY AS epochs(write_epoch, ord) USING (ord)
 `
 
 type CreateQueueMessagesParams struct {
@@ -103,6 +108,7 @@ type CreateQueueMessagesParams struct {
 	CommandType         string
 	DeviceIds           []int64
 	Payloads            []string
+	WriteEpochs         []int64
 }
 
 func (q *Queries) CreateQueueMessages(ctx context.Context, arg CreateQueueMessagesParams) error {
@@ -111,6 +117,7 @@ func (q *Queries) CreateQueueMessages(ctx context.Context, arg CreateQueueMessag
 		arg.CommandType,
 		pq.Array(arg.DeviceIds),
 		pq.Array(arg.Payloads),
+		pq.Array(arg.WriteEpochs),
 	)
 	return err
 }
@@ -155,7 +162,7 @@ func (q *Queries) FinishTerminalCommandBatches(ctx context.Context, finishLimit 
 const getMessagesToProcess = `-- name: GetMessagesToProcess :many
 SELECT m.id, m.command_batch_log_uuid, m.device_id, m.command_type, m.status,
        m.retry_count, m.error_info, m.payload, m.created_at, m.updated_at,
-       d.org_id
+       d.org_id, m.write_epoch
 FROM queue_message m
 JOIN device d ON m.device_id = d.id
 WHERE m.status = 'PENDING'
@@ -165,9 +172,9 @@ WHERE m.status = 'PENDING'
     FROM queue_message earlier
     WHERE earlier.device_id = m.device_id
       AND (earlier.status = 'PENDING' OR earlier.status = 'PROCESSING')
-      AND earlier.created_at < m.created_at
+      AND (earlier.created_at,earlier.id) < (m.created_at,m.id)
 )
-ORDER BY m.created_at
+ORDER BY m.created_at,m.id
 LIMIT $2
 `
 
@@ -188,6 +195,7 @@ type GetMessagesToProcessRow struct {
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 	OrgID               int64
+	WriteEpoch          int64
 }
 
 func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToProcessParams) ([]GetMessagesToProcessRow, error) {
@@ -211,6 +219,7 @@ func (q *Queries) GetMessagesToProcess(ctx context.Context, arg GetMessagesToPro
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.OrgID,
+			&i.WriteEpoch,
 		); err != nil {
 			return nil, err
 		}

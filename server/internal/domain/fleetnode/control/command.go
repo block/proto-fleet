@@ -43,15 +43,15 @@ func (r *Registry) SendCommandWithArtifactResults(ctx context.Context, fleetNode
 	outgoing, connDone, err := r.addCmd(fleetNodeID, minimumCommandProtocolVersion, c)
 	if err != nil {
 		if errors.Is(err, errDuplicateCommandID) {
-			return nil, nil, fleeterror.NewInternalError(err.Error())
+			err = fleeterror.NewInternalError(err.Error())
 		}
-		return nil, nil, err
+		return nil, nil, commandNotEnqueued(err)
 	}
 	// Always free the slot: on ack, disconnect, or ctx expiry.
 	defer r.removeCmd(fleetNodeID, c)
 
 	if err := r.enqueue(ctx, outgoing, connDone, cmd); err != nil {
-		return nil, nil, err
+		return nil, nil, commandNotEnqueued(err)
 	}
 
 	select {

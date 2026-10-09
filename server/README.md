@@ -344,3 +344,13 @@ devices:
 | `last_seen_ago` | Duration since last occurrence | `5m`, `1h` |
 | `closed` | Mark error as resolved | `true` |
 | `vendor_attributes` | Custom key-value metadata | `psu_temp_c: "87"` |
+
+### Batch ownership admission
+
+A selected command batch is rejected in full if any selected miner is unavailable
+or fenced by configuration ownership. The caller receives `FailedPrecondition`
+with the blocked device ID; no part of that selected batch is enqueued and no
+successful dispatch count is returned. This admission rule also applies to
+per-device payloads. Filters may still report their existing skipped-device
+results before queue admission. See the [migration maintenance procedure](../docs/development/migrations.md#hosted-write-fence-upgrade)
+for the write-fence upgrade.

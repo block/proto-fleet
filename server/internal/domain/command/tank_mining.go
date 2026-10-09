@@ -15,6 +15,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -319,7 +320,9 @@ func (es *ExecutionService) executeTankMining(ctx context.Context, deviceID, org
 			}
 		}
 		dispatchStarted = true
-		if err := controller.SetTankMining(ctx, payload.TankMiningRequest); err != nil {
+		if err := devicewrite.Dispatch(ctx, func(ctx context.Context) error {
+			return controller.SetTankMining(ctx, payload.TankMiningRequest)
+		}); err != nil {
 			if errors.Is(err, control.ErrCommandProtocolUpgradeRequired) {
 				return fleeterror.NewFailedPreconditionError(tankMiningProtocolUpgradeMessage)
 			}

@@ -22,6 +22,7 @@ import (
 	curtailmentpb "github.com/block/proto-fleet/server/generated/grpc/curtailment/v1"
 	errorspb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/commandresult"
@@ -202,7 +203,7 @@ func (m *Miner) Uncurtail(ctx context.Context, _ sdk.UncurtailRequest) error {
 // FleetNode. Plaintext is never accepted on the node transport.
 func (m *Miner) ApplyCurtailmentConfig(ctx context.Context, payload dto.ApplyCurtailmentConfigPayload) error {
 	if payload.EncryptedConfig == nil {
-		return fleeterror.NewFailedPreconditionError("encrypted curtailment config is required for fleet-node miner")
+		return devicewrite.NotDispatched(fleeterror.NewFailedPreconditionError("encrypted curtailment config is required for fleet-node miner"))
 	}
 	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_ApplyCurtailmentConfig{
 		ApplyCurtailmentConfig: &gatewaypb.ApplyCurtailmentConfigAction{
@@ -291,10 +292,11 @@ func acquireFleetNodeGate(ctx context.Context, gate Gate, fleetNodeID int64, slo
 	// the DB command queue holds the backlog while this worker waits for a slot.
 	release, err := gate.Acquire(ctx, fleetNodeID)
 	if err != nil {
-		return nil, fleeterror.NewPlainError(
+		// Admission failed before any command was submitted to the node.
+		return nil, devicewrite.NotDispatched(fleeterror.NewPlainError(
 			fmt.Sprintf("timed out waiting for a %s slot: %v", slotName, err),
 			connect.CodeResourceExhausted,
-		)
+		))
 	}
 	return release, nil
 }
@@ -302,7 +304,7 @@ func acquireFleetNodeGate(ctx context.Context, gate Gate, fleetNodeID int64, slo
 func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand) (*gatewaypb.ControlAck, error) {
 	cmd, err := m.controlCommandForMiner(id.GenerateID(), mc)
 	if err != nil {
-		return nil, err
+		return nil, devicewrite.NotDispatched(err)
 	}
 	version := gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
 	if mc.GetSetTankMining() != nil {
@@ -322,11 +324,11 @@ func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand)
 func (m *Miner) sendWithoutGateWithArtifactResults(ctx context.Context, mc *gatewaypb.MinerCommand, artifacts []control.ArtifactExpectation) (*gatewaypb.ControlAck, []*gatewaypb.CommandArtifactRef, error) {
 	sender, ok := m.sender.(ArtifactCommandSender)
 	if !ok {
-		return nil, nil, fleeterror.NewInternalError("fleet node command sender does not support artifact results")
+		return nil, nil, devicewrite.NotDispatched(fleeterror.NewInternalError("fleet node command sender does not support artifact results"))
 	}
 	cmd, err := m.controlCommandForMiner(id.GenerateID(), mc)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, devicewrite.NotDispatched(err)
 	}
 	ack, refs, err := sender.SendCommandWithArtifactResults(ctx, m.fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, artifacts)
 	if err != nil {
@@ -353,10 +355,14 @@ func (m *Miner) controlCommandForMiner(commandID string, mc *gatewaypb.MinerComm
 }
 
 func mapSendCommandError(err error) error {
+	notEnqueued := control.IsCommandNotEnqueued(err)
 	if errors.Is(err, control.ErrNoActiveStream) {
 		// Retryable, not permanent (Unavailable is not in the queue's permanent-fail
 		// set), so a node mid-reconnect re-attempts rather than dropping the command.
-		return fleeterror.NewUnavailableErrorf("fleet node has no active control stream; retry shortly")
+		err = fleeterror.NewUnavailableErrorf("fleet node has no active control stream; retry shortly")
+	}
+	if notEnqueued {
+		return devicewrite.NotDispatched(err)
 	}
 	return err
 }
@@ -405,10 +411,15 @@ func ackToError(ack *gatewaypb.ControlAck) error {
 	if code == gatewaypb.AckCode_ACK_CODE_BUSY {
 		// Retryable, not permanent: ResourceExhausted stays out of the permanent-fail
 		// set, so a momentarily-saturated node re-attempts rather than dropping the batch.
-		return fleeterror.NewPlainError(
+		err := fleeterror.NewPlainError(
 			fmt.Sprintf("fleet node busy; retry shortly: %s", reason),
 			connect.CodeResourceExhausted,
 		)
+		if !ack.GetSucceeded() {
+			// The node rejects BUSY commands before device dispatch.
+			return devicewrite.NotDispatched(err)
+		}
+		return err
 	}
 	return fleeterror.NewInternalErrorf("fleet node reported command failure: %s", reason)
 }
@@ -416,10 +427,10 @@ func ackToError(ack *gatewaypb.ControlAck) error {
 func (m *Miner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningPoolsPayload) error {
 	pools, err := miningPoolConfigsFromPayload(payload)
 	if err != nil {
-		return err
+		return devicewrite.NotDispatched(err)
 	}
 	if m.encryptionPublicKey == nil {
-		return fleeterror.NewFailedPreconditionError("fleet node pool config encryption key is unavailable")
+		return devicewrite.NotDispatched(fleeterror.NewFailedPreconditionError("fleet node pool config encryption key is unavailable"))
 	}
 	command := &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_UpdateMiningPools{UpdateMiningPools: &gatewaypb.UpdateMiningPoolsAction{}}}
 	release, err := m.acquireGate(ctx, command)
@@ -429,11 +440,11 @@ func (m *Miner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningP
 	defer release()
 	key, err := m.encryptionPublicKey(ctx)
 	if err != nil {
-		return err
+		return devicewrite.NotDispatched(err)
 	}
 	encrypted, err := poolconfig.Encrypt(key, m.desc.GetDeviceIdentifier(), &gatewaypb.MiningPoolWriteConfiguration{Pools: pools})
 	if err != nil {
-		return fleeterror.NewInvalidArgumentErrorf("seal fleet node pool config: %v", err)
+		return devicewrite.NotDispatched(fleeterror.NewInvalidArgumentErrorf("seal fleet node pool config: %v", err))
 	}
 	command.GetUpdateMiningPools().EncryptedConfig = encrypted
 	ack, err := m.sendWithoutGate(ctx, command)
@@ -450,7 +461,7 @@ func (m *Miner) UpdateMinerPassword(ctx context.Context, payload dto.UpdateMiner
 
 func (m *Miner) UpdateMinerPasswordWithCredentials(ctx context.Context, payload dto.UpdateMinerPasswordPayload) (*gatewaypb.EncryptedCredentials, error) {
 	if payload.EncryptedPasswordUpdate == nil {
-		return nil, fleeterror.NewFailedPreconditionError("encrypted password update payload is required for fleet-node miner")
+		return nil, devicewrite.NotDispatched(fleeterror.NewFailedPreconditionError("encrypted password update payload is required for fleet-node miner"))
 	}
 	ack, err := m.send(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_UpdateMinerPassword{
 		UpdateMinerPassword: &gatewaypb.UpdateMinerPasswordAction{
@@ -570,16 +581,16 @@ func logDownloadRejectedError(ack *gatewaypb.ControlAck) error {
 
 func (m *Miner) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) error {
 	if firmware.ID == "" {
-		return fleeterror.NewInternalError("firmware file ID is required for fleet-node firmware update")
+		return devicewrite.NotDispatched(fleeterror.NewInternalError("firmware file ID is required for fleet-node firmware update"))
 	}
 	if firmware.Filename == "" {
-		return fleeterror.NewInternalError("firmware filename is required for fleet-node firmware update")
+		return devicewrite.NotDispatched(fleeterror.NewInternalError("firmware filename is required for fleet-node firmware update"))
 	}
 	if firmware.Size <= 0 {
-		return fleeterror.NewInternalError("firmware size is required for fleet-node firmware update")
+		return devicewrite.NotDispatched(fleeterror.NewInternalError("firmware size is required for fleet-node firmware update"))
 	}
 	if firmware.SHA256 == "" {
-		return fleeterror.NewInternalError("firmware sha256 is required for fleet-node firmware update")
+		return devicewrite.NotDispatched(fleeterror.NewInternalError("firmware sha256 is required for fleet-node firmware update"))
 	}
 	ref := &gatewaypb.CommandArtifactRef{
 		ArtifactId: firmware.ID,

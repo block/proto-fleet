@@ -1,0 +1,1 @@
+DROP INDEX idx_queue_message_pending_created_id;
