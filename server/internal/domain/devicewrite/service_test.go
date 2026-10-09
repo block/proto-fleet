@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/sqlc-dev/pqtype"
 	"github.com/stretchr/testify/require"
 

@@ -1086,7 +1086,7 @@ func (es *ExecutionService) preflightWorkerNameReapply(
 			if err := readCtx.Err(); err != nil {
 				return fmt.Errorf("worker-name preflight canceled: %w", err)
 			}
-			minerInfo, err := es.minerService.GetMiner(readCtx, deviceIDs[identifier])
+			minerInfo, err := es.minerService.GetMinerForCommand(readCtx, deviceIDs[identifier])
 			if err != nil {
 				return err
 			}
