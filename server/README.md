@@ -57,47 +57,29 @@ until cleanup succeeds.
 
 ## Fleet Node bootstrap rate limits
 
-Fleet limits `Register` to 120 requests per source IP per minute and
-`BeginAuthHandshake` plus `CompleteAuthHandshake` to a shared 600 requests per
-source IP per minute. These budgets allow 100 Nodes to enroll and authenticate
-together behind one public IP. Successful and failed attempts both count.
-Heartbeat, control streams, discovery reports, and artifact transfers do not
-count toward these limits.
+| RPC | Requests per source IP per minute |
+| --- | ---: |
+| `Register` | 120 |
+| `BeginAuthHandshake` + `CompleteAuthHandshake` | 600 combined |
 
-The Connect request gate runs before message decoding, interceptors, or database
-work. Rejections return `ResourceExhausted` with `Retry-After` in seconds. The
-Node daemon retains its credentials and retries a throttled refresh on its next
-heartbeat tick. It also retries a plain HTTP 429 from AWS WAF.
+The budgets allow 100 Nodes to enroll and authenticate behind one public IP.
+Successful and failed attempts count. Heartbeats, control streams, discovery
+reports, and artifact transfers are excluded.
 
-Counters use fixed 60-second windows starting with each IP's first request. They
-are local to the Fleet process and reset on restart or HA failover. Each budget
-stores at most 10,000 IPs. When full, Fleet removes expired entries and rejects
-new IPs until space becomes available. Live entries are never evicted to reset
-quotas. Requests with no resolved client IP share one counter per budget.
-Fleet logs at most one throttle event per budget per minute, without IPs or
-credentials.
+Fleet rejects excess requests before decoding or database work with
+`ResourceExhausted` and `Retry-After` in seconds. The Node daemon keeps its
+credentials and retries on its next heartbeat tick, including after WAF HTTP 429.
 
-Configure `HTTP_TRUSTED_PROXY_CIDRS` with only the actual ingress proxies, such
-as loopback nginx and the ALB subnet CIDRs. The middleware follows the trusted
-proxy chain to find the source IP. It ignores caller-supplied forwarding headers
-from untrusted peers. With incorrect proxy configuration, unrelated clients may
-share a proxy's quota. AWS WAF adds separate, approximate limits at the network
-edge. See the infrastructure repository's `fleet-ha/SECURITY.md` for WAF
-configuration and monitoring.
+Each budget uses fixed 60-second windows from an IP's first request and holds
+at most 10,000 IPs. At capacity, only expired entries are removed; new IPs are
+rejected until space is available. Counters reset on restart or HA failover.
+Unresolved IPs share a counter. Fleet logs at most one throttle event per budget per minute, without
+IPs or credentials.
 
-### Security limitations
-
-Rate limits do not address these limitations:
-
-- Bootstrap messages have no size cap before decoding. Validation happens after
-  decoding, so one large or compressed request that passes the rate limit can
-  consume resources.
-- All handshake completions share a mutex across database work. A slow admitted
-  request can delay unrelated Nodes. Any replacement must preserve the order of
-  persisted session rotation and control-stream fencing.
-- Sessions are 24-hour bearer tokens. A stolen token can be replayed until
-  expiration, rotation, or revocation. Per-request identity binding or mTLS would
-  require a separate design.
+Set `HTTP_TRUSTED_PROXY_CIDRS` to the actual ingress proxies, such as loopback
+nginx and ALB subnet CIDRs. Headers from untrusted peers are ignored; incorrect
+proxy settings can make unrelated clients share a quota. See the infrastructure
+repository's `fleet-ha/SECURITY.md` for WAF configuration and monitoring.
 
 ## Worker-name pool updates
 
