@@ -299,10 +299,13 @@ func queuedFenceFixture(t *testing.T) (*testutil.DatabaseService, int64, int64, 
 func TestQueuedAttemptRejectsChangedPersistedMessageIdentity(t *testing.T) {
 	for _, field := range []string{"device", "organization", "command", "batch", "epoch"} {
 		t.Run(field, func(t *testing.T) {
-			database, _, _, message, _ := queuedFenceFixture(t)
+			database, orgID, deviceID, message, _ := queuedFenceFixture(t)
+			q := sqlc.New(database.DB)
 			switch field {
 			case "device":
-				message.DeviceID++
+				other := database.CreateDevice(orgID, "proto")
+				require.NoError(t, q.EnsureDeviceWriteFences(t.Context(), []int64{other.DatabaseID}))
+				message.DeviceID = other.DatabaseID
 			case "organization":
 				message.OrgID++
 			case "command":
@@ -310,7 +313,24 @@ func TestQueuedAttemptRejectsChangedPersistedMessageIdentity(t *testing.T) {
 			case "batch":
 				message.BatchLogUUID = id.GenerateID()
 			case "epoch":
-				message.WriteEpoch++
+				service := devicewrite.NewService(database.DB)
+				epoch, err := service.Reserve(t.Context(), orgID, deviceID)
+				require.NoError(t, err)
+				require.NoError(t, service.ReleaseHost(t.Context(), orgID, deviceID, epoch))
+				message.WriteEpoch = epoch
+			}
+			if field == "device" || field == "epoch" {
+				fence, err := q.LockDeviceWriteFenceRecord(t.Context(), sqlc.LockDeviceWriteFenceRecordParams{DeviceID: message.DeviceID, OrganizationID: message.OrgID})
+				require.NoError(t, err)
+				require.Equal(t, "host", fence.State)
+				require.Equal(t, message.WriteEpoch, fence.Epoch, "the changed message must pass the ownership guards")
+				persisted, err := q.LockQueuedDeviceWrite(t.Context(), message.ID)
+				require.NoError(t, err, "the original processing queue row must still be claimable")
+				if field == "device" {
+					require.NotEqual(t, persisted.DeviceID, message.DeviceID)
+				} else {
+					require.NotEqual(t, persisted.WriteEpoch, message.WriteEpoch)
+				}
 			}
 			_, err := devicewrite.NewService(database.DB).BeginQueuedHost(t.Context(), message)
 			require.Error(t, err)
