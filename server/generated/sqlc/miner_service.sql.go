@@ -234,8 +234,6 @@ SELECT
     dd.url_scheme,
     dd.rpc_port,
     dd.rpc_tls,
-    dd.rpc_port,
-    dd.rpc_tls,
     dd.driver_name,
     mc.username_enc,
     mc.password_enc
@@ -279,8 +277,6 @@ type GetDirectProtoMinerProxyTargetRow struct {
 	UrlScheme        string
 	RpcPort          int32
 	RpcTls           bool
-	RpcPort_2        int32
-	RpcTls_2         bool
 	DriverName       string
 	UsernameEnc      sql.NullString
 	PasswordEnc      sql.NullString
@@ -301,8 +297,6 @@ func (q *Queries) GetDirectProtoMinerProxyTarget(ctx context.Context, arg GetDir
 		&i.UrlScheme,
 		&i.RpcPort,
 		&i.RpcTls,
-		&i.RpcPort_2,
-		&i.RpcTls_2,
 		&i.DriverName,
 		&i.UsernameEnc,
 		&i.PasswordEnc,

@@ -34,7 +34,7 @@ func waitForBindingWriter(t *testing.T, conn *sql.DB, pid int) {
 }
 
 func TestDirectDispatchSerializesBindingWritersThroughCanceledCall(t *testing.T) {
-	for _, change := range []string{"endpoint", "credentials", "pairing", "delete", "node insertion"} {
+	for _, change := range []string{"endpoint", "RPC port", "RPC TLS", "credentials", "pairing", "delete", "node insertion"} {
 		t.Run(change, func(t *testing.T) {
 			conn, crypto, files := setupTestDB(t)
 			identifier := models.DeviceIdentifier("binding-lock-" + change)
@@ -73,6 +73,10 @@ func TestDirectDispatchSerializesBindingWritersThroughCanceledCall(t *testing.T)
 				switch change {
 				case "endpoint":
 					err = q.UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{ID: deviceID, IpAddress: "192.0.2.55", Port: "4028", UrlScheme: "http"})
+				case "RPC port":
+					_, err = writer.ExecContext(t.Context(), "UPDATE discovered_device SET rpc_port=7443 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)", deviceID)
+				case "RPC TLS":
+					_, err = writer.ExecContext(t.Context(), "UPDATE discovered_device SET rpc_tls=true WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)", deviceID)
 				case "credentials":
 					err = q.UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{DeviceID: deviceID, UsernameEnc: "replacement", PasswordEnc: "replacement"})
 				case "pairing":
@@ -111,7 +115,7 @@ func (s *bindingBlockingSender) SendCommand(context.Context, int64, gatewaypb.Co
 }
 
 func TestRemoteDispatchSerializesExistingRouteAndNodeWriters(t *testing.T) {
-	for _, change := range []string{"route deletion", "node retirement", "endpoint", "credentials"} {
+	for _, change := range []string{"route deletion", "node retirement", "endpoint", "RPC port", "RPC TLS", "credentials"} {
 		t.Run(change, func(t *testing.T) {
 			conn, crypto, files := setupTestDB(t)
 			identifier := models.DeviceIdentifier("remote-binding-lock-" + change)
@@ -147,6 +151,10 @@ func TestRemoteDispatchSerializesExistingRouteAndNodeWriters(t *testing.T) {
 					_, err = writer.ExecContext(t.Context(), "UPDATE fleet_node SET deleted_at=statement_timestamp() WHERE id=$1", nodeID)
 				case "endpoint":
 					err = sqlc.New(writer).UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{ID: deviceID, IpAddress: "192.0.2.65", Port: "4028", UrlScheme: "http"})
+				case "RPC port":
+					_, err = writer.ExecContext(t.Context(), "UPDATE discovered_device SET rpc_port=7443 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)", deviceID)
+				case "RPC TLS":
+					_, err = writer.ExecContext(t.Context(), "UPDATE discovered_device SET rpc_tls=true WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)", deviceID)
 				case "credentials":
 					err = sqlc.New(writer).UpsertMinerCredentials(t.Context(), sqlc.UpsertMinerCredentialsParams{DeviceID: deviceID, UsernameEnc: "replacement", PasswordEnc: "replacement"})
 				}

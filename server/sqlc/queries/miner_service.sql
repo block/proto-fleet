@@ -91,8 +91,6 @@ SELECT
     dd.url_scheme,
     dd.rpc_port,
     dd.rpc_tls,
-    dd.rpc_port,
-    dd.rpc_tls,
     dd.driver_name,
     mc.username_enc,
     mc.password_enc
