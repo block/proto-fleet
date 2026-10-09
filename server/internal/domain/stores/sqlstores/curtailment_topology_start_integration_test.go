@@ -101,6 +101,14 @@ func TestSQLCurtailmentStore_FrozenTopologyStartPersistsEnvelopeAndRejectsMember
 	user := testContext.DatabaseService.CreateSuperAdminUser()
 	ctx := t.Context()
 	database := testContext.DatabaseService.DB
+	// Retention jobs can queue a table lock between the outer fence and its
+	// command insert, leaving both transactions waiting on each other.
+	_, err := database.ExecContext(ctx, `
+		SELECT alter_job(job_id, scheduled => false)
+		FROM timescaledb_information.jobs
+		WHERE proc_name = 'policy_retention'
+	`)
+	require.NoError(t, err)
 	store := sqlstores.NewSQLCurtailmentStore(database)
 	buildingStore := sqlstores.NewSQLBuildingStore(database)
 	orgID := user.OrganizationID
