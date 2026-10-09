@@ -960,6 +960,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getMinerCredentialsByDeviceIDStmt, err = db.PrepareContext(ctx, getMinerCredentialsByDeviceID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerCredentialsByDeviceID: %w", err)
 	}
+	if q.getMinerFirmwareHistoryDeviceIDStmt, err = db.PrepareContext(ctx, getMinerFirmwareHistoryDeviceID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMinerFirmwareHistoryDeviceID: %w", err)
+	}
 	if q.getMinerModelGroupsStmt, err = db.PrepareContext(ctx, getMinerModelGroups); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerModelGroups: %w", err)
 	}
@@ -1502,6 +1505,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listManagedFirmwareUpdateDevicesStmt, err = db.PrepareContext(ctx, listManagedFirmwareUpdateDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ListManagedFirmwareUpdateDevices: %w", err)
+	}
+	if q.listMinerFirmwareHistoryStmt, err = db.PrepareContext(ctx, listMinerFirmwareHistory); err != nil {
+		return nil, fmt.Errorf("error preparing query ListMinerFirmwareHistory: %w", err)
 	}
 	if q.listMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, listMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMinerStateSnapshots: %w", err)
@@ -3959,6 +3965,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getMinerCredentialsByDeviceIDStmt: %w", cerr)
 		}
 	}
+	if q.getMinerFirmwareHistoryDeviceIDStmt != nil {
+		if cerr := q.getMinerFirmwareHistoryDeviceIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMinerFirmwareHistoryDeviceIDStmt: %w", cerr)
+		}
+	}
 	if q.getMinerModelGroupsStmt != nil {
 		if cerr := q.getMinerModelGroupsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getMinerModelGroupsStmt: %w", cerr)
@@ -4862,6 +4873,11 @@ func (q *Queries) Close() error {
 	if q.listManagedFirmwareUpdateDevicesStmt != nil {
 		if cerr := q.listManagedFirmwareUpdateDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listManagedFirmwareUpdateDevicesStmt: %w", cerr)
+		}
+	}
+	if q.listMinerFirmwareHistoryStmt != nil {
+		if cerr := q.listMinerFirmwareHistoryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listMinerFirmwareHistoryStmt: %w", cerr)
 		}
 	}
 	if q.listMinerStateSnapshotsStmt != nil {
@@ -6700,6 +6716,7 @@ type Queries struct {
 	getMaxPriorityStmt                                           *sql.Stmt
 	getMessagesToProcessStmt                                     *sql.Stmt
 	getMinerCredentialsByDeviceIDStmt                            *sql.Stmt
+	getMinerFirmwareHistoryDeviceIDStmt                          *sql.Stmt
 	getMinerModelGroupsStmt                                      *sql.Stmt
 	getMinerStateCountsByDeviceIDsStmt                           *sql.Stmt
 	getMinerStateSnapshotDeviceRollups1mStmt                     *sql.Stmt
@@ -6881,6 +6898,7 @@ type Queries struct {
 	listMQTTSourcesWithActiveCurtailmentStmt                     *sql.Stmt
 	listMaintenanceAssigneesStmt                                 *sql.Stmt
 	listManagedFirmwareUpdateDevicesStmt                         *sql.Stmt
+	listMinerFirmwareHistoryStmt                                 *sql.Stmt
 	listMinerStateSnapshotsStmt                                  *sql.Stmt
 	listNonTerminalCurtailmentEventsStmt                         *sql.Stmt
 	listNotificationHistoryStmt                                  *sql.Stmt
@@ -7496,6 +7514,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getMaxPriorityStmt:                                           q.getMaxPriorityStmt,
 		getMessagesToProcessStmt:                                     q.getMessagesToProcessStmt,
 		getMinerCredentialsByDeviceIDStmt:                            q.getMinerCredentialsByDeviceIDStmt,
+		getMinerFirmwareHistoryDeviceIDStmt:                          q.getMinerFirmwareHistoryDeviceIDStmt,
 		getMinerModelGroupsStmt:                                      q.getMinerModelGroupsStmt,
 		getMinerStateCountsByDeviceIDsStmt:                           q.getMinerStateCountsByDeviceIDsStmt,
 		getMinerStateSnapshotDeviceRollups1mStmt:                     q.getMinerStateSnapshotDeviceRollups1mStmt,
@@ -7677,6 +7696,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listMQTTSourcesWithActiveCurtailmentStmt:                     q.listMQTTSourcesWithActiveCurtailmentStmt,
 		listMaintenanceAssigneesStmt:                                 q.listMaintenanceAssigneesStmt,
 		listManagedFirmwareUpdateDevicesStmt:                         q.listManagedFirmwareUpdateDevicesStmt,
+		listMinerFirmwareHistoryStmt:                                 q.listMinerFirmwareHistoryStmt,
 		listMinerStateSnapshotsStmt:                                  q.listMinerStateSnapshotsStmt,
 		listNonTerminalCurtailmentEventsStmt:                         q.listNonTerminalCurtailmentEventsStmt,
 		listNotificationHistoryStmt:                                  q.listNotificationHistoryStmt,

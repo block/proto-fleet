@@ -42,6 +42,7 @@ type RolloutService interface {
 	ListRollouts(ctx context.Context, orgID int64, filter rollout.RolloutFilter) ([]rollout.Rollout, string, string, error)
 	GetRollout(ctx context.Context, orgID, rolloutID int64) (*rollout.Rollout, error)
 	ListRolloutDevices(ctx context.Context, orgID, rolloutID int64, pageSize int32, cursor string) ([]rollout.RolloutDevice, string, error)
+	ListMinerFirmwareHistory(ctx context.Context, orgID int64, deviceIdentifier string, pageSize int32, cursor string) ([]rollout.MinerFirmwareHistoryEntry, string, error)
 	ListRolloutEvents(ctx context.Context, orgID int64, filter rollout.EventFilter) ([]rollout.Event, string, error)
 	ContinueRollout(ctx context.Context, orgID, rolloutID int64, m rollout.Mutation) (*rollout.Rollout, error)
 	PauseRollout(ctx context.Context, orgID, rolloutID int64, m rollout.Mutation) (*rollout.Rollout, error)
@@ -376,6 +377,22 @@ func (h *Handler) ListRolloutDevices(ctx context.Context, r *connect.Request[pb.
 	resp := &pb.ListRolloutDevicesResponse{Cursor: cursor}
 	for i := range devices {
 		resp.Devices = append(resp.Devices, deviceToProto(&devices[i]))
+	}
+	return connect.NewResponse(resp), nil
+}
+
+func (h *Handler) ListMinerFirmwareHistory(ctx context.Context, r *connect.Request[pb.ListMinerFirmwareHistoryRequest]) (*connect.Response[pb.ListMinerFirmwareHistoryResponse], error) {
+	info, err := authorize(ctx)
+	if err != nil {
+		return nil, err
+	}
+	entries, cursor, err := h.svc.ListMinerFirmwareHistory(ctx, info.OrganizationID, r.Msg.DeviceIdentifier, r.Msg.PageSize, r.Msg.Cursor)
+	if err != nil {
+		return nil, err
+	}
+	resp := &pb.ListMinerFirmwareHistoryResponse{Cursor: cursor}
+	for i := range entries {
+		resp.Entries = append(resp.Entries, minerFirmwareHistoryToProto(&entries[i]))
 	}
 	return connect.NewResponse(resp), nil
 }

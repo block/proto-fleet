@@ -71,6 +71,13 @@ export const phaseLabels: Record<RolloutDevicePhase, string> = {
   [RolloutDevicePhase.SKIPPED]: "Skipped",
 };
 
+// Finished history retains these phases; once the rollout is canceled the
+// miner is no longer queued for dispatch or actively monitored.
+export const isUnfinishedPhase = (phase: RolloutDevicePhase): boolean =>
+  phase === RolloutDevicePhase.QUEUED ||
+  phase === RolloutDevicePhase.IN_PROGRESS ||
+  phase === RolloutDevicePhase.RETRYING;
+
 const cancelReasonLabels: Record<RolloutCancelReason, string> = {
   [RolloutCancelReason.UNSPECIFIED]: "Canceled",
   [RolloutCancelReason.SUPERSEDED]: "Superseded",

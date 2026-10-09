@@ -6,6 +6,7 @@ import {
   evidenceScopeLabel,
   failedDevices,
   isActive,
+  isUnfinishedPhase,
   metricDisplay,
   type MetricKind,
   minerLabel,
@@ -76,11 +77,7 @@ function MinerCell({ row, model }: { row: MinerRow; model: string }): ReactEleme
 // inline spinner while in flight, and the design's phase wording.
 function PhaseCell({ device, rollout }: { device: RolloutDevice; rollout: Rollout }): ReactElement {
   const targetVersion = rollout.firmwareVersion;
-  // Finished history retains unfinished phases; those rows are no longer
-  // queued for dispatch or actively monitored by this canceled rollout.
-  const canceled =
-    rollout.status === RolloutStatus.CANCELED &&
-    [RolloutDevicePhase.QUEUED, RolloutDevicePhase.IN_PROGRESS, RolloutDevicePhase.RETRYING].includes(device.phase);
+  const canceled = rollout.status === RolloutStatus.CANCELED && isUnfinishedPhase(device.phase);
   const dot = (status: keyof typeof statuses) => (
     <StatusCircle status={status} variant="simple" width="w-[6px]" testId="rollout-column-status" />
   );
