@@ -88,16 +88,24 @@ func (a *Attempt) Recheck(ctx context.Context) error {
 	return nil
 }
 
-// Finish retains unknown outcomes only after a device operation was invoked.
-// Setup failures have no physical outcome to resolve. A duplicate completion
-// cannot erase an unknown outcome or a process crash left running.
+// Accepted records command acknowledgement, not physical completion. Legacy
+// adapters return only an error, so a successful command needs this record even
+// when its adapter does not participate in Dispatch.
+func (a *Attempt) Accepted() {
+	a.dispatched.Store(true)
+}
+
+// Finish completes only admissions that never dispatched a mutation. An adapter
+// returning nil acknowledges its request; it does not prove device-side work has
+// ended. Keep dispatched attempts unresolved until audited recovery supplies
+// completion evidence. Duplicate completion cannot erase that evidence.
 func (a *Attempt) Finish(ctx context.Context, outcome error) error {
 	return db.WithTransactionTimeoutNoResult(ctx, a.service.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
 		if _, err := q.LockDeviceWriteFenceRecord(ctx, sqlc.LockDeviceWriteFenceRecordParams{DeviceID: a.deviceID, OrganizationID: a.organizationID}); err != nil {
 			return err
 		}
 		status := "complete"
-		if outcome != nil && a.dispatched.Load() {
+		if a.dispatched.Load() {
 			status = "unknown"
 		}
 		changed, err := q.FinishDeviceWriteAttempt(ctx, sqlc.FinishDeviceWriteAttemptParams{Status: status, AttemptID: a.id})
@@ -107,7 +115,9 @@ func (a *Attempt) Finish(ctx context.Context, outcome error) error {
 		if changed != 1 {
 			return blocked()
 		}
-		if status == "unknown" {
+		// An accepted command keeps ordinary host operation available. Only a
+		// failed physical call quarantines custody; both outcomes block transfer.
+		if status == "unknown" && outcome != nil {
 			return q.QuarantineDeviceWriteFence(ctx, sqlc.QuarantineDeviceWriteFenceParams{DeviceID: a.deviceID, OrganizationID: a.organizationID})
 		}
 		return nil

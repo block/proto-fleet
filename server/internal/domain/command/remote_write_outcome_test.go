@@ -93,7 +93,7 @@ func TestRemotePoolPreparationFailureDoesNotPoisonDrain(t *testing.T) {
 	}
 }
 
-func TestQueuedRemoteBusyRetryAllowsPhysicalDrain(t *testing.T) {
+func TestQueuedRemoteBusyRetryRetainsAcceptedPhysicalAttempt(t *testing.T) {
 	service, conn, _, deviceID, identifier := setupPasswordCommandDevice(t, "proto", false)
 	message, messages := enqueueFenceTestCommand(t, conn, deviceID, commandtype.StopMining, nil)
 	sender := &writeOutcomeSender{ack: &gatewaypb.ControlAck{Code: gatewaypb.AckCode_ACK_CODE_BUSY}}
@@ -117,20 +117,17 @@ func TestQueuedRemoteBusyRetryAllowsPhysicalDrain(t *testing.T) {
 	require.Equal(t, 2, sender.calls)
 	var unresolved int
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT count(*) FROM device_write_attempt WHERE queue_message_id = $1 AND status != 'complete'`, message.ID).Scan(&unresolved))
-	require.Zero(t, unresolved)
+	require.Equal(t, 1, unresolved, "successful acknowledgement is not physical completion")
 	var finishedAt sql.NullTime
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT finished_at FROM device_write_attempt WHERE queue_message_id = $1 ORDER BY created_at DESC LIMIT 1`, message.ID).Scan(&finishedAt))
 	require.True(t, finishedAt.Valid)
 	writes := devicewrite.NewService(conn)
 	epoch, err := writes.Reserve(t.Context(), 1, deviceID)
-	require.NoError(t, err)
-	drained, err := writes.Drained(t.Context(), 1, deviceID, epoch)
-	require.NoError(t, err)
-	require.True(t, drained, "rejected BUSY followed by successful retry must not strand ownership")
-	require.NoError(t, writes.ReleaseHost(t.Context(), 1, deviceID, epoch))
+	require.True(t, fleeterror.IsFailedPreconditionError(err), "accepted retry requires completion evidence before transfer")
+	require.Zero(t, epoch)
 }
 
-func TestQueuedRemoteMissingStreamRetryAllowsPhysicalDrain(t *testing.T) {
+func TestQueuedRemoteMissingStreamRetryRetainsAcceptedPhysicalAttempt(t *testing.T) {
 	service, conn, _, deviceID, identifier := setupPasswordCommandDevice(t, "proto", false)
 	message, messages := enqueueFenceTestCommand(t, conn, deviceID, commandtype.StopMining, nil)
 	registry := control.NewRegistry()
@@ -167,12 +164,9 @@ func TestQueuedRemoteMissingStreamRetryAllowsPhysicalDrain(t *testing.T) {
 	require.True(t, <-acknowledged, "the successful retry reached the real registry stream")
 	var unresolved int
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT count(*) FROM device_write_attempt WHERE queue_message_id = $1 AND status != 'complete'`, message.ID).Scan(&unresolved))
-	require.Zero(t, unresolved)
+	require.Equal(t, 1, unresolved, "successful acknowledgement is not physical completion")
 	writes := devicewrite.NewService(conn)
 	epoch, err := writes.Reserve(t.Context(), 1, deviceID)
-	require.NoError(t, err)
-	drained, err := writes.Drained(t.Context(), 1, deviceID, epoch)
-	require.NoError(t, err)
-	require.True(t, drained, "a proven pre-enqueue rejection cannot strand ownership after a successful retry")
-	require.NoError(t, writes.ReleaseHost(t.Context(), 1, deviceID, epoch))
+	require.True(t, fleeterror.IsFailedPreconditionError(err), "accepted retry requires completion evidence before transfer")
+	require.Zero(t, epoch)
 }

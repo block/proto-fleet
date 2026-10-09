@@ -1,5 +1,21 @@
 # Device-write recovery
 
+Dispatched device mutations retain their attempt records indefinitely unless
+physical completion is established. Current error-only SDK and Fleet Node
+results, including HTTP 200/202 and successful command acknowledgements, do not
+certify physical completion. Fleet records successful requests as command
+success while retaining the physical attempt as `unknown`. This conservatively
+applies to all mutations through the write fence, not just reboot: firmware,
+pool/configuration writes and mining control have the same evidence requirement.
+There is no automatic completion qualification in this release; use the audited
+recovery procedure below before a later ownership transfer.
+
+Acceptance alone does not quarantine host custody: ordinary host commands remain
+available, and accepted commands are not retried. A failed dispatched call still
+quarantines custody. Completing a later request, polling an install before its
+follow-on reboot, or rejecting a later call before dispatch cannot clear an
+earlier unresolved mutation.
+
 Uncertain device operations retain their attempt records indefinitely. Timeouts,
 queue reaping, disconnected transports, a new process starting, and successful
 configuration readback do not prove an earlier operation ended. Unknown attempts

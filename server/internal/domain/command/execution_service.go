@@ -614,6 +614,11 @@ func (es *ExecutionService) executeQueuedCommand(ctx context.Context, message qu
 		return message.OrgID, 0, err
 	}
 	orgID, siteID, resultErr = es.executeCommandOnDevice(attempt.Context(ctx), message.CommandType, message)
+	if resultErr == nil {
+		// Error-only adapters acknowledge a command without certifying that
+		// device-side work ended, including an accepted or follow-on reboot.
+		attempt.Accepted()
+	}
 	// A panic has no known physical outcome. Only complete the attempt after
 	// execution returns normally; stack unwinding must leave it running.
 	finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dbWriteTimeout)

@@ -417,20 +417,8 @@ func TestRemoteAdmissionFailureDoesNotStrandOwnership(t *testing.T) {
 				require.NoError(t, retry.Finish(t.Context(), nil))
 			}
 			epoch, err := service.Reserve(t.Context(), orgID, deviceID)
-			if priorWrite {
-				require.True(t, fleeterror.IsFailedPreconditionError(err))
-				require.Zero(t, epoch, "prior uncertain dispatch requires recovery before custody changes")
-				return
-			}
-			require.NoError(t, err)
-			drained, err := service.Drained(t.Context(), orgID, deviceID, epoch)
-			require.NoError(t, err)
-			require.Equal(t, !priorWrite, drained, "later admission rejection cannot erase a previous physical write")
-			if priorWrite {
-				require.Error(t, service.ReleaseHost(t.Context(), orgID, deviceID, epoch))
-			} else {
-				require.NoError(t, service.ReleaseHost(t.Context(), orgID, deviceID, epoch))
-			}
+			require.True(t, fleeterror.IsFailedPreconditionError(err))
+			require.Zero(t, epoch, "an accepted retry still lacks physical completion evidence")
 		})
 	}
 }

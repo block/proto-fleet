@@ -69,8 +69,8 @@ func TestQueuedDispatchCannotCrossOwnershipEpoch(t *testing.T) {
 	}
 	drained, err = fences.Drained(t.Context(), organizationID, deviceID, epoch)
 	require.NoError(t, err)
-	require.True(t, drained)
-	require.NoError(t, fences.ReleaseHost(t.Context(), organizationID, deviceID, epoch))
+	require.False(t, drained, "adapter acknowledgement does not certify physical completion")
+	require.Error(t, fences.ReleaseHost(t.Context(), organizationID, deviceID, epoch))
 	// No second miner resolution or firmware call is permitted for this old row.
 	_, _, err = service.executeQueuedCommand(t.Context(), rows[0])
 	require.Error(t, err)
