@@ -142,7 +142,11 @@ func TestTankMiningExecutionUsesAdmittedSiteWithCachedController(t *testing.T) {
 	messages, err := messageQueue.Dequeue(t.Context(), 1)
 	require.NoError(t, err)
 	require.Len(t, messages, 1)
-	orgID, siteID, err := es.executeCommandOnDevice(t.Context(), commandtype.SetTankMining, messages[0])
+	// Placement validation and the adapter gate must share the leased slot.
+	conn.SetMaxOpenConns(1)
+	dispatchCtx, cancelDispatch := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancelDispatch()
+	orgID, siteID, err := es.executeQueuedCommand(dispatchCtx, messages[0])
 	require.NoError(t, err, "the cached old site must not reject a command admitted at the new site")
 	require.Equal(t, oldPayload.OrgID, orgID)
 	require.Equal(t, site.ID, siteID)

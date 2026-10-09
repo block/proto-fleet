@@ -266,18 +266,22 @@ class NewDeviceRequest(_message.Message):
     def __init__(self, device_id: _Optional[str] = ..., info: _Optional[_Union[DeviceInfo, _Mapping]] = ..., secret: _Optional[_Union[SecretBundle, _Mapping]] = ..., reuse_scope_key: _Optional[str] = ...) -> None: ...
 
 class NewDeviceResponse(_message.Message):
-    __slots__ = ("device_id", "reuse_scope_key")
+    __slots__ = ("device_id", "reuse_scope_key", "backend_generation")
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
     REUSE_SCOPE_KEY_FIELD_NUMBER: _ClassVar[int]
+    BACKEND_GENERATION_FIELD_NUMBER: _ClassVar[int]
     device_id: str
     reuse_scope_key: str
-    def __init__(self, device_id: _Optional[str] = ..., reuse_scope_key: _Optional[str] = ...) -> None: ...
+    backend_generation: bytes
+    def __init__(self, device_id: _Optional[str] = ..., reuse_scope_key: _Optional[str] = ..., backend_generation: _Optional[bytes] = ...) -> None: ...
 
 class DeviceRef(_message.Message):
-    __slots__ = ("device_id",)
+    __slots__ = ("device_id", "backend_generation")
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    BACKEND_GENERATION_FIELD_NUMBER: _ClassVar[int]
     device_id: str
-    def __init__(self, device_id: _Optional[str] = ...) -> None: ...
+    backend_generation: bytes
+    def __init__(self, device_id: _Optional[str] = ..., backend_generation: _Optional[bytes] = ...) -> None: ...
 
 class MetricValue(_message.Message):
     __slots__ = ("value", "kind", "metadata")
@@ -456,10 +460,12 @@ class DeviceMetrics(_message.Message):
     def __init__(self, device_id: _Optional[str] = ..., timestamp: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., health: _Optional[_Union[HealthStatus, str]] = ..., health_reason: _Optional[str] = ..., hashrate_hs: _Optional[_Union[MetricValue, _Mapping]] = ..., temp_c: _Optional[_Union[MetricValue, _Mapping]] = ..., fan_rpm: _Optional[_Union[MetricValue, _Mapping]] = ..., power_w: _Optional[_Union[MetricValue, _Mapping]] = ..., efficiency_jh: _Optional[_Union[MetricValue, _Mapping]] = ..., hash_boards: _Optional[_Iterable[_Union[HashBoardMetrics, _Mapping]]] = ..., psu_metrics: _Optional[_Iterable[_Union[PSUMetrics, _Mapping]]] = ..., control_board_metrics: _Optional[_Iterable[_Union[ControlBoardMetrics, _Mapping]]] = ..., fan_metrics: _Optional[_Iterable[_Union[FanMetrics, _Mapping]]] = ..., sensor_metrics: _Optional[_Iterable[_Union[SensorMetrics, _Mapping]]] = ..., firmware_version: _Optional[str] = ..., default_password_active: bool = ..., container: _Optional[_Union[ContainerSnapshot, _Mapping]] = ...) -> None: ...
 
 class DescribeDeviceRequest(_message.Message):
-    __slots__ = ("device_id",)
+    __slots__ = ("device_id", "backend_generation")
     DEVICE_ID_FIELD_NUMBER: _ClassVar[int]
+    BACKEND_GENERATION_FIELD_NUMBER: _ClassVar[int]
     device_id: str
-    def __init__(self, device_id: _Optional[str] = ...) -> None: ...
+    backend_generation: bytes
+    def __init__(self, device_id: _Optional[str] = ..., backend_generation: _Optional[bytes] = ...) -> None: ...
 
 class DescribeDeviceResponse(_message.Message):
     __slots__ = ("device", "caps")

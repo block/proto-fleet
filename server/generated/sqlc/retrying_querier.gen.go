@@ -6872,6 +6872,66 @@ func (q *retryingQuerier) LockMaintenanceSiteForTicket(ctx context.Context, arg 
 	return result, err
 }
 
+func (q *retryingQuerier) LockMinerBindingCredentials(ctx context.Context, deviceID int64) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockMinerBindingCredentials", func() error {
+		callResult, callErr := q.next.LockMinerBindingCredentials(ctx, deviceID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockMinerBindingDevice(ctx context.Context, id int64) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockMinerBindingDevice", func() error {
+		callResult, callErr := q.next.LockMinerBindingDevice(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockMinerBindingDiscovery(ctx context.Context, id int64) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockMinerBindingDiscovery", func() error {
+		callResult, callErr := q.next.LockMinerBindingDiscovery(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockMinerBindingPairing(ctx context.Context, deviceID int64) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockMinerBindingPairing", func() error {
+		callResult, callErr := q.next.LockMinerBindingPairing(ctx, deviceID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockMinerBindingRoutes(ctx context.Context, deviceID int64) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockMinerBindingRoutes", func() error {
+		callResult, callErr := q.next.LockMinerBindingRoutes(ctx, deviceID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockQueuedDeviceWrite(ctx context.Context, id int64) (LockQueuedDeviceWriteRow, error) {
 	var result LockQueuedDeviceWriteRow
 	err := q.retrier.RetryQuery(ctx, "LockQueuedDeviceWrite", func() error {

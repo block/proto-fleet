@@ -16,11 +16,9 @@ func (s *DriverGRPCServer) SetTankMining(ctx context.Context, req *pb.SetTankMin
 	if err := payload.Validate(); err != nil {
 		return nil, grpcStatusError(err.Error(), codes.InvalidArgument, err.Error())
 	}
-	s.mu.RLock()
-	device, ok := s.devices[req.Ref.DeviceId]
-	s.mu.RUnlock()
-	if !ok {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	device, err := s.selectDevice(req.Ref)
+	if err != nil {
+		return nil, err
 	}
 	controller, ok := device.(DeviceTankMiner)
 	if !ok {
@@ -32,6 +30,6 @@ func (d *DeviceGRPCClient) SetTankMining(ctx context.Context, req TankMiningRequ
 	if err := req.Validate(); err != nil {
 		return err
 	}
-	_, err := d.client.SetTankMining(ctx, &pb.SetTankMiningRequest{Ref: &pb.DeviceRef{DeviceId: d.deviceID}, Positions: req.Positions, Mining: req.Mining})
+	_, err := d.client.SetTankMining(ctx, &pb.SetTankMiningRequest{Ref: d.deviceRef(), Positions: req.Positions, Mining: req.Mining})
 	return err
 }

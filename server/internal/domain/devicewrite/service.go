@@ -19,6 +19,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	"github.com/block/proto-fleet/server/internal/runtimepolicy"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 // One immutable owner ID is shared by every service instance in this process.
@@ -84,7 +85,9 @@ func (s *Service) BeginQueuedHost(ctx context.Context, message queue.Message) (*
 }
 
 func (a *Attempt) Recheck(ctx context.Context) error {
-	valid, err := a.service.queries.CheckDeviceWriteAttempt(ctx, a.id)
+	// Recheck on the connection already holding dispatch locks. Taking a second
+	// pool slot here could deadlock a fleet batch filling the pool.
+	valid, err := a.service.bindingQueries(ctx).CheckDeviceWriteAttempt(ctx, a.id)
 	if err != nil {
 		return fmt.Errorf("check device write attempt: %w", err)
 	}
@@ -240,6 +243,9 @@ func Dispatch(ctx context.Context, operation func(context.Context) error) error 
 		}
 	}
 	outcome := operation(ctx)
+	if sdk.IsBackendGenerationRejected(outcome) {
+		outcome = NotDispatched(outcome)
+	}
 	// The durable attempt remains running during the operation, including if
 	// the process crashes. A confirmed admission rejection cannot erase a
 	// previous invocation that may already have reached the device.

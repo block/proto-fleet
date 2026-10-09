@@ -592,6 +592,9 @@ func wrapPluginError(err error, format string, a ...any) error {
 		return nil
 	}
 	msg := fmt.Sprintf(format, a...)
+	if sdk.IsBackendGenerationRejected(err) {
+		return devicewrite.NotDispatched(fleeterror.NewFailedPreconditionErrorf("%s: SDK backend registration changed", msg))
+	}
 	if st, ok := grpcstatus.FromError(err); ok {
 		switch st.Code() {
 		case codes.Unimplemented:

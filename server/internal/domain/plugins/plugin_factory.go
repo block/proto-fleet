@@ -25,10 +25,10 @@ type PluginDriverGetter interface {
 // PluginMinerConfig contains all parameters needed to create a plugin-based miner
 type PluginMinerConfig struct {
 	RPCPort int32
-	RPCTLS bool
+	RPCTLS  bool
 	// Trusted owner/incarnation/epoch scope; never plaintext credentials.
 	SDKReuseScopeKey string
-	WriteGate interfaces.MinerWriteGate
+	WriteGate        interfaces.MinerWriteGate
 	// Device information
 	DeviceClass      sdk.DeviceClass
 	DeviceIdentifier string

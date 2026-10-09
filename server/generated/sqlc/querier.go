@@ -1706,6 +1706,15 @@ type Querier interface {
 	// Match rack placement writers' dsr → ds table order.
 	LockMaintenanceRackForTicket(ctx context.Context, arg LockMaintenanceRackForTicketParams) (int64, error)
 	LockMaintenanceSiteForTicket(ctx context.Context, arg LockMaintenanceSiteForTicketParams) (int64, error)
+	LockMinerBindingCredentials(ctx context.Context, deviceID int64) ([]int64, error)
+	// Row locks span final binding validation and the adapter call. The device
+	// FOR UPDATE lock also blocks insertion of missing credentials/pairing/routes
+	// through their device foreign keys. Existing children and discovery rows need
+	// their own locks because updates/deletes do not recheck those foreign keys.
+	LockMinerBindingDevice(ctx context.Context, id int64) (int64, error)
+	LockMinerBindingDiscovery(ctx context.Context, id int64) (int64, error)
+	LockMinerBindingPairing(ctx context.Context, deviceID int64) ([]int64, error)
+	LockMinerBindingRoutes(ctx context.Context, deviceID int64) ([]int64, error)
 	LockQueuedDeviceWrite(ctx context.Context, id int64) (LockQueuedDeviceWriteRow, error)
 	// Locks device_set + rack rows FOR UPDATE and returns current placement.
 	// Must run after the site/building locks (canonical lock order).

@@ -131,8 +131,15 @@ func TestScopedResolutionPreservesCreatingAndClosingReservations(t *testing.T) {
 			return nil
 		}}}, nil
 	})
+	var generation []byte
 	first := make(chan error, 1)
-	go func() { _, err := s.NewDevice(t.Context(), scopedRequest()); first <- err }()
+	go func() {
+		response, err := s.NewDevice(t.Context(), scopedRequest())
+		if response != nil {
+			generation = response.BackendGeneration
+		}
+		first <- err
+	}()
 	<-started
 	plain := scopedRequest()
 	plain.ReuseScopeKey = ""
@@ -148,12 +155,12 @@ func TestScopedResolutionPreservesCreatingAndClosingReservations(t *testing.T) {
 	require.NoError(t, <-first)
 	require.Equal(t, codes.Canceled, status.Code(<-waiter))
 	require.Equal(t, int64(1), creates.Load())
-	_, err = s.CloseDevice(t.Context(), &pb.DeviceRef{DeviceId: "device-123"})
+	_, err = s.CloseDevice(t.Context(), &pb.DeviceRef{DeviceId: "device-123", BackendGeneration: generation})
 	require.Error(t, err)
 	_, err = s.NewDevice(t.Context(), scopedRequest())
 	require.Equal(t, codes.AlreadyExists, status.Code(err))
 	closeFails = false
-	_, err = s.CloseDevice(t.Context(), &pb.DeviceRef{DeviceId: "device-123"})
+	_, err = s.CloseDevice(t.Context(), &pb.DeviceRef{DeviceId: "device-123", BackendGeneration: generation})
 	require.NoError(t, err)
 	_, err = s.NewDevice(t.Context(), scopedRequest())
 	require.NoError(t, err)
@@ -181,7 +188,7 @@ func TestScopedClientRejectsUnsupportedRuntimeAndMismatchedConfirmation(t *testi
 		id, scope string
 		creates   int
 	}{
-		{name: "unsupported", creates: 0}, {name: "mismatched-ID", supports: true, id: "other", scope: "scope", creates: 1}, {name: "mismatched-scope", supports: true, id: "device-123", scope: "other", creates: 1},
+		{name: "unsupported", creates: 0}, {name: "mismatched-ID", supports: true, id: "other", scope: "scope", creates: 1}, {name: "mismatched-scope", supports: true, id: "device-123", scope: "other", creates: 1}, {name: "missing-generation", supports: true, id: "device-123", scope: "scope", creates: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			peer := &scopedClientPeer{supports: test.supports, response: &pb.NewDeviceResponse{DeviceId: test.id, ReuseScopeKey: test.scope}}

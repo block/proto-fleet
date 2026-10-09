@@ -26,8 +26,8 @@ func (s *Service) directWriteGate(binding sqlc.GetDeviceWithCredentialsAndIPByDe
 				return err
 			}
 		}
-		validate := func(ctx context.Context) error {
-			fresh, err := s.GetQueries(ctx).GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, binding.DeviceIdentifier)
+		validate := func(q sqlc.Querier) error {
+			fresh, err := q.GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, binding.DeviceIdentifier)
 			if err != nil {
 				s.InvalidateMiner(models.DeviceIdentifier(binding.DeviceIdentifier))
 				return operationBindingReadError(ctx, err)
@@ -38,22 +38,19 @@ func (s *Service) directWriteGate(binding sqlc.GetDeviceWithCredentialsAndIPByDe
 			}
 			return nil
 		}
-		if err := validate(ctx); err != nil {
+		if err := s.writeService.ValidateBinding(ctx, validate); err != nil {
 			return err
 		}
 		return s.writeService.WithHostAttempt(ctx, binding.OrgID, binding.ID, binding.WriteEpoch, func(ctx context.Context) error {
-			if err := validate(ctx); err != nil {
-				return err
-			}
-			return devicewrite.Dispatch(ctx, call)
+			return s.writeService.WithBindingDispatch(ctx, binding.ID, validate, call)
 		})
 	}
 }
 
 func (s *Service) remoteWriteGate(binding sqlc.GetFleetNodeTelemetryRouteByDeviceIdentifierRow) interfaces.MinerWriteGate {
 	return func(ctx context.Context, _ commandtype.Type, call func(context.Context) error) error {
-		validate := func(ctx context.Context) error {
-			fresh, err := s.GetQueries(ctx).GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx, binding.DeviceIdentifier)
+		validate := func(q sqlc.Querier) error {
+			fresh, err := q.GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx, binding.DeviceIdentifier)
 			// Telemetry's firmware label can change during an ordinary install. It does
 			// not change the connection or encrypted identity bound to this handle.
 			fresh.FirmwareVersion = binding.FirmwareVersion
@@ -67,14 +64,11 @@ func (s *Service) remoteWriteGate(binding sqlc.GetFleetNodeTelemetryRouteByDevic
 			}
 			return nil
 		}
-		if err := validate(ctx); err != nil {
+		if err := s.writeService.ValidateBinding(ctx, validate); err != nil {
 			return err
 		}
 		return s.writeService.WithHostAttempt(ctx, binding.OrgID, binding.ID, binding.WriteEpoch, func(ctx context.Context) error {
-			if err := validate(ctx); err != nil {
-				return err
-			}
-			return devicewrite.Dispatch(ctx, call)
+			return s.writeService.WithBindingDispatch(ctx, binding.ID, validate, call)
 		})
 	}
 }

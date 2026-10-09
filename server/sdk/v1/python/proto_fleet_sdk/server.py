@@ -16,11 +16,19 @@ import hashlib
 import inspect
 import logging
 import os
+import secrets
 import signal
 import sys
+from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Any
 
 import grpc
+from google.protobuf.any_pb2 import Any as ProtoAny
+from google.rpc import (  # type: ignore[import-untyped]  # Canonical generated protos ship without typing metadata.
+    error_details_pb2,
+    status_pb2,
+)
 
 from proto_fleet_sdk.generated.pb import driver_pb2, driver_pb2_grpc
 
@@ -72,7 +80,7 @@ class _ScopedDriverServicer:
     """Reuse only an identical opted-in request in the author's active registry.
 
     Authors own the device objects and keep them valid until CloseDevice or
-    explicit NewDevice replacement. The SDK retains only request digests.
+    explicit NewDevice replacement. The SDK retains request digests and registration tokens.
     Other unary and streaming methods delegate without changing their shape.
     """
 
@@ -80,14 +88,68 @@ class _ScopedDriverServicer:
         self._servicer = servicer
         self._reuse_keys: dict[str, bytes] = {}
         self._closing: set[str] = set()
-        self._locks = [asyncio.Lock() for _ in range(64)]
+        self._locks: dict[str, tuple[asyncio.Lock, int]] = {}
+        self._generations: dict[str, bytes] = {}
 
     def __getattr__(self, name: str) -> Any:
-        return getattr(self._servicer, name)
+        method = getattr(self._servicer, name)
+        # Stream handlers retain their iterator shape. Every unary device call
+        # runs under the same ID lock as author registry replacement.
+        descriptor = driver_pb2.DESCRIPTOR.services_by_name["Driver"].methods_by_name.get(name)
+        if descriptor is None or descriptor.server_streaming:
+            return method
 
-    def _lock(self, identifier: str) -> asyncio.Lock:
-        stripe = hashlib.sha256(identifier.encode()).digest()[0] % len(self._locks)
-        return self._locks[stripe]
+        async def guarded(request: Any, context: Any) -> Any:
+            refs: list[Any] = []
+            if isinstance(request, (driver_pb2.DeviceRef, driver_pb2.DescribeDeviceRequest)):
+                refs = [request]
+            elif hasattr(request, "ref"):
+                refs = [request.ref]
+            elif hasattr(request, "refs"):
+                refs = list(request.refs)
+            async with AsyncExitStack() as stack:
+                for identifier in sorted({ref.device_id for ref in refs}):
+                    await stack.enter_async_context(self._lock(identifier))
+                for ref in refs:
+                    await self._check_generation(ref, context)
+                return await self._invoke(method, request, context)
+
+        return guarded
+
+    @asynccontextmanager
+    async def _lock(self, identifier: str) -> AsyncIterator[None]:
+        lock, refs = self._locks.get(identifier, (asyncio.Lock(), 0))
+        self._locks[identifier] = (lock, refs + 1)
+        try:
+            async with lock:
+                yield
+        finally:
+            _, refs = self._locks[identifier]
+            if refs == 1:
+                del self._locks[identifier]
+            else:
+                self._locks[identifier] = (lock, refs - 1)
+
+    async def _check_generation(
+        self, request: Any, context: Any, *, allow_closing: bool = False
+    ) -> None:
+        if request.backend_generation != self._generations.get(request.device_id, b"") or (
+            request.device_id in self._closing and not allow_closing
+        ):
+            detail = ProtoAny()
+            detail.Pack(
+                error_details_pb2.ErrorInfo(
+                    reason="SDK_BACKEND_GENERATION_MISMATCH", domain="protofleet.sdk"
+                )
+            )
+            rejection = status_pb2.Status(
+                code=9, message="SDK backend registration changed", details=[detail]
+            )
+            await context.abort(
+                grpc.StatusCode.FAILED_PRECONDITION,
+                rejection.message,
+                trailing_metadata=(("grpc-status-details-bin", rejection.SerializeToString()),),
+            )
 
     @staticmethod
     async def _invoke(method: Any, request: Any, context: Any) -> Any:
@@ -132,10 +194,15 @@ class _ScopedDriverServicer:
                 await context.abort(grpc.StatusCode.UNAVAILABLE, "device cleanup incomplete")
             if request.reuse_scope_key and self._reuse_keys.get(identifier) == digest:
                 return driver_pb2.NewDeviceResponse(
-                    device_id=identifier, reuse_scope_key=request.reuse_scope_key
+                    device_id=identifier,
+                    reuse_scope_key=request.reuse_scope_key,
+                    backend_generation=self._generations[identifier],
                 )
             # Failed and default creation discard evidence for the former request.
             self._reuse_keys.pop(identifier, None)
+            self._generations[identifier] = (
+                secrets.token_bytes(32) if request.reuse_scope_key else b""
+            )
             original = await self._invoke(self._servicer.NewDevice, request, context)
             if context.done():
                 await context.abort(grpc.StatusCode.CANCELLED, "device resolution canceled")
@@ -144,6 +211,7 @@ class _ScopedDriverServicer:
             response = driver_pb2.NewDeviceResponse()
             response.CopyFrom(original)
             response.reuse_scope_key = request.reuse_scope_key
+            response.backend_generation = self._generations[identifier]
             if request.reuse_scope_key:
                 self._reuse_keys[identifier] = digest
             return response
@@ -151,6 +219,7 @@ class _ScopedDriverServicer:
     async def CloseDevice(self, request: Any, context: Any) -> Any:
         identifier = request.device_id
         async with self._lock(identifier):
+            await self._check_generation(request, context, allow_closing=True)
             self._reuse_keys.pop(identifier, None)
             self._closing.add(identifier)
             try:
@@ -158,8 +227,10 @@ class _ScopedDriverServicer:
             except BaseException:
                 if context.code() == grpc.StatusCode.NOT_FOUND:
                     self._closing.discard(identifier)
+                    self._generations.pop(identifier, None)
                 raise
             self._closing.discard(identifier)
+            self._generations.pop(identifier, None)
             return result
 
 
@@ -222,7 +293,7 @@ class PluginServer:
     async def start(self) -> None:
         self.server = grpc.aio.server()
 
-        # Lifecycle calls pass through the SDK; all other RPCs retain author handlers.
+        # Lifecycle and device unary calls pass through SDK registration guards.
         driver_pb2_grpc.add_DriverServicer_to_server(self._scoped_servicer, self.server)  # type: ignore[no-untyped-call]  # generated gRPC code lacks type stubs
 
         # Bind to address (port=0 lets the OS pick a free port)

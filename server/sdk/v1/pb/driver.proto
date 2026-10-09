@@ -38,11 +38,15 @@ message NewDeviceResponse {
   string device_id = 1;      // Unique device instance ID
   // Echoed only by runtimes implementing scoped resolution.
   string reuse_scope_key = 2;
+  // Opaque registration token. Scoped clients must carry it on every operation.
+  bytes backend_generation = 3;
 }
 
 // Reference to a specific device instance
 message DeviceRef { 
-  string device_id = 1; 
+  string device_id = 1;
+  // Matches the concrete backend returned by scoped NewDevice.
+  bytes backend_generation = 2;
 }
 
 // ============================================================================
@@ -256,7 +260,8 @@ message DeviceMetrics {
 
 // Request to describe device capabilities
 message DescribeDeviceRequest { 
-  string device_id = 1; 
+  string device_id = 1;
+  bytes backend_generation = 2;
 }
 
 // Response with device-specific capabilities

@@ -19,7 +19,8 @@ FOR UPDATE OF m;
 INSERT INTO device_write_attempt(attempt_id,device_id,organization_id,epoch,queue_message_id,owner_instance_id,operation_kind,identity_keys,identity_snapshot)
 SELECT sqlc.arg(attempt_id),d.id,d.org_id,sqlc.arg(epoch),sqlc.arg(queue_message_id),sqlc.arg(owner_instance_id),sqlc.arg(operation_kind),sqlc.arg(identity_keys)::text[],
  jsonb_build_object('device_identifier',d.device_identifier,'serial_number',d.serial_number,'mac_address',d.mac_address,
- 'ip_address',dd.ip_address,'port',dd.port,'url_scheme',dd.url_scheme)
+ 'ip_address',dd.ip_address,'port',dd.port,'url_scheme',dd.url_scheme,
+ 'routing_scope',COALESCE((SELECT fnd.fleet_node_id::text FROM fleet_node_device fnd WHERE fnd.device_id=d.id AND fnd.org_id=d.org_id),'local'))
 FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id
 WHERE d.id=sqlc.arg(device_id) AND d.org_id=sqlc.arg(organization_id);
 

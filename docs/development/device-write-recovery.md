@@ -35,6 +35,42 @@ operator attests to external evidence; the command verifies its binding to the
 database record, not the truth of external runtime or hardware receipts. Do not
 use it unless the operator can establish all the required facts.
 
+## Dispatch binding
+
+Direct SDK and Fleet Node mutations lock the device, discovery, pairing,
+credentials and node route through the actual adapter call. Binding writers wait
+until it returns; canceled callers do not release locks while a context-ignoring
+adapter continues. Admission commits before these locks are taken. The lock
+transaction performs no retry and reuses its connection for the final attempt
+check, so it neither replays physical I/O nor requires a second pool slot.
+
+Scoped SDK references also carry an opaque backend generation. Replacing the
+same external identifier cannot redirect that reference; a stale token is
+rejected before backend I/O. That specific SDK rejection is recorded as an
+undispatched attempt. Other transport/device errors retain unknown evidence.
+ASIC-rs rechecks live hardware identity before writes and on fresh telemetry,
+while keeping the state needed to restore curtailment.
+
+## Retained identity scope
+
+Serial and MAC reports belong to their Fleet organization. Endpoint keys also
+include the authenticated Fleet Node (or local dispatcher) routing scope. A
+reported identity in one organization cannot fence another organization's
+commands. Within an organization, rediscovery on another node still matches a
+retained serial or MAC and cannot erase unresolved physical work.
+
+Cross-organization physical handoff requires an explicit, host-verified identity
+association before writes can be admitted in the destination organization. This
+release does not implement that handoff; untrusted node reports cannot create
+such an association. Do not move a miner with unresolved work to another
+organization to bypass recovery.
+
+Migration 1012 preserves attempt-time snapshot identities rather than today's
+device row. Old snapshots do not establish the old Fleet Node route, so captured
+serial/MAC is required when routing scope was not recorded. An upgrade refusal
+must be resolved by audited recovery on the predecessor release while all
+dispatchers remain stopped; never rewrite the historical identity snapshot.
+
 ## Evidence and maintenance
 
 1. Stop every Fleet API replica, plugin process, Fleet Node dispatcher, and

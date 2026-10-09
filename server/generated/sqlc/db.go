@@ -1836,6 +1836,21 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockMaintenanceSiteForTicketStmt, err = db.PrepareContext(ctx, lockMaintenanceSiteForTicket); err != nil {
 		return nil, fmt.Errorf("error preparing query LockMaintenanceSiteForTicket: %w", err)
 	}
+	if q.lockMinerBindingCredentialsStmt, err = db.PrepareContext(ctx, lockMinerBindingCredentials); err != nil {
+		return nil, fmt.Errorf("error preparing query LockMinerBindingCredentials: %w", err)
+	}
+	if q.lockMinerBindingDeviceStmt, err = db.PrepareContext(ctx, lockMinerBindingDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query LockMinerBindingDevice: %w", err)
+	}
+	if q.lockMinerBindingDiscoveryStmt, err = db.PrepareContext(ctx, lockMinerBindingDiscovery); err != nil {
+		return nil, fmt.Errorf("error preparing query LockMinerBindingDiscovery: %w", err)
+	}
+	if q.lockMinerBindingPairingStmt, err = db.PrepareContext(ctx, lockMinerBindingPairing); err != nil {
+		return nil, fmt.Errorf("error preparing query LockMinerBindingPairing: %w", err)
+	}
+	if q.lockMinerBindingRoutesStmt, err = db.PrepareContext(ctx, lockMinerBindingRoutes); err != nil {
+		return nil, fmt.Errorf("error preparing query LockMinerBindingRoutes: %w", err)
+	}
 	if q.lockQueuedDeviceWriteStmt, err = db.PrepareContext(ctx, lockQueuedDeviceWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockQueuedDeviceWrite: %w", err)
 	}
@@ -5524,6 +5539,31 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockMaintenanceSiteForTicketStmt: %w", cerr)
 		}
 	}
+	if q.lockMinerBindingCredentialsStmt != nil {
+		if cerr := q.lockMinerBindingCredentialsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockMinerBindingCredentialsStmt: %w", cerr)
+		}
+	}
+	if q.lockMinerBindingDeviceStmt != nil {
+		if cerr := q.lockMinerBindingDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockMinerBindingDeviceStmt: %w", cerr)
+		}
+	}
+	if q.lockMinerBindingDiscoveryStmt != nil {
+		if cerr := q.lockMinerBindingDiscoveryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockMinerBindingDiscoveryStmt: %w", cerr)
+		}
+	}
+	if q.lockMinerBindingPairingStmt != nil {
+		if cerr := q.lockMinerBindingPairingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockMinerBindingPairingStmt: %w", cerr)
+		}
+	}
+	if q.lockMinerBindingRoutesStmt != nil {
+		if cerr := q.lockMinerBindingRoutesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockMinerBindingRoutesStmt: %w", cerr)
+		}
+	}
 	if q.lockQueuedDeviceWriteStmt != nil {
 		if cerr := q.lockQueuedDeviceWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockQueuedDeviceWriteStmt: %w", cerr)
@@ -7272,6 +7312,11 @@ type Queries struct {
 	lockMaintenanceMinerForTicketStmt                            *sql.Stmt
 	lockMaintenanceRackForTicketStmt                             *sql.Stmt
 	lockMaintenanceSiteForTicketStmt                             *sql.Stmt
+	lockMinerBindingCredentialsStmt                              *sql.Stmt
+	lockMinerBindingDeviceStmt                                   *sql.Stmt
+	lockMinerBindingDiscoveryStmt                                *sql.Stmt
+	lockMinerBindingPairingStmt                                  *sql.Stmt
+	lockMinerBindingRoutesStmt                                   *sql.Stmt
 	lockQueuedDeviceWriteStmt                                    *sql.Stmt
 	lockRackPlacementForWriteStmt                                *sql.Stmt
 	lockRacksForReparentStmt                                     *sql.Stmt
@@ -8103,6 +8148,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockMaintenanceMinerForTicketStmt:                            q.lockMaintenanceMinerForTicketStmt,
 		lockMaintenanceRackForTicketStmt:                             q.lockMaintenanceRackForTicketStmt,
 		lockMaintenanceSiteForTicketStmt:                             q.lockMaintenanceSiteForTicketStmt,
+		lockMinerBindingCredentialsStmt:                              q.lockMinerBindingCredentialsStmt,
+		lockMinerBindingDeviceStmt:                                   q.lockMinerBindingDeviceStmt,
+		lockMinerBindingDiscoveryStmt:                                q.lockMinerBindingDiscoveryStmt,
+		lockMinerBindingPairingStmt:                                  q.lockMinerBindingPairingStmt,
+		lockMinerBindingRoutesStmt:                                   q.lockMinerBindingRoutesStmt,
 		lockQueuedDeviceWriteStmt:                                    q.lockQueuedDeviceWriteStmt,
 		lockRackPlacementForWriteStmt:                                q.lockRackPlacementForWriteStmt,
 		lockRacksForReparentStmt:                                     q.lockRacksForReparentStmt,

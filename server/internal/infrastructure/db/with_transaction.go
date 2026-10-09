@@ -152,3 +152,29 @@ func firstTxOpts(opts []*sql.TxOptions) *sql.TxOptions {
 	}
 	return nil
 }
+
+// WithDispatchTransaction acquires its connection using the caller's context,
+// then retains SQL locks until action returns, even if that context is canceled.
+// The action may perform external I/O and is never retried. It must use the
+// original context for lock acquisition and transport calls. No tx is exposed
+// through the context, since physical admission must already be committed.
+func WithDispatchTransaction(ctx context.Context, database *sql.DB, action func(sqlc.Querier) error) error {
+	connection, err := database.Conn(ctx)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("acquire dispatch connection: %w", err)
+	}
+	defer connection.Close()
+	//nolint:forbidigo // Canonical SQL transaction boundary for external dispatch.
+	tx, err := connection.BeginTx(context.WithoutCancel(ctx), nil)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("open dispatch transaction: %w", err)
+	}
+	defer tx.Rollback()
+	if err := action(NewTracingQuerier(sqlc.New(tx))); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fleeterror.NewInternalErrorf("commit dispatch transaction: %w", err)
+	}
+	return nil
+}
