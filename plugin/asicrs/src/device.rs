@@ -782,12 +782,16 @@ impl AsicRsDevice {
 
         let pool_configs: Vec<PoolConfig> = sorted_pools
             .iter()
-            .map(|p| PoolConfig {
-                url: PoolURL::from(p.url.clone()),
-                username: p.worker_name.clone(),
-                password: p.password.clone(),
+            .map(|p| {
+                Ok(PoolConfig {
+                    url: PoolURL::from(p.url.clone()),
+                    username: p.worker_name.clone(),
+                    password: p.password.clone().ok_or_else(|| {
+                        anyhow::anyhow!("every pool requires an explicit password")
+                    })?,
+                })
             })
-            .collect();
+            .collect::<anyhow::Result<_>>()?;
 
         let group = PoolGroupConfig {
             name: "default".into(),
