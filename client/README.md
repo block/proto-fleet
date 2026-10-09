@@ -242,8 +242,34 @@ long-term storage rollups are implied by the duration selector.
 Module clicks open Fleet's existing history dialog at the shareable
 `/containers/:identifier/tanks/:tankId/modules/:moduleId` route. The richer
 module detail page is tracked separately in #162. Tank-scoped cooling/equipment
-readings and tank commands are not available in the current Fleet API; the page
-omits the empty cooling section. Shared equipment readings remain on the
+readings are not available in the current Fleet API; the page omits the empty
+cooling section. Tank rows, cards, and the native tank page expose scoped mining
+start/stop through the tank actions menu. List selection keeps tank IDs separate
+from rack IDs; bulk tank actions apply only to the selected tanks.
+
+Fleet resolves stable tank IDs to the current controller/site and queues one
+command per controller. Admission requires current topology, driver tank-mining
+support, and the requested mining permission at every selected tank’s site. A
+pending tank command blocks another command for the same controller. Execution
+rechecks tank presence and placement, then reads the controller’s live map and
+sends one explicit module scope to `/api/v2/mining/scoped/start` or `stop`. Empty
+modules are omitted; empty or unavailable tanks fail without a write. Container
+mining intent is never changed by this path.
+
+Tank mining uses the same count-only confirmation dialog as miner bulk actions
+and closes when confirmed. The action bar returns after command admission,
+while a progress toast follows each controller's existing command batch.
+Success reports completed tank counts only after all batches finish. Failed
+controller batches can contain partial or unknown writes, so they do not count
+as confirmed tank failures or offer a retry. Their completion error preserves
+counts from successful controllers and asks the operator to check the remaining
+tanks. Missing results or interrupted polling also show an unconfirmed completion
+error without a retry. As with miner bulk Sleep/Wake, command completion drives
+the success toast; inventory readings update separately through normal polling.
+Direct controllers use the plugin SDK; FleetNode controllers require command protocol
+V4 and updated SDK/plugin binaries. Older nodes reject this action before
+sending it, and failed or ambiguous device writes are terminal rather than
+automatically retried. Shared equipment readings remain on the
 container page.
 Storybook's **Proto Fleet / Containers / Native tank page** exercises the actual
 page and collected-data hooks with isolated API fixtures.

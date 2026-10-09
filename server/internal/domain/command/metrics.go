@@ -46,6 +46,8 @@ func commandKindLabel(t commandtype.Type) string {
 		return "curtail"
 	case commandtype.Uncurtail:
 		return "uncurtail"
+	case commandtype.SetTankMining:
+		return "set_tank_mining"
 	case commandtype.SetContainerControl:
 		return "set_container_control"
 	case commandtype.ApplyCurtailmentConfig:

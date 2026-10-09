@@ -870,6 +870,17 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		err = minerInfo.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevel(p.Level)})
 	case commandtype.Uncurtail:
 		err = minerInfo.Uncurtail(ctx, sdk.UncurtailRequest{})
+	case commandtype.SetTankMining:
+		var payload tankMiningPayload
+		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
+			return orgID, siteID, fleeterror.NewFailedPreconditionError("invalid tank mining payload")
+		}
+		controller, ok := minerInfo.(sdk.DeviceTankMiner)
+		if !ok {
+			return orgID, siteID, fleeterror.NewUnimplementedError("tank mining unsupported")
+		}
+		siteID = payload.SiteID
+		err = es.executeTankMining(ctx, message.DeviceID, orgID, payload, controller)
 	case commandtype.SetContainerControl:
 		var payload sdk.ContainerControlRequest
 		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {

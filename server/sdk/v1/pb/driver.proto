@@ -738,6 +738,7 @@ service Driver {
   rpc Reboot(DeviceRef) returns (google.protobuf.Empty);
 
   // Optional controller-only equipment command. Backend support is checked at execution.
+  rpc SetTankMining(SetTankMiningRequest) returns (google.protobuf.Empty);
   rpc SetContainerControl(SetContainerControlRequest) returns (google.protobuf.Empty);
 
   // CoreV1 - Configuration methods - Required methods
@@ -904,4 +905,10 @@ message ContainerModuleIssue {
  string cause = 3;
  string severity = 4;
  google.protobuf.Timestamp observed_at = 5;
+}
+
+message SetTankMiningRequest {
+  DeviceRef ref = 1;
+  repeated int32 positions = 2;
+  optional bool mining = 3;
 }

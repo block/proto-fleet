@@ -779,6 +779,13 @@ impl Driver for DriverService {
 
     // --- Configuration ---
 
+    async fn set_tank_mining(
+        &self,
+        _req: Request<pb::SetTankMiningRequest>,
+    ) -> Result<Response<()>, Status> {
+        Err(Status::unimplemented("tank mining is unsupported"))
+    }
+
     async fn set_container_control(
         &self,
         _request: Request<pb::SetContainerControlRequest>,

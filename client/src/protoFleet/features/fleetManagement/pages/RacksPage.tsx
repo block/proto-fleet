@@ -36,6 +36,7 @@ import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { tankPath } from "@/protoFleet/features/containers/buildTankOverview";
 import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
+import TankActionsMenu from "@/protoFleet/features/containers/TankActionsMenu";
 import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
 import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
 import FleetGroupListActionBar from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu/FleetGroupListActionBar";
@@ -132,6 +133,7 @@ const TELEMETRY_FILTER_CHIPS: FilterChipsBarNumericFilter[] = TELEMETRY_FILTER_K
 }));
 
 const RacksPage = () => {
+  const [selectedTankIds, setSelectedTankIds] = useState<string[]>([]);
   const navigate = useNavigate();
   const { listRacks, listRackZones, deleteGroup } = useDeviceSets();
   const { listAllBuildings, assignRacksToBuilding } = useBuildings();
@@ -702,6 +704,7 @@ const RacksPage = () => {
       // (Out-of-order list responses are already dropped by
       // useDeviceSetListState's request-id guard, so rows can't go stale.)
       setSelectedRackIds([]);
+      setSelectedTankIds([]);
     }
     prevSiteKey.current = selectionScopeKey;
   }, [selectionScopeKey]);
@@ -709,6 +712,7 @@ const RacksPage = () => {
   const handleFilterChange = useCallback(
     (key: string, values: string[]) => {
       setSelectedRackIds([]);
+      setSelectedTankIds([]);
       if (key === "zone") {
         writeMultiParam("zone", values);
         return;
@@ -735,6 +739,7 @@ const RacksPage = () => {
   const handleNumericFilterChange = useCallback(
     (key: string, value: NumericRangeValue) => {
       setSelectedRackIds([]);
+      setSelectedTankIds([]);
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -898,15 +903,23 @@ const RacksPage = () => {
       }),
     [racks],
   );
+  const selectedTanks = inventory.items.filter(
+    (item) => item.ref?.kind === EntityKind.TANK && selectedTankIds.includes(String(item.ref.id)),
+  );
   const selectedRackScopes = useMemo(() => {
     const selected = new Set(selectedRackIds);
     return visibleRackScopes.filter((rack) => selected.has(rack.id.toString()));
   }, [selectedRackIds, visibleRackScopes]);
-  const handleSelectAllVisibleRacks = useCallback(
-    () => setSelectedRackIds(visibleRackScopes.map((rack) => rack.id.toString())),
-    [visibleRackScopes],
-  );
-  const handleClearRackSelection = useCallback(() => setSelectedRackIds([]), []);
+  const handleSelectAllVisibleRacks = useCallback(() => {
+    setSelectedRackIds(visibleRackScopes.map((rack) => rack.id.toString()));
+    setSelectedTankIds(
+      inventory.items.filter((item) => item.ref?.kind === EntityKind.TANK).map((item) => String(item.ref!.id)),
+    );
+  }, [visibleRackScopes, inventory.items]);
+  const handleClearRackSelection = useCallback(() => {
+    setSelectedRackIds([]);
+    setSelectedTankIds([]);
+  }, []);
   const handleSelectedRackIdsChange = useCallback(
     (ids: string[]) => {
       if (isBulkActionBusy) return;
@@ -917,6 +930,7 @@ const RacksPage = () => {
 
   const handleClearFilters = useCallback(() => {
     setSelectedRackIds([]);
+    setSelectedTankIds([]);
     // All four URL-driven filter keys cleared in a single updater so they
     // batch into one history entry (react-router resolves the prev against
     // the current location, not a value set by an earlier call this render).
@@ -1154,6 +1168,7 @@ const RacksPage = () => {
   const handleRackSort: typeof handleSort = useCallback(
     (field, direction) => {
       setSelectedRackIds([]);
+      setSelectedTankIds([]);
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -1178,7 +1193,10 @@ const RacksPage = () => {
   const handleRacksViewModeSelect = useCallback(
     (key: string) => {
       const nextViewMode = key === "list" ? "list" : "grid";
-      if (nextViewMode === "grid") setSelectedRackIds([]);
+      if (nextViewMode === "grid") {
+        setSelectedRackIds([]);
+        setSelectedTankIds([]);
+      }
       setRacksViewMode(nextViewMode);
     },
     [setRacksViewMode],
@@ -1186,11 +1204,13 @@ const RacksPage = () => {
 
   const handleRackNextPage = useCallback(() => {
     setSelectedRackIds([]);
+    setSelectedTankIds([]);
     handleNextPage();
   }, [handleNextPage]);
 
   const handleRackPrevPage = useCallback(() => {
     setSelectedRackIds([]);
+    setSelectedTankIds([]);
     handlePrevPage();
   }, [handlePrevPage]);
 
@@ -1420,6 +1440,11 @@ const RacksPage = () => {
             <DeviceSetList
               inventoryItems={useInventory ? inventory.items : undefined}
               onTankClick={openTank}
+              renderTankActions={(item) => <TankActionsMenu tanks={[item]} onRefresh={refreshCurrentPage} />}
+              selectedTankIds={selectedTankIds}
+              onSelectedTankIdsChange={(ids) => {
+                if (!isBulkActionBusy) setSelectedTankIds(ids);
+              }}
               deviceSets={racks}
               statsMap={useInventory ? inventory.statsMap : statsMap}
               renderName={renderName}
@@ -1464,20 +1489,23 @@ const RacksPage = () => {
                 {(gridItems ?? racks).map((entry) => {
                   if ("ref" in entry && entry.ref?.kind === EntityKind.TANK)
                     return (
-                      <button
-                        type="button"
+                      <div
                         key={`tank:${entry.ref.id}`}
-                        className="rounded-xl border border-border-5 bg-surface-base p-6 text-left"
-                        onClick={() => openTank(entry)}
+                        className="relative rounded-xl border border-border-5 bg-surface-base"
                       >
-                        <InventoryCell item={entry} column="name" />
-                        <p className="py-3 text-200 text-text-primary-70">{entry.assetCount.toString()} modules</p>
-                        <InventoryCell item={entry} column="health" />
-                        <div className="grid grid-cols-2 gap-3 pt-4">
-                          <InventoryCell item={entry} column="hashrate" />
-                          <InventoryCell item={entry} column="power" />
+                        <button type="button" className="w-full p-6 text-left" onClick={() => openTank(entry)}>
+                          <InventoryCell item={entry} column="name" />
+                          <p className="py-3 text-200 text-text-primary-70">{entry.assetCount.toString()} modules</p>
+                          <InventoryCell item={entry} column="health" />
+                          <div className="grid grid-cols-2 gap-3 pt-4">
+                            <InventoryCell item={entry} column="hashrate" />
+                            <InventoryCell item={entry} column="power" />
+                          </div>
+                        </button>
+                        <div className="absolute top-3 right-3">
+                          <TankActionsMenu tanks={[entry]} onRefresh={refreshCurrentPage} />
                         </div>
-                      </button>
+                      </div>
                     );
                   const rack =
                     "details" in entry ? (entry.details.case === "rack" ? entry.details.value : undefined) : entry;
@@ -1532,9 +1560,11 @@ const RacksPage = () => {
             ) : null}
           </div>
         )}
-        {selectedRackScopes.length > 0 || isBulkActionBusy ? (
+        {selectedRackScopes.length > 0 || selectedTanks.length > 0 || isBulkActionBusy ? (
           <FleetGroupListActionBar
             selectedScopes={selectedRackScopes}
+            selectedTanks={selectedTanks}
+            onRefetchTanks={refreshCurrentPage}
             kind="rack"
             bulkExtraActions={[
               {
@@ -1574,6 +1604,7 @@ const RacksPage = () => {
                     const rackIds = selectedRackScopes.map((scope) => scope.id);
                     setBulkReparentKind(null);
                     setSelectedRackIds([]);
+                    setSelectedTankIds([]);
                     if (bulkReparentKind === "building") {
                       // A rack in another building OR directly in another site
                       // will be moved into the new building's site.
@@ -1613,6 +1644,7 @@ const RacksPage = () => {
                   pushToast({ message: "Selected racks are already in that building.", status: STATUSES.queued });
                   setBulkReparentKind(null);
                   setSelectedRackIds([]);
+                  setSelectedTankIds([]);
                   resolve();
                   return;
                 }
@@ -1625,6 +1657,7 @@ const RacksPage = () => {
                     if (ok) {
                       setBulkReparentKind(null);
                       setSelectedRackIds([]);
+                      setSelectedTankIds([]);
                     }
                     resolve();
                   })

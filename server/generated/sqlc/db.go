@@ -1176,6 +1176,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.hasPendingContainerControlStmt, err = db.PrepareContext(ctx, hasPendingContainerControl); err != nil {
 		return nil, fmt.Errorf("error preparing query HasPendingContainerControl: %w", err)
 	}
+	if q.hasPendingTankMiningStmt, err = db.PrepareContext(ctx, hasPendingTankMining); err != nil {
+		return nil, fmt.Errorf("error preparing query HasPendingTankMining: %w", err)
+	}
 	if q.hasUserStmt, err = db.PrepareContext(ctx, hasUser); err != nil {
 		return nil, fmt.Errorf("error preparing query HasUser: %w", err)
 	}
@@ -1631,6 +1634,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listTakenDeviceSetLabelsStmt, err = db.PrepareContext(ctx, listTakenDeviceSetLabels); err != nil {
 		return nil, fmt.Errorf("error preparing query ListTakenDeviceSetLabels: %w", err)
+	}
+	if q.listTankCommandTargetsStmt, err = db.PrepareContext(ctx, listTankCommandTargets); err != nil {
+		return nil, fmt.Errorf("error preparing query ListTankCommandTargets: %w", err)
 	}
 	if q.listTerminalFirmwareRolloutsNeedingProvenanceStmt, err = db.PrepareContext(ctx, listTerminalFirmwareRolloutsNeedingProvenance); err != nil {
 		return nil, fmt.Errorf("error preparing query ListTerminalFirmwareRolloutsNeedingProvenance: %w", err)
@@ -4325,6 +4331,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing hasPendingContainerControlStmt: %w", cerr)
 		}
 	}
+	if q.hasPendingTankMiningStmt != nil {
+		if cerr := q.hasPendingTankMiningStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasPendingTankMiningStmt: %w", cerr)
+		}
+	}
 	if q.hasUserStmt != nil {
 		if cerr := q.hasUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing hasUserStmt: %w", cerr)
@@ -5083,6 +5094,11 @@ func (q *Queries) Close() error {
 	if q.listTakenDeviceSetLabelsStmt != nil {
 		if cerr := q.listTakenDeviceSetLabelsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listTakenDeviceSetLabelsStmt: %w", cerr)
+		}
+	}
+	if q.listTankCommandTargetsStmt != nil {
+		if cerr := q.listTankCommandTargetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listTankCommandTargetsStmt: %w", cerr)
 		}
 	}
 	if q.listTerminalFirmwareRolloutsNeedingProvenanceStmt != nil {
@@ -6788,6 +6804,7 @@ type Queries struct {
 	haltFirmwareRolloutDevicesStmt                               *sql.Stmt
 	hasHostedAccountHostAuthorityStmt                            *sql.Stmt
 	hasPendingContainerControlStmt                               *sql.Stmt
+	hasPendingTankMiningStmt                                     *sql.Stmt
 	hasUserStmt                                                  *sql.Stmt
 	insertActivityLogStmt                                        *sql.Stmt
 	insertAlertChannelStmt                                       *sql.Stmt
@@ -6940,6 +6957,7 @@ type Queries struct {
 	listSiteSlugsStmt                                            *sql.Stmt
 	listSitesStmt                                                *sql.Stmt
 	listTakenDeviceSetLabelsStmt                                 *sql.Stmt
+	listTankCommandTargetsStmt                                   *sql.Stmt
 	listTerminalFirmwareRolloutsNeedingProvenanceStmt            *sql.Stmt
 	listUsersForOrganizationStmt                                 *sql.Stmt
 	lockActiveHostedAccountUserStmt                              *sql.Stmt
@@ -7586,6 +7604,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		haltFirmwareRolloutDevicesStmt:                               q.haltFirmwareRolloutDevicesStmt,
 		hasHostedAccountHostAuthorityStmt:                            q.hasHostedAccountHostAuthorityStmt,
 		hasPendingContainerControlStmt:                               q.hasPendingContainerControlStmt,
+		hasPendingTankMiningStmt:                                     q.hasPendingTankMiningStmt,
 		hasUserStmt:                                                  q.hasUserStmt,
 		insertActivityLogStmt:                                        q.insertActivityLogStmt,
 		insertAlertChannelStmt:                                       q.insertAlertChannelStmt,
@@ -7738,6 +7757,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listSiteSlugsStmt:                                            q.listSiteSlugsStmt,
 		listSitesStmt:                                                q.listSitesStmt,
 		listTakenDeviceSetLabelsStmt:                                 q.listTakenDeviceSetLabelsStmt,
+		listTankCommandTargetsStmt:                                   q.listTankCommandTargetsStmt,
 		listTerminalFirmwareRolloutsNeedingProvenanceStmt:            q.listTerminalFirmwareRolloutsNeedingProvenanceStmt,
 		listUsersForOrganizationStmt:                                 q.listUsersForOrganizationStmt,
 		lockActiveHostedAccountUserStmt:                              q.lockActiveHostedAccountUserStmt,

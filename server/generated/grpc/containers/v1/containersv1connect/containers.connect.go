@@ -34,6 +34,12 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// ContainerServiceGetTankMiningOptionsProcedure is the fully-qualified name of the
+	// ContainerService's GetTankMiningOptions RPC.
+	ContainerServiceGetTankMiningOptionsProcedure = "/containers.v1.ContainerService/GetTankMiningOptions"
+	// ContainerServiceSetTankMiningProcedure is the fully-qualified name of the ContainerService's
+	// SetTankMining RPC.
+	ContainerServiceSetTankMiningProcedure = "/containers.v1.ContainerService/SetTankMining"
 	// ContainerServiceGetEquipmentCommandResultProcedure is the fully-qualified name of the
 	// ContainerService's GetEquipmentCommandResult RPC.
 	ContainerServiceGetEquipmentCommandResultProcedure = "/containers.v1.ContainerService/GetEquipmentCommandResult"
@@ -50,6 +56,8 @@ const (
 
 // ContainerServiceClient is a client for the containers.v1.ContainerService service.
 type ContainerServiceClient interface {
+	GetTankMiningOptions(context.Context, *connect.Request[v1.GetTankMiningOptionsRequest]) (*connect.Response[v1.GetTankMiningOptionsResponse], error)
+	SetTankMining(context.Context, *connect.Request[v1.SetTankMiningRequest]) (*connect.Response[v1.SetTankMiningResponse], error)
 	GetEquipmentCommandResult(context.Context, *connect.Request[v1.GetEquipmentCommandResultRequest]) (*connect.Response[v1.GetEquipmentCommandResultResponse], error)
 	SetEquipmentControl(context.Context, *connect.Request[v1.SetEquipmentControlRequest]) (*connect.Response[v1.SetEquipmentControlResponse], error)
 	GetContainer(context.Context, *connect.Request[v1.GetContainerRequest]) (*connect.Response[v1.GetContainerResponse], error)
@@ -66,6 +74,16 @@ type ContainerServiceClient interface {
 func NewContainerServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) ContainerServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &containerServiceClient{
+		getTankMiningOptions: connect.NewClient[v1.GetTankMiningOptionsRequest, v1.GetTankMiningOptionsResponse](
+			httpClient,
+			baseURL+ContainerServiceGetTankMiningOptionsProcedure,
+			opts...,
+		),
+		setTankMining: connect.NewClient[v1.SetTankMiningRequest, v1.SetTankMiningResponse](
+			httpClient,
+			baseURL+ContainerServiceSetTankMiningProcedure,
+			opts...,
+		),
 		getEquipmentCommandResult: connect.NewClient[v1.GetEquipmentCommandResultRequest, v1.GetEquipmentCommandResultResponse](
 			httpClient,
 			baseURL+ContainerServiceGetEquipmentCommandResultProcedure,
@@ -91,10 +109,22 @@ func NewContainerServiceClient(httpClient connect.HTTPClient, baseURL string, op
 
 // containerServiceClient implements ContainerServiceClient.
 type containerServiceClient struct {
+	getTankMiningOptions      *connect.Client[v1.GetTankMiningOptionsRequest, v1.GetTankMiningOptionsResponse]
+	setTankMining             *connect.Client[v1.SetTankMiningRequest, v1.SetTankMiningResponse]
 	getEquipmentCommandResult *connect.Client[v1.GetEquipmentCommandResultRequest, v1.GetEquipmentCommandResultResponse]
 	setEquipmentControl       *connect.Client[v1.SetEquipmentControlRequest, v1.SetEquipmentControlResponse]
 	getContainer              *connect.Client[v1.GetContainerRequest, v1.GetContainerResponse]
 	listContainers            *connect.Client[v1.ListContainersRequest, v1.ListContainersResponse]
+}
+
+// GetTankMiningOptions calls containers.v1.ContainerService.GetTankMiningOptions.
+func (c *containerServiceClient) GetTankMiningOptions(ctx context.Context, req *connect.Request[v1.GetTankMiningOptionsRequest]) (*connect.Response[v1.GetTankMiningOptionsResponse], error) {
+	return c.getTankMiningOptions.CallUnary(ctx, req)
+}
+
+// SetTankMining calls containers.v1.ContainerService.SetTankMining.
+func (c *containerServiceClient) SetTankMining(ctx context.Context, req *connect.Request[v1.SetTankMiningRequest]) (*connect.Response[v1.SetTankMiningResponse], error) {
+	return c.setTankMining.CallUnary(ctx, req)
 }
 
 // GetEquipmentCommandResult calls containers.v1.ContainerService.GetEquipmentCommandResult.
@@ -119,6 +149,8 @@ func (c *containerServiceClient) ListContainers(ctx context.Context, req *connec
 
 // ContainerServiceHandler is an implementation of the containers.v1.ContainerService service.
 type ContainerServiceHandler interface {
+	GetTankMiningOptions(context.Context, *connect.Request[v1.GetTankMiningOptionsRequest]) (*connect.Response[v1.GetTankMiningOptionsResponse], error)
+	SetTankMining(context.Context, *connect.Request[v1.SetTankMiningRequest]) (*connect.Response[v1.SetTankMiningResponse], error)
 	GetEquipmentCommandResult(context.Context, *connect.Request[v1.GetEquipmentCommandResultRequest]) (*connect.Response[v1.GetEquipmentCommandResultResponse], error)
 	SetEquipmentControl(context.Context, *connect.Request[v1.SetEquipmentControlRequest]) (*connect.Response[v1.SetEquipmentControlResponse], error)
 	GetContainer(context.Context, *connect.Request[v1.GetContainerRequest]) (*connect.Response[v1.GetContainerResponse], error)
@@ -131,6 +163,16 @@ type ContainerServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	containerServiceGetTankMiningOptionsHandler := connect.NewUnaryHandler(
+		ContainerServiceGetTankMiningOptionsProcedure,
+		svc.GetTankMiningOptions,
+		opts...,
+	)
+	containerServiceSetTankMiningHandler := connect.NewUnaryHandler(
+		ContainerServiceSetTankMiningProcedure,
+		svc.SetTankMining,
+		opts...,
+	)
 	containerServiceGetEquipmentCommandResultHandler := connect.NewUnaryHandler(
 		ContainerServiceGetEquipmentCommandResultProcedure,
 		svc.GetEquipmentCommandResult,
@@ -153,6 +195,10 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 	)
 	return "/containers.v1.ContainerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case ContainerServiceGetTankMiningOptionsProcedure:
+			containerServiceGetTankMiningOptionsHandler.ServeHTTP(w, r)
+		case ContainerServiceSetTankMiningProcedure:
+			containerServiceSetTankMiningHandler.ServeHTTP(w, r)
 		case ContainerServiceGetEquipmentCommandResultProcedure:
 			containerServiceGetEquipmentCommandResultHandler.ServeHTTP(w, r)
 		case ContainerServiceSetEquipmentControlProcedure:
@@ -169,6 +215,14 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 
 // UnimplementedContainerServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedContainerServiceHandler struct{}
+
+func (UnimplementedContainerServiceHandler) GetTankMiningOptions(context.Context, *connect.Request[v1.GetTankMiningOptionsRequest]) (*connect.Response[v1.GetTankMiningOptionsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.GetTankMiningOptions is not implemented"))
+}
+
+func (UnimplementedContainerServiceHandler) SetTankMining(context.Context, *connect.Request[v1.SetTankMiningRequest]) (*connect.Response[v1.SetTankMiningResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.SetTankMining is not implemented"))
+}
 
 func (UnimplementedContainerServiceHandler) GetEquipmentCommandResult(context.Context, *connect.Request[v1.GetEquipmentCommandResultRequest]) (*connect.Response[v1.GetEquipmentCommandResultResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.GetEquipmentCommandResult is not implemented"))

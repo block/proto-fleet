@@ -27,7 +27,7 @@ vi.mock("@/protoFleet/api/SitesContext", () => ({
     sites: [create(SiteWithCountsSchema, { site: { id: 2n, name: "North", slug: "north" } })],
   }),
 }));
-vi.mock("@/protoFleet/store", () => ({ useTemperatureUnit: () => "C" }));
+vi.mock("@/protoFleet/store", () => ({ useTemperatureUnit: () => "C", usePermissions: () => [] }));
 
 function Location() {
   const location = useLocation();

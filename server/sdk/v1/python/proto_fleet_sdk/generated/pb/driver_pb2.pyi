@@ -1128,3 +1128,13 @@ class ContainerModuleIssue(_message.Message):
     severity: str
     observed_at: _timestamp_pb2.Timestamp
     def __init__(self, component: _Optional[str] = ..., component_id: _Optional[str] = ..., cause: _Optional[str] = ..., severity: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+
+class SetTankMiningRequest(_message.Message):
+    __slots__ = ("ref", "positions", "mining")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    POSITIONS_FIELD_NUMBER: _ClassVar[int]
+    MINING_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    positions: _containers.RepeatedScalarFieldContainer[int]
+    mining: bool
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., positions: _Optional[_Iterable[int]] = ..., mining: bool = ...) -> None: ...

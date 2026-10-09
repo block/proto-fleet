@@ -33,6 +33,7 @@ const (
 	// ApplyCurtailmentConfig replaces the rig-local fallback configuration.
 	ApplyCurtailmentConfig
 	SetContainerControl
+	SetTankMining
 )
 
 func (t *Type) String() string {
@@ -63,6 +64,8 @@ func (t *Type) String() string {
 		return "Curtail"
 	case Uncurtail:
 		return "Uncurtail"
+	case SetTankMining:
+		return "SetTankMining"
 	case SetContainerControl:
 		return "SetContainerControl"
 	case ApplyCurtailmentConfig:
@@ -101,6 +104,8 @@ func FromString(s string) (Type, error) {
 		return Curtail, nil
 	case "Uncurtail":
 		return Uncurtail, nil
+	case "SetTankMining":
+		return SetTankMining, nil
 	case "SetContainerControl":
 		return SetContainerControl, nil
 	case "ApplyCurtailmentConfig":

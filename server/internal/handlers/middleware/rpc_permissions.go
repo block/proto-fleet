@@ -144,7 +144,10 @@ var ProcedurePermissions = map[string]string{
 	// container. Writes also require power-target authority and all three read
 	// permissions; cooling-mode is the primary classification recorded here.
 	containersv1connect.ContainerServiceGetEquipmentCommandResultProcedure: authz.PermSiteRead,
-	containersv1connect.ContainerServiceSetEquipmentControlProcedure:       authz.PermMinerSetCoolingMode,
+	containersv1connect.ContainerServiceGetTankMiningOptionsProcedure:      authz.PermSiteRead,
+	// Handler resolves every tank and enforces the requested mining permission at its current site.
+	containersv1connect.ContainerServiceSetTankMiningProcedure:       authz.PermSiteRead,
+	containersv1connect.ContainerServiceSetEquipmentControlProcedure: authz.PermMinerSetCoolingMode,
 	// CreateBuilding optionally seeds racks + devices atomically (#559). This
 	// site:manage entry is the primary gate; when the caller opts into
 	// force_clear_conflicting_rack_membership the handler adds an inline

@@ -1,14 +1,38 @@
 import { type ComponentProps } from "react";
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 
 import { type GroupScope } from "./FleetGroupActionsMenu";
 import FleetGroupListActionBar from "./FleetGroupListActionBar";
+import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
+import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 
 const { mockSetActionBarVisible } = vi.hoisted(() => ({ mockSetActionBarVisible: vi.fn() }));
 
 vi.mock("@/protoFleet/store", () => ({
   useSetActionBarVisible: () => mockSetActionBarVisible,
+}));
+vi.mock("@/protoFleet/features/containers/TankActionsMenu", () => ({
+  default: ({
+    tanks,
+    onActionStart,
+    onActionComplete,
+  }: {
+    tanks: InventoryItem[];
+    onActionStart: () => void;
+    onActionComplete: () => void;
+  }) => (
+    <div>
+      <span data-testid="stub-tank-names">{tanks.map((tank) => tank.name).join(", ")}</span>
+      <button data-testid="stub-tank-start" onClick={onActionStart}>
+        start tank action
+      </button>
+      <button data-testid="stub-tank-complete" onClick={onActionComplete}>
+        complete tank action
+      </button>
+    </div>
+  ),
 }));
 
 // FleetGroupActionsMenu pulls in batch hooks / RPC wiring that aren't relevant
@@ -54,6 +78,26 @@ const scopes = (count: number): GroupScope[] =>
   Array.from({ length: count }, (_, i) => ({ kind: "site" as const, id: BigInt(i + 1), name: `Site ${i + 1}` }));
 
 describe("FleetGroupListActionBar", () => {
+  test("preserves the confirmed tanks across polling changes without restoring an earlier rack selection", () => {
+    const tanks = [create(InventoryItemSchema, { ref: { kind: EntityKind.TANK, id: 1n }, name: "Tank 1" })];
+    const props = {
+      kind: "rack" as const,
+      onClearSelection: vi.fn(),
+      onSelectAllVisible: vi.fn(),
+      onRefetchTanks: vi.fn(),
+    };
+    const { getByTestId, queryByTestId, rerender } = render(
+      <FleetGroupListActionBar {...props} selectedScopes={[{ kind: "rack", id: 1n, name: "Rack 1" }]} />,
+    );
+    rerender(<FleetGroupListActionBar {...props} selectedScopes={[]} selectedTanks={tanks} />);
+    fireEvent.click(getByTestId("stub-tank-start"));
+    rerender(<FleetGroupListActionBar {...props} selectedScopes={[]} selectedTanks={[]} />);
+    expect(getByTestId("stub-tank-names")).toHaveTextContent("Tank 1");
+    expect(queryByTestId("stub-scope-count")).not.toBeInTheDocument();
+    fireEvent.click(getByTestId("stub-tank-complete"));
+    expect(queryByTestId("action-bar")).not.toBeInTheDocument();
+    expect(mockSetActionBarVisible).toHaveBeenLastCalledWith(false);
+  });
   test("sets global toaster push-up on mount and clears it on unmount", () => {
     mockSetActionBarVisible.mockClear();
     const { unmount } = renderBar(scopes(2));
