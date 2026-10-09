@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
@@ -1015,6 +1017,42 @@ func (es *ExecutionService) applyMinerNameToPoolUsernames(
 	}
 
 	return payload, nil
+}
+
+// preflightWorkerNameReapply bounds concurrent device reads for large selections.
+// No pool credentials or rebuilt payloads are retained in the command queue.
+func (es *ExecutionService) preflightWorkerNameReapply(
+	ctx context.Context,
+	identifiers []string,
+	deviceIDs map[string]int64,
+	desiredWorkerNames map[string]string,
+) error {
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(16)
+	for _, identifier := range identifiers {
+		group.Go(func() error {
+			readCtx, cancel := context.WithTimeout(groupCtx, workerNameLookupTimeout)
+			defer cancel()
+			if err := readCtx.Err(); err != nil {
+				return fmt.Errorf("worker-name preflight canceled: %w", err)
+			}
+			minerInfo, err := es.minerService.GetMiner(readCtx, deviceIDs[identifier])
+			if err != nil {
+				return err
+			}
+			_, _, _, err = es.reapplyCurrentPoolsWithDesiredWorkerName(readCtx, minerInfo, dto.UpdateMiningPoolsPayload{
+				DesiredWorkerName: desiredWorkerNames[identifier],
+			})
+			if fleeterror.IsUnimplementedError(err) {
+				return fleeterror.NewFailedPreconditionErrorf("cannot update worker name for device %s: complete stored pool readback is unsupported", identifier)
+			}
+			return err
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return fmt.Errorf("worker-name preflight: %w", err)
+	}
+	return nil
 }
 
 func (es *ExecutionService) reapplyCurrentPoolsWithDesiredWorkerName(
