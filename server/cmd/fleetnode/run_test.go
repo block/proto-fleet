@@ -272,6 +272,62 @@ func TestIsRetryableRefreshError(t *testing.T) {
 	}
 }
 
+func TestRunCmd_RetriesThrottledRefreshWithoutLosingCredentials(t *testing.T) {
+	for _, mode := range []string{"application", "waf"} {
+		t.Run(mode, func(t *testing.T) {
+			pub, priv, err := ed25519.GenerateKey(rand.Reader)
+			require.NoError(t, err)
+			fake := &fakeFleetNodeGateway{
+				expectedAPIKey: "fleet_known_key", identityPub: pub,
+				challenge: bytes.Repeat([]byte{1}, 32), sessionToken: "new-session",
+				sessionExpiresAt: time.Now().Add(24 * time.Hour),
+			}
+			_, gatewayHandler := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fake)
+			throttleHandler := connect.NewUnaryHandler(fleetnodegatewayv1connect.FleetNodeGatewayServiceBeginAuthHandshakeProcedure,
+				func(context.Context, *connect.Request[pb.BeginAuthHandshakeRequest]) (*connect.Response[pb.BeginAuthHandshakeResponse], error) {
+					err := connect.NewError(connect.CodeResourceExhausted, errors.New("retry later"))
+					err.Meta().Set("Retry-After", "60")
+					return nil, err
+				})
+			var throttled atomic.Bool
+			throttled.Store(true)
+			srv := testutil.NewH2CServer(t, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if throttled.Load() {
+					if mode == "waf" {
+						w.Header().Set("Retry-After", "60")
+						http.Error(w, "retry later", http.StatusTooManyRequests)
+					} else {
+						throttleHandler.ServeHTTP(w, req)
+					}
+					return
+				}
+				gatewayHandler.ServeHTTP(w, req)
+			}))
+			state := &bootstrap.State{
+				ServerURL: srv.URL, AllowInsecureTransport: true, FleetNodeID: 42,
+				IdentityPrivateKeyHex: hex.EncodeToString(priv), IdentityPublicKeyHex: hex.EncodeToString(pub),
+				APIKey: "fleet_known_key", SessionToken: "old-session", SessionExpiresAt: time.Now().Add(30 * time.Minute),
+			}
+			statePath := bootstrap.StatePath(t.TempDir())
+			require.NoError(t, bootstrap.SaveState(statePath, state))
+			before, err := os.ReadFile(statePath)
+			require.NoError(t, err)
+			cmd := &RunCmd{now: time.Now}
+			client := &stubGatewayClient{responder: func(int) error { return nil }}
+			require.NoError(t, cmd.tick(t.Context(), client, state, statePath, discardLogger(t)))
+			require.Equal(t, "old-session", state.SessionToken)
+			after, err := os.ReadFile(statePath)
+			require.NoError(t, err)
+			require.Equal(t, before, after)
+			throttled.Store(false)
+			require.NoError(t, cmd.tick(t.Context(), client, state, statePath, discardLogger(t)))
+			require.Equal(t, "new-session", state.SessionToken)
+			require.Equal(t, "fleet_known_key", state.APIKey)
+			require.True(t, fake.signatureVerified)
+		})
+	}
+}
+
 func TestRunCmd_LocalRefreshFailureRequiresOperatorAction(t *testing.T) {
 	t.Parallel()
 

@@ -55,6 +55,49 @@ The SDK reserves an ID during creation and rejected-result cleanup, returning a
 retryable close error while either is running. IDs being closed cannot be reused
 until cleanup succeeds.
 
+## Fleet Node bootstrap rate limits
+
+Fleet limits `Register` to 120 requests per source IP per minute and
+`BeginAuthHandshake` plus `CompleteAuthHandshake` to a shared 600 requests per
+source IP per minute. These budgets allow 100 Nodes to enroll and authenticate
+together behind one public IP. Successful and failed attempts both count.
+Heartbeat, control streams, discovery reports, and artifact transfers do not
+consume these budgets.
+
+The Connect request gate runs before message decoding, interceptors, or database
+work. Rejections return `ResourceExhausted` with `Retry-After` in seconds. The
+Node daemon retains its credentials and retries a throttled refresh on its next
+heartbeat tick; it also retries a plain HTTP 429 from AWS WAF.
+
+Counters use fixed 60-second windows starting with each IP's first request. They
+are local to the Fleet process and reset on restart or HA failover. Each budget
+stores at most 10,000 IPs, reclaims expired entries when full, and rejects new
+IPs until space becomes available. Live entries are never evicted to reset quotas.
+An unresolved client IP shares a fallback bucket. Throttle logging is limited to
+one event per budget per minute and excludes IPs and credentials.
+
+Configure `HTTP_TRUSTED_PROXY_CIDRS` with only the actual ingress proxies, such
+as loopback nginx and the ALB subnet CIDRs. The existing middleware walks trusted
+proxy hops to find the source IP; caller-supplied forwarding headers cannot
+override an untrusted peer. With incorrect proxy configuration, unrelated clients
+may share a proxy's quota. AWS WAF adds independent, approximate edge limits;
+its rollout and rollback are documented in the infrastructure repository's
+`fleet-ha/SECURITY.md`.
+
+### Security follow-ups
+
+The connection review found no demonstrated authentication bypass in the paths
+examined. Rate limits leave these separate issues for follow-up:
+
+- Bootstrap messages have no predecode message-size cap. Validation happens after
+  decoding, so one admitted large or compressed request can consume resources.
+- All handshake completions share a mutex across database work. A slow admitted
+  request can delay unrelated Nodes. A replacement must preserve persisted
+  session rotation and control-stream fencing order.
+- Sessions are 24-hour bearer tokens. A stolen token can be replayed until
+  expiration, rotation, or revocation; per-request identity binding or mTLS would
+  require a separate design.
+
 ## Worker-name pool updates
 
 Worker-name changes require complete stored pool readback so rewriting usernames
