@@ -368,7 +368,7 @@ message MiningPool {
   int32 priority = 1;        // 0 = default, 1 = backup1, 2 = backup2
   string url = 2;            // e.g., stratum+tcp://pool.example:3333
   string worker_name = 3;    // Worker name or address
-  string password = 4;       // Credential to write, including explicitly empty
+  optional string password = 4; // Required on writes; present empty means an empty credential
 }
 
 message UpdateMiningPoolsRequest {

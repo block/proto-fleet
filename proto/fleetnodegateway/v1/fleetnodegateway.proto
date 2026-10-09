@@ -284,6 +284,8 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V1 = 1;
     // V2 adds named container equipment desired-state commands.
     COMMAND_PROTOCOL_VERSION_V2 = 2;
+    // V3 seals complete mining pool writes for the target node.
+    COMMAND_PROTOCOL_VERSION_V3 = 3;
 }
 
 message ControlHello {
@@ -499,11 +501,15 @@ message MiningPoolWriteConfig {
     }];
     string username = 3 [(buf.validate.field).string.max_len = 512];
     // Exact credential to write, including an explicitly empty value.
-    string password = 4;
+    optional string password = 4 [(buf.validate.field).required = true];
+}
+
+message MiningPoolWriteConfiguration {
+    repeated MiningPoolWriteConfig pools = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 3}];
 }
 
 message UpdateMiningPoolsAction {
-    repeated MiningPoolWriteConfig pools = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 3}];
+    NodeEncryptedPayload encrypted_config = 1 [(buf.validate.field).required = true];
 }
 
 message GetMiningPoolsResult {

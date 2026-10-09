@@ -26,6 +26,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/commandresult"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/poolconfig"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
@@ -54,11 +55,13 @@ type LogArtifactSaver interface {
 
 // Config carries everything the adapter needs to address a fleet-node-paired miner.
 type Config struct {
-	Sender       CommandSender
-	FleetNodeID  int64
-	OrgID        int64
-	SiteID       int64
-	LogArtifacts LogArtifactSaver
+	// EncryptionPublicKey resolves the current node key for each pool write.
+	EncryptionPublicKey func(context.Context) ([]byte, error)
+	Sender              CommandSender
+	FleetNodeID         int64
+	OrgID               int64
+	SiteID              int64
+	LogArtifacts        LogArtifactSaver
 	// Gate, if set, bounds concurrent commands the server has in flight to this
 	// fleet node so a large batch paces rather than oversubscribing the node.
 	Gate Gate
@@ -88,16 +91,17 @@ type Config struct {
 // value (no live connection), so caching the handle is safe; stream liveness is
 // resolved per command by the registry.
 type Miner struct {
-	sender             CommandSender
-	gate               Gate
-	deferrableReadGate Gate
-	logGate            Gate
-	logArtifacts       LogArtifactSaver
-	fleetNodeID        int64
-	orgID              int64
-	siteID             int64
-	desc               *gatewaypb.MinerConnectionDescriptor
-	connInfo           networking.ConnectionInfo
+	encryptionPublicKey func(context.Context) ([]byte, error)
+	sender              CommandSender
+	gate                Gate
+	deferrableReadGate  Gate
+	logGate             Gate
+	logArtifacts        LogArtifactSaver
+	fleetNodeID         int64
+	orgID               int64
+	siteID              int64
+	desc                *gatewaypb.MinerConnectionDescriptor
+	connInfo            networking.ConnectionInfo
 }
 
 var _ interfaces.Miner = (*Miner)(nil)
@@ -131,14 +135,15 @@ func New(cfg Config) (*Miner, error) {
 		return nil, fleeterror.NewInternalErrorf("remote-node miner: connection info: %v", err)
 	}
 	return &Miner{
-		sender:             cfg.Sender,
-		gate:               cfg.Gate,
-		deferrableReadGate: cfg.DeferrableReadGate,
-		logGate:            cfg.LogDownloadGate,
-		logArtifacts:       cfg.LogArtifacts,
-		fleetNodeID:        cfg.FleetNodeID,
-		orgID:              cfg.OrgID,
-		siteID:             cfg.SiteID,
+		sender:              cfg.Sender,
+		encryptionPublicKey: cfg.EncryptionPublicKey,
+		gate:                cfg.Gate,
+		deferrableReadGate:  cfg.DeferrableReadGate,
+		logGate:             cfg.LogDownloadGate,
+		logArtifacts:        cfg.LogArtifacts,
+		fleetNodeID:         cfg.FleetNodeID,
+		orgID:               cfg.OrgID,
+		siteID:              cfg.SiteID,
 		desc: &gatewaypb.MinerConnectionDescriptor{
 			DeviceIdentifier:   cfg.DeviceIdentifier,
 			DriverName:         cfg.DriverName,
@@ -300,7 +305,9 @@ func (m *Miner) sendWithoutGate(ctx context.Context, mc *gatewaypb.MinerCommand)
 		return nil, err
 	}
 	version := gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
-	if mc.GetSetContainerControl() != nil {
+	if mc.GetUpdateMiningPools() != nil {
+		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3
+	} else if mc.GetSetContainerControl() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2
 	}
 	ack, err := m.sender.SendCommand(ctx, m.fleetNodeID, version, cmd)
@@ -409,9 +416,29 @@ func (m *Miner) UpdateMiningPools(ctx context.Context, payload dto.UpdateMiningP
 	if err != nil {
 		return err
 	}
-	return m.dispatch(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_UpdateMiningPools{
-		UpdateMiningPools: &gatewaypb.UpdateMiningPoolsAction{Pools: pools},
-	}})
+	if m.encryptionPublicKey == nil {
+		return fleeterror.NewFailedPreconditionError("fleet node pool config encryption key is unavailable")
+	}
+	command := &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_UpdateMiningPools{UpdateMiningPools: &gatewaypb.UpdateMiningPoolsAction{}}}
+	release, err := m.acquireGate(ctx, command)
+	if err != nil {
+		return err
+	}
+	defer release()
+	key, err := m.encryptionPublicKey(ctx)
+	if err != nil {
+		return err
+	}
+	encrypted, err := poolconfig.Encrypt(key, m.desc.GetDeviceIdentifier(), &gatewaypb.MiningPoolWriteConfiguration{Pools: pools})
+	if err != nil {
+		return fleeterror.NewInvalidArgumentErrorf("seal fleet node pool config: %v", err)
+	}
+	command.GetUpdateMiningPools().EncryptedConfig = encrypted
+	ack, err := m.sendWithoutGate(ctx, command)
+	if err != nil {
+		return err
+	}
+	return ackToError(ack)
 }
 
 func (m *Miner) UpdateMinerPassword(ctx context.Context, payload dto.UpdateMinerPasswordPayload) error {
@@ -865,6 +892,6 @@ func miningPoolConfigFromDTO(pool dto.MiningPool, poolName string) (*gatewaypb.M
 		Priority: int32(pool.Priority), //nolint:gosec // G115: Priority validated above to fit in int32.
 		Url:      pool.URL,
 		Username: pool.Username,
-		Password: pool.Password,
+		Password: proto.String(pool.Password),
 	}, nil
 }

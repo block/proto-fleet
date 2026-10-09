@@ -1440,3 +1440,25 @@ func TestRegistryEquipmentRejectsV1BeforeEnqueue(t *testing.T) {
 	default:
 	}
 }
+
+func TestRegistryPoolWritesRejectLegacyProtocolBeforeEnqueue(t *testing.T) {
+	for _, version := range []gatewaypb.CommandProtocolVersion{
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2,
+	} {
+		t.Run(version.String(), func(t *testing.T) {
+			registry := NewRegistry()
+			stream, err := registry.RegisterAuthenticated(7, "session", version)
+			require.NoError(t, err)
+			defer stream.Unregister()
+			_, err = registry.SendCommand(t.Context(), 7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3, &gatewaypb.ControlCommand{CommandId: "sealed-pools"})
+			require.True(t, fleeterror.IsFailedPreconditionError(err))
+			require.ErrorContains(t, err, "requires version 3")
+			select {
+			case <-stream.Outgoing:
+				t.Fatal("pool write enqueued for legacy node")
+			default:
+			}
+		})
+	}
+}

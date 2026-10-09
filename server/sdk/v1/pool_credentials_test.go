@@ -15,7 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
 )
 
@@ -23,13 +25,15 @@ import (
 // runtime pool view.
 type storedPoolDevice struct {
 	fakeDevice
-	mu    sync.Mutex
-	pools []MiningPoolConfig
+	mu          sync.Mutex
+	pools       []MiningPoolConfig
+	updateCalls int
 }
 
 func (d *storedPoolDevice) UpdateMiningPools(_ context.Context, pools []MiningPoolConfig) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.updateCalls++
 	d.pools = append([]MiningPoolConfig(nil), pools...)
 	return nil
 }
@@ -79,6 +83,28 @@ func TestMiningPoolCredentialsGRPCTransport(t *testing.T) {
 		{Priority: 1, URL: "stratum+tcp://backup1.example.com:3333", WorkerName: "backup1.worker", Password: "backup-password"},
 		{Priority: 2, URL: "stratum+tcp://backup2.example.com:3333", WorkerName: "backup2.worker", Password: ""},
 	}
+	// A raw wire caller must provide every password, even when a preceding pool
+	// is valid. Reject the whole request before invoking the device.
+	provided := "must-not-appear-in-errors"
+	for _, invalidPool := range []*pb.MiningPool{
+		{Priority: 1, Url: "stratum+tcp://backup.example:3333", WorkerName: "worker"},
+		nil,
+	} {
+		_, err := pb.NewDriverClient(conn).UpdateMiningPools(ctx, &pb.UpdateMiningPoolsRequest{
+			Ref: &pb.DeviceRef{DeviceId: "device-123"},
+			Pools: []*pb.MiningPool{
+				{Priority: 0, Url: pools[0].URL, WorkerName: pools[0].WorkerName, Password: &provided},
+				invalidPool,
+			},
+		})
+		require.Equal(t, codes.InvalidArgument, status.Code(err))
+		require.NotContains(t, err.Error(), provided)
+		device.mu.Lock()
+		updateCalls := device.updateCalls
+		device.mu.Unlock()
+		require.Zero(t, updateCalls, "an omitted password must reject the entire write")
+	}
+
 	require.NoError(t, client.UpdateMiningPools(ctx, pools))
 	device.mu.Lock()
 	stored := append([]MiningPoolConfig(nil), device.pools...)

@@ -565,11 +565,14 @@ func (s *DriverGRPCServer) UpdateMiningPools(ctx context.Context, req *pb.Update
 
 	pools := make([]MiningPoolConfig, len(req.Pools))
 	for i, pool := range req.Pools {
+		if pool == nil || pool.Password == nil {
+			return nil, status.Errorf(codes.InvalidArgument, "pool %d requires an explicit password", i)
+		}
 		pools[i] = MiningPoolConfig{
 			Priority:   pool.Priority,
 			URL:        pool.Url,
 			WorkerName: pool.WorkerName,
-			Password:   pool.Password,
+			Password:   *pool.Password,
 		}
 	}
 
@@ -1233,7 +1236,7 @@ func (d *DeviceGRPCClient) UpdateMiningPools(ctx context.Context, pools []Mining
 			Priority:   pool.Priority,
 			Url:        pool.URL,
 			WorkerName: pool.WorkerName,
-			Password:   pool.Password,
+			Password:   &pool.Password,
 		}
 	}
 
