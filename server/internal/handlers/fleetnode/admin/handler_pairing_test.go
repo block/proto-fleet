@@ -128,6 +128,12 @@ func (h *pairingHarness) insertDevice(t *testing.T) int64 {
 func TestListFleetNodes_ReportsProtocolStateAndRedactsPairingOnlyCallers(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-list-legacy")
+	deviceID := h.insertDevice(t)
+	_, err := h.handler.PairDeviceToFleetNode(h.adminCtx(), connect.NewRequest(&pb.PairDeviceToFleetNodeRequest{
+		FleetNodeId: fleetNodeID,
+		DeviceId:    deviceID,
+	}))
+	require.NoError(t, err)
 	stream, err := h.registry.RegisterAuthenticated(
 		fleetNodeID,
 		"legacy",
@@ -140,6 +146,7 @@ func TestListFleetNodes_ReportsProtocolStateAndRedactsPairingOnlyCallers(t *test
 	require.Len(t, resp.Msg.GetFleetNodes(), 1)
 	assert.True(t, resp.Msg.GetFleetNodes()[0].GetCommandProtocolUpgradeRequired())
 	assert.True(t, resp.Msg.GetFleetNodes()[0].GetControlStreamConnected())
+	assert.EqualValues(t, 1, resp.Msg.GetFleetNodes()[0].GetPairedDeviceCount())
 
 	resp, err = h.handler.ListFleetNodes(h.ctxWithPerms(authz.PermMinerPair), connect.NewRequest(&pb.ListFleetNodesRequest{}))
 	require.NoError(t, err)
@@ -154,6 +161,7 @@ func TestListFleetNodes_ReportsProtocolStateAndRedactsPairingOnlyCallers(t *test
 	assert.Equal(t, pb.FleetNodeEnrollmentStatus_FLEET_NODE_ENROLLMENT_STATUS_CONFIRMED, pairingSummary.GetEnrollmentStatus())
 	assert.True(t, pairingSummary.GetCommandProtocolUpgradeRequired())
 	assert.True(t, pairingSummary.GetControlStreamConnected())
+	assert.Zero(t, pairingSummary.GetPairedDeviceCount())
 
 	stream.Unregister()
 	resp, err = h.handler.ListFleetNodes(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodesRequest{}))

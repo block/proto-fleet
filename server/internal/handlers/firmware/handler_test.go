@@ -107,7 +107,7 @@ func newTestEnv(t *testing.T) *testEnv {
 }
 
 func (e *testEnv) authenticator() RequestAuthenticator {
-	return interceptors.NewAuthInterceptor(e.sessionSvc, e.userStoreMock, e.userMgmtStoreMock, nil, e.permissionResolver, nil, nil, nil)
+	return interceptors.NewAuthInterceptor(e.sessionSvc, e.userStoreMock, e.userMgmtStoreMock, nil, e.permissionResolver, nil, nil, nil, nil)
 }
 
 // expectAuth sets up expectations for a successful authentication flow.

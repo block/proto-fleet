@@ -33,6 +33,10 @@ func (s *pairServiceStore) DeviceHasActiveCloudPairing(context.Context, int64, i
 	return false, nil
 }
 
+func (s *pairServiceStore) DeviceHasRevokedFleetNodeStatus(context.Context, int64, int64) (bool, error) {
+	return false, nil
+}
+
 func (s *pairServiceStore) LockDeviceForFleetNodePairing(context.Context, int64, int64) (bool, error) {
 	return true, nil
 }
@@ -75,7 +79,7 @@ var _ stores.Transactor = passThroughTransactor{}
 
 type failingTelemetryScheduler struct{}
 
-func (failingTelemetryScheduler) AddDevices(context.Context, ...telemetrymodels.DeviceIdentifier) error {
+func (failingTelemetryScheduler) AddPairedDevices(context.Context, ...telemetrymodels.DeviceIdentifier) error {
 	return errors.New("scheduler down")
 }
 
@@ -84,7 +88,7 @@ type blockingTelemetryScheduler struct {
 	release chan struct{}
 }
 
-func (s blockingTelemetryScheduler) AddDevices(ctx context.Context, _ ...telemetrymodels.DeviceIdentifier) error {
+func (s blockingTelemetryScheduler) AddPairedDevices(ctx context.Context, _ ...telemetrymodels.DeviceIdentifier) error {
 	close(s.started)
 	select {
 	case <-s.release:

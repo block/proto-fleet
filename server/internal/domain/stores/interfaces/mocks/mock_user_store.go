@@ -272,6 +272,21 @@ func (mr *MockUserManagementStoreMockRecorder) CreateUserOrganizationRole(ctx, u
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateUserOrganizationRole", reflect.TypeOf((*MockUserManagementStore)(nil).CreateUserOrganizationRole), ctx, userID, organizationID, roleID)
 }
 
+// GetActiveUserRoleNameForUpdate mocks base method.
+func (m *MockUserManagementStore) GetActiveUserRoleNameForUpdate(ctx context.Context, userID, organizationID int64) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetActiveUserRoleNameForUpdate", ctx, userID, organizationID)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetActiveUserRoleNameForUpdate indicates an expected call of GetActiveUserRoleNameForUpdate.
+func (mr *MockUserManagementStoreMockRecorder) GetActiveUserRoleNameForUpdate(ctx, userID, organizationID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetActiveUserRoleNameForUpdate", reflect.TypeOf((*MockUserManagementStore)(nil).GetActiveUserRoleNameForUpdate), ctx, userID, organizationID)
+}
+
 // GetBuiltinRoleForOrg mocks base method.
 func (m *MockUserManagementStore) GetBuiltinRoleForOrg(ctx context.Context, organizationID int64, builtinKey string) (interfaces.Role, error) {
 	m.ctrl.T.Helper()

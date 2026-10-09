@@ -3019,6 +3019,7 @@ type MiningPool struct {
 	Priority      int32                  `protobuf:"varint,1,opt,name=priority,proto3" json:"priority,omitempty"`                      // 0 = default, 1 = backup1, 2 = backup2
 	Url           string                 `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`                                 // e.g., stratum+tcp://pool.example:3333
 	WorkerName    string                 `protobuf:"bytes,3,opt,name=worker_name,json=workerName,proto3" json:"worker_name,omitempty"` // Worker name or address
+	Password      *string                `protobuf:"bytes,4,opt,name=password,proto3,oneof" json:"password,omitempty"`                 // Required on writes; present empty means an empty credential
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3070,6 +3071,13 @@ func (x *MiningPool) GetUrl() string {
 func (x *MiningPool) GetWorkerName() string {
 	if x != nil {
 		return x.WorkerName
+	}
+	return ""
+}
+
+func (x *MiningPool) GetPassword() string {
+	if x != nil && x.Password != nil {
+		return *x.Password
 	}
 	return ""
 }
@@ -3275,6 +3283,164 @@ func (x *GetMiningPoolsResponse) GetPools() []*ConfiguredPool {
 	return nil
 }
 
+// StoredMiningPool is private stored configuration, including disabled slots.
+type StoredMiningPool struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Priority int32                  `protobuf:"varint,1,opt,name=priority,proto3" json:"priority,omitempty"`
+	Url      string                 `protobuf:"bytes,2,opt,name=url,proto3" json:"url,omitempty"`
+	Username string                 `protobuf:"bytes,3,opt,name=username,proto3" json:"username,omitempty"`
+	// Absent means unavailable or masked; present empty proves stored empty.
+	Password      *string `protobuf:"bytes,4,opt,name=password,proto3,oneof" json:"password,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StoredMiningPool) Reset() {
+	*x = StoredMiningPool{}
+	mi := &file_pb_driver_proto_msgTypes[38]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StoredMiningPool) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StoredMiningPool) ProtoMessage() {}
+
+func (x *StoredMiningPool) ProtoReflect() protoreflect.Message {
+	mi := &file_pb_driver_proto_msgTypes[38]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StoredMiningPool.ProtoReflect.Descriptor instead.
+func (*StoredMiningPool) Descriptor() ([]byte, []int) {
+	return file_pb_driver_proto_rawDescGZIP(), []int{38}
+}
+
+func (x *StoredMiningPool) GetPriority() int32 {
+	if x != nil {
+		return x.Priority
+	}
+	return 0
+}
+
+func (x *StoredMiningPool) GetUrl() string {
+	if x != nil {
+		return x.Url
+	}
+	return ""
+}
+
+func (x *StoredMiningPool) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *StoredMiningPool) GetPassword() string {
+	if x != nil && x.Password != nil {
+		return *x.Password
+	}
+	return ""
+}
+
+type GetStoredMiningPoolsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ref           *DeviceRef             `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetStoredMiningPoolsRequest) Reset() {
+	*x = GetStoredMiningPoolsRequest{}
+	mi := &file_pb_driver_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetStoredMiningPoolsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetStoredMiningPoolsRequest) ProtoMessage() {}
+
+func (x *GetStoredMiningPoolsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_pb_driver_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetStoredMiningPoolsRequest.ProtoReflect.Descriptor instead.
+func (*GetStoredMiningPoolsRequest) Descriptor() ([]byte, []int) {
+	return file_pb_driver_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *GetStoredMiningPoolsRequest) GetRef() *DeviceRef {
+	if x != nil {
+		return x.Ref
+	}
+	return nil
+}
+
+type GetStoredMiningPoolsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Pools         []*StoredMiningPool    `protobuf:"bytes,1,rep,name=pools,proto3" json:"pools,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetStoredMiningPoolsResponse) Reset() {
+	*x = GetStoredMiningPoolsResponse{}
+	mi := &file_pb_driver_proto_msgTypes[40]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetStoredMiningPoolsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetStoredMiningPoolsResponse) ProtoMessage() {}
+
+func (x *GetStoredMiningPoolsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_pb_driver_proto_msgTypes[40]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetStoredMiningPoolsResponse.ProtoReflect.Descriptor instead.
+func (*GetStoredMiningPoolsResponse) Descriptor() ([]byte, []int) {
+	return file_pb_driver_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *GetStoredMiningPoolsResponse) GetPools() []*StoredMiningPool {
+	if x != nil {
+		return x.Pools
+	}
+	return nil
+}
+
 type DownloadLogsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Ref           *DeviceRef             `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
@@ -3286,7 +3452,7 @@ type DownloadLogsRequest struct {
 
 func (x *DownloadLogsRequest) Reset() {
 	*x = DownloadLogsRequest{}
-	mi := &file_pb_driver_proto_msgTypes[38]
+	mi := &file_pb_driver_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3298,7 +3464,7 @@ func (x *DownloadLogsRequest) String() string {
 func (*DownloadLogsRequest) ProtoMessage() {}
 
 func (x *DownloadLogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[38]
+	mi := &file_pb_driver_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3311,7 +3477,7 @@ func (x *DownloadLogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownloadLogsRequest.ProtoReflect.Descriptor instead.
 func (*DownloadLogsRequest) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{38}
+	return file_pb_driver_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *DownloadLogsRequest) GetRef() *DeviceRef {
@@ -3345,7 +3511,7 @@ type DownloadLogsResponse struct {
 
 func (x *DownloadLogsResponse) Reset() {
 	*x = DownloadLogsResponse{}
-	mi := &file_pb_driver_proto_msgTypes[39]
+	mi := &file_pb_driver_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3357,7 +3523,7 @@ func (x *DownloadLogsResponse) String() string {
 func (*DownloadLogsResponse) ProtoMessage() {}
 
 func (x *DownloadLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[39]
+	mi := &file_pb_driver_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3370,7 +3536,7 @@ func (x *DownloadLogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DownloadLogsResponse.ProtoReflect.Descriptor instead.
 func (*DownloadLogsResponse) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{39}
+	return file_pb_driver_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *DownloadLogsResponse) GetLogData() string {
@@ -3434,7 +3600,7 @@ type DeviceInfo struct {
 
 func (x *DeviceInfo) Reset() {
 	*x = DeviceInfo{}
-	mi := &file_pb_driver_proto_msgTypes[40]
+	mi := &file_pb_driver_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3446,7 +3612,7 @@ func (x *DeviceInfo) String() string {
 func (*DeviceInfo) ProtoMessage() {}
 
 func (x *DeviceInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[40]
+	mi := &file_pb_driver_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3459,7 +3625,7 @@ func (x *DeviceInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceInfo.ProtoReflect.Descriptor instead.
 func (*DeviceInfo) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{40}
+	return file_pb_driver_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *DeviceInfo) GetHost() string {
@@ -3542,7 +3708,7 @@ type DiscoverDeviceRequest struct {
 
 func (x *DiscoverDeviceRequest) Reset() {
 	*x = DiscoverDeviceRequest{}
-	mi := &file_pb_driver_proto_msgTypes[41]
+	mi := &file_pb_driver_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3554,7 +3720,7 @@ func (x *DiscoverDeviceRequest) String() string {
 func (*DiscoverDeviceRequest) ProtoMessage() {}
 
 func (x *DiscoverDeviceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[41]
+	mi := &file_pb_driver_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3567,7 +3733,7 @@ func (x *DiscoverDeviceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiscoverDeviceRequest.ProtoReflect.Descriptor instead.
 func (*DiscoverDeviceRequest) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{41}
+	return file_pb_driver_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *DiscoverDeviceRequest) GetIpAddress() string {
@@ -3593,7 +3759,7 @@ type DiscoverDeviceResponse struct {
 
 func (x *DiscoverDeviceResponse) Reset() {
 	*x = DiscoverDeviceResponse{}
-	mi := &file_pb_driver_proto_msgTypes[42]
+	mi := &file_pb_driver_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3605,7 +3771,7 @@ func (x *DiscoverDeviceResponse) String() string {
 func (*DiscoverDeviceResponse) ProtoMessage() {}
 
 func (x *DiscoverDeviceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[42]
+	mi := &file_pb_driver_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3618,7 +3784,7 @@ func (x *DiscoverDeviceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiscoverDeviceResponse.ProtoReflect.Descriptor instead.
 func (*DiscoverDeviceResponse) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{42}
+	return file_pb_driver_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *DiscoverDeviceResponse) GetDevice() *DeviceInfo {
@@ -3638,7 +3804,7 @@ type PairDeviceRequest struct {
 
 func (x *PairDeviceRequest) Reset() {
 	*x = PairDeviceRequest{}
-	mi := &file_pb_driver_proto_msgTypes[43]
+	mi := &file_pb_driver_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3650,7 +3816,7 @@ func (x *PairDeviceRequest) String() string {
 func (*PairDeviceRequest) ProtoMessage() {}
 
 func (x *PairDeviceRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[43]
+	mi := &file_pb_driver_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3663,7 +3829,7 @@ func (x *PairDeviceRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PairDeviceRequest.ProtoReflect.Descriptor instead.
 func (*PairDeviceRequest) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{43}
+	return file_pb_driver_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *PairDeviceRequest) GetDevice() *DeviceInfo {
@@ -3689,7 +3855,7 @@ type PairDeviceResponse struct {
 
 func (x *PairDeviceResponse) Reset() {
 	*x = PairDeviceResponse{}
-	mi := &file_pb_driver_proto_msgTypes[44]
+	mi := &file_pb_driver_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3701,7 +3867,7 @@ func (x *PairDeviceResponse) String() string {
 func (*PairDeviceResponse) ProtoMessage() {}
 
 func (x *PairDeviceResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[44]
+	mi := &file_pb_driver_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3714,7 +3880,7 @@ func (x *PairDeviceResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PairDeviceResponse.ProtoReflect.Descriptor instead.
 func (*PairDeviceResponse) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{44}
+	return file_pb_driver_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *PairDeviceResponse) GetDevice() *DeviceInfo {
@@ -3736,7 +3902,7 @@ type GetDefaultCredentialsRequest struct {
 
 func (x *GetDefaultCredentialsRequest) Reset() {
 	*x = GetDefaultCredentialsRequest{}
-	mi := &file_pb_driver_proto_msgTypes[45]
+	mi := &file_pb_driver_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3748,7 +3914,7 @@ func (x *GetDefaultCredentialsRequest) String() string {
 func (*GetDefaultCredentialsRequest) ProtoMessage() {}
 
 func (x *GetDefaultCredentialsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[45]
+	mi := &file_pb_driver_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3761,7 +3927,7 @@ func (x *GetDefaultCredentialsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDefaultCredentialsRequest.ProtoReflect.Descriptor instead.
 func (*GetDefaultCredentialsRequest) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{45}
+	return file_pb_driver_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *GetDefaultCredentialsRequest) GetManufacturer() string {
@@ -3788,7 +3954,7 @@ type GetDefaultCredentialsResponse struct {
 
 func (x *GetDefaultCredentialsResponse) Reset() {
 	*x = GetDefaultCredentialsResponse{}
-	mi := &file_pb_driver_proto_msgTypes[46]
+	mi := &file_pb_driver_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3800,7 +3966,7 @@ func (x *GetDefaultCredentialsResponse) String() string {
 func (*GetDefaultCredentialsResponse) ProtoMessage() {}
 
 func (x *GetDefaultCredentialsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[46]
+	mi := &file_pb_driver_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3813,7 +3979,7 @@ func (x *GetDefaultCredentialsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDefaultCredentialsResponse.ProtoReflect.Descriptor instead.
 func (*GetDefaultCredentialsResponse) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{46}
+	return file_pb_driver_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *GetDefaultCredentialsResponse) GetCredentials() []*UsernamePassword {
@@ -3840,7 +4006,7 @@ type GetCapabilitiesForModelRequest struct {
 
 func (x *GetCapabilitiesForModelRequest) Reset() {
 	*x = GetCapabilitiesForModelRequest{}
-	mi := &file_pb_driver_proto_msgTypes[47]
+	mi := &file_pb_driver_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3852,7 +4018,7 @@ func (x *GetCapabilitiesForModelRequest) String() string {
 func (*GetCapabilitiesForModelRequest) ProtoMessage() {}
 
 func (x *GetCapabilitiesForModelRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[47]
+	mi := &file_pb_driver_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3865,7 +4031,7 @@ func (x *GetCapabilitiesForModelRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCapabilitiesForModelRequest.ProtoReflect.Descriptor instead.
 func (*GetCapabilitiesForModelRequest) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{47}
+	return file_pb_driver_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *GetCapabilitiesForModelRequest) GetModel() string {
@@ -3892,7 +4058,7 @@ type GetCapabilitiesForModelResponse struct {
 
 func (x *GetCapabilitiesForModelResponse) Reset() {
 	*x = GetCapabilitiesForModelResponse{}
-	mi := &file_pb_driver_proto_msgTypes[48]
+	mi := &file_pb_driver_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3904,7 +4070,7 @@ func (x *GetCapabilitiesForModelResponse) String() string {
 func (*GetCapabilitiesForModelResponse) ProtoMessage() {}
 
 func (x *GetCapabilitiesForModelResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[48]
+	mi := &file_pb_driver_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3917,7 +4083,7 @@ func (x *GetCapabilitiesForModelResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCapabilitiesForModelResponse.ProtoReflect.Descriptor instead.
 func (*GetCapabilitiesForModelResponse) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{48}
+	return file_pb_driver_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *GetCapabilitiesForModelResponse) GetCaps() *Capabilities {
@@ -3937,7 +4103,7 @@ type GetDiscoveryPortsResponse struct {
 
 func (x *GetDiscoveryPortsResponse) Reset() {
 	*x = GetDiscoveryPortsResponse{}
-	mi := &file_pb_driver_proto_msgTypes[49]
+	mi := &file_pb_driver_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3949,7 +4115,7 @@ func (x *GetDiscoveryPortsResponse) String() string {
 func (*GetDiscoveryPortsResponse) ProtoMessage() {}
 
 func (x *GetDiscoveryPortsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[49]
+	mi := &file_pb_driver_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3962,7 +4128,7 @@ func (x *GetDiscoveryPortsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDiscoveryPortsResponse.ProtoReflect.Descriptor instead.
 func (*GetDiscoveryPortsResponse) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{49}
+	return file_pb_driver_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *GetDiscoveryPortsResponse) GetPorts() []string {
@@ -3981,7 +4147,7 @@ type GetDeviceWebViewURLResponse struct {
 
 func (x *GetDeviceWebViewURLResponse) Reset() {
 	*x = GetDeviceWebViewURLResponse{}
-	mi := &file_pb_driver_proto_msgTypes[50]
+	mi := &file_pb_driver_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3993,7 +4159,7 @@ func (x *GetDeviceWebViewURLResponse) String() string {
 func (*GetDeviceWebViewURLResponse) ProtoMessage() {}
 
 func (x *GetDeviceWebViewURLResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[50]
+	mi := &file_pb_driver_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4006,7 +4172,7 @@ func (x *GetDeviceWebViewURLResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDeviceWebViewURLResponse.ProtoReflect.Descriptor instead.
 func (*GetDeviceWebViewURLResponse) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{50}
+	return file_pb_driver_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *GetDeviceWebViewURLResponse) GetUrl() string {
@@ -4025,7 +4191,7 @@ type GetDeviceWebViewURLRequest struct {
 
 func (x *GetDeviceWebViewURLRequest) Reset() {
 	*x = GetDeviceWebViewURLRequest{}
-	mi := &file_pb_driver_proto_msgTypes[51]
+	mi := &file_pb_driver_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4037,7 +4203,7 @@ func (x *GetDeviceWebViewURLRequest) String() string {
 func (*GetDeviceWebViewURLRequest) ProtoMessage() {}
 
 func (x *GetDeviceWebViewURLRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[51]
+	mi := &file_pb_driver_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4050,7 +4216,7 @@ func (x *GetDeviceWebViewURLRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDeviceWebViewURLRequest.ProtoReflect.Descriptor instead.
 func (*GetDeviceWebViewURLRequest) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{51}
+	return file_pb_driver_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *GetDeviceWebViewURLRequest) GetRef() *DeviceRef {
@@ -4077,7 +4243,7 @@ type GetTimeSeriesDataRequest struct {
 
 func (x *GetTimeSeriesDataRequest) Reset() {
 	*x = GetTimeSeriesDataRequest{}
-	mi := &file_pb_driver_proto_msgTypes[52]
+	mi := &file_pb_driver_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4089,7 +4255,7 @@ func (x *GetTimeSeriesDataRequest) String() string {
 func (*GetTimeSeriesDataRequest) ProtoMessage() {}
 
 func (x *GetTimeSeriesDataRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[52]
+	mi := &file_pb_driver_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4102,7 +4268,7 @@ func (x *GetTimeSeriesDataRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTimeSeriesDataRequest.ProtoReflect.Descriptor instead.
 func (*GetTimeSeriesDataRequest) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{52}
+	return file_pb_driver_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *GetTimeSeriesDataRequest) GetRef() *DeviceRef {
@@ -4164,7 +4330,7 @@ type GetTimeSeriesDataResponse struct {
 
 func (x *GetTimeSeriesDataResponse) Reset() {
 	*x = GetTimeSeriesDataResponse{}
-	mi := &file_pb_driver_proto_msgTypes[53]
+	mi := &file_pb_driver_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4176,7 +4342,7 @@ func (x *GetTimeSeriesDataResponse) String() string {
 func (*GetTimeSeriesDataResponse) ProtoMessage() {}
 
 func (x *GetTimeSeriesDataResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[53]
+	mi := &file_pb_driver_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4189,7 +4355,7 @@ func (x *GetTimeSeriesDataResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTimeSeriesDataResponse.ProtoReflect.Descriptor instead.
 func (*GetTimeSeriesDataResponse) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{53}
+	return file_pb_driver_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *GetTimeSeriesDataResponse) GetSeries() []*DeviceMetrics {
@@ -4218,7 +4384,7 @@ type UpdateMinerPasswordRequest struct {
 
 func (x *UpdateMinerPasswordRequest) Reset() {
 	*x = UpdateMinerPasswordRequest{}
-	mi := &file_pb_driver_proto_msgTypes[54]
+	mi := &file_pb_driver_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4230,7 +4396,7 @@ func (x *UpdateMinerPasswordRequest) String() string {
 func (*UpdateMinerPasswordRequest) ProtoMessage() {}
 
 func (x *UpdateMinerPasswordRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[54]
+	mi := &file_pb_driver_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4243,7 +4409,7 @@ func (x *UpdateMinerPasswordRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateMinerPasswordRequest.ProtoReflect.Descriptor instead.
 func (*UpdateMinerPasswordRequest) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{54}
+	return file_pb_driver_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *UpdateMinerPasswordRequest) GetRef() *DeviceRef {
@@ -4283,7 +4449,7 @@ type FirmwareFileInfo struct {
 
 func (x *FirmwareFileInfo) Reset() {
 	*x = FirmwareFileInfo{}
-	mi := &file_pb_driver_proto_msgTypes[55]
+	mi := &file_pb_driver_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4295,7 +4461,7 @@ func (x *FirmwareFileInfo) String() string {
 func (*FirmwareFileInfo) ProtoMessage() {}
 
 func (x *FirmwareFileInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[55]
+	mi := &file_pb_driver_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4308,7 +4474,7 @@ func (x *FirmwareFileInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FirmwareFileInfo.ProtoReflect.Descriptor instead.
 func (*FirmwareFileInfo) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{55}
+	return file_pb_driver_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *FirmwareFileInfo) GetFilePath() string {
@@ -4358,7 +4524,7 @@ type UpdateFirmwareRequest struct {
 
 func (x *UpdateFirmwareRequest) Reset() {
 	*x = UpdateFirmwareRequest{}
-	mi := &file_pb_driver_proto_msgTypes[56]
+	mi := &file_pb_driver_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4370,7 +4536,7 @@ func (x *UpdateFirmwareRequest) String() string {
 func (*UpdateFirmwareRequest) ProtoMessage() {}
 
 func (x *UpdateFirmwareRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[56]
+	mi := &file_pb_driver_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4383,7 +4549,7 @@ func (x *UpdateFirmwareRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateFirmwareRequest.ProtoReflect.Descriptor instead.
 func (*UpdateFirmwareRequest) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{56}
+	return file_pb_driver_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *UpdateFirmwareRequest) GetRef() *DeviceRef {
@@ -4412,7 +4578,7 @@ type GetFirmwareUpdateStatusResponse struct {
 
 func (x *GetFirmwareUpdateStatusResponse) Reset() {
 	*x = GetFirmwareUpdateStatusResponse{}
-	mi := &file_pb_driver_proto_msgTypes[57]
+	mi := &file_pb_driver_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4424,7 +4590,7 @@ func (x *GetFirmwareUpdateStatusResponse) String() string {
 func (*GetFirmwareUpdateStatusResponse) ProtoMessage() {}
 
 func (x *GetFirmwareUpdateStatusResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[57]
+	mi := &file_pb_driver_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4437,7 +4603,7 @@ func (x *GetFirmwareUpdateStatusResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetFirmwareUpdateStatusResponse.ProtoReflect.Descriptor instead.
 func (*GetFirmwareUpdateStatusResponse) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{57}
+	return file_pb_driver_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *GetFirmwareUpdateStatusResponse) GetState() string {
@@ -4484,7 +4650,7 @@ type DeviceError struct {
 
 func (x *DeviceError) Reset() {
 	*x = DeviceError{}
-	mi := &file_pb_driver_proto_msgTypes[58]
+	mi := &file_pb_driver_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4496,7 +4662,7 @@ func (x *DeviceError) String() string {
 func (*DeviceError) ProtoMessage() {}
 
 func (x *DeviceError) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[58]
+	mi := &file_pb_driver_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4509,7 +4675,7 @@ func (x *DeviceError) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceError.ProtoReflect.Descriptor instead.
 func (*DeviceError) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{58}
+	return file_pb_driver_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *DeviceError) GetMinerError() MinerError {
@@ -4614,7 +4780,7 @@ type DeviceErrors struct {
 
 func (x *DeviceErrors) Reset() {
 	*x = DeviceErrors{}
-	mi := &file_pb_driver_proto_msgTypes[59]
+	mi := &file_pb_driver_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4626,7 +4792,7 @@ func (x *DeviceErrors) String() string {
 func (*DeviceErrors) ProtoMessage() {}
 
 func (x *DeviceErrors) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[59]
+	mi := &file_pb_driver_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4639,7 +4805,7 @@ func (x *DeviceErrors) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeviceErrors.ProtoReflect.Descriptor instead.
 func (*DeviceErrors) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{59}
+	return file_pb_driver_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *DeviceErrors) GetDeviceId() string {
@@ -4671,7 +4837,7 @@ type ContainerSnapshot struct {
 
 func (x *ContainerSnapshot) Reset() {
 	*x = ContainerSnapshot{}
-	mi := &file_pb_driver_proto_msgTypes[60]
+	mi := &file_pb_driver_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4683,7 +4849,7 @@ func (x *ContainerSnapshot) String() string {
 func (*ContainerSnapshot) ProtoMessage() {}
 
 func (x *ContainerSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[60]
+	mi := &file_pb_driver_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4696,7 +4862,7 @@ func (x *ContainerSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerSnapshot.ProtoReflect.Descriptor instead.
 func (*ContainerSnapshot) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{60}
+	return file_pb_driver_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *ContainerSnapshot) GetFans() []*ContainerFan {
@@ -4751,7 +4917,7 @@ type ContainerTank struct {
 
 func (x *ContainerTank) Reset() {
 	*x = ContainerTank{}
-	mi := &file_pb_driver_proto_msgTypes[61]
+	mi := &file_pb_driver_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4763,7 +4929,7 @@ func (x *ContainerTank) String() string {
 func (*ContainerTank) ProtoMessage() {}
 
 func (x *ContainerTank) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[61]
+	mi := &file_pb_driver_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4776,7 +4942,7 @@ func (x *ContainerTank) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerTank.ProtoReflect.Descriptor instead.
 func (*ContainerTank) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{61}
+	return file_pb_driver_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *ContainerTank) GetPosition() int32 {
@@ -4809,7 +4975,7 @@ type ContainerModule struct {
 
 func (x *ContainerModule) Reset() {
 	*x = ContainerModule{}
-	mi := &file_pb_driver_proto_msgTypes[62]
+	mi := &file_pb_driver_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4821,7 +4987,7 @@ func (x *ContainerModule) String() string {
 func (*ContainerModule) ProtoMessage() {}
 
 func (x *ContainerModule) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[62]
+	mi := &file_pb_driver_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4834,7 +5000,7 @@ func (x *ContainerModule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerModule.ProtoReflect.Descriptor instead.
 func (*ContainerModule) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{62}
+	return file_pb_driver_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *ContainerModule) GetHashboards() []*ContainerHashboard {
@@ -4899,7 +5065,7 @@ type HashboardIdentityClaim struct {
 
 func (x *HashboardIdentityClaim) Reset() {
 	*x = HashboardIdentityClaim{}
-	mi := &file_pb_driver_proto_msgTypes[63]
+	mi := &file_pb_driver_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4911,7 +5077,7 @@ func (x *HashboardIdentityClaim) String() string {
 func (*HashboardIdentityClaim) ProtoMessage() {}
 
 func (x *HashboardIdentityClaim) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[63]
+	mi := &file_pb_driver_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4924,7 +5090,7 @@ func (x *HashboardIdentityClaim) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HashboardIdentityClaim.ProtoReflect.Descriptor instead.
 func (*HashboardIdentityClaim) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{63}
+	return file_pb_driver_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *HashboardIdentityClaim) GetMacAddress() string {
@@ -4969,7 +5135,7 @@ type ContainerHashboard struct {
 
 func (x *ContainerHashboard) Reset() {
 	*x = ContainerHashboard{}
-	mi := &file_pb_driver_proto_msgTypes[64]
+	mi := &file_pb_driver_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4981,7 +5147,7 @@ func (x *ContainerHashboard) String() string {
 func (*ContainerHashboard) ProtoMessage() {}
 
 func (x *ContainerHashboard) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[64]
+	mi := &file_pb_driver_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4994,7 +5160,7 @@ func (x *ContainerHashboard) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerHashboard.ProtoReflect.Descriptor instead.
 func (*ContainerHashboard) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{64}
+	return file_pb_driver_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *ContainerHashboard) GetIdentityClaims() []*HashboardIdentityClaim {
@@ -5129,7 +5295,7 @@ type ContainerModuleMetrics struct {
 
 func (x *ContainerModuleMetrics) Reset() {
 	*x = ContainerModuleMetrics{}
-	mi := &file_pb_driver_proto_msgTypes[65]
+	mi := &file_pb_driver_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5141,7 +5307,7 @@ func (x *ContainerModuleMetrics) String() string {
 func (*ContainerModuleMetrics) ProtoMessage() {}
 
 func (x *ContainerModuleMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[65]
+	mi := &file_pb_driver_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5154,7 +5320,7 @@ func (x *ContainerModuleMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerModuleMetrics.ProtoReflect.Descriptor instead.
 func (*ContainerModuleMetrics) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{65}
+	return file_pb_driver_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *ContainerModuleMetrics) GetObservedAt() *timestamppb.Timestamp {
@@ -5202,7 +5368,7 @@ type ContainerPlant struct {
 
 func (x *ContainerPlant) Reset() {
 	*x = ContainerPlant{}
-	mi := &file_pb_driver_proto_msgTypes[66]
+	mi := &file_pb_driver_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5214,7 +5380,7 @@ func (x *ContainerPlant) String() string {
 func (*ContainerPlant) ProtoMessage() {}
 
 func (x *ContainerPlant) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[66]
+	mi := &file_pb_driver_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5227,7 +5393,7 @@ func (x *ContainerPlant) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerPlant.ProtoReflect.Descriptor instead.
 func (*ContainerPlant) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{66}
+	return file_pb_driver_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *ContainerPlant) GetDryCoolerInletTemperatureC() float64 {
@@ -5308,7 +5474,7 @@ type ContainerFan struct {
 
 func (x *ContainerFan) Reset() {
 	*x = ContainerFan{}
-	mi := &file_pb_driver_proto_msgTypes[67]
+	mi := &file_pb_driver_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5320,7 +5486,7 @@ func (x *ContainerFan) String() string {
 func (*ContainerFan) ProtoMessage() {}
 
 func (x *ContainerFan) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[67]
+	mi := &file_pb_driver_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5333,7 +5499,7 @@ func (x *ContainerFan) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerFan.ProtoReflect.Descriptor instead.
 func (*ContainerFan) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{67}
+	return file_pb_driver_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *ContainerFan) GetComponentId() string {
@@ -5396,7 +5562,7 @@ type ContainerControls struct {
 
 func (x *ContainerControls) Reset() {
 	*x = ContainerControls{}
-	mi := &file_pb_driver_proto_msgTypes[68]
+	mi := &file_pb_driver_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5408,7 +5574,7 @@ func (x *ContainerControls) String() string {
 func (*ContainerControls) ProtoMessage() {}
 
 func (x *ContainerControls) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[68]
+	mi := &file_pb_driver_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5421,7 +5587,7 @@ func (x *ContainerControls) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerControls.ProtoReflect.Descriptor instead.
 func (*ContainerControls) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{68}
+	return file_pb_driver_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *ContainerControls) GetObservedAt() *timestamppb.Timestamp {
@@ -5497,7 +5663,7 @@ type ContainerControl struct {
 
 func (x *ContainerControl) Reset() {
 	*x = ContainerControl{}
-	mi := &file_pb_driver_proto_msgTypes[69]
+	mi := &file_pb_driver_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5509,7 +5675,7 @@ func (x *ContainerControl) String() string {
 func (*ContainerControl) ProtoMessage() {}
 
 func (x *ContainerControl) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[69]
+	mi := &file_pb_driver_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5522,7 +5688,7 @@ func (x *ContainerControl) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerControl.ProtoReflect.Descriptor instead.
 func (*ContainerControl) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{69}
+	return file_pb_driver_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *ContainerControl) GetName() string {
@@ -5550,7 +5716,7 @@ type ContainerSetpoint struct {
 
 func (x *ContainerSetpoint) Reset() {
 	*x = ContainerSetpoint{}
-	mi := &file_pb_driver_proto_msgTypes[70]
+	mi := &file_pb_driver_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5562,7 +5728,7 @@ func (x *ContainerSetpoint) String() string {
 func (*ContainerSetpoint) ProtoMessage() {}
 
 func (x *ContainerSetpoint) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[70]
+	mi := &file_pb_driver_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5575,7 +5741,7 @@ func (x *ContainerSetpoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerSetpoint.ProtoReflect.Descriptor instead.
 func (*ContainerSetpoint) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{70}
+	return file_pb_driver_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *ContainerSetpoint) GetName() string {
@@ -5610,7 +5776,7 @@ type SetContainerControlRequest struct {
 
 func (x *SetContainerControlRequest) Reset() {
 	*x = SetContainerControlRequest{}
-	mi := &file_pb_driver_proto_msgTypes[71]
+	mi := &file_pb_driver_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5622,7 +5788,7 @@ func (x *SetContainerControlRequest) String() string {
 func (*SetContainerControlRequest) ProtoMessage() {}
 
 func (x *SetContainerControlRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[71]
+	mi := &file_pb_driver_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5635,7 +5801,7 @@ func (x *SetContainerControlRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetContainerControlRequest.ProtoReflect.Descriptor instead.
 func (*SetContainerControlRequest) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{71}
+	return file_pb_driver_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *SetContainerControlRequest) GetRef() *DeviceRef {
@@ -5672,7 +5838,7 @@ type ContainerModuleIssues struct {
 
 func (x *ContainerModuleIssues) Reset() {
 	*x = ContainerModuleIssues{}
-	mi := &file_pb_driver_proto_msgTypes[72]
+	mi := &file_pb_driver_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5684,7 +5850,7 @@ func (x *ContainerModuleIssues) String() string {
 func (*ContainerModuleIssues) ProtoMessage() {}
 
 func (x *ContainerModuleIssues) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[72]
+	mi := &file_pb_driver_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5697,7 +5863,7 @@ func (x *ContainerModuleIssues) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerModuleIssues.ProtoReflect.Descriptor instead.
 func (*ContainerModuleIssues) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{72}
+	return file_pb_driver_proto_rawDescGZIP(), []int{75}
 }
 
 func (x *ContainerModuleIssues) GetSourceTimes() map[string]*timestamppb.Timestamp {
@@ -5741,7 +5907,7 @@ type ContainerModuleIssue struct {
 
 func (x *ContainerModuleIssue) Reset() {
 	*x = ContainerModuleIssue{}
-	mi := &file_pb_driver_proto_msgTypes[73]
+	mi := &file_pb_driver_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5753,7 +5919,7 @@ func (x *ContainerModuleIssue) String() string {
 func (*ContainerModuleIssue) ProtoMessage() {}
 
 func (x *ContainerModuleIssue) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[73]
+	mi := &file_pb_driver_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5766,7 +5932,7 @@ func (x *ContainerModuleIssue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ContainerModuleIssue.ProtoReflect.Descriptor instead.
 func (*ContainerModuleIssue) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{73}
+	return file_pb_driver_proto_rawDescGZIP(), []int{76}
 }
 
 func (x *ContainerModuleIssue) GetComponent() string {
@@ -5815,7 +5981,7 @@ type SetTankMiningRequest struct {
 
 func (x *SetTankMiningRequest) Reset() {
 	*x = SetTankMiningRequest{}
-	mi := &file_pb_driver_proto_msgTypes[74]
+	mi := &file_pb_driver_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5827,7 +5993,7 @@ func (x *SetTankMiningRequest) String() string {
 func (*SetTankMiningRequest) ProtoMessage() {}
 
 func (x *SetTankMiningRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_pb_driver_proto_msgTypes[74]
+	mi := &file_pb_driver_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5840,7 +6006,7 @@ func (x *SetTankMiningRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetTankMiningRequest.ProtoReflect.Descriptor instead.
 func (*SetTankMiningRequest) Descriptor() ([]byte, []int) {
-	return file_pb_driver_proto_rawDescGZIP(), []int{74}
+	return file_pb_driver_proto_rawDescGZIP(), []int{77}
 }
 
 func (x *SetTankMiningRequest) GetRef() *DeviceRef {
@@ -6323,32 +6489,53 @@ var file_pb_driver_proto_rawDesc = string([]byte{
 	0x18, 0x02, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x17, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e,
 	0x50, 0x65, 0x72, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x6e, 0x63, 0x65, 0x4d, 0x6f, 0x64, 0x65, 0x52,
 	0x0f, 0x70, 0x65, 0x72, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x6e, 0x63, 0x65, 0x4d, 0x6f, 0x64, 0x65,
-	0x22, 0x5b, 0x0a, 0x0a, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f, 0x6f, 0x6c, 0x12, 0x1a,
+	0x22, 0x89, 0x01, 0x0a, 0x0a, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f, 0x6f, 0x6c, 0x12,
+	0x1a, 0x0a, 0x08, 0x70, 0x72, 0x69, 0x6f, 0x72, 0x69, 0x74, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28,
+	0x05, 0x52, 0x08, 0x70, 0x72, 0x69, 0x6f, 0x72, 0x69, 0x74, 0x79, 0x12, 0x10, 0x0a, 0x03, 0x75,
+	0x72, 0x6c, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x75, 0x72, 0x6c, 0x12, 0x1f, 0x0a,
+	0x0b, 0x77, 0x6f, 0x72, 0x6b, 0x65, 0x72, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x03, 0x20, 0x01,
+	0x28, 0x09, 0x52, 0x0a, 0x77, 0x6f, 0x72, 0x6b, 0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x1f,
+	0x0a, 0x08, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09,
+	0x48, 0x00, 0x52, 0x08, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x88, 0x01, 0x01, 0x42,
+	0x0b, 0x0a, 0x09, 0x5f, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x22, 0x69, 0x0a, 0x18,
+	0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f, 0x6f, 0x6c,
+	0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x23, 0x0a, 0x03, 0x72, 0x65, 0x66, 0x18,
+	0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x11, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x44,
+	0x65, 0x76, 0x69, 0x63, 0x65, 0x52, 0x65, 0x66, 0x52, 0x03, 0x72, 0x65, 0x66, 0x12, 0x28, 0x0a,
+	0x05, 0x70, 0x6f, 0x6f, 0x6c, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x12, 0x2e, 0x73,
+	0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f, 0x6f, 0x6c,
+	0x52, 0x05, 0x70, 0x6f, 0x6f, 0x6c, 0x73, 0x22, 0x5a, 0x0a, 0x0e, 0x43, 0x6f, 0x6e, 0x66, 0x69,
+	0x67, 0x75, 0x72, 0x65, 0x64, 0x50, 0x6f, 0x6f, 0x6c, 0x12, 0x1a, 0x0a, 0x08, 0x70, 0x72, 0x69,
+	0x6f, 0x72, 0x69, 0x74, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x05, 0x52, 0x08, 0x70, 0x72, 0x69,
+	0x6f, 0x72, 0x69, 0x74, 0x79, 0x12, 0x10, 0x0a, 0x03, 0x75, 0x72, 0x6c, 0x18, 0x02, 0x20, 0x01,
+	0x28, 0x09, 0x52, 0x03, 0x75, 0x72, 0x6c, 0x12, 0x1a, 0x0a, 0x08, 0x75, 0x73, 0x65, 0x72, 0x6e,
+	0x61, 0x6d, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x75, 0x73, 0x65, 0x72, 0x6e,
+	0x61, 0x6d, 0x65, 0x22, 0x3c, 0x0a, 0x15, 0x47, 0x65, 0x74, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67,
+	0x50, 0x6f, 0x6f, 0x6c, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x23, 0x0a, 0x03,
+	0x72, 0x65, 0x66, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x11, 0x2e, 0x73, 0x64, 0x6b, 0x2e,
+	0x76, 0x31, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x52, 0x65, 0x66, 0x52, 0x03, 0x72, 0x65,
+	0x66, 0x22, 0x46, 0x0a, 0x16, 0x47, 0x65, 0x74, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f,
+	0x6f, 0x6c, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x2c, 0x0a, 0x05, 0x70,
+	0x6f, 0x6f, 0x6c, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x73, 0x64, 0x6b,
+	0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x75, 0x72, 0x65, 0x64, 0x50, 0x6f,
+	0x6f, 0x6c, 0x52, 0x05, 0x70, 0x6f, 0x6f, 0x6c, 0x73, 0x22, 0x8a, 0x01, 0x0a, 0x10, 0x53, 0x74,
+	0x6f, 0x72, 0x65, 0x64, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f, 0x6f, 0x6c, 0x12, 0x1a,
 	0x0a, 0x08, 0x70, 0x72, 0x69, 0x6f, 0x72, 0x69, 0x74, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x05,
 	0x52, 0x08, 0x70, 0x72, 0x69, 0x6f, 0x72, 0x69, 0x74, 0x79, 0x12, 0x10, 0x0a, 0x03, 0x75, 0x72,
-	0x6c, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x75, 0x72, 0x6c, 0x12, 0x1f, 0x0a, 0x0b,
-	0x77, 0x6f, 0x72, 0x6b, 0x65, 0x72, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28,
-	0x09, 0x52, 0x0a, 0x77, 0x6f, 0x72, 0x6b, 0x65, 0x72, 0x4e, 0x61, 0x6d, 0x65, 0x22, 0x69, 0x0a,
-	0x18, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f, 0x6f,
-	0x6c, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x23, 0x0a, 0x03, 0x72, 0x65, 0x66,
-	0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x11, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e,
-	0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x52, 0x65, 0x66, 0x52, 0x03, 0x72, 0x65, 0x66, 0x12, 0x28,
-	0x0a, 0x05, 0x70, 0x6f, 0x6f, 0x6c, 0x73, 0x18, 0x02, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x12, 0x2e,
-	0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f, 0x6f,
-	0x6c, 0x52, 0x05, 0x70, 0x6f, 0x6f, 0x6c, 0x73, 0x22, 0x5a, 0x0a, 0x0e, 0x43, 0x6f, 0x6e, 0x66,
-	0x69, 0x67, 0x75, 0x72, 0x65, 0x64, 0x50, 0x6f, 0x6f, 0x6c, 0x12, 0x1a, 0x0a, 0x08, 0x70, 0x72,
-	0x69, 0x6f, 0x72, 0x69, 0x74, 0x79, 0x18, 0x01, 0x20, 0x01, 0x28, 0x05, 0x52, 0x08, 0x70, 0x72,
-	0x69, 0x6f, 0x72, 0x69, 0x74, 0x79, 0x12, 0x10, 0x0a, 0x03, 0x75, 0x72, 0x6c, 0x18, 0x02, 0x20,
-	0x01, 0x28, 0x09, 0x52, 0x03, 0x75, 0x72, 0x6c, 0x12, 0x1a, 0x0a, 0x08, 0x75, 0x73, 0x65, 0x72,
-	0x6e, 0x61, 0x6d, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x08, 0x75, 0x73, 0x65, 0x72,
-	0x6e, 0x61, 0x6d, 0x65, 0x22, 0x3c, 0x0a, 0x15, 0x47, 0x65, 0x74, 0x4d, 0x69, 0x6e, 0x69, 0x6e,
-	0x67, 0x50, 0x6f, 0x6f, 0x6c, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x23, 0x0a,
-	0x03, 0x72, 0x65, 0x66, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x11, 0x2e, 0x73, 0x64, 0x6b,
-	0x2e, 0x76, 0x31, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x52, 0x65, 0x66, 0x52, 0x03, 0x72,
-	0x65, 0x66, 0x22, 0x46, 0x0a, 0x16, 0x47, 0x65, 0x74, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50,
-	0x6f, 0x6f, 0x6c, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x2c, 0x0a, 0x05,
-	0x70, 0x6f, 0x6f, 0x6c, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x16, 0x2e, 0x73, 0x64,
-	0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x75, 0x72, 0x65, 0x64, 0x50,
+	0x6c, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x03, 0x75, 0x72, 0x6c, 0x12, 0x1a, 0x0a, 0x08,
+	0x75, 0x73, 0x65, 0x72, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x03, 0x20, 0x01, 0x28, 0x09, 0x52, 0x08,
+	0x75, 0x73, 0x65, 0x72, 0x6e, 0x61, 0x6d, 0x65, 0x12, 0x1f, 0x0a, 0x08, 0x70, 0x61, 0x73, 0x73,
+	0x77, 0x6f, 0x72, 0x64, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x48, 0x00, 0x52, 0x08, 0x70, 0x61,
+	0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x88, 0x01, 0x01, 0x42, 0x0b, 0x0a, 0x09, 0x5f, 0x70, 0x61,
+	0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x22, 0x42, 0x0a, 0x1b, 0x47, 0x65, 0x74, 0x53, 0x74, 0x6f,
+	0x72, 0x65, 0x64, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f, 0x6f, 0x6c, 0x73, 0x52, 0x65,
+	0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x23, 0x0a, 0x03, 0x72, 0x65, 0x66, 0x18, 0x01, 0x20, 0x01,
+	0x28, 0x0b, 0x32, 0x11, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x65, 0x76, 0x69,
+	0x63, 0x65, 0x52, 0x65, 0x66, 0x52, 0x03, 0x72, 0x65, 0x66, 0x22, 0x4e, 0x0a, 0x1c, 0x47, 0x65,
+	0x74, 0x53, 0x74, 0x6f, 0x72, 0x65, 0x64, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f, 0x6f,
+	0x6c, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x2e, 0x0a, 0x05, 0x70, 0x6f,
+	0x6f, 0x6c, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x18, 0x2e, 0x73, 0x64, 0x6b, 0x2e,
+	0x76, 0x31, 0x2e, 0x53, 0x74, 0x6f, 0x72, 0x65, 0x64, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50,
 	0x6f, 0x6f, 0x6c, 0x52, 0x05, 0x70, 0x6f, 0x6f, 0x6c, 0x73, 0x22, 0x92, 0x01, 0x0a, 0x13, 0x44,
 	0x6f, 0x77, 0x6e, 0x6c, 0x6f, 0x61, 0x64, 0x4c, 0x6f, 0x67, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65,
 	0x73, 0x74, 0x12, 0x23, 0x0a, 0x03, 0x72, 0x65, 0x66, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32,
@@ -7011,7 +7198,7 @@ var file_pb_driver_proto_rawDesc = string([]byte{
 	0x19, 0x0a, 0x15, 0x43, 0x4f, 0x4d, 0x50, 0x4f, 0x4e, 0x45, 0x4e, 0x54, 0x5f, 0x54, 0x59, 0x50,
 	0x45, 0x5f, 0x45, 0x45, 0x50, 0x52, 0x4f, 0x4d, 0x10, 0x05, 0x12, 0x1c, 0x0a, 0x18, 0x43, 0x4f,
 	0x4d, 0x50, 0x4f, 0x4e, 0x45, 0x4e, 0x54, 0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x49, 0x4f, 0x5f,
-	0x4d, 0x4f, 0x44, 0x55, 0x4c, 0x45, 0x10, 0x06, 0x32, 0xff, 0x13, 0x0a, 0x06, 0x44, 0x72, 0x69,
+	0x4d, 0x4f, 0x44, 0x55, 0x4c, 0x45, 0x10, 0x06, 0x32, 0xe2, 0x14, 0x0a, 0x06, 0x44, 0x72, 0x69,
 	0x76, 0x65, 0x72, 0x12, 0x3e, 0x0a, 0x09, 0x48, 0x61, 0x6e, 0x64, 0x73, 0x68, 0x61, 0x6b, 0x65,
 	0x12, 0x16, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62,
 	0x75, 0x66, 0x2e, 0x45, 0x6d, 0x70, 0x74, 0x79, 0x1a, 0x19, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76,
@@ -7108,79 +7295,85 @@ var file_pb_driver_proto_rawDesc = string([]byte{
 	0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f, 0x6f, 0x6c, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65,
 	0x73, 0x74, 0x1a, 0x1e, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x74, 0x4d,
 	0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f, 0x6f, 0x6c, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
-	0x73, 0x65, 0x12, 0x49, 0x0a, 0x0c, 0x44, 0x6f, 0x77, 0x6e, 0x6c, 0x6f, 0x61, 0x64, 0x4c, 0x6f,
-	0x67, 0x73, 0x12, 0x1b, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x6f, 0x77, 0x6e,
-	0x6c, 0x6f, 0x61, 0x64, 0x4c, 0x6f, 0x67, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a,
-	0x1c, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x6f, 0x77, 0x6e, 0x6c, 0x6f, 0x61,
-	0x64, 0x4c, 0x6f, 0x67, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x47, 0x0a,
-	0x0e, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x46, 0x69, 0x72, 0x6d, 0x77, 0x61, 0x72, 0x65, 0x12,
-	0x1d, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x46,
-	0x69, 0x72, 0x6d, 0x77, 0x61, 0x72, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x16,
-	0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66,
-	0x2e, 0x45, 0x6d, 0x70, 0x74, 0x79, 0x12, 0x55, 0x0a, 0x17, 0x47, 0x65, 0x74, 0x46, 0x69, 0x72,
-	0x6d, 0x77, 0x61, 0x72, 0x65, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x53, 0x74, 0x61, 0x74, 0x75,
-	0x73, 0x12, 0x11, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63,
-	0x65, 0x52, 0x65, 0x66, 0x1a, 0x27, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65,
-	0x74, 0x46, 0x69, 0x72, 0x6d, 0x77, 0x61, 0x72, 0x65, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x53,
-	0x74, 0x61, 0x74, 0x75, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x33, 0x0a,
-	0x06, 0x55, 0x6e, 0x70, 0x61, 0x69, 0x72, 0x12, 0x11, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31,
-	0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x52, 0x65, 0x66, 0x1a, 0x16, 0x2e, 0x67, 0x6f, 0x6f,
-	0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x45, 0x6d, 0x70,
-	0x74, 0x79, 0x12, 0x51, 0x0a, 0x13, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x4d, 0x69, 0x6e, 0x65,
-	0x72, 0x50, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x12, 0x22, 0x2e, 0x73, 0x64, 0x6b, 0x2e,
-	0x76, 0x31, 0x2e, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x4d, 0x69, 0x6e, 0x65, 0x72, 0x50, 0x61,
-	0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x16, 0x2e,
+	0x73, 0x65, 0x12, 0x61, 0x0a, 0x14, 0x47, 0x65, 0x74, 0x53, 0x74, 0x6f, 0x72, 0x65, 0x64, 0x4d,
+	0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f, 0x6f, 0x6c, 0x73, 0x12, 0x23, 0x2e, 0x73, 0x64, 0x6b,
+	0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x74, 0x53, 0x74, 0x6f, 0x72, 0x65, 0x64, 0x4d, 0x69, 0x6e,
+	0x69, 0x6e, 0x67, 0x50, 0x6f, 0x6f, 0x6c, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a,
+	0x24, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x74, 0x53, 0x74, 0x6f, 0x72,
+	0x65, 0x64, 0x4d, 0x69, 0x6e, 0x69, 0x6e, 0x67, 0x50, 0x6f, 0x6f, 0x6c, 0x73, 0x52, 0x65, 0x73,
+	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x49, 0x0a, 0x0c, 0x44, 0x6f, 0x77, 0x6e, 0x6c, 0x6f, 0x61,
+	0x64, 0x4c, 0x6f, 0x67, 0x73, 0x12, 0x1b, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x44,
+	0x6f, 0x77, 0x6e, 0x6c, 0x6f, 0x61, 0x64, 0x4c, 0x6f, 0x67, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65,
+	0x73, 0x74, 0x1a, 0x1c, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x6f, 0x77, 0x6e,
+	0x6c, 0x6f, 0x61, 0x64, 0x4c, 0x6f, 0x67, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
+	0x12, 0x47, 0x0a, 0x0e, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x46, 0x69, 0x72, 0x6d, 0x77, 0x61,
+	0x72, 0x65, 0x12, 0x1d, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x55, 0x70, 0x64, 0x61,
+	0x74, 0x65, 0x46, 0x69, 0x72, 0x6d, 0x77, 0x61, 0x72, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
+	0x74, 0x1a, 0x16, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f,
+	0x62, 0x75, 0x66, 0x2e, 0x45, 0x6d, 0x70, 0x74, 0x79, 0x12, 0x55, 0x0a, 0x17, 0x47, 0x65, 0x74,
+	0x46, 0x69, 0x72, 0x6d, 0x77, 0x61, 0x72, 0x65, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x53, 0x74,
+	0x61, 0x74, 0x75, 0x73, 0x12, 0x11, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x65,
+	0x76, 0x69, 0x63, 0x65, 0x52, 0x65, 0x66, 0x1a, 0x27, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31,
+	0x2e, 0x47, 0x65, 0x74, 0x46, 0x69, 0x72, 0x6d, 0x77, 0x61, 0x72, 0x65, 0x55, 0x70, 0x64, 0x61,
+	0x74, 0x65, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
+	0x12, 0x33, 0x0a, 0x06, 0x55, 0x6e, 0x70, 0x61, 0x69, 0x72, 0x12, 0x11, 0x2e, 0x73, 0x64, 0x6b,
+	0x2e, 0x76, 0x31, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x52, 0x65, 0x66, 0x1a, 0x16, 0x2e,
 	0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e,
-	0x45, 0x6d, 0x70, 0x74, 0x79, 0x12, 0x39, 0x0a, 0x07, 0x43, 0x75, 0x72, 0x74, 0x61, 0x69, 0x6c,
-	0x12, 0x16, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x75, 0x72, 0x74, 0x61, 0x69,
-	0x6c, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x16, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c,
-	0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x45, 0x6d, 0x70, 0x74, 0x79,
-	0x12, 0x3d, 0x0a, 0x09, 0x55, 0x6e, 0x63, 0x75, 0x72, 0x74, 0x61, 0x69, 0x6c, 0x12, 0x18, 0x2e,
-	0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x55, 0x6e, 0x63, 0x75, 0x72, 0x74, 0x61, 0x69, 0x6c,
-	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x16, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65,
-	0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x45, 0x6d, 0x70, 0x74, 0x79, 0x12,
-	0x57, 0x0a, 0x16, 0x41, 0x70, 0x70, 0x6c, 0x79, 0x43, 0x75, 0x72, 0x74, 0x61, 0x69, 0x6c, 0x6d,
-	0x65, 0x6e, 0x74, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x25, 0x2e, 0x73, 0x64, 0x6b, 0x2e,
-	0x76, 0x31, 0x2e, 0x41, 0x70, 0x70, 0x6c, 0x79, 0x43, 0x75, 0x72, 0x74, 0x61, 0x69, 0x6c, 0x6d,
-	0x65, 0x6e, 0x74, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
+	0x45, 0x6d, 0x70, 0x74, 0x79, 0x12, 0x51, 0x0a, 0x13, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x4d,
+	0x69, 0x6e, 0x65, 0x72, 0x50, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x12, 0x22, 0x2e, 0x73,
+	0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x55, 0x70, 0x64, 0x61, 0x74, 0x65, 0x4d, 0x69, 0x6e, 0x65,
+	0x72, 0x50, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
 	0x1a, 0x16, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62,
-	0x75, 0x66, 0x2e, 0x45, 0x6d, 0x70, 0x74, 0x79, 0x12, 0x38, 0x0a, 0x0c, 0x44, 0x65, 0x76, 0x69,
-	0x63, 0x65, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x11, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76,
-	0x31, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x52, 0x65, 0x66, 0x1a, 0x15, 0x2e, 0x73, 0x64,
-	0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x4d, 0x65, 0x74, 0x72, 0x69,
-	0x63, 0x73, 0x12, 0x58, 0x0a, 0x11, 0x47, 0x65, 0x74, 0x54, 0x69, 0x6d, 0x65, 0x53, 0x65, 0x72,
-	0x69, 0x65, 0x73, 0x44, 0x61, 0x74, 0x61, 0x12, 0x20, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31,
-	0x2e, 0x47, 0x65, 0x74, 0x54, 0x69, 0x6d, 0x65, 0x53, 0x65, 0x72, 0x69, 0x65, 0x73, 0x44, 0x61,
-	0x74, 0x61, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x21, 0x2e, 0x73, 0x64, 0x6b, 0x2e,
-	0x76, 0x31, 0x2e, 0x47, 0x65, 0x74, 0x54, 0x69, 0x6d, 0x65, 0x53, 0x65, 0x72, 0x69, 0x65, 0x73,
-	0x44, 0x61, 0x74, 0x61, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x5e, 0x0a, 0x13,
+	0x75, 0x66, 0x2e, 0x45, 0x6d, 0x70, 0x74, 0x79, 0x12, 0x39, 0x0a, 0x07, 0x43, 0x75, 0x72, 0x74,
+	0x61, 0x69, 0x6c, 0x12, 0x16, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x75, 0x72,
+	0x74, 0x61, 0x69, 0x6c, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x16, 0x2e, 0x67, 0x6f,
+	0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x45, 0x6d,
+	0x70, 0x74, 0x79, 0x12, 0x3d, 0x0a, 0x09, 0x55, 0x6e, 0x63, 0x75, 0x72, 0x74, 0x61, 0x69, 0x6c,
+	0x12, 0x18, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x55, 0x6e, 0x63, 0x75, 0x72, 0x74,
+	0x61, 0x69, 0x6c, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x16, 0x2e, 0x67, 0x6f, 0x6f,
+	0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x45, 0x6d, 0x70,
+	0x74, 0x79, 0x12, 0x57, 0x0a, 0x16, 0x41, 0x70, 0x70, 0x6c, 0x79, 0x43, 0x75, 0x72, 0x74, 0x61,
+	0x69, 0x6c, 0x6d, 0x65, 0x6e, 0x74, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x25, 0x2e, 0x73,
+	0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x41, 0x70, 0x70, 0x6c, 0x79, 0x43, 0x75, 0x72, 0x74, 0x61,
+	0x69, 0x6c, 0x6d, 0x65, 0x6e, 0x74, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x65, 0x71, 0x75,
+	0x65, 0x73, 0x74, 0x1a, 0x16, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f,
+	0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x45, 0x6d, 0x70, 0x74, 0x79, 0x12, 0x38, 0x0a, 0x0c, 0x44,
+	0x65, 0x76, 0x69, 0x63, 0x65, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x11, 0x2e, 0x73, 0x64,
+	0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x52, 0x65, 0x66, 0x1a, 0x15,
+	0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x4d, 0x65,
+	0x74, 0x72, 0x69, 0x63, 0x73, 0x12, 0x58, 0x0a, 0x11, 0x47, 0x65, 0x74, 0x54, 0x69, 0x6d, 0x65,
+	0x53, 0x65, 0x72, 0x69, 0x65, 0x73, 0x44, 0x61, 0x74, 0x61, 0x12, 0x20, 0x2e, 0x73, 0x64, 0x6b,
+	0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x74, 0x54, 0x69, 0x6d, 0x65, 0x53, 0x65, 0x72, 0x69, 0x65,
+	0x73, 0x44, 0x61, 0x74, 0x61, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x21, 0x2e, 0x73,
+	0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x74, 0x54, 0x69, 0x6d, 0x65, 0x53, 0x65, 0x72,
+	0x69, 0x65, 0x73, 0x44, 0x61, 0x74, 0x61, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12,
+	0x5e, 0x0a, 0x13, 0x47, 0x65, 0x74, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x57, 0x65, 0x62, 0x56,
+	0x69, 0x65, 0x77, 0x55, 0x52, 0x4c, 0x12, 0x22, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e,
 	0x47, 0x65, 0x74, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x57, 0x65, 0x62, 0x56, 0x69, 0x65, 0x77,
-	0x55, 0x52, 0x4c, 0x12, 0x22, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x74,
-	0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x57, 0x65, 0x62, 0x56, 0x69, 0x65, 0x77, 0x55, 0x52, 0x4c,
-	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x23, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31,
-	0x2e, 0x47, 0x65, 0x74, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x57, 0x65, 0x62, 0x56, 0x69, 0x65,
-	0x77, 0x55, 0x52, 0x4c, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x46, 0x0a, 0x0b,
-	0x42, 0x61, 0x74, 0x63, 0x68, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x1a, 0x2e, 0x73, 0x64,
-	0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x61, 0x74, 0x63, 0x68, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73,
-	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1b, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31,
-	0x2e, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x42, 0x61, 0x74, 0x63, 0x68, 0x52, 0x65, 0x73, 0x70,
-	0x6f, 0x6e, 0x73, 0x65, 0x12, 0x3e, 0x0a, 0x09, 0x53, 0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x62,
-	0x65, 0x12, 0x18, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x75, 0x62, 0x73, 0x63,
-	0x72, 0x69, 0x62, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x15, 0x2e, 0x73, 0x64,
-	0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x4d, 0x65, 0x74, 0x72, 0x69,
-	0x63, 0x73, 0x30, 0x01, 0x12, 0x34, 0x0a, 0x09, 0x47, 0x65, 0x74, 0x45, 0x72, 0x72, 0x6f, 0x72,
-	0x73, 0x12, 0x11, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63,
-	0x65, 0x52, 0x65, 0x66, 0x1a, 0x14, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x65,
-	0x76, 0x69, 0x63, 0x65, 0x45, 0x72, 0x72, 0x6f, 0x72, 0x73, 0x42, 0x84, 0x01, 0x0a, 0x0a, 0x63,
-	0x6f, 0x6d, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x42, 0x0b, 0x44, 0x72, 0x69, 0x76, 0x65,
-	0x72, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x50, 0x01, 0x5a, 0x30, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62,
-	0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x62, 0x6c, 0x6f, 0x63, 0x6b, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f,
-	0x2d, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x2f, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x2f, 0x73, 0x64,
-	0x6b, 0x2f, 0x76, 0x31, 0x2f, 0x70, 0x62, 0x3b, 0x70, 0x62, 0xa2, 0x02, 0x03, 0x53, 0x58, 0x58,
-	0xaa, 0x02, 0x06, 0x53, 0x64, 0x6b, 0x2e, 0x56, 0x31, 0xca, 0x02, 0x06, 0x53, 0x64, 0x6b, 0x5c,
-	0x56, 0x31, 0xe2, 0x02, 0x12, 0x53, 0x64, 0x6b, 0x5c, 0x56, 0x31, 0x5c, 0x47, 0x50, 0x42, 0x4d,
-	0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0xea, 0x02, 0x07, 0x53, 0x64, 0x6b, 0x3a, 0x3a, 0x56,
-	0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x55, 0x52, 0x4c, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x23, 0x2e, 0x73, 0x64, 0x6b,
+	0x2e, 0x76, 0x31, 0x2e, 0x47, 0x65, 0x74, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x57, 0x65, 0x62,
+	0x56, 0x69, 0x65, 0x77, 0x55, 0x52, 0x4c, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12,
+	0x46, 0x0a, 0x0b, 0x42, 0x61, 0x74, 0x63, 0x68, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x12, 0x1a,
+	0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x42, 0x61, 0x74, 0x63, 0x68, 0x53, 0x74, 0x61,
+	0x74, 0x75, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1b, 0x2e, 0x73, 0x64, 0x6b,
+	0x2e, 0x76, 0x31, 0x2e, 0x53, 0x74, 0x61, 0x74, 0x75, 0x73, 0x42, 0x61, 0x74, 0x63, 0x68, 0x52,
+	0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x3e, 0x0a, 0x09, 0x53, 0x75, 0x62, 0x73, 0x63,
+	0x72, 0x69, 0x62, 0x65, 0x12, 0x18, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x53, 0x75,
+	0x62, 0x73, 0x63, 0x72, 0x69, 0x62, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x15,
+	0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x4d, 0x65,
+	0x74, 0x72, 0x69, 0x63, 0x73, 0x30, 0x01, 0x12, 0x34, 0x0a, 0x09, 0x47, 0x65, 0x74, 0x45, 0x72,
+	0x72, 0x6f, 0x72, 0x73, 0x12, 0x11, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x2e, 0x44, 0x65,
+	0x76, 0x69, 0x63, 0x65, 0x52, 0x65, 0x66, 0x1a, 0x14, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31,
+	0x2e, 0x44, 0x65, 0x76, 0x69, 0x63, 0x65, 0x45, 0x72, 0x72, 0x6f, 0x72, 0x73, 0x42, 0x84, 0x01,
+	0x0a, 0x0a, 0x63, 0x6f, 0x6d, 0x2e, 0x73, 0x64, 0x6b, 0x2e, 0x76, 0x31, 0x42, 0x0b, 0x44, 0x72,
+	0x69, 0x76, 0x65, 0x72, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x50, 0x01, 0x5a, 0x30, 0x67, 0x69, 0x74,
+	0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x62, 0x6c, 0x6f, 0x63, 0x6b, 0x2f, 0x70, 0x72,
+	0x6f, 0x74, 0x6f, 0x2d, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x2f, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72,
+	0x2f, 0x73, 0x64, 0x6b, 0x2f, 0x76, 0x31, 0x2f, 0x70, 0x62, 0x3b, 0x70, 0x62, 0xa2, 0x02, 0x03,
+	0x53, 0x58, 0x58, 0xaa, 0x02, 0x06, 0x53, 0x64, 0x6b, 0x2e, 0x56, 0x31, 0xca, 0x02, 0x06, 0x53,
+	0x64, 0x6b, 0x5c, 0x56, 0x31, 0xe2, 0x02, 0x12, 0x53, 0x64, 0x6b, 0x5c, 0x56, 0x31, 0x5c, 0x47,
+	0x50, 0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0xea, 0x02, 0x07, 0x53, 0x64, 0x6b,
+	0x3a, 0x3a, 0x56, 0x31, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 })
 
 var (
@@ -7196,7 +7389,7 @@ func file_pb_driver_proto_rawDescGZIP() []byte {
 }
 
 var file_pb_driver_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
-var file_pb_driver_proto_msgTypes = make([]protoimpl.MessageInfo, 78)
+var file_pb_driver_proto_msgTypes = make([]protoimpl.MessageInfo, 81)
 var file_pb_driver_proto_goTypes = []any{
 	(HealthStatus)(0),                       // 0: sdk.v1.HealthStatus
 	(ComponentStatus)(0),                    // 1: sdk.v1.ComponentStatus
@@ -7246,61 +7439,64 @@ var file_pb_driver_proto_goTypes = []any{
 	(*ConfiguredPool)(nil),                  // 45: sdk.v1.ConfiguredPool
 	(*GetMiningPoolsRequest)(nil),           // 46: sdk.v1.GetMiningPoolsRequest
 	(*GetMiningPoolsResponse)(nil),          // 47: sdk.v1.GetMiningPoolsResponse
-	(*DownloadLogsRequest)(nil),             // 48: sdk.v1.DownloadLogsRequest
-	(*DownloadLogsResponse)(nil),            // 49: sdk.v1.DownloadLogsResponse
-	(*DeviceInfo)(nil),                      // 50: sdk.v1.DeviceInfo
-	(*DiscoverDeviceRequest)(nil),           // 51: sdk.v1.DiscoverDeviceRequest
-	(*DiscoverDeviceResponse)(nil),          // 52: sdk.v1.DiscoverDeviceResponse
-	(*PairDeviceRequest)(nil),               // 53: sdk.v1.PairDeviceRequest
-	(*PairDeviceResponse)(nil),              // 54: sdk.v1.PairDeviceResponse
-	(*GetDefaultCredentialsRequest)(nil),    // 55: sdk.v1.GetDefaultCredentialsRequest
-	(*GetDefaultCredentialsResponse)(nil),   // 56: sdk.v1.GetDefaultCredentialsResponse
-	(*GetCapabilitiesForModelRequest)(nil),  // 57: sdk.v1.GetCapabilitiesForModelRequest
-	(*GetCapabilitiesForModelResponse)(nil), // 58: sdk.v1.GetCapabilitiesForModelResponse
-	(*GetDiscoveryPortsResponse)(nil),       // 59: sdk.v1.GetDiscoveryPortsResponse
-	(*GetDeviceWebViewURLResponse)(nil),     // 60: sdk.v1.GetDeviceWebViewURLResponse
-	(*GetDeviceWebViewURLRequest)(nil),      // 61: sdk.v1.GetDeviceWebViewURLRequest
-	(*GetTimeSeriesDataRequest)(nil),        // 62: sdk.v1.GetTimeSeriesDataRequest
-	(*GetTimeSeriesDataResponse)(nil),       // 63: sdk.v1.GetTimeSeriesDataResponse
-	(*UpdateMinerPasswordRequest)(nil),      // 64: sdk.v1.UpdateMinerPasswordRequest
-	(*FirmwareFileInfo)(nil),                // 65: sdk.v1.FirmwareFileInfo
-	(*UpdateFirmwareRequest)(nil),           // 66: sdk.v1.UpdateFirmwareRequest
-	(*GetFirmwareUpdateStatusResponse)(nil), // 67: sdk.v1.GetFirmwareUpdateStatusResponse
-	(*DeviceError)(nil),                     // 68: sdk.v1.DeviceError
-	(*DeviceErrors)(nil),                    // 69: sdk.v1.DeviceErrors
-	(*ContainerSnapshot)(nil),               // 70: sdk.v1.ContainerSnapshot
-	(*ContainerTank)(nil),                   // 71: sdk.v1.ContainerTank
-	(*ContainerModule)(nil),                 // 72: sdk.v1.ContainerModule
-	(*HashboardIdentityClaim)(nil),          // 73: sdk.v1.HashboardIdentityClaim
-	(*ContainerHashboard)(nil),              // 74: sdk.v1.ContainerHashboard
-	(*ContainerModuleMetrics)(nil),          // 75: sdk.v1.ContainerModuleMetrics
-	(*ContainerPlant)(nil),                  // 76: sdk.v1.ContainerPlant
-	(*ContainerFan)(nil),                    // 77: sdk.v1.ContainerFan
-	(*ContainerControls)(nil),               // 78: sdk.v1.ContainerControls
-	(*ContainerControl)(nil),                // 79: sdk.v1.ContainerControl
-	(*ContainerSetpoint)(nil),               // 80: sdk.v1.ContainerSetpoint
-	(*SetContainerControlRequest)(nil),      // 81: sdk.v1.SetContainerControlRequest
-	(*ContainerModuleIssues)(nil),           // 82: sdk.v1.ContainerModuleIssues
-	(*ContainerModuleIssue)(nil),            // 83: sdk.v1.ContainerModuleIssue
-	(*SetTankMiningRequest)(nil),            // 84: sdk.v1.SetTankMiningRequest
-	nil,                                     // 85: sdk.v1.Capabilities.FlagsEntry
-	nil,                                     // 86: sdk.v1.DeviceError.VendorAttributesEntry
-	nil,                                     // 87: sdk.v1.ContainerModuleIssues.SourceTimesEntry
-	(*durationpb.Duration)(nil),             // 88: google.protobuf.Duration
-	(*timestamppb.Timestamp)(nil),           // 89: google.protobuf.Timestamp
-	(*emptypb.Empty)(nil),                   // 90: google.protobuf.Empty
+	(*StoredMiningPool)(nil),                // 48: sdk.v1.StoredMiningPool
+	(*GetStoredMiningPoolsRequest)(nil),     // 49: sdk.v1.GetStoredMiningPoolsRequest
+	(*GetStoredMiningPoolsResponse)(nil),    // 50: sdk.v1.GetStoredMiningPoolsResponse
+	(*DownloadLogsRequest)(nil),             // 51: sdk.v1.DownloadLogsRequest
+	(*DownloadLogsResponse)(nil),            // 52: sdk.v1.DownloadLogsResponse
+	(*DeviceInfo)(nil),                      // 53: sdk.v1.DeviceInfo
+	(*DiscoverDeviceRequest)(nil),           // 54: sdk.v1.DiscoverDeviceRequest
+	(*DiscoverDeviceResponse)(nil),          // 55: sdk.v1.DiscoverDeviceResponse
+	(*PairDeviceRequest)(nil),               // 56: sdk.v1.PairDeviceRequest
+	(*PairDeviceResponse)(nil),              // 57: sdk.v1.PairDeviceResponse
+	(*GetDefaultCredentialsRequest)(nil),    // 58: sdk.v1.GetDefaultCredentialsRequest
+	(*GetDefaultCredentialsResponse)(nil),   // 59: sdk.v1.GetDefaultCredentialsResponse
+	(*GetCapabilitiesForModelRequest)(nil),  // 60: sdk.v1.GetCapabilitiesForModelRequest
+	(*GetCapabilitiesForModelResponse)(nil), // 61: sdk.v1.GetCapabilitiesForModelResponse
+	(*GetDiscoveryPortsResponse)(nil),       // 62: sdk.v1.GetDiscoveryPortsResponse
+	(*GetDeviceWebViewURLResponse)(nil),     // 63: sdk.v1.GetDeviceWebViewURLResponse
+	(*GetDeviceWebViewURLRequest)(nil),      // 64: sdk.v1.GetDeviceWebViewURLRequest
+	(*GetTimeSeriesDataRequest)(nil),        // 65: sdk.v1.GetTimeSeriesDataRequest
+	(*GetTimeSeriesDataResponse)(nil),       // 66: sdk.v1.GetTimeSeriesDataResponse
+	(*UpdateMinerPasswordRequest)(nil),      // 67: sdk.v1.UpdateMinerPasswordRequest
+	(*FirmwareFileInfo)(nil),                // 68: sdk.v1.FirmwareFileInfo
+	(*UpdateFirmwareRequest)(nil),           // 69: sdk.v1.UpdateFirmwareRequest
+	(*GetFirmwareUpdateStatusResponse)(nil), // 70: sdk.v1.GetFirmwareUpdateStatusResponse
+	(*DeviceError)(nil),                     // 71: sdk.v1.DeviceError
+	(*DeviceErrors)(nil),                    // 72: sdk.v1.DeviceErrors
+	(*ContainerSnapshot)(nil),               // 73: sdk.v1.ContainerSnapshot
+	(*ContainerTank)(nil),                   // 74: sdk.v1.ContainerTank
+	(*ContainerModule)(nil),                 // 75: sdk.v1.ContainerModule
+	(*HashboardIdentityClaim)(nil),          // 76: sdk.v1.HashboardIdentityClaim
+	(*ContainerHashboard)(nil),              // 77: sdk.v1.ContainerHashboard
+	(*ContainerModuleMetrics)(nil),          // 78: sdk.v1.ContainerModuleMetrics
+	(*ContainerPlant)(nil),                  // 79: sdk.v1.ContainerPlant
+	(*ContainerFan)(nil),                    // 80: sdk.v1.ContainerFan
+	(*ContainerControls)(nil),               // 81: sdk.v1.ContainerControls
+	(*ContainerControl)(nil),                // 82: sdk.v1.ContainerControl
+	(*ContainerSetpoint)(nil),               // 83: sdk.v1.ContainerSetpoint
+	(*SetContainerControlRequest)(nil),      // 84: sdk.v1.SetContainerControlRequest
+	(*ContainerModuleIssues)(nil),           // 85: sdk.v1.ContainerModuleIssues
+	(*ContainerModuleIssue)(nil),            // 86: sdk.v1.ContainerModuleIssue
+	(*SetTankMiningRequest)(nil),            // 87: sdk.v1.SetTankMiningRequest
+	nil,                                     // 88: sdk.v1.Capabilities.FlagsEntry
+	nil,                                     // 89: sdk.v1.DeviceError.VendorAttributesEntry
+	nil,                                     // 90: sdk.v1.ContainerModuleIssues.SourceTimesEntry
+	(*durationpb.Duration)(nil),             // 91: google.protobuf.Duration
+	(*timestamppb.Timestamp)(nil),           // 92: google.protobuf.Timestamp
+	(*emptypb.Empty)(nil),                   // 93: google.protobuf.Empty
 }
 var file_pb_driver_proto_depIdxs = []int32{
-	85,  // 0: sdk.v1.Capabilities.flags:type_name -> sdk.v1.Capabilities.FlagsEntry
+	88,  // 0: sdk.v1.Capabilities.flags:type_name -> sdk.v1.Capabilities.FlagsEntry
 	10,  // 1: sdk.v1.DescribeDriverResponse.caps:type_name -> sdk.v1.Capabilities
-	50,  // 2: sdk.v1.NewDeviceRequest.info:type_name -> sdk.v1.DeviceInfo
+	53,  // 2: sdk.v1.NewDeviceRequest.info:type_name -> sdk.v1.DeviceInfo
 	34,  // 3: sdk.v1.NewDeviceRequest.secret:type_name -> sdk.v1.SecretBundle
 	2,   // 4: sdk.v1.MetricValue.kind:type_name -> sdk.v1.MetricKind
 	17,  // 5: sdk.v1.MetricValue.metadata:type_name -> sdk.v1.MetricValueMetaData
-	88,  // 6: sdk.v1.MetricValueMetaData.window:type_name -> google.protobuf.Duration
-	89,  // 7: sdk.v1.MetricValueMetaData.timestamp:type_name -> google.protobuf.Timestamp
+	91,  // 6: sdk.v1.MetricValueMetaData.window:type_name -> google.protobuf.Duration
+	92,  // 7: sdk.v1.MetricValueMetaData.timestamp:type_name -> google.protobuf.Timestamp
 	1,   // 8: sdk.v1.ComponentInfo.status:type_name -> sdk.v1.ComponentStatus
-	89,  // 9: sdk.v1.ComponentInfo.timestamp:type_name -> google.protobuf.Timestamp
+	92,  // 9: sdk.v1.ComponentInfo.timestamp:type_name -> google.protobuf.Timestamp
 	18,  // 10: sdk.v1.HashBoardMetrics.component_info:type_name -> sdk.v1.ComponentInfo
 	16,  // 11: sdk.v1.HashBoardMetrics.hash_rate_hs:type_name -> sdk.v1.MetricValue
 	16,  // 12: sdk.v1.HashBoardMetrics.temp_c:type_name -> sdk.v1.MetricValue
@@ -7334,7 +7530,7 @@ var file_pb_driver_proto_depIdxs = []int32{
 	18,  // 40: sdk.v1.ControlBoardMetrics.component_info:type_name -> sdk.v1.ComponentInfo
 	18,  // 41: sdk.v1.SensorMetrics.component_info:type_name -> sdk.v1.ComponentInfo
 	16,  // 42: sdk.v1.SensorMetrics.value:type_name -> sdk.v1.MetricValue
-	89,  // 43: sdk.v1.DeviceMetrics.timestamp:type_name -> google.protobuf.Timestamp
+	92,  // 43: sdk.v1.DeviceMetrics.timestamp:type_name -> google.protobuf.Timestamp
 	0,   // 44: sdk.v1.DeviceMetrics.health:type_name -> sdk.v1.HealthStatus
 	16,  // 45: sdk.v1.DeviceMetrics.hashrate_hs:type_name -> sdk.v1.MetricValue
 	16,  // 46: sdk.v1.DeviceMetrics.temp_c:type_name -> sdk.v1.MetricValue
@@ -7346,15 +7542,15 @@ var file_pb_driver_proto_depIdxs = []int32{
 	23,  // 52: sdk.v1.DeviceMetrics.control_board_metrics:type_name -> sdk.v1.ControlBoardMetrics
 	22,  // 53: sdk.v1.DeviceMetrics.fan_metrics:type_name -> sdk.v1.FanMetrics
 	24,  // 54: sdk.v1.DeviceMetrics.sensor_metrics:type_name -> sdk.v1.SensorMetrics
-	70,  // 55: sdk.v1.DeviceMetrics.container:type_name -> sdk.v1.ContainerSnapshot
-	50,  // 56: sdk.v1.DescribeDeviceResponse.device:type_name -> sdk.v1.DeviceInfo
+	73,  // 55: sdk.v1.DeviceMetrics.container:type_name -> sdk.v1.ContainerSnapshot
+	53,  // 56: sdk.v1.DescribeDeviceResponse.device:type_name -> sdk.v1.DeviceInfo
 	10,  // 57: sdk.v1.DescribeDeviceResponse.caps:type_name -> sdk.v1.Capabilities
 	25,  // 58: sdk.v1.StatusBatchResponse.items:type_name -> sdk.v1.DeviceMetrics
 	15,  // 59: sdk.v1.BatchStatusRequest.refs:type_name -> sdk.v1.DeviceRef
 	31,  // 60: sdk.v1.SecretBundle.user_pass:type_name -> sdk.v1.UsernamePassword
 	32,  // 61: sdk.v1.SecretBundle.bearer_token:type_name -> sdk.v1.BearerToken
 	33,  // 62: sdk.v1.SecretBundle.tls_client_cert:type_name -> sdk.v1.TlsClientCert
-	88,  // 63: sdk.v1.SecretBundle.ttl:type_name -> google.protobuf.Duration
+	91,  // 63: sdk.v1.SecretBundle.ttl:type_name -> google.protobuf.Duration
 	15,  // 64: sdk.v1.SetCoolingModeRequest.ref:type_name -> sdk.v1.DeviceRef
 	3,   // 65: sdk.v1.SetCoolingModeRequest.mode:type_name -> sdk.v1.CoolingMode
 	3,   // 66: sdk.v1.GetCoolingModeResponse.mode:type_name -> sdk.v1.CoolingMode
@@ -7370,133 +7566,137 @@ var file_pb_driver_proto_depIdxs = []int32{
 	43,  // 76: sdk.v1.UpdateMiningPoolsRequest.pools:type_name -> sdk.v1.MiningPool
 	15,  // 77: sdk.v1.GetMiningPoolsRequest.ref:type_name -> sdk.v1.DeviceRef
 	45,  // 78: sdk.v1.GetMiningPoolsResponse.pools:type_name -> sdk.v1.ConfiguredPool
-	15,  // 79: sdk.v1.DownloadLogsRequest.ref:type_name -> sdk.v1.DeviceRef
-	89,  // 80: sdk.v1.DownloadLogsRequest.since:type_name -> google.protobuf.Timestamp
-	6,   // 81: sdk.v1.DeviceInfo.device_class:type_name -> sdk.v1.DeviceClass
-	50,  // 82: sdk.v1.DiscoverDeviceResponse.device:type_name -> sdk.v1.DeviceInfo
-	50,  // 83: sdk.v1.PairDeviceRequest.device:type_name -> sdk.v1.DeviceInfo
-	34,  // 84: sdk.v1.PairDeviceRequest.access:type_name -> sdk.v1.SecretBundle
-	50,  // 85: sdk.v1.PairDeviceResponse.device:type_name -> sdk.v1.DeviceInfo
-	31,  // 86: sdk.v1.GetDefaultCredentialsResponse.credentials:type_name -> sdk.v1.UsernamePassword
-	10,  // 87: sdk.v1.GetCapabilitiesForModelResponse.caps:type_name -> sdk.v1.Capabilities
-	15,  // 88: sdk.v1.GetDeviceWebViewURLRequest.ref:type_name -> sdk.v1.DeviceRef
-	15,  // 89: sdk.v1.GetTimeSeriesDataRequest.ref:type_name -> sdk.v1.DeviceRef
-	89,  // 90: sdk.v1.GetTimeSeriesDataRequest.start_time:type_name -> google.protobuf.Timestamp
-	89,  // 91: sdk.v1.GetTimeSeriesDataRequest.end_time:type_name -> google.protobuf.Timestamp
-	88,  // 92: sdk.v1.GetTimeSeriesDataRequest.granularity:type_name -> google.protobuf.Duration
-	25,  // 93: sdk.v1.GetTimeSeriesDataResponse.series:type_name -> sdk.v1.DeviceMetrics
-	15,  // 94: sdk.v1.UpdateMinerPasswordRequest.ref:type_name -> sdk.v1.DeviceRef
-	15,  // 95: sdk.v1.UpdateFirmwareRequest.ref:type_name -> sdk.v1.DeviceRef
-	65,  // 96: sdk.v1.UpdateFirmwareRequest.firmware:type_name -> sdk.v1.FirmwareFileInfo
-	7,   // 97: sdk.v1.DeviceError.miner_error:type_name -> sdk.v1.MinerError
-	8,   // 98: sdk.v1.DeviceError.severity:type_name -> sdk.v1.Severity
-	89,  // 99: sdk.v1.DeviceError.first_seen_at:type_name -> google.protobuf.Timestamp
-	89,  // 100: sdk.v1.DeviceError.last_seen_at:type_name -> google.protobuf.Timestamp
-	89,  // 101: sdk.v1.DeviceError.closed_at:type_name -> google.protobuf.Timestamp
-	86,  // 102: sdk.v1.DeviceError.vendor_attributes:type_name -> sdk.v1.DeviceError.VendorAttributesEntry
-	9,   // 103: sdk.v1.DeviceError.component_type:type_name -> sdk.v1.ComponentType
-	68,  // 104: sdk.v1.DeviceErrors.errors:type_name -> sdk.v1.DeviceError
-	77,  // 105: sdk.v1.ContainerSnapshot.fans:type_name -> sdk.v1.ContainerFan
-	78,  // 106: sdk.v1.ContainerSnapshot.controls:type_name -> sdk.v1.ContainerControls
-	89,  // 107: sdk.v1.ContainerSnapshot.observed_at:type_name -> google.protobuf.Timestamp
-	71,  // 108: sdk.v1.ContainerSnapshot.tanks:type_name -> sdk.v1.ContainerTank
-	76,  // 109: sdk.v1.ContainerSnapshot.plant:type_name -> sdk.v1.ContainerPlant
-	72,  // 110: sdk.v1.ContainerTank.modules:type_name -> sdk.v1.ContainerModule
-	74,  // 111: sdk.v1.ContainerModule.hashboards:type_name -> sdk.v1.ContainerHashboard
-	89,  // 112: sdk.v1.ContainerModule.observed_at:type_name -> google.protobuf.Timestamp
-	75,  // 113: sdk.v1.ContainerModule.metrics:type_name -> sdk.v1.ContainerModuleMetrics
-	82,  // 114: sdk.v1.ContainerModule.issues:type_name -> sdk.v1.ContainerModuleIssues
-	73,  // 115: sdk.v1.ContainerHashboard.identity_claims:type_name -> sdk.v1.HashboardIdentityClaim
-	89,  // 116: sdk.v1.ContainerHashboard.observed_at:type_name -> google.protobuf.Timestamp
-	89,  // 117: sdk.v1.ContainerHashboard.state_observed_at:type_name -> google.protobuf.Timestamp
-	89,  // 118: sdk.v1.ContainerModuleMetrics.observed_at:type_name -> google.protobuf.Timestamp
-	89,  // 119: sdk.v1.ContainerPlant.observed_at:type_name -> google.protobuf.Timestamp
-	89,  // 120: sdk.v1.ContainerFan.observed_at:type_name -> google.protobuf.Timestamp
-	89,  // 121: sdk.v1.ContainerControls.observed_at:type_name -> google.protobuf.Timestamp
-	79,  // 122: sdk.v1.ContainerControls.controls:type_name -> sdk.v1.ContainerControl
-	80,  // 123: sdk.v1.ContainerControls.setpoints:type_name -> sdk.v1.ContainerSetpoint
-	15,  // 124: sdk.v1.SetContainerControlRequest.ref:type_name -> sdk.v1.DeviceRef
-	87,  // 125: sdk.v1.ContainerModuleIssues.source_times:type_name -> sdk.v1.ContainerModuleIssues.SourceTimesEntry
-	89,  // 126: sdk.v1.ContainerModuleIssues.observed_at:type_name -> google.protobuf.Timestamp
-	83,  // 127: sdk.v1.ContainerModuleIssues.items:type_name -> sdk.v1.ContainerModuleIssue
-	89,  // 128: sdk.v1.ContainerModuleIssue.observed_at:type_name -> google.protobuf.Timestamp
-	15,  // 129: sdk.v1.SetTankMiningRequest.ref:type_name -> sdk.v1.DeviceRef
-	89,  // 130: sdk.v1.ContainerModuleIssues.SourceTimesEntry.value:type_name -> google.protobuf.Timestamp
-	90,  // 131: sdk.v1.Driver.Handshake:input_type -> google.protobuf.Empty
-	90,  // 132: sdk.v1.Driver.DescribeDriver:input_type -> google.protobuf.Empty
-	51,  // 133: sdk.v1.Driver.DiscoverDevice:input_type -> sdk.v1.DiscoverDeviceRequest
-	53,  // 134: sdk.v1.Driver.PairDevice:input_type -> sdk.v1.PairDeviceRequest
-	55,  // 135: sdk.v1.Driver.GetDefaultCredentials:input_type -> sdk.v1.GetDefaultCredentialsRequest
-	57,  // 136: sdk.v1.Driver.GetCapabilitiesForModel:input_type -> sdk.v1.GetCapabilitiesForModelRequest
-	90,  // 137: sdk.v1.Driver.GetDiscoveryPorts:input_type -> google.protobuf.Empty
-	13,  // 138: sdk.v1.Driver.NewDevice:input_type -> sdk.v1.NewDeviceRequest
-	26,  // 139: sdk.v1.Driver.DescribeDevice:input_type -> sdk.v1.DescribeDeviceRequest
-	15,  // 140: sdk.v1.Driver.CloseDevice:input_type -> sdk.v1.DeviceRef
-	15,  // 141: sdk.v1.Driver.StartMining:input_type -> sdk.v1.DeviceRef
-	15,  // 142: sdk.v1.Driver.StopMining:input_type -> sdk.v1.DeviceRef
-	15,  // 143: sdk.v1.Driver.BlinkLED:input_type -> sdk.v1.DeviceRef
-	15,  // 144: sdk.v1.Driver.Reboot:input_type -> sdk.v1.DeviceRef
-	84,  // 145: sdk.v1.Driver.SetTankMining:input_type -> sdk.v1.SetTankMiningRequest
-	81,  // 146: sdk.v1.Driver.SetContainerControl:input_type -> sdk.v1.SetContainerControlRequest
-	35,  // 147: sdk.v1.Driver.SetCoolingMode:input_type -> sdk.v1.SetCoolingModeRequest
-	15,  // 148: sdk.v1.Driver.GetCoolingMode:input_type -> sdk.v1.DeviceRef
-	42,  // 149: sdk.v1.Driver.SetPowerTarget:input_type -> sdk.v1.SetPowerTargetRequest
-	44,  // 150: sdk.v1.Driver.UpdateMiningPools:input_type -> sdk.v1.UpdateMiningPoolsRequest
-	46,  // 151: sdk.v1.Driver.GetMiningPools:input_type -> sdk.v1.GetMiningPoolsRequest
-	48,  // 152: sdk.v1.Driver.DownloadLogs:input_type -> sdk.v1.DownloadLogsRequest
-	66,  // 153: sdk.v1.Driver.UpdateFirmware:input_type -> sdk.v1.UpdateFirmwareRequest
-	15,  // 154: sdk.v1.Driver.GetFirmwareUpdateStatus:input_type -> sdk.v1.DeviceRef
-	15,  // 155: sdk.v1.Driver.Unpair:input_type -> sdk.v1.DeviceRef
-	64,  // 156: sdk.v1.Driver.UpdateMinerPassword:input_type -> sdk.v1.UpdateMinerPasswordRequest
-	37,  // 157: sdk.v1.Driver.Curtail:input_type -> sdk.v1.CurtailRequest
-	38,  // 158: sdk.v1.Driver.Uncurtail:input_type -> sdk.v1.UncurtailRequest
-	41,  // 159: sdk.v1.Driver.ApplyCurtailmentConfig:input_type -> sdk.v1.ApplyCurtailmentConfigRequest
-	15,  // 160: sdk.v1.Driver.DeviceStatus:input_type -> sdk.v1.DeviceRef
-	62,  // 161: sdk.v1.Driver.GetTimeSeriesData:input_type -> sdk.v1.GetTimeSeriesDataRequest
-	61,  // 162: sdk.v1.Driver.GetDeviceWebViewURL:input_type -> sdk.v1.GetDeviceWebViewURLRequest
-	29,  // 163: sdk.v1.Driver.BatchStatus:input_type -> sdk.v1.BatchStatusRequest
-	30,  // 164: sdk.v1.Driver.Subscribe:input_type -> sdk.v1.SubscribeRequest
-	15,  // 165: sdk.v1.Driver.GetErrors:input_type -> sdk.v1.DeviceRef
-	11,  // 166: sdk.v1.Driver.Handshake:output_type -> sdk.v1.HandshakeResponse
-	12,  // 167: sdk.v1.Driver.DescribeDriver:output_type -> sdk.v1.DescribeDriverResponse
-	52,  // 168: sdk.v1.Driver.DiscoverDevice:output_type -> sdk.v1.DiscoverDeviceResponse
-	54,  // 169: sdk.v1.Driver.PairDevice:output_type -> sdk.v1.PairDeviceResponse
-	56,  // 170: sdk.v1.Driver.GetDefaultCredentials:output_type -> sdk.v1.GetDefaultCredentialsResponse
-	58,  // 171: sdk.v1.Driver.GetCapabilitiesForModel:output_type -> sdk.v1.GetCapabilitiesForModelResponse
-	59,  // 172: sdk.v1.Driver.GetDiscoveryPorts:output_type -> sdk.v1.GetDiscoveryPortsResponse
-	14,  // 173: sdk.v1.Driver.NewDevice:output_type -> sdk.v1.NewDeviceResponse
-	27,  // 174: sdk.v1.Driver.DescribeDevice:output_type -> sdk.v1.DescribeDeviceResponse
-	90,  // 175: sdk.v1.Driver.CloseDevice:output_type -> google.protobuf.Empty
-	90,  // 176: sdk.v1.Driver.StartMining:output_type -> google.protobuf.Empty
-	90,  // 177: sdk.v1.Driver.StopMining:output_type -> google.protobuf.Empty
-	90,  // 178: sdk.v1.Driver.BlinkLED:output_type -> google.protobuf.Empty
-	90,  // 179: sdk.v1.Driver.Reboot:output_type -> google.protobuf.Empty
-	90,  // 180: sdk.v1.Driver.SetTankMining:output_type -> google.protobuf.Empty
-	90,  // 181: sdk.v1.Driver.SetContainerControl:output_type -> google.protobuf.Empty
-	90,  // 182: sdk.v1.Driver.SetCoolingMode:output_type -> google.protobuf.Empty
-	36,  // 183: sdk.v1.Driver.GetCoolingMode:output_type -> sdk.v1.GetCoolingModeResponse
-	90,  // 184: sdk.v1.Driver.SetPowerTarget:output_type -> google.protobuf.Empty
-	90,  // 185: sdk.v1.Driver.UpdateMiningPools:output_type -> google.protobuf.Empty
-	47,  // 186: sdk.v1.Driver.GetMiningPools:output_type -> sdk.v1.GetMiningPoolsResponse
-	49,  // 187: sdk.v1.Driver.DownloadLogs:output_type -> sdk.v1.DownloadLogsResponse
-	90,  // 188: sdk.v1.Driver.UpdateFirmware:output_type -> google.protobuf.Empty
-	67,  // 189: sdk.v1.Driver.GetFirmwareUpdateStatus:output_type -> sdk.v1.GetFirmwareUpdateStatusResponse
-	90,  // 190: sdk.v1.Driver.Unpair:output_type -> google.protobuf.Empty
-	90,  // 191: sdk.v1.Driver.UpdateMinerPassword:output_type -> google.protobuf.Empty
-	90,  // 192: sdk.v1.Driver.Curtail:output_type -> google.protobuf.Empty
-	90,  // 193: sdk.v1.Driver.Uncurtail:output_type -> google.protobuf.Empty
-	90,  // 194: sdk.v1.Driver.ApplyCurtailmentConfig:output_type -> google.protobuf.Empty
-	25,  // 195: sdk.v1.Driver.DeviceStatus:output_type -> sdk.v1.DeviceMetrics
-	63,  // 196: sdk.v1.Driver.GetTimeSeriesData:output_type -> sdk.v1.GetTimeSeriesDataResponse
-	60,  // 197: sdk.v1.Driver.GetDeviceWebViewURL:output_type -> sdk.v1.GetDeviceWebViewURLResponse
-	28,  // 198: sdk.v1.Driver.BatchStatus:output_type -> sdk.v1.StatusBatchResponse
-	25,  // 199: sdk.v1.Driver.Subscribe:output_type -> sdk.v1.DeviceMetrics
-	69,  // 200: sdk.v1.Driver.GetErrors:output_type -> sdk.v1.DeviceErrors
-	166, // [166:201] is the sub-list for method output_type
-	131, // [131:166] is the sub-list for method input_type
-	131, // [131:131] is the sub-list for extension type_name
-	131, // [131:131] is the sub-list for extension extendee
-	0,   // [0:131] is the sub-list for field type_name
+	15,  // 79: sdk.v1.GetStoredMiningPoolsRequest.ref:type_name -> sdk.v1.DeviceRef
+	48,  // 80: sdk.v1.GetStoredMiningPoolsResponse.pools:type_name -> sdk.v1.StoredMiningPool
+	15,  // 81: sdk.v1.DownloadLogsRequest.ref:type_name -> sdk.v1.DeviceRef
+	92,  // 82: sdk.v1.DownloadLogsRequest.since:type_name -> google.protobuf.Timestamp
+	6,   // 83: sdk.v1.DeviceInfo.device_class:type_name -> sdk.v1.DeviceClass
+	53,  // 84: sdk.v1.DiscoverDeviceResponse.device:type_name -> sdk.v1.DeviceInfo
+	53,  // 85: sdk.v1.PairDeviceRequest.device:type_name -> sdk.v1.DeviceInfo
+	34,  // 86: sdk.v1.PairDeviceRequest.access:type_name -> sdk.v1.SecretBundle
+	53,  // 87: sdk.v1.PairDeviceResponse.device:type_name -> sdk.v1.DeviceInfo
+	31,  // 88: sdk.v1.GetDefaultCredentialsResponse.credentials:type_name -> sdk.v1.UsernamePassword
+	10,  // 89: sdk.v1.GetCapabilitiesForModelResponse.caps:type_name -> sdk.v1.Capabilities
+	15,  // 90: sdk.v1.GetDeviceWebViewURLRequest.ref:type_name -> sdk.v1.DeviceRef
+	15,  // 91: sdk.v1.GetTimeSeriesDataRequest.ref:type_name -> sdk.v1.DeviceRef
+	92,  // 92: sdk.v1.GetTimeSeriesDataRequest.start_time:type_name -> google.protobuf.Timestamp
+	92,  // 93: sdk.v1.GetTimeSeriesDataRequest.end_time:type_name -> google.protobuf.Timestamp
+	91,  // 94: sdk.v1.GetTimeSeriesDataRequest.granularity:type_name -> google.protobuf.Duration
+	25,  // 95: sdk.v1.GetTimeSeriesDataResponse.series:type_name -> sdk.v1.DeviceMetrics
+	15,  // 96: sdk.v1.UpdateMinerPasswordRequest.ref:type_name -> sdk.v1.DeviceRef
+	15,  // 97: sdk.v1.UpdateFirmwareRequest.ref:type_name -> sdk.v1.DeviceRef
+	68,  // 98: sdk.v1.UpdateFirmwareRequest.firmware:type_name -> sdk.v1.FirmwareFileInfo
+	7,   // 99: sdk.v1.DeviceError.miner_error:type_name -> sdk.v1.MinerError
+	8,   // 100: sdk.v1.DeviceError.severity:type_name -> sdk.v1.Severity
+	92,  // 101: sdk.v1.DeviceError.first_seen_at:type_name -> google.protobuf.Timestamp
+	92,  // 102: sdk.v1.DeviceError.last_seen_at:type_name -> google.protobuf.Timestamp
+	92,  // 103: sdk.v1.DeviceError.closed_at:type_name -> google.protobuf.Timestamp
+	89,  // 104: sdk.v1.DeviceError.vendor_attributes:type_name -> sdk.v1.DeviceError.VendorAttributesEntry
+	9,   // 105: sdk.v1.DeviceError.component_type:type_name -> sdk.v1.ComponentType
+	71,  // 106: sdk.v1.DeviceErrors.errors:type_name -> sdk.v1.DeviceError
+	80,  // 107: sdk.v1.ContainerSnapshot.fans:type_name -> sdk.v1.ContainerFan
+	81,  // 108: sdk.v1.ContainerSnapshot.controls:type_name -> sdk.v1.ContainerControls
+	92,  // 109: sdk.v1.ContainerSnapshot.observed_at:type_name -> google.protobuf.Timestamp
+	74,  // 110: sdk.v1.ContainerSnapshot.tanks:type_name -> sdk.v1.ContainerTank
+	79,  // 111: sdk.v1.ContainerSnapshot.plant:type_name -> sdk.v1.ContainerPlant
+	75,  // 112: sdk.v1.ContainerTank.modules:type_name -> sdk.v1.ContainerModule
+	77,  // 113: sdk.v1.ContainerModule.hashboards:type_name -> sdk.v1.ContainerHashboard
+	92,  // 114: sdk.v1.ContainerModule.observed_at:type_name -> google.protobuf.Timestamp
+	78,  // 115: sdk.v1.ContainerModule.metrics:type_name -> sdk.v1.ContainerModuleMetrics
+	85,  // 116: sdk.v1.ContainerModule.issues:type_name -> sdk.v1.ContainerModuleIssues
+	76,  // 117: sdk.v1.ContainerHashboard.identity_claims:type_name -> sdk.v1.HashboardIdentityClaim
+	92,  // 118: sdk.v1.ContainerHashboard.observed_at:type_name -> google.protobuf.Timestamp
+	92,  // 119: sdk.v1.ContainerHashboard.state_observed_at:type_name -> google.protobuf.Timestamp
+	92,  // 120: sdk.v1.ContainerModuleMetrics.observed_at:type_name -> google.protobuf.Timestamp
+	92,  // 121: sdk.v1.ContainerPlant.observed_at:type_name -> google.protobuf.Timestamp
+	92,  // 122: sdk.v1.ContainerFan.observed_at:type_name -> google.protobuf.Timestamp
+	92,  // 123: sdk.v1.ContainerControls.observed_at:type_name -> google.protobuf.Timestamp
+	82,  // 124: sdk.v1.ContainerControls.controls:type_name -> sdk.v1.ContainerControl
+	83,  // 125: sdk.v1.ContainerControls.setpoints:type_name -> sdk.v1.ContainerSetpoint
+	15,  // 126: sdk.v1.SetContainerControlRequest.ref:type_name -> sdk.v1.DeviceRef
+	90,  // 127: sdk.v1.ContainerModuleIssues.source_times:type_name -> sdk.v1.ContainerModuleIssues.SourceTimesEntry
+	92,  // 128: sdk.v1.ContainerModuleIssues.observed_at:type_name -> google.protobuf.Timestamp
+	86,  // 129: sdk.v1.ContainerModuleIssues.items:type_name -> sdk.v1.ContainerModuleIssue
+	92,  // 130: sdk.v1.ContainerModuleIssue.observed_at:type_name -> google.protobuf.Timestamp
+	15,  // 131: sdk.v1.SetTankMiningRequest.ref:type_name -> sdk.v1.DeviceRef
+	92,  // 132: sdk.v1.ContainerModuleIssues.SourceTimesEntry.value:type_name -> google.protobuf.Timestamp
+	93,  // 133: sdk.v1.Driver.Handshake:input_type -> google.protobuf.Empty
+	93,  // 134: sdk.v1.Driver.DescribeDriver:input_type -> google.protobuf.Empty
+	54,  // 135: sdk.v1.Driver.DiscoverDevice:input_type -> sdk.v1.DiscoverDeviceRequest
+	56,  // 136: sdk.v1.Driver.PairDevice:input_type -> sdk.v1.PairDeviceRequest
+	58,  // 137: sdk.v1.Driver.GetDefaultCredentials:input_type -> sdk.v1.GetDefaultCredentialsRequest
+	60,  // 138: sdk.v1.Driver.GetCapabilitiesForModel:input_type -> sdk.v1.GetCapabilitiesForModelRequest
+	93,  // 139: sdk.v1.Driver.GetDiscoveryPorts:input_type -> google.protobuf.Empty
+	13,  // 140: sdk.v1.Driver.NewDevice:input_type -> sdk.v1.NewDeviceRequest
+	26,  // 141: sdk.v1.Driver.DescribeDevice:input_type -> sdk.v1.DescribeDeviceRequest
+	15,  // 142: sdk.v1.Driver.CloseDevice:input_type -> sdk.v1.DeviceRef
+	15,  // 143: sdk.v1.Driver.StartMining:input_type -> sdk.v1.DeviceRef
+	15,  // 144: sdk.v1.Driver.StopMining:input_type -> sdk.v1.DeviceRef
+	15,  // 145: sdk.v1.Driver.BlinkLED:input_type -> sdk.v1.DeviceRef
+	15,  // 146: sdk.v1.Driver.Reboot:input_type -> sdk.v1.DeviceRef
+	87,  // 147: sdk.v1.Driver.SetTankMining:input_type -> sdk.v1.SetTankMiningRequest
+	84,  // 148: sdk.v1.Driver.SetContainerControl:input_type -> sdk.v1.SetContainerControlRequest
+	35,  // 149: sdk.v1.Driver.SetCoolingMode:input_type -> sdk.v1.SetCoolingModeRequest
+	15,  // 150: sdk.v1.Driver.GetCoolingMode:input_type -> sdk.v1.DeviceRef
+	42,  // 151: sdk.v1.Driver.SetPowerTarget:input_type -> sdk.v1.SetPowerTargetRequest
+	44,  // 152: sdk.v1.Driver.UpdateMiningPools:input_type -> sdk.v1.UpdateMiningPoolsRequest
+	46,  // 153: sdk.v1.Driver.GetMiningPools:input_type -> sdk.v1.GetMiningPoolsRequest
+	49,  // 154: sdk.v1.Driver.GetStoredMiningPools:input_type -> sdk.v1.GetStoredMiningPoolsRequest
+	51,  // 155: sdk.v1.Driver.DownloadLogs:input_type -> sdk.v1.DownloadLogsRequest
+	69,  // 156: sdk.v1.Driver.UpdateFirmware:input_type -> sdk.v1.UpdateFirmwareRequest
+	15,  // 157: sdk.v1.Driver.GetFirmwareUpdateStatus:input_type -> sdk.v1.DeviceRef
+	15,  // 158: sdk.v1.Driver.Unpair:input_type -> sdk.v1.DeviceRef
+	67,  // 159: sdk.v1.Driver.UpdateMinerPassword:input_type -> sdk.v1.UpdateMinerPasswordRequest
+	37,  // 160: sdk.v1.Driver.Curtail:input_type -> sdk.v1.CurtailRequest
+	38,  // 161: sdk.v1.Driver.Uncurtail:input_type -> sdk.v1.UncurtailRequest
+	41,  // 162: sdk.v1.Driver.ApplyCurtailmentConfig:input_type -> sdk.v1.ApplyCurtailmentConfigRequest
+	15,  // 163: sdk.v1.Driver.DeviceStatus:input_type -> sdk.v1.DeviceRef
+	65,  // 164: sdk.v1.Driver.GetTimeSeriesData:input_type -> sdk.v1.GetTimeSeriesDataRequest
+	64,  // 165: sdk.v1.Driver.GetDeviceWebViewURL:input_type -> sdk.v1.GetDeviceWebViewURLRequest
+	29,  // 166: sdk.v1.Driver.BatchStatus:input_type -> sdk.v1.BatchStatusRequest
+	30,  // 167: sdk.v1.Driver.Subscribe:input_type -> sdk.v1.SubscribeRequest
+	15,  // 168: sdk.v1.Driver.GetErrors:input_type -> sdk.v1.DeviceRef
+	11,  // 169: sdk.v1.Driver.Handshake:output_type -> sdk.v1.HandshakeResponse
+	12,  // 170: sdk.v1.Driver.DescribeDriver:output_type -> sdk.v1.DescribeDriverResponse
+	55,  // 171: sdk.v1.Driver.DiscoverDevice:output_type -> sdk.v1.DiscoverDeviceResponse
+	57,  // 172: sdk.v1.Driver.PairDevice:output_type -> sdk.v1.PairDeviceResponse
+	59,  // 173: sdk.v1.Driver.GetDefaultCredentials:output_type -> sdk.v1.GetDefaultCredentialsResponse
+	61,  // 174: sdk.v1.Driver.GetCapabilitiesForModel:output_type -> sdk.v1.GetCapabilitiesForModelResponse
+	62,  // 175: sdk.v1.Driver.GetDiscoveryPorts:output_type -> sdk.v1.GetDiscoveryPortsResponse
+	14,  // 176: sdk.v1.Driver.NewDevice:output_type -> sdk.v1.NewDeviceResponse
+	27,  // 177: sdk.v1.Driver.DescribeDevice:output_type -> sdk.v1.DescribeDeviceResponse
+	93,  // 178: sdk.v1.Driver.CloseDevice:output_type -> google.protobuf.Empty
+	93,  // 179: sdk.v1.Driver.StartMining:output_type -> google.protobuf.Empty
+	93,  // 180: sdk.v1.Driver.StopMining:output_type -> google.protobuf.Empty
+	93,  // 181: sdk.v1.Driver.BlinkLED:output_type -> google.protobuf.Empty
+	93,  // 182: sdk.v1.Driver.Reboot:output_type -> google.protobuf.Empty
+	93,  // 183: sdk.v1.Driver.SetTankMining:output_type -> google.protobuf.Empty
+	93,  // 184: sdk.v1.Driver.SetContainerControl:output_type -> google.protobuf.Empty
+	93,  // 185: sdk.v1.Driver.SetCoolingMode:output_type -> google.protobuf.Empty
+	36,  // 186: sdk.v1.Driver.GetCoolingMode:output_type -> sdk.v1.GetCoolingModeResponse
+	93,  // 187: sdk.v1.Driver.SetPowerTarget:output_type -> google.protobuf.Empty
+	93,  // 188: sdk.v1.Driver.UpdateMiningPools:output_type -> google.protobuf.Empty
+	47,  // 189: sdk.v1.Driver.GetMiningPools:output_type -> sdk.v1.GetMiningPoolsResponse
+	50,  // 190: sdk.v1.Driver.GetStoredMiningPools:output_type -> sdk.v1.GetStoredMiningPoolsResponse
+	52,  // 191: sdk.v1.Driver.DownloadLogs:output_type -> sdk.v1.DownloadLogsResponse
+	93,  // 192: sdk.v1.Driver.UpdateFirmware:output_type -> google.protobuf.Empty
+	70,  // 193: sdk.v1.Driver.GetFirmwareUpdateStatus:output_type -> sdk.v1.GetFirmwareUpdateStatusResponse
+	93,  // 194: sdk.v1.Driver.Unpair:output_type -> google.protobuf.Empty
+	93,  // 195: sdk.v1.Driver.UpdateMinerPassword:output_type -> google.protobuf.Empty
+	93,  // 196: sdk.v1.Driver.Curtail:output_type -> google.protobuf.Empty
+	93,  // 197: sdk.v1.Driver.Uncurtail:output_type -> google.protobuf.Empty
+	93,  // 198: sdk.v1.Driver.ApplyCurtailmentConfig:output_type -> google.protobuf.Empty
+	25,  // 199: sdk.v1.Driver.DeviceStatus:output_type -> sdk.v1.DeviceMetrics
+	66,  // 200: sdk.v1.Driver.GetTimeSeriesData:output_type -> sdk.v1.GetTimeSeriesDataResponse
+	63,  // 201: sdk.v1.Driver.GetDeviceWebViewURL:output_type -> sdk.v1.GetDeviceWebViewURLResponse
+	28,  // 202: sdk.v1.Driver.BatchStatus:output_type -> sdk.v1.StatusBatchResponse
+	25,  // 203: sdk.v1.Driver.Subscribe:output_type -> sdk.v1.DeviceMetrics
+	72,  // 204: sdk.v1.Driver.GetErrors:output_type -> sdk.v1.DeviceErrors
+	169, // [169:205] is the sub-list for method output_type
+	133, // [133:169] is the sub-list for method input_type
+	133, // [133:133] is the sub-list for extension type_name
+	133, // [133:133] is the sub-list for extension extendee
+	0,   // [0:133] is the sub-list for field type_name
 }
 
 func init() { file_pb_driver_proto_init() }
@@ -7519,25 +7719,27 @@ func file_pb_driver_proto_init() {
 		(*SecretBundle_BearerToken)(nil),
 		(*SecretBundle_TlsClientCert)(nil),
 	}
-	file_pb_driver_proto_msgTypes[40].OneofWrappers = []any{}
-	file_pb_driver_proto_msgTypes[57].OneofWrappers = []any{}
-	file_pb_driver_proto_msgTypes[58].OneofWrappers = []any{}
-	file_pb_driver_proto_msgTypes[64].OneofWrappers = []any{}
-	file_pb_driver_proto_msgTypes[65].OneofWrappers = []any{}
-	file_pb_driver_proto_msgTypes[66].OneofWrappers = []any{}
+	file_pb_driver_proto_msgTypes[33].OneofWrappers = []any{}
+	file_pb_driver_proto_msgTypes[38].OneofWrappers = []any{}
+	file_pb_driver_proto_msgTypes[43].OneofWrappers = []any{}
+	file_pb_driver_proto_msgTypes[60].OneofWrappers = []any{}
+	file_pb_driver_proto_msgTypes[61].OneofWrappers = []any{}
 	file_pb_driver_proto_msgTypes[67].OneofWrappers = []any{}
 	file_pb_driver_proto_msgTypes[68].OneofWrappers = []any{}
 	file_pb_driver_proto_msgTypes[69].OneofWrappers = []any{}
 	file_pb_driver_proto_msgTypes[70].OneofWrappers = []any{}
 	file_pb_driver_proto_msgTypes[71].OneofWrappers = []any{}
+	file_pb_driver_proto_msgTypes[72].OneofWrappers = []any{}
+	file_pb_driver_proto_msgTypes[73].OneofWrappers = []any{}
 	file_pb_driver_proto_msgTypes[74].OneofWrappers = []any{}
+	file_pb_driver_proto_msgTypes[77].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pb_driver_proto_rawDesc), len(file_pb_driver_proto_rawDesc)),
 			NumEnums:      10,
-			NumMessages:   78,
+			NumMessages:   81,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

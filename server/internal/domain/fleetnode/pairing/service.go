@@ -33,12 +33,15 @@ var telemetryScheduleTimeout = 5 * time.Second
 
 type Store interface { //nolint:interfacebloat // Pairing coordinates several sqlc-backed persistence operations in one transaction boundary.
 	PairDeviceToFleetNode(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) (int64, error)
+	DeviceHasRevokedFleetNodeStatus(ctx context.Context, deviceID, orgID int64) (bool, error)
 	LockDeviceForFleetNodePairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	TransferDiscoveredDeviceAttribution(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error)
+	ClearFleetNodeRevokedStatus(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error)
 	DeviceHasActiveCloudPairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	DeviceHasActivePairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	UnpairDevice(ctx context.Context, deviceID, orgID int64) (int64, error)
 	ListFleetNodeDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]FleetNodeDevice, error)
+	CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) (map[int64]int64, error)
 	ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64, filter FleetNodeDiscoveredDeviceFilter) ([]FleetNodeDiscoveredDevice, error)
 	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID int64, fleetNodeID int64, report DiscoveredDeviceReport) (commonpb.DeviceClass, bool, error)
 	DeviceExistsInOrg(ctx context.Context, deviceID, orgID int64) (bool, error)
@@ -61,7 +64,7 @@ type FleetNodeDiscoveredDeviceFilter struct {
 }
 
 type TelemetryScheduler interface {
-	AddDevices(ctx context.Context, deviceID ...telemetrymodels.DeviceIdentifier) error
+	AddPairedDevices(ctx context.Context, deviceID ...telemetrymodels.DeviceIdentifier) error
 }
 
 type Service struct {
@@ -156,7 +159,20 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 	if err := s.lockDeviceForPairing(ctx, deviceID, orgID); err != nil {
 		return err
 	}
-	return s.pairDeviceWithLocks(ctx, fleetNodeID, deviceID, orgID, assignedBy)
+	if err := s.pairDeviceWithLocks(ctx, fleetNodeID, deviceID, orgID, assignedBy); err != nil {
+		return err
+	}
+	// A direct binding does not run miner provisioning. If revocation removed
+	// the previous assignment while this transaction waited, this final check
+	// sees its committed status marker and rolls back the new binding.
+	revoked, err := s.store.DeviceHasRevokedFleetNodeStatus(ctx, deviceID, orgID)
+	if err != nil {
+		return logInternal("check revoked fleet node status", clientErrPair, err)
+	}
+	if revoked {
+		return fleeterror.NewFailedPreconditionError("miner was unpaired by fleet node revocation; discover and pair it through the replacement node")
+	}
+	return nil
 }
 
 func (s *Service) lockFleetNodeForPairing(ctx context.Context, fleetNodeID, orgID int64) error {
@@ -259,7 +275,7 @@ func (s *Service) scheduleTelemetryIdentifier(ctx context.Context, identifier te
 	if s.telemetry == nil {
 		return nil
 	}
-	if err := s.telemetry.AddDevices(ctx, identifier); err != nil {
+	if err := s.telemetry.AddPairedDevices(ctx, identifier); err != nil {
 		return fleeterror.LogInternal(component, "schedule telemetry", clientErrPair, err)
 	}
 	return nil
@@ -343,6 +359,14 @@ func (s *Service) ListPairs(ctx context.Context, orgID int64) ([]FleetNodeDevice
 		return nil, fleeterror.LogInternal(component, "list pairs", clientErrList, err)
 	}
 	return pairs, nil
+}
+
+func (s *Service) CountDevicesByNode(ctx context.Context, orgID int64) (map[int64]int64, error) {
+	counts, err := s.store.CountFleetNodeDevicesByNode(ctx, orgID)
+	if err != nil {
+		return nil, fleeterror.LogInternal(component, "count pairs by fleet node", clientErrList, err)
+	}
+	return counts, nil
 }
 
 func (s *Service) ListDevicesForFleetNode(ctx context.Context, fleetNodeID, orgID int64) ([]FleetNodeDevice, error) {

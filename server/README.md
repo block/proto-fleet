@@ -55,6 +55,28 @@ The SDK reserves an ID during creation and rejected-result cleanup, returning a
 retryable close error while either is running. IDs being closed cannot be reused
 until cleanup succeeds.
 
+## Worker-name pool updates
+
+Worker-name changes require complete stored pool readback so rewriting usernames
+preserves every slot's password, including an explicitly empty password. Fleet
+preflights the selected miners before creating a batch. If any miner lacks the
+reader, rejects the read, or returns unknown credentials or invalid slots, the
+whole request fails without enqueueing or reporting updated miners. Reads run
+with bounded concurrency and a five-second per-miner timeout. Execution reads and
+validates the configuration again before writing; preflight results are not cached.
+
+Proto, ASIC-rs, and Fleet Node miners currently lack this readback capability, so
+worker-name changes are rejected at request time. Full pool configuration writes
+remain available. Saved organization pool credentials do not substitute for
+actual device readback.
+
+The Antminer reader uses authenticated web configuration. Tests cover missing
+passwords, all-asterisk masks, `<redacted>` in either case, and literal passwords
+such as `x*`. These fixtures do not qualify stock or VNish firmware versions:
+qualification must confirm that the endpoint exposes complete stored slots and
+exact passwords, including explicit empty values, rather than another mask or
+placeholder. Live firmware qualification remains outstanding.
+
 ## Development Commands
 
 ### Build and Run

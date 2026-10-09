@@ -25,7 +25,7 @@ import (
 const tankCommandMaxAge = 2 * time.Minute
 const tankCommandClockSkew = 5 * time.Second
 
-const tankMiningProtocolUpgradeMessage = "tank mining requires Fleet Node command protocol version 3; upgrade Fleet Node before retrying"
+const tankMiningProtocolUpgradeMessage = "tank mining requires Fleet Node command protocol version 4; upgrade Fleet Node before retrying"
 
 type tankMiningPayload struct {
 	sdk.TankMiningRequest
@@ -92,7 +92,7 @@ func (s *Service) tankCommandProtocolUpgradeRequired(ctx context.Context, q sqlc
 		return false, err
 	}
 	for _, route := range routes {
-		if route.FleetNodeID.Valid && s.protocolChecker.CommandProtocolUpgradeRequiredForVersion(route.FleetNodeID.Int64, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3) {
+		if route.FleetNodeID.Valid && s.protocolChecker.CommandProtocolUpgradeRequiredForVersion(route.FleetNodeID.Int64, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4) {
 			return true, nil
 		}
 	}

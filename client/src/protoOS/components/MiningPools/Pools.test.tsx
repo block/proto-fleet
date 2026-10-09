@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import Pools from "./Pools";
@@ -11,6 +11,27 @@ vi.mock("@/protoOS/api", () => ({
 }));
 
 describe("ProtoOS Pools", () => {
+  it("cancels the pending edit completion when unmounted", () => {
+    vi.useFakeTimers();
+    try {
+      const { unmount } = render(
+        <Pools
+          pools={[]}
+          onChangePools={vi.fn()}
+          renderModal={({ onDismiss }) => <button onClick={onDismiss}>Dismiss</button>}
+        />,
+      );
+      fireEvent.click(screen.getByText("Dismiss"));
+      expect(vi.getTimerCount()).toBe(1);
+
+      unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it("uses the URL as the fallback title and renders the full username below it", () => {
     render(
       <Pools

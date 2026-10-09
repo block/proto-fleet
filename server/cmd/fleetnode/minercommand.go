@@ -31,6 +31,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/commandresult"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/curtailmentconfig"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/poolconfig"
 	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/sv2"
@@ -136,6 +137,13 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		return
 	}
 
+	poolConfig, err := newPoolConfigCommand(r.passwordUpdatePrivateKey, target, mc)
+	if err != nil {
+		code, msg := classifyMinerCommandError("decrypt pool config", err)
+		r.sendAck(stream, commandID, code, msg, logger)
+		return
+	}
+
 	cmdCtx, cancel := context.WithTimeout(ctx, minerCommandActionTimeout(mc))
 	defer cancel()
 
@@ -180,6 +188,8 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 	var payload []byte
 	if passwordUpdate != nil {
 		payload, err = passwordUpdate.run(cmdCtx, dev, bundle, r.minerSecrets)
+	} else if poolConfig != nil {
+		payload, err = poolConfig.run(cmdCtx, dev)
 	} else if curtailmentConfig != nil {
 		payload, err = curtailmentConfig.run(cmdCtx, dev)
 	} else {
@@ -191,6 +201,27 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		return
 	}
 	r.sendAckWithPayload(stream, commandID, pb.AckCode_ACK_CODE_OK, "", payload, logger)
+}
+
+type poolConfigCommand struct{ pools []sdk.MiningPoolConfig }
+
+func newPoolConfigCommand(privateKey []byte, target *pb.MinerConnectionDescriptor, mc *pb.MinerCommand) (*poolConfigCommand, error) {
+	action := mc.GetUpdateMiningPools()
+	if action == nil {
+		return nil, nil
+	}
+	if len(privateKey) == 0 {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node has no pool config decryption key configured")
+	}
+	config, err := poolconfig.Decrypt(privateKey, action.GetEncryptedConfig(), target.GetDeviceIdentifier())
+	if err != nil {
+		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "%s", err.Error())
+	}
+	return &poolConfigCommand{pools: toSDKMiningPoolConfigs(config.GetPools())}, nil
+}
+
+func (c *poolConfigCommand) run(ctx context.Context, dev sdk.Device) ([]byte, error) {
+	return nil, dev.UpdateMiningPools(ctx, c.pools)
 }
 
 type curtailmentConfigCommand struct {
@@ -383,7 +414,7 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 		}
 		return nil, dev.SetPowerTarget(ctx, mode)
 	case *pb.MinerCommand_UpdateMiningPools:
-		return nil, dev.UpdateMiningPools(ctx, toSDKMiningPoolConfigs(a.UpdateMiningPools.GetPools()))
+		return nil, cmdErr(pb.AckCode_ACK_CODE_BAD_REQUEST, "pool config must be decrypted before device execution")
 	case *pb.MinerCommand_GetMiningPools:
 		pools, err := dev.GetMiningPools(ctx)
 		if err != nil {
@@ -768,13 +799,14 @@ func commandArtifactRefsEqual(a, b *pb.CommandArtifactRef) bool {
 		a.GetSha256() == b.GetSha256()
 }
 
-func toSDKMiningPoolConfigs(pools []*pb.MiningPoolConfig) []sdk.MiningPoolConfig {
+func toSDKMiningPoolConfigs(pools []*pb.MiningPoolWriteConfig) []sdk.MiningPoolConfig {
 	sdkPools := make([]sdk.MiningPoolConfig, 0, len(pools))
 	for _, pool := range pools {
 		sdkPools = append(sdkPools, sdk.MiningPoolConfig{
 			Priority:   pool.GetPriority(),
 			URL:        pool.GetUrl(),
 			WorkerName: pool.GetUsername(),
+			Password:   pool.GetPassword(),
 		})
 	}
 	return sdkPools

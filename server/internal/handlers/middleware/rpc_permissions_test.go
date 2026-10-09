@@ -29,6 +29,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
@@ -75,6 +76,7 @@ var registeredServices = []struct {
 	{activityv1connect.ActivityServiceName, reflect.TypeOf((*activityv1connect.ActivityServiceHandler)(nil)).Elem()},
 	{apikeyv1connect.ApiKeyServiceName, reflect.TypeOf((*apikeyv1connect.ApiKeyServiceHandler)(nil)).Elem()},
 	{authv1connect.AuthServiceName, reflect.TypeOf((*authv1connect.AuthServiceHandler)(nil)).Elem()},
+	{hostedv1connect.HostedAccountServiceName, reflect.TypeOf((*hostedv1connect.HostedAccountServiceHandler)(nil)).Elem()},
 	{authzv1connect.AuthzServiceName, reflect.TypeOf((*authzv1connect.AuthzServiceHandler)(nil)).Elem()},
 	{buildingsv1connect.BuildingServiceName, reflect.TypeOf((*buildingsv1connect.BuildingServiceHandler)(nil)).Elem()},
 	{collectionv1connect.DeviceCollectionServiceName, reflect.TypeOf((*collectionv1connect.DeviceCollectionServiceHandler)(nil)).Elem()},
@@ -154,6 +156,11 @@ func TestRPCContract_EveryRegisteredProcedureIsClassified(t *testing.T) {
 	add("FleetNodeAuthenticatedProcedures", interceptors.FleetNodeAuthenticatedProcedures)
 	addMap("ProcedurePermissions", middleware.ProcedurePermissions)
 	addMap("ProceduresPendingMigration", middleware.ProceduresPendingMigration)
+	accountProcedures := make([]string, 0, len(middleware.AccountProcedureCapabilities))
+	for procedure := range middleware.AccountProcedureCapabilities {
+		accountProcedures = append(accountProcedures, procedure)
+	}
+	add("AccountProcedureCapabilities", accountProcedures)
 
 	procedures := allRegisteredProcedures()
 	// Guard against silent pass when reflection finds nothing — e.g.

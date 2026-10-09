@@ -616,7 +616,7 @@ func TestSQLCurtailmentStore_AutomationExecutionRevalidatesSourceUser(t *testing
 				})
 				require.NoError(t, roleErr)
 				require.NoError(t, queries.UpdateUserRole(ctx, sqlc.UpdateUserRoleParams{
-					RoleID:         fieldTech.ID,
+					RoleID:         sql.NullInt64{Int64: fieldTech.ID, Valid: true},
 					UserID:         user.DatabaseID,
 					OrganizationID: user.OrganizationID,
 				}))
@@ -895,7 +895,7 @@ func TestSQLCurtailmentStore_AutomationRecurtailRevalidatesExecutionFence(t *tes
 				require.NoError(t, assignmentErr)
 			case "role":
 				require.NoError(t, queries.UpdateUserRole(ctx, sqlc.UpdateUserRoleParams{
-					RoleID:         fieldTech.ID,
+					RoleID:         sql.NullInt64{Int64: fieldTech.ID, Valid: true},
 					UserID:         user.DatabaseID,
 					OrganizationID: user.OrganizationID,
 				}))

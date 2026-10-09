@@ -56,6 +56,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/foremanimport/v1/foremanimportv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
@@ -95,6 +96,7 @@ import (
 	fleetnoderecovery "github.com/block/proto-fleet/server/internal/domain/fleetnode/recovery"
 	"github.com/block/proto-fleet/server/internal/domain/fleetoptions"
 	foremanImportDomain "github.com/block/proto-fleet/server/internal/domain/foremanimport"
+	hostedaccountsDomain "github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	infrastructureDomain "github.com/block/proto-fleet/server/internal/domain/infrastructure"
 	inventoryDomain "github.com/block/proto-fleet/server/internal/domain/inventory"
 	maintenanceDomain "github.com/block/proto-fleet/server/internal/domain/maintenance"
@@ -132,6 +134,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/admin"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 	foremanImportHandler "github.com/block/proto-fleet/server/internal/handlers/foremanimport"
+	hostedaccountsHandler "github.com/block/proto-fleet/server/internal/handlers/hostedaccounts"
 	infrastructureHandler "github.com/block/proto-fleet/server/internal/handlers/infrastructure"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	inventoryHandler "github.com/block/proto-fleet/server/internal/handlers/inventory"
@@ -204,6 +207,7 @@ func normalizeFleetdArgs(args []string) []string {
 // services" rather than a curated subset.
 var reflectEnabledServices = []string{
 	marketdatav1connect.MarketDataServiceName,
+	hostedv1connect.HostedAccountServiceName,
 	pairingv1connect.PairingServiceName,
 	telemetryv1connect.TelemetryServiceName,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceName,
@@ -347,6 +351,10 @@ func start(config *Config) (result error) {
 
 	// userStore implements both UserStore and UserManagementStore interfaces
 	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, sessionSvc, encryptSvc, activitySvc, permissionResolver)
+	hostedaccountsSvc := hostedaccountsDomain.NewService(conn)
+	hostedInvitationsSvc := hostedaccountsDomain.NewInvitationService(hostedaccountsSvc, sessionSvc)
+	hostedKeysSvc := hostedaccountsDomain.NewKeyService(hostedaccountsSvc, apiKeySvc)
+	hostedPoolsSvc := hostedaccountsDomain.NewPoolService(hostedaccountsSvc, encryptSvc, hostedKeysSvc, authSvc)
 
 	identityStateCleanup := newBackgroundLoop(func(ctx context.Context) {
 		cleanupInterval := sessionSvc.CleanupInterval()
@@ -502,6 +510,7 @@ func start(config *Config) (result error) {
 	pairingSvc.WithOptionsCache(fleetOptionsCache)
 	fleetNodePairingSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
 	fleetNodeEnrollmentSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
+	fleetNodeEnrollmentSvc.WithTelemetryRemover(telemetryService.RemoveUnpairedDevices)
 
 	// Initialize IP scanner service
 	ipScannerService := ipscanner.NewIPScannerService(
@@ -825,7 +834,7 @@ func start(config *Config) (result error) {
 
 	validateInterceptor := validate.NewInterceptor()
 
-	requestAuth := interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, permissionResolver, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures)
+	requestAuth := interceptors.NewAuthInterceptor(sessionSvc, userStore, userStore, apiKeySvc, permissionResolver, hostedKeysSvc, interceptors.UnauthenticatedProcedures, interceptors.SessionOnlyProcedures, interceptors.FleetNodeAuthenticatedProcedures)
 
 	li := connect.WithInterceptors(
 		interceptors.NewErrorMappingInterceptor(),
@@ -875,6 +884,7 @@ func start(config *Config) (result error) {
 	}
 
 	mux.Handle(authv1connect.NewAuthServiceHandler(auth.NewHandler(authSvc), li))
+	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedaccountsHandler.NewHandler(hostedaccountsSvc, hostedInvitationsSvc, hostedKeysSvc, hostedPoolsSvc, userStore, permissionResolver), li))
 	mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboarding.NewHandler(authSvc, onboardingSvc), li))
 	mux.Handle(pairingv1connect.NewPairingServiceHandler(pairing.NewHandler(pairingSvc, fleetNodeDiscoverySvc, fleetNodePairingSvc), li))
 	mux.Handle(networkinfov1connect.NewNetworkInfoServiceHandler(networkinfo.NewHandler(pairingSvc), li))

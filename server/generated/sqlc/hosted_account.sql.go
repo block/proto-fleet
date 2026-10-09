@@ -13,7 +13,7 @@ import (
 
 const configureHostedAccount = `-- name: ConfigureHostedAccount :exec
 UPDATE hosted_account SET capabilities = $1, suspended = $2,
-    revision = revision + 1, updated_at = CURRENT_TIMESTAMP
+    revision = revision + 1, authority_revision = authority_revision + 1, updated_at = CURRENT_TIMESTAMP
 WHERE organization_id = $3 AND id = $4
 `
 
@@ -34,38 +34,9 @@ func (q *Queries) ConfigureHostedAccount(ctx context.Context, arg ConfigureHoste
 	return err
 }
 
-const countSoleHostedAccountAdministrations = `-- name: CountSoleHostedAccountAdministrations :one
-SELECT COUNT(*) FROM hosted_account_membership target
-WHERE target.organization_id = $1 AND target.user_id = $2
-    AND target.role = 'account_administrator' AND target.revoked_at IS NULL
-    AND NOT EXISTS (
-        SELECT 1 FROM hosted_account_membership other
-        JOIN "user" u ON u.id = other.user_id AND u.deleted_at IS NULL
-        JOIN user_organization uo ON uo.user_id = u.id
-            AND uo.organization_id = other.organization_id AND uo.deleted_at IS NULL
-        WHERE other.organization_id = target.organization_id
-            AND other.account_id = target.account_id AND other.user_id <> target.user_id
-            AND other.role = 'account_administrator' AND other.revoked_at IS NULL
-    )
-`
-
-type CountSoleHostedAccountAdministrationsParams struct {
-	OrganizationID int64
-	UserID         int64
-}
-
-// Call after locking the organization, before user/role locks. Also guard
-// suspended accounts so reactivation cannot expose an account without an admin.
-func (q *Queries) CountSoleHostedAccountAdministrations(ctx context.Context, arg CountSoleHostedAccountAdministrationsParams) (int64, error) {
-	row := q.queryRow(ctx, q.countSoleHostedAccountAdministrationsStmt, countSoleHostedAccountAdministrations, arg.OrganizationID, arg.UserID)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
-}
-
 const createHostedAccount = `-- name: CreateHostedAccount :one
 INSERT INTO hosted_account (account_id, organization_id, parent_id, depth, name, capabilities)
-VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, account_id, organization_id, parent_id, depth, name, capabilities, suspended, revision, created_at, updated_at
+VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, account_id, organization_id, parent_id, depth, name, capabilities, suspended, revision, created_at, updated_at, sites_restricted, site_ceiling_restricted, authority_revision
 `
 
 type CreateHostedAccountParams struct {
@@ -99,6 +70,9 @@ func (q *Queries) CreateHostedAccount(ctx context.Context, arg CreateHostedAccou
 		&i.Revision,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.SitesRestricted,
+		&i.SiteCeilingRestricted,
+		&i.AuthorityRevision,
 	)
 	return i, err
 }
@@ -132,13 +106,13 @@ func (q *Queries) GetHostedAccountMembership(ctx context.Context, arg GetHostedA
 
 const getHostedAccountPath = `-- name: GetHostedAccountPath :many
 WITH RECURSIVE path AS (
-    SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at FROM hosted_account a
+    SELECT a.id, a.account_id, a.organization_id, a.parent_id, a.depth, a.name, a.capabilities, a.suspended, a.revision, a.created_at, a.updated_at, a.sites_restricted, a.site_ceiling_restricted, a.authority_revision FROM hosted_account a
     WHERE a.organization_id = $1 AND a.account_id = $2
     UNION ALL
-    SELECT parent.id, parent.account_id, parent.organization_id, parent.parent_id, parent.depth, parent.name, parent.capabilities, parent.suspended, parent.revision, parent.created_at, parent.updated_at FROM hosted_account parent
+    SELECT parent.id, parent.account_id, parent.organization_id, parent.parent_id, parent.depth, parent.name, parent.capabilities, parent.suspended, parent.revision, parent.created_at, parent.updated_at, parent.sites_restricted, parent.site_ceiling_restricted, parent.authority_revision FROM hosted_account parent
     JOIN path child ON parent.id = child.parent_id AND parent.organization_id = child.organization_id
 )
-SELECT id, account_id, organization_id, parent_id, depth, name, capabilities, suspended, revision, created_at, updated_at FROM path ORDER BY depth
+SELECT id, account_id, organization_id, parent_id, depth, name, capabilities, suspended, revision, created_at, updated_at, sites_restricted, site_ceiling_restricted, authority_revision FROM path ORDER BY depth
 `
 
 type GetHostedAccountPathParams struct {
@@ -147,17 +121,20 @@ type GetHostedAccountPathParams struct {
 }
 
 type GetHostedAccountPathRow struct {
-	ID             int64
-	AccountID      string
-	OrganizationID int64
-	ParentID       sql.NullInt64
-	Depth          int32
-	Name           string
-	Capabilities   int64
-	Suspended      bool
-	Revision       int64
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	ID                    int64
+	AccountID             string
+	OrganizationID        int64
+	ParentID              sql.NullInt64
+	Depth                 int32
+	Name                  string
+	Capabilities          int64
+	Suspended             bool
+	Revision              int64
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	SitesRestricted       bool
+	SiteCeilingRestricted bool
+	AuthorityRevision     int64
 }
 
 func (q *Queries) GetHostedAccountPath(ctx context.Context, arg GetHostedAccountPathParams) ([]GetHostedAccountPathRow, error) {
@@ -181,6 +158,9 @@ func (q *Queries) GetHostedAccountPath(ctx context.Context, arg GetHostedAccount
 			&i.Revision,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.SitesRestricted,
+			&i.SiteCeilingRestricted,
+			&i.AuthorityRevision,
 		); err != nil {
 			return nil, err
 		}

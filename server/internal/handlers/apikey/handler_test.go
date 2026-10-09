@@ -214,7 +214,7 @@ func TestApiKeyHandler(t *testing.T) {
 
 			if err := q.CreateUserOrganization(context.Background(), sqlc.CreateUserOrganizationParams{
 				UserID:         userID,
-				RoleID:         roleID,
+				RoleID:         sql.NullInt64{Int64: roleID, Valid: true},
 				OrganizationID: adminUser.OrganizationID,
 			}); err != nil {
 				return err

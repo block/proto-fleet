@@ -165,7 +165,8 @@ func TestTankMiningProtocolAvailabilityChecksExactSelectedRoutes(t *testing.T) {
 		allowed bool
 	}{
 		{name: "V2 remote requires upgrade", remote: true, version: gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2},
-		{name: "V3 remote supported", remote: true, version: gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3, allowed: true},
+		{name: "V3 remote requires upgrade", remote: true, version: gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3},
+		{name: "V4 remote supported", remote: true, version: gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4, allowed: true},
 		{name: "local supported", allowed: true},
 	} {
 		t.Run(target.name, func(t *testing.T) {
@@ -205,7 +206,7 @@ func TestTankMiningProtocolAvailabilityChecksExactSelectedRoutes(t *testing.T) {
 			} else {
 				require.True(t, fleeterror.IsFailedPreconditionError(err))
 				require.ErrorContains(t, err, "upgrade Fleet Node before retrying")
-				require.Equal(t, "tank mining requires Fleet Node command protocol version 3; upgrade Fleet Node before retrying", options.UnavailableReason)
+				require.Equal(t, "tank mining requires Fleet Node command protocol version 4; upgrade Fleet Node before retrying", options.UnavailableReason)
 				require.Nil(t, result)
 				require.Zero(t, queued, "one incompatible controller must reject the complete selection before enqueue")
 				require.Zero(t, countCommandBatches(t, conn, user.OrganizationID))
@@ -219,7 +220,7 @@ func TestTankMiningAdmissionRechecksProtocolAfterOptions(t *testing.T) {
 	_, deviceID, tanks := seedTankController(t, conn, dbs, user.OrganizationID)
 	registry := control.NewRegistry()
 	nodeID := bindTankControllerToFleetNode(t, conn, user.OrganizationID, deviceID)
-	stream, err := registry.RegisterAuthenticated(nodeID, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3)
+	stream, err := registry.RegisterAuthenticated(nodeID, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4)
 	require.NoError(t, err)
 	defer stream.Unregister()
 	svc := newDispatchIntegrationTestService(t, conn, failingEnqueueQueue{delegate: queue.NewDatabaseMessageQueue(&queue.Config{DequeLimit: 10, MaxFailureRetries: 1}, conn)})
@@ -230,7 +231,7 @@ func TestTankMiningAdmissionRechecksProtocolAfterOptions(t *testing.T) {
 	options, err := svc.GetTankMiningOptions(ctx, tanks[:1], allow)
 	require.NoError(t, err)
 	require.True(t, options.CanStart)
-	legacy, err := registry.RegisterAuthenticated(nodeID, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2)
+	legacy, err := registry.RegisterAuthenticated(nodeID, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3)
 	require.NoError(t, err)
 	defer legacy.Unregister()
 	_, err = svc.SetTankMining(ctx, tanks[:1], new(true), allow)

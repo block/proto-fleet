@@ -216,7 +216,7 @@ test-contract: _asicrs-build
   )
 
   # Build Go plugins and compile the contract-test binary in a single container
-  # so the three test runs below only need to execute the binary, not recompile
+  # so the test runs below only need to execute the binary, not recompile
   # it. Only this builder container mounts the host Go caches, so the
   # actions/cache restore on CI (and the local dev cache) isn't wasted; the
   # test-execution containers below don't need it and shouldn't have write
@@ -240,7 +240,7 @@ test-contract: _asicrs-build
   # to the plugin binary, and parallel containers bind-mounting the same
   # /work would race on server/plugins/asicrs-config.yaml.
   FAILED=0
-  for test in TestAntminerStock TestAntminerVNish TestWhatsMinerStock; do
+  for test in TestAntminerStock TestAntminerVNish TestAntminerLuxOS TestWhatsMinerStock; do
     echo "=== Running ${test} ==="
     # cd into the miners package so the tests' relative testdata paths (../testdata/...) resolve.
     "${DOCKER_COMMON[@]}" "$IMAGE" sh -c \

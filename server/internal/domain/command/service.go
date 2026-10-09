@@ -1646,11 +1646,28 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 		return "", fleeterror.NewInternalErrorf("error getting session info from ctx: %v", err)
 	}
 
+	if info.OrganizationID <= 0 {
+		return "", fleeterror.NewInternalError("cannot create command batch: session missing organization_id")
+	}
+	if db.GetTxQueries(ctx) != nil && !db.HasCommitHooks(ctx) {
+		return "", fleeterror.NewInternalError("transactional command dispatch requires post-commit callbacks")
+	}
+
 	deviceIdentifiers := make([]string, 0, len(desiredWorkerNamesByDeviceIdentifier))
 	for deviceIdentifier := range desiredWorkerNamesByDeviceIdentifier {
 		deviceIdentifiers = append(deviceIdentifiers, deviceIdentifier)
 	}
 	sort.Strings(deviceIdentifiers)
+
+	deviceIDsByIdentifier, err := s.getDeviceIDsWithIdentifiers(ctx, deviceIdentifiers)
+	if err != nil {
+		return "", err
+	}
+	// Reject the whole request before creating a batch or reporting updates.
+	// Execution reads again: this preflight is not evidence for a later write.
+	if err := s.executionService.preflightWorkerNameReapply(ctx, deviceIdentifiers, deviceIDsByIdentifier, desiredWorkerNamesByDeviceIdentifier); err != nil {
+		return "", err
+	}
 
 	command := &Command{
 		commandType: commandtype.UpdateMiningPools,
@@ -1674,11 +1691,6 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 	commandBatchLogUUID, err := s.saveCommandBatchLogToDB(ctx, info.UserID, info.OrganizationID, command, payloadBytes, len(deviceIdentifiers))
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error saving command batch log to db: %v", err)
-	}
-
-	deviceIDsByIdentifier, err := s.getDeviceIDsWithIdentifiers(ctx, deviceIdentifiers)
-	if err != nil {
-		return "", err
 	}
 
 	err = s.executionService.withAdmission(ctx, func(workCtx context.Context) error {

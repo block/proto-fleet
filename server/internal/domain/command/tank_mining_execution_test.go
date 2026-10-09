@@ -291,7 +291,7 @@ func TestTankMiningExecutionCommitFailureDoesNotReplayPhysicalWrite(t *testing.T
 func TestTankMiningExecutionSurfacesFleetNodeUpgradeBeforeEnqueue(t *testing.T) {
 	svc, _, deviceID, identifier, payload := setupTankMiningExecution(t)
 	registry := control.NewRegistry()
-	stream, err := registry.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2)
+	stream, err := registry.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3)
 	require.NoError(t, err)
 	defer stream.Unregister()
 	controller, err := remotenode.New(remotenode.Config{
@@ -301,7 +301,7 @@ func TestTankMiningExecutionSurfacesFleetNodeUpgradeBeforeEnqueue(t *testing.T) 
 	require.NoError(t, err)
 	err = svc.executeTankMining(t.Context(), deviceID, payload.OrgID, payload, controller)
 	require.True(t, fleeterror.IsFailedPreconditionError(err))
-	require.Equal(t, "failed_precondition: tank mining requires Fleet Node command protocol version 3; upgrade Fleet Node before retrying", sanitizedErrorInfo(err).String)
+	require.Equal(t, "failed_precondition: tank mining requires Fleet Node command protocol version 4; upgrade Fleet Node before retrying", sanitizedErrorInfo(err).String)
 	select {
 	case <-stream.Outgoing:
 		t.Fatal("an unsupported tank command must not reach the Fleet Node")

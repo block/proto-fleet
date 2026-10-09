@@ -1,15 +1,25 @@
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import NodesPage from "./NodesPage";
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import {
+  DevicePairingResultSchema,
+  FleetNodeDiscoveredDeviceSchema,
+  FleetNodeEnrollmentStatus,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import type { ListAction, ListActionValue } from "@/shared/components/List/types";
 
 const permissionsMock = vi.hoisted(() => ({ current: [] as string[] }));
 const listFleetNodesMock = vi.hoisted(() => vi.fn());
 const revokeFleetNodeMock = vi.hoisted(() => vi.fn());
+const listFleetNodeDevicesMock = vi.hoisted(() => vi.fn());
+const listFleetNodeDiscoveredDevicesMock = vi.hoisted(() => vi.fn());
+const discoverOnFleetNodeMock = vi.hoisted(() => vi.fn());
+const pairDiscoveredDevicesOnFleetNodeMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: (permission: string) => permissionsMock.current.includes(permission),
@@ -21,6 +31,10 @@ vi.mock("@/protoFleet/api/useFleetNodes", () => ({
     createEnrollmentCode: vi.fn(),
     confirmFleetNode: vi.fn(),
     revokeFleetNode: revokeFleetNodeMock,
+    listFleetNodeDevices: listFleetNodeDevicesMock,
+    listFleetNodeDiscoveredDevices: listFleetNodeDiscoveredDevicesMock,
+    discoverOnFleetNode: discoverOnFleetNodeMock,
+    pairDiscoveredDevicesOnFleetNode: pairDiscoveredDevicesOnFleetNodeMock,
   }),
 }));
 
@@ -44,14 +58,50 @@ vi.mock("@/protoFleet/features/settings/components/Nodes/EnrollNodeModal", () =>
     ) : null,
 }));
 
+vi.mock("@/protoFleet/features/settings/components/Nodes/NodeDetailsModal", () => {
+  return {
+    default: function MockNodeDetailsModal({
+      node,
+      canFindMiners,
+      onFindMiners,
+      onDismiss,
+    }: {
+      node: FleetNodeItem;
+      canFindMiners: boolean;
+      onFindMiners: () => void;
+      onDismiss: () => void;
+    }) {
+      return (
+        <div role="dialog" aria-label="Node details">
+          {node.name}
+          {canFindMiners ? (
+            <button type="button" onClick={onFindMiners}>
+              Find miners
+            </button>
+          ) : null}
+          <button type="button" onClick={onDismiss}>
+            Close details
+          </button>
+        </div>
+      );
+    },
+  };
+});
+
 vi.mock("@/protoFleet/features/settings/components/Nodes/RevokeNodeDialog", () => ({
   default: ({
     open,
     nodeName,
+    affectedDeviceTypes,
+    isLoadingImpact,
+    impactError,
     onConfirm,
   }: {
     open: boolean;
     nodeName: string;
+    affectedDeviceTypes: string[];
+    isLoadingImpact: boolean;
+    impactError: string;
     onConfirm: () => void;
     onDismiss: () => void;
     isSubmitting: boolean;
@@ -59,7 +109,8 @@ vi.mock("@/protoFleet/features/settings/components/Nodes/RevokeNodeDialog", () =
     open ? (
       <div role="dialog" aria-label="Revoke node">
         <div>{nodeName}</div>
-        <button type="button" onClick={onConfirm}>
+        <div>{affectedDeviceTypes.join(", ")}</div>
+        <button type="button" onClick={onConfirm} disabled={isLoadingImpact || !!impactError}>
           Confirm revoke
         </button>
       </div>
@@ -77,10 +128,12 @@ vi.mock("@/shared/components/List", () => {
       items,
       noDataElement,
       actions,
+      onRowClick,
     }: {
       items: FleetNodeItem[];
       noDataElement?: ReactNode;
       actions?: ListAction<FleetNodeItem>[];
+      onRowClick?: (node: FleetNodeItem) => void;
     }) => (
       <div data-testid="nodes-list">
         {items.length === 0
@@ -88,6 +141,11 @@ vi.mock("@/shared/components/List", () => {
           : items.map((node) => (
               <div key={node.fleetNodeId}>
                 <span>{node.name}</span>
+                {onRowClick ? (
+                  <button type="button" onClick={() => onRowClick(node)}>
+                    View {node.name}
+                  </button>
+                ) : null}
                 {actions?.map((action, index) => {
                   if (resolveActionValue(action.hidden, node)) {
                     return null;
@@ -119,7 +177,9 @@ const confirmedNode: FleetNodeItem = {
   enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
   identityFingerprint: "abcd1234abcd1234",
   commandProtocolUpgradeRequired: false,
+  commandProtocolUpgradeRecommended: false,
   controlStreamConnected: true,
+  pairedDeviceCount: 0,
   createdAt: new Date("2026-07-09T12:00:00Z"),
   lastSeenAt: new Date("2026-07-09T12:01:00Z"),
 };
@@ -145,6 +205,14 @@ describe("NodesPage", () => {
     listFleetNodesMock.mockResolvedValue([confirmedNode]);
     revokeFleetNodeMock.mockReset();
     revokeFleetNodeMock.mockResolvedValue(undefined);
+    listFleetNodeDevicesMock.mockReset();
+    listFleetNodeDevicesMock.mockResolvedValue([]);
+    listFleetNodeDiscoveredDevicesMock.mockReset();
+    listFleetNodeDiscoveredDevicesMock.mockResolvedValue({ devices: [], nextCursor: 0n });
+    discoverOnFleetNodeMock.mockReset();
+    discoverOnFleetNodeMock.mockResolvedValue(undefined);
+    pairDiscoveredDevicesOnFleetNodeMock.mockReset();
+    pairDiscoveredDevicesOnFleetNodeMock.mockResolvedValue(undefined);
   });
 
   it("renders nodes for read-only users without management actions", async () => {
@@ -180,8 +248,145 @@ describe("NodesPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
     expect(screen.getByRole("dialog", { name: "Revoke node" })).toBeInTheDocument();
 
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm revoke" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Confirm revoke" }));
 
     await waitFor(() => expect(revokeFleetNodeMock).toHaveBeenCalledWith("7", "11"));
+  });
+
+  it("opens the selected Node's finder from its details", async () => {
+    permissionsMock.current = ["fleetnode:read", "fleetnode:manage", "miner:pair"];
+    renderNodesPage();
+
+    await screen.findByText("node-01");
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find miners" }));
+    expect(screen.queryByRole("dialog", { name: "Node details" })).not.toBeInTheDocument();
+    expect(screen.getByText("Add miners")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(discoverOnFleetNodeMock).toHaveBeenCalledWith(
+        "7",
+        expect.anything(),
+        expect.anything(),
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
+  it("reattaches to a running Node scan after closing and reopening the finder", async () => {
+    permissionsMock.current = ["fleetnode:read", "fleetnode:manage", "miner:pair"];
+    let finishScan: (() => void) | undefined;
+    let scanFinished = false;
+    discoverOnFleetNodeMock.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishScan = () => {
+            scanFinished = true;
+            resolve();
+          };
+        }),
+    );
+    listFleetNodeDiscoveredDevicesMock.mockImplementation(async () => ({
+      devices: scanFinished
+        ? [create(FleetNodeDiscoveredDeviceSchema, { deviceIdentifier: "miner-2", ipAddress: "192.168.1.2" })]
+        : [],
+      nextCursor: 0n,
+    }));
+    renderNodesPage();
+
+    await screen.findByText("node-01");
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find miners" }));
+    await waitFor(() => expect(discoverOnFleetNodeMock).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Close add miners" }));
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find miners" }));
+    await waitFor(() => expect(listFleetNodeDiscoveredDevicesMock).toHaveBeenCalledTimes(2));
+    expect(discoverOnFleetNodeMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => finishScan?.());
+
+    expect(await screen.findByRole("button", { name: "Continue with 1 miners" })).toBeInTheDocument();
+    expect(discoverOnFleetNodeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts running Node scans when the page unmounts", async () => {
+    permissionsMock.current = ["fleetnode:read", "fleetnode:manage", "miner:pair"];
+    discoverOnFleetNodeMock.mockImplementation(() => new Promise<void>(() => {}));
+    const { unmount } = renderNodesPage();
+
+    await screen.findByText("node-01");
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find miners" }));
+    await waitFor(() => expect(discoverOnFleetNodeMock).toHaveBeenCalledTimes(1));
+    const signal = discoverOnFleetNodeMock.mock.calls[0][3] as AbortSignal;
+    expect(signal.aborted).toBe(false);
+
+    unmount();
+
+    expect(signal.aborted).toBe(true);
+  });
+
+  it("keeps the reopened finder intact when an earlier pairing settles", async () => {
+    permissionsMock.current = ["fleetnode:read", "fleetnode:manage", "miner:pair"];
+    listFleetNodeDiscoveredDevicesMock.mockResolvedValue({
+      devices: [
+        create(FleetNodeDiscoveredDeviceSchema, { deviceIdentifier: "miner-2", ipAddress: "192.168.1.2" }),
+        create(FleetNodeDiscoveredDeviceSchema, { deviceIdentifier: "miner-3", ipAddress: "192.168.1.3" }),
+        create(FleetNodeDiscoveredDeviceSchema, { deviceIdentifier: "miner-4", ipAddress: "192.168.1.4" }),
+      ],
+      nextCursor: 0n,
+    });
+    let finishFirstPairing: (() => void) | undefined;
+    pairDiscoveredDevicesOnFleetNodeMock.mockImplementationOnce(
+      (_nodeId, _identifiers, _credentials, onResults) =>
+        new Promise<void>((_resolve, reject) => {
+          finishFirstPairing = () => {
+            onResults([
+              create(DevicePairingResultSchema, {
+                deviceIdentifier: "miner-2",
+                pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
+              }),
+            ]);
+            reject(new Error("Pair result stream disconnected"));
+          };
+        }),
+    );
+    renderNodesPage();
+
+    await screen.findByText("node-01");
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find miners" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue with 3 miners" }));
+    await waitFor(() => expect(pairDiscoveredDevicesOnFleetNodeMock).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(screen.getByRole("button", { name: "Close add miners" }));
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Find miners" }));
+    expect(screen.getByText("Add miners")).toBeInTheDocument();
+    expect(await screen.findByText(/3 miners have an unknown pairing result/)).toBeInTheDocument();
+
+    await act(async () => finishFirstPairing?.());
+
+    expect(screen.getByText("Add miners")).toBeInTheDocument();
+    expect(await screen.findByText(/2 miners have an unknown pairing result/)).toBeInTheDocument();
+    await waitFor(() => expect(listFleetNodeDiscoveredDevicesMock).toHaveBeenCalled());
+  });
+
+  it("loads the affected miners before allowing revocation", async () => {
+    listFleetNodeDevicesMock.mockResolvedValue([
+      { deviceIdentifier: "miner-1", deviceType: "proto" },
+      { deviceIdentifier: "miner-2", deviceType: "antminer" },
+    ]);
+    renderNodesPage();
+
+    expect(await screen.findByText("node-01")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    await waitFor(() =>
+      expect(screen.getByRole("dialog", { name: "Revoke node" })).toHaveTextContent("proto, antminer"),
+    );
+    expect(screen.getByRole("dialog", { name: "Revoke node" })).not.toHaveTextContent("miner-1");
+    expect(listFleetNodeDevicesMock).toHaveBeenCalledWith("7");
   });
 });

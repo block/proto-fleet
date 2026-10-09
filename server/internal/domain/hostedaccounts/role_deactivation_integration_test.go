@@ -71,13 +71,14 @@ func TestRoleReplacementCompletesWhileDeactivationWaits(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("deactivation did not acquire the organization lock")
 	}
-	// Observe the actual database wait, rather than relying on goroutine timing.
+	// Observe permission parity waiting on the same assignment lock,
+	// rather than relying on goroutine timing.
 	require.Eventually(t, func() bool {
 		var blocked bool
 		err := f.db.QueryRowContext(ctx, `SELECT EXISTS (
 			SELECT 1 FROM pg_stat_activity
 			WHERE datname = current_database() AND $1 = ANY(pg_blocking_pids(pid))
-			AND query LIKE '%GetOrgScopeAssignmentForUser%'
+			AND query LIKE '%ListEffectivePermissionsForUserForUpdate%'
 		)`, rolePID).Scan(&blocked)
 		return err == nil && blocked
 	}, 3*time.Second, 10*time.Millisecond)
@@ -118,6 +119,34 @@ func TestDeactivationPreservesRetryableOrganizationLockErrors(t *testing.T) {
 	target, err := store.GetUserByID(t.Context(), f.user)
 	require.NoError(t, err)
 	retrying := &retryingDeactivationStore{SQLUserStore: store}
+	svc := domainauth.NewService(store, retrying, sqlstores.NewSQLTransactor(f.db), nil, nil, nil, nil, authz.NewPermissionResolver(f.db))
+	ctx := authn.SetInfo(t.Context(), &session.Info{UserID: f.host, OrganizationID: f.org, ExternalUserID: host.UserID, Username: host.Username})
+	_, err = svc.DeactivateUser(ctx, &authv1.DeactivateUserRequest{UserId: target.UserID})
+	require.NoError(t, err)
+	require.Equal(t, 2, retrying.attempts)
+}
+
+type retryingOrganizationEligibilityStore struct {
+	*sqlstores.SQLUserStore
+	attempts int
+}
+
+func (s *retryingOrganizationEligibilityStore) GetActiveUserRoleNameForUpdate(ctx context.Context, userID, orgID int64) (string, error) {
+	s.attempts++
+	if s.attempts == 1 {
+		return "", &pgconn.PgError{Code: "40P01", Message: "injected role eligibility deadlock"}
+	}
+	return s.SQLUserStore.GetActiveUserRoleNameForUpdate(ctx, userID, orgID)
+}
+
+func TestDeactivationPreservesRetryableEligibilityLockErrors(t *testing.T) {
+	f := setup(t)
+	store := sqlstores.NewSQLUserStore(f.db)
+	host, err := store.GetUserByID(t.Context(), f.host)
+	require.NoError(t, err)
+	target, err := store.GetUserByID(t.Context(), f.user)
+	require.NoError(t, err)
+	retrying := &retryingOrganizationEligibilityStore{SQLUserStore: store}
 	svc := domainauth.NewService(store, retrying, sqlstores.NewSQLTransactor(f.db), nil, nil, nil, nil, authz.NewPermissionResolver(f.db))
 	ctx := authn.SetInfo(t.Context(), &session.Info{UserID: f.host, OrganizationID: f.org, ExternalUserID: host.UserID, Username: host.Username})
 	_, err = svc.DeactivateUser(ctx, &authv1.DeactivateUserRequest{UserId: target.UserID})

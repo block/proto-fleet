@@ -104,7 +104,8 @@ func TestRegistry_CommandProtocolUpgradeRequiredForVersion(t *testing.T) {
 		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
 		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2,
 		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3,
-		gatewaypb.CommandProtocolVersion(4),
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4,
+		gatewaypb.CommandProtocolVersion(5),
 	} {
 		t.Run(installed.String(), func(t *testing.T) {
 			r := NewRegistry()
@@ -115,12 +116,37 @@ func TestRegistry_CommandProtocolUpgradeRequiredForVersion(t *testing.T) {
 				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
 				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2,
 				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3,
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4,
 			} {
 				require.Equal(t, installed < minimum, r.CommandProtocolUpgradeRequiredForVersion(7, minimum))
 			}
 			require.Equal(t, installed < gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, r.CommandProtocolUpgradeRequired(7), "the global upgrade threshold must remain V1")
 			stream.Unregister()
-			require.False(t, r.CommandProtocolUpgradeRequiredForVersion(7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3), "an inactive connection is not an upgrade diagnosis")
+			require.False(t, r.CommandProtocolUpgradeRequiredForVersion(7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4), "an inactive connection is not an upgrade diagnosis")
+		})
+	}
+}
+
+func TestRegistry_CommandProtocolUpgradeRecommended(t *testing.T) {
+	r := NewRegistry()
+	assert.False(t, r.CommandProtocolUpgradeRecommended(7))
+	for _, tc := range []struct {
+		version     gatewaypb.CommandProtocolVersion
+		recommended bool
+	}{
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4, false},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4 + 1, false},
+	} {
+		t.Run(tc.version.String(), func(t *testing.T) {
+			stream, err := r.RegisterAuthenticated(7, "session", tc.version)
+			require.NoError(t, err)
+			assert.Equal(t, tc.recommended, r.CommandProtocolUpgradeRecommended(7))
+			stream.Unregister()
+			assert.False(t, r.CommandProtocolUpgradeRecommended(7))
 		})
 	}
 }
@@ -1468,19 +1494,50 @@ func TestRegistryEquipmentRejectsV1BeforeEnqueue(t *testing.T) {
 	}
 }
 
-func TestRegistryTankMiningRejectsV2BeforeEnqueue(t *testing.T) {
-	r := NewRegistry()
-	stream, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2)
-	require.NoError(t, err)
-	defer stream.Unregister()
-	_, err = r.SendCommand(t.Context(), 7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3, &gatewaypb.ControlCommand{CommandId: "tanks"})
-	require.True(t, fleeterror.IsFailedPreconditionError(err))
-	require.ErrorIs(t, err, ErrCommandProtocolUpgradeRequired)
-	require.ErrorContains(t, err, "requires version 3")
-	require.ErrorContains(t, err, "upgrade Fleet Node")
-	select {
-	case <-stream.Outgoing:
-		t.Fatal("unsupported tank command enqueued")
-	default:
+func TestRegistryTankMiningRejectsLegacyProtocolBeforeEnqueue(t *testing.T) {
+	for _, version := range []gatewaypb.CommandProtocolVersion{
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3,
+	} {
+		t.Run(version.String(), func(t *testing.T) {
+			r := NewRegistry()
+			stream, err := r.RegisterAuthenticated(7, "session", version)
+			require.NoError(t, err)
+			defer stream.Unregister()
+			_, err = r.SendCommand(t.Context(), 7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4, &gatewaypb.ControlCommand{CommandId: "tanks"})
+			require.True(t, fleeterror.IsFailedPreconditionError(err))
+			require.ErrorIs(t, err, ErrCommandProtocolUpgradeRequired)
+			require.ErrorContains(t, err, "requires version 4")
+			require.ErrorContains(t, err, "upgrade Fleet Node")
+			select {
+			case <-stream.Outgoing:
+				t.Fatal("unsupported tank command enqueued")
+			default:
+			}
+		})
+	}
+}
+
+func TestRegistryPoolWritesRejectLegacyProtocolBeforeEnqueue(t *testing.T) {
+	for _, version := range []gatewaypb.CommandProtocolVersion{
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2,
+	} {
+		t.Run(version.String(), func(t *testing.T) {
+			registry := NewRegistry()
+			stream, err := registry.RegisterAuthenticated(7, "session", version)
+			require.NoError(t, err)
+			defer stream.Unregister()
+			_, err = registry.SendCommand(t.Context(), 7, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3, &gatewaypb.ControlCommand{CommandId: "sealed-pools"})
+			require.True(t, fleeterror.IsFailedPreconditionError(err))
+			require.ErrorContains(t, err, "requires version 3")
+			select {
+			case <-stream.Outgoing:
+				t.Fatal("pool write enqueued for legacy node")
+			default:
+			}
+		})
 	}
 }

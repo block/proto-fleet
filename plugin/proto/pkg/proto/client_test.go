@@ -1716,3 +1716,28 @@ func TestProtoDefaultPasswordContract(t *testing.T) {
 		assert.Contains(t, err.Error(), defaultPasswordMessageMarker)
 	})
 }
+
+func TestIsDefaultPasswordForbidden(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"code", `{"error":{"code":"DEFAULT_PASSWORD_ACTIVE","message":"other text"}}`, true},
+		{"message", `{"error":{"code":"FORBIDDEN","message":"Default Password Must Be Changed"}}`, true},
+		{"raw code", "  DEFAULT_PASSWORD_ACTIVE  ", true},
+		{"raw message", "Default Password Must Be Changed", true},
+		{"malformed JSON", `{DEFAULT_PASSWORD_ACTIVE`, true},
+		{"generic", `{"error":{"code":"FORBIDDEN","message":"access denied"}}`, false},
+		{"nonempty message takes precedence", `{"error":{"message":"access denied"},"detail":"DEFAULT_PASSWORD_ACTIVE"}`, false},
+		{"empty message falls back to raw", `{"error":{"message":""},"detail":"DEFAULT_PASSWORD_ACTIVE"}`, true},
+		{"raw generic", "access denied", false},
+		{"empty", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, isDefaultPasswordForbidden([]byte(tc.body)))
+			assert.Equal(t, tc.want, isDefaultPasswordMessage(classifyForbiddenResponse([]byte(tc.body)).Error()))
+		})
+	}
+}

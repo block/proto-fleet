@@ -19,6 +19,7 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
@@ -355,6 +356,28 @@ func TestPairDiscoveredDevicesOnFleetNode_NoStreamReturnsFailedPrecondition(t *t
 	// Assert
 	require.Error(t, resp.Err())
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(resp.Err()))
+	var connectErr *connect.Error
+	require.ErrorAs(t, resp.Err(), &connectErr)
+	assert.Equal(t, "fleet node has no active control stream", connectErr.Message())
+}
+
+func TestPairDiscoveredDevicesOnFleetNode_UnconfirmedNodeReturnsFailedPrecondition(t *testing.T) {
+	h := newPairingHarness(t)
+	fleetNodeID := h.createFleetNode(t, "admin-pairdisc-unconfirmed")
+	_, err := h.db.Exec(`UPDATE fleet_node SET enrollment_status = $1 WHERE id = $2`, enrollment.FleetNodeStatusPending, fleetNodeID)
+	require.NoError(t, err)
+	client := startAdminServer(t, h)
+	resp, err := client.PairDiscoveredDevicesOnFleetNode(t.Context(), connect.NewRequest(&pb.PairDiscoveredDevicesOnFleetNodeRequest{
+		FleetNodeId:       fleetNodeID,
+		DeviceIdentifiers: []string{"mac:unconfirmed"},
+	}))
+	require.NoError(t, err)
+	for resp.Receive() {
+	}
+	var connectErr *connect.Error
+	require.ErrorAs(t, resp.Err(), &connectErr)
+	assert.Equal(t, connect.CodeFailedPrecondition, connectErr.Code())
+	assert.Equal(t, "fleet node is not CONFIRMED", connectErr.Message())
 }
 
 func TestPairDiscoveredDevicesOnFleetNode_NoPairableTargetsReturnsInvalidArgument(t *testing.T) {

@@ -89,7 +89,7 @@ WHERE (sqlc.narg('site_id')::bigint IS NULL OR s.id IS NOT NULL)
 SELECT u.id AS user_id, u.username, COALESCE(r.name, '') AS role_name
 FROM user_organization uo
 JOIN "user" u ON u.id = uo.user_id AND u.deleted_at IS NULL
-LEFT JOIN role r ON r.id = uo.role_id AND r.deleted_at IS NULL
+JOIN role r ON r.id = uo.role_id AND r.organization_id = uo.organization_id AND r.deleted_at IS NULL
 WHERE uo.organization_id = sqlc.arg('org_id') AND uo.user_id = sqlc.arg('user_id')
   AND uo.deleted_at IS NULL
 FOR SHARE OF uo, u;
@@ -98,6 +98,6 @@ FOR SHARE OF uo, u;
 SELECT u.id AS user_id, u.username, COALESCE(r.name, '') AS role_name
 FROM user_organization uo
 JOIN "user" u ON u.id = uo.user_id AND u.deleted_at IS NULL
-LEFT JOIN role r ON r.id = uo.role_id AND r.deleted_at IS NULL
+JOIN role r ON r.id = uo.role_id AND r.organization_id = uo.organization_id AND r.deleted_at IS NULL
 WHERE uo.organization_id = sqlc.arg('org_id') AND uo.deleted_at IS NULL
 ORDER BY LOWER(u.username), u.id;

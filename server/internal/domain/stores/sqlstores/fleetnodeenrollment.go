@@ -9,6 +9,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
+	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 )
 
 var _ enrollment.Store = &SQLFleetNodeEnrollmentStore{}
@@ -194,11 +195,27 @@ func (s *SQLFleetNodeEnrollmentStore) DeletePairingsForFleetNode(ctx context.Con
 	})
 }
 
-func (s *SQLFleetNodeEnrollmentStore) ListDeviceIDsForFleetNode(ctx context.Context, fleetNodeID, orgID int64) ([]int64, error) {
-	return s.q(ctx).ListFleetNodeDeviceIDsForRevocation(ctx, sqlc.ListFleetNodeDeviceIDsForRevocationParams{
+func (s *SQLFleetNodeEnrollmentStore) ListDevicesForFleetNodeRevocation(ctx context.Context, fleetNodeID, orgID int64) ([]enrollment.RevokedDevice, error) {
+	rows, err := s.q(ctx).ListFleetNodeDevicesForRevocation(ctx, sqlc.ListFleetNodeDevicesForRevocationParams{
 		FleetNodeID: fleetNodeID,
 		OrgID:       orgID,
 	})
+	if err != nil {
+		return nil, err
+	}
+	devices := make([]enrollment.RevokedDevice, 0, len(rows))
+	for _, row := range rows {
+		devices = append(devices, enrollment.RevokedDevice{ID: row.DeviceID, Identifier: telemetrymodels.DeviceIdentifier(row.DeviceIdentifier)})
+	}
+	return devices, nil
+}
+
+func (s *SQLFleetNodeEnrollmentStore) UnpairDevicesForFleetNodeRevocation(ctx context.Context, fleetNodeID, orgID int64) (int64, error) {
+	return s.q(ctx).UnpairDevicesForFleetNodeRevocation(ctx, sqlc.UnpairDevicesForFleetNodeRevocationParams{FleetNodeID: fleetNodeID, OrgID: orgID})
+}
+
+func (s *SQLFleetNodeEnrollmentStore) OfflineDevicesForFleetNodeRevocation(ctx context.Context, fleetNodeID, orgID int64) (int64, error) {
+	return s.q(ctx).OfflineDevicesForFleetNodeRevocation(ctx, sqlc.OfflineDevicesForFleetNodeRevocationParams{FleetNodeID: fleetNodeID, OrgID: orgID})
 }
 
 func (s *SQLFleetNodeEnrollmentStore) DeleteMinerCredentialsForFleetNode(ctx context.Context, fleetNodeID, orgID int64) (int64, error) {

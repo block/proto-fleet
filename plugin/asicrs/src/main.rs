@@ -6,6 +6,7 @@ mod capabilities;
 mod config;
 mod device;
 mod driver;
+mod panic_reporting;
 
 use tracing_subscriber::EnvFilter;
 
@@ -14,6 +15,7 @@ use crate::driver::DriverService;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    panic_reporting::install();
     // Load configuration first, then initialize logging using the configured log level.
     let config = load_config()?;
 

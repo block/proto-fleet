@@ -1326,17 +1326,60 @@ type HashboardSlot struct {
 }
 
 type HostedAccount struct {
-	ID             int64
-	AccountID      string
+	ID                    int64
+	AccountID             string
+	OrganizationID        int64
+	ParentID              sql.NullInt64
+	Depth                 int32
+	Name                  string
+	Capabilities          int64
+	Suspended             bool
+	Revision              int64
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	SitesRestricted       bool
+	SiteCeilingRestricted bool
+	AuthorityRevision     int64
+}
+
+type HostedAccountAncestorGrant struct {
 	OrganizationID int64
-	ParentID       sql.NullInt64
-	Depth          int32
-	Name           string
+	AccountID      int64
+	AncestorID     int64
 	Capabilities   int64
-	Suspended      bool
 	Revision       int64
+	RevokedAt      sql.NullTime
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+type HostedAccountInvitation struct {
+	InvitationID         string
+	OrganizationID       int64
+	AccountID            int64
+	InviterID            int64
+	AuthorityFingerprint string
+	TokenHash            string
+	Role                 string
+	ExpiresAt            time.Time
+	RevokedAt            sql.NullTime
+	AcceptedAt           sql.NullTime
+	AcceptedUserID       sql.NullInt64
+	CreatedAt            time.Time
+}
+
+type HostedAccountKey struct {
+	ApiKeyID                 int64
+	OrganizationID           int64
+	AccountID                int64
+	Capabilities             int64
+	IncludeFutureDescendants bool
+}
+
+type HostedAccountKeyDescendant struct {
+	OrganizationID int64
+	ApiKeyID       int64
+	AccountID      int64
 }
 
 type HostedAccountMembership struct {
@@ -1348,6 +1391,40 @@ type HostedAccountMembership struct {
 	RevokedAt      sql.NullTime
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+type HostedAccountPool struct {
+	PoolID         string
+	OrganizationID int64
+	AccountID      int64
+	Archived       bool
+	CreatedAt      time.Time
+}
+
+type HostedAccountPoolProfile struct {
+	OrganizationID int64
+	AccountID      int64
+	RevisionID     sql.NullString
+	Revision       int64
+	UpdatedAt      time.Time
+}
+
+type HostedAccountPoolRevision struct {
+	RevisionID     string
+	OrganizationID int64
+	AccountID      int64
+	PoolID         string
+	Number         int64
+	Name           string
+	Slots          json.RawMessage
+	CreatedAt      time.Time
+}
+
+type HostedAccountSite struct {
+	OrganizationID   int64
+	AccountID        int64
+	SiteID           int64
+	ParentControlled bool
 }
 
 type InfrastructureDevice struct {
@@ -1787,7 +1864,7 @@ type UserOrganization struct {
 	ID             int64
 	UserID         int64
 	OrganizationID int64
-	RoleID         int64
+	RoleID         sql.NullInt64
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 	DeletedAt      sql.NullTime

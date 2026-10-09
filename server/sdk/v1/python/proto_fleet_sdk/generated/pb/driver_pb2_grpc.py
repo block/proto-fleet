@@ -141,6 +141,11 @@ class DriverStub(object):
                 request_serializer=pb_dot_driver__pb2.GetMiningPoolsRequest.SerializeToString,
                 response_deserializer=pb_dot_driver__pb2.GetMiningPoolsResponse.FromString,
                 _registered_method=True)
+        self.GetStoredMiningPools = channel.unary_unary(
+                '/sdk.v1.Driver/GetStoredMiningPools',
+                request_serializer=pb_dot_driver__pb2.GetStoredMiningPoolsRequest.SerializeToString,
+                response_deserializer=pb_dot_driver__pb2.GetStoredMiningPoolsResponse.FromString,
+                _registered_method=True)
         self.DownloadLogs = channel.unary_unary(
                 '/sdk.v1.Driver/DownloadLogs',
                 request_serializer=pb_dot_driver__pb2.DownloadLogsRequest.SerializeToString,
@@ -352,6 +357,14 @@ class DriverServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetStoredMiningPools(self, request, context):
+        """Private complete stored configuration, including disabled slots. Unsupported
+        firmware returns UNIMPLEMENTED; runtime telemetry is not a substitute.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def DownloadLogs(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -551,6 +564,11 @@ def add_DriverServicer_to_server(servicer, server):
                     servicer.GetMiningPools,
                     request_deserializer=pb_dot_driver__pb2.GetMiningPoolsRequest.FromString,
                     response_serializer=pb_dot_driver__pb2.GetMiningPoolsResponse.SerializeToString,
+            ),
+            'GetStoredMiningPools': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetStoredMiningPools,
+                    request_deserializer=pb_dot_driver__pb2.GetStoredMiningPoolsRequest.FromString,
+                    response_serializer=pb_dot_driver__pb2.GetStoredMiningPoolsResponse.SerializeToString,
             ),
             'DownloadLogs': grpc.unary_unary_rpc_method_handler(
                     servicer.DownloadLogs,
@@ -1191,6 +1209,33 @@ class Driver(object):
             '/sdk.v1.Driver/GetMiningPools',
             pb_dot_driver__pb2.GetMiningPoolsRequest.SerializeToString,
             pb_dot_driver__pb2.GetMiningPoolsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetStoredMiningPools(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/sdk.v1.Driver/GetStoredMiningPools',
+            pb_dot_driver__pb2.GetStoredMiningPoolsRequest.SerializeToString,
+            pb_dot_driver__pb2.GetStoredMiningPoolsResponse.FromString,
             options,
             channel_credentials,
             insecure,

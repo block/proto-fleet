@@ -267,7 +267,7 @@ tanks. Missing results or interrupted polling also show an unconfirmed completio
 error without a retry. As with miner bulk Sleep/Wake, command completion drives
 the success toast; inventory readings update separately through normal polling.
 Direct controllers use the plugin SDK; FleetNode controllers require command protocol
-V3 and updated SDK/plugin binaries. Older nodes reject this action before
+V4 and updated SDK/plugin binaries. Older nodes reject this action before
 sending it, and failed or ambiguous device writes are terminal rather than
 automatically retried. Shared equipment readings remain on the
 container page.

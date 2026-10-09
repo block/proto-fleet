@@ -31,6 +31,29 @@ rollback does not reverse committed database changes.
 4. Never edit, delete or renumber merged/released SQL. Correct it with a new pair.
    Retain legacy SQL and the migration-143 bridge for upgrade waypoints.
 
+## Constraint and index names
+
+Use explicit lowercase snake_case names in new and unmerged migrations:
+
+- Unique constraints: `uq_<table>_<columns_or_purpose>`.
+- Indexes, including standalone unique or partial indexes:
+  `idx_<table>_<columns_or_purpose>`.
+
+Name a unique constraint with `CONSTRAINT`; PostgreSQL gives its supporting
+index the same name. Do not create a second index for the same uniqueness rule.
+
+```sql
+ALTER TABLE hosted_account_key
+    ADD CONSTRAINT uq_hosted_account_key_org_api_key
+    UNIQUE (organization_id, api_key_id);
+
+CREATE INDEX idx_hosted_account_key_descendant_account
+    ON hosted_account_key_descendant (organization_id, account_id);
+```
+
+Existing names vary. Naming cleanup does not justify editing merged or released
+migrations; any intentional rename of a deployed object needs a new migration.
+
 ## Release checkpoints
 
 Every internal release ends at a private number. After a shared-only change, add

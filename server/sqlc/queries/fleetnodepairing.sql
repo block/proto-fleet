@@ -93,6 +93,20 @@ INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id, assigned_by)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (device_id) DO NOTHING;
 
+-- name: DeviceHasRevokedFleetNodeStatus :one
+-- Direct binding cannot recover a miner unpaired by revocation. Check after
+-- the binding attempt so a concurrent revoke that deleted the old assignment
+-- is visible before the direct-binding transaction commits.
+SELECT EXISTS (
+    SELECT 1
+    FROM device d
+    JOIN device_status ds ON ds.device_id = d.id
+    WHERE d.id = sqlc.arg('device_id')
+      AND d.org_id = sqlc.arg('org_id')
+      AND d.deleted_at IS NULL
+      AND ds.status_details = 'fleet_node_revoked'
+);
+
 -- name: LockFleetNodePairingDevice :many
 -- Serialize ownership assignment with cloud IP-recovery authentication
 -- reconciliation. Call after locking the Fleet Node and before checking the
@@ -166,11 +180,42 @@ WHERE device_id = $1 AND org_id = $2;
 DELETE FROM fleet_node_device
 WHERE fleet_node_id = $1 AND org_id = $2;
 
--- name: ListFleetNodeDeviceIDsForRevocation :many
-SELECT device_id
-FROM fleet_node_device
-WHERE fleet_node_id = $1 AND org_id = $2
-ORDER BY device_id ASC;
+-- name: UnpairDevicesForFleetNodeRevocation :execrows
+UPDATE device_pairing dp
+SET pairing_status = 'UNPAIRED', unpaired_at = CURRENT_TIMESTAMP
+FROM fleet_node_device fnd
+WHERE dp.device_id = fnd.device_id
+  AND fnd.fleet_node_id = $1 AND fnd.org_id = $2;
+
+-- name: OfflineDevicesForFleetNodeRevocation :execrows
+INSERT INTO device_status (device_id, status, status_timestamp, status_details)
+SELECT fnd.device_id, 'OFFLINE', CURRENT_TIMESTAMP, 'fleet_node_revoked'
+FROM fleet_node_device fnd
+WHERE fnd.fleet_node_id = $1 AND fnd.org_id = $2
+ORDER BY fnd.device_id
+ON CONFLICT (device_id) DO UPDATE SET
+    status = EXCLUDED.status,
+    status_timestamp = EXCLUDED.status_timestamp,
+    status_details = EXCLUDED.status_details;
+
+-- name: ClearFleetNodeRevokedStatus :execrows
+-- Pairing has rebound this device in the same transaction, so the new owner
+-- may replace the revocation's OFFLINE status with a fresh status.
+UPDATE device_status ds
+SET status_details = NULL
+FROM fleet_node_device fnd
+WHERE ds.device_id = $1
+  AND fnd.device_id = ds.device_id
+  AND fnd.org_id = $2
+  AND fnd.fleet_node_id = $3
+  AND ds.status_details = 'fleet_node_revoked';
+
+-- name: ListFleetNodeDevicesForRevocation :many
+SELECT fnd.device_id, d.device_identifier
+FROM fleet_node_device fnd
+JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
+WHERE fnd.fleet_node_id = $1 AND fnd.org_id = $2
+ORDER BY fnd.device_id ASC;
 
 -- name: ListFleetNodeDevices :many
 SELECT fnd.fleet_node_id,
@@ -185,6 +230,13 @@ LEFT JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.deleted_
 WHERE fnd.org_id = $1
   AND (sqlc.narg('fleet_node_id')::bigint IS NULL OR fnd.fleet_node_id = sqlc.narg('fleet_node_id')::bigint)
 ORDER BY fnd.assigned_at DESC, fnd.device_id ASC;
+
+-- name: CountFleetNodeDevicesByNode :many
+SELECT fnd.fleet_node_id, count(*)::bigint AS device_count
+FROM fleet_node_device fnd
+JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
+WHERE fnd.org_id = $1
+GROUP BY fnd.fleet_node_id;
 
 -- name: GetFleetNodePairedDeviceIdentifier :one
 SELECT d.device_identifier

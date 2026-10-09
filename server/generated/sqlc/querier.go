@@ -26,6 +26,9 @@ type Querier interface {
 	// the change (len of result) and resolve the changed set for activity site
 	// scope (#538). Equivalent affected-row count to the prior :execrows shape.
 	AddDevicesToDeviceSet(ctx context.Context, arg AddDevicesToDeviceSetParams) ([]string, error)
+	AddHostedAccountKeyDescendant(ctx context.Context, arg AddHostedAccountKeyDescendantParams) error
+	AddHostedAccountSite(ctx context.Context, arg AddHostedAccountSiteParams) (int64, error)
+	AddHostedAccountUserAffiliation(ctx context.Context, arg AddHostedAccountUserAffiliationParams) error
 	AdminResetUserPassword(ctx context.Context, arg AdminResetUserPasswordParams) (int64, error)
 	// Flips pending/restoring → target_state (CANCELLED or FAILED).
 	// Locks the event row before evaluating the in-flight target predicate so
@@ -66,6 +69,7 @@ type Querier interface {
 	// telemetry recovery. The caller separately locks the device row before this
 	// statement so credential repair is observed from a fresh snapshot.
 	ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, arg ApplyFleetNodeRecoveryAuthenticationNeededParams) (int64, error)
+	ArchiveHostedAccountPool(ctx context.Context, arg ArchiveHostedAccountPoolParams) (int64, error)
 	// Move a building to a different site (or to "unassigned" by passing
 	// NULL). The cross-collection invariant (no rack in the building
 	// contains a device assigned to a different site) is enforced in the
@@ -113,6 +117,7 @@ type Querier interface {
 	BeginCurtailmentTopologyTargetRestore(ctx context.Context, arg BeginCurtailmentTopologyTargetRestoreParams) (int64, error)
 	BindCurtailmentAutomationRuleResponseProfileRevision(ctx context.Context, arg BindCurtailmentAutomationRuleResponseProfileRevisionParams) (int64, error)
 	BindEnrollmentToFleetNode(ctx context.Context, arg BindEnrollmentToFleetNodeParams) (int64, error)
+	BindHostedAccountKey(ctx context.Context, arg BindHostedAccountKeyParams) error
 	BuildingBelongsToOrg(ctx context.Context, arg BuildingBelongsToOrgParams) (bool, error)
 	// Returns the subset of requested IDs that correspond to live
 	// buildings in the org. Caller diffs against the requested set
@@ -274,6 +279,9 @@ type Querier interface {
 	// can't keep a direct site/building. IS DISTINCT FROM guard skips rows
 	// already fully cleared. Returns the count actually stripped.
 	ClearDeviceSitesAndBuildings(ctx context.Context, arg ClearDeviceSitesAndBuildingsParams) (int64, error)
+	// Pairing has rebound this device in the same transaction, so the new owner
+	// may replace the revocation's OFFLINE status with a fresh status.
+	ClearFleetNodeRevokedStatus(ctx context.Context, arg ClearFleetNodeRevokedStatusParams) (int64, error)
 	// Companion to SoftDeleteDeviceSet for rack-typed collections. Clears
 	// the device_set_rack placement so a soft-deleted rack doesn't leave
 	// an orphan (building_id, aisle_index, position_in_aisle) tuple that
@@ -298,6 +306,7 @@ type Querier interface {
 	ConfigureHostedAccount(ctx context.Context, arg ConfigureHostedAccountParams) error
 	ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error)
 	ConsumeFleetNodeAuthChallenge(ctx context.Context, arg ConsumeFleetNodeAuthChallengeParams) (FleetNodeAuthChallenge, error)
+	ConsumeHostedAccountInvitation(ctx context.Context, arg ConsumeHostedAccountInvitationParams) (int64, error)
 	ConsumeReservedInventoryPart(ctx context.Context, arg ConsumeReservedInventoryPartParams) (int64, error)
 	ContainerOwnsCommandBatch(ctx context.Context, arg ContainerOwnsCommandBatchParams) (bool, error)
 	// Counts live (user_organization_role, user) pairs. Filtering on
@@ -329,6 +338,10 @@ type Querier interface {
 	CountDevicesWithErrors(ctx context.Context, arg CountDevicesWithErrorsParams) (int64, error)
 	// Counts errors with AND filter logic (same logic as QueryErrors without pagination).
 	CountErrors(ctx context.Context, arg CountErrorsParams) (int64, error)
+	CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) ([]CountFleetNodeDevicesByNodeRow, error)
+	// Administration must remain recoverable after suspension is lifted. Check
+	// live identities and capability ceilings even for currently suspended accounts.
+	CountHostedAccountsWithoutAdministrator(ctx context.Context, arg CountHostedAccountsWithoutAdministratorParams) (int64, error)
 	CountInfrastructureDevicesBySite(ctx context.Context, arg CountInfrastructureDevicesBySiteParams) (int64, error)
 	CountInventoryParts(ctx context.Context, arg CountInventoryPartsParams) (int32, error)
 	CountInventoryPartsBySite(ctx context.Context, arg CountInventoryPartsBySiteParams) (int64, error)
@@ -375,9 +388,6 @@ type Querier interface {
 	CountRepairTicketsBySite(ctx context.Context, arg CountRepairTicketsBySiteParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevice(ctx context.Context, arg CountResponseProfilesByInfrastructureDeviceParams) (int64, error)
 	CountResponseProfilesByInfrastructureDevices(ctx context.Context, arg CountResponseProfilesByInfrastructureDevicesParams) (int64, error)
-	// Call after locking the organization, before user/role locks. Also guard
-	// suspended accounts so reactivation cannot expose an account without an admin.
-	CountSoleHostedAccountAdministrations(ctx context.Context, arg CountSoleHostedAccountAdministrationsParams) (int64, error)
 	// Backs the transaction-scoped per-org write quota: only active or scheduled windows count, so
 	// expired history can never block a write.
 	CountUnexpiredAlertMaintenanceWindows(ctx context.Context, arg CountUnexpiredAlertMaintenanceWindowsParams) (int64, error)
@@ -401,6 +411,9 @@ type Querier interface {
 	CreateFleetNode(ctx context.Context, arg CreateFleetNodeParams) (CreateFleetNodeRow, error)
 	CreateFleetNodeApiKey(ctx context.Context, arg CreateFleetNodeApiKeyParams) error
 	CreateHostedAccount(ctx context.Context, arg CreateHostedAccountParams) (HostedAccount, error)
+	CreateHostedAccountInvitation(ctx context.Context, arg CreateHostedAccountInvitationParams) (HostedAccountInvitation, error)
+	CreateHostedAccountPool(ctx context.Context, arg CreateHostedAccountPoolParams) (HostedAccountPool, error)
+	CreateHostedAccountPoolRevision(ctx context.Context, arg CreateHostedAccountPoolRevisionParams) (HostedAccountPoolRevision, error)
 	// Name is unique per (site_id, name) among live rows; the partial
 	// unique index surfaces collisions to the store layer as
 	// AlreadyExists.
@@ -457,6 +470,7 @@ type Querier interface {
 	DeleteFleetMetricRollupsForWindow(ctx context.Context, arg DeleteFleetMetricRollupsForWindowParams) error
 	// Deletes fleet-node ownership rows for devices that are being removed from the fleet.
 	DeleteFleetNodeDevicePairings(ctx context.Context, arg DeleteFleetNodeDevicePairingsParams) (int64, error)
+	DeleteHostedAccountSites(ctx context.Context, arg DeleteHostedAccountSitesParams) error
 	DeleteMinerCredentialsByDeviceIDAndOrgID(ctx context.Context, arg DeleteMinerCredentialsByDeviceIDAndOrgIDParams) (int64, error)
 	// Deletes miner credentials for devices that are being removed from the fleet.
 	DeleteMinerCredentialsForDeviceIdentifiers(ctx context.Context, arg DeleteMinerCredentialsForDeviceIdentifiersParams) (int64, error)
@@ -485,6 +499,10 @@ type Querier interface {
 	// resolution and persistence, another node (or the cloud) may have paired the
 	// device, and a stale AUTH_NEEDED result must not clobber that paired-like status.
 	DeviceHasActivePairing(ctx context.Context, arg DeviceHasActivePairingParams) (bool, error)
+	// Direct binding cannot recover a miner unpaired by revocation. Check after
+	// the binding attempt so a concurrent revoke that deleted the old assignment
+	// is visible before the direct-binding transaction commits.
+	DeviceHasRevokedFleetNodeStatus(ctx context.Context, arg DeviceHasRevokedFleetNodeStatusParams) (bool, error)
 	DeviceSetBelongsToOrg(ctx context.Context, arg DeviceSetBelongsToOrgParams) (bool, error)
 	// Returns the subset of requested IDs that are live device sets of the given type in the org;
 	// the caller diffs against the request to detect cross-org, wrong-type, or missing IDs.
@@ -542,6 +560,8 @@ type Querier interface {
 	// assigned to a site-less building) must trip the confirm too.
 	FindDevicesWithSiteOrBuilding(ctx context.Context, arg FindDevicesWithSiteOrBuildingParams) ([]string, error)
 	FindHashboardIdentities(ctx context.Context, arg FindHashboardIdentitiesParams) ([]FindHashboardIdentitiesRow, error)
+	// Membership administration may look up only members of the selected account.
+	FindHostedAccountMemberByUUID(ctx context.Context, arg FindHostedAccountMemberByUUIDParams) (int64, error)
 	// Ends an active, unpaused rollout as 'completed' or 'completed_with_failures'.
 	// Recheck the pause under the row lock so stale settled targets cannot complete
 	// work after the operator pauses it. Resuming permits a later tick to finish.
@@ -559,6 +579,10 @@ type Querier interface {
 	// Excludes remote-fleet-node-reported rows: server-local pairing
 	// dials these IPs, agent-reported rows route via PairDeviceToFleetNode.
 	GetActiveUnpairedDiscoveredDevices(ctx context.Context, arg GetActiveUnpairedDiscoveredDevicesParams) ([]GetActiveUnpairedDiscoveredDevicesRow, error)
+	// Organization user management must not target customer-only affiliations.
+	// Lock organization first to serialize account/role mutations, but allow the
+	// key-share locks needed by concurrent affiliation/session foreign keys.
+	GetActiveUserRoleNameForUpdate(ctx context.Context, arg GetActiveUserRoleNameForUpdateParams) (string, error)
 	// Returns prior + target site_id for devices being added to a rack
 	// where they differ. Empty for racks without a stamped site.
 	GetAddedDeviceSiteConflicts(ctx context.Context, arg GetAddedDeviceSiteConflictsParams) ([]GetAddedDeviceSiteConflictsRow, error)
@@ -754,8 +778,16 @@ type Querier interface {
 	GetGroupRefsForDevices(ctx context.Context, arg GetGroupRefsForDevicesParams) ([]GetGroupRefsForDevicesRow, error)
 	GetHAProfileDatabaseIdentity(ctx context.Context) (GetHAProfileDatabaseIdentityRow, error)
 	GetHashboardInstallations(ctx context.Context, arg GetHashboardInstallationsParams) ([]GetHashboardInstallationsRow, error)
+	GetHostedAccountAncestorGrant(ctx context.Context, arg GetHostedAccountAncestorGrantParams) (HostedAccountAncestorGrant, error)
+	GetHostedAccountInvitationByHash(ctx context.Context, tokenHash string) (GetHostedAccountInvitationByHashRow, error)
+	GetHostedAccountKeyAuthority(ctx context.Context, arg GetHostedAccountKeyAuthorityParams) (GetHostedAccountKeyAuthorityRow, error)
+	GetHostedAccountKeyOwner(ctx context.Context, arg GetHostedAccountKeyOwnerParams) (sql.NullInt64, error)
 	GetHostedAccountMembership(ctx context.Context, arg GetHostedAccountMembershipParams) (HostedAccountMembership, error)
 	GetHostedAccountPath(ctx context.Context, arg GetHostedAccountPathParams) ([]GetHostedAccountPathRow, error)
+	GetHostedAccountPool(ctx context.Context, arg GetHostedAccountPoolParams) (HostedAccountPool, error)
+	GetHostedAccountPoolProfile(ctx context.Context, arg GetHostedAccountPoolProfileParams) (GetHostedAccountPoolProfileRow, error)
+	GetHostedAccountPoolRevision(ctx context.Context, arg GetHostedAccountPoolRevisionParams) (HostedAccountPoolRevision, error)
+	GetHostedAccountPoolRevisionByID(ctx context.Context, arg GetHostedAccountPoolRevisionByIDParams) (HostedAccountPoolRevision, error)
 	// Dedicated sensitive read: this field is intentionally not projected through
 	// the generic Site API. Org scope and deleted_at mask cross-org/missing sites
 	// as the same not-found result.
@@ -777,6 +809,7 @@ type Querier interface {
 	GetMaxPriority(ctx context.Context, orgID int64) (int32, error)
 	GetMessagesToProcess(ctx context.Context, arg GetMessagesToProcessParams) ([]GetMessagesToProcessRow, error)
 	GetMinerCredentialsByDeviceID(ctx context.Context, deviceID int64) (MinerCredential, error)
+	GetMinerFirmwareHistoryDeviceID(ctx context.Context, arg GetMinerFirmwareHistoryDeviceIDParams) (int64, error)
 	// Zone / building filters are not handled by this static query;
 	// callers with those filters route to executeModelGroupsDynamicQuery.
 	GetMinerModelGroups(ctx context.Context, arg GetMinerModelGroupsParams) ([]GetMinerModelGroupsRow, error)
@@ -942,6 +975,7 @@ type Querier interface {
 	// 'canceled' (operator canceled the remaining updates) or 'skipped' (a caller
 	// settled them without updating, with its note).
 	HaltFirmwareRolloutDevices(ctx context.Context, arg HaltFirmwareRolloutDevicesParams) error
+	HasHostedAccountHostAuthority(ctx context.Context, arg HasHostedAccountHostAuthorityParams) (bool, error)
 	HasPendingContainerControl(ctx context.Context, deviceID int64) (bool, error)
 	HasPendingTankMining(ctx context.Context, deviceID int64) (bool, error)
 	HasUser(ctx context.Context) (bool, error)
@@ -1292,8 +1326,8 @@ type Querier interface {
 	// Mining assets: filter and paginate miners/modules without parent aggregation.
 	// Each authority scope uses org-wide/denylist or site-allowlist semantics.
 	ListFleetMiningAssets(ctx context.Context, arg ListFleetMiningAssetsParams) (ListFleetMiningAssetsRow, error)
-	ListFleetNodeDeviceIDsForRevocation(ctx context.Context, arg ListFleetNodeDeviceIDsForRevocationParams) ([]int64, error)
 	ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDevicesParams) ([]ListFleetNodeDevicesRow, error)
+	ListFleetNodeDevicesForRevocation(ctx context.Context, arg ListFleetNodeDevicesForRevocationParams) ([]ListFleetNodeDevicesForRevocationRow, error)
 	// Fleet-node-discovered devices available for pairing or credential retry. A
 	// discovered device is excluded when ANY live device row is cloud-paired-like
 	// or bound to another node. A row bound to the requesting node surfaces only
@@ -1319,6 +1353,21 @@ type Querier interface {
 	ListFleetTankOptions(ctx context.Context, arg ListFleetTankOptionsParams) ([]ListFleetTankOptionsRow, error)
 	ListHashboardHistory(ctx context.Context, arg ListHashboardHistoryParams) ([]ListHashboardHistoryRow, error)
 	ListHashboardModules(ctx context.Context, deviceID int64) ([]ListHashboardModulesRow, error)
+	ListHostedAccountAncestorGrants(ctx context.Context, arg ListHostedAccountAncestorGrantsParams) ([]HostedAccountAncestorGrant, error)
+	ListHostedAccountChildren(ctx context.Context, arg ListHostedAccountChildrenParams) ([]HostedAccount, error)
+	// Bound history first, then resolve each live inviter once in the same snapshot.
+	// Authority witnesses and durable-role checks match invitation acceptance.
+	ListHostedAccountInvitations(ctx context.Context, arg ListHostedAccountInvitationsParams) ([]ListHostedAccountInvitationsRow, error)
+	// Bound key rows before expanding their retained descendant scopes.
+	ListHostedAccountKeys(ctx context.Context, arg ListHostedAccountKeysParams) ([]ListHostedAccountKeysRow, error)
+	ListHostedAccountMembers(ctx context.Context, arg ListHostedAccountMembersParams) ([]ListHostedAccountMembersRow, error)
+	ListHostedAccountPools(ctx context.Context, arg ListHostedAccountPoolsParams) ([]ListHostedAccountPoolsRow, error)
+	ListHostedAccountSites(ctx context.Context, arg ListHostedAccountSitesParams) ([]ListHostedAccountSitesRow, error)
+	// Resolve the entire account list in one snapshot. A parent filter is used only
+	// after delegation authorization and includes policy-only children, with no
+	// private role or capabilities unless explicit live authority grants viewing.
+	ListHostedAccountSummaries(ctx context.Context, arg ListHostedAccountSummariesParams) ([]ListHostedAccountSummariesRow, error)
+	ListHostedAccounts(ctx context.Context, organizationID int64) ([]HostedAccount, error)
 	// Lists every live infrastructure device in the org. site_ids is an
 	// optional OR filter (empty array = no filter); excluded_site_ids
 	// removes sites from the result regardless of site_ids — the handler
@@ -1339,6 +1388,9 @@ type Querier interface {
 	// can rename a target's reported hardware; active enrollment remains owned by
 	// its current assignment until that paired device settles or leaves scope.
 	ListManagedFirmwareUpdateDevices(ctx context.Context, arg ListManagedFirmwareUpdateDevicesParams) ([]ListManagedFirmwareUpdateDevicesRow, error)
+	// Read only this device record's persisted targets. History is independent
+	// of its current channel membership, reported hardware, and live telemetry.
+	ListMinerFirmwareHistory(ctx context.Context, arg ListMinerFirmwareHistoryParams) ([]ListMinerFirmwareHistoryRow, error)
 	// TYPE GENERATION STUB - This query is never executed.
 	// The actual list query uses a hand-written query builder in device.go
 	// because sqlc cannot parameterize ORDER BY direction or dynamic columns.
@@ -1678,6 +1730,7 @@ type Querier interface {
 	// completion arrives later. This observation survives exclusion, cancellation,
 	// retries and completed rollout history.
 	ObserveFirmwareRolloutReservationsOffline(ctx context.Context, channelID sql.NullInt64) error
+	OfflineDevicesForFleetNodeRevocation(ctx context.Context, arg OfflineDevicesForFleetNodeRevocationParams) (int64, error)
 	PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error)
 	PasswordUpdatedAt(ctx context.Context, id int64) (sql.NullTime, error)
 	PauseActiveSchedule(ctx context.Context, arg PauseActiveScheduleParams) (int64, error)
@@ -1812,6 +1865,7 @@ type Querier interface {
 	// the changed set for activity site scope (#538). Equivalent affected-row
 	// count to the prior :execrows shape.
 	RemoveDevicesFromDeviceSet(ctx context.Context, arg RemoveDevicesFromDeviceSetParams) ([]string, error)
+	RenameHostedAccount(ctx context.Context, arg RenameHostedAccountParams) error
 	RenewFleetRuntimeLease(ctx context.Context, arg RenewFleetRuntimeLeaseParams) (RenewFleetRuntimeLeaseRow, error)
 	RequestRigConfigReconciliation(ctx context.Context, arg RequestRigConfigReconciliationParams) error
 	// Lock/update the organization before writing targets. Completion and terminal
@@ -1844,6 +1898,8 @@ type Querier interface {
 	// statement snapshot so a concurrent placement change cannot mix old coverage
 	// with new membership. The reconciler validates selector shape before calling.
 	ResolveCurtailmentTopologyDispatch(ctx context.Context, arg ResolveCurtailmentTopologyDispatchParams) (ResolveCurtailmentTopologyDispatchRow, error)
+	// Resolve direct and explicitly granted ancestor authority in one snapshot.
+	ResolveHostedAccountAuthority(ctx context.Context, arg ResolveHostedAccountAuthorityParams) (ResolveHostedAccountAuthorityRow, error)
 	// Resolve identity, membership, suspension, and ancestor ceilings in one snapshot.
 	ResolveHostedAccountMembership(ctx context.Context, arg ResolveHostedAccountMembershipParams) (ResolveHostedAccountMembershipRow, error)
 	ResolveInventorySiteByName(ctx context.Context, arg ResolveInventorySiteByNameParams) (int64, error)
@@ -1877,6 +1933,9 @@ type Querier interface {
 	RevokeAllSessionsByUserID(ctx context.Context, arg RevokeAllSessionsByUserIDParams) error
 	RevokeApiKey(ctx context.Context, arg RevokeApiKeyParams) (int64, error)
 	RevokeApiKeysByFleetNodeID(ctx context.Context, arg RevokeApiKeysByFleetNodeIDParams) ([]string, error)
+	RevokeHostedAccountAncestorGrant(ctx context.Context, arg RevokeHostedAccountAncestorGrantParams) error
+	RevokeHostedAccountInvitation(ctx context.Context, arg RevokeHostedAccountInvitationParams) (int64, error)
+	RevokeHostedAccountKey(ctx context.Context, arg RevokeHostedAccountKeyParams) (int64, error)
 	RevokeHostedAccountMembership(ctx context.Context, arg RevokeHostedAccountMembershipParams) error
 	RevokePermissionFromRole(ctx context.Context, arg RevokePermissionFromRoleParams) error
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) error
@@ -1892,7 +1951,10 @@ type Querier interface {
 	SetDevicePairingAuthNeededIfNotPaired(ctx context.Context, deviceID int64) (int64, error)
 	SetFirmwareRolloutControllerWait(ctx context.Context, arg SetFirmwareRolloutControllerWaitParams) error
 	SetFleetNodeEnrollmentStatus(ctx context.Context, arg SetFleetNodeEnrollmentStatusParams) (int64, error)
+	SetHostedAccountAncestorGrant(ctx context.Context, arg SetHostedAccountAncestorGrantParams) error
 	SetHostedAccountMembership(ctx context.Context, arg SetHostedAccountMembershipParams) error
+	SetHostedAccountPoolProfile(ctx context.Context, arg SetHostedAccountPoolProfileParams) (int64, error)
+	SetHostedAccountSitesRestricted(ctx context.Context, arg SetHostedAccountSitesRestrictedParams) error
 	// Explicitly replaces the commissioned OT allowlist. Empty text
 	// decommissions the site. Canonicalization happens in the sites domain.
 	SetInfrastructureControlSubnets(ctx context.Context, arg SetInfrastructureControlSubnetsParams) (string, error)
@@ -2053,6 +2115,7 @@ type Querier interface {
 	UndeleteOrganization(ctx context.Context, id int64) error
 	UndeleteRole(ctx context.Context, id int64) error
 	UnpairDevice(ctx context.Context, arg UnpairDeviceParams) (int64, error)
+	UnpairDevicesForFleetNodeRevocation(ctx context.Context, arg UnpairDevicesForFleetNodeRevocationParams) (int64, error)
 	// Reopens convergence for verified miners the enforcement loop sees drifting
 	// from the assignment (reported version or provenance no longer match) while
 	// the rollout runs, so they are updated again.
@@ -2256,6 +2319,9 @@ type Querier interface {
 	// When the caller's filter includes BuildingIDs, IncludeNoBuilding,
 	// ZoneKeys, or IncludeNoRack, the Go store routes to the dynamic
 	// query builder (see device_filters.go) so counts match the list.
+	// A queued result from a revoked Node cannot restore a now-unpaired miner's
+	// status. The status-row marker also blocks writes that began before the
+	// revocation committed and waited on this row's lock.
 	UpsertDeviceStatus(ctx context.Context, arg UpsertDeviceStatusParams) error
 	// PostgreSQL version returns the id directly using RETURNING
 	UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscoveredDeviceParams) (int64, error)

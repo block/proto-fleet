@@ -901,6 +901,7 @@ func (d *Device) UpdateMiningPools(ctx context.Context, pools []sdk.MiningPoolCo
 			Priority:   int(pool.Priority),
 			URL:        pool.URL,
 			WorkerName: pool.WorkerName,
+			Password:   pool.Password,
 		}
 	}
 

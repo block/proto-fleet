@@ -591,25 +591,52 @@ func (s *Service) authorizeCallerForUser(ctx context.Context, callerUserID, orgI
 	// here means the target isn't in the caller's org; mask as
 	// InvalidArgument to avoid leaking existence across tenants. Other
 	// errors are transient and must propagate as Internal.
-	if _, err := s.userManagementStore.GetUserRoleName(ctx, target.ID, orgID); err != nil {
+	roleName, err := s.userManagementStore.GetUserRoleName(ctx, target.ID, orgID)
+	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return stores.User{}, fleeterror.NewInvalidArgumentError("invalid user_id")
 		}
 		return stores.User{}, fleeterror.NewInternalErrorf("error getting target user role: %v", err)
 	}
+	// A roleless affiliation admits customer login, not host user management.
+	// Use the same masked rejection as a missing/cross-organization target.
+	if roleName == "" {
+		return stores.User{}, fleeterror.NewInvalidArgumentError("invalid user_id")
+	}
 
 	targetEff, err := s.permResolver.LoadEffective(ctx, target.ID, orgID)
 	if err != nil {
-		return stores.User{}, fleeterror.NewInternalErrorf("error loading target permissions: %v", err)
+		return stores.User{}, fleeterror.NewInternalErrorf("error loading target permissions: %w", err)
 	}
 	callerEff, err := s.permResolver.LoadEffective(ctx, callerUserID, orgID)
 	if err != nil {
-		return stores.User{}, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
+		return stores.User{}, fleeterror.NewInternalErrorf("error loading caller permissions: %w", err)
 	}
 	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
 		return stores.User{}, err
 	}
 	return target, nil
+}
+
+// authorizeOrganizationUserInTx closes the gap between the optimistic target
+// lookup and the mutation. The active-role query takes organization first,
+// then affiliation/role locks; permission parity is rechecked on locked state.
+func (s *Service) authorizeOrganizationUserInTx(ctx context.Context, callerUserID, orgID, targetID int64) error {
+	if _, err := s.userManagementStore.GetActiveUserRoleNameForUpdate(ctx, targetID, orgID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fleeterror.NewInvalidArgumentError("invalid user_id")
+		}
+		return fleeterror.NewInternalErrorf("error locking target organization role: %w", err)
+	}
+	targetEff, err := s.permResolver.LoadEffectiveForUpdateInTx(ctx, targetID, orgID)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error loading target permissions: %w", err)
+	}
+	callerEff, err := s.permResolver.LoadEffectiveForUpdateInTx(ctx, callerUserID, orgID)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("error loading caller permissions: %w", err)
+	}
+	return requireCallerCanManageTarget(callerEff, targetEff)
 }
 
 // resolveCreateUserRole picks the role a freshly created user will be
@@ -658,7 +685,7 @@ func (s *Service) resolveCreateUserRole(ctx context.Context, callerUserID, orgID
 	}})
 	callerEff, err := s.permResolver.LoadEffective(ctx, callerUserID, orgID)
 	if err != nil {
-		return stores.Role{}, fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
+		return stores.Role{}, fleeterror.NewInternalErrorf("error loading caller permissions: %w", err)
 	}
 	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
 		return stores.Role{}, err
@@ -877,6 +904,9 @@ func (s *Service) ResetUserPassword(ctx context.Context, req *authv1.ResetUserPa
 
 	// Update password and revoke all sessions atomically.
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		if err := s.authorizeOrganizationUserInTx(ctx, info.UserID, orgID, user.ID); err != nil {
+			return err
+		}
 		if _, err := s.userManagementStore.AdminResetUserPassword(ctx, user.ID, string(hashedPassword)); err != nil {
 			return fleeterror.NewInternalErrorf("error resetting password: %v", err)
 		}
@@ -959,6 +989,9 @@ func (s *Service) DeactivateUser(ctx context.Context, req *authv1.DeactivateUser
 		soleAccounts, guardErr := s.userManagementStore.LockAndCountSoleHostedAccountAdministrations(ctx, orgID, user.ID)
 		if guardErr != nil {
 			return fleeterror.NewInternalErrorf("error checking hosted account administrators: %w", guardErr)
+		}
+		if err := s.authorizeOrganizationUserInTx(ctx, info.UserID, orgID, user.ID); err != nil {
+			return err
 		}
 		if soleAccounts > 0 {
 			return fleeterror.NewFailedPreconditionError("assign another account administrator before deactivating this user")
@@ -1055,6 +1088,11 @@ func (s *Service) UpdateUserRole(ctx context.Context, req *authv1.UpdateUserRole
 		if err != nil {
 			return err
 		}
+		// Match account writers' organization-first lock order. Otherwise a
+		// root-granted inviter could lose authority during invitation acceptance.
+		if _, err := s.userManagementStore.LockAndCountSoleHostedAccountAdministrations(ctx, orgID, 0); err != nil {
+			return err
+		}
 		newRole, err := s.userManagementStore.GetRoleByIDForUpdate(ctx, parsed)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -1094,7 +1132,7 @@ func (s *Service) UpdateUserRole(ctx context.Context, req *authv1.UpdateUserRole
 		// effective set from the new role's permission keys.
 		targetCurrentEff, err := s.permResolver.LoadEffectiveForUpdateInTx(ctx, target.ID, orgID)
 		if err != nil {
-			return fleeterror.NewInternalErrorf("error loading target permissions: %v", err)
+			return fleeterror.NewInternalErrorf("error loading target permissions: %w", err)
 		}
 		newRoleKeys, err := s.userManagementStore.ListPermissionKeysByRoleID(ctx, newRole.ID)
 		if err != nil {
@@ -1106,7 +1144,7 @@ func (s *Service) UpdateUserRole(ctx context.Context, req *authv1.UpdateUserRole
 		}})
 		callerEff, err := s.permResolver.LoadEffectiveForUpdateInTx(ctx, info.UserID, orgID)
 		if err != nil {
-			return fleeterror.NewInternalErrorf("error loading caller permissions: %v", err)
+			return fleeterror.NewInternalErrorf("error loading caller permissions: %w", err)
 		}
 		if err := requireCallerCanManageTarget(callerEff, targetCurrentEff); err != nil {
 			return err
@@ -1133,6 +1171,13 @@ func (s *Service) UpdateUserRole(ctx context.Context, req *authv1.UpdateUserRole
 
 		if err := s.userManagementStore.UpdateUserOrganizationRole(ctx, target.ID, orgID, current.AssignmentID, newRole.ID); err != nil {
 			return err
+		}
+		unadministered, err := s.userManagementStore.LockAndCountSoleHostedAccountAdministrations(ctx, orgID, 0)
+		if err != nil {
+			return err
+		}
+		if unadministered != 0 {
+			return fleeterror.NewFailedPreconditionError("account must retain an active direct or explicitly authorized ancestor administrator")
 		}
 		swapped = true
 		return nil

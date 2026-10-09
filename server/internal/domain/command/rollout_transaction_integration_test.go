@@ -8,8 +8,12 @@ import (
 	"testing"
 	"time"
 
+	commandMocks "github.com/block/proto-fleet/server/internal/domain/command/mocks"
+	minerInterfaces "github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
+	minerMocks "github.com/block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -238,7 +242,7 @@ func TestSpecializedCommandDispatchWaitsForCommit(t *testing.T) {
 
 func newTransactionalCommandFixture(t *testing.T) (*Service, *sql.DB, string, *int) {
 	t.Helper()
-	_, conn, _, _, identifier := setupPasswordCommandDevice(t, "proto", false)
+	_, conn, _, deviceID, identifier := setupPasswordCommandDevice(t, "proto", false)
 	ctx := manualSessionCtx(1)
 	_, err := conn.ExecContext(ctx, `INSERT INTO "user" (id, user_id, username, password_hash)
 		VALUES (42, 'user-1', 'test-user', 'unused')`)
@@ -249,9 +253,14 @@ func newTransactionalCommandFixture(t *testing.T) (*Service, *sql.DB, string, *i
 	run := newExecutionRun(t.Context())
 	t.Cleanup(run.cancelAdmission)
 	t.Cleanup(run.cancelWork)
+	ctrl := gomock.NewController(t)
+	getter := commandMocks.NewMockCachedMinerGetter(ctrl)
+	reader := minerMocks.NewMockStoredMiningPoolReader(ctrl)
+	reader.EXPECT().GetStoredMiningPools(gomock.Any()).Return([]minerInterfaces.MinerStoredPool{}, nil).AnyTimes()
+	getter.EXPECT().GetMiner(gomock.Any(), deviceID).Return(storedPoolMiner{StoredMiningPoolReader: reader}, nil).AnyTimes()
 	finalizers := 0
 	svc := &Service{
-		config: &Config{}, conn: conn, executionService: &ExecutionService{run: run},
+		config: &Config{}, conn: conn, executionService: &ExecutionService{run: run, minerService: getter},
 		messageQueue: queue.NewDatabaseMessageQueue(&queue.Config{}, conn),
 		filesService: filesService, deviceStore: sqlstores.NewSQLDeviceStore(conn),
 		startStatusUpdateRoutineOverride: func(string, onFinishedCallbackFunc) {

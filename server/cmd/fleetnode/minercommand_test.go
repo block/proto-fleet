@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -25,6 +26,7 @@ import (
 	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -35,6 +37,7 @@ import (
 	minercommandpb "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/curtailmentconfig"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/poolconfig"
 	"github.com/block/proto-fleet/server/internal/domain/miner/logformat"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -311,6 +314,14 @@ func TestHandleMinerCommand_GetsCoolingMode(t *testing.T) {
 
 func TestHandleMinerCommand_UpdatesMiningPools(t *testing.T) {
 	// Arrange
+	poolPassword := fmt.Sprintf("pool-credential-%s", t.Name())
+	public, private, err := passwordupdate.GenerateKeypair()
+	require.NoError(t, err)
+	encrypted, err := poolconfig.Encrypt(public, "dev-1", &pb.MiningPoolWriteConfiguration{Pools: []*pb.MiningPoolWriteConfig{
+		{Priority: 0, Url: "stratum+tcp://pool1.example.com:3333", Username: "worker1", Password: proto.String(poolPassword)},
+		{Priority: 1, Url: "stratum+tcp://pool2.example.com:3333", Username: "worker2", Password: proto.String("")},
+	}})
+	require.NoError(t, err)
 	ctrl := gomock.NewController(t)
 	dev := mocks.NewMockDevice(ctrl)
 	dev.EXPECT().
@@ -320,31 +331,42 @@ func TestHandleMinerCommand_UpdatesMiningPools(t *testing.T) {
 			assert.Equal(t, int32(0), pools[0].Priority)
 			assert.Equal(t, "stratum+tcp://pool1.example.com:3333", pools[0].URL)
 			assert.Equal(t, "worker1", pools[0].WorkerName)
+			assert.Equal(t, poolPassword, pools[0].Password)
 			assert.Equal(t, int32(1), pools[1].Priority)
 			assert.Equal(t, "stratum+tcp://pool2.example.com:3333", pools[1].URL)
 			assert.Equal(t, "worker2", pools[1].WorkerName)
+			assert.Empty(t, pools[1].Password)
+			for _, format := range []string{"%v", "%+v", "%#v"} {
+				assert.NotContains(t, fmt.Sprintf(format, pools), poolPassword)
+			}
+			encoded, err := json.Marshal(pools)
+			require.NoError(t, err)
+			assert.NotContains(t, string(encoded), poolPassword)
+			var output strings.Builder
+			slog.New(slog.NewJSONHandler(&output, nil)).Info("pool write", "pools", pools)
+			assert.NotContains(t, output.String(), poolPassword)
 			return nil
 		})
 	dev.EXPECT().Close(gomock.Any()).Return(nil)
 	drv := mocks.NewMockDriver(ctrl)
 	drv.EXPECT().NewDevice(gomock.Any(), gomock.Not("dev-1"), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: dev}, nil)
-	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}}
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: drv}, minerSecrets: nodeSecretProvider{}, passwordUpdatePrivateKey: private}
 	ack := &captureAcker{}
+	var output strings.Builder
+	logger := slog.New(slog.NewJSONHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	// Act
 	r.handleMinerCommand(context.Background(), nil, ack, "cmd-1",
 		withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMiningPools{UpdateMiningPools: &pb.UpdateMiningPoolsAction{
-			Pools: []*pb.MiningPoolConfig{
-				{Priority: 0, Url: "stratum+tcp://pool1.example.com:3333", Username: "worker1"},
-				{Priority: 1, Url: "stratum+tcp://pool2.example.com:3333", Username: "worker2"},
-			},
-		}}}), discardLogger(t))
+			EncryptedConfig: encrypted,
+		}}}), logger)
 
 	// Assert
 	got := ack.only(t)
 	assert.Equal(t, pb.AckCode_ACK_CODE_OK, got.GetCode())
 	assert.True(t, got.GetSucceeded())
 	assert.Empty(t, got.GetPayload())
+	assert.NotContains(t, output.String(), poolPassword)
 }
 
 func TestHandleMinerCommand_UpdateMinerPasswordReturnsEncryptedCredentials(t *testing.T) {
@@ -799,6 +821,7 @@ func TestPrepareFirmwareArtifactTempRootRemovesOrphans(t *testing.T) {
 }
 
 func TestHandleMinerCommand_GetMiningPoolsReturnsPayload(t *testing.T) {
+	require.Nil(t, (&pb.MiningPoolConfig{}).ProtoReflect().Descriptor().Fields().ByName("password"), "ordinary pool readback must not have a password field on the wire")
 	// Arrange
 	ctrl := gomock.NewController(t)
 	dev := mocks.NewMockDevice(ctrl)
@@ -1492,4 +1515,70 @@ func TestTankMiningCommandBuildsControllerAndPreservesExactScope(t *testing.T) {
 	require.True(t, acker.only(t).Succeeded)
 	require.Equal(t, []int32{1, 3}, device.received.Positions)
 	require.False(t, *device.received.Mining)
+}
+
+func TestHandleMinerCommand_RejectsInvalidEncryptedPoolsBeforeOpeningDevice(t *testing.T) {
+	public, private, err := passwordupdate.GenerateKeypair()
+	require.NoError(t, err)
+	_, wrongPrivate, err := passwordupdate.GenerateKeypair()
+	require.NoError(t, err)
+	config := &pb.MiningPoolWriteConfiguration{Pools: []*pb.MiningPoolWriteConfig{{Url: "stratum+tcp://pool.example.com:3333", Username: "worker", Password: proto.String("secret-pool-password")}}}
+	valid, err := poolconfig.Encrypt(public, "dev-1", config)
+	require.NoError(t, err)
+	wrongTarget, err := poolconfig.Encrypt(public, "other-device", config)
+	require.NoError(t, err)
+	tampered := proto.CloneOf(valid)
+	tampered.Ciphertext[0] ^= 1
+	for _, tc := range []struct {
+		name      string
+		private   []byte
+		encrypted *pb.NodeEncryptedPayload
+		want      pb.AckCode
+	}{
+		{"missing key", nil, valid, pb.AckCode_ACK_CODE_AGENT_INCAPABLE},
+		{"wrong key", wrongPrivate, valid, pb.AckCode_ACK_CODE_BAD_REQUEST},
+		{"wrong target", private, wrongTarget, pb.AckCode_ACK_CODE_BAD_REQUEST},
+		{"tampered", private, tampered, pb.AckCode_ACK_CODE_BAD_REQUEST},
+		{"absent envelope", private, nil, pb.AckCode_ACK_CODE_BAD_REQUEST},
+		{"malformed envelope", private, &pb.NodeEncryptedPayload{}, pb.AckCode_ACK_CODE_BAD_REQUEST},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			driver := mocks.NewMockDriver(gomock.NewController(t)) // No NewDevice or write is allowed.
+			r := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}, passwordUpdatePrivateKey: tc.private}
+			ack := &captureAcker{}
+			command := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMiningPools{UpdateMiningPools: &pb.UpdateMiningPoolsAction{EncryptedConfig: tc.encrypted}}})
+			r.handleMinerCommand(t.Context(), nil, ack, "pool-rejection", command, discardLogger(t))
+			assert.Equal(t, tc.want, ack.only(t).GetCode())
+		})
+	}
+}
+
+func TestRunMinerAction_DoesNotExecuteEncryptedPoolConfiguration(t *testing.T) {
+	public, _, err := passwordupdate.GenerateKeypair()
+	require.NoError(t, err)
+	encrypted, err := poolconfig.Encrypt(public, "dev-1", &pb.MiningPoolWriteConfiguration{Pools: []*pb.MiningPoolWriteConfig{{Url: "stratum+tcp://pool.example.com:3333", Username: "worker", Password: proto.String("")}}})
+	require.NoError(t, err)
+	command := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMiningPools{UpdateMiningPools: &pb.UpdateMiningPoolsAction{EncryptedConfig: encrypted}}})
+	device := mocks.NewMockDevice(gomock.NewController(t))
+	_, err = runMinerAction(t.Context(), nil, "pool-command", "", nil, device, command)
+	require.Error(t, err)
+}
+
+func TestHandleMinerCommand_RejectsLegacyPlaintextPoolWrite(t *testing.T) {
+	// The old action placed repeated plaintext pool messages at field 1.
+	legacyPool, err := proto.Marshal(&pb.MiningPoolWriteConfig{Url: "stratum+tcp://pool.example.com:3333", Username: "worker", Password: proto.String("legacy-secret")})
+	require.NoError(t, err)
+	legacyAction := protowire.AppendBytes(protowire.AppendTag(nil, 1, protowire.BytesType), legacyPool)
+	action := new(pb.UpdateMiningPoolsAction)
+	require.NoError(t, proto.Unmarshal(legacyAction, action))
+	driver := mocks.NewMockDriver(gomock.NewController(t))
+	r := &RunCmd{driverGetter: fakeDriverGetter{d: driver}, minerSecrets: nodeSecretProvider{}}
+	ack := &captureAcker{}
+	var logs strings.Builder
+	logger := slog.New(slog.NewJSONHandler(&logs, nil))
+	command := withTarget(&pb.MinerCommand{Action: &pb.MinerCommand_UpdateMiningPools{UpdateMiningPools: action}})
+	r.handleMinerCommand(t.Context(), nil, ack, "legacy-pool-command", command, logger)
+	assert.Equal(t, pb.AckCode_ACK_CODE_BAD_REQUEST, ack.only(t).GetCode())
+	assert.NotContains(t, ack.only(t).GetErrorMessage(), "legacy-secret")
+	assert.NotContains(t, logs.String(), "legacy-secret")
 }

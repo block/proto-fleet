@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -68,6 +69,12 @@ type Miner interface {
 	GetMiningPools(ctx context.Context) ([]MinerConfiguredPool, error)
 }
 
+// StoredMiningPoolReader reads complete private firmware configuration. It is
+// deliberately separate from the runtime GetMiningPools view.
+type StoredMiningPoolReader interface {
+	GetStoredMiningPools(ctx context.Context) ([]MinerStoredPool, error)
+}
+
 // FirmwareUpdateStatusProvider is an optional interface that miners can implement
 // to report firmware installation progress. Used by the execution service to poll
 // install status after uploading firmware to a device.
@@ -92,3 +99,19 @@ type MinerConfiguredPool struct {
 	URL      string
 	Username string
 }
+
+// MinerStoredPool is a private observation of a stored firmware slot.
+// Password is nil when unavailable or masked; a pointer to "" proves empty.
+// Never infer this value from desired configuration or a write acknowledgement.
+type MinerStoredPool struct {
+	Priority int32
+	URL      string
+	Username string
+	Password *string `json:"-"`
+}
+
+func (p MinerStoredPool) String() string {
+	return fmt.Sprintf("MinerStoredPool{Priority:%d URL:%q Username:%q Password:[redacted]}", p.Priority, p.URL, p.Username)
+}
+
+func (p MinerStoredPool) GoString() string { return p.String() }

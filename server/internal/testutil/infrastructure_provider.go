@@ -46,7 +46,7 @@ type TestContext struct {
 }
 
 func NewInfrastructureProvider(t *testing.T, serviceProvider *ServiceProvider, authInterceptorAllowList []string) *InfrastructureProvider {
-	interceptorsOption := connect.WithInterceptors(interceptors.NewErrorMappingInterceptor(), interceptors.NewAuthInterceptor(serviceProvider.SessionService, serviceProvider.UserStore, serviceProvider.UserStore, serviceProvider.ApiKeyService, serviceProvider.PermissionResolver, authInterceptorAllowList, interceptors.SessionOnlyProcedures, nil))
+	interceptorsOption := connect.WithInterceptors(interceptors.NewErrorMappingInterceptor(), interceptors.NewAuthInterceptor(serviceProvider.SessionService, serviceProvider.UserStore, serviceProvider.UserStore, serviceProvider.ApiKeyService, serviceProvider.PermissionResolver, nil, authInterceptorAllowList, interceptors.SessionOnlyProcedures, nil))
 
 	mux := http.NewServeMux()
 
