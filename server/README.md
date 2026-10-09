@@ -55,6 +55,33 @@ The SDK reserves an ID during creation and rejected-result cleanup, returning a
 retryable close error while either is running. IDs being closed cannot be reused
 until cleanup succeeds.
 
+## Fleet Node bootstrap rate limits
+
+| RPC | Requests per source IP per minute |
+| --- | ---: |
+| `Register` | 120 |
+| `BeginAuthHandshake` + `CompleteAuthHandshake` | 600 combined |
+
+The budgets allow 100 Nodes to enroll and authenticate behind one public IP.
+Successful and failed attempts count. Heartbeats, control streams, discovery
+reports, and artifact transfers are excluded.
+
+Fleet rejects excess requests before decoding or database work with
+`ResourceExhausted` and `Retry-After` in seconds. The Node daemon keeps its
+credentials and retries on its next heartbeat tick, including after WAF HTTP 429.
+
+Each budget uses fixed 60-second windows from an IP's first request and holds
+at most 10,000 IPs, counting IPv6 clients per /64. At capacity, only expired
+entries are removed; untracked IPs share one overflow budget with the same
+limit. Counters reset on restart or HA failover.
+Unresolved IPs share a counter. Fleet logs at most one throttle event per budget per minute, without
+IPs or credentials.
+
+Set `HTTP_TRUSTED_PROXY_CIDRS` to the actual ingress proxies, such as loopback
+nginx and ALB subnet CIDRs. Headers from untrusted peers are ignored; incorrect
+proxy settings can make unrelated clients share a quota. See the infrastructure
+repository's `fleet-ha/SECURITY.md` for WAF configuration and monitoring.
+
 ## Worker-name pool updates
 
 Worker-name changes require complete stored pool readback so rewriting usernames

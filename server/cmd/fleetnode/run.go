@@ -422,7 +422,10 @@ func (r *RunCmd) tick(ctx context.Context, client gatewayClient, st *bootstrap.S
 				return operatorActionRequired(fmt.Errorf("session refresh requires operator action: %w", err))
 			}
 			logger.Error("session refresh failed; will retry on next tick", "fleet_node_id", st.FleetNodeID, "err", err)
-			return nil
+			// Inside the refresh leeway the current session still authenticates.
+			if st.SessionToken == "" || !r.now().Before(st.SessionExpiresAt) {
+				return nil
+			}
 		}
 	}
 
