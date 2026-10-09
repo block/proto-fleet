@@ -32,8 +32,6 @@ import (
 	"github.com/block/proto-fleet/plugin/proto/internal/device"
 	"github.com/block/proto-fleet/plugin/proto/pkg/proto"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
-	"google.golang.org/grpc/codes"
-	grpcstatus "google.golang.org/grpc/status"
 )
 
 const (
