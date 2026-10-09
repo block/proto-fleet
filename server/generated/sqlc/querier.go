@@ -51,6 +51,8 @@ type Querier interface {
 	// otherwise be evaluated before a row-lock wait. Never move the stage time back.
 	AdvanceFirmwareRolloutStage(ctx context.Context, arg AdvanceFirmwareRolloutStageParams) (time.Time, error)
 	AdvanceFleetMetricRollupProgress(ctx context.Context, arg AdvanceFleetMetricRollupProgressParams) error
+	// Invalidates stale handles and queue messages, without granting new custody.
+	AdvanceRecoveredDeviceWriteFence(ctx context.Context, arg AdvanceRecoveredDeviceWriteFenceParams) (DeviceWriteFence, error)
 	// Returns true if all provided device identifiers belong to the specified organization.
 	// Used for authorization checks - fails fast if any device is not owned by the org.
 	AllDevicesBelongToOrg(ctx context.Context, arg AllDevicesBelongToOrgParams) (bool, error)
@@ -1543,6 +1545,7 @@ type Querier interface {
 	// by UUID; obsolete history and missing witnesses do not become candidates.
 	// The engine reloads the evidence under the rollout lock before adoption.
 	ListTerminalFirmwareRolloutsNeedingProvenance(ctx context.Context) ([]FirmwareRollout, error)
+	ListUnresolvedDeviceWriteAttempts(ctx context.Context, arg ListUnresolvedDeviceWriteAttemptsParams) ([]DeviceWriteAttempt, error)
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
 	LockActiveHostedAccountUser(ctx context.Context, arg LockActiveHostedAccountUserParams) (User, error)
 	// Break-glass resets intentionally target the sole live org-scope
@@ -1638,6 +1641,7 @@ type Querier interface {
 	// and credential repair. Callers recheck their predicates in a subsequent
 	// statement so they see the winner at READ COMMITTED.
 	LockDeviceByIdentifier(ctx context.Context, arg LockDeviceByIdentifierParams) ([]int64, error)
+	LockDeviceWriteAttemptForRecovery(ctx context.Context, attemptID uuid.UUID) (DeviceWriteAttempt, error)
 	// Completion must retain evidence even if the successful operation soft-deleted
 	// the device. Starting a new operation still requires a live device.
 	LockDeviceWriteFenceRecord(ctx context.Context, arg LockDeviceWriteFenceRecordParams) (DeviceWriteFence, error)
@@ -1824,6 +1828,7 @@ type Querier interface {
 	// AUTHENTICATION_NEEDED, PENDING, or FAILED by another flow.
 	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, arg ReconcileDefaultPasswordPairingStatusByIdentifierParams) (ReconcileDefaultPasswordPairingStatusByIdentifierRow, error)
 	RecordCurtailPendingDispatch(ctx context.Context, arg RecordCurtailPendingDispatchParams) (int64, error)
+	RecordDeviceWriteRecovery(ctx context.Context, arg RecordDeviceWriteRecoveryParams) error
 	// Managed-deployment provenance: the miners listed reported the artifact a
 	// rollout dispatched to them. Each aligned observation must still match the
 	// current provenance; losing that race is a no-op and the caller reloads it.
@@ -1916,6 +1921,7 @@ type Querier interface {
 	// statement snapshot so a concurrent placement change cannot mix old coverage
 	// with new membership. The reconciler validates selector shape before calling.
 	ResolveCurtailmentTopologyDispatch(ctx context.Context, arg ResolveCurtailmentTopologyDispatchParams) (ResolveCurtailmentTopologyDispatchRow, error)
+	ResolveDeviceWriteAttempt(ctx context.Context, attemptID uuid.UUID) (int64, error)
 	// Resolve direct and explicitly granted ancestor authority in one snapshot.
 	ResolveHostedAccountAuthority(ctx context.Context, arg ResolveHostedAccountAuthorityParams) (ResolveHostedAccountAuthorityRow, error)
 	// Resolve identity, membership, suspension, and ancestor ceilings in one snapshot.

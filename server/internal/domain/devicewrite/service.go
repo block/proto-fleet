@@ -7,6 +7,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
+	"sync"
 	"sync/atomic"
 
 	"github.com/google/uuid"
@@ -18,12 +21,20 @@ import (
 	"github.com/block/proto-fleet/server/internal/runtimepolicy"
 )
 
+// One immutable owner ID is shared by every service instance in this process.
+var processInstanceID = uuid.New()
+var logProcessOwner sync.Once
+
 type Service struct {
 	conn    *sql.DB
 	queries sqlc.Querier
 }
 
 func NewService(conn *sql.DB) *Service {
+	logProcessOwner.Do(func() {
+		hostname, _ := os.Hostname()
+		slog.Info("device-write process owner", "owner_instance_id", processInstanceID, "hostname", hostname, "pid", os.Getpid())
+	})
 	return &Service{conn: conn, queries: db.NewFailoverResettingQuerier(db.NewRetryDB(conn))}
 }
 
@@ -54,7 +65,7 @@ func (s *Service) BeginQueuedHost(ctx context.Context, message queue.Message) (*
 			return nil, blocked()
 		}
 		attempt := &Attempt{service: s, id: uuid.New(), deviceID: message.DeviceID, organizationID: message.OrgID}
-		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: message.DeviceID, OrganizationID: message.OrgID, Epoch: fence.Epoch, QueueMessageID: message.ID}); err != nil {
+		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: message.DeviceID, OrganizationID: message.OrgID, Epoch: fence.Epoch, QueueMessageID: message.ID, OwnerInstanceID: processInstanceID, OperationKind: "mutation"}); err != nil {
 			return nil, fmt.Errorf("record device write attempt: %w", err)
 		}
 		return attempt, nil

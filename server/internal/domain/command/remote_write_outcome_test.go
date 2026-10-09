@@ -14,6 +14,7 @@ import (
 	minerMocks "github.com/block/proto-fleet/server/internal/domain/command/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
@@ -76,6 +77,11 @@ func TestRemotePoolPreparationFailureDoesNotPoisonDrain(t *testing.T) {
 			}
 			writes := devicewrite.NewService(conn)
 			epoch, err := writes.Reserve(t.Context(), 1, deviceID)
+			if uncertain {
+				require.True(t, fleeterror.IsFailedPreconditionError(err), "unknown outcomes require operator recovery before reservation")
+				require.Zero(t, epoch)
+				return
+			}
 			require.NoError(t, err)
 			drained, err := writes.Drained(t.Context(), 1, deviceID, epoch)
 			require.NoError(t, err)

@@ -417,6 +417,11 @@ func TestRemoteAdmissionFailureDoesNotStrandOwnership(t *testing.T) {
 				require.NoError(t, retry.Finish(t.Context(), nil))
 			}
 			epoch, err := service.Reserve(t.Context(), orgID, deviceID)
+			if priorWrite {
+				require.True(t, fleeterror.IsFailedPreconditionError(err))
+				require.Zero(t, epoch, "prior uncertain dispatch requires recovery before custody changes")
+				return
+			}
 			require.NoError(t, err)
 			drained, err := service.Drained(t.Context(), orgID, deviceID, epoch)
 			require.NoError(t, err)

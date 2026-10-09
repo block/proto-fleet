@@ -21,11 +21,30 @@ CREATE TABLE device_write_attempt (
  organization_id BIGINT NOT NULL,
  epoch BIGINT NOT NULL CHECK (epoch >= 0),
  queue_message_id BIGINT NOT NULL REFERENCES queue_message(id),
- status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running','complete','unknown')),
+ owner_instance_id UUID NOT NULL,
+ operation_kind TEXT NOT NULL DEFAULT 'mutation' CHECK (operation_kind IN ('mutation','observation')),
+ identity_snapshot JSONB NOT NULL,
+ status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running','complete','unknown','resolved')),
  created_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
  finished_at TIMESTAMPTZ,
  FOREIGN KEY (device_id, organization_id) REFERENCES device_write_fence(device_id,organization_id),
  CHECK ((status='running') = (finished_at IS NULL))
 );
-CREATE INDEX idx_device_write_attempt_outstanding ON device_write_attempt(device_id) WHERE status <> 'complete';
+CREATE INDEX idx_device_write_attempt_outstanding ON device_write_attempt(device_id) WHERE status NOT IN ('complete','resolved');
 CREATE INDEX idx_device_write_attempt_queue ON device_write_attempt(queue_message_id);
+
+-- Recovery preserves the original attempt and distinguishes operator resolution
+-- from successful firmware completion. Database credentials authorize this
+-- offline operational boundary; evidence is explicitly operator-attested.
+CREATE TABLE device_write_recovery (
+ recovery_id UUID PRIMARY KEY,
+ attempt_id UUID NOT NULL REFERENCES device_write_attempt(attempt_id),
+ CONSTRAINT uq_device_write_recovery_attempt UNIQUE (attempt_id),
+ fence_epoch BIGINT NOT NULL CHECK (fence_epoch >= 0),
+ prior_status TEXT NOT NULL CHECK (prior_status IN ('running','unknown')),
+ operator_name TEXT NOT NULL CHECK (length(operator_name) > 0),
+ database_actor TEXT NOT NULL DEFAULT session_user,
+ evidence JSONB NOT NULL,
+ evidence_sha256 TEXT NOT NULL CHECK (length(evidence_sha256) = 64),
+ created_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp()
+);

@@ -146,6 +146,18 @@ func (q *retryingQuerier) AdvanceFleetMetricRollupProgress(ctx context.Context, 
 	})
 }
 
+func (q *retryingQuerier) AdvanceRecoveredDeviceWriteFence(ctx context.Context, arg AdvanceRecoveredDeviceWriteFenceParams) (DeviceWriteFence, error) {
+	var result DeviceWriteFence
+	err := q.retrier.RetryQuery(ctx, "AdvanceRecoveredDeviceWriteFence", func() error {
+		callResult, callErr := q.next.AdvanceRecoveredDeviceWriteFence(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) AllDevicesBelongToOrg(ctx context.Context, arg AllDevicesBelongToOrgParams) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "AllDevicesBelongToOrg", func() error {
@@ -6224,6 +6236,18 @@ func (q *retryingQuerier) ListTerminalFirmwareRolloutsNeedingProvenance(ctx cont
 	return result, err
 }
 
+func (q *retryingQuerier) ListUnresolvedDeviceWriteAttempts(ctx context.Context, arg ListUnresolvedDeviceWriteAttemptsParams) ([]DeviceWriteAttempt, error) {
+	var result []DeviceWriteAttempt
+	err := q.retrier.RetryQuery(ctx, "ListUnresolvedDeviceWriteAttempts", func() error {
+		callResult, callErr := q.next.ListUnresolvedDeviceWriteAttempts(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error) {
 	var result []ListUsersForOrganizationRow
 	err := q.retrier.RetryQuery(ctx, "ListUsersForOrganization", func() error {
@@ -6480,6 +6504,18 @@ func (q *retryingQuerier) LockDeviceByIdentifier(ctx context.Context, arg LockDe
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "LockDeviceByIdentifier", func() error {
 		callResult, callErr := q.next.LockDeviceByIdentifier(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockDeviceWriteAttemptForRecovery(ctx context.Context, attemptID uuid.UUID) (DeviceWriteAttempt, error) {
+	var result DeviceWriteAttempt
+	err := q.retrier.RetryQuery(ctx, "LockDeviceWriteAttemptForRecovery", func() error {
+		callResult, callErr := q.next.LockDeviceWriteAttemptForRecovery(ctx, attemptID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -7094,6 +7130,12 @@ func (q *retryingQuerier) RecordCurtailPendingDispatch(ctx context.Context, arg 
 	return result, err
 }
 
+func (q *retryingQuerier) RecordDeviceWriteRecovery(ctx context.Context, arg RecordDeviceWriteRecoveryParams) error {
+	return q.retrier.RetryQuery(ctx, "RecordDeviceWriteRecovery", func() error {
+		return q.next.RecordDeviceWriteRecovery(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) RecordFirmwareDeployment(ctx context.Context, arg RecordFirmwareDeploymentParams) error {
 	return q.retrier.RetryQuery(ctx, "RecordFirmwareDeployment", func() error {
 		return q.next.RecordFirmwareDeployment(ctx, arg)
@@ -7296,6 +7338,18 @@ func (q *retryingQuerier) ResolveCurtailmentTopologyDispatch(ctx context.Context
 	var result ResolveCurtailmentTopologyDispatchRow
 	err := q.retrier.RetryQuery(ctx, "ResolveCurtailmentTopologyDispatch", func() error {
 		callResult, callErr := q.next.ResolveCurtailmentTopologyDispatch(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ResolveDeviceWriteAttempt(ctx context.Context, attemptID uuid.UUID) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ResolveDeviceWriteAttempt", func() error {
+		callResult, callErr := q.next.ResolveDeviceWriteAttempt(ctx, attemptID)
 		if callErr == nil {
 			result = callResult
 		}

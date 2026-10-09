@@ -11,6 +11,7 @@ DO $$ BEGIN
   RAISE EXCEPTION 'queued device writes retain nonzero epochs; preserve queued ownership evidence; rollback is unsafe';
  END IF;
 END $$;
+DROP TABLE device_write_recovery;
 DROP TABLE device_write_attempt;
 ALTER TABLE queue_message DROP COLUMN write_epoch;
 DROP TABLE device_write_fence;

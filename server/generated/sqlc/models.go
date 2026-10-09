@@ -987,14 +987,17 @@ type DeviceStatusHourly struct {
 }
 
 type DeviceWriteAttempt struct {
-	AttemptID      uuid.UUID
-	DeviceID       int64
-	OrganizationID int64
-	Epoch          int64
-	QueueMessageID int64
-	Status         string
-	CreatedAt      time.Time
-	FinishedAt     sql.NullTime
+	AttemptID        uuid.UUID
+	DeviceID         int64
+	OrganizationID   int64
+	Epoch            int64
+	QueueMessageID   int64
+	OwnerInstanceID  uuid.UUID
+	OperationKind    string
+	IdentitySnapshot json.RawMessage
+	Status           string
+	CreatedAt        time.Time
+	FinishedAt       sql.NullTime
 }
 
 type DeviceWriteFence struct {
@@ -1003,6 +1006,18 @@ type DeviceWriteFence struct {
 	Epoch          int64
 	State          string
 	UpdatedAt      time.Time
+}
+
+type DeviceWriteRecovery struct {
+	RecoveryID     uuid.UUID
+	AttemptID      uuid.UUID
+	FenceEpoch     int64
+	PriorStatus    string
+	OperatorName   string
+	DatabaseActor  string
+	Evidence       json.RawMessage
+	EvidenceSha256 string
+	CreatedAt      time.Time
 }
 
 type DiscoveredDevice struct {

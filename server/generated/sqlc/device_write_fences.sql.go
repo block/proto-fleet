@@ -7,10 +7,37 @@ package sqlc
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 )
+
+const advanceRecoveredDeviceWriteFence = `-- name: AdvanceRecoveredDeviceWriteFence :one
+UPDATE device_write_fence SET epoch=epoch+1,updated_at=statement_timestamp()
+WHERE device_id=$1 AND organization_id=$2 AND epoch=$3
+RETURNING device_id, organization_id, epoch, state, updated_at
+`
+
+type AdvanceRecoveredDeviceWriteFenceParams struct {
+	DeviceID       int64
+	OrganizationID int64
+	Epoch          int64
+}
+
+// Invalidates stale handles and queue messages, without granting new custody.
+func (q *Queries) AdvanceRecoveredDeviceWriteFence(ctx context.Context, arg AdvanceRecoveredDeviceWriteFenceParams) (DeviceWriteFence, error) {
+	row := q.queryRow(ctx, q.advanceRecoveredDeviceWriteFenceStmt, advanceRecoveredDeviceWriteFence, arg.DeviceID, arg.OrganizationID, arg.Epoch)
+	var i DeviceWriteFence
+	err := row.Scan(
+		&i.DeviceID,
+		&i.OrganizationID,
+		&i.Epoch,
+		&i.State,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
 
 const cancelPendingDeviceWrites = `-- name: CancelPendingDeviceWrites :exec
 WITH canceled AS (
@@ -58,25 +85,33 @@ func (q *Queries) CheckDeviceWriteAttempt(ctx context.Context, attemptID uuid.UU
 }
 
 const createDeviceWriteAttempt = `-- name: CreateDeviceWriteAttempt :exec
-INSERT INTO device_write_attempt(attempt_id,device_id,organization_id,epoch,queue_message_id)
-VALUES ($1,$2,$3,$4,$5)
+INSERT INTO device_write_attempt(attempt_id,device_id,organization_id,epoch,queue_message_id,owner_instance_id,operation_kind,identity_snapshot)
+SELECT $1,d.id,d.org_id,$2,$3,$4,$5,
+ jsonb_build_object('device_identifier',d.device_identifier,'serial_number',d.serial_number,'mac_address',d.mac_address,
+ 'ip_address',dd.ip_address,'port',dd.port,'url_scheme',dd.url_scheme)
+FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id
+WHERE d.id=$6 AND d.org_id=$7
 `
 
 type CreateDeviceWriteAttemptParams struct {
-	AttemptID      uuid.UUID
-	DeviceID       int64
-	OrganizationID int64
-	Epoch          int64
-	QueueMessageID int64
+	AttemptID       uuid.UUID
+	Epoch           int64
+	QueueMessageID  int64
+	OwnerInstanceID uuid.UUID
+	OperationKind   string
+	DeviceID        int64
+	OrganizationID  int64
 }
 
 func (q *Queries) CreateDeviceWriteAttempt(ctx context.Context, arg CreateDeviceWriteAttemptParams) error {
 	_, err := q.exec(ctx, q.createDeviceWriteAttemptStmt, createDeviceWriteAttempt,
 		arg.AttemptID,
-		arg.DeviceID,
-		arg.OrganizationID,
 		arg.Epoch,
 		arg.QueueMessageID,
+		arg.OwnerInstanceID,
+		arg.OperationKind,
+		arg.DeviceID,
+		arg.OrganizationID,
 	)
 	return err
 }
@@ -114,7 +149,7 @@ func (q *Queries) FinishDeviceWriteAttempt(ctx context.Context, arg FinishDevice
 const isDeviceWriteFenceDrained = `-- name: IsDeviceWriteFenceDrained :one
 SELECT EXISTS (
  SELECT 1 FROM device_write_fence f WHERE f.device_id=$1 AND f.organization_id=$2 AND f.epoch=$3
- AND NOT EXISTS (SELECT 1 FROM device_write_attempt a WHERE a.device_id=f.device_id AND a.status<>'complete')
+ AND NOT EXISTS (SELECT 1 FROM device_write_attempt a WHERE a.device_id=f.device_id AND a.status NOT IN ('complete','resolved'))
 )::boolean AS drained
 `
 
@@ -129,6 +164,75 @@ func (q *Queries) IsDeviceWriteFenceDrained(ctx context.Context, arg IsDeviceWri
 	var drained bool
 	err := row.Scan(&drained)
 	return drained, err
+}
+
+const listUnresolvedDeviceWriteAttempts = `-- name: ListUnresolvedDeviceWriteAttempts :many
+SELECT a.attempt_id, a.device_id, a.organization_id, a.epoch, a.queue_message_id, a.owner_instance_id, a.operation_kind, a.identity_snapshot, a.status, a.created_at, a.finished_at FROM device_write_attempt a
+WHERE a.organization_id=$1 AND a.device_id=$2 AND a.status IN ('running','unknown')
+ORDER BY a.created_at,a.attempt_id
+`
+
+type ListUnresolvedDeviceWriteAttemptsParams struct {
+	OrganizationID int64
+	DeviceID       int64
+}
+
+func (q *Queries) ListUnresolvedDeviceWriteAttempts(ctx context.Context, arg ListUnresolvedDeviceWriteAttemptsParams) ([]DeviceWriteAttempt, error) {
+	rows, err := q.query(ctx, q.listUnresolvedDeviceWriteAttemptsStmt, listUnresolvedDeviceWriteAttempts, arg.OrganizationID, arg.DeviceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeviceWriteAttempt
+	for rows.Next() {
+		var i DeviceWriteAttempt
+		if err := rows.Scan(
+			&i.AttemptID,
+			&i.DeviceID,
+			&i.OrganizationID,
+			&i.Epoch,
+			&i.QueueMessageID,
+			&i.OwnerInstanceID,
+			&i.OperationKind,
+			&i.IdentitySnapshot,
+			&i.Status,
+			&i.CreatedAt,
+			&i.FinishedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockDeviceWriteAttemptForRecovery = `-- name: LockDeviceWriteAttemptForRecovery :one
+SELECT attempt_id, device_id, organization_id, epoch, queue_message_id, owner_instance_id, operation_kind, identity_snapshot, status, created_at, finished_at FROM device_write_attempt WHERE attempt_id=$1 FOR UPDATE
+`
+
+func (q *Queries) LockDeviceWriteAttemptForRecovery(ctx context.Context, attemptID uuid.UUID) (DeviceWriteAttempt, error) {
+	row := q.queryRow(ctx, q.lockDeviceWriteAttemptForRecoveryStmt, lockDeviceWriteAttemptForRecovery, attemptID)
+	var i DeviceWriteAttempt
+	err := row.Scan(
+		&i.AttemptID,
+		&i.DeviceID,
+		&i.OrganizationID,
+		&i.Epoch,
+		&i.QueueMessageID,
+		&i.OwnerInstanceID,
+		&i.OperationKind,
+		&i.IdentitySnapshot,
+		&i.Status,
+		&i.CreatedAt,
+		&i.FinishedAt,
+	)
+	return i, err
 }
 
 const lockDeviceWriteFenceRecord = `-- name: LockDeviceWriteFenceRecord :one
@@ -235,10 +339,38 @@ func (q *Queries) QuarantineDeviceWriteFence(ctx context.Context, arg Quarantine
 	return err
 }
 
+const recordDeviceWriteRecovery = `-- name: RecordDeviceWriteRecovery :exec
+INSERT INTO device_write_recovery(recovery_id,attempt_id,fence_epoch,prior_status,operator_name,evidence,evidence_sha256)
+VALUES($1,$2,$3,$4,$5,$6,$7)
+`
+
+type RecordDeviceWriteRecoveryParams struct {
+	RecoveryID     uuid.UUID
+	AttemptID      uuid.UUID
+	FenceEpoch     int64
+	PriorStatus    string
+	OperatorName   string
+	Evidence       json.RawMessage
+	EvidenceSha256 string
+}
+
+func (q *Queries) RecordDeviceWriteRecovery(ctx context.Context, arg RecordDeviceWriteRecoveryParams) error {
+	_, err := q.exec(ctx, q.recordDeviceWriteRecoveryStmt, recordDeviceWriteRecovery,
+		arg.RecoveryID,
+		arg.AttemptID,
+		arg.FenceEpoch,
+		arg.PriorStatus,
+		arg.OperatorName,
+		arg.Evidence,
+		arg.EvidenceSha256,
+	)
+	return err
+}
+
 const releaseDeviceWriteFenceToHost = `-- name: ReleaseDeviceWriteFenceToHost :execrows
 UPDATE device_write_fence f SET state='host',updated_at=statement_timestamp()
-WHERE f.device_id=$1 AND f.organization_id=$2 AND f.epoch=$3 AND f.state='reserved'
-AND NOT EXISTS (SELECT 1 FROM device_write_attempt a WHERE a.device_id=f.device_id AND a.status<>'complete')
+WHERE f.device_id=$1 AND f.organization_id=$2 AND f.epoch=$3 AND f.state IN ('reserved','quarantined')
+AND NOT EXISTS (SELECT 1 FROM device_write_attempt a WHERE a.device_id=f.device_id AND a.status NOT IN ('complete','resolved'))
 `
 
 type ReleaseDeviceWriteFenceToHostParams struct {
@@ -256,8 +388,9 @@ func (q *Queries) ReleaseDeviceWriteFenceToHost(ctx context.Context, arg Release
 }
 
 const reserveDeviceWriteFence = `-- name: ReserveDeviceWriteFence :one
-UPDATE device_write_fence SET epoch=epoch+1,state='reserved',updated_at=statement_timestamp()
-WHERE device_id=$1 AND organization_id=$2 AND state='host'
+UPDATE device_write_fence f SET epoch=epoch+1,state='reserved',updated_at=statement_timestamp()
+WHERE f.device_id=$1 AND f.organization_id=$2 AND f.state='host'
+AND NOT EXISTS (SELECT 1 FROM device_write_attempt a WHERE a.device_id=f.device_id AND a.status='unknown')
 RETURNING epoch
 `
 
@@ -271,4 +404,17 @@ func (q *Queries) ReserveDeviceWriteFence(ctx context.Context, arg ReserveDevice
 	var epoch int64
 	err := row.Scan(&epoch)
 	return epoch, err
+}
+
+const resolveDeviceWriteAttempt = `-- name: ResolveDeviceWriteAttempt :execrows
+UPDATE device_write_attempt SET status='resolved',finished_at=statement_timestamp()
+WHERE attempt_id=$1 AND status IN ('running','unknown')
+`
+
+func (q *Queries) ResolveDeviceWriteAttempt(ctx context.Context, attemptID uuid.UUID) (int64, error) {
+	result, err := q.exec(ctx, q.resolveDeviceWriteAttemptStmt, resolveDeviceWriteAttempt, attemptID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

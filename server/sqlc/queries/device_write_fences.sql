@@ -16,8 +16,12 @@ WHERE m.id=$1 AND m.status='PROCESSING' AND d.deleted_at IS NULL
 FOR UPDATE OF m;
 
 -- name: CreateDeviceWriteAttempt :exec
-INSERT INTO device_write_attempt(attempt_id,device_id,organization_id,epoch,queue_message_id)
-VALUES ($1,$2,$3,$4,$5);
+INSERT INTO device_write_attempt(attempt_id,device_id,organization_id,epoch,queue_message_id,owner_instance_id,operation_kind,identity_snapshot)
+SELECT sqlc.arg(attempt_id),d.id,d.org_id,sqlc.arg(epoch),sqlc.arg(queue_message_id),sqlc.arg(owner_instance_id),sqlc.arg(operation_kind),
+ jsonb_build_object('device_identifier',d.device_identifier,'serial_number',d.serial_number,'mac_address',d.mac_address,
+ 'ip_address',dd.ip_address,'port',dd.port,'url_scheme',dd.url_scheme)
+FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id
+WHERE d.id=sqlc.arg(device_id) AND d.org_id=sqlc.arg(organization_id);
 
 -- name: CheckDeviceWriteAttempt :one
 SELECT EXISTS (
@@ -36,8 +40,9 @@ UPDATE device_write_fence SET state='quarantined',updated_at=statement_timestamp
 WHERE device_id=$1 AND organization_id=$2 AND state<>'host';
 
 -- name: ReserveDeviceWriteFence :one
-UPDATE device_write_fence SET epoch=epoch+1,state='reserved',updated_at=statement_timestamp()
-WHERE device_id=$1 AND organization_id=$2 AND state='host'
+UPDATE device_write_fence f SET epoch=epoch+1,state='reserved',updated_at=statement_timestamp()
+WHERE f.device_id=$1 AND f.organization_id=$2 AND f.state='host'
+AND NOT EXISTS (SELECT 1 FROM device_write_attempt a WHERE a.device_id=f.device_id AND a.status='unknown')
 RETURNING epoch;
 
 -- name: CancelPendingDeviceWrites :exec
@@ -66,15 +71,38 @@ ON CONFLICT (command_batch_log_id,device_id) DO UPDATE SET
 -- name: IsDeviceWriteFenceDrained :one
 SELECT EXISTS (
  SELECT 1 FROM device_write_fence f WHERE f.device_id=$1 AND f.organization_id=$2 AND f.epoch=$3
- AND NOT EXISTS (SELECT 1 FROM device_write_attempt a WHERE a.device_id=f.device_id AND a.status<>'complete')
+ AND NOT EXISTS (SELECT 1 FROM device_write_attempt a WHERE a.device_id=f.device_id AND a.status NOT IN ('complete','resolved'))
 )::boolean AS drained;
 
 -- name: ReleaseDeviceWriteFenceToHost :execrows
 UPDATE device_write_fence f SET state='host',updated_at=statement_timestamp()
-WHERE f.device_id=$1 AND f.organization_id=$2 AND f.epoch=$3 AND f.state='reserved'
-AND NOT EXISTS (SELECT 1 FROM device_write_attempt a WHERE a.device_id=f.device_id AND a.status<>'complete');
+WHERE f.device_id=$1 AND f.organization_id=$2 AND f.epoch=$3 AND f.state IN ('reserved','quarantined')
+AND NOT EXISTS (SELECT 1 FROM device_write_attempt a WHERE a.device_id=f.device_id AND a.status NOT IN ('complete','resolved'));
 
 -- name: LockDeviceWriteFenceRecord :one
 -- Completion must retain evidence even if the successful operation soft-deleted
 -- the device. Starting a new operation still requires a live device.
 SELECT * FROM device_write_fence WHERE device_id=$1 AND organization_id=$2 FOR UPDATE;
+
+
+-- name: ListUnresolvedDeviceWriteAttempts :many
+SELECT a.* FROM device_write_attempt a
+WHERE a.organization_id=$1 AND a.device_id=$2 AND a.status IN ('running','unknown')
+ORDER BY a.created_at,a.attempt_id;
+
+-- name: LockDeviceWriteAttemptForRecovery :one
+SELECT * FROM device_write_attempt WHERE attempt_id=$1 FOR UPDATE;
+
+-- name: RecordDeviceWriteRecovery :exec
+INSERT INTO device_write_recovery(recovery_id,attempt_id,fence_epoch,prior_status,operator_name,evidence,evidence_sha256)
+VALUES($1,$2,$3,$4,$5,$6,$7);
+
+-- name: ResolveDeviceWriteAttempt :execrows
+UPDATE device_write_attempt SET status='resolved',finished_at=statement_timestamp()
+WHERE attempt_id=$1 AND status IN ('running','unknown');
+
+-- name: AdvanceRecoveredDeviceWriteFence :one
+-- Invalidates stale handles and queue messages, without granting new custody.
+UPDATE device_write_fence SET epoch=epoch+1,updated_at=statement_timestamp()
+WHERE device_id=$1 AND organization_id=$2 AND epoch=$3
+RETURNING *;

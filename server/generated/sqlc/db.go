@@ -60,6 +60,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.advanceFleetMetricRollupProgressStmt, err = db.PrepareContext(ctx, advanceFleetMetricRollupProgress); err != nil {
 		return nil, fmt.Errorf("error preparing query AdvanceFleetMetricRollupProgress: %w", err)
 	}
+	if q.advanceRecoveredDeviceWriteFenceStmt, err = db.PrepareContext(ctx, advanceRecoveredDeviceWriteFence); err != nil {
+		return nil, fmt.Errorf("error preparing query AdvanceRecoveredDeviceWriteFence: %w", err)
+	}
 	if q.allDevicesBelongToOrgStmt, err = db.PrepareContext(ctx, allDevicesBelongToOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query AllDevicesBelongToOrg: %w", err)
 	}
@@ -1659,6 +1662,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listTerminalFirmwareRolloutsNeedingProvenanceStmt, err = db.PrepareContext(ctx, listTerminalFirmwareRolloutsNeedingProvenance); err != nil {
 		return nil, fmt.Errorf("error preparing query ListTerminalFirmwareRolloutsNeedingProvenance: %w", err)
 	}
+	if q.listUnresolvedDeviceWriteAttemptsStmt, err = db.PrepareContext(ctx, listUnresolvedDeviceWriteAttempts); err != nil {
+		return nil, fmt.Errorf("error preparing query ListUnresolvedDeviceWriteAttempts: %w", err)
+	}
 	if q.listUsersForOrganizationStmt, err = db.PrepareContext(ctx, listUsersForOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query ListUsersForOrganization: %w", err)
 	}
@@ -1733,6 +1739,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockDeviceByIdentifierStmt, err = db.PrepareContext(ctx, lockDeviceByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDeviceByIdentifier: %w", err)
+	}
+	if q.lockDeviceWriteAttemptForRecoveryStmt, err = db.PrepareContext(ctx, lockDeviceWriteAttemptForRecovery); err != nil {
+		return nil, fmt.Errorf("error preparing query LockDeviceWriteAttemptForRecovery: %w", err)
 	}
 	if q.lockDeviceWriteFenceRecordStmt, err = db.PrepareContext(ctx, lockDeviceWriteFenceRecord); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDeviceWriteFenceRecord: %w", err)
@@ -1908,6 +1917,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.recordCurtailPendingDispatchStmt, err = db.PrepareContext(ctx, recordCurtailPendingDispatch); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordCurtailPendingDispatch: %w", err)
 	}
+	if q.recordDeviceWriteRecoveryStmt, err = db.PrepareContext(ctx, recordDeviceWriteRecovery); err != nil {
+		return nil, fmt.Errorf("error preparing query RecordDeviceWriteRecovery: %w", err)
+	}
 	if q.recordFirmwareDeploymentStmt, err = db.PrepareContext(ctx, recordFirmwareDeployment); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordFirmwareDeployment: %w", err)
 	}
@@ -1973,6 +1985,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.resolveCurtailmentTopologyDispatchStmt, err = db.PrepareContext(ctx, resolveCurtailmentTopologyDispatch); err != nil {
 		return nil, fmt.Errorf("error preparing query ResolveCurtailmentTopologyDispatch: %w", err)
+	}
+	if q.resolveDeviceWriteAttemptStmt, err = db.PrepareContext(ctx, resolveDeviceWriteAttempt); err != nil {
+		return nil, fmt.Errorf("error preparing query ResolveDeviceWriteAttempt: %w", err)
 	}
 	if q.resolveHostedAccountAuthorityStmt, err = db.PrepareContext(ctx, resolveHostedAccountAuthority); err != nil {
 		return nil, fmt.Errorf("error preparing query ResolveHostedAccountAuthority: %w", err)
@@ -2505,6 +2520,11 @@ func (q *Queries) Close() error {
 	if q.advanceFleetMetricRollupProgressStmt != nil {
 		if cerr := q.advanceFleetMetricRollupProgressStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing advanceFleetMetricRollupProgressStmt: %w", cerr)
+		}
+	}
+	if q.advanceRecoveredDeviceWriteFenceStmt != nil {
+		if cerr := q.advanceRecoveredDeviceWriteFenceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing advanceRecoveredDeviceWriteFenceStmt: %w", cerr)
 		}
 	}
 	if q.allDevicesBelongToOrgStmt != nil {
@@ -5172,6 +5192,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listTerminalFirmwareRolloutsNeedingProvenanceStmt: %w", cerr)
 		}
 	}
+	if q.listUnresolvedDeviceWriteAttemptsStmt != nil {
+		if cerr := q.listUnresolvedDeviceWriteAttemptsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listUnresolvedDeviceWriteAttemptsStmt: %w", cerr)
+		}
+	}
 	if q.listUsersForOrganizationStmt != nil {
 		if cerr := q.listUsersForOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listUsersForOrganizationStmt: %w", cerr)
@@ -5295,6 +5320,11 @@ func (q *Queries) Close() error {
 	if q.lockDeviceByIdentifierStmt != nil {
 		if cerr := q.lockDeviceByIdentifierStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockDeviceByIdentifierStmt: %w", cerr)
+		}
+	}
+	if q.lockDeviceWriteAttemptForRecoveryStmt != nil {
+		if cerr := q.lockDeviceWriteAttemptForRecoveryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockDeviceWriteAttemptForRecoveryStmt: %w", cerr)
 		}
 	}
 	if q.lockDeviceWriteFenceRecordStmt != nil {
@@ -5587,6 +5617,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing recordCurtailPendingDispatchStmt: %w", cerr)
 		}
 	}
+	if q.recordDeviceWriteRecoveryStmt != nil {
+		if cerr := q.recordDeviceWriteRecoveryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing recordDeviceWriteRecoveryStmt: %w", cerr)
+		}
+	}
 	if q.recordFirmwareDeploymentStmt != nil {
 		if cerr := q.recordFirmwareDeploymentStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing recordFirmwareDeploymentStmt: %w", cerr)
@@ -5695,6 +5730,11 @@ func (q *Queries) Close() error {
 	if q.resolveCurtailmentTopologyDispatchStmt != nil {
 		if cerr := q.resolveCurtailmentTopologyDispatchStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing resolveCurtailmentTopologyDispatchStmt: %w", cerr)
+		}
+	}
+	if q.resolveDeviceWriteAttemptStmt != nil {
+		if cerr := q.resolveDeviceWriteAttemptStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing resolveDeviceWriteAttemptStmt: %w", cerr)
 		}
 	}
 	if q.resolveHostedAccountAuthorityStmt != nil {
@@ -6528,6 +6568,7 @@ type Queries struct {
 	advanceContainerInventoryStmt                                *sql.Stmt
 	advanceFirmwareRolloutStageStmt                              *sql.Stmt
 	advanceFleetMetricRollupProgressStmt                         *sql.Stmt
+	advanceRecoveredDeviceWriteFenceStmt                         *sql.Stmt
 	allDevicesBelongToOrgStmt                                    *sql.Stmt
 	appendFirmwareRolloutDevicesStmt                             *sql.Stmt
 	applyFleetNodeRecoveredEndpointStmt                          *sql.Stmt
@@ -7061,6 +7102,7 @@ type Queries struct {
 	listTakenDeviceSetLabelsStmt                                 *sql.Stmt
 	listTankCommandTargetsStmt                                   *sql.Stmt
 	listTerminalFirmwareRolloutsNeedingProvenanceStmt            *sql.Stmt
+	listUnresolvedDeviceWriteAttemptsStmt                        *sql.Stmt
 	listUsersForOrganizationStmt                                 *sql.Stmt
 	lockActiveHostedAccountUserStmt                              *sql.Stmt
 	lockActiveSuperAdminUsersStmt                                *sql.Stmt
@@ -7086,6 +7128,7 @@ type Queries struct {
 	lockCurtailmentTargetPairingStatusesForWriteStmt             *sql.Stmt
 	lockCurtailmentTopologyMemberDeviceSitesByOrgStmt            *sql.Stmt
 	lockDeviceByIdentifierStmt                                   *sql.Stmt
+	lockDeviceWriteAttemptForRecoveryStmt                        *sql.Stmt
 	lockDeviceWriteFenceRecordStmt                               *sql.Stmt
 	lockDeviceWriteFencesStmt                                    *sql.Stmt
 	lockDevicesForReassignStmt                                   *sql.Stmt
@@ -7144,6 +7187,7 @@ type Queries struct {
 	reconcileContainerTanksStmt                                  *sql.Stmt
 	reconcileDefaultPasswordPairingStatusByIdentifierStmt        *sql.Stmt
 	recordCurtailPendingDispatchStmt                             *sql.Stmt
+	recordDeviceWriteRecoveryStmt                                *sql.Stmt
 	recordFirmwareDeploymentStmt                                 *sql.Stmt
 	recordFirmwareRolloutActionStmt                              *sql.Stmt
 	refreshOpenErrorsLastSeenByDeviceStmt                        *sql.Stmt
@@ -7166,6 +7210,7 @@ type Queries struct {
 	resetCurtailmentTargetsForRestoreStmt                        *sql.Stmt
 	resetReapedFirmwareStatusesStmt                              *sql.Stmt
 	resolveCurtailmentTopologyDispatchStmt                       *sql.Stmt
+	resolveDeviceWriteAttemptStmt                                *sql.Stmt
 	resolveHostedAccountAuthorityStmt                            *sql.Stmt
 	resolveHostedAccountMembershipStmt                           *sql.Stmt
 	resolveInventorySiteByNameStmt                               *sql.Stmt
@@ -7340,6 +7385,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		advanceContainerInventoryStmt:                                q.advanceContainerInventoryStmt,
 		advanceFirmwareRolloutStageStmt:                              q.advanceFirmwareRolloutStageStmt,
 		advanceFleetMetricRollupProgressStmt:                         q.advanceFleetMetricRollupProgressStmt,
+		advanceRecoveredDeviceWriteFenceStmt:                         q.advanceRecoveredDeviceWriteFenceStmt,
 		allDevicesBelongToOrgStmt:                                    q.allDevicesBelongToOrgStmt,
 		appendFirmwareRolloutDevicesStmt:                             q.appendFirmwareRolloutDevicesStmt,
 		applyFleetNodeRecoveredEndpointStmt:                          q.applyFleetNodeRecoveredEndpointStmt,
@@ -7873,6 +7919,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listTakenDeviceSetLabelsStmt:                                 q.listTakenDeviceSetLabelsStmt,
 		listTankCommandTargetsStmt:                                   q.listTankCommandTargetsStmt,
 		listTerminalFirmwareRolloutsNeedingProvenanceStmt:            q.listTerminalFirmwareRolloutsNeedingProvenanceStmt,
+		listUnresolvedDeviceWriteAttemptsStmt:                        q.listUnresolvedDeviceWriteAttemptsStmt,
 		listUsersForOrganizationStmt:                                 q.listUsersForOrganizationStmt,
 		lockActiveHostedAccountUserStmt:                              q.lockActiveHostedAccountUserStmt,
 		lockActiveSuperAdminUsersStmt:                                q.lockActiveSuperAdminUsersStmt,
@@ -7898,6 +7945,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockCurtailmentTargetPairingStatusesForWriteStmt:             q.lockCurtailmentTargetPairingStatusesForWriteStmt,
 		lockCurtailmentTopologyMemberDeviceSitesByOrgStmt:            q.lockCurtailmentTopologyMemberDeviceSitesByOrgStmt,
 		lockDeviceByIdentifierStmt:                                   q.lockDeviceByIdentifierStmt,
+		lockDeviceWriteAttemptForRecoveryStmt:                        q.lockDeviceWriteAttemptForRecoveryStmt,
 		lockDeviceWriteFenceRecordStmt:                               q.lockDeviceWriteFenceRecordStmt,
 		lockDeviceWriteFencesStmt:                                    q.lockDeviceWriteFencesStmt,
 		lockDevicesForReassignStmt:                                   q.lockDevicesForReassignStmt,
@@ -7956,6 +8004,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		reconcileContainerTanksStmt:                                  q.reconcileContainerTanksStmt,
 		reconcileDefaultPasswordPairingStatusByIdentifierStmt:        q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
 		recordCurtailPendingDispatchStmt:                             q.recordCurtailPendingDispatchStmt,
+		recordDeviceWriteRecoveryStmt:                                q.recordDeviceWriteRecoveryStmt,
 		recordFirmwareDeploymentStmt:                                 q.recordFirmwareDeploymentStmt,
 		recordFirmwareRolloutActionStmt:                              q.recordFirmwareRolloutActionStmt,
 		refreshOpenErrorsLastSeenByDeviceStmt:                        q.refreshOpenErrorsLastSeenByDeviceStmt,
@@ -7978,6 +8027,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		resetCurtailmentTargetsForRestoreStmt:                        q.resetCurtailmentTargetsForRestoreStmt,
 		resetReapedFirmwareStatusesStmt:                              q.resetReapedFirmwareStatusesStmt,
 		resolveCurtailmentTopologyDispatchStmt:                       q.resolveCurtailmentTopologyDispatchStmt,
+		resolveDeviceWriteAttemptStmt:                                q.resolveDeviceWriteAttemptStmt,
 		resolveHostedAccountAuthorityStmt:                            q.resolveHostedAccountAuthorityStmt,
 		resolveHostedAccountMembershipStmt:                           q.resolveHostedAccountMembershipStmt,
 		resolveInventorySiteByNameStmt:                               q.resolveInventorySiteByNameStmt,
