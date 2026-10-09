@@ -1369,6 +1369,45 @@ mod tests {
         assert!(!format!("{error:#?} {error:#}").contains("pool-private-value"));
     }
 
+    // A subprocess isolates the process-global hook from concurrent Rust tests
+    // and lets the parent inspect stderr, where the default hook leaks payloads.
+    #[test]
+    fn pool_write_panic_stderr_discards_payload() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "device::tests::pool_write_panic_stderr_child",
+                "--nocapture",
+            ])
+            .env("PROTO_FLEET_PANIC_TEST_CHILD", "1")
+            .env("RUST_BACKTRACE", "1")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "child failed: {output:?}");
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(stderr.contains("asicrs-plugin panicked at"));
+        assert!(stderr.contains("diagnostic payload suppressed"));
+        assert!(stdout.contains("test result: ok. 1 passed"));
+        assert!(!stderr.contains("pool-private-stderr-value"));
+        assert!(!stdout.contains("pool-private-stderr-value"));
+    }
+
+    #[tokio::test]
+    async fn pool_write_panic_stderr_child() {
+        if std::env::var_os("PROTO_FLEET_PANIC_TEST_CHILD").is_none() {
+            return;
+        }
+        crate::panic_reporting::install();
+        let error = set_pools_safely(async {
+            panic!("firmware response echoes pool-private-stderr-value");
+        })
+        .await
+        .unwrap_err();
+        assert_eq!(error.to_string(), "set_pools panicked");
+        assert!(!format!("{error:#?} {error:#}").contains("pool-private-stderr-value"));
+    }
+
     #[tokio::test]
     async fn pool_write_result_preserves_success_and_rejection() {
         set_pools_safely(async { Ok(true) }).await.unwrap();
