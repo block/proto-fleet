@@ -8,6 +8,7 @@ export type NodeDisplayStatus =
   | "connected"
   | "heartbeatOnly"
   | "upgradeRequired"
+  | "upgradeRecommended"
   | "stale"
   | "neverConnected"
   | "awaitingConfirmation"
@@ -20,8 +21,9 @@ export const getNodeDisplayStatus = (node: FleetNodeItem): NodeDisplayStatus => 
       return "awaitingConfirmation";
     case FleetNodeEnrollmentStatus.CONFIRMED:
       if (node.commandProtocolUpgradeRequired && node.controlStreamConnected) return "upgradeRequired";
+      if (node.lastSeenAt && Date.now() - node.lastSeenAt.getTime() > STALE_AFTER_MS) return "stale";
+      if (node.commandProtocolUpgradeRecommended && node.controlStreamConnected) return "upgradeRecommended";
       if (!node.lastSeenAt) return "neverConnected";
-      if (Date.now() - node.lastSeenAt.getTime() > STALE_AFTER_MS) return "stale";
       return node.controlStreamConnected ? "connected" : "heartbeatOnly";
     case FleetNodeEnrollmentStatus.REVOKED:
       return "revoked";

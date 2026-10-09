@@ -229,6 +229,8 @@ const Pools = ({ onChangePools, pools, renderModal, showDeleteToast = true }: Po
     [],
   );
 
+  useEffect(() => () => debouncedEditDone.cancel(), [debouncedEditDone]);
+
   const startEditing = useCallback(() => {
     debouncedEditDone.cancel();
     setIsEditing(true);

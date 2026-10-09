@@ -11,6 +11,7 @@ const baseNode: FleetNodeItem = {
   enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
   identityFingerprint: "abcd1234abcd1234",
   commandProtocolUpgradeRequired: false,
+  commandProtocolUpgradeRecommended: false,
   controlStreamConnected: false,
   pairedDeviceCount: 0,
   createdAt: new Date("2026-07-09T12:00:00Z"),
@@ -29,7 +30,12 @@ describe("NodeStatusBadge", () => {
   ])("shows %s for a confirmed node last seen %dms ago", (label, ageMs) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-09T12:10:00Z"));
-    const node = { ...baseNode, controlStreamConnected: true, lastSeenAt: new Date(Date.now() - ageMs) };
+    const node = {
+      ...baseNode,
+      controlStreamConnected: true,
+      commandProtocolUpgradeRecommended: label === "Stale",
+      lastSeenAt: new Date(Date.now() - ageMs),
+    };
 
     const { getByText } = render(<NodeStatusBadge node={node} />);
 
@@ -46,22 +52,27 @@ describe("NodeStatusBadge", () => {
     expect(getByText("Heartbeat only")).toBeInTheDocument();
   });
 
-  it("shows Never connected for a confirmed node without a heartbeat", () => {
-    const { getByText } = render(<NodeStatusBadge node={baseNode} />);
+  it("ignores upgrade recommendations for a node without a control stream or heartbeat", () => {
+    const { getByText } = render(<NodeStatusBadge node={{ ...baseNode, commandProtocolUpgradeRecommended: true }} />);
 
     expect(getByText("Never connected")).toBeInTheDocument();
   });
 
-  it("shows an upgrade warning for an active node even before its first heartbeat", () => {
+  it.each([
+    ["Upgrade required", true, false],
+    ["Upgrade recommended", false, true],
+    ["Upgrade required", true, true],
+  ])("shows %s before the first heartbeat (required=%s, recommended=%s)", (label, required, recommended) => {
     const node = {
       ...baseNode,
-      commandProtocolUpgradeRequired: true,
+      commandProtocolUpgradeRequired: required,
+      commandProtocolUpgradeRecommended: recommended,
       controlStreamConnected: true,
     };
 
     const { getByText } = render(<NodeStatusBadge node={node} />);
 
-    expect(getByText("Upgrade required")).toBeInTheDocument();
+    expect(getByText(label)).toBeInTheDocument();
   });
 
   it("shows Awaiting confirmation for a registered node", () => {

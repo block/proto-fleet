@@ -7,6 +7,7 @@ const DISPLAY_STATUS_CONFIG: Record<NodeDisplayStatus, { label: string; dotClass
   connected: { label: "Connected", dotClass: "bg-intent-success-fill" },
   heartbeatOnly: { label: "Heartbeat only", dotClass: "bg-intent-warning-fill" },
   upgradeRequired: { label: "Upgrade required", dotClass: "bg-intent-critical-fill" },
+  upgradeRecommended: { label: "Upgrade recommended", dotClass: "bg-intent-warning-fill" },
   stale: { label: "Stale", dotClass: "bg-intent-warning-fill" },
   neverConnected: { label: "Never connected", dotClass: "bg-border-20" },
   awaitingConfirmation: { label: "Awaiting confirmation", dotClass: "bg-intent-info-fill" },

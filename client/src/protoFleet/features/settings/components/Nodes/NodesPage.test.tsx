@@ -177,6 +177,7 @@ const confirmedNode: FleetNodeItem = {
   enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
   identityFingerprint: "abcd1234abcd1234",
   commandProtocolUpgradeRequired: false,
+  commandProtocolUpgradeRecommended: false,
   controlStreamConnected: true,
   pairedDeviceCount: 0,
   createdAt: new Date("2026-07-09T12:00:00Z"),

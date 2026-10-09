@@ -240,14 +240,33 @@ func (r *Registry) ConnectedFleetNodeIDs() []int64 {
 	return ids
 }
 
-// CommandProtocolUpgradeRequired reports whether an active connection is too
-// old to process the server's current commands. Disconnected nodes are handled
-// by their existing connection status instead.
+// CommandProtocolUpgradeRequired reports whether an active connection cannot
+// process baseline V1 commands, including discovery.
 func (r *Registry) CommandProtocolUpgradeRequired(fleetNodeID int64) bool {
+	return r.commandProtocolBelow(fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1)
+}
+
+// Protocol versions are monotonic. New enum versions advance recommendations
+// without changing any command's minimum supported version.
+var latestCommandProtocolVersion = func() gatewaypb.CommandProtocolVersion {
+	var latest gatewaypb.CommandProtocolVersion
+	for version := range gatewaypb.CommandProtocolVersion_name {
+		latest = max(latest, gatewaypb.CommandProtocolVersion(version))
+	}
+	return latest
+}()
+
+// CommandProtocolUpgradeRecommended reports whether a connected node is behind
+// the server's latest protocol. It must not be used to gate commands.
+func (r *Registry) CommandProtocolUpgradeRecommended(fleetNodeID int64) bool {
+	return r.commandProtocolBelow(fleetNodeID, latestCommandProtocolVersion)
+}
+
+func (r *Registry) commandProtocolBelow(fleetNodeID int64, version gatewaypb.CommandProtocolVersion) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	conn := r.conns[fleetNodeID]
-	return conn != nil && conn.maxCommandProtocolVersion < gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
+	return conn != nil && conn.maxCommandProtocolVersion < version
 }
 
 // teardown closes connection.done and every in-flight command's done. Caller holds

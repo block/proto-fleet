@@ -98,6 +98,28 @@ func TestRegistry_CommandProtocolUpgradeRequiredNeedsActiveConnection(t *testing
 	assert.False(t, r.CommandProtocolUpgradeRequired(7))
 }
 
+func TestRegistry_CommandProtocolUpgradeRecommended(t *testing.T) {
+	r := NewRegistry()
+	assert.False(t, r.CommandProtocolUpgradeRecommended(7))
+	for _, tc := range []struct {
+		version     gatewaypb.CommandProtocolVersion
+		recommended bool
+	}{
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_UNSPECIFIED, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2, false},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V2 + 1, false},
+	} {
+		t.Run(tc.version.String(), func(t *testing.T) {
+			stream, err := r.RegisterAuthenticated(7, "session", tc.version)
+			require.NoError(t, err)
+			assert.Equal(t, tc.recommended, r.CommandProtocolUpgradeRecommended(7))
+			stream.Unregister()
+			assert.False(t, r.CommandProtocolUpgradeRecommended(7))
+		})
+	}
+}
+
 func TestRegistry_RejectsUnsupportedCommandProtocolBeforeDispatch(t *testing.T) {
 	r := NewRegistry()
 	stream, err := r.RegisterAuthenticated(

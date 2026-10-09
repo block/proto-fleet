@@ -76,9 +76,10 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 	for _, n := range fleetNodes {
 		_, controlStreamConnected := connected[n.ID]
 		summary := &pb.FleetNodeSummary{
-			EnrollmentStatus:               deriveDisplayStatus(n),
-			CommandProtocolUpgradeRequired: h.registry.CommandProtocolUpgradeRequired(n.ID),
-			ControlStreamConnected:         controlStreamConnected,
+			EnrollmentStatus:                  deriveDisplayStatus(n),
+			CommandProtocolUpgradeRequired:    h.registry.CommandProtocolUpgradeRequired(n.ID),
+			CommandProtocolUpgradeRecommended: h.registry.CommandProtocolUpgradeRecommended(n.ID),
+			ControlStreamConnected:            controlStreamConnected,
 		}
 		if includeAdministrativeDetails {
 			summary.FleetNodeId = n.ID
