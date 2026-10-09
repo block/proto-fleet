@@ -79,6 +79,9 @@ const (
 	// RolloutServiceListRolloutDevicesProcedure is the fully-qualified name of the RolloutService's
 	// ListRolloutDevices RPC.
 	RolloutServiceListRolloutDevicesProcedure = "/rollout.v1.RolloutService/ListRolloutDevices"
+	// RolloutServiceListMinerFirmwareHistoryProcedure is the fully-qualified name of the
+	// RolloutService's ListMinerFirmwareHistory RPC.
+	RolloutServiceListMinerFirmwareHistoryProcedure = "/rollout.v1.RolloutService/ListMinerFirmwareHistory"
 	// RolloutServiceListRolloutEventsProcedure is the fully-qualified name of the RolloutService's
 	// ListRolloutEvents RPC.
 	RolloutServiceListRolloutEventsProcedure = "/rollout.v1.RolloutService/ListRolloutEvents"
@@ -190,6 +193,11 @@ type RolloutServiceClient interface {
 	// Lists live per-device progress for one rollout with bounded cursor
 	// pagination.
 	ListRolloutDevices(context.Context, *connect.Request[v1.ListRolloutDevicesRequest]) (*connect.Response[v1.ListRolloutDevicesResponse], error)
+	// Lists saved firmware-update participation for the miner's current device
+	// record, newest rollout first, across all retained release channels.
+	// Deleting a channel removes its history. Unpairing and pairing the same
+	// miner again keeps its history; deleting and re-adding it starts new history.
+	ListMinerFirmwareHistory(context.Context, *connect.Request[v1.ListMinerFirmwareHistoryRequest]) (*connect.Response[v1.ListMinerFirmwareHistoryResponse], error)
 	// Lists rollout lifecycle events oldest first, optionally for one rollout
 	// or one channel, with bounded cursor pagination. Events are durable and
 	// append-only, so a client that stores the last cursor sees every later
@@ -364,6 +372,12 @@ func NewRolloutServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 			connect.WithClientOptions(opts...),
 		),
+		listMinerFirmwareHistory: connect.NewClient[v1.ListMinerFirmwareHistoryRequest, v1.ListMinerFirmwareHistoryResponse](
+			httpClient,
+			baseURL+RolloutServiceListMinerFirmwareHistoryProcedure,
+			connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+			connect.WithClientOptions(opts...),
+		),
 		listRolloutEvents: connect.NewClient[v1.ListRolloutEventsRequest, v1.ListRolloutEventsResponse](
 			httpClient,
 			baseURL+RolloutServiceListRolloutEventsProcedure,
@@ -430,6 +444,7 @@ type rolloutServiceClient struct {
 	listRollouts                          *connect.Client[v1.ListRolloutsRequest, v1.ListRolloutsResponse]
 	getRollout                            *connect.Client[v1.GetRolloutRequest, v1.GetRolloutResponse]
 	listRolloutDevices                    *connect.Client[v1.ListRolloutDevicesRequest, v1.ListRolloutDevicesResponse]
+	listMinerFirmwareHistory              *connect.Client[v1.ListMinerFirmwareHistoryRequest, v1.ListMinerFirmwareHistoryResponse]
 	listRolloutEvents                     *connect.Client[v1.ListRolloutEventsRequest, v1.ListRolloutEventsResponse]
 	continueRollout                       *connect.Client[v1.ContinueRolloutRequest, v1.ContinueRolloutResponse]
 	advanceRollout                        *connect.Client[v1.AdvanceRolloutRequest, v1.AdvanceRolloutResponse]
@@ -515,6 +530,11 @@ func (c *rolloutServiceClient) GetRollout(ctx context.Context, req *connect.Requ
 // ListRolloutDevices calls rollout.v1.RolloutService.ListRolloutDevices.
 func (c *rolloutServiceClient) ListRolloutDevices(ctx context.Context, req *connect.Request[v1.ListRolloutDevicesRequest]) (*connect.Response[v1.ListRolloutDevicesResponse], error) {
 	return c.listRolloutDevices.CallUnary(ctx, req)
+}
+
+// ListMinerFirmwareHistory calls rollout.v1.RolloutService.ListMinerFirmwareHistory.
+func (c *rolloutServiceClient) ListMinerFirmwareHistory(ctx context.Context, req *connect.Request[v1.ListMinerFirmwareHistoryRequest]) (*connect.Response[v1.ListMinerFirmwareHistoryResponse], error) {
+	return c.listMinerFirmwareHistory.CallUnary(ctx, req)
 }
 
 // ListRolloutEvents calls rollout.v1.RolloutService.ListRolloutEvents.
@@ -644,6 +664,11 @@ type RolloutServiceHandler interface {
 	// Lists live per-device progress for one rollout with bounded cursor
 	// pagination.
 	ListRolloutDevices(context.Context, *connect.Request[v1.ListRolloutDevicesRequest]) (*connect.Response[v1.ListRolloutDevicesResponse], error)
+	// Lists saved firmware-update participation for the miner's current device
+	// record, newest rollout first, across all retained release channels.
+	// Deleting a channel removes its history. Unpairing and pairing the same
+	// miner again keeps its history; deleting and re-adding it starts new history.
+	ListMinerFirmwareHistory(context.Context, *connect.Request[v1.ListMinerFirmwareHistoryRequest]) (*connect.Response[v1.ListMinerFirmwareHistoryResponse], error)
 	// Lists rollout lifecycle events oldest first, optionally for one rollout
 	// or one channel, with bounded cursor pagination. Events are durable and
 	// append-only, so a client that stores the last cursor sees every later
@@ -814,6 +839,12 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
 		connect.WithHandlerOptions(opts...),
 	)
+	rolloutServiceListMinerFirmwareHistoryHandler := connect.NewUnaryHandler(
+		RolloutServiceListMinerFirmwareHistoryProcedure,
+		svc.ListMinerFirmwareHistory,
+		connect.WithIdempotency(connect.IdempotencyNoSideEffects),
+		connect.WithHandlerOptions(opts...),
+	)
 	rolloutServiceListRolloutEventsHandler := connect.NewUnaryHandler(
 		RolloutServiceListRolloutEventsProcedure,
 		svc.ListRolloutEvents,
@@ -892,6 +923,8 @@ func NewRolloutServiceHandler(svc RolloutServiceHandler, opts ...connect.Handler
 			rolloutServiceGetRolloutHandler.ServeHTTP(w, r)
 		case RolloutServiceListRolloutDevicesProcedure:
 			rolloutServiceListRolloutDevicesHandler.ServeHTTP(w, r)
+		case RolloutServiceListMinerFirmwareHistoryProcedure:
+			rolloutServiceListMinerFirmwareHistoryHandler.ServeHTTP(w, r)
 		case RolloutServiceListRolloutEventsProcedure:
 			rolloutServiceListRolloutEventsHandler.ServeHTTP(w, r)
 		case RolloutServiceContinueRolloutProcedure:
@@ -977,6 +1010,10 @@ func (UnimplementedRolloutServiceHandler) GetRollout(context.Context, *connect.R
 
 func (UnimplementedRolloutServiceHandler) ListRolloutDevices(context.Context, *connect.Request[v1.ListRolloutDevicesRequest]) (*connect.Response[v1.ListRolloutDevicesResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListRolloutDevices is not implemented"))
+}
+
+func (UnimplementedRolloutServiceHandler) ListMinerFirmwareHistory(context.Context, *connect.Request[v1.ListMinerFirmwareHistoryRequest]) (*connect.Response[v1.ListMinerFirmwareHistoryResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("rollout.v1.RolloutService.ListMinerFirmwareHistory is not implemented"))
 }
 
 func (UnimplementedRolloutServiceHandler) ListRolloutEvents(context.Context, *connect.Request[v1.ListRolloutEventsRequest]) (*connect.Response[v1.ListRolloutEventsResponse], error) {
