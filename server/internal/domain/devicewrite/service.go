@@ -292,14 +292,21 @@ func (s *Service) WithHostAttempt(ctx context.Context, organizationID, deviceID,
 	if err != nil {
 		return err
 	}
+	returned := false
 	defer func() {
+		if !returned {
+			// A recovered panic cannot establish the physical operation's outcome.
+			return
+		}
 		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), runtimepolicy.CommandTransactionBound)
 		defer cancel()
 		if err := attempt.Finish(finishCtx, resultErr); err != nil && resultErr == nil {
 			resultErr = err
 		}
 	}()
-	return call(attempt.Context(ctx))
+	resultErr = call(attempt.Context(ctx))
+	returned = true
+	return resultErr
 }
 
 // RunHost admits a single direct physical call. Multi-step transports use

@@ -174,14 +174,21 @@ func (s *Service) RunDeletionUnpair(ctx context.Context, organizationID, deviceI
 	if err != nil {
 		return err
 	}
+	returned := false
 	defer func() {
+		if !returned {
+			// Keep the claimed attempt blocking physical reuse after a panic.
+			return
+		}
 		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), runtimepolicy.CommandTransactionBound)
 		defer cancel()
 		if err := attempt.Finish(finishCtx, resultErr); err != nil && resultErr == nil {
 			resultErr = fmt.Errorf("finish deleted miner unpair: %w", err)
 		}
 	}()
-	return call(attempt.Context(ctx))
+	resultErr = call(attempt.Context(ctx))
+	returned = true
+	return resultErr
 }
 
 // DispatchDeletedUnpair recognizes only the private context minted by the
