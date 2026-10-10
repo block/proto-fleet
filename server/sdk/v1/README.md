@@ -246,6 +246,16 @@ Pairing probes use `NewDevice` with an isolated probe identifier and close their
 handle afterward. Fleet validates plugin support and the returned scope, device
 identifier, and generation before accepting a scoped handle.
 
+Fleet requires the `sdk_scoped_device_reuse` capability when loading a plugin.
+Plugins built with an older SDK are rejected with an instruction to rebuild with
+the current Fleet SDK; matching the `v1` handshake version alone is insufficient.
+The SDK runtime advertises this capability automatically.
+
+A scoped backend generation is an opaque token of exactly 32 bytes. Carry the
+returned token unchanged in every device operation, including `DeviceRef` and
+`DescribeDeviceRequest`. An empty token is valid only for an unscoped registration;
+clients must not derive, truncate, or substitute generations.
+
 ### Cooling Modes
 
 The SDK supports different cooling modes for devices:

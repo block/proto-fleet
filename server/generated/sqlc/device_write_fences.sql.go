@@ -146,7 +146,7 @@ SELECT EXISTS (
  WHERE a.attempt_id=$1 AND a.status='running' AND f.epoch=a.epoch AND f.state='host'
  AND ((d.deleted_at IS NULL AND a.identity_keys=device_write_identity_keys(d.id)) OR (d.deleted_at IS NOT NULL
   AND EXISTS (SELECT 1 FROM device_deletion_unpair_permit p WHERE p.attempt_id=a.attempt_id AND p.device_id=a.device_id AND p.epoch=a.epoch)
-  AND NOT EXISTS (SELECT 1 FROM device successor WHERE successor.deleted_at IS NULL AND device_write_identity_keys(successor.id) && a.identity_keys)))
+  AND NOT EXISTS (SELECT 1 FROM device successor WHERE successor.org_id=a.organization_id AND successor.deleted_at IS NULL AND device_write_identity_keys(successor.id) && a.identity_keys)))
  AND (a.queue_message_id IS NULL OR m.status='PROCESSING')
 )::boolean AS valid
 `
@@ -353,13 +353,18 @@ func (q *Queries) GetDeviceWriteIdentityKeys(ctx context.Context, targetID int64
 
 const isDeletionUnpairIdentityCurrent = `-- name: IsDeletionUnpairIdentityCurrent :one
 SELECT EXISTS (SELECT 1 WHERE NOT EXISTS (
- SELECT 1 FROM device d WHERE d.deleted_at IS NULL
- AND device_write_identity_keys(d.id) && $1::text[]
+ SELECT 1 FROM device d WHERE d.org_id=$1 AND d.deleted_at IS NULL
+ AND device_write_identity_keys(d.id) && $2::text[]
 ))::boolean AS current
 `
 
-func (q *Queries) IsDeletionUnpairIdentityCurrent(ctx context.Context, identityKeys []string) (bool, error) {
-	row := q.queryRow(ctx, q.isDeletionUnpairIdentityCurrentStmt, isDeletionUnpairIdentityCurrent, pq.Array(identityKeys))
+type IsDeletionUnpairIdentityCurrentParams struct {
+	OrganizationID int64
+	IdentityKeys   []string
+}
+
+func (q *Queries) IsDeletionUnpairIdentityCurrent(ctx context.Context, arg IsDeletionUnpairIdentityCurrentParams) (bool, error) {
+	row := q.queryRow(ctx, q.isDeletionUnpairIdentityCurrentStmt, isDeletionUnpairIdentityCurrent, arg.OrganizationID, pq.Array(arg.IdentityKeys))
 	var current bool
 	err := row.Scan(&current)
 	return current, err
@@ -500,7 +505,7 @@ func (q *Queries) LockDeviceWriteAttemptForRecovery(ctx context.Context, attempt
 const lockDeviceWriteDeletionCredentials = `-- name: LockDeviceWriteDeletionCredentials :exec
 SELECT mc.id FROM miner_credentials mc
 WHERE mc.device_id=ANY($1::bigint[])
-ORDER BY mc.device_id,mc.id FOR UPDATE
+ORDER BY mc.device_id,mc.id FOR UPDATE NOWAIT
 `
 
 func (q *Queries) LockDeviceWriteDeletionCredentials(ctx context.Context, deviceIds []int64) error {
@@ -511,7 +516,7 @@ func (q *Queries) LockDeviceWriteDeletionCredentials(ctx context.Context, device
 const lockDeviceWriteDeletionDevices = `-- name: LockDeviceWriteDeletionDevices :exec
 SELECT id FROM device
 WHERE id=ANY($1::bigint[]) AND deleted_at IS NULL
-ORDER BY id FOR UPDATE
+ORDER BY id FOR UPDATE NOWAIT
 `
 
 // Retirement locks binding parents and children in the same order as dispatch.
@@ -525,7 +530,7 @@ const lockDeviceWriteDeletionDiscoveries = `-- name: LockDeviceWriteDeletionDisc
 SELECT id FROM discovered_device
 WHERE id IN (SELECT discovered_device_id FROM device
  WHERE id=ANY($1::bigint[]) AND deleted_at IS NULL)
-ORDER BY id FOR UPDATE
+ORDER BY id FOR UPDATE NOWAIT
 `
 
 func (q *Queries) LockDeviceWriteDeletionDiscoveries(ctx context.Context, deviceIds []int64) error {
@@ -533,10 +538,46 @@ func (q *Queries) LockDeviceWriteDeletionDiscoveries(ctx context.Context, device
 	return err
 }
 
+const lockDeviceWriteDeletionFences = `-- name: LockDeviceWriteDeletionFences :many
+SELECT f.device_id, f.organization_id, f.epoch, f.state, f.quarantine_origin, f.updated_at FROM device_write_fence f JOIN device d ON d.id=f.device_id AND d.org_id=f.organization_id
+WHERE f.device_id=ANY($1::bigint[]) AND d.deleted_at IS NULL
+ORDER BY f.device_id FOR UPDATE OF f NOWAIT
+`
+
+func (q *Queries) LockDeviceWriteDeletionFences(ctx context.Context, deviceIds []int64) ([]DeviceWriteFence, error) {
+	rows, err := q.query(ctx, q.lockDeviceWriteDeletionFencesStmt, lockDeviceWriteDeletionFences, pq.Array(deviceIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DeviceWriteFence
+	for rows.Next() {
+		var i DeviceWriteFence
+		if err := rows.Scan(
+			&i.DeviceID,
+			&i.OrganizationID,
+			&i.Epoch,
+			&i.State,
+			&i.QuarantineOrigin,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockDeviceWriteDeletionPairings = `-- name: LockDeviceWriteDeletionPairings :exec
 SELECT dp.id FROM device_pairing dp
 WHERE dp.device_id=ANY($1::bigint[])
-ORDER BY dp.device_id,dp.id FOR UPDATE
+ORDER BY dp.device_id,dp.id FOR UPDATE NOWAIT
 `
 
 func (q *Queries) LockDeviceWriteDeletionPairings(ctx context.Context, deviceIds []int64) error {
@@ -547,7 +588,7 @@ func (q *Queries) LockDeviceWriteDeletionPairings(ctx context.Context, deviceIds
 const lockDeviceWriteDeletionRoutes = `-- name: LockDeviceWriteDeletionRoutes :exec
 SELECT fnd.device_id FROM fleet_node_device fnd
 WHERE fnd.device_id=ANY($1::bigint[])
-ORDER BY fnd.device_id,fnd.fleet_node_id FOR UPDATE
+ORDER BY fnd.device_id,fnd.fleet_node_id FOR UPDATE NOWAIT
 `
 
 // Lock only the association: Fleet Node recovery locks its node before device.
@@ -755,4 +796,15 @@ func (q *Queries) ResolveDeviceWriteAttempt(ctx context.Context, attemptID uuid.
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setLocalDeviceDeletionLockTimeout = `-- name: SetLocalDeviceDeletionLockTimeout :exec
+SELECT set_config('lock_timeout','250ms',TRUE)
+`
+
+// Contended advisory admission or fence creation must release the entire
+// deletion batch promptly instead of holding shared identity stripes for I/O.
+func (q *Queries) SetLocalDeviceDeletionLockTimeout(ctx context.Context) error {
+	_, err := q.exec(ctx, q.setLocalDeviceDeletionLockTimeoutStmt, setLocalDeviceDeletionLockTimeout)
+	return err
 }

@@ -122,8 +122,30 @@ func (s *SQLFleetNodeEnrollmentStore) GetFleetNodeByID(ctx context.Context, flee
 	return rowToFleetNode(row.ID, row.OrgID, row.Name, row.IdentityPubkey, row.EncryptionPubkey, row.EnrollmentStatus, row.LastSeenAt, row.CreatedAt, row.UpdatedAt), nil
 }
 
+func (s *SQLFleetNodeEnrollmentStore) GetCancelledEnrollmentByFleetNode(ctx context.Context, enrollmentID, fleetNodeID, orgID int64) (*enrollment.PendingEnrollment, error) {
+	row, err := s.q(ctx).GetCancelledEnrollmentByFleetNode(ctx, sqlc.GetCancelledEnrollmentByFleetNodeParams{ID: enrollmentID, FleetNodeID: sql.NullInt64{Int64: fleetNodeID, Valid: true}, OrgID: orgID})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundError("canceled enrollment not found")
+		}
+		return nil, err
+	}
+	return rowToPending(row), nil
+}
+
 func (s *SQLFleetNodeEnrollmentStore) LockFleetNodeByID(ctx context.Context, fleetNodeID, orgID int64) (*enrollment.FleetNode, error) {
 	row, err := s.q(ctx).LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: fleetNodeID, OrgID: orgID})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fleeterror.NewNotFoundError("fleet node not found")
+		}
+		return nil, err
+	}
+	return rowToFleetNode(row.ID, row.OrgID, row.Name, row.IdentityPubkey, row.EncryptionPubkey, row.EnrollmentStatus, row.LastSeenAt, row.CreatedAt, row.UpdatedAt), nil
+}
+
+func (s *SQLFleetNodeEnrollmentStore) LockFleetNodeIdentityByID(ctx context.Context, fleetNodeID, orgID int64) (*enrollment.FleetNode, error) {
+	row, err := s.q(ctx).LockFleetNodeIdentityByID(ctx, sqlc.LockFleetNodeIdentityByIDParams{ID: fleetNodeID, OrgID: orgID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fleeterror.NewNotFoundError("fleet node not found")
@@ -208,6 +230,11 @@ func (s *SQLFleetNodeEnrollmentStore) ListDevicesForFleetNodeRevocation(ctx cont
 		devices = append(devices, enrollment.RevokedDevice{ID: row.DeviceID, Identifier: telemetrymodels.DeviceIdentifier(row.DeviceIdentifier)})
 	}
 	return devices, nil
+}
+
+func (s *SQLFleetNodeEnrollmentStore) LockDevicesForFleetNodeRevocation(ctx context.Context, fleetNodeID, orgID int64) error {
+	_, err := s.q(ctx).LockFleetNodeDevicesForRevocation(ctx, sqlc.LockFleetNodeDevicesForRevocationParams{FleetNodeID: fleetNodeID, OrgID: orgID})
+	return err
 }
 
 func (s *SQLFleetNodeEnrollmentStore) UnpairDevicesForFleetNodeRevocation(ctx context.Context, fleetNodeID, orgID int64) (int64, error) {

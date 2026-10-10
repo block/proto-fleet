@@ -143,7 +143,10 @@ func TestTankMiningExecutionUsesAdmittedSiteWithCachedController(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, messages, 1)
 	// Placement validation and the adapter gate must share the leased slot.
-	conn.SetMaxOpenConns(1)
+	conn.SetMaxOpenConns(2)
+	spectator, err := conn.Conn(t.Context())
+	require.NoError(t, err)
+	defer spectator.Close()
 	dispatchCtx, cancelDispatch := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancelDispatch()
 	orgID, siteID, err := es.executeQueuedCommand(dispatchCtx, messages[0])

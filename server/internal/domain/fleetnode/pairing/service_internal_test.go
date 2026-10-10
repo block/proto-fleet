@@ -65,6 +65,10 @@ func (s pairServiceEnrollmentStore) LockFleetNodeByID(context.Context, int64, in
 	return &enrollment.FleetNode{EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}, nil
 }
 
+func (s pairServiceEnrollmentStore) LockFleetNodeIdentityByID(context.Context, int64, int64) (*enrollment.FleetNode, error) {
+	return &enrollment.FleetNode{EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}, nil
+}
+
 type passThroughTransactor struct{}
 
 func (passThroughTransactor) RunInTx(ctx context.Context, fn func(context.Context) error) error {
@@ -77,9 +81,12 @@ func (passThroughTransactor) RunInTxWithResult(ctx context.Context, fn func(cont
 
 var _ stores.Transactor = passThroughTransactor{}
 
-type failingTelemetryScheduler struct{}
+type failingTelemetryScheduler struct {
+	called chan struct{}
+}
 
-func (failingTelemetryScheduler) AddPairedDevices(context.Context, ...telemetrymodels.DeviceIdentifier) error {
+func (s failingTelemetryScheduler) AddPairedDevices(context.Context, ...telemetrymodels.DeviceIdentifier) error {
+	defer close(s.called)
 	return errors.New("scheduler down")
 }
 
@@ -99,19 +106,22 @@ func (s blockingTelemetryScheduler) AddPairedDevices(ctx context.Context, _ ...t
 }
 
 func TestPairDeviceIgnoresPostCommitTelemetrySchedulingFailure(t *testing.T) {
-	oldTimeout := telemetryScheduleTimeout
-	telemetryScheduleTimeout = time.Second
-	t.Cleanup(func() { telemetryScheduleTimeout = oldTimeout })
+	called := make(chan struct{})
 
 	svc := NewService(
 		&pairServiceStore{identifier: "node-device"},
 		pairServiceEnrollmentStore{},
 		passThroughTransactor{},
-	).WithTelemetryScheduler(failingTelemetryScheduler{})
+	).WithTelemetryScheduler(failingTelemetryScheduler{called: called})
 
 	err := svc.PairDevice(t.Context(), 12, 34, 56, nil)
 
 	require.NoError(t, err)
+	select {
+	case <-called:
+	case <-time.After(time.Second):
+		t.Fatal("failing telemetry scheduler was not called")
+	}
 }
 
 func TestPairDeviceDoesNotBlockOnPostCommitTelemetryScheduling(t *testing.T) {

@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"slices"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -29,7 +31,16 @@ func DirectBindingHash(binding sqlc.GetDeviceWithCredentialsAndIPByDeviceIdentif
 
 // PrepareDeletion runs in the same transaction as the soft delete. It rejects
 // owned/reserved devices as a whole and invalidates every pre-delete epoch.
-func PrepareDeletion(ctx context.Context, q sqlc.Querier, organizationID int64, identifiers []string) error {
+func PrepareDeletion(ctx context.Context, q sqlc.Querier, organizationID int64, identifiers []string) (resultErr error) {
+	defer func() {
+		var pgErr *pgconn.PgError
+		if errors.As(resultErr, &pgErr) && pgErr.Code == "55P03" {
+			resultErr = blocked()
+		}
+	}()
+	if err := q.SetLocalDeviceDeletionLockTimeout(ctx); err != nil {
+		return err
+	}
 	targets, err := q.GetDeviceWriteDeletionTargets(ctx, sqlc.GetDeviceWriteDeletionTargetsParams{OrgID: organizationID, DeviceIdentifiers: identifiers})
 	if err != nil {
 		return err
@@ -51,7 +62,7 @@ func PrepareDeletion(ctx context.Context, q sqlc.Querier, organizationID int64, 
 	if err := q.EnsureDeviceWriteFences(ctx, ids); err != nil {
 		return err
 	}
-	fences, err := q.LockDeviceWriteFences(ctx, ids)
+	fences, err := q.LockDeviceWriteDeletionFences(ctx, ids)
 	if err != nil {
 		return err
 	}
@@ -173,7 +184,7 @@ func (s *Service) RunDeletionUnpair(ctx context.Context, organizationID, deviceI
 		if permit.BindingHash != bindingHash {
 			return nil, blocked()
 		}
-		current, err := q.IsDeletionUnpairIdentityCurrent(ctx, permit.IdentityKeys)
+		current, err := q.IsDeletionUnpairIdentityCurrent(ctx, sqlc.IsDeletionUnpairIdentityCurrentParams{OrganizationID: organizationID, IdentityKeys: permit.IdentityKeys})
 		if err != nil {
 			return nil, err
 		}

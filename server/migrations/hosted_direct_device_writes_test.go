@@ -6,10 +6,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alecthomas/kong"
 	"github.com/google/uuid"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	dbinfra "github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/block/proto-fleet/server/migrations"
 	"github.com/stretchr/testify/require"
@@ -208,4 +210,71 @@ func TestRetiredIdentityLookupUsesOutstandingIndex(t *testing.T) {
 	drained, err = q.IsRetiredDeviceWriteDrained(t.Context(), []string{fmt.Sprintf("org:%d:serial:39999", user.OrganizationID)})
 	require.NoError(t, err)
 	require.True(t, drained, "completed retained history must not block admission")
+}
+
+func TestHostedUpgradePreflightPreservesCheckpointAndHistory(t *testing.T) {
+	for _, status := range []string{"unknown", "complete", "resolved"} {
+		t.Run(status, func(t *testing.T) {
+			cfg, err := testutil.GetTestConfig()
+			require.NoError(t, err)
+			database := testutil.NewDatabaseService(t, cfg)
+			user := database.CreateSuperAdminUser()
+			device := database.CreateDevice(user.OrganizationID, "proto")
+			ctx := t.Context()
+			for _, name := range []string{"001013_internal_fleet_node_heartbeat", "001012_internal_retired_device_write_permits", "001011_internal_direct_device_write_attempts"} {
+				down, err := migrations.Current.ReadFile("current/" + name + ".down.sql")
+				require.NoError(t, err)
+				_, err = database.DB.ExecContext(ctx, string(down))
+				require.NoError(t, err)
+			}
+			_, err = database.DB.ExecContext(ctx, `UPDATE schema_migrations SET version=1010,dirty=false`)
+			require.NoError(t, err)
+			require.NoError(t, sqlc.New(database.DB).EnsureDeviceWriteFences(ctx, []int64{device.DatabaseID}))
+			var messageID int64
+			require.NoError(t, database.DB.QueryRowContext(ctx, `INSERT INTO queue_message(command_batch_log_uuid,device_id,command_type,status,retry_count) VALUES('prior-hosted-write',$1,'Reboot','PENDING',0) RETURNING id`, device.DatabaseID).Scan(&messageID))
+			attemptID := uuid.New()
+			_, err = database.DB.ExecContext(ctx, `INSERT INTO device_write_attempt(attempt_id,device_id,organization_id,epoch,queue_message_id,owner_instance_id,identity_snapshot,status,finished_at) VALUES($1,$2,$3,0,$4,$5,'{"serial_number":"prior-hosted-miner"}',$6,statement_timestamp())`, attemptID, device.DatabaseID, user.OrganizationID, messageID, uuid.New(), status)
+			require.NoError(t, err)
+			if status == "resolved" {
+				_, err = database.DB.ExecContext(ctx, `INSERT INTO device_write_recovery(recovery_id,attempt_id,fence_epoch,prior_status,operator_name,evidence,evidence_sha256) VALUES($1,$2,0,'unknown','host-operator','{"process_terminated":true}',repeat('a',64))`, uuid.New(), attemptID)
+				require.NoError(t, err)
+			}
+			snapshotEvidence := func() string {
+				t.Helper()
+				var evidence string
+				require.NoError(t, database.DB.QueryRowContext(ctx, `SELECT jsonb_build_object(
+ 'attempts',(SELECT jsonb_agg(to_jsonb(a) ORDER BY attempt_id) FROM device_write_attempt a),
+ 'recovery',(SELECT jsonb_agg(to_jsonb(r) ORDER BY recovery_id) FROM device_write_recovery r),
+ 'fences',(SELECT jsonb_agg(to_jsonb(f) ORDER BY device_id) FROM device_write_fence f),
+ 'queue',(SELECT jsonb_agg(to_jsonb(q) ORDER BY id) FROM queue_message q))::text`).Scan(&evidence))
+				return evidence
+			}
+			before := snapshotEvidence()
+			cli := struct {
+				DB dbinfra.Config `envprefix:"DB_" embed:""`
+			}{}
+			parser, err := kong.New(&cli)
+			require.NoError(t, err)
+			_, err = parser.Parse(nil)
+			require.NoError(t, err)
+			require.NoError(t, database.DB.QueryRowContext(ctx, "SELECT current_database()").Scan(&cli.DB.Name))
+			upgraded, err := dbinfra.ConnectAndMigrate(&cli.DB)
+			if upgraded != nil {
+				upgraded.Close()
+			}
+			require.ErrorContains(t, err, "intermediate hosted schema upgrades are unsupported")
+			var version int
+			var dirty, nullable bool
+			require.NoError(t, database.DB.QueryRowContext(ctx, "SELECT version,dirty FROM schema_migrations").Scan(&version, &dirty))
+			require.Equal(t, 1010, version, "the preflight must refuse before migration 1011 commits")
+			require.False(t, dirty)
+			require.NoError(t, database.DB.QueryRowContext(ctx, `SELECT is_nullable='YES' FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='device_write_attempt' AND column_name='queue_message_id'`).Scan(&nullable))
+			require.False(t, nullable, "the refused upgrade must preserve the earlier schema")
+			var retainedStatus, snapshot string
+			require.NoError(t, database.DB.QueryRowContext(ctx, `SELECT status,identity_snapshot::text FROM device_write_attempt WHERE attempt_id=$1`, attemptID).Scan(&retainedStatus, &snapshot))
+			require.Equal(t, status, retainedStatus)
+			require.JSONEq(t, `{"serial_number":"prior-hosted-miner"}`, snapshot)
+			require.JSONEq(t, before, snapshotEvidence(), "refusal must preserve attempt, audit, fence, and queue evidence")
+		})
+	}
 }

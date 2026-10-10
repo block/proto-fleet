@@ -660,6 +660,8 @@ type Querier interface {
 	// The (org, builtin_key) pair is unique among live rows via the
 	// partial index uq_role_org_builtin_key.
 	GetBuiltinRoleForOrg(ctx context.Context, arg GetBuiltinRoleForOrgParams) (Role, error)
+	// Supports retrying teardown after authentication revocation has committed.
+	GetCancelledEnrollmentByFleetNode(ctx context.Context, arg GetCancelledEnrollmentByFleetNodeParams) (PendingEnrollment, error)
 	GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPostgresIdentity, error)
 	GetContainerModuleScope(ctx context.Context, arg GetContainerModuleScopeParams) (GetContainerModuleScopeRow, error)
 	// Aggregate in the database, never transfer raw module history to the browser.
@@ -1075,7 +1077,7 @@ type Querier interface {
 	InsertRepairTicketPart(ctx context.Context, arg InsertRepairTicketPartParams) error
 	InventoryPartExistsBySiteAndName(ctx context.Context, arg InventoryPartExistsBySiteAndNameParams) (bool, error)
 	IsBatchFinished(ctx context.Context, commandBatchLogUuid string) (bool, error)
-	IsDeletionUnpairIdentityCurrent(ctx context.Context, identityKeys []string) (bool, error)
+	IsDeletionUnpairIdentityCurrent(ctx context.Context, arg IsDeletionUnpairIdentityCurrentParams) (bool, error)
 	IsDeviceWriteFenceDrained(ctx context.Context, arg IsDeviceWriteFenceDrainedParams) (bool, error)
 	IsRetiredDeviceWriteDrained(ctx context.Context, identityKeys []string) (bool, error)
 	// The delivery-path read: only windows covering sqlc.arg('now'), so the expired tail never loads.
@@ -1664,6 +1666,7 @@ type Querier interface {
 	// Device FOR UPDATE also prevents insertion of missing binding children.
 	LockDeviceWriteDeletionDevices(ctx context.Context, deviceIds []int64) error
 	LockDeviceWriteDeletionDiscoveries(ctx context.Context, deviceIds []int64) error
+	LockDeviceWriteDeletionFences(ctx context.Context, deviceIds []int64) ([]DeviceWriteFence, error)
 	LockDeviceWriteDeletionPairings(ctx context.Context, deviceIds []int64) error
 	// Lock only the association: Fleet Node recovery locks its node before device.
 	LockDeviceWriteDeletionRoutes(ctx context.Context, deviceIds []int64) error
@@ -1681,6 +1684,13 @@ type Querier interface {
 	// identifiers exist; the caller still wants the lock side-effect.
 	LockDevicesForReassign(ctx context.Context, arg LockDevicesForReassignParams) ([]int64, error)
 	LockFleetNodeByID(ctx context.Context, arg LockFleetNodeByIDParams) (LockFleetNodeByIDRow, error)
+	// Teardown follows dispatch's device-before-child order and retains routing
+	// children until any admitted physical call has actually returned.
+	LockFleetNodeDevicesForRevocation(ctx context.Context, arg LockFleetNodeDevicesForRevocationParams) ([]int64, error)
+	// Keep the routing identity alive during a device wait without blocking
+	// authentication revocation. Writers revalidate with LockFleetNodeByID after
+	// acquiring the device lock before they mutate any binding children.
+	LockFleetNodeIdentityByID(ctx context.Context, arg LockFleetNodeIdentityByIDParams) (LockFleetNodeIdentityByIDRow, error)
 	// Serialize ownership assignment with cloud IP-recovery authentication
 	// reconciliation. Call after locking the Fleet Node and before checking the
 	// device's current cloud-pairing state.
@@ -1715,10 +1725,10 @@ type Querier interface {
 	LockMaintenanceRackForTicket(ctx context.Context, arg LockMaintenanceRackForTicketParams) (int64, error)
 	LockMaintenanceSiteForTicket(ctx context.Context, arg LockMaintenanceSiteForTicketParams) (int64, error)
 	LockMinerBindingCredentials(ctx context.Context, deviceID int64) ([]int64, error)
-	// Row locks span final binding validation and the adapter call. The device
-	// FOR UPDATE lock also blocks insertion of missing credentials/pairing/routes
-	// through their device foreign keys. Existing children and discovery rows need
-	// their own locks because updates/deletes do not recheck those foreign keys.
+	// Row locks span final binding validation and the adapter call. Device
+	// FOR NO KEY UPDATE permits unrelated queue/log foreign-key inserts. Binding
+	// child writers explicitly acquire a conflicting parent lock before insertion;
+	// existing children and discovery rows also retain their own locks.
 	LockMinerBindingDevice(ctx context.Context, id int64) (int64, error)
 	LockMinerBindingDiscovery(ctx context.Context, id int64) (int64, error)
 	LockMinerBindingPairing(ctx context.Context, deviceID int64) ([]int64, error)
@@ -1788,6 +1798,8 @@ type Querier interface {
 	// retries and completed rollout history.
 	ObserveFirmwareRolloutReservationsOffline(ctx context.Context, channelID sql.NullInt64) error
 	OfflineDevicesForFleetNodeRevocation(ctx context.Context, arg OfflineDevicesForFleetNodeRevocationParams) (int64, error)
+	// The parent lock also protects absence of a route during dispatch. A scalar
+	// lookup keeps a missing parent an insert error rather than a successful no-op.
 	PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error)
 	PasswordUpdatedAt(ctx context.Context, id int64) (sql.NullTime, error)
 	PauseActiveSchedule(ctx context.Context, arg PauseActiveScheduleParams) (int64, error)
@@ -2020,6 +2032,9 @@ type Querier interface {
 	// Explicitly replaces the commissioned OT allowlist. Empty text
 	// decommissions the site. Canonicalization happens in the sites domain.
 	SetInfrastructureControlSubnets(ctx context.Context, arg SetInfrastructureControlSubnetsParams) (string, error)
+	// Contended advisory admission or fence creation must release the entire
+	// deletion batch promptly instead of holding shared identity stripes for I/O.
+	SetLocalDeviceDeletionLockTimeout(ctx context.Context) error
 	SetLocalTransactionTimeout(ctx context.Context, timeoutMilliseconds int64) error
 	SetMQTTSourceConfigEnabled(ctx context.Context, arg SetMQTTSourceConfigEnabledParams) (SetMQTTSourceConfigEnabledRow, error)
 	// Writes the rack's grid placement (aisle_index, position_in_aisle).
@@ -2403,6 +2418,7 @@ type Querier interface {
 	// Subscriber upserts source signal state on each successful message receive,
 	// after precedence/dedup processing. Singleton per source.
 	UpsertMQTTSourceState(ctx context.Context, arg UpsertMQTTSourceStateParams) error
+	// The parent lock also protects absence of credentials during dispatch.
 	UpsertMinerCredentials(ctx context.Context, arg UpsertMinerCredentialsParams) error
 	// Reconciliation entry point. Description is updated on every boot from
 	// the in-code catalog so catalog text changes propagate without a new

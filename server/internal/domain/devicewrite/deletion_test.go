@@ -76,7 +76,7 @@ func TestFleetDeletionPreparationUsesBoundedSQLCalls(t *testing.T) {
 	require.LessOrEqual(t, locks, 256, "fleet retirement must not exhaust the shared advisory lock pool")
 	require.NoError(t, tx.Commit())
 	t.Logf("4000 deletion targets: %d SQL calls, elapsed %s", counter.calls, time.Since(started))
-	require.LessOrEqual(t, counter.calls, 14, "retirement query count must not grow with miner count")
+	require.LessOrEqual(t, counter.calls, 15, "retirement query count must not grow with miner count")
 	var epochs, canceled, permits int
 	require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT count(*) FROM device_write_fence WHERE organization_id=$1 AND epoch=1 AND state='host'", user.OrganizationID).Scan(&epochs))
 	require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT count(*) FROM queue_message WHERE command_batch_log_uuid='deletion-batch' AND status='FAILED'").Scan(&canceled))

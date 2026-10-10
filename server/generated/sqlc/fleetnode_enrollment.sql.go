@@ -173,6 +173,36 @@ func (q *Queries) CreatePendingEnrollment(ctx context.Context, arg CreatePending
 	return i, err
 }
 
+const getCancelledEnrollmentByFleetNode = `-- name: GetCancelledEnrollmentByFleetNode :one
+SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at
+FROM pending_enrollment
+WHERE id = $1 AND fleet_node_id = $2 AND org_id = $3 AND status = 'CANCELLED'
+`
+
+type GetCancelledEnrollmentByFleetNodeParams struct {
+	ID          int64
+	FleetNodeID sql.NullInt64
+	OrgID       int64
+}
+
+// Supports retrying teardown after authentication revocation has committed.
+func (q *Queries) GetCancelledEnrollmentByFleetNode(ctx context.Context, arg GetCancelledEnrollmentByFleetNodeParams) (PendingEnrollment, error) {
+	row := q.queryRow(ctx, q.getCancelledEnrollmentByFleetNodeStmt, getCancelledEnrollmentByFleetNode, arg.ID, arg.FleetNodeID, arg.OrgID)
+	var i PendingEnrollment
+	err := row.Scan(
+		&i.ID,
+		&i.CodeHash,
+		&i.OrgID,
+		&i.CreatedBy,
+		&i.FleetNodeID,
+		&i.Status,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getFleetNodeByID = `-- name: GetFleetNodeByID :one
 SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
        enrollment_status, last_seen_at, created_at, updated_at
@@ -375,7 +405,7 @@ SELECT fn.id, fn.org_id, fn.name, fn.identity_pubkey, fn.encryption_pubkey,
 FROM fleet_node fn
 LEFT JOIN fleet_node_heartbeat h ON h.fleet_node_id=fn.id AND h.org_id=fn.org_id
 WHERE fn.id = $1 AND fn.org_id = $2 AND fn.deleted_at IS NULL
-FOR UPDATE OF fn
+FOR NO KEY UPDATE OF fn
 `
 
 type LockFleetNodeByIDParams struct {
@@ -398,6 +428,91 @@ type LockFleetNodeByIDRow struct {
 func (q *Queries) LockFleetNodeByID(ctx context.Context, arg LockFleetNodeByIDParams) (LockFleetNodeByIDRow, error) {
 	row := q.queryRow(ctx, q.lockFleetNodeByIDStmt, lockFleetNodeByID, arg.ID, arg.OrgID)
 	var i LockFleetNodeByIDRow
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.Name,
+		&i.IdentityPubkey,
+		&i.EncryptionPubkey,
+		&i.EnrollmentStatus,
+		&i.LastSeenAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const lockFleetNodeDevicesForRevocation = `-- name: LockFleetNodeDevicesForRevocation :many
+SELECT d.id
+FROM device d
+JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
+WHERE fnd.fleet_node_id=$1 AND fnd.org_id=$2
+ORDER BY d.id
+FOR NO KEY UPDATE OF d
+`
+
+type LockFleetNodeDevicesForRevocationParams struct {
+	FleetNodeID int64
+	OrgID       int64
+}
+
+// Teardown follows dispatch's device-before-child order and retains routing
+// children until any admitted physical call has actually returned.
+func (q *Queries) LockFleetNodeDevicesForRevocation(ctx context.Context, arg LockFleetNodeDevicesForRevocationParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockFleetNodeDevicesForRevocationStmt, lockFleetNodeDevicesForRevocation, arg.FleetNodeID, arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockFleetNodeIdentityByID = `-- name: LockFleetNodeIdentityByID :one
+SELECT fn.id, fn.org_id, fn.name, fn.identity_pubkey, fn.encryption_pubkey,
+       fn.enrollment_status, h.last_seen_at, fn.created_at, fn.updated_at
+FROM fleet_node fn
+LEFT JOIN fleet_node_heartbeat h ON h.fleet_node_id=fn.id AND h.org_id=fn.org_id
+WHERE fn.id = $1 AND fn.org_id = $2 AND fn.deleted_at IS NULL
+FOR KEY SHARE OF fn
+`
+
+type LockFleetNodeIdentityByIDParams struct {
+	ID    int64
+	OrgID int64
+}
+
+type LockFleetNodeIdentityByIDRow struct {
+	ID               int64
+	OrgID            int64
+	Name             string
+	IdentityPubkey   []byte
+	EncryptionPubkey []byte
+	EnrollmentStatus string
+	LastSeenAt       sql.NullTime
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+}
+
+// Keep the routing identity alive during a device wait without blocking
+// authentication revocation. Writers revalidate with LockFleetNodeByID after
+// acquiring the device lock before they mutate any binding children.
+func (q *Queries) LockFleetNodeIdentityByID(ctx context.Context, arg LockFleetNodeIdentityByIDParams) (LockFleetNodeIdentityByIDRow, error) {
+	row := q.queryRow(ctx, q.lockFleetNodeIdentityByIDStmt, lockFleetNodeIdentityByID, arg.ID, arg.OrgID)
+	var i LockFleetNodeIdentityByIDRow
 	err := row.Scan(
 		&i.ID,
 		&i.OrgID,

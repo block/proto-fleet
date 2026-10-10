@@ -16,6 +16,12 @@ SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, con
 FROM pending_enrollment
 WHERE fleet_node_id = $1 AND org_id = $2 AND status = 'AWAITING_CONFIRMATION';
 
+-- name: GetCancelledEnrollmentByFleetNode :one
+-- Supports retrying teardown after authentication revocation has committed.
+SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at
+FROM pending_enrollment
+WHERE id = $1 AND fleet_node_id = $2 AND org_id = $3 AND status = 'CANCELLED';
+
 -- name: BindEnrollmentToFleetNode :execrows
 UPDATE pending_enrollment
 SET status = 'AWAITING_CONFIRMATION', fleet_node_id = $1
@@ -72,7 +78,18 @@ SELECT fn.id, fn.org_id, fn.name, fn.identity_pubkey, fn.encryption_pubkey,
 FROM fleet_node fn
 LEFT JOIN fleet_node_heartbeat h ON h.fleet_node_id=fn.id AND h.org_id=fn.org_id
 WHERE fn.id = $1 AND fn.org_id = $2 AND fn.deleted_at IS NULL
-FOR UPDATE OF fn;
+FOR NO KEY UPDATE OF fn;
+
+-- name: LockFleetNodeIdentityByID :one
+-- Keep the routing identity alive during a device wait without blocking
+-- authentication revocation. Writers revalidate with LockFleetNodeByID after
+-- acquiring the device lock before they mutate any binding children.
+SELECT fn.id, fn.org_id, fn.name, fn.identity_pubkey, fn.encryption_pubkey,
+       fn.enrollment_status, h.last_seen_at, fn.created_at, fn.updated_at
+FROM fleet_node fn
+LEFT JOIN fleet_node_heartbeat h ON h.fleet_node_id=fn.id AND h.org_id=fn.org_id
+WHERE fn.id = $1 AND fn.org_id = $2 AND fn.deleted_at IS NULL
+FOR KEY SHARE OF fn;
 
 -- name: GetFleetNodeByIDUnscoped :one
 SELECT id, org_id, name, identity_pubkey, encryption_pubkey,
@@ -111,3 +128,13 @@ SELECT fn.id,fn.org_id,sqlc.arg('last_seen_at')::timestamptz FROM fleet_node fn
 WHERE fn.id=sqlc.arg('id') AND fn.org_id=sqlc.arg('org_id') AND fn.deleted_at IS NULL
 ON CONFLICT (fleet_node_id) DO UPDATE
 SET last_seen_at=GREATEST(fleet_node_heartbeat.last_seen_at,EXCLUDED.last_seen_at);
+
+-- name: LockFleetNodeDevicesForRevocation :many
+-- Teardown follows dispatch's device-before-child order and retains routing
+-- children until any admitted physical call has actually returned.
+SELECT d.id
+FROM device d
+JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
+WHERE fnd.fleet_node_id=$1 AND fnd.org_id=$2
+ORDER BY d.id
+FOR NO KEY UPDATE OF d;

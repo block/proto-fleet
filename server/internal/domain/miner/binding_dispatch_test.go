@@ -2,6 +2,8 @@ package miner_test
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"database/sql"
 	"sync"
 	"testing"
@@ -9,7 +11,12 @@ import (
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	fleetnodeauth "github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	fleetnodeenrollment "github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
+	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -84,7 +91,7 @@ func TestDirectDispatchSerializesBindingWritersThroughCanceledCall(t *testing.T)
 				case "delete":
 					_, err = writer.ExecContext(t.Context(), "UPDATE device SET deleted_at=statement_timestamp() WHERE id=$1", deviceID)
 				case "node insertion":
-					_, err = writer.ExecContext(t.Context(), "INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,1)", nodeID, deviceID)
+					_, err = q.PairDeviceToFleetNode(t.Context(), sqlc.PairDeviceToFleetNodeParams{FleetNodeID: nodeID, DeviceID: deviceID, OrgID: 1})
 				}
 				writerDone <- err
 			}()
@@ -114,8 +121,8 @@ func (s *bindingBlockingSender) SendCommand(context.Context, int64, gatewaypb.Co
 	return &gatewaypb.ControlAck{Succeeded: true, Code: gatewaypb.AckCode_ACK_CODE_OK}, nil
 }
 
-func TestRemoteDispatchSerializesExistingRouteAndNodeWriters(t *testing.T) {
-	for _, change := range []string{"route deletion", "node retirement", "node revocation", "endpoint", "RPC port", "RPC TLS", "credentials"} {
+func TestRemoteDispatchSerializesExistingRouteWriters(t *testing.T) {
+	for _, change := range []string{"route deletion", "endpoint", "RPC port", "RPC TLS", "credentials"} {
 		t.Run(change, func(t *testing.T) {
 			conn, crypto, files := setupTestDB(t)
 			identifier := models.DeviceIdentifier("remote-binding-lock-" + change)
@@ -147,10 +154,6 @@ func TestRemoteDispatchSerializesExistingRouteAndNodeWriters(t *testing.T) {
 				switch change {
 				case "route deletion":
 					_, err = writer.ExecContext(t.Context(), "DELETE FROM fleet_node_device WHERE device_id=$1", deviceID)
-				case "node retirement":
-					_, err = writer.ExecContext(t.Context(), "UPDATE fleet_node SET deleted_at=statement_timestamp() WHERE id=$1", nodeID)
-				case "node revocation":
-					_, err = writer.ExecContext(t.Context(), "UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1", nodeID)
 				case "endpoint":
 					err = sqlc.New(writer).UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{ID: deviceID, IpAddress: "192.0.2.65", Port: "4028", UrlScheme: "http"})
 				case "RPC port":
@@ -184,7 +187,10 @@ func TestBindingDispatchUsesSinglePoolConnection(t *testing.T) {
 	service := miner.NewMinerService(conn, sqlstores.NewSQLUserStore(conn), crypto, files, &fakePluginManager{driver: driver, driverName: "antminer"})
 	handle, err := service.GetMinerFromDeviceIdentifier(t.Context(), identifier)
 	require.NoError(t, err)
-	conn.SetMaxOpenConns(1)
+	conn.SetMaxOpenConns(2)
+	spectator, err := conn.Conn(t.Context())
+	require.NoError(t, err)
+	defer spectator.Close()
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 	require.NoError(t, handle.Reboot(ctx), "dispatch recheck must use the leased connection, not request a second one")
@@ -257,4 +263,107 @@ func TestRemoteDispatchAllowsInitialAndExistingHeartbeats(t *testing.T) {
 	}
 	finish()
 	require.NoError(t, <-callDone)
+}
+
+func TestRemoteDispatchAllowsAuthenticationRevocationBeforeRouteCleanup(t *testing.T) {
+	conn, crypto, files := setupTestDB(t)
+	identifier := models.DeviceIdentifier("remote-binding-revocation")
+	deviceID := createTestDevice(t, conn, string(identifier))
+	pubKey, privKey, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	nodeID := createTestFleetNode(t, conn, "revocation-lock-node", pubKey)
+	_, err = conn.ExecContext(t.Context(), "INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,1)", nodeID, deviceID)
+	require.NoError(t, err)
+	apiKeys := apikey.NewService(sqlstores.NewSQLApiKeyStore(conn), nil)
+	enrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(conn)
+	enrollment := fleetnodeenrollment.NewService(enrollmentStore, apiKeys, sqlstores.NewSQLTransactor(conn), nil)
+	auth := fleetnodeauth.NewService(sqlstores.NewSQLFleetNodeAuthStore(conn), enrollmentStore, apiKeys)
+	key, _, err := apiKeys.CreateFleetNode(t.Context(), nodeID, 1, "revocation-test", nil)
+	require.NoError(t, err)
+	challenge, _, err := auth.BeginHandshake(t.Context(), key, pubKey)
+	require.NoError(t, err)
+	token, _, _, err := auth.CompleteHandshake(t.Context(), challenge, ed25519.Sign(privKey, challenge))
+	require.NoError(t, err)
+	_, err = auth.ResolveSession(t.Context(), token)
+	require.NoError(t, err)
+	registry := control.NewRegistry()
+	stream := registry.Register(nodeID)
+	enrollment.WithControlStreamInvalidator(registry.RevokeSession)
+
+	// The sender deliberately ignores cancellation and stream revocation, as a
+	// physical device-side operation may outlive its transport.
+	sender := &bindingBlockingSender{entered: make(chan struct{}), release: make(chan struct{})}
+	finish := sync.OnceFunc(func() { close(sender.release) })
+	t.Cleanup(finish)
+	service := miner.NewMinerService(conn, sqlstores.NewSQLUserStore(conn), crypto, files, &fakePluginManager{driverName: "antminer"}).WithCommandSender(sender)
+	handle, err := service.GetMinerFromDeviceIdentifier(t.Context(), identifier)
+	require.NoError(t, err)
+	callDone := make(chan error, 1)
+	go func() { callDone <- handle.Reboot(t.Context()) }()
+	select {
+	case <-sender.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("node send did not start")
+	}
+	// A pairing writer queued behind the physical call must also leave the
+	// enrollment row available for immediate authentication revocation.
+	pairing := fleetnodepairing.NewService(sqlstores.NewSQLFleetNodePairingStore(conn), enrollmentStore, sqlstores.NewSQLTransactor(conn))
+	pairDone := make(chan error, 1)
+	go func() { pairDone <- pairing.PairDevice(t.Context(), nodeID, deviceID, 1, nil) }()
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := conn.QueryRowContext(t.Context(), `SELECT EXISTS (
+			SELECT 1 FROM pg_stat_activity WHERE datname=current_database()
+			AND wait_event_type='Lock' AND query LIKE '%LockFleetNodePairingDevice%')`).Scan(&waiting)
+		return err == nil && waiting
+	}, 5*time.Second, 10*time.Millisecond)
+	// A wrong organization cannot revoke the bound node or its credentials.
+	require.Error(t, enrollment.RevokeFleetNode(t.Context(), nodeID, 2))
+	_, err = auth.ResolveSession(t.Context(), token)
+	require.NoError(t, err)
+
+	revokeCtx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	revokeDone := make(chan error, 1)
+	go func() { revokeDone <- enrollment.RevokeFleetNode(revokeCtx, nodeID, 1) }()
+	select {
+	case <-stream.Done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("authentication revocation waited for physical dispatch")
+	}
+	_, err = auth.ResolveSession(t.Context(), token)
+	require.Error(t, err, "the next API request must reject the existing session")
+	_, err = apiKeys.Validate(t.Context(), key)
+	require.Error(t, err, "the original API key must be revoked before cleanup finishes")
+	_, _, err = auth.BeginHandshake(t.Context(), key, pubKey)
+	require.Error(t, err)
+	var pairings int
+	require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT count(*) FROM fleet_node_device WHERE device_id=$1", deviceID).Scan(&pairings))
+	require.Equal(t, 1, pairings, "the physical route must remain until the call returns")
+	select {
+	case err := <-callDone:
+		t.Fatalf("remote command ended before release: %v", err)
+	default:
+	}
+	cancel()
+	select {
+	case err := <-revokeDone:
+		require.Error(t, err, "interrupted teardown must be reported")
+	case <-time.After(5 * time.Second):
+		t.Fatal("canceled teardown did not return")
+	}
+	var status string
+	var deleted bool
+	require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT enrollment_status, deleted_at IS NOT NULL FROM fleet_node WHERE id=$1", nodeID).Scan(&status, &deleted))
+	require.Equal(t, "REVOKED", status)
+	require.False(t, deleted, "an interrupted teardown must remain retryable")
+	finish()
+	require.NoError(t, <-callDone)
+	require.Error(t, <-pairDone, "queued pairing must recheck revoked enrollment after its device wait")
+	require.NoError(t, enrollment.RevokeFleetNode(t.Context(), nodeID, 1))
+	require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT count(*) FROM fleet_node_device WHERE device_id=$1", deviceID).Scan(&pairings))
+	require.Zero(t, pairings)
+	require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT deleted_at IS NOT NULL FROM fleet_node WHERE id=$1", nodeID).Scan(&deleted))
+	require.True(t, deleted)
+	require.Error(t, handle.Reboot(t.Context()), "a retained handle cannot reuse the retired route")
 }

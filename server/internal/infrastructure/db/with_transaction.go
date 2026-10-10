@@ -163,6 +163,11 @@ func firstTxOpts(opts []*sql.TxOptions) *sql.TxOptions {
 // calls. No tx is exposed through the context, since physical admission must
 // already be committed.
 func WithDispatchTransaction(ctx context.Context, database *sql.DB, action func(sqlc.Querier) error) error {
+	release, err := acquireDispatchBudget(ctx, database)
+	if err != nil {
+		return fleeterror.NewInternalErrorf("acquire dispatch budget: %w", err)
+	}
+	defer release()
 	connection, err := database.Conn(ctx)
 	if err != nil {
 		return fleeterror.NewInternalErrorf("acquire dispatch connection: %w", err)

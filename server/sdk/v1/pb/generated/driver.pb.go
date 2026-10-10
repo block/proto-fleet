@@ -962,7 +962,8 @@ type NewDeviceResponse struct {
 	DeviceId string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"` // Unique device instance ID
 	// Echoed only by runtimes implementing scoped resolution.
 	ReuseScopeKey string `protobuf:"bytes,2,opt,name=reuse_scope_key,json=reuseScopeKey,proto3" json:"reuse_scope_key,omitempty"`
-	// Opaque registration token. Scoped clients must carry it on every operation.
+	// Opaque registration token: exactly 32 bytes for scoped registrations.
+	// Scoped clients must carry it unchanged on every operation. Empty only for unscoped registrations.
 	BackendGeneration []byte `protobuf:"bytes,3,opt,name=backend_generation,json=backendGeneration,proto3" json:"backend_generation,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
@@ -1023,7 +1024,8 @@ func (x *NewDeviceResponse) GetBackendGeneration() []byte {
 type DeviceRef struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	DeviceId string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
-	// Matches the concrete backend returned by scoped NewDevice.
+	// Opaque 32-byte token matching the concrete backend returned by scoped NewDevice.
+	// Carry it unchanged; empty only when referencing an unscoped registration.
 	BackendGeneration []byte `protobuf:"bytes,2,opt,name=backend_generation,json=backendGeneration,proto3" json:"backend_generation,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
@@ -2021,9 +2023,10 @@ func (x *DeviceMetrics) GetContainer() *ContainerSnapshot {
 
 // Request to describe device capabilities
 type DescribeDeviceRequest struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	DeviceId          string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
-	BackendGeneration []byte                 `protobuf:"bytes,2,opt,name=backend_generation,json=backendGeneration,proto3" json:"backend_generation,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	DeviceId string                 `protobuf:"bytes,1,opt,name=device_id,json=deviceId,proto3" json:"device_id,omitempty"`
+	// Same opaque 32-byte token as DeviceRef; empty only for an unscoped registration.
+	BackendGeneration []byte `protobuf:"bytes,2,opt,name=backend_generation,json=backendGeneration,proto3" json:"backend_generation,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }

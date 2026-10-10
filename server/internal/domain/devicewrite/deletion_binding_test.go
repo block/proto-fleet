@@ -8,11 +8,12 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
-func TestDeletionRejectsIdentityChangedBeforeBindingLocks(t *testing.T) {
+func TestDeletionRefusesBusyBindingThenRetriesCoherentIdentity(t *testing.T) {
 	cfg, err := testutil.GetTestConfig()
 	require.NoError(t, err)
 	database := testutil.NewDatabaseService(t, cfg)
@@ -25,21 +26,22 @@ func TestDeletionRejectsIdentityChangedBeforeBindingLocks(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = rediscovery.Rollback() }()
 	// Rediscovery changes the endpoint but has not committed. Retirement's
-	// initial identity read still sees the old endpoint, then waits on its row.
+	// initial identity read still sees the old endpoint, then refuses the busy row.
 	_, err = sqlc.New(rediscovery).UpsertDiscoveredDevice(ctx, deletionRediscovery(user.OrganizationID, device.ID))
 	require.NoError(t, err)
 	retirement, err := database.DB.BeginTx(ctx, nil)
 	require.NoError(t, err)
 	defer func() { _ = retirement.Rollback() }()
-	var retirementPID int
-	require.NoError(t, retirement.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&retirementPID))
 	finished := make(chan error, 1)
 	go func() {
 		finished <- devicewrite.PrepareDeletion(ctx, sqlc.New(retirement), user.OrganizationID, []string{device.ID, other.ID})
 	}()
-	waitForDeletionBindingLock(t, ctx, database.DB, retirementPID)
-	require.NoError(t, rediscovery.Commit())
-	require.Error(t, <-finished, "retirement must reject a snapshot whose identity stripes changed while waiting")
+	select {
+	case err := <-finished:
+		require.True(t, fleeterror.IsFailedPreconditionError(err), "%v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("busy binding must refuse retirement promptly")
+	}
 	require.NoError(t, retirement.Rollback())
 	var fences, permits, deleted int
 	require.NoError(t, database.DB.QueryRowContext(ctx, "SELECT count(*) FROM device_write_fence WHERE organization_id=$1", user.OrganizationID).Scan(&fences))
@@ -48,6 +50,15 @@ func TestDeletionRejectsIdentityChangedBeforeBindingLocks(t *testing.T) {
 	require.Zero(t, fences, "the entire batch must roll back, including the unchanged miner")
 	require.Zero(t, permits)
 	require.Zero(t, deleted)
+	require.NoError(t, rediscovery.Commit())
+	retry, err := database.DB.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = retry.Rollback() }()
+	require.NoError(t, devicewrite.PrepareDeletion(ctx, sqlc.New(retry), user.OrganizationID, []string{device.ID, other.ID}))
+	var coherent bool
+	require.NoError(t, retry.QueryRowContext(ctx, `SELECT identity_keys=device_write_identity_keys(device_id)
+ FROM device_deletion_unpair_permit WHERE device_id=$1`, device.DatabaseID).Scan(&coherent))
+	require.True(t, coherent, "retry must capture rediscovery's committed identity")
 }
 
 func TestDeletionHoldsCoherentBindingUntilRetirementCommit(t *testing.T) {

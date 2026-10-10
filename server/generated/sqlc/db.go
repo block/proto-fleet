@@ -711,6 +711,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getBuiltinRoleForOrgStmt, err = db.PrepareContext(ctx, getBuiltinRoleForOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query GetBuiltinRoleForOrg: %w", err)
 	}
+	if q.getCancelledEnrollmentByFleetNodeStmt, err = db.PrepareContext(ctx, getCancelledEnrollmentByFleetNode); err != nil {
+		return nil, fmt.Errorf("error preparing query GetCancelledEnrollmentByFleetNode: %w", err)
+	}
 	if q.getConnectedPostgresIdentityStmt, err = db.PrepareContext(ctx, getConnectedPostgresIdentity); err != nil {
 		return nil, fmt.Errorf("error preparing query GetConnectedPostgresIdentity: %w", err)
 	}
@@ -1791,6 +1794,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockDeviceWriteDeletionDiscoveriesStmt, err = db.PrepareContext(ctx, lockDeviceWriteDeletionDiscoveries); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDeviceWriteDeletionDiscoveries: %w", err)
 	}
+	if q.lockDeviceWriteDeletionFencesStmt, err = db.PrepareContext(ctx, lockDeviceWriteDeletionFences); err != nil {
+		return nil, fmt.Errorf("error preparing query LockDeviceWriteDeletionFences: %w", err)
+	}
 	if q.lockDeviceWriteDeletionPairingsStmt, err = db.PrepareContext(ctx, lockDeviceWriteDeletionPairings); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDeviceWriteDeletionPairings: %w", err)
 	}
@@ -1811,6 +1817,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockFleetNodeByIDStmt, err = db.PrepareContext(ctx, lockFleetNodeByID); err != nil {
 		return nil, fmt.Errorf("error preparing query LockFleetNodeByID: %w", err)
+	}
+	if q.lockFleetNodeDevicesForRevocationStmt, err = db.PrepareContext(ctx, lockFleetNodeDevicesForRevocation); err != nil {
+		return nil, fmt.Errorf("error preparing query LockFleetNodeDevicesForRevocation: %w", err)
+	}
+	if q.lockFleetNodeIdentityByIDStmt, err = db.PrepareContext(ctx, lockFleetNodeIdentityByID); err != nil {
+		return nil, fmt.Errorf("error preparing query LockFleetNodeIdentityByID: %w", err)
 	}
 	if q.lockFleetNodePairingDeviceStmt, err = db.PrepareContext(ctx, lockFleetNodePairingDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query LockFleetNodePairingDevice: %w", err)
@@ -2162,6 +2174,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.setInfrastructureControlSubnetsStmt, err = db.PrepareContext(ctx, setInfrastructureControlSubnets); err != nil {
 		return nil, fmt.Errorf("error preparing query SetInfrastructureControlSubnets: %w", err)
+	}
+	if q.setLocalDeviceDeletionLockTimeoutStmt, err = db.PrepareContext(ctx, setLocalDeviceDeletionLockTimeout); err != nil {
+		return nil, fmt.Errorf("error preparing query SetLocalDeviceDeletionLockTimeout: %w", err)
 	}
 	if q.setLocalTransactionTimeoutStmt, err = db.PrepareContext(ctx, setLocalTransactionTimeout); err != nil {
 		return nil, fmt.Errorf("error preparing query SetLocalTransactionTimeout: %w", err)
@@ -3677,6 +3692,11 @@ func (q *Queries) Close() error {
 	if q.getBuiltinRoleForOrgStmt != nil {
 		if cerr := q.getBuiltinRoleForOrgStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getBuiltinRoleForOrgStmt: %w", cerr)
+		}
+	}
+	if q.getCancelledEnrollmentByFleetNodeStmt != nil {
+		if cerr := q.getCancelledEnrollmentByFleetNodeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getCancelledEnrollmentByFleetNodeStmt: %w", cerr)
 		}
 	}
 	if q.getConnectedPostgresIdentityStmt != nil {
@@ -5479,6 +5499,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockDeviceWriteDeletionDiscoveriesStmt: %w", cerr)
 		}
 	}
+	if q.lockDeviceWriteDeletionFencesStmt != nil {
+		if cerr := q.lockDeviceWriteDeletionFencesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockDeviceWriteDeletionFencesStmt: %w", cerr)
+		}
+	}
 	if q.lockDeviceWriteDeletionPairingsStmt != nil {
 		if cerr := q.lockDeviceWriteDeletionPairingsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockDeviceWriteDeletionPairingsStmt: %w", cerr)
@@ -5512,6 +5537,16 @@ func (q *Queries) Close() error {
 	if q.lockFleetNodeByIDStmt != nil {
 		if cerr := q.lockFleetNodeByIDStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockFleetNodeByIDStmt: %w", cerr)
+		}
+	}
+	if q.lockFleetNodeDevicesForRevocationStmt != nil {
+		if cerr := q.lockFleetNodeDevicesForRevocationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockFleetNodeDevicesForRevocationStmt: %w", cerr)
+		}
+	}
+	if q.lockFleetNodeIdentityByIDStmt != nil {
+		if cerr := q.lockFleetNodeIdentityByIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockFleetNodeIdentityByIDStmt: %w", cerr)
 		}
 	}
 	if q.lockFleetNodePairingDeviceStmt != nil {
@@ -6097,6 +6132,11 @@ func (q *Queries) Close() error {
 	if q.setInfrastructureControlSubnetsStmt != nil {
 		if cerr := q.setInfrastructureControlSubnetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setInfrastructureControlSubnetsStmt: %w", cerr)
+		}
+	}
+	if q.setLocalDeviceDeletionLockTimeoutStmt != nil {
+		if cerr := q.setLocalDeviceDeletionLockTimeoutStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setLocalDeviceDeletionLockTimeoutStmt: %w", cerr)
 		}
 	}
 	if q.setLocalTransactionTimeoutStmt != nil {
@@ -6977,6 +7017,7 @@ type Queries struct {
 	getBuildingSiteStmt                                          *sql.Stmt
 	getBuildingSiteIDStmt                                        *sql.Stmt
 	getBuiltinRoleForOrgStmt                                     *sql.Stmt
+	getCancelledEnrollmentByFleetNodeStmt                        *sql.Stmt
 	getConnectedPostgresIdentityStmt                             *sql.Stmt
 	getContainerModuleScopeStmt                                  *sql.Stmt
 	getContainerTankHistoryStmt                                  *sql.Stmt
@@ -7337,6 +7378,7 @@ type Queries struct {
 	lockDeviceWriteDeletionCredentialsStmt                       *sql.Stmt
 	lockDeviceWriteDeletionDevicesStmt                           *sql.Stmt
 	lockDeviceWriteDeletionDiscoveriesStmt                       *sql.Stmt
+	lockDeviceWriteDeletionFencesStmt                            *sql.Stmt
 	lockDeviceWriteDeletionPairingsStmt                          *sql.Stmt
 	lockDeviceWriteDeletionRoutesStmt                            *sql.Stmt
 	lockDeviceWriteFenceRecordStmt                               *sql.Stmt
@@ -7344,6 +7386,8 @@ type Queries struct {
 	lockDeviceWriteIdentitiesStmt                                *sql.Stmt
 	lockDevicesForReassignStmt                                   *sql.Stmt
 	lockFleetNodeByIDStmt                                        *sql.Stmt
+	lockFleetNodeDevicesForRevocationStmt                        *sql.Stmt
+	lockFleetNodeIdentityByIDStmt                                *sql.Stmt
 	lockFleetNodePairingDeviceStmt                               *sql.Stmt
 	lockHashboardOrganizationStmt                                *sql.Stmt
 	lockHostedAccountAdministratorsStmt                          *sql.Stmt
@@ -7461,6 +7505,7 @@ type Queries struct {
 	setHostedAccountPoolProfileStmt                              *sql.Stmt
 	setHostedAccountSitesRestrictedStmt                          *sql.Stmt
 	setInfrastructureControlSubnetsStmt                          *sql.Stmt
+	setLocalDeviceDeletionLockTimeoutStmt                        *sql.Stmt
 	setLocalTransactionTimeoutStmt                               *sql.Stmt
 	setMQTTSourceConfigEnabledStmt                               *sql.Stmt
 	setRackBuildingPositionStmt                                  *sql.Stmt
@@ -7818,6 +7863,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getBuildingSiteStmt:                                          q.getBuildingSiteStmt,
 		getBuildingSiteIDStmt:                                        q.getBuildingSiteIDStmt,
 		getBuiltinRoleForOrgStmt:                                     q.getBuiltinRoleForOrgStmt,
+		getCancelledEnrollmentByFleetNodeStmt:                        q.getCancelledEnrollmentByFleetNodeStmt,
 		getConnectedPostgresIdentityStmt:                             q.getConnectedPostgresIdentityStmt,
 		getContainerModuleScopeStmt:                                  q.getContainerModuleScopeStmt,
 		getContainerTankHistoryStmt:                                  q.getContainerTankHistoryStmt,
@@ -8178,6 +8224,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockDeviceWriteDeletionCredentialsStmt:                       q.lockDeviceWriteDeletionCredentialsStmt,
 		lockDeviceWriteDeletionDevicesStmt:                           q.lockDeviceWriteDeletionDevicesStmt,
 		lockDeviceWriteDeletionDiscoveriesStmt:                       q.lockDeviceWriteDeletionDiscoveriesStmt,
+		lockDeviceWriteDeletionFencesStmt:                            q.lockDeviceWriteDeletionFencesStmt,
 		lockDeviceWriteDeletionPairingsStmt:                          q.lockDeviceWriteDeletionPairingsStmt,
 		lockDeviceWriteDeletionRoutesStmt:                            q.lockDeviceWriteDeletionRoutesStmt,
 		lockDeviceWriteFenceRecordStmt:                               q.lockDeviceWriteFenceRecordStmt,
@@ -8185,6 +8232,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockDeviceWriteIdentitiesStmt:                                q.lockDeviceWriteIdentitiesStmt,
 		lockDevicesForReassignStmt:                                   q.lockDevicesForReassignStmt,
 		lockFleetNodeByIDStmt:                                        q.lockFleetNodeByIDStmt,
+		lockFleetNodeDevicesForRevocationStmt:                        q.lockFleetNodeDevicesForRevocationStmt,
+		lockFleetNodeIdentityByIDStmt:                                q.lockFleetNodeIdentityByIDStmt,
 		lockFleetNodePairingDeviceStmt:                               q.lockFleetNodePairingDeviceStmt,
 		lockHashboardOrganizationStmt:                                q.lockHashboardOrganizationStmt,
 		lockHostedAccountAdministratorsStmt:                          q.lockHostedAccountAdministratorsStmt,
@@ -8302,6 +8351,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setHostedAccountPoolProfileStmt:                              q.setHostedAccountPoolProfileStmt,
 		setHostedAccountSitesRestrictedStmt:                          q.setHostedAccountSitesRestrictedStmt,
 		setInfrastructureControlSubnetsStmt:                          q.setInfrastructureControlSubnetsStmt,
+		setLocalDeviceDeletionLockTimeoutStmt:                        q.setLocalDeviceDeletionLockTimeoutStmt,
 		setLocalTransactionTimeoutStmt:                               q.setLocalTransactionTimeoutStmt,
 		setMQTTSourceConfigEnabledStmt:                               q.setMQTTSourceConfigEnabledStmt,
 		setRackBuildingPositionStmt:                                  q.setRackBuildingPositionStmt,

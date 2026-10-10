@@ -182,6 +182,10 @@ func (s *revokeFleetNodeStore) ListDevicesForFleetNodeRevocation(context.Context
 	return s.devices, nil
 }
 
+func (*revokeFleetNodeStore) LockDevicesForFleetNodeRevocation(context.Context, int64, int64) error {
+	return nil
+}
+
 func (*revokeFleetNodeStore) UnpairDevicesForFleetNodeRevocation(context.Context, int64, int64) (int64, error) {
 	return 0, nil
 }
@@ -233,6 +237,10 @@ func (s *registerFleetNodeStore) GetPendingEnrollmentByFleetNode(context.Context
 	panic("unexpected GetPendingEnrollmentByFleetNode")
 }
 
+func (*registerFleetNodeStore) GetCancelledEnrollmentByFleetNode(context.Context, int64, int64, int64) (*PendingEnrollment, error) {
+	panic("unexpected GetCancelledEnrollmentByFleetNode")
+}
+
 func (s *registerFleetNodeStore) BindEnrollmentToFleetNode(context.Context, int64, int64) (int64, error) {
 	return 1, nil
 }
@@ -279,6 +287,10 @@ func (s *registerFleetNodeStore) LockFleetNodeByID(context.Context, int64, int64
 	panic("unexpected LockFleetNodeByID")
 }
 
+func (*registerFleetNodeStore) LockFleetNodeIdentityByID(context.Context, int64, int64) (*FleetNode, error) {
+	panic("unexpected LockFleetNodeIdentityByID")
+}
+
 func (s *registerFleetNodeStore) ListFleetNodesForOrganization(context.Context, int64) ([]FleetNodeListing, error) {
 	panic("unexpected ListFleetNodesForOrganization")
 }
@@ -305,6 +317,10 @@ func (s *registerFleetNodeStore) DeletePairingsForFleetNode(context.Context, int
 
 func (s *registerFleetNodeStore) ListDevicesForFleetNodeRevocation(context.Context, int64, int64) ([]RevokedDevice, error) {
 	panic("unexpected ListDevicesForFleetNodeRevocation")
+}
+
+func (*registerFleetNodeStore) LockDevicesForFleetNodeRevocation(context.Context, int64, int64) error {
+	panic("unexpected LockDevicesForFleetNodeRevocation")
 }
 
 func (s *registerFleetNodeStore) UnpairDevicesForFleetNodeRevocation(context.Context, int64, int64) (int64, error) {

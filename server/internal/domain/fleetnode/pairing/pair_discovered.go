@@ -218,9 +218,9 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 			return logInternal("lookup device", clientErrLookupDeviceForPairing, err)
 		}
 
-		// Every persisted outcome uses Fleet Node -> device -> discovered_device,
-		// matching direct pairing even when an authentication failure is reported.
-		if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
+		// Retain node identity while waiting for a device; authentication revocation
+		// stays independent of physical dispatch. Recheck enrollment after the wait.
+		if err := s.lockFleetNodeIdentityForPairing(ctx, fleetNodeID, orgID); err != nil {
 			return err
 		}
 		var deviceID int64
@@ -232,6 +232,10 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 			if err := s.lockDeviceForPairing(ctx, deviceID, orgID); err != nil {
 				return err
 			}
+		}
+
+		if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
+			return err
 		}
 
 		// default_password_active is tri-state: absent means the node/plugin could

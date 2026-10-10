@@ -1,3 +1,13 @@
+-- name: SetLocalDeviceDeletionLockTimeout :exec
+-- Contended advisory admission or fence creation must release the entire
+-- deletion batch promptly instead of holding shared identity stripes for I/O.
+SELECT set_config('lock_timeout','250ms',TRUE);
+
+-- name: LockDeviceWriteDeletionFences :many
+SELECT f.* FROM device_write_fence f JOIN device d ON d.id=f.device_id AND d.org_id=f.organization_id
+WHERE f.device_id=ANY(sqlc.arg(device_ids)::bigint[]) AND d.deleted_at IS NULL
+ORDER BY f.device_id FOR UPDATE OF f NOWAIT;
+
 -- name: EnsureDeviceWriteFences :exec
 INSERT INTO device_write_fence(device_id,organization_id)
 SELECT d.id,d.org_id FROM device d
@@ -32,7 +42,7 @@ SELECT EXISTS (
  WHERE a.attempt_id=$1 AND a.status='running' AND f.epoch=a.epoch AND f.state='host'
  AND ((d.deleted_at IS NULL AND a.identity_keys=device_write_identity_keys(d.id)) OR (d.deleted_at IS NOT NULL
   AND EXISTS (SELECT 1 FROM device_deletion_unpair_permit p WHERE p.attempt_id=a.attempt_id AND p.device_id=a.device_id AND p.epoch=a.epoch)
-  AND NOT EXISTS (SELECT 1 FROM device successor WHERE successor.deleted_at IS NULL AND device_write_identity_keys(successor.id) && a.identity_keys)))
+  AND NOT EXISTS (SELECT 1 FROM device successor WHERE successor.org_id=a.organization_id AND successor.deleted_at IS NULL AND device_write_identity_keys(successor.id) && a.identity_keys)))
  AND (a.queue_message_id IS NULL OR m.status='PROCESSING')
 )::boolean AS valid;
 
@@ -141,29 +151,29 @@ ORDER BY d.id;
 -- Device FOR UPDATE also prevents insertion of missing binding children.
 SELECT id FROM device
 WHERE id=ANY(sqlc.arg(device_ids)::bigint[]) AND deleted_at IS NULL
-ORDER BY id FOR UPDATE;
+ORDER BY id FOR UPDATE NOWAIT;
 
 -- name: LockDeviceWriteDeletionDiscoveries :exec
 SELECT id FROM discovered_device
 WHERE id IN (SELECT discovered_device_id FROM device
  WHERE id=ANY(sqlc.arg(device_ids)::bigint[]) AND deleted_at IS NULL)
-ORDER BY id FOR UPDATE;
+ORDER BY id FOR UPDATE NOWAIT;
 
 -- name: LockDeviceWriteDeletionPairings :exec
 SELECT dp.id FROM device_pairing dp
 WHERE dp.device_id=ANY(sqlc.arg(device_ids)::bigint[])
-ORDER BY dp.device_id,dp.id FOR UPDATE;
+ORDER BY dp.device_id,dp.id FOR UPDATE NOWAIT;
 
 -- name: LockDeviceWriteDeletionCredentials :exec
 SELECT mc.id FROM miner_credentials mc
 WHERE mc.device_id=ANY(sqlc.arg(device_ids)::bigint[])
-ORDER BY mc.device_id,mc.id FOR UPDATE;
+ORDER BY mc.device_id,mc.id FOR UPDATE NOWAIT;
 
 -- name: LockDeviceWriteDeletionRoutes :exec
 -- Lock only the association: Fleet Node recovery locks its node before device.
 SELECT fnd.device_id FROM fleet_node_device fnd
 WHERE fnd.device_id=ANY(sqlc.arg(device_ids)::bigint[])
-ORDER BY fnd.device_id,fnd.fleet_node_id FOR UPDATE;
+ORDER BY fnd.device_id,fnd.fleet_node_id FOR UPDATE NOWAIT;
 
 -- name: AdvanceDeletedDeviceWriteFences :many
 UPDATE device_write_fence SET epoch=epoch+1,updated_at=statement_timestamp()
@@ -209,7 +219,7 @@ FOR UPDATE OF p;
 
 -- name: IsDeletionUnpairIdentityCurrent :one
 SELECT EXISTS (SELECT 1 WHERE NOT EXISTS (
- SELECT 1 FROM device d WHERE d.deleted_at IS NULL
+ SELECT 1 FROM device d WHERE d.org_id=sqlc.arg('organization_id') AND d.deleted_at IS NULL
  AND device_write_identity_keys(d.id) && sqlc.arg(identity_keys)::text[]
 ))::boolean AS current;
 

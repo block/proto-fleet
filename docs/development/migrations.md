@@ -26,40 +26,46 @@ stopped until that command succeeds and `fleet-db-transition check --state=start
 accepts the completed checkpoint, then start the target release.
 
 Migration 1008 validates the queue's epoch constraint under an exclusive table
-lock. Migration 1009 builds the pending-order index in its checkpoint transaction.
-Migration 1010 adds the MDKv2 RPC endpoint fields without changing queue or
-attempt evidence.
-Migration 1011 makes queue claims optional for direct attempts. Migration 1012
-adds captured physical identity keys and a partial GIN index on outstanding
-attempts. Hosted ships as one feature, so these checkpoints do not represent
-supported intermediate runtimes. Migration 1012 requires an empty attempt table;
-it refuses any history rather than reconstructing identities from an unfinished
-implementation. Migration 1013 separates node heartbeats from locked route rows
-and backfills existing node timestamps. Stop API replicas, plugins, Fleet Node
-dispatchers and scheduled writers together for these migrations. The existing
-queue retains historical rows, so miner count alone does not bound upgrade time.
-Rehearse on a recent database backup and size the maintenance window from its
-queue row count, relation sizes, observed lock wait, and migration duration.
-The 4,000-device upgrade regression verifies data and checkpoint correctness;
-it does not establish a production downtime budget.
+lock. Migration 1009 builds the pending-order index in its checkpoint
+transaction. Migration 1010 adds the MDKv2 RPC endpoint fields without changing
+queue or attempt evidence. Migration 1011 first locks and checks that the
+attempt table is empty, then makes queue claims optional for direct attempts.
+Migration 1012 adds captured physical identity keys and a partial GIN index on
+outstanding attempts. Hosted ships as one feature, so these checkpoints do not
+represent supported intermediate runtimes. Upgrades from internal nightlies
+that recorded attempts before checkpoint 1011 are unsupported; migration 1011
+refuses them without advancing checkpoint 1010. Migration 1012 repeats the
+empty-history guard; it refuses any history rather than reconstructing
+identities from an unfinished implementation. Migration 1013 separates node
+heartbeats from locked route rows and backfills existing node timestamps. The
+mining-asset view reads live node heartbeats for state and metrics eligibility.
+Stop API replicas, plugins, Fleet Node dispatchers and scheduled writers
+together for these migrations. The existing queue retains historical rows, so
+miner count alone does not bound upgrade time. Rehearse on a recent database
+backup and size the maintenance window from its queue row count, relation
+sizes, observed lock wait, and migration duration. The 4,000-device upgrade
+regression verifies data and checkpoint correctness; it does not establish a
+production downtime budget.
 
 An interrupted or failed migration rolls back to its last completed checkpoint.
-After a lost commit acknowledgement, reconnect and inspect the checkpoint before
-retrying. Do not force a version, delete attempt history, or run a down migration
-to recover availability. Migration 1008 refuses rollback once physical-outcome
-or ownership evidence exists; preserve the database and fix forward.
+After a lost commit acknowledgement, reconnect and inspect the checkpoint
+before retrying. Do not force a version, delete attempt history, or run a down
+migration to recover availability. Migration 1008 refuses rollback once
+physical-outcome or ownership evidence exists; preserve the database and fix
+forward.
 
-If migration 1012 finds attempt history from an intermediate development build,
-stop and preserve the database. That upgrade path is unsupported; do not delete
-attempts, rewrite snapshots/statuses, or force a version to proceed. Disposable
-development databases can be recreated. A database with real operation history
-requires an explicit evidence-preserving migration decision.
+If migration 1011 or 1012 finds attempt history from an intermediate internal
+nightly, stop and preserve the database. That upgrade path is unsupported; do
+not delete attempts, rewrite snapshots/statuses, or force a version to proceed.
+Disposable development databases can be recreated. A database with real
+operation history requires an explicit evidence-preserving migration decision.
 
 After migration, require clean checkpoint 1013 and preserved queue history.
 Verify that `idx_device_write_attempt_outstanding_identity_keys` is valid.
-Downgrade 1012 refuses retained unresolved attempts or deletion permits;
-downgrade 1011 refuses any direct-attempt history, including completed attempts.
-Preserve that evidence and fix forward.
+Downgrade 1012 refuses any retained attempt whose status is not `complete`,
+including audited `resolved` attempts, or any deletion permits; downgrade 1011
+refuses any direct-attempt history, including completed attempts. Preserve that
+evidence and fix forward.
 
 The new `(created_at, id)` pending index keeps deterministic dequeue ordering.
 The older pending index remains part of the shared baseline catalog contract;

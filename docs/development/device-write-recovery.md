@@ -47,10 +47,20 @@ A failure to finalize this lock-only transaction or record attempt completion is
 logged without turning an accepted command into a retryable failure. Unresolved
 attempt evidence still blocks ownership transfer until audited recovery.
 
+Physical dispatches share a process-wide budget per database pool. Admission waits
+with the caller’s context before leasing a connection; cancellation does not
+release a slot until the adapter returns. By default, dispatch uses at most half
+of `DB_MAX_OPEN_CONNS` (125 with an unbounded pool). `DB_MAX_DISPATCH_CONNS`
+can set a smaller or larger cap below the pool capacity. At least one connection
+must remain available for authentication, artifact downloads and attempt
+completion; physical dispatch is refused for a one-connection pool.
+
 Fleet Node heartbeats write `fleet_node_heartbeat` independently of the routing
-row. Enrollment, miner status and unavailable-node alerts read `fleet_node_live`.
-Dispatch still locks the node row, so revocation and route changes wait for the
-adapter while heartbeats continue. Migration 1013 backfills existing timestamps;
+row. Enrollment, mining-asset status and unavailable-node alerts read `fleet_node_live`.
+Dispatch locks the node identity and route associations, while authentication
+revocation commits independently and immediately invalidates its control stream.
+Route and credential cleanup follows; if interrupted, retry revocation to finish
+cleanup. Heartbeats continue during dispatch. Migration 1013 backfills existing timestamps;
 its rollback copies the latest heartbeat into the retained baseline column.
 Deploy it during the application-stopped maintenance window, so an older writer
 cannot update the retained snapshot after the backfill.

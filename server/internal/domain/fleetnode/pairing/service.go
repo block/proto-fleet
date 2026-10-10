@@ -153,10 +153,13 @@ func (s *Service) PairDevice(ctx context.Context, fleetNodeID, deviceID, orgID i
 // and transfers discovery attribution. (PairDevice and PersistFleetNodePairResult
 // both wrap it.)
 func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, orgID int64, assignedBy *int64) error {
-	if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
+	if err := s.lockFleetNodeIdentityForPairing(ctx, fleetNodeID, orgID); err != nil {
 		return err
 	}
 	if err := s.lockDeviceForPairing(ctx, deviceID, orgID); err != nil {
+		return err
+	}
+	if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
 		return err
 	}
 	if err := s.pairDeviceWithLocks(ctx, fleetNodeID, deviceID, orgID, assignedBy); err != nil {
@@ -177,7 +180,8 @@ func (s *Service) pairDeviceLocked(ctx context.Context, fleetNodeID, deviceID, o
 
 func (s *Service) lockFleetNodeForPairing(ctx context.Context, fleetNodeID, orgID int64) error {
 	// Lock-and-recheck in the TX so a concurrent revoke can't soft-delete the node
-	// between the status check and the INSERT. Matches Confirm/Revoke lock order.
+	// between the status check and the INSERT. Acquire after the device lock,
+	// so waiting for physical dispatch does not delay authentication revocation.
 	node, lockErr := s.enrollmentStore.LockFleetNodeByID(ctx, fleetNodeID, orgID)
 	if lockErr != nil {
 		if fleeterror.IsNotFoundError(lockErr) {
@@ -191,10 +195,23 @@ func (s *Service) lockFleetNodeForPairing(ctx context.Context, fleetNodeID, orgI
 	return nil
 }
 
+func (s *Service) lockFleetNodeIdentityForPairing(ctx context.Context, fleetNodeID, orgID int64) error {
+	node, err := s.enrollmentStore.LockFleetNodeIdentityByID(ctx, fleetNodeID, orgID)
+	if err != nil {
+		if fleeterror.IsNotFoundError(err) {
+			return fleeterror.NewNotFoundError("fleet node not found")
+		}
+		return logInternal("lock fleet node identity", clientErrLookupFleetNodeForPairing, err)
+	}
+	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
+		return fleeterror.NewFailedPreconditionError("fleet node is not confirmed; cannot pair until enrollment completes")
+	}
+	return nil
+}
+
 func (s *Service) lockDeviceForPairing(ctx context.Context, deviceID, orgID int64) error {
-	// Keep the Fleet Node -> device lock order used by this flow. Cloud recovery
-	// takes only the device lock, so a stale scan that waits here rechecks
-	// ownership after this transaction commits.
+	// Wait without an enrollment mutation lock, then recheck the node before
+	// modifying the binding. Cloud recovery also serializes on this device.
 	locked, deviceLockErr := s.store.LockDeviceForFleetNodePairing(ctx, deviceID, orgID)
 	if deviceLockErr != nil {
 		return logInternal("lock device for pairing", clientErrPair, deviceLockErr)
