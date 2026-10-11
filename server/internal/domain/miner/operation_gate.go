@@ -41,14 +41,14 @@ func (s *Service) directWriteGate(binding sqlc.GetDeviceWithCredentialsAndIPByDe
 		if err := s.writeService.ValidateBinding(ctx, validate); err != nil {
 			return err
 		}
-		return s.writeService.WithHostAttempt(ctx, binding.OrgID, binding.ID, binding.WriteEpoch, func(ctx context.Context) error {
+		return s.writeService.WithHostAttempt(ctx, binding.OrgID, binding.ID, binding.WriteEpoch, kind, func(ctx context.Context) error {
 			return s.writeService.WithBindingDispatch(ctx, binding.ID, validate, call)
 		})
 	}
 }
 
 func (s *Service) remoteWriteGate(binding sqlc.GetFleetNodeTelemetryRouteByDeviceIdentifierRow) interfaces.MinerWriteGate {
-	return func(ctx context.Context, _ commandtype.Type, call func(context.Context) error) error {
+	return func(ctx context.Context, kind commandtype.Type, call func(context.Context) error) error {
 		validate := func(q sqlc.Querier) error {
 			fresh, err := q.GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx, binding.DeviceIdentifier)
 			// Telemetry's firmware label can change during an ordinary install. It does
@@ -67,7 +67,7 @@ func (s *Service) remoteWriteGate(binding sqlc.GetFleetNodeTelemetryRouteByDevic
 		if err := s.writeService.ValidateBinding(ctx, validate); err != nil {
 			return err
 		}
-		return s.writeService.WithHostAttempt(ctx, binding.OrgID, binding.ID, binding.WriteEpoch, func(ctx context.Context) error {
+		return s.writeService.WithHostAttempt(ctx, binding.OrgID, binding.ID, binding.WriteEpoch, kind, func(ctx context.Context) error {
 			return s.writeService.WithBindingDispatch(ctx, binding.ID, validate, call)
 		})
 	}

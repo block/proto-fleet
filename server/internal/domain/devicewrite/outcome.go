@@ -22,3 +22,22 @@ func IsNotDispatched(err error) bool {
 	var preflight *notDispatchedError
 	return errors.As(err, &preflight)
 }
+
+// UncertainDelivery retains recovery requirements when an intermediary may still
+// queue or dispatch the request after its caller returns. Firmware API ordering
+// cannot establish that a Fleet Node transport failure reached that boundary.
+func UncertainDelivery(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &uncertainDeliveryError{err: err}
+}
+
+type uncertainDeliveryError struct{ err error }
+
+func (e *uncertainDeliveryError) Error() string { return e.err.Error() }
+func (e *uncertainDeliveryError) Unwrap() error { return e.err }
+func isUncertainDelivery(err error) bool {
+	var uncertain *uncertainDeliveryError
+	return errors.As(err, &uncertain)
+}

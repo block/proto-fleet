@@ -615,8 +615,8 @@ func (es *ExecutionService) executeQueuedCommand(ctx context.Context, message qu
 	}
 	orgID, siteID, resultErr = es.executeCommandOnDevice(attempt.Context(ctx), message.CommandType, message)
 	if resultErr == nil {
-		// Error-only adapters acknowledge a command without certifying that
-		// device-side work ended, including an accepted or follow-on reboot.
+		// Preserve dispatch evidence for adapters that do not participate in Dispatch.
+		// Finish distinguishes ordered writes from asynchronous operations.
 		attempt.Accepted()
 	}
 	// A panic has no known physical outcome. Only complete the attempt after

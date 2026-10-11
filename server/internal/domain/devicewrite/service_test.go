@@ -277,7 +277,7 @@ func TestReservationRollsBackWhenCanceledResultFails(t *testing.T) {
 	}
 }
 
-func queuedFenceFixture(t *testing.T) (*testutil.DatabaseService, int64, int64, queue.Message, *queue.DatabaseMessageQueue) {
+func queuedFenceFixture(t *testing.T, kinds ...commandtype.Type) (*testutil.DatabaseService, int64, int64, queue.Message, *queue.DatabaseMessageQueue) {
 	t.Helper()
 	cfg, err := testutil.GetTestConfig()
 	require.NoError(t, err)
@@ -287,6 +287,9 @@ func queuedFenceFixture(t *testing.T) (*testutil.DatabaseService, int64, int64, 
 	q := sqlc.New(database.DB)
 	batch := id.GenerateID()
 	kind := commandtype.Reboot
+	if len(kinds) > 0 {
+		kind = kinds[0]
+	}
 	_, err = q.CreateCommandBatchLog(t.Context(), sqlc.CreateCommandBatchLogParams{Uuid: batch, Type: kind.String(), CreatedBy: user.DatabaseID, CreatedAt: time.Now(), Status: sqlc.BatchStatusEnumPENDING, DevicesCount: 1, OrganizationID: sql.NullInt64{Int64: user.OrganizationID, Valid: true}})
 	require.NoError(t, err)
 	messages := queue.NewDatabaseMessageQueue(&queue.Config{MaxFailureRetries: 3}, database.DB)

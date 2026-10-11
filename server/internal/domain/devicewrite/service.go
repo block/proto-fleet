@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
@@ -51,6 +52,7 @@ type Attempt struct {
 	organizationID  int64
 	epoch           int64
 	dispatched      atomic.Bool
+	ordered         atomic.Bool
 	deletionBinding string
 }
 
@@ -77,6 +79,7 @@ func (s *Service) BeginQueuedHost(ctx context.Context, message queue.Message) (*
 			return nil, blocked()
 		}
 		attempt := &Attempt{service: s, id: uuid.New(), deviceID: message.DeviceID, organizationID: message.OrgID, epoch: fence.Epoch}
+		attempt.ordered.Store(isOrderedWrite(message.CommandType))
 		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: message.DeviceID, OrganizationID: message.OrgID, Epoch: fence.Epoch, QueueMessageID: sql.NullInt64{Int64: message.ID, Valid: true}, IdentityKeys: keys, OwnerInstanceID: processInstanceID, OperationKind: operationMutation}); err != nil {
 			return nil, fmt.Errorf("record device write attempt: %w", err)
 		}
@@ -97,24 +100,24 @@ func (a *Attempt) Recheck(ctx context.Context) error {
 	return nil
 }
 
-// Accepted records command acknowledgement, not physical completion. Legacy
-// adapters return only an error, so a successful command needs this record even
-// when its adapter does not participate in Dispatch.
+// Accepted records a successful request even when an adapter does not use Dispatch.
+// The command's completion policy determines whether acknowledgement proves drain.
 func (a *Attempt) Accepted() {
 	a.dispatched.Store(true)
 }
 
-// Finish completes only admissions that never dispatched a mutation. An adapter
-// returning nil acknowledges its request; it does not prove device-side work has
-// ended. Keep dispatched attempts unresolved until audited recovery supplies
-// completion evidence. Duplicate completion cannot erase that evidence.
+// Finish retires ordered configuration calls once their adapter returns, whether
+// the response succeeded or was lost. Firmware processes these writes in order;
+// handoff must apply and verify the incoming configuration before activation.
+// Asynchronous operations and unresolved node delivery remain unknown. A panic
+// or bookkeeping failure leaves the separately committed attempt running.
 func (a *Attempt) Finish(ctx context.Context, outcome error) error {
 	return db.WithTransactionTimeoutNoResult(ctx, a.service.conn, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) error {
 		if _, err := q.LockDeviceWriteFenceRecord(ctx, sqlc.LockDeviceWriteFenceRecordParams{DeviceID: a.deviceID, OrganizationID: a.organizationID}); err != nil {
 			return err
 		}
 		status := "complete"
-		if a.dispatched.Load() {
+		if a.dispatched.Load() && (!a.ordered.Load() || isUncertainDelivery(outcome)) {
 			status = "unknown"
 		}
 		changed, err := q.FinishDeviceWriteAttempt(ctx, sqlc.FinishDeviceWriteAttemptParams{Status: status, AttemptID: a.id})
@@ -124,8 +127,8 @@ func (a *Attempt) Finish(ctx context.Context, outcome error) error {
 		if changed != 1 {
 			return blocked()
 		}
-		// An accepted command keeps ordinary host operation available. Only a
-		// failed physical call quarantines custody; both outcomes block transfer.
+		// Unknown attempts block transfer. Accepted ones preserve ordinary host
+		// operation; a failed unknown call also quarantines custody.
 		if status == "unknown" && outcome != nil {
 			return q.QuarantineDeviceWriteFence(ctx, sqlc.QuarantineDeviceWriteFenceParams{DeviceID: a.deviceID, OrganizationID: a.organizationID})
 		}
@@ -251,6 +254,10 @@ func Dispatch(ctx context.Context, operation func(context.Context) error) error 
 	// previous invocation that may already have reached the device.
 	if ok && !IsNotDispatched(outcome) {
 		attempt.dispatched.Store(true)
+		// Preserve uncertainty even if an outer handler sanitizes the error.
+		if isUncertainDelivery(outcome) {
+			attempt.ordered.Store(false)
+		}
 	}
 	return outcome
 }
@@ -284,7 +291,7 @@ func (s *Service) BeginHost(ctx context.Context, organizationID, deviceID, epoch
 // WithHostAttempt retains the whole operation lifetime after committed admission.
 // The callback marks only actual transport calls with Dispatch after validation.
 // A carried attempt may authorize only its exact database, device and epoch.
-func (s *Service) WithHostAttempt(ctx context.Context, organizationID, deviceID, epoch int64, call func(context.Context) error) (resultErr error) {
+func (s *Service) WithHostAttempt(ctx context.Context, organizationID, deviceID, epoch int64, kind commandtype.Type, call func(context.Context) error) (resultErr error) {
 	if db.GetTxQueries(ctx) != nil {
 		return fleeterror.NewFailedPreconditionError("device I/O requires committed admission")
 	}
@@ -292,12 +299,18 @@ func (s *Service) WithHostAttempt(ctx context.Context, organizationID, deviceID,
 		if attempt.deletionBinding != "" || attempt.service.conn != s.conn || attempt.organizationID != organizationID || attempt.deviceID != deviceID || attempt.epoch != epoch {
 			return blocked()
 		}
+		// An asynchronous step cannot inherit a synchronous outer command's policy.
+		// An unclassified RunHost callback preserves its enclosing attempt's policy.
+		if kind != commandtype.Type(-1) && !isOrderedWrite(kind) {
+			attempt.ordered.Store(false)
+		}
 		return call(ctx)
 	}
 	attempt, err := s.BeginHost(ctx, organizationID, deviceID, epoch)
 	if err != nil {
 		return err
 	}
+	attempt.ordered.Store(isOrderedWrite(kind))
 	returned := false
 	defer func() {
 		if !returned {
@@ -322,5 +335,22 @@ func (s *Service) WithHostAttempt(ctx context.Context, organizationID, deviceID,
 // RunHost admits a single direct physical call. Multi-step transports use
 // WithHostAttempt and mark each actual dispatch after their own validation.
 func (s *Service) RunHost(ctx context.Context, organizationID, deviceID, epoch int64, call func(context.Context) error) error {
-	return s.WithHostAttempt(ctx, organizationID, deviceID, epoch, func(ctx context.Context) error { return Dispatch(ctx, call) })
+	return s.WithHostAttempt(ctx, organizationID, deviceID, epoch, commandtype.Type(-1), func(ctx context.Context) error { return Dispatch(ctx, call) })
+}
+
+// Only the known synchronous configuration/control writes use firmware ordering.
+// New command types default to unresolved until their semantics are classified.
+func isOrderedWrite(kind commandtype.Type) bool {
+	switch kind {
+	case commandtype.StartMining, commandtype.StopMining, commandtype.SetCoolingMode,
+		commandtype.SetPowerTarget, commandtype.UpdateMiningPools, commandtype.UpdateMinerPassword,
+		commandtype.Curtail, commandtype.Uncurtail, commandtype.ApplyCurtailmentConfig,
+		commandtype.SetContainerControl, commandtype.SetTankMining:
+		return true
+	case commandtype.DownloadLogs, commandtype.Reboot, commandtype.BlinkLED,
+		commandtype.FirmwareUpdate, commandtype.Unpair:
+		return false
+	default:
+		return false
+	}
 }

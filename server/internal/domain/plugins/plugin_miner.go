@@ -742,16 +742,25 @@ func isNetworkError(err error) bool {
 }
 
 func (p *PluginMiner) dispatchWrite(ctx context.Context, kind commandtype.Type, call func(context.Context) error) error {
+	invoke := func(ctx context.Context) error {
+		err := call(ctx)
+		// A failed plugin RPC can return before its backend handler has stopped.
+		// Error mapping does not supply terminal execution evidence.
+		if _, rpc := p.sdkDevice.(*sdk.DeviceGRPCClient); rpc && err != nil && !devicewrite.IsNotDispatched(err) {
+			return devicewrite.UncertainDelivery(err)
+		}
+		return err
+	}
 	if p.writeGate != nil {
 		invoked := false
 		err := p.writeGate(ctx, kind, func(ctx context.Context) error {
 			invoked = true
-			return call(ctx)
+			return invoke(ctx)
 		})
 		if err != nil && !invoked {
 			return devicewrite.NotDispatched(err)
 		}
 		return err
 	}
-	return call(ctx)
+	return invoke(ctx)
 }

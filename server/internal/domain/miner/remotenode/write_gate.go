@@ -17,10 +17,20 @@ func (m *Miner) withPhysicalWriteAdmission(ctx context.Context, command *gateway
 		invoked = true
 		ack, err := send(ctx)
 		if err != nil {
-			return mapSendCommandError(err)
+			err = mapSendCommandError(err)
+			if physical && !devicewrite.IsNotDispatched(err) {
+				return devicewrite.UncertainDelivery(err)
+			}
+			return err
 		}
 		if physical {
-			return ackToError(ack)
+			outcome := ackToError(ack)
+			// Failed acknowledgements may describe a plugin RPC whose backend
+			// still runs; only explicit pre-dispatch refusals prove no work began.
+			if outcome != nil && !devicewrite.IsNotDispatched(outcome) {
+				return devicewrite.UncertainDelivery(outcome)
+			}
+			return outcome
 		}
 		return nil
 	}

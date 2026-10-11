@@ -3,6 +3,7 @@ package miner_test
 import (
 	"context"
 	"errors"
+	"net"
 	"sync"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
+	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
@@ -20,6 +22,9 @@ import (
 	sdkMocks "github.com/block/proto-fleet/server/sdk/v1/mocks"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 func TestCachedDirectHandleRejectsChangedBindingBeforeSDKCall(t *testing.T) {
@@ -467,4 +472,170 @@ func resolveTestPhysicalAttempt(t *testing.T, fences *devicewrite.Service, devic
 	evidence.RestoreHost = inspections[0].FenceState == "reserved"
 	_, err = fences.ResolveOffline(t.Context(), evidence, true)
 	require.NoError(t, err)
+}
+
+func TestOrderedDirectPoolWritePermitsHandoffAndFencesOldHandle(t *testing.T) {
+	for _, lostResponse := range []bool{false, true} {
+		t.Run(map[bool]string{false: "success", true: "lost response"}[lostResponse], func(t *testing.T) {
+			conn, crypto, files := setupTestDB(t)
+			identifier := models.DeviceIdentifier("ordered-pool-write")
+			deviceID := createTestDevice(t, conn, string(identifier))
+			createTestMinerCredentials(t, conn, crypto, deviceID)
+			ctrl := gomock.NewController(t)
+			device := sdkMocks.NewMockDevice(ctrl)
+			driver := sdkMocks.NewMockDriver(ctrl)
+			driver.EXPECT().NewDevice(gomock.Any(), string(identifier), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: device}, nil).Times(2)
+			var outcome error
+			if lostResponse {
+				outcome = context.DeadlineExceeded
+			}
+			gomock.InOrder(
+				device.EXPECT().UpdateMiningPools(gomock.Any(), gomock.Any()).Return(outcome),
+				device.EXPECT().UpdateMiningPools(gomock.Any(), gomock.Any()).Return(nil),
+			)
+			service := miner.NewMinerService(conn, sqlstores.NewSQLUserStore(conn), crypto, files, &fakePluginManager{driver: driver, driverName: "antminer"})
+			oldHandle, err := service.GetMinerFromDeviceIdentifier(t.Context(), identifier)
+			require.NoError(t, err)
+			pools := dto.UpdateMiningPoolsPayload{DefaultPool: dto.MiningPool{URL: "stratum+tcp://pool.example.com:3333", Username: "old-owner", Password: "fixture"}}
+			err = oldHandle.UpdateMiningPools(t.Context(), pools)
+			if lostResponse {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			var state string
+			require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT status FROM device_write_attempt WHERE device_id=$1", deviceID).Scan(&state))
+			require.Equal(t, "complete", state, "an ordered configuration write must not require offline recovery")
+			fences := devicewrite.NewService(conn)
+			epoch, err := fences.Reserve(t.Context(), 1, deviceID)
+			require.NoError(t, err)
+			drained, err := fences.Drained(t.Context(), 1, deviceID, epoch)
+			require.NoError(t, err)
+			require.True(t, drained)
+			// Return to host custody at a new epoch; the old handle must remain fenced.
+			require.NoError(t, fences.ReleaseHost(t.Context(), 1, deviceID, epoch))
+			require.Error(t, oldHandle.UpdateMiningPools(t.Context(), pools), "the prior owner's retry must fail before a second SDK call")
+			fresh, err := service.GetMinerFromDeviceIdentifier(t.Context(), identifier)
+			require.NoError(t, err)
+			pools.DefaultPool.Username = "new-owner"
+			require.NoError(t, fresh.UpdateMiningPools(t.Context(), pools))
+		})
+	}
+}
+
+func TestOrderedRemoteMiningControlPermitsHandoff(t *testing.T) {
+	conn, crypto, files := setupTestDB(t)
+	identifier := models.DeviceIdentifier("ordered-remote-write")
+	deviceID := createTestDevice(t, conn, string(identifier))
+	nodeID := createTestFleetNode(t, conn, "ordered-node", []byte("ordered-node"))
+	_, err := conn.ExecContext(t.Context(), "INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,1)", nodeID, deviceID)
+	require.NoError(t, err)
+	sender := &fakeCommandSender{}
+	service := miner.NewMinerService(conn, sqlstores.NewSQLUserStore(conn), crypto, files, &fakePluginManager{driverName: "antminer"}).WithCommandSender(sender)
+	handle, err := service.GetMinerFromDeviceIdentifier(t.Context(), identifier)
+	require.NoError(t, err)
+	require.NoError(t, handle.StopMining(t.Context()))
+	require.True(t, sender.called)
+	fences := devicewrite.NewService(conn)
+	epoch, err := fences.Reserve(t.Context(), 1, deviceID)
+	require.NoError(t, err)
+	drained, err := fences.Drained(t.Context(), 1, deviceID, epoch)
+	require.NoError(t, err)
+	require.True(t, drained)
+	sender.called = false
+	require.Error(t, handle.StopMining(t.Context()))
+	require.False(t, sender.called, "old-epoch control must not reach the node")
+}
+
+func TestOrderedPluginRPCCompletionDoesNotHideRunningBackend(t *testing.T) {
+	for _, canceled := range []bool{false, true} {
+		t.Run(map[bool]string{false: "success", true: "canceled RPC"}[canceled], func(t *testing.T) {
+			conn, crypto, files := setupTestDB(t)
+			identifier := models.DeviceIdentifier("ordered-plugin-rpc")
+			deviceID := createTestDevice(t, conn, string(identifier))
+			createTestMinerCredentials(t, conn, crypto, deviceID)
+			ctrl := gomock.NewController(t)
+			backend := sdkMocks.NewMockDevice(ctrl)
+			driver := sdkMocks.NewMockDriver(ctrl)
+			driver.EXPECT().NewDevice(gomock.Any(), string(identifier), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: backend}, nil)
+			backend.EXPECT().ID().Return(string(identifier))
+			entered, release, returned := make(chan struct{}), make(chan struct{}), make(chan struct{})
+			finish := sync.OnceFunc(func() { close(release) })
+			t.Cleanup(finish)
+			backend.EXPECT().StopMining(gomock.Any()).DoAndReturn(func(context.Context) error {
+				close(entered)
+				<-release
+				close(returned)
+				return nil
+			})
+			listener := bufconn.Listen(1 << 20)
+			t.Cleanup(func() { _ = listener.Close() })
+			wire := grpc.NewServer()
+			plugin := &sdk.DriverPlugin{Impl: driver}
+			require.NoError(t, plugin.GRPCServer(nil, wire))
+			go func() { _ = wire.Serve(listener) }()
+			t.Cleanup(wire.Stop)
+			clientConn, err := grpc.NewClient("passthrough:///ordered-write", grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) { return listener.Dial() }))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = clientConn.Close() })
+			client, err := plugin.GRPCClient(t.Context(), nil, clientConn)
+			require.NoError(t, err)
+			rpcDriver, ok := client.(sdk.Driver)
+			require.True(t, ok)
+			service := miner.NewMinerService(conn, sqlstores.NewSQLUserStore(conn), crypto, files, &fakePluginManager{driver: rpcDriver, driverName: "antminer"})
+			handle, err := service.GetMinerFromDeviceIdentifier(t.Context(), identifier)
+			require.NoError(t, err)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- handle.StopMining(ctx) }()
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("plugin backend did not start")
+			}
+			if canceled {
+				cancel()
+			} else {
+				finish()
+			}
+			select {
+			case err := <-done:
+				if canceled {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("plugin RPC did not return")
+			}
+			var state string
+			require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT status FROM device_write_attempt WHERE device_id=$1", deviceID).Scan(&state))
+			fences := devicewrite.NewService(conn)
+			epoch, err := fences.Reserve(t.Context(), 1, deviceID)
+			if canceled {
+				select {
+				case <-returned:
+					t.Fatal("backend returned before the cancellation assertion")
+				default:
+				}
+				require.Equal(t, "unknown", state)
+				require.True(t, fleeterror.IsFailedPreconditionError(err))
+				finish()
+				select {
+				case <-returned:
+				case <-time.After(5 * time.Second):
+					t.Fatal("backend did not exit")
+				}
+				_, err = fences.Reserve(t.Context(), 1, deviceID)
+				require.True(t, fleeterror.IsFailedPreconditionError(err), "client cancellation provides no durable terminal evidence")
+			} else {
+				require.Equal(t, "complete", state)
+				require.NoError(t, err)
+				drained, err := fences.Drained(t.Context(), 1, deviceID, epoch)
+				require.NoError(t, err)
+				require.True(t, drained)
+			}
+		})
+	}
 }

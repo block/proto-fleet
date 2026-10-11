@@ -325,8 +325,8 @@ func TestTankMiningExecutionSanitizesControllerFleetErrors(t *testing.T) {
 	require.Equal(t, 1, controller.writes)
 }
 
-func TestTankMiningRetainsPhysicalOutcomeEvidence(t *testing.T) {
-	for _, scenario := range []string{"accepted", "failed", "stale topology"} {
+func TestTankMiningCompletionDistinguishesUncertainDelivery(t *testing.T) {
+	for _, scenario := range []string{"accepted", "failed", "uncertain delivery", "stale topology"} {
 		t.Run(scenario, func(t *testing.T) {
 			svc, conn, deviceID, _, payload := setupTankMiningExecution(t)
 			message, _ := enqueueFenceTestCommand(t, conn, deviceID, commandtype.SetTankMining, payload)
@@ -336,6 +336,9 @@ func TestTankMiningRetainsPhysicalOutcomeEvidence(t *testing.T) {
 			controller := &executionTankController{}
 			if scenario == "failed" {
 				controller.err = errors.New("connection lost after send")
+			}
+			if scenario == "uncertain delivery" {
+				controller.err = devicewrite.UncertainDelivery(errors.New("Fleet Node delivery timed out"))
 			}
 			if scenario == "stale topology" {
 				_, err = conn.ExecContext(t.Context(), `UPDATE container_tank SET present=false WHERE device_id=$1`, deviceID)
@@ -353,13 +356,16 @@ func TestTankMiningRetainsPhysicalOutcomeEvidence(t *testing.T) {
 			if scenario == "stale topology" {
 				require.Zero(t, controller.writes)
 				require.Equal(t, "complete", status)
-				_, err = fences.Reserve(t.Context(), payload.OrgID, deviceID)
-				require.NoError(t, err)
 			} else {
 				require.Equal(t, 1, controller.writes)
+			}
+			_, err = fences.Reserve(t.Context(), payload.OrgID, deviceID)
+			if scenario == "uncertain delivery" {
 				require.Equal(t, "unknown", status)
-				_, err = fences.Reserve(t.Context(), payload.OrgID, deviceID)
 				require.True(t, fleeterror.IsFailedPreconditionError(err))
+			} else {
+				require.Equal(t, "complete", status)
+				require.NoError(t, err)
 			}
 		})
 	}
