@@ -91,6 +91,7 @@ function scope(mask = 31n) {
     client: client as unknown as AccountScope["client"],
     signal: new AbortController().signal,
     refreshAccount: vi.fn(),
+    invalidateAccount: vi.fn(),
   };
   return { value, client };
 }
@@ -340,7 +341,7 @@ describe("hosted account pages", () => {
     const { value, client } = scope();
     client.listMembers.mockRejectedValueOnce(new ConnectError("membership revoked", Code.PermissionDenied));
     mount(<AccountTeam />, value);
-    await waitFor(() => expect(value.refreshAccount).toHaveBeenCalled());
+    await waitFor(() => expect(value.invalidateAccount).toHaveBeenCalled());
     expect(screen.queryByText("payout_ops")).not.toBeInTheDocument();
   });
 });

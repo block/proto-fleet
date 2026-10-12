@@ -7,7 +7,10 @@ export type AccountScope = {
   account: Account;
   client: ReturnType<typeof createAccountClient>;
   signal: AbortSignal;
+  // A denied mutation may be a failed password confirmation; recheck before
+  // replacing an authorized page. Denied private reads invalidate immediately.
   refreshAccount: () => void;
+  invalidateAccount: () => void;
 };
 export const AccountScopeContext = createContext<AccountScope | null>(null);
 export const useAccountScope = () => useContext(AccountScopeContext);

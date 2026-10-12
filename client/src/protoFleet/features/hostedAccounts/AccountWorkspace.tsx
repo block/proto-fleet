@@ -100,7 +100,8 @@ const AccountPage = ({ accountId }: { accountId: string }) => {
               account,
               client: connection.client,
               signal: connection.signal,
-              refreshAccount: invalidate,
+              refreshAccount: refresh,
+              invalidateAccount: invalidate,
             }}
           >
             {error ? <AccountState error={error} retry={refresh} /> : null}

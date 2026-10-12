@@ -125,6 +125,43 @@ describe("real account workspace routing", () => {
     act(() => window.dispatchEvent(new Event("focus")));
     await waitFor(() => expect(screen.queryByLabelText("Secret")).not.toBeInTheDocument());
   });
+  it("keeps a failed pool password confirmation open while rechecking live access", async () => {
+    const account = create(AccountSchema, {
+      accountId,
+      parentAccountId: rootId,
+      depth: 1,
+      name: "Customer",
+      role: AccountRole.ADMINISTRATOR,
+      effectiveCapabilities: 31n,
+      capabilityCeiling: 31n,
+    });
+    const calls = fetchRpc((method) => (method === "GetAccount" ? { account: toJson(AccountSchema, account) } : {}));
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) =>
+        String(input).endsWith("/SetIncomingPoolProfile")
+          ? Promise.resolve(
+              new Response(JSON.stringify({ code: "permission_denied", message: "Incorrect confirmation password" }), {
+                status: 403,
+                headers: { "Content-Type": "application/json" },
+              }),
+            )
+          : originalFetch(input, init),
+      ),
+    );
+    const user = userEvent.setup();
+    mount(account, "pools");
+    await user.click(await screen.findByRole("button", { name: "Change selection" }));
+    const dialog = screen.getByRole("dialog", { name: "Incoming pool configuration" });
+    await user.click(within(dialog).getByRole("checkbox", { name: /Clear/ }));
+    await user.type(within(dialog).getByLabelText("Your Fleet password"), "incorrect-test-password");
+    await user.click(within(dialog).getByRole("button", { name: "Confirm selection" }));
+    expect(await screen.findByText(/Incorrect confirmation password/)).toBeInTheDocument();
+    await waitFor(() => expect(calls.filter((c) => c.method === "GetAccount").length).toBeGreaterThanOrEqual(2));
+    expect(screen.getByRole("dialog", { name: "Incoming pool configuration" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Your Fleet password")).toHaveValue("incorrect-test-password");
+  });
   it("discards forms and secrets when the login changes on the same account route", async () => {
     fetchRpc((method) =>
       method === "GetAccount"

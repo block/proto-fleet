@@ -10,7 +10,7 @@ export const useAccountQuery = <T>(
   enabled = true,
   retainWhileRefreshing = false,
 ) => {
-  const refreshAccount = useAccountScope()?.refreshAccount;
+  const invalidateAccount = useAccountScope()?.invalidateAccount;
   const [revision, setRevision] = useState(0);
   const [result, setResult] = useState<{
     load: typeof load;
@@ -40,7 +40,7 @@ export const useAccountQuery = <T>(
               retainWhileRefreshing && isRetryableReadError(error) && previous?.load === load ? previous.data : null,
             error: getErrorMessage(error),
           }));
-          if (ConnectError.from(error).code === Code.PermissionDenied) refreshAccount?.();
+          if (ConnectError.from(error).code === Code.PermissionDenied) invalidateAccount?.();
           if (
             ConnectError.from(error).code === Code.Unauthenticated &&
             useFleetStore.getState().auth.sessionGeneration === generation
@@ -50,7 +50,7 @@ export const useAccountQuery = <T>(
       },
     );
     return () => controller.abort();
-  }, [load, enabled, revision, refreshAccount, retainWhileRefreshing]);
+  }, [load, enabled, revision, invalidateAccount, retainWhileRefreshing]);
   const current =
     enabled && result?.load === load && (result?.revision === revision || retainWhileRefreshing) ? result : null;
   return {
