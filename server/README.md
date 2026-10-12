@@ -112,8 +112,9 @@ handoffs and in reserved, active, or quarantined ownership states. Handoffs reta
 these queued commands while canceling superseded configuration commands.
 
 Curtailment attempts bind to the exact command and physical miner. They retain
-connection, credential, identity, deletion, and actual completion checks; an
-unknown device outcome still blocks handoff completion. Pool, reboot, firmware,
+connection, credential, identity, and deletion checks. Returned synchronous
+controls complete under the shared ordered firmware contract; explicit delivery
+uncertainty still blocks handoff completion. Pool, reboot, firmware,
 and other configuration writes retain their ownership and epoch checks. Customer
 account transports cannot invoke host curtailment RPCs.
 

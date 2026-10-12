@@ -116,7 +116,7 @@ func TestCurtailmentSurvivesPendingAndRunningHandoffs(t *testing.T) {
 			require.NoError(t, attempt.Finish(ctx, nil))
 			drained, err = service.Drained(ctx, org, device, epoch+1)
 			require.NoError(t, err)
-			require.False(t, drained, "global curtailment acknowledgement still requires physical completion evidence")
+			require.True(t, drained, "returned synchronous curtailment uses the shared ordered completion contract")
 			require.Error(t, service.ReleaseHost(ctx, org, device, epoch+1))
 			require.Error(t, devicewrite.Dispatch(attempt.Context(ctx), func(context.Context) error { t.Fatal("completed authority reused"); return nil }))
 		})
@@ -165,7 +165,9 @@ func TestCurtailmentRetainsPhysicalIdentityAndUnknownOutcomeFences(t *testing.T)
 			require.NoError(t, err)
 			err = service.WithCurtailmentAttempt(t.Context(), org, device, 0, commandtype.Curtail, func(ctx context.Context) error {
 				if change == "unknown outcome" {
-					return devicewrite.Dispatch(ctx, func(context.Context) error { return errors.New("physical response unavailable") })
+					return devicewrite.Dispatch(ctx, func(context.Context) error {
+						return devicewrite.UncertainDelivery(errors.New("intermediary may still dispatch"))
+					})
 				}
 				var mutation string
 				switch change {
@@ -234,4 +236,49 @@ func TestCurtailmentRequiresCommittedAdmission(t *testing.T) {
 		}))
 		return nil
 	}))
+}
+
+func TestCurtailmentReturnedWritesUseOrderedCompletion(t *testing.T) {
+	for _, kind := range []commandtype.Type{commandtype.Curtail, commandtype.Uncurtail, commandtype.ApplyCurtailmentConfig} {
+		for _, outcomeKind := range []string{"success", "returned failure", "uncertain delivery"} {
+			t.Run(kind.String()+"/"+outcomeKind, func(t *testing.T) {
+				database, org, device, _, _ := queuedFenceFixture(t)
+				service := devicewrite.NewService(database.DB)
+				epoch, err := service.Reserve(t.Context(), org, device)
+				require.NoError(t, err)
+				_, err = database.DB.ExecContext(t.Context(), "UPDATE device_write_fence SET state='active' WHERE device_id=$1", device)
+				require.NoError(t, err)
+				var outcome error
+				if outcomeKind != "success" {
+					outcome = errors.New("curtailment response failed")
+				}
+				if outcomeKind == "uncertain delivery" {
+					outcome = devicewrite.UncertainDelivery(outcome)
+				}
+				err = service.WithCurtailmentAttempt(t.Context(), org, device, 0, kind, func(ctx context.Context) error {
+					return devicewrite.Dispatch(ctx, func(context.Context) error { return outcome })
+				})
+				if outcome == nil {
+					require.NoError(t, err)
+				} else {
+					require.ErrorIs(t, err, outcome)
+				}
+				var status, scope, state string
+				require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT status,curtailment_command FROM device_write_attempt WHERE curtailment_command IS NOT NULL AND device_id=$1", device).Scan(&status, &scope))
+				require.Equal(t, kind.String(), scope)
+				require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT state FROM device_write_fence WHERE device_id=$1", device).Scan(&state))
+				drained, err := service.Drained(t.Context(), org, device, epoch)
+				require.NoError(t, err)
+				if outcomeKind == "uncertain delivery" {
+					require.Equal(t, "unknown", status)
+					require.Equal(t, "quarantined", state)
+					require.False(t, drained)
+				} else {
+					require.Equal(t, "complete", status)
+					require.Equal(t, "active", state, "returned controls cannot change allocation custody")
+					require.True(t, drained)
+				}
+			})
+		}
+	}
 }

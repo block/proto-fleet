@@ -28,7 +28,7 @@ func TestCurtailmentMigrationPreservesLegacyAttemptsAndRestrictsScope(t *testing
 	require.NoError(t, devicewrite.Dispatch(attempt.Context(t.Context()), func(context.Context) error { return nil }))
 	require.NoError(t, attempt.Finish(t.Context(), nil))
 	// Seed explicitly qualified legacy completion history for this migration.
-	// Current error-only adapter acknowledgements leave attempts unresolved.
+	// The unclassified BeginHost admission retains unresolved mutation evidence.
 	_, err = database.DB.ExecContext(t.Context(), "UPDATE device_write_attempt SET status='complete' WHERE device_id=$1", device.DatabaseID)
 	require.NoError(t, err)
 	_, err = database.DB.ExecContext(t.Context(), string(down))
