@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -159,7 +160,7 @@ func (w *interruptBarrierWriter) SetWriteDeadline(deadline time.Time) error {
 	}
 	return nil
 }
-func TestProxyDeadlineCleanupJoinsCancellationBeforeReset(t *testing.T) {
+func TestProxyDeadlineCleanupJoinsCancellationBeforeReturn(t *testing.T) {
 	writer := &interruptBarrierWriter{ResponseRecorder: httptest.NewRecorder(), entered: make(chan struct{}), release: make(chan struct{}), reset: make(chan struct{})}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -170,11 +171,85 @@ func TestProxyDeadlineCleanupJoinsCancellationBeforeReset(t *testing.T) {
 	done := make(chan struct{})
 	go func() { finish(); close(done) }()
 	select {
-	case <-writer.reset:
-		t.Fatal("deadline reset raced an active cancellation callback")
+	case <-done:
+		t.Fatal("cleanup returned while cancellation still held the writer")
 	case <-time.After(20 * time.Millisecond):
 	}
 	close(writer.release)
 	awaitProxyBarrier(t, done)
-	awaitProxyBarrier(t, writer.reset)
+	select {
+	case <-writer.reset:
+		t.Fatal("cleanup cleared the deadline before HTTP server finalization")
+	default:
+	}
+}
+
+type proxyPipeListener struct {
+	connections chan net.Conn
+	closed      chan struct{}
+	once        sync.Once
+	address     net.Addr
+}
+
+func (l *proxyPipeListener) Accept() (net.Conn, error) {
+	select {
+	case conn := <-l.connections:
+		return conn, nil
+	case <-l.closed:
+		return nil, net.ErrClosed
+	}
+}
+func (l *proxyPipeListener) Close() error   { l.once.Do(func() { close(l.closed) }); return nil }
+func (l *proxyPipeListener) Addr() net.Addr { return l.address }
+
+// A pipe has no TCP send buffer: even a tiny response must finish its buffered
+// flush before admission ends, and a client that reads nothing must time out.
+func TestFiniteProxyResponseFlushIsBoundedInsideAdmission(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodHead} {
+		t.Run(method, func(t *testing.T) {
+			database, _, deviceID, h, target := proxyFenceFixture(t)
+			entered, done := make(chan struct{}), make(chan struct{})
+			h.httpClient = &http.Client{Timeout: 300 * time.Millisecond, Transport: proxyRoundTripFunc(func(*http.Request) (*http.Response, error) {
+				close(entered)
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("{}"))}, nil
+			})}
+			template := authenticatedProxyRequest(t, database, h, target)
+			if method == http.MethodHead {
+				template.SetPathValue("apiVersion", "v1")
+				template.SetPathValue("rest", "system")
+			}
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				for _, key := range []string{"deviceIdentifier", "apiVersion", "rest"} {
+					r.SetPathValue(key, template.PathValue(key))
+				}
+				h.ServeHTTP(w, r)
+				close(done)
+			})
+			serverConn, clientConn := net.Pipe()
+			listener := &proxyPipeListener{connections: make(chan net.Conn, 1), closed: make(chan struct{}), address: serverConn.LocalAddr()}
+			listener.connections <- serverConn
+			server := &http.Server{ReadHeaderTimeout: time.Second, Handler: middleware.TelemetryMiddleware{}.Wrap(handler)}
+			served := make(chan error, 1)
+			go func() { served <- server.Serve(listener) }()
+			t.Cleanup(func() {
+				_ = clientConn.Close()
+				_ = serverConn.Close()
+				require.NoError(t, server.Close())
+				require.ErrorIs(t, <-served, http.ErrServerClosed)
+			})
+			request := template.Clone(t.Context())
+			request.Method = method
+			request.URL.Scheme, request.URL.Host, request.RequestURI = "", "", ""
+			require.NoError(t, request.Write(clientConn))
+			awaitProxyBarrier(t, entered)
+			select {
+			case <-done:
+				t.Fatal("finite response retired admission before the buffered flush")
+			case <-time.After(30 * time.Millisecond):
+			}
+			require.Equal(t, "running", proxyAttemptStatus(t, database, deviceID))
+			awaitProxyBarrier(t, done)
+			assertNoProxyAttempt(t, database, deviceID)
+		})
+	}
 }

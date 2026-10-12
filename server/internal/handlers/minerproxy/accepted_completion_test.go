@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +23,7 @@ func TestProxyAcceptedMutationRequiresCompletionEvidence(t *testing.T) {
 			h.storeToken(target.cacheKey(), "fixture-token")
 			response := newDeadlineProxyRecorder()
 			started := false
-			err := h.writeService.WithHostAttempt(t.Context(), org, device, target.binding.WriteEpoch, func(ctx context.Context) error {
+			err := h.writeService.WithHostAttempt(t.Context(), org, device, target.binding.WriteEpoch, commandtype.Type(-1), func(ctx context.Context) error {
 				return h.forwardAndCopy(ctx, response, httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil), target, "/api/v2/mining/start", nil, &started)
 			})
 			require.NoError(t, err)

@@ -17,6 +17,7 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -128,7 +129,14 @@ func TestProxyAttemptRetainsResponseReadAndCloseLifetime(t *testing.T) {
 		h.ServeHTTP(response, source)
 		close(done)
 	}()
+	assertBindingLocked := func() {
+		ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+		defer cancel()
+		_, err := database.DB.ExecContext(ctx, "UPDATE discovered_device SET port='8081' WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)", deviceID)
+		require.Error(t, err, "response consumption and Close must retain the captured binding")
+	}
 	awaitProxyBarrier(t, body.readStarted)
+	assertBindingLocked()
 	require.Equal(t, "running", proxyAttemptStatus(t, database, deviceID))
 	fences := devicewrite.NewService(database.DB)
 	epoch, err := fences.Reserve(t.Context(), orgID, deviceID)
@@ -138,6 +146,7 @@ func TestProxyAttemptRetainsResponseReadAndCloseLifetime(t *testing.T) {
 	require.False(t, drained, "HTTP headers do not complete the admitted operation")
 	releaseRead()
 	awaitProxyBarrier(t, body.closeStarted)
+	assertBindingLocked()
 	require.Equal(t, "running", proxyAttemptStatus(t, database, deviceID))
 	drained, err = fences.Drained(t.Context(), orgID, deviceID, epoch)
 	require.NoError(t, err)
@@ -176,7 +185,7 @@ func TestProxyReservationBefore401RetrySendsNoLoginOrResend(t *testing.T) {
 	started := false
 	done := make(chan error, 1)
 	go func() {
-		done <- h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
+		done <- h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, commandtype.Type(-1), func(ctx context.Context) error {
 			return h.forwardAndCopy(ctx, response, source, target, path, nil, &started)
 		})
 	}()
@@ -218,7 +227,7 @@ func TestProxyResponseFailuresRetainUnknownOutcome(t *testing.T) {
 			source := httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil)
 			response := newDeadlineProxyRecorder()
 			started := false
-			err := h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
+			err := h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, commandtype.Type(-1), func(ctx context.Context) error {
 				return h.forwardAndCopy(ctx, response, source, target, "/api/v2/mining/start", nil, &started)
 			})
 			require.Error(t, err)
@@ -238,7 +247,7 @@ func TestProxyRejectsAmbientTransactionBeforeTransport(t *testing.T) {
 	h.httpClient = &http.Client{Transport: transport}
 	source := httptest.NewRequest(http.MethodGet, "http://fleet.test/", nil)
 	err := db.WithTransactionNoResult(t.Context(), database.DB, func(q sqlc.Querier) error {
-		return h.writeService.WithHostAttempt(db.WithTxQueries(t.Context(), q), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
+		return h.writeService.WithHostAttempt(db.WithTxQueries(t.Context(), q), orgID, deviceID, target.binding.WriteEpoch, commandtype.Type(-1), func(ctx context.Context) error {
 			response, err := h.forward(ctx, source, target, "/api/v2/system/info", nil, false)
 			if response != nil {
 				require.NoError(t, response.Body.Close())
@@ -288,7 +297,7 @@ func TestProxyFailedLoginResponseCannotCacheTokenOrForward(t *testing.T) {
 			}
 			response := newDeadlineProxyRecorder()
 			started := false
-			err = h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
+			err = h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, commandtype.Type(-1), func(ctx context.Context) error {
 				return h.forwardAndCopy(ctx, response, httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil), target, "/api/v1/system", nil, &started)
 			})
 			require.Error(t, err)
@@ -359,7 +368,7 @@ func TestProxyTransportCannotReplayAcrossReservation(t *testing.T) {
 	}
 	warm := newDeadlineProxyRecorder()
 	started := false
-	require.NoError(t, h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
+	require.NoError(t, h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, commandtype.Type(-1), func(ctx context.Context) error {
 		return h.forwardAndCopy(ctx, warm, httptest.NewRequest(http.MethodGet, "http://fleet.test/", nil), target, "/api/v2/system/info", nil, &started)
 	}))
 	require.Equal(t, "{}", warm.Body.String())
@@ -368,7 +377,7 @@ func TestProxyTransportCannotReplayAcrossReservation(t *testing.T) {
 	go func() {
 		response := newDeadlineProxyRecorder()
 		started := false
-		done <- h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
+		done <- h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, commandtype.Type(-1), func(ctx context.Context) error {
 			return h.forwardAndCopy(ctx, response, httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil), target, "/api/v2/mining/start", []byte("{}"), &started)
 		})
 	}()
@@ -500,7 +509,7 @@ func TestProxyStaleBindingWithoutEpochChangeSendsNoRequest(t *testing.T) {
 				var epoch int64
 				require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT COALESCE((SELECT epoch FROM device_write_fence WHERE device_id=$1),0)", deviceID).Scan(&epoch))
 				require.Equal(t, target.binding.WriteEpoch, epoch)
-				err = h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, epoch, func(ctx context.Context) error {
+				err = h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, epoch, commandtype.Type(-1), func(ctx context.Context) error {
 					if operation == "login" {
 						_, err := h.loginTarget(ctx, target, "proxy-fixture-password")
 						return err
@@ -518,7 +527,7 @@ func TestProxyStaleBindingWithoutEpochChangeSendsNoRequest(t *testing.T) {
 		}
 	}
 }
-func TestProxyRevalidatesAfterLoginCloseBeforeControlRequest(t *testing.T) {
+func TestProxyBindingChangeWaitsThroughLoginAndControlResponse(t *testing.T) {
 	database, orgID, deviceID, h, target := proxyFenceFixture(t)
 	encrypted, err := h.encryptService.Encrypt([]byte("proxy-fixture-password"))
 	require.NoError(t, err)
@@ -533,23 +542,33 @@ func TestProxyRevalidatesAfterLoginCloseBeforeControlRequest(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		started := false
-		done <- h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
+		done <- h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, commandtype.Type(-1), func(ctx context.Context) error {
 			return h.forwardAndCopy(ctx, newDeadlineProxyRecorder(), httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil), target, "/api/v1/system", nil, &started)
 		})
 	}()
 	awaitProxyBarrier(t, body.closeStarted)
 	require.Equal(t, "running", proxyAttemptStatus(t, database, deviceID))
-	_, err = database.DB.ExecContext(t.Context(), "UPDATE miner_credentials SET updated_at=updated_at+interval '1 second' WHERE device_id=$1", deviceID)
-	require.NoError(t, err)
+	updated := make(chan error, 1)
+	go func() {
+		_, updateErr := database.DB.ExecContext(t.Context(), "UPDATE miner_credentials SET updated_at=updated_at+interval '1 second' WHERE device_id=$1", deviceID)
+		updated <- updateErr
+	}()
+	select {
+	case updateErr := <-updated:
+		require.NoError(t, updateErr)
+		t.Fatal("credential change did not wait for the active login to close")
+	case <-time.After(50 * time.Millisecond):
+	}
 	release()
+	require.NoError(t, <-updated)
 	select {
 	case err := <-done:
-		require.Error(t, err)
+		require.NoError(t, err)
 	case <-time.After(5 * time.Second):
 		t.Fatal("proxy did not finish after login close")
 	}
-	require.Equal(t, int64(1), transport.calls.Load(), "binding must be checked again before sending the authenticated control request")
-	assertNoProxyAttempt(t, database, deviceID)
+	require.Equal(t, int64(2), transport.calls.Load(), "login and control use one locked binding until the response closes")
+	require.Equal(t, "unknown", proxyAttemptStatus(t, database, deviceID))
 	var epoch int64
 	require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT epoch FROM device_write_fence WHERE device_id=$1", deviceID).Scan(&epoch))
 	require.Equal(t, target.binding.WriteEpoch, epoch)

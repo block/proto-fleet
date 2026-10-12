@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -112,7 +113,7 @@ func TestProxyObservationFailuresDoNotPoisonDrain(t *testing.T) {
 					response = proxyFailingWriter{newDeadlineProxyRecorder()}
 				}
 				started := false
-				err := h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
+				err := h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, commandtype.Type(-1), func(ctx context.Context) error {
 					return h.forwardAndCopy(ctx, response, httptest.NewRequest(operation.method, "http://fleet.test/", nil), target, operation.path, nil, &started)
 				})
 				require.Error(t, err)
@@ -151,7 +152,7 @@ func TestProxyMutationFailuresStillPoisonDrain(t *testing.T) {
 					response = proxyFailingWriter{newDeadlineProxyRecorder()}
 				}
 				started := false
-				err := h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
+				err := h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, commandtype.Type(-1), func(ctx context.Context) error {
 					return h.forwardAndCopy(ctx, response, httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil), target, operation.path, nil, &started)
 				})
 				require.Error(t, err)
@@ -180,7 +181,7 @@ func TestProxyMutation401ThenFailedLoginRetainsUnknownOutcome(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(proxyErrorReader{})}, nil
 	})}
 	started := false
-	err = h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
+	err = h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, commandtype.Type(-1), func(ctx context.Context) error {
 		return h.forwardAndCopy(ctx, newDeadlineProxyRecorder(), httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil), target, "/api/v1/system", nil, &started)
 	})
 	require.Error(t, err)
@@ -216,7 +217,7 @@ func TestProxyMutationFailureStillBlocksRetiredIdentityReuse(t *testing.T) {
 		return nil, errors.New("fixture-network-secret")
 	})}
 	started := false
-	err := h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, func(ctx context.Context) error {
+	err := h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, commandtype.Type(-1), func(ctx context.Context) error {
 		return h.forwardAndCopy(ctx, newDeadlineProxyRecorder(), httptest.NewRequest(http.MethodPost, "http://fleet.test/", nil), target, "/api/v2/mining/start", nil, &started)
 	})
 	require.Error(t, err)

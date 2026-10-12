@@ -24,6 +24,7 @@ import (
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
@@ -229,66 +230,72 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	responseStarted := false
-	admit := h.writeService.WithHostAttempt
-	if !proxyMutatesMiner(r.Method, proxyPath) {
-		admit = h.writeService.WithHostObservation
-	}
-	err = admit(ctx, target.binding.OrgID, target.binding.ID, target.binding.WriteEpoch, func(ctx context.Context) error {
+	call := func(ctx context.Context) error {
 		return h.forwardAndCopy(ctx, w, r, target, proxyPath, body, &responseStarted)
-	})
+	}
+	if proxyMutatesMiner(r.Method, proxyPath) {
+		// Raw endpoints have no qualified command kind or completion contract.
+		err = h.writeService.WithHostAttempt(ctx, target.binding.OrgID, target.binding.ID, target.binding.WriteEpoch, commandtype.Type(-1), call)
+	} else {
+		err = h.writeService.WithHostObservation(ctx, target.binding.OrgID, target.binding.ID, target.binding.WriteEpoch, call)
+	}
 	if err != nil && !responseStarted {
 		writeError(w, httpStatusForError(err), clientMessageForError(err))
 	}
 }
 
-func (h *Handler) forwardAndCopy(ctx context.Context, w http.ResponseWriter, r *http.Request, target proxyTarget, proxyPath string, body []byte, responseStarted *bool) (resultErr error) {
-	// An upstream timeout cannot interrupt a blocked downstream Write. Bound
-	// the response before forwarding any miner request, including cancellation.
-	writeTimeout := h.clientFor(target.baseURL).Timeout
-	if writeTimeout <= 0 {
-		writeTimeout = proxyClientTimeout
-	}
-	finishResponse, err := boundProxyResponse(ctx, w, writeTimeout)
-	if err != nil {
-		return err
-	}
-	defer finishResponse()
-	resp, err := h.forward(ctx, r, target, proxyPath, body, false)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if resp == nil {
-			return
+func (h *Handler) forwardAndCopy(ctx context.Context, w http.ResponseWriter, r *http.Request, target proxyTarget, proxyPath string, body []byte, responseStarted *bool) error {
+	return h.writeService.WithBindingTransaction(ctx, func(ctx context.Context, _ sqlc.Querier) (resultErr error) {
+		// An upstream timeout cannot interrupt a blocked downstream Write. Bound
+		// the response before forwarding any miner request, including cancellation.
+		writeTimeout := h.clientFor(target.baseURL).Timeout
+		if writeTimeout <= 0 {
+			writeTimeout = proxyClientTimeout
 		}
-		if err := resp.Body.Close(); err != nil && resultErr == nil {
-			resultErr = fleeterror.NewUnavailableErrorf("miner response could not be closed")
-		}
-	}()
-	if resp.StatusCode == http.StatusUnauthorized && target.hasCredentials() && requiresMinerAuthentication(proxyPath) {
-		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
-			return fleeterror.NewUnavailableErrorf("miner response could not be consumed")
-		}
-		h.clearToken(target.cacheKey())
-		if err := resp.Body.Close(); err != nil {
-			return fleeterror.NewUnavailableErrorf("miner response could not be closed")
-		}
-		resp, err = h.forward(ctx, r, target, proxyPath, body, true)
+		finishResponse, err := boundProxyResponse(ctx, w, writeTimeout)
 		if err != nil {
 			return err
 		}
-	}
-	copyResponseHeaders(w.Header(), resp.Header)
-	setResponseHardeningHeaders(w.Header())
-	*responseStarted = true
-	w.WriteHeader(resp.StatusCode)
-	if r.Method == http.MethodHead {
+		defer finishResponse()
+		resp, err := h.forward(ctx, r, target, proxyPath, body, false)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if resp == nil {
+				return
+			}
+			if err := resp.Body.Close(); err != nil && resultErr == nil {
+				resultErr = fleeterror.NewUnavailableErrorf("miner response could not be closed")
+			}
+		}()
+		if resp.StatusCode == http.StatusUnauthorized && target.hasCredentials() && requiresMinerAuthentication(proxyPath) {
+			if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+				return fleeterror.NewUnavailableErrorf("miner response could not be consumed")
+			}
+			h.clearToken(target.cacheKey())
+			if err := resp.Body.Close(); err != nil {
+				return fleeterror.NewUnavailableErrorf("miner response could not be closed")
+			}
+			resp, err = h.forward(ctx, r, target, proxyPath, body, true)
+			if err != nil {
+				return err
+			}
+		}
+		copyResponseHeaders(w.Header(), resp.Header)
+		setResponseHardeningHeaders(w.Header())
+		*responseStarted = true
+		w.WriteHeader(resp.StatusCode)
+		if r.Method != http.MethodHead {
+			if _, err := io.Copy(w, resp.Body); err != nil {
+				return fleeterror.NewUnavailableErrorf("miner response stream did not complete")
+			}
+		}
+		if err := http.NewResponseController(w).Flush(); err != nil {
+			return fleeterror.NewUnavailableErrorf("miner response could not be flushed")
+		}
 		return nil
-	}
-	if _, err := io.Copy(w, resp.Body); err != nil {
-		return fleeterror.NewUnavailableErrorf("miner response stream did not complete")
-	}
-	return nil
+	})
 }
 
 func boundProxyResponse(ctx context.Context, w http.ResponseWriter, timeout time.Duration) (func(), error) {
@@ -303,11 +310,11 @@ func boundProxyResponse(ctx context.Context, w http.ResponseWriter, timeout time
 	})
 	return func() {
 		// A stopped callback may already be setting the deadline. Join it before
-		// resetting the connection or returning its writer to the HTTP server.
+		// returning the writer. The HTTP server clears the deadline after its
+		// final buffered write, so retain it through that finalization.
 		if !stop() {
 			<-interrupted
 		}
-		_ = controller.SetWriteDeadline(time.Time{})
 	}, nil
 }
 
@@ -389,10 +396,11 @@ func (h *Handler) resolveTarget(ctx context.Context, deviceIdentifier string, or
 	return proxyTarget{
 		binding: row,
 		dispatch: func(ctx context.Context, mutation bool, call func(context.Context) error) error {
-			if err := h.revalidateTarget(ctx, row); err != nil {
-				return err
+			validate := func(q sqlc.Querier) error { return h.revalidateTarget(ctx, q, row) }
+			if mutation {
+				return h.writeService.WithBindingDispatch(ctx, row.ID, validate, call)
 			}
-			return dispatchProxyOperation(ctx, mutation, call)
+			return h.writeService.WithBindingObservation(ctx, row.ID, validate, call)
 		},
 		deviceIdentifier: row.DeviceIdentifier,
 		baseURL:          base.String(),
@@ -543,8 +551,8 @@ func (h *Handler) loginTarget(ctx context.Context, target proxyTarget, password 
 	return token, err
 }
 
-func (h *Handler) revalidateTarget(ctx context.Context, binding sqlc.GetDirectProtoMinerProxyTargetRow) error {
-	fresh, err := h.queries.GetDirectProtoMinerProxyTarget(ctx, sqlc.GetDirectProtoMinerProxyTargetParams{DeviceIdentifier: binding.DeviceIdentifier, OrgID: binding.OrgID})
+func (h *Handler) revalidateTarget(ctx context.Context, q sqlc.Querier, binding sqlc.GetDirectProtoMinerProxyTargetRow) error {
+	fresh, err := q.GetDirectProtoMinerProxyTarget(ctx, sqlc.GetDirectProtoMinerProxyTargetParams{DeviceIdentifier: binding.DeviceIdentifier, OrgID: binding.OrgID})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fleeterror.NewFailedPreconditionError("miner proxy connection changed")
@@ -562,15 +570,6 @@ func (h *Handler) dispatchTarget(ctx context.Context, target proxyTarget, mutati
 		return fleeterror.NewFailedPreconditionError("miner proxy target admission missing")
 	}
 	return target.dispatch(ctx, mutation, call)
-}
-
-// Binding validation precedes this dispatch; both kinds retain the attempt's
-// durable ownership check immediately before transport I/O.
-func dispatchProxyOperation(ctx context.Context, mutation bool, call func(context.Context) error) error {
-	if mutation {
-		return devicewrite.Dispatch(ctx, call)
-	}
-	return devicewrite.Observe(ctx, call)
 }
 
 // The authorization contract already distinguishes observations, including

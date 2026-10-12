@@ -18,6 +18,7 @@ import (
 	"connectrpc.com/authn"
 
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
@@ -931,4 +932,13 @@ func TestAccountSelectionDeniesRawMinerProxy(t *testing.T) {
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("account-selected proxy status = %d, want 403", response.Code)
 	}
+}
+
+// Forwarding unit fixtures omit the SQL target resolver; production targets
+// acquire binding locks before either kind of transport call.
+func dispatchProxyOperation(ctx context.Context, mutation bool, call func(context.Context) error) error {
+	if mutation {
+		return devicewrite.Dispatch(ctx, call)
+	}
+	return devicewrite.Observe(ctx, call)
 }

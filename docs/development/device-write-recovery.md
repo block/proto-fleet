@@ -184,8 +184,8 @@ update statuses to get out of a block.
 
 The miner proxy commits `observation` admission before forwarding endpoints
 classified as reads by its authorization contract. The admitted context cannot
-dispatch a mutation. Response reads, downstream writes, and upstream body close
-remain inside that admission's lifetime. A completed read removes its transient
+dispatch a mutation. The captured binding stays locked through login, forwarding, response reads,
+downstream flush and upstream body close. All of these remain inside admission. A completed read removes its transient
 admission; process interruption or failed completion leaves a running record.
 
 Recover that record only after authoritative termination of its recorded owner

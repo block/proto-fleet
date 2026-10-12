@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/stretchr/testify/require"
@@ -22,7 +23,7 @@ func TestCompletedObservationsRetireDirectAdmission(t *testing.T) {
 				outcome = errors.New("observation failed after no physical mutation")
 			}
 			for range 20 {
-				err := service.WithHostAttempt(t.Context(), orgID, deviceID, 0, func(ctx context.Context) error {
+				err := service.WithHostAttempt(t.Context(), orgID, deviceID, 0, commandtype.Type(-1), func(ctx context.Context) error {
 					return devicewrite.Observe(ctx, func(context.Context) error { return outcome })
 				})
 				if failed {
@@ -73,13 +74,13 @@ func TestObservationCleanupPreservesDurableEvidence(t *testing.T) {
 			var status string
 			require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT status FROM device_write_attempt WHERE device_id=$1", deviceID).Scan(&status))
 			want := "complete"
-			if kind == "unknown mutation" {
+			if kind == "successful mutation" || kind == "unknown mutation" {
 				want = "unknown"
 			} else if kind == "running observation" {
 				want = "running"
 			}
 			require.Equal(t, want, status)
-			if kind == "unknown mutation" {
+			if kind == "successful mutation" || kind == "unknown mutation" {
 				_, err := service.Reserve(t.Context(), orgID, deviceID)
 				require.Error(t, err)
 			} else if kind == "running observation" {

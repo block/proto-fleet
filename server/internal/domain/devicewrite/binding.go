@@ -26,6 +26,16 @@ func (s *Service) WithBindingTransaction(ctx context.Context, call func(context.
 // its callback performs external I/O. Cancellation must not release its locks
 // while a context-ignoring adapter is still running.
 func (s *Service) WithBindingDispatch(ctx context.Context, deviceID int64, validate func(sqlc.Querier) error, call func(context.Context) error) error {
+	return s.withBindingDispatch(ctx, deviceID, true, validate, call)
+}
+
+// WithBindingObservation holds the same binding locks for a read without marking
+// a physical mutation. Its caller must retain committed admission through I/O.
+func (s *Service) WithBindingObservation(ctx context.Context, deviceID int64, validate func(sqlc.Querier) error, call func(context.Context) error) error {
+	return s.withBindingDispatch(ctx, deviceID, false, validate, call)
+}
+
+func (s *Service) withBindingDispatch(ctx context.Context, deviceID int64, mutation bool, validate func(sqlc.Querier) error, call func(context.Context) error) error {
 	invoked := false
 	err := s.WithBindingTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
 		discoveryID, err := q.LockMinerBindingDevice(ctx, deviceID)
@@ -50,7 +60,7 @@ func (s *Service) WithBindingDispatch(ctx context.Context, deviceID int64, valid
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("dispatch binding canceled: %w", err)
 		}
-		return Dispatch(ctx, func(ctx context.Context) error { invoked = true; return call(ctx) })
+		return dispatch(ctx, func(ctx context.Context) error { invoked = true; return call(ctx) }, mutation)
 	})
 	if !invoked {
 		return NotDispatched(err)

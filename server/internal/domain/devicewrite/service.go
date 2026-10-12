@@ -245,8 +245,8 @@ func RecheckContext(ctx context.Context) error {
 	return attempt.Recheck(ctx)
 }
 
-// Dispatch checks ownership immediately before a mutation. Neither a nil SDK
-// result nor an HTTP/Fleet Node acknowledgement certifies physical completion.
+// Dispatch checks ownership immediately before a mutation. The enclosing
+// attempt classifies whether a returned call can establish completion.
 func Dispatch(ctx context.Context, operation func(context.Context) error) error {
 	return dispatch(ctx, operation, true)
 }
