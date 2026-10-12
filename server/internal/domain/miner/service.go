@@ -129,6 +129,12 @@ func (s *Service) GetMinerFromDeviceIdentifier(ctx context.Context, deviceID mod
 	return s.getMinerFromDeviceIdentifier(ctx, deviceID, nil, true)
 }
 
+// GetMinerForDeletion captures the current binding before soft-delete.
+// Cached read handles may predate changes and cannot match the deletion permit.
+func (s *Service) GetMinerForDeletion(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, error) {
+	return s.getMinerFromDeviceIdentifier(ctx, deviceID, nil, false)
+}
+
 // GetMinerForCommand resolves the current binding once for a new execution.
 // Cached read handles can predate a site, route, credential or epoch change;
 // they remain independently guarded and must not be refreshed during dispatch.

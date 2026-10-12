@@ -1718,7 +1718,7 @@ func (s *Service) ResolveDeviceIdentifiers(ctx context.Context, selector *pb.Dev
 func (s *Service) collectProtoMinersForUnpair(ctx context.Context, deviceIdentifiers []string) []minerInterfaces.Miner {
 	var miners []minerInterfaces.Miner
 	for _, id := range deviceIdentifiers {
-		m, err := s.minerService.GetMinerFromDeviceIdentifier(ctx, mm.DeviceIdentifier(id))
+		m, err := s.minerService.GetMinerForDeletion(ctx, mm.DeviceIdentifier(id))
 		if err != nil {
 			slog.Debug("skipping Unpair for device", "deviceID", id, "error", err)
 			continue
