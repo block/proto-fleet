@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 
 import { create } from "@bufbuild/protobuf";
@@ -26,6 +26,11 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
   const [errors, setErrors] = useState<Values>(deepClone(initValues));
   const [apiError, setApiError] = useState<string | null>(null);
   const login = useLogin();
+  const [lifetime] = useState(() => ({ controller: new AbortController() }));
+  useEffect(() => {
+    if (lifetime.controller.signal.aborted) lifetime.controller = new AbortController();
+    return () => lifetime.controller.abort();
+  }, [lifetime]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const setTemporaryPassword = useSetTemporaryPassword();
 
@@ -42,6 +47,7 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
   const handleContinue = useCallback(() => {
     setIsSubmitting(true);
     login({
+      signal: lifetime.controller.signal,
       loginRequest: create(AuthenticateRequestSchema, {
         username: values.username,
         password: values.password,
@@ -55,7 +61,7 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
       onError: () => setApiError("Invalid credentials entered."),
       onFinally: () => setIsSubmitting(false),
     });
-  }, [login, values.username, values.password, onSuccess, setTemporaryPassword]);
+  }, [login, lifetime, values.username, values.password, onSuccess, setTemporaryPassword]);
 
   const handleEnter = useCallback(() => {
     if (isSubmitting) {

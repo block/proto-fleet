@@ -20,6 +20,8 @@ export interface NavItem {
   // permission; a nested string[] is an AND-group (all its keys required).
   requiredAnyPermission?: (string | string[])[];
   scopable?: boolean;
+  // Directory entries need exact matching when their child workspaces have their own nav.
+  exact?: boolean;
 }
 
 export interface SecondaryNavItem {

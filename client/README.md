@@ -484,3 +484,30 @@ All shared components have Storybook stories, support light/dark themes, and inc
 - [Vite](https://vitejs.dev/guide/)
 - [Tailwind CSS](https://tailwindcss.com/docs/utility-first)
 - [Recharts](https://release--63da8268a0da9970db6992aa.chromatic.com/?path=/docs/welcome--docs)
+
+### Hosted account workspaces
+
+Fleet’s account picker opens `/accounts/:accountId/:section`, with overview,
+team, pool configurations, access and direct customer/subclient pages according
+to the API’s effective capabilities. The root hosting account uses its
+directory summary for customer administration; private account reads apply
+to customers and subclients. `/accounts` lists accessible workspaces.
+These routes reuse the Fleet layout and shared components without mounting
+host fleet providers; host curtailment and fleet commands keep their existing
+organization scope. Account RPC clients capture `X-Fleet-Account-ID` for the
+page lifetime and abort when the account or login changes.
+
+Invitation links use `/account-invitation#token=…`. The page removes the fragment
+from the address bar, supports existing Fleet logins and invited registration,
+and requires the original link again after a reload. Invitation links and new
+API-key secrets are shown once for manual copying. Saved pool passwords are
+never read back; a revision can retain them only for unchanged slot destinations
+and usernames. Incoming profiles pin an immutable revision and require the
+current login password when changed.
+
+Ancestor grants can be created for the direct parent and updated for existing
+ancestors. Creating a subclient’s first grant to the hosting root needs ancestor
+metadata that the current API does not expose.
+
+Account inventory/history and miner assignment or pool application controls
+await their corresponding client APIs and are not exposed by these pages.

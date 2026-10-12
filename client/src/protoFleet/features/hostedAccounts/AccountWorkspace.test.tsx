@@ -1,0 +1,158 @@
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { create, toJson } from "@bufbuild/protobuf";
+import userEvent from "@testing-library/user-event";
+import AccountWorkspace from "./AccountWorkspace";
+import { HostedAccountsContext } from "./HostedAccountsContext";
+import { AccountRole, AccountSchema } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
+import { useFleetStore } from "@/protoFleet/store";
+
+const rootId = "99999999-9999-4999-8999-999999999999";
+const accountId = "11111111-1111-4111-8111-111111111111";
+const initialAuth = useFleetStore.getState().auth;
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  useFleetStore.setState({ auth: initialAuth });
+});
+function mount(
+  account = create(AccountSchema, {
+    accountId: rootId,
+    name: "Host",
+    depth: 0,
+    effectiveCapabilities: 16n,
+    capabilityCeiling: 31n,
+  }),
+  section = "children",
+) {
+  const refresh = vi.fn();
+  render(
+    <MemoryRouter initialEntries={[`/accounts/${account.accountId}/${section}`]}>
+      <HostedAccountsContext.Provider
+        value={{ accounts: [account], hostAccess: account.depth === 0, loading: false, error: null, refresh }}
+      >
+        <Routes>
+          <Route path="/accounts/:accountId/:section?" element={<AccountWorkspace />} />
+        </Routes>
+      </HostedAccountsContext.Provider>
+    </MemoryRouter>,
+  );
+  return refresh;
+}
+const fetchRpc = (reply: (method: string, body: Record<string, unknown>) => unknown) => {
+  const calls: { method: string; body: Record<string, unknown>; account: string | null }[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const method = String(input).split("/").slice(-1)[0];
+      const body = init?.body ? JSON.parse(new TextDecoder().decode(init.body as Uint8Array)) : {};
+      calls.push({ method, body, account: new Headers(init?.headers).get("X-Fleet-Account-ID") });
+      const response = reply(method, body);
+      return new Response(JSON.stringify(response), { headers: { "Content-Type": "application/json" } });
+    }),
+  );
+  return calls;
+};
+describe("real account workspace routing", () => {
+  it("opens host administration and creates a customer using the root ceiling", async () => {
+    const calls = fetchRpc((method) => {
+      if (method === "GetAccount") throw new Error("Root is not a private customer account");
+      return method === "ListChildren" ? { accounts: [] } : {};
+    });
+    const user = userEvent.setup();
+    mount();
+    await user.click(await screen.findByRole("button", { name: "Create customer" }));
+    const dialog = screen.getByRole("dialog", { name: "Create account" });
+    expect(within(dialog).getByRole("checkbox", { name: "View account data" })).toBeDisabled();
+    expect(within(dialog).getByRole("checkbox", { name: "Manage memberships" })).toBeDisabled();
+    expect(within(dialog).getByRole("checkbox", { name: "Manage memberships" })).toBeChecked();
+    await user.type(within(dialog).getByLabelText("Account name"), "Customer A");
+    await user.click(within(dialog).getByRole("button", { name: "Create account" }));
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: "CreateAccount",
+        account: rootId,
+        body: { accountId: rootId, name: "Customer A", capabilities: "31" },
+      }),
+    );
+    expect(calls.some((c) => c.method === "GetAccount")).toBe(false);
+  });
+  it("preserves a one-time key on a transient focus refresh, then clears on denied access", async () => {
+    const account = create(AccountSchema, {
+      accountId,
+      parentAccountId: rootId,
+      depth: 1,
+      name: "Customer",
+      role: AccountRole.ADMINISTRATOR,
+      effectiveCapabilities: 31n,
+      capabilityCeiling: 31n,
+    });
+    let failure = "";
+    fetchRpc((method) => {
+      if (method === "GetAccount") return { account: toJson(AccountSchema, account) };
+      return method === "CreateAccountKey" ? { secret: "one-time-key" } : {};
+    });
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+        if (String(input).endsWith("/GetAccount") && failure)
+          return Promise.resolve(
+            new Response(JSON.stringify({ code: failure, message: "Refresh failed" }), {
+              status: failure === "unavailable" ? 503 : 403,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
+        return originalFetch(input, init);
+      }),
+    );
+    const user = userEvent.setup();
+    mount(account, "access");
+    await user.click(await screen.findByRole("button", { name: "Create account key" }));
+    await user.type(screen.getByLabelText("Key name"), "Reporting");
+    await user.click(screen.getByRole("button", { name: "Create key" }));
+    expect(await screen.findByLabelText("Secret")).toHaveValue("one-time-key");
+    failure = "unavailable";
+    act(() => window.dispatchEvent(new Event("focus")));
+    await screen.findByText(/Refresh failed/);
+    expect(screen.getByLabelText("Secret")).toHaveValue("one-time-key");
+    failure = "";
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(screen.queryByText(/Refresh failed/)).not.toBeInTheDocument());
+    expect(screen.getByLabelText("Secret")).toHaveValue("one-time-key");
+    failure = "permission_denied";
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(screen.queryByLabelText("Secret")).not.toBeInTheDocument());
+  });
+  it("discards forms and secrets when the login changes on the same account route", async () => {
+    fetchRpc((method) =>
+      method === "GetAccount"
+        ? {
+            account: {
+              accountId,
+              parentAccountId: rootId,
+              depth: 1,
+              name: "Customer",
+              effectiveCapabilities: "1",
+              capabilityCeiling: "31",
+              role: 1,
+            },
+          }
+        : method === "CreateAccountKey"
+          ? { secret: "old-login-secret" }
+          : {},
+    );
+    const user = userEvent.setup();
+    mount(create(AccountSchema, { accountId, depth: 1 }), "access");
+    await user.click(await screen.findByRole("button", { name: "Create account key" }));
+    await user.type(screen.getByLabelText("Key name"), "Reporting");
+    await user.click(screen.getByRole("button", { name: "Create key" }));
+    await screen.findByLabelText("Secret");
+    act(() =>
+      useFleetStore.setState({ auth: { ...initialAuth, sessionGeneration: initialAuth.sessionGeneration + 1 } }),
+    );
+    expect(screen.queryByLabelText("Secret")).not.toBeInTheDocument();
+    await screen.findByRole("button", { name: "Create account key" });
+  });
+});

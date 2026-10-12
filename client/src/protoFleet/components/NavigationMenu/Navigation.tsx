@@ -6,25 +6,29 @@ import type { NavigationRail } from "./useNavigationRail";
 import { useLogoutAction } from "@/protoFleet/api/useLogout";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { isNavItemAllowedByPermissions, NavItem, secondaryNavItems } from "@/protoFleet/config/navItems";
+import { useHostedAccounts } from "@/protoFleet/features/hostedAccounts/HostedAccountsContext";
 import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { scopedPath, unscopedScopablePath } from "@/protoFleet/routing/siteScope";
 import { usePermissions, useRole, useUsername } from "@/protoFleet/store";
-import { ArrowLeftCompact, LogoAlt } from "@/shared/assets/icons";
+import { ArrowLeftCompact, Groups, LogoAlt } from "@/shared/assets/icons";
 import MorphingPlusMinus from "@/shared/components/MorphingPlusMinus";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
 import { stripLeadingSlash } from "@/shared/utils/stringUtils";
 
+const accountsNavItem: NavItem = { path: "/accounts", label: "Accounts", icon: Groups };
+
 type NavigationProps = {
   items: NavItem[];
+  roleLabel?: string;
   className?: string;
   isFloatingMenu?: boolean;
   rail?: NavigationRail;
   closeMenu?: () => void;
 };
 
-const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail }: NavigationProps) => {
+const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail, roleLabel }: NavigationProps) => {
   const { pathname } = useLocation();
   const isExpanded = rail?.isExpanded ?? false;
   const handleNavigate = () => {
@@ -33,7 +37,8 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail 
   };
   const logout = useLogoutAction();
   const username = useUsername();
-  const role = formatRole(useRole());
+  const fleetRole = useRole();
+  const role = roleLabel ?? formatRole(fleetRole);
   const accountIdentity = role ? `${username} · ${role}` : username;
   const permissions = usePermissions();
   const featureEnabled = useNavFeatureEnabled();
@@ -45,9 +50,14 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail 
   const scopeLink = (item: Pick<NavItem, "path" | "scopable">) =>
     item.scopable && canScopeToSite ? scopedPath(item.path, activeSite) : item.path;
   const [settingsManuallyToggled, setSettingsManuallyToggled] = useState(false);
+  const directory = useHostedAccounts();
   const visibleItems = useMemo(
-    () => items.filter((item) => isNavItemAllowedByPermissions(item, permissions)),
-    [items, permissions],
+    () =>
+      [
+        ...items,
+        ...(directory?.accounts.length && items.some((item) => item.path === "/settings") ? [accountsNavItem] : []),
+      ].filter((item) => isNavItemAllowedByPermissions(item, permissions)),
+    [items, permissions, directory?.accounts.length],
   );
   const [showSettingsHover, setShowSettingsHover] = useState(false);
 
@@ -96,7 +106,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail 
     setShowSettingsHover(hover);
   }, []);
 
-  const isCurrentPath = (item: string | Pick<NavItem, "path" | "scopable">) => {
+  const isCurrentPath = (item: string | Pick<NavItem, "path" | "scopable" | "exact">) => {
     if (typeof item === "string") {
       const _pathname = stripLeadingSlash(pathname);
       const _path = stripLeadingSlash(item);
@@ -106,7 +116,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail 
     const _pathname = stripLeadingSlash(item.scopable ? unscopedScopablePath(pathname) : pathname);
     const path = item.path;
     const _path = stripLeadingSlash(path);
-    return _pathname === _path || _pathname.startsWith(`${_path}/`);
+    return _pathname === _path || (!item.exact && _pathname.startsWith(`${_path}/`));
   };
 
   return (
