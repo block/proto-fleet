@@ -11,6 +11,13 @@ command succeeded. The allocation controller must fence conflicting writes,
 drain active calls, and apply and verify the incoming configuration before
 activating its owner. Host curtailment remains fleet-wide.
 
+The direct miner proxy uses this same completion contract for allowlisted MDKv2
+start/stop (including scoped mining), target power, and container switches and
+setpoints. An explicit HTTP 202 response remains unresolved. Generic v1 writes,
+run-in jobs, identify-LED calls, and isolation changes remain unclassified.
+Completion still waits for response consumption, downstream flush, and body close;
+a later completed control never clears an earlier unresolved attempt.
+
 Reboot, firmware installation, Unpair, and unclassified operations retain
 `unknown` attempts after dispatch, including successful acknowledgements, because
 they do not use this configuration-write completion contract. A failed plugin RPC

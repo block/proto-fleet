@@ -234,8 +234,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return h.forwardAndCopy(ctx, w, r, target, proxyPath, body, &responseStarted)
 	}
 	if proxyMutatesMiner(r.Method, proxyPath) {
-		// Raw endpoints have no qualified command kind or completion contract.
-		err = h.writeService.WithHostAttempt(ctx, target.binding.OrgID, target.binding.ID, target.binding.WriteEpoch, commandtype.Type(-1), call)
+		// Reuse the typed command completion contract for known synchronous controls.
+		err = h.writeService.WithHostAttempt(ctx, target.binding.OrgID, target.binding.ID, target.binding.WriteEpoch, proxyCommandKind(r.Method, proxyPath), call)
 	} else {
 		err = h.writeService.WithHostObservation(ctx, target.binding.OrgID, target.binding.ID, target.binding.WriteEpoch, call)
 	}
@@ -281,6 +281,16 @@ func (h *Handler) forwardAndCopy(ctx context.Context, w http.ResponseWriter, r *
 			if err != nil {
 				return err
 			}
+		}
+		if resp.StatusCode == http.StatusAccepted && proxyMutatesMiner(r.Method, proxyPath) {
+			// An explicit asynchronous acknowledgement overrides the endpoint's
+			// ordinary synchronous contract, even if response copying fails.
+			defer func() {
+				if resultErr == nil {
+					resultErr = fleeterror.NewUnavailableErrorf("miner operation is still pending")
+				}
+				resultErr = devicewrite.UncertainDelivery(resultErr)
+			}()
 		}
 		copyResponseHeaders(w.Header(), resp.Header)
 		setResponseHardeningHeaders(w.Header())
@@ -447,16 +457,21 @@ func (h *Handler) forward(
 	}
 
 	var resp *http.Response
+	var callErr error
 	err = h.dispatchTarget(ctx, target, proxyMutatesMiner(source.Method, proxyPath), func(ctx context.Context) error {
-		var callErr error
 		//nolint:bodyclose // forwardAndCopy closes the returned response within the admitted attempt.
 		resp, callErr = h.clientFor(target.baseURL).Do(req.WithContext(ctx))
 		if callErr != nil {
-			return fleeterror.NewUnavailableErrorf("failed to reach miner")
+			return fmt.Errorf("miner proxy transport: %w", callErr)
 		}
 		return nil
 	})
 	if err != nil {
+		if callErr != nil {
+			// Dispatch records any explicit delivery uncertainty before the
+			// transport error is sanitized for the HTTP client.
+			return nil, fleeterror.NewUnavailableErrorf("failed to reach miner")
+		}
 		return nil, err
 	}
 	return resp, nil
@@ -709,6 +724,8 @@ type v2Endpoint struct {
 	method       string
 	rest         string
 	requiresAuth bool
+	// nil keeps unclassified operations conservative; zero is StartMining.
+	commandKind *commandtype.Type
 }
 
 // proxyPath returns the canonical upstream path this endpoint forwards to.
@@ -717,11 +734,10 @@ func (e v2Endpoint) proxyPath() string {
 }
 
 // v2AllowlistedEndpoints is the single source of truth for which MDK v2
-// endpoints the proxy accepts and whether each needs miner authentication. Both
-// the allowlist decision (proxyPathFor) and the auth decision
-// (requiresMinerAuthentication) derive from this one table so they cannot drift
-// apart. CT1 endpoints do not use MDK v1 login; Fleet still authenticates the
-// caller, validates the miner target, and checks the operation permissions.
+// endpoints the proxy accepts, their miner authentication, and any qualified
+// synchronous command contract. Unclassified mutations retain recovery evidence.
+// CT1 endpoints do not use MDK v1 login; Fleet still authenticates the caller,
+// validates the miner target, and checks the operation permissions.
 var v2AllowlistedEndpoints = []v2Endpoint{
 	{method: http.MethodGet, rest: "system/info", requiresAuth: false},
 	{method: http.MethodGet, rest: "system/status", requiresAuth: false},
@@ -735,25 +751,25 @@ var v2AllowlistedEndpoints = []v2Endpoint{
 	{method: http.MethodGet, rest: "pools/diagnostics", requiresAuth: false},
 	{method: http.MethodGet, rest: "power/container/controls", requiresAuth: false},
 	{method: http.MethodGet, rest: "hashboards/*/asics", requiresAuth: false},
-	{method: http.MethodPut, rest: "mining/target-power", requiresAuth: false},
-	{method: http.MethodPost, rest: "mining/start", requiresAuth: false},
-	{method: http.MethodPost, rest: "mining/stop", requiresAuth: false},
-	{method: http.MethodPost, rest: "mining/scoped/start", requiresAuth: false},
-	{method: http.MethodPost, rest: "mining/scoped/stop", requiresAuth: false},
+	{method: http.MethodPut, rest: "mining/target-power", requiresAuth: false, commandKind: new(commandtype.SetPowerTarget)},
+	{method: http.MethodPost, rest: "mining/start", requiresAuth: false, commandKind: new(commandtype.StartMining)},
+	{method: http.MethodPost, rest: "mining/stop", requiresAuth: false, commandKind: new(commandtype.StopMining)},
+	{method: http.MethodPost, rest: "mining/scoped/start", requiresAuth: false, commandKind: new(commandtype.SetTankMining)},
+	{method: http.MethodPost, rest: "mining/scoped/stop", requiresAuth: false, commandKind: new(commandtype.SetTankMining)},
 	{method: http.MethodPost, rest: "hashboards/identify-led", requiresAuth: false},
 	{method: http.MethodPost, rest: "mining/isolation", requiresAuth: false},
 	{method: http.MethodPost, rest: "modules/*/run-in", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/controls/coolant_pump", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/controls/dry_cooler", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/controls/dry_cooler_auto", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/controls/tank_led_light", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/controls/air_conditioner_1", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/controls/air_conditioner_2", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/setpoints/coolant_pump_speed_hz", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/setpoints/dry_cooler_auto_temp_c", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/setpoints/dry_cooler_manual_speed_percent", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/setpoints/air_conditioner_1_temp_c", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/setpoints/air_conditioner_2_temp_c", requiresAuth: false},
+	{method: http.MethodPost, rest: "power/container/controls/coolant_pump", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/controls/dry_cooler", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/controls/dry_cooler_auto", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/controls/tank_led_light", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/controls/air_conditioner_1", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/controls/air_conditioner_2", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/setpoints/coolant_pump_speed_hz", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/setpoints/dry_cooler_auto_temp_c", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/setpoints/dry_cooler_manual_speed_percent", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/setpoints/air_conditioner_1_temp_c", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/setpoints/air_conditioner_2_temp_c", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
 }
 
 // lookupV2Endpoint returns the allowlisted v2 endpoint for a {method, rest}, if
@@ -765,6 +781,18 @@ func lookupV2Endpoint(method string, rest string) (v2Endpoint, bool) {
 		}
 	}
 	return v2Endpoint{}, false
+}
+
+// proxyCommandKind qualifies only exact allowlisted v2 method/path pairs.
+// Generic v1 writes and asynchronous or unclassified v2 endpoints default to
+// unresolved; adding an endpoint does not opt it into synchronous completion.
+func proxyCommandKind(method, proxyPath string) commandtype.Type {
+	if rest, ok := strings.CutPrefix(proxyPath, "/api/v2/"); ok {
+		if endpoint, ok := lookupV2Endpoint(method, rest); ok && endpoint.commandKind != nil {
+			return *endpoint.commandKind
+		}
+	}
+	return commandtype.Type(-1)
 }
 
 // requiresMinerAuthentication keeps the existing MDK v1 bearer-token behavior

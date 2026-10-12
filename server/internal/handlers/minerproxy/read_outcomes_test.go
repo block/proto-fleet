@@ -129,9 +129,9 @@ func TestProxyObservationFailuresDoNotPoisonDrain(t *testing.T) {
 	}
 }
 
-func TestProxyMutationFailuresStillPoisonDrain(t *testing.T) {
+func TestProxyUnclassifiedMutationFailuresStillPoisonDrain(t *testing.T) {
 	for _, operation := range []struct{ name, path string }{
-		{"control", "/api/v2/mining/start"}, {"logs-POST", "/api/v1/system/logs/download"}, {"unknown-POST", "/api/v1/new-setting"},
+		{"run-in", "/api/v2/modules/T1-M01/run-in"}, {"logs-POST", "/api/v1/system/logs/download"}, {"unknown-POST", "/api/v1/new-setting"},
 	} {
 		for _, failure := range []string{"read", "close", "copy", "network"} {
 			t.Run(operation.name+"/"+failure, func(t *testing.T) {

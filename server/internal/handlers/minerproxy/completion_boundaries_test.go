@@ -15,7 +15,7 @@ import (
 )
 
 func TestProxyBindingChangeWaitsForTransportReturn(t *testing.T) {
-	for _, operation := range []string{"read", "timeseries", "login", "mutation", "canceled read"} {
+	for _, operation := range []string{"read", "timeseries", "login", "mutation", "ordered mutation", "canceled read"} {
 		t.Run(operation, func(t *testing.T) {
 			database, orgID, deviceID, h, target := proxyFenceFixture(t)
 			entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
@@ -33,6 +33,11 @@ func TestProxyBindingChangeWaitsForTransportReturn(t *testing.T) {
 				request.Method = http.MethodPost
 				request.SetPathValue("apiVersion", "v1")
 				request.SetPathValue("rest", map[string]string{"timeseries": "timeseries", "login": "auth/login"}[operation])
+			}
+			if operation == "ordered mutation" {
+				request.Method = http.MethodPost
+				request.SetPathValue("rest", "mining/start")
+				expectedKind = "mutation"
 			}
 			if operation == "mutation" {
 				request.Method = http.MethodPost
@@ -62,6 +67,10 @@ func TestProxyBindingChangeWaitsForTransportReturn(t *testing.T) {
 				require.Equal(t, "unknown", proxyAttemptStatus(t, database, deviceID))
 				_, err = h.writeService.Reserve(t.Context(), orgID, deviceID)
 				require.Error(t, err)
+			} else if operation == "ordered mutation" {
+				require.Equal(t, "complete", proxyAttemptStatus(t, database, deviceID))
+				_, err = h.writeService.Reserve(t.Context(), orgID, deviceID)
+				require.NoError(t, err)
 			} else {
 				assertNoProxyAttempt(t, database, deviceID)
 			}
