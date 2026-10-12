@@ -8,6 +8,8 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+
+	"github.com/lib/pq"
 )
 
 const getDeviceWithCredentialsAndIPByDeviceIdentifier = `-- name: GetDeviceWithCredentialsAndIPByDeviceIdentifier :one
@@ -28,11 +30,16 @@ SELECT
     dd.url_scheme,
     dd.rpc_port,
     dd.rpc_tls,
-    d.site_id
+    d.site_id,
+    d.discovered_device_id,
+    dp.paired_at,
+    mc.updated_at AS credential_version,
+    COALESCE(f.epoch,0)::bigint AS write_epoch
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN miner_credentials mc ON d.id = mc.device_id
+LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
 WHERE d.device_identifier = $1
     AND d.deleted_at IS NULL
     AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
@@ -46,23 +53,27 @@ LIMIT 1
 `
 
 type GetDeviceWithCredentialsAndIPByDeviceIdentifierRow struct {
-	ID               int64
-	DeviceIdentifier string
-	DeviceClass      int32
-	Model            sql.NullString
-	Manufacturer     sql.NullString
-	DriverName       string
-	OrgID            int64
-	SerialNumber     sql.NullString
-	MacAddress       string
-	UsernameEnc      sql.NullString
-	PasswordEnc      sql.NullString
-	IpAddress        string
-	Port             string
-	UrlScheme        string
-	RpcPort          int32
-	RpcTls           bool
-	SiteID           sql.NullInt64
+	ID                 int64
+	DeviceIdentifier   string
+	DeviceClass        int32
+	Model              sql.NullString
+	Manufacturer       sql.NullString
+	DriverName         string
+	OrgID              int64
+	SerialNumber       sql.NullString
+	MacAddress         string
+	UsernameEnc        sql.NullString
+	PasswordEnc        sql.NullString
+	IpAddress          string
+	Port               string
+	UrlScheme          string
+	RpcPort            int32
+	RpcTls             bool
+	SiteID             sql.NullInt64
+	DiscoveredDeviceID int64
+	PairedAt           sql.NullTime
+	CredentialVersion  sql.NullTime
+	WriteEpoch         int64
 }
 
 func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (GetDeviceWithCredentialsAndIPByDeviceIdentifierRow, error) {
@@ -86,8 +97,128 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Co
 		&i.RpcPort,
 		&i.RpcTls,
 		&i.SiteID,
+		&i.DiscoveredDeviceID,
+		&i.PairedAt,
+		&i.CredentialVersion,
+		&i.WriteEpoch,
 	)
 	return i, err
+}
+
+const getDeviceWriteDeletionBindings = `-- name: GetDeviceWriteDeletionBindings :many
+SELECT
+    d.id,
+    d.device_identifier,
+    dd.device_class,
+    dd.model,
+    dd.manufacturer,
+    dd.driver_name,
+    d.org_id,
+    d.serial_number,
+    d.mac_address,
+    mc.username_enc,
+    mc.password_enc,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme,
+    dd.rpc_port,
+    dd.rpc_tls,
+    d.site_id,
+    d.discovered_device_id,
+    dp.paired_at,
+    mc.updated_at AS credential_version,
+    COALESCE(f.epoch,0)::bigint AS write_epoch
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN miner_credentials mc ON d.id = mc.device_id
+LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
+WHERE d.id = ANY($1::bigint[])
+    AND d.org_id = $2
+    AND dd.driver_name = 'proto'
+    AND d.deleted_at IS NULL
+    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    -- Cloud dials this device directly, so exclude fleet-node-owned devices:
+    -- the node owns their I/O and the cloud has no route to them.
+    AND NOT EXISTS (
+        SELECT 1 FROM fleet_node_device fnd
+        WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
+    )
+ORDER BY d.id
+`
+
+type GetDeviceWriteDeletionBindingsParams struct {
+	DeviceIds      []int64
+	OrganizationID int64
+}
+
+type GetDeviceWriteDeletionBindingsRow struct {
+	ID                 int64
+	DeviceIdentifier   string
+	DeviceClass        int32
+	Model              sql.NullString
+	Manufacturer       sql.NullString
+	DriverName         string
+	OrgID              int64
+	SerialNumber       sql.NullString
+	MacAddress         string
+	UsernameEnc        sql.NullString
+	PasswordEnc        sql.NullString
+	IpAddress          string
+	Port               string
+	UrlScheme          string
+	RpcPort            int32
+	RpcTls             bool
+	SiteID             sql.NullInt64
+	DiscoveredDeviceID int64
+	PairedAt           sql.NullTime
+	CredentialVersion  sql.NullTime
+	WriteEpoch         int64
+}
+
+func (q *Queries) GetDeviceWriteDeletionBindings(ctx context.Context, arg GetDeviceWriteDeletionBindingsParams) ([]GetDeviceWriteDeletionBindingsRow, error) {
+	rows, err := q.query(ctx, q.getDeviceWriteDeletionBindingsStmt, getDeviceWriteDeletionBindings, pq.Array(arg.DeviceIds), arg.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetDeviceWriteDeletionBindingsRow
+	for rows.Next() {
+		var i GetDeviceWriteDeletionBindingsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.DeviceIdentifier,
+			&i.DeviceClass,
+			&i.Model,
+			&i.Manufacturer,
+			&i.DriverName,
+			&i.OrgID,
+			&i.SerialNumber,
+			&i.MacAddress,
+			&i.UsernameEnc,
+			&i.PasswordEnc,
+			&i.IpAddress,
+			&i.Port,
+			&i.UrlScheme,
+			&i.RpcPort,
+			&i.RpcTls,
+			&i.SiteID,
+			&i.DiscoveredDeviceID,
+			&i.PairedAt,
+			&i.CredentialVersion,
+			&i.WriteEpoch,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getDirectProtoMinerProxyTarget = `-- name: GetDirectProtoMinerProxyTarget :one
@@ -193,13 +324,18 @@ SELECT
     dd.url_scheme,
     dd.rpc_port,
     dd.rpc_tls,
-    dd.firmware_version
+    dd.firmware_version,
+    d.discovered_device_id,
+    dp.paired_at,
+    mc.updated_at AS credential_version,
+    COALESCE(f.epoch,0)::bigint AS write_epoch
 FROM fleet_node_device fnd
 JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
 JOIN device_pairing dp ON dp.device_id = d.id
 JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
 LEFT JOIN miner_credentials mc ON d.id = mc.device_id
+LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
 WHERE d.device_identifier = $1
     AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
     AND fn.deleted_at IS NULL
@@ -208,25 +344,29 @@ LIMIT 1
 `
 
 type GetFleetNodeTelemetryRouteByDeviceIdentifierRow struct {
-	FleetNodeID      int64
-	ID               int64
-	DeviceIdentifier string
-	SiteID           sql.NullInt64
-	DeviceClass      int32
-	Model            sql.NullString
-	Manufacturer     sql.NullString
-	DriverName       string
-	OrgID            int64
-	SerialNumber     sql.NullString
-	MacAddress       string
-	UsernameEnc      sql.NullString
-	PasswordEnc      sql.NullString
-	IpAddress        string
-	Port             string
-	UrlScheme        string
-	RpcPort          int32
-	RpcTls           bool
-	FirmwareVersion  sql.NullString
+	FleetNodeID        int64
+	ID                 int64
+	DeviceIdentifier   string
+	SiteID             sql.NullInt64
+	DeviceClass        int32
+	Model              sql.NullString
+	Manufacturer       sql.NullString
+	DriverName         string
+	OrgID              int64
+	SerialNumber       sql.NullString
+	MacAddress         string
+	UsernameEnc        sql.NullString
+	PasswordEnc        sql.NullString
+	IpAddress          string
+	Port               string
+	UrlScheme          string
+	RpcPort            int32
+	RpcTls             bool
+	FirmwareVersion    sql.NullString
+	DiscoveredDeviceID int64
+	PairedAt           sql.NullTime
+	CredentialVersion  sql.NullTime
+	WriteEpoch         int64
 }
 
 // Resolve the active fleet node and all connection metadata needed for a
@@ -256,6 +396,10 @@ func (q *Queries) GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Conte
 		&i.RpcPort,
 		&i.RpcTls,
 		&i.FirmwareVersion,
+		&i.DiscoveredDeviceID,
+		&i.PairedAt,
+		&i.CredentialVersion,
+		&i.WriteEpoch,
 	)
 	return i, err
 }

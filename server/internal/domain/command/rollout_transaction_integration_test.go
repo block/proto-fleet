@@ -257,7 +257,7 @@ func newTransactionalCommandFixture(t *testing.T) (*Service, *sql.DB, string, *i
 	getter := commandMocks.NewMockCachedMinerGetter(ctrl)
 	reader := minerMocks.NewMockStoredMiningPoolReader(ctrl)
 	reader.EXPECT().GetStoredMiningPools(gomock.Any()).Return([]minerInterfaces.MinerStoredPool{}, nil).AnyTimes()
-	getter.EXPECT().GetMiner(gomock.Any(), deviceID).Return(storedPoolMiner{StoredMiningPoolReader: reader}, nil).AnyTimes()
+	getter.EXPECT().GetMinerForCommand(gomock.Any(), deviceID).Return(storedPoolMiner{StoredMiningPoolReader: reader}, nil).AnyTimes()
 	finalizers := 0
 	svc := &Service{
 		config: &Config{}, conn: conn, executionService: &ExecutionService{run: run, minerService: getter},

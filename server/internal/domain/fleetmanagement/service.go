@@ -1597,7 +1597,8 @@ func poolUsernameMatchCandidates(username string) []string {
 }
 
 // DeleteMiners soft-deletes devices from the fleet and attempts best-effort Unpair on Proto devices.
-// The DB deletion always succeeds immediately. Unpair runs in background goroutines and
+// Unowned devices are deleted immediately; reserved or allocated devices are rejected.
+// Unpair runs in background goroutines and
 // failures are logged but never surfaced to the caller.
 func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest) (*pb.DeleteMinersResponse, error) {
 	info, err := session.GetInfo(ctx)
@@ -1670,7 +1671,7 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 					s.unpairSem <- struct{}{}
 
 					clearCtx, cancel := context.WithTimeout(context.Background(), unpairTimeout)
-					err := miner.Unpair(clearCtx)
+					err := s.minerService.UnpairDeletedMiner(clearCtx, info.OrganizationID, miner)
 					cancel()
 					if err != nil {
 						slog.Warn("best-effort Unpair failed", "deviceID", miner.GetID(), "error", err)
@@ -1717,7 +1718,7 @@ func (s *Service) ResolveDeviceIdentifiers(ctx context.Context, selector *pb.Dev
 func (s *Service) collectProtoMinersForUnpair(ctx context.Context, deviceIdentifiers []string) []minerInterfaces.Miner {
 	var miners []minerInterfaces.Miner
 	for _, id := range deviceIdentifiers {
-		m, err := s.minerService.GetMinerFromDeviceIdentifier(ctx, mm.DeviceIdentifier(id))
+		m, err := s.minerService.GetMinerForDeletion(ctx, mm.DeviceIdentifier(id))
 		if err != nil {
 			slog.Debug("skipping Unpair for device", "deviceID", id, "error", err)
 			continue

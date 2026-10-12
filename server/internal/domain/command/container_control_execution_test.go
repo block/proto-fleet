@@ -35,7 +35,7 @@ func TestEquipmentExecutionMakesUncertainOutcomesTerminal(t *testing.T) {
 		base.EXPECT().GetSiteID().Return(int64(34))
 		miner := &equipmentMiner{Miner: base, err: outcome}
 		getter := minerMocks.NewMockCachedMinerGetter(ctrl)
-		getter.EXPECT().GetMiner(gomock.Any(), int64(54)).Return(miner, nil)
+		getter.EXPECT().GetMinerForCommand(gomock.Any(), int64(54)).Return(miner, nil)
 		svc := NewExecutionService(&Config{MaxWorkers: 1}, nil, nil, nil, nil, getter, nil, nil, nil)
 		payload, err := json.Marshal(sdk.ContainerControlRequest{Name: "dry_cooler", Enabled: new(false)})
 		require.NoError(t, err)

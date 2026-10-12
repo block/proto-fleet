@@ -1218,9 +1218,11 @@ func TestFleetNodeOutageDerivesOfflineStatusAndRecovers(t *testing.T) {
 	require.NoError(t, err)
 	var fleetNodeID int64
 	require.NoError(t, conn.QueryRow(`INSERT INTO fleet_node
-		(org_id, name, identity_pubkey, encryption_pubkey, enrollment_status, last_seen_at)
-		VALUES (1, 'stale-node', $1, $2, 'CONFIRMED', NOW() - INTERVAL '3 minutes') RETURNING id`,
+		(org_id, name, identity_pubkey, encryption_pubkey, enrollment_status)
+		VALUES (1, 'stale-node', $1, $2, 'CONFIRMED') RETURNING id`,
 		[]byte("stale-node-key"), make([]byte, 32)).Scan(&fleetNodeID))
+	_, err = sqlc.New(conn).UpdateFleetNodeLastSeenAt(ctx, sqlc.UpdateFleetNodeLastSeenAtParams{ID: fleetNodeID, OrgID: 1, LastSeenAt: time.Now().Add(-3 * time.Minute)})
+	require.NoError(t, err)
 	_, err = conn.Exec(`INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id)
 		VALUES ($1, 9201, 1)`, fleetNodeID)
 	require.NoError(t, err)
@@ -1271,7 +1273,7 @@ func TestFleetNodeOutageDerivesOfflineStatusAndRecovers(t *testing.T) {
 	require.Len(t, slotStatuses[rack.Id], 1)
 	require.Equal(t, collectionpb.SlotDeviceStatus_SLOT_DEVICE_STATUS_OFFLINE, slotStatuses[rack.Id][0].Status)
 
-	_, err = conn.Exec(`UPDATE fleet_node SET last_seen_at = NOW() WHERE id = $1`, fleetNodeID)
+	_, err = queries.UpdateFleetNodeLastSeenAt(ctx, sqlc.UpdateFleetNodeLastSeenAtParams{ID: fleetNodeID, OrgID: 1, LastSeenAt: time.Now()})
 	require.NoError(t, err)
 	rows, _, total, err = store.ListMinerStateSnapshots(ctx, 1, "", 50, offlineFilter, nil)
 	require.NoError(t, err)

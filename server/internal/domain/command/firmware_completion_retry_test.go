@@ -69,7 +69,7 @@ func TestFirmwareCompletionRetriesDatabaseWithoutRepeatingDeviceCommand(t *testi
 	miner := minerIfaceMocks.NewMockMiner(ctrl)
 	minerGetter := minerMocks.NewMockCachedMinerGetter(ctrl)
 	deviceStore := storeMocks.NewMockDeviceStore(ctrl)
-	minerGetter.EXPECT().GetMiner(gomock.Any(), deviceID).Return(miner, nil).Times(1)
+	minerGetter.EXPECT().GetMinerForCommand(gomock.Any(), deviceID).Return(miner, nil).Times(1)
 	miner.EXPECT().GetOrgID().Return(int64(1)).Times(1)
 	miner.EXPECT().GetSiteID().Return(int64(0)).Times(1)
 	miner.EXPECT().FirmwareUpdate(gomock.Any(), gomock.Any()).Return(nil).Times(1)

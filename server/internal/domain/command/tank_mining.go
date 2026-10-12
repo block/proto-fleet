@@ -289,7 +289,7 @@ func (es *ExecutionService) executeTankMining(ctx context.Context, deviceID, org
 	// Hold placement stable through gate admission and the physical write, which
 	// must never be replayed by a transaction retry.
 	dispatchStarted := false
-	err := db.WithTransactionNoRetryNoResult(ctx, es.conn, func(q sqlc.Querier) error {
+	err := devicewrite.NewService(es.conn).WithBindingTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
 		device, err := q.GetDeviceByID(ctx, sqlc.GetDeviceByIDParams{ID: deviceID, OrgID: orgID})
 		if errors.Is(err, sql.ErrNoRows) {
 			return fleeterror.NewFailedPreconditionError("selected tank controller unavailable")
@@ -324,7 +324,10 @@ func (es *ExecutionService) executeTankMining(ctx context.Context, deviceID, org
 			return controller.SetTankMining(ctx, payload.TankMiningRequest)
 		}); err != nil {
 			if errors.Is(err, control.ErrCommandProtocolUpgradeRequired) {
-				return fleeterror.NewFailedPreconditionError(tankMiningProtocolUpgradeMessage)
+				return devicewrite.NotDispatched(fleeterror.NewFailedPreconditionError(tankMiningProtocolUpgradeMessage))
+			}
+			if devicewrite.IsNotDispatched(err) {
+				return err
 			}
 			slog.ErrorContext(ctx, "tank mining outcome unconfirmed", "device_id", deviceID, "error", err)
 			return fleeterror.NewFailedPreconditionError("tank mining outcome unconfirmed")

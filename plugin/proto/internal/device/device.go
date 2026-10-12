@@ -1053,7 +1053,7 @@ func (d *Device) UpdateMinerPassword(ctx context.Context, currentPassword string
 	return nil
 }
 
-func (d *Device) TryBatchStatus(ctx context.Context, _ []string) (map[string]sdk.DeviceMetrics, bool, error) {
+func (d *Device) TryBatchStatus(ctx context.Context, _ []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil
 }
 

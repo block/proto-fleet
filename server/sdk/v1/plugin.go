@@ -1,7 +1,10 @@
 package sdk
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -16,6 +19,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -177,13 +181,17 @@ type DriverGRPCServer struct {
 	creatingDevices map[string]struct{}
 	closingDevices  map[string]*closingDevice
 	mu              sync.RWMutex
+	reuseKeys       map[string][32]byte
+	reuseLocks      deviceIDLocks
+	generations     map[string][]byte
 }
 
 // Closing devices no longer accept operations, but remain owned until Close
 // succeeds. Each attempt has its own result so concurrent RPCs share one call.
 type closingDevice struct {
-	device  Device
-	attempt *deviceCloseAttempt
+	device     Device
+	generation []byte
+	attempt    *deviceCloseAttempt
 }
 
 type deviceCloseAttempt struct {
@@ -197,7 +205,7 @@ func (s *DriverGRPCServer) retainClosingDeviceLocked(deviceID string, device Dev
 	if s.closingDevices == nil {
 		s.closingDevices = make(map[string]*closingDevice)
 	}
-	closing := &closingDevice{device: device}
+	closing := &closingDevice{device: device, generation: s.generations[deviceID]}
 	s.closingDevices[deviceID] = closing
 	return closing
 }
@@ -220,6 +228,12 @@ func (s *DriverGRPCServer) DescribeDriver(ctx context.Context, _ *emptypb.Empty)
 		return nil, err
 	}
 
+	reuseCaps := make(Capabilities, len(caps)+1)
+	for key, value := range caps {
+		reuseCaps[key] = value
+	}
+	reuseCaps[CapabilityScopedDeviceReuse] = true
+	caps = reuseCaps
 	return &pb.DescribeDriverResponse{
 		DriverName: handshake.DriverName,
 		ApiVersion: handshake.APIVersion,
@@ -300,6 +314,19 @@ func (s *DriverGRPCServer) GetDiscoveryPorts(ctx context.Context, _ *emptypb.Emp
 }
 
 func (s *DriverGRPCServer) NewDevice(ctx context.Context, req *pb.NewDeviceRequest) (*pb.NewDeviceResponse, error) {
+	var reuseDigest [32]byte
+	if req.ReuseScopeKey != "" {
+		unlock, err := s.reuseLocks.lock(ctx, req.DeviceId)
+		if err != nil {
+			return nil, fmt.Errorf("scoped device resolution canceled: %w", status.FromContextError(err).Err())
+		}
+		defer unlock()
+		encoded, err := (proto.MarshalOptions{Deterministic: true}).Marshal(req)
+		if err != nil {
+			return nil, fmt.Errorf("bind scoped device configuration: %w", err)
+		}
+		reuseDigest = sha256.Sum256(encoded)
+	}
 	// Preserve active replacement semantics, but serialize creation against
 	// other creators and Close for this ID. Never hold the lock over driver IO.
 	s.mu.Lock()
@@ -308,6 +335,15 @@ func (s *DriverGRPCServer) NewDevice(ctx context.Context, req *pb.NewDeviceReque
 	if creating || closing {
 		s.mu.Unlock()
 		return nil, grpcStatusError("device ID is in use", codes.AlreadyExists, req.DeviceId)
+	}
+	if req.ReuseScopeKey != "" {
+		if key, ok := s.reuseKeys[req.DeviceId]; ok && key == reuseDigest {
+			if _, active := s.devices[req.DeviceId]; active {
+				generation := bytes.Clone(s.generations[req.DeviceId])
+				s.mu.Unlock()
+				return &pb.NewDeviceResponse{DeviceId: req.DeviceId, ReuseScopeKey: req.ReuseScopeKey, BackendGeneration: generation}, nil
+			}
+		}
 	}
 	if s.creatingDevices == nil {
 		s.creatingDevices = make(map[string]struct{})
@@ -357,22 +393,40 @@ func (s *DriverGRPCServer) NewDevice(ctx context.Context, req *pb.NewDeviceReque
 		return nil, fmt.Errorf("device ID mismatch: expected %s, got %s", req.DeviceId, deviceID)
 	}
 
+	var generation []byte
+	if req.ReuseScopeKey != "" {
+		generation = make([]byte, 32)
+		if _, err := rand.Read(generation); err != nil {
+			return nil, fmt.Errorf("allocate backend generation: %w", err)
+		}
+	}
 	s.mu.Lock()
+	if s.generations == nil {
+		s.generations = make(map[string][]byte)
+	}
+	s.generations[deviceID] = generation
 	s.devices[deviceID] = result.Device
+	if req.ReuseScopeKey != "" {
+		if s.reuseKeys == nil {
+			s.reuseKeys = make(map[string][32]byte)
+		}
+		s.reuseKeys[deviceID] = reuseDigest
+	} else {
+		delete(s.reuseKeys, deviceID)
+	}
 	s.mu.Unlock()
 
 	return &pb.NewDeviceResponse{
-		DeviceId: deviceID,
+		DeviceId:          deviceID,
+		ReuseScopeKey:     req.ReuseScopeKey,
+		BackendGeneration: bytes.Clone(generation),
 	}, nil
 }
 
 func (s *DriverGRPCServer) DescribeDevice(ctx context.Context, req *pb.DescribeDeviceRequest) (*pb.DescribeDeviceResponse, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	device, lookupErr := s.selectDevice(&pb.DeviceRef{DeviceId: req.DeviceId, BackendGeneration: req.BackendGeneration})
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	deviceInfo, caps, err := device.DescribeDevice(ctx)
@@ -387,12 +441,9 @@ func (s *DriverGRPCServer) DescribeDevice(ctx context.Context, req *pb.DescribeD
 }
 
 func (s *DriverGRPCServer) DeviceStatus(ctx context.Context, req *pb.DeviceRef) (*pb.DeviceMetrics, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	device, lookupErr := s.selectDevice(&pb.DeviceRef{DeviceId: req.DeviceId, BackendGeneration: req.BackendGeneration})
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	metrics, err := device.Status(ctx)
@@ -404,12 +455,9 @@ func (s *DriverGRPCServer) DeviceStatus(ctx context.Context, req *pb.DeviceRef) 
 }
 
 func (s *DriverGRPCServer) GetErrors(ctx context.Context, req *pb.DeviceRef) (*pb.DeviceErrors, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	device, lookupErr := s.selectDevice(&pb.DeviceRef{DeviceId: req.DeviceId, BackendGeneration: req.BackendGeneration})
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	deviceErrors, err := device.GetErrors(ctx)
@@ -438,6 +486,21 @@ func (s *DriverGRPCServer) CloseDevice(ctx context.Context, req *pb.DeviceRef) (
 		return nil, grpcStatusError("device creation is still in progress", codes.Unavailable, req.DeviceId)
 	}
 	closing, exists := s.closingDevices[req.DeviceId]
+	if _, active := s.devices[req.DeviceId]; !exists && !active {
+		s.mu.Unlock()
+		if len(req.BackendGeneration) != 0 {
+			return nil, backendGenerationRejected()
+		}
+		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	}
+	expected := s.generations[req.DeviceId]
+	if exists {
+		expected = closing.generation
+	}
+	if !bytes.Equal(expected, req.BackendGeneration) {
+		s.mu.Unlock()
+		return nil, backendGenerationRejected()
+	}
 	if !exists {
 		device, active := s.devices[req.DeviceId]
 		if !active {
@@ -445,6 +508,7 @@ func (s *DriverGRPCServer) CloseDevice(ctx context.Context, req *pb.DeviceRef) (
 			return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
 		}
 		delete(s.devices, req.DeviceId)
+		delete(s.reuseKeys, req.DeviceId)
 		closing = s.retainClosingDeviceLocked(req.DeviceId, device)
 	}
 	if attempt := closing.attempt; attempt != nil {
@@ -478,6 +542,7 @@ func (s *DriverGRPCServer) CloseDevice(ctx context.Context, req *pb.DeviceRef) (
 	attempt.err = err
 	if err == nil {
 		delete(s.closingDevices, req.DeviceId)
+		delete(s.generations, req.DeviceId)
 	}
 	close(attempt.done)
 	s.mu.Unlock()
@@ -485,12 +550,9 @@ func (s *DriverGRPCServer) CloseDevice(ctx context.Context, req *pb.DeviceRef) (
 }
 
 func (s *DriverGRPCServer) StartMining(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	device, lookupErr := s.selectDevice(&pb.DeviceRef{DeviceId: req.DeviceId, BackendGeneration: req.BackendGeneration})
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	err := device.StartMining(ctx)
@@ -498,12 +560,9 @@ func (s *DriverGRPCServer) StartMining(ctx context.Context, req *pb.DeviceRef) (
 }
 
 func (s *DriverGRPCServer) StopMining(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	device, lookupErr := s.selectDevice(&pb.DeviceRef{DeviceId: req.DeviceId, BackendGeneration: req.BackendGeneration})
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	err := device.StopMining(ctx)
@@ -511,12 +570,9 @@ func (s *DriverGRPCServer) StopMining(ctx context.Context, req *pb.DeviceRef) (*
 }
 
 func (s *DriverGRPCServer) SetCoolingMode(ctx context.Context, req *pb.SetCoolingModeRequest) (*emptypb.Empty, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.Ref.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	device, lookupErr := s.selectDevice(req.Ref)
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	err := device.SetCoolingMode(ctx, CoolingMode(req.Mode))
@@ -524,12 +580,9 @@ func (s *DriverGRPCServer) SetCoolingMode(ctx context.Context, req *pb.SetCoolin
 }
 
 func (s *DriverGRPCServer) GetCoolingMode(ctx context.Context, req *pb.DeviceRef) (*pb.GetCoolingModeResponse, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	device, lookupErr := s.selectDevice(&pb.DeviceRef{DeviceId: req.DeviceId, BackendGeneration: req.BackendGeneration})
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	mode, err := device.GetCoolingMode(ctx)
@@ -542,12 +595,9 @@ func (s *DriverGRPCServer) GetCoolingMode(ctx context.Context, req *pb.DeviceRef
 }
 
 func (s *DriverGRPCServer) SetPowerTarget(ctx context.Context, req *pb.SetPowerTargetRequest) (*emptypb.Empty, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.Ref.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	device, lookupErr := s.selectDevice(req.Ref)
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	err := device.SetPowerTarget(ctx, PerformanceMode(req.PerformanceMode))
@@ -555,12 +605,9 @@ func (s *DriverGRPCServer) SetPowerTarget(ctx context.Context, req *pb.SetPowerT
 }
 
 func (s *DriverGRPCServer) UpdateMiningPools(ctx context.Context, req *pb.UpdateMiningPoolsRequest) (*emptypb.Empty, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.Ref.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	device, lookupErr := s.selectDevice(req.Ref)
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	pools := make([]MiningPoolConfig, len(req.Pools))
@@ -581,12 +628,9 @@ func (s *DriverGRPCServer) UpdateMiningPools(ctx context.Context, req *pb.Update
 }
 
 func (s *DriverGRPCServer) GetMiningPools(ctx context.Context, req *pb.GetMiningPoolsRequest) (*pb.GetMiningPoolsResponse, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.Ref.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	device, lookupErr := s.selectDevice(req.Ref)
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	pools, err := device.GetMiningPools(ctx)
@@ -601,11 +645,9 @@ func (s *DriverGRPCServer) GetStoredMiningPools(ctx context.Context, req *pb.Get
 	if req == nil || req.Ref == nil || req.Ref.DeviceId == "" {
 		return nil, grpcStatusError("stored pool configuration", codes.InvalidArgument, "device reference is required")
 	}
-	s.mu.RLock()
-	device, exists := s.devices[req.Ref.DeviceId]
-	s.mu.RUnlock()
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	device, lookupErr := s.selectDevice(req.Ref)
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 	reader, ok := device.(DeviceStoredPoolReader)
 	if !ok {
@@ -648,12 +690,9 @@ func storedPoolsToProto(pools []StoredMiningPool) []*pb.StoredMiningPool {
 }
 
 func (s *DriverGRPCServer) BlinkLED(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	device, lookupErr := s.selectDevice(&pb.DeviceRef{DeviceId: req.DeviceId, BackendGeneration: req.BackendGeneration})
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	err := device.BlinkLED(ctx)
@@ -661,12 +700,9 @@ func (s *DriverGRPCServer) BlinkLED(ctx context.Context, req *pb.DeviceRef) (*em
 }
 
 func (s *DriverGRPCServer) DownloadLogs(ctx context.Context, req *pb.DownloadLogsRequest) (*pb.DownloadLogsResponse, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.Ref.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	device, lookupErr := s.selectDevice(req.Ref)
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	var since *time.Time
@@ -687,12 +723,9 @@ func (s *DriverGRPCServer) DownloadLogs(ctx context.Context, req *pb.DownloadLog
 }
 
 func (s *DriverGRPCServer) Reboot(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	device, lookupErr := s.selectDevice(&pb.DeviceRef{DeviceId: req.DeviceId, BackendGeneration: req.BackendGeneration})
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	err := device.Reboot(ctx)
@@ -700,12 +733,9 @@ func (s *DriverGRPCServer) Reboot(ctx context.Context, req *pb.DeviceRef) (*empt
 }
 
 func (s *DriverGRPCServer) UpdateFirmware(ctx context.Context, req *pb.UpdateFirmwareRequest) (*emptypb.Empty, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.Ref.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	device, lookupErr := s.selectDevice(req.Ref)
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	fw := req.Firmware
@@ -735,12 +765,9 @@ func (s *DriverGRPCServer) UpdateFirmware(ctx context.Context, req *pb.UpdateFir
 }
 
 func (s *DriverGRPCServer) GetFirmwareUpdateStatus(ctx context.Context, req *pb.DeviceRef) (*pb.GetFirmwareUpdateStatusResponse, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	device, lookupErr := s.selectDevice(&pb.DeviceRef{DeviceId: req.DeviceId, BackendGeneration: req.BackendGeneration})
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	provider, ok := device.(FirmwareUpdateStatusProvider)
@@ -770,12 +797,9 @@ func (s *DriverGRPCServer) GetFirmwareUpdateStatus(ctx context.Context, req *pb.
 }
 
 func (s *DriverGRPCServer) Unpair(ctx context.Context, req *pb.DeviceRef) (*emptypb.Empty, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.DeviceId))
+	device, lookupErr := s.selectDevice(&pb.DeviceRef{DeviceId: req.DeviceId, BackendGeneration: req.BackendGeneration})
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	err := device.Unpair(ctx)
@@ -783,12 +807,9 @@ func (s *DriverGRPCServer) Unpair(ctx context.Context, req *pb.DeviceRef) (*empt
 }
 
 func (s *DriverGRPCServer) UpdateMinerPassword(ctx context.Context, req *pb.UpdateMinerPasswordRequest) (*emptypb.Empty, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.Ref.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	device, lookupErr := s.selectDevice(req.Ref)
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	err := device.UpdateMinerPassword(ctx, req.CurrentPassword, req.NewPassword)
@@ -799,12 +820,9 @@ func (s *DriverGRPCServer) Curtail(ctx context.Context, req *pb.CurtailRequest) 
 	if req.Ref == nil {
 		return nil, grpcStatusError("missing device ref", codes.InvalidArgument, "missing device ref")
 	}
-	s.mu.RLock()
-	device, exists := s.devices[req.Ref.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	device, lookupErr := s.selectDevice(req.Ref)
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	curtailer, ok := device.(DeviceCurtailment)
@@ -822,12 +840,9 @@ func (s *DriverGRPCServer) Uncurtail(ctx context.Context, req *pb.UncurtailReque
 	if req.Ref == nil {
 		return nil, grpcStatusError("missing device ref", codes.InvalidArgument, "missing device ref")
 	}
-	s.mu.RLock()
-	device, exists := s.devices[req.Ref.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	device, lookupErr := s.selectDevice(req.Ref)
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	curtailer, ok := device.(DeviceCurtailment)
@@ -843,12 +858,9 @@ func (s *DriverGRPCServer) ApplyCurtailmentConfig(ctx context.Context, req *pb.A
 	if req == nil || req.Ref == nil || req.Config == nil {
 		return nil, grpcStatusError("missing device ref or curtailment config", codes.InvalidArgument, "missing device ref or curtailment config")
 	}
-	s.mu.RLock()
-	device, exists := s.devices[req.Ref.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	device, lookupErr := s.selectDevice(req.Ref)
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	configurator, ok := device.(DeviceCurtailmentConfigurator)
@@ -861,12 +873,9 @@ func (s *DriverGRPCServer) ApplyCurtailmentConfig(ctx context.Context, req *pb.A
 }
 
 func (s *DriverGRPCServer) GetTimeSeriesData(ctx context.Context, req *pb.GetTimeSeriesDataRequest) (*pb.GetTimeSeriesDataResponse, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.Ref.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	device, lookupErr := s.selectDevice(req.Ref)
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	var granularity *time.Duration
@@ -903,12 +912,9 @@ func (s *DriverGRPCServer) GetTimeSeriesData(ctx context.Context, req *pb.GetTim
 }
 
 func (s *DriverGRPCServer) GetDeviceWebViewURL(ctx context.Context, req *pb.GetDeviceWebViewURLRequest) (*pb.GetDeviceWebViewURLResponse, error) {
-	s.mu.RLock()
-	device, exists := s.devices[req.Ref.DeviceId]
-	s.mu.RUnlock()
-
-	if !exists {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	device, lookupErr := s.selectDevice(req.Ref)
+	if lookupErr != nil {
+		return nil, lookupErr
 	}
 
 	url, supported, err := device.TryGetWebViewURL(ctx)
@@ -925,25 +931,21 @@ func (s *DriverGRPCServer) GetDeviceWebViewURL(ctx context.Context, req *pb.GetD
 }
 
 func (s *DriverGRPCServer) BatchStatus(ctx context.Context, req *pb.BatchStatusRequest) (*pb.StatusBatchResponse, error) {
-	// Try to find a device that supports batch status
-	s.mu.RLock()
-	var batchDevice Device
-	for _, device := range s.devices {
-		batchDevice = device
-		break
+	devices := make([]Device, len(req.Refs))
+	for i, ref := range req.Refs {
+		device, err := s.selectDevice(ref)
+		if err != nil {
+			return nil, err
+		}
+		devices[i] = device
 	}
-	s.mu.RUnlock()
-
-	if batchDevice == nil {
+	if len(devices) == 0 {
 		return nil, sdkErrorToGRPCStatus(NewErrUnsupportedCapability("batch_status"))
 	}
 
-	deviceIDs := make([]string, len(req.Refs))
-	for i, ref := range req.Refs {
-		deviceIDs[i] = ref.DeviceId
-	}
-
-	results, supported, err := batchDevice.TryBatchStatus(ctx, deviceIDs)
+	// Use the captured backend, rather than reselecting a registry entry after
+	// generation validation. Replacements cannot redirect the admitted batch.
+	results, supported, err := devices[0].TryBatchStatus(ctx, devices)
 	if !supported {
 		return nil, sdkErrorToGRPCStatus(NewErrUnsupportedCapability("batch_status"))
 	}
@@ -1163,8 +1165,38 @@ func (c *DriverGRPCClient) NewDevice(ctx context.Context, deviceID string, devic
 	}, nil
 }
 
-// CloseDevice compensates for an uncertain NewDevice RPC outcome. A not-found
-// response is harmless: it means the plugin never retained the requested ID.
+// GetOrCreateDevice opts into runtime-registry reuse; support is checked before
+// NewDevice so an unsupported plugin cannot silently overwrite a snapshot.
+func (c *DriverGRPCClient) GetOrCreateDevice(ctx context.Context, id string, info DeviceInfo, secret SecretBundle, scope string) (NewDeviceResult, error) {
+	if scope == "" {
+		return NewDeviceResult{}, fmt.Errorf("scoped device resolution requires a binding key")
+	}
+	_, caps, err := c.DescribeDriver(ctx)
+	if err != nil {
+		return NewDeviceResult{}, err
+	}
+	if !caps[CapabilityScopedDeviceReuse] {
+		return NewDeviceResult{}, fmt.Errorf("plugin does not support scoped device resolution")
+	}
+	resp, err := c.client.NewDevice(ctx, &pb.NewDeviceRequest{DeviceId: id, Info: deviceInfoToProto(info), Secret: secretBundleToProto(secret), ReuseScopeKey: scope})
+	if err != nil {
+		return NewDeviceResult{}, err
+	}
+	if resp.DeviceId != id {
+		return NewDeviceResult{}, fmt.Errorf("plugin returned a mismatched device identity")
+	}
+	if resp.ReuseScopeKey != scope {
+		return NewDeviceResult{}, fmt.Errorf("plugin did not confirm scoped device resolution")
+	}
+	if len(resp.BackendGeneration) != 32 {
+		return NewDeviceResult{}, fmt.Errorf("plugin did not bind scoped backend generation")
+	}
+	return NewDeviceResult{Device: &DeviceGRPCClient{client: c.client, deviceID: resp.DeviceId, backendGeneration: resp.BackendGeneration}}, nil
+}
+
+// CloseDevice compensates for an uncertain unscoped NewDevice RPC outcome.
+// Scoped entries reject ID-only cleanup; re-resolve the same scope and close
+// its bound Device instead, so cleanup cannot select a replacement backend.
 func (c *DriverGRPCClient) CloseDevice(ctx context.Context, deviceID string) error {
 	_, err := c.client.CloseDevice(ctx, &pb.DeviceRef{DeviceId: deviceID})
 	return err
@@ -1172,8 +1204,9 @@ func (c *DriverGRPCClient) CloseDevice(ctx context.Context, deviceID string) err
 
 // DeviceGRPCClient implements Device interface as a proxy to the plugin
 type DeviceGRPCClient struct {
-	client   pb.DriverClient
-	deviceID string
+	client            pb.DriverClient
+	deviceID          string
+	backendGeneration []byte
 }
 
 var _ FirmwareUpdateStatusProvider = (*DeviceGRPCClient)(nil)
@@ -1184,7 +1217,7 @@ func (d *DeviceGRPCClient) ID() string {
 
 func (d *DeviceGRPCClient) DescribeDevice(ctx context.Context) (DeviceInfo, Capabilities, error) {
 	resp, err := d.client.DescribeDevice(ctx, &pb.DescribeDeviceRequest{
-		DeviceId: d.deviceID,
+		DeviceId: d.deviceID, BackendGeneration: d.backendGeneration,
 	})
 	if err != nil {
 		return DeviceInfo{}, nil, err
@@ -1205,7 +1238,7 @@ func (d *DeviceGRPCClient) DescribeDevice(ctx context.Context) (DeviceInfo, Capa
 
 func (d *DeviceGRPCClient) Status(ctx context.Context) (DeviceMetrics, error) {
 	resp, err := d.client.DeviceStatus(ctx, &pb.DeviceRef{
-		DeviceId: d.deviceID,
+		DeviceId: d.deviceID, BackendGeneration: d.backendGeneration,
 	})
 	if err != nil {
 		return DeviceMetrics{}, err
@@ -1216,7 +1249,7 @@ func (d *DeviceGRPCClient) Status(ctx context.Context) (DeviceMetrics, error) {
 
 func (d *DeviceGRPCClient) GetErrors(ctx context.Context) (DeviceErrors, error) {
 	resp, err := d.client.GetErrors(ctx, &pb.DeviceRef{
-		DeviceId: d.deviceID,
+		DeviceId: d.deviceID, BackendGeneration: d.backendGeneration,
 	})
 	if err != nil {
 		return DeviceErrors{}, err
@@ -1227,35 +1260,35 @@ func (d *DeviceGRPCClient) GetErrors(ctx context.Context) (DeviceErrors, error) 
 
 func (d *DeviceGRPCClient) Close(ctx context.Context) error {
 	_, err := d.client.CloseDevice(ctx, &pb.DeviceRef{
-		DeviceId: d.deviceID,
+		DeviceId: d.deviceID, BackendGeneration: d.backendGeneration,
 	})
 	return err
 }
 
 func (d *DeviceGRPCClient) StartMining(ctx context.Context) error {
 	_, err := d.client.StartMining(ctx, &pb.DeviceRef{
-		DeviceId: d.deviceID,
+		DeviceId: d.deviceID, BackendGeneration: d.backendGeneration,
 	})
 	return err
 }
 
 func (d *DeviceGRPCClient) StopMining(ctx context.Context) error {
 	_, err := d.client.StopMining(ctx, &pb.DeviceRef{
-		DeviceId: d.deviceID,
+		DeviceId: d.deviceID, BackendGeneration: d.backendGeneration,
 	})
 	return err
 }
 
 func (d *DeviceGRPCClient) SetCoolingMode(ctx context.Context, mode CoolingMode) error {
 	_, err := d.client.SetCoolingMode(ctx, &pb.SetCoolingModeRequest{
-		Ref:  &pb.DeviceRef{DeviceId: d.deviceID},
+		Ref:  d.deviceRef(),
 		Mode: pb.CoolingMode(safeIntToInt32(int(mode))),
 	})
 	return err
 }
 
 func (d *DeviceGRPCClient) GetCoolingMode(ctx context.Context) (CoolingMode, error) {
-	resp, err := d.client.GetCoolingMode(ctx, &pb.DeviceRef{DeviceId: d.deviceID})
+	resp, err := d.client.GetCoolingMode(ctx, d.deviceRef())
 	if err != nil {
 		return CoolingModeUnspecified, err
 	}
@@ -1264,7 +1297,7 @@ func (d *DeviceGRPCClient) GetCoolingMode(ctx context.Context) (CoolingMode, err
 
 func (d *DeviceGRPCClient) SetPowerTarget(ctx context.Context, performanceMode PerformanceMode) error {
 	_, err := d.client.SetPowerTarget(ctx, &pb.SetPowerTargetRequest{
-		Ref:             &pb.DeviceRef{DeviceId: d.deviceID},
+		Ref:             d.deviceRef(),
 		PerformanceMode: pb.PerformanceMode(safeIntToInt32(int(performanceMode))),
 	})
 	return err
@@ -1282,7 +1315,7 @@ func (d *DeviceGRPCClient) UpdateMiningPools(ctx context.Context, pools []Mining
 	}
 
 	_, err := d.client.UpdateMiningPools(ctx, &pb.UpdateMiningPoolsRequest{
-		Ref:   &pb.DeviceRef{DeviceId: d.deviceID},
+		Ref:   d.deviceRef(),
 		Pools: pbPools,
 	})
 	return err
@@ -1290,7 +1323,7 @@ func (d *DeviceGRPCClient) UpdateMiningPools(ctx context.Context, pools []Mining
 
 func (d *DeviceGRPCClient) GetMiningPools(ctx context.Context) ([]ConfiguredPool, error) {
 	resp, err := d.client.GetMiningPools(ctx, &pb.GetMiningPoolsRequest{
-		Ref: &pb.DeviceRef{DeviceId: d.deviceID},
+		Ref: d.deviceRef(),
 	})
 	if err != nil {
 		return nil, err
@@ -1300,7 +1333,7 @@ func (d *DeviceGRPCClient) GetMiningPools(ctx context.Context) ([]ConfiguredPool
 }
 
 func (d *DeviceGRPCClient) GetStoredMiningPools(ctx context.Context) ([]StoredMiningPool, error) {
-	resp, err := d.client.GetStoredMiningPools(ctx, &pb.GetStoredMiningPoolsRequest{Ref: &pb.DeviceRef{DeviceId: d.deviceID}})
+	resp, err := d.client.GetStoredMiningPools(ctx, &pb.GetStoredMiningPoolsRequest{Ref: d.deviceRef()})
 	if err != nil {
 		return nil, err
 	}
@@ -1325,14 +1358,14 @@ func storedPoolsFromProto(pools []*pb.StoredMiningPool) []StoredMiningPool {
 
 func (d *DeviceGRPCClient) BlinkLED(ctx context.Context) error {
 	_, err := d.client.BlinkLED(ctx, &pb.DeviceRef{
-		DeviceId: d.deviceID,
+		DeviceId: d.deviceID, BackendGeneration: d.backendGeneration,
 	})
 	return err
 }
 
 func (d *DeviceGRPCClient) DownloadLogs(ctx context.Context, since *time.Time, batchLogUUID string) (string, bool, error) {
 	req := &pb.DownloadLogsRequest{
-		Ref:          &pb.DeviceRef{DeviceId: d.deviceID},
+		Ref:          d.deviceRef(),
 		BatchLogUuid: batchLogUUID,
 	}
 
@@ -1350,14 +1383,14 @@ func (d *DeviceGRPCClient) DownloadLogs(ctx context.Context, since *time.Time, b
 
 func (d *DeviceGRPCClient) Reboot(ctx context.Context) error {
 	_, err := d.client.Reboot(ctx, &pb.DeviceRef{
-		DeviceId: d.deviceID,
+		DeviceId: d.deviceID, BackendGeneration: d.backendGeneration,
 	})
 	return err
 }
 
 func (d *DeviceGRPCClient) FirmwareUpdate(ctx context.Context, firmware FirmwareFile) error {
 	_, err := d.client.UpdateFirmware(ctx, &pb.UpdateFirmwareRequest{
-		Ref: &pb.DeviceRef{DeviceId: d.deviceID},
+		Ref: d.deviceRef(),
 		Firmware: &pb.FirmwareFileInfo{
 			FilePath:         firmware.FilePath,
 			OriginalFilename: firmware.Filename,
@@ -1370,7 +1403,7 @@ func (d *DeviceGRPCClient) FirmwareUpdate(ctx context.Context, firmware Firmware
 }
 
 func (d *DeviceGRPCClient) GetFirmwareUpdateStatus(ctx context.Context) (*FirmwareUpdateStatus, error) {
-	resp, err := d.client.GetFirmwareUpdateStatus(ctx, &pb.DeviceRef{DeviceId: d.deviceID})
+	resp, err := d.client.GetFirmwareUpdateStatus(ctx, d.deviceRef())
 	if err != nil {
 		if s, ok := status.FromError(err); ok && s.Code() == codes.Unimplemented {
 			return nil, nil
@@ -1395,14 +1428,14 @@ func (d *DeviceGRPCClient) GetFirmwareUpdateStatus(ctx context.Context) (*Firmwa
 
 func (d *DeviceGRPCClient) Unpair(ctx context.Context) error {
 	_, err := d.client.Unpair(ctx, &pb.DeviceRef{
-		DeviceId: d.deviceID,
+		DeviceId: d.deviceID, BackendGeneration: d.backendGeneration,
 	})
 	return err
 }
 
 func (d *DeviceGRPCClient) UpdateMinerPassword(ctx context.Context, currentPassword string, newPassword string) error {
 	_, err := d.client.UpdateMinerPassword(ctx, &pb.UpdateMinerPasswordRequest{
-		Ref:             &pb.DeviceRef{DeviceId: d.deviceID},
+		Ref:             d.deviceRef(),
 		CurrentPassword: currentPassword,
 		NewPassword:     newPassword,
 	})
@@ -1411,7 +1444,7 @@ func (d *DeviceGRPCClient) UpdateMinerPassword(ctx context.Context, currentPassw
 
 func (d *DeviceGRPCClient) Curtail(ctx context.Context, req CurtailRequest) error {
 	_, err := d.client.Curtail(ctx, &pb.CurtailRequest{
-		Ref:   &pb.DeviceRef{DeviceId: d.deviceID},
+		Ref:   d.deviceRef(),
 		Level: pb.CurtailLevel(req.Level),
 	})
 	return err
@@ -1419,14 +1452,14 @@ func (d *DeviceGRPCClient) Curtail(ctx context.Context, req CurtailRequest) erro
 
 func (d *DeviceGRPCClient) Uncurtail(ctx context.Context, _ UncurtailRequest) error {
 	_, err := d.client.Uncurtail(ctx, &pb.UncurtailRequest{
-		Ref: &pb.DeviceRef{DeviceId: d.deviceID},
+		Ref: d.deviceRef(),
 	})
 	return err
 }
 
 func (d *DeviceGRPCClient) ApplyCurtailmentConfig(ctx context.Context, config CurtailmentConfig) error {
 	_, err := d.client.ApplyCurtailmentConfig(ctx, &pb.ApplyCurtailmentConfigRequest{
-		Ref:    &pb.DeviceRef{DeviceId: d.deviceID},
+		Ref:    d.deviceRef(),
 		Config: curtailmentConfigToProto(config),
 	})
 	return err
@@ -1496,7 +1529,7 @@ func curtailmentConfigToProto(config CurtailmentConfig) *pb.CurtailmentConfig {
 
 func (d *DeviceGRPCClient) TryGetWebViewURL(ctx context.Context) (string, bool, error) {
 	resp, err := d.client.GetDeviceWebViewURL(ctx, &pb.GetDeviceWebViewURLRequest{
-		Ref: &pb.DeviceRef{DeviceId: d.deviceID},
+		Ref: d.deviceRef(),
 	})
 	if err != nil {
 		if status.Code(err) == codes.Unimplemented {
@@ -1510,7 +1543,7 @@ func (d *DeviceGRPCClient) TryGetWebViewURL(ctx context.Context) (string, bool, 
 
 func (d *DeviceGRPCClient) TryGetTimeSeriesData(ctx context.Context, metricNames []string, startTime, endTime time.Time, granularity *time.Duration, maxPoints int32, pageToken string) ([]DeviceMetrics, string, bool, error) {
 	req := &pb.GetTimeSeriesDataRequest{
-		Ref:         &pb.DeviceRef{DeviceId: d.deviceID},
+		Ref:         d.deviceRef(),
 		MetricNames: metricNames,
 		StartTime:   timestamppb.New(startTime),
 		EndTime:     timestamppb.New(endTime),
@@ -1538,10 +1571,14 @@ func (d *DeviceGRPCClient) TryGetTimeSeriesData(ctx context.Context, metricNames
 	return series, resp.NextPageToken, true, nil
 }
 
-func (d *DeviceGRPCClient) TryBatchStatus(ctx context.Context, ids []string) (map[string]DeviceMetrics, bool, error) {
-	refs := make([]*pb.DeviceRef, len(ids))
-	for i, id := range ids {
-		refs[i] = &pb.DeviceRef{DeviceId: id}
+func (d *DeviceGRPCClient) TryBatchStatus(ctx context.Context, devices []Device) (map[string]DeviceMetrics, bool, error) {
+	refs := make([]*pb.DeviceRef, len(devices))
+	for i, device := range devices {
+		remote, ok := device.(*DeviceGRPCClient)
+		if !ok || remote == nil || remote.client != d.client {
+			return nil, false, fmt.Errorf("batch status requires captured devices from the same plugin client")
+		}
+		refs[i] = remote.deviceRef()
 	}
 
 	resp, err := d.client.BatchStatus(ctx, &pb.BatchStatusRequest{Refs: refs})

@@ -44,6 +44,7 @@ type PendingEnrollmentStore interface {
 	CreatePendingEnrollment(ctx context.Context, codeHash string, orgID, createdBy int64, expiresAt time.Time) (*PendingEnrollment, error)
 	GetPendingEnrollmentByCodeHash(ctx context.Context, codeHash string) (*PendingEnrollment, error)
 	GetPendingEnrollmentByFleetNode(ctx context.Context, agentID, orgID int64) (*PendingEnrollment, error)
+	GetCancelledEnrollmentByFleetNode(ctx context.Context, enrollmentID, agentID, orgID int64) (*PendingEnrollment, error)
 	BindEnrollmentToFleetNode(ctx context.Context, enrollmentID, agentID int64) (int64, error)
 	ConfirmEnrollment(ctx context.Context, enrollmentID int64, consumedAt time.Time) (int64, error)
 	CancelPendingEnrollment(ctx context.Context, enrollmentID, orgID int64, consumedAt time.Time) (int64, error)
@@ -55,12 +56,14 @@ type AgentStore interface {
 	CreateFleetNode(ctx context.Context, orgID int64, name string, identityPubkey, encryptionPubkey []byte) (*FleetNode, error)
 	GetFleetNodeByID(ctx context.Context, agentID, orgID int64) (*FleetNode, error)
 	GetFleetNodeByIDUnscoped(ctx context.Context, agentID int64) (*FleetNode, error)
-	// LockFleetNodeByID is GetFleetNodeByID with SELECT ... FOR UPDATE. Both Confirm
+	// LockFleetNodeByID uses FOR NO KEY UPDATE to serialize enrollment mutations
+	// while allowing dispatch to retain a KEY SHARE lock on the node identity. Both Confirm
 	// and RevokeFleetNode call this at the start of their TX so they take the
 	// fleet_node-row lock in the same order; without it, Confirm's
 	// pending_enrollment-then-fleet_node UPDATE order vs RevokeFleetNode's reverse
 	// order races into deadlocks.
 	LockFleetNodeByID(ctx context.Context, agentID, orgID int64) (*FleetNode, error)
+	LockFleetNodeIdentityByID(ctx context.Context, agentID, orgID int64) (*FleetNode, error)
 	ListFleetNodesForOrganization(ctx context.Context, orgID int64) ([]FleetNodeListing, error)
 	SetFleetNodeEnrollmentStatus(ctx context.Context, status FleetNodeStatus, agentID, orgID int64) (int64, error)
 	SoftDeleteFleetNode(ctx context.Context, agentID, orgID int64, deletedAt time.Time) (int64, error)
@@ -69,6 +72,7 @@ type AgentStore interface {
 }
 
 type RevocationCleanupStore interface {
+	LockDevicesForFleetNodeRevocation(ctx context.Context, fleetNodeID, orgID int64) error
 	ListDevicesForFleetNodeRevocation(ctx context.Context, fleetNodeID, orgID int64) ([]RevokedDevice, error)
 	UnpairDevicesForFleetNodeRevocation(ctx context.Context, fleetNodeID, orgID int64) (int64, error)
 	OfflineDevicesForFleetNodeRevocation(ctx context.Context, fleetNodeID, orgID int64) (int64, error)
@@ -275,7 +279,8 @@ func (s *Service) confirm(ctx context.Context, agentID, orgID, pendingEnrollment
 	return plaintext, expires, nil
 }
 
-// RevokeFleetNode locks an agent out and soft-deletes its row so the same
+// RevokeFleetNode commits authentication denial before waiting for paired-device
+// teardown. Once teardown finishes, it soft-deletes the row so the same
 // identity_pubkey or org-local name can be re-enrolled. Marks
 // enrollment_status REVOKED, cancels any AWAITING_CONFIRMATION
 // pending_enrollment so the fleet node can't be resurrected by a later Confirm,
@@ -295,11 +300,14 @@ func (s *Service) RevokeFleetNodeForEnrollment(ctx context.Context, agentID, org
 }
 
 func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedPendingEnrollmentID int64) error {
+	if db.GetTxQueries(ctx) != nil {
+		return fleeterror.NewFailedPreconditionError("fleet node revocation requires its own transactions")
+	}
 	var agentName string
 	var devices []RevokedDevice
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
-		// Lock-then-mutate the fleet node row first; matches Confirm's lock order
-		// (agent -> pending_enrollment) so the two flows can't deadlock.
+		// This transaction only denies authentication; it never waits for a device
+		// binding held through physical dispatch. Enrollment locks match Confirm.
 		agent, err := s.store.LockFleetNodeByID(ctx, agentID, orgID)
 		if err != nil {
 			if fleeterror.IsNotFoundError(err) {
@@ -307,22 +315,34 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 			}
 			return logInternal("fleet node lock", clientErrRevokeFleetNode, err)
 		}
-		pe, err := s.store.GetPendingEnrollmentByFleetNode(ctx, agentID, orgID)
-		if err != nil {
-			if !fleeterror.IsNotFoundError(err) {
-				return logInternal("lookup pending enrollment", clientErrRevokeFleetNode, err)
-			}
-			if expectedPendingEnrollmentID > 0 {
-				return fleeterror.NewFailedPreconditionError("no enrollment awaiting confirmation for fleet node")
+		if agent.EnrollmentStatus == FleetNodeStatusRevoked && expectedPendingEnrollmentID > 0 {
+			// A canceled teardown may be retried with the original enrollment ID.
+			// Terminal history must still belong to this exact node and organization.
+			if _, err := s.store.GetCancelledEnrollmentByFleetNode(ctx, expectedPendingEnrollmentID, agentID, orgID); err != nil {
+				if fleeterror.IsNotFoundError(err) {
+					return fleeterror.NewFailedPreconditionError("pending enrollment mismatch; refresh and retry")
+				}
+				return logInternal("lookup canceled enrollment", clientErrRevokeFleetNode, err)
 			}
 		} else {
-			if expectedPendingEnrollmentID <= 0 {
-				return fleeterror.NewInvalidArgumentError("pending_enrollment_id is required for awaiting enrollment")
-			}
-			if pe.ID != expectedPendingEnrollmentID {
-				return fleeterror.NewFailedPreconditionError("pending enrollment mismatch; refresh and retry")
+			pe, err := s.store.GetPendingEnrollmentByFleetNode(ctx, agentID, orgID)
+			if err != nil {
+				if !fleeterror.IsNotFoundError(err) {
+					return logInternal("lookup pending enrollment", clientErrRevokeFleetNode, err)
+				}
+				if expectedPendingEnrollmentID > 0 {
+					return fleeterror.NewFailedPreconditionError("no enrollment awaiting confirmation for fleet node")
+				}
+			} else {
+				if expectedPendingEnrollmentID <= 0 {
+					return fleeterror.NewInvalidArgumentError("pending_enrollment_id is required for awaiting enrollment")
+				}
+				if pe.ID != expectedPendingEnrollmentID {
+					return fleeterror.NewFailedPreconditionError("pending enrollment mismatch; refresh and retry")
+				}
 			}
 		}
+
 		now := time.Now().UTC()
 		if _, err := s.store.SetFleetNodeEnrollmentStatus(ctx, FleetNodeStatusRevoked, agentID, orgID); err != nil {
 			return logInternal("set fleet node revoked", clientErrRevokeFleetNode, err)
@@ -338,21 +358,7 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 		if listErr != nil {
 			return logInternal("list fleet node devices", clientErrRevokeFleetNode, listErr)
 		}
-		if _, err := s.store.UnpairDevicesForFleetNodeRevocation(ctx, agentID, orgID); err != nil {
-			return logInternal("unpair fleet node devices", clientErrRevokeFleetNode, err)
-		}
-		if _, err := s.store.OfflineDevicesForFleetNodeRevocation(ctx, agentID, orgID); err != nil {
-			return logInternal("offline fleet node devices", clientErrRevokeFleetNode, err)
-		}
-		if _, err := s.store.DeleteMinerCredentialsForFleetNode(ctx, agentID, orgID); err != nil {
-			return logInternal("delete miner credentials for fleet node", clientErrRevokeFleetNode, err)
-		}
-		if _, err := s.store.DeletePairingsForFleetNode(ctx, agentID, orgID); err != nil {
-			return logInternal("delete pairings for fleet node", clientErrRevokeFleetNode, err)
-		}
-		if _, err := s.store.SoftDeleteFleetNode(ctx, agentID, orgID, now); err != nil {
-			return logInternal("soft delete fleet node", clientErrRevokeFleetNode, err)
-		}
+
 		agentName = agent.Name
 		return nil
 	}); err != nil {
@@ -379,11 +385,39 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 			s.invalidateMiner(ctx, device.ID)
 		}
 	}
+	// Record and publish the committed security decision even if teardown is
+	// interrupted. The live REVOKED row lets operators retry incomplete cleanup.
 	s.logActivity(ctx, "revoke_fleet_node", fmt.Sprintf("Revoked fleet node '%s' (id=%d)", agentName, agentID))
+	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		// Device/route locks precede the final node update. No node row lock is
+		// held while waiting for an admitted, possibly context-ignoring call.
+		if err := s.store.LockDevicesForFleetNodeRevocation(ctx, agentID, orgID); err != nil {
+			return logInternal("lock fleet node devices for cleanup", clientErrRevokeFleetNode, err)
+		}
+		if _, err := s.store.UnpairDevicesForFleetNodeRevocation(ctx, agentID, orgID); err != nil {
+			return logInternal("unpair fleet node devices", clientErrRevokeFleetNode, err)
+		}
+		if _, err := s.store.OfflineDevicesForFleetNodeRevocation(ctx, agentID, orgID); err != nil {
+			return logInternal("offline fleet node devices", clientErrRevokeFleetNode, err)
+		}
+		if _, err := s.store.DeleteMinerCredentialsForFleetNode(ctx, agentID, orgID); err != nil {
+			return logInternal("delete miner credentials for fleet node", clientErrRevokeFleetNode, err)
+		}
+		if _, err := s.store.DeletePairingsForFleetNode(ctx, agentID, orgID); err != nil {
+			return logInternal("delete pairings for fleet node", clientErrRevokeFleetNode, err)
+		}
+		if _, err := s.store.SoftDeleteFleetNode(ctx, agentID, orgID, time.Now().UTC()); err != nil {
+			return logInternal("soft delete fleet node", clientErrRevokeFleetNode, err)
+		}
+		return nil
+	}); err != nil {
+		slog.Warn("revoked fleet node route cleanup did not finish", "fleet_node_id", agentID, "org_id", orgID, "err", err)
+		return fleeterror.NewFailedPreconditionError("fleet node authentication is revoked; route cleanup did not finish; retry revocation")
+	}
 	return nil
 }
 
-// UpdateLastSeen advances last_seen_at on the fleet_node row. 0 rows
+// UpdateLastSeen advances the Fleet Node heartbeat without locking its routing row. 0 rows
 // affected means the fleet_node was soft-deleted (or scoped to a different
 // org) between the auth interceptor's session lookup and now; surface
 // NotFound so the daemon's session resolver fails on its next refresh.

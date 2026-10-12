@@ -33,6 +33,7 @@ services:
       # Host-profile tunables (deployment-files/profiles/); defaults mirror
       # the Go config defaults so unprofiled installs are unchanged
       DB_MAX_OPEN_CONNS: "${DB_MAX_OPEN_CONNS:-250}"
+      DB_MAX_DISPATCH_CONNS: "${DB_MAX_DISPATCH_CONNS:-0}"
       DB_MAX_IDLE_CONNS: "${DB_MAX_IDLE_CONNS:-50}"
       TELEMETRY_FETCH_INTERVAL: "${TELEMETRY_FETCH_INTERVAL:-5s}"
       TELEMETRY_STALENESS_THRESHOLD: "${TELEMETRY_STALENESS_THRESHOLD:-20s}"

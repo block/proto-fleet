@@ -4,11 +4,17 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	pb "github.com/block/proto-fleet/server/sdk/v1/pb/generated"
+	"github.com/hashicorp/go-plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestNewManager(t *testing.T) {
@@ -218,4 +224,81 @@ func TestManager_Shutdown(t *testing.T) {
 	// Verify maps are cleared
 	assert.Empty(t, manager.plugins)
 	assert.Empty(t, manager.pluginsByDriverName)
+}
+
+// The helper runs the test binary as a real go-plugin subprocess. Its wire
+// responses emulate both an older SDK runtime and a current scoped runtime.
+func TestManagerPluginHelperProcess(t *testing.T) {
+	if os.Getenv("PROTO_FLEET_PLUGIN_MANAGER_TEST_HELPER") != "1" {
+		return
+	}
+	plugin.Serve(&plugin.ServeConfig{
+		HandshakeConfig: sdk.HandshakeConfig,
+		Plugins: map[string]plugin.Plugin{
+			"driver": &managerCapabilityPlugin{supported: os.Args[len(os.Args)-1] == "supported"},
+		},
+		GRPCServer: plugin.DefaultGRPCServer,
+	})
+	os.Exit(0)
+}
+
+type managerCapabilityPlugin struct {
+	sdk.DriverPlugin
+	supported bool
+}
+
+func (p *managerCapabilityPlugin) GRPCServer(_ *plugin.GRPCBroker, server *grpc.Server) error {
+	pb.RegisterDriverServer(server, &managerCapabilityServer{supported: p.supported})
+	return nil
+}
+
+type managerCapabilityServer struct {
+	pb.UnimplementedDriverServer
+	supported bool
+}
+
+func (s *managerCapabilityServer) Handshake(context.Context, *emptypb.Empty) (*pb.HandshakeResponse, error) {
+	return &pb.HandshakeResponse{DriverName: "manager-capability-test", ApiVersion: "v1"}, nil
+}
+
+func (s *managerCapabilityServer) DescribeDriver(context.Context, *emptypb.Empty) (*pb.DescribeDriverResponse, error) {
+	flags := map[string]bool{}
+	if s.supported {
+		flags[sdk.CapabilityScopedDeviceReuse] = true
+	}
+	return &pb.DescribeDriverResponse{
+		DriverName: "manager-capability-test", ApiVersion: "v1", Caps: &pb.Capabilities{Flags: flags},
+	}, nil
+}
+
+func TestManagerLoadRequiresScopedRuntime(t *testing.T) {
+	t.Setenv("PROTO_FLEET_PLUGIN_MANAGER_TEST_HELPER", "1")
+	testBinary, err := os.Executable()
+	require.NoError(t, err)
+	for _, capability := range []string{"unsupported", "supported"} {
+		t.Run(capability, func(t *testing.T) {
+			pluginsDir := t.TempDir()
+			pluginPath := filepath.Join(pluginsDir, "runtime")
+			quotedBinary := "'" + strings.ReplaceAll(testBinary, "'", "'\"'\"'") + "'"
+			script := "#!/bin/sh\nexec " + quotedBinary + " -test.run='^TestManagerPluginHelperProcess$' -- " + capability + "\n"
+			require.NoError(t, os.WriteFile(pluginPath, []byte(script), 0700))
+			manager := NewManager(&Config{
+				Enabled: true, PluginsDir: pluginsDir, MaxStartupTimeSeconds: 10, LogLevel: "error",
+			})
+			t.Cleanup(func() { require.NoError(t, manager.Shutdown(context.Background())) })
+			err := manager.LoadPlugins(t.Context())
+			if capability == "unsupported" {
+				require.ErrorContains(t, err, sdk.CapabilityScopedDeviceReuse)
+				require.ErrorContains(t, err, "rebuild the plugin with the current Fleet SDK")
+				require.Empty(t, manager.GetAllPlugins())
+				require.False(t, manager.HasPluginForDriverName("manager-capability-test"))
+				return
+			}
+			require.NoError(t, err)
+			loaded, ok := manager.GetPluginByDriverName("manager-capability-test")
+			require.True(t, ok)
+			require.True(t, loaded.Caps[sdk.CapabilityScopedDeviceReuse])
+			require.Len(t, manager.GetAllPlugins(), 1)
+		})
+	}
 }

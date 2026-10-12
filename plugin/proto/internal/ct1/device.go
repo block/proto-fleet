@@ -78,7 +78,7 @@ func (d *Device) FirmwareUpdate(context.Context, sdk.FirmwareFile) error {
 func (d *Device) GetErrors(context.Context) (sdk.DeviceErrors, error) {
 	return sdk.DeviceErrors{}, sdk.NewErrUnsupportedCapability("errors")
 }
-func (d *Device) TryBatchStatus(context.Context, []string) (map[string]sdk.DeviceMetrics, bool, error) {
+func (d *Device) TryBatchStatus(context.Context, []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil
 }
 func (d *Device) TrySubscribe(context.Context, []string) (<-chan sdk.DeviceMetrics, bool, error) {

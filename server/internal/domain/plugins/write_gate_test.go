@@ -12,6 +12,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	sdkMocks "github.com/block/proto-fleet/server/sdk/v1/mocks"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -240,7 +241,7 @@ func TestPluginFactoryCarriesPhysicalWriteAdmission(t *testing.T) {
 	_, device := createTestPluginMiner()
 	denied := errors.New("operation admission denied")
 	miner, err := NewPluginMinerWithCredentials(t.Context(), PluginMinerConfig{
-		DeviceIdentifier: device.ID(), DriverName: "proto", DeviceIPAddress: "192.0.2.1", DevicePort: "8080", DeviceScheme: "http", FilesService: &files.Service{}, DriverGetter: containerDriverGetter{storedReadTransportDriver{device: device}},
+		SDKReuseScopeKey: "physical-admission-binding", DeviceIdentifier: device.ID(), DriverName: "proto", DeviceIPAddress: "192.0.2.1", DevicePort: "8080", DeviceScheme: "http", FilesService: &files.Service{}, DriverGetter: containerDriverGetter{&sdkMocks.ScopedDriverFixture{Driver: storedReadTransportDriver{device: device}}},
 		WriteGate: func(context.Context, commandtype.Type, func(context.Context) error) error { return denied },
 	})
 	require.NoError(t, err)

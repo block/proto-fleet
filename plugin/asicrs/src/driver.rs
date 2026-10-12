@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 
 use asic_rs::MinerFactory;
 use asic_rs_core::traits::miner::{Miner, MinerAuth};
-use tokio::sync::RwLock;
+use prost::Message;
+use sha2::{Digest, Sha256};
+use tokio::sync::{Mutex, RwLock};
 use tonic::{Request, Response, Status};
 
 use pb::driver_server::Driver;
@@ -21,6 +23,48 @@ use crate::device::AsicRsDevice;
 
 const DRIVER_NAME: &str = "asicrs";
 const API_VERSION: &str = "v1";
+const CAP_SCOPED_DEVICE_REUSE: &str = "sdk_scoped_device_reuse";
+const DEVICE_STRIPES: usize = 64;
+
+struct ActiveDevice {
+    device: Arc<AsicRsDevice>,
+    request_digest: Option<[u8; 32]>,
+    backend_generation: Vec<u8>,
+}
+
+fn backend_generation() -> Vec<u8> {
+    // Unique across registrations and service instances in this plugin process.
+    // Include the process start nonce so a restarted plugin does not reuse tokens.
+    static NONCE: std::sync::LazyLock<u128> = std::sync::LazyLock::new(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock precedes UNIX epoch")
+            .as_nanos()
+    });
+    static SEQUENCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let sequence = SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut digest = Sha256::new();
+    digest.update(NONCE.to_be_bytes());
+    digest.update(std::process::id().to_be_bytes());
+    digest.update(sequence.to_be_bytes());
+    digest.finalize().to_vec()
+}
+
+#[allow(clippy::result_large_err)]
+fn check_generation(entry: &ActiveDevice, expected: &[u8]) -> Result<(), Status> {
+    if entry.backend_generation != expected {
+        return Err(proto_fleet_plugin::errors::backend_generation_mismatch());
+    }
+    Ok(())
+}
+
+fn device_stripe(device_id: &str) -> usize {
+    // Stable FNV-1a distributes IDs over a fixed, bounded set of locks.
+    let hash = device_id.bytes().fold(2166136261u32, |hash, byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(16777619)
+    });
+    hash as usize % DEVICE_STRIPES
+}
 
 #[allow(clippy::result_large_err)]
 fn extract_auth(secret: Option<&pb::SecretBundle>) -> Result<Option<MinerAuth>, Status> {
@@ -130,7 +174,8 @@ impl Drop for AbortOnDrop {
 pub struct DriverService {
     config: Arc<PluginConfig>,
     factory: Arc<MinerFactory>,
-    devices: Arc<RwLock<HashMap<String, Arc<AsicRsDevice>>>>,
+    devices: Arc<RwLock<HashMap<String, ActiveDevice>>>,
+    device_stripes: [Arc<Mutex<()>>; DEVICE_STRIPES],
     miner_cache: Arc<MinerCache>,
     _cache_eviction_task: AbortOnDrop,
 }
@@ -157,21 +202,26 @@ impl DriverService {
             config: Arc::new(config),
             factory: Arc::new(MinerFactory::new()),
             devices: Arc::new(RwLock::new(HashMap::new())),
+            device_stripes: std::array::from_fn(|_| Arc::new(Mutex::new(()))),
             miner_cache,
             _cache_eviction_task: AbortOnDrop(eviction_handle),
         }
     }
 
-    /// Look up a device by ID. Clones the Arc and releases the read lock
-    /// so the caller can await device methods without holding the global lock.
+    /// Check the captured backend generation and select its concrete Arc under
+    /// the same registry lock. Later replacement cannot redirect this operation.
     #[allow(clippy::result_large_err)]
-    async fn get_device(&self, device_id: &str) -> Result<Arc<AsicRsDevice>, Status> {
-        self.devices
-            .read()
-            .await
-            .get(device_id)
-            .cloned()
-            .ok_or_else(|| Status::not_found(format!("Device not found: {device_id}")))
+    async fn get_device(&self, device_ref: &pb::DeviceRef) -> Result<Arc<AsicRsDevice>, Status> {
+        let devices = self.devices.read().await;
+        let entry = devices.get(&device_ref.device_id).ok_or_else(|| {
+            if !device_ref.backend_generation.is_empty() {
+                proto_fleet_plugin::errors::backend_generation_mismatch()
+            } else {
+                Status::not_found(format!("Device not found: {}", device_ref.device_id))
+            }
+        })?;
+        check_generation(entry, &device_ref.backend_generation)?;
+        Ok(entry.device.clone())
     }
 
     /// Probe a representative device for the given (manufacturer, model) and
@@ -185,7 +235,8 @@ impl DriverService {
     ) -> Option<std::collections::HashMap<String, bool>> {
         let devices = self.devices.read().await;
         let mut candidates: Vec<Arc<AsicRsDevice>> = Vec::new();
-        for device in devices.values() {
+        for entry in devices.values() {
+            let device = &entry.device;
             if !device.info.manufacturer.eq_ignore_ascii_case(manufacturer) {
                 continue;
             }
@@ -199,6 +250,7 @@ impl DriverService {
                 candidates.push(device.clone());
             }
         }
+
         drop(devices);
 
         for device in candidates {
@@ -232,7 +284,11 @@ impl Driver for DriverService {
             driver_name: DRIVER_NAME.into(),
             api_version: API_VERSION.into(),
             caps: Some(pb::Capabilities {
-                flags: driver_base_capabilities(),
+                flags: {
+                    let mut flags = driver_base_capabilities();
+                    flags.insert(CAP_SCOPED_DEVICE_REUSE.into(), true);
+                    flags
+                },
             }),
         }))
     }
@@ -671,6 +727,11 @@ impl Driver for DriverService {
     ) -> Result<Response<pb::NewDeviceResponse>, Status> {
         let req = req.into_inner();
         let device_id = req.device_id.clone();
+        let reuse_scope_key = req.reuse_scope_key.clone();
+        // Complete protobuf encoding includes every device/secret field and the
+        // trusted scope. The request has no maps, so prost encoding is stable.
+        let request_digest = (!reuse_scope_key.is_empty())
+            .then(|| <[u8; 32]>::from(Sha256::digest(req.encode_to_vec())));
         let device_info = req
             .info
             .ok_or_else(|| Status::invalid_argument("Missing device info"))?;
@@ -681,6 +742,25 @@ impl Driver for DriverService {
             .host
             .parse()
             .map_err(|_| Status::invalid_argument(format!("Invalid IP: {}", device_info.host)))?;
+
+        let _stripe = self.device_stripes[device_stripe(&device_id)].lock().await;
+        if let Some(digest) = request_digest {
+            let devices = self.devices.read().await;
+            if let Some(entry) = devices.get(&device_id) {
+                if entry.request_digest == Some(digest) {
+                    return Ok(Response::new(pb::NewDeviceResponse {
+                        device_id,
+                        reuse_scope_key,
+                        backend_generation: entry.backend_generation.clone(),
+                    }));
+                }
+            }
+        }
+        let backend_generation = if request_digest.is_some() {
+            backend_generation()
+        } else {
+            Vec::new()
+        };
 
         // Create device disconnected. The first telemetry/control call will trigger
         // ensure_connected() which runs the full identity verification (model/serial/MAC)
@@ -701,19 +781,36 @@ impl Driver for DriverService {
             auth,
         ));
 
-        self.devices.write().await.insert(device_id.clone(), device);
+        self.devices.write().await.insert(
+            device_id.clone(),
+            ActiveDevice {
+                device,
+                request_digest,
+                backend_generation: backend_generation.clone(),
+            },
+        );
 
         tracing::debug!(device_id = %device_id, "Created device");
 
-        Ok(Response::new(pb::NewDeviceResponse { device_id }))
+        Ok(Response::new(pb::NewDeviceResponse {
+            device_id,
+            reuse_scope_key,
+            backend_generation,
+        }))
     }
 
     async fn describe_device(
         &self,
         req: Request<pb::DescribeDeviceRequest>,
     ) -> Result<Response<pb::DescribeDeviceResponse>, Status> {
-        let device_id = req.into_inner().device_id;
-        let device = self.get_device(&device_id).await?;
+        let req = req.into_inner();
+        let device_id = req.device_id.clone();
+        let device = self
+            .get_device(&pb::DeviceRef {
+                device_id: req.device_id,
+                backend_generation: req.backend_generation,
+            })
+            .await?;
         let mut device_info = device.info.clone();
         if device_info.serial_number.is_empty() && device_info.mac_address.is_empty() {
             // Recovery devices are constructed from an endpoint only. Their
@@ -741,9 +838,30 @@ impl Driver for DriverService {
     }
 
     async fn close_device(&self, req: Request<pb::DeviceRef>) -> Result<Response<()>, Status> {
-        let device_id = req.into_inner().device_id;
-        if let Some(device) = self.devices.write().await.remove(&device_id) {
-            device.close().await;
+        let req = req.into_inner();
+        let device_id = req.device_id;
+        let stripe = self.device_stripes[device_stripe(&device_id)]
+            .clone()
+            .lock_owned()
+            .await;
+        // Drop the global map lock before backend cleanup. The cleanup task owns
+        // the ID stripe even if its RPC waiter is canceled after registry removal.
+        let entry = {
+            let mut devices = self.devices.write().await;
+            if let Some(entry) = devices.get(&device_id) {
+                check_generation(entry, &req.backend_generation)?;
+            } else if !req.backend_generation.is_empty() {
+                return Err(proto_fleet_plugin::errors::backend_generation_mismatch());
+            }
+            devices.remove(&device_id)
+        };
+        if let Some(entry) = entry {
+            tokio::spawn(async move {
+                let _stripe = stripe;
+                entry.device.close().await;
+            })
+            .await
+            .map_err(|_| Status::internal("Device close cleanup failed"))?;
             tracing::debug!(device_id = %device_id, "Closed device");
             Ok(Response::new(()))
         } else {
@@ -754,29 +872,29 @@ impl Driver for DriverService {
     // --- Control ---
 
     async fn start_mining(&self, req: Request<pb::DeviceRef>) -> Result<Response<()>, Status> {
-        let device_id = req.into_inner().device_id;
-        let device = self.get_device(&device_id).await?;
+        let device_ref = req.into_inner();
+        let device = self.get_device(&device_ref).await?;
         device.start_mining().await.map_err(device_err_to_status)?;
         Ok(Response::new(()))
     }
 
     async fn stop_mining(&self, req: Request<pb::DeviceRef>) -> Result<Response<()>, Status> {
-        let device_id = req.into_inner().device_id;
-        let device = self.get_device(&device_id).await?;
+        let device_ref = req.into_inner();
+        let device = self.get_device(&device_ref).await?;
         device.stop_mining().await.map_err(device_err_to_status)?;
         Ok(Response::new(()))
     }
 
     async fn blink_led(&self, req: Request<pb::DeviceRef>) -> Result<Response<()>, Status> {
-        let device_id = req.into_inner().device_id;
-        let device = self.get_device(&device_id).await?;
+        let device_ref = req.into_inner();
+        let device = self.get_device(&device_ref).await?;
         device.blink_led().await.map_err(device_err_to_status)?;
         Ok(Response::new(()))
     }
 
     async fn reboot(&self, req: Request<pb::DeviceRef>) -> Result<Response<()>, Status> {
-        let device_id = req.into_inner().device_id;
-        let device = self.get_device(&device_id).await?;
+        let device_ref = req.into_inner();
+        let device = self.get_device(&device_ref).await?;
         device.reboot().await.map_err(device_err_to_status)?;
         Ok(Response::new(()))
     }
@@ -818,12 +936,11 @@ impl Driver for DriverService {
         req: Request<pb::SetPowerTargetRequest>,
     ) -> Result<Response<()>, Status> {
         let req = req.into_inner();
-        let device_id = req
+        let device_ref = req
             .r#ref
             .as_ref()
-            .map(|r| &r.device_id)
             .ok_or_else(|| Status::invalid_argument("Missing device ref"))?;
-        let device = self.get_device(device_id).await?;
+        let device = self.get_device(device_ref).await?;
         let mode = pb::PerformanceMode::try_from(req.performance_mode).map_err(|_| {
             Status::invalid_argument(format!(
                 "Unknown performance_mode value: {}",
@@ -847,12 +964,11 @@ impl Driver for DriverService {
         req: Request<pb::UpdateMiningPoolsRequest>,
     ) -> Result<Response<()>, Status> {
         let req = req.into_inner();
-        let device_id = req
+        let device_ref = req
             .r#ref
             .as_ref()
-            .map(|r| &r.device_id)
             .ok_or_else(|| Status::invalid_argument("Missing device ref"))?;
-        let device = self.get_device(device_id).await?;
+        let device = self.get_device(device_ref).await?;
         device
             .update_mining_pools(req.pools)
             .await
@@ -864,13 +980,12 @@ impl Driver for DriverService {
         &self,
         req: Request<pb::GetMiningPoolsRequest>,
     ) -> Result<Response<pb::GetMiningPoolsResponse>, Status> {
-        let device_id = req
-            .into_inner()
+        let req = req.into_inner();
+        let device_ref = req
             .r#ref
             .as_ref()
-            .map(|r| r.device_id.clone())
             .ok_or_else(|| Status::invalid_argument("Missing device ref"))?;
-        let device = self.get_device(&device_id).await?;
+        let device = self.get_device(device_ref).await?;
         let pools = device
             .get_mining_pools()
             .await
@@ -910,7 +1025,8 @@ impl Driver for DriverService {
         ))
     }
 
-    async fn unpair(&self, _req: Request<pb::DeviceRef>) -> Result<Response<()>, Status> {
+    async fn unpair(&self, req: Request<pb::DeviceRef>) -> Result<Response<()>, Status> {
+        self.get_device(&req.into_inner()).await?;
         // No-op
         Ok(Response::new(()))
     }
@@ -927,17 +1043,16 @@ impl Driver for DriverService {
     // v1 supports FULL curtailment only.
     async fn curtail(&self, req: Request<pb::CurtailRequest>) -> Result<Response<()>, Status> {
         let req = req.into_inner();
-        let device_id = req
+        let device_ref = req
             .r#ref
             .as_ref()
-            .map(|r| &r.device_id)
             .ok_or_else(|| Status::invalid_argument("Missing device ref"))?;
         let level = pb::CurtailLevel::try_from(req.level).map_err(|_| {
             Status::invalid_argument(format!("Unknown curtail level value: {}", req.level))
         })?;
         match level {
             pb::CurtailLevel::Full => {
-                let device = self.get_device(device_id).await?;
+                let device = self.get_device(device_ref).await?;
                 device.curtail_full().await.map_err(device_err_to_status)?;
                 Ok(Response::new(()))
             }
@@ -950,12 +1065,11 @@ impl Driver for DriverService {
 
     async fn uncurtail(&self, req: Request<pb::UncurtailRequest>) -> Result<Response<()>, Status> {
         let req = req.into_inner();
-        let device_id = req
+        let device_ref = req
             .r#ref
             .as_ref()
-            .map(|r| &r.device_id)
             .ok_or_else(|| Status::invalid_argument("Missing device ref"))?;
-        let device = self.get_device(device_id).await?;
+        let device = self.get_device(device_ref).await?;
         device
             .uncurtail_full()
             .await
@@ -978,8 +1092,8 @@ impl Driver for DriverService {
         &self,
         req: Request<pb::DeviceRef>,
     ) -> Result<Response<pb::DeviceMetrics>, Status> {
-        let device_id = req.into_inner().device_id;
-        let device = self.get_device(&device_id).await?;
+        let device_ref = req.into_inner();
+        let device = self.get_device(&device_ref).await?;
 
         let data = device.get_data().await.map_err(device_err_to_status)?;
 
@@ -998,13 +1112,12 @@ impl Driver for DriverService {
         &self,
         req: Request<pb::GetDeviceWebViewUrlRequest>,
     ) -> Result<Response<pb::GetDeviceWebViewUrlResponse>, Status> {
-        let device_id = req
-            .into_inner()
+        let req = req.into_inner();
+        let device_ref = req
             .r#ref
             .as_ref()
-            .map(|r| r.device_id.clone())
             .ok_or_else(|| Status::invalid_argument("Missing device ref"))?;
-        let device = self.get_device(&device_id).await?;
+        let device = self.get_device(device_ref).await?;
         let url = format!("{}://{}", device.info.url_scheme, device.info.host);
         Ok(Response::new(pb::GetDeviceWebViewUrlResponse { url }))
     }
@@ -1030,8 +1143,8 @@ impl Driver for DriverService {
         &self,
         req: Request<pb::DeviceRef>,
     ) -> Result<Response<pb::DeviceErrors>, Status> {
-        let device_id = req.into_inner().device_id;
-        let device = self.get_device(&device_id).await?;
+        let device_ref = req.into_inner();
+        let device = self.get_device(&device_ref).await?;
 
         let data = device.get_data().await.map_err(device_err_to_status)?;
 
@@ -1217,6 +1330,7 @@ miners:
         let req = Request::new(pb::CurtailRequest {
             r#ref: Some(pb::DeviceRef {
                 device_id: "test-device".to_string(),
+                backend_generation: Vec::new(),
             }),
             level: pb::CurtailLevel::Unspecified as i32,
         });
@@ -1231,6 +1345,7 @@ miners:
         let req = Request::new(pb::CurtailRequest {
             r#ref: Some(pb::DeviceRef {
                 device_id: "test-device".to_string(),
+                backend_generation: Vec::new(),
             }),
             level: pb::CurtailLevel::Efficiency as i32,
         });
@@ -1238,3 +1353,7 @@ miners:
         assert_eq!(err.code(), Code::Unimplemented);
     }
 }
+
+#[cfg(test)]
+#[path = "driver_lifecycle_tests.rs"]
+mod lifecycle_tests;

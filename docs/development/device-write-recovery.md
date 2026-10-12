@@ -1,28 +1,40 @@
 # Device-write recovery
 
-Dispatched device mutations retain their attempt records indefinitely unless
-physical completion is established. Current error-only SDK and Fleet Node
-results, including HTTP 200/202 and successful command acknowledgements, do not
-certify physical completion. Fleet records successful requests as command
-success while retaining the physical attempt as `unknown`. This conservatively
-applies to all mutations through the write fence, not just reboot: firmware,
-pool/configuration writes and mining control have the same evidence requirement.
-There is no automatic completion qualification in this release; use the audited
-recovery procedure below before a later ownership transfer.
+Ordinary configuration and mining-control writes use an ordered, synchronous
+firmware API contract. This includes pools, credentials, cooling/power settings,
+start/stop, curtailment configuration/control, and tank/container control. A
+successful API response completes the attempt. If the response is lost or the
+write fails, Fleet preserves the command's failure but retires its attempt once
+the adapter returns: an ordered incoming configuration write can supersede the
+old one. `complete` means the attempt no longer blocks handoff, not that the
+command succeeded. The allocation controller must fence conflicting writes,
+drain active calls, and apply and verify the incoming configuration before
+activating its owner. Host curtailment remains fleet-wide.
 
-Acceptance alone does not quarantine host custody: ordinary host commands remain
-available, and accepted commands are not retried. A failed dispatched call still
-quarantines custody. Completing a later request, polling an install before its
-follow-on reboot, or rejecting a later call before dispatch cannot clear an
-earlier unresolved mutation.
+Reboot, firmware installation, Unpair, and unclassified operations retain
+`unknown` attempts after dispatch, including successful acknowledgements, because
+they do not use this configuration-write completion contract. A failed plugin RPC
+or failed/missing Fleet Node acknowledgement also retains uncertainty: the intermediary may still queue or
+dispatch the command before it reaches the firmware API. Even a failed terminal
+node acknowledgement may report a timed-out plugin RPC whose backend still runs.
+A successful plugin RPC or node acknowledgement qualifies ordered writes; a
+transport failure does not. Preparation refusals remain known to be undispatched.
+
+A canceled caller cannot retire an adapter that is still running. Crashed or
+hung dispatchers, panics, and failures to persist completion leave durable
+unresolved attempts. These exceptional cases use the audited recovery procedure
+below. A later successful command never clears an earlier unresolved
+asynchronous operation or node delivery. Accepted asynchronous commands are not
+retried merely because their attempts remain unresolved.
 
 A local admission refusal is known to be undispatched when the adapter never
 invoked its device or transport callback. Fleet Node `BAD_REQUEST` and
 `AGENT_INCAPABLE` acknowledgements may describe early refusals, but their codes
-do not certify that backend work never began. They retain unknown evidence after
-a send. A failed `BUSY` acknowledgement is the documented exception: the node
-refuses it before device dispatch. Broader automatic release requires an explicit
-node execution-stage guarantee; error-message text is not that guarantee.
+do not certify that backend work never began. These failures retain unknown
+evidence after a send, including for ordered writes, because no explicit backend-completion guarantee distinguishes them from
+intermediary failure. A failed `BUSY` acknowledgement is the documented
+undispatched exception: the node refuses it before device dispatch. Error-message
+text alone is not evidence of an early refusal.
 
 Uncertain device operations retain their attempt records indefinitely. Timeouts,
 queue reaping, disconnected transports, a new process starting, and successful
@@ -34,6 +46,64 @@ It uses privileged database access, not customer API permissions. The named
 operator attests to external evidence; the command verifies its binding to the
 database record, not the truth of external runtime or hardware receipts. Do not
 use it unless the operator can establish all the required facts.
+
+## Dispatch binding
+
+Direct SDK and Fleet Node mutations lock the device, discovery, pairing,
+credentials and node route through the actual adapter call. Binding writers wait
+until it returns; canceled callers do not release locks while a context-ignoring
+adapter continues. Admission commits before these locks are taken. The lock
+transaction performs no retry and reuses its connection for the final attempt
+check, so it neither replays physical I/O nor requires a second pool slot.
+A failure to finalize this lock-only transaction or record attempt completion is
+logged without turning an accepted command into a retryable failure. Unresolved
+attempt evidence still blocks ownership transfer until audited recovery.
+
+Physical dispatches share a process-wide budget per database pool. Admission waits
+with the caller’s context before leasing a connection; cancellation does not
+release a slot until the adapter returns. By default, dispatch uses at most half
+of `DB_MAX_OPEN_CONNS` (125 with an unbounded pool). `DB_MAX_DISPATCH_CONNS`
+can set a smaller or larger cap below the pool capacity. At least one connection
+must remain available for authentication, artifact downloads and attempt
+completion; physical dispatch is refused for a one-connection pool.
+
+Fleet Node heartbeats write `fleet_node_heartbeat` independently of the routing
+row. Enrollment, mining-asset status and unavailable-node alerts read `fleet_node_live`.
+Dispatch locks the node identity and route associations, while authentication
+revocation commits independently and immediately invalidates its control stream.
+Route and credential cleanup follows; if interrupted, retry revocation to finish
+cleanup. Heartbeats continue during dispatch. Migration 1013 backfills existing timestamps;
+its rollback copies the latest heartbeat into the retained baseline column.
+Deploy it during the application-stopped maintenance window, so an older writer
+cannot update the retained snapshot after the backfill.
+
+Scoped SDK references also carry an opaque backend generation. Replacing the
+same external identifier cannot redirect that reference; a stale token is
+rejected before backend I/O. Fleet requires scoped resolution for persisted miner
+handles, including a fresh transient scope for password recovery. That specific
+SDK rejection is recorded as an
+undispatched attempt. Other failures follow the completion contract above.
+ASIC-rs rechecks live hardware identity before writes and on fresh telemetry,
+while keeping the state needed to restore curtailment.
+
+## Retained identity scope
+
+Serial and MAC reports belong to their Fleet organization. Endpoint keys also
+include the authenticated Fleet Node (or local dispatcher) routing scope. A
+reported identity in one organization cannot fence another organization's
+commands. Within an organization, rediscovery on another node still matches a
+retained serial or MAC and cannot erase unresolved physical work.
+
+Cross-organization physical handoff requires an explicit, host-verified identity
+association before writes can be admitted in the destination organization. This
+release does not implement that handoff; untrusted node reports cannot create
+such an association. Do not move a miner with unresolved work to another
+organization to bypass recovery.
+
+Hosted ships as one feature. Migration 1012 requires empty attempt history;
+upgrades from intermediate hosted development runtimes are unsupported. Runtime
+admission captures identity keys and snapshots when each attempt is created.
+Never reconstruct an old attempt's identity from today's device row.
 
 ## Evidence and maintenance
 

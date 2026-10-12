@@ -78,7 +78,7 @@ func TestWorkerNamePreflightBeforeBatchCreation(t *testing.T) {
 				device = &workerNamePreflightDevice{id: identifier, pools: tc.pools, readErr: tc.readErr}
 				miner = newWorkerNamePreflightPluginMiner(t, identifier, device)
 			}
-			expectedRead := getter.EXPECT().GetMiner(gomock.Any(), deviceID).Return(miner, nil)
+			expectedRead := getter.EXPECT().GetMinerForCommand(gomock.Any(), deviceID).Return(miner, nil)
 			desired := map[string]string{identifier: "new-worker"}
 			if tc.mixed {
 				expectedRead.MaxTimes(1) // The unsupported miner may cancel this read first.
@@ -94,7 +94,7 @@ func TestWorkerNamePreflightBeforeBatchCreation(t *testing.T) {
 				})
 				require.NoError(t, err)
 				desired[remoteIdentifier] = "new-worker"
-				getter.EXPECT().GetMiner(gomock.Any(), remoteID).Return(&minerDomain.RemoteFleetNodeMiner{}, nil)
+				getter.EXPECT().GetMinerForCommand(gomock.Any(), remoteID).Return(&minerDomain.RemoteFleetNodeMiner{}, nil)
 			}
 			execution.minerService = getter
 			finalizers := 0
@@ -124,7 +124,7 @@ func TestWorkerNamePreflightBeforeBatchCreation(t *testing.T) {
 					device.mu.Lock()
 					device.pools = []sdk.StoredMiningPool{{Priority: 0}}
 					device.mu.Unlock()
-					getter.EXPECT().GetMiner(gomock.Any(), deviceID).Return(miner, nil)
+					getter.EXPECT().GetMinerForCommand(gomock.Any(), deviceID).Return(miner, nil)
 					_, _, err = execution.executeCommandOnDevice(t.Context(), commandtype.UpdateMiningPools, queue.Message{
 						DeviceID: deviceID, BatchLogUUID: batch, CommandType: commandtype.UpdateMiningPools, Payload: json.RawMessage(body),
 					})

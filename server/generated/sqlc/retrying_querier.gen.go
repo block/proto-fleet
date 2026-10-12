@@ -128,6 +128,18 @@ func (q *retryingQuerier) AdvanceContainerInventory(ctx context.Context, arg Adv
 	return result, err
 }
 
+func (q *retryingQuerier) AdvanceDeletedDeviceWriteFences(ctx context.Context, arg AdvanceDeletedDeviceWriteFencesParams) ([]AdvanceDeletedDeviceWriteFencesRow, error) {
+	var result []AdvanceDeletedDeviceWriteFencesRow
+	err := q.retrier.RetryQuery(ctx, "AdvanceDeletedDeviceWriteFences", func() error {
+		callResult, callErr := q.next.AdvanceDeletedDeviceWriteFences(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) AdvanceFirmwareRolloutStage(ctx context.Context, arg AdvanceFirmwareRolloutStageParams) (time.Time, error) {
 	var result time.Time
 	err := q.retrier.RetryQuery(ctx, "AdvanceFirmwareRolloutStage", func() error {
@@ -512,6 +524,12 @@ func (q *retryingQuerier) CancelPendingDeviceWrites(ctx context.Context, deviceI
 	})
 }
 
+func (q *retryingQuerier) CancelPendingDeviceWritesForDeletion(ctx context.Context, deviceIds []int64) error {
+	return q.retrier.RetryQuery(ctx, "CancelPendingDeviceWritesForDeletion", func() error {
+		return q.next.CancelPendingDeviceWritesForDeletion(ctx, deviceIds)
+	})
+}
+
 func (q *retryingQuerier) CancelPendingEnrollment(ctx context.Context, arg CancelPendingEnrollmentParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CancelPendingEnrollment", func() error {
@@ -660,6 +678,18 @@ func (q *retryingQuerier) ClaimClosedLoopFullFleetTargets(ctx context.Context, a
 	var result []ClaimClosedLoopFullFleetTargetsRow
 	err := q.retrier.RetryQuery(ctx, "ClaimClosedLoopFullFleetTargets", func() error {
 		callResult, callErr := q.next.ClaimClosedLoopFullFleetTargets(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ClaimDeletionUnpairPermit(ctx context.Context, arg ClaimDeletionUnpairPermitParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ClaimDeletionUnpairPermit", func() error {
+		callResult, callErr := q.next.ClaimDeletionUnpairPermit(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -1332,6 +1362,18 @@ func (q *retryingQuerier) CreateCustomRole(ctx context.Context, arg CreateCustom
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) CreateDeletionUnpairPermit(ctx context.Context, arg CreateDeletionUnpairPermitParams) error {
+	return q.retrier.RetryQuery(ctx, "CreateDeletionUnpairPermit", func() error {
+		return q.next.CreateDeletionUnpairPermit(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) CreateDeletionUnpairPermits(ctx context.Context, permits json.RawMessage) error {
+	return q.retrier.RetryQuery(ctx, "CreateDeletionUnpairPermits", func() error {
+		return q.next.CreateDeletionUnpairPermits(ctx, permits)
+	})
 }
 
 func (q *retryingQuerier) CreateDeviceSet(ctx context.Context, arg CreateDeviceSetParams) (CreateDeviceSetRow, error) {
@@ -2462,6 +2504,18 @@ func (q *retryingQuerier) GetBuiltinRoleForOrg(ctx context.Context, arg GetBuilt
 	return result, err
 }
 
+func (q *retryingQuerier) GetCancelledEnrollmentByFleetNode(ctx context.Context, arg GetCancelledEnrollmentByFleetNodeParams) (PendingEnrollment, error) {
+	var result PendingEnrollment
+	err := q.retrier.RetryQuery(ctx, "GetCancelledEnrollmentByFleetNode", func() error {
+		callResult, callErr := q.next.GetCancelledEnrollmentByFleetNode(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPostgresIdentity, error) {
 	var result ConnectedPostgresIdentity
 	err := q.retrier.RetryQuery(ctx, "GetConnectedPostgresIdentity", func() error {
@@ -2610,6 +2664,18 @@ func (q *retryingQuerier) GetCurtailmentTargetRollupByEvent(ctx context.Context,
 	var result GetCurtailmentTargetRollupByEventRow
 	err := q.retrier.RetryQuery(ctx, "GetCurtailmentTargetRollupByEvent", func() error {
 		callResult, callErr := q.next.GetCurtailmentTargetRollupByEvent(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetDeletionUnpairPermit(ctx context.Context, arg GetDeletionUnpairPermitParams) (DeviceDeletionUnpairPermit, error) {
+	var result DeviceDeletionUnpairPermit
+	err := q.retrier.RetryQuery(ctx, "GetDeletionUnpairPermit", func() error {
+		callResult, callErr := q.next.GetDeletionUnpairPermit(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -2970,6 +3036,42 @@ func (q *retryingQuerier) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx co
 	var result GetDeviceWithCredentialsAndIPByDeviceIdentifierRow
 	err := q.retrier.RetryQuery(ctx, "GetDeviceWithCredentialsAndIPByDeviceIdentifier", func() error {
 		callResult, callErr := q.next.GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx, deviceIdentifier)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetDeviceWriteDeletionBindings(ctx context.Context, arg GetDeviceWriteDeletionBindingsParams) ([]GetDeviceWriteDeletionBindingsRow, error) {
+	var result []GetDeviceWriteDeletionBindingsRow
+	err := q.retrier.RetryQuery(ctx, "GetDeviceWriteDeletionBindings", func() error {
+		callResult, callErr := q.next.GetDeviceWriteDeletionBindings(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetDeviceWriteDeletionTargets(ctx context.Context, arg GetDeviceWriteDeletionTargetsParams) ([]GetDeviceWriteDeletionTargetsRow, error) {
+	var result []GetDeviceWriteDeletionTargetsRow
+	err := q.retrier.RetryQuery(ctx, "GetDeviceWriteDeletionTargets", func() error {
+		callResult, callErr := q.next.GetDeviceWriteDeletionTargets(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetDeviceWriteIdentityKeys(ctx context.Context, targetID int64) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "GetDeviceWriteIdentityKeys", func() error {
+		callResult, callErr := q.next.GetDeviceWriteIdentityKeys(ctx, targetID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4688,10 +4790,34 @@ func (q *retryingQuerier) IsBatchFinished(ctx context.Context, commandBatchLogUu
 	return result, err
 }
 
+func (q *retryingQuerier) IsDeletionUnpairIdentityCurrent(ctx context.Context, arg IsDeletionUnpairIdentityCurrentParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "IsDeletionUnpairIdentityCurrent", func() error {
+		callResult, callErr := q.next.IsDeletionUnpairIdentityCurrent(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) IsDeviceWriteFenceDrained(ctx context.Context, arg IsDeviceWriteFenceDrainedParams) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "IsDeviceWriteFenceDrained", func() error {
 		callResult, callErr := q.next.IsDeviceWriteFenceDrained(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) IsRetiredDeviceWriteDrained(ctx context.Context, identityKeys []string) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "IsRetiredDeviceWriteDrained", func() error {
+		callResult, callErr := q.next.IsRetiredDeviceWriteDrained(ctx, identityKeys)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6512,6 +6638,18 @@ func (q *retryingQuerier) LockCurtailmentTopologyMemberDeviceSitesByOrg(ctx cont
 	return result, err
 }
 
+func (q *retryingQuerier) LockDeletionUnpairPermit(ctx context.Context, arg LockDeletionUnpairPermitParams) (DeviceDeletionUnpairPermit, error) {
+	var result DeviceDeletionUnpairPermit
+	err := q.retrier.RetryQuery(ctx, "LockDeletionUnpairPermit", func() error {
+		callResult, callErr := q.next.LockDeletionUnpairPermit(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockDeviceByIdentifier(ctx context.Context, arg LockDeviceByIdentifierParams) ([]int64, error) {
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "LockDeviceByIdentifier", func() error {
@@ -6534,6 +6672,48 @@ func (q *retryingQuerier) LockDeviceWriteAttemptForRecovery(ctx context.Context,
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) LockDeviceWriteDeletionCredentials(ctx context.Context, deviceIds []int64) error {
+	return q.retrier.RetryQuery(ctx, "LockDeviceWriteDeletionCredentials", func() error {
+		return q.next.LockDeviceWriteDeletionCredentials(ctx, deviceIds)
+	})
+}
+
+func (q *retryingQuerier) LockDeviceWriteDeletionDevices(ctx context.Context, deviceIds []int64) error {
+	return q.retrier.RetryQuery(ctx, "LockDeviceWriteDeletionDevices", func() error {
+		return q.next.LockDeviceWriteDeletionDevices(ctx, deviceIds)
+	})
+}
+
+func (q *retryingQuerier) LockDeviceWriteDeletionDiscoveries(ctx context.Context, deviceIds []int64) error {
+	return q.retrier.RetryQuery(ctx, "LockDeviceWriteDeletionDiscoveries", func() error {
+		return q.next.LockDeviceWriteDeletionDiscoveries(ctx, deviceIds)
+	})
+}
+
+func (q *retryingQuerier) LockDeviceWriteDeletionFences(ctx context.Context, deviceIds []int64) ([]DeviceWriteFence, error) {
+	var result []DeviceWriteFence
+	err := q.retrier.RetryQuery(ctx, "LockDeviceWriteDeletionFences", func() error {
+		callResult, callErr := q.next.LockDeviceWriteDeletionFences(ctx, deviceIds)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockDeviceWriteDeletionPairings(ctx context.Context, deviceIds []int64) error {
+	return q.retrier.RetryQuery(ctx, "LockDeviceWriteDeletionPairings", func() error {
+		return q.next.LockDeviceWriteDeletionPairings(ctx, deviceIds)
+	})
+}
+
+func (q *retryingQuerier) LockDeviceWriteDeletionRoutes(ctx context.Context, deviceIds []int64) error {
+	return q.retrier.RetryQuery(ctx, "LockDeviceWriteDeletionRoutes", func() error {
+		return q.next.LockDeviceWriteDeletionRoutes(ctx, deviceIds)
+	})
 }
 
 func (q *retryingQuerier) LockDeviceWriteFenceRecord(ctx context.Context, arg LockDeviceWriteFenceRecordParams) (DeviceWriteFence, error) {
@@ -6560,6 +6740,12 @@ func (q *retryingQuerier) LockDeviceWriteFences(ctx context.Context, deviceIds [
 	return result, err
 }
 
+func (q *retryingQuerier) LockDeviceWriteIdentities(ctx context.Context, identityKeys []string) error {
+	return q.retrier.RetryQuery(ctx, "LockDeviceWriteIdentities", func() error {
+		return q.next.LockDeviceWriteIdentities(ctx, identityKeys)
+	})
+}
+
 func (q *retryingQuerier) LockDevicesForReassign(ctx context.Context, arg LockDevicesForReassignParams) ([]int64, error) {
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "LockDevicesForReassign", func() error {
@@ -6576,6 +6762,30 @@ func (q *retryingQuerier) LockFleetNodeByID(ctx context.Context, arg LockFleetNo
 	var result LockFleetNodeByIDRow
 	err := q.retrier.RetryQuery(ctx, "LockFleetNodeByID", func() error {
 		callResult, callErr := q.next.LockFleetNodeByID(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockFleetNodeDevicesForRevocation(ctx context.Context, arg LockFleetNodeDevicesForRevocationParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockFleetNodeDevicesForRevocation", func() error {
+		callResult, callErr := q.next.LockFleetNodeDevicesForRevocation(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockFleetNodeIdentityByID(ctx context.Context, arg LockFleetNodeIdentityByIDParams) (LockFleetNodeIdentityByIDRow, error) {
+	var result LockFleetNodeIdentityByIDRow
+	err := q.retrier.RetryQuery(ctx, "LockFleetNodeIdentityByID", func() error {
+		callResult, callErr := q.next.LockFleetNodeIdentityByID(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6732,6 +6942,66 @@ func (q *retryingQuerier) LockMaintenanceSiteForTicket(ctx context.Context, arg 
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "LockMaintenanceSiteForTicket", func() error {
 		callResult, callErr := q.next.LockMaintenanceSiteForTicket(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockMinerBindingCredentials(ctx context.Context, deviceID int64) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockMinerBindingCredentials", func() error {
+		callResult, callErr := q.next.LockMinerBindingCredentials(ctx, deviceID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockMinerBindingDevice(ctx context.Context, id int64) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockMinerBindingDevice", func() error {
+		callResult, callErr := q.next.LockMinerBindingDevice(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockMinerBindingDiscovery(ctx context.Context, id int64) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockMinerBindingDiscovery", func() error {
+		callResult, callErr := q.next.LockMinerBindingDiscovery(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockMinerBindingPairing(ctx context.Context, deviceID int64) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockMinerBindingPairing", func() error {
+		callResult, callErr := q.next.LockMinerBindingPairing(ctx, deviceID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockMinerBindingRoutes(ctx context.Context, deviceID int64) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockMinerBindingRoutes", func() error {
+		callResult, callErr := q.next.LockMinerBindingRoutes(ctx, deviceID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -7692,6 +7962,12 @@ func (q *retryingQuerier) SetInfrastructureControlSubnets(ctx context.Context, a
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) SetLocalDeviceDeletionLockTimeout(ctx context.Context) error {
+	return q.retrier.RetryQuery(ctx, "SetLocalDeviceDeletionLockTimeout", func() error {
+		return q.next.SetLocalDeviceDeletionLockTimeout(ctx)
+	})
 }
 
 func (q *retryingQuerier) SetLocalTransactionTimeout(ctx context.Context, timeoutMilliseconds int64) error {
