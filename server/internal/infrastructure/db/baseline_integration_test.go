@@ -114,8 +114,7 @@ func TestBaselinePublicReconciliation(t *testing.T) {
 	requireBaselineDB(t)
 	for _, version := range []uint8{152, 153} {
 		t.Run(strconv.Itoa(int(version)), func(t *testing.T) {
-			conn, config := newMigrationBridgeTestDB(t)
-			migrateTestDBTo(t, conn, config.Name, uint(version))
+			conn, _ := newLegacyMigrationTestDB(t, uint(version))
 			seedBaselineIdentity(t, conn)
 			if version == 153 {
 				roundTripBaselineConstraints(t, conn)
@@ -157,8 +156,7 @@ func TestBaselineReconciliationRefusesDirtyAndUnknown(t *testing.T) {
 		`ALTER FUNCTION activity_count_label(bigint,text,text) RENAME TO unexpected_function`,
 	} {
 		t.Run(mutation, func(t *testing.T) {
-			conn, config := newMigrationBridgeTestDB(t)
-			migrateTestDBTo(t, conn, config.Name, 152)
+			conn, _ := newLegacyMigrationTestDB(t, 152)
 			if _, err := conn.ExecContext(t.Context(), mutation); err != nil {
 				t.Fatal(err)
 			}

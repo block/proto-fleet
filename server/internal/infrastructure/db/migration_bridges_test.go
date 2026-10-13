@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -66,8 +67,7 @@ func TestCurtailmentAuthorizationEnvelopeBridgePreservesLegacyRows(t *testing.T)
 		{name: "RC1 dirty version 143 recovery", startVersion: 142, dirty: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			conn, config := newMigrationBridgeTestDB(t)
-			migrateTestDBTo(t, conn, config.Name, test.startVersion)
+			conn, config := newLegacyMigrationTestDB(t, test.startVersion)
 			insertLegacyCurtailmentRows(t, conn)
 
 			if test.dirty {
@@ -110,8 +110,7 @@ func TestResponseProfileRevisionMigrationSupportsPassiveFirstHAWrites(t *testing
 		t.Skip("DB_PASSWORD is required for migration integration tests")
 	}
 
-	conn, config := newMigrationBridgeTestDB(t)
-	migrateTestDBTo(t, conn, config.Name, 142)
+	conn, config := newLegacyMigrationTestDB(t, 142)
 	insertLegacyCurtailmentRows(t, conn)
 	assert.NoError(t, runMigrationCompatibilityBridges(t.Context(), conn))
 
@@ -282,8 +281,7 @@ func TestResponseProfileRevisionDownMigrationPreservesTerminalProvenance(t *test
 		t.Skip("DB_PASSWORD is required for migration integration tests")
 	}
 
-	conn, config := newMigrationBridgeTestDB(t)
-	migrateTestDBTo(t, conn, config.Name, 142)
+	conn, config := newLegacyMigrationTestDB(t, 142)
 	insertLegacyCurtailmentRows(t, conn)
 	assert.NoError(t, runMigrationCompatibilityBridges(t.Context(), conn))
 	migrateTestDBTo(t, conn, config.Name, 144)
@@ -324,23 +322,33 @@ func TestCurtailmentAuthorizationEnvelopeBridgeUsesActiveSchema(t *testing.T) {
 		t.Skip("DB_PASSWORD is required for migration integration tests")
 	}
 
-	conn, config := newMigrationBridgeTestDB(t)
 	const schema = "migration_bridge_schema"
-	_, err := conn.ExecContext(t.Context(), "CREATE EXTENSION IF NOT EXISTS timescaledb WITH SCHEMA public")
-	assert.NoError(t, err)
-	_, err = conn.ExecContext(t.Context(), "CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public")
-	assert.NoError(t, err)
-	_, err = conn.ExecContext(t.Context(), "CREATE SCHEMA "+schema)
+	var searchPathConn *sql.DB
+	var searchPathConfig Config
+	conn, _, err := prepareLegacyMigrationTestDB(t, func(conn *sql.DB, config *Config) error {
+		_, err := conn.ExecContext(t.Context(), `
+			CREATE EXTENSION IF NOT EXISTS timescaledb WITH SCHEMA public;
+			CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public;
+			CREATE SCHEMA `+schema)
+		if err != nil {
+			return fmt.Errorf("prepare active schema: %w", err)
+		}
+		searchPathConfig = *config
+		searchPathConfig.ExplicitDSN = config.DSN() + "&search_path=" + schema + ",public"
+		scopedConn, err := ConnectToDatabase(&searchPathConfig)
+		if err != nil {
+			return err
+		}
+		if err := migrateTestDBSourceTo(t.Context(), scopedConn, config.Name, migrations.Migrations, 142); err != nil {
+			assert.NoError(t, scopedConn.Close())
+			return err
+		}
+		t.Cleanup(func() { assert.NoError(t, scopedConn.Close()) })
+		searchPathConn = scopedConn
+		return nil
+	})
 	assert.NoError(t, err)
 
-	searchPathConfig := *config
-	searchPathConfig.ExplicitDSN = config.DSN() + "&search_path=" + schema + ",public"
-	searchPathConn, err := ConnectToDatabase(&searchPathConfig)
-	assert.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, searchPathConn.Close()) })
-	assert.NoError(t, searchPathConn.PingContext(t.Context()))
-
-	migrateTestDBTo(t, searchPathConn, config.Name, 142)
 	// Simulate a newer public Fleet schema. The bridge must inspect the schema
 	// owning the active schema_migrations relation, not these public columns.
 	_, err = conn.ExecContext(t.Context(), `
@@ -408,8 +416,7 @@ func TestCurtailmentAuthorizationEnvelopeBridgeUsesMigrationLock(t *testing.T) {
 		t.Skip("DB_PASSWORD is required for migration integration tests")
 	}
 
-	conn, config := newMigrationBridgeTestDB(t)
-	migrateTestDBTo(t, conn, config.Name, 142)
+	conn, config := newLegacyMigrationTestDB(t, 142)
 	insertLegacyCurtailmentRows(t, conn)
 
 	_, blocker, err := newMigrator(conn, config)
@@ -462,8 +469,7 @@ func TestCurtailmentAuthorizationEnvelopeBridgeResetsEmptyDirtyRC1(t *testing.T)
 		t.Skip("DB_PASSWORD is required for migration integration tests")
 	}
 
-	conn, config := newMigrationBridgeTestDB(t)
-	migrateTestDBTo(t, conn, config.Name, 142)
+	conn, config := newLegacyMigrationTestDB(t, 142)
 	_, err := conn.ExecContext(t.Context(),
 		"UPDATE schema_migrations SET version = 143, dirty = true")
 	assert.NoError(t, err)
@@ -479,6 +485,14 @@ func TestCurtailmentAuthorizationEnvelopeBridgeResetsEmptyDirtyRC1(t *testing.T)
 }
 
 func newMigrationBridgeTestDB(t *testing.T) (*sql.DB, *Config) {
+	t.Helper()
+	conn, config, _ := createMigrationBridgeTestDB(t)
+	return conn, config
+}
+
+// createMigrationBridgeTestDB also returns an idempotent cleanup so failed
+// fixture attempts can be discarded immediately, before the next attempt.
+func createMigrationBridgeTestDB(t *testing.T) (*sql.DB, *Config, func()) {
 	t.Helper()
 
 	cli := struct {
@@ -503,43 +517,69 @@ func newMigrationBridgeTestDB(t *testing.T) (*sql.DB, *Config) {
 	// nolint:forbidigo // Test-only database lifecycle DDL cannot be parameterized.
 	_, err = admin.ExecContext(t.Context(), "CREATE DATABASE "+quoteTestIdentifier(dbName))
 	assert.NoError(t, err)
-	t.Cleanup(func() {
+	var conn *sql.DB
+	discard := sync.OnceFunc(func() {
+		if conn != nil {
+			assert.NoError(t, conn.Close())
+		}
 		// nolint: usetesting
 		ctx := context.Background()
 		cleanup, cleanupErr := ConnectToDatabase(&adminConfig)
 		assert.NoError(t, cleanupErr)
 		defer cleanup.Close()
-		_, _ = cleanup.ExecContext(ctx, `
+		// Seal first so the TimescaleDB scheduler cannot reconnect between
+		// backend termination and DROP DATABASE.
+		_, cleanupErr = cleanup.ExecContext(ctx, "ALTER DATABASE "+quoteTestIdentifier(dbName)+" ALLOW_CONNECTIONS false")
+		assert.NoError(t, cleanupErr)
+		_, cleanupErr = cleanup.ExecContext(ctx, `
 			SELECT pg_terminate_backend(pid)
 			FROM pg_stat_activity
 			WHERE datname = $1 AND pid <> pg_backend_pid()
 		`, dbName)
+		assert.NoError(t, cleanupErr)
 		// nolint:forbidigo // Test-only database lifecycle DDL cannot be parameterized.
 		_, cleanupErr = cleanup.ExecContext(ctx, "DROP DATABASE IF EXISTS "+quoteTestIdentifier(dbName))
 		assert.NoError(t, cleanupErr)
 	})
+	t.Cleanup(discard)
 
 	config := cli.DB
 	config.Name = dbName
-	conn, err := ConnectToDatabase(&config)
+	conn, err = ConnectToDatabase(&config)
 	assert.NoError(t, err)
 	assert.NoError(t, conn.PingContext(t.Context()))
-	t.Cleanup(func() { assert.NoError(t, conn.Close()) })
-	return conn, &config
+	return conn, &config, discard
 }
 
 func migrateTestDBTo(t *testing.T, conn *sql.DB, databaseName string, version uint) {
 	t.Helper()
+	assert.NoError(t, migrateTestDBSourceTo(t.Context(), conn, databaseName, migrations.Migrations, version))
+}
 
-	source, err := iofs.New(migrations.Migrations, ".")
-	assert.NoError(t, err)
-	driver, err := postgres.WithInstance(conn, &postgres.Config{})
-	assert.NoError(t, err)
+func migrateTestDBSourceTo(ctx context.Context, conn *sql.DB, databaseName string, files fs.FS, version uint) error {
+	source, err := iofs.New(files, ".")
+	if err != nil {
+		return fmt.Errorf("open test migrations: %w", err)
+	}
+	defer source.Close()
+	session, err := conn.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire test migration connection: %w", err)
+	}
+	defer session.Close()
+	driver, err := postgres.WithConnection(ctx, session, &postgres.Config{})
+	if err != nil {
+		return fmt.Errorf("create test migration driver: %w", err)
+	}
 	migration, err := migrate.NewWithInstance("migrations", source, databaseName, driver)
-	assert.NoError(t, err)
-	// Do not call migration.Close: postgres.WithInstance would close conn, which
-	// the caller continues using. Test cleanup closes conn and its driver resources.
-	assert.NoError(t, migration.Migrate(version))
+	if err != nil {
+		return fmt.Errorf("create test migrator: %w", err)
+	}
+	// Release the pinned session above while keeping the caller's pool open.
+	if err := migration.Migrate(version); err != nil {
+		return fmt.Errorf("migrate test database to %d: %w", version, err)
+	}
+	return nil
 }
 
 func migrationTableColumns(t *testing.T, conn *sql.DB, table string) []string {

@@ -108,3 +108,10 @@ jobs:
 
       - name: Test
         run: just test
+
+      - name: Show database diagnostics
+        if: failure()
+        run: |
+          docker compose logs --no-color timescaledb || true
+          docker compose exec -T timescaledb postgres --version || true
+          docker compose exec -T timescaledb dpkg-query -W 'timescaledb-*' || true
