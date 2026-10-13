@@ -25,7 +25,7 @@ func (p moduleCapabilities) GetRawCapabilitiesForDevice(context.Context, string,
 }
 
 func TestModuleMiningRequiresCurrentlyConfirmedIdentity(t *testing.T) {
-	for _, missing := range []string{"", " \t\n"} {
+	for _, missing := range []string{"", " \t\n", "\u00a0", "\u2003"} {
 		t.Run("missing identity "+missing, func(t *testing.T) {
 			conn, dbs, user := setupRetentionTest(t)
 			identifier, deviceID, tanks := seedTankController(t, conn, dbs, user.OrganizationID)
@@ -36,13 +36,13 @@ func TestModuleMiningRequiresCurrentlyConfirmedIdentity(t *testing.T) {
 			ctx := testutil.MockAuthContextForTesting(t.Context(), user.DatabaseID, user.OrganizationID)
 			allow := func(context.Context, *int64, bool) error { return nil }
 			observed := time.Now().UTC()
-			observe := func(identity string) {
+			observe := func(identity string, confirmed bool) {
 				t.Helper()
 				observed = observed.Add(time.Millisecond)
-				snapshot := &sdk.ContainerSnapshot{ObservedAt: observed, TopologyComplete: false, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 2, ReportedID: identity, State: sdk.ModuleHashing, ObservedAt: observed}}}}}
+				snapshot := &sdk.ContainerSnapshot{ObservedAt: observed, TopologyComplete: false, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 2, ReportedID: identity, IdentityConfirmed: confirmed, State: sdk.ModuleHashing, ObservedAt: observed, Metrics: &sdk.ContainerModuleMetrics{ObservedAt: observed, HashrateHS: new(300e12), PowerW: new(3600.0), TemperatureC: new(60.0)}}}}}}
 				require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: identifier, Timestamp: observed, Container: snapshot}))
 			}
-			observe("module-a")
+			observe("module-a", true)
 			var moduleID int64
 			require.NoError(t, conn.QueryRowContext(ctx, `SELECT id FROM container_module WHERE tank_id=$1 AND position=2 AND retired_at IS NULL`, tanks[0]).Scan(&moduleID))
 			ids := []int64{moduleID}
@@ -67,16 +67,28 @@ func TestModuleMiningRequiresCurrentlyConfirmedIdentity(t *testing.T) {
 					require.NoError(t, err)
 				} else {
 					require.True(t, fleeterror.IsFailedPreconditionError(err))
+					require.Contains(t, options.UnavailableReason, "board status")
+					require.NotContains(t, options.UnavailableReason, "refresh")
+					require.Contains(t, err.Error(), "board status")
 				}
 			}
 			check(true)
-			observe(missing)
+			observe("module-a", false)
 			check(false)
-			observe("module-a")
+			var measured time.Time
+			var hashrate, power, temperature float64
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT time,hashrate_hs,power_w,temperature_c FROM container_module_latest_metrics WHERE module_id=$1`, moduleID).Scan(&measured, &hashrate, &power, &temperature))
+			require.WithinDuration(t, observed, measured, time.Microsecond)
+			require.Equal(t, 300e12, hashrate)
+			require.Equal(t, 3600.0, power)
+			require.Equal(t, 60.0, temperature)
+			observe(missing, true)
+			check(false)
+			observe("module-a", true)
 			check(true)
 			// A gap must not forget the old identity or hide a later replacement.
-			observe(missing)
-			observe("replacement")
+			observe(missing, true)
+			observe("replacement", true)
 			var replacementID int64
 			require.NoError(t, conn.QueryRowContext(ctx, `SELECT id FROM container_module WHERE tank_id=$1 AND position=2 AND retired_at IS NULL AND identity_confirmed`, tanks[0]).Scan(&replacementID))
 			require.NotEqual(t, moduleID, replacementID)

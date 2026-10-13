@@ -103,13 +103,13 @@ func (q *Queries) MarkAbsentContainerTanks(ctx context.Context, arg MarkAbsentCo
 const reconcileContainerModules = `-- name: ReconcileContainerModules :exec
 INSERT INTO container_module (tank_id, position, reported_id, identity_confirmed, first_seen_at, last_seen_at, state, state_observed_at, issues, issues_observed_at, issues_source_times)
 SELECT t.id, x.position,
-       CASE WHEN x.reported_id ~ '[^[:space:]]' THEN x.reported_id ELSE '' END,
-       COALESCE(x.reported_id, '') ~ '[^[:space:]]',
+       COALESCE(x.reported_id, ''),
+       COALESCE(x.identity_confirmed, FALSE) AND COALESCE(x.reported_id, '') <> '',
        $1, $1, x.state, x.observed_at, x.issues, x.issues_observed_at, COALESCE(x.issues->'source_times', '{}'::jsonb)
-FROM jsonb_to_recordset($2::jsonb) AS x(tank_position int, position int, reported_id text, state text, observed_at timestamptz, issues jsonb, issues_observed_at timestamptz)
+FROM jsonb_to_recordset($2::jsonb) AS x(tank_position int, position int, reported_id text, identity_confirmed boolean, state text, observed_at timestamptz, issues jsonb, issues_observed_at timestamptz)
 JOIN container_tank t ON t.device_id = $3 AND t.position = x.tank_position
 ON CONFLICT (tank_id, position) WHERE retired_at IS NULL DO UPDATE
-SET reported_id = CASE WHEN EXCLUDED.identity_confirmed THEN EXCLUDED.reported_id ELSE container_module.reported_id END,
+SET reported_id = CASE WHEN EXCLUDED.reported_id <> '' THEN EXCLUDED.reported_id ELSE container_module.reported_id END,
     identity_confirmed = EXCLUDED.identity_confirmed,
     last_seen_at = EXCLUDED.last_seen_at,
     state = CASE WHEN EXCLUDED.state_observed_at IS NULL OR container_module.state_observed_at IS NULL OR EXCLUDED.state_observed_at >= container_module.state_observed_at THEN EXCLUDED.state ELSE container_module.state END,
@@ -189,7 +189,7 @@ AND (
   )) OR EXISTS (
     SELECT 1 FROM jsonb_to_recordset($4::jsonb) AS x(tank_position int, position int, reported_id text)
     WHERE x.tank_position = t.position AND x.position = m.position
-      AND m.reported_id <> '' AND COALESCE(x.reported_id, '') ~ '[^[:space:]]' AND m.reported_id <> x.reported_id
+      AND m.reported_id <> '' AND COALESCE(x.reported_id, '') <> '' AND m.reported_id <> x.reported_id
   )
 )
 `

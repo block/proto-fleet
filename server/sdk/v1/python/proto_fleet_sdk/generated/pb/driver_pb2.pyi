@@ -947,7 +947,8 @@ class ContainerTank(_message.Message):
     def __init__(self, position: _Optional[int] = ..., modules: _Optional[_Iterable[_Union[ContainerModule, _Mapping]]] = ...) -> None: ...
 
 class ContainerModule(_message.Message):
-    __slots__ = ("hashboards", "position", "reported_id", "state", "observed_at", "metrics", "issues")
+    __slots__ = ("identity_confirmed", "hashboards", "position", "reported_id", "state", "observed_at", "metrics", "issues")
+    IDENTITY_CONFIRMED_FIELD_NUMBER: _ClassVar[int]
     HASHBOARDS_FIELD_NUMBER: _ClassVar[int]
     POSITION_FIELD_NUMBER: _ClassVar[int]
     REPORTED_ID_FIELD_NUMBER: _ClassVar[int]
@@ -955,6 +956,7 @@ class ContainerModule(_message.Message):
     OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
     METRICS_FIELD_NUMBER: _ClassVar[int]
     ISSUES_FIELD_NUMBER: _ClassVar[int]
+    identity_confirmed: bool
     hashboards: _containers.RepeatedCompositeFieldContainer[ContainerHashboard]
     position: int
     reported_id: str
@@ -962,7 +964,7 @@ class ContainerModule(_message.Message):
     observed_at: _timestamp_pb2.Timestamp
     metrics: ContainerModuleMetrics
     issues: ContainerModuleIssues
-    def __init__(self, hashboards: _Optional[_Iterable[_Union[ContainerHashboard, _Mapping]]] = ..., position: _Optional[int] = ..., reported_id: _Optional[str] = ..., state: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., metrics: _Optional[_Union[ContainerModuleMetrics, _Mapping]] = ..., issues: _Optional[_Union[ContainerModuleIssues, _Mapping]] = ...) -> None: ...
+    def __init__(self, identity_confirmed: bool = ..., hashboards: _Optional[_Iterable[_Union[ContainerHashboard, _Mapping]]] = ..., position: _Optional[int] = ..., reported_id: _Optional[str] = ..., state: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., metrics: _Optional[_Union[ContainerModuleMetrics, _Mapping]] = ..., issues: _Optional[_Union[ContainerModuleIssues, _Mapping]] = ...) -> None: ...
 
 class HashboardIdentityClaim(_message.Message):
     __slots__ = ("mac_address", "serial")

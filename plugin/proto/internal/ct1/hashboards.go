@@ -183,22 +183,45 @@ func hashboardObservation(slot Slot, position int32, now time.Time) sdk.Containe
 	return v
 }
 
-// Count before accepting any slot so map order never decides identity ownership.
-func boardIdentityCounts(wire MapResponse) map[string]int {
-	counts := map[string]int{}
+// Collect every claim before accepting any slot, including unavailable slots.
+// Inventory uses typed identity keys; controller selectors share a MAC/serial
+// namespace and conservatively normalize both aliases like MAC addresses.
+type topologyIdentities struct {
+	boards    map[string]int
+	selectors map[string]int
+	modules   map[string]map[[2]int32]bool
+}
+
+func collectTopologyIdentities(wire MapResponse) topologyIdentities {
+	out := topologyIdentities{boards: map[string]int{}, selectors: map[string]int{}, modules: map[string]map[[2]int32]bool{}}
 	for _, tank := range wire.ContainerMap.Tanks {
 		for _, module := range tank.Modules {
 			for _, slot := range module.Slots {
-				if slot.Hashboard == nil {
+				b := slot.Hashboard
+				if b == nil {
 					continue
 				}
-				for _, key := range boardIdentityKeys(normalizedBoardMAC(slot.Hashboard.MACAddress), strings.TrimSpace(slot.Hashboard.Serial)) {
-					counts[key]++
+				mac, serial := normalizedBoardMAC(b.MACAddress), strings.TrimSpace(b.Serial)
+				for _, key := range boardIdentityKeys(mac, serial) {
+					out.boards[key]++
+				}
+				selectorSerial := normalizedBoardMAC(serial)
+				if mac != "" {
+					out.selectors[mac]++
+				}
+				if selectorSerial != "" && selectorSerial != mac {
+					out.selectors[selectorSerial]++
+				}
+				if strings.TrimSpace(b.ModuleID) != "" {
+					if out.modules[b.ModuleID] == nil {
+						out.modules[b.ModuleID] = map[[2]int32]bool{}
+					}
+					out.modules[b.ModuleID][[2]int32{tank.ID, module.ID}] = true
 				}
 			}
 		}
 	}
-	return counts
+	return out
 }
 func boardIdentityKeys(mac, serial string) []string {
 	keys := []string{}

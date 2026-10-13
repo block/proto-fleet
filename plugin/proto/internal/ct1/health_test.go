@@ -1,6 +1,7 @@
 package ct1
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -115,10 +116,10 @@ func TestSnapshotRequiresEveryOccupiedBoardToConfirmModuleIdentity(t *testing.T)
 		wantState sdk.ModuleState
 	}{
 		{"matching", "module-a", false, "module-a", sdk.ModuleHashing},
-		{"missing", "", false, "", sdk.ModuleHashing},
-		{"blank", " \t", false, "", sdk.ModuleHashing},
+		{"missing", "", false, "module-a", sdk.ModuleHashing},
+		{"blank", " \t", false, "module-a", sdk.ModuleHashing},
 		{"conflicting", "module-b", false, "", sdk.ModuleUnknown},
-		{"invalid board", "module-a", true, "", sdk.ModuleUnknown},
+		{"invalid board", "module-a", true, "module-a", sdk.ModuleUnknown},
 	} {
 		for changed := range boardsPerModule {
 			t.Run(tc.name+string(rune('1'+changed)), func(t *testing.T) {
@@ -131,8 +132,52 @@ func TestSnapshotRequiresEveryOccupiedBoardToConfirmModuleIdentity(t *testing.T)
 				got, err := snapshot(MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{{ID: 1, Modules: []Module{{ID: 1, Slots: slots}}}}}}, now)
 				require.NoError(t, err)
 				require.Equal(t, tc.wantID, got.Tanks[0].Modules[0].ReportedID)
+				require.Equal(t, tc.name == "matching", got.Tanks[0].Modules[0].IdentityConfirmed)
 				require.Equal(t, tc.wantState, got.Tanks[0].Modules[0].State)
 			})
 		}
 	}
+}
+
+func TestSnapshotKeepsDegradedMetricsWithoutConfirmingIdentity(t *testing.T) {
+	now := time.Now()
+	for _, unavailable := range []bool{false, true} {
+		t.Run(fmt.Sprint("unavailable=", unavailable), func(t *testing.T) {
+			slots := make([]Slot, boardsPerModule)
+			for i := range slots {
+				slots[i] = Slot{Occupied: true, Hashboard: &Board{MACAddress: string(rune('a' + i)), ModuleID: "module-a", MiningState: miningStateMining, Health: &Health{Timestamp: now, Hashrate: new(100.0), AverageAsicTemperatureC: new(60.0), PSUElectrical: &PSUElectrical{InputPower: new(3600.0)}}}}
+			}
+			slots[0].Hashboard.ModuleID = ""
+			slots[0].invalid = unavailable
+			wire := MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{{ID: 1, Modules: []Module{{ID: 1, Slots: slots}}}}}}
+			got, err := snapshot(wire, now)
+			require.NoError(t, err)
+			module := got.Tanks[0].Modules[0]
+			require.Equal(t, "module-a", module.ReportedID)
+			require.False(t, module.IdentityConfirmed)
+			require.Equal(t, 3600.0, *module.Metrics.PowerW)
+			if !unavailable {
+				require.Equal(t, 300e12, *module.Metrics.HashrateHS)
+				require.Equal(t, 60.0, *module.Metrics.TemperatureC)
+			}
+			// A contradictory claim, even from an unavailable slot, cannot own metrics.
+			slots[0].Hashboard.ModuleID = "replacement"
+			got, err = snapshot(wire, now)
+			require.NoError(t, err)
+			require.Empty(t, got.Tanks[0].Modules[0].ReportedID)
+			require.False(t, got.Tanks[0].Modules[0].IdentityConfirmed)
+		})
+	}
+}
+
+func TestSnapshotRejectsDuplicateModuleClaimsFromUnavailableSlots(t *testing.T) {
+	now := time.Now()
+	wire := MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{{ID: 1, Modules: []Module{
+		{ID: 1, Slots: []Slot{{Occupied: true, Hashboard: &Board{MACAddress: "a", ModuleID: "module-a"}}, {}, {}}},
+		{ID: 2, Slots: []Slot{{Occupied: false, Hashboard: &Board{MACAddress: "b", ModuleID: "module-a"}}, {}, {}}},
+	}}}}}
+	got, err := snapshot(wire, now)
+	require.NoError(t, err)
+	require.Empty(t, got.Tanks[0].Modules[0].ReportedID)
+	require.False(t, got.Tanks[0].Modules[0].IdentityConfirmed)
 }

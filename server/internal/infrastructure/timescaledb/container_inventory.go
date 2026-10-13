@@ -14,13 +14,14 @@ import (
 )
 
 type inventoryModule struct {
-	TankPosition     int32                      `json:"tank_position"`
-	Position         int32                      `json:"position"`
-	ReportedID       string                     `json:"reported_id"`
-	State            sdk.ModuleState            `json:"state"`
-	ObservedAt       *time.Time                 `json:"observed_at"`
-	Issues           *sdk.ContainerModuleIssues `json:"issues"`
-	IssuesObservedAt *time.Time                 `json:"issues_observed_at"`
+	TankPosition      int32                      `json:"tank_position"`
+	Position          int32                      `json:"position"`
+	ReportedID        string                     `json:"reported_id"`
+	IdentityConfirmed bool                       `json:"identity_confirmed"`
+	State             sdk.ModuleState            `json:"state"`
+	ObservedAt        *time.Time                 `json:"observed_at"`
+	Issues            *sdk.ContainerModuleIssues `json:"issues"`
+	IssuesObservedAt  *time.Time                 `json:"issues_observed_at"`
 }
 
 type moduleSample struct {
@@ -106,9 +107,15 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 					issueTime = &v.ObservedAt
 				}
 			}
-			modules = append(modules, inventoryModule{tank.Position, module.Position, module.ReportedID, state, observed, module.Issues, issueTime})
+			// Normalize blank evidence once for inventory, retirement, and metrics.
+			// Preserve nonblank firmware IDs verbatim for command identity matching.
+			reportedID := module.ReportedID
+			if strings.TrimSpace(reportedID) == "" {
+				reportedID = ""
+			}
+			modules = append(modules, inventoryModule{tank.Position, module.Position, reportedID, module.IdentityConfirmed && reportedID != "", state, observed, module.Issues, issueTime})
 			if m := module.Metrics; m != nil && !m.ObservedAt.IsZero() && !m.ObservedAt.After(snapshot.ObservedAt.Add(5*time.Second)) {
-				samples = append(samples, moduleSample{tank.Position, module.Position, module.ReportedID, m.ObservedAt, m.HashrateHS, m.PowerW, m.TemperatureC})
+				samples = append(samples, moduleSample{tank.Position, module.Position, reportedID, m.ObservedAt, m.HashrateHS, m.PowerW, m.TemperatureC})
 			}
 		}
 	}

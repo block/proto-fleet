@@ -562,4 +562,13 @@ func TestMissingModuleIdentityOnlyClearsAcceptedEmptyObservations(t *testing.T) 
 	write(base.Add(40*time.Second), base.Add(40*time.Second), "", true)
 	write(base.Add(9*time.Second), base.Add(9*time.Second), "original", false)
 	assertCurrent(true, 3)
+	// All Unicode blank identities use the same anonymous-metric policy.
+	for i, blank := range []string{" \t\n", "\u00a0", "\u2003"} {
+		at := base.Add(time.Duration(50+i*2) * time.Second)
+		write(at, at, blank, false)
+		assertCurrent(true, 3+i)
+		write(at.Add(time.Second), at.Add(time.Second), blank, true)
+		assertCurrent(true, 4+i)
+	}
+
 }

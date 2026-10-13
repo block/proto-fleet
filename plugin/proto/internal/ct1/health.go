@@ -144,7 +144,7 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 	}
 	result := &sdk.ContainerSnapshot{ObservedAt: now, TopologyComplete: true, Tanks: []sdk.ContainerTank{}}
 	tankIDs := map[int32]bool{}
-	boardIDs := boardIdentityCounts(wire)
+	identities := collectTopologyIdentities(wire)
 	issuesBudget := issueBudget{remaining: maxContainerIssueBytes}
 	for _, tank := range wire.ContainerMap.Tanks {
 		if tank.ID <= 0 || tankIDs[tank.ID] {
@@ -166,7 +166,7 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 			for index := range hashboards {
 				observation := &hashboards[index]
 				for _, key := range boardIdentityKeys(observation.MACAddress, observation.Serial) {
-					if boardIDs[key] > 1 {
+					if identities.boards[key] > 1 {
 						*observation = unavailableBoard(observation.Position, sdk.HashboardIdentityConflict, m.Slots[index].Hashboard)
 						break
 					}
@@ -193,13 +193,23 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 				boards = append(boards, b)
 			}
 			state := moduleState(boards, now)
+			// An unavailable slot can still contradict the identity observed on
+			// healthy boards. Do not attribute their metrics to disputed hardware.
+			for _, slot := range m.Slots {
+				if b := slot.Hashboard; b != nil && strings.TrimSpace(b.ModuleID) != "" && reportedID != "" && b.ModuleID != reportedID {
+					identityConflict = true
+				}
+			}
+			if reportedID != "" && len(identities.modules[reportedID]) != 1 {
+				identityConflict = true
+			}
 			if identityConflict {
 				state = sdk.ModuleUnknown
 			}
-			if identityConflict || identityUnavailable {
+			if identityConflict {
 				reportedID = ""
 			}
-			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, State: state, ObservedAt: moduleObservedAt(boards, state, now), Metrics: moduleMetrics(boards, now), Hashboards: hashboards, Issues: moduleIssuesWithBudget(boards, now, identityConflict, &issuesBudget)})
+			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, IdentityConfirmed: reportedID != "" && !identityUnavailable, State: state, ObservedAt: moduleObservedAt(boards, state, now), Metrics: moduleMetrics(boards, now), Hashboards: hashboards, Issues: moduleIssuesWithBudget(boards, now, identityConflict, &issuesBudget)})
 		}
 		sort.Slice(out.Modules, func(i, j int) bool { return out.Modules[i].Position < out.Modules[j].Position })
 		result.Tanks = append(result.Tanks, out)

@@ -79,14 +79,15 @@ func TestModuleMiningExactScopeAndIdentity(t *testing.T) {
 func TestModuleMiningRejectsCrossKindIdentifierCollisionsBeforeWriting(t *testing.T) {
 	const selectedMAC = "AA-BB-CC-DD-EE-01"
 	for _, tc := range []struct {
-		name, selectedSerial, neighborSerial string
-		emptyNeighbor, wantError             bool
+		name, selectedSerial, neighborSerial, neighborModuleID string
+		emptyNeighbor, wantError                               bool
 	}{
-		{"neighbor serial matches raw MAC", "selected", selectedMAC, false, true},
-		{"neighbor serial matches normalized MAC", "selected", "aa:bb:cc:dd:ee:01", false, true},
-		{"empty slot claims matching serial", "selected", selectedMAC, true, true},
-		{"same board MAC and serial", selectedMAC, "neighbor", false, false},
-		{"distinct identifiers", "selected", "neighbor", false, false},
+		{"neighbor serial matches raw MAC", "selected", selectedMAC, "module-b", false, true},
+		{"neighbor serial matches normalized MAC", "selected", "aa:bb:cc:dd:ee:01", "module-b", false, true},
+		{"empty slot claims matching serial", "selected", selectedMAC, "module-b", true, true},
+		{"same board MAC and serial", selectedMAC, "neighbor", "module-b", false, false},
+		{"unoccupied slot claims same module", "selected", "neighbor", "module-a", true, true},
+		{"distinct identifiers", "selected", "neighbor", "module-b", false, false},
 	} {
 		for _, mining := range []bool{false, true} {
 			t.Run(tc.name+"/"+strconv.FormatBool(mining), func(t *testing.T) {
@@ -98,7 +99,7 @@ func TestModuleMiningRejectsCrossKindIdentifierCollisionsBeforeWriting(t *testin
 					case "/api/v2/container/map":
 						require.NoError(t, json.NewEncoder(w).Encode(MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{{ID: 1, Modules: []Module{
 							{ID: 1, Slots: []Slot{{Occupied: true, Hashboard: &Board{MACAddress: selectedMAC, Serial: tc.selectedSerial, ModuleID: "module-a", MiningState: miningStateIdle}}, {}, {}}},
-							{ID: 2, Slots: []Slot{{Occupied: !tc.emptyNeighbor, Hashboard: &Board{MACAddress: "aa:bb:cc:dd:ee:02", Serial: tc.neighborSerial, ModuleID: "module-b", MiningState: miningStateIdle}}, {}, {}}},
+							{ID: 2, Slots: []Slot{{Occupied: !tc.emptyNeighbor, Hashboard: &Board{MACAddress: "aa:bb:cc:dd:ee:02", Serial: tc.neighborSerial, ModuleID: tc.neighborModuleID, MiningState: miningStateIdle}}, {}, {}}},
 						}}}}}))
 					default:
 						writes++
@@ -114,7 +115,11 @@ func TestModuleMiningRejectsCrossKindIdentifierCollisionsBeforeWriting(t *testin
 				require.NoError(t, err)
 				err = dev.SetModuleMining(t.Context(), sdk.ModuleMiningRequest{Mining: &mining, Modules: []sdk.ModuleMiningTarget{{Tank: 1, Module: 1, ReportedID: "module-a"}}})
 				if tc.wantError {
-					require.ErrorContains(t, err, "selected module board identifier ambiguous")
+					if tc.neighborModuleID == "module-a" {
+						require.ErrorContains(t, err, "selected module identity unavailable or ambiguous")
+					} else {
+						require.ErrorContains(t, err, "selected module board identifier ambiguous")
+					}
 					require.Zero(t, writes)
 				} else {
 					require.NoError(t, err)

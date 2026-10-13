@@ -18,6 +18,8 @@ import (
 
 type miningScope uint8
 
+const moduleIdentityUnavailableReason = "Module identity is unavailable or ambiguous. Check the module's board status and controller connection before retrying."
+
 const (
 	tankScope miningScope = iota
 	moduleScope
@@ -53,6 +55,13 @@ func (scope miningScope) controlsUnavailableReason() string {
 		noun = "Module"
 	}
 	return noun + " controls unsupported or topology stale; refresh before retrying."
+}
+
+func (scope miningScope) targetUnavailableReason(row miningCommandTarget) string {
+	if row.Module != nil && row.Module.Validate() != nil {
+		return moduleIdentityUnavailableReason
+	}
+	return scope.controlsUnavailableReason()
 }
 func (scope miningScope) capability() string {
 	if scope == moduleScope {

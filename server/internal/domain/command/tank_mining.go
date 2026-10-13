@@ -138,7 +138,7 @@ func (s *Service) getMiningOptions(ctx context.Context, ids []int64, authorize m
 			if !currentMiningTarget(row, time.Now()) || !supported {
 				options.CanStart = false
 				options.CanStop = false
-				options.UnavailableReason = scope.controlsUnavailableReason()
+				options.UnavailableReason = scope.targetUnavailableReason(row)
 			}
 			if pending {
 				options.CanStart = false
@@ -150,7 +150,7 @@ func (s *Service) getMiningOptions(ctx context.Context, ids []int64, authorize m
 			if (sdk.ModuleMiningRequest{Modules: modules, Mining: new(false)}).Validate() != nil {
 				options.CanStart = false
 				options.CanStop = false
-				options.UnavailableReason = "Module identities or positions are invalid or ambiguous; refresh before retrying."
+				options.UnavailableReason = moduleIdentityUnavailableReason
 				break
 			}
 		}
@@ -231,14 +231,14 @@ func (s *Service) setMining(ctx context.Context, ids []int64, mining *bool, auth
 				return nil, err
 			}
 			if !currentMiningTarget(row, time.Now()) {
-				return nil, fleeterror.NewFailedPreconditionError(scope.noun() + " controls unsupported or topology stale; refresh before retrying")
+				return nil, fleeterror.NewFailedPreconditionError(scope.targetUnavailableReason(row))
 			}
 			if row.DeviceID == previous {
 				continue
 			}
 			previous = row.DeviceID
 			if !s.miningSupported(txCtx, row, scope) {
-				return nil, fleeterror.NewFailedPreconditionError(scope.noun() + " controls unsupported or topology stale; refresh before retrying")
+				return nil, fleeterror.NewFailedPreconditionError(scope.controlsUnavailableReason())
 			}
 			pending, err := q.HasPendingScopedMining(txCtx, row.DeviceID)
 			if err != nil {
@@ -351,7 +351,10 @@ func (es *ExecutionService) executeScopedMining(ctx context.Context, deviceID, o
 			return fleeterror.NewFailedPreconditionError("selected " + scope.noun() + " no longer exists")
 		}
 		for i, row := range rows {
-			if row.DeviceID != deviceID || row.SiteID.Int64 != payload.SiteID || row.ID != payload.ids()[i] || !payload.matches(row, i) || !currentMiningTarget(row, time.Now()) {
+			if !currentMiningTarget(row, time.Now()) {
+				return fleeterror.NewFailedPreconditionError(scope.targetUnavailableReason(row))
+			}
+			if row.DeviceID != deviceID || row.SiteID.Int64 != payload.SiteID || row.ID != payload.ids()[i] || !payload.matches(row, i) {
 				return fleeterror.NewFailedPreconditionError(scope.noun() + " topology or placement changed; refresh before retrying")
 			}
 		}

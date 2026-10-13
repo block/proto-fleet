@@ -60,41 +60,10 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 	if wire.ContainerMap == nil {
 		return fmt.Errorf("tank topology unavailable")
 	}
-	identityCounts := boardIdentityCounts(wire)
-	moduleLocations := map[string]map[[2]int32]bool{}
-	selectorCounts := map[string]int{}
-	if len(targets) > 0 {
-		for _, tank := range wire.ContainerMap.Tanks {
-			for _, module := range tank.Modules {
-				for _, slot := range module.Slots {
-					if slot.Hashboard == nil {
-						continue
-					}
-					// BoardScope identifiers share a MAC/serial namespace. Count
-					// each board once, including claims from unavailable slots.
-					mac := normalizedBoardMAC(slot.Hashboard.MACAddress)
-					serial := normalizedBoardMAC(slot.Hashboard.Serial)
-					if mac != "" {
-						selectorCounts[mac]++
-					}
-					if serial != "" && serial != mac {
-						selectorCounts[serial]++
-					}
-					if !slot.Occupied {
-						continue
-					}
-					id := slot.Hashboard.ModuleID
-					if moduleLocations[id] == nil {
-						moduleLocations[id] = map[[2]int32]bool{}
-					}
-					moduleLocations[id][[2]int32{tank.ID, module.ID}] = true
-				}
-			}
-		}
-		for _, target := range targets {
-			if len(moduleLocations[target.ReportedID]) != 1 {
-				return fmt.Errorf("selected module identity unavailable or ambiguous")
-			}
+	identities := collectTopologyIdentities(wire)
+	for _, target := range targets {
+		if len(identities.modules[target.ReportedID]) != 1 {
+			return fmt.Errorf("selected module identity unavailable or ambiguous")
 		}
 	}
 	modules := []*mdk.ModuleSelector{}
@@ -155,11 +124,11 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 					if mac == "" || expected[mac] != "" {
 						return fmt.Errorf("tank %d board identity unavailable or ambiguous", position)
 					}
-					if isSelected && selectorCounts[mac] > 1 {
+					if isSelected && identities.selectors[mac] > 1 {
 						return fmt.Errorf("selected module board identifier ambiguous")
 					}
 					for _, key := range boardIdentityKeys(mac, strings.TrimSpace(slot.Hashboard.Serial)) {
-						if identityCounts[key] > 1 {
+						if identities.boards[key] > 1 {
 							return fmt.Errorf("tank %d board identity unavailable or ambiguous", position)
 						}
 					}

@@ -812,6 +812,9 @@ message ContainerTank {
   repeated ContainerModule modules = 2;
 }
 message ContainerModule {
+  // All required board identity evidence agrees; required for module controls.
+  // reported_id may still identify metrics when this is false.
+  bool identity_confirmed = 8;
   repeated ContainerHashboard hashboards = 7;
   int32 position = 1;
   string reported_id = 2;

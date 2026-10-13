@@ -30,7 +30,7 @@ func containerSnapshotToProto(s *ContainerSnapshot) *pb.ContainerSnapshot {
 	for _, tank := range s.Tanks {
 		t := &pb.ContainerTank{Position: tank.Position}
 		for _, m := range tank.Modules {
-			module := &pb.ContainerModule{Position: m.Position, ReportedId: m.ReportedID, State: string(m.State), ObservedAt: timestamppb.New(m.ObservedAt)}
+			module := &pb.ContainerModule{Position: m.Position, ReportedId: m.ReportedID, IdentityConfirmed: m.IdentityConfirmed, State: string(m.State), ObservedAt: timestamppb.New(m.ObservedAt)}
 			if v := m.Issues; v != nil {
 				module.Issues = &pb.ContainerModuleIssues{ObservedAt: timestamppb.New(v.ObservedAt), Complete: v.Complete}
 				if v.SourceTimes != nil {
@@ -89,7 +89,7 @@ func containerSnapshotFromProto(s *pb.ContainerSnapshot) *ContainerSnapshot {
 	for _, tank := range s.Tanks {
 		t := ContainerTank{Position: tank.Position, Modules: []ContainerModule{}}
 		for _, m := range tank.Modules {
-			module := ContainerModule{Position: m.Position, ReportedID: m.ReportedId, State: ModuleState(m.State), ObservedAt: m.ObservedAt.AsTime()}
+			module := ContainerModule{Position: m.Position, ReportedID: m.ReportedId, IdentityConfirmed: m.IdentityConfirmed, State: ModuleState(m.State), ObservedAt: m.ObservedAt.AsTime()}
 			if v := m.Issues; v != nil {
 				module.Issues = &ContainerModuleIssues{ObservedAt: v.ObservedAt.AsTime(), Complete: v.Complete}
 				if len(v.SourceTimes) > 0 {
