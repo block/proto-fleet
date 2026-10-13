@@ -26,9 +26,30 @@ func (s *Service) WithBindingTransaction(ctx context.Context, call func(context.
 // its callback performs external I/O. Cancellation must not release its locks
 // while a context-ignoring adapter is still running.
 func (s *Service) WithBindingDispatch(ctx context.Context, deviceID int64, validate func(sqlc.Querier) error, call func(context.Context) error) error {
+	return s.withBindingDispatch(ctx, deviceID, true, validate, call)
+}
+
+// WithBindingObservation retains the binding without marking a physical mutation.
+// Only a durably admitted observation may share the parent lock with other reads;
+// a mutation attempt keeps its exclusive lock even during preliminary login.
+func (s *Service) WithBindingObservation(ctx context.Context, deviceID int64, validate func(sqlc.Querier) error, call func(context.Context) error) error {
+	return s.withBindingDispatch(ctx, deviceID, false, validate, call)
+}
+
+func (s *Service) withBindingDispatch(ctx context.Context, deviceID int64, mutation bool, validate func(sqlc.Querier) error, call func(context.Context) error) error {
 	invoked := false
 	err := s.WithBindingTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
-		discoveryID, err := q.LockMinerBindingDevice(ctx, deviceID)
+		// Choose the lock mode for the entire admitted attempt, never for an
+		// individual login/read call: upgrading two read locks for subsequent
+		// mutations could deadlock. Unclassified callers remain exclusive.
+		attempt, admitted := ctx.Value(attemptContextKey{}).(*Attempt)
+		var discoveryID int64
+		var err error
+		if admitted && attempt.service.conn == s.conn && attempt.deviceID == deviceID && attempt.observation {
+			discoveryID, err = q.LockMinerBindingObservationDevice(ctx, deviceID)
+		} else {
+			discoveryID, err = q.LockMinerBindingDevice(ctx, deviceID)
+		}
 		if err != nil {
 			return lookupError(err)
 		}
@@ -50,7 +71,7 @@ func (s *Service) WithBindingDispatch(ctx context.Context, deviceID int64, valid
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("dispatch binding canceled: %w", err)
 		}
-		return Dispatch(ctx, func(ctx context.Context) error { invoked = true; return call(ctx) })
+		return dispatch(ctx, func(ctx context.Context) error { invoked = true; return call(ctx) }, mutation)
 	})
 	if !invoked {
 		return NotDispatched(err)

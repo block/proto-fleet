@@ -483,3 +483,27 @@ func TestRunHostRejectsAmbientTransactionWithoutAdmission(t *testing.T) {
 	require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT count(*) FROM device_write_attempt").Scan(&attempts))
 	require.Zero(t, attempts)
 }
+
+type observationContextKey struct{}
+
+func TestObservationRechecksOwnershipAndPreservesContext(t *testing.T) {
+	database, orgID, deviceID, message, _ := queuedFenceFixture(t)
+	service := devicewrite.NewService(database.DB)
+	attempt, err := service.BeginQueuedHost(t.Context(), message)
+	require.NoError(t, err)
+	ctx := attempt.Context(context.WithValue(t.Context(), observationContextKey{}, "fixture-value"))
+	require.NoError(t, devicewrite.Observe(ctx, func(callCtx context.Context) error {
+		require.Equal(t, "fixture-value", callCtx.Value(observationContextKey{}))
+		return nil
+	}))
+	epoch, err := service.Reserve(t.Context(), orgID, deviceID)
+	require.NoError(t, err)
+	called := false
+	err = devicewrite.Observe(ctx, func(context.Context) error { called = true; return nil })
+	require.Error(t, err)
+	require.False(t, called, "observation must recheck durable ownership before dispatch")
+	require.NoError(t, attempt.Finish(t.Context(), err))
+	drained, err := service.Drained(t.Context(), orgID, deviceID, epoch)
+	require.NoError(t, err)
+	require.True(t, drained, "an observation with no physical mutation may complete after ownership rejection")
+}

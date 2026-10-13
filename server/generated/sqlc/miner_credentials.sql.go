@@ -91,7 +91,7 @@ func (q *Queries) UpdateMinerPassword(ctx context.Context, arg UpdateMinerPasswo
 
 const upsertMinerCredentials = `-- name: UpsertMinerCredentials :exec
 WITH locked_device AS MATERIALIZED (
-    SELECT device.id FROM device WHERE device.id=$3 FOR SHARE
+    SELECT device.id FROM device WHERE device.id=$3 FOR NO KEY UPDATE
 )
 INSERT INTO miner_credentials (device_id, username_enc, password_enc)
 VALUES ((SELECT locked_device.id FROM locked_device), $1, $2)

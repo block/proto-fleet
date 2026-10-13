@@ -1,6 +1,8 @@
 import { create, type MessageInitShape } from "@bufbuild/protobuf";
 import { type SortConfig, SortDirection, SortField } from "./generated/common/v1/sort_pb";
 import {
+  EntityKind,
+  type EntityRef,
   InventorySort,
   InventoryView,
   ListInventoryRequestSchema,
@@ -30,28 +32,48 @@ export function inventorySort(sort?: SortConfig): InventorySort {
 export function miningInventoryRequest(
   filter?: MinerListFilter,
   sort?: SortConfig,
+  ancestors: EntityRef[] = [],
 ): MessageInitShape<typeof ListInventoryRequestSchema> {
-  const f = filter ?? create(MinerListFilterSchema);
+  const original = filter ?? create(MinerListFilterSchema);
+  // Conventional placement keeps the same semantics as CSV, counts, and
+  // commands. Mixed CT1 scopes need typed OR groups to include modules.
+  const combinedPlacement = ancestors.some(({ kind }) => kind === EntityKind.CONTAINER || kind === EntityKind.TANK);
+  const f = combinedPlacement
+    ? create(MinerListFilterSchema, {
+        ...original,
+        buildingIds: [],
+        rackIds: [],
+        includeNoBuilding: false,
+        includeNoRack: false,
+      })
+    : original;
   // Native miner statuses include authentication/error semantics that do not
   // correspond one-to-one to module states. Keep them in the native filter.
   const specific =
     f.models.length ||
     f.firmwareVersions.length ||
     f.groupIds.length ||
-    f.rackIds.length ||
     f.buildingIds.length ||
+    f.rackIds.length ||
+    f.includeNoBuilding ||
+    f.includeNoRack ||
     f.zoneKeys.length ||
     f.zones.length ||
     f.ipCidrs.length ||
     f.ipRanges.length ||
     f.errorComponentTypes.length ||
-    f.includeNoRack ||
-    f.includeNoBuilding ||
     f.pairingStatuses.length ||
     f.deviceStatus.length ||
     f.numericRanges.some((range) => range.field > 4);
   const base = {
     view: InventoryView.MINING_ASSETS,
+    ancestors: [
+      ...(combinedPlacement ? original.buildingIds.map((id) => ({ kind: EntityKind.BUILDING, id })) : []),
+      ...(combinedPlacement ? original.rackIds.map((id) => ({ kind: EntityKind.RACK, id })) : []),
+      ...ancestors,
+    ],
+    includeNoFacility: combinedPlacement && original.includeNoBuilding,
+    includeNoGroup: combinedPlacement && original.includeNoRack,
     sort: inventorySort(sort),
     descending: sort?.direction === SortDirection.DESC,
   };

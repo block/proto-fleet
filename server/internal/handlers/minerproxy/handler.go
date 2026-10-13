@@ -21,9 +21,12 @@ import (
 	"time"
 
 	"connectrpc.com/authn"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -34,6 +37,7 @@ import (
 )
 
 const (
+	minerLoginPath        = "/api/v1/auth/login"
 	proxyClientTimeout    = 30 * time.Second
 	maxProxyBodyBytes     = 64 << 20
 	maxLoginResponseBytes = 64 << 10
@@ -63,7 +67,24 @@ type loginResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
+type Config struct {
+	MaxConcurrentRequests int `help:"Maximum active miner proxy requests; zero uses sixteen, capped below the shared dispatch budget" default:"16" env:"MAX_CONCURRENT_REQUESTS"`
+}
+
+func (c Config) Validate() error {
+	if c.MaxConcurrentRequests < 0 {
+		return fmt.Errorf("MINER_PROXY_MAX_CONCURRENT_REQUESTS must be nonnegative")
+	}
+	return nil
+}
+
 type Handler struct {
+	conn               *sql.DB
+	config             Config
+	proxySlotsOnce     sync.Once
+	proxySlots         *semaphore.Weighted
+	proxySlotsErr      error
+	writeService       *devicewrite.Service
 	queries            sqlc.Querier
 	sessionService     *session.Service
 	userStore          stores.UserStore
@@ -77,6 +98,8 @@ type Handler struct {
 }
 
 type proxyTarget struct {
+	dispatch         func(context.Context, bool, func(context.Context) error) error
+	binding          sqlc.GetDirectProtoMinerProxyTargetRow
 	deviceIdentifier string
 	baseURL          string
 	siteID           *int64
@@ -104,8 +127,12 @@ func NewHandler(
 	userStore stores.UserStore,
 	permissionResolver *authz.PermissionResolver,
 	encryptService *encrypt.Service,
+	config Config,
 ) http.Handler {
 	return &Handler{
+		conn:               conn,
+		config:             config,
+		writeService:       devicewrite.NewService(conn),
 		queries:            db.NewFailoverResettingQuerier(db.NewRetryDB(conn)),
 		sessionService:     sessionService,
 		userStore:          userStore,
@@ -118,13 +145,16 @@ func NewHandler(
 }
 
 func newProxyHTTPClient(skipVerify bool) *http.Client {
+	// A reused connection can be retried internally by net/http without a new
+	// binding or ownership check. One fresh HTTP/1 connection per request keeps
+	// every physical send inside its explicit dispatch admission.
+	protocols := new(http.Protocols)
+	protocols.SetHTTP1(true)
 	transport := &http.Transport{
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   10,
-		IdleConnTimeout:       90 * time.Second,
+		DisableKeepAlives:     true,
+		Protocols:             protocols,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ResponseHeaderTimeout: proxyClientTimeout,
-		ForceAttemptHTTP2:     skipVerify,
 	}
 	if skipVerify {
 		transport.TLSClientConfig = &tls.Config{
@@ -148,6 +178,59 @@ func (h *Handler) clientFor(baseURL string) *http.Client {
 		return h.httpsClient
 	}
 	return h.httpClient
+}
+
+// Proxy requests use a smaller, non-waiting budget before durable admission.
+// Keep one shared dispatch slot available for ordinary commands and curtailment.
+func (h *Handler) acquireProxySlot() (func(), error) {
+	h.proxySlotsOnce.Do(func() {
+		capacity, err := db.DispatchCapacity(h.conn)
+		if err != nil {
+			h.proxySlotsErr = err
+			return
+		}
+		limit := h.config.MaxConcurrentRequests
+		if limit == 0 {
+			limit = 16
+		}
+		if limit < 0 {
+			h.proxySlotsErr = h.config.Validate()
+			return
+		}
+		limit = min(limit, capacity-1)
+		h.proxySlots = semaphore.NewWeighted(int64(max(limit, 0)))
+	})
+	if h.proxySlotsErr != nil {
+		return nil, h.proxySlotsErr
+	}
+	if !h.proxySlots.TryAcquire(1) {
+		return nil, fleeterror.NewUnavailableErrorf("miner proxy is busy; retry later")
+	}
+	return func() { h.proxySlots.Release(1) }, nil
+}
+
+func (h *Handler) responseTimeout(target proxyTarget) time.Duration {
+	timeout := h.clientFor(target.baseURL).Timeout
+	if timeout <= 0 {
+		return proxyClientTimeout
+	}
+	return timeout
+}
+
+// Operation cancellation must not expire the downstream error response. The
+// browser request's own cancellation still interrupts delivery immediately.
+func writeProxyError(w http.ResponseWriter, r *http.Request, err error, timeout time.Duration) {
+	slog.Warn("miner proxy request failed", "error", err)
+	finish, boundErr := boundProxyResponse(r.Context(), w, timeout)
+	if boundErr == nil {
+		defer finish()
+	}
+	writeError(w, httpStatusForError(err), clientMessageForError(err))
+	if boundErr == nil {
+		if flushErr := http.NewResponseController(w).Flush(); flushErr != nil {
+			slog.Warn("miner proxy error response did not flush", "error", flushErr)
+		}
+	}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -202,6 +285,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	target, err := h.resolveTarget(ctx, deviceIdentifier, info.OrganizationID)
 	if err != nil {
+		slog.Warn("miner proxy request rejected", "error", err)
 		writeError(w, httpStatusForError(err), clientMessageForError(err))
 		return
 	}
@@ -213,45 +297,136 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	body, err := readProxyBody(w, r)
+	release, err := h.acquireProxySlot()
 	if err != nil {
-		writeError(w, http.StatusRequestEntityTooLarge, err.Error())
+		slog.Warn("miner proxy capacity unavailable", "error", err)
+		writeError(w, http.StatusServiceUnavailable, "miner proxy is busy; retry later")
 		return
 	}
+	defer release()
+	timeout := h.responseTimeout(target)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
 
-	resp, err := h.forward(ctx, r, target, proxyPath, body, false)
+	body, err := readProxyBody(w, r.WithContext(ctx))
 	if err != nil {
-		writeError(w, httpStatusForError(err), clientMessageForError(err))
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusUnauthorized && target.hasCredentials() && requiresMinerAuthentication(proxyPath) {
-		_, _ = io.Copy(io.Discard, resp.Body)
-		h.clearToken(target.cacheKey())
-		resp.Body.Close()
-
-		resp, err = h.forward(ctx, r, target, proxyPath, body, true)
-		if err != nil {
-			writeError(w, httpStatusForError(err), clientMessageForError(err))
-			return
+		errorRequest := r
+		if errors.Is(err, context.DeadlineExceeded) {
+			// HTTP/1 cancels the request context when its body read deadline
+			// expires. That cancellation must not immediately interrupt the
+			// separately bounded timeout response on the still-writable socket.
+			errorRequest = r.WithContext(context.WithoutCancel(r.Context()))
 		}
-		defer resp.Body.Close()
-	}
-
-	copyResponseHeaders(w.Header(), resp.Header)
-	// Set after copying so a miner cannot override them: neutralize any
-	// active content the miner might return on the same-origin Fleet URL.
-	// sandbox + default-src 'none' stops scripts even if the body is HTML, and
-	// nosniff stops MIME-sniffing a benign type into something executable.
-	setResponseHardeningHeaders(w.Header())
-	w.WriteHeader(resp.StatusCode)
-	if r.Method == http.MethodHead {
+		writeProxyError(w, errorRequest, err, timeout)
 		return
 	}
-	if _, err := io.Copy(w, resp.Body); err != nil {
-		slog.Warn("miner proxy response copy failed", "device_identifier", deviceIdentifier, "error", err)
+
+	responseStarted := false
+	call := func(ctx context.Context) error {
+		return h.forwardAndCopy(ctx, w, r, target, proxyPath, body, &responseStarted)
 	}
+	if proxyMutatesMiner(r.Method, proxyPath) {
+		// Reuse the typed command completion contract for known synchronous controls.
+		err = h.writeService.WithHostAttempt(ctx, target.binding.OrgID, target.binding.ID, target.binding.WriteEpoch, proxyCommandKind(r.Method, proxyPath), call)
+	} else {
+		err = h.writeService.WithHostObservation(ctx, target.binding.OrgID, target.binding.ID, target.binding.WriteEpoch, call)
+	}
+	if err != nil && !responseStarted {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err = ctx.Err()
+		}
+		writeProxyError(w, r, err, timeout)
+	}
+}
+
+func (h *Handler) forwardAndCopy(ctx context.Context, w http.ResponseWriter, r *http.Request, target proxyTarget, proxyPath string, body []byte, responseStarted *bool) error {
+	return h.writeService.WithBindingTransaction(ctx, func(ctx context.Context, _ sqlc.Querier) (resultErr error) {
+		// Verify deadline support before miner I/O, but arm it only when
+		// delivering a response. An expired HTTP/2 write deadline closes the
+		// stream permanently and cannot be reset to deliver an upstream 502.
+		writeTimeout := h.responseTimeout(target)
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+			return fleeterror.NewUnavailableErrorf("miner response write deadline could not be enforced")
+		}
+		resp, err := h.forward(ctx, r, target, proxyPath, body, false)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if resp == nil {
+				return
+			}
+			if err := resp.Body.Close(); err != nil && resultErr == nil {
+				resultErr = fleeterror.NewUnavailableErrorf("miner response could not be closed")
+			}
+		}()
+		if resp.StatusCode == http.StatusUnauthorized && target.hasCredentials() && requiresMinerAuthentication(proxyPath) {
+			if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+				return fleeterror.NewUnavailableErrorf("miner response could not be consumed")
+			}
+			h.clearToken(target.cacheKey())
+			if err := resp.Body.Close(); err != nil {
+				return fleeterror.NewUnavailableErrorf("miner response could not be closed")
+			}
+			resp, err = h.forward(ctx, r, target, proxyPath, body, true)
+			if err != nil {
+				return err
+			}
+		}
+		if resp.StatusCode == http.StatusAccepted && proxyMutatesMiner(r.Method, proxyPath) {
+			// An explicit asynchronous acknowledgement overrides the endpoint's
+			// ordinary synchronous contract, even if response copying fails.
+			defer func() {
+				if resultErr == nil {
+					resultErr = fleeterror.NewUnavailableErrorf("miner operation is still pending")
+				}
+				resultErr = devicewrite.UncertainDelivery(resultErr)
+			}()
+		}
+		// SQL waits, login and retries consume the operation budget, rather than
+		// the independent downstream write budget.
+		finishResponse, err := boundProxyResponse(r.Context(), w, writeTimeout)
+		if err != nil {
+			return err
+		}
+		defer finishResponse()
+		if err := r.Context().Err(); err != nil {
+			return fmt.Errorf("miner response delivery canceled: %w", err)
+		}
+		copyResponseHeaders(w.Header(), resp.Header)
+		setResponseHardeningHeaders(w.Header())
+		*responseStarted = true
+		w.WriteHeader(resp.StatusCode)
+		if r.Method != http.MethodHead {
+			if _, err := io.Copy(w, resp.Body); err != nil {
+				return fleeterror.NewUnavailableErrorf("miner response stream did not complete")
+			}
+		}
+		if err := http.NewResponseController(w).Flush(); err != nil {
+			return fleeterror.NewUnavailableErrorf("miner response could not be flushed")
+		}
+		return nil
+	})
+}
+
+func boundProxyResponse(ctx context.Context, w http.ResponseWriter, timeout time.Duration) (func(), error) {
+	controller := http.NewResponseController(w)
+	if err := controller.SetWriteDeadline(time.Now().Add(timeout)); err != nil {
+		return nil, fleeterror.NewUnavailableErrorf("miner response write deadline could not be enforced")
+	}
+	interrupted := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		defer close(interrupted)
+		_ = controller.SetWriteDeadline(time.Now())
+	})
+	return func() {
+		// A stopped callback may already be setting the deadline. Join it before
+		// returning the writer. The HTTP server clears the deadline after its
+		// final buffered write, so retain it through that finalization.
+		if !stop() {
+			<-interrupted
+		}
+	}, nil
 }
 
 func (h *Handler) authenticate(r *http.Request) (context.Context, *session.Info, error) {
@@ -330,6 +505,14 @@ func (h *Handler) resolveTarget(ctx context.Context, deviceIdentifier string, or
 	}
 
 	return proxyTarget{
+		binding: row,
+		dispatch: func(ctx context.Context, mutation bool, call func(context.Context) error) error {
+			validate := func(q sqlc.Querier) error { return h.revalidateTarget(ctx, q, row) }
+			if mutation {
+				return h.writeService.WithBindingDispatch(ctx, row.ID, validate, call)
+			}
+			return h.writeService.WithBindingObservation(ctx, row.ID, validate, call)
+		},
 		deviceIdentifier: row.DeviceIdentifier,
 		baseURL:          base.String(),
 		siteID:           siteID,
@@ -374,9 +557,23 @@ func (h *Handler) forward(
 		req.Header.Del("Authorization")
 	}
 
-	resp, err := h.clientFor(target.baseURL).Do(req)
+	var resp *http.Response
+	var callErr error
+	err = h.dispatchTarget(ctx, target, proxyMutatesMiner(source.Method, proxyPath), func(ctx context.Context) error {
+		//nolint:bodyclose // forwardAndCopy closes the returned response within the admitted attempt.
+		resp, callErr = h.clientFor(target.baseURL).Do(req.WithContext(ctx))
+		if callErr != nil {
+			return fmt.Errorf("miner proxy transport: %w", callErr)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fleeterror.NewUnavailableErrorf("failed to reach miner: %v", err)
+		if callErr != nil {
+			// Dispatch records any explicit delivery uncertainty before the
+			// transport error is sanitized for the HTTP client.
+			return nil, fleeterror.NewUnavailableErrorf("failed to reach miner")
+		}
+		return nil, err
 	}
 	return resp, nil
 }
@@ -403,7 +600,7 @@ func (h *Handler) tokenFor(ctx context.Context, target proxyTarget, forceLogin b
 		return "", fleeterror.NewInternalErrorf("failed to decrypt miner credentials: %v", err)
 	}
 
-	token, err := h.login(ctx, target.baseURL, string(passwordBytes))
+	token, err := h.loginTarget(ctx, target, string(passwordBytes))
 	if err != nil {
 		return "", err
 	}
@@ -460,13 +657,59 @@ func (h *Handler) clearToken(key string) {
 	delete(h.tokens, key)
 }
 
-func (h *Handler) login(ctx context.Context, baseURL string, password string) (string, error) {
+func (h *Handler) loginTarget(ctx context.Context, target proxyTarget, password string) (string, error) {
+	var token string
+	err := h.dispatchTarget(ctx, target, false, func(ctx context.Context) error {
+		var err error
+		token, err = h.login(ctx, target.baseURL, password)
+		return err
+	})
+	return token, err
+}
+
+func (h *Handler) revalidateTarget(ctx context.Context, q sqlc.Querier, binding sqlc.GetDirectProtoMinerProxyTargetRow) error {
+	fresh, err := q.GetDirectProtoMinerProxyTarget(ctx, sqlc.GetDirectProtoMinerProxyTargetParams{DeviceIdentifier: binding.DeviceIdentifier, OrgID: binding.OrgID})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fleeterror.NewFailedPreconditionError("miner proxy connection changed")
+		}
+		return fleeterror.NewInternalError("miner proxy connection could not be revalidated")
+	}
+	if fresh != binding {
+		return fleeterror.NewFailedPreconditionError("miner proxy connection changed")
+	}
+	return nil
+}
+
+func (h *Handler) dispatchTarget(ctx context.Context, target proxyTarget, mutation bool, call func(context.Context) error) error {
+	if target.dispatch == nil {
+		return fleeterror.NewFailedPreconditionError("miner proxy target admission missing")
+	}
+	return target.dispatch(ctx, mutation, call)
+}
+
+// The authorization contract already distinguishes observations, including
+// POST timeseries and downloadable logs. Login only establishes authentication;
+// all other operations retain conservative physical-mutation evidence.
+func proxyMutatesMiner(method, proxyPath string) bool {
+	if method == http.MethodPost && proxyPath == minerLoginPath {
+		return false
+	}
+	for _, permission := range permissionsFor(method, proxyPath) {
+		if permission != authz.PermMinerRead && permission != authz.PermMinerDownloadLogs {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Handler) login(ctx context.Context, baseURL string, password string) (token string, resultErr error) {
 	body, err := json.Marshal(loginRequest{Password: password})
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("failed to create miner login request: %v", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/v1/auth/login", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+minerLoginPath, bytes.NewReader(body))
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("failed to create miner login request: %v", err)
 	}
@@ -474,25 +717,37 @@ func (h *Handler) login(ctx context.Context, baseURL string, password string) (s
 
 	resp, err := h.clientFor(baseURL).Do(req)
 	if err != nil {
-		return "", fleeterror.NewUnavailableErrorf("failed to authenticate with miner: %v", err)
+		return "", fleeterror.NewUnavailableErrorf("failed to authenticate with miner")
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil && resultErr == nil {
+			token = ""
+			resultErr = fleeterror.NewUnavailableErrorf("miner login response could not be closed")
+		}
+	}()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		_, _ = io.Copy(io.Discard, resp.Body)
+		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+			return "", fleeterror.NewUnavailableErrorf("miner login response could not be consumed")
+		}
 		return "", fleeterror.NewUnauthenticatedError("stored miner credentials were rejected")
 	}
 	if resp.StatusCode != http.StatusOK {
-		_, _ = io.Copy(io.Discard, resp.Body)
+		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+			return "", fleeterror.NewUnavailableErrorf("miner login response could not be consumed")
+		}
 		return "", fleeterror.NewFailedPreconditionErrorf("miner login failed with status %d", resp.StatusCode)
 	}
 
+	// Read the complete bounded body before accepting a token. Decoding a valid
+	// JSON prefix alone can hide a later response read failure.
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, maxLoginResponseBytes+1))
+	if err != nil || len(responseBody) > maxLoginResponseBytes {
+		return "", fleeterror.NewUnavailableErrorf("miner login response did not complete")
+	}
 	var tokens loginResponse
-	// Bound the response: the login endpoint is dialed at a discovery-sourced
-	// address, so a hostile/wrong host must not be able to stream an unbounded
-	// body into the decoder.
-	if err := json.NewDecoder(io.LimitReader(resp.Body, maxLoginResponseBytes)).Decode(&tokens); err != nil {
-		return "", fleeterror.NewInternalErrorf("failed to decode miner login response: %v", err)
+	if err := json.Unmarshal(responseBody, &tokens); err != nil {
+		return "", fleeterror.NewUnavailableErrorf("miner login response could not be decoded")
 	}
 	if tokens.AccessToken == "" {
 		return "", fleeterror.NewInternalError("miner login response did not include an access token")
@@ -504,12 +759,52 @@ func readProxyBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	if r.Body == nil || r.Body == http.NoBody {
 		return nil, nil
 	}
+	controller := http.NewResponseController(w)
+	deadline, ok := r.Context().Deadline()
+	if !ok {
+		return nil, fleeterror.NewUnavailableErrorf("miner request body read deadline could not be enforced")
+	}
+	if err := controller.SetReadDeadline(deadline); err != nil {
+		return nil, fleeterror.NewUnavailableErrorf("miner request body read deadline could not be enforced")
+	}
+	interrupted := make(chan struct{})
+	stop := context.AfterFunc(r.Context(), func() {
+		defer close(interrupted)
+		_ = controller.SetReadDeadline(time.Now())
+	})
+	defer func() {
+		// Close can consume unread HTTP/1 bytes. Keep the deadline and interrupt
+		// callback until it finishes, then join the callback before resetting the
+		// writer so it cannot change a subsequent request's deadline.
+		if !stop() {
+			<-interrupted
+		}
+		_ = controller.SetReadDeadline(time.Time{})
+	}()
 	defer r.Body.Close()
 
 	reader := http.MaxBytesReader(w, r.Body, maxProxyBodyBytes)
 	body, err := io.ReadAll(reader)
+	if ctxErr := r.Context().Err(); ctxErr != nil {
+		// A read deadline can cancel the HTTP/1 request context before the
+		// operation timer runs. Preserve deadline expiry instead of reporting
+		// that incidental cancellation as a client disconnect.
+		if !time.Now().Before(deadline) {
+			ctxErr = context.DeadlineExceeded
+		}
+		return nil, fmt.Errorf("proxied request body read interrupted: %w", ctxErr)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("proxied request body exceeds %d bytes", maxProxyBodyBytes)
+		var limitErr *http.MaxBytesError
+		var timeoutErr net.Error
+		switch {
+		case errors.As(err, &limitErr):
+			return nil, fmt.Errorf("proxied request body exceeds %d bytes: %w", maxProxyBodyBytes, err)
+		case errors.As(err, &timeoutErr) && timeoutErr.Timeout():
+			return nil, fmt.Errorf("proxied request body read timed out: %w", context.DeadlineExceeded)
+		default:
+			return nil, fleeterror.NewInvalidArgumentError("proxied request body could not be read")
+		}
 	}
 	if len(body) == 0 {
 		return nil, nil
@@ -570,6 +865,8 @@ type v2Endpoint struct {
 	method       string
 	rest         string
 	requiresAuth bool
+	// nil keeps unclassified operations conservative; zero is StartMining.
+	commandKind *commandtype.Type
 }
 
 // proxyPath returns the canonical upstream path this endpoint forwards to.
@@ -578,11 +875,10 @@ func (e v2Endpoint) proxyPath() string {
 }
 
 // v2AllowlistedEndpoints is the single source of truth for which MDK v2
-// endpoints the proxy accepts and whether each needs miner authentication. Both
-// the allowlist decision (proxyPathFor) and the auth decision
-// (requiresMinerAuthentication) derive from this one table so they cannot drift
-// apart. CT1 endpoints do not use MDK v1 login; Fleet still authenticates the
-// caller, validates the miner target, and checks the operation permissions.
+// endpoints the proxy accepts, their miner authentication, and any qualified
+// synchronous command contract. Unclassified mutations retain recovery evidence.
+// CT1 endpoints do not use MDK v1 login; Fleet still authenticates the caller,
+// validates the miner target, and checks the operation permissions.
 var v2AllowlistedEndpoints = []v2Endpoint{
 	{method: http.MethodGet, rest: "system/info", requiresAuth: false},
 	{method: http.MethodGet, rest: "system/status", requiresAuth: false},
@@ -596,25 +892,25 @@ var v2AllowlistedEndpoints = []v2Endpoint{
 	{method: http.MethodGet, rest: "pools/diagnostics", requiresAuth: false},
 	{method: http.MethodGet, rest: "power/container/controls", requiresAuth: false},
 	{method: http.MethodGet, rest: "hashboards/*/asics", requiresAuth: false},
-	{method: http.MethodPut, rest: "mining/target-power", requiresAuth: false},
-	{method: http.MethodPost, rest: "mining/start", requiresAuth: false},
-	{method: http.MethodPost, rest: "mining/stop", requiresAuth: false},
-	{method: http.MethodPost, rest: "mining/scoped/start", requiresAuth: false},
-	{method: http.MethodPost, rest: "mining/scoped/stop", requiresAuth: false},
+	{method: http.MethodPut, rest: "mining/target-power", requiresAuth: false, commandKind: new(commandtype.SetPowerTarget)},
+	{method: http.MethodPost, rest: "mining/start", requiresAuth: false, commandKind: new(commandtype.StartMining)},
+	{method: http.MethodPost, rest: "mining/stop", requiresAuth: false, commandKind: new(commandtype.StopMining)},
+	{method: http.MethodPost, rest: "mining/scoped/start", requiresAuth: false, commandKind: new(commandtype.SetTankMining)},
+	{method: http.MethodPost, rest: "mining/scoped/stop", requiresAuth: false, commandKind: new(commandtype.SetTankMining)},
 	{method: http.MethodPost, rest: "hashboards/identify-led", requiresAuth: false},
 	{method: http.MethodPost, rest: "mining/isolation", requiresAuth: false},
 	{method: http.MethodPost, rest: "modules/*/run-in", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/controls/coolant_pump", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/controls/dry_cooler", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/controls/dry_cooler_auto", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/controls/tank_led_light", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/controls/air_conditioner_1", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/controls/air_conditioner_2", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/setpoints/coolant_pump_speed_hz", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/setpoints/dry_cooler_auto_temp_c", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/setpoints/dry_cooler_manual_speed_percent", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/setpoints/air_conditioner_1_temp_c", requiresAuth: false},
-	{method: http.MethodPost, rest: "power/container/setpoints/air_conditioner_2_temp_c", requiresAuth: false},
+	{method: http.MethodPost, rest: "power/container/controls/coolant_pump", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/controls/dry_cooler", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/controls/dry_cooler_auto", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/controls/tank_led_light", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/controls/air_conditioner_1", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/controls/air_conditioner_2", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/setpoints/coolant_pump_speed_hz", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/setpoints/dry_cooler_auto_temp_c", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/setpoints/dry_cooler_manual_speed_percent", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/setpoints/air_conditioner_1_temp_c", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
+	{method: http.MethodPost, rest: "power/container/setpoints/air_conditioner_2_temp_c", requiresAuth: false, commandKind: new(commandtype.SetContainerControl)},
 }
 
 // lookupV2Endpoint returns the allowlisted v2 endpoint for a {method, rest}, if
@@ -626,6 +922,18 @@ func lookupV2Endpoint(method string, rest string) (v2Endpoint, bool) {
 		}
 	}
 	return v2Endpoint{}, false
+}
+
+// proxyCommandKind qualifies only exact allowlisted v2 method/path pairs.
+// Generic v1 writes and asynchronous or unclassified v2 endpoints default to
+// unresolved; adding an endpoint does not opt it into synchronous completion.
+func proxyCommandKind(method, proxyPath string) commandtype.Type {
+	if rest, ok := strings.CutPrefix(proxyPath, "/api/v2/"); ok {
+		if endpoint, ok := lookupV2Endpoint(method, rest); ok && endpoint.commandKind != nil {
+			return *endpoint.commandKind
+		}
+	}
+	return commandtype.Type(-1)
 }
 
 // requiresMinerAuthentication keeps the existing MDK v1 bearer-token behavior
@@ -711,7 +1019,7 @@ func permissionsFor(method string, proxyPath string) []string {
 	case strings.HasPrefix(proxyPath, "/api/v2/power/container/controls/") ||
 		strings.HasPrefix(proxyPath, "/api/v2/power/container/setpoints/"):
 		return []string{authz.PermMinerSetCoolingMode}
-	case proxyPath == "/api/v1/timeseries":
+	case method == http.MethodPost && proxyPath == "/api/v1/timeseries":
 		return []string{authz.PermMinerRead}
 	case strings.HasPrefix(proxyPath, "/api/v1/pools"):
 		return []string{authz.PermMinerUpdatePools}
@@ -890,7 +1198,12 @@ func parseRoutableMinerAddr(ipAddress string) (netip.Addr, error) {
 }
 
 func httpStatusForError(err error) int {
+	var limitErr *http.MaxBytesError
 	switch {
+	case errors.As(err, &limitErr):
+		return http.StatusRequestEntityTooLarge
+	case errors.Is(err, context.DeadlineExceeded):
+		return http.StatusBadGateway
 	case fleeterror.IsAuthenticationError(err):
 		return http.StatusUnauthorized
 	case fleeterror.IsForbiddenError(err):
@@ -909,15 +1222,22 @@ func httpStatusForError(err error) int {
 }
 
 func clientMessageForError(err error) string {
+	var limitErr *http.MaxBytesError
 	switch {
+	case errors.As(err, &limitErr):
+		return fmt.Sprintf("proxied request body exceeds %d bytes", limitErr.Limit)
 	case fleeterror.IsAuthenticationError(err):
 		return "authentication required"
 	case fleeterror.IsForbiddenError(err):
 		return "permission denied"
 	case fleeterror.IsNotFoundError(err):
 		return "miner not found or cannot be proxied"
-	default:
+	case errors.Is(err, context.DeadlineExceeded):
+		return "miner proxy request timed out"
+	case fleeterror.IsInvalidArgumentError(err), fleeterror.IsFailedPreconditionError(err), fleeterror.IsUnavailableError(err):
 		return err.Error()
+	default:
+		return "miner proxy request failed"
 	}
 }
 

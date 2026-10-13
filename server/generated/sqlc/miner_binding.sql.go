@@ -41,9 +41,11 @@ SELECT discovered_device_id FROM device WHERE id=$1 FOR NO KEY UPDATE
 `
 
 // Row locks span final binding validation and the adapter call. Device
-// FOR NO KEY UPDATE permits unrelated queue/log foreign-key inserts. Binding
-// child writers explicitly acquire a conflicting parent lock before insertion;
-// existing children and discovery rows also retain their own locks.
+// Mutations use FOR NO KEY UPDATE; admitted observations use FOR SHARE so
+// reads can overlap. Both permit unrelated queue/log foreign-key inserts.
+// Binding child inserters take FOR NO KEY UPDATE (or stronger) on the parent
+// to protect missing rows against both modes. Existing children and discovery
+// rows also retain their own locks.
 func (q *Queries) LockMinerBindingDevice(ctx context.Context, id int64) (int64, error) {
 	row := q.queryRow(ctx, q.lockMinerBindingDeviceStmt, lockMinerBindingDevice, id)
 	var discovered_device_id int64
@@ -59,6 +61,17 @@ func (q *Queries) LockMinerBindingDiscovery(ctx context.Context, id int64) (int6
 	row := q.queryRow(ctx, q.lockMinerBindingDiscoveryStmt, lockMinerBindingDiscovery, id)
 	err := row.Scan(&id)
 	return id, err
+}
+
+const lockMinerBindingObservationDevice = `-- name: LockMinerBindingObservationDevice :one
+SELECT discovered_device_id FROM device WHERE id=$1 FOR SHARE
+`
+
+func (q *Queries) LockMinerBindingObservationDevice(ctx context.Context, id int64) (int64, error) {
+	row := q.queryRow(ctx, q.lockMinerBindingObservationDeviceStmt, lockMinerBindingObservationDevice, id)
+	var discovered_device_id int64
+	err := row.Scan(&discovered_device_id)
+	return discovered_device_id, err
 }
 
 const lockMinerBindingPairing = `-- name: LockMinerBindingPairing :many

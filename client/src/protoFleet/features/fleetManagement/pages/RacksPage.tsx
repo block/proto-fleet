@@ -51,6 +51,10 @@ import { useCreateRack } from "@/protoFleet/features/fleetManagement/hooks/useCr
 import { useCreateRacks } from "@/protoFleet/features/fleetManagement/hooks/useCreateRacks";
 import { BUILDING_URL_PARAM } from "@/protoFleet/features/fleetManagement/utils/buildingFilterUrl";
 import {
+  combinedInventoryOptions,
+  splitInventoryValues,
+} from "@/protoFleet/features/fleetManagement/utils/combinedInventoryFilters";
+import {
   FILTER_URL_PARAM_KEYS,
   fleetListTelemetryRangesFromURL,
   parseCT1FilterValuesFromURL,
@@ -654,7 +658,10 @@ const RacksPage = () => {
         (prev) => {
           const next = new URLSearchParams(prev);
           next.delete(BUILDING_URL_PARAM);
-          ids.forEach((id) => {
+          next.delete("container");
+          const { conventional, ct1 } = splitInventoryValues(ids, "container");
+          ct1.forEach((id) => next.append("container", id));
+          conventional.forEach((id) => {
             const trimmed = id.trim();
             if (trimmed === UNASSIGNED_URL_VALUE || (trimmed && /^\d+$/.test(trimmed))) {
               next.append(BUILDING_URL_PARAM, trimmed);
@@ -695,7 +702,7 @@ const RacksPage = () => {
       `${listSiteFilter.siteIds.map(String).join(",")}|${listSiteFilter.includeUnassigned}|${listSiteFilter.matchNone ?? false}`,
     [listSiteFilter],
   );
-  const selectionScopeKey = `${effectiveSiteKey}:${selectedContainerValues.join(",")}`;
+  const selectionScopeKey = `${effectiveSiteKey}:${effectiveBuildingKey}:${includeNoBuilding}:${selectedContainerValues.join(",")}`;
   const prevSiteKey = useRef<string | null>(null);
   useEffect(() => {
     if (prevSiteKey.current !== null && prevSiteKey.current !== selectionScopeKey) {
@@ -719,10 +726,6 @@ const RacksPage = () => {
       }
       if (key === "issues") {
         writeMultiParam("issues", values);
-        return;
-      }
-      if (key === "container") {
-        writeMultiParam("container", values);
         return;
       }
       if (key === "site") {
@@ -802,20 +805,13 @@ const RacksPage = () => {
         key: "building",
         title: "Buildings",
         pluralTitle: "buildings",
-        options: [...allBuildings, UNASSIGNED_FILTER_OPTION],
-        selectedValues: selectedBuildingIdStrings,
+        options: combinedInventoryOptions(
+          [...allBuildings, UNASSIGNED_FILTER_OPTION],
+          "container",
+          useInventory ? availableContainers : [],
+        ),
+        selectedValues: [...selectedBuildingIdStrings, ...selectedContainerValues.map((id) => "container:" + id)],
       },
-      ...(useInventory
-        ? [
-            {
-              key: "container",
-              title: "Containers",
-              pluralTitle: "containers",
-              options: availableContainers,
-              selectedValues: selectedContainerValues,
-            },
-          ]
-        : []),
       {
         key: "zone",
         title: "Zones",

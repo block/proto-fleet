@@ -50,6 +50,16 @@ SELECT EXISTS (
 UPDATE device_write_attempt SET status=$1,finished_at=statement_timestamp()
 WHERE attempt_id=$2 AND status='running';
 
+-- name: DeleteUndispatchedDirectAttempt :exec
+-- The owning process calls this only after full operation completion without
+-- any dispatched mutation, including a rejected direct mutation admission.
+-- Keep queue, deletion-permit and unresolved evidence.
+DELETE FROM device_write_attempt a
+WHERE a.attempt_id=sqlc.arg(attempt_id) AND a.device_id=sqlc.arg(device_id)
+ AND a.organization_id=sqlc.arg(organization_id)
+ AND a.status='complete' AND a.queue_message_id IS NULL
+ AND NOT EXISTS (SELECT 1 FROM device_deletion_unpair_permit p WHERE p.attempt_id=a.attempt_id);
+
 -- name: QuarantineDeviceWriteFence :exec
 UPDATE device_write_fence SET quarantine_origin=CASE WHEN state='quarantined' THEN quarantine_origin ELSE state END,state='quarantined',updated_at=statement_timestamp()
 WHERE device_id=$1 AND organization_id=$2 AND state<>'host';

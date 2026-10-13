@@ -54,6 +54,12 @@ import MinerListActionBar from "@/protoFleet/features/fleetManagement/components
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
 
 import {
+  combinedInventoryOptions,
+  combineInventoryFilters,
+  separateInventoryFilters,
+  splitInventoryValues,
+} from "@/protoFleet/features/fleetManagement/utils/combinedInventoryFilters";
+import {
   encodeActiveFiltersToURL,
   encodeFilterToURL,
   FILTER_URL_PARAM_KEYS,
@@ -356,6 +362,9 @@ const ScopedMinerListBody = ({
 }: ScopedMinerListBodyProps) => {
   const [selectedKeys, setSelectedKeys] = useState<MiningSelectionKey[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
+  const hasCT1PlacementFilter =
+    splitInventoryValues(initialActiveFilters.dropdownFilters.building ?? [], "container").ct1.length > 0 ||
+    splitInventoryValues(initialActiveFilters.dropdownFilters.rack ?? [], "tank").ct1.length > 0;
   const [searchExpanded, setSearchExpanded] = useState(Boolean(searchQuery));
   // Reset selection when the scope key changes (filter or page) without remounting the
   // subtree — uses the during-render derive pattern so children keep their own state.
@@ -480,9 +489,11 @@ const ScopedMinerListBody = ({
   );
 
   const handleSelectAllMiners = useCallback(() => {
+    // Filter-based commands cannot express typed CT1 placement scopes.
+    if (hasCT1PlacementFilter) return;
     setSelectedKeys(currentPageSelectionKeys);
     setSelectionMode(selectAllOnPage ? "subset" : "all");
-  }, [currentPageSelectionKeys, selectAllOnPage]);
+  }, [currentPageSelectionKeys, hasCT1PlacementFilter, selectAllOnPage]);
 
   const handleSelectNoneMiners = useCallback(() => {
     setSelectedKeys([]);
@@ -632,7 +643,7 @@ const ScopedMinerListBody = ({
                 item.kind === "module" && selectedItems.includes(item.selectionKey) ? [item.row] : [],
               )}
               onClearSelection={clearSelection}
-              onSelectAll={handleSelectAllMiners}
+              onSelectAll={hasCT1PlacementFilter ? undefined : handleSelectAllMiners}
               selectAllOnPage={selectAllOnPage}
               onSelectNone={handleSelectNoneMiners}
               filtersActive={hasActiveFilters}
@@ -852,7 +863,10 @@ const MinerList = ({
     [disabledMinerIdSet],
   );
 
-  const initialActiveFilters = useMemo(() => parseUrlToActiveFilters(searchParams), [searchParams]);
+  const initialActiveFilters = useMemo(
+    () => combineInventoryFilters(parseUrlToActiveFilters(searchParams)),
+    [searchParams],
+  );
 
   // Refs for values that change frequently but are only read at call/render time.
   // Keeps callbacks and minerColConfig stable across polls.
@@ -986,7 +1000,7 @@ const MinerList = ({
   );
 
   const selectionFilterKey = useMemo(() => {
-    const encodedFilters = encodeActiveFiltersToURL(initialActiveFilters);
+    const encodedFilters = encodeActiveFiltersToURL(separateInventoryFilters(initialActiveFilters));
     const searchQuery = searchParams.get(MINER_SEARCH_URL_PARAM)?.trim();
     if (searchQuery) encodedFilters.set(MINER_SEARCH_URL_PARAM, searchQuery);
     return encodedFilters.toString();
@@ -1104,22 +1118,14 @@ const MinerList = ({
       title: "Buildings",
       pluralTitle: "buildings",
       value: "building",
-      options: [...availableBuildings, UNASSIGNED_FILTER_OPTION],
+      options: combinedInventoryOptions(
+        [...availableBuildings, UNASSIGNED_FILTER_OPTION],
+        "container",
+        availableContainers,
+      ),
       defaultOptionIds: [],
     }),
-    [availableBuildings],
-  );
-
-  const containersFilter: DropdownFilterItem = useMemo(
-    () => ({
-      type: "dropdown",
-      title: "Containers",
-      pluralTitle: "containers",
-      value: "container",
-      options: availableContainers ?? [],
-      defaultOptionIds: [],
-    }),
-    [availableContainers],
+    [availableBuildings, availableContainers],
   );
 
   const racksFilter: DropdownFilterItem = useMemo(
@@ -1128,22 +1134,14 @@ const MinerList = ({
       title: "Racks",
       pluralTitle: "racks",
       value: "rack",
-      options: [...availableRacks.map((r) => ({ id: String(r.id), label: r.label })), UNASSIGNED_FILTER_OPTION],
+      options: combinedInventoryOptions(
+        [...availableRacks.map((r) => ({ id: String(r.id), label: r.label })), UNASSIGNED_FILTER_OPTION],
+        "tank",
+        availableTanks,
+      ),
       defaultOptionIds: [],
     }),
-    [availableRacks],
-  );
-
-  const tanksFilter: DropdownFilterItem = useMemo(
-    () => ({
-      type: "dropdown",
-      title: "Tanks",
-      pluralTitle: "tanks",
-      value: "tank",
-      options: availableTanks ?? [],
-      defaultOptionIds: [],
-    }),
-    [availableTanks],
+    [availableRacks, availableTanks],
   );
 
   const firmwareFilter: DropdownFilterItem = useMemo(
@@ -1214,9 +1212,7 @@ const MinerList = ({
           { ...firmwareFilter, showGroupDivider: true },
           sitesFilter,
           buildingsFilter,
-          ...(availableContainers ? [containersFilter] : []),
           racksFilter,
-          ...(availableTanks ? [tanksFilter] : []),
           zonesFilter,
           { ...groupsFilter, showGroupDivider: true },
           hashrateFilter,
@@ -1234,11 +1230,7 @@ const MinerList = ({
       groupsFilter,
       sitesFilter,
       buildingsFilter,
-      containersFilter,
-      availableContainers,
       racksFilter,
-      tanksFilter,
-      availableTanks,
       firmwareFilter,
       zonesFilter,
       hashrateFilter,
@@ -1250,7 +1242,8 @@ const MinerList = ({
   );
 
   const handleServerFilter = useCallback(
-    async (filters: ActiveFilters) => {
+    async (combinedFilters: ActiveFilters) => {
+      const filters = separateInventoryFilters(combinedFilters);
       const minerFilter = create(MinerListFilterSchema, {
         errorComponentTypes: [],
       });

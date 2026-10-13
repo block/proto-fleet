@@ -1886,6 +1886,12 @@ func (q *retryingQuerier) DeleteScheduleTargets(ctx context.Context, arg DeleteS
 	})
 }
 
+func (q *retryingQuerier) DeleteUndispatchedDirectAttempt(ctx context.Context, arg DeleteUndispatchedDirectAttemptParams) error {
+	return q.retrier.RetryQuery(ctx, "DeleteUndispatchedDirectAttempt", func() error {
+		return q.next.DeleteUndispatchedDirectAttempt(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) DeviceHasActiveCloudPairing(ctx context.Context, arg DeviceHasActiveCloudPairingParams) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "DeviceHasActiveCloudPairing", func() error {
@@ -6990,6 +6996,18 @@ func (q *retryingQuerier) LockMinerBindingDiscovery(ctx context.Context, id int6
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "LockMinerBindingDiscovery", func() error {
 		callResult, callErr := q.next.LockMinerBindingDiscovery(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockMinerBindingObservationDevice(ctx context.Context, id int64) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockMinerBindingObservationDevice", func() error {
+		callResult, callErr := q.next.LockMinerBindingObservationDevice(ctx, id)
 		if callErr == nil {
 			result = callResult
 		}

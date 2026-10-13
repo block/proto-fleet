@@ -245,6 +245,28 @@ func (q *Queries) CreateDeviceWriteAttempt(ctx context.Context, arg CreateDevice
 	return err
 }
 
+const deleteUndispatchedDirectAttempt = `-- name: DeleteUndispatchedDirectAttempt :exec
+DELETE FROM device_write_attempt a
+WHERE a.attempt_id=$1 AND a.device_id=$2
+ AND a.organization_id=$3
+ AND a.status='complete' AND a.queue_message_id IS NULL
+ AND NOT EXISTS (SELECT 1 FROM device_deletion_unpair_permit p WHERE p.attempt_id=a.attempt_id)
+`
+
+type DeleteUndispatchedDirectAttemptParams struct {
+	AttemptID      uuid.UUID
+	DeviceID       int64
+	OrganizationID int64
+}
+
+// The owning process calls this only after full operation completion without
+// any dispatched mutation, including a rejected direct mutation admission.
+// Keep queue, deletion-permit and unresolved evidence.
+func (q *Queries) DeleteUndispatchedDirectAttempt(ctx context.Context, arg DeleteUndispatchedDirectAttemptParams) error {
+	_, err := q.exec(ctx, q.deleteUndispatchedDirectAttemptStmt, deleteUndispatchedDirectAttempt, arg.AttemptID, arg.DeviceID, arg.OrganizationID)
+	return err
+}
+
 const ensureDeviceWriteFences = `-- name: EnsureDeviceWriteFences :exec
 INSERT INTO device_write_fence(device_id,organization_id)
 SELECT d.id,d.org_id FROM device d
