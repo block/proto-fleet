@@ -1476,6 +1476,17 @@ func TestTryAcquireControlCommandSlotDetailed_ReportsSaturatedLane(t *testing.T)
 	exclusiveRelease()
 }
 
+func requireOperatorSlotReleased(t *testing.T, cmd *RunCmd) {
+	t.Helper()
+
+	// The gateway can observe the acknowledgment before the operator worker
+	// returns and releases its shared slot. Keep the reads blocked until then.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		assert.Len(c, cmd.controlDeferrableReadSlots, deferrableReadCommandPoolSize)
+		assert.Len(c, cmd.controlCommandSlots, deferrableReadCommandPoolSize)
+	}, 2*time.Second, 20*time.Millisecond)
+}
+
 func TestControlLoop_DeferrableReadsReserveOperatorCapacity(t *testing.T) {
 	controller := gomock.NewController(t)
 	release := make(chan struct{})
@@ -1541,12 +1552,7 @@ func TestControlLoop_DeferrableReadsReserveOperatorCapacity(t *testing.T) {
 		}
 		return lowBusy && operatorOK
 	}, 3*time.Second, 20*time.Millisecond)
-	// The gateway can observe the acknowledgment before the operator worker
-	// returns and releases its shared slot. Keep the reads blocked until then.
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		assert.Len(c, cmd.controlDeferrableReadSlots, deferrableReadCommandPoolSize)
-		assert.Len(c, cmd.controlCommandSlots, deferrableReadCommandPoolSize)
-	}, 2*time.Second, 20*time.Millisecond)
+	requireOperatorSlotReleased(t, cmd)
 
 	close(release)
 	require.Eventually(t, func() bool {
@@ -1639,12 +1645,7 @@ func TestControlLoop_ReconnectRetainsDeferrableReadPermitsAndOperatorCapacity(t 
 		}
 		return lowBusy && operatorOK
 	}, 2*time.Second, 20*time.Millisecond)
-	// The gateway can observe the acknowledgment before the operator worker
-	// returns and releases its shared slot. Keep the reads blocked until then.
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		assert.Len(c, cmd.controlDeferrableReadSlots, deferrableReadCommandPoolSize)
-		assert.Len(c, cmd.controlCommandSlots, deferrableReadCommandPoolSize)
-	}, 2*time.Second, 20*time.Millisecond)
+	requireOperatorSlotReleased(t, cmd)
 
 	close(releases[0])
 	require.Eventually(t, func() bool {
