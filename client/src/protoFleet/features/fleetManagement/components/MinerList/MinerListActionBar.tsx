@@ -35,45 +35,48 @@ interface MinerListActionBarProps {
 }
 
 const MinerListActionBar = ({
-  selectedKeys,
-  modules = [],
   onClearSelection,
   onSelectAll,
-  selectAllOnPage = false,
   onSelectNone,
-  selectionMode,
-  totalCount,
-  filtersActive,
-  currentFilter,
-  currentSort,
-  miners,
-  minerIds,
-  selectionIncludesUnauthenticatedMiner,
   onRefetchMiners,
   onWorkerNameUpdated,
+  ...selection
 }: MinerListActionBarProps) => {
-  const { isActionBusy, onActionStart, onActionComplete } = useActionBarLifecycle(selectedKeys.length);
-  const selectionRef = useRef({ keys: selectedKeys, modules });
+  const { isActionBusy, onActionStart, onActionComplete } = useActionBarLifecycle(selection.selectedKeys.length);
+  // Keep an open confirmation's targets and dispatch scope together through polling and filter changes.
+  const selectionRef = useRef(selection);
   if (!isActionBusy) {
-    selectionRef.current = { keys: selectedKeys, modules };
+    selectionRef.current = selection;
   }
-  const { keys: activeSelectedKeys, modules: activeModules } = selectionRef.current;
-  const minerIdentifiers = selectedMinerIdentifiers(activeSelectedKeys);
+  const {
+    selectedKeys,
+    modules = [],
+    selectAllOnPage = false,
+    selectionMode,
+    totalCount,
+    filtersActive,
+    currentFilter,
+    currentSort,
+    miners,
+    minerIds,
+    selectionIncludesUnauthenticatedMiner,
+  } = selectionRef.current;
+  const minerIdentifiers = selectedMinerIdentifiers(selectedKeys);
   const itemNoun =
-    activeModules.length > 0
+    modules.length > 0
       ? minerIdentifiers.length > 0
         ? { singular: "mining asset", plural: "mining assets" }
         : { singular: "module", plural: "modules" }
       : { singular: "miner", plural: "miners" };
   const effectiveSelectionMode =
-    selectionMode === "all" && (selectAllOnPage || activeModules.length > 0) ? "subset" : selectionMode;
+    selectionMode === "all" && (selectAllOnPage || modules.length > 0) ? "subset" : selectionMode;
 
   const selectionControls =
     onSelectAll || onSelectNone ? (
       <ActionBarSelectionControls
         onSelectAll={onSelectAll}
         onSelectNone={onSelectNone}
-        visibleOnly={selectAllOnPage || activeModules.length > 0}
+        visibleOnly={selectAllOnPage || modules.length > 0}
         selectAllTestId="select-all-miners-button"
         selectNoneTestId="select-none-miners-button"
       />
@@ -82,7 +85,7 @@ const MinerListActionBar = ({
   return (
     <FleetListActionBar
       isActionBusy={isActionBusy}
-      selectedItems={activeSelectedKeys}
+      selectedItems={selectedKeys}
       itemNoun={itemNoun}
       selectionMode={effectiveSelectionMode}
       totalCount={totalCount}
@@ -91,9 +94,9 @@ const MinerListActionBar = ({
       selectionControls={selectionControls}
     >
       <div className="flex items-center gap-2">
-        {activeModules.length > 0 ? (
+        {modules.length > 0 ? (
           <ModuleActionsMenu
-            modules={activeModules}
+            modules={modules}
             presentation="bulk"
             onRefresh={onRefetchMiners ?? (() => undefined)}
             onActionStart={onActionStart}

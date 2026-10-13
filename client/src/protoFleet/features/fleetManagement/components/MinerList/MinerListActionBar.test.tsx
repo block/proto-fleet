@@ -1,9 +1,14 @@
-import { useState } from "react";
+import { type ComponentProps, useState } from "react";
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { SortConfigSchema, SortField } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
+import {
+  MinerListFilterSchema,
+  MinerStateSnapshotSchema,
+} from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 
 const selections = vi.hoisted(() => ({ miners: vi.fn(), modules: vi.fn() }));
@@ -48,7 +53,12 @@ vi.mock("@/protoFleet/features/containers/ModuleActionsMenu", () => ({
 // MinerActionsMenu imports hooks from the removed fleet store slice.
 // Mock it so the tests don't crash.
 vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu", () => ({
-  default: (props: { onActionStart?: () => void; selectedMiners: string[]; selectionMode: string }) => {
+  default: (props: {
+    onActionStart?: () => void;
+    onActionComplete?: () => void;
+    selectedMiners: string[];
+    selectionMode: string;
+  }) => {
     const { onActionStart } = props;
     selections.miners(props);
     return (
@@ -58,6 +68,14 @@ vi.mock("@/protoFleet/features/fleetManagement/components/MinerActionsMenu", () 
         </button>
         <button data-testid="mining-pool-popover-button" onClick={onActionStart}>
           Mining Pools
+        </button>
+        <button
+          onClick={(event) => {
+            event.stopPropagation();
+            props.onActionComplete?.();
+          }}
+        >
+          Complete miner action
         </button>
       </div>
     );
@@ -204,6 +222,71 @@ test("miner-only all mode retains the full result count and dispatch scope", () 
     expect.objectContaining({ selectedMiners: ["miner-a"], selectionMode: "all", totalCount: 200 }),
   );
 });
+
+test.each(["none", "subset"] as const)(
+  "preserves the complete miner dispatch context while a scope change resets selection to %s",
+  (selectionMode) => {
+    const original = {
+      selectedKeys: ["miner:miner-a"],
+      selectionMode: "all",
+      totalCount: 200,
+      filtersActive: true,
+      currentFilter: create(MinerListFilterSchema, { models: ["S21"] }),
+      currentSort: create(SortConfigSchema, { field: SortField.NAME }),
+      miners: { "miner-a": create(MinerStateSnapshotSchema, { model: "S21" }) },
+      minerIds: ["miner-a"],
+      selectionIncludesUnauthenticatedMiner: true,
+    } satisfies ComponentProps<typeof MinerListActionBar>;
+    const changed = {
+      selectedKeys: selectionMode === "none" ? [] : ["miner:miner-b"],
+      selectionMode,
+      totalCount: 50,
+      selectAllOnPage: true,
+      filtersActive: false,
+      currentFilter: create(MinerListFilterSchema, { models: ["M60"] }),
+      currentSort: create(SortConfigSchema, { field: SortField.MODEL }),
+      miners: { "miner-b": create(MinerStateSnapshotSchema, { model: "M60" }) },
+      minerIds: ["miner-b"],
+      selectionIncludesUnauthenticatedMiner: false,
+    } satisfies ComponentProps<typeof MinerListActionBar>;
+    const { getByTestId, getByRole, queryByTestId, rerender } = render(<MinerListActionBar {...original} />);
+    fireEvent.click(getByTestId("reboot-popover-button"));
+
+    rerender(<MinerListActionBar {...changed} />);
+    expect(getByTestId("action-bar")).toHaveClass("invisible");
+    expect(selections.miners).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        selectedMiners: ["miner-a"],
+        selectionMode: "all",
+        totalCount: original.totalCount,
+        currentFilter: original.currentFilter,
+        currentSort: original.currentSort,
+        miners: original.miners,
+        minerIds: original.minerIds,
+        selectionIncludesUnauthenticatedMiner: true,
+      }),
+    );
+
+    fireEvent.click(getByRole("button", { name: "Complete miner action" }));
+    if (selectionMode === "none") {
+      expect(queryByTestId("action-bar")).not.toBeInTheDocument();
+    } else {
+      expect(getByTestId("action-bar")).not.toHaveClass("invisible");
+      expect(selections.miners).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          selectedMiners: ["miner-b"],
+          selectionMode: "subset",
+          totalCount: 1,
+          currentFilter: changed.currentFilter,
+          currentSort: changed.currentSort,
+          miners: changed.miners,
+          minerIds: changed.minerIds,
+          selectionIncludesUnauthenticatedMiner: false,
+        }),
+      );
+    }
+  },
+);
 
 test.each([false, true])(
   "keeps module confirmation mounted when polling removes modules (clear all: %s)",
