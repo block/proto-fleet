@@ -1,3 +1,5 @@
+import { useRef } from "react";
+
 import { type MiningSelectionKey, selectedMinerIdentifiers } from "./miningSelection";
 import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
@@ -51,22 +53,27 @@ const MinerListActionBar = ({
   onWorkerNameUpdated,
 }: MinerListActionBarProps) => {
   const { isActionBusy, onActionStart, onActionComplete } = useActionBarLifecycle(selectedKeys.length);
-  const minerIdentifiers = selectedMinerIdentifiers(selectedKeys);
+  const selectionRef = useRef({ keys: selectedKeys, modules });
+  if (!isActionBusy) {
+    selectionRef.current = { keys: selectedKeys, modules };
+  }
+  const { keys: activeSelectedKeys, modules: activeModules } = selectionRef.current;
+  const minerIdentifiers = selectedMinerIdentifiers(activeSelectedKeys);
   const itemNoun =
-    modules.length > 0
+    activeModules.length > 0
       ? minerIdentifiers.length > 0
         ? { singular: "mining asset", plural: "mining assets" }
         : { singular: "module", plural: "modules" }
       : { singular: "miner", plural: "miners" };
   const effectiveSelectionMode =
-    selectionMode === "all" && (selectAllOnPage || modules.length > 0) ? "subset" : selectionMode;
+    selectionMode === "all" && (selectAllOnPage || activeModules.length > 0) ? "subset" : selectionMode;
 
   const selectionControls =
     onSelectAll || onSelectNone ? (
       <ActionBarSelectionControls
         onSelectAll={onSelectAll}
         onSelectNone={onSelectNone}
-        visibleOnly={selectAllOnPage || modules.length > 0}
+        visibleOnly={selectAllOnPage || activeModules.length > 0}
         selectAllTestId="select-all-miners-button"
         selectNoneTestId="select-none-miners-button"
       />
@@ -75,7 +82,7 @@ const MinerListActionBar = ({
   return (
     <FleetListActionBar
       isActionBusy={isActionBusy}
-      selectedItems={selectedKeys}
+      selectedItems={activeSelectedKeys}
       itemNoun={itemNoun}
       selectionMode={effectiveSelectionMode}
       totalCount={totalCount}
@@ -84,9 +91,9 @@ const MinerListActionBar = ({
       selectionControls={selectionControls}
     >
       <div className="flex items-center gap-2">
-        {modules.length > 0 ? (
+        {activeModules.length > 0 ? (
           <ModuleActionsMenu
-            modules={modules}
+            modules={activeModules}
             presentation="bulk"
             onRefresh={onRefetchMiners ?? (() => undefined)}
             onActionStart={onActionStart}

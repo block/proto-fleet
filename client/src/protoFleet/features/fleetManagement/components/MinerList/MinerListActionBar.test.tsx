@@ -1,14 +1,45 @@
+import { useState } from "react";
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
+import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 
 const selections = vi.hoisted(() => ({ miners: vi.fn(), modules: vi.fn() }));
 vi.mock("@/protoFleet/features/containers/ModuleActionsMenu", () => ({
-  default: (props: { modules: { ref?: { id: bigint } }[] }) => {
+  default: function ModuleActionsMenuMock(props: {
+    modules: InventoryItem[];
+    onActionStart?: () => void;
+    onActionComplete?: () => void;
+  }) {
+    const [confirming, setConfirming] = useState(false);
     selections.modules(props);
-    return <span data-testid="module-actions-menu">Module actions</span>;
+    return (
+      <div data-testid="module-actions-menu">
+        <button
+          onClick={() => {
+            setConfirming(true);
+            props.onActionStart?.();
+          }}
+        >
+          Module actions
+        </button>
+        {confirming ? (
+          <div role="dialog">
+            {props.modules.map((module) => module.name).join(", ")}
+            <button
+              onClick={() => {
+                setConfirming(false);
+                props.onActionComplete?.();
+              }}
+            >
+              Cancel module action
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
   },
 }));
 
@@ -173,6 +204,35 @@ test("miner-only all mode retains the full result count and dispatch scope", () 
     expect.objectContaining({ selectedMiners: ["miner-a"], selectionMode: "all", totalCount: 200 }),
   );
 });
+
+test.each([false, true])(
+  "keeps module confirmation mounted when polling removes modules (clear all: %s)",
+  (clearAll) => {
+    const module = create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 11n }, name: "CT1 T1 M2" });
+    const { getByRole, queryByRole, getByTestId, queryByTestId, rerender } = render(
+      <MinerListActionBar selectedKeys={["miner:miner-a", "module:11"]} modules={[module]} selectionMode="subset" />,
+    );
+    fireEvent.click(getByRole("button", { name: "Module actions" }));
+    expect(getByTestId("action-bar")).toHaveClass("invisible");
+
+    rerender(
+      <MinerListActionBar selectedKeys={clearAll ? [] : ["miner:miner-a"]} modules={[]} selectionMode="subset" />,
+    );
+    expect(getByRole("dialog")).toHaveTextContent("CT1 T1 M2");
+    fireEvent.click(getByRole("button", { name: "Cancel module action" }));
+    expect(queryByRole("dialog")).not.toBeInTheDocument();
+    expect(queryByTestId("module-actions-menu")).not.toBeInTheDocument();
+    if (clearAll) {
+      expect(queryByTestId("action-bar")).not.toBeInTheDocument();
+    } else {
+      expect(getByTestId("action-bar")).not.toHaveClass("invisible");
+      expect(getByTestId("action-bar")).toHaveTextContent("1 miner selected");
+    }
+
+    rerender(<MinerListActionBar selectedKeys={["miner:miner-b"]} selectionMode="subset" />);
+    expect(getByTestId("action-bar")).not.toHaveClass("invisible");
+  },
+);
 
 test.each(["module:11", "miner:module:11", "module:"])(
   "dispatches the original miner identifier %s without treating it as a module key",
