@@ -31,19 +31,27 @@ func ObserveDatabaseWaits(t *testing.T, database *sql.DB) {
 				return
 			case <-ticker.C:
 				probeCtx, stop := context.WithTimeout(ctx, time.Second)
-				rows, err := database.QueryContext(probeCtx, `SELECT pid,state,COALESCE(wait_event_type,''),COALESCE(wait_event,''),COALESCE(substring(query FROM '^-- name: ([A-Za-z0-9_]+)'),split_part(query,' ',1)),pg_blocking_pids(pid)::text,extract(epoch FROM clock_timestamp()-query_start)::float8
+				func() {
+					rows, err := database.QueryContext(probeCtx, `SELECT pid,state,COALESCE(wait_event_type,''),COALESCE(wait_event,''),COALESCE(substring(query FROM '^-- name: ([A-Za-z0-9_]+)'),split_part(query,' ',1)),pg_blocking_pids(pid)::text,extract(epoch FROM clock_timestamp()-query_start)::float8
  FROM pg_stat_activity WHERE datname=current_database() AND pid<>pg_backend_pid() AND state<>'idle' AND query_start<clock_timestamp()-interval '500 milliseconds'`)
-				if err == nil {
-					for rows.Next() {
-						var pid int
-						var state, kind, wait, operation, blockers string
-						var elapsed float64
-						if err := rows.Scan(&pid, &state, &kind, &wait, &operation, &blockers, &elapsed); err == nil {
-							t.Logf("DB lifetime wait: pid=%d state=%s wait=%s/%s operation=%s blockers=%s elapsed=%.3fs pool=%+v", pid, state, kind, wait, operation, blockers, elapsed, database.Stats())
+					if err != nil {
+						return
+					}
+					defer rows.Close()
+					{
+						for rows.Next() {
+							var pid int
+							var state, kind, wait, operation, blockers string
+							var elapsed float64
+							if err := rows.Scan(&pid, &state, &kind, &wait, &operation, &blockers, &elapsed); err == nil {
+								t.Logf("DB lifetime wait: pid=%d state=%s wait=%s/%s operation=%s blockers=%s elapsed=%.3fs pool=%+v", pid, state, kind, wait, operation, blockers, elapsed, database.Stats())
+							}
+						}
+						if err := rows.Err(); err != nil {
+							t.Logf("DB lifetime diagnostic scan failed: %v", err)
 						}
 					}
-					_ = rows.Close()
-				}
+				}()
 				stop()
 			}
 		}
