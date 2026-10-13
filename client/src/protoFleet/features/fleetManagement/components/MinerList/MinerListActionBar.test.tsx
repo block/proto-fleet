@@ -47,7 +47,7 @@ describe("Miner list action bar", () => {
   const actionBarTestId = "action-bar";
 
   const actionBarProps = {
-    selectedMiners: ["MAC1"],
+    selectedKeys: ["miner:MAC1" as const],
     selectionMode: "subset" as const,
   };
 
@@ -145,7 +145,7 @@ test("mixed selections keep modules out of conventional miner dispatch and preve
   const module = create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 11n }, name: "CT1 T1 M2" });
   const { rerender, queryByTestId, getByTestId } = render(
     <MinerListActionBar
-      selectedMiners={["miner-a", "module:11"]}
+      selectedKeys={["miner:miner-a", "module:11"]}
       modules={[module]}
       selectionMode="all"
       totalCount={40}
@@ -158,14 +158,14 @@ test("mixed selections keep modules out of conventional miner dispatch and preve
   expect(getByTestId("action-bar")).toHaveTextContent("2 miners selected");
   expect(getByTestId("action-bar")).not.toHaveTextContent("40");
   selections.miners.mockClear();
-  rerender(<MinerListActionBar selectedMiners={["module:11"]} modules={[module]} selectionMode="subset" />);
+  rerender(<MinerListActionBar selectedKeys={["module:11"]} modules={[module]} selectionMode="subset" />);
   expect(queryByTestId("actions-menu-button")).not.toBeInTheDocument();
   expect(selections.miners).not.toHaveBeenCalled();
 });
 
 test("miner-only all mode retains the full result count and dispatch scope", () => {
   const { getByTestId } = render(
-    <MinerListActionBar selectedMiners={["miner-a"]} selectionMode="all" totalCount={200} />,
+    <MinerListActionBar selectedKeys={["miner:miner-a"]} selectionMode="all" totalCount={200} />,
   );
   expect(getByTestId("action-bar")).toHaveTextContent("All 200 miners selected");
   expect(selections.miners).toHaveBeenLastCalledWith(
@@ -173,9 +173,37 @@ test("miner-only all mode retains the full result count and dispatch scope", () 
   );
 });
 
+test.each(["module:11", "miner:module:11", "module:"])(
+  "dispatches the original miner identifier %s without treating it as a module key",
+  (identifier) => {
+    const module = create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 11n }, name: "CT1 T1 M2" });
+    const { getByTestId, queryByTestId, rerender } = render(
+      <MinerListActionBar
+        selectedKeys={[`miner:${identifier}`, "module:11"]}
+        modules={[module]}
+        selectionMode="subset"
+      />,
+    );
+    expect(selections.miners).toHaveBeenLastCalledWith(
+      expect.objectContaining({ selectedMiners: [identifier], totalCount: 1 }),
+    );
+    expect(selections.modules).toHaveBeenLastCalledWith(expect.objectContaining({ modules: [module] }));
+    expect(getByTestId("action-bar")).toHaveTextContent("2 miners selected");
+
+    rerender(<MinerListActionBar selectedKeys={[`miner:${identifier}`]} selectionMode="subset" />);
+    expect(queryByTestId("module-actions-menu")).not.toBeInTheDocument();
+    expect(selections.miners).toHaveBeenLastCalledWith(expect.objectContaining({ selectedMiners: [identifier] }));
+  },
+);
+
 test("module pages identify the select-all control as page scoped", () => {
   const { getByTestId } = render(
-    <MinerListActionBar selectedMiners={["miner-a"]} selectionMode="subset" selectAllOnPage onSelectAll={vi.fn()} />,
+    <MinerListActionBar
+      selectedKeys={["miner:miner-a"]}
+      selectionMode="subset"
+      selectAllOnPage
+      onSelectAll={vi.fn()}
+    />,
   );
   expect(getByTestId("select-all-miners-button")).toHaveTextContent("Select all visible");
 });

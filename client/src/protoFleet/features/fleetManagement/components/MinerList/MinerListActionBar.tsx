@@ -1,3 +1,4 @@
+import { type MiningSelectionKey, selectedMinerIdentifiers } from "./miningSelection";
 import type { SortConfig } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import type {
@@ -12,7 +13,7 @@ import { ActionBarSelectionControls } from "@/shared/components/ActionBar";
 import { type SelectionMode } from "@/shared/components/List";
 
 interface MinerListActionBarProps {
-  selectedMiners: string[];
+  selectedKeys: MiningSelectionKey[];
   modules?: InventoryItem[];
   onClearSelection?: () => void;
   onSelectAll?: () => void;
@@ -32,7 +33,7 @@ interface MinerListActionBarProps {
 }
 
 const MinerListActionBar = ({
-  selectedMiners,
+  selectedKeys,
   modules = [],
   onClearSelection,
   onSelectAll,
@@ -49,8 +50,8 @@ const MinerListActionBar = ({
   onRefetchMiners,
   onWorkerNameUpdated,
 }: MinerListActionBarProps) => {
-  const { isActionBusy, onActionStart, onActionComplete } = useActionBarLifecycle(selectedMiners.length);
-  const minerIdentifiers = selectedMiners.filter((id) => !id.startsWith("module:"));
+  const { isActionBusy, onActionStart, onActionComplete } = useActionBarLifecycle(selectedKeys.length);
+  const minerIdentifiers = selectedMinerIdentifiers(selectedKeys);
   const effectiveSelectionMode =
     selectionMode === "all" && (selectAllOnPage || modules.length > 0) ? "subset" : selectionMode;
 
@@ -68,7 +69,7 @@ const MinerListActionBar = ({
   return (
     <FleetListActionBar
       isActionBusy={isActionBusy}
-      selectedItems={selectedMiners}
+      selectedItems={selectedKeys}
       selectionMode={effectiveSelectionMode}
       totalCount={totalCount}
       filtersActive={filtersActive}
