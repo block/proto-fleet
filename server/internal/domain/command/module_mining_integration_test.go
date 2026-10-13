@@ -65,6 +65,47 @@ func seedCommandModule(t *testing.T, conn *sql.DB, tank int64, position int, ide
 	return id
 }
 
+func TestModuleMiningOptionsValidateIdentityPerController(t *testing.T) {
+	for _, sameController := range []bool{true, false} {
+		name := "different controllers"
+		if sameController {
+			name = "same controller"
+		}
+		t.Run(name, func(t *testing.T) {
+			conn, dbs, user := setupRetentionTest(t)
+			_, _, tanks := seedTankController(t, conn, dbs, user.OrganizationID)
+			secondTank := tanks[1]
+			if !sameController {
+				_, _, otherTanks := seedTankController(t, conn, dbs, user.OrganizationID)
+				secondTank = otherTanks[0]
+			}
+			ids := []int64{
+				seedCommandModule(t, conn, tanks[0], 1, "shared-identity"),
+				seedCommandModule(t, conn, secondTank, 1, "shared-identity"),
+			}
+			svc := newDispatchIntegrationTestService(t, conn, failingEnqueueQueue{delegate: queue.NewDatabaseMessageQueue(&queue.Config{DequeLimit: 10, MaxFailureRetries: 1}, conn)})
+			svc.SetPluginCapabilitiesProvider(moduleCapabilities{true})
+			ctx := testutil.MockAuthContextForTesting(t.Context(), user.DatabaseID, user.OrganizationID)
+			allow := func(context.Context, *int64, bool) error { return nil }
+			options, err := svc.GetModuleMiningOptions(ctx, ids, allow)
+			require.NoError(t, err)
+			require.Equal(t, !sameController, options.CanStart)
+			require.Equal(t, !sameController, options.CanStop)
+			if sameController {
+				require.Contains(t, options.UnavailableReason, "ambiguous")
+				_, err = svc.SetModuleMining(ctx, ids, new(false), allow)
+				require.True(t, fleeterror.IsFailedPreconditionError(err))
+				require.Zero(t, countCommandBatches(t, conn, user.OrganizationID))
+			} else {
+				require.Empty(t, options.UnavailableReason)
+				result, err := svc.SetModuleMining(ctx, ids, new(false), allow)
+				require.NoError(t, err)
+				require.Len(t, result.Commands, 2)
+			}
+		})
+	}
+}
+
 func TestModuleMiningAdmissionGroupsExactScopeAcrossTanksAndControllers(t *testing.T) {
 	conn, dbs, user := setupRetentionTest(t)
 	identifier, deviceID, tanks := seedTankController(t, conn, dbs, user.OrganizationID)

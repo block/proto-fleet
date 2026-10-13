@@ -113,9 +113,13 @@ func (s *Service) getMiningOptions(ctx context.Context, ids []int64, authorize m
 			return nil, err
 		}
 		options := &miningOptions{CanStart: true, CanStop: true}
+		modulesByController := make(map[int64][]sdk.ModuleMiningTarget)
 		var previous int64
 		var supported, pending bool
 		for _, row := range rows {
+			if row.Module != nil {
+				modulesByController[row.DeviceID] = append(modulesByController[row.DeviceID], *row.Module)
+			}
 			// A caller with neither action permission receives no command capabilities.
 			start := authorize != nil && authorize(ctx, miningSite(row), true) == nil
 			stop := authorize != nil && authorize(ctx, miningSite(row), false) == nil
@@ -141,6 +145,14 @@ func (s *Service) getMiningOptions(ctx context.Context, ids []int64, authorize m
 				options.CanStart = false
 				options.CanStop = false
 				options.UnavailableReason = scope.message("A tank mining command is already pending for this container.")
+			}
+		}
+		for _, modules := range modulesByController {
+			if (sdk.ModuleMiningRequest{Modules: modules, Mining: new(false)}).Validate() != nil {
+				options.CanStart = false
+				options.CanStop = false
+				options.UnavailableReason = "Module identities or positions are invalid or ambiguous; refresh before retrying."
+				break
 			}
 		}
 		upgradeRequired, err := s.miningProtocolUpgradeRequired(ctx, q, rows, info.OrganizationID, scope)
