@@ -1541,8 +1541,12 @@ func TestControlLoop_DeferrableReadsReserveOperatorCapacity(t *testing.T) {
 		}
 		return lowBusy && operatorOK
 	}, 3*time.Second, 20*time.Millisecond)
-	assert.Len(t, cmd.controlDeferrableReadSlots, deferrableReadCommandPoolSize)
-	assert.Len(t, cmd.controlCommandSlots, deferrableReadCommandPoolSize)
+	// The gateway can observe the acknowledgment before the operator worker
+	// returns and releases its shared slot. Keep the reads blocked until then.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		assert.Len(c, cmd.controlDeferrableReadSlots, deferrableReadCommandPoolSize)
+		assert.Len(c, cmd.controlCommandSlots, deferrableReadCommandPoolSize)
+	}, 2*time.Second, 20*time.Millisecond)
 
 	close(release)
 	require.Eventually(t, func() bool {
@@ -1635,8 +1639,12 @@ func TestControlLoop_ReconnectRetainsDeferrableReadPermitsAndOperatorCapacity(t 
 		}
 		return lowBusy && operatorOK
 	}, 2*time.Second, 20*time.Millisecond)
-	assert.Len(t, cmd.controlDeferrableReadSlots, deferrableReadCommandPoolSize)
-	assert.Len(t, cmd.controlCommandSlots, deferrableReadCommandPoolSize)
+	// The gateway can observe the acknowledgment before the operator worker
+	// returns and releases its shared slot. Keep the reads blocked until then.
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		assert.Len(c, cmd.controlDeferrableReadSlots, deferrableReadCommandPoolSize)
+		assert.Len(c, cmd.controlCommandSlots, deferrableReadCommandPoolSize)
+	}, 2*time.Second, 20*time.Millisecond)
 
 	close(releases[0])
 	require.Eventually(t, func() bool {
