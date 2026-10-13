@@ -497,10 +497,13 @@ host fleet providers; host curtailment and fleet commands keep their existing
 organization scope. Account RPC clients capture `X-Fleet-Account-ID` for the
 page lifetime and abort when the account or login changes.
 
-Invitation links use `/account-invitation#token=…`. The page removes the fragment
-from the address bar, supports existing Fleet logins and invited registration,
-and requires the original link again after a reload. Invitation links and new
-API-key secrets are shown once for manual copying. Saved pool passwords are
+Invitations show a portable code once for manual sharing. Recipients select
+**Join an account** on the login screen or account list, paste the code, then use
+an existing Fleet login or register a new one. Codes stay out of the URL and
+are not retained across reloads. Optional links use
+`/account-invitation#token=…` at the sender’s current Fleet address; recipients
+must be able to reach that address. The page removes the fragment before
+previewing the invitation. New API-key secrets are also shown once for manual copying. Saved pool passwords are
 never read back; a revision can retain them only for unchanged slot destinations
 and usernames. Incoming profiles pin an immutable revision and require the
 current login password when changed.

@@ -100,6 +100,7 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 20, 240, 40));
 });
 afterEach(() => {
+  vi.unstubAllGlobals();
   useFleetStore.setState({ auth: initialAuth });
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -143,22 +144,78 @@ describe("hosted account pages", () => {
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
-  it("shows a manually shared, fragment-based invitation once, without an email flow", async () => {
+  it("shows a portable invitation code once and keeps a fragment link as a convenience", async () => {
     const user = userEvent.setup(),
       { value, client } = scope();
     mount(<AccountTeam />, value);
     await user.click(await screen.findByRole("button", { name: "Create invitation" }));
-    await user.click(screen.getByRole("button", { name: "Create link" }));
-    const secret = await screen.findByLabelText("Invitation link");
-    expect(secret).toHaveValue(`${window.location.origin}/account-invitation#token=${"x".repeat(43)}`);
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create invitation" }));
+    const secret = await screen.findByLabelText("Invitation code");
+    expect(secret).toHaveValue("x".repeat(43));
+    vi.stubGlobal("isSecureContext", true);
+    const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    await user.click(screen.getByRole("button", { name: "Copy invitation code" }));
+    expect(copy).toHaveBeenLastCalledWith("x".repeat(43));
+    await user.click(screen.getByRole("button", { name: "Copy invitation link (optional)" }));
+    expect(copy).toHaveBeenLastCalledWith(`${window.location.origin}/account-invitation#token=${"x".repeat(43)}`);
     expect(client.createInvitation).toHaveBeenCalledWith({
       accountId,
       role: AccountRole.VIEWER,
       expiresInSeconds: 86400,
     });
     await user.click(screen.getByRole("button", { name: "Done" }));
-    expect(screen.queryByLabelText("Invitation link")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Invitation code")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/email/i)).not.toBeInTheDocument();
+  });
+  it("copies invitation codes and optional links on plain HTTP without a secure clipboard API", async () => {
+    const user = userEvent.setup(),
+      { value } = scope();
+    vi.stubGlobal("isSecureContext", false);
+    const descriptor = Object.getOwnPropertyDescriptor(document, "execCommand");
+    const copied: string[] = [];
+    const copy = vi.fn(() => {
+      copied.push((document.activeElement as HTMLTextAreaElement).value);
+      return true;
+    });
+    Object.defineProperty(document, "execCommand", { configurable: true, value: copy });
+    try {
+      mount(<AccountTeam />, value);
+      await user.click(await screen.findByRole("button", { name: "Create invitation" }));
+      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create invitation" }));
+      await screen.findByLabelText("Invitation code");
+      await user.click(screen.getByRole("button", { name: "Copy invitation code" }));
+      expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "Copy invitation link (optional)" }));
+      await screen.findByRole("button", { name: "Link copied" });
+      expect(copied).toEqual(["x".repeat(43), `${window.location.origin}/account-invitation#token=${"x".repeat(43)}`]);
+      expect(copy).toHaveBeenCalledWith("copy");
+      expect(document.querySelector("textarea")).toBeNull();
+    } finally {
+      if (descriptor) Object.defineProperty(document, "execCommand", descriptor);
+      else Reflect.deleteProperty(document, "execCommand");
+    }
+  });
+  it("keeps the code available for manual copying when both copy buttons fail", async () => {
+    const user = userEvent.setup(),
+      { value } = scope();
+    vi.stubGlobal("isSecureContext", false);
+    const descriptor = Object.getOwnPropertyDescriptor(document, "execCommand");
+    Object.defineProperty(document, "execCommand", { configurable: true, value: vi.fn(() => false) });
+    try {
+      mount(<AccountTeam />, value);
+      await user.click(await screen.findByRole("button", { name: "Create invitation" }));
+      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create invitation" }));
+      await screen.findByLabelText("Invitation code");
+      await user.click(screen.getByRole("button", { name: "Copy invitation code" }));
+      await screen.findByText("Copy failed. Select and copy the value above.");
+      await user.click(screen.getByRole("button", { name: "Copy invitation link (optional)" }));
+      await screen.findByText("Copy failed. Share the invitation code instead.");
+      expect(screen.getByLabelText("Invitation code")).toHaveValue("x".repeat(43));
+      expect(document.querySelector("textarea")).toBeNull();
+    } finally {
+      if (descriptor) Object.defineProperty(document, "execCommand", descriptor);
+      else Reflect.deleteProperty(document, "execCommand");
+    }
   });
   it("removes only the selected account membership and leaves login administration absent", async () => {
     const user = userEvent.setup(),
@@ -319,7 +376,7 @@ describe("hosted account pages", () => {
       useFleetStore.setState({ auth: { ...initialAuth, isAuthenticated: true, username: "current_user" } });
       mount(<AccountTeam />, value);
       await user.click(await screen.findByRole("button", { name: "Create invitation" }));
-      await user.click(screen.getByRole("button", { name: "Create link" }));
+      await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create invitation" }));
       if (newLogin)
         act(() =>
           useFleetStore.setState({

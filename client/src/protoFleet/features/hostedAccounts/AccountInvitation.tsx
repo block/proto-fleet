@@ -18,15 +18,14 @@ import Button from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
 import Header from "@/shared/components/Header";
 import Input from "@/shared/components/Input";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import { TabStrip, TabStripItem } from "@/shared/components/Tab";
 
-const AccountInvitation = () => {
-  const location = useLocation(),
-    navigate = useNavigate(),
+const InvitationDetails = ({ token, onChangeCode }: { token: string; onChangeCode: () => void }) => {
+  const navigate = useNavigate(),
     login = useLogin();
   const authenticated = useFleetStore((s) => s.auth.isAuthenticated);
   const username = useFleetStore((s) => s.auth.username);
-  const [token] = useState(() => new URLSearchParams(location.hash.slice(1)).get("token") ?? "");
   const [lifetime] = useState(() => ({ controller: new AbortController() }));
   useEffect(() => {
     if (lifetime.controller.signal.aborted) lifetime.controller = new AbortController();
@@ -39,14 +38,11 @@ const AccountInvitation = () => {
     [password, setPassword] = useState(""),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
-  useEffect(() => {
-    if (location.hash) navigate(location.pathname, { replace: true });
-  }, [location.hash, location.pathname, navigate]);
   const load = useCallback(
     (signal: AbortSignal) => hostedAccountsClient.previewInvitation({ token }, { signal }),
     [token],
   );
-  const query = useAccountQuery(load, token.length === 43);
+  const query = useAccountQuery(load);
   const accept = async () => {
     const generation = useFleetStore.getState().auth.sessionGeneration;
     const signal = lifetime.controller.signal;
@@ -100,96 +96,137 @@ const AccountInvitation = () => {
     }
   };
   return (
+    <>
+      <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
+      {query.data ? (
+        <>
+          <Header
+            title={`Join ${query.data.accountName}`}
+            titleSize="text-heading-300"
+            description={`You’re invited as a ${roleLabel(query.data.role)}. One Fleet login can belong to multiple accounts.`}
+          />
+          {authenticated && !needsPasswordChange ? (
+            <>
+              <p className="text-300 text-text-primary-70">Join with your current login: {username}</p>
+              <Button
+                variant="primary"
+                text="Accept invitation"
+                loading={busy}
+                onClick={() => {
+                  void accept();
+                }}
+              />
+            </>
+          ) : (
+            <>
+              <TabStrip
+                activeId={tab}
+                onSelect={(next) => {
+                  if (!busy) setTab(next);
+                }}
+                ariaLabel="Invitation login options"
+              >
+                <TabStripItem id="existing" label="Existing login" />
+                <TabStripItem id="new" label="Create login" />
+              </TabStrip>
+              {tab === "existing" ? (
+                <LoginForm
+                  onSuccess={(requiresPasswordChange) => {
+                    setNeedsPasswordChange(requiresPasswordChange);
+                    if (requiresPasswordChange) {
+                      setError("Change your temporary password, then enter the invitation code again.");
+                    }
+                  }}
+                />
+              ) : (
+                <div className="flex flex-col gap-4">
+                  <Input
+                    id="invited-username"
+                    label="Username"
+                    initValue={newUsername}
+                    onChange={setNewUsername}
+                    maxLength={255}
+                    autoComplete="username"
+                  />
+                  <Input
+                    id="invited-password"
+                    label="Choose a password"
+                    type="password"
+                    initValue={password}
+                    onChange={(value) => setPassword(value.trim())}
+                    maxLength={128}
+                    autoComplete="new-password"
+                  />
+                  <Button
+                    variant="primary"
+                    text="Create login and join"
+                    loading={busy}
+                    disabled={!newUsername.trim() || !password}
+                    onClick={() => {
+                      void register();
+                    }}
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </>
+      ) : null}
+      {needsPasswordChange ? <Button variant="secondary" text="Change password" to="/update-password" /> : null}
+      {error ? <Callout title={error} intent="danger" prefixIcon={<Alert />} /> : null}
+      <Button variant="textOnly" text="Use another invitation code" disabled={busy} onClick={onChangeCode} />
+    </>
+  );
+};
+
+const isInvitationCode = (value: string) => /^[A-Za-z0-9_-]{43}$/.test(value);
+const AccountInvitation = () => {
+  const location = useLocation(),
+    navigate = useNavigate();
+  const [{ token, code }, setInvitation] = useState(() => {
+    const initialCode = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
+    return isInvitationCode(initialCode) ? { token: initialCode, code: "" } : { token: "", code: initialCode };
+  });
+  useEffect(() => {
+    if (location.hash) navigate(location.pathname, { replace: true });
+  }, [location.hash, location.pathname, navigate]);
+  return (
     <div className="flex min-h-screen flex-col bg-surface-base">
       <main className="mx-auto flex w-full max-w-120 grow flex-col justify-center gap-6 p-6" data-dd-privacy="mask">
         <LogoAlt width="w-10" />
-        {token.length !== 43 ? (
-          <Callout
-            title="This invitation link is incomplete. Ask the account administrator for a new link."
-            intent="danger"
-            prefixIcon={<Alert />}
-          />
+        {token ? (
+          location.hash ? (
+            <div className="flex justify-center p-10">
+              <ProgressCircular indeterminate />
+            </div>
+          ) : (
+            <InvitationDetails key={token} token={token} onChangeCode={() => setInvitation({ token: "", code: "" })} />
+          )
         ) : (
           <>
-            <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
-            {query.data ? (
-              <>
-                <Header
-                  title={`Join ${query.data.accountName}`}
-                  titleSize="text-heading-300"
-                  description={`You’re invited as a ${roleLabel(query.data.role)}. One Fleet login can belong to multiple accounts.`}
-                />
-                {authenticated && !needsPasswordChange ? (
-                  <>
-                    <p className="text-300 text-text-primary-70">Join with your current login: {username}</p>
-                    <Button
-                      variant="primary"
-                      text="Accept invitation"
-                      loading={busy}
-                      onClick={() => {
-                        void accept();
-                      }}
-                    />
-                  </>
-                ) : (
-                  <>
-                    <TabStrip
-                      activeId={tab}
-                      onSelect={(next) => {
-                        if (!busy) setTab(next);
-                      }}
-                      ariaLabel="Invitation login options"
-                    >
-                      <TabStripItem id="existing" label="Existing login" />
-                      <TabStripItem id="new" label="Create login" />
-                    </TabStrip>
-                    {tab === "existing" ? (
-                      <LoginForm
-                        onSuccess={(requiresPasswordChange) => {
-                          setNeedsPasswordChange(requiresPasswordChange);
-                          if (requiresPasswordChange) {
-                            setError("Change your temporary password, then reopen this invitation.");
-                          }
-                        }}
-                      />
-                    ) : (
-                      <div className="flex flex-col gap-4">
-                        <Input
-                          id="invited-username"
-                          label="Username"
-                          initValue={newUsername}
-                          onChange={setNewUsername}
-                          maxLength={255}
-                          autoComplete="username"
-                        />
-                        <Input
-                          id="invited-password"
-                          label="Choose a password"
-                          type="password"
-                          initValue={password}
-                          onChange={(value) => setPassword(value.trim())}
-                          maxLength={128}
-                          autoComplete="new-password"
-                        />
-                        <Button
-                          variant="primary"
-                          text="Create login and join"
-                          loading={busy}
-                          disabled={!newUsername.trim() || !password}
-                          onClick={() => {
-                            void register();
-                          }}
-                        />
-                      </div>
-                    )}
-                  </>
-                )}
-              </>
-            ) : null}
+            <Header
+              title="Join an account"
+              titleSize="text-heading-300"
+              description="Enter the invitation code shared by your account administrator."
+            />
+            <Input
+              id="invitation-code"
+              label="Invitation code"
+              initValue={code}
+              onChange={(code) => setInvitation((current) => ({ ...current, code }))}
+              maxLength={128}
+              autoComplete="off"
+            />
+            <Button
+              variant="primary"
+              text="Continue"
+              disabled={!isInvitationCode(code.trim())}
+              onClick={() => {
+                setInvitation({ token: code.trim(), code: "" });
+              }}
+            />
           </>
         )}
-        {needsPasswordChange ? <Button variant="secondary" text="Change password" to="/update-password" /> : null}
-        {error ? <Callout title={error} intent="danger" prefixIcon={<Alert />} /> : null}
         <Button variant="textOnly" text="Back to Fleet" to="/" />
       </main>
       <Footer />

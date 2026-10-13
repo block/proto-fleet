@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 
 import Button from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Modal from "@/shared/components/Modal";
+import { copyToClipboard } from "@/shared/utils/utility";
 
 export const SecretModal = ({
   title,
@@ -10,12 +11,14 @@ export const SecretModal = ({
   value,
   description,
   onDismiss,
+  children,
 }: {
   title: string;
   label: string;
   value: string;
   description: string;
   onDismiss: () => void;
+  children?: ReactNode;
 }) => {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
@@ -35,7 +38,7 @@ export const SecretModal = ({
           variant="secondary"
           text={copied ? "Copied" : `Copy ${label.toLowerCase()}`}
           onClick={() => {
-            void navigator.clipboard.writeText(value).then(
+            void copyToClipboard(value).then(
               () => {
                 setCopied(true);
                 setError("");
@@ -49,6 +52,7 @@ export const SecretModal = ({
             {error}
           </p>
         ) : null}
+        {children}
       </div>
     </Modal>
   );

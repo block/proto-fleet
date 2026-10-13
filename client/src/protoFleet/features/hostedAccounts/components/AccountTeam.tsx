@@ -6,7 +6,7 @@ import { useAccountQuery } from "../useAccountQuery";
 import { AccountState } from "./AccountState";
 import { ActionModal } from "./ActionModal";
 import { PageControls } from "./PageControls";
-import { SecretModal } from "./SecretModal";
+import { ShareInvitationModal } from "./ShareInvitationModal";
 import { AccountRole, type Invitation, type Member } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
@@ -49,7 +49,7 @@ const AccountTeam = () => {
   } | null>(null);
   const [role, setRole] = useState(String(AccountRole.VIEWER));
   const [expiry, setExpiry] = useState("86400");
-  const [link, setLink] = useState<string | null>(null);
+  const [invitationCode, setInvitationCode] = useState<string | null>(null);
   const query = tab === "members" ? members : invitations;
   const createInvite = () => {
     setRole(String(AccountRole.VIEWER));
@@ -159,7 +159,7 @@ const AccountTeam = () => {
           }
           confirm={
             action.kind === "invite"
-              ? "Create link"
+              ? "Create invitation"
               : action.kind === "remove"
                 ? "Remove membership"
                 : action.kind === "revoke"
@@ -174,9 +174,7 @@ const AccountTeam = () => {
                 role: Number(role) as AccountRole,
                 expiresInSeconds: Number(expiry),
               });
-              const url = new URL("/account-invitation", window.location.origin);
-              url.hash = new URLSearchParams({ token: result.token }).toString();
-              setLink(url.toString());
+              setInvitationCode(result.token);
             } else if (action.kind === "role")
               await client.setMemberRole({
                 accountId: account.accountId,
@@ -211,7 +209,7 @@ const AccountTeam = () => {
                     ]}
                   />
                   <p className="text-200 text-text-primary-50">
-                    A single-use link is shown once for manual sharing. The recipient uses a Fleet username; email is
+                    A single-use code is shown once for manual sharing. The recipient uses a Fleet username; email is
                     not required.
                   </p>
                 </>
@@ -231,14 +229,8 @@ const AccountTeam = () => {
           )}
         </ActionModal>
       ) : null}
-      {link ? (
-        <SecretModal
-          title="Share invitation"
-          label="Invitation link"
-          value={link}
-          description="This link is shown once. Anyone holding it can accept the invitation; share it only with the intended recipient."
-          onDismiss={() => setLink(null)}
-        />
+      {invitationCode ? (
+        <ShareInvitationModal token={invitationCode} onDismiss={() => setInvitationCode(null)} />
       ) : null}
     </div>
   );

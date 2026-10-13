@@ -9,6 +9,7 @@ import { hostedAccountsClient } from "./api";
 import { authClient } from "@/protoFleet/api/clients";
 import { AuthenticateResponseSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import {
+  AcceptInvitationResponseSchema,
   PreviewInvitationResponseSchema,
   RegisterInvitedUserResponseSchema,
 } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
@@ -83,5 +84,96 @@ describe("invited login lifecycle", () => {
       { token, username: "new_user", password: "new-test-password" },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
+  });
+});
+
+function openCodeEntry() {
+  render(
+    <MemoryRouter initialEntries={["/account-invitation"]}>
+      <LocationReader />
+      <Routes>
+        <Route path="/account-invitation" element={<AccountInvitation />} />
+        <Route path="/accounts/:accountId/overview" element={<div>Joined account</div>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+describe("portable invitation codes", () => {
+  it("removes an invitation link fragment before starting its preview", async () => {
+    const hashes: string[] = [];
+    vi.spyOn(hostedAccountsClient, "previewInvitation").mockImplementation(async () => {
+      hashes.push(screen.getByTestId("location").textContent ?? "");
+      return create(PreviewInvitationResponseSchema, { accountName: "Customer" });
+    });
+    render(
+      <MemoryRouter initialEntries={[`/account-invitation#token=${token}`]}>
+        <LocationReader />
+        <AccountInvitation />
+      </MemoryRouter>,
+    );
+    await screen.findByText("Join Customer");
+    expect(hashes).toEqual([""]);
+  });
+
+  it("previews a pasted code and joins with the existing login without putting the code in the URL", async () => {
+    useFleetStore.setState({ auth: { ...initialAuth, isAuthenticated: true, username: "existing_user" } });
+    const preview = vi
+      .spyOn(hostedAccountsClient, "previewInvitation")
+      .mockResolvedValue(create(PreviewInvitationResponseSchema, { accountName: "Customer" }));
+    const accept = vi
+      .spyOn(hostedAccountsClient, "acceptInvitation")
+      .mockResolvedValue(create(AcceptInvitationResponseSchema, { accountId }));
+    const user = userEvent.setup();
+    openCodeEntry();
+    expect(preview).not.toHaveBeenCalled();
+    await user.click(screen.getByLabelText("Invitation code"));
+    await user.paste(`  ${token}  `);
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText("Join Customer");
+    expect(preview).toHaveBeenCalledWith({ token }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(screen.getByTestId("location")).toBeEmptyDOMElement();
+    await user.click(screen.getByRole("button", { name: "Accept invitation" }));
+    await screen.findByText("Joined account");
+    expect(accept).toHaveBeenCalledWith({ token }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  });
+  it("does not preview incomplete codes and lets recipients replace unavailable invitations", async () => {
+    const preview = vi
+      .spyOn(hostedAccountsClient, "previewInvitation")
+      .mockRejectedValueOnce(new ConnectError("Invitation expired", Code.PermissionDenied))
+      .mockResolvedValueOnce(create(PreviewInvitationResponseSchema, { accountName: "New customer" }));
+    const user = userEvent.setup();
+    openCodeEntry();
+    await user.type(screen.getByLabelText("Invitation code"), "incomplete");
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(preview).not.toHaveBeenCalled();
+    await user.clear(screen.getByLabelText("Invitation code"));
+    await user.type(screen.getByLabelText("Invitation code"), token);
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText(/Invitation expired/);
+    await user.click(screen.getByRole("button", { name: "Use another invitation code" }));
+    expect(screen.getByLabelText("Invitation code")).toHaveValue("");
+    expect(screen.queryByText(/Invitation expired/)).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Invitation code"), "y".repeat(43));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await screen.findByText("Join New customer");
+  });
+  it("cancels the old preview when changing codes and ignores its late result", async () => {
+    let resolve!: (value: ReturnType<typeof create<typeof PreviewInvitationResponseSchema>>) => void;
+    let signal!: AbortSignal;
+    vi.spyOn(hostedAccountsClient, "previewInvitation").mockImplementationOnce((_request, options) => {
+      signal = options!.signal!;
+      return new Promise((r) => {
+        resolve = r;
+      });
+    });
+    const user = userEvent.setup();
+    openCodeEntry();
+    await user.type(screen.getByLabelText("Invitation code"), token);
+    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(screen.getByRole("button", { name: "Use another invitation code" }));
+    expect(signal.aborted).toBe(true);
+    await act(async () => resolve(create(PreviewInvitationResponseSchema, { accountName: "Old customer" })));
+    expect(screen.queryByText("Join Old customer")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Invitation code")).toHaveValue("");
   });
 });
