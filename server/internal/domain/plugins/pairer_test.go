@@ -7,6 +7,8 @@ import (
 	"testing/synctest"
 	"time"
 
+	"connectrpc.com/connect"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -1335,6 +1337,40 @@ func TestPairer_PairDevice_GRPCUnauthenticatedFromPlugin_ReturnsUnauthenticated(
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsAuthenticationError(err), "expected unauthenticated error, got: %v", err)
+}
+
+func TestPairer_PairDevice_ExplicitCredentials_UnavailableReturnsInternal(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "SDK unavailable", err: sdk.NewErrorDeviceUnavailable("proto-device-unavailable", fmt.Errorf("login connection timeout"))},
+		{name: "RPC unavailable", err: status.Error(codes.Unavailable, "login connection timeout")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			manager := NewManager(&Config{})
+			mockDriver := sdkMocks.NewMockDriver(ctrl)
+			secret := sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "admin", Password: "custompass"}}
+			mockDriver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), secret).Return(sdk.DeviceInfo{}, tc.err).Times(1)
+			manager.pluginsByDriverName["proto"] = &LoadedPlugin{
+				Name: "proto-plugin", Identifier: sdk.DriverIdentifier{DriverName: "proto"}, Driver: mockDriver,
+				Caps: sdk.Capabilities{sdk.CapabilityPairing: true},
+			}
+			pairer := createTestPairer(ctrl, manager)
+			device := &discoverymodels.DiscoveredDevice{
+				Device: pb.Device{DeviceIdentifier: "proto-device-unavailable", IpAddress: "192.168.1.151", Port: "80", UrlScheme: "http", DriverName: "proto"}, OrgID: 1,
+			}
+			credentials := &pb.Credentials{Username: "admin", Password: stringPtr("custompass")}
+			err := pairer.PairDevice(t.Context(), device, credentials)
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			require.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+			assert.Contains(t, err.Error(), tc.err.Error())
+			assert.False(t, fleeterror.IsAuthenticationError(err), "an uncertain login must not request replacement credentials")
+		})
+	}
 }
 
 func TestPairer_PairDevice_DefaultPasswordViaAutoCredentials_ReturnsForbidden(t *testing.T) {

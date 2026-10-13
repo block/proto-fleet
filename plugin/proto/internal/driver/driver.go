@@ -393,6 +393,10 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 		return sdk.DeviceInfo{}, fmt.Errorf("expected UsernamePassword in secret bundle for pairing, got %T", access.Kind)
 	}
 
+	if credentials.Password == "" {
+		return sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed(deviceInfo.SerialNumber, fmt.Errorf("password is required to authenticate"))
+	}
+
 	if err := client.SetCredentials(credentials); err != nil {
 		return sdk.DeviceInfo{}, fmt.Errorf("failed to set credentials: %w", err)
 	}
