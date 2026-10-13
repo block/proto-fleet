@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/containerreadings"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/containers/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -94,6 +97,24 @@ func Project(rows []sqlc.ListContainersRow, canRead func(*int64) (bool, error)) 
 		}
 		if metricsFresh && r.TempC.Valid {
 			c.TemperatureC = &r.TempC.Float64
+		}
+		if metricsFresh {
+			if r.EfficiencyJh.Valid {
+				c.EfficiencyJh = &r.EfficiencyJh.Float64
+			}
+			if r.MinTemperatureC.Valid {
+				c.MinTemperatureC = &r.MinTemperatureC.Float64
+			}
+			if r.MaxTemperatureC.Valid {
+				c.MaxTemperatureC = &r.MaxTemperatureC.Float64
+			}
+		}
+		if r.Coverage.Valid {
+			var coverage sdk.ContainerRollup
+			if err := json.Unmarshal(r.Coverage.RawMessage, &coverage); err != nil {
+				return nil, fmt.Errorf("decode container coverage: %w", err)
+			}
+			c.Coverage = containerreadings.Coverage(&coverage)
 		}
 		if err := projectEquipment(c, r.Fans, r.Controls, now); err != nil {
 			return nil, err

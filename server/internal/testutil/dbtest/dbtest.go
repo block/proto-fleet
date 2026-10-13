@@ -75,10 +75,9 @@ func GetTestDB(t *testing.T) *sql.DB {
 		dropTestDatabase(context.Background(), t, &adminConfig, dbName)
 	})
 
-	// Also cover the direct-migration fallback and policies added while healing
-	// a stale clone. Tests run maintenance explicitly when they need it.
-	assert.NoError(t, disableScheduledMaintenance(t.Context(), conn))
-
+	// Maintenance must not race backdated fixtures or deliberate lock barriers.
+	// Policy tests can still run jobs explicitly, or enable their own schedule.
+	PauseBackgroundJobs(t, conn)
 	return conn
 }
 

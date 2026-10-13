@@ -27,9 +27,12 @@ func TestMalformedBoardRetainsModuleIdentityConflict(t *testing.T) {
 			got, err := snapshot(wire, time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC))
 			require.NoError(t, err)
 			module := got.Tanks[0].Modules[0]
-			require.NotNil(t, module.Metrics.PowerW)
-			require.Empty(t, module.ReportedID, "disputed hardware must not own the surviving measurements")
+			require.Nil(t, module.Metrics.PowerW, "disputed hardware must not contribute measurements")
+			require.Empty(t, module.ReportedID)
 			require.False(t, module.IdentityConfirmed)
+			for _, board := range module.Hashboards {
+				require.Equal(t, sdk.HashboardIdentityConflict, board.UnavailableReason)
+			}
 		})
 	}
 }

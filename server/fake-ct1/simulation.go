@@ -102,7 +102,7 @@ func (s *ContainerState) containerTelemetry() containerTelemetryResponse {
 	pdus := make([]powerDistribution, 0, len(s.Tanks))
 	voltage := 480 + 5*s.wave(600, 300)
 	for _, tank := range s.Tanks {
-		pdu := powerDistribution{ComponentID: fmt.Sprintf("pdu-t%d", tank.ID)}
+		pdu := powerDistribution{ComponentID: fmt.Sprintf("pdu-%d", tank.ID)}
 		for _, m := range tank.Modules {
 			power := 0.0
 			faulted := false
@@ -118,7 +118,7 @@ func (s *ContainerState) containerTelemetry() containerTelemetryResponse {
 			if power > 0 {
 				pdu.ActiveFeedCount++
 			}
-			feeds = append(feeds, powerFeed{PowerFeedID: fmt.Sprintf("PF-T%d-%02d", tank.ID, m.ID), Active: power > 0, Faulted: faulted, PowerW: power, VoltageV: voltage})
+			feeds = append(feeds, powerFeed{PowerFeedID: fmt.Sprintf("pdu-%d-outlet-%02d", tank.ID, m.ID), Active: power > 0, Faulted: faulted, PowerW: power, VoltageV: voltage})
 		}
 		pdus = append(pdus, pdu)
 	}

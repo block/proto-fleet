@@ -19,9 +19,9 @@ func TestModuleIdentityConfirmationMigrationRequiresFreshObservation(t *testing.
 	require.NoError(t, err)
 	var tankID, moduleID int64
 	require.NoError(t, conn.QueryRowContext(ctx, `INSERT INTO container_tank(device_id,position,first_seen_at,last_seen_at) VALUES($1,1,now(),now()) RETURNING id`, device.DatabaseID).Scan(&tankID))
-	down, err := migrations.Current.ReadFile("current/001015_internal_container_module_identity_confirmation.down.sql")
+	down, err := migrations.Current.ReadFile("current/001017_internal_container_module_identity_confirmation.down.sql")
 	require.NoError(t, err)
-	up, err := migrations.Current.ReadFile("current/001015_internal_container_module_identity_confirmation.up.sql")
+	up, err := migrations.Current.ReadFile("current/001017_internal_container_module_identity_confirmation.up.sql")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(ctx, string(down))
 	require.NoError(t, err)

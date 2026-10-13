@@ -95,9 +95,9 @@ SET reported_id = CASE WHEN EXCLUDED.reported_id <> '' THEN EXCLUDED.reported_id
 -- evidence. Never use that exception for measurements or delayed inventory.
 -- name: InsertContainerModuleMetrics :exec
 WITH inserted AS (
-  INSERT INTO container_module_metrics (module_id, time, collected_at, hashrate_hs, power_w, temperature_c)
-  SELECT m.id, x.time, sqlc.arg('collected_at')::timestamptz, x.hashrate_hs, x.power_w, x.temperature_c
-  FROM jsonb_to_recordset(sqlc.arg('samples')::jsonb) AS x(tank_position int, position int, reported_id text, time timestamptz, hashrate_hs double precision, power_w double precision, temperature_c double precision)
+  INSERT INTO container_module_metrics (module_id, time, collected_at, hashrate_hs, power_w, temperature_c, efficiency_jh, coverage,site_id,topology_version_id)
+  SELECT m.id, x.time, sqlc.arg('collected_at')::timestamptz, x.hashrate_hs, x.power_w, x.temperature_c, x.efficiency_jh, x.coverage,d.site_id,o.version_id
+  FROM jsonb_to_recordset(sqlc.arg('samples')::jsonb) AS x(tank_position int, position int, reported_id text, time timestamptz, hashrate_hs double precision, power_w double precision, temperature_c double precision, efficiency_jh double precision, coverage jsonb)
   JOIN device d ON d.device_identifier = sqlc.arg('device_identifier') AND d.deleted_at IS NULL
   JOIN container_tank t ON t.device_id = d.id AND t.position = x.tank_position AND t.present
   JOIN container_module m ON m.tank_id = t.id AND m.position = x.position AND m.retired_at IS NULL
@@ -106,12 +106,15 @@ WITH inserted AS (
       AND m.last_seen_at = sqlc.arg('collected_at')::timestamptz
       AND x.hashrate_hs IS NULL AND x.power_w IS NULL AND x.temperature_c IS NULL
     ))
+  LEFT JOIN container_topology_observation o ON o.device_id=d.id AND o.collected_at=sqlc.arg('collected_at')::timestamptz
   ON CONFLICT (module_id, time, collected_at) DO NOTHING
   RETURNING *
 )
-INSERT INTO container_module_latest_metrics (module_id, time, collected_at, hashrate_hs, power_w, temperature_c)
-SELECT module_id, time, collected_at, hashrate_hs, power_w, temperature_c FROM inserted
+INSERT INTO container_module_latest_metrics (module_id, time, collected_at, hashrate_hs, power_w, temperature_c, efficiency_jh, coverage, source_times)
+SELECT module_id, time, collected_at, hashrate_hs, power_w, temperature_c, efficiency_jh, coverage, COALESCE(NULLIF(coverage->'source_times', 'null'::jsonb),'{}'::jsonb) FROM inserted
 ON CONFLICT (module_id) DO UPDATE
 SET time = EXCLUDED.time, collected_at = EXCLUDED.collected_at, hashrate_hs = EXCLUDED.hashrate_hs,
-    power_w = EXCLUDED.power_w, temperature_c = EXCLUDED.temperature_c
+    power_w = EXCLUDED.power_w, temperature_c = EXCLUDED.temperature_c, efficiency_jh=EXCLUDED.efficiency_jh, coverage=EXCLUDED.coverage,
+ source_times=(SELECT COALESCE(jsonb_object_agg(COALESCE(p.key,n.key),GREATEST(p.value::timestamptz,n.value::timestamptz)),'{}'::jsonb)
+ FROM jsonb_each_text(container_module_latest_metrics.source_times) p FULL JOIN jsonb_each_text(EXCLUDED.source_times) n USING(key))
 WHERE (container_module_latest_metrics.time, container_module_latest_metrics.collected_at) < (EXCLUDED.time, EXCLUDED.collected_at);

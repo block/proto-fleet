@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -88,6 +89,26 @@ func TestGRPCSharesContainerState(t *testing.T) {
 	}
 	if telemetry.GetPlant().FacilityPowerW == nil {
 		t.Fatal("missing facility power")
+	}
+
+	// Keep the simulator compatible with the collector's firmware PDU attribution.
+	pdus := map[string]*mdk.PlantPowerDistribution{}
+	for _, pdu := range telemetry.GetPowerDistributions() {
+		pdus[pdu.GetComponentId()] = pdu
+	}
+	for _, tank := range layout.GetContainerMap().GetTanks() {
+		id := fmt.Sprintf("pdu-%d", tank.GetId())
+		if pdu := pdus[id]; pdu == nil || pdu.ActivePowerW == nil {
+			t.Errorf("tank %d is missing its dedicated %s meter", tank.GetId(), id)
+		}
+		for _, module := range tank.GetModules() {
+			want := fmt.Sprintf("%s-outlet-%02d", id, module.GetId())
+			for _, slot := range module.GetSlots() {
+				if slot.GetPowerFeedId() != want || slot.GetHashboard().GetLocation().GetPowerFeedId() != want {
+					t.Errorf("tank %d module %d feed disagrees with firmware convention %s", tank.GetId(), module.GetId(), want)
+				}
+			}
+		}
 	}
 }
 

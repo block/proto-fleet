@@ -21,8 +21,11 @@ const (
 // are selectors; ReportedID is firmware identity evidence, not a Fleet miner ID.
 // Nil snapshots mean collection failed and must never erase a previous snapshot.
 type ContainerSnapshot struct {
-	Fans     []ContainerFan     `json:"fans,omitempty"`
-	Controls *ContainerControls `json:"controls,omitempty"`
+	// InventoryAccepted is set only by server reconciliation, never by a plugin.
+	InventoryAccepted bool               `json:"-"`
+	Metrics           *ContainerRollup   `json:"metrics,omitempty"`
+	Fans              []ContainerFan     `json:"fans,omitempty"`
+	Controls          *ContainerControls `json:"controls,omitempty"`
 	// TopologyComplete permits reconciliation of missing members. Partial or
 	// telemetry-only observations never remove inventory.
 	TopologyComplete bool            `json:"topology_complete"`
@@ -32,8 +35,10 @@ type ContainerSnapshot struct {
 }
 
 type ContainerTank struct {
-	Position int32             `json:"position"`
-	Modules  []ContainerModule `json:"modules"`
+	Metrics          *ContainerRollup  `json:"metrics,omitempty"`
+	TopologyComplete bool              `json:"topology_complete"`
+	Position         int32             `json:"position"`
+	Modules          []ContainerModule `json:"modules"`
 }
 
 // ContainerModuleIssues is a current observation, not an issue history. Complete
@@ -75,6 +80,9 @@ type ContainerModule struct {
 // the typed measurements use SI units and exclude stale or invalid evidence.
 // PSU fields inside the firmware payload belong to the shared module PSU.
 type ContainerHashboard struct {
+	PowerW            *float64                 `json:"power_w,omitempty"`
+	EfficiencyJH      *float64                 `json:"efficiency_jh,omitempty"`
+	Feed              *ContainerFeedEvidence   `json:"feed,omitempty"`
 	IdentityClaims    []HashboardIdentityClaim `json:"identity_claims,omitempty"`
 	UnavailableReason string                   `json:"unavailable_reason,omitempty"`
 	Position          int32                    `json:"position"`
@@ -98,10 +106,12 @@ type ContainerHashboard struct {
 // board power or a share of facility power. Temperature is mean ASIC temperature.
 // A nil value means unavailable, never zero. ObservedAt is source evidence time.
 type ContainerModuleMetrics struct {
-	ObservedAt   time.Time `json:"observed_at"`
-	HashrateHS   *float64  `json:"hashrate_hs,omitempty"`
-	PowerW       *float64  `json:"power_w,omitempty"`
-	TemperatureC *float64  `json:"temperature_c,omitempty"`
+	Rollup       *ContainerRollup `json:"rollup,omitempty"`
+	EfficiencyJH *float64         `json:"efficiency_jh,omitempty"`
+	ObservedAt   time.Time        `json:"observed_at"`
+	HashrateHS   *float64         `json:"hashrate_hs,omitempty"`
+	PowerW       *float64         `json:"power_w,omitempty"`
+	TemperatureC *float64         `json:"temperature_c,omitempty"`
 }
 
 // ContainerPlant retains the firmware's own plant aggregate, independently

@@ -1,0 +1,21 @@
+syntax = "proto3";
+package common.v1;
+import "google/protobuf/timestamp.proto";
+
+// Counts refer to boards for hashrate, modules for equipment temperature, and
+// dedicated meters for power. Unknown topology cannot establish completeness.
+message MeasurementCoverage {
+ int32 reporting = 1;
+ int32 expected = 2;
+ bool topology_complete = 3;
+ google.protobuf.Timestamp oldest_at = 4;
+ google.protobuf.Timestamp newest_at = 5;
+}
+message EquipmentCoverage {
+ MeasurementCoverage hashrate = 1;
+ MeasurementCoverage power = 2;
+ MeasurementCoverage temperature = 3;
+ string power_source = 4;
+ // For example naming_convention, shared_psu, or facility_meter.
+ string attribution = 5;
+}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/lib/pq"
+	"github.com/sqlc-dev/pqtype"
 )
 
 const getContainerModuleScope = `-- name: GetContainerModuleScope :one
@@ -38,112 +39,72 @@ func (q *Queries) GetContainerModuleScope(ctx context.Context, arg GetContainerM
 }
 
 const getContainerTankHistory = `-- name: GetContainerTankHistory :many
-WITH members AS MATERIALIZED (
-  SELECT m.id FROM container_module m
-  JOIN container_tank t ON t.id = m.tank_id
-  JOIN device d ON d.id = t.device_id
-  JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.org_id
-  WHERE t.id = $1 AND t.present AND m.retired_at IS NULL
-    AND d.device_identifier = $2 AND d.org_id = $3
-    AND d.deleted_at IS NULL AND dd.deleted_at IS NULL AND dd.device_class = 2
-    AND NOT EXISTS (
-      SELECT 1 FROM jsonb_to_recordset($4::jsonb) AS a(org_wide boolean, sites bigint[])
-      WHERE NOT (CASE WHEN a.org_wide THEN d.site_id IS NULL OR NOT (d.site_id = ANY(a.sites))
-                     ELSE COALESCE(d.site_id = ANY(a.sites), FALSE) END)
-    )
-), latest_samples AS (
-  SELECT DISTINCT ON (mm.module_id, mm.time) mm.module_id, mm.time, mm.collected_at, mm.hashrate_hs, mm.power_w, mm.temperature_c
-  FROM container_module_metrics mm JOIN members m ON m.id = mm.module_id
-  WHERE mm.time >= $5::timestamptz AND mm.time < $6::timestamptz
-  ORDER BY mm.module_id, mm.time, mm.collected_at DESC
-), samples AS (
-  SELECT module_id, floor(extract(epoch FROM time) / $7::int)::bigint
-      * $7::int AS bucket,
-    CASE WHEN hashrate_hs > '-Infinity'::float8 AND hashrate_hs < 'Infinity'::float8 THEN hashrate_hs END AS hashrate,
-    CASE WHEN power_w > '-Infinity'::float8 AND power_w < 'Infinity'::float8 THEN power_w END AS power,
-    CASE WHEN temperature_c > '-Infinity'::float8 AND temperature_c < 'Infinity'::float8 THEN temperature_c END AS temperature
-  FROM latest_samples
-), module_buckets AS (
-  -- Each module contributes once per bucket, irrespective of source timestamp
-  -- skew or sample frequency. Missing values never become zero observations.
-  SELECT bucket, module_id,
-    avg(hashrate) AS hash_avg, min(hashrate) AS hash_min, max(hashrate) AS hash_max,
-    avg(power) AS power_avg, min(power) AS power_min, max(power) AS power_max,
-    avg(temperature) AS temp_avg, min(temperature) AS temp_min, max(temperature) AS temp_max,
-    avg(hashrate) FILTER (WHERE power IS NOT NULL) AS paired_hash_avg,
-    min(hashrate) FILTER (WHERE power IS NOT NULL) AS paired_hash_min,
-    max(hashrate) FILTER (WHERE power IS NOT NULL) AS paired_hash_max,
-    avg(power) FILTER (WHERE hashrate IS NOT NULL) AS paired_power_avg,
-    min(power) FILTER (WHERE hashrate IS NOT NULL) AS paired_power_min,
-    max(power) FILTER (WHERE hashrate IS NOT NULL) AS paired_power_max
-  FROM samples GROUP BY bucket, module_id
-), totals AS (
-  SELECT bucket,
-    sum(hash_avg) AS hash_avg, sum(hash_min) AS hash_min, sum(hash_max) AS hash_max,
-    sum(power_avg) AS power_avg, sum(power_min) AS power_min, sum(power_max) AS power_max,
-    avg(temp_avg) AS temp_avg, min(temp_min) AS temp_min, max(temp_max) AS temp_max,
-    sum(paired_hash_avg) AS paired_hash_avg, sum(paired_hash_min) AS paired_hash_min, sum(paired_hash_max) AS paired_hash_max,
-    sum(paired_power_avg) AS paired_power_avg, sum(paired_power_min) AS paired_power_min, sum(paired_power_max) AS paired_power_max,
-    count(hash_avg)::int AS hash_count, count(power_avg)::int AS power_count,
-    count(temp_avg)::int AS temp_count, count(paired_hash_avg)::int AS paired_count
-  FROM module_buckets GROUP BY bucket
+WITH resolution AS (
+ SELECT container_history_resolution($1::timestamptz,$2::timestamptz) AS seconds
+), settings AS (
+ SELECT seconds,GREATEST(1,seconds)*ceil($3::int::numeric/GREATEST(1,seconds))::bigint AS width FROM resolution
 ), readings AS (
-  SELECT bucket, 2::int AS measurement_type, hash_count AS module_count,
-    hash_avg / 1e12 AS average, hash_min / 1e12 AS minimum, hash_max / 1e12 AS maximum FROM totals
-  UNION ALL
-  SELECT bucket, 3, power_count, power_avg / 1000, power_min / 1000, power_max / 1000 FROM totals
-  UNION ALL
-  SELECT bucket, 4, paired_count,
-    paired_power_avg / (CASE WHEN paired_hash_avg > 0 THEN paired_hash_avg END) * 1e12,
-    paired_power_min / (CASE WHEN paired_hash_max > 0 THEN paired_hash_max END) * 1e12,
-    paired_power_max / (CASE WHEN paired_hash_min > 0 THEN paired_hash_min END) * 1e12 FROM totals
-  UNION ALL
-  SELECT bucket, 1, temp_count, temp_avg, temp_min, temp_max FROM totals
+ SELECT floor(extract(epoch FROM mm.bucket)/settings.width)::bigint*settings.width AS bucket,
+ mm.measurement_type,mm.samples,mm.total,mm.minimum,mm.maximum,mm.reporting_count,mm.expected_count,mm.coverage_complete,
+ CASE mm.measurement_type WHEN 2 THEN 1e-12 WHEN 3 THEN 0.001 WHEN 4 THEN 1e12 ELSE 1 END::float8 AS scale
+ FROM container_equipment_history mm JOIN container_tank t ON t.id=mm.tank_id
+ JOIN device d ON d.id=t.device_id CROSS JOIN settings
+ WHERE mm.equipment_kind=4 AND mm.resolution_seconds=settings.seconds AND t.id=$4 AND d.device_identifier=$5 AND d.org_id=$6 AND d.deleted_at IS NULL
+ AND mm.bucket>=CASE WHEN settings.seconds=0 THEN $1::timestamptz ELSE to_timestamp(floor(extract(epoch FROM $1::timestamptz)/settings.seconds)*settings.seconds) END
+ AND mm.bucket<$2::timestamptz
+ AND NOT EXISTS (
+ SELECT 1 FROM jsonb_to_recordset($7::jsonb) AS a(org_wide boolean,sites bigint[])
+ WHERE NOT (CASE WHEN a.org_wide THEN mm.site_id IS NULL OR NOT(mm.site_id=ANY(a.sites)) ELSE COALESCE(mm.site_id=ANY(a.sites),FALSE) END)
+ )
 )
-SELECT bucket::bigint AS bucket, measurement_type::int AS measurement_type,
-  (CASE WHEN average IS NOT NULL THEN module_count ELSE 0 END)::int AS module_count,
-  (average IS NOT NULL)::boolean AS has_values,
-  (minimum IS NOT NULL)::boolean AS has_minimum,
-  (maximum IS NOT NULL)::boolean AS has_maximum,
-  COALESCE(average, 0)::float8 AS average,
-  COALESCE(minimum, 0)::float8 AS minimum,
-  COALESCE(maximum, 0)::float8 AS maximum
-FROM readings ORDER BY bucket, measurement_type
+SELECT bucket::bigint AS bucket,measurement_type::int AS measurement_type,
+ sum(samples)::int AS module_count,
+ (sum(samples)>0)::boolean AS has_values,
+ (count(minimum)>0)::boolean AS has_minimum,
+ (count(maximum)>0)::boolean AS has_maximum,
+ COALESCE(sum(total)/NULLIF(sum(samples),0)*min(scale),0)::float8 AS average,
+ COALESCE(min(minimum)*min(scale),0)::float8 AS minimum,COALESCE(max(maximum)*min(scale),0)::float8 AS maximum,
+ min(reporting_count)::int AS reporting_count,max(expected_count)::int AS expected_count,
+ bool_and(coverage_complete)::boolean AS coverage_complete
+FROM readings GROUP BY bucket,measurement_type ORDER BY bucket,measurement_type
 `
 
 type GetContainerTankHistoryParams struct {
+	StartTime           time.Time
+	EndTime             time.Time
+	GranularitySeconds  int32
 	TankID              int64
 	ContainerIdentifier string
 	OrgID               int64
 	Authority           json.RawMessage
-	StartTime           time.Time
-	EndTime             time.Time
-	GranularitySeconds  int32
 }
 
 type GetContainerTankHistoryRow struct {
-	Bucket          int64
-	MeasurementType int32
-	ModuleCount     int32
-	HasValues       bool
-	HasMinimum      bool
-	HasMaximum      bool
-	Average         float64
-	Minimum         float64
-	Maximum         float64
+	Bucket           int64
+	MeasurementType  int32
+	ModuleCount      int32
+	HasValues        bool
+	HasMinimum       bool
+	HasMaximum       bool
+	Average          float64
+	Minimum          float64
+	Maximum          float64
+	ReportingCount   int32
+	ExpectedCount    int32
+	CoverageComplete bool
 }
 
-// Aggregate in the database, never transfer raw module history to the browser.
-// Scope is rechecked in this statement to cover reassignment after the scope read.
+// Bucket immutable poll-time totals, never current module membership.
+// Historical access uses the site recorded with the sample.
 func (q *Queries) GetContainerTankHistory(ctx context.Context, arg GetContainerTankHistoryParams) ([]GetContainerTankHistoryRow, error) {
 	rows, err := q.query(ctx, q.getContainerTankHistoryStmt, getContainerTankHistory,
+		arg.StartTime,
+		arg.EndTime,
+		arg.GranularitySeconds,
 		arg.TankID,
 		arg.ContainerIdentifier,
 		arg.OrgID,
 		arg.Authority,
-		arg.StartTime,
-		arg.EndTime,
-		arg.GranularitySeconds,
 	)
 	if err != nil {
 		return nil, err
@@ -162,6 +123,9 @@ func (q *Queries) GetContainerTankHistory(ctx context.Context, arg GetContainerT
 			&i.Average,
 			&i.Minimum,
 			&i.Maximum,
+			&i.ReportingCount,
+			&i.ExpectedCount,
+			&i.CoverageComplete,
 		); err != nil {
 			return nil, err
 		}
@@ -199,31 +163,54 @@ func (q *Queries) GetContainerTankScope(ctx context.Context, arg GetContainerTan
 }
 
 const listContainerModuleHistory = `-- name: ListContainerModuleHistory :many
-SELECT mm.time, mm.collected_at, mm.hashrate_hs, mm.power_w, mm.temperature_c
-FROM container_module_metrics mm
-JOIN container_module m ON m.id = mm.module_id
-JOIN container_tank t ON t.id = m.tank_id JOIN device d ON d.id = t.device_id
-WHERE mm.module_id = $1 AND d.org_id = $2 AND d.deleted_at IS NULL
-  AND NOT EXISTS (
-    SELECT 1 FROM jsonb_to_recordset($3::jsonb) AS a(org_wide boolean, sites bigint[])
-    WHERE NOT (CASE WHEN a.org_wide THEN d.site_id IS NULL OR NOT (d.site_id = ANY(a.sites))
-                   ELSE COALESCE(d.site_id = ANY(a.sites), FALSE) END)
-  )
-  AND mm.time >= $4::timestamptz AND mm.time < $5::timestamptz
-  AND (NOT $6::boolean OR (mm.time, mm.collected_at) > ($7::timestamptz, $8::timestamptz))
-ORDER BY mm.time, mm.collected_at LIMIT $9::int
+WITH resolution AS (
+ SELECT container_history_resolution($2::timestamptz,$3::timestamptz) AS seconds
+), readable AS (
+ SELECT mm.equipment_kind, mm.container_identifier, mm.tank_id, mm.module_id, mm.site_id, mm.topology_version_id, mm.bucket, mm.collected_at, mm.resolution_seconds, mm.measurement_type, mm.total, mm.samples, mm.minimum, mm.maximum, mm.reporting_count, mm.expected_count, mm.coverage_complete FROM container_equipment_history mm
+ JOIN container_module m ON m.id=mm.module_id
+ JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id
+ CROSS JOIN resolution
+ WHERE mm.equipment_kind=6 AND mm.resolution_seconds=resolution.seconds AND m.id=$4
+ AND d.org_id=$5 AND d.deleted_at IS NULL
+ AND mm.bucket>=CASE WHEN resolution.seconds=0 THEN $2::timestamptz ELSE to_timestamp(floor(extract(epoch FROM $2::timestamptz)/resolution.seconds)*resolution.seconds) END AND mm.bucket<$3::timestamptz
+ AND NOT EXISTS (
+ SELECT 1 FROM jsonb_to_recordset($6::jsonb) AS a(org_wide boolean,sites bigint[])
+ WHERE NOT (CASE WHEN a.org_wide THEN mm.site_id IS NULL OR NOT(mm.site_id=ANY(a.sites)) ELSE COALESCE(mm.site_id=ANY(a.sites),FALSE) END)
+ )
+), metrics AS (
+ SELECT bucket,collected_at,measurement_type,sum(total)/NULLIF(sum(samples),0) AS value,
+ min(reporting_count) AS reporting,max(expected_count) AS expected,bool_and(coverage_complete) AS complete
+ FROM readable GROUP BY bucket,collected_at,measurement_type
+), summaries AS (
+ SELECT bucket AS time,collected_at,
+ max(value) FILTER(WHERE measurement_type=2)::float8 AS hashrate_hs,
+ max(value) FILTER(WHERE measurement_type=3)::float8 AS power_w,
+ max(value) FILTER(WHERE measurement_type=1)::float8 AS temperature_c,
+ max(value) FILTER(WHERE measurement_type=4)::float8 AS efficiency_jh,
+ jsonb_object_agg(CASE measurement_type WHEN 1 THEN 'temperature' WHEN 2 THEN 'hashrate' WHEN 3 THEN 'power' END,
+ jsonb_build_object('reporting',reporting,'expected',expected,'topology_complete',complete)) FILTER(WHERE measurement_type<>4) AS coverage
+ FROM metrics GROUP BY bucket,collected_at
+)
+SELECT mm.time,mm.collected_at,mm.hashrate_hs,mm.power_w,mm.temperature_c,mm.efficiency_jh,mm.coverage
+FROM container_module_metrics mm JOIN readable r ON r.resolution_seconds=0 AND r.measurement_type=2
+ AND r.module_id=mm.module_id AND r.bucket=mm.time AND r.collected_at=mm.collected_at
+WHERE NOT $7::boolean OR (mm.time,mm.collected_at)>($8::timestamptz,$9::timestamptz)
+UNION ALL
+SELECT time,collected_at,hashrate_hs,power_w,temperature_c,efficiency_jh,coverage FROM summaries
+CROSS JOIN resolution WHERE resolution.seconds>0 AND (NOT $7::boolean OR (time,collected_at)>($8::timestamptz,$9::timestamptz))
+ORDER BY time,collected_at LIMIT $1::int
 `
 
 type ListContainerModuleHistoryParams struct {
+	PageLimit        int32
+	StartTime        time.Time
+	EndTime          time.Time
 	ModuleID         int64
 	OrgID            int64
 	Authority        json.RawMessage
-	StartTime        time.Time
-	EndTime          time.Time
 	HasCursor        bool
 	AfterTime        time.Time
 	AfterCollectedAt time.Time
-	PageLimit        int32
 }
 
 type ListContainerModuleHistoryRow struct {
@@ -232,19 +219,23 @@ type ListContainerModuleHistoryRow struct {
 	HashrateHs   sql.NullFloat64
 	PowerW       sql.NullFloat64
 	TemperatureC sql.NullFloat64
+	EfficiencyJh sql.NullFloat64
+	Coverage     pqtype.NullRawMessage
 }
 
+// Raw reads retain the original nullable fields; older/longer windows return
+// source-bucket averages, with authorization before combining topology versions.
 func (q *Queries) ListContainerModuleHistory(ctx context.Context, arg ListContainerModuleHistoryParams) ([]ListContainerModuleHistoryRow, error) {
 	rows, err := q.query(ctx, q.listContainerModuleHistoryStmt, listContainerModuleHistory,
+		arg.PageLimit,
+		arg.StartTime,
+		arg.EndTime,
 		arg.ModuleID,
 		arg.OrgID,
 		arg.Authority,
-		arg.StartTime,
-		arg.EndTime,
 		arg.HasCursor,
 		arg.AfterTime,
 		arg.AfterCollectedAt,
-		arg.PageLimit,
 	)
 	if err != nil {
 		return nil, err
@@ -259,6 +250,8 @@ func (q *Queries) ListContainerModuleHistory(ctx context.Context, arg ListContai
 			&i.HashrateHs,
 			&i.PowerW,
 			&i.TemperatureC,
+			&i.EfficiencyJh,
+			&i.Coverage,
 		); err != nil {
 			return nil, err
 		}

@@ -117,16 +117,16 @@ func (r listRow) stats() *commonpb.FleetListStats {
 	if r.EfficiencyJTH != nil {
 		stats.AvgEfficiencyJth = *r.EfficiencyJTH
 		stats.EfficiencyReportingCount = count(r.AssetCount)
-		if pb.EntityKind(r.Kind) == pb.EntityKind_ENTITY_KIND_TANK {
-			stats.EfficiencyReportingCount = count(r.EfficiencyReportingCount)
+		if r.Coverage != nil {
+			stats.EfficiencyReportingCount = r.Coverage.Hashrate.Reporting
 		}
 	}
 	if r.MinTemperatureC != nil && r.MaxTemperatureC != nil {
 		stats.MinTemperatureC = *r.MinTemperatureC
 		stats.MaxTemperatureC = *r.MaxTemperatureC
 		stats.TemperatureReportingCount = count(r.AssetCount)
-		if pb.EntityKind(r.Kind) == pb.EntityKind_ENTITY_KIND_TANK {
-			stats.TemperatureReportingCount = count(r.TemperatureReportingCount)
+		if r.Coverage != nil {
+			stats.TemperatureReportingCount = r.Coverage.Temperature.Reporting
 		}
 	}
 	return stats

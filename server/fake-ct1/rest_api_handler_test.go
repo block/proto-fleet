@@ -558,7 +558,7 @@ func TestPlantTimeSeries(t *testing.T) {
 		{"PLANT_POWER", "", "W"},
 		{"PLANT_FACILITY_POWER", "", "W"},
 		{"PLANT_HEAT_REJECTION_POWER", "", "W"},
-		{"PLANT_DISTRIBUTION_POWER", "pdu-t1", "W"},
+		{"PLANT_DISTRIBUTION_POWER", "pdu-1", "W"},
 		{"PLANT_FAN_POWER", "dry-cooler-fan-1", "W"},
 		{"PLANT_INSIDE_AMBIENT_TEMPERATURE", "", "C"},
 		{"PLANT_OUTSIDE_AMBIENT_TEMPERATURE", "", "C"},

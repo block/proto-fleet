@@ -50,10 +50,11 @@ func TestContainerReadIncludesChildrenWithoutRackPermission(t *testing.T) {
 	require.NoError(t, err)
 	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
 	require.NoError(t, err)
-	now := time.Now().UTC().Truncate(time.Microsecond)
+	var now time.Time
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT clock_timestamp()").Scan(&now))
 	hashrate := 300e12
 	require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: d.DeviceIdentifier, Timestamp: now, Container: &sdk.ContainerSnapshot{
-		ObservedAt: now, TopologyComplete: true, Tanks: []sdk.ContainerTank{
+		ObservedAt: now, TopologyComplete: true, Metrics: &sdk.ContainerRollup{}, Tanks: []sdk.ContainerTank{
 			{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, State: sdk.ModuleHashing, ObservedAt: now, Metrics: &sdk.ContainerModuleMetrics{ObservedAt: now, HashrateHS: &hashrate}, Hashboards: []sdk.ContainerHashboard{{Position: 1, Occupancy: "occupied", MACAddress: "board-a", State: sdk.ModuleHashing, ObservedAt: now, StateObservedAt: now, HashrateHS: &hashrate}}}}},
 			{Position: 2},
 		},

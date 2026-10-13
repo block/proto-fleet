@@ -7,7 +7,7 @@ import {
 } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import type { HashboardSlot } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { useTemperatureUnit } from "@/protoFleet/store";
-import { formatHashrateOrDash } from "@/shared/utils/telemetryFormat";
+import { formatEfficiencyOrDash, formatHashrateOrDash, formatPowerKwOrDash } from "@/shared/utils/telemetryFormat";
 
 const unavailableReasons: Record<string, string> = {
   invalid_observation: "Invalid board data",
@@ -81,6 +81,13 @@ export function HashboardCell({ slot, column }: { slot: HashboardSlot; column: s
       return <ModuleStatus state={board.state} />;
     case "hashrate":
       return <span>{formatHashrateOrDash(board?.hashrateHs === undefined ? null : board.hashrateHs / 1e12)}</span>;
+    case "power":
+    case "powerUsage":
+      return <span>{formatPowerKwOrDash(board?.powerW === undefined ? null : board.powerW / 1000)}</span>;
+    case "efficiency":
+      return (
+        <span>{formatEfficiencyOrDash(board?.efficiencyJh === undefined ? null : board.efficiencyJh * 1e12)}</span>
+      );
     case "temperature": {
       const celsius = board?.temperatureC;
       return (

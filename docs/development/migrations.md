@@ -19,7 +19,7 @@ rollback does not reverse committed database changes.
 
 ## Hosted write-fence upgrade
 
-Private migrations 1008 through 1015 require a stopped-application maintenance
+Private migrations 1008 through 1017 require a stopped-application maintenance
 window. Stop every Fleet API replica and scheduled database writer before
 running the target release's `fleet-db-transition migrate` command. Keep them
 stopped until that command succeeds and `fleet-db-transition check --state=startup`
@@ -41,7 +41,7 @@ heartbeats from locked route rows and backfills existing node timestamps. The
 mining-asset view reads live node heartbeats for state and metrics eligibility.
 Migration 1014 retains discovery serial/MAC fields for pairing; existing rows
 receive empty defaults without inferring identity from previously paired devices.
-Migration 1015 adds current module identity confirmation to the internal container
+Migration 1017 adds current module identity confirmation to the internal container
 inventory. Existing modules remain unconfirmed until a fresh controller report.
 Deploy the server, Fleet Nodes, and Proto plugins from the same release before
 using module actions. Earlier development builds of the unmerged V5 feature do
@@ -69,7 +69,7 @@ not delete attempts, rewrite snapshots/statuses, or force a version to proceed.
 Disposable development databases can be recreated. A database with real
 operation history requires an explicit evidence-preserving migration decision.
 
-After migration, require clean checkpoint 1015 and preserved queue history.
+After migration, require clean checkpoint 1017 and preserved queue history.
 Verify that `idx_device_write_attempt_outstanding_identity_keys` is valid.
 Downgrade 1012 refuses any retained attempt whose status is not `complete`,
 including audited `resolved` attempts, or any deletion permits; downgrade 1011

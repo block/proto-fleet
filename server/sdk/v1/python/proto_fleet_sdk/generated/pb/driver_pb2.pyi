@@ -923,28 +923,34 @@ class DeviceErrors(_message.Message):
     def __init__(self, device_id: _Optional[str] = ..., errors: _Optional[_Iterable[_Union[DeviceError, _Mapping]]] = ...) -> None: ...
 
 class ContainerSnapshot(_message.Message):
-    __slots__ = ("fans", "controls", "observed_at", "tanks", "plant", "topology_complete")
+    __slots__ = ("metrics", "fans", "controls", "observed_at", "tanks", "plant", "topology_complete")
+    METRICS_FIELD_NUMBER: _ClassVar[int]
     FANS_FIELD_NUMBER: _ClassVar[int]
     CONTROLS_FIELD_NUMBER: _ClassVar[int]
     OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
     TANKS_FIELD_NUMBER: _ClassVar[int]
     PLANT_FIELD_NUMBER: _ClassVar[int]
     TOPOLOGY_COMPLETE_FIELD_NUMBER: _ClassVar[int]
+    metrics: ContainerRollup
     fans: _containers.RepeatedCompositeFieldContainer[ContainerFan]
     controls: ContainerControls
     observed_at: _timestamp_pb2.Timestamp
     tanks: _containers.RepeatedCompositeFieldContainer[ContainerTank]
     plant: ContainerPlant
     topology_complete: bool
-    def __init__(self, fans: _Optional[_Iterable[_Union[ContainerFan, _Mapping]]] = ..., controls: _Optional[_Union[ContainerControls, _Mapping]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., tanks: _Optional[_Iterable[_Union[ContainerTank, _Mapping]]] = ..., plant: _Optional[_Union[ContainerPlant, _Mapping]] = ..., topology_complete: bool = ...) -> None: ...
+    def __init__(self, metrics: _Optional[_Union[ContainerRollup, _Mapping]] = ..., fans: _Optional[_Iterable[_Union[ContainerFan, _Mapping]]] = ..., controls: _Optional[_Union[ContainerControls, _Mapping]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., tanks: _Optional[_Iterable[_Union[ContainerTank, _Mapping]]] = ..., plant: _Optional[_Union[ContainerPlant, _Mapping]] = ..., topology_complete: bool = ...) -> None: ...
 
 class ContainerTank(_message.Message):
-    __slots__ = ("position", "modules")
+    __slots__ = ("metrics", "topology_complete", "position", "modules")
+    METRICS_FIELD_NUMBER: _ClassVar[int]
+    TOPOLOGY_COMPLETE_FIELD_NUMBER: _ClassVar[int]
     POSITION_FIELD_NUMBER: _ClassVar[int]
     MODULES_FIELD_NUMBER: _ClassVar[int]
+    metrics: ContainerRollup
+    topology_complete: bool
     position: int
     modules: _containers.RepeatedCompositeFieldContainer[ContainerModule]
-    def __init__(self, position: _Optional[int] = ..., modules: _Optional[_Iterable[_Union[ContainerModule, _Mapping]]] = ...) -> None: ...
+    def __init__(self, metrics: _Optional[_Union[ContainerRollup, _Mapping]] = ..., topology_complete: bool = ..., position: _Optional[int] = ..., modules: _Optional[_Iterable[_Union[ContainerModule, _Mapping]]] = ...) -> None: ...
 
 class ContainerModule(_message.Message):
     __slots__ = ("identity_confirmed", "hashboards", "position", "reported_id", "state", "observed_at", "metrics", "issues")
@@ -975,7 +981,10 @@ class HashboardIdentityClaim(_message.Message):
     def __init__(self, mac_address: _Optional[str] = ..., serial: _Optional[str] = ...) -> None: ...
 
 class ContainerHashboard(_message.Message):
-    __slots__ = ("identity_claims", "unavailable_reason", "position", "occupancy", "mac_address", "serial", "state", "mining_state", "isolated", "observed_at", "state_observed_at", "hashrate_hs", "temperature_c", "hashrail_ok", "refclks_ok", "metadata_json", "health_json")
+    __slots__ = ("power_w", "efficiency_jh", "feed", "identity_claims", "unavailable_reason", "position", "occupancy", "mac_address", "serial", "state", "mining_state", "isolated", "observed_at", "state_observed_at", "hashrate_hs", "temperature_c", "hashrail_ok", "refclks_ok", "metadata_json", "health_json")
+    POWER_W_FIELD_NUMBER: _ClassVar[int]
+    EFFICIENCY_JH_FIELD_NUMBER: _ClassVar[int]
+    FEED_FIELD_NUMBER: _ClassVar[int]
     IDENTITY_CLAIMS_FIELD_NUMBER: _ClassVar[int]
     UNAVAILABLE_REASON_FIELD_NUMBER: _ClassVar[int]
     POSITION_FIELD_NUMBER: _ClassVar[int]
@@ -993,6 +1002,9 @@ class ContainerHashboard(_message.Message):
     REFCLKS_OK_FIELD_NUMBER: _ClassVar[int]
     METADATA_JSON_FIELD_NUMBER: _ClassVar[int]
     HEALTH_JSON_FIELD_NUMBER: _ClassVar[int]
+    power_w: float
+    efficiency_jh: float
+    feed: ContainerFeedEvidence
     identity_claims: _containers.RepeatedCompositeFieldContainer[HashboardIdentityClaim]
     unavailable_reason: str
     position: int
@@ -1010,19 +1022,23 @@ class ContainerHashboard(_message.Message):
     refclks_ok: bool
     metadata_json: bytes
     health_json: bytes
-    def __init__(self, identity_claims: _Optional[_Iterable[_Union[HashboardIdentityClaim, _Mapping]]] = ..., unavailable_reason: _Optional[str] = ..., position: _Optional[int] = ..., occupancy: _Optional[str] = ..., mac_address: _Optional[str] = ..., serial: _Optional[str] = ..., state: _Optional[str] = ..., mining_state: _Optional[str] = ..., isolated: bool = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., state_observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., hashrate_hs: _Optional[float] = ..., temperature_c: _Optional[float] = ..., hashrail_ok: bool = ..., refclks_ok: bool = ..., metadata_json: _Optional[bytes] = ..., health_json: _Optional[bytes] = ...) -> None: ...
+    def __init__(self, power_w: _Optional[float] = ..., efficiency_jh: _Optional[float] = ..., feed: _Optional[_Union[ContainerFeedEvidence, _Mapping]] = ..., identity_claims: _Optional[_Iterable[_Union[HashboardIdentityClaim, _Mapping]]] = ..., unavailable_reason: _Optional[str] = ..., position: _Optional[int] = ..., occupancy: _Optional[str] = ..., mac_address: _Optional[str] = ..., serial: _Optional[str] = ..., state: _Optional[str] = ..., mining_state: _Optional[str] = ..., isolated: bool = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., state_observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., hashrate_hs: _Optional[float] = ..., temperature_c: _Optional[float] = ..., hashrail_ok: bool = ..., refclks_ok: bool = ..., metadata_json: _Optional[bytes] = ..., health_json: _Optional[bytes] = ...) -> None: ...
 
 class ContainerModuleMetrics(_message.Message):
-    __slots__ = ("observed_at", "hashrate_hs", "power_w", "temperature_c")
+    __slots__ = ("efficiency_jh", "rollup", "observed_at", "hashrate_hs", "power_w", "temperature_c")
+    EFFICIENCY_JH_FIELD_NUMBER: _ClassVar[int]
+    ROLLUP_FIELD_NUMBER: _ClassVar[int]
     OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
     HASHRATE_HS_FIELD_NUMBER: _ClassVar[int]
     POWER_W_FIELD_NUMBER: _ClassVar[int]
     TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    efficiency_jh: float
+    rollup: ContainerRollup
     observed_at: _timestamp_pb2.Timestamp
     hashrate_hs: float
     power_w: float
     temperature_c: float
-    def __init__(self, observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., hashrate_hs: _Optional[float] = ..., power_w: _Optional[float] = ..., temperature_c: _Optional[float] = ...) -> None: ...
+    def __init__(self, efficiency_jh: _Optional[float] = ..., rollup: _Optional[_Union[ContainerRollup, _Mapping]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., hashrate_hs: _Optional[float] = ..., power_w: _Optional[float] = ..., temperature_c: _Optional[float] = ...) -> None: ...
 
 class ContainerPlant(_message.Message):
     __slots__ = ("dry_cooler_inlet_temperature_c", "observed_at", "total_power_w", "facility_power_w", "pue", "inlet_temperature_c", "outlet_temperature_c", "alarm_active", "critical_alarm_active")
@@ -1174,3 +1190,70 @@ class SetModuleMiningRequest(_message.Message):
     modules: _containers.RepeatedCompositeFieldContainer[ModuleMiningTarget]
     mining: bool
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., modules: _Optional[_Iterable[_Union[ModuleMiningTarget, _Mapping]]] = ..., mining: bool = ...) -> None: ...
+
+class ContainerRollup(_message.Message):
+    __slots__ = ("hashrate_hs", "power_w", "efficiency_jh", "temperature_c", "min_temperature_c", "max_temperature_c", "hashrate", "power", "temperature", "power_source", "attribution", "source_times")
+    class SourceTimesEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: _timestamp_pb2.Timestamp
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+    HASHRATE_HS_FIELD_NUMBER: _ClassVar[int]
+    POWER_W_FIELD_NUMBER: _ClassVar[int]
+    EFFICIENCY_JH_FIELD_NUMBER: _ClassVar[int]
+    TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    MIN_TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    MAX_TEMPERATURE_C_FIELD_NUMBER: _ClassVar[int]
+    HASHRATE_FIELD_NUMBER: _ClassVar[int]
+    POWER_FIELD_NUMBER: _ClassVar[int]
+    TEMPERATURE_FIELD_NUMBER: _ClassVar[int]
+    POWER_SOURCE_FIELD_NUMBER: _ClassVar[int]
+    ATTRIBUTION_FIELD_NUMBER: _ClassVar[int]
+    SOURCE_TIMES_FIELD_NUMBER: _ClassVar[int]
+    hashrate_hs: float
+    power_w: float
+    efficiency_jh: float
+    temperature_c: float
+    min_temperature_c: float
+    max_temperature_c: float
+    hashrate: MetricCoverage
+    power: MetricCoverage
+    temperature: MetricCoverage
+    power_source: str
+    attribution: str
+    source_times: _containers.MessageMap[str, _timestamp_pb2.Timestamp]
+    def __init__(self, hashrate_hs: _Optional[float] = ..., power_w: _Optional[float] = ..., efficiency_jh: _Optional[float] = ..., temperature_c: _Optional[float] = ..., min_temperature_c: _Optional[float] = ..., max_temperature_c: _Optional[float] = ..., hashrate: _Optional[_Union[MetricCoverage, _Mapping]] = ..., power: _Optional[_Union[MetricCoverage, _Mapping]] = ..., temperature: _Optional[_Union[MetricCoverage, _Mapping]] = ..., power_source: _Optional[str] = ..., attribution: _Optional[str] = ..., source_times: _Optional[_Mapping[str, _timestamp_pb2.Timestamp]] = ...) -> None: ...
+
+class MetricCoverage(_message.Message):
+    __slots__ = ("reporting", "expected", "topology_complete", "oldest_at", "newest_at")
+    REPORTING_FIELD_NUMBER: _ClassVar[int]
+    EXPECTED_FIELD_NUMBER: _ClassVar[int]
+    TOPOLOGY_COMPLETE_FIELD_NUMBER: _ClassVar[int]
+    OLDEST_AT_FIELD_NUMBER: _ClassVar[int]
+    NEWEST_AT_FIELD_NUMBER: _ClassVar[int]
+    reporting: int
+    expected: int
+    topology_complete: bool
+    oldest_at: _timestamp_pb2.Timestamp
+    newest_at: _timestamp_pb2.Timestamp
+    def __init__(self, reporting: _Optional[int] = ..., expected: _Optional[int] = ..., topology_complete: bool = ..., oldest_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., newest_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+
+class ContainerFeedEvidence(_message.Message):
+    __slots__ = ("power_feed_id", "expected_power_feed_id", "wiring_status", "wiring_reasons", "configured_tank", "configured_module", "observed_power_feed_id")
+    POWER_FEED_ID_FIELD_NUMBER: _ClassVar[int]
+    EXPECTED_POWER_FEED_ID_FIELD_NUMBER: _ClassVar[int]
+    WIRING_STATUS_FIELD_NUMBER: _ClassVar[int]
+    WIRING_REASONS_FIELD_NUMBER: _ClassVar[int]
+    CONFIGURED_TANK_FIELD_NUMBER: _ClassVar[int]
+    CONFIGURED_MODULE_FIELD_NUMBER: _ClassVar[int]
+    OBSERVED_POWER_FEED_ID_FIELD_NUMBER: _ClassVar[int]
+    power_feed_id: str
+    expected_power_feed_id: str
+    wiring_status: str
+    wiring_reasons: _containers.RepeatedScalarFieldContainer[str]
+    configured_tank: int
+    configured_module: int
+    observed_power_feed_id: str
+    def __init__(self, power_feed_id: _Optional[str] = ..., expected_power_feed_id: _Optional[str] = ..., wiring_status: _Optional[str] = ..., wiring_reasons: _Optional[_Iterable[str]] = ..., configured_tank: _Optional[int] = ..., configured_module: _Optional[int] = ..., observed_power_feed_id: _Optional[str] = ...) -> None: ...

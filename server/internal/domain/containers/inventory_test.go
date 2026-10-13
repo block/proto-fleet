@@ -1,6 +1,7 @@
 package containers_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -44,7 +45,11 @@ func TestInventoryRetainsPartialTopologyAndModuleHistory(t *testing.T) {
 	}}}}
 	write := func() {
 		t.Helper()
-		require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: d.DeviceIdentifier, Timestamp: snapshot.ObservedAt, Container: snapshot}))
+		wire, err := json.Marshal(snapshot)
+		require.NoError(t, err)
+		var collected sdk.ContainerSnapshot
+		require.NoError(t, json.Unmarshal(wire, &collected))
+		require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: d.DeviceIdentifier, Timestamp: snapshot.ObservedAt, Container: &collected}))
 	}
 	count := func(query string) int {
 		t.Helper()
@@ -214,12 +219,11 @@ func TestInventoryRetainsPartialTopologyAndModuleHistory(t *testing.T) {
 				require.NotNil(t, item.HashrateThs)
 				require.Equal(t, 80.0, *item.HashrateThs)
 			} else if item.Ref.Kind == inventorypb.EntityKind_ENTITY_KIND_TANK {
-				require.NotNil(t, item.HashrateThs)
-				require.Equal(t, 300.0, *item.HashrateThs, "tank totals exclude modules without readings")
-				require.EqualValues(t, 1, item.HashrateReportingCount)
+				require.Nil(t, item.HashrateThs, "legacy module-only reports cannot populate saved tank totals")
+				require.Zero(t, item.HashrateReportingCount)
 				require.EqualValues(t, 2, item.AssetCount)
 			} else {
-				require.Nil(t, item.HashrateThs, "container totals still require complete coverage")
+				require.Nil(t, item.HashrateThs, "legacy reports cannot populate saved container totals")
 			}
 		}
 	}
@@ -457,7 +461,7 @@ func TestInventoryRetainsPartialTopologyAndModuleHistory(t *testing.T) {
 		snapshot.ObservedAt = snapshot.ObservedAt.Add(time.Microsecond)
 		module.Metrics = &sdk.ContainerModuleMetrics{ObservedAt: now.Add(-30 * time.Second)}
 		write()
-		retained, err := reader.List(ctx, org, &inventorypb.ListInventoryRequest{View: inventorypb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, Kinds: []inventorypb.EntityKind{inventorypb.EntityKind_ENTITY_KIND_TANK}}, scopes)
+		retained, err := reader.List(ctx, org, &inventorypb.ListInventoryRequest{View: inventorypb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, Kinds: []inventorypb.EntityKind{inventorypb.EntityKind_ENTITY_KIND_MODULE}}, scopes)
 		require.NoError(t, err)
 		require.Len(t, retained.Items, 1)
 		require.EqualValues(t, 1, retained.Items[0].HashrateReportingCount)
@@ -481,7 +485,7 @@ func TestInventoryRetainsPartialTopologyAndModuleHistory(t *testing.T) {
 		require.NoError(t, db.QueryRowContext(ctx, "SELECT state,state_observed_at FROM container_module WHERE reported_id='replacement'").Scan(&state, &evidence))
 		require.Equal(t, string(sdk.ModuleUnknown), state)
 		require.Equal(t, now, evidence.UTC())
-		result, err := reader.List(ctx, org, &inventorypb.ListInventoryRequest{View: inventorypb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, Kinds: []inventorypb.EntityKind{inventorypb.EntityKind_ENTITY_KIND_TANK}}, scopes)
+		result, err := reader.List(ctx, org, &inventorypb.ListInventoryRequest{View: inventorypb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, Kinds: []inventorypb.EntityKind{inventorypb.EntityKind_ENTITY_KIND_MODULE}}, scopes)
 		require.NoError(t, err)
 		require.Len(t, result.Items, 1)
 		require.Zero(t, result.Items[0].HashrateReportingCount)
@@ -530,7 +534,7 @@ func TestMissingModuleIdentityOnlyClearsAcceptedEmptyObservations(t *testing.T) 
 			require.NoError(t, err)
 			require.Len(t, result.Items, 1)
 			item := result.Items[0]
-			if empty {
+			if empty || view == inventorypb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS {
 				require.Nil(t, item.HashrateThs)
 				require.Nil(t, item.PowerKw)
 				require.Nil(t, item.MinTemperatureC)

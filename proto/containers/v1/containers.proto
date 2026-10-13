@@ -3,6 +3,7 @@ package containers.v1;
 
 import "buf/validate/validate.proto";
 import "common/v1/common.proto";
+import "common/v1/equipment_coverage.proto";
 import "minercommand/v1/command.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -35,6 +36,10 @@ message ListContainersResponse {
   repeated Container containers = 1;
 }
 message Container {
+ optional double efficiency_jh = 16;
+ common.v1.EquipmentCoverage coverage = 17;
+ optional double min_temperature_c = 18;
+ optional double max_temperature_c = 19;
  ContainerPlant plant = 15;
  // Current caller has plant-write permissions at this controller's current site.
  // Dispatch rechecks authorization. Firmware support is independently observed.

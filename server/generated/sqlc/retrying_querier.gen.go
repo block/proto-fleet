@@ -2546,6 +2546,42 @@ func (q *retryingQuerier) GetContainerModuleScope(ctx context.Context, arg GetCo
 	return result, err
 }
 
+func (q *retryingQuerier) GetContainerPollHistory(ctx context.Context, arg GetContainerPollHistoryParams) ([]GetContainerPollHistoryRow, error) {
+	var result []GetContainerPollHistoryRow
+	err := q.retrier.RetryQuery(ctx, "GetContainerPollHistory", func() error {
+		callResult, callErr := q.next.GetContainerPollHistory(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetContainerRollupContext(ctx context.Context, deviceID int64) (GetContainerRollupContextRow, error) {
+	var result GetContainerRollupContextRow
+	err := q.retrier.RetryQuery(ctx, "GetContainerRollupContext", func() error {
+		callResult, callErr := q.next.GetContainerRollupContext(ctx, deviceID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetContainerRollupWatermarks(ctx context.Context, deviceID int64) (json.RawMessage, error) {
+	var result json.RawMessage
+	err := q.retrier.RetryQuery(ctx, "GetContainerRollupWatermarks", func() error {
+		callResult, callErr := q.next.GetContainerRollupWatermarks(ctx, deviceID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetContainerTankHistory(ctx context.Context, arg GetContainerTankHistoryParams) ([]GetContainerTankHistoryRow, error) {
 	var result []GetContainerTankHistoryRow
 	err := q.retrier.RetryQuery(ctx, "GetContainerTankHistory", func() error {
@@ -2562,6 +2598,18 @@ func (q *retryingQuerier) GetContainerTankScope(ctx context.Context, arg GetCont
 	var result sql.NullInt64
 	err := q.retrier.RetryQuery(ctx, "GetContainerTankScope", func() error {
 		callResult, callErr := q.next.GetContainerTankScope(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetContainerTopologyIdentities(ctx context.Context, deviceID int64) ([]GetContainerTopologyIdentitiesRow, error) {
+	var result []GetContainerTopologyIdentitiesRow
+	err := q.retrier.RetryQuery(ctx, "GetContainerTopologyIdentities", func() error {
+		callResult, callErr := q.next.GetContainerTopologyIdentities(ctx, deviceID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -3410,6 +3458,18 @@ func (q *retryingQuerier) GetHashboardInstallations(ctx context.Context, arg Get
 	return result, err
 }
 
+func (q *retryingQuerier) GetHashboardMetricWatermarks(ctx context.Context, boardIds []int64) ([]GetHashboardMetricWatermarksRow, error) {
+	var result []GetHashboardMetricWatermarksRow
+	err := q.retrier.RetryQuery(ctx, "GetHashboardMetricWatermarks", func() error {
+		callResult, callErr := q.next.GetHashboardMetricWatermarks(ctx, boardIds)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetHostedAccountAncestorGrant(ctx context.Context, arg GetHostedAccountAncestorGrantParams) (HostedAccountAncestorGrant, error) {
 	var result HostedAccountAncestorGrant
 	err := q.retrier.RetryQuery(ctx, "GetHostedAccountAncestorGrant", func() error {
@@ -3798,6 +3858,18 @@ func (q *retryingQuerier) GetModuleHashboards(ctx context.Context, arg GetModule
 	var result json.RawMessage
 	err := q.retrier.RetryQuery(ctx, "GetModuleHashboards", func() error {
 		callResult, callErr := q.next.GetModuleHashboards(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetModuleRollupWatermarks(ctx context.Context, deviceID int64) ([]GetModuleRollupWatermarksRow, error) {
+	var result []GetModuleRollupWatermarksRow
+	err := q.retrier.RetryQuery(ctx, "GetModuleRollupWatermarks", func() error {
+		callResult, callErr := q.next.GetModuleRollupWatermarks(ctx, deviceID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -4382,6 +4454,18 @@ func (q *retryingQuerier) GetSiteBySlug(ctx context.Context, arg GetSiteBySlugPa
 	return result, err
 }
 
+func (q *retryingQuerier) GetTankRollupWatermarks(ctx context.Context, deviceID int64) ([]GetTankRollupWatermarksRow, error) {
+	var result []GetTankRollupWatermarksRow
+	err := q.retrier.RetryQuery(ctx, "GetTankRollupWatermarks", func() error {
+		callResult, callErr := q.next.GetTankRollupWatermarks(ctx, deviceID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "GetTotalDevicesPendingAuth", func() error {
@@ -4652,6 +4736,24 @@ func (q *retryingQuerier) InsertContainerSetpoints(ctx context.Context, arg Inse
 	})
 }
 
+func (q *retryingQuerier) InsertContainerTankRollups(ctx context.Context, arg InsertContainerTankRollupsParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertContainerTankRollups", func() error {
+		return q.next.InsertContainerTankRollups(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) InsertContainerTopologyObservation(ctx context.Context, arg InsertContainerTopologyObservationParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "InsertContainerTopologyObservation", func() error {
+		callResult, callErr := q.next.InsertContainerTopologyObservation(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) InsertCurtailmentAutomationRule(ctx context.Context, arg InsertCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error) {
 	var result CurtailmentAutomationRule
 	err := q.retrier.RetryQuery(ctx, "InsertCurtailmentAutomationRule", func() error {
@@ -4788,6 +4890,18 @@ func (q *retryingQuerier) IsBatchFinished(ctx context.Context, commandBatchLogUu
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "IsBatchFinished", func() error {
 		callResult, callErr := q.next.IsBatchFinished(ctx, commandBatchLogUuid)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) IsContainerMetricSelector(ctx context.Context, identifier string) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "IsContainerMetricSelector", func() error {
+		callResult, callErr := q.next.IsContainerMetricSelector(ctx, identifier)
 		if callErr == nil {
 			result = callResult
 		}
@@ -8300,6 +8414,12 @@ func (q *retryingQuerier) SoftDeleteUserFromOrganization(ctx context.Context, ar
 	})
 }
 
+func (q *retryingQuerier) StampContainerSample(ctx context.Context, arg StampContainerSampleParams) error {
+	return q.retrier.RetryQuery(ctx, "StampContainerSample", func() error {
+		return q.next.StampContainerSample(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) SweepAlertRuleConfigs(ctx context.Context, arg SweepAlertRuleConfigsParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "SweepAlertRuleConfigs", func() error {
@@ -8960,6 +9080,24 @@ func (q *retryingQuerier) UpsertContainerFans(ctx context.Context, arg UpsertCon
 	})
 }
 
+func (q *retryingQuerier) UpsertContainerRollup(ctx context.Context, arg UpsertContainerRollupParams) error {
+	return q.retrier.RetryQuery(ctx, "UpsertContainerRollup", func() error {
+		return q.next.UpsertContainerRollup(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) UpsertContainerTopologyVersion(ctx context.Context, arg UpsertContainerTopologyVersionParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "UpsertContainerTopologyVersion", func() error {
+		callResult, callErr := q.next.UpsertContainerTopologyVersion(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) UpsertCurtailmentAutomationSignalState(ctx context.Context, arg UpsertCurtailmentAutomationSignalStateParams) error {
 	return q.retrier.RetryQuery(ctx, "UpsertCurtailmentAutomationSignalState", func() error {
 		return q.next.UpsertCurtailmentAutomationSignalState(ctx, arg)
@@ -9102,4 +9240,10 @@ func (q *retryingQuerier) UpsertReleaseChannelSetting(ctx context.Context, arg U
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) WithdrawHashboardReadings(ctx context.Context, arg WithdrawHashboardReadingsParams) error {
+	return q.retrier.RetryQuery(ctx, "WithdrawHashboardReadings", func() error {
+		return q.next.WithdrawHashboardReadings(ctx, arg)
+	})
 }

@@ -35,3 +35,14 @@ it("uses miner issue summaries and shows warning, stack, and health details on c
   expect(screen.getByTestId("module-issues")).toHaveTextContent("Hashrail: Not ready");
   expect(screen.getByTestId("module-issues")).toHaveTextContent("Reference clocks: OK");
 });
+
+it.each([
+  ["power", { powerW: 0 }, "0.0 kW"],
+  ["power", {}, "—"],
+  ["efficiency", { efficiencyJh: 10e-12 }, "10.0 J/TH"],
+  ["efficiency", {}, "—"],
+])("shows stored nullable board %s", (column, board, expected) => {
+  const slot = create(HashboardSlotSchema, { position: 1, occupancy: "occupied", board });
+  render(<HashboardCell slot={slot} column={column} />);
+  expect(screen.getByText(expected)).toBeInTheDocument();
+});

@@ -25,7 +25,8 @@ import (
 const DefaultRPCPort int32 = 9095
 const maxReceiveBytes = 8 << 20
 
-// Client owns one controller connection. Poll/control sequencing is unchanged.
+// Client owns one controller connection. Independent reads share it; controls
+// retain their serialized read/write/readback sequence.
 type Client struct {
 	closeOnce sync.Once
 	closeErr  error
@@ -37,6 +38,7 @@ type Client struct {
 	telemetry mdk.TelemetryServiceClient
 	power     mdk.PowerServiceClient
 	mu        sync.Mutex
+	pollMu    sync.Mutex
 }
 
 func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
@@ -104,9 +106,35 @@ func (c *Client) Discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceI
 func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	wire, err := c.boards.GetContainerMap(ctx, &mdk.GetContainerMapRequest{})
+	c.pollMu.Lock()
+	defer c.pollMu.Unlock()
+	var wire *mdk.GetContainerMapResponse
+	var mining *mdk.GetMiningStatusResponse
+	var plantWire *mdk.GetContainerHealthResponse
+	var controlsWire *mdk.GetContainerControlsResponse
+	var err, miningErr, plantErr, controlsErr error
+	var reads sync.WaitGroup
+	reads.Add(4)
+	go func() { defer reads.Done(); wire, err = c.boards.GetContainerMap(ctx, &mdk.GetContainerMapRequest{}) }()
+	go func() {
+		defer reads.Done()
+		sub, done := supplementContext(ctx)
+		defer done()
+		mining, miningErr = c.mining.GetMiningStatus(sub, &mdk.GetMiningStatusRequest{})
+	}()
+	go func() {
+		defer reads.Done()
+		sub, done := supplementContext(ctx)
+		defer done()
+		plantWire, plantErr = c.telemetry.GetContainerHealth(sub, &mdk.GetContainerHealthRequest{})
+	}()
+	go func() {
+		defer reads.Done()
+		sub, done := supplementContext(ctx)
+		defer done()
+		controlsWire, controlsErr = c.power.GetContainerControls(sub, &mdk.GetContainerControlsRequest{})
+	}()
+	reads.Wait()
 	if err != nil {
 		return sdk.DeviceMetrics{}, err
 	}
@@ -116,9 +144,6 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 		return sdk.DeviceMetrics{}, err
 	}
 	result := sdk.DeviceMetrics{DeviceID: id, Timestamp: observed, Container: topology, Health: sdk.HealthWarning}
-	miningCtx, miningCancel := supplementContext(ctx)
-	mining, miningErr := c.mining.GetMiningStatus(miningCtx, &mdk.GetMiningStatusRequest{})
-	miningCancel()
 	if err := miningErr; err != nil {
 		slog.WarnContext(ctx, "CT1 mining totals unavailable", "device_id", id, "error", err)
 	} else {
@@ -126,13 +151,6 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 		if mining.Mining {
 			result.Health = sdk.HealthHealthyActive
 		}
-		// MDK v2 hashrate is TH/s; the SDK and Timescale use H/s.
-		// This scalar has no presence/validity marker; do not turn its
-		// ambiguous default into an observed zero.
-		if mining.Hashrate != 0 {
-			result.HashrateHS = metric(&mining.Hashrate, 1e12)
-		}
-		result.PowerW = metric(miningPower(mining), 1)
 	}
 	for _, tank := range topology.Tanks {
 		for _, m := range tank.Modules {
@@ -141,22 +159,12 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 			}
 		}
 	}
-	plantCtx, plantCancel := supplementContext(ctx)
-	plantWire, plantErr := c.telemetry.GetContainerHealth(plantCtx, &mdk.GetContainerHealthRequest{})
-	plantCancel()
 	plant := plantObservation(plantWire)
 	if err := plantErr; err != nil {
 		plant = plantResponse{}
 		slog.WarnContext(ctx, "CT1 plant observation unavailable", "device_id", id, "error", err)
 	} else if topology.Plant = plant.observation(time.Now().UTC()); topology.Plant != nil {
-		// Prefer metered facility power over the mining-only estimate when present.
 		p := topology.Plant
-		if p.FacilityPowerW != nil {
-			result.PowerW = metric(p.FacilityPowerW, 1)
-		} else if p.TotalPowerW != nil {
-			result.PowerW = metric(p.TotalPowerW, 1)
-		}
-		result.TempC = metric(p.InletTemperatureC, 1)
 		if p.AlarmActive || p.CriticalAlarmActive {
 			result.Health = sdk.HealthWarning
 		}
@@ -164,22 +172,17 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 	// Fans have their own source observation time and do not depend on plant
 	// aggregate availability. A failed read leaves them absent.
 	topology.Fans = plant.fanObservations(time.Now().UTC())
-	controlsCtx, controlsCancel := supplementContext(ctx)
-	controlsWire, controlsErr := c.power.GetContainerControls(controlsCtx, &mdk.GetContainerControlsRequest{})
-	controlsCancel()
 	if err := controlsErr; err != nil {
 		slog.WarnContext(ctx, "CT1 equipment controls unavailable", "device_id", id, "error", err)
 	} else {
 		topology.Controls = controlObservation(controlsWire).observation(time.Now().UTC())
 	}
-	// CT1 does not report efficiency. Use the final controller power selection
-	// (including facility loads when available), not summed module PSU power.
-	// W / H/s is J/H; the existing telemetry pipeline displays this as J/TH.
-	if result.HashrateHS != nil && result.PowerW != nil &&
-		result.HashrateHS.Value > 0 && !math.IsInf(result.HashrateHS.Value, 0) && result.PowerW.Value >= 0 {
-		efficiency := result.PowerW.Value / result.HashrateHS.Value
-		result.EfficiencyJH = metric(&efficiency, 1)
-	}
+	collectRollups(topology, plantWire, plantErr == nil)
+	sdk.CalculateContainerRollups(topology)
+	result.HashrateHS = metric(topology.Metrics.HashrateHS)
+	result.PowerW = metric(topology.Metrics.PowerW)
+	result.TempC = metric(topology.Metrics.TemperatureC)
+	result.EfficiencyJH = metric(topology.Metrics.EfficiencyJH)
 	if err := ctx.Err(); err != nil {
 		return sdk.DeviceMetrics{}, fmt.Errorf("collect CT1: %w", err)
 	}
@@ -195,20 +198,9 @@ func supplementContext(ctx context.Context) (context.Context, context.CancelFunc
 	return context.WithTimeout(ctx, max(budget, 0))
 }
 
-// The pinned producer's legacy power scalar is only meaningful with complete
-// shared-assignment coverage. A numeric default alone cannot establish zero.
-func miningPower(v *mdk.GetMiningStatusResponse) *float64 {
-	m := v.GetCurrentMeasurements()
-	p := m.GetHashboardPowerW()
-	if m.GetScope() != mdk.MiningMeasurementScope_MINING_MEASUREMENT_SCOPE_SHARED_ASSIGNMENTS || !p.GetComplete() {
-		return nil
-	}
-	return p.Value
-}
-
-func metric(value *float64, multiplier float64) *sdk.MetricValue {
+func metric(value *float64) *sdk.MetricValue {
 	if value == nil || math.IsNaN(*value) || math.IsInf(*value, 0) {
 		return nil
 	}
-	return &sdk.MetricValue{Value: *value * multiplier, Kind: sdk.MetricKindGauge}
+	return &sdk.MetricValue{Value: *value, Kind: sdk.MetricKindGauge}
 }

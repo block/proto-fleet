@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,30 +14,32 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestCollectBulkMapCountsModulesOnce(t *testing.T) {
 	calls := map[string]int{}
+	var callsMu sync.Mutex
 	now := time.Now().UTC()
-	boards := []Slot{}
-	for i := range 3 {
-		boards = append(boards, Slot{Occupied: true, Hashboard: &Board{MACAddress: fmt.Sprintf("00:00:00:00:00:%02d", i), ModuleID: "module-a", MiningState: "MINING_STATE_MINING", Health: &Health{Timestamp: now, Errors: []Issue{{Cause: "HASHBOARD_ERROR_CAUSE_BOARD_OVER_CURRENT"}}}}})
+	boards := []*mdk.Slot{}
+	for i := range uint32(3) {
+		boards = append(boards, &mdk.Slot{Occupied: true, Hashboard: &mdk.Hashboard{
+			MacAddress: fmt.Sprintf("00:00:00:00:00:%02d", i), ModuleId: "module-a",
+			Location:    &mdk.HashboardLocation{HashboardPosition: new(i + 1)},
+			MiningState: mdk.MiningState_MINING_STATE_MINING,
+			Health: &mdk.HashboardHealth{Timestamp: timestamppb.New(now), Hashrate: 100,
+				Errors: []*mdk.HashboardHealthError{{Cause: mdk.HashboardErrorCause_HASHBOARD_ERROR_CAUSE_BOARD_OVER_CURRENT}}},
+		}})
 	}
-	wire := MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{{ID: 1, Modules: []Module{{ID: 1, Slots: boards}}}}}}
+	wire := &mdk.GetContainerMapResponse{ContainerMap: &mdk.ContainerMap{Tanks: []*mdk.Tank{{Id: 1, Modules: []*mdk.Module{{Id: 1, Slots: boards}}}}}}
 	server := newGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callsMu.Lock()
 		calls[r.URL.Path]++
+		callsMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/v2/container/map":
-			// Supply physical placement explicitly; wire array order is not a slot ID.
-			data, err := json.Marshal(wire)
-			require.NoError(t, err)
-			var fixture mdk.GetContainerMapResponse
-			require.NoError(t, protojson.Unmarshal(data, &fixture))
-			for i, slot := range fixture.ContainerMap.Tanks[0].Modules[0].Slots {
-				slot.Hashboard.Location = &mdk.HashboardLocation{HashboardPosition: new(uint32(i + 1))} //nolint:gosec // fixture has three slots
-			}
-			data, err = protojson.Marshal(&fixture)
+			data, err := protojson.Marshal(wire)
 			require.NoError(t, err)
 			_, _ = w.Write(data)
 		case "/api/v2/telemetry/container":
@@ -63,7 +66,7 @@ func TestCollectBulkMapCountsModulesOnce(t *testing.T) {
 	require.Len(t, metrics.Container.Tanks, 1)
 	require.Len(t, metrics.Container.Tanks[0].Modules, 1)
 	require.Equal(t, sdk.ModuleAttention, metrics.Container.Tanks[0].Modules[0].State)
-	require.Equal(t, 100e12, metrics.HashrateHS.Value)
+	require.Equal(t, 300e12, metrics.HashrateHS.Value)
 	require.Equal(t, 3500.0, metrics.PowerW.Value)
 	require.Equal(t, 1.1, *metrics.Container.Plant.PUE)
 	require.Zero(t, calls["/api/v2/auth/login"])
@@ -81,32 +84,42 @@ func TestSnapshotDegradesEveryDuplicateMembership(t *testing.T) {
 	}
 }
 
-func TestCollectDerivesEfficiencyFromControllerTotals(t *testing.T) {
+func TestCollectDerivesEfficiencyFromCompleteBoardHashrateAndFacilityPower(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		mining  string
-		plant   map[string]any
-		stale   bool
-		wantJTH *float64
+		name      string
+		mining    string
+		boardHash float64
+		plant     map[string]any
+		stale     bool
+		wantJTH   *float64
 	}{
-		{name: "mining power", mining: `{"hashrate":100,"power":3000}`, wantJTH: new(30.0)},
-		{name: "facility power takes precedence", mining: `{"hashrate":100,"power":3000}`, plant: map[string]any{"facilityPowerW": 3500, "totalPowerW": 3200}, wantJTH: new(35.0)},
-		{name: "plant total power", mining: `{"hashrate":100}`, plant: map[string]any{"totalPowerW": 3200}, wantJTH: new(32.0)},
-		{name: "stale plant uses mining power", mining: `{"hashrate":100,"power":3000}`, plant: map[string]any{"facilityPowerW": 3500}, stale: true, wantJTH: new(30.0)},
-		{name: "missing power", mining: `{"hashrate":100}`},
-		{name: "missing hashrate", mining: `{"power":3000}`},
-		{name: "stopped", mining: `{"hashrate":0,"power":3000}`},
-		{name: "negative hashrate", mining: `{"hashrate":-100,"power":3000}`},
-		{name: "negative power", mining: `{"hashrate":100,"power":-3000}`},
-		{name: "measured zero power", mining: `{"hashrate":100,"power":0}`, wantJTH: new(0.0)},
-		{name: "overflowing hashrate conversion", mining: `{"hashrate":1e308,"power":3000}`},
-		{name: "overflowing ratio", mining: `{"hashrate":1e-300,"power":1e308}`},
+		{name: "mining power is not facility power", boardHash: 100, mining: `{"hashrate":100,"power":3000}`},
+		{name: "facility power and board hashrate", boardHash: 100, mining: `{"hashrate":999,"power":3000}`, plant: map[string]any{"facilityPowerW": 3500, "totalPowerW": 3200}, wantJTH: new(35.0)},
+		{name: "plant total power is not facility power", boardHash: 100, mining: `{"hashrate":100}`, plant: map[string]any{"totalPowerW": 3200}},
+		{name: "stale facility has no mining fallback", boardHash: 100, mining: `{"hashrate":100,"power":3000}`, plant: map[string]any{"facilityPowerW": 3500}, stale: true},
+		{name: "missing power", boardHash: 100, mining: `{"hashrate":100}`},
+		{name: "ambiguous zero board hashrate", mining: `{"hashrate":100,"power":3000}`, plant: map[string]any{"facilityPowerW": 3000}},
+		{name: "negative board hashrate", boardHash: -100, mining: `{}`, plant: map[string]any{"facilityPowerW": 3000}},
+		{name: "negative facility power", boardHash: 100, mining: `{}`, plant: map[string]any{"facilityPowerW": -3000}},
+		{name: "measured zero facility power", boardHash: 100, mining: `{}`, plant: map[string]any{"facilityPowerW": 0}, wantJTH: new(0.0)},
+		{name: "overflowing board hashrate conversion", boardHash: 1e308, mining: `{}`, plant: map[string]any{"facilityPowerW": 3000}},
+		{name: "overflowing ratio", boardHash: 1e-300, mining: `{}`, plant: map[string]any{"facilityPowerW": 1e308}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			server := newGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
 				case "/api/v2/container/map":
-					_, _ = w.Write([]byte(`{"containerMap":{"tanks":[{"id":1,"modules":[]}]}}`))
+					wire := pollingCorrectionsCompleteMap(time.Now().UTC())
+					container, ok := wire["containerMap"].(map[string]any)
+					require.True(t, ok)
+					tanks, ok := container["tanks"].([]any)
+					require.True(t, ok)
+					tank, ok := tanks[0].(map[string]any)
+					require.True(t, ok)
+					modules, ok := tank["modules"].([]any)
+					require.True(t, ok)
+					modules[0] = pollingCorrectionsModule(time.Now().UTC(), 1, "module-a", [2]float64{tc.boardHash, 60})
+					require.NoError(t, json.NewEncoder(w).Encode(wire))
 				case "/api/v2/mining/status":
 					_, _ = w.Write([]byte(tc.mining))
 				case "/api/v2/telemetry/container":
@@ -169,7 +182,8 @@ func TestCollectPreservesIndependentTelemetryWithMalformedBoard(t *testing.T) {
 	defer client.Close()
 	metrics, err := client.Collect(t.Context(), "controller")
 	require.NoError(t, err)
-	require.Equal(t, 200e12, metrics.HashrateHS.Value)
+	require.Nil(t, metrics.HashrateHS, "malformed board placement cannot use the mining estimate as fallback")
+	require.Nil(t, metrics.EfficiencyJH)
 	require.Equal(t, 3500.0, metrics.PowerW.Value)
 	require.Equal(t, 1.1, *metrics.Container.Plant.PUE)
 	require.NotNil(t, metrics.Container.Controls)

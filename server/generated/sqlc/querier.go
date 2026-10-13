@@ -668,10 +668,14 @@ type Querier interface {
 	GetCancelledEnrollmentByFleetNode(ctx context.Context, arg GetCancelledEnrollmentByFleetNodeParams) (PendingEnrollment, error)
 	GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPostgresIdentity, error)
 	GetContainerModuleScope(ctx context.Context, arg GetContainerModuleScopeParams) (GetContainerModuleScopeRow, error)
-	// Aggregate in the database, never transfer raw module history to the browser.
-	// Scope is rechecked in this statement to cover reassignment after the scope read.
+	GetContainerPollHistory(ctx context.Context, arg GetContainerPollHistoryParams) ([]GetContainerPollHistoryRow, error)
+	GetContainerRollupContext(ctx context.Context, deviceID int64) (GetContainerRollupContextRow, error)
+	GetContainerRollupWatermarks(ctx context.Context, deviceID int64) (json.RawMessage, error)
+	// Bucket immutable poll-time totals, never current module membership.
+	// Historical access uses the site recorded with the sample.
 	GetContainerTankHistory(ctx context.Context, arg GetContainerTankHistoryParams) ([]GetContainerTankHistoryRow, error)
 	GetContainerTankScope(ctx context.Context, arg GetContainerTankScopeParams) (sql.NullInt64, error)
+	GetContainerTopologyIdentities(ctx context.Context, deviceID int64) ([]GetContainerTopologyIdentitiesRow, error)
 	GetCurtailmentAutomationRuleByOrg(ctx context.Context, arg GetCurtailmentAutomationRuleByOrgParams) (GetCurtailmentAutomationRuleByOrgRow, error)
 	// Webhook idempotent replay lookup; mirrors the
 	// uq_curtailment_event_external_ref partial index.
@@ -809,6 +813,7 @@ type Querier interface {
 	GetGroupRefsForDevices(ctx context.Context, arg GetGroupRefsForDevicesParams) ([]GetGroupRefsForDevicesRow, error)
 	GetHAProfileDatabaseIdentity(ctx context.Context) (GetHAProfileDatabaseIdentityRow, error)
 	GetHashboardInstallations(ctx context.Context, arg GetHashboardInstallationsParams) ([]GetHashboardInstallationsRow, error)
+	GetHashboardMetricWatermarks(ctx context.Context, boardIds []int64) ([]GetHashboardMetricWatermarksRow, error)
 	GetHostedAccountAncestorGrant(ctx context.Context, arg GetHostedAccountAncestorGrantParams) (HostedAccountAncestorGrant, error)
 	GetHostedAccountInvitationByHash(ctx context.Context, tokenHash string) (GetHostedAccountInvitationByHashRow, error)
 	GetHostedAccountKeyAuthority(ctx context.Context, arg GetHostedAccountKeyAuthorityParams) (GetHostedAccountKeyAuthorityRow, error)
@@ -867,6 +872,7 @@ type Querier interface {
 	// A bounded batch returns only readable current modules. Child slots never
 	// enter fleet_mining_asset or affect its counts, sorting, selection or exports.
 	GetModuleHashboards(ctx context.Context, arg GetModuleHashboardsParams) (json.RawMessage, error)
+	GetModuleRollupWatermarks(ctx context.Context, deviceID int64) ([]GetModuleRollupWatermarksRow, error)
 	GetOfflineDevices(ctx context.Context, limit int32) ([]GetOfflineDevicesRow, error)
 	// Stable oldest-offline ordering lets the recovery service rotate bounded
 	// per-node batches in memory. Credentials remain the Fleet Node-encrypted
@@ -981,6 +987,7 @@ type Querier interface {
 	GetSessionByID(ctx context.Context, sessionID string) (Session, error)
 	GetSite(ctx context.Context, arg GetSiteParams) (Site, error)
 	GetSiteBySlug(ctx context.Context, arg GetSiteBySlugParams) (Site, error)
+	GetTankRollupWatermarks(ctx context.Context, deviceID int64) ([]GetTankRollupWatermarksRow, error)
 	GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error)
 	// Unified query that supports all filters including component error filtering
 	// Uses EXISTS for error checks (more efficient than LEFT JOIN + DISTINCT)
@@ -1034,6 +1041,8 @@ type Querier interface {
 	InsertContainerModuleMetrics(ctx context.Context, arg InsertContainerModuleMetricsParams) error
 	InsertContainerPlantMetrics(ctx context.Context, arg InsertContainerPlantMetricsParams) error
 	InsertContainerSetpoints(ctx context.Context, arg InsertContainerSetpointsParams) error
+	InsertContainerTankRollups(ctx context.Context, arg InsertContainerTankRollupsParams) error
+	InsertContainerTopologyObservation(ctx context.Context, arg InsertContainerTopologyObservationParams) (int64, error)
 	InsertCurtailmentAutomationRule(ctx context.Context, arg InsertCurtailmentAutomationRuleParams) (CurtailmentAutomationRule, error)
 	// Full column list mirrors the migration so callers can't rely on DEFAULTs
 	// for values the API layer should be normalizing.
@@ -1081,6 +1090,7 @@ type Querier interface {
 	InsertRepairTicketPart(ctx context.Context, arg InsertRepairTicketPartParams) error
 	InventoryPartExistsBySiteAndName(ctx context.Context, arg InventoryPartExistsBySiteAndNameParams) (bool, error)
 	IsBatchFinished(ctx context.Context, commandBatchLogUuid string) (bool, error)
+	IsContainerMetricSelector(ctx context.Context, identifier string) (bool, error)
 	IsDeletionUnpairIdentityCurrent(ctx context.Context, arg IsDeletionUnpairIdentityCurrentParams) (bool, error)
 	IsDeviceWriteFenceDrained(ctx context.Context, arg IsDeviceWriteFenceDrainedParams) (bool, error)
 	IsRetiredDeviceWriteDrained(ctx context.Context, identityKeys []string) (bool, error)
@@ -1188,6 +1198,8 @@ type Querier interface {
 	ListBuiltinRolesForOrg(ctx context.Context, organizationID sql.NullInt64) ([]Role, error)
 	ListCompletedTicketAssignees(ctx context.Context, arg ListCompletedTicketAssigneesParams) ([]ListCompletedTicketAssigneesRow, error)
 	ListCompletedTickets(ctx context.Context, arg ListCompletedTicketsParams) ([]ListCompletedTicketsRow, error)
+	// Raw reads retain the original nullable fields; older/longer windows return
+	// source-bucket averages, with authorization before combining topology versions.
 	ListContainerModuleHistory(ctx context.Context, arg ListContainerModuleHistoryParams) ([]ListContainerModuleHistoryRow, error)
 	// Reuse the inventory state projection so cards agree with module lists about
 	// freshness, retained partial topology, and retired/replaced hardware.
@@ -2135,6 +2147,7 @@ type Querier interface {
 	SoftDeleteSite(ctx context.Context, arg SoftDeleteSiteParams) (int64, error)
 	SoftDeleteUser(ctx context.Context, id int64) error
 	SoftDeleteUserFromOrganization(ctx context.Context, arg SoftDeleteUserFromOrganizationParams) error
+	StampContainerSample(ctx context.Context, arg StampContainerSampleParams) error
 	// Reclaims rows for never-created rule UIDs left by ambiguous create failures (see CreateRule).
 	// The hour of slack protects in-flight creates, whose config row lands before the Grafana rule exists.
 	SweepAlertRuleConfigs(ctx context.Context, arg SweepAlertRuleConfigsParams) (int64, error)
@@ -2388,6 +2401,8 @@ type Querier interface {
 	UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error
 	// Source time orders fans independently of inventory and control reads.
 	UpsertContainerFans(ctx context.Context, arg UpsertContainerFansParams) error
+	UpsertContainerRollup(ctx context.Context, arg UpsertContainerRollupParams) error
+	UpsertContainerTopologyVersion(ctx context.Context, arg UpsertContainerTopologyVersionParams) (int64, error)
 	UpsertCurtailmentAutomationSignalState(ctx context.Context, arg UpsertCurtailmentAutomationSignalStateParams) error
 	// Singleton row at id=1; INSERT path only fires on accidental deletion.
 	UpsertCurtailmentReconcilerHeartbeat(ctx context.Context, arg UpsertCurtailmentReconcilerHeartbeatParams) error
@@ -2439,6 +2454,9 @@ type Querier interface {
 	// actor. Reconciliation and retries retain this assignment's owner.
 	UpsertReleaseChannelFirmware(ctx context.Context, arg UpsertReleaseChannelFirmwareParams) (ReleaseChannelFirmware, error)
 	UpsertReleaseChannelSetting(ctx context.Context, arg UpsertReleaseChannelSettingParams) (ReleaseChannelSetting, error)
+	// Withdraw readings when the accepted poll has no health. Keep source ordering
+	// separately in time; a later older sample must never restore withdrawn values.
+	WithdrawHashboardReadings(ctx context.Context, arg WithdrawHashboardReadingsParams) error
 }
 
 var _ Querier = (*Queries)(nil)
