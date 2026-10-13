@@ -42,6 +42,8 @@ WITH parents AS (
 ), options AS (
  SELECT ARRAY(SELECT value::int FROM jsonb_array_elements_text(NULLIF($2::jsonb->'issues','null'::jsonb)))::int[] AS issues,
    ARRAY(SELECT value::bigint FROM jsonb_array_elements_text(NULLIF($2::jsonb->'building_ids','null'::jsonb)))::bigint[] AS building_ids,
+   COALESCE(($2::jsonb->>'no_facility')::boolean,FALSE) AS no_facility,
+   COALESCE(($2::jsonb->>'no_group')::boolean,FALSE) AS no_group,
    COALESCE(($2::jsonb->>'no_building')::boolean,FALSE) AS no_building,
    NULLIF($2::jsonb->'zones','null'::jsonb) AS zones
 ), facts AS (
@@ -100,7 +102,8 @@ WITH parents AS (
    AND ((cardinality($6::bigint[]) = 0 AND NOT $7::boolean)
         OR r.site_id = ANY($6::bigint[]) OR ($7::boolean AND r.site_id IS NULL))
    AND ($8::text = '' OR strpos(lower(concat_ws(' ',r.name,r.reported_id,r.device_identifier)), lower($8)) > 0)
-   AND (jsonb_array_length($9::jsonb) = 0 OR EXISTS (
+   AND ((NOT f.no_facility AND jsonb_array_length($9::jsonb) = 0)
+     OR (f.no_facility AND r.kind=3 AND r.facility_id IS NULL) OR EXISTS (
      SELECT 1 FROM jsonb_to_recordset($9::jsonb) AS p(kind int, id bigint)
      WHERE r.facility_kind=p.kind AND r.facility_id=p.id
    ))

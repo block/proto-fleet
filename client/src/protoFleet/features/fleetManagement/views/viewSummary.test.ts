@@ -13,21 +13,23 @@ import { type DeviceSet, DeviceSetSchema } from "@/protoFleet/api/generated/devi
 const makeDeviceSet = (id: bigint, label: string): DeviceSet => create(DeviceSetSchema, { id, label });
 
 describe("summarizeFilters", () => {
-  it("shows tank labels independently of colliding rack IDs, with a fallback for missing tanks", () => {
+  it("combines tank and rack labels while preserving colliding identities and missing labels", () => {
     const result = summarizeFilters(new URLSearchParams("tank=10&tank=999&rack=10"), "miners", {
       ...ctx,
       availableTanks: [{ id: "10", label: "CT1 North T1 · North" }],
     });
-    expect(result).toContainEqual({ key: "tank", label: "Tanks", values: ["CT1 North T1 · North", "#999"] });
-    expect(result).toContainEqual({ key: "rack", label: "Racks", values: ["R1"] });
+    expect(result).toEqual([
+      { key: "rack", label: "Racks", values: ["R1", "CT1 North T1 · North (Tank)", "#999 (Tank)"] },
+    ]);
   });
-  it.each(["miners", "racks"] as const)("shows container labels separately from building IDs on %s", (tab) => {
+  it.each(["miners", "racks"] as const)("combines container and building labels on %s", (tab) => {
     const result = summarizeFilters(new URLSearchParams("container=100&container=999&building=100"), tab, {
       ...ctx,
       availableContainers: [{ id: "100", label: "CT1 North" }],
     });
-    expect(result).toContainEqual({ key: "container", label: "Containers", values: ["CT1 North", "#999"] });
-    expect(result).toContainEqual({ key: "building", label: "Buildings", values: ["DC1"] });
+    expect(result).toEqual([
+      { key: "building", label: "Buildings", values: ["DC1", "CT1 North (Container)", "#999 (Container)"] },
+    ]);
   });
 
   const ctx = {

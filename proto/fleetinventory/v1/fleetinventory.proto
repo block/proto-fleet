@@ -82,6 +82,11 @@ enum InventorySort {
 }
 
 message ListInventoryRequest {
+  option (buf.validate.message).cel = {
+    id: "unassigned_scope_view"
+    message: "Unassigned facility and group scopes must apply to the requested inventory view"
+    expression: "(!this.include_no_facility || this.view in [2, 3]) && (!this.include_no_group || this.view == 3)"
+  };
   InventoryView view = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
   string page_token = 3 [(buf.validate.field).string.max_len = 4096];
@@ -111,6 +116,12 @@ message ListInventoryRequest {
   fleetmanagement.v1.MinerListFilter miner_filter = 17;
   // Current module/miner health buckets. Valid only in the mining-assets view.
   repeated string states = 18;
+  // OR with facility ancestors; matches conventional equipment without a building.
+  // Valid in equipment-groups and mining-assets views.
+  bool include_no_facility = 19;
+  // OR with group ancestors; matches conventional miners without a rack.
+  // Valid only in the mining-assets view.
+  bool include_no_group = 20;
 }
 
 message InventoryItem {

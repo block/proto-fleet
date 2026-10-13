@@ -276,28 +276,43 @@ page and collected-data hooks with isolated API fixtures.
 
 ### CT1 inventory filters
 
-The Miners tab exposes separate **Containers**, **Tanks**, and **Racks** selectors;
-the Racks tab exposes **Containers**. Tanks use stable Fleet tank IDs under repeated
+The Miners tab includes containers in **Buildings** and tanks in **Racks**;
+the Racks tab also includes containers in **Buildings**. CT1 options are labeled
+with their entity type so identically named or numbered entities stay distinct.
+Tanks use stable Fleet tank IDs under repeated
 `tank` URL keys. Tank labels include the owning container and site, and options
 come from all readable tanks across `ListTankOptions` cursor pages. This label-only
-catalog avoids module health and telemetry aggregation. Selections within
-Tanks combine with OR; tank, container, site, and other categories combine with AND.
+catalog avoids module health and telemetry aggregation.
+Selections within Buildings (buildings/containers) or Racks (racks/tanks) combine
+with OR; the two categories, site scope, and other filters combine with AND.
+Unassigned options retain their conventional placement scope and combine with
+selected CT1 entities using the same OR rule within each typed category.
+When a container or tank is selected, both placement categories independently
+restrict rows. A building plus Unassigned Racks then excludes fully unplaced
+miners unless Unassigned Buildings is also selected.
+Conventional-only miner selections use the native miner filter so the list,
+CSV export, authentication counts, and commands share placement semantics.
+For example, a building plus Unassigned Racks also includes fully unplaced miners.
 Rack and tank IDs stay independent even when their numeric values match.
 
 Containers use controller device IDs under repeated `container` URL keys, independently of
 building IDs. Multiple selected containers combine with OR. Site scope, selected
-sites, tank scope, telemetry, and other filter categories combine with AND;
+sites, the Racks filter, telemetry, and other filter categories combine with AND;
 contradictory scopes return no rows. Existing tank deep links use stable tank IDs
 under `tank` and survive unrelated filter changes. The Racks view accepts only
 facility ancestors; tank ancestors apply only to mining assets.
 
-Selections survive refresh and saved views, and clearing the Containers chip
+Selections survive refresh and saved views, and clearing the Buildings chip
+clears both building and container selections and
 leaves other filters intact. Container options come from the readable container
 catalog with site labels. Filtering and pagination run on the unified inventory
 API; selecting a new scope hides previous-scope rows until its response arrives.
-Building, rack, and other miner-only filters keep their existing applicability
-and can therefore produce no matches when combined with a container selection.
+Other miner-only filters keep their existing applicability and can therefore
+produce no module matches even when a container or tank is selected.
 Container-filtered module lists do not expose conventional miner CSV export.
+When a container or tank filter is active, miner actions use explicitly selected
+rows from the displayed page. Full-result Select all is unavailable because
+native miner command filters cannot express those typed placement scopes.
 
 ### API Integration
 
