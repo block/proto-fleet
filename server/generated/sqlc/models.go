@@ -1055,6 +1055,8 @@ type DiscoveredDevice struct {
 	DeviceClass             int32
 	RpcPort                 int32
 	RpcTls                  bool
+	SerialNumber            string
+	MacAddress              string
 }
 
 type Error struct {

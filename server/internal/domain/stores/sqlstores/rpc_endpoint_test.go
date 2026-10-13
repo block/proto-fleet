@@ -52,13 +52,15 @@ func TestDiscoveredDeviceRPCEndpointRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	store := sqlstores.NewSQLDiscoveredDeviceStore(db)
 	id := discovery.DeviceOrgIdentifier{OrgID: org, DeviceIdentifier: "serial:rpc-controller"}
-	input := &discovery.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: id.DeviceIdentifier, DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", IpAddress: "10.0.0.12", Port: "8181", UrlScheme: "http", RpcPort: 9443, RpcTls: true}, OrgID: org}
+	input := &discovery.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: id.DeviceIdentifier, DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", IpAddress: "10.0.0.12", Port: "8181", UrlScheme: "http", RpcPort: 9443, RpcTls: true, SerialNumber: "rpc-controller-serial", MacAddress: "02:11:22:33:44:55"}, OrgID: org}
 	_, err = store.SaveDirect(ctx, id, input)
 	require.NoError(t, err)
 	row, err := q.GetDiscoveredDeviceByDeviceIdentifier(ctx, sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{OrgID: org, DeviceIdentifier: id.DeviceIdentifier})
 	require.NoError(t, err)
 	require.Equal(t, int32(9443), row.RpcPort)
 	require.True(t, row.RpcTls)
+	require.Equal(t, input.SerialNumber, row.SerialNumber)
+	require.Equal(t, input.MacAddress, row.MacAddress)
 	require.Equal(t, "8181", row.Port)
 	require.Equal(t, "http", row.UrlScheme)
 	input.Port = "8080" // discovery default must not replace the stored custom web port
@@ -71,6 +73,8 @@ func TestDiscoveredDeviceRPCEndpointRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int32(9095), updated.RpcPort)
 	require.False(t, updated.RpcTls)
+	require.Equal(t, input.SerialNumber, updated.SerialNumber)
+	require.Equal(t, input.MacAddress, updated.MacAddress)
 	require.Equal(t, "8181", updated.Port)
 	require.Equal(t, "http", updated.UrlScheme)
 	require.Equal(t, row.ID, updated.ID, "rediscovery must not create a second controller")
