@@ -217,7 +217,9 @@ commands remain conservatively classified as mutations. Direct admissions that
 finish without dispatch are removed; interruption cannot establish that fact.
 
 Fleet handles SIGINT and SIGTERM by stopping new HTTP admissions and canceling
-active request contexts. It waits for HTTP/1 and h2c handlers to finish before
-stopping runtime dependencies, allowing completion bookkeeping to retire reads.
+active request contexts. After graceful shutdown, it closes remaining sockets,
+including hijacked h2c connections, to interrupt blocked transport I/O. It waits
+for HTTP/1 and h2c handlers to finish before stopping runtime dependencies,
+allowing completion bookkeeping to retire reads.
 The graceful socket deadline does not prove callback completion; crash or forced
 termination still requires the interrupted-read recovery above.

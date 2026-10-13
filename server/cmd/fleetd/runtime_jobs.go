@@ -147,6 +147,62 @@ func (d *httpRequestDrain) stop() {
 	d.mu.Unlock()
 }
 
+// httpConnectionListener retains ownership of accepted sockets after h2c
+// hijacks them, when net/http no longer closes them during shutdown.
+type httpConnectionListener struct {
+	net.Listener
+	mu      sync.Mutex
+	conns   map[*httpConnection]struct{}
+	stopped bool
+}
+
+func (l *httpConnectionListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err != nil {
+		return nil, fmt.Errorf("accept HTTP connection: %w", err)
+	}
+	l.mu.Lock()
+	if l.stopped {
+		l.mu.Unlock()
+		_ = conn.Close()
+		return nil, net.ErrClosed
+	}
+	tracked := &httpConnection{Conn: conn, listener: l}
+	l.conns[tracked] = struct{}{}
+	l.mu.Unlock()
+	return tracked, nil
+}
+
+func (l *httpConnectionListener) closeConnections() {
+	l.mu.Lock()
+	l.stopped = true
+	conns := make([]*httpConnection, 0, len(l.conns))
+	for conn := range l.conns {
+		conns = append(conns, conn)
+	}
+	l.mu.Unlock()
+	// Close outside the mutex: each connection removes itself from the registry.
+	for _, conn := range conns {
+		_ = conn.Close()
+	}
+}
+
+type httpConnection struct {
+	net.Conn
+	listener *httpConnectionListener
+}
+
+func (c *httpConnection) Close() error {
+	err := c.Conn.Close()
+	c.listener.mu.Lock()
+	delete(c.listener.conns, c)
+	c.listener.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("close HTTP connection: %w", err)
+	}
+	return nil
+}
+
 // serveFleetRuntime starts serving always-on health before runtime activation.
 // Process shutdown cancels requests before stopping their runtime dependencies.
 func serveFleetRuntime(
@@ -179,9 +235,10 @@ func serveFleetRuntimeWithContext(
 		server.Handler = drain
 	}
 
+	connections := &httpConnectionListener{Listener: listener, conns: make(map[*httpConnection]struct{})}
 	serverResult := make(chan error, 1)
 	go func() {
-		serverResult <- server.Serve(listener)
+		serverResult <- server.Serve(connections)
 	}()
 	runtimeResult := make(chan error, 1)
 	go func() {
@@ -212,6 +269,9 @@ func serveFleetRuntimeWithContext(
 		// Closing sockets cancels transports, but does not prove handlers ended.
 		_ = server.Close()
 	}
+	// Shutdown and Close exclude hijacked h2c connections. Interrupt their I/O
+	// before waiting for handlers, while retaining dependencies through cleanup.
+	connections.closeConnections()
 	// A handler that ignores cancellation must keep its dependencies and binding
 	// locks until it actually returns; a timeout cannot establish completion.
 	drain.active.Wait()
