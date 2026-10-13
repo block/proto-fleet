@@ -134,5 +134,7 @@ jobs:
       - name: Start database
         run: just db-up
 
+      # Test binaries share one PostgreSQL instance; avoid cross-package
+      # database cloning pressure inside admission/dispatch deadline checks.
       - name: Test
-        run: just test
+        run: GOFLAGS="${GOFLAGS:-} -p=1" just test

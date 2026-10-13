@@ -24,6 +24,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/testutil"
+	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -116,7 +117,7 @@ func awaitProxyBarrier(t *testing.T, barrier <-chan struct{}) {
 }
 func TestProxyAttemptRetainsResponseReadAndCloseLifetime(t *testing.T) {
 	database, orgID, deviceID, h, target := proxyFenceFixture(t)
-	testutil.ObserveDatabaseWaits(t, database.DB)
+	dbtest.ObserveDatabaseWaits(t, database.DB)
 	body := &proxyBodyBarrier{reader: strings.NewReader("{}"), readStarted: make(chan struct{}), readRelease: make(chan struct{}), closeStarted: make(chan struct{}), closeRelease: make(chan struct{})}
 	releaseRead := sync.OnceFunc(func() { close(body.readRelease) })
 	releaseClose := sync.OnceFunc(func() { close(body.closeRelease) })

@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
-	"github.com/block/proto-fleet/server/internal/testutil"
+	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -43,7 +43,7 @@ func TestStalledProxyConsumerReleasesAdmissionOnlyAfterResponseClose(t *testing.
 	for _, interrupt := range []string{"write-deadline", "cancellation"} {
 		t.Run(interrupt, func(t *testing.T) {
 			database, orgID, deviceID, h, target := proxyFenceFixture(t)
-			testutil.ObserveDatabaseWaits(t, database.DB)
+			dbtest.ObserveDatabaseWaits(t, database.DB)
 			body := &responseCloseBarrier{ReadCloser: io.NopCloser(io.LimitReader(repeatedProxyBytes{}, 64<<20)), started: make(chan struct{}), release: make(chan struct{})}
 			releaseClose := sync.OnceFunc(func() { close(body.release) })
 			t.Cleanup(releaseClose)

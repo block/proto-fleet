@@ -11,6 +11,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/testutil"
+	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -59,7 +60,7 @@ func TestBindingObservationProtectsMissingChildrenAndEndpoint(t *testing.T) {
 			cfg, err := testutil.GetTestConfig()
 			require.NoError(t, err)
 			database := testutil.NewDatabaseService(t, cfg)
-			testutil.ObserveDatabaseWaits(t, database.DB)
+			dbtest.ObserveDatabaseWaits(t, database.DB)
 			user := database.CreateSuperAdminUser()
 			device := database.CreateDevice(user.OrganizationID, "proto")
 			var nodeID int64

@@ -21,6 +21,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	sdkMocks "github.com/block/proto-fleet/server/sdk/v1/mocks"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -164,6 +165,7 @@ func TestTankMiningExecutionUsesAdmittedSiteWithCachedController(t *testing.T) {
 
 func TestTankMiningExecutionSerializesSiteReassignmentThroughDispatch(t *testing.T) {
 	svc, conn, deviceID, identifier, payload := setupTankMiningExecution(t)
+	dbtest.ObserveDatabaseWaits(t, conn)
 	q := sqlc.New(conn)
 	site, err := q.CreateSite(t.Context(), sqlc.CreateSiteParams{OrgID: payload.OrgID, Name: "Other", Slug: "other"})
 	require.NoError(t, err)
