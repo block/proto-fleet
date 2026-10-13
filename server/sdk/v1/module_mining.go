@@ -16,6 +16,13 @@ type ModuleMiningTarget struct {
 	ReportedID string `json:"reported_id"`
 }
 
+func (m ModuleMiningTarget) Validate() error {
+	if m.Tank <= 0 || m.Module <= 0 || strings.TrimSpace(m.ReportedID) == "" || len(m.ReportedID) > 255 {
+		return fmt.Errorf("positive unique module positions and known module identity required")
+	}
+	return nil
+}
+
 type ModuleMiningRequest struct {
 	Modules []ModuleMiningTarget `json:"modules"`
 	Mining  *bool                `json:"mining"`
@@ -28,8 +35,11 @@ func (r ModuleMiningRequest) Validate() error {
 	seen := map[[2]int32]bool{}
 	identities := map[string]bool{}
 	for _, m := range r.Modules {
+		if err := m.Validate(); err != nil {
+			return err
+		}
 		key := [2]int32{m.Tank, m.Module}
-		if m.Tank <= 0 || m.Module <= 0 || strings.TrimSpace(m.ReportedID) == "" || len(m.ReportedID) > 255 || seen[key] || identities[m.ReportedID] {
+		if seen[key] || identities[m.ReportedID] {
 			return fmt.Errorf("positive unique module positions and known module identity required")
 		}
 		seen[key] = true

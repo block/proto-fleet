@@ -32,6 +32,10 @@ func (d *Device) SetModuleMining(ctx context.Context, req sdk.ModuleMiningReques
 	return d.setScopedMining(ctx, positions, req.Modules, req.Mining)
 }
 func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets []sdk.ModuleMiningTarget, mining *bool) error {
+	scopeName := "tank"
+	if len(targets) > 0 {
+		scopeName = "module"
+	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	c := d.client
@@ -164,7 +168,7 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 		}
 	}
 	if len(expected) == 0 {
-		return fmt.Errorf("selected tanks have no addressable boards")
+		return fmt.Errorf("selected %ss have no addressable boards", scopeName)
 	}
 	sort.Slice(modules, func(i, j int) bool {
 		if modules[i].Tank != modules[j].Tank {
@@ -194,7 +198,7 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 		results = response.GetResults()
 	}
 	if err != nil {
-		return fmt.Errorf("tank mining outcome unconfirmed: %w", err)
+		return fmt.Errorf("%s mining outcome unconfirmed: %w", scopeName, err)
 	}
 	failures := []string{}
 	seen := map[string]bool{}
@@ -212,7 +216,7 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 		return fmt.Errorf("controller returned incomplete board results; outcome unconfirmed")
 	}
 	if len(failures) > 0 {
-		return fmt.Errorf("tank mining partially applied (%d/%d boards failed): %s", len(failures), len(expected), strings.Join(failures, "; "))
+		return fmt.Errorf("%s mining partially applied (%d/%d boards failed): %s", scopeName, len(failures), len(expected), strings.Join(failures, "; "))
 	}
 	return nil
 }

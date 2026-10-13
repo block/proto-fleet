@@ -273,6 +273,47 @@ describe("MinerList", () => {
     expect(screen.getByRole("button", { name: "Export miners CSV" })).toBeInTheDocument();
   });
 
+  it.each([false, true])("removes vanished modules from the selection after refresh (mixed: %s)", (mixed) => {
+    const miner = createMinerSnapshot("miner-a");
+    const module = create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 1n }, name: "Module" });
+    const minerItem = create(InventoryItemSchema, {
+      ref: { kind: EntityKind.MINER, id: 2n },
+      deviceIdentifier: miner.deviceIdentifier,
+      details: { case: "miner", value: miner },
+    });
+    const props = {
+      onAddMiners: vi.fn(),
+      minerIds: mixed ? [miner.deviceIdentifier] : [],
+      miners: mixed ? { [miner.deviceIdentifier]: miner } : {},
+      errorsByDevice: {},
+      errorsLoaded: true,
+      getActiveBatches: mockGetActiveBatches,
+    };
+    const view = (includeModule: boolean) => (
+      <BrowserRouter>
+        <MinerList {...props} inventoryItems={[...(includeModule ? [module] : []), ...(mixed ? [minerItem] : [])]} />
+      </BrowserRouter>
+    );
+    const { rerender } = render(view(true));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select module:1" }));
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
+    expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent(mixed ? "2" : "1");
+
+    rerender(view(false));
+    if (mixed) {
+      expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
+      expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+        expect.objectContaining({ selectedKeys: ["miner:miner-a"], modules: [], selectionMode: "subset" }),
+        undefined,
+      );
+    } else {
+      expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
+    }
+
+    rerender(view(true));
+    expect(screen.getByRole("checkbox", { name: "Select module:1" })).not.toBeChecked();
+  });
+
   it("keeps a module and a miner with a module-like identifier independently selectable", () => {
     const miner = createMinerSnapshot("module:1", PairingStatus.AUTHENTICATION_NEEDED);
     const module = create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 1n }, name: "Module" });

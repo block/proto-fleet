@@ -227,8 +227,7 @@ func TestTankMiningUsesOneScopedWriteAndReportsPartialBoardFailures(t *testing.T
 				require.NoError(t, err)
 				err = dev.SetTankMining(t.Context(), sdk.TankMiningRequest{Positions: []int32{3, 1}, Mining: &mining})
 				if partial {
-					require.ErrorContains(t, err, "partially applied")
-					require.ErrorContains(t, err, "disconnected")
+					require.EqualError(t, err, "tank mining partially applied (1/2 boards failed): b: disconnected")
 				} else {
 					require.NoError(t, err)
 				}

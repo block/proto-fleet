@@ -21,6 +21,12 @@ export default function MiningDialog({
 }) {
   const submitted = useRef(false);
   const action = mining ? "Start mining" : "Stop mining";
+  const noun = items.length === 1 ? kind : `${kind}s`;
+  let affectedItems = items.map((item) => item.name).join(", ");
+  if (kind === "tank") {
+    const tankSelection = items.length === 1 ? "this tank" : "these tanks";
+    affectedItems = `All modules in ${tankSelection}`;
+  }
   const submit = () => {
     if (submitted.current) return;
     submitted.current = true;
@@ -33,11 +39,8 @@ export default function MiningDialog({
       open
       testId={`${kind}-mining-dialog`}
       actionConfirmation={{
-        title: `${action} on ${items.length} ${items.length === 1 ? kind : `${kind}s`}?`,
-        subtitle:
-          kind === "tank"
-            ? `All modules in ${items.length === 1 ? "this tank" : "these tanks"} will ${mining ? "start" : "stop"} hashing.`
-            : `${items.map((module) => module.name).join(", ")} will ${mining ? "start" : "stop"} hashing.`,
+        title: `${action} on ${items.length} ${noun}?`,
+        subtitle: `${affectedItems} will ${mining ? "start" : "stop"} hashing.`,
         confirmAction: { title: action, variant: variants.primary },
         testId: `${kind}-mining-confirm-button`,
       }}

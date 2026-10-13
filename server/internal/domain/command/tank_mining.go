@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -41,7 +40,7 @@ func miningSite(row miningCommandTarget) *int64 {
 	return nil
 }
 func currentMiningTarget(row miningCommandTarget, now time.Time) bool {
-	if row.Module != nil && (sdk.ModuleMiningRequest{Modules: []sdk.ModuleMiningTarget{*row.Module}, Mining: new(false)}).Validate() != nil {
+	if row.Module != nil && row.Module.Validate() != nil {
 		return false
 	}
 	for _, observed := range []time.Time{row.LastSeenAt, row.ObservedAt} {
@@ -144,7 +143,7 @@ func (s *Service) getMiningOptions(ctx context.Context, ids []int64, authorize m
 			if pending {
 				options.CanStart = false
 				options.CanStop = false
-				options.UnavailableReason = scope.message("A tank mining command is already pending for this container.")
+				options.UnavailableReason = "A tank or module mining command is already pending for this container."
 			}
 		}
 		for _, modules := range modulesByController {
@@ -246,7 +245,7 @@ func (s *Service) setMining(ctx context.Context, ids []int64, mining *bool, auth
 				return nil, err
 			}
 			if pending {
-				return nil, fleeterror.NewFailedPreconditionError(scope.message("a tank mining command is already pending for this container"))
+				return nil, fleeterror.NewFailedPreconditionError("a tank or module mining command is already pending for this container")
 			}
 		}
 		upgradeRequired, err := s.miningProtocolUpgradeRequired(txCtx, q, rows, info.OrganizationID, scope)
@@ -289,7 +288,7 @@ func (s *Service) setMining(ctx context.Context, ids []int64, mining *bool, auth
 			if err != nil {
 				return nil, err
 			}
-			s.finalizeDispatch(txCtx, batch, scope.eventType(), fmt.Sprintf("%s %ss %v: mining=%t", first.ContainerName, scope.noun(), payload.ids(), *mining))
+			s.finalizeDispatch(txCtx, batch, scope.eventType(), payload.activityDescription(first.ContainerName))
 			response = append(response, miningCommand{
 				DeviceIdentifier: first.DeviceIdentifier,
 				ContainerName:    first.ContainerName,

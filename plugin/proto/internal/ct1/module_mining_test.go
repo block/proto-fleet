@@ -14,15 +14,16 @@ import (
 func TestModuleMiningExactScopeAndIdentity(t *testing.T) {
 	for _, tc := range []struct {
 		name, identity, response string
-		wantWrites               int
-		wantError                bool
+		status, wantWrites       int
+		wantError                string
 	}{
-		{"accepted", "module-a", `{"results":[{"macAddress":"a","applied":true}]}`, 1, false},
-		{"replacement", "module-new", `{}`, 0, true},
-		{"identity unavailable", "", `{}`, 0, true},
-		{"partial failure", "module-a", `{"results":[{"macAddress":"a","applied":false,"message":"disconnected"}]}`, 1, true},
-		{"missing acknowledgement", "module-a", `{"results":[]}`, 1, true},
-		{"unexpected neighbor", "module-a", `{"results":[{"macAddress":"b","applied":true}]}`, 1, true},
+		{"accepted", "module-a", `{"results":[{"macAddress":"a","applied":true}]}`, http.StatusOK, 1, ""},
+		{"replacement", "module-new", `{}`, http.StatusOK, 0, "selected module identity unavailable or ambiguous"},
+		{"identity unavailable", "", `{}`, http.StatusOK, 0, "selected module identity unavailable or ambiguous"},
+		{"partial failure", "module-a", `{"results":[{"macAddress":"a","applied":false,"message":"disconnected"}]}`, http.StatusOK, 1, "module mining partially applied (1/1 boards failed): a: disconnected"},
+		{"RPC failure", "module-a", `{}`, http.StatusServiceUnavailable, 1, "module mining outcome unconfirmed:"},
+		{"missing acknowledgement", "module-a", `{"results":[]}`, http.StatusOK, 1, "controller returned incomplete board results; outcome unconfirmed"},
+		{"unexpected neighbor", "module-a", `{"results":[{"macAddress":"b","applied":true}]}`, http.StatusOK, 1, "controller returned unexpected board results; outcome unconfirmed"},
 	} {
 		for _, mining := range []bool{false, true} {
 			t.Run(tc.name+strconv.FormatBool(mining), func(t *testing.T) {
@@ -52,6 +53,7 @@ func TestModuleMiningExactScopeAndIdentity(t *testing.T) {
 						require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 						require.Equal(t, []string{"A"}, body.Scope.Identifiers)
 						require.Empty(t, body.Scope.Modules)
+						w.WriteHeader(tc.status)
 						_, _ = w.Write([]byte(tc.response))
 					}
 				}))
@@ -63,8 +65,8 @@ func TestModuleMiningExactScopeAndIdentity(t *testing.T) {
 				dev, err := newTankTestDevice(t, "ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme})
 				require.NoError(t, err)
 				err = dev.SetModuleMining(t.Context(), sdk.ModuleMiningRequest{Mining: &mining, Modules: []sdk.ModuleMiningTarget{{Tank: 1, Module: 1, ReportedID: "module-a"}}})
-				if tc.wantError {
-					require.Error(t, err)
+				if tc.wantError != "" {
+					require.ErrorContains(t, err, tc.wantError)
 				} else {
 					require.NoError(t, err)
 				}

@@ -117,6 +117,16 @@ func (p scopedMiningPayload) ids() []int64 {
 	}
 	return p.TankIDs
 }
+func (p scopedMiningPayload) activityDescription(containerName string) string {
+	if len(p.ModuleIDs) > 0 {
+		coordinates := make([]string, len(p.Modules))
+		for i, module := range p.Modules {
+			coordinates[i] = fmt.Sprintf("tank %d/module %d", module.Tank, module.Module)
+		}
+		return fmt.Sprintf("%s modules [%s]: mining=%t", containerName, strings.Join(coordinates, ", "), *p.Mining)
+	}
+	return fmt.Sprintf("%s tanks %v: mining=%t", containerName, p.Positions, *p.Mining)
+}
 func (p scopedMiningPayload) Validate() error {
 	if len(p.ModuleIDs) > 0 {
 		if len(p.TankIDs) > 0 || len(p.Positions) > 0 || len(p.Modules) != len(p.ModuleIDs) {

@@ -62,12 +62,13 @@ const MinerListActionBar = ({
     selectionIncludesUnauthenticatedMiner,
   } = selectionRef.current;
   const minerIdentifiers = selectedMinerIdentifiers(selectedKeys);
-  const itemNoun =
-    modules.length > 0
-      ? minerIdentifiers.length > 0
+  let itemNoun = { singular: "miner", plural: "miners" };
+  if (modules.length > 0) {
+    itemNoun =
+      minerIdentifiers.length > 0
         ? { singular: "mining asset", plural: "mining assets" }
-        : { singular: "module", plural: "modules" }
-      : { singular: "miner", plural: "miners" };
+        : { singular: "module", plural: "modules" };
+  }
   const effectiveSelectionMode =
     selectionMode === "all" && (selectAllOnPage || modules.length > 0) ? "subset" : selectionMode;
 

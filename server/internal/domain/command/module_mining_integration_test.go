@@ -172,3 +172,42 @@ func TestModuleMiningAdmissionGroupsExactScopeAcrossTanksAndControllers(t *testi
 	require.NoError(t, err)
 	require.EqualValues(t, 1, result.TotalCount)
 }
+
+func TestScopedMiningPendingReasonCoversBothScopes(t *testing.T) {
+	for _, pendingModule := range []bool{false, true} {
+		name := "pending tank"
+		if pendingModule {
+			name = "pending module"
+		}
+		t.Run(name, func(t *testing.T) {
+			conn, dbs, user := setupRetentionTest(t)
+			_, _, tanks := seedTankController(t, conn, dbs, user.OrganizationID)
+			modules := []int64{seedCommandModule(t, conn, tanks[0], 2, "module-a")}
+			svc := newDispatchIntegrationTestService(t, conn, failingEnqueueQueue{delegate: queue.NewDatabaseMessageQueue(&queue.Config{DequeLimit: 10, MaxFailureRetries: 1}, conn)})
+			svc.SetPluginCapabilitiesProvider(moduleCapabilities{true})
+			ctx := testutil.MockAuthContextForTesting(t.Context(), user.DatabaseID, user.OrganizationID)
+			allow := func(context.Context, *int64, bool) error { return nil }
+			if pendingModule {
+				_, err := svc.SetModuleMining(ctx, modules, new(false), allow)
+				require.NoError(t, err)
+			} else {
+				_, err := svc.SetTankMining(ctx, tanks[:1], new(false), allow)
+				require.NoError(t, err)
+			}
+			tankOptions, err := svc.GetTankMiningOptions(ctx, tanks[:1], allow)
+			require.NoError(t, err)
+			require.False(t, tankOptions.CanStart)
+			require.False(t, tankOptions.CanStop)
+			require.Equal(t, "A tank or module mining command is already pending for this container.", tankOptions.UnavailableReason)
+			moduleOptions, err := svc.GetModuleMiningOptions(ctx, modules, allow)
+			require.NoError(t, err)
+			require.False(t, moduleOptions.CanStart)
+			require.False(t, moduleOptions.CanStop)
+			require.Equal(t, tankOptions.UnavailableReason, moduleOptions.UnavailableReason)
+			_, err = svc.SetTankMining(ctx, tanks[:1], new(true), allow)
+			require.ErrorContains(t, err, "a tank or module mining command is already pending for this container")
+			_, err = svc.SetModuleMining(ctx, modules, new(true), allow)
+			require.ErrorContains(t, err, "a tank or module mining command is already pending for this container")
+		})
+	}
+}
