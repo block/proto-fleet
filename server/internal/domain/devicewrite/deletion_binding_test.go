@@ -17,6 +17,7 @@ func TestDeletionRefusesBusyBindingThenRetriesCoherentIdentity(t *testing.T) {
 	cfg, err := testutil.GetTestConfig()
 	require.NoError(t, err)
 	database := testutil.NewDatabaseService(t, cfg)
+	testutil.ObserveDatabaseWaits(t, database.DB)
 	user := database.CreateSuperAdminUser()
 	device := createDeletionBindingFixture(t, database, user.OrganizationID)
 	other := createDeletionBindingFixture(t, database, user.OrganizationID)

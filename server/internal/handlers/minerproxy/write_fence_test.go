@@ -116,6 +116,7 @@ func awaitProxyBarrier(t *testing.T, barrier <-chan struct{}) {
 }
 func TestProxyAttemptRetainsResponseReadAndCloseLifetime(t *testing.T) {
 	database, orgID, deviceID, h, target := proxyFenceFixture(t)
+	testutil.ObserveDatabaseWaits(t, database.DB)
 	body := &proxyBodyBarrier{reader: strings.NewReader("{}"), readStarted: make(chan struct{}), readRelease: make(chan struct{}), closeStarted: make(chan struct{}), closeRelease: make(chan struct{})}
 	releaseRead := sync.OnceFunc(func() { close(body.readRelease) })
 	releaseClose := sync.OnceFunc(func() { close(body.closeRelease) })
