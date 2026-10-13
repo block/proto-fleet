@@ -155,10 +155,11 @@ test("mixed selections keep modules out of conventional miner dispatch and preve
     expect.objectContaining({ selectedMiners: ["miner-a"], selectionMode: "subset", totalCount: 1 }),
   );
   expect(selections.modules).toHaveBeenLastCalledWith(expect.objectContaining({ modules: [module] }));
-  expect(getByTestId("action-bar")).toHaveTextContent("2 miners selected");
+  expect(getByTestId("action-bar")).toHaveTextContent("2 mining assets selected");
   expect(getByTestId("action-bar")).not.toHaveTextContent("40");
   selections.miners.mockClear();
   rerender(<MinerListActionBar selectedKeys={["module:11"]} modules={[module]} selectionMode="subset" />);
+  expect(getByTestId("action-bar")).toHaveTextContent("1 module selected");
   expect(queryByTestId("actions-menu-button")).not.toBeInTheDocument();
   expect(selections.miners).not.toHaveBeenCalled();
 });
@@ -188,7 +189,7 @@ test.each(["module:11", "miner:module:11", "module:"])(
       expect.objectContaining({ selectedMiners: [identifier], totalCount: 1 }),
     );
     expect(selections.modules).toHaveBeenLastCalledWith(expect.objectContaining({ modules: [module] }));
-    expect(getByTestId("action-bar")).toHaveTextContent("2 miners selected");
+    expect(getByTestId("action-bar")).toHaveTextContent("2 mining assets selected");
 
     rerender(<MinerListActionBar selectedKeys={[`miner:${identifier}`]} selectionMode="subset" />);
     expect(queryByTestId("module-actions-menu")).not.toBeInTheDocument();
