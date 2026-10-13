@@ -9,6 +9,22 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
+func TestTestDatabaseDisablesScheduledMaintenance(t *testing.T) {
+	database := GetTestDB(t)
+	var policies, scheduled int
+	err := database.QueryRowContext(t.Context(), `SELECT count(*), count(*) FILTER (WHERE scheduled)
+ FROM timescaledb_information.jobs WHERE proc_name LIKE 'policy_%'`).Scan(&policies, &scheduled)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if policies == 0 {
+		t.Fatal("test database must retain the migrated maintenance policies")
+	}
+	if scheduled != 0 {
+		t.Fatalf("%d maintenance policies can run during tests; want none", scheduled)
+	}
+}
+
 func TestIsRetryableMigrationError(t *testing.T) {
 	tests := []struct {
 		name string

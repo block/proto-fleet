@@ -75,7 +75,22 @@ func GetTestDB(t *testing.T) *sql.DB {
 		dropTestDatabase(context.Background(), t, &adminConfig, dbName)
 	})
 
+	// Also cover the direct-migration fallback and policies added while healing
+	// a stale clone. Tests run maintenance explicitly when they need it.
+	assert.NoError(t, disableScheduledMaintenance(t.Context(), conn))
+
 	return conn
+}
+
+func disableScheduledMaintenance(ctx context.Context, conn *sql.DB) error {
+	// Retention and aggregate refresh workers can acquire table locks between
+	// coordinated test transactions, or remove/materialize their fixture data.
+	_, err := conn.ExecContext(ctx, `SELECT alter_job(job_id, scheduled => false)
+ FROM timescaledb_information.jobs WHERE scheduled AND proc_name LIKE 'policy_%'`)
+	if err != nil {
+		return fmt.Errorf("disable test database maintenance policies: %w", err)
+	}
+	return nil
 }
 
 const (
