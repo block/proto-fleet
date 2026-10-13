@@ -308,9 +308,16 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	body, err := readProxyBody(w, r)
+	body, err := readProxyBody(w, r.WithContext(ctx))
 	if err != nil {
-		writeError(w, http.StatusRequestEntityTooLarge, err.Error())
+		errorRequest := r
+		if errors.Is(err, context.DeadlineExceeded) {
+			// HTTP/1 cancels the request context when its body read deadline
+			// expires. That cancellation must not immediately interrupt the
+			// separately bounded timeout response on the still-writable socket.
+			errorRequest = r.WithContext(context.WithoutCancel(r.Context()))
+		}
+		writeProxyError(w, errorRequest, err, timeout)
 		return
 	}
 
@@ -752,12 +759,52 @@ func readProxyBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	if r.Body == nil || r.Body == http.NoBody {
 		return nil, nil
 	}
+	controller := http.NewResponseController(w)
+	deadline, ok := r.Context().Deadline()
+	if !ok {
+		return nil, fleeterror.NewUnavailableErrorf("miner request body read deadline could not be enforced")
+	}
+	if err := controller.SetReadDeadline(deadline); err != nil {
+		return nil, fleeterror.NewUnavailableErrorf("miner request body read deadline could not be enforced")
+	}
+	interrupted := make(chan struct{})
+	stop := context.AfterFunc(r.Context(), func() {
+		defer close(interrupted)
+		_ = controller.SetReadDeadline(time.Now())
+	})
+	defer func() {
+		// Close can consume unread HTTP/1 bytes. Keep the deadline and interrupt
+		// callback until it finishes, then join the callback before resetting the
+		// writer so it cannot change a subsequent request's deadline.
+		if !stop() {
+			<-interrupted
+		}
+		_ = controller.SetReadDeadline(time.Time{})
+	}()
 	defer r.Body.Close()
 
 	reader := http.MaxBytesReader(w, r.Body, maxProxyBodyBytes)
 	body, err := io.ReadAll(reader)
+	if ctxErr := r.Context().Err(); ctxErr != nil {
+		// A read deadline can cancel the HTTP/1 request context before the
+		// operation timer runs. Preserve deadline expiry instead of reporting
+		// that incidental cancellation as a client disconnect.
+		if !time.Now().Before(deadline) {
+			ctxErr = context.DeadlineExceeded
+		}
+		return nil, fmt.Errorf("proxied request body read interrupted: %w", ctxErr)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("proxied request body exceeds %d bytes", maxProxyBodyBytes)
+		var limitErr *http.MaxBytesError
+		var timeoutErr net.Error
+		switch {
+		case errors.As(err, &limitErr):
+			return nil, fmt.Errorf("proxied request body exceeds %d bytes: %w", maxProxyBodyBytes, err)
+		case errors.As(err, &timeoutErr) && timeoutErr.Timeout():
+			return nil, fmt.Errorf("proxied request body read timed out: %w", context.DeadlineExceeded)
+		default:
+			return nil, fleeterror.NewInvalidArgumentError("proxied request body could not be read")
+		}
 	}
 	if len(body) == 0 {
 		return nil, nil
@@ -1151,7 +1198,10 @@ func parseRoutableMinerAddr(ipAddress string) (netip.Addr, error) {
 }
 
 func httpStatusForError(err error) int {
+	var limitErr *http.MaxBytesError
 	switch {
+	case errors.As(err, &limitErr):
+		return http.StatusRequestEntityTooLarge
 	case errors.Is(err, context.DeadlineExceeded):
 		return http.StatusBadGateway
 	case fleeterror.IsAuthenticationError(err):
@@ -1172,7 +1222,10 @@ func httpStatusForError(err error) int {
 }
 
 func clientMessageForError(err error) string {
+	var limitErr *http.MaxBytesError
 	switch {
+	case errors.As(err, &limitErr):
+		return fmt.Sprintf("proxied request body exceeds %d bytes", limitErr.Limit)
 	case fleeterror.IsAuthenticationError(err):
 		return "authentication required"
 	case fleeterror.IsForbiddenError(err):

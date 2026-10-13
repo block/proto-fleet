@@ -82,8 +82,8 @@ Miner proxy traffic has its own immediate admission cap:
 shared dispatch capacity, leaving capacity for commands and curtailment. Excess
 requests return 503 before creating an attempt. The proxy is disabled when the
 shared dispatch capacity is below two. Each proxy operation has a 30-second
-budget including connection and binding-lock waits; downstream response delivery
-has a separate 30-second budget.
+budget including request-body reads, connection and binding-lock waits; downstream
+response delivery has a separate 30-second budget.
 
 Fleet Node heartbeats write `fleet_node_heartbeat` independently of the routing
 row. Enrollment, mining-asset status and unavailable-node alerts read `fleet_node_live`.
