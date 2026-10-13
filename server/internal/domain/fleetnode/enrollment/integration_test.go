@@ -537,3 +537,33 @@ func TestListAgentsSurfacesAwaitingConfirmation(t *testing.T) {
 	require.Equal(t, pendingEnrollment.ID, *found.PendingEnrollmentID)
 	require.Equal(t, fleetnodeenrollment.StatusAwaitingConfirmation, found.PendingEnrollmentStatus)
 }
+
+func TestRevokeAwaitingNodeRetainsExpectedEnrollmentForCleanupRetry(t *testing.T) {
+	database, userID, orgID, enrollment, _ := setupEnrollmentTest(t)
+	pubKey, _, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	code, expectedID, _, err := enrollment.CreateCodeWithEnrollmentID(t.Context(), userID, orgID, time.Hour)
+	require.NoError(t, err)
+	agent, _, err := enrollment.RegisterFleetNode(t.Context(), code, "retry-awaiting-node", pubKey, []byte("01234567890123456789012345678901"))
+	require.NoError(t, err)
+	_, unrelatedID, _, err := enrollment.CreateCodeWithEnrollmentID(t.Context(), userID, orgID, time.Hour)
+	require.NoError(t, err)
+	insertFleetNodeDevice(t, database, orgID, agent.ID)
+	revokeCtx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	// Interrupt only after the authentication transaction has committed.
+	enrollment.WithControlStreamInvalidator(func(int64) { cancel() })
+	require.Error(t, enrollment.RevokeFleetNodeForEnrollment(revokeCtx, agent.ID, orgID, expectedID))
+	var nodeStatus, pendingStatus string
+	require.NoError(t, database.QueryRowContext(t.Context(), "SELECT enrollment_status FROM fleet_node WHERE id=$1", agent.ID).Scan(&nodeStatus))
+	require.Equal(t, "REVOKED", nodeStatus)
+	require.NoError(t, database.QueryRowContext(t.Context(), "SELECT status FROM pending_enrollment WHERE id=$1", expectedID).Scan(&pendingStatus))
+	require.Equal(t, "CANCELLED", pendingStatus)
+	enrollment.WithControlStreamInvalidator(nil)
+	require.Error(t, enrollment.RevokeFleetNodeForEnrollment(t.Context(), agent.ID, orgID, unrelatedID))
+	require.Error(t, enrollment.RevokeFleetNodeForEnrollment(t.Context(), agent.ID, orgID+1, expectedID))
+	require.NoError(t, enrollment.RevokeFleetNodeForEnrollment(t.Context(), agent.ID, orgID, expectedID))
+	var deleted bool
+	require.NoError(t, database.QueryRowContext(t.Context(), "SELECT deleted_at IS NOT NULL FROM fleet_node WHERE id=$1", agent.ID).Scan(&deleted))
+	require.True(t, deleted)
+}

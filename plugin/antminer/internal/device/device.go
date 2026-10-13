@@ -783,7 +783,7 @@ func (d *Device) UpdateMinerPassword(ctx context.Context, currentPassword string
 
 // Optional capabilities - these return false to indicate they're not supported
 
-func (d *Device) TryBatchStatus(ctx context.Context, _ []string) (map[string]sdk.DeviceMetrics, bool, error) {
+func (d *Device) TryBatchStatus(ctx context.Context, _ []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil // Not supported by individual devices
 }
 

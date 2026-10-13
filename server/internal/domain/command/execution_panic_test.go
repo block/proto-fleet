@@ -20,7 +20,7 @@ func TestQueuedAdapterPanicRetainsPhysicalWriteAttempt(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	miner := minerIfaceMocks.NewMockMiner(ctrl)
 	getter := minerMocks.NewMockCachedMinerGetter(ctrl)
-	getter.EXPECT().GetMiner(gomock.Any(), deviceID).Return(miner, nil)
+	getter.EXPECT().GetMinerForCommand(gomock.Any(), deviceID).Return(miner, nil)
 	miner.EXPECT().GetOrgID().Return(int64(1))
 	miner.EXPECT().GetSiteID().Return(int64(0))
 	miner.EXPECT().StopMining(gomock.Any()).DoAndReturn(func(context.Context) error {

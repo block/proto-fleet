@@ -532,7 +532,9 @@ type DeviceErrorReporting interface {
 // DeviceOptional represents optional device capabilities
 type DeviceOptional interface {
 	// Optional capabilities - return (result, false, nil) if unsupported
-	TryBatchStatus(ctx context.Context, ids []string) (map[string]DeviceMetrics, bool, error)
+	// TryBatchStatus accepts captured device handles so remote adapters retain
+	// each backend generation; callers must not substitute newer registrations.
+	TryBatchStatus(ctx context.Context, devices []Device) (map[string]DeviceMetrics, bool, error)
 	TrySubscribe(ctx context.Context, ids []string) (<-chan DeviceMetrics, bool, error)
 	TryGetWebViewURL(ctx context.Context) (string, bool, error)
 	TryGetTimeSeriesData(ctx context.Context, metricNames []string, startTime, endTime time.Time, granularity *time.Duration, maxPoints int32, pageToken string) (series []DeviceMetrics, nextPageToken string, supported bool, err error)
@@ -562,6 +564,15 @@ type Driver interface {
 	// CoreV1 - Device Management (required)
 	NewDevice(ctx context.Context, deviceID string, deviceInfo DeviceInfo, secret SecretBundle) (NewDeviceResult, error)
 }
+
+// ScopedDeviceResolver preserves an existing backend for an exact trusted
+// lifecycle scope and complete connection/secret configuration. NewDevice keeps
+// its unconditional replacement semantics.
+type ScopedDeviceResolver interface {
+	GetOrCreateDevice(ctx context.Context, id string, info DeviceInfo, secret SecretBundle, scope string) (NewDeviceResult, error)
+}
+
+const CapabilityScopedDeviceReuse = "sdk_scoped_device_reuse"
 
 // DefaultCredentialsProvider is an optional interface that drivers can implement
 // to provide default credentials for auto-authentication during pairing.

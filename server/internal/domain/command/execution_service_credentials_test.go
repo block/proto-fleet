@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"testing"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -415,6 +416,8 @@ func setupPasswordCommandDeviceWithStatus(t *testing.T, driverName string, withC
 type commandTestPluginManager struct {
 	driverName string
 	driver     sdk.Driver
+	scoped     *sdkMocks.ScopedDriverFixture
+	scopedMu   sync.Mutex
 }
 
 func (m *commandTestPluginManager) HasPluginForDriverName(driverName string) bool {
@@ -426,8 +429,13 @@ func (m *commandTestPluginManager) GetCapabilitiesForDriverName(string) sdk.Capa
 }
 
 func (m *commandTestPluginManager) GetDriverByDriverName(driverName string) (sdk.Driver, error) {
+	m.scopedMu.Lock()
+	defer m.scopedMu.Unlock()
 	if driverName == m.driverName {
-		return m.driver, nil
+		if m.scoped == nil {
+			m.scoped = &sdkMocks.ScopedDriverFixture{Driver: m.driver}
+		}
+		return m.scoped, nil
 	}
 	return nil, fmt.Errorf("no driver registered for %s", driverName)
 }

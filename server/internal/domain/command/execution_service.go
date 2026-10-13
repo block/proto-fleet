@@ -45,7 +45,7 @@ const (
 
 //go:generate go run go.uber.org/mock/mockgen -source=execution_service.go -destination=mocks/mock_miner_getter.go -package=mocks MinerGetter,CachedMinerGetter
 type MinerGetter interface {
-	GetMiner(ctx context.Context, deviceID int64) (interfaces.Miner, error)
+	GetMinerForCommand(ctx context.Context, deviceID int64) (interfaces.Miner, error)
 	GetMinerForPasswordUpdate(ctx context.Context, deviceID int64, currentPassword string) (interfaces.Miner, error)
 }
 
@@ -615,8 +615,8 @@ func (es *ExecutionService) executeQueuedCommand(ctx context.Context, message qu
 	}
 	orgID, siteID, resultErr = es.executeCommandOnDevice(attempt.Context(ctx), message.CommandType, message)
 	if resultErr == nil {
-		// Error-only adapters acknowledge a command without certifying that
-		// device-side work ended, including an accepted or follow-on reboot.
+		// Preserve dispatch evidence for adapters that do not participate in Dispatch.
+		// Finish distinguishes ordered writes from asynchronous operations.
 		attempt.Accepted()
 	}
 	// A panic has no known physical outcome. Only complete the attempt after
@@ -790,28 +790,28 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 
 	switch commandType {
 	case commandtype.Reboot:
-		err = devicewrite.Dispatch(ctx, func(ctx context.Context) error { return minerInfo.Reboot(ctx) })
+		err = minerInfo.Reboot(ctx)
 		if err == nil {
 			es.clearFirmwareUpdateStatus(ctx, message.DeviceID)
 		}
 	case commandtype.StartMining:
-		err = devicewrite.Dispatch(ctx, func(ctx context.Context) error { return minerInfo.StartMining(ctx) })
+		err = minerInfo.StartMining(ctx)
 	case commandtype.StopMining:
-		err = devicewrite.Dispatch(ctx, func(ctx context.Context) error { return minerInfo.StopMining(ctx) })
+		err = minerInfo.StopMining(ctx)
 	case commandtype.SetCoolingMode:
 		var p dto.CoolingModePayload
 		coolingExtractErr := json.Unmarshal(message.Payload, &p)
 		if coolingExtractErr != nil {
 			return orgID, siteID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", coolingExtractErr)
 		}
-		err = devicewrite.Dispatch(ctx, func(ctx context.Context) error { return minerInfo.SetCoolingMode(ctx, p) })
+		err = minerInfo.SetCoolingMode(ctx, p)
 	case commandtype.SetPowerTarget:
 		var p dto.PowerTargetPayload
 		powerExtractErr := json.Unmarshal(message.Payload, &p)
 		if powerExtractErr != nil {
 			return orgID, siteID, fleeterror.NewInternalErrorf("error unmarshalling command payload: %v", powerExtractErr)
 		}
-		err = devicewrite.Dispatch(ctx, func(ctx context.Context) error { return minerInfo.SetPowerTarget(ctx, p) })
+		err = minerInfo.SetPowerTarget(ctx, p)
 	case commandtype.UpdateMiningPools:
 		var p dto.UpdateMiningPoolsPayload
 		updateExtractErr := json.Unmarshal(message.Payload, &p)
@@ -837,7 +837,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 				break
 			}
 		}
-		err = devicewrite.Dispatch(ctx, func(ctx context.Context) error { return minerInfo.UpdateMiningPools(ctx, p) })
+		err = minerInfo.UpdateMiningPools(ctx, p)
 		if err == nil && workerNameToPersist != "" {
 			err = es.persistWorkerNameAfterPoolUpdate(ctx, message.DeviceID, minerInfo.GetID(), workerNameToPersist)
 			if err != nil {
@@ -864,15 +864,13 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		}
 		err = func() error {
 			defer reader.Close()
-			return devicewrite.Dispatch(ctx, func(ctx context.Context) error {
-				return minerInfo.FirmwareUpdate(ctx, sdk.FirmwareFile{
-					Reader:   reader,
-					ID:       info.ID,
-					Filename: info.Filename,
-					Size:     info.Size,
-					SHA256:   info.SHA256,
-					FilePath: info.FilePath,
-				})
+			return minerInfo.FirmwareUpdate(ctx, sdk.FirmwareFile{
+				Reader:   reader,
+				ID:       info.ID,
+				Filename: info.Filename,
+				Size:     info.Size,
+				SHA256:   info.SHA256,
+				FilePath: info.FilePath,
 			})
 		}()
 		if err != nil {
@@ -891,7 +889,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 			err = es.rebootAfterFirmwareInstall(ctx, minerInfo, message.DeviceID)
 		}
 	case commandtype.Unpair:
-		err = devicewrite.Dispatch(ctx, func(ctx context.Context) error { return minerInfo.Unpair(ctx) })
+		err = minerInfo.Unpair(ctx)
 		if err == nil {
 			if unpairErr := es.handleUnpairPostProcessing(ctx, message.DeviceID); unpairErr != nil {
 				slog.Error("unpair post-processing failed", "device_id", message.DeviceID, "error", unpairErr)
@@ -908,11 +906,9 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		if p.Level < int32(sdk.CurtailLevelEfficiency) || p.Level > int32(sdk.CurtailLevelFull) {
 			return orgID, siteID, fleeterror.NewFailedPreconditionErrorf("invalid curtail level %d: must be %d (Efficiency) or %d (Full)", p.Level, sdk.CurtailLevelEfficiency, sdk.CurtailLevelFull)
 		}
-		err = devicewrite.Dispatch(ctx, func(ctx context.Context) error {
-			return minerInfo.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevel(p.Level)})
-		})
+		err = minerInfo.Curtail(ctx, sdk.CurtailRequest{Level: sdk.CurtailLevel(p.Level)})
 	case commandtype.Uncurtail:
-		err = devicewrite.Dispatch(ctx, func(ctx context.Context) error { return minerInfo.Uncurtail(ctx, sdk.UncurtailRequest{}) })
+		err = minerInfo.Uncurtail(ctx, sdk.UncurtailRequest{})
 	case commandtype.SetTankMining:
 		var payload scopedMiningPayload
 		if decodeErr := json.Unmarshal(message.Payload, &payload); decodeErr != nil {
@@ -947,7 +943,7 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		if !ok {
 			return orgID, siteID, fleeterror.NewUnimplementedError("equipment commands unsupported")
 		}
-		if writeErr := devicewrite.Dispatch(ctx, func(ctx context.Context) error { return controller.SetContainerControl(ctx, payload) }); writeErr != nil {
+		if writeErr := controller.SetContainerControl(ctx, payload); writeErr != nil {
 			// An ambiguous timeout/disconnect must not enqueue a second physical write.
 			return orgID, siteID, fleeterror.NewFailedPreconditionErrorf("equipment state unconfirmed: %v", writeErr)
 		}
@@ -964,19 +960,15 @@ func (es *ExecutionService) executeCommandOnDevice(ctx context.Context, commandT
 		if !ok {
 			return orgID, siteID, fleeterror.NewFailedPreconditionError("miner does not support curtailment configuration")
 		}
-		err = devicewrite.Dispatch(ctx, func(ctx context.Context) error { return configurator.ApplyCurtailmentConfig(ctx, dispatchPayload) })
+		err = configurator.ApplyCurtailmentConfig(ctx, dispatchPayload)
 	case commandtype.UpdateMinerPassword:
 		p := *passwordPayload
 
 		var encryptedCredentials *gatewaypb.EncryptedCredentials
 		if updater, ok := minerInfo.(interfaces.MinerPasswordCredentialUpdater); ok {
-			err = devicewrite.Dispatch(ctx, func(ctx context.Context) error {
-				var updateErr error
-				encryptedCredentials, updateErr = updater.UpdateMinerPasswordWithCredentials(ctx, p)
-				return updateErr
-			})
+			encryptedCredentials, err = updater.UpdateMinerPasswordWithCredentials(ctx, p)
 		} else {
-			err = devicewrite.Dispatch(ctx, func(ctx context.Context) error { return minerInfo.UpdateMinerPassword(ctx, p) })
+			err = minerInfo.UpdateMinerPassword(ctx, p)
 		}
 		if err != nil {
 			if fleeterror.IsAuthenticationError(err) {
@@ -1052,7 +1044,7 @@ func (es *ExecutionService) resolveMinerForCommand(ctx context.Context, commandT
 	if commandType == commandtype.UpdateMinerPassword && passwordPayload != nil && passwordPayload.EncryptedPasswordUpdate == nil {
 		miner, err = es.minerService.GetMinerForPasswordUpdate(ctx, deviceID, passwordPayload.CurrentPassword)
 	} else {
-		miner, err = es.minerService.GetMiner(ctx, deviceID)
+		miner, err = es.minerService.GetMinerForCommand(ctx, deviceID)
 	}
 	if err != nil {
 		return nil, err
@@ -1105,7 +1097,7 @@ func (es *ExecutionService) preflightWorkerNameReapply(
 			if err := readCtx.Err(); err != nil {
 				return fmt.Errorf("worker-name preflight canceled: %w", err)
 			}
-			minerInfo, err := es.minerService.GetMiner(readCtx, deviceIDs[identifier])
+			minerInfo, err := es.minerService.GetMinerForCommand(readCtx, deviceIDs[identifier])
 			if err != nil {
 				return err
 			}

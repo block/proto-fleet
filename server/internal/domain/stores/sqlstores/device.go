@@ -19,6 +19,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	tm "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
@@ -29,6 +30,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	"github.com/block/proto-fleet/server/internal/infrastructure/secrets"
+	"github.com/block/proto-fleet/server/internal/runtimepolicy"
 )
 
 const (
@@ -1039,8 +1041,8 @@ func (s *SQLDeviceStore) GetOfflineFleetNodeDevices(ctx context.Context) ([]stor
 
 func (s *SQLDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error) {
 	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (bool, error) {
-		// Lock the node before miner rows, matching revocation and pairing.
-		node, err := q.LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: target.FleetNodeID, OrgID: target.OrgID})
+		// Hold node identity while waiting for the device; do not delay revocation.
+		node, err := q.LockFleetNodeIdentityByID(ctx, sqlc.LockFleetNodeIdentityByIDParams{ID: target.FleetNodeID, OrgID: target.OrgID})
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
 		}
@@ -1052,6 +1054,15 @@ func (s *SQLDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, ta
 			OrgID:            target.OrgID,
 		})
 		if err != nil || len(locked) == 0 {
+			return false, err
+		}
+		// Enrollment may have been revoked during the device wait. Serialize the
+		// final check with revocation only after the device is available.
+		recheckedNode, err := q.LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: target.FleetNodeID, OrgID: target.OrgID})
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil || recheckedNode.EnrollmentStatus != string(enrollment.FleetNodeStatusConfirmed) {
 			return false, err
 		}
 		_, err = q.ApplyFleetNodeRecoveredEndpoint(ctx, sqlc.ApplyFleetNodeRecoveredEndpointParams{
@@ -1070,8 +1081,8 @@ func (s *SQLDeviceStore) ApplyFleetNodeRecoveredEndpoint(ctx context.Context, ta
 
 func (s *SQLDeviceStore) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.Context, target stores.FleetNodeRecoveryTarget, ipAddress, port, urlScheme string) (bool, error) {
 	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (bool, error) {
-		// Lock the node before the device, matching revocation and pairing.
-		node, err := q.LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: target.FleetNodeID, OrgID: target.OrgID})
+		// Hold node identity while waiting for the device; do not delay revocation.
+		node, err := q.LockFleetNodeIdentityByID(ctx, sqlc.LockFleetNodeIdentityByIDParams{ID: target.FleetNodeID, OrgID: target.OrgID})
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
 		}
@@ -1083,6 +1094,15 @@ func (s *SQLDeviceStore) ApplyFleetNodeRecoveryAuthenticationNeeded(ctx context.
 			OrgID:            target.OrgID,
 		})
 		if err != nil || len(locked) == 0 {
+			return false, err
+		}
+		// Enrollment may have been revoked during the device wait. Serialize the
+		// final check with revocation only after the device is available.
+		recheckedNode, err := q.LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: target.FleetNodeID, OrgID: target.OrgID})
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil || recheckedNode.EnrollmentStatus != string(enrollment.FleetNodeStatusConfirmed) {
 			return false, err
 		}
 		_, err = q.ApplyFleetNodeRecoveryAuthenticationNeeded(ctx, sqlc.ApplyFleetNodeRecoveryAuthenticationNeededParams{
@@ -1482,7 +1502,7 @@ func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifier
 		return 0, nil
 	}
 
-	deletedCount, err := db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (int64, error) {
+	deletedCount, err := db.WithTransactionTimeout(ctx, s.conn.DB, runtimepolicy.CommandTransactionBound, func(q sqlc.Querier) (int64, error) {
 		allBelong, err := q.AllDevicesBelongToOrg(ctx, sqlc.AllDevicesBelongToOrgParams{
 			ExpectedCount:     len(deviceIdentifiers),
 			DeviceIdentifiers: deviceIdentifiers,
@@ -1493,6 +1513,10 @@ func (s *SQLDeviceStore) SoftDeleteDevices(ctx context.Context, deviceIdentifier
 		}
 		if !allBelong {
 			return 0, fleeterror.NewForbiddenError("access denied to one or more requested devices")
+		}
+
+		if err := devicewrite.PrepareDeletion(ctx, q, orgID, deviceIdentifiers); err != nil {
+			return 0, err
 		}
 
 		if _, err := q.DeleteMinerCredentialsForDeviceIdentifiers(ctx, sqlc.DeleteMinerCredentialsForDeviceIdentifiersParams{
@@ -1587,7 +1611,7 @@ LEFT JOIN device_status ON device.id = device_status.device_id`)
 		sb.WriteString(`
 LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = device.id
     AND fleet_node_assignment.org_id = device.org_id
-LEFT JOIN fleet_node assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
+LEFT JOIN fleet_node_live assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
     AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
 LEFT JOIN LATERAL (SELECT ` + effectiveDeviceStatusExpr + ` AS status) effective_status ON TRUE`)
 	}
@@ -1671,7 +1695,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ON d.id = device_status.device_id
 LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = d.id
     AND fleet_node_assignment.org_id = d.org_id
-LEFT JOIN fleet_node assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
+LEFT JOIN fleet_node_live assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
     AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
 LEFT JOIN LATERAL (SELECT `+effectiveDeviceStatusExpr+` AS status) effective_status ON TRUE
 -- Open actionable errors (severity 1-4; excludes UNSPECIFIED=0)

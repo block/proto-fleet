@@ -54,7 +54,7 @@ pub struct AsicRsDevice {
 
     miner: Arc<Mutex<Option<Box<dyn Miner>>>>,
     cache_ttl: Duration,
-    last_data: Mutex<Option<(Instant, MinerData)>>,
+    last_data: Arc<Mutex<Option<(Instant, MinerData)>>>,
     pre_full_curtail_mining: Mutex<FullCurtailMiningState>,
     last_connect_attempt: Mutex<Option<Instant>>,
     factory: Arc<MinerFactory>,
@@ -105,7 +105,7 @@ impl AsicRsDevice {
             model: Mutex::new(model),
             miner: Arc::new(Mutex::new(miner)),
             cache_ttl,
-            last_data: Mutex::new(None),
+            last_data: Arc::new(Mutex::new(None)),
             pre_full_curtail_mining: Mutex::new(FullCurtailMiningState::Unknown),
             last_connect_attempt: Mutex::new(None),
             factory,
@@ -290,7 +290,7 @@ impl AsicRsDevice {
             }
         }
 
-        let guard = self.connected_miner().await?;
+        let mut guard = self.connected_miner().await?;
         let miner = guard.as_ref().unwrap();
 
         let result = catch_panic(tokio::time::timeout(TELEMETRY_TIMEOUT, miner.get_data())).await;
@@ -298,6 +298,14 @@ impl AsicRsDevice {
         // On failure, invalidate the connection so the next call forces a fresh probe
         match result {
             Ok(Ok(data)) => {
+                // A persistent HTTP/RPC client does not pin physical hardware.
+                // Check every fresh telemetry response, even after successful I/O.
+                if let Err(error) = verify_data_identity(&self.info, &data) {
+                    *guard = None;
+                    drop(guard);
+                    self.invalidate_cache().await;
+                    return Err(error);
+                }
                 let mut cache = self.last_data.lock().await;
                 *cache = Some((Instant::now(), data.clone()));
                 Ok(data)
@@ -319,7 +327,7 @@ impl AsicRsDevice {
     /// authentication before the endpoint is accepted (a session for LuxOS).
     pub async fn inspect_recovery(&self) -> anyhow::Result<MinerData> {
         let data = self.get_data().await?;
-        let guard = self.connected_miner().await?;
+        let guard = self.connected_write_miner().await?;
         let miner = guard
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Not connected"))?;
@@ -585,11 +593,27 @@ impl AsicRsDevice {
         Ok(guard)
     }
 
+    /// Verify fresh live identity while holding the same connection lock as the
+    /// following write. An IP replacement must not inherit this backend's state.
+    async fn connected_write_miner(
+        &self,
+    ) -> anyhow::Result<tokio::sync::MutexGuard<'_, Option<Box<dyn Miner>>>> {
+        let mut guard = self.connected_miner().await?;
+        let result = verify_live_identity(&self.info, guard.as_ref().unwrap().as_ref()).await;
+        if let Err(error) = result {
+            *guard = None;
+            drop(guard);
+            self.invalidate_cache().await;
+            return Err(error);
+        }
+        Ok(guard)
+    }
+
     // --- Control operations ---
 
     pub async fn start_mining(&self) -> anyhow::Result<()> {
         // Connect first to probe live caps, then check capability
-        let guard = self.connected_miner().await?;
+        let guard = self.connected_write_miner().await?;
         self.require_cap(CAP_MINING_START).await?;
         let miner = guard.as_ref().unwrap();
         let result = catch_panic(tokio::time::timeout(OP_TIMEOUT, miner.resume(None))).await?;
@@ -606,7 +630,7 @@ impl AsicRsDevice {
     }
 
     pub async fn stop_mining(&self) -> anyhow::Result<()> {
-        let guard = self.connected_miner().await?;
+        let guard = self.connected_write_miner().await?;
         self.require_cap(CAP_MINING_STOP).await?;
         let miner = guard.as_ref().unwrap();
         let result = catch_panic(tokio::time::timeout(OP_TIMEOUT, miner.pause(None))).await?;
@@ -628,7 +652,7 @@ impl AsicRsDevice {
         }
         self.invalidate_cache().await;
         let was_mining = self.get_data().await?.is_mining;
-        let guard = self.connected_miner().await?;
+        let guard = self.connected_write_miner().await?;
         self.require_cap(CAP_CURTAIL_FULL).await?;
         let miner = guard.as_ref().unwrap();
         let result = catch_panic(tokio::time::timeout(OP_TIMEOUT, miner.pause(None))).await?;
@@ -654,7 +678,7 @@ impl AsicRsDevice {
             self.invalidate_cache().await;
             return Ok(());
         }
-        let guard = self.connected_miner().await?;
+        let guard = self.connected_write_miner().await?;
         self.require_cap(CAP_CURTAIL_FULL).await?;
         let miner = guard.as_ref().unwrap();
         let result = catch_panic(tokio::time::timeout(OP_TIMEOUT, miner.resume(None))).await?;
@@ -686,7 +710,7 @@ impl AsicRsDevice {
     }
 
     pub async fn reboot(&self) -> anyhow::Result<()> {
-        let guard = self.connected_miner().await?;
+        let guard = self.connected_write_miner().await?;
         self.require_cap(CAP_REBOOT).await?;
         let miner = guard.as_ref().unwrap();
         let result = catch_panic(tokio::time::timeout(OP_TIMEOUT, miner.restart())).await?;
@@ -708,7 +732,7 @@ impl AsicRsDevice {
     }
 
     pub async fn blink_led(&self) -> anyhow::Result<()> {
-        let guard = self.connected_miner().await?;
+        let guard = self.connected_write_miner().await?;
         self.require_cap(CAP_LED_BLINK).await?;
         let miner = guard.as_ref().unwrap();
         let result = catch_panic(tokio::time::timeout(
@@ -725,10 +749,18 @@ impl AsicRsDevice {
 
         // Auto-off after 30 seconds with timeout to avoid indefinite mutex hold
         let miner_ref = self.miner.clone();
+        let expected_info = self.info.clone();
+        let telemetry_cache = self.last_data.clone();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(30)).await;
-            let guard = miner_ref.lock().await;
+            let mut guard = miner_ref.lock().await;
             if let Some(miner) = guard.as_ref() {
+                if let Err(error) = verify_live_identity(&expected_info, miner.as_ref()).await {
+                    tracing::warn!(error = %error, "LED auto-off identity check failed");
+                    *guard = None;
+                    *telemetry_cache.lock().await = None;
+                    return;
+                }
                 let result = catch_panic(tokio::time::timeout(
                     WRITE_PROBE_TIMEOUT,
                     miner.set_fault_light(false),
@@ -773,7 +805,7 @@ impl AsicRsDevice {
         if pools.iter().any(|pool| pool.password.is_none()) {
             return Err(anyhow::anyhow!("every pool requires an explicit password"));
         }
-        let guard = self.connected_miner().await?;
+        let guard = self.connected_write_miner().await?;
         self.require_cap(CAP_UPDATE_MINING_POOLS).await?;
         let miner = guard.as_ref().unwrap();
 
@@ -803,7 +835,7 @@ impl AsicRsDevice {
     }
 
     pub async fn set_power_target(&self, mode: pb::PerformanceMode) -> anyhow::Result<()> {
-        let guard = self.connected_miner().await?;
+        let guard = self.connected_write_miner().await?;
         self.require_cap(CAP_POWER_MODE_EFFICIENCY).await?;
         let miner = guard.as_ref().unwrap();
 
@@ -820,7 +852,7 @@ impl AsicRsDevice {
             "set_power_target"
         );
 
-        catch_panic(async {
+        let result = catch_panic(async {
             // Try MiningMode first (works on V2 and some V3 firmware).
             let config = TuningConfig::new(TuningTarget::MiningMode(mining_mode));
             let mode_result =
@@ -850,6 +882,9 @@ impl AsicRsDevice {
                         "MiningMode failed, falling back to power limit"
                     );
 
+                    // A failed first command can take seconds; check live
+                    // identity again before issuing the fallback write.
+                    verify_live_identity(&self.info, miner.as_ref()).await?;
                     let power_config = TuningConfig::new(TuningTarget::Power(
                         measurements::Power::from_watts(target_watts),
                     ));
@@ -867,13 +902,48 @@ impl AsicRsDevice {
                 }
             }
         })
-        .await?
+        .await
+        .and_then(|result| result);
+        if result.is_err() {
+            drop(guard);
+            self.invalidate_connection().await;
+        }
+        result
     }
 
     pub async fn close(&self) {
         let mut guard = self.miner.lock().await;
         *guard = None;
     }
+}
+
+fn verify_data_identity(info: &pb::DeviceInfo, data: &MinerData) -> anyhow::Result<()> {
+    let actual_mac = data
+        .mac
+        .as_ref()
+        .map(|mac| mac.to_string())
+        .unwrap_or_default();
+    verify_identity(
+        &info.model,
+        &info.serial_number,
+        &info.mac_address,
+        &data.device_info.model,
+        data.serial_number.as_deref().unwrap_or(""),
+        &actual_mac,
+    )
+    .map_err(|reason| anyhow::anyhow!("IP reassigned at {}: {}", info.host, reason))
+}
+
+async fn verify_live_identity(info: &pb::DeviceInfo, miner: &dyn Miner) -> anyhow::Result<()> {
+    let data = catch_panic(tokio::time::timeout(IDENTITY_TIMEOUT, miner.get_data()))
+        .await?
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "Identity check timed out for {}; rejecting write",
+                info.host
+            )
+        })?;
+    verify_data_identity(info, &data)
 }
 
 /// Strategy for validating write access, chosen based on firmware variant.

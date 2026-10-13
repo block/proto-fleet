@@ -72,6 +72,11 @@ func (s orderedPersistEnrollmentStore) LockFleetNodeByID(context.Context, int64,
 	return &enrollment.FleetNode{EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}, nil
 }
 
+func (s orderedPersistEnrollmentStore) LockFleetNodeIdentityByID(context.Context, int64, int64) (*enrollment.FleetNode, error) {
+	*s.events = append(*s.events, "lock_node_identity")
+	return &enrollment.FleetNode{EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}, nil
+}
+
 type errorEnrollmentStore struct {
 	enrollment.AgentStore
 	err error
@@ -81,7 +86,11 @@ func (s errorEnrollmentStore) LockFleetNodeByID(context.Context, int64, int64) (
 	return nil, s.err
 }
 
-func TestPersistPairResultLocksNodeThenDeviceBeforeWrites(t *testing.T) {
+func (s errorEnrollmentStore) LockFleetNodeIdentityByID(context.Context, int64, int64) (*enrollment.FleetNode, error) {
+	return nil, s.err
+}
+
+func TestPersistPairResultLocksIdentityThenDeviceThenEnrollmentBeforeWrites(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
 		outcome        gatewaypb.PairOutcome
@@ -109,7 +118,7 @@ func TestPersistPairResultLocksNodeThenDeviceBeforeWrites(t *testing.T) {
 			existing := &pairingpb.Device{DeviceIdentifier: identifier}
 			discoveredStore.EXPECT().GetDevice(gomock.Any(), gomock.Any()).Return(dd, nil)
 			deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), identifier, orgID).Return(existing, nil)
-			wantEvents := []string{"lock_node", "resolve_device", "lock_device"}
+			wantEvents := []string{"lock_node_identity", "resolve_device", "lock_device", "lock_node"}
 			wantStatus := StatusPaired
 			if tc.outcome != gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
 				wantEvents = append(wantEvents, "check_active_pairing")

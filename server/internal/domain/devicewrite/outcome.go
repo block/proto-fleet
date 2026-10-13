@@ -2,9 +2,9 @@ package devicewrite
 
 import "errors"
 
-// NotDispatched marks an error from preparation or admission that is known to
-// have failed before any outbound device operation. Never use it for transport
-// or acknowledgement errors, whose physical outcome may be ambiguous.
+// NotDispatched marks explicit evidence that no outbound device operation began.
+// Preparation/admission refusals and documented pre-execution transport refusals
+// qualify; generic transport or acknowledgement errors do not.
 func NotDispatched(err error) error {
 	if err == nil {
 		return nil
@@ -21,4 +21,23 @@ func (e *notDispatchedError) Unwrap() error { return e.err }
 func IsNotDispatched(err error) bool {
 	var preflight *notDispatchedError
 	return errors.As(err, &preflight)
+}
+
+// UncertainDelivery retains recovery requirements when an intermediary may still
+// queue or dispatch the request after its caller returns. Firmware API ordering
+// cannot establish that a Fleet Node transport failure reached that boundary.
+func UncertainDelivery(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &uncertainDeliveryError{err: err}
+}
+
+type uncertainDeliveryError struct{ err error }
+
+func (e *uncertainDeliveryError) Error() string { return e.err.Error() }
+func (e *uncertainDeliveryError) Unwrap() error { return e.err }
+func isUncertainDelivery(err error) bool {
+	var uncertain *uncertainDeliveryError
+	return errors.As(err, &uncertain)
 }

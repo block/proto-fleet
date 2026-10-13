@@ -556,24 +556,30 @@ func (q *Queries) OfflineDevicesForFleetNodeRevocation(ctx context.Context, arg 
 }
 
 const pairDeviceToFleetNode = `-- name: PairDeviceToFleetNode :execrows
+WITH locked_device AS MATERIALIZED (
+    SELECT device.id FROM device
+    WHERE device.id=$4 AND device.org_id=$2 FOR SHARE
+)
 INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id, assigned_by)
-VALUES ($1, $2, $3, $4)
+VALUES ($1, (SELECT locked_device.id FROM locked_device), $2, $3)
 ON CONFLICT (device_id) DO NOTHING
 `
 
 type PairDeviceToFleetNodeParams struct {
 	FleetNodeID int64
-	DeviceID    int64
 	OrgID       int64
 	AssignedBy  sql.NullInt64
+	DeviceID    int64
 }
 
+// The parent lock also protects absence of a route during dispatch. A scalar
+// lookup keeps a missing parent an insert error rather than a successful no-op.
 func (q *Queries) PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error) {
 	result, err := q.exec(ctx, q.pairDeviceToFleetNodeStmt, pairDeviceToFleetNode,
 		arg.FleetNodeID,
-		arg.DeviceID,
 		arg.OrgID,
 		arg.AssignedBy,
+		arg.DeviceID,
 	)
 	if err != nil {
 		return 0, err

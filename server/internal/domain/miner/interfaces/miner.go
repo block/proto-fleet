@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	diagnosticsModels "github.com/block/proto-fleet/server/internal/domain/diagnostics/models"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 
@@ -15,6 +16,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
+
+// MinerWriteGate lets server factories admit and track an actual SDK call or
+// node send. Invocation spans the operation and returns its result.
+type MinerWriteGate func(context.Context, commandtype.Type, func(context.Context) error) error
 
 //go:generate go run go.uber.org/mock/mockgen -source=miner.go -destination=mocks/mock_miner.go -package=mocks Miner
 type MinerInfo interface {

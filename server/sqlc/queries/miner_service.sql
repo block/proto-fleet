@@ -16,11 +16,16 @@ SELECT
     dd.url_scheme,
     dd.rpc_port,
     dd.rpc_tls,
-    d.site_id
+    d.site_id,
+    d.discovered_device_id,
+    dp.paired_at,
+    mc.updated_at AS credential_version,
+    COALESCE(f.epoch,0)::bigint AS write_epoch
 FROM device d
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN miner_credentials mc ON d.id = mc.device_id
+LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
 WHERE d.device_identifier = $1
     AND d.deleted_at IS NULL
     AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
@@ -31,6 +36,47 @@ WHERE d.device_identifier = $1
         WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
     )
 LIMIT 1;
+
+-- name: GetDeviceWriteDeletionBindings :many
+SELECT
+    d.id,
+    d.device_identifier,
+    dd.device_class,
+    dd.model,
+    dd.manufacturer,
+    dd.driver_name,
+    d.org_id,
+    d.serial_number,
+    d.mac_address,
+    mc.username_enc,
+    mc.password_enc,
+    dd.ip_address,
+    dd.port,
+    dd.url_scheme,
+    dd.rpc_port,
+    dd.rpc_tls,
+    d.site_id,
+    d.discovered_device_id,
+    dp.paired_at,
+    mc.updated_at AS credential_version,
+    COALESCE(f.epoch,0)::bigint AS write_epoch
+FROM device d
+JOIN discovered_device dd ON d.discovered_device_id = dd.id
+JOIN device_pairing dp ON d.id = dp.device_id
+LEFT JOIN miner_credentials mc ON d.id = mc.device_id
+LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
+WHERE d.id = ANY(sqlc.arg(device_ids)::bigint[])
+    AND d.org_id = sqlc.arg(organization_id)
+    AND dd.driver_name = 'proto'
+    AND d.deleted_at IS NULL
+    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+    -- Cloud dials this device directly, so exclude fleet-node-owned devices:
+    -- the node owns their I/O and the cloud has no route to them.
+    AND NOT EXISTS (
+        SELECT 1 FROM fleet_node_device fnd
+        WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
+    )
+ORDER BY d.id;
 
 -- name: GetDirectProtoMinerProxyTarget :one
 SELECT
@@ -94,13 +140,18 @@ SELECT
     dd.url_scheme,
     dd.rpc_port,
     dd.rpc_tls,
-    dd.firmware_version
+    dd.firmware_version,
+    d.discovered_device_id,
+    dp.paired_at,
+    mc.updated_at AS credential_version,
+    COALESCE(f.epoch,0)::bigint AS write_epoch
 FROM fleet_node_device fnd
 JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
 JOIN device_pairing dp ON dp.device_id = d.id
 JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
 LEFT JOIN miner_credentials mc ON d.id = mc.device_id
+LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
 WHERE d.device_identifier = $1
     AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
     AND fn.deleted_at IS NULL

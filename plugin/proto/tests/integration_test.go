@@ -564,10 +564,10 @@ func TestProtoPluginIntegration(t *testing.T) {
 
 		// Test batch operations (should return not supported)
 		t.Run("Batch Operations", func(t *testing.T) {
-			deviceIDs := []string{deviceID}
+			devices := []sdk.Device{device}
 
 			// Test batch status
-			_, supported, err := device.TryBatchStatus(ctx, deviceIDs)
+			_, supported, err := device.TryBatchStatus(ctx, devices)
 			require.NoError(t, err, "TryBatchStatus should not fail")
 			require.False(t, supported, "Batch status should be supported")
 

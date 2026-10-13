@@ -176,7 +176,7 @@ func (m *mockSDKDevice) TryGetWebViewURL(ctx context.Context) (string, bool, err
 	return "", false, nil
 }
 
-func (m *mockSDKDevice) TryBatchStatus(ctx context.Context, _ []string) (map[string]sdk.DeviceMetrics, bool, error) {
+func (m *mockSDKDevice) TryBatchStatus(ctx context.Context, _ []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil
 }
 
@@ -257,7 +257,7 @@ func (m *mockSDKDeviceWithoutCurtailment) GetErrors(context.Context) (sdk.Device
 func (m *mockSDKDeviceWithoutCurtailment) TryGetWebViewURL(context.Context) (string, bool, error) {
 	return "", false, nil
 }
-func (m *mockSDKDeviceWithoutCurtailment) TryBatchStatus(context.Context, []string) (map[string]sdk.DeviceMetrics, bool, error) {
+func (m *mockSDKDeviceWithoutCurtailment) TryBatchStatus(context.Context, []sdk.Device) (map[string]sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil
 }
 func (m *mockSDKDeviceWithoutCurtailment) TrySubscribe(context.Context, []string) (<-chan sdk.DeviceMetrics, bool, error) {

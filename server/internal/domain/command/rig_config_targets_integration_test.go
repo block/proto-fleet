@@ -196,7 +196,7 @@ func TestRigConfigTerminalFailureRequeuesOnlyFailedDevice(t *testing.T) {
 			execution := svc.executionService
 			if path == "worker" {
 				getter := commandmocks.NewMockCachedMinerGetter(gomock.NewController(t))
-				getter.EXPECT().GetMiner(gomock.Any(), failedID).Return(nil, errors.New("device unavailable"))
+				getter.EXPECT().GetMinerForCommand(gomock.Any(), failedID).Return(nil, errors.New("device unavailable"))
 				execution.minerService = getter
 				execution.workerProcessCommand(ctx, message)
 			} else {

@@ -4,12 +4,13 @@ import (
 	"context"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 func (m *Miner) SetModuleMining(ctx context.Context, req sdk.ModuleMiningRequest) error {
 	if err := req.Validate(); err != nil {
-		return err
+		return devicewrite.NotDispatched(err)
 	}
 	action := &gatewaypb.SetModuleMiningAction{Mining: req.Mining}
 	for _, t := range req.Modules {

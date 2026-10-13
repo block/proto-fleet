@@ -22,11 +22,9 @@ func (s *DriverGRPCServer) SetModuleMining(ctx context.Context, req *pb.SetModul
 	if err := payload.Validate(); err != nil {
 		return nil, grpcStatusError(err.Error(), codes.InvalidArgument, err.Error())
 	}
-	s.mu.RLock()
-	device, ok := s.devices[req.Ref.DeviceId]
-	s.mu.RUnlock()
-	if !ok {
-		return nil, sdkErrorToGRPCStatus(NewErrorDeviceNotFound(req.Ref.DeviceId))
+	device, err := s.selectDevice(req.Ref)
+	if err != nil {
+		return nil, err
 	}
 	controller, ok := device.(DeviceModuleMiner)
 	if !ok {
@@ -38,7 +36,7 @@ func (d *DeviceGRPCClient) SetModuleMining(ctx context.Context, req ModuleMining
 	if err := req.Validate(); err != nil {
 		return err
 	}
-	wire := &pb.SetModuleMiningRequest{Ref: &pb.DeviceRef{DeviceId: d.deviceID}, Mining: req.Mining}
+	wire := &pb.SetModuleMiningRequest{Ref: d.deviceRef(), Mining: req.Mining}
 	for _, m := range req.Modules {
 		wire.Modules = append(wire.Modules, &pb.ModuleMiningTarget{Tank: m.Tank, Module: m.Module, ReportedId: m.ReportedID})
 	}

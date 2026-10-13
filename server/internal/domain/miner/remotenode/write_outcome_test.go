@@ -39,11 +39,11 @@ func TestMiner_PreSendFailuresAreNotDispatched(t *testing.T) {
 			return m.UpdateMiningPools(t.Context(), poolPayload)
 		}},
 		{"command validation", func(m *Miner) error {
-			_, err := m.sendWithoutGate(t.Context(), &gatewaypb.MinerCommand{})
+			_, err := m.sendInSlot(t.Context(), &gatewaypb.MinerCommand{})
 			return err
 		}},
 		{"artifact command validation", func(m *Miner) error {
-			_, _, err := m.sendWithoutGateWithArtifactResults(t.Context(), &gatewaypb.MinerCommand{}, nil)
+			_, _, err := m.sendInSlotWithArtifactResults(t.Context(), &gatewaypb.MinerCommand{}, nil)
 			return err
 		}},
 		{"missing artifact sender", func(m *Miner) error { m.sender = &blockingSender{}; return m.FirmwareUpdate(t.Context(), firmware) }},

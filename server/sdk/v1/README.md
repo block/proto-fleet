@@ -226,12 +226,35 @@ type DeviceMaintenance interface {
 // DeviceOptional represents optional device capabilities
 type DeviceOptional interface {
     // Optional capabilities - return (result, false, nil) if unsupported
-    TryBatchStatus(ctx context.Context, ids []string) (map[string]DeviceStatusResponse, bool, error)
+    // Pass captured device handles to retain each backend generation.
+    TryBatchStatus(ctx context.Context, devices []Device) (map[string]DeviceStatusResponse, bool, error)
     TrySubscribe(ctx context.Context, ids []string) (<-chan DeviceStatusResponse, bool, error)
     TryGetWebViewURL(ctx context.Context) (string, bool, error)
     TryGetTimeSeriesData(ctx context.Context, metricNames []string, startTime, endTime time.Time, granularity *time.Duration, maxPoints int32, pageToken string) (series []DeviceStatusResponse, nextPageToken string, supported bool, err error)
 }
 ```
+
+### Fleet device resolution
+
+Fleet resolves persisted miners through `GetOrCreateDevice` with a required
+binding scope. An unchanged scope and connection configuration reuse the backend;
+a replacement returns a new generation that every captured handle carries.
+Password recovery uses a fresh transient scope, so earlier recovery handles
+cannot reach a later backend and credentials stay out of ordinary resolution.
+
+Pairing probes use `NewDevice` with an isolated probe identifier and close their
+handle afterward. Fleet validates plugin support and the returned scope, device
+identifier, and generation before accepting a scoped handle.
+
+Fleet requires the `sdk_scoped_device_reuse` capability when loading a plugin.
+Plugins built with an older SDK are rejected with an instruction to rebuild with
+the current Fleet SDK; matching the `v1` handshake version alone is insufficient.
+The SDK runtime advertises this capability automatically.
+
+A scoped backend generation is an opaque token of exactly 32 bytes. Carry the
+returned token unchanged in every device operation, including `DeviceRef` and
+`DescribeDeviceRequest`. An empty token is valid only for an unscoped registration;
+clients must not derive, truncate, or substitute generations.
 
 ### Cooling Modes
 
@@ -788,7 +811,7 @@ func (d *MyDevice) StartMining(ctx context.Context) error {
 }
 
 // For unsupported capabilities, use the appropriate error type
-func (d *MyDevice) TryBatchStatus(ctx context.Context, ids []string) (map[string]DeviceStatusResponse, bool, error) {
+func (d *MyDevice) TryBatchStatus(ctx context.Context, devices []Device) (map[string]DeviceStatusResponse, bool, error) {
     // Return supported=false instead of error for unsupported features
     return nil, false, nil
 }

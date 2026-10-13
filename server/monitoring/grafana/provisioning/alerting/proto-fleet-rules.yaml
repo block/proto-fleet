@@ -82,7 +82,7 @@ groups:
                     org_id::text AS organization_id,
                     id::text AS fleet_node_id,
                     1 AS value
-                FROM fleet_node
+                FROM fleet_node_live
                 WHERE enrollment_status = 'CONFIRMED'
                   AND deleted_at IS NULL
                   AND last_seen_at IS NOT NULL

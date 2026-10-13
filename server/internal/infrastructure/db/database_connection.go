@@ -45,6 +45,7 @@ func ConnectToDatabase(config *Config) (*sql.DB, error) {
 	conn.SetMaxIdleConns(config.MaxIdleConns)
 	conn.SetConnMaxLifetime(config.ConnMaxLifetime)
 	RegisterIdleConnectionPoolReset(conn, config.MaxIdleConns)
+	registerDispatchBudget(conn, config.MaxDispatchConns)
 
 	return conn, nil
 }

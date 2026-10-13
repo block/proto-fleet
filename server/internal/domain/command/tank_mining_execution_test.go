@@ -142,7 +142,14 @@ func TestTankMiningExecutionUsesAdmittedSiteWithCachedController(t *testing.T) {
 	messages, err := messageQueue.Dequeue(t.Context(), 1)
 	require.NoError(t, err)
 	require.Len(t, messages, 1)
-	orgID, siteID, err := es.executeCommandOnDevice(t.Context(), commandtype.SetTankMining, messages[0])
+	// Placement validation and the adapter gate must share the leased slot.
+	conn.SetMaxOpenConns(2)
+	spectator, err := conn.Conn(t.Context())
+	require.NoError(t, err)
+	defer spectator.Close()
+	dispatchCtx, cancelDispatch := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancelDispatch()
+	orgID, siteID, err := es.executeQueuedCommand(dispatchCtx, messages[0])
 	require.NoError(t, err, "the cached old site must not reject a command admitted at the new site")
 	require.Equal(t, oldPayload.OrgID, orgID)
 	require.Equal(t, site.ID, siteID)
@@ -274,7 +281,7 @@ func TestTankMiningExecutionCommitFailureDoesNotReplayPhysicalWrite(t *testing.T
 	svc, conn, deviceID, _, payload := setupTankMiningExecution(t)
 	controller := &executionTankController{onWrite: func(ctx context.Context) error {
 		// Terminate the transaction after the controller write succeeds, so
-		// Commit fails with an unknown outcome rather than replaying the write.
+		// Commit fails after the accepted write, without changing its outcome.
 		var terminated bool
 		err := conn.QueryRowContext(ctx, `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
 			WHERE datname=current_database() AND state='idle in transaction'
@@ -284,8 +291,7 @@ func TestTankMiningExecutionCommitFailureDoesNotReplayPhysicalWrite(t *testing.T
 		return nil
 	}}
 	err := svc.executeTankMining(t.Context(), deviceID, payload.OrgID, payload, controller)
-	require.True(t, fleeterror.IsFailedPreconditionError(err))
-	require.Equal(t, "failed_precondition: tank mining outcome unconfirmed", sanitizedErrorInfo(err).String)
+	require.NoError(t, err, "lock transaction cleanup must not replace an accepted tank write")
 	require.Equal(t, 1, controller.writes)
 }
 
@@ -319,8 +325,8 @@ func TestTankMiningExecutionSanitizesControllerFleetErrors(t *testing.T) {
 	require.Equal(t, 1, controller.writes)
 }
 
-func TestTankMiningRetainsPhysicalOutcomeEvidence(t *testing.T) {
-	for _, scenario := range []string{"accepted", "failed", "stale topology"} {
+func TestTankMiningCompletionDistinguishesUncertainDelivery(t *testing.T) {
+	for _, scenario := range []string{"accepted", "failed", "uncertain delivery", "stale topology"} {
 		t.Run(scenario, func(t *testing.T) {
 			svc, conn, deviceID, _, payload := setupTankMiningExecution(t)
 			message, _ := enqueueFenceTestCommand(t, conn, deviceID, commandtype.SetTankMining, payload)
@@ -330,6 +336,9 @@ func TestTankMiningRetainsPhysicalOutcomeEvidence(t *testing.T) {
 			controller := &executionTankController{}
 			if scenario == "failed" {
 				controller.err = errors.New("connection lost after send")
+			}
+			if scenario == "uncertain delivery" {
+				controller.err = devicewrite.UncertainDelivery(errors.New("Fleet Node delivery timed out"))
 			}
 			if scenario == "stale topology" {
 				_, err = conn.ExecContext(t.Context(), `UPDATE container_tank SET present=false WHERE device_id=$1`, deviceID)
@@ -347,13 +356,16 @@ func TestTankMiningRetainsPhysicalOutcomeEvidence(t *testing.T) {
 			if scenario == "stale topology" {
 				require.Zero(t, controller.writes)
 				require.Equal(t, "complete", status)
-				_, err = fences.Reserve(t.Context(), payload.OrgID, deviceID)
-				require.NoError(t, err)
 			} else {
 				require.Equal(t, 1, controller.writes)
+			}
+			_, err = fences.Reserve(t.Context(), payload.OrgID, deviceID)
+			if scenario == "uncertain delivery" {
 				require.Equal(t, "unknown", status)
-				_, err = fences.Reserve(t.Context(), payload.OrgID, deviceID)
 				require.True(t, fleeterror.IsFailedPreconditionError(err))
+			} else {
+				require.Equal(t, "complete", status)
+				require.NoError(t, err)
 			}
 		})
 	}

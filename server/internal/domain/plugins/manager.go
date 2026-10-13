@@ -205,6 +205,11 @@ func (m *Manager) loadPlugin(ctx context.Context, name, path string) error {
 		return fmt.Errorf("failed to get driver capabilities: %w", err)
 	}
 
+	if !caps[sdk.CapabilityScopedDeviceReuse] {
+		client.Kill()
+		return fmt.Errorf("plugin %s does not support required capability %q; rebuild the plugin with the current Fleet SDK", name, sdk.CapabilityScopedDeviceReuse)
+	}
+
 	var discoveryPorts []string
 	if provider, ok := driver.(sdk.DiscoveryPortsProvider); ok {
 		discoveryPorts = append(discoveryPorts, provider.GetDiscoveryPorts(ctx)...)
