@@ -552,6 +552,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteScheduleTargetsStmt, err = db.PrepareContext(ctx, deleteScheduleTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteScheduleTargets: %w", err)
 	}
+	if q.deleteUndispatchedDirectAttemptStmt, err = db.PrepareContext(ctx, deleteUndispatchedDirectAttempt); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteUndispatchedDirectAttempt: %w", err)
+	}
 	if q.deviceHasActiveCloudPairingStmt, err = db.PrepareContext(ctx, deviceHasActiveCloudPairing); err != nil {
 		return nil, fmt.Errorf("error preparing query DeviceHasActiveCloudPairing: %w", err)
 	}
@@ -1871,6 +1874,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockMinerBindingDiscoveryStmt, err = db.PrepareContext(ctx, lockMinerBindingDiscovery); err != nil {
 		return nil, fmt.Errorf("error preparing query LockMinerBindingDiscovery: %w", err)
+	}
+	if q.lockMinerBindingObservationDeviceStmt, err = db.PrepareContext(ctx, lockMinerBindingObservationDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query LockMinerBindingObservationDevice: %w", err)
 	}
 	if q.lockMinerBindingPairingStmt, err = db.PrepareContext(ctx, lockMinerBindingPairing); err != nil {
 		return nil, fmt.Errorf("error preparing query LockMinerBindingPairing: %w", err)
@@ -3427,6 +3433,11 @@ func (q *Queries) Close() error {
 	if q.deleteScheduleTargetsStmt != nil {
 		if cerr := q.deleteScheduleTargetsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteScheduleTargetsStmt: %w", cerr)
+		}
+	}
+	if q.deleteUndispatchedDirectAttemptStmt != nil {
+		if cerr := q.deleteUndispatchedDirectAttemptStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteUndispatchedDirectAttemptStmt: %w", cerr)
 		}
 	}
 	if q.deviceHasActiveCloudPairingStmt != nil {
@@ -5629,6 +5640,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockMinerBindingDiscoveryStmt: %w", cerr)
 		}
 	}
+	if q.lockMinerBindingObservationDeviceStmt != nil {
+		if cerr := q.lockMinerBindingObservationDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockMinerBindingObservationDeviceStmt: %w", cerr)
+		}
+	}
 	if q.lockMinerBindingPairingStmt != nil {
 		if cerr := q.lockMinerBindingPairingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockMinerBindingPairingStmt: %w", cerr)
@@ -6964,6 +6980,7 @@ type Queries struct {
 	deleteReleaseChannelTargetsStmt                              *sql.Stmt
 	deleteReleasedFirmwareRolloutReservationsStmt                *sql.Stmt
 	deleteScheduleTargetsStmt                                    *sql.Stmt
+	deleteUndispatchedDirectAttemptStmt                          *sql.Stmt
 	deviceHasActiveCloudPairingStmt                              *sql.Stmt
 	deviceHasActivePairingStmt                                   *sql.Stmt
 	deviceHasRevokedFleetNodeStatusStmt                          *sql.Stmt
@@ -7404,6 +7421,7 @@ type Queries struct {
 	lockMinerBindingCredentialsStmt                              *sql.Stmt
 	lockMinerBindingDeviceStmt                                   *sql.Stmt
 	lockMinerBindingDiscoveryStmt                                *sql.Stmt
+	lockMinerBindingObservationDeviceStmt                        *sql.Stmt
 	lockMinerBindingPairingStmt                                  *sql.Stmt
 	lockMinerBindingRoutesStmt                                   *sql.Stmt
 	lockQueuedDeviceWriteStmt                                    *sql.Stmt
@@ -7810,6 +7828,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteReleaseChannelTargetsStmt:                              q.deleteReleaseChannelTargetsStmt,
 		deleteReleasedFirmwareRolloutReservationsStmt:                q.deleteReleasedFirmwareRolloutReservationsStmt,
 		deleteScheduleTargetsStmt:                                    q.deleteScheduleTargetsStmt,
+		deleteUndispatchedDirectAttemptStmt:                          q.deleteUndispatchedDirectAttemptStmt,
 		deviceHasActiveCloudPairingStmt:                              q.deviceHasActiveCloudPairingStmt,
 		deviceHasActivePairingStmt:                                   q.deviceHasActivePairingStmt,
 		deviceHasRevokedFleetNodeStatusStmt:                          q.deviceHasRevokedFleetNodeStatusStmt,
@@ -8250,6 +8269,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockMinerBindingCredentialsStmt:                              q.lockMinerBindingCredentialsStmt,
 		lockMinerBindingDeviceStmt:                                   q.lockMinerBindingDeviceStmt,
 		lockMinerBindingDiscoveryStmt:                                q.lockMinerBindingDiscoveryStmt,
+		lockMinerBindingObservationDeviceStmt:                        q.lockMinerBindingObservationDeviceStmt,
 		lockMinerBindingPairingStmt:                                  q.lockMinerBindingPairingStmt,
 		lockMinerBindingRoutesStmt:                                   q.lockMinerBindingRoutesStmt,
 		lockQueuedDeviceWriteStmt:                                    q.lockQueuedDeviceWriteStmt,

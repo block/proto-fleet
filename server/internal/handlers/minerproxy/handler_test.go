@@ -18,6 +18,7 @@ import (
 	"connectrpc.com/authn"
 
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
@@ -291,7 +292,7 @@ func TestForwardV2ProbeSkipsMinerLoginOn401(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encrypt password: %v", err)
 	}
-	target := proxyTarget{
+	target := proxyTarget{dispatch: dispatchProxyOperation,
 		deviceIdentifier: "dev-1",
 		baseURL:          srv.URL,
 		passwordEnc:      sql.NullString{String: pwEnc, Valid: true},
@@ -361,7 +362,7 @@ func TestForwardV1RunsForceLoginRetryOn401(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encrypt password: %v", err)
 	}
-	target := proxyTarget{
+	target := proxyTarget{dispatch: dispatchProxyOperation,
 		deviceIdentifier: "dev-1",
 		baseURL:          srv.URL,
 		passwordEnc:      sql.NullString{String: pwEnc, Valid: true},
@@ -449,8 +450,8 @@ func TestIsUnproxyableEndpoint(t *testing.T) {
 
 func TestCacheKeyVariesByEndpoint(t *testing.T) {
 	creds := sql.NullString{String: "enc", Valid: true}
-	base := proxyTarget{deviceIdentifier: "device-1", baseURL: "http://10.0.0.42:50051", passwordEnc: creds}
-	moved := proxyTarget{deviceIdentifier: "device-1", baseURL: "http://10.0.0.99:50051", passwordEnc: creds}
+	base := proxyTarget{dispatch: dispatchProxyOperation, deviceIdentifier: "device-1", baseURL: "http://10.0.0.42:50051", passwordEnc: creds}
+	moved := proxyTarget{dispatch: dispatchProxyOperation, deviceIdentifier: "device-1", baseURL: "http://10.0.0.99:50051", passwordEnc: creds}
 
 	if base.cacheKey() == moved.cacheKey() {
 		t.Fatal("cacheKey must differ when the resolved endpoint changes for the same device")
@@ -478,7 +479,7 @@ func TestHasCredentials(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			target := proxyTarget{passwordEnc: tt.passwordEnc}
+			target := proxyTarget{dispatch: dispatchProxyOperation, passwordEnc: tt.passwordEnc}
 			if got := target.hasCredentials(); got != tt.want {
 				t.Fatalf("hasCredentials() = %v, want %v", got, tt.want)
 			}
@@ -754,7 +755,7 @@ func TestForwardCT1PoolHistory(t *testing.T) {
 	defer upstream.Close()
 
 	h := newForwardTestHandler(t)
-	target := proxyTarget{deviceIdentifier: "ct1", baseURL: upstream.URL}
+	target := proxyTarget{dispatch: dispatchProxyOperation, deviceIdentifier: "ct1", baseURL: upstream.URL}
 	src := httptest.NewRequest(http.MethodGet, "/miners/ct1/api/v2/telemetry/shares/history?"+query, nil)
 	src.Header.Set("Authorization", "Bearer fleet-token")
 	src.Header.Set("Cookie", "fleet_session=private")
@@ -794,7 +795,7 @@ func TestForwardCT1RunInWithoutV1Login(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target := proxyTarget{deviceIdentifier: "ct1", baseURL: upstream.URL, passwordEnc: sql.NullString{String: encrypted, Valid: true}}
+	target := proxyTarget{dispatch: dispatchProxyOperation, deviceIdentifier: "ct1", baseURL: upstream.URL, passwordEnc: sql.NullString{String: encrypted, Valid: true}}
 	src := httptest.NewRequest(http.MethodPost, "/miners/ct1/api/v2/modules/T1-M01/run-in?taskId=0123456789abcdef0123456789abcdef", nil)
 	src.Header.Set("Cookie", "fleet_session=private")
 	resp, err := h.forward(context.Background(), src, target, "/api/v2/modules/T1-M01/run-in", []byte(body), false)
@@ -857,7 +858,7 @@ func TestCT1ModuleActions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			target := proxyTarget{deviceIdentifier: "ct1", baseURL: upstream.URL, passwordEnc: sql.NullString{String: encrypted, Valid: true}}
+			target := proxyTarget{dispatch: dispatchProxyOperation, deviceIdentifier: "ct1", baseURL: upstream.URL, passwordEnc: sql.NullString{String: encrypted, Valid: true}}
 			src := httptest.NewRequest(http.MethodPost, "/miners/ct1"+proxyPath, nil)
 			src.Header.Set("Authorization", "Bearer fleet-token")
 			src.Header.Set("Cookie", "fleet_session=private")
@@ -931,4 +932,13 @@ func TestAccountSelectionDeniesRawMinerProxy(t *testing.T) {
 	if response.Code != http.StatusForbidden {
 		t.Fatalf("account-selected proxy status = %d, want 403", response.Code)
 	}
+}
+
+// Forwarding unit fixtures omit the SQL target resolver; production targets
+// acquire binding locks before either kind of transport call.
+func dispatchProxyOperation(ctx context.Context, mutation bool, call func(context.Context) error) error {
+	if mutation {
+		return devicewrite.Dispatch(ctx, call)
+	}
+	return devicewrite.Observe(ctx, call)
 }

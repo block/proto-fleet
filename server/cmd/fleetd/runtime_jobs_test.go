@@ -1,17 +1,27 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"crypto/tls"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http2"
+	"golang.org/x/net/http2/h2c"
 )
 
 type noopLifecycle struct{}
@@ -329,7 +339,7 @@ func TestServeFleetRuntimeServesHealthBeforeRuntimeActivation(t *testing.T) {
 	}}
 	result := make(chan error, 1)
 	go func() {
-		result <- serveFleetRuntime(server, listener, runtime, time.Second)
+		result <- serveFleetRuntime(server, listener, runtime, time.Second, nil)
 	}()
 	requireReceive(t, runtimeStarted)
 
@@ -358,9 +368,182 @@ func TestServeFleetRuntimeStopsHTTPWhenRuntimeFails(t *testing.T) {
 		listener,
 		scriptedFleetRuntime{run: func(context.Context) error { return runtimeErr }},
 		time.Second,
+		nil,
 	)
 
 	require.ErrorIs(t, err, runtimeErr)
+}
+
+func TestServeFleetRuntimeDrainsCancelledRequestsBeforeStoppingRuntime(t *testing.T) {
+	for _, protocol := range []string{"http1", "h2c"} {
+		t.Run(protocol, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			started := make(chan struct{})
+			cancelled := make(chan struct{})
+			allowCleanup := make(chan struct{})
+			cleaned := make(chan struct{})
+			var releaseOnce sync.Once
+			release := func() { releaseOnce.Do(func() { close(allowCleanup) }) }
+			t.Cleanup(release)
+			drain := &httpRequestDrain{handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				close(started)
+				<-r.Context().Done()
+				close(cancelled)
+				// Model detached completion bookkeeping after transport cancellation.
+				<-allowCleanup
+				close(cleaned)
+				w.WriteHeader(http.StatusNoContent)
+			})}
+			var handler http.Handler = drain
+			var transport http.RoundTripper = &http.Transport{}
+			if protocol == "h2c" {
+				handler = h2c.NewHandler(drain, &http2.Server{})
+				transport = &http2.Transport{
+					AllowHTTP: true,
+					DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+						return (&net.Dialer{}).DialContext(ctx, network, addr)
+					},
+				}
+			}
+			client := &http.Client{Transport: transport, Timeout: time.Second}
+			t.Cleanup(client.CloseIdleConnections)
+			server := &http.Server{Handler: handler, ReadHeaderTimeout: time.Second}
+			t.Cleanup(func() { _ = server.Close() })
+			runtimeStarted := make(chan struct{})
+			runtimeStopped := make(chan struct{})
+			cleanupBeforeStop := make(chan bool, 1)
+			runtime := scriptedFleetRuntime{run: func(ctx context.Context) error {
+				close(runtimeStarted)
+				<-ctx.Done()
+				select {
+				case <-cleaned:
+					cleanupBeforeStop <- true
+				default:
+					cleanupBeforeStop <- false
+				}
+				close(runtimeStopped)
+				return nil
+			}}
+			result := make(chan error, 1)
+			go func() { result <- serveFleetRuntimeWithContext(ctx, server, listener, runtime, time.Second, drain) }()
+			requireReceive(t, runtimeStarted)
+			requestDone := make(chan struct{})
+			go func() {
+				defer close(requestDone)
+				response, err := client.Get("http://" + listener.Addr().String()) //nolint:noctx // Test client has a deadline.
+				if err == nil {
+					_ = response.Body.Close()
+				}
+			}()
+			requireReceive(t, started)
+			cancel()
+			requireReceive(t, cancelled)
+			select {
+			case <-runtimeStopped:
+				t.Fatal("runtime stopped before request bookkeeping finished")
+			default:
+			}
+			// Admission is closed even on a still-open h2c connection.
+			response := httptest.NewRecorder()
+			drain.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
+			require.Equal(t, http.StatusServiceUnavailable, response.Code)
+			release()
+			require.NoError(t, <-result)
+			require.True(t, <-cleanupBeforeStop)
+			requireReceive(t, requestDone)
+		})
+	}
+}
+
+func TestServeFleetRuntimeWaitsForHandlerAfterShutdownTimeout(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	allowCleanup := make(chan struct{})
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(allowCleanup) }) }
+	t.Cleanup(release)
+	server := &http.Server{
+		ReadHeaderTimeout: time.Second,
+		Handler: http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			close(started)
+			<-r.Context().Done()
+			close(cancelled)
+			<-allowCleanup
+		}),
+	}
+	runtimeStopped := make(chan struct{})
+	runtime := scriptedFleetRuntime{run: func(ctx context.Context) error {
+		<-ctx.Done()
+		close(runtimeStopped)
+		return nil
+	}}
+	result := make(chan error, 1)
+	go func() {
+		result <- serveFleetRuntimeWithContext(ctx, server, listener, runtime, 5*time.Millisecond, nil)
+	}()
+	client := &http.Client{Timeout: time.Second}
+	t.Cleanup(client.CloseIdleConnections)
+	requestDone := make(chan struct{})
+	go func() {
+		defer close(requestDone)
+		response, err := client.Get("http://" + listener.Addr().String()) //nolint:noctx // Test client has a deadline.
+		if err == nil {
+			_ = response.Body.Close()
+		}
+	}()
+	requireReceive(t, started)
+	cancel()
+	requireReceive(t, cancelled)
+	// Socket closure establishes that the graceful shutdown budget expired.
+	requireReceive(t, requestDone)
+	select {
+	case <-runtimeStopped:
+		t.Fatal("shutdown timeout stopped runtime before handler completion")
+	default:
+	}
+	release()
+	require.ErrorIs(t, <-result, context.DeadlineExceeded)
+	requireReceive(t, runtimeStopped)
+}
+
+func TestServeFleetRuntimeSignalShutdown(t *testing.T) {
+	if os.Getenv("FLEETD_SHUTDOWN_SIGNAL_TEST") == "1" {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		server := &http.Server{Handler: http.NotFoundHandler(), ReadHeaderTimeout: time.Second}
+		runtime := scriptedFleetRuntime{run: func(ctx context.Context) error {
+			_, _ = fmt.Fprintln(os.Stdout, "ready for shutdown signal")
+			<-ctx.Done()
+			return nil
+		}}
+		require.NoError(t, serveFleetRuntime(server, listener, runtime, time.Second, nil))
+		return
+	}
+
+	for _, shutdownSignal := range []os.Signal{os.Interrupt, syscall.SIGTERM} {
+		t.Run(shutdownSignal.String(), func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			process := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestServeFleetRuntimeSignalShutdown$") //nolint:gosec // Executes this test binary with fixed arguments.
+			process.Env = append(os.Environ(), "FLEETD_SHUTDOWN_SIGNAL_TEST=1")
+			stdout, err := process.StdoutPipe()
+			require.NoError(t, err)
+			require.NoError(t, process.Start())
+			t.Cleanup(func() { _ = process.Process.Kill() })
+			ready, err := bufio.NewReader(stdout).ReadString('\n')
+			require.NoError(t, err)
+			require.Equal(t, "ready for shutdown signal\n", ready)
+			require.NoError(t, process.Process.Signal(shutdownSignal))
+			require.NoError(t, process.Wait(), "signal must trigger a clean runtime shutdown")
+		})
+	}
 }
 
 func jobNames(jobs []runtimejobs.Job) []string {

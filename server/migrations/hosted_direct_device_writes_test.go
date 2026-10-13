@@ -1,6 +1,7 @@
 package migrations_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -25,6 +26,7 @@ func TestDirectWriteRollbackPreservesCompletedDirectEvidence(t *testing.T) {
 	device := database.CreateDevice(user.OrganizationID, "proto")
 	attempt, err := devicewrite.NewService(database.DB).BeginHost(t.Context(), user.OrganizationID, device.DatabaseID, 0)
 	require.NoError(t, err)
+	require.NoError(t, devicewrite.Dispatch(attempt.Context(t.Context()), func(context.Context) error { return nil }))
 	require.NoError(t, attempt.Finish(t.Context(), nil))
 	// Explicitly seed qualified completion history for the rollback fixture.
 	// A nil adapter result above now leaves the real attempt unresolved.

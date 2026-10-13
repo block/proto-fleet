@@ -54,6 +54,7 @@ type Attempt struct {
 	dispatched      atomic.Bool
 	ordered         atomic.Bool
 	deletionBinding string
+	observation     bool
 }
 
 // BeginQueuedHost checks the persisted message as well as its current epoch.
@@ -131,6 +132,14 @@ func (a *Attempt) Finish(ctx context.Context, outcome error) error {
 		// operation; a failed unknown call also quarantines custody.
 		if status == "unknown" && outcome != nil {
 			return q.QuarantineDeviceWriteFence(ctx, sqlc.QuarantineDeviceWriteFenceParams{DeviceID: a.deviceID, OrganizationID: a.organizationID})
+		}
+		if !a.dispatched.Load() {
+			// The owning callback and its response lifetime have ended. This is
+			// transient direct admission, not durable physical-outcome history.
+			// Queue and claimed deletion-permit rows remain retained by the query.
+			if err := q.DeleteUndispatchedDirectAttempt(ctx, sqlc.DeleteUndispatchedDirectAttemptParams{AttemptID: a.id, DeviceID: a.deviceID, OrganizationID: a.organizationID}); err != nil {
+				return fmt.Errorf("retire undispatched direct admission: %w", err)
+			}
 		}
 		return nil
 	})
@@ -236,11 +245,25 @@ func RecheckContext(ctx context.Context) error {
 	return attempt.Recheck(ctx)
 }
 
-// Dispatch checks ownership immediately before invoking a device operation and
-// records whether an error may represent an ambiguous physical result.
+// Dispatch checks ownership immediately before a mutation. The enclosing
+// attempt classifies whether a returned call can establish completion.
 func Dispatch(ctx context.Context, operation func(context.Context) error) error {
+	return dispatch(ctx, operation, true)
+}
+
+// Observe retains the same durable ownership check as Dispatch without marking
+// a physical mutation. It never clears evidence of an earlier mutation in the
+// same attempt; callers must retain admission through the response lifetime.
+func Observe(ctx context.Context, operation func(context.Context) error) error {
+	return dispatch(ctx, operation, false)
+}
+
+func dispatch(ctx context.Context, operation func(context.Context) error, mutation bool) error {
 	attempt, ok := ctx.Value(attemptContextKey{}).(*Attempt)
 	if ok {
+		if mutation && attempt.observation {
+			return blocked()
+		}
 		if err := attempt.Recheck(ctx); err != nil {
 			return err
 		}
@@ -252,7 +275,7 @@ func Dispatch(ctx context.Context, operation func(context.Context) error) error 
 	// The durable attempt remains running during the operation, including if
 	// the process crashes. A confirmed admission rejection cannot erase a
 	// previous invocation that may already have reached the device.
-	if ok && !IsNotDispatched(outcome) {
+	if ok && mutation && !IsNotDispatched(outcome) {
 		attempt.dispatched.Store(true)
 		// Preserve uncertainty even if an outer handler sanitizes the error.
 		if isUncertainDelivery(outcome) {
@@ -265,6 +288,10 @@ func Dispatch(ctx context.Context, operation func(context.Context) error) error 
 // BeginHost commits an attempt before direct device I/O. The captured epoch
 // prevents a cached handle from reviving after ownership returns to the host.
 func (s *Service) BeginHost(ctx context.Context, organizationID, deviceID, epoch int64) (*Attempt, error) {
+	return s.beginHost(ctx, organizationID, deviceID, epoch, false)
+}
+
+func (s *Service) beginHost(ctx context.Context, organizationID, deviceID, epoch int64, observation bool) (*Attempt, error) {
 	if db.GetTxQueries(ctx) != nil {
 		return nil, fleeterror.NewFailedPreconditionError("device I/O requires committed admission")
 	}
@@ -280,8 +307,12 @@ func (s *Service) BeginHost(ctx context.Context, organizationID, deviceID, epoch
 		if fence.State != "host" || fence.Epoch != epoch {
 			return nil, blocked()
 		}
-		attempt := &Attempt{service: s, id: uuid.New(), deviceID: deviceID, organizationID: organizationID, epoch: epoch}
-		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: deviceID, OrganizationID: organizationID, Epoch: epoch, IdentityKeys: keys, OwnerInstanceID: processInstanceID, OperationKind: operationMutation}); err != nil {
+		kind := operationMutation
+		if observation {
+			kind = operationObservation
+		}
+		attempt := &Attempt{service: s, id: uuid.New(), deviceID: deviceID, organizationID: organizationID, epoch: epoch, observation: observation}
+		if err := q.CreateDeviceWriteAttempt(ctx, sqlc.CreateDeviceWriteAttemptParams{AttemptID: attempt.id, DeviceID: deviceID, OrganizationID: organizationID, Epoch: epoch, IdentityKeys: keys, OwnerInstanceID: processInstanceID, OperationKind: kind}); err != nil {
 			return nil, fmt.Errorf("record direct device write: %w", err)
 		}
 		return attempt, nil
@@ -289,9 +320,19 @@ func (s *Service) BeginHost(ctx context.Context, organizationID, deviceID, epoch
 }
 
 // WithHostAttempt retains the whole operation lifetime after committed admission.
-// The callback marks only actual transport calls with Dispatch after validation.
+// The callback uses Dispatch for mutations and Observe for reads after validation.
 // A carried attempt may authorize only its exact database, device and epoch.
 func (s *Service) WithHostAttempt(ctx context.Context, organizationID, deviceID, epoch int64, kind commandtype.Type, call func(context.Context) error) (resultErr error) {
+	return s.withHostAttempt(ctx, organizationID, deviceID, epoch, kind, false, call)
+}
+
+// WithHostObservation durably declares a read before I/O. Its context cannot
+// dispatch mutations, so interrupted reads require only owner termination evidence.
+func (s *Service) WithHostObservation(ctx context.Context, organizationID, deviceID, epoch int64, call func(context.Context) error) error {
+	return s.withHostAttempt(ctx, organizationID, deviceID, epoch, commandtype.Type(-1), true, call)
+}
+
+func (s *Service) withHostAttempt(ctx context.Context, organizationID, deviceID, epoch int64, kind commandtype.Type, observation bool, call func(context.Context) error) (resultErr error) {
 	if db.GetTxQueries(ctx) != nil {
 		return fleeterror.NewFailedPreconditionError("device I/O requires committed admission")
 	}
@@ -306,7 +347,7 @@ func (s *Service) WithHostAttempt(ctx context.Context, organizationID, deviceID,
 		}
 		return call(ctx)
 	}
-	attempt, err := s.BeginHost(ctx, organizationID, deviceID, epoch)
+	attempt, err := s.beginHost(ctx, organizationID, deviceID, epoch, observation)
 	if err != nil {
 		return err
 	}
@@ -325,6 +366,11 @@ func (s *Service) WithHostAttempt(ctx context.Context, organizationID, deviceID,
 			// unresolved attempt continues to block ownership transfer.
 			slog.Error("failed to persist direct device write completion",
 				"attempt_id", attempt.id, "device_id", deviceID, "error", err)
+			// Read-only admissions can report cleanup failure without replaying
+			// a physical mutation. Their retained owner still needs recovery.
+			if observation && resultErr == nil {
+				resultErr = err
+			}
 		}
 	}()
 	resultErr = call(attempt.Context(ctx))
