@@ -1,6 +1,7 @@
 package fleetinventory_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -10,7 +11,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetinventory"
 	"github.com/block/proto-fleet/server/internal/testutil"
-	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -40,42 +40,38 @@ func TestTankHistory(t *testing.T) {
 	service := fleetinventory.NewService(sqlc.New(db))
 	scopes := []fleetinventory.Scope{{OrgWide: true}}
 	request := &pb.GetTankHistoryRequest{ContainerIdentifier: identifier, TankId: tankID, StartTime: timestamppb.New(start), EndTime: timestamppb.New(start.Add(time.Hour)), GranularitySeconds: 90}
-	insert := func(id int64, offset, collected int, hash, power, temp any) {
-		_, err := db.ExecContext(ctx, `INSERT INTO container_module_metrics (module_id,time,collected_at,hashrate_hs,power_w,temperature_c) VALUES ($1,$2,$3,$4,$5,$6)`, id, start.Add(time.Duration(offset)*time.Second), start.Add(time.Duration(collected)*time.Second), hash, power, temp)
+	var versionID int64
+	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO container_topology_version (device_id,fingerprint,topology) VALUES ($1,'fixture','{}') RETURNING id`, deviceID).Scan(&versionID))
+	observation := func(at time.Time) int64 {
+		var id int64
+		require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO container_topology_observation (device_id,version_id,collected_at,complete) VALUES ($1,$2,$3,true) ON CONFLICT (device_id,collected_at) DO UPDATE SET complete=EXCLUDED.complete RETURNING id`, deviceID, versionID, at).Scan(&id))
+		return id
+	}
+	coverage := `{"hashrate":{"reporting":2,"expected":2,"topology_complete":true},"power":{"reporting":1,"expected":1,"topology_complete":true},"temperature":{"reporting":2,"expected":2,"topology_complete":true}}`
+	insert := func(tank int64, offset int, hash, power, efficiency, temp, low, high any) {
+		at := start.Add(time.Duration(offset) * time.Second)
+		_, err := db.ExecContext(ctx, `INSERT INTO container_tank_metrics (tank_id,time,topology_observation_id,hashrate_hs,power_w,efficiency_jh,temperature_c,min_temperature_c,max_temperature_c,coverage,topology_version_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, tank, at, observation(at), hash, power, efficiency, temp, low, high, coverage, versionID)
 		require.NoError(t, err)
 	}
-	// Duplicate source observation: latest collection wins, including cleared fields.
-	insert(first, 0, 0, 999e12, 99999, 99)
-	insert(first, 0, 1, 100e12, 2000, 60)
-	insert(second, 0, 0, 200e12, 4000, 70)
-	insert(retired, 0, 0, 999e12, 99999, 99)
-	insert(first, 30, 30, 200e12, 3000, 62)
-	insert(second, 30, 30, 400e12, 6000, 72)
-	// Missing metrics exclude only the affected readings; efficiency uses paired readings.
-	insert(first, 90, 90, 100e12, 2000, 60)
-	insert(first, 90, 91, 100e12, nil, 60)
-	insert(second, 90, 90, 200e12, 4000, 70)
-	// Different observations retain separate totals before bucket averaging.
-	insert(first, 180, 180, 100e12, 2000, 60)
-	insert(second, 181, 181, 200e12, 4000, 70)
-	// Zero totals are valid; efficiency at zero hashrate is unavailable.
-	insert(first, 270, 270, 0, 0, 60)
-	insert(second, 270, 270, 0, 0, 70)
-	// Complete and partial observations both contribute their available totals.
-	insert(first, 360, 360, 100e12, 2000, 60)
-	insert(second, 360, 360, 200e12, 4000, 70)
-	insert(first, 361, 361, 100e12, 2000, 60)
-	// Non-finite stored values must not escape into charts.
-	insert(first, 450, 450, "NaN", "Infinity", "-Infinity")
-	insert(second, 450, 450, 200e12, 4000, 70)
-	// No reporting modules leaves gaps. Unpaired hash/power cannot create efficiency.
-	insert(first, 540, 540, nil, nil, nil)
-	insert(second, 540, 540, nil, nil, nil)
-	insert(first, 630, 630, 100e12, nil, 60)
-	insert(second, 630, 630, nil, 4000, 70)
-	// End is exclusive.
-	insert(first, 3600, 3600, 100e12, 2000, 60)
-	insert(second, 3600, 3600, 200e12, 4000, 70)
+	// Every row is an immutable tank observation calculated when the poll arrived.
+	insert(tankID, 0, 300e12, 6000, 20e-12, 65, 60, 70)
+	insert(tankID, 30, 600e12, 9000, 15e-12, 67, 62, 72)
+	insert(tankID, 90, 300e12, nil, nil, 65, 60, 70)
+	// Separate partial polls remain separate, never reconstructed using present membership.
+	insert(tankID, 180, 100e12, 2000, 20e-12, 60, 60, 60)
+	insert(tankID, 181, 200e12, 4000, 20e-12, 70, 70, 70)
+	insert(tankID, 270, 0, 0, nil, 65, 60, 70)
+	insert(tankID, 360, 300e12, 6000, 20e-12, 65, 60, 70)
+	insert(tankID, 361, 100e12, 2000, nil, 60, 60, 60)
+	// Non-finite stored values cannot poison another valid sample in the bucket.
+	insert(tankID, 450, "NaN", "Infinity", "NaN", "-Infinity", "-Infinity", "Infinity")
+	insert(tankID, 451, 200e12, 4000, 20e-12, 70, 70, 70)
+	insert(tankID, 540, nil, nil, nil, nil, nil, nil)
+	insert(tankID, 630, 100e12, 4000, nil, 65, 60, 70)
+	insert(tankID, 3600, 300e12, 6000, 20e-12, 65, 60, 70)
+	// Even contradictory current module history cannot alter saved tank readings.
+	_, err = db.ExecContext(ctx, `INSERT INTO container_module_metrics (module_id,time,collected_at,hashrate_hs,power_w,temperature_c) VALUES ($1,$2,$2,999e12,99999,99)`, retired, start)
+	require.NoError(t, err)
 
 	t.Run("aggregates available observations in SQL", func(t *testing.T) {
 		response, err := service.TankHistory(ctx, org, request, scopes)
@@ -99,17 +95,18 @@ func TestTankHistory(t *testing.T) {
 		}
 		require.Equal(t, []float64{450, 300, 600}, values(0, telemetrypb.MeasurementType_MEASUREMENT_TYPE_HASHRATE))
 		require.Equal(t, []float64{7.5, 6, 9}, values(0, telemetrypb.MeasurementType_MEASUREMENT_TYPE_POWER))
-		require.InDelta(t, 15000.0/900, values(0, telemetrypb.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY)[0], 1e-9)
+		require.InDelta(t, 17.5, values(0, telemetrypb.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY)[0], 1e-9)
 		require.Equal(t, []float64{66, 60, 72}, values(0, telemetrypb.MeasurementType_MEASUREMENT_TYPE_TEMPERATURE))
-		require.EqualValues(t, 2, metric(0, telemetrypb.MeasurementType_MEASUREMENT_TYPE_POWER).DeviceCount)
+		require.EqualValues(t, 1, metric(0, telemetrypb.MeasurementType_MEASUREMENT_TYPE_POWER).DeviceCount)
+		require.EqualValues(t, 2, metric(0, telemetrypb.MeasurementType_MEASUREMENT_TYPE_HASHRATE).GetReportingCount())
 		require.Equal(t, []float64{300, 300, 300}, values(90, telemetrypb.MeasurementType_MEASUREMENT_TYPE_HASHRATE))
-		require.Equal(t, []float64{4, 4, 4}, values(90, telemetrypb.MeasurementType_MEASUREMENT_TYPE_POWER))
-		require.EqualValues(t, 1, metric(90, telemetrypb.MeasurementType_MEASUREMENT_TYPE_POWER).DeviceCount)
-		require.Equal(t, []float64{20, 20, 20}, values(90, telemetrypb.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY))
+		require.Empty(t, values(90, telemetrypb.MeasurementType_MEASUREMENT_TYPE_POWER))
+		require.Zero(t, metric(90, telemetrypb.MeasurementType_MEASUREMENT_TYPE_POWER).DeviceCount)
+		require.Empty(t, values(90, telemetrypb.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY))
 		require.Equal(t, []float64{0, 0, 0}, values(270, telemetrypb.MeasurementType_MEASUREMENT_TYPE_HASHRATE))
 		require.Empty(t, values(270, telemetrypb.MeasurementType_MEASUREMENT_TYPE_EFFICIENCY))
-		require.Equal(t, []float64{300, 300, 300}, values(180, telemetrypb.MeasurementType_MEASUREMENT_TYPE_HASHRATE))
-		require.Equal(t, []float64{300, 300, 300}, values(360, telemetrypb.MeasurementType_MEASUREMENT_TYPE_HASHRATE))
+		require.Equal(t, []float64{150, 100, 200}, values(180, telemetrypb.MeasurementType_MEASUREMENT_TYPE_HASHRATE))
+		require.Equal(t, []float64{200, 100, 300}, values(360, telemetrypb.MeasurementType_MEASUREMENT_TYPE_HASHRATE))
 		require.Equal(t, []float64{200, 200, 200}, values(450, telemetrypb.MeasurementType_MEASUREMENT_TYPE_HASHRATE))
 		require.Equal(t, []float64{4, 4, 4}, values(450, telemetrypb.MeasurementType_MEASUREMENT_TYPE_POWER))
 		require.Equal(t, []float64{70, 70, 70}, values(450, telemetrypb.MeasurementType_MEASUREMENT_TYPE_TEMPERATURE))
@@ -123,11 +120,15 @@ func TestTankHistory(t *testing.T) {
 
 	})
 
-	t.Run("current tank totals exclude missing module metrics", func(t *testing.T) {
+	t.Run("current tank totals use saved readings independently of module metrics", func(t *testing.T) {
 		_, err := db.ExecContext(ctx, `UPDATE container_module SET state='hashing',state_observed_at=now(),last_seen_at=now() WHERE tank_id=$1`, tankID)
 		require.NoError(t, err)
 		_, err = db.ExecContext(ctx, `INSERT INTO container_module_latest_metrics (module_id,time,collected_at,hashrate_hs,power_w,temperature_c) VALUES ($1,now(),now(),100e12,NULL,60),($2,now(),now(),200e12,4000,NULL),($3,now(),now(),999e12,99999,99)`, first, second, retired)
 		require.NoError(t, err)
+		at := time.Now().UTC().Truncate(time.Microsecond)
+		_, err = db.ExecContext(ctx, `INSERT INTO container_tank_latest_metrics (tank_id,time,topology_observation_id,hashrate_hs,power_w,efficiency_jh,temperature_c,min_temperature_c,max_temperature_c,coverage) VALUES ($1,$2,$3,300e12,4500,15e-12,65,60,70,$4)`, tankID, at, observation(at), strings.ReplaceAll(coverage, `"topology_complete":true`, `"topology_complete":true,"oldest_at":"`+at.Format(time.RFC3339Nano)+`","newest_at":"`+at.Format(time.RFC3339Nano)+`"`))
+		require.NoError(t, err)
+
 		list := func() *pb.InventoryItem {
 			response, err := service.List(ctx, org, &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, Kinds: []pb.EntityKind{pb.EntityKind_ENTITY_KIND_TANK}}, scopes)
 			require.NoError(t, err)
@@ -143,17 +144,17 @@ func TestTankHistory(t *testing.T) {
 		require.EqualValues(t, 2, item.AssetCount)
 		require.EqualValues(t, 2, item.HashrateReportingCount)
 		require.EqualValues(t, 1, item.PowerReportingCount)
-		require.EqualValues(t, 1, item.ListStats.TemperatureReportingCount)
-		require.EqualValues(t, 1, item.ListStats.EfficiencyReportingCount)
+		require.EqualValues(t, 2, item.ListStats.TemperatureReportingCount)
+		require.EqualValues(t, 2, item.ListStats.EfficiencyReportingCount)
 		require.NotNil(t, item.HashrateThs)
 		require.Equal(t, 300.0, *item.HashrateThs)
 		require.NotNil(t, item.PowerKw)
-		require.Equal(t, 4.0, *item.PowerKw)
+		require.Equal(t, 4.5, *item.PowerKw)
 		require.NotNil(t, item.EfficiencyJth)
-		require.Equal(t, 20.0, *item.EfficiencyJth)
+		require.Equal(t, 15.0, *item.EfficiencyJth)
 		require.NotNil(t, item.MinTemperatureC)
 		require.Equal(t, 60.0, *item.MinTemperatureC)
-		_, err = db.ExecContext(ctx, `UPDATE container_module_latest_metrics SET hashrate_hs=NULL,power_w=NULL,temperature_c=NULL WHERE module_id=ANY($1)`, pq.Array([]int64{first, second}))
+		_, err = db.ExecContext(ctx, `UPDATE container_tank_latest_metrics SET hashrate_hs=NULL,power_w=NULL,efficiency_jh=NULL,temperature_c=NULL,min_temperature_c=NULL,max_temperature_c=NULL WHERE tank_id=$1`, tankID)
 		require.NoError(t, err)
 		item = list()
 		require.Nil(t, item.HashrateThs)
@@ -161,6 +162,28 @@ func TestTankHistory(t *testing.T) {
 		require.Nil(t, item.EfficiencyJth)
 		require.Nil(t, item.MinTemperatureC)
 	})
+	t.Run("module inventory uses saved efficiency without recomputing a ratio", func(t *testing.T) {
+		_, err := db.ExecContext(ctx, `INSERT INTO container_module_latest_metrics (module_id,time,collected_at,hashrate_hs,power_w,efficiency_jh,temperature_c) VALUES ($1,now(),now(),200e12,4000,17e-12,70) ON CONFLICT (module_id) DO UPDATE SET time=EXCLUDED.time,collected_at=EXCLUDED.collected_at,hashrate_hs=EXCLUDED.hashrate_hs,power_w=EXCLUDED.power_w,efficiency_jh=EXCLUDED.efficiency_jh,temperature_c=EXCLUDED.temperature_c`, second)
+		require.NoError(t, err)
+		read := func() *pb.InventoryItem {
+			response, err := service.List(ctx, org, &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, Kinds: []pb.EntityKind{pb.EntityKind_ENTITY_KIND_MODULE}}, scopes)
+			require.NoError(t, err)
+			for _, item := range response.Items {
+				if item.Ref.Id == second {
+					return item
+				}
+			}
+			t.Fatal("missing module")
+			return nil
+		}
+		item := read()
+		require.NotNil(t, item.EfficiencyJth)
+		require.InDelta(t, 17.0, *item.EfficiencyJth, 1e-9, "saved efficiency differs from the 20 J/TH power/hashrate ratio")
+		_, err = db.ExecContext(ctx, `UPDATE container_module_latest_metrics SET efficiency_jh=NULL WHERE module_id=$1`, second)
+		require.NoError(t, err)
+		require.Nil(t, read().EfficiencyJth, "missing saved efficiency must not be reconstructed")
+	})
+
 	t.Run("supports every fleet duration with bounded output", func(t *testing.T) {
 		for _, window := range []struct {
 			hours   int
@@ -178,14 +201,20 @@ func TestTankHistory(t *testing.T) {
 	})
 
 	t.Run("includes history older than 24 hours at the requested granularity", func(t *testing.T) {
-		insert(first, -3*86400, -3*86400, 300e12, 6000, 60)
-		insert(second, -3*86400, -3*86400, 400e12, 8000, 70)
+		// Exercise an already-materialized summary, as when the bootstrap job has run.
+		_, err := db.ExecContext(ctx, `CALL refresh_continuous_aggregate('container_tank_metrics_hourly',NULL,NULL)`)
+		require.NoError(t, err)
+		insert(tankID, -3*86400, 700e12, 14000, 20e-12, 65, 60, 70)
+		// Backdated fixture rows need an explicit refresh behind the summary watermark.
+		_, err = db.ExecContext(ctx, `CALL refresh_continuous_aggregate('container_tank_metrics_hourly',NULL,NULL)`)
+		require.NoError(t, err)
 		req, ok := proto.Clone(request).(*pb.GetTankHistoryRequest)
 		require.True(t, ok)
 		req.StartTime = timestamppb.New(start.Add(-7 * 24 * time.Hour))
 		req.GranularitySeconds = 900
 		response, err := service.TankHistory(ctx, org, req, scopes)
 		require.NoError(t, err)
+		require.NotEmpty(t, response.Metrics)
 		require.Equal(t, start.Add(-3*24*time.Hour), response.Metrics[0].OpenTime.AsTime())
 		for _, m := range response.Metrics {
 			if m.MeasurementType == telemetrypb.MeasurementType_MEASUREMENT_TYPE_HASHRATE && m.OpenTime.AsTime().Before(start) {
@@ -210,31 +239,16 @@ func TestTankHistory(t *testing.T) {
 		require.Empty(t, response.Metrics)
 	})
 
-	t.Run("sums sixteen staggered modules without overweighting frequent samples", func(t *testing.T) {
-		var staggeredTank int64
-		require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO container_tank (device_id,position,first_seen_at,last_seen_at) VALUES ($1,3,now(),now()) RETURNING id`, deviceID).Scan(&staggeredTank))
-		for position := 1; position <= 16; position++ {
-			var id int64
-			require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO container_module (tank_id,position,first_seen_at,last_seen_at) VALUES ($1,$2,now(),now()) RETURNING id`, staggeredTank, position).Scan(&id))
-			insert(id, position, position, 600e12, 18000, 60)
-			if position == 1 {
-				insert(id, 40, 40, 600e12, 18000, 60)
-			}
-		}
-		req, ok := proto.Clone(request).(*pb.GetTankHistoryRequest)
-		require.True(t, ok)
-		req.TankId = staggeredTank
-		response, err := service.TankHistory(ctx, org, req, scopes)
+	t.Run("saved totals survive changes to current module membership", func(t *testing.T) {
+		before, err := service.TankHistory(ctx, org, request, scopes)
 		require.NoError(t, err)
-		require.Len(t, response.Metrics, 4)
-		for _, metric := range response.Metrics {
-			expected := map[telemetrypb.MeasurementType]float64{1: 60, 2: 9600, 3: 288, 4: 30}[metric.MeasurementType]
-			require.EqualValues(t, 16, metric.DeviceCount)
-			for _, value := range metric.AggregatedValues {
-				require.InDelta(t, expected, value.Value, 1e-9)
-			}
-		}
+		_, err = db.ExecContext(ctx, `UPDATE container_module SET retired_at=now() WHERE tank_id=$1`, tankID)
+		require.NoError(t, err)
+		after, err := service.TankHistory(ctx, org, request, scopes)
+		require.NoError(t, err)
+		require.Equal(t, before, after)
 	})
+
 	t.Run("rejects invalid and unbounded ranges", func(t *testing.T) {
 		for _, change := range []func(*pb.GetTankHistoryRequest){
 			func(r *pb.GetTankHistoryRequest) { r.StartTime = nil },
@@ -272,7 +286,16 @@ func TestTankHistory(t *testing.T) {
 		require.NoError(t, err)
 		response, err := service.TankHistory(ctx, org, request, []fleetinventory.Scope{{Sites: []int64{siteID}}})
 		require.NoError(t, err)
-		require.NotEmpty(t, response.Metrics)
+		require.Empty(t, response.Metrics, "moving a container cannot transfer its previous site history")
+		insert(tankID, 720, 100e12, 2000, 20e-12, 60, 60, 60)
+		_, err = db.ExecContext(ctx, `UPDATE container_tank_metrics SET site_id=$1 WHERE tank_id=$2 AND time=$3`, siteID, tankID, start.Add(720*time.Second))
+		require.NoError(t, err)
+		response, err = service.TankHistory(ctx, org, request, []fleetinventory.Scope{{Sites: []int64{siteID}}})
+		require.NoError(t, err)
+		require.Len(t, response.Metrics, 4)
+		for _, metric := range response.Metrics {
+			require.Equal(t, start.Add(720*time.Second), metric.OpenTime.AsTime())
+		}
 		_, err = service.TankHistory(ctx, org, request, []fleetinventory.Scope{{OrgWide: true, Sites: []int64{siteID}}})
 		require.True(t, fleeterror.IsForbiddenError(err))
 		// The SQL statement independently enforces the scope even after an earlier scope read.

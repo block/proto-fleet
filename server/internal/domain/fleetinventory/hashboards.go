@@ -113,6 +113,12 @@ func (s *Service) HashboardHistory(ctx context.Context, orgID int64, req *pb.Lis
 		if r.HashrateHs.Valid {
 			v.HashrateHs = &r.HashrateHs.Float64
 		}
+		if r.PowerW.Valid {
+			v.PowerW = &r.PowerW.Float64
+		}
+		if r.EfficiencyJh.Valid {
+			v.EfficiencyJh = &r.EfficiencyJh.Float64
+		}
 		if r.TemperatureC.Valid {
 			v.TemperatureC = &r.TemperatureC.Float64
 		}

@@ -37,7 +37,10 @@ export default function ContainerPerformance({ identifier, siteId }: { identifie
         <h2 className="text-heading-200">Performance</h2>
         <DurationSelector duration={duration} durations={fleetDurations} onSelect={setDuration} />
       </div>
-      <p className="text-200 text-text-primary-70">Container-reported measurements collected by Fleet.</p>
+      <p className="text-200 text-text-primary-70">
+        Saved poll measurements: board hashrate, facility power, and module-average ASIC temperature. Earlier readings
+        with different definitions are excluded.
+      </p>
       {error ? <p role="alert">Could not refresh container history: {error.message}</p> : null}
       <DeviceSetPerformanceSection
         duration={duration}

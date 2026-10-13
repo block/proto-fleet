@@ -10,7 +10,7 @@ WITH assets AS (
    CASE WHEN power_w IS NULL THEN 0 ELSE 1 END::bigint AS power_reporting_count,
    hashrate_hs / 1e12 AS hashrate_ths, power_w / 1e3 AS power_kw,
    temperature_c AS min_temperature_c, temperature_c AS max_temperature_c,
-   CASE WHEN kind=5 THEN miner_efficiency_jth ELSE (power_w / 1e3 * 1000) / NULLIF(hashrate_hs / 1e12, 0) END AS efficiency_jth
+   miner_efficiency_jth AS efficiency_jth
  FROM fleet_mining_asset a WHERE a.org_id=sqlc.arg('org_id')
 ), options AS (
  SELECT COALESCE((sqlc.arg('special_filters')::jsonb->>'miner_only')::boolean,FALSE) AS miner_only,
@@ -190,6 +190,7 @@ WITH assets AS (
  LIMIT sqlc.arg('page_limit')::int
 )
 SELECT COALESCE((SELECT jsonb_agg(to_jsonb(p) || jsonb_build_object(
+ 'coverage', CASE WHEN p.telemetry_allowed THEN cm.coverage END,
  'module_issues',CASE WHEN p.telemetry_allowed THEN module.issues END,
  'module_issues_last_seen_at',module.last_seen_at,
  'site_name',COALESCE(site.name,''), 'facility_name',COALESCE(parent_b.name,parent_d.custom_name,'Container '||parent_d.serial_number,''),
@@ -201,6 +202,7 @@ SELECT COALESCE((SELECT jsonb_agg(to_jsonb(p) || jsonb_build_object(
  'psu_issues',issues.psu_issues,'fan_issues',issues.fan_issues,'hashboard_issues',issues.hashboard_issues,'control_issues',issues.control_issues
  ) ORDER BY p.ordinal)
  FROM page p
+ LEFT JOIN container_equipment_current_metrics cm ON p.kind=6 AND cm.kind=6 AND cm.id=p.id
  LEFT JOIN container_module module ON p.kind=6 AND module.id=p.id AND module.retired_at IS NULL
  LEFT JOIN site ON site.id=p.site_id AND site.org_id=p.org_id AND site.deleted_at IS NULL
  LEFT JOIN building parent_b ON p.facility_kind=1 AND parent_b.id=p.facility_id AND parent_b.org_id=p.org_id

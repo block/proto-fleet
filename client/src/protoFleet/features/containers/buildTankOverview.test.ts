@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { buildTankOverview, tankPath } from "./buildTankOverview";
 import type { ContainerOverviewData } from "./hooks/useContainerOverview";
+import { EquipmentCoverageSchema } from "@/protoFleet/api/generated/common/v1/equipment_coverage_pb";
 import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import {
   EntityKind,
@@ -48,6 +49,20 @@ describe("native tank overview", () => {
     expect(view.title).toBe("CT1 Tank 2");
     expect(view.kpis.map((kpi) => kpi.value)).toEqual(["200.0 TH/s", "6.0 kW", "30.0 J/TH", "140.0 °F – 158.0 °F"]);
     expect(view.card.slots?.map((slot) => slot.state)).toEqual(["healthy", "sleeping"]);
+  });
+
+  it("uses one dedicated tank meter independently of module count", () => {
+    const data = fixture();
+    data.tanks[0].powerReportingCount = 1n;
+    data.tanks[0].coverage = create(EquipmentCoverageSchema, {
+      hashrate: { reporting: 6, expected: 6, topologyComplete: true },
+      power: { reporting: 1, expected: 1, topologyComplete: true },
+      temperature: { reporting: 2, expected: 2, topologyComplete: true },
+    });
+    const view = buildTankOverview(data, "81", "C")!;
+    expect(view.kpis[1].label).toBe("Tank power");
+    expect(view.kpis[1].value).toBe("6.0 kW");
+    expect(view.incomplete).toBe(false);
   });
 
   it.each(["rack", "other container", "invalid ID"])("rejects a colliding %s", (reason) => {

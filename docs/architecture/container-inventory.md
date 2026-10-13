@@ -43,7 +43,11 @@ Current module state lives with inventory; source observation time is retained
 separately from the last collection that saw the module. A newer poll containing
 older state evidence cannot overwrite newer state evidence.
 
-`container_module_metrics` retains 30 days of raw observations.
+`container_module_metrics` retains ten days of raw observations. Container, tank,
+and module hourly summaries retain three months; daily summaries retain three
+years. Summaries preserve recorded site and topology-version boundaries. See
+[CT1 retention](../development/ct1-polling-metrics.md#semantics-and-retention) for
+query routing and the automatic migration backfill.
 `container_module_latest_metrics` supports lists without scanning module history.
 Source time controls freshness, while collection time distinguishes observations
 whose aggregate source timestamps tie. Retrying the same observation is

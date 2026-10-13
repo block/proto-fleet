@@ -211,7 +211,7 @@ func newContainerState(cfg ContainerConfig, now time.Time) *ContainerState {
 				slot := &Slot{
 					Index:       sl,
 					BreakerID:   fmt.Sprintf("BRK-%s-%d", moduleID, sl),
-					PowerFeedID: fmt.Sprintf("PF-T%d-%02d", t, m),
+					PowerFeedID: fmt.Sprintf("pdu-%d-outlet-%02d", t, m),
 					Occupied:    true,
 					Board:       board,
 				}

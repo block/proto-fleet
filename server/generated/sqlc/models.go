@@ -489,6 +489,39 @@ type ContainerControlsObservation struct {
 	DryCoolerFanReverseSupported sql.NullBool
 }
 
+type ContainerEquipmentCurrentMetric struct {
+	Kind            int32
+	ID              int64
+	Time            time.Time
+	HashrateHs      float64
+	PowerW          float64
+	EfficiencyJh    float64
+	TemperatureC    float64
+	MinTemperatureC float64
+	MaxTemperatureC float64
+	Coverage        json.RawMessage
+}
+
+type ContainerEquipmentHistory struct {
+	EquipmentKind       int32
+	ContainerIdentifier string
+	TankID              sql.NullInt64
+	ModuleID            sql.NullInt64
+	SiteID              sql.NullInt64
+	TopologyVersionID   sql.NullInt64
+	Bucket              time.Time
+	CollectedAt         time.Time
+	ResolutionSeconds   int32
+	MeasurementType     int32
+	Total               float64
+	Samples             int64
+	Minimum             float64
+	Maximum             float64
+	ReportingCount      interface{}
+	ExpectedCount       interface{}
+	CoverageComplete    sql.NullBool
+}
+
 type ContainerFanObservation struct {
 	DeviceID     int64
 	ComponentID  string
@@ -502,6 +535,90 @@ type ContainerFanObservation struct {
 type ContainerInventory struct {
 	DeviceID   int64
 	ObservedAt time.Time
+}
+
+type ContainerLatestMetric struct {
+	DeviceID              int64
+	Time                  time.Time
+	TopologyObservationID int64
+	HashrateHs            sql.NullFloat64
+	PowerW                sql.NullFloat64
+	EfficiencyJh          sql.NullFloat64
+	TemperatureC          sql.NullFloat64
+	MinTemperatureC       sql.NullFloat64
+	MaxTemperatureC       sql.NullFloat64
+	Coverage              json.RawMessage
+	SourceTimes           json.RawMessage
+}
+
+type ContainerMetricsDaily struct {
+	Bucket               interface{}
+	DeviceIdentifier     string
+	SiteID               sql.NullInt64
+	TopologyVersionID    sql.NullInt64
+	TemperatureSum       int64
+	TemperatureCount     int64
+	TemperatureMin       interface{}
+	TemperatureMax       interface{}
+	TemperatureReporting interface{}
+	TemperatureExpected  interface{}
+	TemperatureComplete  bool
+	HashrateSum          int64
+	HashrateCount        int64
+	HashrateMin          interface{}
+	HashrateMax          interface{}
+	HashrateReporting    interface{}
+	HashrateExpected     interface{}
+	HashrateComplete     bool
+	PowerSum             int64
+	PowerCount           int64
+	PowerMin             interface{}
+	PowerMax             interface{}
+	PowerReporting       interface{}
+	PowerExpected        interface{}
+	PowerComplete        bool
+	EfficiencySum        int64
+	EfficiencyCount      int64
+	EfficiencyMin        interface{}
+	EfficiencyMax        interface{}
+	EfficiencyReporting  interface{}
+	EfficiencyExpected   interface{}
+	EfficiencyComplete   bool
+}
+
+type ContainerMetricsHourly struct {
+	Bucket               interface{}
+	DeviceIdentifier     string
+	SiteID               sql.NullInt64
+	TopologyVersionID    sql.NullInt64
+	TemperatureSum       int64
+	TemperatureCount     int64
+	TemperatureMin       interface{}
+	TemperatureMax       interface{}
+	TemperatureReporting interface{}
+	TemperatureExpected  interface{}
+	TemperatureComplete  bool
+	HashrateSum          int64
+	HashrateCount        int64
+	HashrateMin          interface{}
+	HashrateMax          interface{}
+	HashrateReporting    interface{}
+	HashrateExpected     interface{}
+	HashrateComplete     bool
+	PowerSum             int64
+	PowerCount           int64
+	PowerMin             interface{}
+	PowerMax             interface{}
+	PowerReporting       interface{}
+	PowerExpected        interface{}
+	PowerComplete        bool
+	EfficiencySum        int64
+	EfficiencyCount      int64
+	EfficiencyMin        interface{}
+	EfficiencyMax        interface{}
+	EfficiencyReporting  interface{}
+	EfficiencyExpected   interface{}
+	EfficiencyComplete   bool
 }
 
 type ContainerModule struct {
@@ -526,15 +643,92 @@ type ContainerModuleLatestMetric struct {
 	HashrateHs   sql.NullFloat64
 	PowerW       sql.NullFloat64
 	TemperatureC sql.NullFloat64
+	EfficiencyJh sql.NullFloat64
+	Coverage     pqtype.NullRawMessage
+	SourceTimes  json.RawMessage
 }
 
 type ContainerModuleMetric struct {
-	ModuleID     int64
-	Time         time.Time
-	CollectedAt  time.Time
-	HashrateHs   sql.NullFloat64
-	PowerW       sql.NullFloat64
-	TemperatureC sql.NullFloat64
+	ModuleID          int64
+	Time              time.Time
+	CollectedAt       time.Time
+	HashrateHs        sql.NullFloat64
+	PowerW            sql.NullFloat64
+	TemperatureC      sql.NullFloat64
+	EfficiencyJh      sql.NullFloat64
+	Coverage          pqtype.NullRawMessage
+	TopologyVersionID sql.NullInt64
+	SiteID            sql.NullInt64
+}
+
+type ContainerModuleMetricsDaily struct {
+	Bucket               interface{}
+	ModuleID             int64
+	SiteID               sql.NullInt64
+	TopologyVersionID    sql.NullInt64
+	TemperatureSum       int64
+	TemperatureCount     int64
+	TemperatureMin       interface{}
+	TemperatureMax       interface{}
+	TemperatureReporting interface{}
+	TemperatureExpected  interface{}
+	TemperatureComplete  bool
+	HashrateSum          int64
+	HashrateCount        int64
+	HashrateMin          interface{}
+	HashrateMax          interface{}
+	HashrateReporting    interface{}
+	HashrateExpected     interface{}
+	HashrateComplete     bool
+	PowerSum             int64
+	PowerCount           int64
+	PowerMin             interface{}
+	PowerMax             interface{}
+	PowerReporting       interface{}
+	PowerExpected        interface{}
+	PowerComplete        bool
+	EfficiencySum        int64
+	EfficiencyCount      int64
+	EfficiencyMin        interface{}
+	EfficiencyMax        interface{}
+	EfficiencyReporting  interface{}
+	EfficiencyExpected   interface{}
+	EfficiencyComplete   bool
+}
+
+type ContainerModuleMetricsHourly struct {
+	Bucket               interface{}
+	ModuleID             int64
+	SiteID               sql.NullInt64
+	TopologyVersionID    sql.NullInt64
+	TemperatureSum       int64
+	TemperatureCount     int64
+	TemperatureMin       interface{}
+	TemperatureMax       interface{}
+	TemperatureReporting interface{}
+	TemperatureExpected  interface{}
+	TemperatureComplete  bool
+	HashrateSum          int64
+	HashrateCount        int64
+	HashrateMin          interface{}
+	HashrateMax          interface{}
+	HashrateReporting    interface{}
+	HashrateExpected     interface{}
+	HashrateComplete     bool
+	PowerSum             int64
+	PowerCount           int64
+	PowerMin             interface{}
+	PowerMax             interface{}
+	PowerReporting       interface{}
+	PowerExpected        interface{}
+	PowerComplete        bool
+	EfficiencySum        int64
+	EfficiencyCount      int64
+	EfficiencyMin        interface{}
+	EfficiencyMax        interface{}
+	EfficiencyReporting  interface{}
+	EfficiencyExpected   interface{}
+	EfficiencyComplete   bool
 }
 
 type ContainerPlantMetric struct {
@@ -557,6 +751,120 @@ type ContainerTank struct {
 	Present     bool
 	FirstSeenAt time.Time
 	LastSeenAt  time.Time
+}
+
+type ContainerTankLatestMetric struct {
+	TankID                int64
+	Time                  time.Time
+	TopologyObservationID int64
+	HashrateHs            sql.NullFloat64
+	PowerW                sql.NullFloat64
+	EfficiencyJh          sql.NullFloat64
+	TemperatureC          sql.NullFloat64
+	MinTemperatureC       sql.NullFloat64
+	MaxTemperatureC       sql.NullFloat64
+	Coverage              json.RawMessage
+	SourceTimes           json.RawMessage
+}
+
+type ContainerTankMetric struct {
+	TankID                int64
+	Time                  time.Time
+	TopologyObservationID int64
+	SiteID                sql.NullInt64
+	HashrateHs            sql.NullFloat64
+	PowerW                sql.NullFloat64
+	EfficiencyJh          sql.NullFloat64
+	TemperatureC          sql.NullFloat64
+	MinTemperatureC       sql.NullFloat64
+	MaxTemperatureC       sql.NullFloat64
+	Coverage              json.RawMessage
+	TopologyVersionID     sql.NullInt64
+}
+
+type ContainerTankMetricsDaily struct {
+	Bucket               interface{}
+	TankID               int64
+	SiteID               sql.NullInt64
+	TopologyVersionID    sql.NullInt64
+	TemperatureSum       int64
+	TemperatureCount     int64
+	TemperatureMin       interface{}
+	TemperatureMax       interface{}
+	TemperatureReporting interface{}
+	TemperatureExpected  interface{}
+	TemperatureComplete  bool
+	HashrateSum          int64
+	HashrateCount        int64
+	HashrateMin          interface{}
+	HashrateMax          interface{}
+	HashrateReporting    interface{}
+	HashrateExpected     interface{}
+	HashrateComplete     bool
+	PowerSum             int64
+	PowerCount           int64
+	PowerMin             interface{}
+	PowerMax             interface{}
+	PowerReporting       interface{}
+	PowerExpected        interface{}
+	PowerComplete        bool
+	EfficiencySum        int64
+	EfficiencyCount      int64
+	EfficiencyMin        interface{}
+	EfficiencyMax        interface{}
+	EfficiencyReporting  interface{}
+	EfficiencyExpected   interface{}
+	EfficiencyComplete   bool
+}
+
+type ContainerTankMetricsHourly struct {
+	Bucket               interface{}
+	TankID               int64
+	SiteID               sql.NullInt64
+	TopologyVersionID    sql.NullInt64
+	TemperatureSum       int64
+	TemperatureCount     int64
+	TemperatureMin       interface{}
+	TemperatureMax       interface{}
+	TemperatureReporting interface{}
+	TemperatureExpected  interface{}
+	TemperatureComplete  bool
+	HashrateSum          int64
+	HashrateCount        int64
+	HashrateMin          interface{}
+	HashrateMax          interface{}
+	HashrateReporting    interface{}
+	HashrateExpected     interface{}
+	HashrateComplete     bool
+	PowerSum             int64
+	PowerCount           int64
+	PowerMin             interface{}
+	PowerMax             interface{}
+	PowerReporting       interface{}
+	PowerExpected        interface{}
+	PowerComplete        bool
+	EfficiencySum        int64
+	EfficiencyCount      int64
+	EfficiencyMin        interface{}
+	EfficiencyMax        interface{}
+	EfficiencyReporting  interface{}
+	EfficiencyExpected   interface{}
+	EfficiencyComplete   bool
+}
+
+type ContainerTopologyObservation struct {
+	ID          int64
+	DeviceID    int64
+	VersionID   int64
+	CollectedAt time.Time
+	Complete    bool
+}
+
+type ContainerTopologyVersion struct {
+	ID          int64
+	DeviceID    int64
+	Fingerprint string
+	Topology    json.RawMessage
 }
 
 type CurtailmentAutomationRule struct {
@@ -845,30 +1153,34 @@ type DeviceFirmwareDeployment struct {
 }
 
 type DeviceMetric struct {
-	Time             time.Time
-	DeviceIdentifier string
-	HashRateHs       sql.NullFloat64
-	HashRateHsKind   sql.NullString
-	TempC            sql.NullFloat64
-	TempCKind        sql.NullString
-	FanRpm           sql.NullFloat64
-	FanRpmKind       sql.NullString
-	PowerW           sql.NullFloat64
-	PowerWKind       sql.NullString
-	EfficiencyJh     sql.NullFloat64
-	EfficiencyJhKind sql.NullString
-	VoltageV         sql.NullFloat64
-	VoltageVKind     sql.NullString
-	CurrentA         sql.NullFloat64
-	CurrentAKind     sql.NullString
-	InletTempC       sql.NullFloat64
-	OutletTempC      sql.NullFloat64
-	AmbientTempC     sql.NullFloat64
-	ChipCount        sql.NullInt32
-	ChipCountKind    sql.NullString
-	ChipFrequencyMhz sql.NullFloat64
-	Health           sql.NullString
-	SiteID           sql.NullInt64
+	Time                  time.Time
+	DeviceIdentifier      string
+	HashRateHs            sql.NullFloat64
+	HashRateHsKind        sql.NullString
+	TempC                 sql.NullFloat64
+	TempCKind             sql.NullString
+	FanRpm                sql.NullFloat64
+	FanRpmKind            sql.NullString
+	PowerW                sql.NullFloat64
+	PowerWKind            sql.NullString
+	EfficiencyJh          sql.NullFloat64
+	EfficiencyJhKind      sql.NullString
+	VoltageV              sql.NullFloat64
+	VoltageVKind          sql.NullString
+	CurrentA              sql.NullFloat64
+	CurrentAKind          sql.NullString
+	InletTempC            sql.NullFloat64
+	OutletTempC           sql.NullFloat64
+	AmbientTempC          sql.NullFloat64
+	ChipCount             sql.NullInt32
+	ChipCountKind         sql.NullString
+	ChipFrequencyMhz      sql.NullFloat64
+	Health                sql.NullString
+	SiteID                sql.NullInt64
+	MetricSemantics       int16
+	Coverage              pqtype.NullRawMessage
+	TopologyObservationID sql.NullInt64
+	TopologyVersionID     sql.NullInt64
 }
 
 type DeviceMetricsDaily struct {
@@ -1362,6 +1674,8 @@ type HashboardLatestMetric struct {
 	HashrailOk      sql.NullBool
 	RefclksOk       sql.NullBool
 	Health          pqtype.NullRawMessage
+	PowerW          sql.NullFloat64
+	EfficiencyJh    sql.NullFloat64
 }
 
 type HashboardMetric struct {
@@ -1378,6 +1692,8 @@ type HashboardMetric struct {
 	HashrailOk      sql.NullBool
 	RefclksOk       sql.NullBool
 	Health          pqtype.NullRawMessage
+	PowerW          sql.NullFloat64
+	EfficiencyJh    sql.NullFloat64
 }
 
 type HashboardSlot struct {

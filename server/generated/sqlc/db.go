@@ -723,11 +723,23 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getContainerModuleScopeStmt, err = db.PrepareContext(ctx, getContainerModuleScope); err != nil {
 		return nil, fmt.Errorf("error preparing query GetContainerModuleScope: %w", err)
 	}
+	if q.getContainerPollHistoryStmt, err = db.PrepareContext(ctx, getContainerPollHistory); err != nil {
+		return nil, fmt.Errorf("error preparing query GetContainerPollHistory: %w", err)
+	}
+	if q.getContainerRollupContextStmt, err = db.PrepareContext(ctx, getContainerRollupContext); err != nil {
+		return nil, fmt.Errorf("error preparing query GetContainerRollupContext: %w", err)
+	}
+	if q.getContainerRollupWatermarksStmt, err = db.PrepareContext(ctx, getContainerRollupWatermarks); err != nil {
+		return nil, fmt.Errorf("error preparing query GetContainerRollupWatermarks: %w", err)
+	}
 	if q.getContainerTankHistoryStmt, err = db.PrepareContext(ctx, getContainerTankHistory); err != nil {
 		return nil, fmt.Errorf("error preparing query GetContainerTankHistory: %w", err)
 	}
 	if q.getContainerTankScopeStmt, err = db.PrepareContext(ctx, getContainerTankScope); err != nil {
 		return nil, fmt.Errorf("error preparing query GetContainerTankScope: %w", err)
+	}
+	if q.getContainerTopologyIdentitiesStmt, err = db.PrepareContext(ctx, getContainerTopologyIdentities); err != nil {
+		return nil, fmt.Errorf("error preparing query GetContainerTopologyIdentities: %w", err)
 	}
 	if q.getCurtailmentAutomationRuleByOrgStmt, err = db.PrepareContext(ctx, getCurtailmentAutomationRuleByOrg); err != nil {
 		return nil, fmt.Errorf("error preparing query GetCurtailmentAutomationRuleByOrg: %w", err)
@@ -939,6 +951,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getHashboardInstallationsStmt, err = db.PrepareContext(ctx, getHashboardInstallations); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHashboardInstallations: %w", err)
 	}
+	if q.getHashboardMetricWatermarksStmt, err = db.PrepareContext(ctx, getHashboardMetricWatermarks); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHashboardMetricWatermarks: %w", err)
+	}
 	if q.getHostedAccountAncestorGrantStmt, err = db.PrepareContext(ctx, getHostedAccountAncestorGrant); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHostedAccountAncestorGrant: %w", err)
 	}
@@ -1037,6 +1052,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getModuleHashboardsStmt, err = db.PrepareContext(ctx, getModuleHashboards); err != nil {
 		return nil, fmt.Errorf("error preparing query GetModuleHashboards: %w", err)
+	}
+	if q.getModuleRollupWatermarksStmt, err = db.PrepareContext(ctx, getModuleRollupWatermarks); err != nil {
+		return nil, fmt.Errorf("error preparing query GetModuleRollupWatermarks: %w", err)
 	}
 	if q.getOfflineDevicesStmt, err = db.PrepareContext(ctx, getOfflineDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOfflineDevices: %w", err)
@@ -1182,6 +1200,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getSiteBySlugStmt, err = db.PrepareContext(ctx, getSiteBySlug); err != nil {
 		return nil, fmt.Errorf("error preparing query GetSiteBySlug: %w", err)
 	}
+	if q.getTankRollupWatermarksStmt, err = db.PrepareContext(ctx, getTankRollupWatermarks); err != nil {
+		return nil, fmt.Errorf("error preparing query GetTankRollupWatermarks: %w", err)
+	}
 	if q.getTotalDevicesPendingAuthStmt, err = db.PrepareContext(ctx, getTotalDevicesPendingAuth); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTotalDevicesPendingAuth: %w", err)
 	}
@@ -1260,6 +1281,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertContainerSetpointsStmt, err = db.PrepareContext(ctx, insertContainerSetpoints); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertContainerSetpoints: %w", err)
 	}
+	if q.insertContainerTankRollupsStmt, err = db.PrepareContext(ctx, insertContainerTankRollups); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertContainerTankRollups: %w", err)
+	}
+	if q.insertContainerTopologyObservationStmt, err = db.PrepareContext(ctx, insertContainerTopologyObservation); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertContainerTopologyObservation: %w", err)
+	}
 	if q.insertCurtailmentAutomationRuleStmt, err = db.PrepareContext(ctx, insertCurtailmentAutomationRule); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertCurtailmentAutomationRule: %w", err)
 	}
@@ -1307,6 +1334,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.isBatchFinishedStmt, err = db.PrepareContext(ctx, isBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchFinished: %w", err)
+	}
+	if q.isContainerMetricSelectorStmt, err = db.PrepareContext(ctx, isContainerMetricSelector); err != nil {
+		return nil, fmt.Errorf("error preparing query IsContainerMetricSelector: %w", err)
 	}
 	if q.isDeletionUnpairIdentityCurrentStmt, err = db.PrepareContext(ctx, isDeletionUnpairIdentityCurrent); err != nil {
 		return nil, fmt.Errorf("error preparing query IsDeletionUnpairIdentityCurrent: %w", err)
@@ -2283,6 +2313,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.softDeleteUserFromOrganizationStmt, err = db.PrepareContext(ctx, softDeleteUserFromOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query SoftDeleteUserFromOrganization: %w", err)
 	}
+	if q.stampContainerSampleStmt, err = db.PrepareContext(ctx, stampContainerSample); err != nil {
+		return nil, fmt.Errorf("error preparing query StampContainerSample: %w", err)
+	}
 	if q.sweepAlertRuleConfigsStmt, err = db.PrepareContext(ctx, sweepAlertRuleConfigs); err != nil {
 		return nil, fmt.Errorf("error preparing query SweepAlertRuleConfigs: %w", err)
 	}
@@ -2499,6 +2532,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.upsertContainerFansStmt, err = db.PrepareContext(ctx, upsertContainerFans); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertContainerFans: %w", err)
 	}
+	if q.upsertContainerRollupStmt, err = db.PrepareContext(ctx, upsertContainerRollup); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertContainerRollup: %w", err)
+	}
+	if q.upsertContainerTopologyVersionStmt, err = db.PrepareContext(ctx, upsertContainerTopologyVersion); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertContainerTopologyVersion: %w", err)
+	}
 	if q.upsertCurtailmentAutomationSignalStateStmt, err = db.PrepareContext(ctx, upsertCurtailmentAutomationSignalState); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertCurtailmentAutomationSignalState: %w", err)
 	}
@@ -2549,6 +2588,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.upsertReleaseChannelSettingStmt, err = db.PrepareContext(ctx, upsertReleaseChannelSetting); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertReleaseChannelSetting: %w", err)
+	}
+	if q.withdrawHashboardReadingsStmt, err = db.PrepareContext(ctx, withdrawHashboardReadings); err != nil {
+		return nil, fmt.Errorf("error preparing query WithdrawHashboardReadings: %w", err)
 	}
 	return &q, nil
 }
@@ -3720,6 +3762,21 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getContainerModuleScopeStmt: %w", cerr)
 		}
 	}
+	if q.getContainerPollHistoryStmt != nil {
+		if cerr := q.getContainerPollHistoryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getContainerPollHistoryStmt: %w", cerr)
+		}
+	}
+	if q.getContainerRollupContextStmt != nil {
+		if cerr := q.getContainerRollupContextStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getContainerRollupContextStmt: %w", cerr)
+		}
+	}
+	if q.getContainerRollupWatermarksStmt != nil {
+		if cerr := q.getContainerRollupWatermarksStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getContainerRollupWatermarksStmt: %w", cerr)
+		}
+	}
 	if q.getContainerTankHistoryStmt != nil {
 		if cerr := q.getContainerTankHistoryStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getContainerTankHistoryStmt: %w", cerr)
@@ -3728,6 +3785,11 @@ func (q *Queries) Close() error {
 	if q.getContainerTankScopeStmt != nil {
 		if cerr := q.getContainerTankScopeStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getContainerTankScopeStmt: %w", cerr)
+		}
+	}
+	if q.getContainerTopologyIdentitiesStmt != nil {
+		if cerr := q.getContainerTopologyIdentitiesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getContainerTopologyIdentitiesStmt: %w", cerr)
 		}
 	}
 	if q.getCurtailmentAutomationRuleByOrgStmt != nil {
@@ -4080,6 +4142,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getHashboardInstallationsStmt: %w", cerr)
 		}
 	}
+	if q.getHashboardMetricWatermarksStmt != nil {
+		if cerr := q.getHashboardMetricWatermarksStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHashboardMetricWatermarksStmt: %w", cerr)
+		}
+	}
 	if q.getHostedAccountAncestorGrantStmt != nil {
 		if cerr := q.getHostedAccountAncestorGrantStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getHostedAccountAncestorGrantStmt: %w", cerr)
@@ -4243,6 +4310,11 @@ func (q *Queries) Close() error {
 	if q.getModuleHashboardsStmt != nil {
 		if cerr := q.getModuleHashboardsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getModuleHashboardsStmt: %w", cerr)
+		}
+	}
+	if q.getModuleRollupWatermarksStmt != nil {
+		if cerr := q.getModuleRollupWatermarksStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getModuleRollupWatermarksStmt: %w", cerr)
 		}
 	}
 	if q.getOfflineDevicesStmt != nil {
@@ -4485,6 +4557,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getSiteBySlugStmt: %w", cerr)
 		}
 	}
+	if q.getTankRollupWatermarksStmt != nil {
+		if cerr := q.getTankRollupWatermarksStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getTankRollupWatermarksStmt: %w", cerr)
+		}
+	}
 	if q.getTotalDevicesPendingAuthStmt != nil {
 		if cerr := q.getTotalDevicesPendingAuthStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getTotalDevicesPendingAuthStmt: %w", cerr)
@@ -4615,6 +4692,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertContainerSetpointsStmt: %w", cerr)
 		}
 	}
+	if q.insertContainerTankRollupsStmt != nil {
+		if cerr := q.insertContainerTankRollupsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertContainerTankRollupsStmt: %w", cerr)
+		}
+	}
+	if q.insertContainerTopologyObservationStmt != nil {
+		if cerr := q.insertContainerTopologyObservationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertContainerTopologyObservationStmt: %w", cerr)
+		}
+	}
 	if q.insertCurtailmentAutomationRuleStmt != nil {
 		if cerr := q.insertCurtailmentAutomationRuleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertCurtailmentAutomationRuleStmt: %w", cerr)
@@ -4693,6 +4780,11 @@ func (q *Queries) Close() error {
 	if q.isBatchFinishedStmt != nil {
 		if cerr := q.isBatchFinishedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing isBatchFinishedStmt: %w", cerr)
+		}
+	}
+	if q.isContainerMetricSelectorStmt != nil {
+		if cerr := q.isContainerMetricSelectorStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing isContainerMetricSelectorStmt: %w", cerr)
 		}
 	}
 	if q.isDeletionUnpairIdentityCurrentStmt != nil {
@@ -6320,6 +6412,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing softDeleteUserFromOrganizationStmt: %w", cerr)
 		}
 	}
+	if q.stampContainerSampleStmt != nil {
+		if cerr := q.stampContainerSampleStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing stampContainerSampleStmt: %w", cerr)
+		}
+	}
 	if q.sweepAlertRuleConfigsStmt != nil {
 		if cerr := q.sweepAlertRuleConfigsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing sweepAlertRuleConfigsStmt: %w", cerr)
@@ -6680,6 +6777,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertContainerFansStmt: %w", cerr)
 		}
 	}
+	if q.upsertContainerRollupStmt != nil {
+		if cerr := q.upsertContainerRollupStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertContainerRollupStmt: %w", cerr)
+		}
+	}
+	if q.upsertContainerTopologyVersionStmt != nil {
+		if cerr := q.upsertContainerTopologyVersionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertContainerTopologyVersionStmt: %w", cerr)
+		}
+	}
 	if q.upsertCurtailmentAutomationSignalStateStmt != nil {
 		if cerr := q.upsertCurtailmentAutomationSignalStateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertCurtailmentAutomationSignalStateStmt: %w", cerr)
@@ -6763,6 +6870,11 @@ func (q *Queries) Close() error {
 	if q.upsertReleaseChannelSettingStmt != nil {
 		if cerr := q.upsertReleaseChannelSettingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertReleaseChannelSettingStmt: %w", cerr)
+		}
+	}
+	if q.withdrawHashboardReadingsStmt != nil {
+		if cerr := q.withdrawHashboardReadingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing withdrawHashboardReadingsStmt: %w", cerr)
 		}
 	}
 	return err
@@ -7037,8 +7149,12 @@ type Queries struct {
 	getCancelledEnrollmentByFleetNodeStmt                        *sql.Stmt
 	getConnectedPostgresIdentityStmt                             *sql.Stmt
 	getContainerModuleScopeStmt                                  *sql.Stmt
+	getContainerPollHistoryStmt                                  *sql.Stmt
+	getContainerRollupContextStmt                                *sql.Stmt
+	getContainerRollupWatermarksStmt                             *sql.Stmt
 	getContainerTankHistoryStmt                                  *sql.Stmt
 	getContainerTankScopeStmt                                    *sql.Stmt
+	getContainerTopologyIdentitiesStmt                           *sql.Stmt
 	getCurtailmentAutomationRuleByOrgStmt                        *sql.Stmt
 	getCurtailmentEventByExternalReferenceStmt                   *sql.Stmt
 	getCurtailmentEventByIdempotencyKeyStmt                      *sql.Stmt
@@ -7109,6 +7225,7 @@ type Queries struct {
 	getGroupRefsForDevicesStmt                                   *sql.Stmt
 	getHAProfileDatabaseIdentityStmt                             *sql.Stmt
 	getHashboardInstallationsStmt                                *sql.Stmt
+	getHashboardMetricWatermarksStmt                             *sql.Stmt
 	getHostedAccountAncestorGrantStmt                            *sql.Stmt
 	getHostedAccountInvitationByHashStmt                         *sql.Stmt
 	getHostedAccountKeyAuthorityStmt                             *sql.Stmt
@@ -7142,6 +7259,7 @@ type Queries struct {
 	getMinerStateSnapshotDeviceRollupsHourlyStmt                 *sql.Stmt
 	getMinerStateSnapshotsStmt                                   *sql.Stmt
 	getModuleHashboardsStmt                                      *sql.Stmt
+	getModuleRollupWatermarksStmt                                *sql.Stmt
 	getOfflineDevicesStmt                                        *sql.Stmt
 	getOfflineFleetNodeDevicesStmt                               *sql.Stmt
 	getOpenErrorByDedupKeyStmt                                   *sql.Stmt
@@ -7190,6 +7308,7 @@ type Queries struct {
 	getSessionByIDStmt                                           *sql.Stmt
 	getSiteStmt                                                  *sql.Stmt
 	getSiteBySlugStmt                                            *sql.Stmt
+	getTankRollupWatermarksStmt                                  *sql.Stmt
 	getTotalDevicesPendingAuthStmt                               *sql.Stmt
 	getTotalMinerStateSnapshotsStmt                              *sql.Stmt
 	getTotalPairedDevicesStmt                                    *sql.Stmt
@@ -7216,6 +7335,8 @@ type Queries struct {
 	insertContainerModuleMetricsStmt                             *sql.Stmt
 	insertContainerPlantMetricsStmt                              *sql.Stmt
 	insertContainerSetpointsStmt                                 *sql.Stmt
+	insertContainerTankRollupsStmt                               *sql.Stmt
+	insertContainerTopologyObservationStmt                       *sql.Stmt
 	insertCurtailmentAutomationRuleStmt                          *sql.Stmt
 	insertCurtailmentEventStmt                                   *sql.Stmt
 	insertCurtailmentResponseProfileStmt                         *sql.Stmt
@@ -7232,6 +7353,7 @@ type Queries struct {
 	insertRepairTicketPartStmt                                   *sql.Stmt
 	inventoryPartExistsBySiteAndNameStmt                         *sql.Stmt
 	isBatchFinishedStmt                                          *sql.Stmt
+	isContainerMetricSelectorStmt                                *sql.Stmt
 	isDeletionUnpairIdentityCurrentStmt                          *sql.Stmt
 	isDeviceWriteFenceDrainedStmt                                *sql.Stmt
 	isRetiredDeviceWriteDrainedStmt                              *sql.Stmt
@@ -7557,6 +7679,7 @@ type Queries struct {
 	softDeleteSiteStmt                                           *sql.Stmt
 	softDeleteUserStmt                                           *sql.Stmt
 	softDeleteUserFromOrganizationStmt                           *sql.Stmt
+	stampContainerSampleStmt                                     *sql.Stmt
 	sweepAlertRuleConfigsStmt                                    *sql.Stmt
 	sweepCurtailmentTargetsToReleasedStmt                        *sql.Stmt
 	sweepCurtailmentTargetsToRestoreFailedStmt                   *sql.Stmt
@@ -7629,6 +7752,8 @@ type Queries struct {
 	upsertBuiltinRoleForOrgStmt                                  *sql.Stmt
 	upsertCommandOnDeviceLogStmt                                 *sql.Stmt
 	upsertContainerFansStmt                                      *sql.Stmt
+	upsertContainerRollupStmt                                    *sql.Stmt
+	upsertContainerTopologyVersionStmt                           *sql.Stmt
 	upsertCurtailmentAutomationSignalStateStmt                   *sql.Stmt
 	upsertCurtailmentReconcilerHeartbeatStmt                     *sql.Stmt
 	upsertCustomRoleForOrgStmt                                   *sql.Stmt
@@ -7646,6 +7771,7 @@ type Queries struct {
 	upsertPermissionStmt                                         *sql.Stmt
 	upsertReleaseChannelFirmwareStmt                             *sql.Stmt
 	upsertReleaseChannelSettingStmt                              *sql.Stmt
+	withdrawHashboardReadingsStmt                                *sql.Stmt
 }
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
@@ -7885,8 +8011,12 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getCancelledEnrollmentByFleetNodeStmt:                        q.getCancelledEnrollmentByFleetNodeStmt,
 		getConnectedPostgresIdentityStmt:                             q.getConnectedPostgresIdentityStmt,
 		getContainerModuleScopeStmt:                                  q.getContainerModuleScopeStmt,
+		getContainerPollHistoryStmt:                                  q.getContainerPollHistoryStmt,
+		getContainerRollupContextStmt:                                q.getContainerRollupContextStmt,
+		getContainerRollupWatermarksStmt:                             q.getContainerRollupWatermarksStmt,
 		getContainerTankHistoryStmt:                                  q.getContainerTankHistoryStmt,
 		getContainerTankScopeStmt:                                    q.getContainerTankScopeStmt,
+		getContainerTopologyIdentitiesStmt:                           q.getContainerTopologyIdentitiesStmt,
 		getCurtailmentAutomationRuleByOrgStmt:                        q.getCurtailmentAutomationRuleByOrgStmt,
 		getCurtailmentEventByExternalReferenceStmt:                   q.getCurtailmentEventByExternalReferenceStmt,
 		getCurtailmentEventByIdempotencyKeyStmt:                      q.getCurtailmentEventByIdempotencyKeyStmt,
@@ -7957,6 +8087,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getGroupRefsForDevicesStmt:                                   q.getGroupRefsForDevicesStmt,
 		getHAProfileDatabaseIdentityStmt:                             q.getHAProfileDatabaseIdentityStmt,
 		getHashboardInstallationsStmt:                                q.getHashboardInstallationsStmt,
+		getHashboardMetricWatermarksStmt:                             q.getHashboardMetricWatermarksStmt,
 		getHostedAccountAncestorGrantStmt:                            q.getHostedAccountAncestorGrantStmt,
 		getHostedAccountInvitationByHashStmt:                         q.getHostedAccountInvitationByHashStmt,
 		getHostedAccountKeyAuthorityStmt:                             q.getHostedAccountKeyAuthorityStmt,
@@ -7990,6 +8121,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getMinerStateSnapshotDeviceRollupsHourlyStmt:                 q.getMinerStateSnapshotDeviceRollupsHourlyStmt,
 		getMinerStateSnapshotsStmt:                                   q.getMinerStateSnapshotsStmt,
 		getModuleHashboardsStmt:                                      q.getModuleHashboardsStmt,
+		getModuleRollupWatermarksStmt:                                q.getModuleRollupWatermarksStmt,
 		getOfflineDevicesStmt:                                        q.getOfflineDevicesStmt,
 		getOfflineFleetNodeDevicesStmt:                               q.getOfflineFleetNodeDevicesStmt,
 		getOpenErrorByDedupKeyStmt:                                   q.getOpenErrorByDedupKeyStmt,
@@ -8038,6 +8170,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getSessionByIDStmt:                                           q.getSessionByIDStmt,
 		getSiteStmt:                                                  q.getSiteStmt,
 		getSiteBySlugStmt:                                            q.getSiteBySlugStmt,
+		getTankRollupWatermarksStmt:                                  q.getTankRollupWatermarksStmt,
 		getTotalDevicesPendingAuthStmt:                               q.getTotalDevicesPendingAuthStmt,
 		getTotalMinerStateSnapshotsStmt:                              q.getTotalMinerStateSnapshotsStmt,
 		getTotalPairedDevicesStmt:                                    q.getTotalPairedDevicesStmt,
@@ -8064,6 +8197,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertContainerModuleMetricsStmt:                             q.insertContainerModuleMetricsStmt,
 		insertContainerPlantMetricsStmt:                              q.insertContainerPlantMetricsStmt,
 		insertContainerSetpointsStmt:                                 q.insertContainerSetpointsStmt,
+		insertContainerTankRollupsStmt:                               q.insertContainerTankRollupsStmt,
+		insertContainerTopologyObservationStmt:                       q.insertContainerTopologyObservationStmt,
 		insertCurtailmentAutomationRuleStmt:                          q.insertCurtailmentAutomationRuleStmt,
 		insertCurtailmentEventStmt:                                   q.insertCurtailmentEventStmt,
 		insertCurtailmentResponseProfileStmt:                         q.insertCurtailmentResponseProfileStmt,
@@ -8080,6 +8215,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertRepairTicketPartStmt:                                   q.insertRepairTicketPartStmt,
 		inventoryPartExistsBySiteAndNameStmt:                         q.inventoryPartExistsBySiteAndNameStmt,
 		isBatchFinishedStmt:                                          q.isBatchFinishedStmt,
+		isContainerMetricSelectorStmt:                                q.isContainerMetricSelectorStmt,
 		isDeletionUnpairIdentityCurrentStmt:                          q.isDeletionUnpairIdentityCurrentStmt,
 		isDeviceWriteFenceDrainedStmt:                                q.isDeviceWriteFenceDrainedStmt,
 		isRetiredDeviceWriteDrainedStmt:                              q.isRetiredDeviceWriteDrainedStmt,
@@ -8405,6 +8541,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		softDeleteSiteStmt:                                           q.softDeleteSiteStmt,
 		softDeleteUserStmt:                                           q.softDeleteUserStmt,
 		softDeleteUserFromOrganizationStmt:                           q.softDeleteUserFromOrganizationStmt,
+		stampContainerSampleStmt:                                     q.stampContainerSampleStmt,
 		sweepAlertRuleConfigsStmt:                                    q.sweepAlertRuleConfigsStmt,
 		sweepCurtailmentTargetsToReleasedStmt:                        q.sweepCurtailmentTargetsToReleasedStmt,
 		sweepCurtailmentTargetsToRestoreFailedStmt:                   q.sweepCurtailmentTargetsToRestoreFailedStmt,
@@ -8477,6 +8614,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertBuiltinRoleForOrgStmt:                                  q.upsertBuiltinRoleForOrgStmt,
 		upsertCommandOnDeviceLogStmt:                                 q.upsertCommandOnDeviceLogStmt,
 		upsertContainerFansStmt:                                      q.upsertContainerFansStmt,
+		upsertContainerRollupStmt:                                    q.upsertContainerRollupStmt,
+		upsertContainerTopologyVersionStmt:                           q.upsertContainerTopologyVersionStmt,
 		upsertCurtailmentAutomationSignalStateStmt:                   q.upsertCurtailmentAutomationSignalStateStmt,
 		upsertCurtailmentReconcilerHeartbeatStmt:                     q.upsertCurtailmentReconcilerHeartbeatStmt,
 		upsertCustomRoleForOrgStmt:                                   q.upsertCustomRoleForOrgStmt,
@@ -8494,5 +8633,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertPermissionStmt:                                         q.upsertPermissionStmt,
 		upsertReleaseChannelFirmwareStmt:                             q.upsertReleaseChannelFirmwareStmt,
 		upsertReleaseChannelSettingStmt:                              q.upsertReleaseChannelSettingStmt,
+		withdrawHashboardReadingsStmt:                                q.withdrawHashboardReadingsStmt,
 	}
 }

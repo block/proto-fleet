@@ -32,7 +32,9 @@ WITH input AS MATERIALIZED (
 SELECT x.id::bigint AS id, x.mac_address::text AS mac_address, x.serial::text AS serial FROM input x JOIN boards b ON b.id=x.id;
 
 -- name: GetHashboardInstallations :many
-SELECT i.*, t.device_id, h.last_seen_at AS board_last_seen_at
+SELECT i.*, t.device_id, h.last_seen_at AS board_last_seen_at,
+ EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id
+   AND (prior.installed_at,prior.id)<(i.installed_at,i.id)) AS has_prior_installation
 FROM hashboard_installation i JOIN hashboard h ON h.id=i.hashboard_id
 JOIN container_module m ON m.id=i.module_id JOIN container_tank t ON t.id=m.tank_id
 WHERE h.org_id=sqlc.arg('org_id') AND i.removed_at IS NULL
@@ -73,21 +75,21 @@ WHERE hashboard_installation.module_id=EXCLUDED.module_id AND hashboard_installa
 
 -- name: InsertHashboardMetrics :exec
 WITH inserted AS (
- INSERT INTO hashboard_metrics(hashboard_id, installation_id, time, collected_at, state, state_observed_at, mining_state, isolated, hashrate_hs, temperature_c, hashrail_ok, refclks_ok, health)
- SELECT x.board_id, i.id, x.time, sqlc.arg('collected_at')::timestamptz, CASE WHEN evidence.current_state THEN x.state ELSE 'unknown' END, CASE WHEN evidence.current_state THEN x.state_observed_at ELSE NULL END, COALESCE(x.mining_state,''), x.isolated, x.hashrate_hs, x.temperature_c, x.hashrail_ok, x.refclks_ok, CASE WHEN evidence.current_state THEN x.health ELSE NULL END
- FROM jsonb_to_recordset(sqlc.arg('boards')::jsonb) AS x(board_id bigint, module_id bigint, position int, time timestamptz, state text, state_observed_at timestamptz, mining_state text, isolated boolean, hashrate_hs double precision, temperature_c double precision, hashrail_ok boolean, refclks_ok boolean, health jsonb)
+ INSERT INTO hashboard_metrics(hashboard_id, installation_id, time, collected_at, state, state_observed_at, mining_state, isolated, hashrate_hs, power_w, efficiency_jh, temperature_c, hashrail_ok, refclks_ok, health)
+ SELECT x.board_id, i.id, x.time, sqlc.arg('collected_at')::timestamptz, CASE WHEN evidence.current_state THEN x.state ELSE 'unknown' END, CASE WHEN evidence.current_state THEN x.state_observed_at ELSE NULL END, COALESCE(x.mining_state,''), x.isolated, x.hashrate_hs, x.power_w, x.efficiency_jh, x.temperature_c, x.hashrail_ok, x.refclks_ok, CASE WHEN evidence.current_state THEN x.health ELSE NULL END
+ FROM jsonb_to_recordset(sqlc.arg('boards')::jsonb) AS x(board_id bigint, module_id bigint, position int, time timestamptz, state text, state_observed_at timestamptz, mining_state text, isolated boolean, hashrate_hs double precision, power_w double precision, efficiency_jh double precision, temperature_c double precision, hashrail_ok boolean, refclks_ok boolean, health jsonb)
  JOIN hashboard_installation i ON i.hashboard_id=x.board_id AND i.module_id=x.module_id AND i.position=x.position AND i.removed_at IS NULL
  CROSS JOIN LATERAL (SELECT x.state_observed_at >= i.installed_at OR NOT EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id)) AS current_state) evidence
  WHERE i.last_seen_at=sqlc.arg('collected_at')::timestamptz AND x.time IS NOT NULL
  -- Initial discovery can observe an asynchronous sample. After a move, cached
  -- evidence from a prior placement must never acquire the new site's authority.
  AND (x.time >= i.installed_at OR NOT EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id)))
- ON CONFLICT DO NOTHING RETURNING hashboard_id, installation_id, time, collected_at, state, state_observed_at, mining_state, isolated, hashrate_hs, temperature_c, hashrail_ok, refclks_ok, health
+ ON CONFLICT DO NOTHING RETURNING hashboard_id, installation_id, time, collected_at, state, state_observed_at, mining_state, isolated, hashrate_hs, power_w, efficiency_jh, temperature_c, hashrail_ok, refclks_ok, health
 )
-INSERT INTO hashboard_latest_metrics (hashboard_id, installation_id, time, collected_at, state, state_observed_at, mining_state, isolated, hashrate_hs, temperature_c, hashrail_ok, refclks_ok, health)
-SELECT hashboard_id, installation_id, time, collected_at, state, state_observed_at, mining_state, isolated, hashrate_hs, temperature_c, hashrail_ok, refclks_ok, health FROM inserted
+INSERT INTO hashboard_latest_metrics (hashboard_id, installation_id, time, collected_at, state, state_observed_at, mining_state, isolated, hashrate_hs, power_w, efficiency_jh, temperature_c, hashrail_ok, refclks_ok, health)
+SELECT hashboard_id, installation_id, time, collected_at, state, state_observed_at, mining_state, isolated, hashrate_hs, power_w, efficiency_jh, temperature_c, hashrail_ok, refclks_ok, health FROM inserted
 ON CONFLICT (hashboard_id) DO UPDATE SET installation_id=EXCLUDED.installation_id, time=EXCLUDED.time, collected_at=EXCLUDED.collected_at,
  state=EXCLUDED.state, state_observed_at=EXCLUDED.state_observed_at, mining_state=EXCLUDED.mining_state, isolated=EXCLUDED.isolated,
- hashrate_hs=EXCLUDED.hashrate_hs, temperature_c=EXCLUDED.temperature_c, hashrail_ok=EXCLUDED.hashrail_ok, refclks_ok=EXCLUDED.refclks_ok, health=EXCLUDED.health
+ hashrate_hs=EXCLUDED.hashrate_hs, power_w=EXCLUDED.power_w, efficiency_jh=EXCLUDED.efficiency_jh, temperature_c=EXCLUDED.temperature_c, hashrail_ok=EXCLUDED.hashrail_ok, refclks_ok=EXCLUDED.refclks_ok, health=EXCLUDED.health
 WHERE (hashboard_latest_metrics.time, hashboard_latest_metrics.collected_at) < (EXCLUDED.time, EXCLUDED.collected_at)
  OR (hashboard_latest_metrics.installation_id <> EXCLUDED.installation_id AND hashboard_latest_metrics.collected_at < EXCLUDED.collected_at);

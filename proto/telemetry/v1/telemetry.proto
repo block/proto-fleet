@@ -317,6 +317,12 @@ message AggregatedValue {
     double value = 2; // e.g., 75.5 for AVERAGE, 1000 for MAX
 }
 message Metric {
+    // Present for saved physical equipment rollups. Counts use the metric
+    // contributor unit, independently of device_count.
+    optional int32 reporting_count = 5;
+    optional int32 expected_count = 6;
+    optional bool coverage_complete = 7;
+    optional int32 metric_semantics = 8;
     MeasurementType measurement_type = 1;
     google.protobuf.Timestamp open_time = 2;
     repeated AggregatedValue aggregated_values = 3; // e.g., AVERAGE, MIN, MAX

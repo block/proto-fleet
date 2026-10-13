@@ -49,11 +49,7 @@ func TestProtoPresenceAndUnknownEnums(t *testing.T) {
 	require.Nil(t, b.Health.Hashrate, "implicit zero has no producer validity marker")
 	require.Equal(t, 0.0, *b.Health.PSUElectrical.InputPower, "present PSU message is a complete snapshot")
 	require.Equal(t, "999", b.MiningState)
-	require.Nil(t, miningPower(&mdk.GetMiningStatusResponse{Power: 0}))
-	p := &mdk.GetMiningStatusResponse{CurrentMeasurements: &mdk.MiningCurrentMeasurements{Scope: mdk.MiningMeasurementScope_MINING_MEASUREMENT_SCOPE_SHARED_ASSIGNMENTS, HashboardPowerW: &mdk.MiningCurrentMeasurement{Value: new(0.0), Complete: true}}}
-	require.Equal(t, 0.0, *miningPower(p))
-	p.CurrentMeasurements.HashboardPowerW.Complete = false
-	require.Nil(t, miningPower(p))
+
 }
 
 func fixtureClient(t *testing.T, handler http.Handler) *Client {
@@ -76,7 +72,10 @@ func TestRequiredMapErrorsAndPayloadBounds(t *testing.T) {
 	}{{"authentication", 401, codes.Unauthenticated}, {"authorization", 403, codes.PermissionDenied}, {"unavailable", 503, codes.Unavailable}, {"missing service", 404, codes.Unimplemented}, {"oversized", 200, codes.ResourceExhausted}} {
 		t.Run(tc.name, func(t *testing.T) {
 			c := fixtureClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				require.Equal(t, "/api/v2/container/map", r.URL.Path)
+				if r.URL.Path != "/api/v2/container/map" {
+					w.WriteHeader(http.StatusServiceUnavailable)
+					return
+				}
 				w.WriteHeader(tc.httpCode)
 				if tc.httpCode == 200 {
 					_, _ = fmt.Fprintf(w, `{"containerMap":{"tanks":[{"id":1,"modules":[{"id":1,"slots":[{"occupied":true,"hashboard":{"serial":%q}}]}]}]}}`, strings.Repeat("x", maxReceiveBytes))

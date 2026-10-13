@@ -23,7 +23,11 @@ func mapResponse(v *mdk.GetContainerMapResponse) MapResponse {
 	}
 	out := MapResponse{ContainerMap: &ContainerMap{}}
 	for _, tank := range v.ContainerMap.Tanks {
-		t := Tank{ID: tank.GetId()}
+		expected := int64(tank.GetModuleLayout().GetRows()) * int64(tank.GetModuleLayout().GetColumns())
+		t := Tank{ID: tank.GetId(), ExpectedModules: -1}
+		if expected >= 0 && expected <= sdk.CT1ModulesPerTank {
+			t.ExpectedModules = int32(expected)
+		} // CT1 has 16 module positions per tank.
 		for _, module := range tank.GetModules() {
 			m := Module{ID: module.GetId(), Slots: make([]Slot, boardsPerModule)}
 			for i := range m.Slots {
@@ -31,7 +35,10 @@ func mapResponse(v *mdk.GetContainerMapResponse) MapResponse {
 			}
 			for _, slot := range module.GetSlots() {
 				b := boardFromProto(slot.GetHashboard())
-				value := Slot{Occupied: slot.GetOccupied(), Hashboard: b, invalid: b != nil && b.raw == nil}
+				location := slot.GetHashboard().GetLocation()
+				configuredLocation := slot.GetConfiguredLocation()
+				feed := &sdk.ContainerFeedEvidence{PowerFeedID: slot.GetPowerFeedId(), ObservedPowerFeedID: location.GetPowerFeedId(), ExpectedPowerFeedID: location.GetExpectedPowerFeedId(), WiringStatus: location.GetWiringStatus(), WiringReasons: location.GetWiringReasons(), ConfiguredTank: configuredLocation.GetTank(), ConfiguredModule: configuredLocation.GetModule()}
+				value := Slot{Feed: feed, Occupied: slot.GetOccupied(), Hashboard: b, invalid: b != nil && b.raw == nil}
 				position := slot.GetHashboard().GetLocation().GetHashboardPosition()
 				configured := slot.GetConfiguredLocation().GetHashboardPosition()
 				if position == 0 {
@@ -79,6 +86,9 @@ func boardFromProto(v *mdk.Hashboard) *Board {
 			HashrailOK: &h.HashrailOk, RefclksOK: &h.RefclksOk}
 		// The board scalar has no presence bit. Positive values prove a reading;
 		// ambiguous default zero remains unavailable until upstream supplies validity.
+		if h.Power != 0 {
+			b.Health.Power = &h.Power
+		}
 		if h.Hashrate != 0 {
 			b.Health.Hashrate = &h.Hashrate
 		}

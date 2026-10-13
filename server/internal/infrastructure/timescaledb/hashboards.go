@@ -122,6 +122,23 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 			boardIDs = append(boardIDs, v.BoardID)
 		}
 	}
+	watermarks, err := q.GetHashboardMetricWatermarks(ctx, boardIDs)
+	if err != nil {
+		return err
+	}
+	sourceTimes := map[int64]time.Time{}
+	for _, w := range watermarks {
+		sourceTimes[w.HashboardID] = w.Time
+	}
+	for i := range observations {
+		v := &observations[i]
+		if v.ObservedAt.Before(sourceTimes[v.BoardID]) {
+			v.HashrateHS = nil
+			v.PowerW = nil
+			v.TemperatureC = nil
+			v.EfficiencyJH = nil
+		}
+	}
 	installations, err := q.GetHashboardInstallations(ctx, sqlc.GetHashboardInstallationsParams{OrgID: orgID, DeviceID: deviceID, BoardIds: boardIDs})
 	if err != nil {
 		return err
@@ -139,6 +156,13 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 		if old.LastSeenAt.After(snapshot.ObservedAt) {
 			rejectHashboard(ctx, deviceID, v, sdk.HashboardOlderObservation)
 			continue
+		}
+		changedPlacement := old.ModuleID != v.ModuleID || old.Position != v.Position || old.SiteID != (sql.NullInt64{Int64: siteValue(v.SiteID), Valid: v.SiteID != nil})
+		// Apply the installation boundary on every poll, not just the poll that
+		// changes placement. Initial discovery may contain asynchronous readings.
+		beforeInstallation := old.HasPriorInstallation && v.ObservedAt.Before(old.InstalledAt)
+		if beforeInstallation || (changedPlacement && v.ObservedAt.Before(snapshot.ObservedAt)) {
+			v.HashrateHS, v.PowerW, v.TemperatureC, v.EfficiencyJH = nil, nil, nil, nil
 		}
 		if old.DeviceID != deviceID && snapshot.ObservedAt.Sub(old.LastSeenAt) < 2*time.Minute {
 			rejectHashboard(ctx, deviceID, v, sdk.HashboardControllerConflict)
@@ -211,7 +235,42 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 	if err := q.UpsertHashboardInstallations(ctx, sqlc.UpsertHashboardInstallationsParams{ObservedAt: snapshot.ObservedAt, Boards: data}); err != nil {
 		return err
 	}
-	return q.InsertHashboardMetrics(ctx, sqlc.InsertHashboardMetricsParams{CollectedAt: snapshot.ObservedAt, Boards: data})
+	if err := q.InsertHashboardMetrics(ctx, sqlc.InsertHashboardMetricsParams{CollectedAt: snapshot.ObservedAt, Boards: data}); err != nil {
+		return err
+	}
+	if err := q.WithdrawHashboardReadings(ctx, sqlc.WithdrawHashboardReadingsParams{CollectedAt: snapshot.ObservedAt, Boards: data}); err != nil {
+		return err
+	}
+	// Rebuild from normalized slots so rejected positions cannot survive into rollups.
+	for ti := range snapshot.Tanks {
+		for mi := range snapshot.Tanks[ti].Modules {
+			m := &snapshot.Tanks[ti].Modules[mi]
+			resolved := byPosition[[2]int32{snapshot.Tanks[ti].Position, m.Position}]
+			boards := make([]sdk.ContainerHashboard, 0, sdk.CT1HashboardsPerModule)
+			for position := int32(1); position <= sdk.CT1HashboardsPerModule; position++ {
+				board := sdk.UnavailableHashboard(position, sdk.HashboardInvalidObservation)
+				if v, ok := bySlot[[2]int64{resolved.ID, int64(position)}]; ok {
+					board = v.ContainerHashboard
+				}
+				for _, reported := range m.Hashboards {
+					if reported.Position == position {
+						board.Feed = reported.Feed
+						break
+					}
+				}
+				if board.UnavailableReason != "" {
+					snapshot.TopologyComplete = false
+					snapshot.Tanks[ti].TopologyComplete = false
+				}
+				boards = append(boards, board)
+			}
+			m.Hashboards = boards
+		}
+	}
+	if snapshot.Metrics != nil {
+		sdk.CalculateContainerRollups(snapshot)
+	}
+	return nil
 }
 
 func siteValue(site *int64) int64 {
@@ -263,15 +322,26 @@ func validateHashboard(b *sdk.ContainerHashboard, collected time.Time) error {
 		return fmt.Errorf("invalid hashboard state")
 	}
 	if b.ObservedAt.IsZero() || collected.Sub(b.ObservedAt) >= 2*time.Minute || b.ObservedAt.After(collected.Add(5*time.Second)) {
-		b.HashrateHS, b.TemperatureC, b.HashrailOK, b.RefclksOK = nil, nil, nil, nil
+		b.HashrateHS, b.PowerW, b.EfficiencyJH, b.TemperatureC, b.HashrailOK, b.RefclksOK = nil, nil, nil, nil, nil, nil
 	}
-	for _, value := range []**float64{&b.HashrateHS, &b.TemperatureC} {
+	for _, value := range []**float64{&b.HashrateHS, &b.TemperatureC, &b.PowerW, &b.EfficiencyJH} {
 		if *value != nil && (math.IsNaN(**value) || math.IsInf(**value, 0)) {
 			*value = nil
 		}
 	}
+	if b.PowerW != nil && *b.PowerW < 0 {
+		b.PowerW = nil
+		b.EfficiencyJH = nil
+	}
 	if b.HashrateHS != nil && *b.HashrateHS < 0 {
 		b.HashrateHS = nil
+	}
+	b.EfficiencyJH = nil
+	if b.HashrateHS != nil && *b.HashrateHS > 0 && b.PowerW != nil {
+		efficiency := *b.PowerW / *b.HashrateHS
+		if !math.IsNaN(efficiency) && !math.IsInf(efficiency, 0) {
+			b.EfficiencyJH = &efficiency
+		}
 	}
 	if b.StateObservedAt.IsZero() || collected.Sub(b.StateObservedAt) >= 2*time.Minute || b.StateObservedAt.After(collected.Add(5*time.Second)) {
 		b.State = sdk.ModuleUnknown
@@ -327,15 +397,15 @@ func collectHashboardObservations(ctx context.Context, deviceID int64, snapshot 
 				continue
 			}
 			slots := map[int32][]sdk.ContainerHashboard{}
-			ambiguous := len(module.Hashboards) > 3
+			ambiguous := len(module.Hashboards) > sdk.CT1HashboardsPerModule
 			for _, b := range module.Hashboards {
-				if b.Position < 1 || b.Position > 3 {
+				if b.Position < 1 || b.Position > sdk.CT1HashboardsPerModule {
 					ambiguous = true
 					continue
 				}
 				slots[b.Position] = append(slots[b.Position], b)
 			}
-			for position := int32(1); position <= 3; position++ {
+			for position := int32(1); position <= sdk.CT1HashboardsPerModule; position++ {
 				v := hashboardObservation{ContainerHashboard: sdk.UnavailableHashboard(position, ""), ModuleID: m.ID}
 				if m.SiteID.Valid {
 					v.SiteID = &m.SiteID.Int64
@@ -346,7 +416,7 @@ func collectHashboardObservations(ctx context.Context, deviceID int64, snapshot 
 				}
 				if position == 1 {
 					for _, claim := range module.Hashboards {
-						if claim.Position < 1 || claim.Position > 3 {
+						if claim.Position < 1 || claim.Position > sdk.CT1HashboardsPerModule {
 							v.claims = append(v.claims, hashboardClaims(claim)...)
 						}
 					}

@@ -11,7 +11,7 @@ import {
 
 function fixture(): ContainerOverviewData {
   return {
-    container: create(ContainerSchema, { id: 7n, hashrateHs: 2e15, powerW: 30000 }),
+    container: create(ContainerSchema, { id: 7n, hashrateHs: 2e15, powerW: 30000, efficiencyJh: 15e-12 }),
     tanks: [
       create(InventoryItemSchema, {
         ref: { kind: EntityKind.TANK, id: 81n },
@@ -38,6 +38,14 @@ function fixture(): ContainerOverviewData {
 }
 
 describe("collected container presentation", () => {
+  it("uses saved efficiency and never reconstructs an unavailable value", () => {
+    const data = fixture();
+    data.container.efficiencyJh = 10e-12;
+    expect(buildContainerOverview(data, "C").kpis[2].value).toBe("10.0 J/TH");
+    data.container.efficiencyJh = undefined;
+    expect(buildContainerOverview(data, "C").kpis[2].value).toBe("—");
+  });
+
   it("uses shared PH/s formatting and keeps container power separate from equipment power", () => {
     const view = buildContainerOverview(fixture(), "C");
     expect(view.kpis.map((kpi) => kpi.value)).toEqual(["2.00 PH/s", "30.0 kW", "15.0 J/TH", "1/2"]);
@@ -48,6 +56,7 @@ describe("collected container presentation", () => {
 
   it("distinguishes unavailable readings from measured zero", () => {
     const data = fixture();
+    data.container.efficiencyJh = undefined;
     data.container.hashrateHs = undefined;
     data.container.powerW = undefined;
     expect(

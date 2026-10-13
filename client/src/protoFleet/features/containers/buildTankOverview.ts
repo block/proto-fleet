@@ -28,13 +28,19 @@ export function buildTankOverview(data: ContainerOverviewData, tankId: string, u
   );
   const view = buildContainerOverview({ ...data, tanks: [tank], modules }, unit, failed);
   const complete = !view.stale && tank.assetCount > 0n && BigInt(modules.length) === tank.assetCount;
-  const hashrate = !view.stale && tank.hashrateReportingCount > 0n ? tank.hashrateThs : undefined;
-  const power = !view.stale && tank.powerReportingCount > 0n ? tank.powerKw : undefined;
+  const hashrate = !view.stale ? tank.hashrateThs : undefined;
+  const power = !view.stale ? tank.powerKw : undefined;
   const efficiency = !view.stale ? tank.efficiencyJth : undefined;
   const temperature =
     !view.stale && tank.minTemperatureC !== undefined && tank.maxTemperatureC !== undefined
       ? formatTempRange(tank.minTemperatureC, tank.maxTemperatureC, unit)
       : "—";
+  const incompleteCoverage = tank.coverage
+    ? [tank.coverage.hashrate, tank.coverage.power, tank.coverage.temperature].some(
+        (coverage) =>
+          !coverage || !coverage.topologyComplete || coverage.expected <= 0 || coverage.reporting !== coverage.expected,
+      )
+    : tank.hashrateReportingCount < tank.assetCount || tank.powerReportingCount < tank.assetCount;
   return {
     tank,
     modules,
@@ -43,8 +49,7 @@ export function buildTankOverview(data: ContainerOverviewData, tankId: string, u
     stale: view.stale,
     incomplete:
       !complete ||
-      tank.hashrateReportingCount < tank.assetCount ||
-      tank.powerReportingCount < tank.assetCount ||
+      incompleteCoverage ||
       hashrate === undefined ||
       power === undefined ||
       temperature === "—" ||
@@ -57,7 +62,7 @@ export function buildTankOverview(data: ContainerOverviewData, tankId: string, u
         preformatted: true,
       },
       {
-        label: "Module power",
+        label: "Tank power",
         text: power !== undefined ? tankMetricCoverage(tank, "power") : undefined,
         value: formatPowerKwOrDash(power ?? null),
         preformatted: true,

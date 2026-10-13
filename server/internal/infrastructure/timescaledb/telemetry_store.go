@@ -396,6 +396,9 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 			if err := storeContainerInventory(ctx, qtx, metrics.DeviceIdentifier, metrics.Container); err != nil {
 				return fmt.Errorf("store container inventory: %w", err)
 			}
+			if !metrics.Container.InventoryAccepted {
+				continue
+			}
 			if plant := metrics.Container.Plant; plant != nil {
 				encoded, err := json.Marshal(plant)
 				if err != nil {
@@ -436,6 +439,11 @@ func (s *TimescaleTelemetryStore) StoreDeviceMetrics(ctx context.Context, data .
 
 		if err := qtx.InsertDeviceMetrics(ctx, params); err != nil {
 			return fmt.Errorf("failed to insert metrics for device %s: %w", metrics.DeviceIdentifier, err)
+		}
+		if metrics.Container != nil {
+			if err := qtx.StampContainerSample(ctx, sqlc.StampContainerSampleParams{DeviceIdentifier: metrics.DeviceIdentifier, Time: metrics.Timestamp}); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -637,6 +645,15 @@ func (s *TimescaleTelemetryStore) StreamTelemetryUpdates(ctx context.Context, qu
 // - Daily aggregates (device_metrics_daily) for queries > 10d
 func (s *TimescaleTelemetryStore) GetCombinedMetrics(ctx context.Context, query models.CombinedMetricsQuery) (models.CombinedMetric, error) {
 	startTime, endTime := s.getTimeRange(query.TimeRange)
+	if len(query.DeviceIDs) == 1 {
+		container, err := s.queries.IsContainerMetricSelector(ctx, string(query.DeviceIDs[0]))
+		if err != nil {
+			return models.CombinedMetric{}, err
+		}
+		if container {
+			return s.containerHistory(ctx, query, startTime, endTime)
+		}
+	}
 	ds := selectDataSource(startTime, endTime, len(query.DeviceIDs))
 
 	s.logger.Debug("selected data source for combined metrics",

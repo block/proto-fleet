@@ -6,7 +6,7 @@ SELECT d.id, d.device_identifier, d.site_id, d.serial_number,
        COALESCE(plant.metrics, 'null'::jsonb)::jsonb AS plant,
        COALESCE(to_jsonb(controls) || jsonb_build_object('controls', COALESCE(control_states.readings, '[]'::jsonb), 'setpoints', COALESCE(setpoints.readings, '[]'::jsonb)), 'null'::jsonb)::jsonb AS controls,
        ci.observed_at, COALESCE(health.tanks, '[]'::jsonb)::jsonb AS tank_health,
-       COALESCE(dm.time, 'epoch'::timestamptz)::timestamptz AS metrics_at, dm.hash_rate_hs, dm.power_w, dm.temp_c
+       COALESCE(dm.time, 'epoch'::timestamptz)::timestamptz AS metrics_at, dm.hashrate_hs AS hash_rate_hs, dm.power_w, dm.temperature_c AS temp_c, dm.efficiency_jh, dm.min_temperature_c, dm.max_temperature_c, dm.coverage
 FROM device d
 JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.org_id
 JOIN device_pairing dp ON dp.device_id = d.id
@@ -48,12 +48,7 @@ LEFT JOIN LATERAL (
         GROUP BY t.id, t.position
     ) tank
 ) health ON TRUE
-LEFT JOIN LATERAL (
-    SELECT time, hash_rate_hs, power_w, temp_c
-    FROM device_metrics
-    WHERE device_identifier = d.device_identifier
-    ORDER BY time DESC LIMIT 1
-) dm ON TRUE
+LEFT JOIN container_equipment_current_metrics dm ON dm.kind=2 AND dm.id=d.id
 WHERE d.org_id = sqlc.arg('org_id') AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL AND dd.device_class = 2
   AND (cardinality(COALESCE(sqlc.arg('device_identifiers')::text[], '{}'))=0 OR d.device_identifier=ANY(sqlc.arg('device_identifiers')::text[]))

@@ -21,7 +21,7 @@ WITH modules AS (
  'state',CASE WHEN s.state_observed_at > now()-INTERVAL '2 minutes' AND s.state_observed_at <= now()+INTERVAL '5 seconds'
  AND (s.state_observed_at >= i.installed_at OR NOT EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id))) THEN s.state ELSE 'unknown' END,
  'state_observed_at',s.state_observed_at,'mining_state',s.mining_state,'isolated',s.isolated,
- 'observed_at',mm.time,'collected_at',mm.collected_at,'hashrate_hs',mm.hashrate_hs,'temperature_c',mm.temperature_c,
+ 'observed_at',mm.time,'collected_at',mm.collected_at,'hashrate_hs',mm.hashrate_hs,'temperature_c',mm.temperature_c,'power_w',mm.power_w,'efficiency_jh',mm.efficiency_jh,
  'hashrail_ok',mm.hashrail_ok,'refclks_ok',mm.refclks_ok,'health',CASE WHEN mm.state_observed_at >= i.installed_at OR NOT EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id)) THEN mm.health ELSE NULL END) END AS board
  FROM modules m CROSS JOIN generate_series(1,3) p(position)
  LEFT JOIN hashboard_slot s ON s.module_id=m.id AND s.position=p.position
@@ -38,7 +38,7 @@ SELECT COALESCE(jsonb_agg(to_jsonb(result) ORDER BY module_id),'[]'::jsonb)::jso
 SELECT mm.hashboard_id, mm.installation_id, mm.time, mm.collected_at,
  (CASE WHEN evidence.current_state THEN mm.state ELSE 'unknown' END)::text AS state,
  mm.state_observed_at, COALESCE(evidence.current_state,FALSE)::boolean AS state_in_installation,
- mm.mining_state, mm.isolated, mm.hashrate_hs, mm.temperature_c, mm.hashrail_ok, mm.refclks_ok, mm.health,
+ mm.mining_state, mm.isolated, mm.hashrate_hs, mm.temperature_c, mm.power_w, mm.efficiency_jh, mm.hashrail_ok, mm.refclks_ok, mm.health,
  i.module_id, i.position
 FROM hashboard_metrics mm JOIN hashboard h ON h.id=mm.hashboard_id
 JOIN hashboard_installation i ON i.id=mm.installation_id

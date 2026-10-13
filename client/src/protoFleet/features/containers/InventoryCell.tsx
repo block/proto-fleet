@@ -4,7 +4,9 @@ import { type TankMetric, tankMetricCoverage } from "./tankMetricCoverage";
 import { EntityKind, type InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { HealthBar } from "@/protoFleet/components/HealthBar";
 import { useTemperatureUnit } from "@/protoFleet/store";
+import { getDisplayValue } from "@/shared/utils/stringUtils";
 import {
+  convertCtoF,
   formatEfficiencyOrDash,
   formatHashrateOrDash,
   formatPowerKwOrDash,
@@ -54,6 +56,15 @@ export function InventoryCell({ item, column }: { item: InventoryItem; column: s
     case "efficiency":
       return metricValue("efficiency", formatEfficiencyOrDash(item.efficiencyJth ?? null));
     case "temperature":
+      if (item.ref?.kind === EntityKind.MODULE) {
+        // The inventory API puts the single stored module mean in both bounds.
+        // Render it like a miner temperature, not a range of board readings.
+        const mean = item.minTemperatureC;
+        return metricValue(
+          "temperature",
+          mean === undefined ? "—" : `${getDisplayValue(unit === "F" ? convertCtoF(mean) : mean)} °${unit}`,
+        );
+      }
       return metricValue(
         "temperature",
         item.minTemperatureC === undefined || item.maxTemperatureC === undefined
