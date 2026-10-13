@@ -116,6 +116,10 @@ func TestModuleMiningRequiresV5ForRemoteControllers(t *testing.T) {
 			svc := newDispatchIntegrationTestService(t, conn, failingEnqueueQueue{delegate: queue.NewDatabaseMessageQueue(&queue.Config{DequeLimit: 10, MaxFailureRetries: 1}, conn)})
 			svc.SetPluginCapabilitiesProvider(moduleCapabilities{true})
 			svc.SetCommandProtocolChecker(registry)
+			if version == gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4 {
+				_, err = conn.ExecContext(t.Context(), `UPDATE container_module SET identity_confirmed=false WHERE id=$1`, moduleID)
+				require.NoError(t, err)
+			}
 			ctx := testutil.MockAuthContextForTesting(t.Context(), user.DatabaseID, user.OrganizationID)
 			allow := func(context.Context, *int64, bool) error { return nil }
 			options, err := svc.GetModuleMiningOptions(ctx, []int64{moduleID}, allow)
@@ -128,12 +132,51 @@ func TestModuleMiningRequiresV5ForRemoteControllers(t *testing.T) {
 				require.Len(t, r.Commands, 1)
 			} else {
 				require.True(t, fleeterror.IsFailedPreconditionError(err))
+				require.Contains(t, err.Error(), "protocol version 5")
 				require.False(t, options.CanStart)
 				require.False(t, options.CanStop)
 				require.Contains(t, options.UnavailableReason, "protocol version 5")
 				require.Zero(t, countCommandBatches(t, conn, user.OrganizationID))
 			}
 		})
+	}
+}
+
+func TestModuleMiningAvailabilityReasonPrecedence(t *testing.T) {
+	for _, identity := range []string{"", "module-a"} {
+		for _, tc := range []struct {
+			name, reason       string
+			supported, pending bool
+		}{
+			{"identity unavailable", "board status", true, false},
+			{"unsupported", "not supported", false, false},
+			{"pending", "already pending", true, true},
+			{"pending and unsupported", "already pending", false, true},
+		} {
+			t.Run(identity+"/"+tc.name, func(t *testing.T) {
+				conn, dbs, user := setupRetentionTest(t)
+				_, _, tanks := seedTankController(t, conn, dbs, user.OrganizationID)
+				moduleID := seedCommandModule(t, conn, tanks[0], 1, identity)
+				_, err := conn.ExecContext(t.Context(), `UPDATE container_module SET identity_confirmed=false WHERE id=$1`, moduleID)
+				require.NoError(t, err)
+				svc := newDispatchIntegrationTestService(t, conn, failingEnqueueQueue{delegate: queue.NewDatabaseMessageQueue(&queue.Config{DequeLimit: 10, MaxFailureRetries: 1}, conn)})
+				svc.SetPluginCapabilitiesProvider(moduleCapabilities{tc.supported})
+				ctx := testutil.MockAuthContextForTesting(t.Context(), user.DatabaseID, user.OrganizationID)
+				allow := func(context.Context, *int64, bool) error { return nil }
+				if tc.pending {
+					_, err = svc.SetTankMining(ctx, tanks[:1], new(false), allow)
+					require.NoError(t, err)
+				}
+				options, err := svc.GetModuleMiningOptions(ctx, []int64{moduleID}, allow)
+				require.NoError(t, err)
+				require.False(t, options.CanStart)
+				require.False(t, options.CanStop)
+				require.Contains(t, options.UnavailableReason, tc.reason)
+				_, err = svc.SetModuleMining(ctx, []int64{moduleID}, new(false), allow)
+				require.True(t, fleeterror.IsFailedPreconditionError(err))
+				require.Contains(t, err.Error(), tc.reason)
+			})
+		}
 	}
 }
 func seedCommandModule(t *testing.T, conn *sql.DB, tank int64, position int, identity string) int64 {

@@ -76,6 +76,40 @@ func TestModuleMiningExactScopeAndIdentity(t *testing.T) {
 	}
 }
 
+func TestModuleMiningRejectsBoardClaimsInUnoccupiedSelectedSlots(t *testing.T) {
+	for _, claim := range []string{"module-a", "replacement", ""} {
+		for _, mining := range []bool{false, true} {
+			t.Run(claim+strconv.FormatBool(mining), func(t *testing.T) {
+				writes := 0
+				srv := newTankGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch r.URL.Path {
+					case "/api/v2/system/info":
+						_, _ = w.Write([]byte(`{"info":{"id":"ct1","model":"CT1"}}`))
+					case "/api/v2/container/map":
+						require.NoError(t, json.NewEncoder(w).Encode(MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{{ID: 1, Modules: []Module{{ID: 1, Slots: []Slot{
+							{Occupied: true, Hashboard: &Board{MACAddress: "a", ModuleID: "module-a"}},
+							{Occupied: false, Hashboard: &Board{MACAddress: "b", ModuleID: claim}},
+							{},
+						}}}}}}}))
+					default:
+						writes++
+						_, _ = w.Write([]byte(`{"results":[{"macAddress":"a","applied":true}]}`))
+					}
+				}))
+				u, err := url.Parse(srv.URL)
+				require.NoError(t, err)
+				port, err := strconv.ParseInt(u.Port(), 10, 32)
+				require.NoError(t, err)
+				dev, err := newTankTestDevice(t, "ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme})
+				require.NoError(t, err)
+				err = dev.SetModuleMining(t.Context(), sdk.ModuleMiningRequest{Mining: &mining, Modules: []sdk.ModuleMiningTarget{{Tank: 1, Module: 1, ReportedID: "module-a"}}})
+				require.Error(t, err)
+				require.Zero(t, writes)
+			})
+		}
+	}
+}
+
 func TestModuleMiningRejectsCrossKindIdentifierCollisionsBeforeWriting(t *testing.T) {
 	const selectedMAC = "AA-BB-CC-DD-EE-01"
 	for _, tc := range []struct {

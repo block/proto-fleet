@@ -33,6 +33,7 @@ type miningCommandTarget struct {
 	SiteID                                      sql.NullInt64
 	Manufacturer, Model                         sql.NullString
 	Module                                      *sdk.ModuleMiningTarget
+	ModuleIdentityConfirmed                     bool
 }
 type miningOptions struct {
 	CanStart, CanStop bool
@@ -58,10 +59,14 @@ func (scope miningScope) controlsUnavailableReason() string {
 }
 
 func (scope miningScope) targetUnavailableReason(row miningCommandTarget) string {
-	if row.Module != nil && row.Module.Validate() != nil {
+	if row.Module != nil && (!row.ModuleIdentityConfirmed || row.Module.Validate() != nil) {
 		return moduleIdentityUnavailableReason
 	}
 	return scope.controlsUnavailableReason()
+}
+
+func (scope miningScope) controlsUnsupportedReason() string {
+	return scope.noun() + " mining controls are not supported by this controller"
 }
 func (scope miningScope) capability() string {
 	if scope == moduleScope {
@@ -115,7 +120,8 @@ func (scope miningScope) resolve(ctx context.Context, q sqlc.Querier, ids []int6
 			LastSeenAt: row.LastSeenAt, ObservedAt: row.ObservedAt,
 			DeviceIdentifier: row.DeviceIdentifier, SiteID: row.SiteID, ContainerName: row.ContainerName,
 			Manufacturer: row.Manufacturer, Model: row.Model, DriverName: row.DriverName,
-			Module: &sdk.ModuleMiningTarget{Tank: row.TankPosition, Module: row.Position, ReportedID: row.ReportedID},
+			Module:                  &sdk.ModuleMiningTarget{Tank: row.TankPosition, Module: row.Position, ReportedID: row.ReportedID},
+			ModuleIdentityConfirmed: row.IdentityConfirmed,
 		}
 	}
 	return targets, nil

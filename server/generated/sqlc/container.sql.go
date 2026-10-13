@@ -221,7 +221,7 @@ func (q *Queries) ListContainers(ctx context.Context, arg ListContainersParams) 
 
 const listModuleCommandTargets = `-- name: ListModuleCommandTargets :many
 SELECT m.id AS module_id, t.device_id, t.position AS tank_position,
-       m.position, CASE WHEN m.identity_confirmed THEN m.reported_id ELSE '' END::text AS reported_id,
+       m.position, m.reported_id, m.identity_confirmed,
        m.last_seen_at, ci.observed_at,
        d.device_identifier, d.site_id,
        COALESCE(NULLIF(d.custom_name, ''), NULLIF(d.serial_number, ''), d.device_identifier)::text AS container_name,
@@ -244,19 +244,20 @@ type ListModuleCommandTargetsParams struct {
 }
 
 type ListModuleCommandTargetsRow struct {
-	ModuleID         int64
-	DeviceID         int64
-	TankPosition     int32
-	Position         int32
-	ReportedID       string
-	LastSeenAt       time.Time
-	ObservedAt       time.Time
-	DeviceIdentifier string
-	SiteID           sql.NullInt64
-	ContainerName    string
-	Manufacturer     sql.NullString
-	Model            sql.NullString
-	DriverName       string
+	ModuleID          int64
+	DeviceID          int64
+	TankPosition      int32
+	Position          int32
+	ReportedID        string
+	IdentityConfirmed bool
+	LastSeenAt        time.Time
+	ObservedAt        time.Time
+	DeviceIdentifier  string
+	SiteID            sql.NullInt64
+	ContainerName     string
+	Manufacturer      sql.NullString
+	Model             sql.NullString
+	DriverName        string
 }
 
 func (q *Queries) ListModuleCommandTargets(ctx context.Context, arg ListModuleCommandTargetsParams) ([]ListModuleCommandTargetsRow, error) {
@@ -274,6 +275,7 @@ func (q *Queries) ListModuleCommandTargets(ctx context.Context, arg ListModuleCo
 			&i.TankPosition,
 			&i.Position,
 			&i.ReportedID,
+			&i.IdentityConfirmed,
 			&i.LastSeenAt,
 			&i.ObservedAt,
 			&i.DeviceIdentifier,

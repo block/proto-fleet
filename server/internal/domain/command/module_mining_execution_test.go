@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/require"
@@ -30,6 +31,10 @@ func TestModuleMiningExecutionRejectsReplacedRetiredMovedAndStaleIdentities(t *t
 	controller := &executionModuleController{}
 	_, err := conn.ExecContext(t.Context(), `UPDATE container_module SET identity_confirmed=false WHERE id=$1`, moduleID)
 	require.NoError(t, err)
+	rows, err := moduleScope.resolve(t.Context(), sqlc.New(conn), []int64{moduleID}, tank.OrgID)
+	require.NoError(t, err)
+	require.Equal(t, "module-a", rows[0].Module.ReportedID)
+	require.False(t, rows[0].ModuleIdentityConfirmed)
 	require.True(t, fleeterror.IsFailedPreconditionError(svc.executeModuleMining(t.Context(), deviceID, tank.OrgID, payload, controller)))
 	require.Zero(t, controller.writes, "a queued command must not write after current identity confirmation is withdrawn")
 	_, err = conn.ExecContext(t.Context(), `UPDATE container_module SET identity_confirmed=true WHERE id=$1`, moduleID)

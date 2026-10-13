@@ -2,6 +2,7 @@ package ct1
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -9,6 +10,29 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestMalformedBoardRetainsModuleIdentityConflict(t *testing.T) {
+	for _, health := range []string{`{"hashrate":"bad"}`, `{"hashrate":1e999}`} {
+		t.Run(health, func(t *testing.T) {
+			var wire MapResponse
+			data := fmt.Sprintf(`{"containerMap":{"tanks":[{"id":1,"modules":[{"id":1,"slots":[
+				{"occupied":true,"hashboard":{"macAddress":"a","moduleId":"module-a","health":{"timestamp":"2026-10-05T12:00:00Z","psuElectrical":{"inputPower":3600}}}},
+				{"occupied":true,"hashboard":{"macAddress":"b","moduleId":"replacement","health":%s}},
+				{"occupied":false}
+			]}]}]}}`, health)
+			require.NoError(t, json.Unmarshal([]byte(data), &wire))
+			slot := wire.ContainerMap.Tanks[0].Modules[0].Slots[1]
+			require.True(t, slot.invalid)
+			require.Equal(t, "replacement", slot.Hashboard.ModuleID)
+			got, err := snapshot(wire, time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC))
+			require.NoError(t, err)
+			module := got.Tanks[0].Modules[0]
+			require.NotNil(t, module.Metrics.PowerW)
+			require.Empty(t, module.ReportedID, "disputed hardware must not own the surviving measurements")
+			require.False(t, module.IdentityConfirmed)
+		})
+	}
+}
 
 func TestHashboardObservationsPreserveSlotsAndEvidence(t *testing.T) {
 	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)

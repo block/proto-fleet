@@ -570,5 +570,4 @@ func TestMissingModuleIdentityOnlyClearsAcceptedEmptyObservations(t *testing.T) 
 		write(at.Add(time.Second), at.Add(time.Second), blank, true)
 		assertCurrent(true, 4+i)
 	}
-
 }

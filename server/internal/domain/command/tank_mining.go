@@ -40,7 +40,7 @@ func miningSite(row miningCommandTarget) *int64 {
 	return nil
 }
 func currentMiningTarget(row miningCommandTarget, now time.Time) bool {
-	if row.Module != nil && row.Module.Validate() != nil {
+	if row.Module != nil && (!row.ModuleIdentityConfirmed || row.Module.Validate() != nil) {
 		return false
 	}
 	for _, observed := range []time.Time{row.LastSeenAt, row.ObservedAt} {
@@ -115,6 +115,8 @@ func (s *Service) getMiningOptions(ctx context.Context, ids []int64, authorize m
 		modulesByController := make(map[int64][]sdk.ModuleMiningTarget)
 		var previous int64
 		var supported, pending bool
+		var unsupported, anyPending bool
+		targetReason := ""
 		for _, row := range rows {
 			if row.Module != nil {
 				modulesByController[row.DeviceID] = append(modulesByController[row.DeviceID], *row.Module)
@@ -135,22 +137,15 @@ func (s *Service) getMiningOptions(ctx context.Context, ids []int64, authorize m
 					return nil, err
 				}
 			}
-			if !currentMiningTarget(row, time.Now()) || !supported {
-				options.CanStart = false
-				options.CanStop = false
-				options.UnavailableReason = scope.targetUnavailableReason(row)
-			}
-			if pending {
-				options.CanStart = false
-				options.CanStop = false
-				options.UnavailableReason = "A tank or module mining command is already pending for this container."
+			unsupported = unsupported || !supported
+			anyPending = anyPending || pending
+			if targetReason == "" && !currentMiningTarget(row, time.Now()) {
+				targetReason = scope.targetUnavailableReason(row)
 			}
 		}
 		for _, modules := range modulesByController {
 			if (sdk.ModuleMiningRequest{Modules: modules, Mining: new(false)}).Validate() != nil {
-				options.CanStart = false
-				options.CanStop = false
-				options.UnavailableReason = moduleIdentityUnavailableReason
+				targetReason = moduleIdentityUnavailableReason
 				break
 			}
 		}
@@ -158,10 +153,19 @@ func (s *Service) getMiningOptions(ctx context.Context, ids []int64, authorize m
 		if err != nil {
 			return nil, err
 		}
-		if upgradeRequired {
+		switch {
+		case upgradeRequired:
+			options.UnavailableReason = scope.upgradeMessage()
+		case anyPending:
+			options.UnavailableReason = "A tank or module mining command is already pending for this container."
+		case unsupported:
+			options.UnavailableReason = scope.controlsUnsupportedReason()
+		default:
+			options.UnavailableReason = targetReason
+		}
+		if options.UnavailableReason != "" {
 			options.CanStart = false
 			options.CanStop = false
-			options.UnavailableReason = scope.upgradeMessage()
 		}
 		if !options.CanStart && !options.CanStop && options.UnavailableReason == "" {
 			options.UnavailableReason = "No mining action is authorized for every selected " + scope.noun() + "."
@@ -225,27 +229,9 @@ func (s *Service) setMining(ctx context.Context, ids []int64, mining *bool, auth
 		if err != nil {
 			return nil, err
 		}
-		previous = 0
 		for _, row := range rows {
 			if err := authorize(txCtx, miningSite(row), *mining); err != nil {
 				return nil, err
-			}
-			if !currentMiningTarget(row, time.Now()) {
-				return nil, fleeterror.NewFailedPreconditionError(scope.targetUnavailableReason(row))
-			}
-			if row.DeviceID == previous {
-				continue
-			}
-			previous = row.DeviceID
-			if !s.miningSupported(txCtx, row, scope) {
-				return nil, fleeterror.NewFailedPreconditionError(scope.controlsUnavailableReason())
-			}
-			pending, err := q.HasPendingScopedMining(txCtx, row.DeviceID)
-			if err != nil {
-				return nil, err
-			}
-			if pending {
-				return nil, fleeterror.NewFailedPreconditionError("a tank or module mining command is already pending for this container")
 			}
 		}
 		upgradeRequired, err := s.miningProtocolUpgradeRequired(txCtx, q, rows, info.OrganizationID, scope)
@@ -254,6 +240,30 @@ func (s *Service) setMining(ctx context.Context, ids []int64, mining *bool, auth
 		}
 		if upgradeRequired {
 			return nil, fleeterror.NewFailedPreconditionError(scope.upgradeMessage())
+		}
+		previous = 0
+		unsupported := false
+		for _, row := range rows {
+			if row.DeviceID == previous {
+				continue
+			}
+			previous = row.DeviceID
+			pending, err := q.HasPendingScopedMining(txCtx, row.DeviceID)
+			if err != nil {
+				return nil, err
+			}
+			if pending {
+				return nil, fleeterror.NewFailedPreconditionError("a tank or module mining command is already pending for this container")
+			}
+			unsupported = unsupported || !s.miningSupported(txCtx, row, scope)
+		}
+		if unsupported {
+			return nil, fleeterror.NewFailedPreconditionError(scope.controlsUnsupportedReason())
+		}
+		for _, row := range rows {
+			if !currentMiningTarget(row, time.Now()) {
+				return nil, fleeterror.NewFailedPreconditionError(scope.targetUnavailableReason(row))
+			}
 		}
 		response := []miningCommand{}
 		for i := 0; i < len(rows); {

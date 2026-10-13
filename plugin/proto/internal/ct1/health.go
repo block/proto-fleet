@@ -160,7 +160,6 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 			moduleIDs[m.ID] = true
 			boards := []Board{}
 			reportedID := ""
-			identityConflict := false
 			identityUnavailable := false
 			hashboards := hashboardObservations(m.Slots, now)
 			for index := range hashboards {
@@ -185,28 +184,14 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 				if strings.TrimSpace(b.ModuleID) == "" {
 					identityUnavailable = true
 				} else {
-					if reportedID != "" && reportedID != b.ModuleID {
-						identityConflict = true
-					}
 					reportedID = b.ModuleID
 				}
 				boards = append(boards, b)
 			}
 			state := moduleState(boards, now)
-			// An unavailable slot can still contradict the identity observed on
-			// healthy boards. Do not attribute their metrics to disputed hardware.
-			for _, slot := range m.Slots {
-				if b := slot.Hashboard; b != nil && strings.TrimSpace(b.ModuleID) != "" && reportedID != "" && b.ModuleID != reportedID {
-					identityConflict = true
-				}
-			}
-			if reportedID != "" && len(identities.modules[reportedID]) != 1 {
-				identityConflict = true
-			}
+			identityConflict := reportedID != "" && !identities.uniqueModule(tank.ID, m.ID, reportedID)
 			if identityConflict {
 				state = sdk.ModuleUnknown
-			}
-			if identityConflict {
 				reportedID = ""
 			}
 			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, IdentityConfirmed: reportedID != "" && !identityUnavailable, State: state, ObservedAt: moduleObservedAt(boards, state, now), Metrics: moduleMetrics(boards, now), Hashboards: hashboards, Issues: moduleIssuesWithBudget(boards, now, identityConflict, &issuesBudget)})

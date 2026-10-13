@@ -62,7 +62,7 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 	}
 	identities := collectTopologyIdentities(wire)
 	for _, target := range targets {
-		if len(identities.modules[target.ReportedID]) != 1 {
+		if !identities.uniqueModule(target.Tank, target.Module, target.ReportedID) {
 			return fmt.Errorf("selected module identity unavailable or ambiguous")
 		}
 	}
@@ -108,7 +108,7 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 					if slot.unreported {
 						return fmt.Errorf("tank %d module %d slot topology unavailable", position, module.ID)
 					}
-					if slot.invalid || (slot.Occupied && slot.Hashboard == nil) {
+					if slot.invalid || (slot.Occupied && slot.Hashboard == nil) || (!slot.Occupied && slot.Hashboard != nil) {
 						return fmt.Errorf("tank %d board topology unavailable", position)
 					}
 					if !slot.Occupied {

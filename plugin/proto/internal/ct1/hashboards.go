@@ -30,12 +30,15 @@ func (b *Board) UnmarshalJSON(data []byte) error {
 	// Retain safely decoded identity claims even if diagnostics are malformed.
 	// Other slots claiming this identity must also be considered ambiguous.
 	*b = Board{raw: raw}
-	var mac, serial string
+	var mac, serial, moduleID string
 	if err := json.Unmarshal(raw["macAddress"], &mac); err == nil && sdk.ValidateHashboardJSON(raw["macAddress"]) == nil {
 		b.MACAddress = mac
 	}
 	if err := json.Unmarshal(raw["serial"], &serial); err == nil && sdk.ValidateHashboardJSON(raw["serial"]) == nil {
 		b.Serial = serial
+	}
+	if err := json.Unmarshal(raw["moduleId"], &moduleID); err == nil && sdk.ValidateHashboardJSON(raw["moduleId"]) == nil {
+		b.ModuleID = moduleID
 	}
 	if err := sdk.ValidateHashboardJSON(data); err != nil {
 		return err
@@ -187,15 +190,17 @@ func hashboardObservation(slot Slot, position int32, now time.Time) sdk.Containe
 // Inventory uses typed identity keys; controller selectors share a MAC/serial
 // namespace and conservatively normalize both aliases like MAC addresses.
 type topologyIdentities struct {
-	boards    map[string]int
-	selectors map[string]int
-	modules   map[string]map[[2]int32]bool
+	boards       map[string]int
+	selectors    map[string]int
+	modules      map[string]map[[2]int32]bool
+	moduleClaims map[[2]int32]map[string]bool
 }
 
 func collectTopologyIdentities(wire MapResponse) topologyIdentities {
-	out := topologyIdentities{boards: map[string]int{}, selectors: map[string]int{}, modules: map[string]map[[2]int32]bool{}}
+	out := topologyIdentities{boards: map[string]int{}, selectors: map[string]int{}, modules: map[string]map[[2]int32]bool{}, moduleClaims: map[[2]int32]map[string]bool{}}
 	for _, tank := range wire.ContainerMap.Tanks {
 		for _, module := range tank.Modules {
+			location := [2]int32{tank.ID, module.ID}
 			for _, slot := range module.Slots {
 				b := slot.Hashboard
 				if b == nil {
@@ -216,12 +221,22 @@ func collectTopologyIdentities(wire MapResponse) topologyIdentities {
 					if out.modules[b.ModuleID] == nil {
 						out.modules[b.ModuleID] = map[[2]int32]bool{}
 					}
-					out.modules[b.ModuleID][[2]int32{tank.ID, module.ID}] = true
+					out.modules[b.ModuleID][location] = true
+					if out.moduleClaims[location] == nil {
+						out.moduleClaims[location] = map[string]bool{}
+					}
+					out.moduleClaims[location][b.ModuleID] = true
 				}
 			}
 		}
 	}
 	return out
+}
+
+// A claim must identify one location, and that location must claim only that ID.
+func (ids topologyIdentities) uniqueModule(tank, module int32, reportedID string) bool {
+	location := [2]int32{tank, module}
+	return reportedID != "" && len(ids.modules[reportedID]) == 1 && ids.modules[reportedID][location] && len(ids.moduleClaims[location]) == 1
 }
 func boardIdentityKeys(mac, serial string) []string {
 	keys := []string{}
