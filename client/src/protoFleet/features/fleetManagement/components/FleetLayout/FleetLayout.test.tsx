@@ -37,8 +37,10 @@ vi.mock("@/protoFleet/features/fleetManagement/components/FleetCreateFlow/FleetC
 }));
 
 import FleetLayout from "./FleetLayout";
+import { useFleetOutletContext } from "./outletContext";
 import { SiteSchema, type SiteWithCounts, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { SitesProvider } from "@/protoFleet/api/SitesProvider";
+import { getSavedViewsStorageKey, VIEWS_SCHEMA_VERSION } from "@/protoFleet/features/fleetManagement/views/savedViews";
 import { type ActiveSite } from "@/protoFleet/store/types/activeSite";
 
 // Mock listSites at the hook level so the test stays focused on FleetLayout's
@@ -263,6 +265,59 @@ describe("FleetLayout lastTab persistence", () => {
     await waitFor(() => {
       expect(localStorage.getItem("fleet:lastActiveTab")).toBe(JSON.stringify("buildings"));
     });
+  });
+});
+
+describe("FleetLayout active saved view context", () => {
+  const ActiveSavedViewProbe = () => (
+    <div data-testid="active-saved-view">{useFleetOutletContext().activeSavedViewId ?? "none"}</div>
+  );
+
+  const renderWithProbe = (initialPath: string) =>
+    render(
+      <SitesProvider>
+        <MemoryRouter initialEntries={[initialPath]}>
+          <Routes>
+            <Route path="/fleet" element={<FleetLayout />}>
+              <Route path="buildings" element={<ActiveSavedViewProbe />} />
+              <Route path="racks" element={<ActiveSavedViewProbe />} />
+            </Route>
+          </Routes>
+        </MemoryRouter>
+      </SitesProvider>,
+    );
+
+  beforeEach(() => {
+    localStorage.setItem(
+      getSavedViewsStorageKey("alice"),
+      JSON.stringify({
+        version: VIEWS_SCHEMA_VERSION,
+        views: [
+          {
+            id: "grid-buildings",
+            name: "Grid buildings",
+            tab: "buildings",
+            searchParams: "display=grid",
+            createdAt: "2026-10-13T00:00:00.000Z",
+          },
+        ],
+      }),
+    );
+  });
+
+  test("exposes the saved view the URL activates on the current tab", async () => {
+    renderWithProbe("/fleet/buildings?display=grid&view=grid-buildings");
+    await waitFor(() => expect(screen.getByTestId("active-saved-view")).toHaveTextContent("grid-buildings"));
+  });
+
+  test("reports no active view for an id the user has not saved", async () => {
+    renderWithProbe("/fleet/buildings?display=grid&view=shared-by-someone");
+    await waitFor(() => expect(screen.getByTestId("active-saved-view")).toHaveTextContent("none"));
+  });
+
+  test("reports no active view for another tab's saved view", async () => {
+    renderWithProbe("/fleet/racks?display=grid&view=grid-buildings");
+    await waitFor(() => expect(screen.getByTestId("active-saved-view")).toHaveTextContent("none"));
   });
 });
 

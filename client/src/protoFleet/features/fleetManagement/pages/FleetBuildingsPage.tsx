@@ -25,6 +25,7 @@ import BuildingCard from "@/protoFleet/features/buildings/components/BuildingCar
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
+import { usePersistDisplayDeepLink } from "@/protoFleet/features/fleetManagement/hooks/usePersistDisplayDeepLink";
 import {
   FILTER_URL_PARAM_KEYS,
   fleetListTelemetryRangesFromURL,
@@ -103,19 +104,14 @@ const FleetBuildingsPage = () => {
 
   // URL is the source of truth for the segmented control (so a `?display=`
   // deep link wins), falling back to the persisted Zustand preference so a
-  // default session keeps the operator's last choice.
+  // default session keeps the operator's last choice. Mirrors RacksPage.
   const urlBuildingsViewMode: "grid" | "list" | undefined = (() => {
     const raw = searchParams.get("display");
     return raw === "grid" || raw === "list" ? raw : undefined;
   })();
   const buildingsViewMode = canViewBuildingStats ? (urlBuildingsViewMode ?? storedBuildingsViewMode) : "list";
-
-  useEffect(() => {
-    if (urlBuildingsViewMode !== undefined) {
-      // Preserve the requested mode even when permissions force the list view.
-      setStoredBuildingsViewMode(urlBuildingsViewMode);
-    }
-  }, [urlBuildingsViewMode, setStoredBuildingsViewMode]);
+  // Persist the requested mode even when permissions force the list view.
+  usePersistDisplayDeepLink(urlBuildingsViewMode, setStoredBuildingsViewMode);
 
   const setBuildingsViewMode = useCallback(
     (mode: "grid" | "list") => {

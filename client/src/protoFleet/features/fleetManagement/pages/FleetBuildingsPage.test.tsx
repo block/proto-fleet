@@ -99,6 +99,7 @@ const fleetContext = {
   sitesLoaded: true,
   siteCatalogAccessGranted: true,
   refetchSites: vi.fn(),
+  activeSavedViewId: undefined,
 } as unknown as FleetOutletContext;
 
 const renderPage = (initialEntry = "/fleet/buildings", outletContext: FleetOutletContext = fleetContext) =>
@@ -196,6 +197,23 @@ describe("FleetBuildingsPage view toggle", () => {
 
     expect(screen.getAllByTestId("building-card")).toHaveLength(2);
     expect(useFleetStore.getState().ui.buildingsViewMode).toBe("grid");
+  });
+
+  test("keeps the saved preference when an active saved view supplies the display mode", async () => {
+    const user = userEvent.setup();
+    renderPage("/fleet/buildings?display=grid&view=grid-buildings", {
+      ...fleetContext,
+      activeSavedViewId: "grid-buildings",
+    });
+
+    expect(screen.getAllByTestId("building-card")).toHaveLength(2);
+    expect(useFleetStore.getState().ui.buildingsViewMode).toBe("list");
+
+    await user.click(screen.getByRole("link", { name: "Leave Buildings" }));
+    await user.click(screen.getByRole("link", { name: "Buildings tab" }));
+
+    expect(screen.getByTestId("building-list")).toBeInTheDocument();
+    expect(useFleetStore.getState().ui.buildingsViewMode).toBe("list");
   });
 
   test("clears a list-mode selection and drops the bulk action bar when switching to grid", async () => {

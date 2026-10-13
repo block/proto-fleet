@@ -3,6 +3,7 @@ import {
   canonicalizeSearchParams,
   createDefaultSavedViewsRecord,
   createUserView,
+  findActiveView,
   findView,
   getSavedViewsStorageKey,
   isSavedViewsRecordDefault,
@@ -158,6 +159,34 @@ describe("savedViews helpers", () => {
 
     it("returns undefined for unknown ids", () => {
       expect(findView("nope", record)).toBeUndefined();
+    });
+  });
+
+  describe("findActiveView", () => {
+    const record: SavedViewsRecord = {
+      version: VIEWS_SCHEMA_VERSION,
+      views: [
+        {
+          id: "b1",
+          name: "Grid buildings",
+          tab: "buildings",
+          searchParams: "display=grid",
+          createdAt: "2026-04-30T00:00:00.000Z",
+        },
+      ],
+    };
+
+    it("resolves the view the URL names on its own tab", () => {
+      expect(findActiveView(new URLSearchParams("display=grid&view=b1"), record, "buildings")?.id).toBe("b1");
+    });
+
+    it("ignores a view owned by another tab", () => {
+      expect(findActiveView(new URLSearchParams("view=b1"), record, "racks")).toBeUndefined();
+    });
+
+    it("ignores an unknown or missing view id", () => {
+      expect(findActiveView(new URLSearchParams("view=shared-by-someone"), record, "buildings")).toBeUndefined();
+      expect(findActiveView(new URLSearchParams("display=grid"), record, "buildings")).toBeUndefined();
     });
   });
 
