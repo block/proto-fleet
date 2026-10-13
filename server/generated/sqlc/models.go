@@ -517,6 +517,7 @@ type ContainerModule struct {
 	Issues            pqtype.NullRawMessage
 	IssuesObservedAt  sql.NullTime
 	IssuesSourceTimes json.RawMessage
+	IdentityConfirmed bool
 }
 
 type ContainerModuleLatestMetric struct {

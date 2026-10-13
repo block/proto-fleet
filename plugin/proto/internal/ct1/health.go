@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -160,6 +161,7 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 			boards := []Board{}
 			reportedID := ""
 			identityConflict := false
+			identityUnavailable := false
 			hashboards := hashboardObservations(m.Slots, now)
 			for index := range hashboards {
 				observation := &hashboards[index]
@@ -173,11 +175,16 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 					slog.Warn("CT1 hashboard observation unavailable", "tank", tank.ID, "module", m.ID, "position", observation.Position, "reason", observation.UnavailableReason)
 				}
 				if observation.Occupancy != "occupied" {
+					if observation.Occupancy != "empty" {
+						identityUnavailable = true
+					}
 					continue
 				}
 				b := *m.Slots[index].Hashboard
 
-				if b.ModuleID != "" {
+				if strings.TrimSpace(b.ModuleID) == "" {
+					identityUnavailable = true
+				} else {
 					if reportedID != "" && reportedID != b.ModuleID {
 						identityConflict = true
 					}
@@ -187,8 +194,10 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 			}
 			state := moduleState(boards, now)
 			if identityConflict {
-				reportedID = ""
 				state = sdk.ModuleUnknown
+			}
+			if identityConflict || identityUnavailable {
+				reportedID = ""
 			}
 			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, State: state, ObservedAt: moduleObservedAt(boards, state, now), Metrics: moduleMetrics(boards, now), Hashboards: hashboards, Issues: moduleIssuesWithBudget(boards, now, identityConflict, &issuesBudget)})
 		}

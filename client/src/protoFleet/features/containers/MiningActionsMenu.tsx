@@ -19,7 +19,7 @@ export default function MiningActionsMenu({
 }: {
   items: InventoryItem[];
   kind: "tank" | "module";
-  onRefresh: () => void;
+  onRefresh?: () => void;
   presentation?: "row" | "bulk";
   onActionStart?: () => void;
   onActionComplete?: () => void;
@@ -67,6 +67,7 @@ export default function MiningActionsMenu({
   }, [open, key, kind]);
   if (!items.length) return null;
   const label = items.length === 1 ? items[0].name : `${items.length} selected ${kind}s`;
+  const actionLabel = `${kind === "tank" ? "Tank" : "Module"} actions`;
   const beginMiningAction = (nextMining: boolean) => {
     setMining(nextMining);
     onActionStart?.();
@@ -80,9 +81,7 @@ export default function MiningActionsMenu({
     >
       <RowActionsMenu
         ariaLabel={`Actions for ${label}`}
-        triggerLabel={
-          presentation === "bulk" || items.length > 1 ? `${kind === "tank" ? "Tank" : "Module"} actions` : undefined
-        }
+        triggerLabel={presentation === "bulk" || items.length > 1 ? actionLabel : undefined}
         triggerClassName={presentation === "bulk" ? "bg-grayscale-white-10! text-grayscale-white-90!" : undefined}
         triggerVariant={presentation === "bulk" ? variants.secondary : undefined}
         triggerSuffixIcon={presentation === "bulk" ? <ChevronDown width={iconSizes.xSmall} /> : undefined}
@@ -121,7 +120,7 @@ export default function MiningActionsMenu({
           kind={kind}
           mining={mining}
           onRefresh={() => {
-            if (mounted.current) onRefresh();
+            if (mounted.current) onRefresh?.();
           }}
           onClose={() => {
             setMining(undefined);

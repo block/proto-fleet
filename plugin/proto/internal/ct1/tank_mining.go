@@ -62,11 +62,25 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 	}
 	identityCounts := boardIdentityCounts(wire)
 	moduleLocations := map[string]map[[2]int32]bool{}
+	selectorCounts := map[string]int{}
 	if len(targets) > 0 {
 		for _, tank := range wire.ContainerMap.Tanks {
 			for _, module := range tank.Modules {
 				for _, slot := range module.Slots {
-					if !slot.Occupied || slot.Hashboard == nil {
+					if slot.Hashboard == nil {
+						continue
+					}
+					// BoardScope identifiers share a MAC/serial namespace. Count
+					// each board once, including claims from unavailable slots.
+					mac := normalizedBoardMAC(slot.Hashboard.MACAddress)
+					serial := normalizedBoardMAC(slot.Hashboard.Serial)
+					if mac != "" {
+						selectorCounts[mac]++
+					}
+					if serial != "" && serial != mac {
+						selectorCounts[serial]++
+					}
+					if !slot.Occupied {
 						continue
 					}
 					id := slot.Hashboard.ModuleID
@@ -141,6 +155,9 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 					if mac == "" || expected[mac] != "" {
 						return fmt.Errorf("tank %d board identity unavailable or ambiguous", position)
 					}
+					if isSelected && selectorCounts[mac] > 1 {
+						return fmt.Errorf("selected module board identifier ambiguous")
+					}
 					for _, key := range boardIdentityKeys(mac, strings.TrimSpace(slot.Hashboard.Serial)) {
 						if identityCounts[key] > 1 {
 							return fmt.Errorf("tank %d board identity unavailable or ambiguous", position)
@@ -152,7 +169,7 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 				if isSelected && moduleBoards == 0 {
 					return fmt.Errorf("selected module has no addressable boards")
 				}
-				if moduleBoards > 0 {
+				if len(targets) == 0 && moduleBoards > 0 {
 					modules = append(modules, &mdk.ModuleSelector{Tank: position, Module: module.ID})
 				}
 			}
@@ -170,13 +187,7 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 	if len(expected) == 0 {
 		return fmt.Errorf("selected %ss have no addressable boards", scopeName)
 	}
-	sort.Slice(modules, func(i, j int) bool {
-		if modules[i].Tank != modules[j].Tank {
-			return modules[i].Tank < modules[j].Tank
-		}
-		return modules[i].Module < modules[j].Module
-	})
-	scope := &mdk.BoardScope{Modules: modules}
+	var scope *mdk.BoardScope
 	if len(targets) > 0 {
 		// Address only the verified boards, so a replacement entering the same
 		// module position after the map read cannot inherit this write.
@@ -186,6 +197,14 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 		}
 		sort.Strings(identifiers)
 		scope = &mdk.BoardScope{Identifiers: identifiers}
+	} else {
+		sort.Slice(modules, func(i, j int) bool {
+			if modules[i].Tank != modules[j].Tank {
+				return modules[i].Tank < modules[j].Tank
+			}
+			return modules[i].Module < modules[j].Module
+		})
+		scope = &mdk.BoardScope{Modules: modules}
 	}
 	var results []*mdk.BoardResult
 	if *mining {

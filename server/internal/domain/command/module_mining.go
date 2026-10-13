@@ -47,11 +47,12 @@ func (scope miningScope) noun() string {
 	}
 	return "tank"
 }
-func (scope miningScope) message(s string) string {
+func (scope miningScope) controlsUnavailableReason() string {
+	noun := "Tank"
 	if scope == moduleScope {
-		return strings.NewReplacer("tank", "module", "Tank", "Module").Replace(s)
+		noun = "Module"
 	}
-	return s
+	return noun + " controls unsupported or topology stale; refresh before retrying."
 }
 func (scope miningScope) capability() string {
 	if scope == moduleScope {

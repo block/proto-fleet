@@ -125,7 +125,7 @@ func (s *Service) getMiningOptions(ctx context.Context, ids []int64, authorize m
 			options.CanStart = options.CanStart && start
 			options.CanStop = options.CanStop && stop
 			if !start && !stop {
-				return nil, fleeterror.NewForbiddenError(scope.message("tank actions denied"))
+				return nil, fleeterror.NewForbiddenError(scope.noun() + " actions denied")
 			}
 			if row.DeviceID != previous {
 				previous = row.DeviceID
@@ -138,7 +138,7 @@ func (s *Service) getMiningOptions(ctx context.Context, ids []int64, authorize m
 			if !currentMiningTarget(row, time.Now()) || !supported {
 				options.CanStart = false
 				options.CanStop = false
-				options.UnavailableReason = scope.message("Tank controls unsupported or topology stale; refresh before retrying.")
+				options.UnavailableReason = scope.controlsUnavailableReason()
 			}
 			if pending {
 				options.CanStart = false
@@ -164,7 +164,7 @@ func (s *Service) getMiningOptions(ctx context.Context, ids []int64, authorize m
 			options.UnavailableReason = scope.upgradeMessage()
 		}
 		if !options.CanStart && !options.CanStop && options.UnavailableReason == "" {
-			options.UnavailableReason = scope.message("No mining action is authorized for every selected tank.")
+			options.UnavailableReason = "No mining action is authorized for every selected " + scope.noun() + "."
 		}
 		return options, nil
 	})
@@ -192,7 +192,7 @@ func (s *Service) setMining(ctx context.Context, ids []int64, mining *bool, auth
 		return nil, fleeterror.NewInvalidArgumentError("mining state required")
 	}
 	if authorize == nil {
-		return nil, fleeterror.NewForbiddenError(scope.message("tank write authorization required"))
+		return nil, fleeterror.NewForbiddenError(scope.noun() + " write authorization required")
 	}
 	info, err := session.GetInfo(ctx)
 	if err != nil {
@@ -214,7 +214,7 @@ func (s *Service) setMining(ctx context.Context, ids []int64, mining *bool, auth
 			previous = row.DeviceID
 			_, err := q.LockContainerCommandTarget(txCtx, sqlc.LockContainerCommandTargetParams{DeviceIdentifier: row.DeviceIdentifier, OrgID: info.OrganizationID})
 			if errors.Is(err, sql.ErrNoRows) {
-				return nil, fleeterror.NewNotFoundError(scope.message("selected tank controller unavailable"))
+				return nil, fleeterror.NewNotFoundError("selected " + scope.noun() + " controller unavailable")
 			}
 			if err != nil {
 				return nil, err
@@ -231,14 +231,14 @@ func (s *Service) setMining(ctx context.Context, ids []int64, mining *bool, auth
 				return nil, err
 			}
 			if !currentMiningTarget(row, time.Now()) {
-				return nil, fleeterror.NewFailedPreconditionError(scope.message("tank controls unsupported or topology stale; refresh before retrying"))
+				return nil, fleeterror.NewFailedPreconditionError(scope.noun() + " controls unsupported or topology stale; refresh before retrying")
 			}
 			if row.DeviceID == previous {
 				continue
 			}
 			previous = row.DeviceID
 			if !s.miningSupported(txCtx, row, scope) {
-				return nil, fleeterror.NewFailedPreconditionError(scope.message("tank controls unsupported or topology stale; refresh before retrying"))
+				return nil, fleeterror.NewFailedPreconditionError(scope.noun() + " controls unsupported or topology stale; refresh before retrying")
 			}
 			pending, err := q.HasPendingScopedMining(txCtx, row.DeviceID)
 			if err != nil {
@@ -317,7 +317,7 @@ func (es *ExecutionService) executeScopedMining(ctx context.Context, deviceID, o
 		return fleeterror.NewFailedPreconditionError(err.Error())
 	}
 	if payload.OrgID != orgID || (scope == moduleScope) != (len(payload.ModuleIDs) > 0) {
-		return fleeterror.NewFailedPreconditionError(scope.message("tank command ownership or site changed"))
+		return fleeterror.NewFailedPreconditionError(scope.noun() + " command ownership or site changed")
 	}
 	// Hold placement stable through gate admission and the physical write, which
 	// must never be replayed by a transaction retry.
@@ -325,34 +325,34 @@ func (es *ExecutionService) executeScopedMining(ctx context.Context, deviceID, o
 	err := devicewrite.NewService(es.conn).WithBindingTransaction(ctx, func(ctx context.Context, q sqlc.Querier) error {
 		device, err := q.GetDeviceByID(ctx, sqlc.GetDeviceByIDParams{ID: deviceID, OrgID: orgID})
 		if errors.Is(err, sql.ErrNoRows) {
-			return fleeterror.NewFailedPreconditionError(scope.message("selected tank controller unavailable"))
+			return fleeterror.NewFailedPreconditionError("selected " + scope.noun() + " controller unavailable")
 		}
 		if err != nil {
 			return err
 		}
 		target, err := q.LockContainerCommandTarget(ctx, sqlc.LockContainerCommandTargetParams{DeviceIdentifier: device.DeviceIdentifier, OrgID: orgID})
 		if errors.Is(err, sql.ErrNoRows) {
-			return fleeterror.NewFailedPreconditionError(scope.message("selected tank controller unavailable"))
+			return fleeterror.NewFailedPreconditionError("selected " + scope.noun() + " controller unavailable")
 		}
 		if err != nil {
 			return err
 		}
 		if target.ID != deviceID || target.SiteID.Int64 != payload.SiteID {
-			return fleeterror.NewFailedPreconditionError(scope.message("tank command ownership or site changed"))
+			return fleeterror.NewFailedPreconditionError(scope.noun() + " command ownership or site changed")
 		}
 		rows, err := scope.resolve(ctx, q, payload.ids(), orgID)
 		if fleeterror.IsNotFoundError(err) {
-			return fleeterror.NewFailedPreconditionError(scope.message("selected tank no longer exists"))
+			return fleeterror.NewFailedPreconditionError("selected " + scope.noun() + " no longer exists")
 		}
 		if err != nil {
 			return err
 		}
 		if len(rows) != len(payload.ids()) {
-			return fleeterror.NewFailedPreconditionError(scope.message("selected tank no longer exists"))
+			return fleeterror.NewFailedPreconditionError("selected " + scope.noun() + " no longer exists")
 		}
 		for i, row := range rows {
 			if row.DeviceID != deviceID || row.SiteID.Int64 != payload.SiteID || row.ID != payload.ids()[i] || !payload.matches(row, i) || !currentMiningTarget(row, time.Now()) {
-				return fleeterror.NewFailedPreconditionError(scope.message("tank topology or placement changed; refresh before retrying"))
+				return fleeterror.NewFailedPreconditionError(scope.noun() + " topology or placement changed; refresh before retrying")
 			}
 		}
 		dispatchStarted = true
@@ -365,8 +365,8 @@ func (es *ExecutionService) executeScopedMining(ctx context.Context, deviceID, o
 			if devicewrite.IsNotDispatched(err) {
 				return err
 			}
-			slog.ErrorContext(ctx, scope.message("tank mining outcome unconfirmed"), "device_id", deviceID, "error", err)
-			return fleeterror.NewFailedPreconditionError(scope.message("tank mining outcome unconfirmed"))
+			slog.ErrorContext(ctx, scope.noun()+" mining outcome unconfirmed", "device_id", deviceID, "error", err)
+			return fleeterror.NewFailedPreconditionError(scope.noun() + " mining outcome unconfirmed")
 		}
 		return nil
 	})
@@ -375,11 +375,11 @@ func (es *ExecutionService) executeScopedMining(ctx context.Context, deviceID, o
 			return err
 		}
 		if dispatchStarted {
-			slog.ErrorContext(ctx, scope.message("tank mining outcome unconfirmed"), "device_id", deviceID, "error", err)
-			return fleeterror.NewFailedPreconditionError(scope.message("tank mining outcome unconfirmed"))
+			slog.ErrorContext(ctx, scope.noun()+" mining outcome unconfirmed", "device_id", deviceID, "error", err)
+			return fleeterror.NewFailedPreconditionError(scope.noun() + " mining outcome unconfirmed")
 		}
-		slog.ErrorContext(ctx, scope.message("tank mining preparation failed"), "device_id", deviceID, "error", err)
-		return fleeterror.NewInternalError(scope.message("tank mining preparation failed; retry shortly"))
+		slog.ErrorContext(ctx, scope.noun()+" mining preparation failed", "device_id", deviceID, "error", err)
+		return fleeterror.NewInternalError(scope.noun() + " mining preparation failed; retry shortly")
 	}
 	return nil
 }

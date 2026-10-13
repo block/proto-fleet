@@ -448,7 +448,7 @@ const ScopedMinerListBody = ({
               <div className="min-w-0 flex-1">
                 <InventoryCell item={item.row} column={column} />
               </div>
-              <ModuleActionsMenu modules={[item.row]} onRefresh={onRefetchMiners ?? (() => undefined)} />
+              <ModuleActionsMenu modules={[item.row]} onRefresh={onRefetchMiners} />
             </div>
           ) : (
             <InventoryCell item={item.row} column={column} />
@@ -635,30 +635,33 @@ const ScopedMinerListBody = ({
             />
           </div>
         }
-        renderActionBar={(selectedItems, clearSelection, currentSelectionMode, totalSelectable) => (
-          <div className="flex w-full justify-center">
-            <MinerListActionBar
-              selectedKeys={selectedItems}
-              modules={listItems.flatMap((item) =>
-                item.kind === "module" && selectedItems.includes(item.selectionKey) ? [item.row] : [],
-              )}
-              onClearSelection={clearSelection}
-              onSelectAll={hasCT1PlacementFilter ? undefined : handleSelectAllMiners}
-              selectAllOnPage={selectAllOnPage}
-              onSelectNone={handleSelectNoneMiners}
-              filtersActive={hasActiveFilters}
-              selectionMode={currentSelectionMode}
-              totalCount={totalSelectable}
-              currentFilter={currentFilter}
-              currentSort={currentSortConfig}
-              miners={minersProp}
-              minerIds={minerIdsProp}
-              selectionIncludesUnauthenticatedMiner={selectedIncludesUnauthenticatedMiner}
-              onRefetchMiners={onRefetchMiners}
-              onWorkerNameUpdated={onWorkerNameUpdated}
-            />
-          </div>
-        )}
+        renderActionBar={(selectedItems, clearSelection, currentSelectionMode, totalSelectable) => {
+          const selectedItemKeys = new Set(selectedItems);
+          return (
+            <div className="flex w-full justify-center">
+              <MinerListActionBar
+                selectedKeys={selectedItems}
+                modules={listItems.flatMap((item) =>
+                  item.kind === "module" && selectedItemKeys.has(item.selectionKey) ? [item.row] : [],
+                )}
+                onClearSelection={clearSelection}
+                onSelectAll={hasCT1PlacementFilter ? undefined : handleSelectAllMiners}
+                selectAllOnPage={selectAllOnPage}
+                onSelectNone={handleSelectNoneMiners}
+                filtersActive={hasActiveFilters}
+                selectionMode={currentSelectionMode}
+                totalCount={totalSelectable}
+                currentFilter={currentFilter}
+                currentSort={currentSortConfig}
+                miners={minersProp}
+                minerIds={minerIdsProp}
+                selectionIncludesUnauthenticatedMiner={selectedIncludesUnauthenticatedMiner}
+                onRefetchMiners={onRefetchMiners}
+                onWorkerNameUpdated={onWorkerNameUpdated}
+              />
+            </div>
+          );
+        }}
         containerClassName={listClassName}
         tableClassName="mb-4 inline-table w-max !min-w-fit !table-fixed"
         // Match the sibling fleet tabs (Sites/Buildings/Racks), whose filter

@@ -104,3 +104,35 @@ func TestModuleObservationEvidence(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) { require.Equal(t, tc.observed, moduleObservedAt([]Board{tc.board}, tc.state, now)) })
 	}
 }
+
+func TestSnapshotRequiresEveryOccupiedBoardToConfirmModuleIdentity(t *testing.T) {
+	now := time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name      string
+		identity  string
+		invalid   bool
+		wantID    string
+		wantState sdk.ModuleState
+	}{
+		{"matching", "module-a", false, "module-a", sdk.ModuleHashing},
+		{"missing", "", false, "", sdk.ModuleHashing},
+		{"blank", " \t", false, "", sdk.ModuleHashing},
+		{"conflicting", "module-b", false, "", sdk.ModuleUnknown},
+		{"invalid board", "module-a", true, "", sdk.ModuleUnknown},
+	} {
+		for changed := range boardsPerModule {
+			t.Run(tc.name+string(rune('1'+changed)), func(t *testing.T) {
+				slots := make([]Slot, boardsPerModule)
+				for i := range slots {
+					slots[i] = Slot{Occupied: true, Hashboard: &Board{MACAddress: string(rune('a' + i)), ModuleID: "module-a", MiningState: miningStateMining, Health: &Health{Timestamp: now}}}
+				}
+				slots[changed].Hashboard.ModuleID = tc.identity
+				slots[changed].invalid = tc.invalid
+				got, err := snapshot(MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{{ID: 1, Modules: []Module{{ID: 1, Slots: slots}}}}}}, now)
+				require.NoError(t, err)
+				require.Equal(t, tc.wantID, got.Tanks[0].Modules[0].ReportedID)
+				require.Equal(t, tc.wantState, got.Tanks[0].Modules[0].State)
+			})
+		}
+	}
+}

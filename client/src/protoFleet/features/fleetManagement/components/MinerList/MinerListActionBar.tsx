@@ -99,7 +99,7 @@ const MinerListActionBar = ({
           <ModuleActionsMenu
             modules={modules}
             presentation="bulk"
-            onRefresh={onRefetchMiners ?? (() => undefined)}
+            onRefresh={onRefetchMiners}
             onActionStart={onActionStart}
             onActionComplete={onActionComplete}
           />

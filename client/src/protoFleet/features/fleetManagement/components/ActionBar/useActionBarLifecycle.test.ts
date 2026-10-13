@@ -58,3 +58,28 @@ test("cleans up on navigation and ignores a late completion", () => {
   expect(setActionBarVisible).not.toHaveBeenCalled();
   expect(onActionBusyChange).not.toHaveBeenCalled();
 });
+
+test.each([false, true])("changing the busy callback does not reset the lifecycle (busy: %s)", (busy) => {
+  const first = vi.fn();
+  const latest = vi.fn();
+  const { result, rerender, unmount } = renderHook(({ onBusyChange }) => useActionBarLifecycle(2, onBusyChange), {
+    initialProps: { onBusyChange: first },
+  });
+  if (busy) act(() => result.current.onActionStart());
+  const complete = result.current.onActionComplete;
+  vi.clearAllMocks();
+
+  rerender({ onBusyChange: latest });
+  expect(result.current.isActionBusy).toBe(busy);
+  expect(first).not.toHaveBeenCalled();
+  expect(latest).not.toHaveBeenCalled();
+  expect(setActionBarVisible).not.toHaveBeenCalled();
+
+  act(complete);
+  expect(latest).toHaveBeenLastCalledWith(false);
+  expect(first).not.toHaveBeenCalled();
+  vi.clearAllMocks();
+  unmount();
+  expect(latest).toHaveBeenCalledWith(false);
+  expect(setActionBarVisible).toHaveBeenCalledWith(false);
+});

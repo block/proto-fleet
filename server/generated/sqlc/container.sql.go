@@ -221,7 +221,8 @@ func (q *Queries) ListContainers(ctx context.Context, arg ListContainersParams) 
 
 const listModuleCommandTargets = `-- name: ListModuleCommandTargets :many
 SELECT m.id AS module_id, t.device_id, t.position AS tank_position,
-       m.position, m.reported_id, m.last_seen_at, ci.observed_at,
+       m.position, CASE WHEN m.identity_confirmed THEN m.reported_id ELSE '' END::text AS reported_id,
+       m.last_seen_at, ci.observed_at,
        d.device_identifier, d.site_id,
        COALESCE(NULLIF(d.custom_name, ''), NULLIF(d.serial_number, ''), d.device_identifier)::text AS container_name,
        dd.manufacturer, dd.model, dd.driver_name

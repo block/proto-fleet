@@ -5,11 +5,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"testing"
+	"time"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	telemetry "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
+	"github.com/block/proto-fleet/server/internal/infrastructure/timescaledb"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/require"
@@ -19,6 +22,69 @@ type moduleCapabilities struct{ supported bool }
 
 func (p moduleCapabilities) GetRawCapabilitiesForDevice(context.Context, string, string, string) sdk.Capabilities {
 	return sdk.Capabilities{sdk.CapabilityModuleMining: p.supported, sdk.CapabilityTankMining: true}
+}
+
+func TestModuleMiningRequiresCurrentlyConfirmedIdentity(t *testing.T) {
+	for _, missing := range []string{"", " \t\n"} {
+		t.Run("missing identity "+missing, func(t *testing.T) {
+			conn, dbs, user := setupRetentionTest(t)
+			identifier, deviceID, tanks := seedTankController(t, conn, dbs, user.OrganizationID)
+			store, err := timescaledb.NewTelemetryStore(conn, timescaledb.DefaultConfig())
+			require.NoError(t, err)
+			svc := newDispatchIntegrationTestService(t, conn, failingEnqueueQueue{delegate: queue.NewDatabaseMessageQueue(&queue.Config{DequeLimit: 10, MaxFailureRetries: 1}, conn)})
+			svc.SetPluginCapabilitiesProvider(moduleCapabilities{true})
+			ctx := testutil.MockAuthContextForTesting(t.Context(), user.DatabaseID, user.OrganizationID)
+			allow := func(context.Context, *int64, bool) error { return nil }
+			observed := time.Now().UTC()
+			observe := func(identity string) {
+				t.Helper()
+				observed = observed.Add(time.Millisecond)
+				snapshot := &sdk.ContainerSnapshot{ObservedAt: observed, TopologyComplete: false, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 2, ReportedID: identity, State: sdk.ModuleHashing, ObservedAt: observed}}}}}
+				require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: identifier, Timestamp: observed, Container: snapshot}))
+			}
+			observe("module-a")
+			var moduleID int64
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT id FROM container_module WHERE tank_id=$1 AND position=2 AND retired_at IS NULL`, tanks[0]).Scan(&moduleID))
+			ids := []int64{moduleID}
+			check := func(confirmed bool) {
+				t.Helper()
+				var currentID int64
+				var historicalIdentity, state string
+				var currentConfirmed bool
+				require.NoError(t, conn.QueryRowContext(ctx, `SELECT id,reported_id,identity_confirmed,state FROM container_module WHERE tank_id=$1 AND position=2 AND retired_at IS NULL`, tanks[0]).Scan(&currentID, &historicalIdentity, &currentConfirmed, &state))
+				require.Equal(t, moduleID, currentID)
+				require.Equal(t, "module-a", historicalIdentity)
+				require.Equal(t, "hashing", state)
+				require.Equal(t, confirmed, currentConfirmed)
+				options, err := svc.GetModuleMiningOptions(ctx, ids, allow)
+				require.NoError(t, err)
+				require.Equal(t, confirmed, options.CanStart)
+				require.Equal(t, confirmed, options.CanStop)
+				_, err = svc.SetModuleMining(ctx, ids, new(false), allow)
+				if confirmed {
+					require.NoError(t, err)
+					_, err = conn.ExecContext(ctx, `UPDATE queue_message SET status='FAILED' WHERE device_id=$1`, deviceID)
+					require.NoError(t, err)
+				} else {
+					require.True(t, fleeterror.IsFailedPreconditionError(err))
+				}
+			}
+			check(true)
+			observe(missing)
+			check(false)
+			observe("module-a")
+			check(true)
+			// A gap must not forget the old identity or hide a later replacement.
+			observe(missing)
+			observe("replacement")
+			var replacementID int64
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT id FROM container_module WHERE tank_id=$1 AND position=2 AND retired_at IS NULL AND identity_confirmed`, tanks[0]).Scan(&replacementID))
+			require.NotEqual(t, moduleID, replacementID)
+			var oldIdentity string
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT reported_id FROM container_module WHERE id=$1 AND retired_at IS NOT NULL`, moduleID).Scan(&oldIdentity))
+			require.Equal(t, "module-a", oldIdentity)
+		})
+	}
 }
 
 func TestModuleMiningRequiresV5ForRemoteControllers(t *testing.T) {
@@ -61,7 +127,7 @@ func TestModuleMiningRequiresV5ForRemoteControllers(t *testing.T) {
 func seedCommandModule(t *testing.T, conn *sql.DB, tank int64, position int, identity string) int64 {
 	t.Helper()
 	var id int64
-	require.NoError(t, conn.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,reported_id,first_seen_at,last_seen_at,state) VALUES($1,$2,$3,now(),now(),'hashing') RETURNING id`, tank, position, identity).Scan(&id))
+	require.NoError(t, conn.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,reported_id,identity_confirmed,first_seen_at,last_seen_at,state) VALUES($1,$2,$3,true,now(),now(),'hashing') RETURNING id`, tank, position, identity).Scan(&id))
 	return id
 }
 
