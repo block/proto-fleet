@@ -86,6 +86,26 @@ func isTransientFixtureCause(err error) bool {
 	return errors.As(err, &pgErr) && pgErr.Code == pgInternalError && pgErr.Message == timescaleTupleConcurrentlyDeleted
 }
 
+func TestLegacyFixtureDiscardDetachesAttachedSessions(t *testing.T) {
+	if os.Getenv("DB_PASSWORD") == "" {
+		t.Skip("DB_PASSWORD is required for migration integration tests")
+	}
+	observer, _ := newMigrationBridgeTestDB(t)
+	_, config, discard := createMigrationBridgeTestDB(t)
+	attached, err := ConnectToDatabase(config)
+	assert.NoError(t, err)
+	t.Cleanup(func() { _ = attached.Close() })
+	assert.NoError(t, attached.PingContext(t.Context()))
+
+	discard()
+
+	var exists bool
+	assert.NoError(t, observer.QueryRowContext(t.Context(),
+		"SELECT EXISTS (SELECT FROM pg_database WHERE datname = $1)", config.Name).Scan(&exists))
+	assert.False(t, exists, "discard must drop a database that still has attached sessions")
+	assert.Error(t, attached.PingContext(t.Context()))
+}
+
 func TestLegacyMigrationFixtureRetries(t *testing.T) {
 	if os.Getenv("DB_PASSWORD") == "" {
 		t.Skip("DB_PASSWORD is required for migration integration tests")
