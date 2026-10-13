@@ -1,6 +1,7 @@
 #!/bin/bash
-# Exercises the non-interactive upgrade boundary without touching host Docker,
-# networking, or services. External commands are recorded through PATH shims.
+# Exercises Docker prerequisites and the non-interactive upgrade boundary
+# without touching host Docker, networking, or services. External commands are
+# recorded through PATH shims.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -164,6 +165,15 @@ printf '\n' >> "$CALL_LOG"
 
 if [ "${1:-}" = "info" ]; then
     printf '%s\n' "${FAKE_DOCKER_ID:-test-daemon}"
+    exit 0
+fi
+
+if [ "${1:-}" = "buildx" ] && [ "${2:-}" = "version" ]; then
+    if [ "${FAKE_BUILDX_FAILURE:-false}" = "true" ]; then
+        echo "buildx plugin failed to execute" >&2
+        exit 1
+    fi
+    echo 'github.com/docker/buildx v0.test'
     exit 0
 fi
 
@@ -407,10 +417,34 @@ EOF
     cat > "$HARNESS_BIN_DIR/id" <<'EOF'
 #!/bin/bash
 if [ "${1:-}" = "-u" ]; then
-    echo 0
+    echo "${FAKE_UID:-0}"
 else
     /usr/bin/id "$@"
 fi
+EOF
+
+    cat > "$HARNESS_BIN_DIR/groups" <<'EOF'
+#!/bin/bash
+printf 'groups %s\n' "$*" >> "$CALL_LOG"
+if [ "${FAKE_DOCKER_GROUP_MEMBER:-false}" = "true" ]; then
+    echo 'operator : operator docker'
+else
+    echo 'operator : operator'
+fi
+EOF
+
+    cat > "$HARNESS_BIN_DIR/getent" <<'EOF'
+#!/bin/bash
+printf 'getent %s\n' "$*" >> "$CALL_LOG"
+[ "$*" = 'group docker' ] || exit 1
+[ "${FAKE_DOCKER_GROUP_EXISTS:-true}" = 'true' ] || exit 2
+echo 'docker:x:999:'
+EOF
+
+    cat > "$HARNESS_BIN_DIR/apt-get" <<'EOF'
+#!/bin/bash
+printf 'apt-get %s\n' "$*" >> "$CALL_LOG"
+exit 1
 EOF
 
     cat > "$HARNESS_BIN_DIR/uname" <<'EOF'
@@ -536,6 +570,10 @@ EOF
     cat > "$HARNESS_BIN_DIR/sudo" <<'EOF'
 #!/bin/bash
 printf 'sudo %s\n' "$*" >> "$CALL_LOG"
+case "${1:-}" in
+    groupadd) [ "${FAKE_GROUPADD_FAILURE:-false}" != 'true' ] || exit 1 ;;
+    usermod) [ "${FAKE_USERMOD_FAILURE:-false}" != 'true' ] || exit 1 ;;
+esac
 exit 0
 EOF
 
@@ -574,6 +612,102 @@ run_stage() {
     PATH="$HARNESS_BIN_DIR:$PATH" \
     /bin/bash "$stage/run-fleet.sh" "$@" > "$HARNESS_OUTPUT_LOG" 2>&1
 }
+
+# Exercise the real first-install group branch. Successful membership changes
+# exit before any image build, asking the operator to start a new login session.
+for group_exists in true false; do
+    make_stage "docker-group-$group_exists"
+    if FAKE_UID=1000 FAKE_DOCKER_GROUP_EXISTS="$group_exists" run_stage "$STAGE"; then
+        pass "Docker group setup succeeds with group present=$group_exists"
+    else
+        fail "Docker group setup should succeed with group present=$group_exists"
+    fi
+    assert_contains "membership setup checks the existing group" "$HARNESS_CALL_LOG" "getent group docker"
+    assert_contains "membership setup adds the current user" "$HARNESS_CALL_LOG" "sudo usermod -aG docker $USER"
+    assert_contains "successful membership setup requests a new login" "$HARNESS_OUTPUT_LOG" "Please log out and log back in"
+    assert_not_contains "membership setup stops before building" "$HARNESS_CALL_LOG" " build "
+    if [ "$group_exists" = true ]; then
+        assert_not_contains "existing group is not recreated" "$HARNESS_CALL_LOG" "sudo groupadd"
+    elif awk '/sudo groupadd docker/ { created = 1 } /sudo usermod/ { exit !created }' "$HARNESS_CALL_LOG"; then
+        pass "missing group is created before usermod"
+    else
+        fail "missing group must be created before usermod"
+    fi
+done
+
+for failure in groupadd usermod; do
+    make_stage "docker-$failure-failure"
+    if FAKE_UID=1000 FAKE_DOCKER_GROUP_EXISTS=false \
+        FAKE_GROUPADD_FAILURE="$([ "$failure" = groupadd ] && echo true)" \
+        FAKE_USERMOD_FAILURE="$([ "$failure" = usermod ] && echo true)" \
+        run_stage "$STAGE"; then
+        fail "$failure failure must stop installation"
+    else
+        pass "$failure failure stops installation"
+    fi
+    assert_contains "$failure failure gives a clear error" "$HARNESS_OUTPUT_LOG" 'Error: could not'
+    assert_not_contains "$failure failure does not claim login fixes it" "$HARNESS_OUTPUT_LOG" 'Please log out'
+    assert_not_contains "$failure failure stops before building" "$HARNESS_CALL_LOG" ' build '
+    if [ "$failure" = groupadd ]; then
+        assert_not_contains "failed group creation skips usermod" "$HARNESS_CALL_LOG" 'sudo usermod'
+    fi
+done
+
+make_stage docker-group-noninteractive
+if FAKE_UID=1000 FAKE_DOCKER_GROUP_EXISTS=false run_stage "$STAGE" --non-interactive; then
+    fail "non-interactive upgrade must not repair Docker membership"
+else
+    pass "non-interactive upgrade refuses Docker membership repair"
+fi
+assert_contains "non-interactive group refusal explains the issue" "$HARNESS_OUTPUT_LOG" 'the upgrade user cannot access Docker'
+assert_not_contains "non-interactive upgrade does not create groups" "$HARNESS_CALL_LOG" 'sudo groupadd'
+assert_not_contains "non-interactive upgrade does not change membership" "$HARNESS_CALL_LOG" 'sudo usermod'
+
+make_stage docker-buildx-failure
+if FAKE_BUILDX_FAILURE=true run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "broken Buildx must fail preflight"
+else
+    pass "broken Buildx fails preflight"
+fi
+assert_contains "Buildx failure explains the prerequisite" "$HARNESS_OUTPUT_LOG" 'Docker Buildx is missing or not working'
+assert_contains "Buildx failure preserves the command diagnostic" "$HARNESS_OUTPUT_LOG" 'buildx plugin failed to execute'
+assert_contains "Buildx failure gives package remediation" "$HARNESS_OUTPUT_LOG" 'sudo apt-get install --reinstall docker-buildx-plugin'
+assert_not_contains "Buildx failure does not repair host packages" "$HARNESS_CALL_LOG" 'apt-get '
+assert_not_contains "Buildx failure occurs before builds" "$HARNESS_CALL_LOG" ' build '
+assert_not_contains "Buildx failure leaves existing services running" "$HARNESS_CALL_LOG" ' down --remove-orphans'
+assert_not_contains "root never checks Docker group membership" "$HARNESS_CALL_LOG" 'groups '
+assert_not_contains "root never creates a Docker group" "$HARNESS_CALL_LOG" 'sudo groupadd'
+assert_not_contains "root never adds itself to a Docker group" "$HARNESS_CALL_LOG" 'sudo usermod'
+
+make_stage docker-buildx-prepared-activation
+if run_stage "$STAGE" --non-interactive --preflight-only; then
+    pass "working Buildx prepares a release"
+else
+    fail "working Buildx should prepare a release"
+fi
+assert_contains "image preflight checks Buildx" "$HARNESS_CALL_LOG" 'docker buildx version'
+: > "$HARNESS_CALL_LOG"
+if FAKE_BUILDX_FAILURE=true run_stage "$STAGE" --non-interactive --skip-build; then
+    pass "prepared activation does not require Buildx"
+else
+    fail "prepared activation should not require Buildx"
+fi
+assert_not_contains "prepared activation does not check Buildx" "$HARNESS_CALL_LOG" 'docker buildx version'
+assert_not_contains "prepared activation does not rebuild images" "$HARNESS_CALL_LOG" ' build '
+
+# Existing membership skips group changes and continues to image prerequisites.
+make_stage docker-existing-member
+if FAKE_UID=1000 FAKE_DOCKER_GROUP_MEMBER=true FAKE_BUILDX_FAILURE=true \
+    run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "existing member should still fail a broken Buildx preflight"
+else
+    pass "existing member proceeds to image prerequisites"
+fi
+assert_contains "existing member reaches Buildx validation" "$HARNESS_OUTPUT_LOG" 'Docker Buildx is missing or not working'
+assert_not_contains "existing member does not look up the Docker group" "$HARNESS_CALL_LOG" 'getent group docker'
+assert_not_contains "existing member does not create a Docker group" "$HARNESS_CALL_LOG" 'sudo groupadd'
+assert_not_contains "existing member does not change membership" "$HARNESS_CALL_LOG" 'sudo usermod'
+assert_not_contains "existing member does not need a new login" "$HARNESS_OUTPUT_LOG" 'Please log out'
 
 # The installer activates the overlay only after updater bootstrap.
 make_stage help

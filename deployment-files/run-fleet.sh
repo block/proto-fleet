@@ -1823,10 +1823,20 @@ if [ "$(uname)" == "Linux" ]; then
     # Without this skip, `sudo bash install.sh ...` (the recommended remediation
     # for the sudo-mismatch detection in install.sh) would exit here telling
     # the user to log out and back in, leaving the upgrade half-applied.
-    if [ "$(id -u)" -ne 0 ] && ! groups $USER | grep -q '\bdocker\b'; then
+    if [ "$(id -u)" -ne 0 ] && ! groups "$USER" | grep -q '\bdocker\b'; then
         refuse_non_interactive_host_repair "the upgrade user cannot access Docker."
+        if ! getent group docker >/dev/null 2>&1; then
+            echo "Creating the docker group..."
+            if ! sudo groupadd docker; then
+                echo "Error: could not create the docker group. Repair the Docker installation, then re-run this script." >&2
+                exit 1
+            fi
+        fi
         echo "Adding current user to the docker group for passwordless Docker usage..."
-        sudo usermod -aG docker $USER
+        if ! sudo usermod -aG docker "$USER"; then
+            echo "Error: could not add user '$USER' to the docker group. Fix group membership, then re-run this script." >&2
+            exit 1
+        fi
         echo "Please log out and log back in to apply group changes, then re-run this script."
         exit 0
     fi
@@ -1935,6 +1945,22 @@ for flag in --wait --wait-timeout --no-build --pull; do
         exit 1
     fi
 done
+
+# Image preparation builds the Fleet API and client images. An executable
+# Docker CLI and working Compose plugin do not guarantee a usable Buildx plugin
+# after a partial package installation. Activation of a prepared release does
+# not build images and must not require Buildx.
+if [ "$SKIP_BUILD" != "true" ]; then
+    if ! buildx_version_output=$(docker buildx version 2>&1); then
+        echo "Error: Docker Buildx is missing or not working; Fleet images cannot be built." >&2
+        printf '%s\n' "$buildx_version_output" >&2
+        echo "Repair the Docker Buildx installation and verify 'docker buildx version' succeeds, then re-run this script." >&2
+        if [ "$(uname)" = "Linux" ] && command -v apt-get >/dev/null 2>&1; then
+            echo "On Debian/Ubuntu, inspect package errors with 'sudo dpkg --audit'; a broken Buildx package may need 'sudo apt-get install --reinstall docker-buildx-plugin'." >&2
+        fi
+        exit 1
+    fi
+fi
 
 # Replace exact keys without ever truncating the live environment file. The
 # temporary file lives beside .env so the final rename is atomic, while the
