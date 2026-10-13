@@ -1,4 +1,4 @@
-import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
+import { Link, MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
@@ -104,7 +104,12 @@ const fleetContext = {
 const renderPage = (initialEntry = "/fleet/buildings", outletContext: FleetOutletContext = fleetContext) =>
   render(
     <MemoryRouter initialEntries={[initialEntry]}>
+      <nav>
+        <Link to="/elsewhere">Leave Buildings</Link>
+        <Link to="/fleet/buildings">Buildings tab</Link>
+      </nav>
       <Routes>
+        <Route path="/elsewhere" element={<div>Another page</div>} />
         <Route path="/fleet" element={<Outlet context={outletContext} />}>
           <Route path="buildings" element={<FleetBuildingsPage />} />
         </Route>
@@ -157,6 +162,42 @@ describe("FleetBuildingsPage view toggle", () => {
     expect(screen.queryByTestId("building-list")).not.toBeInTheDocument();
   });
 
+  test.each([
+    { storedMode: "grid", linkedMode: "list", viewTestId: "building-list" },
+    { storedMode: "list", linkedMode: "grid", viewTestId: "building-card" },
+  ] as const)(
+    "keeps the deep-linked $linkedMode view after navigating away and back",
+    async ({ storedMode, linkedMode, viewTestId }) => {
+      const user = userEvent.setup();
+      useFleetStore.getState().ui.setBuildingsViewMode(storedMode);
+      renderPage(`/fleet/buildings?display=${linkedMode}`);
+
+      expect(screen.getAllByTestId(viewTestId)).not.toHaveLength(0);
+
+      await user.click(screen.getByRole("link", { name: "Leave Buildings" }));
+      expect(screen.getByText("Another page")).toBeInTheDocument();
+      await user.click(screen.getByRole("link", { name: "Buildings tab" }));
+
+      expect(screen.getAllByTestId(viewTestId)).not.toHaveLength(0);
+      expect(useFleetStore.getState().ui.buildingsViewMode).toBe(linkedMode);
+    },
+  );
+
+  test("ignores an invalid display parameter without overwriting the saved preference", async () => {
+    const user = userEvent.setup();
+    useFleetStore.getState().ui.setBuildingsViewMode("grid");
+    renderPage("/fleet/buildings?display=invalid");
+
+    expect(screen.getAllByTestId("building-card")).toHaveLength(2);
+    expect(useFleetStore.getState().ui.buildingsViewMode).toBe("grid");
+
+    await user.click(screen.getByRole("link", { name: "Leave Buildings" }));
+    await user.click(screen.getByRole("link", { name: "Buildings tab" }));
+
+    expect(screen.getAllByTestId("building-card")).toHaveLength(2);
+    expect(useFleetStore.getState().ui.buildingsViewMode).toBe("grid");
+  });
+
   test("clears a list-mode selection and drops the bulk action bar when switching to grid", async () => {
     const user = userEvent.setup();
     renderPage();
@@ -172,16 +213,25 @@ describe("FleetBuildingsPage view toggle", () => {
     expect(screen.getAllByTestId("building-card")).toHaveLength(2);
   });
 
-  test("forces list view and hides the toggle when the reader lacks stats permissions", () => {
+  test("forces list view without losing the deep-linked preference when the reader lacks stats permissions", async () => {
     // A site:read-only reader (no fleet:read / miner:read) reaches the tab,
     // but the grid's BuildingCards would 403 on GetBuildingStats, so grid is
     // unavailable even via ?display=grid.
     hasPermissionMock.mockImplementation((permission: string) => permission === "site:read");
+    const user = userEvent.setup();
 
     renderPage("/fleet/buildings?display=grid");
 
     expect(screen.getByTestId("building-list")).toBeInTheDocument();
     expect(screen.queryByTestId("building-card")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "View grid" })).not.toBeInTheDocument();
+    expect(useFleetStore.getState().ui.buildingsViewMode).toBe("grid");
+
+    await user.click(screen.getByRole("link", { name: "Leave Buildings" }));
+    hasPermissionMock.mockImplementation(() => true);
+    await user.click(screen.getByRole("link", { name: "Buildings tab" }));
+
+    expect(screen.getAllByTestId("building-card")).toHaveLength(2);
+    expect(useFleetStore.getState().ui.buildingsViewMode).toBe("grid");
   });
 });

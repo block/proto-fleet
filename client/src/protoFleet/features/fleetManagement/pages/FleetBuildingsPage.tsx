@@ -103,12 +103,19 @@ const FleetBuildingsPage = () => {
 
   // URL is the source of truth for the segmented control (so a `?display=`
   // deep link wins), falling back to the persisted Zustand preference so a
-  // default session keeps the operator's last choice. Mirrors RacksPage.
+  // default session keeps the operator's last choice.
   const urlBuildingsViewMode: "grid" | "list" | undefined = (() => {
     const raw = searchParams.get("display");
     return raw === "grid" || raw === "list" ? raw : undefined;
   })();
   const buildingsViewMode = canViewBuildingStats ? (urlBuildingsViewMode ?? storedBuildingsViewMode) : "list";
+
+  useEffect(() => {
+    if (urlBuildingsViewMode !== undefined) {
+      // Preserve the requested mode even when permissions force the list view.
+      setStoredBuildingsViewMode(urlBuildingsViewMode);
+    }
+  }, [urlBuildingsViewMode, setStoredBuildingsViewMode]);
 
   const setBuildingsViewMode = useCallback(
     (mode: "grid" | "list") => {
