@@ -10,7 +10,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/testutil"
-	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -18,7 +17,6 @@ func TestDeletionRefusesBusyBindingThenRetriesCoherentIdentity(t *testing.T) {
 	cfg, err := testutil.GetTestConfig()
 	require.NoError(t, err)
 	database := testutil.NewDatabaseService(t, cfg)
-	dbtest.ObserveDatabaseWaits(t, database.DB)
 	user := database.CreateSuperAdminUser()
 	device := createDeletionBindingFixture(t, database, user.OrganizationID)
 	other := createDeletionBindingFixture(t, database, user.OrganizationID)

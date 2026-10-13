@@ -11,7 +11,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/testutil"
-	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,10 +27,13 @@ func holdBindingObservation(t *testing.T, database *testutil.DatabaseService, or
 				func(context.Context) error { close(entered); <-release; return nil })
 		})
 	}()
-	finish := sync.OnceFunc(func() {
-		close(release)
-		require.NoError(t, <-done)
-	})
+	var finished sync.Once
+	finish := func() {
+		finished.Do(func() {
+			close(release)
+			require.NoError(t, <-done)
+		})
+	}
 	t.Cleanup(finish)
 	select {
 	case <-entered:
@@ -60,7 +62,6 @@ func TestBindingObservationProtectsMissingChildrenAndEndpoint(t *testing.T) {
 			cfg, err := testutil.GetTestConfig()
 			require.NoError(t, err)
 			database := testutil.NewDatabaseService(t, cfg)
-			dbtest.ObserveDatabaseWaits(t, database.DB)
 			user := database.CreateSuperAdminUser()
 			device := database.CreateDevice(user.OrganizationID, "proto")
 			var nodeID int64
@@ -80,7 +81,8 @@ func TestBindingObservationProtectsMissingChildrenAndEndpoint(t *testing.T) {
 			finish := holdBindingObservation(t, database, user.OrganizationID, device.DatabaseID)
 			writer, err := database.DB.Conn(t.Context())
 			require.NoError(t, err)
-			defer func() { finish(); _ = writer.Close() }()
+			defer writer.Close()
+			defer finish()
 			var pid int
 			require.NoError(t, writer.QueryRowContext(t.Context(), "SELECT pg_backend_pid()").Scan(&pid))
 			done := make(chan error, 1)

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"slices"
 
@@ -251,17 +250,17 @@ func (s *Service) DispatchDeletedUnpair(ctx context.Context, organizationID, dev
 func lockIdentity(ctx context.Context, q sqlc.Querier, deviceID int64) ([]string, error) {
 	keys, err := q.GetDeviceWriteIdentityKeys(ctx, deviceID)
 	if err != nil {
-		return nil, fmt.Errorf("read device write identities: %w", err)
+		return nil, err
 	}
 	if len(keys) == 0 {
 		return nil, blocked()
 	}
 	if err := q.LockDeviceWriteIdentities(ctx, keys); err != nil {
-		return nil, fmt.Errorf("lock device write identities: %w", err)
+		return nil, err
 	}
 	drained, err := q.IsRetiredDeviceWriteDrained(ctx, keys)
 	if err != nil {
-		return nil, fmt.Errorf("check retired device write drain: %w", err)
+		return nil, err
 	}
 	if !drained {
 		return nil, blocked()
