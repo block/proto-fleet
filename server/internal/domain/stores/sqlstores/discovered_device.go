@@ -86,6 +86,8 @@ func (s *SQLDiscoveredDeviceStore) save(ctx context.Context, doi discoverymodels
 		IsActive:         device.IsActive,
 		DriverName:       device.Device.DriverName,
 		DeviceClass:      int32(device.DeviceClass),
+		SerialNumber:     device.SerialNumber,
+		MacAddress:       device.MacAddress,
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("failed to upsert discovered device: %w", err)
@@ -213,6 +215,8 @@ func toDiscoveredDeviceFromRow(dbDevice sqlc.GetActiveUnpairedDiscoveredDevicesR
 	return &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
 			DeviceIdentifier: dbDevice.DeviceIdentifier,
+			SerialNumber:     dbDevice.SerialNumber,
+			MacAddress:       dbDevice.MacAddress,
 			Model:            dbDevice.Model.String,
 			DeviceClass:      commonpb.DeviceClass(dbDevice.DeviceClass),
 			Manufacturer:     dbDevice.Manufacturer.String,
@@ -263,6 +267,8 @@ func toDiscoveredDevice(dbDevice sqlc.DiscoveredDevice) *discoverymodels.Discove
 	return &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
 			DeviceIdentifier: dbDevice.DeviceIdentifier,
+			SerialNumber:     dbDevice.SerialNumber,
+			MacAddress:       dbDevice.MacAddress,
 			Model:            dbDevice.Model.String,
 			DeviceClass:      commonpb.DeviceClass(dbDevice.DeviceClass),
 			Manufacturer:     dbDevice.Manufacturer.String,
