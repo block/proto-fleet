@@ -558,7 +558,7 @@ func (q *Queries) OfflineDevicesForFleetNodeRevocation(ctx context.Context, arg 
 const pairDeviceToFleetNode = `-- name: PairDeviceToFleetNode :execrows
 WITH locked_device AS MATERIALIZED (
     SELECT device.id FROM device
-    WHERE device.id=$4 AND device.org_id=$2 FOR SHARE
+    WHERE device.id=$4 AND device.org_id=$2 FOR NO KEY UPDATE
 )
 INSERT INTO fleet_node_device (fleet_node_id, device_id, org_id, assigned_by)
 VALUES ($1, (SELECT locked_device.id FROM locked_device), $2, $3)

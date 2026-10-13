@@ -50,9 +50,10 @@ SELECT EXISTS (
 UPDATE device_write_attempt SET status=$1,finished_at=statement_timestamp()
 WHERE attempt_id=$2 AND status='running';
 
--- name: DeleteCompletedObservationAttempt :exec
+-- name: DeleteUndispatchedDirectAttempt :exec
 -- The owning process calls this only after full operation completion without
--- any dispatched mutation. Keep queue, deletion-permit and unresolved evidence.
+-- any dispatched mutation, including a rejected direct mutation admission.
+-- Keep queue, deletion-permit and unresolved evidence.
 DELETE FROM device_write_attempt a
 WHERE a.attempt_id=sqlc.arg(attempt_id) AND a.device_id=sqlc.arg(device_id)
  AND a.organization_id=sqlc.arg(organization_id)

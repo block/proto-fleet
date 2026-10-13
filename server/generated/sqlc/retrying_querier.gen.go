@@ -1700,12 +1700,6 @@ func (q *retryingQuerier) DeleteAlertRuleConfig(ctx context.Context, arg DeleteA
 	})
 }
 
-func (q *retryingQuerier) DeleteCompletedObservationAttempt(ctx context.Context, arg DeleteCompletedObservationAttemptParams) error {
-	return q.retrier.RetryQuery(ctx, "DeleteCompletedObservationAttempt", func() error {
-		return q.next.DeleteCompletedObservationAttempt(ctx, arg)
-	})
-}
-
 func (q *retryingQuerier) DeleteContainerControls(ctx context.Context, deviceID int64) error {
 	return q.retrier.RetryQuery(ctx, "DeleteContainerControls", func() error {
 		return q.next.DeleteContainerControls(ctx, deviceID)
@@ -1889,6 +1883,12 @@ func (q *retryingQuerier) DeleteReleasedFirmwareRolloutReservations(ctx context.
 func (q *retryingQuerier) DeleteScheduleTargets(ctx context.Context, arg DeleteScheduleTargetsParams) error {
 	return q.retrier.RetryQuery(ctx, "DeleteScheduleTargets", func() error {
 		return q.next.DeleteScheduleTargets(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) DeleteUndispatchedDirectAttempt(ctx context.Context, arg DeleteUndispatchedDirectAttemptParams) error {
+	return q.retrier.RetryQuery(ctx, "DeleteUndispatchedDirectAttempt", func() error {
+		return q.next.DeleteUndispatchedDirectAttempt(ctx, arg)
 	})
 }
 
@@ -6984,6 +6984,18 @@ func (q *retryingQuerier) LockMinerBindingDiscovery(ctx context.Context, id int6
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "LockMinerBindingDiscovery", func() error {
 		callResult, callErr := q.next.LockMinerBindingDiscovery(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockMinerBindingObservationDevice(ctx context.Context, id int64) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockMinerBindingObservationDevice", func() error {
+		callResult, callErr := q.next.LockMinerBindingObservationDevice(ctx, id)
 		if callErr == nil {
 			result = callResult
 		}

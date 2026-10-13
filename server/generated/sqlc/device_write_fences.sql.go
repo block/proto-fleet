@@ -245,7 +245,7 @@ func (q *Queries) CreateDeviceWriteAttempt(ctx context.Context, arg CreateDevice
 	return err
 }
 
-const deleteCompletedObservationAttempt = `-- name: DeleteCompletedObservationAttempt :exec
+const deleteUndispatchedDirectAttempt = `-- name: DeleteUndispatchedDirectAttempt :exec
 DELETE FROM device_write_attempt a
 WHERE a.attempt_id=$1 AND a.device_id=$2
  AND a.organization_id=$3
@@ -253,16 +253,17 @@ WHERE a.attempt_id=$1 AND a.device_id=$2
  AND NOT EXISTS (SELECT 1 FROM device_deletion_unpair_permit p WHERE p.attempt_id=a.attempt_id)
 `
 
-type DeleteCompletedObservationAttemptParams struct {
+type DeleteUndispatchedDirectAttemptParams struct {
 	AttemptID      uuid.UUID
 	DeviceID       int64
 	OrganizationID int64
 }
 
 // The owning process calls this only after full operation completion without
-// any dispatched mutation. Keep queue, deletion-permit and unresolved evidence.
-func (q *Queries) DeleteCompletedObservationAttempt(ctx context.Context, arg DeleteCompletedObservationAttemptParams) error {
-	_, err := q.exec(ctx, q.deleteCompletedObservationAttemptStmt, deleteCompletedObservationAttempt, arg.AttemptID, arg.DeviceID, arg.OrganizationID)
+// any dispatched mutation, including a rejected direct mutation admission.
+// Keep queue, deletion-permit and unresolved evidence.
+func (q *Queries) DeleteUndispatchedDirectAttempt(ctx context.Context, arg DeleteUndispatchedDirectAttemptParams) error {
+	_, err := q.exec(ctx, q.deleteUndispatchedDirectAttemptStmt, deleteUndispatchedDirectAttempt, arg.AttemptID, arg.DeviceID, arg.OrganizationID)
 	return err
 }
 

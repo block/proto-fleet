@@ -7,7 +7,10 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/ha"
@@ -116,16 +119,65 @@ type fleetRuntimeRunner interface {
 	Run(ctx context.Context) error
 }
 
+// httpRequestDrain rejects new requests once shutdown begins and tracks handler
+// completion, including HTTP/2 handlers on connections hijacked by h2c.
+type httpRequestDrain struct {
+	handler http.Handler
+	mu      sync.Mutex
+	stopped bool
+	active  sync.WaitGroup
+}
+
+func (d *httpRequestDrain) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	d.mu.Lock()
+	if d.stopped {
+		d.mu.Unlock()
+		http.Error(w, "Fleet is shutting down", http.StatusServiceUnavailable)
+		return
+	}
+	d.active.Add(1)
+	d.mu.Unlock()
+	defer d.active.Done()
+	d.handler.ServeHTTP(w, r)
+}
+
+func (d *httpRequestDrain) stop() {
+	d.mu.Lock()
+	d.stopped = true
+	d.mu.Unlock()
+}
+
 // serveFleetRuntime starts serving always-on health before runtime activation.
-// If either side exits, it stops the other before returning.
+// Process shutdown cancels requests before stopping their runtime dependencies.
 func serveFleetRuntime(
 	server *http.Server,
 	listener net.Listener,
 	runtime fleetRuntimeRunner,
 	timeout time.Duration,
+	drain *httpRequestDrain,
 ) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, stopSignals := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopSignals()
+	return serveFleetRuntimeWithContext(ctx, server, listener, runtime, timeout, drain)
+}
+
+func serveFleetRuntimeWithContext(
+	ctx context.Context,
+	server *http.Server,
+	listener net.Listener,
+	runtime fleetRuntimeRunner,
+	timeout time.Duration,
+	drain *httpRequestDrain,
+) error {
+	runtimeCtx, cancelRuntime := context.WithCancel(context.Background())
+	defer cancelRuntime()
+	requestCtx, cancelRequests := context.WithCancel(context.Background())
+	defer cancelRequests()
+	server.BaseContext = func(net.Listener) context.Context { return requestCtx }
+	if drain == nil {
+		drain = &httpRequestDrain{handler: server.Handler}
+		server.Handler = drain
+	}
 
 	serverResult := make(chan error, 1)
 	go func() {
@@ -133,41 +185,55 @@ func serveFleetRuntime(
 	}()
 	runtimeResult := make(chan error, 1)
 	go func() {
-		runtimeResult <- runtime.Run(ctx)
+		runtimeResult <- runtime.Run(runtimeCtx)
 	}()
 
+	var serverErr, runtimeErr error
+	var serverStopped, runtimeStopped bool
 	select {
-	case runtimeErr := <-runtimeResult:
-		cancel()
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout)
-		shutdownErr := server.Shutdown(shutdownCtx)
-		shutdownCancel()
-		serverErr := <-serverResult
+	case <-ctx.Done():
+	case runtimeErr = <-runtimeResult:
+		runtimeStopped = true
 		if runtimeErr == nil {
 			runtimeErr = errors.New("Fleet runtime stopped unexpectedly")
 		}
-		if shutdownErr != nil {
-			return errors.Join(runtimeErr, fmt.Errorf("shutdown HTTP server: %w", shutdownErr))
-		}
-		if serverErr != nil && !errors.Is(serverErr, http.ErrServerClosed) {
-			return errors.Join(runtimeErr, fmt.Errorf("serve HTTP: %w", serverErr))
-		}
-		return runtimeErr
-
-	case serverErr := <-serverResult:
-		cancel()
-		runtimeErr := <-runtimeResult
-		if serverErr == nil || errors.Is(serverErr, http.ErrServerClosed) {
-			return runtimeErr
-		}
-		if runtimeErr != nil {
-			return errors.Join(
-				fmt.Errorf("serve HTTP: %w", serverErr),
-				fmt.Errorf("stop Fleet runtime: %w", runtimeErr),
-			)
-		}
-		return fmt.Errorf("serve HTTP: %w", serverErr)
+	case serverErr = <-serverResult:
+		serverStopped = true
 	}
+
+	// Closing admission before cancellation prevents keep-alive and h2c requests
+	// from starting work after the drain has begun.
+	drain.stop()
+	cancelRequests()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout)
+	shutdownErr := server.Shutdown(shutdownCtx)
+	shutdownCancel()
+	if shutdownErr != nil {
+		// Closing sockets cancels transports, but does not prove handlers ended.
+		_ = server.Close()
+	}
+	// A handler that ignores cancellation must keep its dependencies and binding
+	// locks until it actually returns; a timeout cannot establish completion.
+	drain.active.Wait()
+	cancelRuntime()
+	if !runtimeStopped {
+		runtimeErr = <-runtimeResult
+	}
+	if !serverStopped {
+		serverErr = <-serverResult
+	}
+
+	var result error
+	if runtimeErr != nil {
+		result = runtimeErr
+	}
+	if shutdownErr != nil {
+		result = errors.Join(result, fmt.Errorf("shutdown HTTP server: %w", shutdownErr))
+	}
+	if serverErr != nil && !errors.Is(serverErr, http.ErrServerClosed) {
+		result = errors.Join(result, fmt.Errorf("serve HTTP: %w", serverErr))
+	}
+	return result
 }
 
 // stopRuntimeJobGroupAfterRun avoids repeating cleanup already completed by a fatal HA abort.

@@ -1,7 +1,7 @@
 -- name: UpsertMinerCredentials :exec
 -- The parent lock also protects absence of credentials during dispatch.
 WITH locked_device AS MATERIALIZED (
-    SELECT device.id FROM device WHERE device.id=sqlc.arg('device_id') FOR SHARE
+    SELECT device.id FROM device WHERE device.id=sqlc.arg('device_id') FOR NO KEY UPDATE
 )
 INSERT INTO miner_credentials (device_id, username_enc, password_enc)
 VALUES ((SELECT locked_device.id FROM locked_device), sqlc.arg('username_enc'), sqlc.arg('password_enc'))
