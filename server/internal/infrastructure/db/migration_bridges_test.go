@@ -527,13 +527,10 @@ func createMigrationBridgeTestDB(t *testing.T) (*sql.DB, *Config, func()) {
 		cleanup, cleanupErr := ConnectToDatabase(&adminConfig)
 		assert.NoError(t, cleanupErr)
 		defer cleanup.Close()
-		// Seal first so the TimescaleDB scheduler cannot reconnect between
-		// backend termination and DROP DATABASE.
-		_, cleanupErr = cleanup.ExecContext(ctx, "ALTER DATABASE "+quoteTestIdentifier(dbName)+" ALLOW_CONNECTIONS false")
-		assert.NoError(t, cleanupErr)
-		assert.NoError(t, detachTestDBSessions(ctx, cleanup, dbName))
+		// FORCE terminates attached sessions, including TimescaleDB workers,
+		// while holding the database lock, then waits for them to exit.
 		// nolint:forbidigo // Test-only database lifecycle DDL cannot be parameterized.
-		_, cleanupErr = cleanup.ExecContext(ctx, "DROP DATABASE IF EXISTS "+quoteTestIdentifier(dbName))
+		_, cleanupErr = cleanup.ExecContext(ctx, "DROP DATABASE IF EXISTS "+quoteTestIdentifier(dbName)+" WITH (FORCE)")
 		assert.NoError(t, cleanupErr)
 	}
 	// sync.OnceFunc would turn a failed assertion's runtime.Goexit into
@@ -548,42 +545,6 @@ func createMigrationBridgeTestDB(t *testing.T) (*sql.DB, *Config, func()) {
 	assert.NoError(t, err)
 	assert.NoError(t, conn.PingContext(t.Context()))
 	return conn, &config, discard
-}
-
-const (
-	testDBDetachTimeout  = 30 * time.Second
-	testDBDetachInterval = 100 * time.Millisecond
-)
-
-// detachTestDBSessions terminates every backend attached to a sealed test
-// database and waits for them to exit: pg_terminate_backend only signals them,
-// and DROP DATABASE fails with 55006 while any remain.
-func detachTestDBSessions(ctx context.Context, admin *sql.DB, dbName string) error {
-	deadline := time.Now().Add(testDBDetachTimeout)
-	for {
-		if _, err := admin.ExecContext(ctx, `
-			SELECT pg_terminate_backend(pid)
-			FROM pg_stat_activity
-			WHERE datname = $1 AND pid <> pg_backend_pid()
-		`, dbName); err != nil {
-			return fmt.Errorf("terminate test database sessions: %w", err)
-		}
-
-		var attached int
-		if err := admin.QueryRowContext(ctx,
-			"SELECT count(*) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
-			dbName).Scan(&attached); err != nil {
-			return fmt.Errorf("count test database sessions: %w", err)
-		}
-		if attached == 0 {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("%d session(s) still attached to %s after %s", attached, dbName, testDBDetachTimeout)
-		}
-
-		time.Sleep(testDBDetachInterval)
-	}
 }
 
 func migrateTestDBTo(t *testing.T, conn *sql.DB, databaseName string, version uint) {
