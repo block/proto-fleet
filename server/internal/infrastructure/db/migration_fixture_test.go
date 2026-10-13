@@ -11,11 +11,17 @@ import (
 
 	"github.com/alecthomas/assert/v2"
 	migratedatabase "github.com/golang-migrate/migrate/v4/database"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/block/proto-fleet/server/migrations"
 )
 
-const legacyFixtureMaxAttempts = 3
+const (
+	legacyFixtureMaxAttempts = 3
+
+	pgInternalError                   = "XX000"
+	timescaleTupleConcurrentlyDeleted = "tuple concurrently deleted"
+)
 
 // newLegacyMigrationTestDB retries only the construction of an empty legacy
 // fixture. Upgrades of seeded databases must still run once and fail normally.
@@ -57,17 +63,27 @@ func isRetryableLegacyFixtureError(err error) bool {
 	if err == nil {
 		return false
 	}
-	if IsRetryablePostgresError(err) {
+	if isTransientFixtureCause(err) {
 		return true
 	}
 	// golang-migrate stores OrigErr without implementing Unwrap. Inspect that
 	// error rather than matching SQLSTATE text in the logged migration SQL.
 	var migrationErr migratedatabase.Error
 	if errors.As(err, &migrationErr) {
-		return IsRetryablePostgresError(migrationErr.OrigErr)
+		return isTransientFixtureCause(migrationErr.OrigErr)
 	}
 	var migrationErrPtr *migratedatabase.Error
-	return errors.As(err, &migrationErrPtr) && IsRetryablePostgresError(migrationErrPtr.OrigErr)
+	return errors.As(err, &migrationErrPtr) && isTransientFixtureCause(migrationErrPtr.OrigErr)
+}
+
+// isTransientFixtureCause also accepts the internal error TimescaleDB raises
+// when concurrent test databases race on its catalog, which dbtest retries too.
+func isTransientFixtureCause(err error) bool {
+	if IsRetryablePostgresError(err) {
+		return true
+	}
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == pgInternalError && pgErr.Message == timescaleTupleConcurrentlyDeleted
 }
 
 func TestLegacyMigrationFixtureRetries(t *testing.T) {
@@ -77,13 +93,16 @@ func TestLegacyMigrationFixtureRetries(t *testing.T) {
 	for _, test := range []struct {
 		name         string
 		code         string
+		message      string
 		failures     int
 		wantAttempts int
 		wantError    bool
 	}{
 		{name: "deadlock", code: PGDeadlockDetected, failures: 1, wantAttempts: 2},
 		{name: "serialization failure", code: PGSerializationFailure, failures: 1, wantAttempts: 2},
+		{name: "timescale catalog race", code: pgInternalError, message: timescaleTupleConcurrentlyDeleted, failures: 1, wantAttempts: 2},
 		{name: "permanent failure", code: "23514", failures: 1, wantAttempts: 1, wantError: true},
+		{name: "other internal error", code: pgInternalError, failures: 1, wantAttempts: 1, wantError: true},
 		{name: "retry limit", code: PGDeadlockDetected, failures: legacyFixtureMaxAttempts, wantAttempts: legacyFixtureMaxAttempts, wantError: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -102,9 +121,13 @@ func TestLegacyMigrationFixtureRetries(t *testing.T) {
 				}
 				statement := "CREATE TABLE fixture_ready (id integer)"
 				if attempts <= test.failures {
+					message := test.message
+					if message == "" {
+						message = "fixture failure"
+					}
 					// Use the real PostgreSQL driver and migrator so the retry sees
 					// the same wrapped error and dirty marker as a CI deadlock.
-					statement = fmt.Sprintf("-- Mentioning SQLSTATE 40P01 in SQL must not make a permanent error retryable.\nDO $$ BEGIN RAISE EXCEPTION USING ERRCODE = '%s', MESSAGE = 'fixture failure'; END $$;", test.code)
+					statement = fmt.Sprintf("-- Mentioning SQLSTATE 40P01 or tuple concurrently deleted in SQL must not make a permanent error retryable.\nDO $$ BEGIN RAISE EXCEPTION USING ERRCODE = '%s', MESSAGE = '%s'; END $$;", test.code, message)
 				}
 				files := fstest.MapFS{"000001_fixture.up.sql": {Data: []byte(statement)}}
 				migrationErr := migrateTestDBSourceTo(t.Context(), conn, config.Name, files, 1)

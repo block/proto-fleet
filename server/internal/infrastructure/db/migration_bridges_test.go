@@ -518,7 +518,7 @@ func createMigrationBridgeTestDB(t *testing.T) (*sql.DB, *Config, func()) {
 	_, err = admin.ExecContext(t.Context(), "CREATE DATABASE "+quoteTestIdentifier(dbName))
 	assert.NoError(t, err)
 	var conn *sql.DB
-	discard := sync.OnceFunc(func() {
+	drop := func() {
 		if conn != nil {
 			assert.NoError(t, conn.Close())
 		}
@@ -540,7 +540,11 @@ func createMigrationBridgeTestDB(t *testing.T) (*sql.DB, *Config, func()) {
 		// nolint:forbidigo // Test-only database lifecycle DDL cannot be parameterized.
 		_, cleanupErr = cleanup.ExecContext(ctx, "DROP DATABASE IF EXISTS "+quoteTestIdentifier(dbName))
 		assert.NoError(t, cleanupErr)
-	})
+	}
+	// sync.OnceFunc would turn a failed assertion's runtime.Goexit into
+	// panic(nil) and abort the whole test binary; sync.Once lets it through.
+	var once sync.Once
+	discard := func() { once.Do(drop) }
 	t.Cleanup(discard)
 
 	config := cli.DB
