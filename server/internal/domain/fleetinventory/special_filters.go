@@ -13,6 +13,8 @@ import (
 )
 
 type specialFilter struct {
+	NoFacility  bool                `json:"no_facility"`
+	NoGroup     bool                `json:"no_group"`
 	MinerOnly   bool                `json:"miner_only"`
 	Issues      []int32             `json:"issues"`
 	BuildingIDs []int64             `json:"building_ids"`
@@ -39,8 +41,11 @@ type ipRange struct {
 }
 
 func (s *Service) specialFilters(ctx context.Context, orgID int64, req *pb.ListInventoryRequest) ([]byte, error) {
-	f := specialFilter{BuildingIDs: req.BuildingIds, NoBuilding: req.IncludeNoBuilding, NoRack: req.IncludeNoRack, Zones: req.ZoneKeys, States: req.States}
+	f := specialFilter{NoFacility: req.IncludeNoFacility, NoGroup: req.IncludeNoGroup, BuildingIDs: req.BuildingIds, NoBuilding: req.IncludeNoBuilding, NoRack: req.IncludeNoRack, Zones: req.ZoneKeys, States: req.States}
 	invalid := fleeterror.NewInvalidArgumentError("filters are invalid for this inventory view")
+	if (f.NoFacility && req.View == pb.InventoryView_INVENTORY_VIEW_FACILITIES) || (f.NoGroup && req.View != pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS) {
+		return nil, invalid
+	}
 	if req.Sort == pb.InventorySort_INVENTORY_SORT_ZONE && req.View != pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS {
 		return nil, invalid
 	}
@@ -122,6 +127,9 @@ func (s *Service) specialFilters(ctx context.Context, orgID int64, req *pb.ListI
 		for _, r := range m.NumericRanges {
 			f.Ranges = append(f.Ranges, telemetryRange{int32(r.Field), r.Min, r.Max, r.MinInclusive, r.MaxInclusive}) //nolint:gosec // ParseListFilter validates fields 1..6.
 		}
+	}
+	if f.NoGroup && len(f.Zones) > 0 {
+		return nil, fleeterror.NewInvalidArgumentError("unassigned groups cannot be combined with zone filters")
 	}
 	// SQL coalesces omitted slices to empty arrays.
 	b, err := json.Marshal(f)

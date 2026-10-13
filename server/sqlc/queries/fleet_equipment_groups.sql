@@ -29,6 +29,8 @@ WITH parents AS (
 ), options AS (
  SELECT ARRAY(SELECT value::int FROM jsonb_array_elements_text(NULLIF(sqlc.arg('special_filters')::jsonb->'issues','null'::jsonb)))::int[] AS issues,
    ARRAY(SELECT value::bigint FROM jsonb_array_elements_text(NULLIF(sqlc.arg('special_filters')::jsonb->'building_ids','null'::jsonb)))::bigint[] AS building_ids,
+   COALESCE((sqlc.arg('special_filters')::jsonb->>'no_facility')::boolean,FALSE) AS no_facility,
+   COALESCE((sqlc.arg('special_filters')::jsonb->>'no_group')::boolean,FALSE) AS no_group,
    COALESCE((sqlc.arg('special_filters')::jsonb->>'no_building')::boolean,FALSE) AS no_building,
    NULLIF(sqlc.arg('special_filters')::jsonb->'zones','null'::jsonb) AS zones
 ), facts AS (
@@ -87,7 +89,8 @@ WITH parents AS (
    AND ((cardinality(sqlc.arg('site_ids')::bigint[]) = 0 AND NOT sqlc.arg('include_unassigned')::boolean)
         OR r.site_id = ANY(sqlc.arg('site_ids')::bigint[]) OR (sqlc.arg('include_unassigned')::boolean AND r.site_id IS NULL))
    AND (sqlc.arg('search_query')::text = '' OR strpos(lower(concat_ws(' ',r.name,r.reported_id,r.device_identifier)), lower(sqlc.arg('search_query'))) > 0)
-   AND (jsonb_array_length(sqlc.arg('ancestors')::jsonb) = 0 OR EXISTS (
+   AND ((NOT f.no_facility AND jsonb_array_length(sqlc.arg('ancestors')::jsonb) = 0)
+     OR (f.no_facility AND r.kind=3 AND r.facility_id IS NULL) OR EXISTS (
      SELECT 1 FROM jsonb_to_recordset(sqlc.arg('ancestors')::jsonb) AS p(kind int, id bigint)
      WHERE r.facility_kind=p.kind AND r.facility_id=p.id
    ))

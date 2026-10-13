@@ -22,9 +22,21 @@ describe("useInventoryRacks", () => {
         useInventoryRacks(true, [create(EntityRefSchema, { kind: EntityKind.CONTAINER, id: container })]),
       { initialProps: { container: 7n } },
     );
-    await act(() => result.current.listRacks({ siteIds: [1n], pageSize: 1, pageToken: "next" }));
+    await act(() =>
+      result.current.listRacks({
+        siteIds: [1n],
+        buildingIds: [7n],
+        includeNoBuilding: true,
+        pageSize: 1,
+        pageToken: "next",
+      }),
+    );
     expect(listInventory.mock.calls[listInventory.mock.calls.length - 1][0]).toMatchObject({
-      ancestors: [{ kind: EntityKind.CONTAINER, id: 7n }],
+      ancestors: [
+        { kind: EntityKind.CONTAINER, id: 7n },
+        { kind: EntityKind.BUILDING, id: 7n },
+      ],
+      includeNoFacility: true,
       siteIds: [1n],
       pageSize: 1,
       pageToken: "next",

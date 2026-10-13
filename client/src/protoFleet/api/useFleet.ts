@@ -49,12 +49,12 @@ const createMiningInventoryQuery = (
   sort: SortConfig | undefined,
   ancestors: EntityRef[] | undefined,
   pageSize: number,
-) =>
-  create(ListInventoryRequestSchema, {
-    ...miningInventoryRequest(filter, sort),
-    ancestors: ancestors ?? [],
+) => {
+  return create(ListInventoryRequestSchema, {
+    ...miningInventoryRequest(filter, sort, ancestors),
     pageSize,
   });
+};
 
 /**
  * True when `a` was captured strictly after `b`, per the server-set snapshot

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"connectrpc.com/authn"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
@@ -66,7 +67,23 @@ type loginResponse struct {
 	AccessToken string `json:"access_token"`
 }
 
+type Config struct {
+	MaxConcurrentRequests int `help:"Maximum active miner proxy requests; zero uses sixteen, capped below the shared dispatch budget" default:"16" env:"MAX_CONCURRENT_REQUESTS"`
+}
+
+func (c Config) Validate() error {
+	if c.MaxConcurrentRequests < 0 {
+		return fmt.Errorf("MINER_PROXY_MAX_CONCURRENT_REQUESTS must be nonnegative")
+	}
+	return nil
+}
+
 type Handler struct {
+	conn               *sql.DB
+	config             Config
+	proxySlotsOnce     sync.Once
+	proxySlots         *semaphore.Weighted
+	proxySlotsErr      error
 	writeService       *devicewrite.Service
 	queries            sqlc.Querier
 	sessionService     *session.Service
@@ -110,8 +127,11 @@ func NewHandler(
 	userStore stores.UserStore,
 	permissionResolver *authz.PermissionResolver,
 	encryptService *encrypt.Service,
+	config Config,
 ) http.Handler {
 	return &Handler{
+		conn:               conn,
+		config:             config,
 		writeService:       devicewrite.NewService(conn),
 		queries:            db.NewFailoverResettingQuerier(db.NewRetryDB(conn)),
 		sessionService:     sessionService,
@@ -158,6 +178,59 @@ func (h *Handler) clientFor(baseURL string) *http.Client {
 		return h.httpsClient
 	}
 	return h.httpClient
+}
+
+// Proxy requests use a smaller, non-waiting budget before durable admission.
+// Keep one shared dispatch slot available for ordinary commands and curtailment.
+func (h *Handler) acquireProxySlot() (func(), error) {
+	h.proxySlotsOnce.Do(func() {
+		capacity, err := db.DispatchCapacity(h.conn)
+		if err != nil {
+			h.proxySlotsErr = err
+			return
+		}
+		limit := h.config.MaxConcurrentRequests
+		if limit == 0 {
+			limit = 16
+		}
+		if limit < 0 {
+			h.proxySlotsErr = h.config.Validate()
+			return
+		}
+		limit = min(limit, capacity-1)
+		h.proxySlots = semaphore.NewWeighted(int64(max(limit, 0)))
+	})
+	if h.proxySlotsErr != nil {
+		return nil, h.proxySlotsErr
+	}
+	if !h.proxySlots.TryAcquire(1) {
+		return nil, fleeterror.NewUnavailableErrorf("miner proxy is busy; retry later")
+	}
+	return func() { h.proxySlots.Release(1) }, nil
+}
+
+func (h *Handler) responseTimeout(target proxyTarget) time.Duration {
+	timeout := h.clientFor(target.baseURL).Timeout
+	if timeout <= 0 {
+		return proxyClientTimeout
+	}
+	return timeout
+}
+
+// Operation cancellation must not expire the downstream error response. The
+// browser request's own cancellation still interrupts delivery immediately.
+func writeProxyError(w http.ResponseWriter, r *http.Request, err error, timeout time.Duration) {
+	slog.Warn("miner proxy request failed", "error", err)
+	finish, boundErr := boundProxyResponse(r.Context(), w, timeout)
+	if boundErr == nil {
+		defer finish()
+	}
+	writeError(w, httpStatusForError(err), clientMessageForError(err))
+	if boundErr == nil {
+		if flushErr := http.NewResponseController(w).Flush(); flushErr != nil {
+			slog.Warn("miner proxy error response did not flush", "error", flushErr)
+		}
+	}
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -212,6 +285,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	target, err := h.resolveTarget(ctx, deviceIdentifier, info.OrganizationID)
 	if err != nil {
+		slog.Warn("miner proxy request rejected", "error", err)
 		writeError(w, httpStatusForError(err), clientMessageForError(err))
 		return
 	}
@@ -223,9 +297,27 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	body, err := readProxyBody(w, r)
+	release, err := h.acquireProxySlot()
 	if err != nil {
-		writeError(w, http.StatusRequestEntityTooLarge, err.Error())
+		slog.Warn("miner proxy capacity unavailable", "error", err)
+		writeError(w, http.StatusServiceUnavailable, "miner proxy is busy; retry later")
+		return
+	}
+	defer release()
+	timeout := h.responseTimeout(target)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	body, err := readProxyBody(w, r.WithContext(ctx))
+	if err != nil {
+		errorRequest := r
+		if errors.Is(err, context.DeadlineExceeded) {
+			// HTTP/1 cancels the request context when its body read deadline
+			// expires. That cancellation must not immediately interrupt the
+			// separately bounded timeout response on the still-writable socket.
+			errorRequest = r.WithContext(context.WithoutCancel(r.Context()))
+		}
+		writeProxyError(w, errorRequest, err, timeout)
 		return
 	}
 
@@ -240,23 +332,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		err = h.writeService.WithHostObservation(ctx, target.binding.OrgID, target.binding.ID, target.binding.WriteEpoch, call)
 	}
 	if err != nil && !responseStarted {
-		writeError(w, httpStatusForError(err), clientMessageForError(err))
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			err = ctx.Err()
+		}
+		writeProxyError(w, r, err, timeout)
 	}
 }
 
 func (h *Handler) forwardAndCopy(ctx context.Context, w http.ResponseWriter, r *http.Request, target proxyTarget, proxyPath string, body []byte, responseStarted *bool) error {
 	return h.writeService.WithBindingTransaction(ctx, func(ctx context.Context, _ sqlc.Querier) (resultErr error) {
-		// An upstream timeout cannot interrupt a blocked downstream Write. Bound
-		// the response before forwarding any miner request, including cancellation.
-		writeTimeout := h.clientFor(target.baseURL).Timeout
-		if writeTimeout <= 0 {
-			writeTimeout = proxyClientTimeout
+		// Verify deadline support before miner I/O, but arm it only when
+		// delivering a response. An expired HTTP/2 write deadline closes the
+		// stream permanently and cannot be reset to deliver an upstream 502.
+		writeTimeout := h.responseTimeout(target)
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Time{}); err != nil {
+			return fleeterror.NewUnavailableErrorf("miner response write deadline could not be enforced")
 		}
-		finishResponse, err := boundProxyResponse(ctx, w, writeTimeout)
-		if err != nil {
-			return err
-		}
-		defer finishResponse()
 		resp, err := h.forward(ctx, r, target, proxyPath, body, false)
 		if err != nil {
 			return err
@@ -291,6 +382,16 @@ func (h *Handler) forwardAndCopy(ctx context.Context, w http.ResponseWriter, r *
 				}
 				resultErr = devicewrite.UncertainDelivery(resultErr)
 			}()
+		}
+		// SQL waits, login and retries consume the operation budget, rather than
+		// the independent downstream write budget.
+		finishResponse, err := boundProxyResponse(r.Context(), w, writeTimeout)
+		if err != nil {
+			return err
+		}
+		defer finishResponse()
+		if err := r.Context().Err(); err != nil {
+			return fmt.Errorf("miner response delivery canceled: %w", err)
 		}
 		copyResponseHeaders(w.Header(), resp.Header)
 		setResponseHardeningHeaders(w.Header())
@@ -658,12 +759,52 @@ func readProxyBody(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	if r.Body == nil || r.Body == http.NoBody {
 		return nil, nil
 	}
+	controller := http.NewResponseController(w)
+	deadline, ok := r.Context().Deadline()
+	if !ok {
+		return nil, fleeterror.NewUnavailableErrorf("miner request body read deadline could not be enforced")
+	}
+	if err := controller.SetReadDeadline(deadline); err != nil {
+		return nil, fleeterror.NewUnavailableErrorf("miner request body read deadline could not be enforced")
+	}
+	interrupted := make(chan struct{})
+	stop := context.AfterFunc(r.Context(), func() {
+		defer close(interrupted)
+		_ = controller.SetReadDeadline(time.Now())
+	})
+	defer func() {
+		// Close can consume unread HTTP/1 bytes. Keep the deadline and interrupt
+		// callback until it finishes, then join the callback before resetting the
+		// writer so it cannot change a subsequent request's deadline.
+		if !stop() {
+			<-interrupted
+		}
+		_ = controller.SetReadDeadline(time.Time{})
+	}()
 	defer r.Body.Close()
 
 	reader := http.MaxBytesReader(w, r.Body, maxProxyBodyBytes)
 	body, err := io.ReadAll(reader)
+	if ctxErr := r.Context().Err(); ctxErr != nil {
+		// A read deadline can cancel the HTTP/1 request context before the
+		// operation timer runs. Preserve deadline expiry instead of reporting
+		// that incidental cancellation as a client disconnect.
+		if !time.Now().Before(deadline) {
+			ctxErr = context.DeadlineExceeded
+		}
+		return nil, fmt.Errorf("proxied request body read interrupted: %w", ctxErr)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("proxied request body exceeds %d bytes", maxProxyBodyBytes)
+		var limitErr *http.MaxBytesError
+		var timeoutErr net.Error
+		switch {
+		case errors.As(err, &limitErr):
+			return nil, fmt.Errorf("proxied request body exceeds %d bytes: %w", maxProxyBodyBytes, err)
+		case errors.As(err, &timeoutErr) && timeoutErr.Timeout():
+			return nil, fmt.Errorf("proxied request body read timed out: %w", context.DeadlineExceeded)
+		default:
+			return nil, fleeterror.NewInvalidArgumentError("proxied request body could not be read")
+		}
 	}
 	if len(body) == 0 {
 		return nil, nil
@@ -878,7 +1019,7 @@ func permissionsFor(method string, proxyPath string) []string {
 	case strings.HasPrefix(proxyPath, "/api/v2/power/container/controls/") ||
 		strings.HasPrefix(proxyPath, "/api/v2/power/container/setpoints/"):
 		return []string{authz.PermMinerSetCoolingMode}
-	case proxyPath == "/api/v1/timeseries":
+	case method == http.MethodPost && proxyPath == "/api/v1/timeseries":
 		return []string{authz.PermMinerRead}
 	case strings.HasPrefix(proxyPath, "/api/v1/pools"):
 		return []string{authz.PermMinerUpdatePools}
@@ -1057,7 +1198,12 @@ func parseRoutableMinerAddr(ipAddress string) (netip.Addr, error) {
 }
 
 func httpStatusForError(err error) int {
+	var limitErr *http.MaxBytesError
 	switch {
+	case errors.As(err, &limitErr):
+		return http.StatusRequestEntityTooLarge
+	case errors.Is(err, context.DeadlineExceeded):
+		return http.StatusBadGateway
 	case fleeterror.IsAuthenticationError(err):
 		return http.StatusUnauthorized
 	case fleeterror.IsForbiddenError(err):
@@ -1076,15 +1222,22 @@ func httpStatusForError(err error) int {
 }
 
 func clientMessageForError(err error) string {
+	var limitErr *http.MaxBytesError
 	switch {
+	case errors.As(err, &limitErr):
+		return fmt.Sprintf("proxied request body exceeds %d bytes", limitErr.Limit)
 	case fleeterror.IsAuthenticationError(err):
 		return "authentication required"
 	case fleeterror.IsForbiddenError(err):
 		return "permission denied"
 	case fleeterror.IsNotFoundError(err):
 		return "miner not found or cannot be proxied"
-	default:
+	case errors.Is(err, context.DeadlineExceeded):
+		return "miner proxy request timed out"
+	case fleeterror.IsInvalidArgumentError(err), fleeterror.IsFailedPreconditionError(err), fleeterror.IsUnavailableError(err):
 		return err.Error()
+	default:
+		return "miner proxy request failed"
 	}
 }
 

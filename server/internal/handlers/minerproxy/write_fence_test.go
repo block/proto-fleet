@@ -96,6 +96,7 @@ func proxyFenceFixture(t *testing.T) (*testutil.DatabaseService, int64, int64, *
 	require.NoError(t, err)
 	require.NoError(t, q.UpdateDeviceIPAssignment(t.Context(), sqlc.UpdateDeviceIPAssignmentParams{ID: device.DatabaseID, IpAddress: "192.0.2.18", Port: "8080", UrlScheme: "http"}))
 	h := newForwardTestHandler(t)
+	h.conn = database.DB
 	h.queries = q
 	h.writeService = devicewrite.NewService(database.DB)
 	h.sessionService = session.NewService(session.Config{Duration: time.Minute, IDBytes: 32, CookieName: "fleet_session"}, sqlstores.NewSQLSessionStore(database.DB))
@@ -494,7 +495,7 @@ func TestProxyStaleBindingWithoutEpochChangeSendsNoRequest(t *testing.T) {
 		"fleet-node":         "WITH node AS (INSERT INTO fleet_node(org_id,name,identity_pubkey,encryption_pubkey) SELECT org_id,'proxy-node','\\x01'::bytea,decode(repeat('01',32),'hex') FROM device WHERE id=$1 RETURNING id,org_id) INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) SELECT id,$1,org_id FROM node",
 	}
 	for name, change := range changes {
-		for _, operation := range []string{"login", "raw"} {
+		for _, operation := range []string{"login", "raw", "mutation"} {
 			t.Run(name+"/"+operation, func(t *testing.T) {
 				database, orgID, deviceID, h, target := proxyFenceFixture(t)
 				encrypted, err := h.encryptService.Encrypt([]byte("proxy-fixture-password"))
@@ -504,22 +505,34 @@ func TestProxyStaleBindingWithoutEpochChangeSendsNoRequest(t *testing.T) {
 				require.NoError(t, err)
 				transport := &countingProxyTransport{}
 				h.httpClient = &http.Client{Transport: transport}
-				_, err = database.DB.ExecContext(t.Context(), change, deviceID)
-				require.NoError(t, err)
-				var epoch int64
-				require.NoError(t, database.DB.QueryRowContext(t.Context(), "SELECT COALESCE((SELECT epoch FROM device_write_fence WHERE device_id=$1),0)", deviceID).Scan(&epoch))
-				require.Equal(t, target.binding.WriteEpoch, epoch)
-				err = h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, epoch, commandtype.Type(-1), func(ctx context.Context) error {
+				forwardAfterBindingChange := func(ctx context.Context) error {
+					// Change the captured binding only after durable admission, so
+					// even device deletion exercises dispatch-time revalidation.
+					require.Equal(t, "running", proxyAttemptStatus(t, database, deviceID))
+					_, err := database.DB.ExecContext(ctx, change, deviceID)
+					require.NoError(t, err)
+					var epoch int64
+					require.NoError(t, database.DB.QueryRowContext(ctx, "SELECT epoch FROM device_write_fence WHERE device_id=$1", deviceID).Scan(&epoch))
+					require.Equal(t, target.binding.WriteEpoch, epoch)
 					if operation == "login" {
 						_, err := h.loginTarget(ctx, target, "proxy-fixture-password")
 						return err
 					}
-					response, err := h.forward(ctx, httptest.NewRequest(http.MethodGet, "http://fleet.test/", nil), target, "/api/v2/system/info", nil, false)
+					method, path := http.MethodGet, "/api/v2/system/info"
+					if operation == "mutation" {
+						method, path = http.MethodPost, "/api/v2/mining/start"
+					}
+					response, err := h.forward(ctx, httptest.NewRequest(method, "http://fleet.test/", nil), target, path, nil, false)
 					if response != nil {
 						require.NoError(t, response.Body.Close())
 					}
 					return err
-				})
+				}
+				if operation == "mutation" {
+					err = h.writeService.WithHostAttempt(t.Context(), orgID, deviceID, target.binding.WriteEpoch, commandtype.StartMining, forwardAfterBindingChange)
+				} else {
+					err = h.writeService.WithHostObservation(t.Context(), orgID, deviceID, target.binding.WriteEpoch, forwardAfterBindingChange)
+				}
 				require.Error(t, err)
 				require.True(t, fleeterror.IsFailedPreconditionError(err), "binding invalidation must fail closed: %v", err)
 				require.Zero(t, transport.calls.Load(), "stale bindings must be rejected independently of write epochs")

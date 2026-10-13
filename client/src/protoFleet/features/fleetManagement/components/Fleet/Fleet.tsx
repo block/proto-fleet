@@ -394,7 +394,7 @@ const Fleet = () => {
           Container and tank filters require access to container inventory.
         </p>
       ) : null}
-      {useInventory && miningInventoryRequest(currentFilter).minerFilter ? (
+      {useInventory && miningInventoryRequest(currentFilter, undefined, inventoryAncestors).minerFilter ? (
         <p className="px-6 pt-4 text-300 text-text-primary-70 laptop:px-10">
           These filters apply to miners. Clear them to include modules.
         </p>

@@ -83,8 +83,10 @@ INSERT INTO discovered_device (
 )
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     model = EXCLUDED.model,
-    -- Replace evidence on every save, including a missing identity. Retaining
-    -- an old value could associate replacement hardware with the wrong miner.
+    -- Direct discovery replaces evidence on every save, including missing identity.
+    -- Retaining an old value could associate replacement hardware with the wrong miner.
+    -- Fleet-node discovery reports have no identity fields; their separate upsert
+    -- preserves identity learned during pairing.
     serial_number = EXCLUDED.serial_number,
     mac_address = EXCLUDED.mac_address,
     device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),

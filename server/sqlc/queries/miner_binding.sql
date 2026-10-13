@@ -1,9 +1,14 @@
 -- Row locks span final binding validation and the adapter call. Device
--- FOR NO KEY UPDATE permits unrelated queue/log foreign-key inserts. Binding
--- child writers explicitly acquire a conflicting parent lock before insertion;
--- existing children and discovery rows also retain their own locks.
+-- Mutations use FOR NO KEY UPDATE; admitted observations use FOR SHARE so
+-- reads can overlap. Both permit unrelated queue/log foreign-key inserts.
+-- Binding child inserters take FOR NO KEY UPDATE (or stronger) on the parent
+-- to protect missing rows against both modes. Existing children and discovery
+-- rows also retain their own locks.
 -- name: LockMinerBindingDevice :one
 SELECT discovered_device_id FROM device WHERE id=$1 FOR NO KEY UPDATE;
+
+-- name: LockMinerBindingObservationDevice :one
+SELECT discovered_device_id FROM device WHERE id=$1 FOR SHARE;
 
 -- name: LockMinerBindingDiscovery :one
 SELECT id FROM discovered_device WHERE id=$1 FOR SHARE;

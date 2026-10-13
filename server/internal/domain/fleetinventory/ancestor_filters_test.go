@@ -7,9 +7,11 @@ import (
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetinventory/v1"
+	fleetpb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleetinventory"
+	"github.com/block/proto-fleet/server/internal/domain/fleetmanagement"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	telemetry "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
@@ -18,6 +20,70 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/require"
 )
+
+func TestConventionalInventoryPlacementMatchesNativeMinerReads(t *testing.T) {
+	db := testutil.GetTestDB(t)
+	ctx := t.Context()
+	q := sqlc.New(db)
+	org, err := q.CreateOrganization(ctx, sqlc.CreateOrganizationParams{OrgID: "native-placement", Name: "Placement"})
+	require.NoError(t, err)
+	var building, otherBuilding int64
+	for i, id := range []*int64{&building, &otherBuilding} {
+		require.NoError(t, db.QueryRowContext(ctx, "INSERT INTO building(org_id,name) VALUES($1,$2) RETURNING id", org, fmt.Sprintf("Building %d", i)).Scan(id))
+	}
+	devices := sqlstores.NewSQLDeviceStore(db)
+	identifiers := map[int64]string{}
+	for _, fixture := range []struct {
+		identifier string
+		building   *int64
+		pairing    string
+	}{
+		{"inside", &building, "PAIRED"},
+		{"unplaced", nil, "AUTHENTICATION_NEEDED"},
+		{"other", &otherBuilding, "AUTHENTICATION_NEEDED"},
+	} {
+		d := &discoverymodels.DiscoveredDevice{Device: pairingpb.Device{DeviceIdentifier: fixture.identifier, DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_RIG, Model: "Proto", Manufacturer: "Proto", DriverName: "proto", IpAddress: "192.0.2.1", Port: "8080", UrlScheme: "http"}, OrgID: org, IsActive: true}
+		_, err := sqlstores.NewSQLDiscoveredDeviceStore(db).Save(ctx, discoverymodels.DeviceOrgIdentifier{OrgID: org, DeviceIdentifier: fixture.identifier}, d)
+		require.NoError(t, err)
+		require.NoError(t, devices.InsertDevice(ctx, &d.Device, org, fixture.identifier))
+		require.NoError(t, devices.UpsertDevicePairing(ctx, &d.Device, org, fixture.pairing))
+		var id int64
+		require.NoError(t, db.QueryRowContext(ctx, "UPDATE device SET building_id=$1, custom_name=$2 WHERE org_id=$3 AND device_identifier=$2 RETURNING id", fixture.building, fixture.identifier, org).Scan(&id))
+		identifiers[id] = fixture.identifier
+	}
+	buildings := sqlstores.NewSQLBuildingStore(db)
+	service := fleetinventory.NewService(q).WithBuildings(buildings)
+	for _, tc := range []struct {
+		name     string
+		statuses []fleetpb.PairingStatus
+		want     []string
+	}{
+		{"visible", []fleetpb.PairingStatus{fleetpb.PairingStatus_PAIRING_STATUS_PAIRED, fleetpb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED}, []string{"inside", "unplaced"}},
+		{"authentication needed", []fleetpb.PairingStatus{fleetpb.PairingStatus_PAIRING_STATUS_AUTHENTICATION_NEEDED}, []string{"unplaced"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			filter := &fleetpb.MinerListFilter{BuildingIds: []int64{building}, IncludeNoRack: true, PairingStatuses: tc.statuses}
+			nativeFilter, err := fleetmanagement.ParseListFilter(ctx, org, filter, buildings)
+			require.NoError(t, err)
+			rows, _, total, err := devices.ListMinerStateSnapshots(ctx, org, "", 100, nativeFilter, nil)
+			require.NoError(t, err)
+			var nativeIDs []string
+			for _, row := range rows {
+				nativeIDs = append(nativeIDs, row.DeviceIdentifier)
+			}
+			require.ElementsMatch(t, tc.want, nativeIDs)
+			result, err := service.List(ctx, org, &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, MinerFilter: filter}, []fleetinventory.Scope{{OrgWide: true}})
+			require.NoError(t, err)
+			var inventoryIDs []string
+			for _, item := range result.Items {
+				require.Equal(t, pb.EntityKind_ENTITY_KIND_MINER, item.Ref.Kind)
+				inventoryIDs = append(inventoryIDs, identifiers[item.Ref.Id])
+			}
+			require.ElementsMatch(t, nativeIDs, inventoryIDs)
+			require.Equal(t, total, result.TotalCount)
+		})
+	}
+}
 
 func TestContainerAncestorsComposeWithSiteAndTankScopes(t *testing.T) {
 	db := testutil.GetTestDB(t)
@@ -133,26 +199,30 @@ func TestContainerAncestorsComposeWithSiteAndTankScopes(t *testing.T) {
 		{"tank site intersection", []*pb.EntityRef{tank(tankA), tank(tankB)}, []int64{north.ID}, 2},
 		{"contradictory tank site", []*pb.EntityRef{tank(tankA)}, []int64{south.ID}, 0},
 		{"colliding building", []*pb.EntityRef{{Kind: pb.EntityKind_ENTITY_KIND_BUILDING, Id: a}}, nil, 1},
+		{"mixed facilities", []*pb.EntityRef{container(a), {Kind: pb.EntityKind_ENTITY_KIND_BUILDING, Id: a}}, nil, 5},
+		{"mixed groups", []*pb.EntityRef{tank(tankA), {Kind: pb.EntityKind_ENTITY_KIND_RACK, Id: tankA}}, nil, 3},
+		{"mixed facilities and groups", []*pb.EntityRef{container(a), {Kind: pb.EntityKind_ENTITY_KIND_BUILDING, Id: a}, tank(tankA), {Kind: pb.EntityKind_ENTITY_KIND_RACK, Id: tankA}}, nil, 3},
+		{"mixed contradictory site", []*pb.EntityRef{tank(tankA), {Kind: pb.EntityKind_ENTITY_KIND_RACK, Id: tankA}}, []int64{south.ID}, 0},
 		{"colliding rack", []*pb.EntityRef{{Kind: pb.EntityKind_ENTITY_KIND_RACK, Id: tankA}}, nil, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, Ancestors: tc.ancestors, SiteIds: tc.sites, PageSize: 1, Sort: pb.InventorySort_INVENTORY_SORT_NAME, Descending: true}
-			seen := map[int64]bool{}
+			seen := map[string]bool{}
 			previousName := ""
 			for {
 				result, err := service.List(ctx, org, req, scopes)
 				require.NoError(t, err)
 				require.Equal(t, tc.count, result.TotalCount)
 				for _, item := range result.Items {
-					require.False(t, seen[item.Ref.Id], "cursor must not duplicate rows")
-					seen[item.Ref.Id] = true
+					require.False(t, seen[fmt.Sprintf("%d:%d", item.Ref.Kind, item.Ref.Id)], "cursor must not duplicate rows")
+					seen[fmt.Sprintf("%d:%d", item.Ref.Kind, item.Ref.Id)] = true
 					if previousName != "" {
 						require.LessOrEqual(t, item.Name, previousName)
 					}
 					previousName = item.Name
 					if tc.name == "colliding building" || tc.name == "colliding rack" {
 						require.Equal(t, pb.EntityKind_ENTITY_KIND_MINER, item.Ref.Kind)
-					} else {
+					} else if tc.name != "mixed facilities" && tc.name != "mixed groups" && tc.name != "mixed facilities and groups" {
 						require.Equal(t, pb.EntityKind_ENTITY_KIND_MODULE, item.Ref.Kind)
 					}
 				}
@@ -171,6 +241,66 @@ func TestContainerAncestorsComposeWithSiteAndTankScopes(t *testing.T) {
 	result, err = service.List(ctx, org, &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, Ancestors: []*pb.EntityRef{container(b)}}, []fleetinventory.Scope{{Sites: []int64{north.ID}}})
 	require.NoError(t, err)
 	require.Zero(t, result.TotalCount, "selected containers cannot broaden site authorization")
+
+	t.Run("building-only equipment scope excludes colliding container tanks", func(t *testing.T) {
+		request := &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, Ancestors: []*pb.EntityRef{{Kind: pb.EntityKind_ENTITY_KIND_BUILDING, Id: a}}}
+		result, err := service.List(ctx, org, request, scopes)
+		require.NoError(t, err)
+		require.EqualValues(t, 1, result.TotalCount)
+		require.Len(t, result.Items, 1)
+		require.Equal(t, &pb.EntityRef{Kind: pb.EntityKind_ENTITY_KIND_RACK, Id: tankA}, result.Items[0].Ref)
+	})
+	t.Run("mixed facility scope includes racks and tanks", func(t *testing.T) {
+		request := &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, Ancestors: []*pb.EntityRef{container(a), {Kind: pb.EntityKind_ENTITY_KIND_BUILDING, Id: a}}}
+		result, err := service.List(ctx, org, request, scopes)
+		require.NoError(t, err)
+		require.EqualValues(t, 3, result.TotalCount)
+	})
+	t.Run("unassigned choices OR with typed scopes without broadening other categories", func(t *testing.T) {
+		unracked := addDevice("Unracked", &north.ID, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+		defer func() {
+			_, err := db.ExecContext(ctx, "UPDATE device SET deleted_at=now() WHERE id=$1", unracked)
+			require.NoError(t, err)
+		}()
+		_, err := db.ExecContext(ctx, "UPDATE device_set_rack SET building_id=NULL WHERE device_set_id=$1", tankA)
+		require.NoError(t, err)
+		_, err = db.ExecContext(ctx, "UPDATE device SET building_id=NULL WHERE id=$1", rig)
+		require.NoError(t, err)
+		defer func() {
+			_, err := db.ExecContext(ctx, "UPDATE device_set_rack SET building_id=$1 WHERE device_set_id=$2", a, tankA)
+			require.NoError(t, err)
+		}()
+		t.Run("unassigned-only equipment scope excludes all tanks", func(t *testing.T) {
+			result, err := service.List(ctx, org, &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, IncludeNoFacility: true}, scopes)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, result.TotalCount)
+			require.Len(t, result.Items, 1)
+			require.Equal(t, &pb.EntityRef{Kind: pb.EntityKind_ENTITY_KIND_RACK, Id: tankA}, result.Items[0].Ref)
+		})
+		for _, tc := range []struct {
+			name  string
+			req   *pb.ListInventoryRequest
+			count int64
+		}{
+			{"unassigned facility", &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, IncludeNoFacility: true}, 1},
+			{"unassigned group", &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, IncludeNoGroup: true}, 1},
+			{"facility or container", &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, IncludeNoFacility: true, Ancestors: []*pb.EntityRef{container(a)}}, 5},
+			{"group or tank", &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, IncludeNoGroup: true, Ancestors: []*pb.EntityRef{tank(tankA)}}, 3},
+			{"combined unassigned scopes", &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, IncludeNoFacility: true, IncludeNoGroup: true}, 1},
+			{"group with contradictory facility", &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, IncludeNoGroup: true, Ancestors: []*pb.EntityRef{container(a), tank(tankB)}}, 0},
+			{"racks without building or container", &pb.ListInventoryRequest{View: pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, IncludeNoFacility: true, Ancestors: []*pb.EntityRef{container(a)}}, 3},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				result, err := service.List(ctx, org, tc.req, scopes)
+				require.NoError(t, err)
+				require.Equal(t, tc.count, result.TotalCount)
+			})
+		}
+		for _, req := range []*pb.ListInventoryRequest{{View: pb.InventoryView_INVENTORY_VIEW_FACILITIES, IncludeNoFacility: true}, {View: pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS, IncludeNoGroup: true}, {View: pb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, IncludeNoGroup: true, ZoneKeys: []*commonpb.ZoneKey{{Zone: "A"}}}} {
+			_, err := service.List(ctx, org, req, scopes)
+			require.Error(t, err)
+		}
+	})
 
 	t.Run("lightweight tank catalog matches readable inventory labels across cursor pages", func(t *testing.T) {
 		_, err := db.ExecContext(ctx, "UPDATE device SET custom_name='A' WHERE id=$1", b)

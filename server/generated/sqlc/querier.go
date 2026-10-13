@@ -471,9 +471,6 @@ type Querier interface {
 	DeleteAlertRouteChannels(ctx context.Context, policyID int64) error
 	DeleteAlertRoutePolicy(ctx context.Context, arg DeleteAlertRoutePolicyParams) (int64, error)
 	DeleteAlertRuleConfig(ctx context.Context, arg DeleteAlertRuleConfigParams) error
-	// The owning process calls this only after full operation completion without
-	// any dispatched mutation. Keep queue, deletion-permit and unresolved evidence.
-	DeleteCompletedObservationAttempt(ctx context.Context, arg DeleteCompletedObservationAttemptParams) error
 	DeleteContainerControls(ctx context.Context, deviceID int64) error
 	DeleteContainerSetpoints(ctx context.Context, deviceID int64) error
 	DeleteCurtailmentAutomationRuleByOrg(ctx context.Context, arg DeleteCurtailmentAutomationRuleByOrgParams) (int64, error)
@@ -506,6 +503,10 @@ type Querier interface {
 	// outages of departed historical targets do not reserve capacity again.
 	DeleteReleasedFirmwareRolloutReservations(ctx context.Context) error
 	DeleteScheduleTargets(ctx context.Context, arg DeleteScheduleTargetsParams) error
+	// The owning process calls this only after full operation completion without
+	// any dispatched mutation, including a rejected direct mutation admission.
+	// Keep queue, deletion-permit and unresolved evidence.
+	DeleteUndispatchedDirectAttempt(ctx context.Context, arg DeleteUndispatchedDirectAttemptParams) error
 	// True when the device is cloud-dialed: paired-like and not bound to any fleet node.
 	// A device paired to a fleet node is also paired-like (so it reads as paired in
 	// the UI), but the node dials it, so it is excluded here. Fleet-node pairing
@@ -1729,11 +1730,14 @@ type Querier interface {
 	LockMaintenanceSiteForTicket(ctx context.Context, arg LockMaintenanceSiteForTicketParams) (int64, error)
 	LockMinerBindingCredentials(ctx context.Context, deviceID int64) ([]int64, error)
 	// Row locks span final binding validation and the adapter call. Device
-	// FOR NO KEY UPDATE permits unrelated queue/log foreign-key inserts. Binding
-	// child writers explicitly acquire a conflicting parent lock before insertion;
-	// existing children and discovery rows also retain their own locks.
+	// Mutations use FOR NO KEY UPDATE; admitted observations use FOR SHARE so
+	// reads can overlap. Both permit unrelated queue/log foreign-key inserts.
+	// Binding child inserters take FOR NO KEY UPDATE (or stronger) on the parent
+	// to protect missing rows against both modes. Existing children and discovery
+	// rows also retain their own locks.
 	LockMinerBindingDevice(ctx context.Context, id int64) (int64, error)
 	LockMinerBindingDiscovery(ctx context.Context, id int64) (int64, error)
+	LockMinerBindingObservationDevice(ctx context.Context, id int64) (int64, error)
 	LockMinerBindingPairing(ctx context.Context, deviceID int64) ([]int64, error)
 	LockMinerBindingRoutes(ctx context.Context, deviceID int64) ([]int64, error)
 	LockQueuedDeviceWrite(ctx context.Context, id int64) (LockQueuedDeviceWriteRow, error)

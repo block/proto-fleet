@@ -132,9 +132,6 @@ func TestHandleAuthenticationRequiredPairing_PreservesExistingWorkerName(t *test
 		GetDeviceByDeviceIdentifier(gomock.Any(), "device-123", int64(1)).
 		Return(&pb.Device{DeviceIdentifier: "device-123"}, nil)
 	mockDeviceStore.EXPECT().
-		UpdateDeviceInfo(gomock.Any(), gomock.Any(), int64(1)).
-		Return(nil)
-	mockDeviceStore.EXPECT().
 		GetDevicePropertiesForRename(gomock.Any(), int64(1), []string{"device-123"}, false).
 		Return([]stores.DeviceRenameProperties{
 			{
@@ -143,8 +140,8 @@ func TestHandleAuthenticationRequiredPairing_PreservesExistingWorkerName(t *test
 			},
 		}, nil)
 	mockDeviceStore.EXPECT().
-		UpsertDevicePairing(gomock.Any(), gomock.Any(), int64(1), StatusAuthenticationNeeded).
-		Return(nil)
+		SetDevicePairingAuthNeededIfNotPaired(gomock.Any(), gomock.Any(), int64(1)).
+		Return(true, nil)
 
 	err := service.handleAuthenticationRequiredPairing(t.Context(), discoveredDevice)
 	require.NoError(t, err)

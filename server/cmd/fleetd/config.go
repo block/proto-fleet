@@ -18,6 +18,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/token"
 	"github.com/block/proto-fleet/server/internal/domain/updates"
 	"github.com/block/proto-fleet/server/internal/ha"
+	minerProxyHandler "github.com/block/proto-fleet/server/internal/handlers/minerproxy"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
@@ -56,6 +57,7 @@ type Config struct {
 
 	DB             db.Config                    `embed:"" prefix:"db-" envprefix:"DB_"`
 	Log            logging.Config               `embed:"" prefix:"logging-" envprefix:"LOG_"`
+	MinerProxy     minerProxyHandler.Config     `embed:"" prefix:"miner-proxy-" envprefix:"MINER_PROXY_"`
 	HTTP           HTTPConfig                   `embed:"" prefix:"http-" envprefix:"HTTP_"`
 	Auth           token.Config                 `embed:"" prefix:"auth-" envprefix:"AUTH_"`
 	Session        session.Config               `embed:"" prefix:"session-" envprefix:"SESSION_"`
