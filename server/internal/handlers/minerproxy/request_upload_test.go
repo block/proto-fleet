@@ -33,7 +33,10 @@ func (w *uploadDeadlineWriter) SetReadDeadline(deadline time.Time) error {
 	if err == nil && !deadline.IsZero() {
 		w.once.Do(func() { w.started <- struct{}{} })
 	}
-	return err
+	if err != nil {
+		return fmt.Errorf("set upload test read deadline: %w", err)
+	}
+	return nil
 }
 
 // Incomplete uploads must release the proxy's limited shared capacity under both
@@ -91,8 +94,9 @@ func TestIncompleteProxyUploadsReleaseCapacity(t *testing.T) {
 					return r
 				}
 				type result struct {
-					response *http.Response
-					err      error
+					status int
+					body   string
+					err    error
 				}
 				results := make(chan result, 2)
 				for range 2 {
@@ -109,7 +113,13 @@ func TestIncompleteProxyUploadsReleaseCapacity(t *testing.T) {
 						r := request("/incomplete", nil)
 						go func() {
 							response, err := http.ReadResponse(bufio.NewReader(conn), r)
-							results <- result{response, err}
+							if response == nil {
+								results <- result{err: err}
+								return
+							}
+							body, readErr := io.ReadAll(response.Body)
+							closeErr := response.Body.Close()
+							results <- result{status: response.StatusCode, body: string(body), err: errors.Join(err, readErr, closeErr)}
 						}()
 					} else {
 						reader, writer := io.Pipe()
@@ -118,7 +128,13 @@ func TestIncompleteProxyUploadsReleaseCapacity(t *testing.T) {
 						r.ContentLength = 1 << 20
 						go func() {
 							response, err := client.Do(r)
-							results <- result{response, err}
+							if response == nil {
+								results <- result{err: err}
+								return
+							}
+							body, readErr := io.ReadAll(response.Body)
+							closeErr := response.Body.Close()
+							results <- result{status: response.StatusCode, body: string(body), err: errors.Join(err, readErr, closeErr)}
 						}()
 						_, err := writer.Write([]byte("{"))
 						require.NoError(t, err)
@@ -145,16 +161,8 @@ func TestIncompleteProxyUploadsReleaseCapacity(t *testing.T) {
 					case result := <-results:
 						if interrupt == "timeout" {
 							require.NoError(t, result.err, "body timeout must allow an independently bounded error response")
-							require.Equal(t, http.StatusBadGateway, result.response.StatusCode)
-							body, err := io.ReadAll(result.response.Body)
-							require.NoError(t, err)
-							require.Contains(t, string(body), "timed out")
-						}
-						if result.response != nil {
-							closeErr := result.response.Body.Close()
-							if interrupt == "timeout" {
-								require.NoError(t, closeErr)
-							}
+							require.Equal(t, http.StatusBadGateway, result.status)
+							require.Contains(t, result.body, "timed out")
 						}
 					case <-time.After(5 * time.Second):
 						t.Fatal("incomplete upload client did not finish after handler interruption")
