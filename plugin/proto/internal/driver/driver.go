@@ -393,12 +393,21 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 		return sdk.DeviceInfo{}, fmt.Errorf("expected UsernamePassword in secret bundle for pairing, got %T", access.Kind)
 	}
 
+	if credentials.Password == "" {
+		return sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed(deviceInfo.SerialNumber, fmt.Errorf("password is required to authenticate"))
+	}
+
 	if err := client.SetCredentials(credentials); err != nil {
 		return sdk.DeviceInfo{}, fmt.Errorf("failed to set credentials: %w", err)
 	}
 
 	if err := client.Authenticate(ctx); err != nil {
-		return sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed(deviceInfo.SerialNumber, err)
+		// Only the firmware's explicit rejection permits another credential trial.
+		// Transport, cancellation and malformed responses leave the result unknown.
+		if grpcstatus.Code(err) == codes.Unauthenticated {
+			return sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed(deviceInfo.SerialNumber, err)
+		}
+		return sdk.DeviceInfo{}, sdk.NewErrorDeviceUnavailable(deviceInfo.SerialNumber, err)
 	}
 
 	// Record default-password state at pair time so the server can flag remediation

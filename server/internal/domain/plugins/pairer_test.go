@@ -7,6 +7,8 @@ import (
 	"testing/synctest"
 	"time"
 
+	"connectrpc.com/connect"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -1045,15 +1047,17 @@ func TestPairer_PairDevice_AntminerAutoCredentials_AuthFailure(t *testing.T) {
 
 	// Create mock driver that returns a typed authentication error
 	mockDriver := sdkMocks.NewMockDriver(ctrl)
-	mockDriver.EXPECT().
-		PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed("antminer-device-002"))
+	gomock.InOrder(
+		mockDriver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "root", Password: "root"}}).Return(sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed("antminer-device-002")),
+		mockDriver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "admin", Password: "second"}}).Return(sdk.DeviceInfo{}, sdk.NewErrorAuthenticationFailed("antminer-device-002")),
+	)
 
 	// Wrap mock driver with default credentials provider
 	driverWithCreds := &mockDriverWithDefaultCredentials{
 		Driver: mockDriver,
 		defaultCredentials: []sdk.UsernamePassword{
 			{Username: "root", Password: "root"},
+			{Username: "admin", Password: "second"},
 		},
 	}
 
@@ -1093,58 +1097,70 @@ func TestPairer_PairDevice_AntminerAutoCredentials_AuthFailure(t *testing.T) {
 // TestPairer_PairDevice_AntminerAutoCredentials_NetworkError tests that network errors
 // are not retried and are propagated immediately.
 func TestPairer_PairDevice_AntminerAutoCredentials_NetworkError(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "network", err: fmt.Errorf("plugin pairing failed: connection timeout")},
+		{name: "SDK unavailable", err: sdk.NewErrorDeviceUnavailable("antminer-device-003", fmt.Errorf("connection timeout"))},
+		{name: "RPC unavailable", err: status.Error(codes.Unavailable, "connection timeout")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
 
-	manager := NewManager(&Config{})
+			manager := NewManager(&Config{})
 
-	// Create mock driver that returns a network error (not an auth error)
-	mockDriver := sdkMocks.NewMockDriver(ctrl)
-	mockDriver.EXPECT().
-		PairDevice(gomock.Any(), gomock.Any(), gomock.Any()).
-		Return(sdk.DeviceInfo{}, fmt.Errorf("plugin pairing failed: connection timeout")).
-		Times(1) // Should only be called once, not retried
+			// Create mock driver that returns a network error (not an auth error)
+			mockDriver := sdkMocks.NewMockDriver(ctrl)
+			mockDriver.EXPECT().
+				PairDevice(gomock.Any(), gomock.Any(), sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "root", Password: "root"}}).
+				Return(sdk.DeviceInfo{}, tc.err).
+				Times(1) // Should only be called once, not retried
 
-	// Wrap mock driver with default credentials provider
-	driverWithCreds := &mockDriverWithDefaultCredentials{
-		Driver: mockDriver,
-		defaultCredentials: []sdk.UsernamePassword{
-			{Username: "root", Password: "root"},
-		},
+			// Wrap mock driver with default credentials provider
+			driverWithCreds := &mockDriverWithDefaultCredentials{
+				Driver: mockDriver,
+				defaultCredentials: []sdk.UsernamePassword{
+					{Username: "root", Password: "root"},
+					{Username: "admin", Password: "second"},
+				},
+			}
+
+			// Add mock plugin with pairing capability
+			mockPlugin := &LoadedPlugin{
+				Name:       "antminer-plugin",
+				Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
+				Driver:     driverWithCreds,
+				Caps: sdk.Capabilities{
+					sdk.CapabilityPairing: true,
+				},
+			}
+			manager.pluginsByDriverName["antminer"] = mockPlugin
+
+			pairer := createTestPairer(ctrl, manager)
+
+			device := &discoverymodels.DiscoveredDevice{
+				Device: pb.Device{
+					DeviceIdentifier: "antminer-device-003",
+					IpAddress:        "192.168.1.102",
+					Port:             "80",
+					DriverName:       "antminer",
+				},
+				OrgID: 1,
+			}
+
+			// NO credentials provided
+			var credentials *pb.Credentials
+
+			ctx := t.Context()
+			err := pairer.PairDevice(ctx, device, credentials)
+
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.err.Error(), "Unavailable error should be propagated")
+			assert.NotContains(t, err.Error(), "credentials are required", "Should not convert to credentials error")
+		})
 	}
-
-	// Add mock plugin with pairing capability
-	mockPlugin := &LoadedPlugin{
-		Name:       "antminer-plugin",
-		Identifier: sdk.DriverIdentifier{DriverName: "antminer"},
-		Driver:     driverWithCreds,
-		Caps: sdk.Capabilities{
-			sdk.CapabilityPairing: true,
-		},
-	}
-	manager.pluginsByDriverName["antminer"] = mockPlugin
-
-	pairer := createTestPairer(ctrl, manager)
-
-	device := &discoverymodels.DiscoveredDevice{
-		Device: pb.Device{
-			DeviceIdentifier: "antminer-device-003",
-			IpAddress:        "192.168.1.102",
-			Port:             "80",
-			DriverName:       "antminer",
-		},
-		OrgID: 1,
-	}
-
-	// NO credentials provided
-	var credentials *pb.Credentials
-
-	ctx := t.Context()
-	err := pairer.PairDevice(ctx, device, credentials)
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "connection timeout", "Network error should be propagated")
-	assert.NotContains(t, err.Error(), "credentials are required", "Should not convert to credentials error")
 }
 
 // TestPairer_PairDevice_AntminerExplicitCredentials tests that when explicit credentials
@@ -1321,6 +1337,40 @@ func TestPairer_PairDevice_GRPCUnauthenticatedFromPlugin_ReturnsUnauthenticated(
 
 	require.Error(t, err)
 	assert.True(t, fleeterror.IsAuthenticationError(err), "expected unauthenticated error, got: %v", err)
+}
+
+func TestPairer_PairDevice_ExplicitCredentials_UnavailableReturnsInternal(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "SDK unavailable", err: sdk.NewErrorDeviceUnavailable("proto-device-unavailable", fmt.Errorf("login connection timeout"))},
+		{name: "RPC unavailable", err: status.Error(codes.Unavailable, "login connection timeout")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			manager := NewManager(&Config{})
+			mockDriver := sdkMocks.NewMockDriver(ctrl)
+			secret := sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "admin", Password: "custompass"}}
+			mockDriver.EXPECT().PairDevice(gomock.Any(), gomock.Any(), secret).Return(sdk.DeviceInfo{}, tc.err).Times(1)
+			manager.pluginsByDriverName["proto"] = &LoadedPlugin{
+				Name: "proto-plugin", Identifier: sdk.DriverIdentifier{DriverName: "proto"}, Driver: mockDriver,
+				Caps: sdk.Capabilities{sdk.CapabilityPairing: true},
+			}
+			pairer := createTestPairer(ctrl, manager)
+			device := &discoverymodels.DiscoveredDevice{
+				Device: pb.Device{DeviceIdentifier: "proto-device-unavailable", IpAddress: "192.168.1.151", Port: "80", UrlScheme: "http", DriverName: "proto"}, OrgID: 1,
+			}
+			credentials := &pb.Credentials{Username: "admin", Password: stringPtr("custompass")}
+			err := pairer.PairDevice(t.Context(), device, credentials)
+			require.Error(t, err)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			require.Equal(t, connect.CodeInternal, fleetErr.GRPCCode)
+			assert.Contains(t, err.Error(), tc.err.Error())
+			assert.False(t, fleeterror.IsAuthenticationError(err), "an uncertain login must not request replacement credentials")
+		})
+	}
 }
 
 func TestPairer_PairDevice_DefaultPasswordViaAutoCredentials_ReturnsForbidden(t *testing.T) {

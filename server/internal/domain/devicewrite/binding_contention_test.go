@@ -30,11 +30,16 @@ func holdBindingDispatch(t *testing.T, database *testutil.DatabaseService, organ
 			func(sqlc.Querier) error { return nil },
 			func(context.Context) error { close(entered); <-release; return nil })
 	}()
-	finish := sync.OnceFunc(func() {
-		close(release)
-		require.NoError(t, <-done)
-		require.NoError(t, attempt.Finish(t.Context(), nil))
-	})
+	var finished sync.Once
+	finish := func() {
+		finished.Do(func() {
+			close(release)
+			require.NoError(t, <-done)
+			cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
+			defer cancel()
+			require.NoError(t, attempt.Finish(cleanupCtx, nil))
+		})
+	}
 	t.Cleanup(finish)
 	select {
 	case <-entered:
@@ -87,6 +92,7 @@ func TestBindingDispatchProtectsMissingChildInsertions(t *testing.T) {
 			writer, err := database.DB.Conn(t.Context())
 			require.NoError(t, err)
 			defer writer.Close()
+			defer finish()
 			var pid int
 			require.NoError(t, writer.QueryRowContext(t.Context(), "SELECT pg_backend_pid()").Scan(&pid))
 			done := make(chan error, 1)
