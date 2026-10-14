@@ -88,35 +88,6 @@ vi.mock("@/protoFleet/features/settings/components/Nodes/NodeDetailsModal", () =
   };
 });
 
-vi.mock("@/protoFleet/features/settings/components/Nodes/RevokeNodeDialog", () => ({
-  default: ({
-    open,
-    nodeName,
-    affectedDeviceTypes,
-    isLoadingImpact,
-    impactError,
-    onConfirm,
-  }: {
-    open: boolean;
-    nodeName: string;
-    affectedDeviceTypes: string[];
-    isLoadingImpact: boolean;
-    impactError: string;
-    onConfirm: () => void;
-    onDismiss: () => void;
-    isSubmitting: boolean;
-  }) =>
-    open ? (
-      <div role="dialog" aria-label="Revoke node">
-        <div>{nodeName}</div>
-        <div>{affectedDeviceTypes.join(", ")}</div>
-        <button type="button" onClick={onConfirm} disabled={isLoadingImpact || !!impactError}>
-          Confirm revoke
-        </button>
-      </div>
-    ) : null,
-}));
-
 vi.mock("@/shared/components/List", () => {
   const resolveActionValue = <Value,>(
     value: ListActionValue<FleetNodeItem, Value> | undefined,
@@ -246,10 +217,10 @@ describe("NodesPage", () => {
 
     expect(await screen.findByText("node-pending")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
-    expect(screen.getByRole("dialog", { name: "Revoke node" })).toBeInTheDocument();
+    expect(screen.getByText("Revoke node?")).toBeInTheDocument();
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm revoke" })).toBeEnabled());
-    fireEvent.click(screen.getByRole("button", { name: "Confirm revoke" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Revoke node" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "Revoke node" }));
 
     await waitFor(() => expect(revokeFleetNodeMock).toHaveBeenCalledWith("7", "11"));
   });
@@ -376,17 +347,17 @@ describe("NodesPage", () => {
 
   it("loads the affected miners before allowing revocation", async () => {
     listFleetNodeDevicesMock.mockResolvedValue([
-      { deviceIdentifier: "miner-1", deviceType: "proto" },
-      { deviceIdentifier: "miner-2", deviceType: "antminer" },
+      { deviceIdentifier: "miner-1", deviceType: "asicrs", manufacturer: "Bitmain", model: "S19" },
+      { deviceIdentifier: "miner-2", deviceType: "asicrs", manufacturer: "MicroBT", model: "M60" },
     ]);
     renderNodesPage();
 
     expect(await screen.findByText("node-01")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
-    await waitFor(() =>
-      expect(screen.getByRole("dialog", { name: "Revoke node" })).toHaveTextContent("proto, antminer"),
-    );
-    expect(screen.getByRole("dialog", { name: "Revoke node" })).not.toHaveTextContent("miner-1");
+    expect(await screen.findByText("1 paired Bitmain S19 miner will lose connection.")).toBeInTheDocument();
+    expect(screen.getByText("1 paired MicroBT M60 miner will lose connection.")).toBeInTheDocument();
+    expect(screen.queryByText(/ASIC-RS|miner-1/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Revoke node" })).toBeEnabled();
     expect(listFleetNodeDevicesMock).toHaveBeenCalledWith("7");
   });
 });

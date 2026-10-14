@@ -33,6 +33,8 @@ type DiscoveredDeviceReport struct {
 }
 
 type FleetNodeDevice struct {
+	Manufacturer     string
+	Model            string
 	FleetNodeID      int64
 	DeviceID         int64
 	DeviceIdentifier string

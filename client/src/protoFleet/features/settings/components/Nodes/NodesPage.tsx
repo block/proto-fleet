@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
+import type { FleetNodeDeviceSummary } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { useFleetNodes } from "@/protoFleet/api/useFleetNodes";
@@ -45,7 +46,7 @@ const NodesPage = () => {
   const [finderRevisionByNode, setFinderRevisionByNode] = useState<Record<string, number>>({});
   const [blockedPairingByNode, setBlockedPairingByNode] = useState<Record<string, string[]>>({});
   const [revokeNodeData, setRevokeNodeData] = useState<FleetNodeItem | null>(null);
-  const [revokeDeviceTypes, setRevokeDeviceTypes] = useState<string[]>([]);
+  const [revokeDevices, setRevokeDevices] = useState<FleetNodeDeviceSummary[]>([]);
   const [revokeImpactLoading, setRevokeImpactLoading] = useState(false);
   const [revokeImpactError, setRevokeImpactError] = useState("");
   const [isRevoking, setIsRevoking] = useState(false);
@@ -159,13 +160,13 @@ const NodesPage = () => {
     (node: FleetNodeItem) => {
       const requestId = ++revokeImpactRequestRef.current;
       setRevokeNodeData(node);
-      setRevokeDeviceTypes([]);
+      setRevokeDevices([]);
       setRevokeImpactError("");
       setRevokeImpactLoading(true);
       void listFleetNodeDevices(node.fleetNodeId)
         .then((devices) => {
           if (requestId === revokeImpactRequestRef.current) {
-            setRevokeDeviceTypes(devices.map((device) => device.deviceType));
+            setRevokeDevices(devices);
           }
         })
         .catch((error) => {
@@ -329,7 +330,7 @@ const NodesPage = () => {
       <RevokeNodeDialog
         open={!!revokeNodeData}
         nodeName={revokeNodeData?.name ?? ""}
-        affectedDeviceTypes={revokeDeviceTypes}
+        affectedDevices={revokeDevices}
         isLoadingImpact={revokeImpactLoading}
         impactError={revokeImpactError}
         onConfirm={handleRevokeConfirm}

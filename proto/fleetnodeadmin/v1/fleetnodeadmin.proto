@@ -122,6 +122,8 @@ message FleetNodeDeviceSummary {
     string device_type = 4;
     google.protobuf.Timestamp assigned_at = 5;
     optional int64 assigned_by = 6;
+    string manufacturer = 7;
+    string model = 8;
 }
 
 message DiscoverOnFleetNodeRequest {
