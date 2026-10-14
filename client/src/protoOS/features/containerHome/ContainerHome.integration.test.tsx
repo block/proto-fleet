@@ -38,8 +38,14 @@ describe("container Home integration", () => {
     useMinerStore.getState().resetDeviceData();
     useMinerStore.getState().ui.setDuration("12h");
     const fixture = toCanonicalContainer(
-      { containerMap: { tanks: [] } },
-      { hashrate: 100, power: 1500, activeBoards: 3, totalBoards: 3 },
+      {
+        containerMap: {
+          tanks: [
+            { id: 1, modules: [{ id: 1, slots: [{ hashboard: { serial: "HB-1", health: { hashrate: 100 } } }] }] },
+          ],
+        },
+      },
+      { hashrate: 900, power: 1500, activeBoards: 3, totalBoards: 3 },
       { plant: { facilityPowerW: 2000 }, coolingFans: [{ componentId: "fan-one", powerW: 10 }] },
       "ct1",
     );
@@ -144,6 +150,43 @@ describe("container Home integration", () => {
     expect(client.hashboardServiceGetContainerMap).toHaveBeenCalledTimes(2);
     expect(client.telemetryServiceQueryTimeSeries).not.toHaveBeenCalled();
     expect(mocks.adapter.getTimeSeries).not.toHaveBeenCalled();
+  });
+
+  it("refreshes live hashrate from board health in Overview and Hashrate without extra requests", async () => {
+    vi.useFakeTimers();
+    const boards = [
+      { serial: "HB-1", health: { hashrate: 60 } },
+      { serial: "HB-2", health: { hashrate: 40 } },
+    ];
+    const map = {
+      containerMap: {
+        tanks: [{ id: 1, modules: [{ id: 1, slots: boards.map((hashboard) => ({ hashboard })) }] }],
+      },
+    };
+    const fixture = toCanonicalContainer(map, {}, {}, "ct1");
+    useMinerStore.getState().hardware.replaceHardware(fixture.hardware);
+    const client = {
+      hashboardServiceGetContainerMap: vi.fn().mockResolvedValue({ data: map }),
+      miningServiceGetMiningStatus: vi.fn().mockResolvedValue({ data: { hashrate: 900 } }),
+      telemetryServiceGetContainerHealth: vi.fn().mockResolvedValue({ data: {} }),
+    };
+    const adapter = new MdkV2Adapter(client as unknown as MdkV2Client, { deviceId: "ct1" });
+    mocks.adapter.getCurrentTelemetry.mockImplementation(adapter.getCurrentTelemetry.bind(adapter));
+    const router = createMemoryRouter(routes, { initialEntries: ["/miners/ct1/"] });
+    render(<RouterProvider router={router} />);
+    await act(async () => {});
+    expect(screen.getByText("100.0 TH/s")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View Hashrate" })).toBeVisible();
+    expect(screen.queryByText("900.0 TH/s")).not.toBeInTheDocument();
+
+    boards[0].health.hashrate = 80;
+    await act(() => vi.advanceTimersByTimeAsync(15_000));
+    expect(screen.getByText("120.0 TH/s")).toBeInTheDocument();
+    await act(async () => fireEvent.click(screen.getByRole("link", { name: "View Hashrate" })));
+    expect(screen.getByRole("region", { name: "Live readings" })).toHaveTextContent("Hashrate120.0 TH/s");
+    expect(screen.queryByText(/Accepted-share/)).not.toBeInTheDocument();
+    expect(client.hashboardServiceGetContainerMap).toHaveBeenCalledTimes(2);
+    expect(client.miningServiceGetMiningStatus).toHaveBeenCalledTimes(2);
   });
 
   it("only polls power history in System mode, including after direct Hashboards entry", async () => {

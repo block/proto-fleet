@@ -91,7 +91,7 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
       <ContainerOverviewView
         hashrate={{
           id: "hashrate",
-          label: "Accepted-share hashrate (last 1h)",
+          label: "Hashrate",
           value: formatReading(live.hashrate, "TH/s"),
         }}
         power={{
@@ -199,7 +199,7 @@ export default function ContainerHomePage({ tab }: { tab: HomeTab }) {
       readings={[
         {
           id: tab,
-          label: efficiency ? "Container efficiency" : "Accepted-share hashrate (last 1h)",
+          label: efficiency ? "Container efficiency" : "Hashrate",
           value: formatReading(efficiency ? live.efficiency : live.hashrate, units),
         },
         { id: "boards", label: "Hashboards", value: live.boardCount ?? "—" },
