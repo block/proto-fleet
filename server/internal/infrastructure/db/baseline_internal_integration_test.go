@@ -1,6 +1,7 @@
 package db
 
 import (
+	"database/sql"
 	"strconv"
 	"testing"
 
@@ -15,8 +16,7 @@ func TestBaselineInternalReconciliation(t *testing.T) {
 	// Cover both bounded legacy paths, the snapshot boundary and both direct entry points.
 	for _, version := range []uint8{150, 152, 153, 154, 158} {
 		t.Run(strconv.Itoa(int(version)), func(t *testing.T) {
-			conn, config := newMigrationBridgeTestDB(t)
-			migrateTestDBTo(t, conn, config.Name, uint(version))
+			conn, config := newLegacyMigrationTestDB(t, uint(version))
 			seedBaselineIdentity(t, conn)
 			if version == 152 || version == 153 {
 				if _, err := conn.ExecContext(t.Context(), `INSERT INTO container_snapshot(device_id,observed_at,snapshot) VALUES(999999,now(),'{"keep":true}')`); err != nil {
@@ -83,8 +83,7 @@ func TestBaselineInternalReconciliation(t *testing.T) {
 
 func TestBaselineInternalRefusesSkippedPrivateMigration(t *testing.T) {
 	requireBaselineDB(t)
-	conn, _ := newMigrationBridgeTestDB(t)
-	baselinePublicFixture(t, conn, 153)
+	conn, _ := newBaselinePublicFixture(t, 153)
 	if _, err := conn.ExecContext(t.Context(), `UPDATE schema_migrations SET version=1001`); err != nil {
 		t.Fatal(err)
 	}
@@ -140,14 +139,15 @@ func TestInternalModuleIssuesUpgrade(t *testing.T) {
 	requireBaselineDB(t)
 	for _, source := range []string{"internal baseline", "public legacy transition"} {
 		t.Run(source, func(t *testing.T) {
-			conn, _ := newMigrationBridgeTestDB(t)
+			var conn *sql.DB
 			if source == "public legacy transition" {
-				baselinePublicFixture(t, conn, 153)
+				conn, _ = newBaselinePublicFixture(t, 153)
 				seedBaselineIdentity(t, conn)
 				if err := ApplyBaseline(t.Context(), conn, "public", 153); err != nil {
 					t.Fatal(err)
 				}
 			} else {
+				conn, _ = newMigrationBridgeTestDB(t)
 				files, err := iofs.New(migrations.Current, "current")
 				if err != nil {
 					t.Fatal(err)
