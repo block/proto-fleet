@@ -124,9 +124,10 @@ func newBaselinePublicFixture(t *testing.T, version int) (*sql.DB, *Config) {
 	if version < 0 {
 		t.Fatal("public fixture version must be nonnegative")
 	}
+	waypoint := uint(version)
 	files := baselinePublicFixtureSource(t)
 	conn, config, err := prepareLegacyMigrationTestDB(t, func(conn *sql.DB, config *Config) error {
-		return migrateTestDBSourceTo(t.Context(), conn, config.Name, files, uint(version))
+		return migrateTestDBSourceTo(t.Context(), conn, config.Name, files, waypoint)
 	})
 	if err != nil {
 		t.Fatal(err)
