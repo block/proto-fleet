@@ -195,6 +195,21 @@ export const isSavedViewsRecordDefault = (record: SavedViewsRecord): boolean => 
 export const findView = (id: string, record: SavedViewsRecord): SavedView | undefined =>
   record.views.find((view) => view.id === id);
 
+/**
+ * The saved view the URL's `view` param activates on `tab`. A stale id, or a
+ * view owned by another tab, activates nothing.
+ */
+export const findActiveView = (
+  searchParams: URLSearchParams,
+  record: SavedViewsRecord,
+  tab: FleetTabId | undefined,
+): SavedView | undefined => {
+  const id = searchParams.get(VIEW_URL_PARAM);
+  if (!id) return undefined;
+  const view = findView(id, record);
+  return view && view.tab === tab ? view : undefined;
+};
+
 const generateUserViewId = (): string => {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();

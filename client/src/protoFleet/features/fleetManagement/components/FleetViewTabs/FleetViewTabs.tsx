@@ -6,6 +6,7 @@ import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import {
   buildUrlForView,
   canonicalizeSearchParams,
+  findActiveView,
   findView,
   type FleetTabId,
   type SavedView,
@@ -121,13 +122,10 @@ const FleetViewTabsInner = ({ viewsState, currentTab, filterContext }: FleetView
   // matches the current section tab. A stale `view=` from another tab is
   // ignored so we never surface a dirty indicator on a view the user can't
   // be editing.
-  const activeViewId = useMemo(() => {
-    const param = searchParams.get(VIEW_URL_PARAM);
-    if (!param) return undefined;
-    const view = findView(param, record);
-    if (!view || view.tab !== currentTab) return undefined;
-    return view.id;
-  }, [searchParams, record, currentTab]);
+  const activeViewId = useMemo(
+    () => findActiveView(searchParams, record, currentTab)?.id,
+    [searchParams, record, currentTab],
+  );
   const activeView = activeViewId ? findView(activeViewId, record) : undefined;
 
   const currentCanonical = useMemo(

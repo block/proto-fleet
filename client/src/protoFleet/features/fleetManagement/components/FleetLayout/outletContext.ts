@@ -35,6 +35,12 @@ export interface FleetOutletContext {
     availableBuildings?: FilterLabelSource[];
     availableSites?: FilterLabelSource[];
   }) => void;
+  /**
+   * Saved view the URL activates on the current tab, if any. URL state that
+   * a saved view supplies (e.g. `display`) is scoped to that view and must
+   * not overwrite the tab's stored preferences.
+   */
+  activeSavedViewId: string | undefined;
 }
 
 export const useFleetOutletContext = (): FleetOutletContext => useOutletContext<FleetOutletContext>();
