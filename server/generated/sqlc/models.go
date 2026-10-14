@@ -1310,18 +1310,19 @@ type DeviceStatusHourly struct {
 }
 
 type DeviceWriteAttempt struct {
-	AttemptID        uuid.UUID
-	DeviceID         int64
-	OrganizationID   int64
-	Epoch            int64
-	QueueMessageID   sql.NullInt64
-	OwnerInstanceID  uuid.UUID
-	OperationKind    string
-	IdentitySnapshot json.RawMessage
-	Status           string
-	CreatedAt        time.Time
-	FinishedAt       sql.NullTime
-	IdentityKeys     []string
+	AttemptID          uuid.UUID
+	DeviceID           int64
+	OrganizationID     int64
+	Epoch              int64
+	QueueMessageID     sql.NullInt64
+	OwnerInstanceID    uuid.UUID
+	OperationKind      string
+	IdentitySnapshot   json.RawMessage
+	Status             string
+	CreatedAt          time.Time
+	FinishedAt         sql.NullTime
+	IdentityKeys       []string
+	CurtailmentCommand sql.NullString
 }
 
 type DeviceWriteFence struct {

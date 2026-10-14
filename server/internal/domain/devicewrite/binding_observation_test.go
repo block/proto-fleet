@@ -27,10 +27,13 @@ func holdBindingObservation(t *testing.T, database *testutil.DatabaseService, or
 				func(context.Context) error { close(entered); <-release; return nil })
 		})
 	}()
-	finish := sync.OnceFunc(func() {
-		close(release)
-		require.NoError(t, <-done)
-	})
+	var finished sync.Once
+	finish := func() {
+		finished.Do(func() {
+			close(release)
+			require.NoError(t, <-done)
+		})
+	}
 	t.Cleanup(finish)
 	select {
 	case <-entered:
@@ -78,7 +81,8 @@ func TestBindingObservationProtectsMissingChildrenAndEndpoint(t *testing.T) {
 			finish := holdBindingObservation(t, database, user.OrganizationID, device.DatabaseID)
 			writer, err := database.DB.Conn(t.Context())
 			require.NoError(t, err)
-			defer func() { finish(); _ = writer.Close() }()
+			defer writer.Close()
+			defer finish()
 			var pid int
 			require.NoError(t, writer.QueryRowContext(t.Context(), "SELECT pg_backend_pid()").Scan(&pid))
 			done := make(chan error, 1)

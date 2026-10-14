@@ -85,7 +85,7 @@ func (d DatabaseMessageQueue) enqueueEncoded(ctx context.Context, commandBatchLo
 		epochs := make([]int64, len(deviceIDs))
 		for i, deviceID := range deviceIDs {
 			fence, exists := byDevice[deviceID]
-			if !exists || fence.State != "host" {
+			if !exists || (!commandType.IsCurtailmentControl() && fence.State != "host") {
 				return fleeterror.NewFailedPreconditionErrorf("batch rejected: device %d is unavailable or blocked by configuration ownership; no selected commands were enqueued", deviceID)
 			}
 			epochs[i] = fence.Epoch

@@ -12,7 +12,7 @@ func TestContainerInventoryMigrationRoundTrip(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	// Later child inventory must be rolled back before its parent schema.
 	for _, name := range []string{
-		"001017_internal_container_module_identity_confirmation.down.sql",
+		"001019_internal_container_module_identity_confirmation.down.sql",
 		"001016_internal_ct1_metric_summaries.down.sql",
 		"001015_internal_ct1_poll_rollups.down.sql",
 		"001004_internal_hashboards.down.sql",
