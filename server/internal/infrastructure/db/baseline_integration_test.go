@@ -73,11 +73,8 @@ func TestBaselineFreshAndUnsafeStates(t *testing.T) {
 
 // The public sequence is the shared subset of legacy files. The two repositories
 // deliberately retain their original numbering; this mapping is test-only.
-func baselinePublicFixture(t *testing.T, conn *sql.DB, version int) {
+func baselinePublicFixtureSource(t *testing.T) fs.FS {
 	t.Helper()
-	if version < 0 {
-		t.Fatal("public fixture version must be nonnegative")
-	}
 	entries, err := fs.ReadDir(migrations.Migrations, ".")
 	if err != nil {
 		t.Fatal(err)
@@ -107,21 +104,34 @@ func baselinePublicFixture(t *testing.T, conn *sql.DB, version int) {
 		mapped := fmt.Sprintf("%06d_%s", publicVersion, strings.SplitN(name, "_", 2)[1])
 		sourceFiles[mapped] = &fstest.MapFile{Data: data}
 	}
-	source, err := iofs.New(sourceFiles, ".")
+	return sourceFiles
+}
+
+func baselinePublicFixture(t *testing.T, conn *sql.DB, version int) {
+	t.Helper()
+	if version < 0 {
+		t.Fatal("public fixture version must be nonnegative")
+	}
+	if err := migrateTestDBSourceTo(t.Context(), conn, "", baselinePublicFixtureSource(t), uint(version)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// newBaselinePublicFixture retries only empty mapped-public fixture setup.
+// Reconciliation and upgrades after seeding still run once and fail normally.
+func newBaselinePublicFixture(t *testing.T, version int) (*sql.DB, *Config) {
+	t.Helper()
+	if version < 0 {
+		t.Fatal("public fixture version must be nonnegative")
+	}
+	files := baselinePublicFixtureSource(t)
+	conn, config, err := prepareLegacyMigrationTestDB(t, func(conn *sql.DB, config *Config) error {
+		return migrateTestDBSourceTo(t.Context(), conn, config.Name, files, uint(version))
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	driver, err := postgres.WithInstance(conn, &postgres.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, err := migrate.NewWithInstance("public-fixture", source, "", driver)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = m.Migrate(uint(version)); err != nil {
-		t.Fatal(err)
-	}
+	return conn, config
 }
 
 func seedBaselineIdentity(t *testing.T, conn *sql.DB) {
@@ -174,8 +184,7 @@ func TestBaselinePublicReconciliation(t *testing.T) {
 	requireBaselineDB(t)
 	for _, version := range []int{152, 153} {
 		t.Run(strconv.Itoa(version), func(t *testing.T) {
-			conn, _ := newMigrationBridgeTestDB(t)
-			baselinePublicFixture(t, conn, version)
+			conn, _ := newBaselinePublicFixture(t, version)
 			seedBaselineIdentity(t, conn)
 			if version == 153 {
 				roundTripBaselineConstraints(t, conn)
@@ -223,8 +232,7 @@ func TestBaselineReconciliationRefusesDirtyAndUnknown(t *testing.T) {
 		`ALTER FUNCTION activity_count_label(bigint,text,text) RENAME TO unexpected_function`,
 	} {
 		t.Run(mutation, func(t *testing.T) {
-			conn, _ := newMigrationBridgeTestDB(t)
-			baselinePublicFixture(t, conn, 152)
+			conn, _ := newBaselinePublicFixture(t, 152)
 			if _, err := conn.ExecContext(t.Context(), mutation); err != nil {
 				t.Fatal(err)
 			}
