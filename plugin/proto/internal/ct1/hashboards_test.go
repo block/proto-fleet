@@ -198,3 +198,35 @@ func TestModuleConfirmationRejectsWhitespaceAliasClaims(t *testing.T) {
 		})
 	}
 }
+
+func TestModuleConfirmationRejectsCrossKindSelectorCollisions(t *testing.T) {
+	const selectedMAC = "AA-BB-CC-DD-EE-01"
+	for _, tc := range []struct {
+		name, selectedSerial, neighborSerial string
+		emptyNeighbor, wantConflict          bool
+	}{
+		{"raw MAC alias", "selected", selectedMAC, false, true},
+		{"normalized MAC alias", "selected", "aa:bb:cc:dd:ee:01", false, true},
+		{"unoccupied claim", "selected", selectedMAC, true, true},
+		{"same board aliases", selectedMAC, "neighbor", false, false},
+		{"distinct aliases", "selected", "neighbor", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wire := MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{{ID: 1, Modules: []Module{
+				{ID: 1, Slots: []Slot{{Occupied: true, Hashboard: &Board{MACAddress: selectedMAC, Serial: tc.selectedSerial, ModuleID: "module-a"}}, {}, {}}},
+				{ID: 2, Slots: []Slot{{Occupied: !tc.emptyNeighbor, Hashboard: &Board{MACAddress: "aa:bb:cc:dd:ee:02", Serial: tc.neighborSerial, ModuleID: "module-b"}}, {}, {}}},
+			}}}}}
+			got, err := snapshot(wire, time.Now())
+			require.NoError(t, err)
+			selected := got.Tanks[0].Modules[0]
+			require.Equal(t, !tc.wantConflict, selected.IdentityConfirmed)
+			if tc.wantConflict {
+				require.Equal(t, sdk.HashboardIdentityConflict, selected.Hashboards[0].UnavailableReason)
+				require.Equal(t, "unknown", selected.Hashboards[0].Occupancy)
+				require.Equal(t, []sdk.HashboardIdentityClaim{{MACAddress: "aa:bb:cc:dd:ee:01", Serial: tc.selectedSerial}}, selected.Hashboards[0].IdentityClaims)
+			} else {
+				require.Equal(t, "occupied", selected.Hashboards[0].Occupancy)
+			}
+		})
+	}
+}

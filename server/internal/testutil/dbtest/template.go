@@ -866,8 +866,8 @@ func templateNameFor(config *db.Config) string {
 // one that does not match.
 func migrationSetFingerprint(role string) string {
 	hash := sha256.New()
-	// Invalidate templates built before maintenance policies were disabled.
-	_, _ = hash.Write([]byte("unscheduled-maintenance-v1\x00"))
+	// Invalidate templates built before all background jobs were disabled.
+	_, _ = hash.Write([]byte("unscheduled-maintenance-v2\x00"))
 	_, _ = hash.Write([]byte(role))
 	_, _ = hash.Write([]byte{0})
 

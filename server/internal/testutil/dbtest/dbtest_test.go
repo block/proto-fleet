@@ -7,22 +7,39 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	"github.com/stretchr/testify/require"
 )
 
-func TestTestDatabaseDisablesScheduledMaintenance(t *testing.T) {
-	database := GetTestDB(t)
-	var policies, scheduled int
-	err := database.QueryRowContext(t.Context(), `SELECT count(*), count(*) FILTER (WHERE scheduled)
- FROM timescaledb_information.jobs WHERE proc_name LIKE 'policy_%'`).Scan(&policies, &scheduled)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if policies == 0 {
-		t.Fatal("test database must retain the migrated maintenance policies")
-	}
-	if scheduled != 0 {
-		t.Fatalf("%d maintenance policies can run during tests; want none", scheduled)
-	}
+func TestTemplateCloneDisablesScheduledMaintenance(t *testing.T) {
+	adminConfig := adminConfigForTest(t)
+	template := templateDatabase(t, adminConfig)
+	require.NotEmpty(t, template, "this test must exercise a migrated template")
+	dbName := generateTestDBName(t.Name())
+	usedTemplate := createTestDatabase(t, adminConfig, dbName, template)
+	t.Cleanup(func() {
+		// nolint: usetesting // Cleanup runs after t.Context() is canceled.
+		dropTestDatabase(context.Background(), t, adminConfig, dbName)
+	})
+	require.NotEmpty(t, usedTemplate, "this test must clone rather than migrate directly")
+
+	// Inspect the inherited schedules before GetTestDB's per-test pause can
+	// hide an incomplete template preparation.
+	config := *adminConfig
+	config.Name = dbName
+	database, err := db.ConnectToDatabase(&config)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, database.Close()) })
+
+	var policies, bootstraps, scheduled int
+	err = database.QueryRowContext(t.Context(), `SELECT
+ count(*) FILTER (WHERE proc_name LIKE 'policy_%'),
+ count(*) FILTER (WHERE proc_name = 'initialize_container_metric_summaries'),
+ count(*) FILTER (WHERE scheduled)
+ FROM timescaledb_information.jobs`).Scan(&policies, &bootstraps, &scheduled)
+	require.NoError(t, err)
+	require.Positive(t, policies, "template clones must retain the migrated maintenance policies")
+	require.Equal(t, 1, bootstraps, "template clones must retain the bootstrap job")
+	require.Zero(t, scheduled, "template clones must inherit disabled schedules for every job")
 }
 
 func TestIsRetryableMigrationError(t *testing.T) {

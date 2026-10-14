@@ -177,12 +177,16 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 				if index < len(m.Slots) {
 					observation.Feed = m.Slots[index].Feed
 				}
+				identityConflict := identities.selectors[observation.MACAddress] > 1
 				for _, key := range boardIdentityKeys(observation.MACAddress, observation.Serial) {
 					if identities.boards[key] > 1 {
-						*observation = unavailableBoard(observation.Position, sdk.HashboardIdentityConflict, m.Slots[index].Hashboard)
-						observation.Feed = m.Slots[index].Feed
+						identityConflict = true
 						break
 					}
+				}
+				if identityConflict {
+					*observation = unavailableBoard(observation.Position, sdk.HashboardIdentityConflict, m.Slots[index].Hashboard)
+					observation.Feed = m.Slots[index].Feed
 				}
 				if observation.UnavailableReason != "" {
 					slog.Warn("CT1 hashboard observation unavailable", "tank", tank.ID, "module", m.ID, "position", observation.Position, "reason", observation.UnavailableReason)

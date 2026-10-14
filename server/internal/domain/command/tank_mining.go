@@ -384,7 +384,7 @@ func (es *ExecutionService) executeScopedMining(ctx context.Context, deviceID, o
 		if fleeterror.IsFailedPreconditionError(err) {
 			return err
 		}
-		if dispatchStarted {
+		if dispatchStarted && !devicewrite.IsNotDispatched(err) {
 			slog.ErrorContext(ctx, scope.noun()+" mining outcome unconfirmed", "device_id", deviceID, "error", err)
 			return fleeterror.NewFailedPreconditionError(scope.noun() + " mining outcome unconfirmed")
 		}

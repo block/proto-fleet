@@ -2,10 +2,12 @@ package ct1
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -164,5 +166,106 @@ func TestModuleMiningRejectsCrossKindIdentifierCollisionsBeforeWriting(t *testin
 				}
 			})
 		}
+	}
+}
+
+func TestModuleMiningVerifiesEverySelectedBoardIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name, identity, wantError string
+	}{
+		{"missing", "", "identity changed or unavailable"},
+		{"blank", " \t", "identity changed or unavailable"},
+		{"replacement", "replacement", "selected module identity unavailable or ambiguous"},
+		{"padded", "module-a ", "selected module identity unavailable or ambiguous"},
+		{"Unicode padded", "\u00a0module-a", "selected module identity unavailable or ambiguous"},
+	} {
+		for changed := range boardsPerModule {
+			for _, mining := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/board-%d/mining-%t", tc.name, changed+1, mining), func(t *testing.T) {
+					slots := make([]Slot, boardsPerModule)
+					for i := range slots {
+						slots[i] = Slot{Occupied: true, Hashboard: &Board{MACAddress: fmt.Sprintf("board-%d", i), ModuleID: "module-a", MiningState: miningStateIdle}}
+					}
+					slots[changed].Hashboard.ModuleID = tc.identity
+					var writes atomic.Int32
+					srv := newTankGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						switch r.URL.Path {
+						case "/api/v2/system/info":
+							_, _ = w.Write([]byte(`{"info":{"id":"ct1","model":"CT1"}}`))
+						case "/api/v2/container/map":
+							require.NoError(t, json.NewEncoder(w).Encode(MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{{ID: 1, Modules: []Module{{ID: 1, Slots: slots}}}}}}))
+						default:
+							writes.Add(1)
+							_, _ = w.Write([]byte(`{"results":[]}`))
+						}
+					}))
+					u, err := url.Parse(srv.URL)
+					require.NoError(t, err)
+					port, err := strconv.ParseInt(u.Port(), 10, 32)
+					require.NoError(t, err)
+					dev, err := newTankTestDevice(t, "ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme})
+					require.NoError(t, err)
+					err = dev.SetModuleMining(t.Context(), sdk.ModuleMiningRequest{Mining: &mining, Modules: []sdk.ModuleMiningTarget{{Tank: 1, Module: 1, ReportedID: "module-a"}}})
+					require.ErrorContains(t, err, tc.wantError)
+					require.Zero(t, writes.Load())
+				})
+			}
+		}
+	}
+}
+
+func TestModuleMiningScopesEverySelectedBoardAcrossTanks(t *testing.T) {
+	module := func(id int32, reportedID string, macs ...string) Module {
+		m := Module{ID: id}
+		for _, mac := range macs {
+			m.Slots = append(m.Slots, Slot{Occupied: true, Hashboard: &Board{MACAddress: mac, ModuleID: reportedID, MiningState: miningStateIdle}})
+		}
+		return m
+	}
+	wire := MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{
+		{ID: 1, Modules: []Module{module(1, "module-a", "a1", "a2", "a3"), module(2, "neighbor", "n1", "n2", "n3")}},
+		{ID: 2, Modules: []Module{module(2, "module-b", "b1", "b2", "b3")}},
+	}}}
+	for _, mining := range []bool{false, true} {
+		t.Run(strconv.FormatBool(mining), func(t *testing.T) {
+			var writes atomic.Int32
+			srv := newTankGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v2/system/info":
+					_, _ = w.Write([]byte(`{"info":{"id":"ct1","model":"CT1"}}`))
+				case "/api/v2/container/map":
+					require.NoError(t, json.NewEncoder(w).Encode(wire))
+				default:
+					writes.Add(1)
+					action := "stop"
+					if mining {
+						action = "start"
+					}
+					require.Equal(t, "/api/v2/mining/scoped/"+action, r.URL.Path)
+					var body struct {
+						Scope struct {
+							Identifiers []string
+							Modules     []struct{ Tank, Module int32 }
+						}
+					}
+					require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+					require.Equal(t, []string{"a1", "a2", "a3", "b1", "b2", "b3"}, body.Scope.Identifiers)
+					require.Empty(t, body.Scope.Modules)
+					_, _ = w.Write([]byte(`{"results":[{"macAddress":"a1","applied":true},{"macAddress":"a2","applied":true},{"macAddress":"a3","applied":true},{"macAddress":"b1","applied":true},{"macAddress":"b2","applied":true},{"macAddress":"b3","applied":true}]}`))
+				}
+			}))
+			u, err := url.Parse(srv.URL)
+			require.NoError(t, err)
+			port, err := strconv.ParseInt(u.Port(), 10, 32)
+			require.NoError(t, err)
+			dev, err := newTankTestDevice(t, "ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme})
+			require.NoError(t, err)
+			err = dev.SetModuleMining(t.Context(), sdk.ModuleMiningRequest{Mining: &mining, Modules: []sdk.ModuleMiningTarget{
+				{Tank: 2, Module: 2, ReportedID: "module-b"},
+				{Tank: 1, Module: 1, ReportedID: "module-a"},
+			}})
+			require.NoError(t, err)
+			require.EqualValues(t, 1, writes.Load())
+		})
 	}
 }
