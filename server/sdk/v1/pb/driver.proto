@@ -756,6 +756,7 @@ service Driver {
 
   // Optional controller-only equipment command. Backend support is checked at execution.
   rpc SetTankMining(SetTankMiningRequest) returns (google.protobuf.Empty);
+  rpc SetModuleMining(SetModuleMiningRequest) returns (google.protobuf.Empty);
   rpc SetContainerControl(SetContainerControlRequest) returns (google.protobuf.Empty);
 
   // CoreV1 - Configuration methods - Required methods
@@ -814,6 +815,9 @@ message ContainerTank {
   repeated ContainerModule modules = 2;
 }
 message ContainerModule {
+  // All required board identity evidence agrees; required for module controls.
+  // reported_id may still identify metrics when this is false.
+  bool identity_confirmed = 8;
   repeated ContainerHashboard hashboards = 7;
   int32 position = 1;
   string reported_id = 2;
@@ -935,6 +939,17 @@ message ContainerModuleIssue {
 message SetTankMiningRequest {
   DeviceRef ref = 1;
   repeated int32 positions = 2;
+  optional bool mining = 3;
+}
+
+message ModuleMiningTarget {
+  int32 tank = 1;
+  int32 module = 2;
+  string reported_id = 3;
+}
+message SetModuleMiningRequest {
+  DeviceRef ref = 1;
+  repeated ModuleMiningTarget modules = 2;
   optional bool mining = 3;
 }
 

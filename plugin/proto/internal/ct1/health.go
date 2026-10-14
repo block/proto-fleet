@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -146,7 +147,7 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 	}
 	result := &sdk.ContainerSnapshot{ObservedAt: now, TopologyComplete: len(wire.ContainerMap.Tanks) == sdk.CT1TankCount, Tanks: []sdk.ContainerTank{}}
 	tankIDs := map[int32]bool{}
-	boardIDs := boardIdentityCounts(wire)
+	identities := collectTopologyIdentities(wire)
 	issuesBudget := issueBudget{remaining: maxContainerIssueBytes}
 	for _, tank := range wire.ContainerMap.Tanks {
 		if tank.ID <= 0 || tankIDs[tank.ID] {
@@ -169,19 +170,23 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 			}
 			boards := []Board{}
 			reportedID := ""
-			identityConflict := false
+			identityUnavailable := false
 			hashboards := hashboardObservations(m.Slots, now)
 			for index := range hashboards {
 				observation := &hashboards[index]
 				if index < len(m.Slots) {
 					observation.Feed = m.Slots[index].Feed
 				}
+				identityConflict := identities.selectors[observation.MACAddress] > 1
 				for _, key := range boardIdentityKeys(observation.MACAddress, observation.Serial) {
-					if boardIDs[key] > 1 {
-						*observation = unavailableBoard(observation.Position, sdk.HashboardIdentityConflict, m.Slots[index].Hashboard)
-						observation.Feed = m.Slots[index].Feed
+					if identities.boards[key] > 1 {
+						identityConflict = true
 						break
 					}
+				}
+				if identityConflict {
+					*observation = unavailableBoard(observation.Position, sdk.HashboardIdentityConflict, m.Slots[index].Hashboard)
+					observation.Feed = m.Slots[index].Feed
 				}
 				if observation.UnavailableReason != "" {
 					slog.Warn("CT1 hashboard observation unavailable", "tank", tank.ID, "module", m.ID, "position", observation.Position, "reason", observation.UnavailableReason)
@@ -190,22 +195,25 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 					out.TopologyComplete = false
 				}
 				if observation.Occupancy != "occupied" {
+					if observation.Occupancy != "empty" {
+						identityUnavailable = true
+					}
 					continue
 				}
 				b := *m.Slots[index].Hashboard
 
-				if b.ModuleID != "" {
-					if reportedID != "" && reportedID != b.ModuleID {
-						identityConflict = true
-					}
+				if strings.TrimSpace(b.ModuleID) == "" {
+					identityUnavailable = true
+				} else {
 					reportedID = b.ModuleID
 				}
 				boards = append(boards, b)
 			}
 			state := moduleState(boards, now)
+			identityConflict := reportedID != "" && !identities.uniqueModule(tank.ID, m.ID, reportedID)
 			if identityConflict {
-				reportedID = ""
 				state = sdk.ModuleUnknown
+				reportedID = ""
 				out.TopologyComplete = false
 				for i := range hashboards {
 					board := hashboards[i]
@@ -219,7 +227,7 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 				}
 				boards = nil
 			}
-			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, State: state, ObservedAt: moduleObservedAt(boards, state, now), Metrics: moduleMetrics(boards, now), Hashboards: hashboards, Issues: moduleIssuesWithBudget(boards, now, identityConflict, &issuesBudget)})
+			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, IdentityConfirmed: reportedID != "" && !identityUnavailable, State: state, ObservedAt: moduleObservedAt(boards, state, now), Metrics: moduleMetrics(boards, now), Hashboards: hashboards, Issues: moduleIssuesWithBudget(boards, now, identityConflict, &issuesBudget)})
 		}
 		sort.Slice(out.Modules, func(i, j int) bool { return out.Modules[i].Position < out.Modules[j].Position })
 		result.TopologyComplete = result.TopologyComplete && out.TopologyComplete

@@ -29,6 +29,9 @@ func TestRemotePhysicalWritesRequireAdmissionBeforeTransport(t *testing.T) {
 		{commandtype.SetTankMining, func(m *Miner) error {
 			return m.SetTankMining(t.Context(), sdk.TankMiningRequest{Positions: []int32{1}, Mining: new(false)})
 		}},
+		{commandtype.SetModuleMining, func(m *Miner) error {
+			return m.SetModuleMining(t.Context(), sdk.ModuleMiningRequest{Modules: []sdk.ModuleMiningTarget{{Tank: 1, Module: 1, ReportedID: "module-a"}}, Mining: new(false)})
+		}},
 		{commandtype.Reboot, func(m *Miner) error { return m.Reboot(t.Context()) }},
 		{commandtype.StartMining, func(m *Miner) error { return m.StartMining(t.Context()) }},
 		{commandtype.StopMining, func(m *Miner) error { return m.StopMining(t.Context()) }},
@@ -200,7 +203,8 @@ func TestPhysicalWriteKindCoversEveryProtocolAction(t *testing.T) {
 		"set_cooling_mode": commandtype.SetCoolingMode, "set_power_target": commandtype.SetPowerTarget,
 		"update_mining_pools": commandtype.UpdateMiningPools, "update_miner_password": commandtype.UpdateMinerPassword,
 		"firmware_update": commandtype.FirmwareUpdate, "set_container_control": commandtype.SetContainerControl,
-		"set_tank_mining": commandtype.SetTankMining,
+		"set_tank_mining":   commandtype.SetTankMining,
+		"set_module_mining": commandtype.SetModuleMining,
 	}
 	actions := (&gatewaypb.MinerCommand{}).ProtoReflect().Descriptor().Oneofs().ByName("action").Fields()
 	require.Equal(t, len(readAndIndicator)+len(mutationKinds), actions.Len(), "classify new protocol actions explicitly")

@@ -74,6 +74,8 @@ func physicalWriteKind(command *gatewaypb.MinerCommand) (commandtype.Type, bool)
 		return commandtype.ApplyCurtailmentConfig, true
 	case *gatewaypb.MinerCommand_SetTankMining:
 		return commandtype.SetTankMining, true
+	case *gatewaypb.MinerCommand_SetModuleMining:
+		return commandtype.SetModuleMining, true
 	case *gatewaypb.MinerCommand_SetContainerControl:
 		return commandtype.SetContainerControl, true
 	default:

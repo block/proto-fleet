@@ -2,6 +2,7 @@ package containers_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -507,8 +508,9 @@ func TestMissingModuleIdentityOnlyClearsAcceptedEmptyObservations(t *testing.T) 
 	require.NoError(t, sqlstores.NewSQLDeviceStore(db).InsertDevice(ctx, &d.Device, org, d.DeviceIdentifier))
 	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
 	require.NoError(t, err)
-	base := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+	base := time.Now().UTC().Add(-2 * time.Minute).Truncate(time.Microsecond)
 	hashrate, power, temp := 300e12, 3600.0, 62.0
+	withRollups := false
 	write := func(collected, source time.Time, identity string, empty bool) {
 		t.Helper()
 		metrics := &sdk.ContainerModuleMetrics{ObservedAt: source}
@@ -517,8 +519,15 @@ func TestMissingModuleIdentityOnlyClearsAcceptedEmptyObservations(t *testing.T) 
 			metrics.PowerW = &power
 			metrics.TemperatureC = &temp
 		}
-		snapshot := &sdk.ContainerSnapshot{ObservedAt: collected, TopologyComplete: true, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, ReportedID: identity, State: sdk.ModuleHashing, ObservedAt: collected, Metrics: metrics}}}}}
+		snapshot := &sdk.ContainerSnapshot{ObservedAt: collected, TopologyComplete: true, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, ReportedID: identity, IdentityConfirmed: true, State: sdk.ModuleHashing, ObservedAt: collected, Metrics: metrics}}}}}
+		if withRollups {
+			snapshot.Metrics = &sdk.ContainerRollup{}
+		}
 		require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: d.DeviceIdentifier, Timestamp: collected, Container: snapshot}))
+		if strings.TrimSpace(identity) == "" {
+			require.Empty(t, snapshot.Tanks[0].Modules[0].ReportedID)
+			require.False(t, snapshot.Tanks[0].Modules[0].IdentityConfirmed)
+		}
 	}
 	assertCurrent := func(empty bool, samples int) {
 		t.Helper()
@@ -566,4 +575,23 @@ func TestMissingModuleIdentityOnlyClearsAcceptedEmptyObservations(t *testing.T) 
 	write(base.Add(40*time.Second), base.Add(40*time.Second), "", true)
 	write(base.Add(9*time.Second), base.Add(9*time.Second), "original", false)
 	assertCurrent(true, 3)
+	// All Unicode blank identities use the same anonymous-metric policy.
+	for i, blank := range []string{" \t\n", "\u00a0", "\u2003"} {
+		at := base.Add(time.Duration(50+i*2) * time.Second)
+		write(at, at, blank, false)
+		assertCurrent(true, 3+i)
+		write(at.Add(time.Second), at.Add(time.Second), blank, true)
+		assertCurrent(true, 4+i)
+	}
+	// Rebuilt rollup samples must apply the same blank-identity policy.
+	for i, blank := range []string{" ", "\u00a0", "\u2003"} {
+		at := base.Add(time.Duration(60+i*2) * time.Second)
+		withRollups = false
+		write(at, at, "replacement", false)
+		assertCurrent(false, 7+i*2)
+		withRollups = true
+		write(at.Add(time.Second), at.Add(time.Second), blank, true)
+		assertCurrent(true, 8+i*2)
+	}
+
 }

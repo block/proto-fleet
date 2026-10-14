@@ -15,6 +15,7 @@ import {
 import ManageColumnsModal from "./ManageColumnsModal";
 import createMinerColConfig from "./minerColConfig";
 import { buildActiveMinerColumns, type MinerTableColumnPreferences } from "./minerTableColumnPreferences";
+import { minerIdentifierFromSelectionKey, type MiningSelectionKey, selectedMinerIdentifiers } from "./miningSelection";
 import { getColumnForSortField, getDefaultSortDirection, SORTABLE_COLUMNS } from "./sortConfig";
 import { type DeviceListItem } from "./types";
 import useMinerTableColumnPreferences from "./useMinerTableColumnPreferences";
@@ -46,6 +47,7 @@ import AuthenticateFleetModal from "@/protoFleet/features/auth/components/Authen
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import { HashboardCell } from "@/protoFleet/features/containers/HashboardCell";
 import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
+import MiningActionsMenu from "@/protoFleet/features/containers/MiningActionsMenu";
 import { ModuleHistoryDialog } from "@/protoFleet/features/containers/ModuleHistoryDialog";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
@@ -95,7 +97,7 @@ import ResponsiveActionGroup, { type ResponsiveActionButton } from "@/shared/com
 import { Breakpoint } from "@/shared/constants/breakpoints";
 import { classifySubnetLine, normalizeSubnetLine, validateSubnetLine } from "@/shared/utils/filterValidation";
 
-type MiningListItem = { deviceIdentifier: string } & (
+type MiningListItem = { selectionKey: MiningSelectionKey } & (
   { kind: "miner"; row: DeviceListItem } | { kind: "module"; row: InventoryItem }
 );
 
@@ -358,7 +360,7 @@ const ScopedMinerListBody = ({
   onWorkerNameUpdated,
   searchScopeKey,
 }: ScopedMinerListBodyProps) => {
-  const [selectedMinerIds, setSelectedMinerIds] = useState<string[]>([]);
+  const [selectedKeys, setSelectedKeys] = useState<MiningSelectionKey[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
   const hasCT1PlacementFilter =
     splitInventoryValues(initialActiveFilters.dropdownFilters.building ?? [], "container").ct1.length > 0 ||
@@ -369,7 +371,7 @@ const ScopedMinerListBody = ({
   const [prevSelectionScopeKey, setPrevSelectionScopeKey] = useState(selectionScopeKey);
   if (prevSelectionScopeKey !== selectionScopeKey) {
     setPrevSelectionScopeKey(selectionScopeKey);
-    setSelectedMinerIds([]);
+    setSelectedKeys([]);
     setSelectionMode("none");
   }
   const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
@@ -407,16 +409,16 @@ const ScopedMinerListBody = ({
   const listItems = useMemo<MiningListItem[]>(() => {
     const minersById = new Map(deviceItems.map((row) => [row.deviceIdentifier, row]));
     if (!inventoryItems)
-      return deviceItems.map((row) => ({ kind: "miner", row, deviceIdentifier: row.deviceIdentifier }));
+      return deviceItems.map((row) => ({ kind: "miner", row, selectionKey: `miner:${row.deviceIdentifier}` }));
     return inventoryItems.flatMap<MiningListItem>((item) => {
       if (item.ref?.kind === EntityKind.MODULE)
-        return [{ kind: "module", row: item, deviceIdentifier: `module:${item.ref.id}` }];
+        return [{ kind: "module", row: item, selectionKey: `module:${item.ref.id}` }];
       const row = minersById.get(item.deviceIdentifier);
-      return row ? [{ kind: "miner", row, deviceIdentifier: row.deviceIdentifier }] : [];
+      return row ? [{ kind: "miner", row, selectionKey: `miner:${row.deviceIdentifier}` }] : [];
     });
   }, [deviceItems, inventoryItems]);
-  const listColumns = useMemo<ColConfig<MiningListItem, string, MinerColumn>>(() => {
-    const result: ColConfig<MiningListItem, string, MinerColumn> = {};
+  const listColumns = useMemo<ColConfig<MiningListItem, MiningSelectionKey, MinerColumn>>(() => {
+    const result: ColConfig<MiningListItem, MiningSelectionKey, MinerColumn> = {};
     for (const column of Object.keys(minerColConfig) as MinerColumn[]) {
       const config = minerColConfig[column];
       if (!config) continue;
@@ -424,7 +426,7 @@ const ScopedMinerListBody = ({
         ...config,
         component: (item, selected) =>
           item.kind === "miner" ? (
-            config.component?.(item.row, selected)
+            config.component?.(item.row, selectedMinerIdentifiers(selected))
           ) : column === "name" ? (
             <div className="flex min-w-0 items-center">
               <button
@@ -446,6 +448,7 @@ const ScopedMinerListBody = ({
               <div className="min-w-0 flex-1">
                 <InventoryCell item={item.row} column={column} />
               </div>
+              <MiningActionsMenu kind="module" items={[item.row]} onRefresh={onRefetchMiners} />
             </div>
           ) : (
             <InventoryCell item={item.row} column={column} />
@@ -453,8 +456,12 @@ const ScopedMinerListBody = ({
       };
     }
     return result;
-  }, [minerColConfig, expanded, toggleModule]);
-  const currentPageSelectableMinerIds = deviceItems.map((item) => item.deviceIdentifier);
+  }, [minerColConfig, expanded, toggleModule, onRefetchMiners]);
+  const currentPageSelectionKeys = listItems.map((item) => item.selectionKey);
+  const selectAllOnPage =
+    selectionMode !== "all" &&
+    (listItems.some((item) => item.kind === "module") ||
+      (inventoryMinerCount !== undefined && totalMiners !== undefined && inventoryMinerCount < totalMiners));
   const headerActionButtons = useMemo<ResponsiveActionButton[]>(
     () => [
       {
@@ -485,12 +492,16 @@ const ScopedMinerListBody = ({
   const handleSelectAllMiners = useCallback(() => {
     // Filter-based commands cannot express typed CT1 placement scopes.
     if (hasCT1PlacementFilter) return;
-    setSelectedMinerIds(currentPageSelectableMinerIds);
-    setSelectionMode("all");
-  }, [currentPageSelectableMinerIds, hasCT1PlacementFilter]);
+    setSelectedKeys(
+      selectAllOnPage
+        ? currentPageSelectionKeys
+        : listItems.filter((item) => item.kind === "miner").map((item) => item.selectionKey),
+    );
+    setSelectionMode(selectAllOnPage ? "subset" : "all");
+  }, [currentPageSelectionKeys, hasCT1PlacementFilter, listItems, selectAllOnPage]);
 
   const handleSelectNoneMiners = useCallback(() => {
-    setSelectedMinerIds([]);
+    setSelectedKeys([]);
     setSelectionMode("none");
   }, []);
   // The typed query only reaches the URL, and with it selectionScopeKey, after
@@ -514,15 +525,22 @@ const ScopedMinerListBody = ({
     () =>
       selectionMode === "all"
         ? !totalDisabledMinersFresh || totalDisabledMiners > 0 || deviceItems.some(isRowDisabled)
-        : selectedMinerIds.some((id) =>
+        : selectedMinerIdentifiers(selectedKeys).some((id) =>
             deviceItems.some((item) => item.deviceIdentifier === id && isRowDisabled(item)),
           ),
-    [deviceItems, isRowDisabled, selectedMinerIds, selectionMode, totalDisabledMiners, totalDisabledMinersFresh],
+    [deviceItems, isRowDisabled, selectedKeys, selectionMode, totalDisabledMiners, totalDisabledMinersFresh],
+  );
+  const handleItemRef = useCallback(
+    (key: MiningSelectionKey, element: HTMLTableRowElement | null) => {
+      const identifier = minerIdentifierFromSelectionKey(key);
+      if (identifier !== undefined) itemRef?.(identifier, element);
+    },
+    [itemRef],
   );
 
   return (
     <>
-      <List<MiningListItem, string, MinerColumn>
+      <List<MiningListItem, MiningSelectionKey, MinerColumn>
         getChildRows={(item) => {
           if (item.kind !== "module" || !expanded.has(String(item.row.ref?.id))) return [];
           const result = hashboards.modules[String(item.row.ref?.id)];
@@ -558,9 +576,9 @@ const ScopedMinerListBody = ({
         filters={filters}
         onServerFilter={handleServerFilter}
         items={listItems}
-        itemKey={"deviceIdentifier"}
-        customSelectedItems={selectedMinerIds}
-        customSetSelectedItems={setSelectedMinerIds}
+        itemKey={"selectionKey"}
+        customSelectedItems={selectedKeys}
+        customSetSelectedItems={setSelectedKeys}
         customSelectionMode={selectionMode}
         itemSelectable
         pageScopedSelection
@@ -622,26 +640,33 @@ const ScopedMinerListBody = ({
             />
           </div>
         }
-        renderActionBar={(selectedItems, clearSelection, currentSelectionMode, totalSelectable) => (
-          <div className="flex w-full justify-center">
-            <MinerListActionBar
-              selectedMiners={selectedItems}
-              onClearSelection={clearSelection}
-              onSelectAll={hasCT1PlacementFilter ? undefined : handleSelectAllMiners}
-              onSelectNone={handleSelectNoneMiners}
-              filtersActive={hasActiveFilters}
-              selectionMode={currentSelectionMode}
-              totalCount={totalSelectable}
-              currentFilter={currentFilter}
-              currentSort={currentSortConfig}
-              miners={minersProp}
-              minerIds={minerIdsProp}
-              selectionIncludesUnauthenticatedMiner={selectedIncludesUnauthenticatedMiner}
-              onRefetchMiners={onRefetchMiners}
-              onWorkerNameUpdated={onWorkerNameUpdated}
-            />
-          </div>
-        )}
+        renderActionBar={(selectedItems, clearSelection, currentSelectionMode, totalSelectable) => {
+          const selectedItemKeys = new Set(selectedItems);
+          return (
+            <div className="flex w-full justify-center">
+              <MinerListActionBar
+                selectedKeys={selectedItems}
+                modules={listItems.flatMap((item) =>
+                  item.kind === "module" && selectedItemKeys.has(item.selectionKey) ? [item.row] : [],
+                )}
+                onClearSelection={clearSelection}
+                onSelectAll={hasCT1PlacementFilter ? undefined : handleSelectAllMiners}
+                selectAllOnPage={selectAllOnPage}
+                onSelectNone={handleSelectNoneMiners}
+                filtersActive={hasActiveFilters}
+                selectionMode={currentSelectionMode}
+                totalCount={currentSelectionMode === "all" ? (inventoryMinerCount ?? totalSelectable) : totalSelectable}
+                currentFilter={currentFilter}
+                currentSort={currentSortConfig}
+                miners={minersProp}
+                minerIds={minerIdsProp}
+                selectionIncludesUnauthenticatedMiner={selectedIncludesUnauthenticatedMiner}
+                onRefetchMiners={onRefetchMiners}
+                onWorkerNameUpdated={onWorkerNameUpdated}
+              />
+            </div>
+          );
+        }}
         containerClassName={listClassName}
         tableClassName="mb-4 inline-table w-max !min-w-fit !table-fixed"
         // Match the sibling fleet tabs (Sites/Buildings/Racks), whose filter
@@ -655,18 +680,17 @@ const ScopedMinerListBody = ({
         applyColumnWidthsToCells
         total={totalMiners}
         totalUnfiltered={totalUnfilteredMiners}
-        // Bulk miner actions exclude module rows from their selection count.
-        totalDisabled={inventoryMinerCount === undefined ? 0 : (totalMiners ?? 0) - inventoryMinerCount}
+        totalDisabled={0}
         itemName={
           inventoryItems
             ? { singular: "mining asset", plural: "mining assets" }
             : { singular: "miner", plural: "miners" }
         }
-        itemRef={itemRef}
+        itemRef={handleItemRef}
         initialActiveFilters={initialActiveFilters}
         onSelectionModeChange={setSelectionMode}
         isRowDisabled={(item) => item.kind === "miner" && isRowDisabled(item.row)}
-        isRowSelectable={(item) => item.kind === "miner"}
+        isRowSelectable={(item) => selectionMode !== "all" || item.kind === "miner"}
         columnsExemptFromDisabledStyling={
           new Set([minerCols.name, minerCols.status, minerCols.issues, minerCols.firmware])
         }
@@ -728,6 +752,7 @@ const ScopedMinerListBody = ({
         <ModuleHistoryDialog
           key={openModule.ref?.id.toString()}
           item={openModule}
+          onRefresh={onRefetchMiners}
           onDismiss={() => setOpenModule(undefined)}
         />
       ) : null}

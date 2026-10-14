@@ -251,6 +251,8 @@ func activityEventType(t commandtype.Type) string {
 		return "curtail"
 	case commandtype.Uncurtail:
 		return "uncurtail"
+	case commandtype.SetModuleMining:
+		return "set_module_mining"
 	case commandtype.SetTankMining:
 		return "set_tank_mining"
 	case commandtype.SetContainerControl:

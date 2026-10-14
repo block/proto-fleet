@@ -81,6 +81,18 @@ func GetTestDB(t *testing.T) *sql.DB {
 	return conn
 }
 
+func disableScheduledMaintenance(ctx context.Context, conn *sql.DB) error {
+	// Retention and aggregate refresh workers can acquire table locks between
+	// coordinated test transactions, or remove/materialize their fixture data.
+	// Bootstrap jobs must also be disabled because they can schedule new policies.
+	_, err := conn.ExecContext(ctx, `SELECT alter_job(job_id, scheduled => false)
+ FROM timescaledb_information.jobs WHERE scheduled`)
+	if err != nil {
+		return fmt.Errorf("disable test database background jobs: %w", err)
+	}
+	return nil
+}
+
 const (
 	migrationMaxRetries     = 5
 	migrationRetryBaseDelay = 200 * time.Millisecond

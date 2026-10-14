@@ -953,7 +953,8 @@ class ContainerTank(_message.Message):
     def __init__(self, metrics: _Optional[_Union[ContainerRollup, _Mapping]] = ..., topology_complete: bool = ..., position: _Optional[int] = ..., modules: _Optional[_Iterable[_Union[ContainerModule, _Mapping]]] = ...) -> None: ...
 
 class ContainerModule(_message.Message):
-    __slots__ = ("hashboards", "position", "reported_id", "state", "observed_at", "metrics", "issues")
+    __slots__ = ("identity_confirmed", "hashboards", "position", "reported_id", "state", "observed_at", "metrics", "issues")
+    IDENTITY_CONFIRMED_FIELD_NUMBER: _ClassVar[int]
     HASHBOARDS_FIELD_NUMBER: _ClassVar[int]
     POSITION_FIELD_NUMBER: _ClassVar[int]
     REPORTED_ID_FIELD_NUMBER: _ClassVar[int]
@@ -961,6 +962,7 @@ class ContainerModule(_message.Message):
     OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
     METRICS_FIELD_NUMBER: _ClassVar[int]
     ISSUES_FIELD_NUMBER: _ClassVar[int]
+    identity_confirmed: bool
     hashboards: _containers.RepeatedCompositeFieldContainer[ContainerHashboard]
     position: int
     reported_id: str
@@ -968,7 +970,7 @@ class ContainerModule(_message.Message):
     observed_at: _timestamp_pb2.Timestamp
     metrics: ContainerModuleMetrics
     issues: ContainerModuleIssues
-    def __init__(self, hashboards: _Optional[_Iterable[_Union[ContainerHashboard, _Mapping]]] = ..., position: _Optional[int] = ..., reported_id: _Optional[str] = ..., state: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., metrics: _Optional[_Union[ContainerModuleMetrics, _Mapping]] = ..., issues: _Optional[_Union[ContainerModuleIssues, _Mapping]] = ...) -> None: ...
+    def __init__(self, identity_confirmed: bool = ..., hashboards: _Optional[_Iterable[_Union[ContainerHashboard, _Mapping]]] = ..., position: _Optional[int] = ..., reported_id: _Optional[str] = ..., state: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., metrics: _Optional[_Union[ContainerModuleMetrics, _Mapping]] = ..., issues: _Optional[_Union[ContainerModuleIssues, _Mapping]] = ...) -> None: ...
 
 class HashboardIdentityClaim(_message.Message):
     __slots__ = ("mac_address", "serial")
@@ -1168,6 +1170,26 @@ class SetTankMiningRequest(_message.Message):
     positions: _containers.RepeatedScalarFieldContainer[int]
     mining: bool
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., positions: _Optional[_Iterable[int]] = ..., mining: bool = ...) -> None: ...
+
+class ModuleMiningTarget(_message.Message):
+    __slots__ = ("tank", "module", "reported_id")
+    TANK_FIELD_NUMBER: _ClassVar[int]
+    MODULE_FIELD_NUMBER: _ClassVar[int]
+    REPORTED_ID_FIELD_NUMBER: _ClassVar[int]
+    tank: int
+    module: int
+    reported_id: str
+    def __init__(self, tank: _Optional[int] = ..., module: _Optional[int] = ..., reported_id: _Optional[str] = ...) -> None: ...
+
+class SetModuleMiningRequest(_message.Message):
+    __slots__ = ("ref", "modules", "mining")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    MODULES_FIELD_NUMBER: _ClassVar[int]
+    MINING_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    modules: _containers.RepeatedCompositeFieldContainer[ModuleMiningTarget]
+    mining: bool
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., modules: _Optional[_Iterable[_Union[ModuleMiningTarget, _Mapping]]] = ..., mining: bool = ...) -> None: ...
 
 class ContainerRollup(_message.Message):
     __slots__ = ("hashrate_hs", "power_w", "efficiency_jh", "temperature_c", "min_temperature_c", "max_temperature_c", "hashrate", "power", "temperature", "power_source", "attribution", "source_times")

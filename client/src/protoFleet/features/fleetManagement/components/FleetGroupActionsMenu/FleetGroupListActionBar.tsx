@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { useMemo, useRef } from "react";
 
 import FleetGroupActionsMenu, { type GroupScope } from "./FleetGroupActionsMenu";
 import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
-import TankActionsMenu from "@/protoFleet/features/containers/TankActionsMenu";
-import { useSetActionBarVisible } from "@/protoFleet/store";
-import ActionBar from "@/shared/components/ActionBar";
-import Button, { sizes, variants } from "@/shared/components/Button";
+import MiningActionsMenu from "@/protoFleet/features/containers/MiningActionsMenu";
+import FleetListActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar/FleetListActionBar";
+import useActionBarLifecycle from "@/protoFleet/features/fleetManagement/components/ActionBar/useActionBarLifecycle";
+import { ActionBarSelectionControls } from "@/shared/components/ActionBar";
 import { type RowAction } from "@/shared/components/RowActionsMenu";
 
 interface FleetGroupListActionBarProps {
@@ -38,8 +37,10 @@ const FleetGroupListActionBar = ({
   selectedTanks = [],
   onRefetchTanks,
 }: FleetGroupListActionBarProps) => {
-  const setActionBarVisible = useSetActionBarVisible();
-  const [isActionBusy, setIsActionBusy] = useState(false);
+  const { isActionBusy, onActionStart, onActionComplete } = useActionBarLifecycle(
+    selectedScopes.length + selectedTanks.length,
+    onActionBusyChange,
+  );
   const selectionRef = useRef({ scopes: selectedScopes, tanks: selectedTanks });
   if (!isActionBusy) {
     selectionRef.current = { scopes: selectedScopes, tanks: selectedTanks };
@@ -59,107 +60,48 @@ const FleetGroupListActionBar = ({
         : { singular: "tank", plural: "tanks" }
       : { singular: kind, plural: PLURAL_KIND[kind] };
   const pluralKind = PLURAL_KIND[kind];
-  // Tracks whether the bar is still mounted so a late-arriving onActionComplete
-  // can't resurrect the global toaster push-up after the user navigated away.
-  const mountedRef = useRef(true);
-  // Tracks current selection length so onActionComplete reflects the latest
-  // count, not a value captured when the action was dispatched.
-  const selectedCountRef = useRef(selectedIds.length);
-  selectedCountRef.current = selectedScopes.length + selectedTanks.length;
 
-  useEffect(() => {
-    setActionBarVisible(selectedIds.length > 0 && !isActionBusy);
-  }, [selectedIds.length, isActionBusy, setActionBarVisible]);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      setActionBarVisible(false);
-      onActionBusyChange?.(false);
-    };
-  }, [onActionBusyChange, setActionBarVisible]);
-
-  const handleActionComplete = useCallback(
-    (setHidden: (hidden: boolean) => void) => {
-      setIsActionBusy(false);
-      onActionBusyChange?.(false);
-      setHidden(false);
-      if (!mountedRef.current) return;
-      setActionBarVisible(selectedCountRef.current > 0);
-    },
-    [onActionBusyChange, setActionBarVisible],
-  );
-
-  return createPortal(
-    <ActionBar
-      className="fixed right-0 bottom-4 left-0 z-[45] tablet:left-16 desktop:left-50"
+  return (
+    <FleetListActionBar
+      isActionBusy={isActionBusy}
       selectedItems={selectedIds}
       selectionMode="subset"
       itemNoun={itemNoun}
       onClose={onClearSelection}
       selectionControls={
-        <>
-          <Button
-            className="py-1"
-            size={sizes.textOnly}
-            variant={variants.textOnly}
-            textColor="text-core-accent-fill"
-            textOnlyUnderlineOnHover={false}
-            testId={`select-all-visible-${pluralKind}-button`}
-            onClick={onSelectAllVisible}
-          >
-            Select all visible
-          </Button>
-          <Button
-            className="py-1"
-            size={sizes.textOnly}
-            variant={variants.textOnly}
-            textColor="text-core-accent-fill"
-            textOnlyUnderlineOnHover={false}
-            testId={`select-none-${pluralKind}-button`}
-            onClick={onClearSelection}
-          >
-            Select none
-          </Button>
-        </>
+        <ActionBarSelectionControls
+          onSelectAll={onSelectAllVisible}
+          onSelectNone={onClearSelection}
+          visibleOnly
+          selectAllTestId={`select-all-visible-${pluralKind}-button`}
+          selectNoneTestId={`select-none-${pluralKind}-button`}
+        />
       }
-      renderActions={(setHidden) => {
-        const onActionStart = () => {
-          setIsActionBusy(true);
-          onActionBusyChange?.(true);
-          setHidden(true);
-          setActionBarVisible(false);
-        };
-        const onActionComplete = () => handleActionComplete(setHidden);
-
-        return (
-          <div className="flex flex-wrap gap-3">
-            {activeSelectedTanks.length > 0 && onRefetchTanks ? (
-              <TankActionsMenu
-                tanks={activeSelectedTanks}
-                onRefresh={onRefetchTanks}
-                presentation="bulk"
-                onActionStart={onActionStart}
-                onActionComplete={onActionComplete}
-              />
-            ) : null}
-            {activeSelectedScopes.length > 0 ? (
-              <FleetGroupActionsMenu
-                scopes={activeSelectedScopes}
-                ariaLabel={`Bulk actions for selected ${pluralKind}`}
-                testIdPrefix={`fleet-bulk-${kind}-actions`}
-                presentation="bulk"
-                bulkExtraActions={bulkExtraActions}
-                onActionStart={onActionStart}
-                onActionComplete={onActionComplete}
-              />
-            ) : null}
-          </div>
-        );
-      }}
-    />,
-    document.body,
+    >
+      <div className="flex flex-wrap gap-3">
+        {activeSelectedTanks.length > 0 && onRefetchTanks ? (
+          <MiningActionsMenu
+            kind="tank"
+            items={activeSelectedTanks}
+            onRefresh={onRefetchTanks}
+            presentation="bulk"
+            onActionStart={onActionStart}
+            onActionComplete={onActionComplete}
+          />
+        ) : null}
+        {activeSelectedScopes.length > 0 ? (
+          <FleetGroupActionsMenu
+            scopes={activeSelectedScopes}
+            ariaLabel={`Bulk actions for selected ${pluralKind}`}
+            testIdPrefix={`fleet-bulk-${kind}-actions`}
+            presentation="bulk"
+            bulkExtraActions={bulkExtraActions}
+            onActionStart={onActionStart}
+            onActionComplete={onActionComplete}
+          />
+        ) : null}
+      </div>
+    </FleetListActionBar>
   );
 };
 

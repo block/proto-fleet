@@ -49,6 +49,7 @@ import { isPathScopable } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import { SORT_ASC, SORT_DESC } from "@/shared/components/List/types";
+import { useMountedCallback } from "@/shared/hooks/useMountedCallback";
 
 // Default sort: Name ascending (alphabetical A-Z)
 const DEFAULT_SORT_CONFIG: SortConfig = create(SortConfigSchema, {
@@ -107,6 +108,7 @@ const Fleet = () => {
     minersChangedAt,
     publishViewFilterContext,
   } = useFleetOutletContext();
+  const refreshAfterAction = useMountedCallback(notifyMinersChanged);
   // Validate scope against catalog *access* (authoritative now), not
   // sitesLoaded — a mid-session PermissionDenied clears `sites` to [] while
   // sitesLoaded stays true, which would otherwise strip a reachable scoped
@@ -444,7 +446,7 @@ const Fleet = () => {
           currentSortConfig={currentSortConfig}
           onExportCsv={inventoryAncestors.length > 0 ? undefined : siteScopeMatchesNoRows ? () => undefined : exportCsv}
           exportCsvLoading={siteScopeMatchesNoRows ? false : isExportingCsv}
-          onRefetchMiners={notifyMinersChanged}
+          onRefetchMiners={refreshAfterAction}
           onRefreshMinersComplete={refreshVisibleRows}
           onWorkerNameUpdated={updateMinerWorkerName}
           onMergeMiners={mergeMiners}

@@ -13,13 +13,13 @@ const { mockSetActionBarVisible } = vi.hoisted(() => ({ mockSetActionBarVisible:
 vi.mock("@/protoFleet/store", () => ({
   useSetActionBarVisible: () => mockSetActionBarVisible,
 }));
-vi.mock("@/protoFleet/features/containers/TankActionsMenu", () => ({
+vi.mock("@/protoFleet/features/containers/MiningActionsMenu", () => ({
   default: ({
-    tanks,
+    items: tanks,
     onActionStart,
     onActionComplete,
   }: {
-    tanks: InventoryItem[];
+    items: InventoryItem[];
     onActionStart: () => void;
     onActionComplete: () => void;
   }) => (

@@ -199,6 +199,10 @@ func TestScopedGenerationCheckedByEveryUnaryDeviceEndpoint(t *testing.T) {
 			_, e := server.SetTankMining(t.Context(), &pb.SetTankMiningRequest{Ref: ref, Positions: []int32{1}, Mining: &desired})
 			return e
 		},
+		"SetModuleMining": func() error {
+			_, e := server.SetModuleMining(t.Context(), &pb.SetModuleMiningRequest{Ref: ref, Modules: []*pb.ModuleMiningTarget{{Tank: 1, Module: 1, ReportedId: "module-a"}}, Mining: &desired})
+			return e
+		},
 		"BatchStatus": func() error {
 			_, e := server.BatchStatus(t.Context(), &pb.BatchStatusRequest{Refs: []*pb.DeviceRef{ref}})
 			return e

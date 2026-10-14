@@ -530,6 +530,12 @@ func migrateTemplateDatabase(ctx context.Context, adminConfig *db.Config, name s
 		return fmt.Errorf("migrate template database: deadline passed and terminating the "+
 			"migration backend failed: %w", watchdogErr)
 	}
+	// Disable jobs before publishing so clones never start maintenance workers
+	// against test fixtures. Sealing below also evicts workers already running.
+	if err := disableScheduledMaintenance(ctx, conn); err != nil {
+		_ = conn.Close()
+		return err
+	}
 	if err := conn.Close(); err != nil {
 		return fmt.Errorf("close template connection: %w", err)
 	}
@@ -860,6 +866,8 @@ func templateNameFor(config *db.Config) string {
 // one that does not match.
 func migrationSetFingerprint(role string) string {
 	hash := sha256.New()
+	// Invalidate templates built before all background jobs were disabled.
+	_, _ = hash.Write([]byte("unscheduled-maintenance-v2\x00"))
 	_, _ = hash.Write([]byte(role))
 	_, _ = hash.Write([]byte{0})
 

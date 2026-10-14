@@ -2,6 +2,7 @@ package ct1
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -9,6 +10,32 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestMalformedBoardRetainsModuleIdentityConflict(t *testing.T) {
+	for _, health := range []string{`{"hashrate":"bad"}`, `{"hashrate":1e999}`} {
+		t.Run(health, func(t *testing.T) {
+			var wire MapResponse
+			data := fmt.Sprintf(`{"containerMap":{"tanks":[{"id":1,"modules":[{"id":1,"slots":[
+				{"occupied":true,"hashboard":{"macAddress":"a","moduleId":"module-a","health":{"timestamp":"2026-10-05T12:00:00Z","psuElectrical":{"inputPower":3600}}}},
+				{"occupied":true,"hashboard":{"macAddress":"b","moduleId":"replacement","health":%s}},
+				{"occupied":false}
+			]}]}]}}`, health)
+			require.NoError(t, json.Unmarshal([]byte(data), &wire))
+			slot := wire.ContainerMap.Tanks[0].Modules[0].Slots[1]
+			require.True(t, slot.invalid)
+			require.Equal(t, "replacement", slot.Hashboard.ModuleID)
+			got, err := snapshot(wire, time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC))
+			require.NoError(t, err)
+			module := got.Tanks[0].Modules[0]
+			require.Nil(t, module.Metrics.PowerW, "disputed hardware must not contribute measurements")
+			require.Empty(t, module.ReportedID)
+			require.False(t, module.IdentityConfirmed)
+			for _, board := range module.Hashboards {
+				require.Equal(t, sdk.HashboardIdentityConflict, board.UnavailableReason)
+			}
+		})
+	}
+}
 
 func TestHashboardObservationsPreserveSlotsAndEvidence(t *testing.T) {
 	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
@@ -151,6 +178,55 @@ func TestRejectedHashboardClaimsSurviveSnapshot(t *testing.T) {
 			require.Empty(t, first.Hashboards[0].MACAddress)
 			require.Nil(t, first.Metrics.HashrateHS)
 			require.Equal(t, "serial-a", transported.Tanks[0].Modules[1].Hashboards[0].Serial)
+		})
+	}
+}
+
+func TestModuleConfirmationRejectsWhitespaceAliasClaims(t *testing.T) {
+	for _, alias := range []string{"M1 ", "\u00a0M1"} {
+		t.Run(alias, func(t *testing.T) {
+			wire := MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{{ID: 1, Modules: []Module{
+				{ID: 1, Slots: []Slot{{Occupied: true, Hashboard: &Board{MACAddress: "a", ModuleID: "M1"}}, {}, {}}},
+				{ID: 2, Slots: []Slot{{Occupied: true, Hashboard: &Board{MACAddress: "b", ModuleID: alias}}, {}, {}}},
+			}}}}}
+			got, err := snapshot(wire, time.Now())
+			require.NoError(t, err)
+			for _, module := range got.Tanks[0].Modules {
+				require.False(t, module.IdentityConfirmed)
+				require.Empty(t, module.ReportedID)
+			}
+		})
+	}
+}
+
+func TestModuleConfirmationRejectsCrossKindSelectorCollisions(t *testing.T) {
+	const selectedMAC = "AA-BB-CC-DD-EE-01"
+	for _, tc := range []struct {
+		name, selectedSerial, neighborSerial string
+		emptyNeighbor, wantConflict          bool
+	}{
+		{"raw MAC alias", "selected", selectedMAC, false, true},
+		{"normalized MAC alias", "selected", "aa:bb:cc:dd:ee:01", false, true},
+		{"unoccupied claim", "selected", selectedMAC, true, true},
+		{"same board aliases", selectedMAC, "neighbor", false, false},
+		{"distinct aliases", "selected", "neighbor", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			wire := MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{{ID: 1, Modules: []Module{
+				{ID: 1, Slots: []Slot{{Occupied: true, Hashboard: &Board{MACAddress: selectedMAC, Serial: tc.selectedSerial, ModuleID: "module-a"}}, {}, {}}},
+				{ID: 2, Slots: []Slot{{Occupied: !tc.emptyNeighbor, Hashboard: &Board{MACAddress: "aa:bb:cc:dd:ee:02", Serial: tc.neighborSerial, ModuleID: "module-b"}}, {}, {}}},
+			}}}}}
+			got, err := snapshot(wire, time.Now())
+			require.NoError(t, err)
+			selected := got.Tanks[0].Modules[0]
+			require.Equal(t, !tc.wantConflict, selected.IdentityConfirmed)
+			if tc.wantConflict {
+				require.Equal(t, sdk.HashboardIdentityConflict, selected.Hashboards[0].UnavailableReason)
+				require.Equal(t, "unknown", selected.Hashboards[0].Occupancy)
+				require.Equal(t, []sdk.HashboardIdentityClaim{{MACAddress: "aa:bb:cc:dd:ee:01", Serial: tc.selectedSerial}}, selected.Hashboards[0].IdentityClaims)
+			} else {
+				require.Equal(t, "occupied", selected.Hashboards[0].Occupancy)
+			}
 		})
 	}
 }

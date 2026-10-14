@@ -4652,10 +4652,10 @@ func (q *retryingQuerier) HasPendingContainerControl(ctx context.Context, device
 	return result, err
 }
 
-func (q *retryingQuerier) HasPendingTankMining(ctx context.Context, deviceID int64) (bool, error) {
+func (q *retryingQuerier) HasPendingScopedMining(ctx context.Context, deviceID int64) (bool, error) {
 	var result bool
-	err := q.retrier.RetryQuery(ctx, "HasPendingTankMining", func() error {
-		callResult, callErr := q.next.HasPendingTankMining(ctx, deviceID)
+	err := q.retrier.RetryQuery(ctx, "HasPendingScopedMining", func() error {
+		callResult, callErr := q.next.HasPendingScopedMining(ctx, deviceID)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5982,6 +5982,18 @@ func (q *retryingQuerier) ListMinerStateSnapshots(ctx context.Context) ([]ListMi
 	var result []ListMinerStateSnapshotsRow
 	err := q.retrier.RetryQuery(ctx, "ListMinerStateSnapshots", func() error {
 		callResult, callErr := q.next.ListMinerStateSnapshots(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListModuleCommandTargets(ctx context.Context, arg ListModuleCommandTargetsParams) ([]ListModuleCommandTargetsRow, error) {
+	var result []ListModuleCommandTargetsRow
+	err := q.retrier.RetryQuery(ctx, "ListModuleCommandTargets", func() error {
+		callResult, callErr := q.next.ListModuleCommandTargets(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

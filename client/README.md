@@ -247,6 +247,21 @@ cooling section. Tank rows, cards, and the native tank page expose scoped mining
 start/stop through the tank actions menu. List selection keeps tank IDs separate
 from rack IDs; bulk tank actions apply only to the selected tanks.
 
+Module rows in the Miners list and the module history dialog expose Start mining
+and Stop mining. Module selections use stable Fleet module IDs and a separate
+Module actions menu; mixed miner/module selections keep their command paths
+separate. Confirmation names the selected modules. The server groups the exact
+selection by controller, rechecks current org/site permissions and module
+identity, and carries the expected identity through direct and Fleet Node
+dispatch. Fleet Node module commands require command protocol V5.
+
+The CT1 plugin checks live controller/module identity and sends only the verified
+board identifiers to the native StartMiningScoped/StopMiningScoped RPCs. Replacement, retired, stale,
+missing, or ambiguous modules fail without broadening the scope. Module and tank
+commands share a per-controller pending-command guard. Completion refreshes
+inventory; a partially applied or unknown controller result remains unconfirmed,
+while successful controllers retain their confirmed counts.
+
 Fleet resolves stable tank IDs to the current controller/site and queues one
 command per controller. Admission requires current topology, driver tank-mining
 support, and the requested mining permission at every selected tank’s site. A

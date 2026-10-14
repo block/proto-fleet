@@ -26,6 +26,9 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type executionTankController struct {
@@ -44,7 +47,7 @@ func (c *executionTankController) SetTankMining(ctx context.Context, r sdk.TankM
 	return c.err
 }
 
-func setupTankMiningExecution(t *testing.T) (*ExecutionService, *sql.DB, int64, string, tankMiningPayload) {
+func setupTankMiningExecution(t *testing.T) (*ExecutionService, *sql.DB, int64, string, scopedMiningPayload) {
 	t.Helper()
 	svc, conn, _, deviceID, identifier := setupPasswordCommandDevice(t, "proto", false)
 	const orgID int64 = 1
@@ -55,7 +58,7 @@ func setupTankMiningExecution(t *testing.T) (*ExecutionService, *sql.DB, int64, 
 	require.NoError(t, err)
 	var tank int64
 	require.NoError(t, conn.QueryRowContext(t.Context(), `INSERT INTO container_tank(device_id,position,first_seen_at,last_seen_at) VALUES($1,1,now(),now()) RETURNING id`, deviceID).Scan(&tank))
-	payload := tankMiningPayload{TankMiningRequest: sdk.TankMiningRequest{Positions: []int32{1}, Mining: new(false)}, TankIDs: []int64{tank}, OrgID: orgID}
+	payload := scopedMiningPayload{TankMiningRequest: sdk.TankMiningRequest{Positions: []int32{1}, Mining: new(false)}, TankIDs: []int64{tank}, OrgID: orgID}
 	return svc, conn, deviceID, identifier, payload
 }
 
@@ -225,6 +228,35 @@ func TestTankMiningExecutionDoesNotReplayPhysicalWrite(t *testing.T) {
 	require.ErrorContains(t, err, "tank mining outcome unconfirmed")
 	require.NotContains(t, sanitizedErrorInfo(err).String, controller.err.Error(), "controller diagnostics must not enter operator results")
 	require.Equal(t, 1, controller.writes, "even a retryable error must not replay a physical write")
+}
+
+func TestTankMiningExecutionRetriesExplicitDispatchRejections(t *testing.T) {
+	generationRejection, err := status.New(codes.FailedPrecondition, "backend generation changed").WithDetails(
+		&errdetails.ErrorInfo{Reason: "SDK_BACKEND_GENERATION_MISMATCH", Domain: "protofleet.sdk"},
+	)
+	require.NoError(t, err)
+	for _, rejection := range []struct {
+		name string
+		err  error
+	}{
+		{"unimplemented", devicewrite.NotDispatched(fleeterror.NewUnimplementedError("untrusted capability diagnostic"))},
+		{"invalid argument", devicewrite.NotDispatched(fleeterror.NewInvalidArgumentError("untrusted request diagnostic"))},
+		{"backend generation", generationRejection.Err()},
+	} {
+		t.Run(rejection.name, func(t *testing.T) {
+			svc, _, deviceID, _, payload := setupTankMiningExecution(t)
+			controller := &executionTankController{err: rejection.err}
+			err := svc.executeTankMining(t.Context(), deviceID, payload.OrgID, payload, controller)
+			var fleetErr fleeterror.FleetError
+			require.ErrorAs(t, err, &fleetErr)
+			require.Equal(t, connect.CodeInternal, fleetErr.GRPCCode, "a confirmed pre-dispatch rejection must remain retryable")
+			require.Equal(t, "internal: tank mining preparation failed; retry shortly", sanitizedErrorInfo(err).String)
+			require.Equal(t, 1, controller.writes, "the rejected call must not be replayed inside the binding transaction")
+			controller.err = nil
+			require.NoError(t, svc.executeTankMining(t.Context(), deviceID, payload.OrgID, payload, controller))
+			require.Equal(t, 2, controller.writes, "retry after the rejection clears may dispatch once")
+		})
+	}
 }
 
 func TestTankMiningExecutionRetriesDatabaseErrorsBeforeDispatch(t *testing.T) {

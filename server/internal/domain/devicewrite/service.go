@@ -409,7 +409,7 @@ func isOrderedWrite(kind commandtype.Type) bool {
 	case commandtype.StartMining, commandtype.StopMining, commandtype.SetCoolingMode,
 		commandtype.SetPowerTarget, commandtype.UpdateMiningPools, commandtype.UpdateMinerPassword,
 		commandtype.Curtail, commandtype.Uncurtail, commandtype.ApplyCurtailmentConfig,
-		commandtype.SetContainerControl, commandtype.SetTankMining:
+		commandtype.SetContainerControl, commandtype.SetTankMining, commandtype.SetModuleMining:
 		return true
 	case commandtype.DownloadLogs, commandtype.Reboot, commandtype.BlinkLED,
 		commandtype.FirmwareUpdate, commandtype.Unpair:

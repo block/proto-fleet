@@ -291,6 +291,8 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V3 = 3;
     // V4 adds explicitly scoped tank mining commands.
     COMMAND_PROTOCOL_VERSION_V4 = 4;
+    // V5 adds module mining with expected hardware identity.
+    COMMAND_PROTOCOL_VERSION_V5 = 5;
 }
 
 message ControlHello {
@@ -423,6 +425,7 @@ message MinerCommand {
         ApplyCurtailmentConfigAction apply_curtailment_config = 18;
         SetContainerControlAction set_container_control = 19;
         SetTankMiningAction set_tank_mining = 20;
+        SetModuleMiningAction set_module_mining = 21;
     }
 }
 
@@ -633,5 +636,15 @@ message SetContainerControlAction {
 
 message SetTankMiningAction {
   repeated int32 positions = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100, unique: true, items: {int32: {gt: 0}}}];
+  optional bool mining = 2 [(buf.validate.field).required = true];
+}
+
+message ModuleMiningTarget {
+  int32 tank = 1 [(buf.validate.field).int32.gt = 0];
+  int32 module = 2 [(buf.validate.field).int32.gt = 0];
+  string reported_id = 3 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+}
+message SetModuleMiningAction {
+  repeated ModuleMiningTarget modules = 1 [(buf.validate.field).repeated = {min_items: 1, max_items: 100}];
   optional bool mining = 2 [(buf.validate.field).required = true];
 }

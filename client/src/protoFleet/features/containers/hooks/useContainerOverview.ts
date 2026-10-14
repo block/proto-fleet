@@ -10,6 +10,7 @@ import {
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { useAuthErrors } from "@/protoFleet/store";
+import { useMountedCallback } from "@/shared/hooks/useMountedCallback";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 export interface ContainerOverviewData {
@@ -83,6 +84,7 @@ export function useContainerOverview(identifier: string) {
       }
     },
   });
+  const retry = useMountedCallback(() => setRevision((value) => value + 1));
   const current = result?.key === identifier ? result : undefined;
-  return { ...current, loading: !!identifier && !current, retry: () => setRevision((value) => value + 1) };
+  return { ...current, loading: !!identifier && !current, retry };
 }

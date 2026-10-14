@@ -65,7 +65,10 @@ type ContainerModule struct {
 	Metrics    *ContainerModuleMetrics `json:"metrics,omitempty"`
 	Position   int32                   `json:"position"`
 	ReportedID string                  `json:"reported_id,omitempty"`
-	State      ModuleState             `json:"state"`
+	// IdentityConfirmed permits controls; partial identity evidence may still
+	// identify measurements without confirming every board in the module.
+	IdentityConfirmed bool        `json:"identity_confirmed"`
+	State             ModuleState `json:"state"`
 	// ObservedAt is the source evidence time, not the collection time.
 	ObservedAt time.Time `json:"observed_at"`
 }

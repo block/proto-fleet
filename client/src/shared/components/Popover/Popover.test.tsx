@@ -2,6 +2,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import Popover, { PopoverProvider, usePopover } from ".";
+import Dialog from "@/shared/components/Dialog";
+import RowActionsMenu from "@/shared/components/RowActionsMenu";
 
 const setViewport = (width: number) => {
   document.body.style.setProperty("--phone-max-width", "631");
@@ -37,6 +39,20 @@ const OwnerManagedPopoverFixture = () => {
 };
 
 describe("Popover", () => {
+  it("places a dialog's portal menu above its overlay", () => {
+    setViewport(1280);
+    const action = vi.fn();
+    render(
+      <Dialog open title="Module history">
+        <RowActionsMenu testIdPrefix="history" actions={[{ label: "Start mining", onClick: action }]} />
+      </Dialog>,
+    );
+    fireEvent.click(screen.getByTestId("history-trigger"));
+    expect(screen.getByTestId("history-popover")).toHaveStyle({ zIndex: 70 });
+    fireEvent.click(screen.getByText("Start mining"));
+    expect(action).toHaveBeenCalledOnce();
+  });
+
   it("renders as a bottom sheet on phone viewports", () => {
     setViewport(390);
 

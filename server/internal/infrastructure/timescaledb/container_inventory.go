@@ -14,13 +14,14 @@ import (
 )
 
 type inventoryModule struct {
-	TankPosition     int32                      `json:"tank_position"`
-	Position         int32                      `json:"position"`
-	ReportedID       string                     `json:"reported_id"`
-	State            sdk.ModuleState            `json:"state"`
-	ObservedAt       *time.Time                 `json:"observed_at"`
-	Issues           *sdk.ContainerModuleIssues `json:"issues"`
-	IssuesObservedAt *time.Time                 `json:"issues_observed_at"`
+	TankPosition      int32                      `json:"tank_position"`
+	Position          int32                      `json:"position"`
+	ReportedID        string                     `json:"reported_id"`
+	IdentityConfirmed bool                       `json:"identity_confirmed"`
+	State             sdk.ModuleState            `json:"state"`
+	ObservedAt        *time.Time                 `json:"observed_at"`
+	Issues            *sdk.ContainerModuleIssues `json:"issues"`
+	IssuesObservedAt  *time.Time                 `json:"issues_observed_at"`
 }
 
 type moduleSample struct {
@@ -56,7 +57,8 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 		Position int32 `json:"position"`
 	}, 0, len(snapshot.Tanks))
 	seenTanks := map[int32]bool{}
-	for _, tank := range snapshot.Tanks {
+	for ti := range snapshot.Tanks {
+		tank := &snapshot.Tanks[ti]
 		if tank.Position <= 0 || seenTanks[tank.Position] {
 			return fmt.Errorf("invalid or duplicate tank selector")
 		}
@@ -65,7 +67,8 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 			Position int32 `json:"position"`
 		}{tank.Position})
 		seenModules := map[int32]bool{}
-		for _, module := range tank.Modules {
+		for mi := range tank.Modules {
+			module := &tank.Modules[mi]
 			if module.Position <= 0 || seenModules[module.Position] {
 				return fmt.Errorf("invalid or duplicate module selector")
 			}
@@ -110,9 +113,17 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 					issueTime = &v.ObservedAt
 				}
 			}
-			modules = append(modules, inventoryModule{tank.Position, module.Position, module.ReportedID, state, observed, module.Issues, issueTime})
+			// Normalize blank evidence once for inventory, retirement, and metrics.
+			// Preserve nonblank firmware IDs verbatim for command identity matching.
+			reportedID := module.ReportedID
+			if strings.TrimSpace(reportedID) == "" {
+				reportedID = ""
+				module.ReportedID = ""
+				module.IdentityConfirmed = false
+			}
+			modules = append(modules, inventoryModule{tank.Position, module.Position, reportedID, module.IdentityConfirmed && reportedID != "", state, observed, module.Issues, issueTime})
 			if m := module.Metrics; m != nil && !m.ObservedAt.IsZero() && !m.ObservedAt.After(snapshot.ObservedAt.Add(5*time.Second)) {
-				samples = append(samples, moduleSample{TankPosition: tank.Position, Position: module.Position, ReportedID: module.ReportedID, Time: m.ObservedAt, HashrateHS: m.HashrateHS, PowerW: m.PowerW, TemperatureC: m.TemperatureC, EfficiencyJH: m.EfficiencyJH, Coverage: m.Rollup})
+				samples = append(samples, moduleSample{TankPosition: tank.Position, Position: module.Position, ReportedID: reportedID, Time: m.ObservedAt, HashrateHS: m.HashrateHS, PowerW: m.PowerW, TemperatureC: m.TemperatureC, EfficiencyJH: m.EfficiencyJH, Coverage: m.Rollup})
 			}
 		}
 	}

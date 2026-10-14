@@ -204,6 +204,20 @@ describe("Fleet - Polling", () => {
     expect(useExportMinerListCsv).toHaveBeenLastCalledWith({ filter: undefined, enabled: false });
   });
 
+  it("allows action refreshes during loading but stops them after leaving Fleet", async () => {
+    const useFleetModule = await import("@/protoFleet/api/useFleet");
+    vi.mocked(useFleetModule.default).mockReturnValue(createFleetMock({ hasInitialLoadCompleted: false }));
+    const { unmount } = renderFleet();
+    const calls = mockMinerList.mock.calls as unknown as Array<[{ loading: boolean; onRefetchMiners: () => void }]>;
+    const props = calls[calls.length - 1][0];
+    expect(props.loading).toBe(true);
+    props.onRefetchMiners();
+    expect(mockNotifyMinersChanged).toHaveBeenCalledOnce();
+    unmount();
+    props.onRefetchMiners();
+    expect(mockNotifyMinersChanged).toHaveBeenCalledOnce();
+  });
+
   it("should setup polling interval after initial load completes", async () => {
     const useFleetModule = await import("@/protoFleet/api/useFleet");
 

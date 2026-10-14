@@ -168,7 +168,7 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		MacAddress:   target.GetMacAddress(),
 	}
 	// This action addresses the controller, never a derived module or a rig.
-	if mc.GetSetContainerControl() != nil || mc.GetSetTankMining() != nil {
+	if mc.GetSetContainerControl() != nil || mc.GetSetTankMining() != nil || mc.GetSetModuleMining() != nil {
 		deviceInfo.DeviceClass = sdk.DeviceClassContainer
 	}
 	result, err := driver.NewDevice(cmdCtx, handleID, deviceInfo, bundle)
@@ -364,6 +364,22 @@ func runMinerAction(ctx context.Context, client gatewayClient, commandID, firmwa
 			return nil, err
 		}
 		return nil, controller.SetTankMining(ctx, req)
+	case *pb.MinerCommand_SetModuleMining:
+		controller, ok := dev.(sdk.DeviceModuleMiner)
+		if !ok {
+			return nil, sdk.NewErrUnsupportedCapability(sdk.CapabilityModuleMining)
+		}
+		req := sdk.ModuleMiningRequest{Mining: a.SetModuleMining.Mining}
+		for _, m := range a.SetModuleMining.Modules {
+			if m == nil {
+				return nil, fmt.Errorf("missing module")
+			}
+			req.Modules = append(req.Modules, sdk.ModuleMiningTarget{Tank: m.Tank, Module: m.Module, ReportedID: m.ReportedId})
+		}
+		if err := req.Validate(); err != nil {
+			return nil, err
+		}
+		return nil, controller.SetModuleMining(ctx, req)
 	case *pb.MinerCommand_SetContainerControl:
 		controller, ok := dev.(sdk.DeviceContainerController)
 		if !ok {

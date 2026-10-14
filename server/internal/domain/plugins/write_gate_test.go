@@ -44,12 +44,15 @@ func (d *gatedSDKDevice) SetContainerControl(ctx context.Context, _ sdk.Containe
 func (d *gatedSDKDevice) SetTankMining(ctx context.Context, _ sdk.TankMiningRequest) error {
 	return d.write(ctx, commandtype.SetTankMining)
 }
+func (d *gatedSDKDevice) SetModuleMining(ctx context.Context, _ sdk.ModuleMiningRequest) error {
+	return d.write(ctx, commandtype.SetModuleMining)
+}
 
 func createGatedTestPluginMiner() (*PluginMiner, *gatedSDKDevice) {
 	_, base := createTestPluginMiner()
 	device := &gatedSDKDevice{mockSDKDevice: base}
 	miner := createTestPluginMinerWithDevice(device)
-	miner.caps = sdk.Capabilities{sdk.CapabilityCurtailFull: true, sdk.CapabilityTankMining: true}
+	miner.caps = sdk.Capabilities{sdk.CapabilityCurtailFull: true, sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true}
 	device.rebootFunc = func(ctx context.Context) error { return device.write(ctx, commandtype.Reboot) }
 	device.startMiningFunc = func(ctx context.Context) error { return device.write(ctx, commandtype.StartMining) }
 	device.stopMiningFunc = func(ctx context.Context) error { return device.write(ctx, commandtype.StopMining) }
@@ -87,6 +90,9 @@ func pluginPhysicalWriteCases(miner *PluginMiner) []pluginPhysicalWriteCase {
 		}},
 		{commandtype.SetTankMining, func(ctx context.Context) error {
 			return miner.SetTankMining(ctx, sdk.TankMiningRequest{Positions: []int32{1}, Mining: new(false)})
+		}},
+		{commandtype.SetModuleMining, func(ctx context.Context) error {
+			return miner.SetModuleMining(ctx, sdk.ModuleMiningRequest{Modules: []sdk.ModuleMiningTarget{{Tank: 1, Module: 1, ReportedID: "module-a"}}, Mining: new(false)})
 		}},
 		{commandtype.Reboot, miner.Reboot},
 		{commandtype.StartMining, miner.StartMining},

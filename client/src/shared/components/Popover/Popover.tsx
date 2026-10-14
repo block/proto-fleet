@@ -1,9 +1,11 @@
+import { useContext } from "react";
 import clsx from "clsx";
 import { createPortal } from "react-dom";
 
 import "./style.css";
 
 import { minimalMargin, popoverSizes } from "./constants";
+import { PopoverLayerContext } from "./PopoverLayerContext";
 import { usePopover } from "./usePopover";
 import { groupVariants } from "@/shared/components/ButtonGroup";
 import PopoverContent from "@/shared/components/Popover/PopoverContent";
@@ -90,6 +92,7 @@ const Popover = ({
 }: PopoverProps) => {
   const { triggerRef, renderMode: contextRenderMode } = usePopover();
   const { isPhone } = useWindowDimensions();
+  const zIndex = useContext(PopoverLayerContext);
   const canDismissPopover = typeof closePopover === "function";
   // Frozen popovers must be portal'd to body so they're positioned relative to the
   // viewport rather than the trigger element's absolute container (which moves with it).
@@ -152,11 +155,11 @@ const Popover = ({
     <div
       ref={popoverRef}
       className={clsx(
-        "z-50 rounded-3xl backdrop-blur-[7px]",
+        "rounded-3xl backdrop-blur-[7px]",
         renderMode === "portal-fixed" ? "fixed" : "absolute",
         popoverAnimation,
       )}
-      style={popoverStyle}
+      style={{ ...popoverStyle, zIndex }}
       data-testid={testId}
     >
       {/*

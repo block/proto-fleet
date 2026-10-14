@@ -27,7 +27,7 @@ import { useFleetStore } from "@/protoFleet/store";
 const { mockMinerListActionBar } = vi.hoisted(() => ({
   mockMinerListActionBar: vi.fn(
     ({
-      selectedMiners,
+      selectedKeys,
       selectionMode,
       totalCount,
       filtersActive,
@@ -35,14 +35,16 @@ const { mockMinerListActionBar } = vi.hoisted(() => ({
       onSelectAll,
       onSelectNone,
     }: {
-      selectedMiners: string[];
+      selectedKeys: string[];
       selectionMode: string;
       totalCount?: number;
       filtersActive?: boolean;
       selectionIncludesUnauthenticatedMiner?: boolean;
       onSelectAll?: () => void;
       onSelectNone?: () => void;
+      onRefetchMiners?: () => void;
     }) => {
+      const selectedMiners = selectedKeys.map((key) => (key.startsWith("miner:") ? key.slice("miner:".length) : key));
       if (selectionMode === "none" && selectedMiners.length === 0) {
         return null;
       }
@@ -244,7 +246,7 @@ describe("MinerList", () => {
     }));
   });
 
-  it("keeps modules in server order but selects only actual miners", () => {
+  it("keeps modules in server order and selects exact module and miner identities", () => {
     const miner = createMinerSnapshot("A miner");
     renderMinerList({
       onAddMiners: vi.fn(),
@@ -263,12 +265,245 @@ describe("MinerList", () => {
     });
     const body = screen.getByTestId("list-body");
     expect(body.textContent!.indexOf("Z module")).toBeLessThan(body.textContent!.indexOf("A miner"));
-    expect(body.querySelectorAll('input[type="checkbox"]:not(:disabled)')).toHaveLength(1);
-    expect(body.querySelectorAll('input[type="checkbox"]:disabled')).toHaveLength(1);
+    expect(body.querySelectorAll('input[type="checkbox"]:not(:disabled)')).toHaveLength(2);
+    expect(body.querySelectorAll('input[type="checkbox"]:disabled')).toHaveLength(0);
     fireEvent.click(body.querySelector('input[type="checkbox"]:not(:disabled)')!);
-    expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("A miner");
+    expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("module:1");
+    expect(screen.getByTestId("mock-miner-list-selected-miners")).not.toHaveTextContent("A miner");
     expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
     expect(screen.getByRole("button", { name: "Export miners CSV" })).toBeInTheDocument();
+  });
+
+  it.each([false, true])("removes vanished modules from the selection after refresh (mixed: %s)", (mixed) => {
+    const miner = createMinerSnapshot("miner-a");
+    const module = create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 1n }, name: "Module" });
+    const minerItem = create(InventoryItemSchema, {
+      ref: { kind: EntityKind.MINER, id: 2n },
+      deviceIdentifier: miner.deviceIdentifier,
+      details: { case: "miner", value: miner },
+    });
+    const props = {
+      onAddMiners: vi.fn(),
+      minerIds: mixed ? [miner.deviceIdentifier] : [],
+      miners: mixed ? { [miner.deviceIdentifier]: miner } : {},
+      errorsByDevice: {},
+      errorsLoaded: true,
+      getActiveBatches: mockGetActiveBatches,
+    };
+    const view = (includeModule: boolean) => (
+      <BrowserRouter>
+        <MinerList {...props} inventoryItems={[...(includeModule ? [module] : []), ...(mixed ? [minerItem] : [])]} />
+      </BrowserRouter>
+    );
+    const { rerender } = render(view(true));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select module:1" }));
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
+    expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent(mixed ? "2" : "1");
+
+    rerender(view(false));
+    if (mixed) {
+      expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
+      expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+        expect.objectContaining({ selectedKeys: ["miner:miner-a"], modules: [], selectionMode: "subset" }),
+        undefined,
+      );
+    } else {
+      expect(screen.queryByTestId("mock-miner-list-action-bar")).not.toBeInTheDocument();
+    }
+
+    rerender(view(true));
+    expect(screen.getByRole("checkbox", { name: "Select module:1" })).not.toBeChecked();
+  });
+
+  it("keeps a module and a miner with a module-like identifier independently selectable", () => {
+    const miner = createMinerSnapshot("module:1", PairingStatus.AUTHENTICATION_NEEDED);
+    const module = create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 1n }, name: "Module" });
+    const itemRef = vi.fn();
+    renderMinerList({
+      onAddMiners: vi.fn(),
+      minerIds: [miner.deviceIdentifier],
+      miners: { [miner.deviceIdentifier]: miner },
+      itemRef,
+      inventoryItems: [
+        module,
+        create(InventoryItemSchema, {
+          ref: { kind: EntityKind.MINER, id: 2n },
+          deviceIdentifier: miner.deviceIdentifier,
+          details: { case: "miner", value: miner },
+        }),
+      ],
+    });
+    const moduleCheckbox = screen.getByRole("checkbox", { name: "Select module:1" });
+    const minerCheckbox = screen.getByRole("checkbox", { name: "Select miner:module:1" });
+    expect(itemRef).toHaveBeenCalledWith("module:1", expect.any(HTMLTableRowElement));
+    expect(itemRef).not.toHaveBeenCalledWith("miner:module:1", expect.anything());
+
+    fireEvent.click(moduleCheckbox);
+    expect(moduleCheckbox).toBeChecked();
+    expect(minerCheckbox).not.toBeChecked();
+    expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        selectedKeys: ["module:1"],
+        modules: [module],
+        selectionIncludesUnauthenticatedMiner: false,
+      }),
+      undefined,
+    );
+
+    fireEvent.click(minerCheckbox);
+    expect(moduleCheckbox).toBeChecked();
+    expect(minerCheckbox).toBeChecked();
+    expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        selectedKeys: ["module:1", "miner:module:1"],
+        modules: [module],
+        selectionIncludesUnauthenticatedMiner: true,
+      }),
+      undefined,
+    );
+
+    fireEvent.click(moduleCheckbox);
+    expect(moduleCheckbox).not.toBeChecked();
+    expect(minerCheckbox).toBeChecked();
+    expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        selectedKeys: ["miner:module:1"],
+        modules: [],
+        selectionIncludesUnauthenticatedMiner: true,
+      }),
+      undefined,
+    );
+
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
+    expect(moduleCheckbox).toBeChecked();
+    expect(minerCheckbox).toBeChecked();
+    expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("2");
+  });
+
+  it.each([false, true])("keeps Select all page scoped when modules are present (mixed: %s)", (mixed) => {
+    const miner = createMinerSnapshot("miner-a");
+    const module = create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 1n }, name: "Module" });
+    renderMinerList({
+      onAddMiners: vi.fn(),
+      minerIds: mixed ? ["miner-a"] : [],
+      miners: mixed ? { "miner-a": miner } : {},
+      totalMiners: 200,
+      inventoryMinerCount: mixed ? 100 : 0,
+      inventoryItems: mixed
+        ? [
+            module,
+            create(InventoryItemSchema, {
+              ref: { kind: EntityKind.MINER, id: 2n },
+              deviceIdentifier: "miner-a",
+              details: { case: "miner", value: miner },
+            }),
+          ]
+        : [module],
+    });
+    fireEvent.click(screen.getByTestId("list-body").querySelector('input[type="checkbox"]')!);
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
+
+    expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
+    expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent(mixed ? "2" : "1");
+    expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent(
+      mixed ? "module:1,miner-a" : "module:1",
+    );
+    expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({ selectAllOnPage: true, selectionMode: "subset", modules: [module] }),
+      undefined,
+    );
+  });
+
+  it("preserves all-miner scope when polling introduces module rows", () => {
+    const miner = createMinerSnapshot("miner-a");
+    const minerItem = create(InventoryItemSchema, {
+      ref: { kind: EntityKind.MINER, id: 1n },
+      deviceIdentifier: "miner-a",
+      details: { case: "miner", value: miner },
+    });
+    const module = create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 2n }, name: "Module" });
+    const view = (withModule: boolean) => (
+      <BrowserRouter>
+        <MinerList
+          miners={{ "miner-a": miner }}
+          minerIds={["miner-a"]}
+          errorsByDevice={{}}
+          errorsLoaded
+          getActiveBatches={mockGetActiveBatches}
+          onAddMiners={vi.fn()}
+          totalMiners={withModule ? 101 : 100}
+          inventoryMinerCount={100}
+          inventoryItems={withModule ? [minerItem, module] : [minerItem]}
+        />
+      </BrowserRouter>
+    );
+    const { rerender } = render(view(false));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner:miner-a" }));
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
+    expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
+    rerender(view(true));
+    expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
+    expect(screen.getByRole("checkbox", { name: "Select module:2" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select module:2" })).toBeDisabled();
+    expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({ selectionMode: "all", selectAllOnPage: false, modules: [], totalCount: 100 }),
+      undefined,
+    );
+  });
+
+  it("keeps an action's refresh callback alive while the list body is loading", () => {
+    const refresh = vi.fn();
+    const miner = createMinerSnapshot("miner-a");
+    const view = (loading: boolean) => (
+      <BrowserRouter>
+        <MinerList
+          miners={{ "miner-a": miner }}
+          minerIds={["miner-a"]}
+          onAddMiners={vi.fn()}
+          totalMiners={1}
+          onRefetchMiners={refresh}
+          loading={loading}
+          errorsByDevice={{}}
+          errorsLoaded
+          getActiveBatches={mockGetActiveBatches}
+        />
+      </BrowserRouter>
+    );
+    const { rerender } = render(view(false));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner:miner-a" }));
+    const complete = mockMinerListActionBar.mock.lastCall![0].onRefetchMiners;
+    rerender(view(true));
+    complete?.();
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Select all page scoped when modules are only on other pages", () => {
+    const miner = createMinerSnapshot("miner-a");
+    renderMinerList({
+      onAddMiners: vi.fn(),
+      minerIds: ["miner-a"],
+      miners: { "miner-a": miner },
+      totalMiners: 200,
+      inventoryMinerCount: 100,
+      inventoryItems: [
+        create(InventoryItemSchema, {
+          ref: { kind: EntityKind.MINER, id: 1n },
+          deviceIdentifier: "miner-a",
+          details: { case: "miner", value: miner },
+        }),
+      ],
+    });
+    fireEvent.click(screen.getByTestId("list-body").querySelector('input[type="checkbox"]')!);
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
+
+    expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("subset");
+    expect(screen.getByTestId("mock-miner-list-selection-count")).toHaveTextContent("1");
+    expect(screen.getByTestId("mock-miner-list-selected-miners")).toHaveTextContent("miner-a");
+    expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({ selectAllOnPage: true, selectionMode: "subset", modules: [] }),
+      undefined,
+    );
   });
 
   it("expands a module by keyboard into three read-only slots and preserves expansion through refresh", async () => {
