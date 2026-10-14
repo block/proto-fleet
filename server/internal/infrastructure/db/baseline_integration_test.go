@@ -107,16 +107,6 @@ func baselinePublicFixtureSource(t *testing.T) fs.FS {
 	return sourceFiles
 }
 
-func baselinePublicFixture(t *testing.T, conn *sql.DB, version int) {
-	t.Helper()
-	if version < 0 {
-		t.Fatal("public fixture version must be nonnegative")
-	}
-	if err := migrateTestDBSourceTo(t.Context(), conn, "", baselinePublicFixtureSource(t), uint(version)); err != nil {
-		t.Fatal(err)
-	}
-}
-
 // newBaselinePublicFixture retries only empty mapped-public fixture setup.
 // Reconciliation and upgrades after seeding still run once and fail normally.
 func newBaselinePublicFixture(t *testing.T, version int) (*sql.DB, *Config) {
@@ -253,8 +243,7 @@ func TestBaselineReconciliationRefusesDirtyAndUnknown(t *testing.T) {
 
 func TestBaselineRefusesCompositeSchemaDrift(t *testing.T) {
 	requireBaselineDB(t)
-	conn, _ := newMigrationBridgeTestDB(t)
-	baselinePublicFixture(t, conn, 152)
+	conn, _ := newBaselinePublicFixture(t, 152)
 	if _, err := CheckBaseline(t.Context(), conn, "source", "public", 152); err != nil {
 		t.Fatal(err)
 	}
@@ -289,8 +278,7 @@ func TestBaselineRefusesCompositeSchemaDrift(t *testing.T) {
 
 func TestBaselineInterruptedReconciliationRollsBack(t *testing.T) {
 	requireBaselineDB(t)
-	conn, _ := newMigrationBridgeTestDB(t)
-	baselinePublicFixture(t, conn, 152)
+	conn, _ := newBaselinePublicFixture(t, 152)
 	// Block the event table after the shared ALTER has executed. Cancellation
 	// must roll back both that shared work and the untouched migration row.
 	blocker, err := conn.BeginTx(t.Context(), nil)
