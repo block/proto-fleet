@@ -42,6 +42,7 @@ const { mockMinerListActionBar } = vi.hoisted(() => ({
       selectionIncludesUnauthenticatedMiner?: boolean;
       onSelectAll?: () => void;
       onSelectNone?: () => void;
+      onRefetchMiners?: () => void;
     }) => {
       const selectedMiners = selectedKeys.map((key) => (key.startsWith("miner:") ? key.slice("miner:".length) : key));
       if (selectionMode === "none" && selectedMiners.length === 0) {
@@ -442,12 +443,39 @@ describe("MinerList", () => {
     expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
     rerender(view(true));
     expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
     expect(screen.getByRole("checkbox", { name: "Select module:2" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Select module:2" })).toBeDisabled();
     expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
       expect.objectContaining({ selectionMode: "all", selectAllOnPage: false, modules: [], totalCount: 100 }),
       undefined,
     );
+  });
+
+  it("keeps an action's refresh callback alive while the list body is loading", () => {
+    const refresh = vi.fn();
+    const miner = createMinerSnapshot("miner-a");
+    const view = (loading: boolean) => (
+      <BrowserRouter>
+        <MinerList
+          miners={{ "miner-a": miner }}
+          minerIds={["miner-a"]}
+          onAddMiners={vi.fn()}
+          totalMiners={1}
+          onRefetchMiners={refresh}
+          loading={loading}
+          errorsByDevice={{}}
+          errorsLoaded
+          getActiveBatches={mockGetActiveBatches}
+        />
+      </BrowserRouter>
+    );
+    const { rerender } = render(view(false));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner:miner-a" }));
+    const complete = mockMinerListActionBar.mock.lastCall![0].onRefetchMiners;
+    rerender(view(true));
+    complete?.();
+    expect(refresh).toHaveBeenCalledOnce();
   });
 
   it("keeps Select all page scoped when modules are only on other pages", () => {

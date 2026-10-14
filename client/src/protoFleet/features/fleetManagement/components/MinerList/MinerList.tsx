@@ -95,7 +95,6 @@ import type { ColConfig } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import ResponsiveActionGroup, { type ResponsiveActionButton } from "@/shared/components/ResponsiveActionGroup";
 import { Breakpoint } from "@/shared/constants/breakpoints";
-import { useMountedCallback } from "@/shared/hooks/useMountedCallback";
 import { classifySubnetLine, normalizeSubnetLine, validateSubnetLine } from "@/shared/utils/filterValidation";
 
 type MiningListItem = { selectionKey: MiningSelectionKey } & (
@@ -357,11 +356,10 @@ const ScopedMinerListBody = ({
   onRowClick,
   miners: minersProp,
   minerIds: minerIdsProp,
-  onRefetchMiners: refreshMiners,
+  onRefetchMiners,
   onWorkerNameUpdated,
   searchScopeKey,
 }: ScopedMinerListBodyProps) => {
-  const onRefetchMiners = useMountedCallback(refreshMiners);
   const [selectedKeys, setSelectedKeys] = useState<MiningSelectionKey[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
   const hasCT1PlacementFilter =
@@ -494,9 +492,13 @@ const ScopedMinerListBody = ({
   const handleSelectAllMiners = useCallback(() => {
     // Filter-based commands cannot express typed CT1 placement scopes.
     if (hasCT1PlacementFilter) return;
-    setSelectedKeys(currentPageSelectionKeys);
+    setSelectedKeys(
+      selectAllOnPage
+        ? currentPageSelectionKeys
+        : listItems.filter((item) => item.kind === "miner").map((item) => item.selectionKey),
+    );
     setSelectionMode(selectAllOnPage ? "subset" : "all");
-  }, [currentPageSelectionKeys, hasCT1PlacementFilter, selectAllOnPage]);
+  }, [currentPageSelectionKeys, hasCT1PlacementFilter, listItems, selectAllOnPage]);
 
   const handleSelectNoneMiners = useCallback(() => {
     setSelectedKeys([]);

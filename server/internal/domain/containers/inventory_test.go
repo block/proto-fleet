@@ -2,6 +2,7 @@ package containers_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -518,11 +519,15 @@ func TestMissingModuleIdentityOnlyClearsAcceptedEmptyObservations(t *testing.T) 
 			metrics.PowerW = &power
 			metrics.TemperatureC = &temp
 		}
-		snapshot := &sdk.ContainerSnapshot{ObservedAt: collected, TopologyComplete: true, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, ReportedID: identity, State: sdk.ModuleHashing, ObservedAt: collected, Metrics: metrics}}}}}
+		snapshot := &sdk.ContainerSnapshot{ObservedAt: collected, TopologyComplete: true, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, ReportedID: identity, IdentityConfirmed: true, State: sdk.ModuleHashing, ObservedAt: collected, Metrics: metrics}}}}}
 		if withRollups {
 			snapshot.Metrics = &sdk.ContainerRollup{}
 		}
 		require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: d.DeviceIdentifier, Timestamp: collected, Container: snapshot}))
+		if strings.TrimSpace(identity) == "" {
+			require.Empty(t, snapshot.Tanks[0].Modules[0].ReportedID)
+			require.False(t, snapshot.Tanks[0].Modules[0].IdentityConfirmed)
+		}
 	}
 	assertCurrent := func(empty bool, samples int) {
 		t.Helper()

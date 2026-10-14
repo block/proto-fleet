@@ -119,6 +119,7 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 			if strings.TrimSpace(reportedID) == "" {
 				reportedID = ""
 				module.ReportedID = ""
+				module.IdentityConfirmed = false
 			}
 			modules = append(modules, inventoryModule{tank.Position, module.Position, reportedID, module.IdentityConfirmed && reportedID != "", state, observed, module.Issues, issueTime})
 			if m := module.Metrics; m != nil && !m.ObservedAt.IsZero() && !m.ObservedAt.After(snapshot.ObservedAt.Add(5*time.Second)) {

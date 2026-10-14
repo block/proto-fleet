@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import MiningDialog from "./MiningDialog";
 import { containersClient } from "@/protoFleet/api/clients";
 import type { GetModuleMiningOptionsResponse } from "@/protoFleet/api/generated/containers/v1/containers_pb";
@@ -8,6 +8,7 @@ import { ChevronDown, Play, Power } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { variants } from "@/shared/components/Button";
 import RowActionsMenu from "@/shared/components/RowActionsMenu";
+import { useMountedCallback } from "@/shared/hooks/useMountedCallback";
 
 export default function MiningActionsMenu({
   items,
@@ -31,13 +32,7 @@ export default function MiningActionsMenu({
     error?: string;
   }>();
   const [mining, setMining] = useState<boolean>();
-  const mounted = useRef(false);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  const completeAction = useMountedCallback(onActionComplete);
   const key = items
     .map((item) => String(item.ref!.id))
     .sort()
@@ -124,9 +119,7 @@ export default function MiningActionsMenu({
             setMining(undefined);
             setResult(undefined);
           }}
-          onActionComplete={() => {
-            if (mounted.current) onActionComplete?.();
-          }}
+          onActionComplete={completeAction}
         />
       ) : null}
     </div>
