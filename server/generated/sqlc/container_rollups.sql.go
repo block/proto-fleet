@@ -375,6 +375,26 @@ func (q *Queries) StampContainerSample(ctx context.Context, arg StampContainerSa
 	return err
 }
 
+const stampHashboardTopology = `-- name: StampHashboardTopology :exec
+UPDATE hashboard_metrics m SET topology_version_id=$1::bigint
+FROM jsonb_to_recordset($3::jsonb) x(hashboard_id bigint,time timestamptz)
+WHERE m.hashboard_id=x.hashboard_id AND m.time=x.time
+ AND m.collected_at=$2::timestamptz
+`
+
+type StampHashboardTopologyParams struct {
+	VersionID   int64
+	CollectedAt time.Time
+	Samples     json.RawMessage
+}
+
+// Board health time can precede the poll. Stamp only samples inserted by this
+// collection, using their primary keys rather than scanning the retained history.
+func (q *Queries) StampHashboardTopology(ctx context.Context, arg StampHashboardTopologyParams) error {
+	_, err := q.exec(ctx, q.stampHashboardTopologyStmt, stampHashboardTopology, arg.VersionID, arg.CollectedAt, arg.Samples)
+	return err
+}
+
 const upsertContainerRollup = `-- name: UpsertContainerRollup :exec
 INSERT INTO container_latest_metrics(device_id,time,topology_observation_id,hashrate_hs,power_w,efficiency_jh,temperature_c,min_temperature_c,max_temperature_c,coverage,source_times)
 SELECT $1,$2::timestamptz,$3,x.hashrate_hs,x.power_w,x.efficiency_jh,x.temperature_c,x.min_temperature_c,x.max_temperature_c,$4::jsonb,COALESCE(NULLIF($4::jsonb->'source_times','null'::jsonb),'{}'::jsonb)

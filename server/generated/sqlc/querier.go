@@ -814,6 +814,9 @@ type Querier interface {
 	GetHAProfileDatabaseIdentity(ctx context.Context) (GetHAProfileDatabaseIdentityRow, error)
 	GetHashboardInstallations(ctx context.Context, arg GetHashboardInstallationsParams) ([]GetHashboardInstallationsRow, error)
 	GetHashboardMetricWatermarks(ctx context.Context, boardIds []int64) ([]GetHashboardMetricWatermarksRow, error)
+	// Resolve once per page; services bind the result to the cursor and pass that
+	// same value into the data query so crossing a cutoff mid-request cannot switch tiers.
+	GetHistoryResolution(ctx context.Context, arg GetHistoryResolutionParams) (int32, error)
 	GetHostedAccountAncestorGrant(ctx context.Context, arg GetHostedAccountAncestorGrantParams) (HostedAccountAncestorGrant, error)
 	GetHostedAccountInvitationByHash(ctx context.Context, tokenHash string) (GetHostedAccountInvitationByHashRow, error)
 	GetHostedAccountKeyAuthority(ctx context.Context, arg GetHostedAccountKeyAuthorityParams) (GetHostedAccountKeyAuthorityRow, error)
@@ -1397,6 +1400,8 @@ type Querier interface {
 	ListFleetNodesForOrganization(ctx context.Context, orgID int64) ([]ListFleetNodesForOrganizationRow, error)
 	// Tank labels only: deliberately avoid module, health, and telemetry joins.
 	ListFleetTankOptions(ctx context.Context, arg ListFleetTankOptionsParams) ([]ListFleetTankOptionsRow, error)
+	// Source-time history retains collection bounds separately. Keep installation
+	// and topology groups separate even when they share a bucket.
 	ListHashboardHistory(ctx context.Context, arg ListHashboardHistoryParams) ([]ListHashboardHistoryRow, error)
 	ListHashboardModules(ctx context.Context, deviceID int64) ([]ListHashboardModulesRow, error)
 	ListHostedAccountAncestorGrants(ctx context.Context, arg ListHostedAccountAncestorGrantsParams) ([]HostedAccountAncestorGrant, error)
@@ -2148,6 +2153,9 @@ type Querier interface {
 	SoftDeleteUser(ctx context.Context, id int64) error
 	SoftDeleteUserFromOrganization(ctx context.Context, arg SoftDeleteUserFromOrganizationParams) error
 	StampContainerSample(ctx context.Context, arg StampContainerSampleParams) error
+	// Board health time can precede the poll. Stamp only samples inserted by this
+	// collection, using their primary keys rather than scanning the retained history.
+	StampHashboardTopology(ctx context.Context, arg StampHashboardTopologyParams) error
 	// Reclaims rows for never-created rule UIDs left by ambiguous create failures (see CreateRule).
 	// The hour of slack protects in-flight creates, whose config row lands before the Grafana rule exists.
 	SweepAlertRuleConfigs(ctx context.Context, arg SweepAlertRuleConfigsParams) (int64, error)

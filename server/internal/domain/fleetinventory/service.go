@@ -30,6 +30,7 @@ type MinerReader interface {
 }
 
 type Store interface {
+	GetHistoryResolution(ctx context.Context, params sqlc.GetHistoryResolutionParams) (int32, error)
 	TankStore
 	HashboardStore
 	ListFleetInventoryOptions(ctx context.Context, params sqlc.ListFleetInventoryOptionsParams) (sqlc.ListFleetInventoryOptionsRow, error)
@@ -80,13 +81,14 @@ type Scope struct {
 }
 
 type pageCursor struct {
-	Fingerprint string    `json:"query"`
-	Kind        int32     `json:"kind"`
-	ID          int64     `json:"id"`
-	Number      *float64  `json:"number"`
-	Text        string    `json:"text"`
-	Time        time.Time `json:"time"`
-	CollectedAt time.Time `json:"collected_at"`
+	ResolutionSeconds *int32    `json:"resolution_seconds,omitempty"`
+	Fingerprint       string    `json:"query"`
+	Kind              int32     `json:"kind"`
+	ID                int64     `json:"id"`
+	Number            *float64  `json:"number"`
+	Text              string    `json:"text"`
+	Time              time.Time `json:"time"`
+	CollectedAt       time.Time `json:"collected_at"`
 }
 
 func fingerprint(orgID int64, request proto.Message, scopes []Scope) (string, error) {
@@ -282,9 +284,11 @@ func (s *Service) History(ctx context.Context, orgID int64, req *pb.ListModuleHi
 	if err != nil {
 		return nil, err
 	}
-	if req.PageToken != "" && (cursor.Time.Before(req.StartTime.AsTime()) || !cursor.Time.Before(req.EndTime.AsTime())) {
-		return nil, fleeterror.NewInvalidArgumentError("invalid history cursor")
+	resolution, err := s.historyPageResolution(ctx, req.PageToken, cursor, req.StartTime.AsTime(), req.EndTime.AsTime())
+	if err != nil {
+		return nil, err
 	}
+
 	size := req.PageSize
 	if size == 0 {
 		size = 50
@@ -293,14 +297,14 @@ func (s *Service) History(ctx context.Context, orgID int64, req *pb.ListModuleHi
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.store.ListContainerModuleHistory(ctx, sqlc.ListContainerModuleHistoryParams{ModuleID: req.ModuleId, OrgID: orgID, Authority: authority, StartTime: req.StartTime.AsTime(), EndTime: req.EndTime.AsTime(), PageLimit: size + 1, HasCursor: req.PageToken != "", AfterTime: cursor.Time, AfterCollectedAt: cursor.CollectedAt})
+	rows, err := s.store.ListContainerModuleHistory(ctx, sqlc.ListContainerModuleHistoryParams{ResolutionSeconds: resolution, ModuleID: req.ModuleId, OrgID: orgID, Authority: authority, StartTime: req.StartTime.AsTime(), EndTime: req.EndTime.AsTime(), PageLimit: size + 1, HasCursor: req.PageToken != "", AfterTime: cursor.Time, AfterCollectedAt: cursor.CollectedAt})
 	if err != nil {
 		return nil, err
 	}
 	out := &pb.ListModuleHistoryResponse{}
 	if len(rows) > int(size) {
 		rows = rows[:size]
-		out.NextPageToken, err = encodeCursor(pageCursor{Fingerprint: key, Time: rows[len(rows)-1].Time, CollectedAt: rows[len(rows)-1].CollectedAt})
+		out.NextPageToken, err = encodeCursor(pageCursor{Fingerprint: key, Time: rows[len(rows)-1].Time, CollectedAt: rows[len(rows)-1].CollectedAt, ResolutionSeconds: &resolution})
 		if err != nil {
 			return nil, err
 		}

@@ -276,7 +276,7 @@ message HashboardReading {
   string mining_state = 8;
   optional bool isolated = 9;
   google.protobuf.Timestamp observed_at = 10;
-  // Collection time of the health sample, identical in current and history RPCs.
+  // Collection time of the health sample, or first collection in a summary.
   // Slot observation time is HashboardSlot.observed_at.
   google.protobuf.Timestamp collected_at = 11;
   optional double hashrate_hs = 12;
@@ -290,6 +290,16 @@ message HashboardReading {
   // omit stale health. lastShutdownError is historical, not an active fault.
   google.protobuf.Struct health = 17;
   google.protobuf.Timestamp state_observed_at = 18;
+  // Zero for raw/current readings; 3600 or 86400 for historical averages.
+  // For summaries observed_at is the source-time bucket start. Diagnostics and
+  // instantaneous state are unavailable. Different placements/topologies remain
+  // separate entries even when their bucket starts are equal.
+  int32 resolution_seconds = 21;
+  optional int64 topology_version_id = 22;
+  // Number of source observations in a history entry. Per-metric valid counts
+  // may be smaller; null measurements are excluded from each metric's average.
+  int64 sample_count = 23;
+  google.protobuf.Timestamp last_collected_at = 24;
 }
 
 // Unknown boards and boards with no readable historical installation return

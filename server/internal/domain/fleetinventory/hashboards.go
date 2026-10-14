@@ -82,14 +82,16 @@ func (s *Service) HashboardHistory(ctx context.Context, orgID int64, req *pb.Lis
 	if err != nil {
 		return nil, err
 	}
-	if req.PageToken != "" && (cursor.Time.Before(req.StartTime.AsTime()) || !cursor.Time.Before(req.EndTime.AsTime())) {
-		return nil, fleeterror.NewInvalidArgumentError("invalid history cursor")
+	resolution, err := s.historyPageResolution(ctx, req.PageToken, cursor, req.StartTime.AsTime(), req.EndTime.AsTime())
+	if err != nil {
+		return nil, err
 	}
+
 	size := req.PageSize
 	if size == 0 {
 		size = 50
 	}
-	rows, err := s.store.ListHashboardHistory(ctx, sqlc.ListHashboardHistoryParams{HashboardID: req.HashboardId, OrgID: orgID, Authority: authority, StartTime: req.StartTime.AsTime(), EndTime: req.EndTime.AsTime(), PageLimit: size + 1, HasCursor: req.PageToken != "", AfterTime: cursor.Time, AfterCollectedAt: cursor.CollectedAt})
+	rows, err := s.store.ListHashboardHistory(ctx, sqlc.ListHashboardHistoryParams{ResolutionSeconds: resolution, HashboardID: req.HashboardId, OrgID: orgID, Authority: authority, StartTime: req.StartTime.AsTime(), EndTime: req.EndTime.AsTime(), PageLimit: size + 1, HasCursor: req.PageToken != "", AfterTime: cursor.Time, AfterCollectedAt: cursor.CollectedAt})
 	if err != nil {
 		return nil, err
 	}
@@ -97,13 +99,19 @@ func (s *Service) HashboardHistory(ctx context.Context, orgID int64, req *pb.Lis
 	if len(rows) > int(size) {
 		rows = rows[:size]
 		last := rows[len(rows)-1]
-		out.NextPageToken, err = encodeCursor(pageCursor{Fingerprint: key, Time: last.Time, CollectedAt: last.CollectedAt})
+		out.NextPageToken, err = encodeCursor(pageCursor{Fingerprint: key, Time: last.Time, CollectedAt: last.CollectedAt, ResolutionSeconds: &resolution})
 		if err != nil {
 			return nil, err
 		}
 	}
 	for _, r := range rows {
 		v := &pb.HashboardReading{HashboardId: r.HashboardID, InstallationId: r.InstallationID, ModuleId: r.ModuleID, Position: r.Position, State: r.State, MiningState: r.MiningState, ObservedAt: timestamppb.New(r.Time), CollectedAt: timestamppb.New(r.CollectedAt)}
+		v.ResolutionSeconds = r.ResolutionSeconds
+		v.SampleCount = r.SampleCount
+		v.LastCollectedAt = timestamppb.New(r.LastCollectedAt)
+		if r.TopologyVersionID.Valid {
+			v.TopologyVersionId = &r.TopologyVersionID.Int64
+		}
 		if r.StateInInstallation && r.StateObservedAt.Valid {
 			v.StateObservedAt = timestamppb.New(r.StateObservedAt.Time)
 		}

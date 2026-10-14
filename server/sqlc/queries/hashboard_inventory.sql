@@ -34,21 +34,47 @@ WITH modules AS (
 )
 SELECT COALESCE(jsonb_agg(to_jsonb(result) ORDER BY module_id),'[]'::jsonb)::jsonb AS modules FROM result;
 
+-- Source-time history retains collection bounds separately. Keep installation
+-- and topology groups separate even when they share a bucket.
 -- name: ListHashboardHistory :many
-SELECT mm.hashboard_id, mm.installation_id, mm.time, mm.collected_at,
+WITH settings AS (
+ SELECT seconds,
+  CASE WHEN seconds=0 THEN sqlc.arg('start_time')::timestamptz
+   ELSE to_timestamp(floor(extract(epoch FROM sqlc.arg('start_time')::timestamptz)/seconds)*seconds)
+  END AS start_time,
+  sqlc.arg('end_time')::timestamptz AS end_time
+ FROM (SELECT sqlc.arg('resolution_seconds')::int AS seconds) resolution
+), readings AS (
+ SELECT mm.hashboard_id,mm.installation_id,mm.time,mm.collected_at,
+ mm.state,mm.state_observed_at,mm.mining_state,mm.isolated,mm.hashrate_hs,mm.temperature_c,mm.power_w,mm.efficiency_jh,mm.hashrail_ok,mm.refclks_ok,mm.health,
+ 0::int AS resolution_seconds,mm.topology_version_id,1::bigint AS sample_count,mm.collected_at AS last_collected_at
+ FROM hashboard_metrics mm CROSS JOIN settings
+ WHERE settings.seconds=0 AND mm.hashboard_id=sqlc.arg('hashboard_id')
+ AND mm.time>=settings.start_time AND mm.time<settings.end_time
+ UNION ALL
+ SELECT mm.hashboard_id,mm.installation_id,mm.bucket,mm.first_collected_at,
+ 'unknown'::text,NULL::timestamptz,''::text,NULL::boolean,
+ (mm.hashrate_sum/NULLIF(mm.hashrate_count,0))::float8,(mm.temperature_sum/NULLIF(mm.temperature_count,0))::float8,
+ (mm.power_sum/NULLIF(mm.power_count,0))::float8,(mm.efficiency_sum/NULLIF(mm.efficiency_count,0))::float8,
+ NULL::boolean,NULL::boolean,NULL::jsonb,mm.resolution_seconds,mm.topology_version_id,mm.observations,mm.last_collected_at
+ FROM hashboard_metric_summaries mm CROSS JOIN settings
+ WHERE settings.seconds>0 AND mm.resolution_seconds=settings.seconds AND mm.hashboard_id=sqlc.arg('hashboard_id')
+ AND mm.bucket>=settings.start_time AND mm.bucket<settings.end_time
+)
+SELECT mm.hashboard_id, mm.installation_id, mm.time::timestamptz AS time, mm.collected_at::timestamptz AS collected_at,
  (CASE WHEN evidence.current_state THEN mm.state ELSE 'unknown' END)::text AS state,
  mm.state_observed_at, COALESCE(evidence.current_state,FALSE)::boolean AS state_in_installation,
- mm.mining_state, mm.isolated, mm.hashrate_hs, mm.temperature_c, mm.power_w, mm.efficiency_jh, mm.hashrail_ok, mm.refclks_ok, mm.health,
- i.module_id, i.position
-FROM hashboard_metrics mm JOIN hashboard h ON h.id=mm.hashboard_id
+ mm.mining_state, mm.isolated, mm.hashrate_hs, mm.temperature_c, mm.power_w, mm.efficiency_jh,
+ mm.hashrail_ok, mm.refclks_ok, mm.health,
+ i.module_id, i.position,mm.resolution_seconds,mm.topology_version_id,mm.sample_count,mm.last_collected_at
+FROM readings mm JOIN hashboard h ON h.id=mm.hashboard_id
 JOIN hashboard_installation i ON i.id=mm.installation_id
-CROSS JOIN LATERAL (SELECT mm.state_observed_at >= i.installed_at OR NOT EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id)) AS current_state) evidence
-WHERE h.id=sqlc.arg('hashboard_id') AND h.org_id=sqlc.arg('org_id')
+CROSS JOIN LATERAL (SELECT mm.resolution_seconds=0 AND (mm.state_observed_at >= i.installed_at OR NOT EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id))) AS current_state) evidence
+WHERE h.org_id=sqlc.arg('org_id')
  AND NOT EXISTS (
   SELECT 1 FROM jsonb_to_recordset(sqlc.arg('authority')::jsonb) AS a(org_wide boolean, sites bigint[])
   WHERE NOT (CASE WHEN a.org_wide THEN i.site_id IS NULL OR NOT (i.site_id=ANY(a.sites)) ELSE COALESCE(i.site_id=ANY(a.sites),FALSE) END)
  )
- AND mm.time >= sqlc.arg('start_time')::timestamptz AND mm.time < sqlc.arg('end_time')::timestamptz
  AND (NOT sqlc.arg('has_cursor')::boolean OR (mm.time,mm.collected_at) > (sqlc.arg('after_time')::timestamptz,sqlc.arg('after_collected_at')::timestamptz))
 ORDER BY mm.time, mm.collected_at LIMIT sqlc.arg('page_limit')::int;
 

@@ -92,34 +92,59 @@ func (q *Queries) GetModuleHashboards(ctx context.Context, arg GetModuleHashboar
 }
 
 const listHashboardHistory = `-- name: ListHashboardHistory :many
-SELECT mm.hashboard_id, mm.installation_id, mm.time, mm.collected_at,
+WITH settings AS (
+ SELECT seconds,
+  CASE WHEN seconds=0 THEN $7::timestamptz
+   ELSE to_timestamp(floor(extract(epoch FROM $7::timestamptz)/seconds)*seconds)
+  END AS start_time,
+  $8::timestamptz AS end_time
+ FROM (SELECT $9::int AS seconds) resolution
+), readings AS (
+ SELECT mm.hashboard_id,mm.installation_id,mm.time,mm.collected_at,
+ mm.state,mm.state_observed_at,mm.mining_state,mm.isolated,mm.hashrate_hs,mm.temperature_c,mm.power_w,mm.efficiency_jh,mm.hashrail_ok,mm.refclks_ok,mm.health,
+ 0::int AS resolution_seconds,mm.topology_version_id,1::bigint AS sample_count,mm.collected_at AS last_collected_at
+ FROM hashboard_metrics mm CROSS JOIN settings
+ WHERE settings.seconds=0 AND mm.hashboard_id=$10
+ AND mm.time>=settings.start_time AND mm.time<settings.end_time
+ UNION ALL
+ SELECT mm.hashboard_id,mm.installation_id,mm.bucket,mm.first_collected_at,
+ 'unknown'::text,NULL::timestamptz,''::text,NULL::boolean,
+ (mm.hashrate_sum/NULLIF(mm.hashrate_count,0))::float8,(mm.temperature_sum/NULLIF(mm.temperature_count,0))::float8,
+ (mm.power_sum/NULLIF(mm.power_count,0))::float8,(mm.efficiency_sum/NULLIF(mm.efficiency_count,0))::float8,
+ NULL::boolean,NULL::boolean,NULL::jsonb,mm.resolution_seconds,mm.topology_version_id,mm.observations,mm.last_collected_at
+ FROM hashboard_metric_summaries mm CROSS JOIN settings
+ WHERE settings.seconds>0 AND mm.resolution_seconds=settings.seconds AND mm.hashboard_id=$10
+ AND mm.bucket>=settings.start_time AND mm.bucket<settings.end_time
+)
+SELECT mm.hashboard_id, mm.installation_id, mm.time::timestamptz AS time, mm.collected_at::timestamptz AS collected_at,
  (CASE WHEN evidence.current_state THEN mm.state ELSE 'unknown' END)::text AS state,
  mm.state_observed_at, COALESCE(evidence.current_state,FALSE)::boolean AS state_in_installation,
- mm.mining_state, mm.isolated, mm.hashrate_hs, mm.temperature_c, mm.power_w, mm.efficiency_jh, mm.hashrail_ok, mm.refclks_ok, mm.health,
- i.module_id, i.position
-FROM hashboard_metrics mm JOIN hashboard h ON h.id=mm.hashboard_id
+ mm.mining_state, mm.isolated, mm.hashrate_hs, mm.temperature_c, mm.power_w, mm.efficiency_jh,
+ mm.hashrail_ok, mm.refclks_ok, mm.health,
+ i.module_id, i.position,mm.resolution_seconds,mm.topology_version_id,mm.sample_count,mm.last_collected_at
+FROM readings mm JOIN hashboard h ON h.id=mm.hashboard_id
 JOIN hashboard_installation i ON i.id=mm.installation_id
-CROSS JOIN LATERAL (SELECT mm.state_observed_at >= i.installed_at OR NOT EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id)) AS current_state) evidence
-WHERE h.id=$1 AND h.org_id=$2
+CROSS JOIN LATERAL (SELECT mm.resolution_seconds=0 AND (mm.state_observed_at >= i.installed_at OR NOT EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id))) AS current_state) evidence
+WHERE h.org_id=$1
  AND NOT EXISTS (
-  SELECT 1 FROM jsonb_to_recordset($3::jsonb) AS a(org_wide boolean, sites bigint[])
+  SELECT 1 FROM jsonb_to_recordset($2::jsonb) AS a(org_wide boolean, sites bigint[])
   WHERE NOT (CASE WHEN a.org_wide THEN i.site_id IS NULL OR NOT (i.site_id=ANY(a.sites)) ELSE COALESCE(i.site_id=ANY(a.sites),FALSE) END)
  )
- AND mm.time >= $4::timestamptz AND mm.time < $5::timestamptz
- AND (NOT $6::boolean OR (mm.time,mm.collected_at) > ($7::timestamptz,$8::timestamptz))
-ORDER BY mm.time, mm.collected_at LIMIT $9::int
+ AND (NOT $3::boolean OR (mm.time,mm.collected_at) > ($4::timestamptz,$5::timestamptz))
+ORDER BY mm.time, mm.collected_at LIMIT $6::int
 `
 
 type ListHashboardHistoryParams struct {
-	HashboardID      int64
-	OrgID            int64
-	Authority        json.RawMessage
-	StartTime        time.Time
-	EndTime          time.Time
-	HasCursor        bool
-	AfterTime        time.Time
-	AfterCollectedAt time.Time
-	PageLimit        int32
+	OrgID             int64
+	Authority         json.RawMessage
+	HasCursor         bool
+	AfterTime         time.Time
+	AfterCollectedAt  time.Time
+	PageLimit         int32
+	StartTime         time.Time
+	EndTime           time.Time
+	ResolutionSeconds int32
+	HashboardID       int64
 }
 
 type ListHashboardHistoryRow struct {
@@ -141,19 +166,26 @@ type ListHashboardHistoryRow struct {
 	Health              pqtype.NullRawMessage
 	ModuleID            int64
 	Position            int32
+	ResolutionSeconds   int32
+	TopologyVersionID   sql.NullInt64
+	SampleCount         int64
+	LastCollectedAt     time.Time
 }
 
+// Source-time history retains collection bounds separately. Keep installation
+// and topology groups separate even when they share a bucket.
 func (q *Queries) ListHashboardHistory(ctx context.Context, arg ListHashboardHistoryParams) ([]ListHashboardHistoryRow, error) {
 	rows, err := q.query(ctx, q.listHashboardHistoryStmt, listHashboardHistory,
-		arg.HashboardID,
 		arg.OrgID,
 		arg.Authority,
-		arg.StartTime,
-		arg.EndTime,
 		arg.HasCursor,
 		arg.AfterTime,
 		arg.AfterCollectedAt,
 		arg.PageLimit,
+		arg.StartTime,
+		arg.EndTime,
+		arg.ResolutionSeconds,
+		arg.HashboardID,
 	)
 	if err != nil {
 		return nil, err
@@ -181,6 +213,10 @@ func (q *Queries) ListHashboardHistory(ctx context.Context, arg ListHashboardHis
 			&i.Health,
 			&i.ModuleID,
 			&i.Position,
+			&i.ResolutionSeconds,
+			&i.TopologyVersionID,
+			&i.SampleCount,
+			&i.LastCollectedAt,
 		); err != nil {
 			return nil, err
 		}

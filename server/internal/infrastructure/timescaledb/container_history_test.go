@@ -32,7 +32,9 @@ func TestStoredContainerRollupsMigrationRollback(t *testing.T) {
 	r := newContainerRollupRig(t)
 	r.store(t, r.snapshot(0, false, 100e12, 200e12))
 	// Exercise the destructive rollback only in this disposable test database.
-	for _, migrationName := range []string{"001016_internal_ct1_metric_summaries.down", "001015_internal_ct1_poll_rollups.down", "001015_internal_ct1_poll_rollups.up", "001016_internal_ct1_metric_summaries.up"} {
+	_, err := r.db.ExecContext(t.Context(), "TRUNCATE hashboard_metrics")
+	require.NoError(t, err)
+	for _, migrationName := range []string{"001022_internal_topology_compaction.down", "001021_internal_hashboard_metric_summaries.down", "001016_internal_ct1_metric_summaries.down", "001015_internal_ct1_poll_rollups.down", "001015_internal_ct1_poll_rollups.up", "001016_internal_ct1_metric_summaries.up", "001021_internal_hashboard_metric_summaries.up", "001022_internal_topology_compaction.up"} {
 		migration, err := os.ReadFile("../../../migrations/current/" + migrationName + ".sql")
 		require.NoError(t, err)
 		_, err = r.db.ExecContext(t.Context(), string(migration))

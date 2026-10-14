@@ -57,8 +57,10 @@ complete-topology disappearance resolves it.
 
 `hashboard_slot` tracks the current occupancy and freshness separately from
 hardware identity. `hashboard_latest_metrics` supplies current readings;
-`hashboard_metrics` retains source-time samples with collection times to order
-repeated evidence. Retried identical snapshots do not add samples. Metadata is
+`hashboard_metrics` retains ten days of source-time samples with collection times to order
+repeated evidence. Hourly summaries retain three months and daily summaries three
+years, grouped by board, installation, and topology version. See
+[polling retention and cleanup](ct1-polling-metrics.md#semantics-and-retention). Retried identical snapshots do not add samples. Metadata is
 the latest inventory evidence for each installation, not a metadata change log.
 
 ## API and authorization
@@ -70,11 +72,18 @@ readable results in the batch remain available. Board readings
 include durable board and installation IDs, source and collection timestamps,
 typed measurements, and complete metadata/health objects. Stale slots are
 unavailable. `ListHashboardHistory` pages a board's samples over a requested
-source-time range; cursors are bound to the request, organization, and scope.
+source-time range; cursors are bound to the request, organization, scope, and
+source resolution. If aging changes the source tier between pages, continuation
+returns FailedPrecondition with a request to restart pagination. Tokens issued
+without a resolution also require a restart. The service resolves the tier once
+per request and uses it for both cursor validation and fetching rows.
 History access requires a readable current or closed installation, independent
 of the requested time range. Unknown/inaccessible boards both return NotFound;
 a readable board without samples in the range returns an empty successful page.
-`HashboardReading.collected_at` always belongs to the health sample; the slot's
+`HashboardReading.collected_at` belongs to the health sample for raw readings
+and the first contributing collection for summaries; `last_collected_at` records
+the last contributing collection. Summaries expose resolution and sample count,
+but no instantaneous diagnostic state; the slot's
 own latest observation time is `HashboardSlot.observed_at`.
 
 Both methods use the existing container/module read permissions. Historical

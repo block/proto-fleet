@@ -111,7 +111,7 @@ Container charts select only semantics 2, bypassing old hourly/daily aggregates
 that mix definitions. Old rows remain stored under their original meanings;
 module PSU history never becomes PDU tank history.
 
-Container, tank, and module measurements use the miner retention tiers:
+Container, tank, module, and hashboard measurements use the miner retention tiers:
 
 | Tier | Resolution | Retention |
 | --- | --- | --- |
@@ -137,7 +137,12 @@ include whole source buckets intersecting the request, including the current
 incomplete bucket; boundary averages may include samples outside the exact
 request timestamps. Raw reads preserve exact request bounds. Module history keeps
 individual raw observations for recent short windows and returns bucket averages
-for older or longer windows, with the existing time-based pagination.
+for older or longer windows, with time-based pagination. Module and hashboard
+history cursors also record the source resolution. Crossing a tier boundary between
+pages returns FailedPrecondition and requires restarting pagination, including when
+the new bucket would fall before the cursor. Tokens without a recorded resolution
+also require a restart; continuing against a potentially expired tier is unsafe.
+Each request resolves its tier once and uses that value for validation and fetching.
 Real-time aggregates include the latest raw tail while scheduled materialization
 catches up. The existing maximum API request span remains 366 days; older years
 can be queried in separate windows.
@@ -152,19 +157,107 @@ investigation. Hourly refresh covers the last day every thirty minutes; daily
 refresh covers the last seven days every six hours. Both refresh windows stay
 inside raw retention so normal refreshes do not erase older summaries. This
 backfill uses Fleet's existing rows; it does not fetch firmware history or
-recover samples already deleted.
+recover samples already deleted. Like existing parent summaries, scheduled refresh
+assumes live polling. Ingestion has no lower age fence: historical rows inserted
+after bootstrap outside the hourly one-day/daily seven-day refresh windows can
+expire without materialization. Any manual historical backfill must pause raw
+retention and explicitly refresh its affected ranges before resuming retention.
+Do not refill a source bucket whose raw data was already deleted: refreshing it
+would replace its existing summary with only the newly inserted subset. Historical
+catch-up requires a separate ingestion/materialization design; it is not enabled
+or made safe by this compaction change.
 
-Board history keeps its existing **30-day** retention. Latest rows are retained
-but readings expire after two minutes.
+Migration 1021 adds hashboard hourly/daily aggregates and follows the same
+bootstrap sequence before changing board raw retention from thirty to ten days.
+Board groups include physical board ID, installation ID, and nullable topology
+version. Unknown legacy topology stays NULL and its measurements still summarize.
+Migration 1021 backfills the retained raw board table in its transaction; 1022
+builds reference indexes across retained chunks. Rehearse their duration and lock
+footprint on a recent database copy before production rollout.
+Source-time buckets retain first/last collection timestamps separately; parent
+summaries use collection-time buckets. Board sums, valid counts, minima, and maxima
+preserve measured zero and omit non-finite or absent inputs. Saved efficiency is
+averaged with its own valid count. These statistics do not retain exact poll-level
+cross-board correlations for future PSU residual attribution.
 
-Tank history has daily chunks and a `(tank_id,time)` unique index. Topology
-versions and observations are retained indefinitely for provenance, including
-past placements, rather than deleting mappings still referenced by telemetry.
-An observation is one small row per accepted poll; full topology is stored only
-on change. Review this retention with actual fleet growth before introducing a
-reference-aware pruning policy. Compressed `device_metrics` cannot acquire the
-new foreign key in place: its observation reference is written in the same
-transaction and topology is retained. New tank/latest tables enforce FKs.
+Board history uses the same resolution selection as module history. Responses
+identify resolution (zero for raw), topology version, sample count, and collection
+bounds; `observed_at` is the source bucket start for summaries. Summary diagnostics
+and instantaneous state are unavailable. Groups remain separate when topology or
+installation changes within a bucket. Latest readings still expire after two
+minutes, independently of durable latest rows.
+
+## Topology compaction
+
+A version is an immutable container layout. An installation is one board's
+placement episode; the same installation can participate in several whole-container
+versions. Both remain retained. Raw container/tank records reference a per-poll
+observation and its version; raw module and board records reference the version
+directly. Board records additionally reference their physical board and installation.
+All summary tiers retain version IDs, never a representative per-period receipt.
+A change inside an hour/day creates separate groups in that bucket.
+
+Migration 1022 registers cleanup **disabled by default**. Once enabled it compacts
+observations older than ten days into the first observation plus
+`last_confirmed_at`. Only consecutive observations of the same version and
+completeness join. A gap greater than 120 seconds starts a new span; A–B–A also
+stays three spans. The fixed gap policy is independent of display freshness and
+cannot retroactively recover deleted timestamps. Recent observations stay exact.
+A span represents sampled confirmations, not proof of uninterrupted physical state.
+
+Cleanup retains any redundant observation still referenced by raw container/tank
+or latest-value records. Container raw references are logical because compressed
+`device_metrics` has no observation FK. Ingestion stamps them at the observation's
+collection time for the same controller; cleanup uses that invariant for chunk and
+compressed-segment pruning. Tank/latest FKs have supporting indexes. Pinned
+interiors enter a separate retry queue and do not stall the forward cursor or split
+the span. Due retries keep a controller eligible for another bounded turn even
+when forward scanning has caught up; retries deferred into the future do not.
+Latest references can pin an observation indefinitely.
+
+Each run processes one controller, at most `batch_size` new observations plus
+`batch_size` due retries (default 500, maximum 10,000). A nonblocking organization
+lock serializes reference checks and deletion with ingestion. Expected lock
+contention defers cleanup without incrementing the failure counter. Progress, span
+updates, and deletes commit atomically. A separate committed one-minute scheduling
+lease survives cancellation so a slow controller cannot monopolize subsequent
+runs. The job runs every ten seconds with a two-second maximum runtime. Do not wrap
+`CALL run_job(...)` or the job procedure in a client transaction; its scheduling
+lease requires a top-level CALL. Direct `compact_container_topology(...)` calls are
+atomic but do not have the scheduler's runtime limit.
+
+Inspect before enabling (replace `:device_id` with a controller database ID):
+
+```sql
+SELECT * FROM container_topology_candidates(:device_id, now()-INTERVAL '10 days', 500);
+SELECT * FROM container_topology_compaction_state ORDER BY next_run_at;
+SELECT count(*) FROM container_topology_compaction_pending;
+SELECT job_id, config FROM timescaledb_information.jobs
+WHERE proc_name='compact_container_topology_job';
+```
+
+The candidate report is read-only and uses the same span classifier as deletion.
+It identifies redundant candidates, not a promise they are unreferenced; inspect
+`container_topology_references(ARRAY[...])` for their current pins. To enable after
+reviewing a representative dry run and runtime:
+
+```sql
+SELECT alter_job(job_id, config=>'{"enabled":true,"batch_size":500}'::jsonb)
+FROM timescaledb_information.jobs WHERE proc_name='compact_container_topology_job';
+```
+
+Set `enabled` false to stop future work. Track state-table examined/deleted totals,
+last duration/error, pending depth, and Timescale job statistics. Worker termination
+may only appear in Timescale job statistics; the committed scheduling lease remains.
+Reduce the configured batch size if runs hit the runtime limit. No version or
+installation deletion is included. Allocation authorization, subset rollups, and
+shared PSU attribution remain future work.
+
+Prefer disabling jobs or rolling back the application while keeping the schema.
+Migration 1021 refuses downgrade with retained board summaries; 1022 refuses it
+once confirmation spans exist. Their checks lock evidence tables through the
+migration transaction. Stop application and scheduled writers before a coordinated
+schema rollback; do not delete evidence to make the guards pass.
 
 ## Local validation and cost
 

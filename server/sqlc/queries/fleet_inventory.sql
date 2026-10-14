@@ -3,11 +3,16 @@ SELECT d.org_id, d.site_id FROM container_module m
 JOIN container_tank t ON t.id = m.tank_id JOIN device d ON d.id = t.device_id
 WHERE m.id = sqlc.arg('module_id') AND d.org_id = sqlc.arg('org_id') AND d.deleted_at IS NULL;
 
+-- Resolve once per page; services bind the result to the cursor and pass that
+-- same value into the data query so crossing a cutoff mid-request cannot switch tiers.
+-- name: GetHistoryResolution :one
+SELECT container_history_resolution(sqlc.arg('start_time')::timestamptz,sqlc.arg('end_time')::timestamptz)::int AS resolution_seconds;
+
 -- Raw reads retain the original nullable fields; older/longer windows return
 -- source-bucket averages, with authorization before combining topology versions.
 -- name: ListContainerModuleHistory :many
 WITH resolution AS (
- SELECT container_history_resolution(sqlc.arg('start_time')::timestamptz,sqlc.arg('end_time')::timestamptz) AS seconds
+ SELECT sqlc.arg('resolution_seconds')::int AS seconds
 ), readable AS (
  SELECT mm.* FROM container_equipment_history mm
  JOIN container_module m ON m.id=mm.module_id

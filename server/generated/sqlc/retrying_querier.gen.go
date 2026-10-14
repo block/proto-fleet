@@ -3470,6 +3470,18 @@ func (q *retryingQuerier) GetHashboardMetricWatermarks(ctx context.Context, boar
 	return result, err
 }
 
+func (q *retryingQuerier) GetHistoryResolution(ctx context.Context, arg GetHistoryResolutionParams) (int32, error) {
+	var result int32
+	err := q.retrier.RetryQuery(ctx, "GetHistoryResolution", func() error {
+		callResult, callErr := q.next.GetHistoryResolution(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetHostedAccountAncestorGrant(ctx context.Context, arg GetHostedAccountAncestorGrantParams) (HostedAccountAncestorGrant, error) {
 	var result HostedAccountAncestorGrant
 	err := q.retrier.RetryQuery(ctx, "GetHostedAccountAncestorGrant", func() error {
@@ -8417,6 +8429,12 @@ func (q *retryingQuerier) SoftDeleteUserFromOrganization(ctx context.Context, ar
 func (q *retryingQuerier) StampContainerSample(ctx context.Context, arg StampContainerSampleParams) error {
 	return q.retrier.RetryQuery(ctx, "StampContainerSample", func() error {
 		return q.next.StampContainerSample(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) StampHashboardTopology(ctx context.Context, arg StampHashboardTopologyParams) error {
+	return q.retrier.RetryQuery(ctx, "StampHashboardTopology", func() error {
+		return q.next.StampHashboardTopology(ctx, arg)
 	})
 }
 

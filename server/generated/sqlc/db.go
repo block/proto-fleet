@@ -954,6 +954,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getHashboardMetricWatermarksStmt, err = db.PrepareContext(ctx, getHashboardMetricWatermarks); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHashboardMetricWatermarks: %w", err)
 	}
+	if q.getHistoryResolutionStmt, err = db.PrepareContext(ctx, getHistoryResolution); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHistoryResolution: %w", err)
+	}
 	if q.getHostedAccountAncestorGrantStmt, err = db.PrepareContext(ctx, getHostedAccountAncestorGrant); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHostedAccountAncestorGrant: %w", err)
 	}
@@ -2318,6 +2321,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.stampContainerSampleStmt, err = db.PrepareContext(ctx, stampContainerSample); err != nil {
 		return nil, fmt.Errorf("error preparing query StampContainerSample: %w", err)
+	}
+	if q.stampHashboardTopologyStmt, err = db.PrepareContext(ctx, stampHashboardTopology); err != nil {
+		return nil, fmt.Errorf("error preparing query StampHashboardTopology: %w", err)
 	}
 	if q.sweepAlertRuleConfigsStmt, err = db.PrepareContext(ctx, sweepAlertRuleConfigs); err != nil {
 		return nil, fmt.Errorf("error preparing query SweepAlertRuleConfigs: %w", err)
@@ -4148,6 +4154,11 @@ func (q *Queries) Close() error {
 	if q.getHashboardMetricWatermarksStmt != nil {
 		if cerr := q.getHashboardMetricWatermarksStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getHashboardMetricWatermarksStmt: %w", cerr)
+		}
+	}
+	if q.getHistoryResolutionStmt != nil {
+		if cerr := q.getHistoryResolutionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHistoryResolutionStmt: %w", cerr)
 		}
 	}
 	if q.getHostedAccountAncestorGrantStmt != nil {
@@ -6425,6 +6436,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing stampContainerSampleStmt: %w", cerr)
 		}
 	}
+	if q.stampHashboardTopologyStmt != nil {
+		if cerr := q.stampHashboardTopologyStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing stampHashboardTopologyStmt: %w", cerr)
+		}
+	}
 	if q.sweepAlertRuleConfigsStmt != nil {
 		if cerr := q.sweepAlertRuleConfigsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing sweepAlertRuleConfigsStmt: %w", cerr)
@@ -7234,6 +7250,7 @@ type Queries struct {
 	getHAProfileDatabaseIdentityStmt                             *sql.Stmt
 	getHashboardInstallationsStmt                                *sql.Stmt
 	getHashboardMetricWatermarksStmt                             *sql.Stmt
+	getHistoryResolutionStmt                                     *sql.Stmt
 	getHostedAccountAncestorGrantStmt                            *sql.Stmt
 	getHostedAccountInvitationByHashStmt                         *sql.Stmt
 	getHostedAccountKeyAuthorityStmt                             *sql.Stmt
@@ -7689,6 +7706,7 @@ type Queries struct {
 	softDeleteUserStmt                                           *sql.Stmt
 	softDeleteUserFromOrganizationStmt                           *sql.Stmt
 	stampContainerSampleStmt                                     *sql.Stmt
+	stampHashboardTopologyStmt                                   *sql.Stmt
 	sweepAlertRuleConfigsStmt                                    *sql.Stmt
 	sweepCurtailmentTargetsToReleasedStmt                        *sql.Stmt
 	sweepCurtailmentTargetsToRestoreFailedStmt                   *sql.Stmt
@@ -8097,6 +8115,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getHAProfileDatabaseIdentityStmt:                             q.getHAProfileDatabaseIdentityStmt,
 		getHashboardInstallationsStmt:                                q.getHashboardInstallationsStmt,
 		getHashboardMetricWatermarksStmt:                             q.getHashboardMetricWatermarksStmt,
+		getHistoryResolutionStmt:                                     q.getHistoryResolutionStmt,
 		getHostedAccountAncestorGrantStmt:                            q.getHostedAccountAncestorGrantStmt,
 		getHostedAccountInvitationByHashStmt:                         q.getHostedAccountInvitationByHashStmt,
 		getHostedAccountKeyAuthorityStmt:                             q.getHostedAccountKeyAuthorityStmt,
@@ -8552,6 +8571,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		softDeleteUserStmt:                                           q.softDeleteUserStmt,
 		softDeleteUserFromOrganizationStmt:                           q.softDeleteUserFromOrganizationStmt,
 		stampContainerSampleStmt:                                     q.stampContainerSampleStmt,
+		stampHashboardTopologyStmt:                                   q.stampHashboardTopologyStmt,
 		sweepAlertRuleConfigsStmt:                                    q.sweepAlertRuleConfigsStmt,
 		sweepCurtailmentTargetsToReleasedStmt:                        q.sweepCurtailmentTargetsToReleasedStmt,
 		sweepCurtailmentTargetsToRestoreFailedStmt:                   q.sweepCurtailmentTargetsToRestoreFailedStmt,

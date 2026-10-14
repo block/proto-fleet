@@ -853,12 +853,32 @@ type ContainerTankMetricsHourly struct {
 	EfficiencyComplete   bool
 }
 
+type ContainerTopologyCompactionPending struct {
+	ObservationID int64
+	DeviceID      int64
+	NextCheckAt   time.Time
+}
+
+type ContainerTopologyCompactionState struct {
+	DeviceID       int64
+	ScannedThrough sql.NullTime
+	AnchorID       sql.NullInt64
+	NextRunAt      time.Time
+	LastRunAt      sql.NullTime
+	LastDurationMs sql.NullFloat64
+	Examined       int64
+	Deleted        int64
+	Failures       int64
+	LastError      sql.NullString
+}
+
 type ContainerTopologyObservation struct {
-	ID          int64
-	DeviceID    int64
-	VersionID   int64
-	CollectedAt time.Time
-	Complete    bool
+	ID              int64
+	DeviceID        int64
+	VersionID       int64
+	CollectedAt     time.Time
+	Complete        bool
+	LastConfirmedAt sql.NullTime
 }
 
 type ContainerTopologyVersion struct {
@@ -1681,21 +1701,101 @@ type HashboardLatestMetric struct {
 }
 
 type HashboardMetric struct {
-	HashboardID     int64
-	InstallationID  int64
-	Time            time.Time
-	CollectedAt     time.Time
-	State           string
-	StateObservedAt sql.NullTime
-	MiningState     string
-	Isolated        sql.NullBool
-	HashrateHs      sql.NullFloat64
-	TemperatureC    sql.NullFloat64
-	HashrailOk      sql.NullBool
-	RefclksOk       sql.NullBool
-	Health          pqtype.NullRawMessage
-	PowerW          sql.NullFloat64
-	EfficiencyJh    sql.NullFloat64
+	HashboardID       int64
+	InstallationID    int64
+	Time              time.Time
+	CollectedAt       time.Time
+	State             string
+	StateObservedAt   sql.NullTime
+	MiningState       string
+	Isolated          sql.NullBool
+	HashrateHs        sql.NullFloat64
+	TemperatureC      sql.NullFloat64
+	HashrailOk        sql.NullBool
+	RefclksOk         sql.NullBool
+	Health            pqtype.NullRawMessage
+	PowerW            sql.NullFloat64
+	EfficiencyJh      sql.NullFloat64
+	TopologyVersionID sql.NullInt64
+}
+
+type HashboardMetricSummary struct {
+	Bucket            time.Time
+	HashboardID       int64
+	InstallationID    int64
+	TopologyVersionID sql.NullInt64
+	FirstCollectedAt  time.Time
+	LastCollectedAt   time.Time
+	Observations      int64
+	ResolutionSeconds int32
+	HashrateSum       float64
+	HashrateCount     int64
+	HashrateMin       float64
+	HashrateMax       float64
+	TemperatureSum    float64
+	TemperatureCount  int64
+	TemperatureMin    float64
+	TemperatureMax    float64
+	PowerSum          float64
+	PowerCount        int64
+	PowerMin          float64
+	PowerMax          float64
+	EfficiencySum     float64
+	EfficiencyCount   int64
+	EfficiencyMin     float64
+	EfficiencyMax     float64
+}
+
+type HashboardMetricsDaily struct {
+	Bucket            interface{}
+	HashboardID       int64
+	InstallationID    int64
+	TopologyVersionID sql.NullInt64
+	FirstCollectedAt  interface{}
+	LastCollectedAt   interface{}
+	Observations      int64
+	HashrateSum       int64
+	HashrateCount     int64
+	HashrateMin       interface{}
+	HashrateMax       interface{}
+	TemperatureSum    int64
+	TemperatureCount  int64
+	TemperatureMin    interface{}
+	TemperatureMax    interface{}
+	PowerSum          int64
+	PowerCount        int64
+	PowerMin          interface{}
+	PowerMax          interface{}
+	EfficiencySum     int64
+	EfficiencyCount   int64
+	EfficiencyMin     interface{}
+	EfficiencyMax     interface{}
+}
+
+type HashboardMetricsHourly struct {
+	Bucket            interface{}
+	HashboardID       int64
+	InstallationID    int64
+	TopologyVersionID sql.NullInt64
+	FirstCollectedAt  interface{}
+	LastCollectedAt   interface{}
+	Observations      int64
+	HashrateSum       int64
+	HashrateCount     int64
+	HashrateMin       interface{}
+	HashrateMax       interface{}
+	TemperatureSum    int64
+	TemperatureCount  int64
+	TemperatureMin    interface{}
+	TemperatureMax    interface{}
+	PowerSum          int64
+	PowerCount        int64
+	PowerMin          interface{}
+	PowerMax          interface{}
+	EfficiencySum     int64
+	EfficiencyCount   int64
+	EfficiencyMin     interface{}
+	EfficiencyMax     interface{}
 }
 
 type HashboardSlot struct {

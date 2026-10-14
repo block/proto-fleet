@@ -4,6 +4,14 @@ VALUES (sqlc.arg('device_id'), sqlc.arg('fingerprint'), sqlc.arg('topology'))
 ON CONFLICT(device_id, fingerprint) DO UPDATE SET fingerprint=EXCLUDED.fingerprint
 RETURNING id;
 
+-- Board health time can precede the poll. Stamp only samples inserted by this
+-- collection, using their primary keys rather than scanning the retained history.
+-- name: StampHashboardTopology :exec
+UPDATE hashboard_metrics m SET topology_version_id=sqlc.arg('version_id')::bigint
+FROM jsonb_to_recordset(sqlc.arg('samples')::jsonb) x(hashboard_id bigint,time timestamptz)
+WHERE m.hashboard_id=x.hashboard_id AND m.time=x.time
+ AND m.collected_at=sqlc.arg('collected_at')::timestamptz;
+
 -- name: InsertContainerTopologyObservation :one
 INSERT INTO container_topology_observation(device_id, version_id, collected_at, complete)
 VALUES (sqlc.arg('device_id'), sqlc.arg('version_id'), sqlc.arg('collected_at'), sqlc.arg('complete'))

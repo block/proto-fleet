@@ -106,6 +106,11 @@ func storeContainerRollups(ctx context.Context, q *sqlc.Queries, id int64, s *sd
 		boardIDs[[3]int32{v.TankPosition, v.ModulePosition, v.Position}] = v.HashboardID.Int64
 	}
 	tanks := make([]topologyTank, 0, len(s.Tanks))
+	type boardSample struct {
+		HashboardID int64     `json:"hashboard_id"`
+		Time        time.Time `json:"time"`
+	}
+	boardSamples := make([]boardSample, 0, len(slots))
 	for _, t := range s.Tanks {
 		tt := topologyTank{Position: t.Position, Complete: t.TopologyComplete, Modules: []topologyModule{}}
 		if t.Metrics != nil {
@@ -118,6 +123,9 @@ func storeContainerRollups(ctx context.Context, q *sqlc.Queries, id int64, s *sd
 				boardID := int64(0)
 				if b.Occupancy == "occupied" {
 					boardID = boardIDs[[3]int32{t.Position, m.Position, b.Position}]
+					if boardID != 0 && !b.ObservedAt.IsZero() {
+						boardSamples = append(boardSamples, boardSample{boardID, b.ObservedAt})
+					}
 				}
 				tm.Slots = append(tm.Slots, topologySlot{b.Position, b.Occupancy, boardID, b.MACAddress, b.Serial, b.UnavailableReason, b.Feed})
 			}
@@ -145,6 +153,13 @@ func storeContainerRollups(ctx context.Context, q *sqlc.Queries, id int64, s *sd
 	}
 	observation, err := q.InsertContainerTopologyObservation(ctx, sqlc.InsertContainerTopologyObservationParams{DeviceID: id, VersionID: version, CollectedAt: s.ObservedAt, Complete: s.TopologyComplete})
 	if err != nil {
+		return err
+	}
+	encodedSamples, err := json.Marshal(boardSamples)
+	if err != nil {
+		return fmt.Errorf("encode board provenance: %w", err)
+	}
+	if err := q.StampHashboardTopology(ctx, sqlc.StampHashboardTopologyParams{VersionID: version, CollectedAt: s.ObservedAt, Samples: encodedSamples}); err != nil {
 		return err
 	}
 	// Old plugins cannot supply the new measurement contract. Explicitly withdraw

@@ -162,19 +162,37 @@ func (q *Queries) GetContainerTankScope(ctx context.Context, arg GetContainerTan
 	return site_id, err
 }
 
+const getHistoryResolution = `-- name: GetHistoryResolution :one
+SELECT container_history_resolution($1::timestamptz,$2::timestamptz)::int AS resolution_seconds
+`
+
+type GetHistoryResolutionParams struct {
+	StartTime time.Time
+	EndTime   time.Time
+}
+
+// Resolve once per page; services bind the result to the cursor and pass that
+// same value into the data query so crossing a cutoff mid-request cannot switch tiers.
+func (q *Queries) GetHistoryResolution(ctx context.Context, arg GetHistoryResolutionParams) (int32, error) {
+	row := q.queryRow(ctx, q.getHistoryResolutionStmt, getHistoryResolution, arg.StartTime, arg.EndTime)
+	var resolution_seconds int32
+	err := row.Scan(&resolution_seconds)
+	return resolution_seconds, err
+}
+
 const listContainerModuleHistory = `-- name: ListContainerModuleHistory :many
 WITH resolution AS (
- SELECT container_history_resolution($2::timestamptz,$3::timestamptz) AS seconds
+ SELECT $2::int AS seconds
 ), readable AS (
  SELECT mm.equipment_kind, mm.container_identifier, mm.tank_id, mm.module_id, mm.site_id, mm.topology_version_id, mm.bucket, mm.collected_at, mm.resolution_seconds, mm.measurement_type, mm.total, mm.samples, mm.minimum, mm.maximum, mm.reporting_count, mm.expected_count, mm.coverage_complete FROM container_equipment_history mm
  JOIN container_module m ON m.id=mm.module_id
  JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id
  CROSS JOIN resolution
- WHERE mm.equipment_kind=6 AND mm.resolution_seconds=resolution.seconds AND m.id=$4
- AND d.org_id=$5 AND d.deleted_at IS NULL
- AND mm.bucket>=CASE WHEN resolution.seconds=0 THEN $2::timestamptz ELSE to_timestamp(floor(extract(epoch FROM $2::timestamptz)/resolution.seconds)*resolution.seconds) END AND mm.bucket<$3::timestamptz
+ WHERE mm.equipment_kind=6 AND mm.resolution_seconds=resolution.seconds AND m.id=$3
+ AND d.org_id=$4 AND d.deleted_at IS NULL
+ AND mm.bucket>=CASE WHEN resolution.seconds=0 THEN $5::timestamptz ELSE to_timestamp(floor(extract(epoch FROM $5::timestamptz)/resolution.seconds)*resolution.seconds) END AND mm.bucket<$6::timestamptz
  AND NOT EXISTS (
- SELECT 1 FROM jsonb_to_recordset($6::jsonb) AS a(org_wide boolean,sites bigint[])
+ SELECT 1 FROM jsonb_to_recordset($7::jsonb) AS a(org_wide boolean,sites bigint[])
  WHERE NOT (CASE WHEN a.org_wide THEN mm.site_id IS NULL OR NOT(mm.site_id=ANY(a.sites)) ELSE COALESCE(mm.site_id=ANY(a.sites),FALSE) END)
  )
 ), metrics AS (
@@ -194,23 +212,24 @@ WITH resolution AS (
 SELECT mm.time,mm.collected_at,mm.hashrate_hs,mm.power_w,mm.temperature_c,mm.efficiency_jh,mm.coverage
 FROM container_module_metrics mm JOIN readable r ON r.resolution_seconds=0 AND r.measurement_type=2
  AND r.module_id=mm.module_id AND r.bucket=mm.time AND r.collected_at=mm.collected_at
-WHERE NOT $7::boolean OR (mm.time,mm.collected_at)>($8::timestamptz,$9::timestamptz)
+WHERE NOT $8::boolean OR (mm.time,mm.collected_at)>($9::timestamptz,$10::timestamptz)
 UNION ALL
 SELECT time,collected_at,hashrate_hs,power_w,temperature_c,efficiency_jh,coverage FROM summaries
-CROSS JOIN resolution WHERE resolution.seconds>0 AND (NOT $7::boolean OR (time,collected_at)>($8::timestamptz,$9::timestamptz))
+CROSS JOIN resolution WHERE resolution.seconds>0 AND (NOT $8::boolean OR (time,collected_at)>($9::timestamptz,$10::timestamptz))
 ORDER BY time,collected_at LIMIT $1::int
 `
 
 type ListContainerModuleHistoryParams struct {
-	PageLimit        int32
-	StartTime        time.Time
-	EndTime          time.Time
-	ModuleID         int64
-	OrgID            int64
-	Authority        json.RawMessage
-	HasCursor        bool
-	AfterTime        time.Time
-	AfterCollectedAt time.Time
+	PageLimit         int32
+	ResolutionSeconds int32
+	ModuleID          int64
+	OrgID             int64
+	StartTime         time.Time
+	EndTime           time.Time
+	Authority         json.RawMessage
+	HasCursor         bool
+	AfterTime         time.Time
+	AfterCollectedAt  time.Time
 }
 
 type ListContainerModuleHistoryRow struct {
@@ -228,10 +247,11 @@ type ListContainerModuleHistoryRow struct {
 func (q *Queries) ListContainerModuleHistory(ctx context.Context, arg ListContainerModuleHistoryParams) ([]ListContainerModuleHistoryRow, error) {
 	rows, err := q.query(ctx, q.listContainerModuleHistoryStmt, listContainerModuleHistory,
 		arg.PageLimit,
-		arg.StartTime,
-		arg.EndTime,
+		arg.ResolutionSeconds,
 		arg.ModuleID,
 		arg.OrgID,
+		arg.StartTime,
+		arg.EndTime,
 		arg.Authority,
 		arg.HasCursor,
 		arg.AfterTime,

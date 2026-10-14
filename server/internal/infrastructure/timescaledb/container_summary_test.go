@@ -53,7 +53,9 @@ func TestContainerEquipmentSummariesSurviveRawRetention(t *testing.T) {
 					require.Equal(t, 200.0, m.Average)
 				}
 			}
-			modules, err := q.ListContainerModuleHistory(t.Context(), sqlc.ListContainerModuleHistoryParams{ModuleID: module, OrgID: org, Authority: []byte(`[{"org_wide":true}]`), StartTime: start, EndTime: end, PageLimit: 100})
+			resolution, err := q.GetHistoryResolution(t.Context(), sqlc.GetHistoryResolutionParams{StartTime: start, EndTime: end})
+			require.NoError(t, err)
+			modules, err := q.ListContainerModuleHistory(t.Context(), sqlc.ListContainerModuleHistoryParams{ResolutionSeconds: resolution, ModuleID: module, OrgID: org, Authority: []byte(`[{"org_wide":true}]`), StartTime: start, EndTime: end, PageLimit: 100})
 			require.NoError(t, err)
 			require.Len(t, modules, 1)
 			require.True(t, modules[0].HashrateHs.Valid)
@@ -211,7 +213,9 @@ func TestContainerSummariesPreserveSiteBoundariesAndMissingValues(t *testing.T) 
 					require.Equal(t, 700e12, m.Average)
 				}
 			}
-			p := sqlc.ListContainerModuleHistoryParams{ModuleID: module, OrgID: org, Authority: []byte(fmt.Sprintf(`[{"sites":[%d]}]`, siteB)), StartTime: start, EndTime: end, PageLimit: 1}
+			resolution, err := q.GetHistoryResolution(t.Context(), sqlc.GetHistoryResolutionParams{StartTime: start, EndTime: end})
+			require.NoError(t, err)
+			p := sqlc.ListContainerModuleHistoryParams{ResolutionSeconds: resolution, ModuleID: module, OrgID: org, Authority: []byte(fmt.Sprintf(`[{"sites":[%d]}]`, siteB)), StartTime: start, EndTime: end, PageLimit: 1}
 			modules, err := q.ListContainerModuleHistory(t.Context(), p)
 			require.NoError(t, err)
 			require.Len(t, modules, 1)

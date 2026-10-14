@@ -12,6 +12,8 @@ func TestContainerInventoryMigrationRoundTrip(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	// Later child inventory must be rolled back before its parent schema.
 	for _, name := range []string{
+		"001022_internal_topology_compaction.down.sql",
+		"001021_internal_hashboard_metric_summaries.down.sql",
 		"001019_internal_container_module_identity_confirmation.down.sql",
 		"001016_internal_ct1_metric_summaries.down.sql",
 		"001015_internal_ct1_poll_rollups.down.sql",
@@ -35,6 +37,11 @@ func TestContainerInventoryMigrationRoundTrip(t *testing.T) {
 
 func TestHashboardMigrationRoundTrip(t *testing.T) {
 	db := testutil.GetTestDB(t)
+	// Remove aggregates that depend on the raw board table before rolling it back.
+	summaries, err := migrations.Current.ReadFile("current/001021_internal_hashboard_metric_summaries.down.sql")
+	require.NoError(t, err)
+	_, err = db.ExecContext(t.Context(), string(summaries))
+	require.NoError(t, err)
 	for _, direction := range []string{"down", "up"} {
 		script, err := migrations.Current.ReadFile("current/001004_internal_hashboards." + direction + ".sql")
 		require.NoError(t, err)
