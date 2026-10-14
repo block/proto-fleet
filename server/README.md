@@ -118,6 +118,16 @@ uncertainty still blocks handoff completion. Pool, reboot, firmware,
 and other configuration writes retain their ownership and epoch checks. Customer
 account transports cannot invoke host curtailment RPCs.
 
+An unknown curtailment control quarantines reserved or active custody. Successful
+synchronous plugin gRPC responses and Fleet Node acknowledgements complete these
+controls; most returned RPC errors retain uncertainty. Audited recovery preserves
+pending curtailment controls, so restart can dispatch them and create fresh
+uncertainty.
+Active-origin quarantine cannot use `restore_host`; restoring active allocation
+custody requires future allocation controller integration. See the
+[device-write recovery procedure](../docs/development/device-write-recovery.md)
+for evidence requirements and checks before restarting dispatchers.
+
 ## Development Commands
 
 ### Build and Run
