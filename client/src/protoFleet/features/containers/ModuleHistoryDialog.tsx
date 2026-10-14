@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import ModuleActionsMenu from "./ModuleActionsMenu";
+import MiningActionsMenu from "./MiningActionsMenu";
 import { ModuleStatus } from "./ModuleStatus";
 import { fleetInventoryClient } from "@/protoFleet/api/clients";
 import type { InventoryItem, ModuleSample } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import Button, { variants } from "@/shared/components/Button";
 import Dialog from "@/shared/components/Dialog";
+import { useMountedCallback } from "@/shared/hooks/useMountedCallback";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 export function ModuleHistoryDialog({
@@ -42,6 +43,11 @@ export function ModuleHistoryDialog({
       }
     },
   });
+  const refreshHistory = useMountedCallback(() => {
+    setCursor("");
+    setResult(undefined);
+    setRevision((value) => value + 1);
+  });
   return (
     <Dialog
       open
@@ -53,12 +59,11 @@ export function ModuleHistoryDialog({
       <div className="flex flex-wrap items-center gap-2">
         <span>{[item.facilityName, item.groupName].filter(Boolean).join(" / ")}</span>
         <ModuleStatus state={item.state} />
-        <ModuleActionsMenu
-          modules={[item]}
+        <MiningActionsMenu
+          kind="module"
+          items={[item]}
           onRefresh={() => {
-            setCursor("");
-            setResult(undefined);
-            setRevision((value) => value + 1);
+            refreshHistory();
             onRefresh?.();
           }}
         />

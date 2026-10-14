@@ -2,7 +2,7 @@ import { useMemo, useRef } from "react";
 
 import FleetGroupActionsMenu, { type GroupScope } from "./FleetGroupActionsMenu";
 import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
-import TankActionsMenu from "@/protoFleet/features/containers/TankActionsMenu";
+import MiningActionsMenu from "@/protoFleet/features/containers/MiningActionsMenu";
 import FleetListActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar/FleetListActionBar";
 import useActionBarLifecycle from "@/protoFleet/features/fleetManagement/components/ActionBar/useActionBarLifecycle";
 import { ActionBarSelectionControls } from "@/shared/components/ActionBar";
@@ -80,8 +80,9 @@ const FleetGroupListActionBar = ({
     >
       <div className="flex flex-wrap gap-3">
         {activeSelectedTanks.length > 0 && onRefetchTanks ? (
-          <TankActionsMenu
-            tanks={activeSelectedTanks}
+          <MiningActionsMenu
+            kind="tank"
+            items={activeSelectedTanks}
             onRefresh={onRefetchTanks}
             presentation="bulk"
             onActionStart={onActionStart}

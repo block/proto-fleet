@@ -8,6 +8,7 @@ import { groupVariants } from "@/shared/components/ButtonGroup/constants";
 import { ButtonProps } from "@/shared/components/ButtonGroup/types";
 import Header from "@/shared/components/Header";
 import PageOverlay from "@/shared/components/PageOverlay";
+import { PopoverLayerContext } from "@/shared/components/Popover/PopoverLayerContext";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useEscapeDismiss } from "@/shared/hooks/useEscapeDismiss";
 import useSlideUpAnimation from "@/shared/hooks/useSlideUpAnimation";
@@ -64,48 +65,50 @@ const Dialog = ({
   useEscapeDismiss(open === false ? undefined : dismissDialog);
 
   return (
-    <PageOverlay open={open} zIndex="z-60" shouldPreventScroll={preventScroll} position="top">
-      <motion.div
-        {...slideUpAnimation}
-        className={clsx(
-          "mt-16 h-fit max-h-[calc(100dvh-(--spacing(32)))] w-108 max-w-[calc(100vw-theme(spacing.4))] overflow-x-hidden overflow-y-auto rounded-3xl bg-surface-elevated-base shadow-200 phone:mt-10 phone:max-h-[calc(100dvh-theme(spacing.10))] phone:w-screen phone:max-w-none phone:min-w-[100vw] phone:rounded-[16px]",
-          className,
-        )}
-        data-testid={testId}
-        inert={inert}
-      >
-        <div className="p-6">
-          <div className="flex flex-col gap-3">
-            {loading ? (
-              <div className="flex w-10 items-center justify-center rounded-lg bg-surface-5 py-2.5">
-                <ProgressCircular indeterminate />
-              </div>
-            ) : null}
-            {!loading ? icon : null}
-            <Header
-              className={headerClassName}
-              subtitleClassName={subtitleClassName}
-              title={title}
-              subtitle={subtitle}
-              titleSize={titleSize}
-              subtitleSize={subtitleSize}
-            />
+    <PopoverLayerContext.Provider value={70}>
+      <PageOverlay open={open} zIndex="z-60" shouldPreventScroll={preventScroll} position="top">
+        <motion.div
+          {...slideUpAnimation}
+          className={clsx(
+            "mt-16 h-fit max-h-[calc(100dvh-(--spacing(32)))] w-108 max-w-[calc(100vw-theme(spacing.4))] overflow-x-hidden overflow-y-auto rounded-3xl bg-surface-elevated-base shadow-200 phone:mt-10 phone:max-h-[calc(100dvh-theme(spacing.10))] phone:w-screen phone:max-w-none phone:min-w-[100vw] phone:rounded-[16px]",
+            className,
+          )}
+          data-testid={testId}
+          inert={inert}
+        >
+          <div className="p-6">
+            <div className="flex flex-col gap-3">
+              {loading ? (
+                <div className="flex w-10 items-center justify-center rounded-lg bg-surface-5 py-2.5">
+                  <ProgressCircular indeterminate />
+                </div>
+              ) : null}
+              {!loading ? icon : null}
+              <Header
+                className={headerClassName}
+                subtitleClassName={subtitleClassName}
+                title={title}
+                subtitle={subtitle}
+                titleSize={titleSize}
+                subtitleSize={subtitleSize}
+              />
+            </div>
+            {children ? <div className="mt-4">{children}</div> : null}
           </div>
-          {children ? <div className="mt-4">{children}</div> : null}
-        </div>
-        {footerConfig.buttons.length > 0 ? (
-          <ButtonGroup
-            buttons={footerButtons}
-            variant={footerConfig.variant}
-            sortButtons={footerConfig.sortButtons}
-            fillButtonsOnMobile={!footerConfig.stacked}
-            fullWidthButtons={footerConfig.stacked}
-            fullWidthOnMobile={footerConfig.stacked}
-            className="rounded-b-3xl bg-surface-5 p-6"
-          />
-        ) : null}
-      </motion.div>
-    </PageOverlay>
+          {footerConfig.buttons.length > 0 ? (
+            <ButtonGroup
+              buttons={footerButtons}
+              variant={footerConfig.variant}
+              sortButtons={footerConfig.sortButtons}
+              fillButtonsOnMobile={!footerConfig.stacked}
+              fullWidthButtons={footerConfig.stacked}
+              fullWidthOnMobile={footerConfig.stacked}
+              className="rounded-b-3xl bg-surface-5 p-6"
+            />
+          ) : null}
+        </motion.div>
+      </PageOverlay>
+    </PopoverLayerContext.Provider>
   );
 };
 

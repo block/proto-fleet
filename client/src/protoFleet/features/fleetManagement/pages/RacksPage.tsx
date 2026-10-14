@@ -36,7 +36,7 @@ import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { tankPath } from "@/protoFleet/features/containers/buildTankOverview";
 import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
-import TankActionsMenu from "@/protoFleet/features/containers/TankActionsMenu";
+import MiningActionsMenu from "@/protoFleet/features/containers/MiningActionsMenu";
 import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
 import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
 import FleetGroupListActionBar from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu/FleetGroupListActionBar";
@@ -87,6 +87,7 @@ import { SORT_ASC, SORT_DESC, type SortDirection } from "@/shared/components/Lis
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import SegmentedControl from "@/shared/components/SegmentedControl";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
+import { useMountedCallback } from "@/shared/hooks/useMountedCallback";
 import { useNavigate } from "@/shared/hooks/useNavigate";
 import type { NumericRangeValue } from "@/shared/utils/filterValidation";
 
@@ -337,7 +338,7 @@ const RacksPage = () => {
     handleNextPage,
     handlePrevPage,
     resetAndFetch,
-    refreshCurrentPage,
+    refreshCurrentPage: refreshRacks,
   } = useDeviceSetListState(
     useInventory ? inventory.listRacks : listRacks,
     DEFAULT_PAGE_SIZE,
@@ -352,6 +353,7 @@ const RacksPage = () => {
     getTelemetryRanges,
     !useInventory,
   );
+  const refreshCurrentPage = useMountedCallback(refreshRacks);
 
   // Propagate external URL sort changes (saved view activation, deep-link
   // nav) into the hook. When the page itself drives the change via
@@ -1436,7 +1438,9 @@ const RacksPage = () => {
             <DeviceSetList
               inventoryItems={useInventory ? inventory.items : undefined}
               onTankClick={openTank}
-              renderTankActions={(item) => <TankActionsMenu tanks={[item]} onRefresh={refreshCurrentPage} />}
+              renderTankActions={(item) => (
+                <MiningActionsMenu kind="tank" items={[item]} onRefresh={refreshCurrentPage} />
+              )}
               selectedTankIds={selectedTankIds}
               onSelectedTankIdsChange={(ids) => {
                 if (!isBulkActionBusy) setSelectedTankIds(ids);
@@ -1499,7 +1503,7 @@ const RacksPage = () => {
                           </div>
                         </button>
                         <div className="absolute top-3 right-3">
-                          <TankActionsMenu tanks={[entry]} onRefresh={refreshCurrentPage} />
+                          <MiningActionsMenu kind="tank" items={[entry]} onRefresh={refreshCurrentPage} />
                         </div>
                       </div>
                     );

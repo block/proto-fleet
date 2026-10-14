@@ -413,6 +413,43 @@ describe("MinerList", () => {
     );
   });
 
+  it("preserves all-miner scope when polling introduces module rows", () => {
+    const miner = createMinerSnapshot("miner-a");
+    const minerItem = create(InventoryItemSchema, {
+      ref: { kind: EntityKind.MINER, id: 1n },
+      deviceIdentifier: "miner-a",
+      details: { case: "miner", value: miner },
+    });
+    const module = create(InventoryItemSchema, { ref: { kind: EntityKind.MODULE, id: 2n }, name: "Module" });
+    const view = (withModule: boolean) => (
+      <BrowserRouter>
+        <MinerList
+          miners={{ "miner-a": miner }}
+          minerIds={["miner-a"]}
+          errorsByDevice={{}}
+          errorsLoaded
+          getActiveBatches={mockGetActiveBatches}
+          onAddMiners={vi.fn()}
+          totalMiners={withModule ? 101 : 100}
+          inventoryMinerCount={100}
+          inventoryItems={withModule ? [minerItem, module] : [minerItem]}
+        />
+      </BrowserRouter>
+    );
+    const { rerender } = render(view(false));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select miner:miner-a" }));
+    fireEvent.click(screen.getByTestId("mock-action-bar-select-all"));
+    expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
+    rerender(view(true));
+    expect(screen.getByTestId("mock-miner-list-selection-mode")).toHaveTextContent("all");
+    expect(screen.getByRole("checkbox", { name: "Select module:2" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Select module:2" })).toBeDisabled();
+    expect(mockMinerListActionBar).toHaveBeenLastCalledWith(
+      expect.objectContaining({ selectionMode: "all", selectAllOnPage: false, modules: [], totalCount: 100 }),
+      undefined,
+    );
+  });
+
   it("keeps Select all page scoped when modules are only on other pages", () => {
     const miner = createMinerSnapshot("miner-a");
     renderMinerList({

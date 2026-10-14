@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
-import ModuleActionsMenu from "./ModuleActionsMenu";
+import MiningActionsMenu from "./MiningActionsMenu";
 import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 
 const mocks = vi.hoisted(() => ({
@@ -50,7 +50,7 @@ beforeEach(() => {
 });
 it("confirms named modules and preserves exact selection and known successes across controllers", async () => {
   const refresh = vi.fn();
-  render(<ModuleActionsMenu modules={modules} onRefresh={refresh} />);
+  render(<MiningActionsMenu kind="module" items={modules} onRefresh={refresh} />);
   fireEvent.click(screen.getByRole("button", { name: "Actions for 2 selected modules" }));
   const stop = await screen.findByRole("button", { name: "Stop mining" });
   await waitFor(() => expect(stop).toBeEnabled());
@@ -76,7 +76,7 @@ it("shows unsupported or stale scope without offering a container operation", as
     canStop: false,
     unavailableReason: "Module identity unavailable",
   });
-  render(<ModuleActionsMenu modules={[modules[0]]} onRefresh={vi.fn()} />);
+  render(<MiningActionsMenu kind="module" items={[modules[0]]} onRefresh={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Actions for North T1 M2" }));
   await screen.findByRole("button", { name: "Module identity unavailable" });
   expect(screen.getByRole("button", { name: "Start mining" })).toBeDisabled();
@@ -86,7 +86,7 @@ it("shows unsupported or stale scope without offering a container operation", as
 });
 it("hides mining operations that are not authorized", async () => {
   mocks.options.mockResolvedValue({ canStart: true, canStop: false, unavailableReason: "" });
-  render(<ModuleActionsMenu modules={[modules[0]]} onRefresh={vi.fn()} />);
+  render(<MiningActionsMenu kind="module" items={[modules[0]]} onRefresh={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Actions for North T1 M2" }));
   await waitFor(() => expect(screen.getByRole("button", { name: "Start mining" })).toBeEnabled());
   expect(screen.queryByRole("button", { name: "Stop mining" })).not.toBeInTheDocument();

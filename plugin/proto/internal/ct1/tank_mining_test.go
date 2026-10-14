@@ -298,3 +298,31 @@ func newTankTestDevice(t *testing.T, id string, info sdk.DeviceInfo) (*Device, e
 	t.Cleanup(func() { _ = c.Close() })
 	return &Device{id: id, info: info, client: c}, nil
 }
+
+func TestTankMiningSkipsUnoccupiedSlotsWithResidualBoards(t *testing.T) {
+	for _, mining := range []bool{false, true} {
+		t.Run(strconv.FormatBool(mining), func(t *testing.T) {
+			writes := 0
+			srv := newTankGRPCFixture(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v2/system/info":
+					_, _ = w.Write([]byte(`{"info":{"id":"ct1","model":"CT1"}}`))
+				case "/api/v2/container/map":
+					_, _ = w.Write([]byte(`{"containerMap":{"tanks":[{"id":1,"modules":[{"id":1,"slots":[{"occupied":true,"hashboard":{"macAddress":"a"}},{"occupied":false,"hashboard":{"macAddress":"old"}},{"occupied":false}]}]}]}}`))
+				default:
+					writes++
+					_, _ = w.Write([]byte(`{"results":[{"macAddress":"a","applied":true}]}`))
+				}
+			}))
+			defer srv.Close()
+			u, err := url.Parse(srv.URL)
+			require.NoError(t, err)
+			port, err := strconv.ParseInt(u.Port(), 10, 32)
+			require.NoError(t, err)
+			dev, err := newTankTestDevice(t, "ct1", sdk.DeviceInfo{SerialNumber: "ct1", Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme})
+			require.NoError(t, err)
+			require.NoError(t, dev.SetTankMining(t.Context(), sdk.TankMiningRequest{Positions: []int32{1}, Mining: &mining}))
+			require.Equal(t, 1, writes)
+		})
+	}
+}

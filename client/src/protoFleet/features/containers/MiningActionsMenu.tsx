@@ -119,9 +119,7 @@ export default function MiningActionsMenu({
           items={items}
           kind={kind}
           mining={mining}
-          onRefresh={() => {
-            if (mounted.current) onRefresh?.();
-          }}
+          onRefresh={() => onRefresh?.()}
           onClose={() => {
             setMining(undefined);
             setResult(undefined);

@@ -12,9 +12,9 @@ import {
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 
 const selections = vi.hoisted(() => ({ miners: vi.fn(), modules: vi.fn() }));
-vi.mock("@/protoFleet/features/containers/ModuleActionsMenu", () => ({
+vi.mock("@/protoFleet/features/containers/MiningActionsMenu", () => ({
   default: function ModuleActionsMenuMock(props: {
-    modules: InventoryItem[];
+    items: InventoryItem[];
     onActionStart?: () => void;
     onActionComplete?: () => void;
   }) {
@@ -32,7 +32,7 @@ vi.mock("@/protoFleet/features/containers/ModuleActionsMenu", () => ({
         </button>
         {confirming ? (
           <div role="dialog">
-            {props.modules.map((module) => module.name).join(", ")}
+            {props.items.map((module) => module.name).join(", ")}
             <button
               onClick={() => {
                 setConfirming(false);
@@ -203,7 +203,7 @@ test("mixed selections keep modules out of conventional miner dispatch and preve
   expect(selections.miners).toHaveBeenLastCalledWith(
     expect.objectContaining({ selectedMiners: ["miner-a"], selectionMode: "subset", totalCount: 1 }),
   );
-  expect(selections.modules).toHaveBeenLastCalledWith(expect.objectContaining({ modules: [module] }));
+  expect(selections.modules).toHaveBeenLastCalledWith(expect.objectContaining({ items: [module] }));
   expect(getByTestId("action-bar")).toHaveTextContent("2 mining assets selected");
   expect(getByTestId("action-bar")).not.toHaveTextContent("40");
   selections.miners.mockClear();
@@ -331,7 +331,7 @@ test.each(["module:11", "miner:module:11", "module:"])(
     expect(selections.miners).toHaveBeenLastCalledWith(
       expect.objectContaining({ selectedMiners: [identifier], totalCount: 1 }),
     );
-    expect(selections.modules).toHaveBeenLastCalledWith(expect.objectContaining({ modules: [module] }));
+    expect(selections.modules).toHaveBeenLastCalledWith(expect.objectContaining({ items: [module] }));
     expect(getByTestId("action-bar")).toHaveTextContent("2 mining assets selected");
 
     rerender(<MinerListActionBar selectedKeys={[`miner:${identifier}`]} selectionMode="subset" />);

@@ -40,7 +40,7 @@ func miningSite(row miningCommandTarget) *int64 {
 	return nil
 }
 func currentMiningTarget(row miningCommandTarget, now time.Time) bool {
-	if row.Module != nil && (!row.ModuleIdentityConfirmed || row.Module.Validate() != nil) {
+	if !row.identityConfirmed() {
 		return false
 	}
 	for _, observed := range []time.Time{row.LastSeenAt, row.ObservedAt} {
@@ -316,9 +316,6 @@ func (s *Service) setMining(ctx context.Context, ids []int64, mining *bool, auth
 
 func (es *ExecutionService) executeTankMining(ctx context.Context, deviceID, orgID int64, payload scopedMiningPayload, controller sdk.DeviceTankMiner) error {
 	return es.executeScopedMining(ctx, deviceID, orgID, payload, tankScope, func(ctx context.Context) error {
-		if controller == nil {
-			return fleeterror.NewFailedPreconditionError("tank mining unsupported")
-		}
 		return controller.SetTankMining(ctx, payload.TankMiningRequest)
 	})
 }

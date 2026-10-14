@@ -507,8 +507,9 @@ func TestMissingModuleIdentityOnlyClearsAcceptedEmptyObservations(t *testing.T) 
 	require.NoError(t, sqlstores.NewSQLDeviceStore(db).InsertDevice(ctx, &d.Device, org, d.DeviceIdentifier))
 	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
 	require.NoError(t, err)
-	base := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+	base := time.Now().UTC().Add(-2 * time.Minute).Truncate(time.Microsecond)
 	hashrate, power, temp := 300e12, 3600.0, 62.0
+	withRollups := false
 	write := func(collected, source time.Time, identity string, empty bool) {
 		t.Helper()
 		metrics := &sdk.ContainerModuleMetrics{ObservedAt: source}
@@ -518,6 +519,9 @@ func TestMissingModuleIdentityOnlyClearsAcceptedEmptyObservations(t *testing.T) 
 			metrics.TemperatureC = &temp
 		}
 		snapshot := &sdk.ContainerSnapshot{ObservedAt: collected, TopologyComplete: true, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, ReportedID: identity, State: sdk.ModuleHashing, ObservedAt: collected, Metrics: metrics}}}}}
+		if withRollups {
+			snapshot.Metrics = &sdk.ContainerRollup{}
+		}
 		require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: d.DeviceIdentifier, Timestamp: collected, Container: snapshot}))
 	}
 	assertCurrent := func(empty bool, samples int) {
@@ -574,4 +578,15 @@ func TestMissingModuleIdentityOnlyClearsAcceptedEmptyObservations(t *testing.T) 
 		write(at.Add(time.Second), at.Add(time.Second), blank, true)
 		assertCurrent(true, 4+i)
 	}
+	// Rebuilt rollup samples must apply the same blank-identity policy.
+	for i, blank := range []string{" ", "\u00a0", "\u2003"} {
+		at := base.Add(time.Duration(60+i*2) * time.Second)
+		withRollups = false
+		write(at, at, "replacement", false)
+		assertCurrent(false, 7+i*2)
+		withRollups = true
+		write(at.Add(time.Second), at.Add(time.Second), blank, true)
+		assertCurrent(true, 8+i*2)
+	}
+
 }

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -121,6 +122,8 @@ func TestModuleMiningRejectsCrossKindIdentifierCollisionsBeforeWriting(t *testin
 		{"empty slot claims matching serial", "selected", selectedMAC, "module-b", true, true},
 		{"same board MAC and serial", selectedMAC, "neighbor", "module-b", false, false},
 		{"unoccupied slot claims same module", "selected", "neighbor", "module-a", true, true},
+		{"padded duplicate module", "selected", "neighbor", "module-a ", false, true},
+		{"Unicode padded duplicate module", "selected", "neighbor", "\u00a0module-a", true, true},
 		{"distinct identifiers", "selected", "neighbor", "module-b", false, false},
 	} {
 		for _, mining := range []bool{false, true} {
@@ -149,7 +152,7 @@ func TestModuleMiningRejectsCrossKindIdentifierCollisionsBeforeWriting(t *testin
 				require.NoError(t, err)
 				err = dev.SetModuleMining(t.Context(), sdk.ModuleMiningRequest{Mining: &mining, Modules: []sdk.ModuleMiningTarget{{Tank: 1, Module: 1, ReportedID: "module-a"}}})
 				if tc.wantError {
-					if tc.neighborModuleID == "module-a" {
+					if strings.TrimSpace(tc.neighborModuleID) == "module-a" {
 						require.ErrorContains(t, err, "selected module identity unavailable or ambiguous")
 					} else {
 						require.ErrorContains(t, err, "selected module board identifier ambiguous")

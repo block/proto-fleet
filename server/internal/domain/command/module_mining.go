@@ -35,6 +35,11 @@ type miningCommandTarget struct {
 	Module                                      *sdk.ModuleMiningTarget
 	ModuleIdentityConfirmed                     bool
 }
+
+func (row miningCommandTarget) identityConfirmed() bool {
+	return row.Module == nil || (row.ModuleIdentityConfirmed && row.Module.Validate() == nil)
+}
+
 type miningOptions struct {
 	CanStart, CanStop bool
 	UnavailableReason string
@@ -59,7 +64,7 @@ func (scope miningScope) controlsUnavailableReason() string {
 }
 
 func (scope miningScope) targetUnavailableReason(row miningCommandTarget) string {
-	if row.Module != nil && (!row.ModuleIdentityConfirmed || row.Module.Validate() != nil) {
+	if !row.identityConfirmed() {
 		return moduleIdentityUnavailableReason
 	}
 	return scope.controlsUnavailableReason()
@@ -182,9 +187,6 @@ func (s *Service) SetModuleMining(ctx context.Context, ids []int64, mining *bool
 }
 func (es *ExecutionService) executeModuleMining(ctx context.Context, deviceID, orgID int64, payload scopedMiningPayload, controller sdk.DeviceModuleMiner) error {
 	return es.executeScopedMining(ctx, deviceID, orgID, payload, moduleScope, func(ctx context.Context) error {
-		if controller == nil {
-			return fleeterror.NewFailedPreconditionError("module mining unsupported")
-		}
 		return controller.SetModuleMining(ctx, sdk.ModuleMiningRequest{Modules: payload.Modules, Mining: payload.Mining})
 	})
 }

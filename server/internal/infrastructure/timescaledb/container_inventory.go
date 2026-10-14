@@ -57,7 +57,8 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 		Position int32 `json:"position"`
 	}, 0, len(snapshot.Tanks))
 	seenTanks := map[int32]bool{}
-	for _, tank := range snapshot.Tanks {
+	for ti := range snapshot.Tanks {
+		tank := &snapshot.Tanks[ti]
 		if tank.Position <= 0 || seenTanks[tank.Position] {
 			return fmt.Errorf("invalid or duplicate tank selector")
 		}
@@ -66,7 +67,8 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 			Position int32 `json:"position"`
 		}{tank.Position})
 		seenModules := map[int32]bool{}
-		for _, module := range tank.Modules {
+		for mi := range tank.Modules {
+			module := &tank.Modules[mi]
 			if module.Position <= 0 || seenModules[module.Position] {
 				return fmt.Errorf("invalid or duplicate module selector")
 			}
@@ -116,6 +118,7 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 			reportedID := module.ReportedID
 			if strings.TrimSpace(reportedID) == "" {
 				reportedID = ""
+				module.ReportedID = ""
 			}
 			modules = append(modules, inventoryModule{tank.Position, module.Position, reportedID, module.IdentityConfirmed && reportedID != "", state, observed, module.Issues, issueTime})
 			if m := module.Metrics; m != nil && !m.ObservedAt.IsZero() && !m.ObservedAt.After(snapshot.ObservedAt.Add(5*time.Second)) {

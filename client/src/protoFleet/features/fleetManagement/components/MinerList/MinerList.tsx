@@ -47,7 +47,7 @@ import AuthenticateFleetModal from "@/protoFleet/features/auth/components/Authen
 import { AuthenticateMiners } from "@/protoFleet/features/auth/components/AuthenticateMiners";
 import { HashboardCell } from "@/protoFleet/features/containers/HashboardCell";
 import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
-import ModuleActionsMenu from "@/protoFleet/features/containers/ModuleActionsMenu";
+import MiningActionsMenu from "@/protoFleet/features/containers/MiningActionsMenu";
 import { ModuleHistoryDialog } from "@/protoFleet/features/containers/ModuleHistoryDialog";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
@@ -95,6 +95,7 @@ import type { ColConfig } from "@/shared/components/List/types";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import ResponsiveActionGroup, { type ResponsiveActionButton } from "@/shared/components/ResponsiveActionGroup";
 import { Breakpoint } from "@/shared/constants/breakpoints";
+import { useMountedCallback } from "@/shared/hooks/useMountedCallback";
 import { classifySubnetLine, normalizeSubnetLine, validateSubnetLine } from "@/shared/utils/filterValidation";
 
 type MiningListItem = { selectionKey: MiningSelectionKey } & (
@@ -356,10 +357,11 @@ const ScopedMinerListBody = ({
   onRowClick,
   miners: minersProp,
   minerIds: minerIdsProp,
-  onRefetchMiners,
+  onRefetchMiners: refreshMiners,
   onWorkerNameUpdated,
   searchScopeKey,
 }: ScopedMinerListBodyProps) => {
+  const onRefetchMiners = useMountedCallback(refreshMiners);
   const [selectedKeys, setSelectedKeys] = useState<MiningSelectionKey[]>([]);
   const [selectionMode, setSelectionMode] = useState<SelectionMode>("none");
   const hasCT1PlacementFilter =
@@ -448,7 +450,7 @@ const ScopedMinerListBody = ({
               <div className="min-w-0 flex-1">
                 <InventoryCell item={item.row} column={column} />
               </div>
-              <ModuleActionsMenu modules={[item.row]} onRefresh={onRefetchMiners} />
+              <MiningActionsMenu kind="module" items={[item.row]} onRefresh={onRefetchMiners} />
             </div>
           ) : (
             <InventoryCell item={item.row} column={column} />
@@ -459,8 +461,9 @@ const ScopedMinerListBody = ({
   }, [minerColConfig, expanded, toggleModule, onRefetchMiners]);
   const currentPageSelectionKeys = listItems.map((item) => item.selectionKey);
   const selectAllOnPage =
-    listItems.some((item) => item.kind === "module") ||
-    (inventoryMinerCount !== undefined && totalMiners !== undefined && inventoryMinerCount < totalMiners);
+    selectionMode !== "all" &&
+    (listItems.some((item) => item.kind === "module") ||
+      (inventoryMinerCount !== undefined && totalMiners !== undefined && inventoryMinerCount < totalMiners));
   const headerActionButtons = useMemo<ResponsiveActionButton[]>(
     () => [
       {
@@ -650,7 +653,7 @@ const ScopedMinerListBody = ({
                 onSelectNone={handleSelectNoneMiners}
                 filtersActive={hasActiveFilters}
                 selectionMode={currentSelectionMode}
-                totalCount={totalSelectable}
+                totalCount={currentSelectionMode === "all" ? (inventoryMinerCount ?? totalSelectable) : totalSelectable}
                 currentFilter={currentFilter}
                 currentSort={currentSortConfig}
                 miners={minersProp}
@@ -685,7 +688,7 @@ const ScopedMinerListBody = ({
         initialActiveFilters={initialActiveFilters}
         onSelectionModeChange={setSelectionMode}
         isRowDisabled={(item) => item.kind === "miner" && isRowDisabled(item.row)}
-        isRowSelectable={() => true}
+        isRowSelectable={(item) => selectionMode !== "all" || item.kind === "miner"}
         columnsExemptFromDisabledStyling={
           new Set([minerCols.name, minerCols.status, minerCols.issues, minerCols.firmware])
         }

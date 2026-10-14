@@ -3,8 +3,8 @@ import { buildTankOverview, tankPath } from "../buildTankOverview";
 import SubtankDetail from "../components/SubtankDetail";
 import TankPerformance from "../components/TankPerformance";
 import { useContainerOverview } from "../hooks/useContainerOverview";
+import MiningActionsMenu from "../MiningActionsMenu";
 import { ModuleHistoryDialog } from "../ModuleHistoryDialog";
-import TankActionsMenu from "../TankActionsMenu";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
@@ -49,7 +49,9 @@ export default function TankPage() {
     <>
       <SubtankDetail
         title={view.title}
-        actions={<TankActionsMenu key={`${identifier}:${tankId}`} tanks={[view.tank]} onRefresh={retry} />}
+        actions={
+          <MiningActionsMenu kind="tank" key={`${identifier}:${tankId}`} items={[view.tank]} onRefresh={retry} />
+        }
         breadcrumb={[
           { label: "Buildings", to: scopedPath("/fleet/buildings", target ?? { kind: "all" }) },
           ...(container.site ? [{ label: container.site.label, to: `/sites/${container.site.id}` }] : []),

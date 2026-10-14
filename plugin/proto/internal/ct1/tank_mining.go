@@ -108,7 +108,7 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 					if slot.unreported {
 						return fmt.Errorf("tank %d module %d slot topology unavailable", position, module.ID)
 					}
-					if slot.invalid || (slot.Occupied && slot.Hashboard == nil) || (!slot.Occupied && slot.Hashboard != nil) {
+					if slot.invalid || (slot.Occupied && slot.Hashboard == nil) || (isSelected && !slot.Occupied && slot.Hashboard != nil) {
 						return fmt.Errorf("tank %d board topology unavailable", position)
 					}
 					if !slot.Occupied {

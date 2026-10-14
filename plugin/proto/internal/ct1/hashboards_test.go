@@ -181,3 +181,20 @@ func TestRejectedHashboardClaimsSurviveSnapshot(t *testing.T) {
 		})
 	}
 }
+
+func TestModuleConfirmationRejectsWhitespaceAliasClaims(t *testing.T) {
+	for _, alias := range []string{"M1 ", "\u00a0M1"} {
+		t.Run(alias, func(t *testing.T) {
+			wire := MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{{ID: 1, Modules: []Module{
+				{ID: 1, Slots: []Slot{{Occupied: true, Hashboard: &Board{MACAddress: "a", ModuleID: "M1"}}, {}, {}}},
+				{ID: 2, Slots: []Slot{{Occupied: true, Hashboard: &Board{MACAddress: "b", ModuleID: alias}}, {}, {}}},
+			}}}}}
+			got, err := snapshot(wire, time.Now())
+			require.NoError(t, err)
+			for _, module := range got.Tanks[0].Modules {
+				require.False(t, module.IdentityConfirmed)
+				require.Empty(t, module.ReportedID)
+			}
+		})
+	}
+}

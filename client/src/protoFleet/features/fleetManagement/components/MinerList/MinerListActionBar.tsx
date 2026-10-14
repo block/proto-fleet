@@ -7,7 +7,7 @@ import type {
   MinerListFilter,
   MinerStateSnapshot,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
-import ModuleActionsMenu from "@/protoFleet/features/containers/ModuleActionsMenu";
+import MiningActionsMenu from "@/protoFleet/features/containers/MiningActionsMenu";
 import FleetListActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar/FleetListActionBar";
 import useActionBarLifecycle from "@/protoFleet/features/fleetManagement/components/ActionBar/useActionBarLifecycle";
 import MinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu";
@@ -96,8 +96,9 @@ const MinerListActionBar = ({
     >
       <div className="flex items-center gap-2">
         {modules.length > 0 ? (
-          <ModuleActionsMenu
-            modules={modules}
+          <MiningActionsMenu
+            kind="module"
+            items={modules}
             presentation="bulk"
             onRefresh={onRefetchMiners}
             onActionStart={onActionStart}

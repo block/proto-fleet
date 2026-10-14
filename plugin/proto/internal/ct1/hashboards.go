@@ -223,11 +223,11 @@ func collectTopologyIdentities(wire MapResponse) topologyIdentities {
 				if selectorSerial != "" && selectorSerial != mac {
 					out.selectors[selectorSerial]++
 				}
-				if strings.TrimSpace(b.ModuleID) != "" {
-					if out.modules[b.ModuleID] == nil {
-						out.modules[b.ModuleID] = map[[2]int32]bool{}
+				if id := strings.TrimSpace(b.ModuleID); id != "" {
+					if out.modules[id] == nil {
+						out.modules[id] = map[[2]int32]bool{}
 					}
-					out.modules[b.ModuleID][location] = true
+					out.modules[id][location] = true
 					if out.moduleClaims[location] == nil {
 						out.moduleClaims[location] = map[string]bool{}
 					}
@@ -242,7 +242,7 @@ func collectTopologyIdentities(wire MapResponse) topologyIdentities {
 // A claim must identify one location, and that location must claim only that ID.
 func (ids topologyIdentities) uniqueModule(tank, module int32, reportedID string) bool {
 	location := [2]int32{tank, module}
-	return reportedID != "" && len(ids.modules[reportedID]) == 1 && ids.modules[reportedID][location] && len(ids.moduleClaims[location]) == 1
+	return reportedID != "" && len(ids.modules[strings.TrimSpace(reportedID)]) == 1 && ids.modules[strings.TrimSpace(reportedID)][location] && len(ids.moduleClaims[location]) == 1
 }
 func boardIdentityKeys(mac, serial string) []string {
 	keys := []string{}
