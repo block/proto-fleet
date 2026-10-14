@@ -76,6 +76,9 @@ func TestContainerSummaryBootstrapAndPolicies(t *testing.T) {
 	require.NoError(t, err)
 
 	r.store(t, r.snapshot(time.Hour, false, 100e12, 200e12))
+	oldTime := r.base.Add(time.Hour)
+	recentTime := time.Now().UTC().Truncate(time.Hour).Add(-2 * time.Hour)
+	r.store(t, r.snapshot(recentTime.Sub(r.base), false, 100e12, 200e12))
 	_, err = r.db.ExecContext(t.Context(), `UPDATE device SET site_id=$2 WHERE id=$1`, r.databaseID, siteB)
 	require.NoError(t, err)
 	for _, direction := range []string{"down", "up"} {
@@ -97,14 +100,16 @@ func TestContainerSummaryBootstrapAndPolicies(t *testing.T) {
 		require.Zero(t, scheduled, "migration-created policies must stay paused while the upgrade fixture is prepared")
 		if direction == "down" {
 			for _, table := range []string{"device_metrics"} {
-				_, err = r.db.ExecContext(t.Context(), `SELECT compress_chunk(chunk,if_not_compressed=>true) FROM show_chunks($1::regclass) chunk`, table)
+				_, err = r.db.ExecContext(t.Context(), `SELECT compress_chunk(chunk,if_not_compressed=>true) FROM show_chunks($1::regclass,older_than=>INTERVAL '1 day') chunk`, table)
 				require.NoError(t, err)
 			}
 		}
 	}
-	var restoredSite int64
-	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT site_id FROM container_module_metrics LIMIT 1`).Scan(&restoredSite))
-	require.Equal(t, siteA, restoredSite, "backfill must use original topology, not current site")
+	for _, sampleTime := range []time.Time{oldTime, recentTime} {
+		var restoredSites bool
+		require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT bool_and(site_id IS NOT DISTINCT FROM $1) FROM container_module_metrics WHERE time=$2`, siteA, sampleTime).Scan(&restoredSites))
+		require.True(t, restoredSites, "backfill must restore every module's original site at %s", sampleTime)
+	}
 	var jobs int
 	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT count(*) FROM timescaledb_information.jobs WHERE proc_name='policy_retention' AND hypertable_name IN ('device_metrics','container_tank_metrics','container_module_metrics')`).Scan(&jobs))
 	require.Zero(t, jobs, "raw retention must wait for backfill")
@@ -122,9 +127,16 @@ func TestContainerSummaryBootstrapAndPolicies(t *testing.T) {
 
 	for _, equipment := range []string{"container", "container_tank", "container_module"} {
 		for _, tier := range []string{"hourly", "daily"} {
+			bucketWidth := map[string]string{"hourly": "1 hour", "daily": "1 day"}[tier]
 			var count int
-			require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT count(*) FROM `+equipment+`_metrics_`+tier).Scan(&count))
-			require.Positive(t, count, "bootstrap preserves existing %s %s", equipment, tier)
+			require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT count(*) FROM `+equipment+`_metrics_`+tier+` WHERE bucket=time_bucket($1::interval,$2::timestamptz)`, bucketWidth, oldTime).Scan(&count))
+			if equipment == "container" {
+				require.Zero(t, count, "compressed device history has no backfilled topology")
+			} else {
+				require.Positive(t, count, "bootstrap preserves 20-day-old %s %s", equipment, tier)
+			}
+			require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT count(*) FROM `+equipment+`_metrics_`+tier+` WHERE bucket=time_bucket($1::interval,$2::timestamptz)`, bucketWidth, recentTime).Scan(&count))
+			require.Positive(t, count, "summaries include recent %s %s", equipment, tier)
 			var retention, refresh bool
 			require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT EXISTS(SELECT 1 FROM timescaledb_information.jobs j JOIN timescaledb_information.continuous_aggregates a ON a.view_name=j.hypertable_name WHERE a.view_name=$1 AND j.proc_name='policy_retention' AND (j.config->>'drop_after')::interval=$2::interval), EXISTS(SELECT 1 FROM timescaledb_information.jobs j JOIN timescaledb_information.continuous_aggregates a ON a.view_name=j.hypertable_name WHERE a.view_name=$1 AND j.proc_name='policy_refresh_continuous_aggregate' AND (j.config->>'start_offset')::interval<INTERVAL '10 days')`, equipment+"_metrics_"+tier, map[string]string{"hourly": "3 months", "daily": "3 years"}[tier]).Scan(&retention, &refresh))
 			require.True(t, retention, equipment+"_metrics_"+tier)

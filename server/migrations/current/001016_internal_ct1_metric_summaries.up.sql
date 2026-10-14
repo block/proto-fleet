@@ -9,7 +9,12 @@ SELECT remove_retention_policy('container_module_metrics', if_exists => true);
 ALTER TABLE device_metrics ADD COLUMN topology_version_id bigint;
 ALTER TABLE container_tank_metrics ADD COLUMN topology_version_id bigint;
 ALTER TABLE container_module_metrics ADD COLUMN topology_version_id bigint, ADD COLUMN site_id bigint;
-UPDATE device_metrics m SET topology_version_id=o.version_id FROM container_topology_observation o WHERE o.id=m.topology_observation_id;
+-- Bound the device backfill to its six-hour compression window.
+-- A join predicate alone can decompress all historical chunks, even when their
+-- observation IDs are NULL, exceeding TimescaleDB's transaction limit (#221).
+-- Older rows retain nullable provenance and their existing raw evidence.
+UPDATE device_metrics m SET topology_version_id=o.version_id FROM container_topology_observation o
+WHERE o.id=m.topology_observation_id AND m.time > now()-INTERVAL '6 hours';
 UPDATE container_tank_metrics m SET topology_version_id=o.version_id FROM container_topology_observation o WHERE o.id=m.topology_observation_id;
 UPDATE container_module_metrics mm SET topology_version_id=o.version_id,
  site_id=CASE WHEN (v.topology#>>'{site,Valid}')::boolean THEN (v.topology#>>'{site,Int64}')::bigint END

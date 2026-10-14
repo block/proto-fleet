@@ -2,6 +2,7 @@
 """Check immutable SQL history and unchanged, ordered shared promotion."""
 
 import argparse
+import hashlib
 import pathlib
 import re
 import subprocess
@@ -11,6 +12,16 @@ MIGRATIONS = "server/migrations/"
 CURRENT = MIGRATIONS + "current/"
 NAME = re.compile(r"([0-9]{6})_(shared|internal)_[a-z0-9_]+\.(up|down)\.sql")
 REQUIRES = re.compile(rb"^-- requires-shared: ([0-9]+)\r?$", re.MULTILINE)
+
+# Issue #221: startup cannot reach a corrective migration after 1016 fails.
+# Permit only the reviewed original -> repaired bytes, never arbitrary edits to
+# this path. Context: https://github.com/btc-mining/proto-fleet-internal/pull/222.
+REPAIRED_MIGRATIONS = {
+    CURRENT + "001016_internal_ct1_metric_summaries.up.sql": (
+        "8268ab02c4d7bcaefe299b13fcf9153edf08ed17664c052547f1e69642d9c63c",
+        "505a166f956ee2c12e4d23b3f3bb6129224c23917db1589e7aa8686b62c94484",
+    ),
+}
 
 
 def git(repo, *args):
@@ -88,7 +99,19 @@ def check(repo, base_ref, public_ref=None, public_only=False):
         local[path.relative_to(repo).as_posix()] = path.read_bytes()
     for path, body in base.items():
         if local.get(path) != body:
-            raise ValueError(f"immutable migration changed, deleted or renamed: {path}")
+            repair = REPAIRED_MIGRATIONS.get(path)
+            if (
+                repair is None
+                or path not in local
+                or (
+                    hashlib.sha256(body).hexdigest(),
+                    hashlib.sha256(local[path]).hexdigest(),
+                )
+                != repair
+            ):
+                raise ValueError(
+                    f"immutable migration changed, deleted or renamed: {path}"
+                )
     for path in local.keys() - base.keys():
         if pathlib.PurePosixPath(path).parent.as_posix() == MIGRATIONS.rstrip("/"):
             raise ValueError(f"new migrations belong in {CURRENT}: {path}")

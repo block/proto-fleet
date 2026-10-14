@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """Exercise migration policy against real, disposable Git histories; no database."""
 
+import hashlib
+import importlib.util
 import pathlib
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 CHECKER = pathlib.Path(__file__).with_name("check-migration-history.py")
 CURRENT = "server/migrations/current/"
+SPEC = importlib.util.spec_from_file_location("migration_history", CHECKER)
+HISTORY = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(HISTORY)
 
 
 class MigrationHistoryTest(unittest.TestCase):
@@ -128,6 +134,51 @@ class MigrationHistoryTest(unittest.TestCase):
         self.base = self.commit()
         self.pair("001004_shared_late")
         self.check(error="high-water")
+
+    def test_repair_exception_requires_exact_path_and_both_revisions(self):
+        name = "001016_internal_ct1_metric_summaries"
+        path = CURRENT + name + ".up.sql"
+        original = "-- requires-shared: 1000\nSELECT 1;\n"
+        repaired = "-- requires-shared: 1000\nSELECT 2;\n"
+        self.pair(name, original)
+        self.base = self.commit()
+        exception = (
+            hashlib.sha256(original.encode()).hexdigest(),
+            hashlib.sha256(repaired.encode()).hexdigest(),
+        )
+        with mock.patch.dict(
+            HISTORY.REPAIRED_MIGRATIONS, {path: exception}, clear=True
+        ):
+            self.write(path, repaired)
+            HISTORY.check(self.repo, self.base)
+            for body in (original + "-- unexpected\n", repaired + "-- unexpected\n"):
+                self.write(path, body)
+                with self.assertRaisesRegex(ValueError, "immutable migration"):
+                    HISTORY.check(self.repo, self.base)
+            self.write(path, repaired)
+            (self.repo / path).unlink()
+            with self.assertRaisesRegex(ValueError, "immutable migration"):
+                HISTORY.check(self.repo, self.base)
+            self.write(path, repaired)
+            down = CURRENT + name + ".down.sql"
+            self.write(down, repaired)
+            with self.assertRaisesRegex(ValueError, "immutable migration"):
+                HISTORY.check(self.repo, self.base)
+            self.write(down, original)
+
+            # A previously repaired base cannot be reverted or edited again.
+            self.base = self.commit()
+            HISTORY.check(self.repo, self.base)
+            self.write(path, original)
+            with self.assertRaisesRegex(ValueError, "immutable migration"):
+                HISTORY.check(self.repo, self.base)
+
+            # The exception cannot replace an unknown earlier revision.
+            self.write(path, original + "-- different history\n")
+            self.base = self.commit()
+            self.write(path, repaired)
+            with self.assertRaisesRegex(ValueError, "immutable migration"):
+                HISTORY.check(self.repo, self.base)
 
     def test_public_shared_sql_must_match_bytes(self):
         self.pair("001002_shared_promoted", "SELECT 2;\n")
