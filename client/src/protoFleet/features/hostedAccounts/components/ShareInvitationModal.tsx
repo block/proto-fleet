@@ -14,21 +14,21 @@ export const ShareInvitationModal = ({ token, onDismiss }: { token: string; onDi
       label="Invitation code"
       value={token}
       onDismiss={onDismiss}
-      description="Share this code once. The recipient opens Fleet at their usual address and selects Join an account. The code expires and can be revoked from Invitations."
+      description="Copy this code now; it won’t be shown again. The recipient enters it in Fleet under Join an account."
     >
       <p className="text-200 text-text-primary-50">
-        The optional link uses {window.location.origin}. It works only if the recipient can reach that address.
+        The link works only if the recipient can reach {window.location.origin}.
       </p>
       <Button
         variant="textOnly"
-        text={copied ? "Link copied" : "Copy invitation link (optional)"}
+        text={copied ? "Link copied" : "Copy link"}
         onClick={() => {
           void copyToClipboard(link.toString()).then(
             () => {
               setCopied(true);
               setError("");
             },
-            () => setError("Copy failed. Share the invitation code instead."),
+            () => setError("Couldn’t copy the link. Share the code instead."),
           );
         }}
       />

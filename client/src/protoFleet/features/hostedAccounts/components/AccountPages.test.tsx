@@ -131,7 +131,7 @@ describe("hosted account pages", () => {
     mount(<AccountPools />, value);
     await user.click(await screen.findByRole("button", { name: "Change selection" }));
     const dialog = screen.getByRole("dialog", { name: "Incoming pool configuration" });
-    await user.click(within(dialog).getByRole("button", { name: "Configuration revision" }));
+    await user.click(within(dialog).getByRole("button", { name: "Revision" }));
     await user.click(await screen.findByRole("option", { name: "New destination · revision 4" }));
     await user.type(within(dialog).getByLabelText("Your Fleet password"), "test-current-password");
     await user.click(within(dialog).getByRole("button", { name: "Confirm selection" }));
@@ -156,7 +156,7 @@ describe("hosted account pages", () => {
     const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
     await user.click(screen.getByRole("button", { name: "Copy invitation code" }));
     expect(copy).toHaveBeenLastCalledWith("x".repeat(43));
-    await user.click(screen.getByRole("button", { name: "Copy invitation link (optional)" }));
+    await user.click(screen.getByRole("button", { name: "Copy link" }));
     expect(copy).toHaveBeenLastCalledWith(`${window.location.origin}/account-invitation#token=${"x".repeat(43)}`);
     expect(client.createInvitation).toHaveBeenCalledWith({
       accountId,
@@ -185,7 +185,7 @@ describe("hosted account pages", () => {
       await screen.findByLabelText("Invitation code");
       await user.click(screen.getByRole("button", { name: "Copy invitation code" }));
       expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: "Copy invitation link (optional)" }));
+      await user.click(screen.getByRole("button", { name: "Copy link" }));
       await screen.findByRole("button", { name: "Link copied" });
       expect(copied).toEqual(["x".repeat(43), `${window.location.origin}/account-invitation#token=${"x".repeat(43)}`]);
       expect(copy).toHaveBeenCalledWith("copy");
@@ -207,9 +207,9 @@ describe("hosted account pages", () => {
       await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create invitation" }));
       await screen.findByLabelText("Invitation code");
       await user.click(screen.getByRole("button", { name: "Copy invitation code" }));
-      await screen.findByText("Copy failed. Select and copy the value above.");
-      await user.click(screen.getByRole("button", { name: "Copy invitation link (optional)" }));
-      await screen.findByText("Copy failed. Share the invitation code instead.");
+      await screen.findByText("Couldn’t copy. Select and copy the value above.");
+      await user.click(screen.getByRole("button", { name: "Copy link" }));
+      await screen.findByText("Couldn’t copy the link. Share the code instead.");
       expect(screen.getByLabelText("Invitation code")).toHaveValue("x".repeat(43));
       expect(document.querySelector("textarea")).toBeNull();
     } finally {
@@ -236,7 +236,7 @@ describe("hosted account pages", () => {
     const user = userEvent.setup(),
       { value, client } = scope(1n);
     mount(<AccountAccess />, value);
-    await user.click(await screen.findByRole("button", { name: "Create account key" }));
+    await user.click(await screen.findByRole("button", { name: "Create API key" }));
     await user.type(screen.getByLabelText("Key name"), "Reporting");
     await user.click(screen.getByRole("button", { name: "Create key" }));
     expect(await screen.findByLabelText("Secret")).toHaveValue("one-time-test-secret");
@@ -288,7 +288,7 @@ describe("hosted account pages", () => {
       await user.clear(within(dialog).getByLabelText("Pool URL"));
       await user.type(within(dialog).getByLabelText("Pool URL"), "stratum+tcp://changed.example:3333");
       expect(within(dialog).getByRole("button", { name: "Save new revision" })).toBeDisabled();
-      await user.click(within(dialog).getByRole("checkbox", { name: "Keep the saved password for this priority" }));
+      await user.click(within(dialog).getByRole("checkbox", { name: "Keep saved password" }));
       if (replacement) await user.type(within(dialog).getByLabelText("Pool password (optional)"), replacement);
       await user.click(within(dialog).getByRole("button", { name: "Save new revision" }));
       await waitFor(() =>
@@ -324,7 +324,7 @@ describe("hosted account pages", () => {
     expect(screen.getByRole("button", { name: "Save new revision" })).toBeDisabled();
     const backup = screen.getByRole("group", { name: "Backup 1" });
     expect(within(backup).getByLabelText("Pool URL")).toHaveValue("stratum+tcp://backup-two.example:3333");
-    await user.click(within(backup).getByRole("checkbox", { name: "Keep the saved password for this priority" }));
+    await user.click(within(backup).getByRole("checkbox", { name: "Keep saved password" }));
     await user.type(within(backup).getByLabelText("Pool password (optional)"), "backup-test-secret");
     await user.click(screen.getByRole("button", { name: "Save new revision" }));
     await waitFor(() =>

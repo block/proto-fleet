@@ -58,10 +58,7 @@ const AccountTeam = () => {
   };
   return (
     <div className="flex flex-col gap-6">
-      <SettingsPageHeader
-        title="Team"
-        description={`Manage memberships and invitations for ${account.name}. Other accounts and global login credentials are unaffected.`}
-      />
+      <SettingsPageHeader title="Team" />
       <TabStrip activeId={tab} onSelect={setTab} ariaLabel="Account team sections">
         <TabStripItem id="members" label="Members" />
         <TabStripItem id="invitations" label="Invitations" />
@@ -131,7 +128,7 @@ const AccountTeam = () => {
             noDataElement={
               <SettingsEmptyState
                 title="No invitations on this page"
-                description="Create a link and share it with the intended recipient."
+                description="Create an invitation and share its code."
               />
             }
           />
@@ -199,7 +196,7 @@ const AccountTeam = () => {
                 <>
                   <Select
                     id="account-invitation-expiry"
-                    label="Link expires after"
+                    label="Expires after"
                     value={expiry}
                     onChange={setExpiry}
                     options={[
@@ -208,15 +205,10 @@ const AccountTeam = () => {
                       { value: "604800", label: "7 days" },
                     ]}
                   />
-                  <p className="text-200 text-text-primary-50">
-                    A single-use code is shown once for manual sharing. The recipient uses a Fleet username; email is
-                    not required.
-                  </p>
+                  <p className="text-200 text-text-primary-50">You’ll receive a single-use invitation code to share.</p>
                 </>
               ) : (
-                <p>
-                  Change {action.member!.username}’s role in this account. The server preserves administrator coverage.
-                </p>
+                <p>Change {action.member!.username}’s role in this account.</p>
               )}
             </>
           ) : action.kind === "remove" ? (

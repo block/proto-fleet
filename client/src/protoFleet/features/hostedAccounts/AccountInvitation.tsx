@@ -103,7 +103,7 @@ const InvitationDetails = ({ token, onChangeCode }: { token: string; onChangeCod
           <Header
             title={`Join ${query.data.accountName}`}
             titleSize="text-heading-300"
-            description={`You’re invited as a ${roleLabel(query.data.role)}. One Fleet login can belong to multiple accounts.`}
+            description={`You’re invited as a ${roleLabel(query.data.role)}.`}
           />
           {authenticated && !needsPasswordChange ? (
             <>
@@ -204,11 +204,7 @@ const AccountInvitation = () => {
           )
         ) : (
           <>
-            <Header
-              title="Join an account"
-              titleSize="text-heading-300"
-              description="Enter the invitation code shared by your account administrator."
-            />
+            <Header title="Join an account" titleSize="text-heading-300" description="Enter your invitation code." />
             <Input
               id="invitation-code"
               label="Invitation code"

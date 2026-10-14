@@ -63,7 +63,7 @@ export const PoolRevisionEditor = ({
         onDismiss();
       }}
     >
-      <Input id="hosted-pool-name" label="Configuration name" initValue={name} onChange={setName} maxLength={255} />
+      <Input id="hosted-pool-name" label="Name" initValue={name} onChange={setName} maxLength={255} />
       {slots.map((slot, i) => (
         <div
           key={i}
@@ -121,14 +121,14 @@ export const PoolRevisionEditor = ({
                 checked={slot.preservePassword}
                 onChange={(e) => update(i, { preservePassword: e.target.checked })}
               />
-              Keep the saved password for this priority
+              Keep saved password
             </label>
           ) : null}
           {slot.preservePassword ? (
             <p className="text-200 text-text-primary-50">
               {canPreservePassword(slot, original, i)
-                ? "The saved password is retained without being displayed."
-                : "The destination or payout username changed. Uncheck password retention to enter a replacement or explicitly clear it."}
+                ? "The saved password stays hidden."
+                : "The URL or username changed. Uncheck Keep saved password to replace or clear it."}
             </p>
           ) : (
             <>
@@ -141,7 +141,7 @@ export const PoolRevisionEditor = ({
                 autoComplete="new-password"
                 maxLength={255}
               />
-              <p className="text-200 text-text-primary-50">Leave empty to save no password at this priority.</p>
+              <p className="text-200 text-text-primary-50">Leave blank for no password.</p>
             </>
           )}
         </div>
@@ -153,11 +153,11 @@ export const PoolRevisionEditor = ({
           onClick={() => setSlots((items) => [...items, blankSlot()])}
         />
       ) : null}
-      <p className="text-200 text-text-primary-50">
-        {original
-          ? "Saving creates an immutable revision. The incoming profile and currently applied miner pools stay unchanged."
-          : "Saved configurations are immediately usable. No host approval is required."}
-      </p>
+      {original ? (
+        <p className="text-200 text-text-primary-50">
+          Saving creates a revision. Existing miner pools and the incoming selection stay unchanged.
+        </p>
+      ) : null}
     </ActionModal>
   );
 };

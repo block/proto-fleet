@@ -16,10 +16,7 @@ const AccountDirectory = () => {
     <AccountLayout items={[{ path: "/accounts", label: "Home", icon: Home, exact: true }]} roleLabel="Accounts">
       <div className="flex flex-col gap-6 p-10 phone:p-6">
         <div className="flex items-start justify-between gap-4 phone:flex-col">
-          <SettingsPageHeader
-            title="Accounts"
-            description="Open an account workspace to manage its team, pool configurations and delegated access."
-          />
+          <SettingsPageHeader title="Accounts" />
           <Button variant="secondary" text="Join an account" to="/account-invitation" />
         </div>
         <AccountState loading={directory.loading} error={directory.error} retry={directory.refresh} />
@@ -57,10 +54,7 @@ const AccountDirectory = () => {
               status: { width: "min-w-28", component: (account) => (account.suspended ? "Suspended" : "Active") },
             }}
             noDataElement={
-              <SettingsEmptyState
-                title="No account workspaces available"
-                description="Ask an account administrator to share an invitation code."
-              />
+              <SettingsEmptyState title="No accounts" description="Ask an administrator for an invitation code." />
             }
             total={directory.accounts.length}
             itemName={{ singular: "account", plural: "accounts" }}

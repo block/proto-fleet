@@ -38,10 +38,7 @@ const AccountChildren = () => {
   };
   return (
     <div className="flex flex-col gap-6">
-      <SettingsPageHeader
-        title={account.depth === 0 ? "Customers" : "Subclients"}
-        description="Create child accounts and bound their permissions. Parent control does not automatically grant access to their private data."
-      />
+      <SettingsPageHeader title={account.depth === 0 ? "Customers" : "Subclients"} />
       <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
       {query.data ? (
         <List<Account, string, "name" | "status" | "permissions">
@@ -49,7 +46,7 @@ const AccountChildren = () => {
           itemKey="accountId"
           itemSelectable={false}
           activeCols={["name", "status", "permissions"]}
-          colTitles={{ name: "Account", status: "Status", permissions: "Allowed permissions" }}
+          colTitles={{ name: "Account", status: "Status", permissions: "Permissions" }}
           colConfig={{
             name: {
               width: "min-w-48",
@@ -116,21 +113,19 @@ const AccountChildren = () => {
             <>
               <Input id="new-account-name" label="Account name" initValue={name} onChange={setName} maxLength={255} />
               <p className="text-200 text-text-primary-50">
-                Your login becomes the first administrator. Invite the customer’s team from the new workspace.
+                You’ll be the first administrator. You can then invite the team.
               </p>
             </>
           ) : null}
           <CapabilityFields value={ceiling} allowed={allowed} required={required} onChange={setCeiling} />
-          <p className="text-200 text-text-primary-50">
-            Viewing and membership administration are required so the account can manage access and recover.
-          </p>
+          <p className="text-200 text-text-primary-50">Viewing data and managing the team are required.</p>
           {editing !== "new" ? (
             <label className="flex items-start gap-3">
               <Checkbox checked={suspended} onChange={(e) => setSuspended(e.target.checked)} />
               <span>
-                Suspend account access
+                Suspend account
                 <p className="text-200 text-text-primary-50">
-                  Blocks the account and its descendants. Mining destinations stay unchanged.
+                  Blocks this account and its subclients. Miner pools stay unchanged.
                 </p>
               </span>
             </label>

@@ -57,10 +57,7 @@ const AccountPools = () => {
     change = can(account, 4n);
   return (
     <div className="flex flex-col gap-6">
-      <SettingsPageHeader
-        title="Pool configurations"
-        description={`Destinations belong to ${account.name}. Create usable revisions without host approval.`}
-      />
+      <SettingsPageHeader title="Pool configurations" />
       <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
       {query.data ? (
         <>
@@ -68,9 +65,7 @@ const AccountPools = () => {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-heading-200 text-text-primary">Incoming miners</h2>
-                <p className="mt-1 text-300 text-text-primary-70">
-                  Select the exact configuration revision used for incoming assignments.
-                </p>
+                <p className="mt-1 text-300 text-text-primary-70">Pools for newly assigned miners.</p>
               </div>
               {change ? (
                 <Button
@@ -97,9 +92,7 @@ const AccountPools = () => {
                 <span className="text-text-primary-50">Not selected</span>
               )}
             </Row>
-            <p className="text-200 text-text-primary-50">
-              Changing or clearing this selection does not change pools already applied to miners.
-            </p>
+            <p className="text-200 text-text-primary-50">Existing miner pools stay unchanged.</p>
           </div>
           <List<PoolRevision, string, "name" | "number" | "primary" | "backups">
             items={query.data.configurations}
@@ -109,7 +102,7 @@ const AccountPools = () => {
             colTitles={{
               name: "Configuration",
               number: "Revision",
-              primary: "Primary destination",
+              primary: "Primary pool",
               backups: "Backups",
             }}
             colConfig={{
@@ -184,7 +177,7 @@ const AccountPools = () => {
                 </Row>
                 <Row>Payout username: {slot.username}</Row>
                 <Row>Worker suffix: {slot.workerTemplate || "None"}</Row>
-                <Row>{slot.hasPassword ? "Password saved; never returned" : "No password"}</Row>
+                <Row>{slot.hasPassword ? "Password saved" : "No password"}</Row>
               </div>
             ))}
           </div>
@@ -231,7 +224,7 @@ const AccountPools = () => {
         >
           <Select
             id="hosted-incoming-revision"
-            label="Configuration revision"
+            label="Revision"
             value={revisionId}
             onChange={setRevisionId}
             disabled={clear}
@@ -242,7 +235,7 @@ const AccountPools = () => {
           />
           <label className="flex items-center gap-3">
             <Checkbox checked={clear} onChange={(event) => setClear(event.target.checked)} />
-            Clear incoming selection
+            Clear selection
           </label>
           <Input
             id="hosted-profile-password"

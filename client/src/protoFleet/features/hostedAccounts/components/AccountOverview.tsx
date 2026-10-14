@@ -14,10 +14,7 @@ const AccountOverview = ({ onRenamed }: { onRenamed: () => void }) => {
   const [name, setName] = useState(account.name);
   return (
     <div className="flex flex-col gap-6">
-      <SettingsPageHeader
-        title={account.name}
-        description="Account permissions govern pool configuration, team access and delegation. Physical fleet operations remain with the host."
-      />
+      <SettingsPageHeader title={account.name} />
       <div>
         <Row className="flex items-center justify-between gap-4">
           Your access
@@ -26,11 +23,11 @@ const AccountOverview = ({ onRenamed }: { onRenamed: () => void }) => {
           </span>
         </Row>
         <Row className="flex items-center justify-between gap-4">
-          Account status<span className="ml-auto">{account.suspended ? "Suspended" : "Active"}</span>
+          Status<span className="ml-auto">{account.suspended ? "Suspended" : "Active"}</span>
         </Row>
       </div>
       <div>
-        <div className="mb-3 text-heading-200 text-text-primary">Effective permissions</div>
+        <div className="mb-3 text-heading-200 text-text-primary">Permissions</div>
         {capabilities
           .filter((c) => can(account, c.value))
           .map((c) => (
@@ -59,9 +56,6 @@ const AccountOverview = ({ onRenamed }: { onRenamed: () => void }) => {
           }}
         >
           <Input id="hosted-account-name" label="Account name" initValue={name} onChange={setName} maxLength={255} />
-          <p className="text-200 text-text-primary-50">
-            Renaming changes the display label. Login usernames and account access stay the same.
-          </p>
         </ActionModal>
       ) : null}
     </div>

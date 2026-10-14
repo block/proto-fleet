@@ -23,7 +23,7 @@ const AccountPicker = () => {
         variant="textOnly"
         textColor="text-text-primary"
         borderColor="border-border-primary"
-        text={selected?.name ?? (directory.hostAccess ? "Host workspace" : "Accounts")}
+        text={selected?.name ?? (directory.hostAccess ? "Fleet" : "Accounts")}
         suffixIcon={<ChevronDown width="w-3" />}
         textOnlyUnderlineOnHover={false}
         onClick={() => setOpen(true)}
@@ -34,8 +34,8 @@ const AccountPicker = () => {
       />
       <Modal
         open={open}
-        title="Switch workspace"
-        dialogLabel="Switch workspace"
+        title="Switch account"
+        dialogLabel="Switch account"
         onDismiss={() => setOpen(false)}
         manageFocus
       >
@@ -50,9 +50,7 @@ const AccountPicker = () => {
                   navigate("/dashboard");
                 }}
               />
-              <div>
-                Host workspace<div className="text-200 text-text-primary-50">Physical fleet operations</div>
-              </div>
+              <div>Fleet</div>
             </label>
           ) : null}
           {directory.accounts.map((account) => (
@@ -75,7 +73,7 @@ const AccountPicker = () => {
                   {account.suspended
                     ? "Suspended"
                     : account.depth === 0
-                      ? "Hosted account administration"
+                      ? "Customer administration"
                       : roleLabel(account.role)}
                 </div>
               </div>

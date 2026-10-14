@@ -109,7 +109,7 @@ describe("real account workspace routing", () => {
     );
     const user = userEvent.setup();
     mount(account, "access");
-    await user.click(await screen.findByRole("button", { name: "Create account key" }));
+    await user.click(await screen.findByRole("button", { name: "Create API key" }));
     await user.type(screen.getByLabelText("Key name"), "Reporting");
     await user.click(screen.getByRole("button", { name: "Create key" }));
     expect(await screen.findByLabelText("Secret")).toHaveValue("one-time-key");
@@ -182,7 +182,7 @@ describe("real account workspace routing", () => {
     );
     const user = userEvent.setup();
     mount(create(AccountSchema, { accountId, depth: 1 }), "access");
-    await user.click(await screen.findByRole("button", { name: "Create account key" }));
+    await user.click(await screen.findByRole("button", { name: "Create API key" }));
     await user.type(screen.getByLabelText("Key name"), "Reporting");
     await user.click(screen.getByRole("button", { name: "Create key" }));
     await screen.findByLabelText("Secret");
@@ -190,6 +190,6 @@ describe("real account workspace routing", () => {
       useFleetStore.setState({ auth: { ...initialAuth, sessionGeneration: initialAuth.sessionGeneration + 1 } }),
     );
     expect(screen.queryByLabelText("Secret")).not.toBeInTheDocument();
-    await screen.findByRole("button", { name: "Create account key" });
+    await screen.findByRole("button", { name: "Create API key" });
   });
 });

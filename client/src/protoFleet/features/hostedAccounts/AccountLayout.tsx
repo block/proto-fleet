@@ -28,9 +28,6 @@ export const AccountLayout = ({
         </div>
         {navigationToggle}
         <AccountPicker />
-        <div className="ml-auto text-200 text-text-primary-50 phone:hidden">
-          Account settings · across permitted sites
-        </div>
       </div>
     )}
   >

@@ -43,7 +43,7 @@ export const SecretModal = ({
                 setCopied(true);
                 setError("");
               },
-              () => setError("Copy failed. Select and copy the value above."),
+              () => setError("Couldn’t copy. Select and copy the value above."),
             );
           }}
         />

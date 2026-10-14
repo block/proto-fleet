@@ -60,16 +60,11 @@ const AccountAccess = () => {
     directory?.accounts.filter((a) => a.parentAccountId === account.accountId && can(a, 1n)) ?? [];
   return (
     <div className="flex flex-col gap-6">
-      <SettingsPageHeader
-        title="Account access"
-        description="Control account credentials and explicit ancestor permissions."
-      />
+      <SettingsPageHeader title="Access" />
       {can(account, 8n) && account.depth > 0 ? (
         <section className="flex flex-col gap-4">
           <h2 className="text-heading-200 text-text-primary">Ancestor access</h2>
-          <p className="text-300 text-text-primary-70">
-            Physical hosting does not automatically grant private account access or pool overrides.
-          </p>
+          <p className="text-300 text-text-primary-70">Hosting alone doesn’t grant account access.</p>
           <AccountState loading={grants.loading} error={grants.error} retry={grants.refresh} />
           {grants.data ? (
             <List<AncestorGrant, string, "ancestor" | "permissions">
@@ -112,10 +107,7 @@ const AccountAccess = () => {
       {account.depth > 0 ? (
         <section className="flex flex-col gap-4">
           <h2 className="text-heading-200 text-text-primary">API keys</h2>
-          <p className="text-300 text-text-primary-70">
-            Keys remain bounded by the issuer’s current account permissions. Future subclients are excluded unless
-            explicitly included.
-          </p>
+          <p className="text-300 text-text-primary-70">Keys are limited by their issuer’s permissions.</p>
           <AccountState loading={keys.loading} error={keys.error} retry={keys.refresh} />
           {keys.data ? (
             <>
@@ -124,7 +116,7 @@ const AccountAccess = () => {
                 itemKey="keyId"
                 itemSelectable={false}
                 activeCols={["name", "prefix", "issuer", "scope", "expires"]}
-                colTitles={{ name: "Name", prefix: "Prefix", issuer: "Issued by", scope: "Bounds", expires: "Expires" }}
+                colTitles={{ name: "Name", prefix: "Prefix", issuer: "Issued by", scope: "Access", expires: "Expires" }}
                 colConfig={{
                   name: { width: "min-w-32" },
                   prefix: { width: "min-w-28" },
@@ -133,7 +125,7 @@ const AccountAccess = () => {
                     width: "min-w-40",
                     component: (key) =>
                       key.includeFutureDescendants
-                        ? "Current and future direct subclients"
+                        ? "Current and future subclients"
                         : key.descendantAccountIds.length
                           ? `${key.descendantAccountIds.length} selected subclients`
                           : "This account only",
@@ -146,7 +138,7 @@ const AccountAccess = () => {
                 headerControls={
                   <Button
                     variant="primary"
-                    text="Create account key"
+                    text="Create API key"
                     onClick={() => {
                       setName("");
                       setKeyCapabilities(1n);
@@ -175,7 +167,7 @@ const AccountAccess = () => {
       ) : null}
       {keyModal ? (
         <ActionModal
-          title="Create account API key"
+          title="Create API key"
           confirm="Create key"
           valid={!!name.trim()}
           onDismiss={() => setKeyModal(false)}
@@ -219,7 +211,7 @@ const AccountAccess = () => {
           />
           {account.depth < 2 ? (
             <>
-              <p className="text-heading-100">Include permitted direct subclients</p>
+              <p className="text-heading-100">Subclients</p>
               {eligibleChildren.map((child) => (
                 <label key={child.accountId} className="flex items-center gap-3">
                   <Checkbox
@@ -236,10 +228,8 @@ const AccountAccess = () => {
               <label className="flex items-start gap-3">
                 <Checkbox checked={future} onChange={(e) => setFuture(e.target.checked)} />
                 <span>
-                  Include all current and future direct subclients
-                  <p className="text-200 text-text-primary-50">
-                    Each subclient still requires live issuer access. Creating this key does not grant that access.
-                  </p>
+                  Include all current and future subclients
+                  <p className="text-200 text-text-primary-50">The key only works for subclients you can access.</p>
                 </span>
               </label>
             </>
@@ -248,16 +238,16 @@ const AccountAccess = () => {
       ) : null}
       {secret ? (
         <SecretModal
-          title="Account key created"
+          title="API key created"
           label="Secret"
           value={secret}
-          description="Copy this secret now. It is shown once and cannot be retrieved later."
+          description="Copy this secret now. You won’t see it again."
           onDismiss={() => setSecret(null)}
         />
       ) : null}
       {revoking ? (
         <ActionModal
-          title="Revoke account key"
+          title="Revoke API key"
           confirm="Revoke key"
           onDismiss={() => setRevoking(null)}
           onSubmit={async () => {
