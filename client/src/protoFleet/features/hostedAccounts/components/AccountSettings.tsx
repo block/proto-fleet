@@ -14,7 +14,23 @@ const AccountSettings = ({ onRenamed }: { onRenamed: () => void }) => {
   const [name, setName] = useState(account.name);
   return (
     <div className="flex flex-col gap-6">
-      <SettingsPageHeader title="Settings" />
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0 flex-1 break-words">
+          <SettingsPageHeader title={account.name} />
+        </div>
+        {can(account, 8n) ? (
+          <Button
+            variant="secondary"
+            className="shrink-0"
+            text="Rename"
+            ariaLabel="Rename account"
+            onClick={() => {
+              setName(account.name);
+              setRenaming(true);
+            }}
+          />
+        ) : null}
+      </div>
       <div>
         <Row className="flex items-center justify-between gap-4">
           Your access
@@ -34,17 +50,6 @@ const AccountSettings = ({ onRenamed }: { onRenamed: () => void }) => {
             <Row key={String(c.value)}>{c.label}</Row>
           ))}
       </div>
-      {can(account, 8n) ? (
-        <Button
-          variant="secondary"
-          className="self-start"
-          text="Rename account"
-          onClick={() => {
-            setName(account.name);
-            setRenaming(true);
-          }}
-        />
-      ) : null}
       {renaming ? (
         <ActionModal
           title="Rename account"
