@@ -509,7 +509,48 @@ describe("MdkV2Adapter", () => {
       expect.objectContaining({ id: "pool:1", url: "stratum+tcp://primary", status: "Active" }),
     ]);
     expect(listPools).toHaveBeenCalledWith({ headers: { "X-Frigate-Actor": "proto-os" } });
-    expect(getPoolDiagnostics).toHaveBeenCalledWith({ headers: { "X-Frigate-Actor": "proto-os" } });
+    expect(getPoolDiagnostics).toHaveBeenCalledWith({}, { headers: { "X-Frigate-Actor": "proto-os" } });
+  });
+
+  test("requests retained pool results only through the opt-in method and keeps exact pool IDs", async () => {
+    const getPoolDiagnostics = vi.fn().mockResolvedValue({
+      data: {
+        lastRecordedShares: [
+          {
+            poolId: "9007199254740993",
+            resultAt: "2026-09-29T02:00:00Z",
+            accepted: false,
+            assignedDifficulty: "9007199254740993",
+            rejectReason: "stale_job",
+          },
+          { poolId: "2", resultAt: "2026-09-29T02:01:00Z", accepted: false, rejectReason: "submit_error" },
+        ],
+      },
+    });
+    const adapter = new MdkV2Adapter(client({ poolServiceGetPoolDiagnostics: getPoolDiagnostics }));
+
+    await expect(adapter.getPoolRecordedShares()).resolves.toEqual({
+      "pool:9007199254740993": {
+        resultAtMs: Date.parse("2026-09-29T02:00:00Z"),
+        assignedDifficulty: "9007199254740993",
+        outcome: "rejected",
+      },
+      "pool:2": {
+        resultAtMs: Date.parse("2026-09-29T02:01:00Z"),
+        assignedDifficulty: undefined,
+        outcome: "submitError",
+      },
+    });
+    expect(getPoolDiagnostics).toHaveBeenCalledWith(
+      { includeLastRecordedShares: true },
+      { headers: { "X-Frigate-Actor": "proto-os" } },
+    );
+    getPoolDiagnostics.mockResolvedValueOnce({ data: {} });
+    await expect(adapter.getPoolRecordedShares()).resolves.toEqual({});
+    getPoolDiagnostics.mockRejectedValueOnce({ status: 400 });
+    await expect(adapter.getPoolRecordedShares()).resolves.toEqual({});
+    getPoolDiagnostics.mockRejectedValueOnce({ status: 503 });
+    await expect(adapter.getPoolRecordedShares()).rejects.toMatchObject({ status: 503 });
   });
 
   test("does not fetch the container map for miner-only telemetry", async () => {

@@ -40,6 +40,30 @@ describe("Pools statistics view", () => {
     expect(screen.getByRole("img")).toHaveAccessibleName("Share proportions unavailable");
   });
 
+  it("shows the recorded result time, outcome, and assigned target difficulty", () => {
+    const resultAtMs = Date.parse("2026-09-29T02:00:00Z");
+    render(
+      <MemoryRouter>
+        <PoolStatisticsView
+          pools={[{ ...pool, lastShareAtMs: resultAtMs, lastAssignedDifficulty: "2048", lastShareOutcome: "rejected" }]}
+          duration="24h"
+          onDurationChange={vi.fn()}
+          configureHref="/settings/mining-pools"
+        />
+      </MemoryRouter>,
+    );
+    const section = screen.getByRole("region", { name: "Primary" });
+    expect(within(section).getByRole("heading", { name: "Last result time" })).toBeInTheDocument();
+    expect(
+      within(section).getByText(
+        new Date(resultAtMs).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" }),
+      ),
+    ).toBeInTheDocument();
+    expect(within(section).getAllByText("Rejected")).toHaveLength(3);
+    expect(within(section).getByRole("heading", { name: "Last assigned difficulty" })).toBeInTheDocument();
+    expect(within(section).getByText("2K")).toBeInTheDocument();
+  });
+
   it("changes ranges and exposes partial data and errors", () => {
     const change = vi.fn();
     render(

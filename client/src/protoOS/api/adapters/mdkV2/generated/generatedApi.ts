@@ -192,6 +192,14 @@ export interface PoolServiceDeletePoolParams {
   id: string;
 }
 
+export interface PoolServiceGetPoolDiagnosticsParams {
+  /**
+   * Opt in to a bounded share-log lookup. The default false preserves the
+   * database cost of existing high-frequency diagnostics consumers.
+   */
+  includeLastRecordedShares?: boolean;
+}
+
 export interface PoolServiceGetPoolParams {
   /** @format int64 */
   id: string;
@@ -2079,6 +2087,13 @@ export interface V2GetPoolDiagnosticsResponse {
    * @format int64
    */
   activePoolId?: string;
+  /**
+   * Populated only when requested. Includes configured disabled pools with a
+   * retained result even though they have no live PoolConnectionDiagnostics.
+   * Empty means no result within the last 30 days, or an older server that
+   * does not support this opt-in field.
+   */
+  lastRecordedShares?: V2PoolRecordedShareResult[];
   pools?: V2PoolConnectionDiagnostics[];
   weightedMode?: boolean;
 }
@@ -3848,6 +3863,29 @@ export interface V2PoolConnectionDiagnostics {
    * @format uint64
    */
   sessionId?: string;
+}
+
+/**
+ * PoolRecordedShareResult is the latest retained result for one configured
+ * pool. The timestamp is recorded after the pool submission returns, not when
+ * submission began. The difficulty is the assigned work target, not the
+ * difficulty achieved by the submitted nonce. Rejected and failed submissions
+ * are included. Missing optional values reflect legacy rows with no outcome or
+ * target difficulty.
+ */
+export interface V2PoolRecordedShareResult {
+  accepted?: boolean;
+  /** @format int64 */
+  assignedDifficulty?: string;
+  /** @format int64 */
+  poolId?: string;
+  /**
+   * reject_reason is empty for accepted shares or older rows without a reason.
+   * "submit_error" identifies a transport/submit failure.
+   */
+  rejectReason?: string;
+  /** @format date-time */
+  resultAt?: string;
 }
 
 /** PowerFeed contains one container power feed and optional telemetry. */
@@ -6922,10 +6960,14 @@ export class Api<
      * @summary GetPoolDiagnostics returns per-configured-enabled-pool runtime connection diagnostics reflecting this node's live pool connections. The manager tracks only enabled pools (SetPools filters to enabled), so disabled pools are not included.
      * @request GET:/api/v2/pools/diagnostics
      */
-    poolServiceGetPoolDiagnostics: (params: RequestParams = {}) =>
+    poolServiceGetPoolDiagnostics: (
+      query: PoolServiceGetPoolDiagnosticsParams = {},
+      params: RequestParams = {},
+    ) =>
       this.request<V2GetPoolDiagnosticsResponse, RpcStatus>({
         path: `/api/v2/pools/diagnostics`,
         method: "GET",
+        query: query,
         format: "json",
         ...params,
       }),

@@ -6,7 +6,13 @@ import { usePoolsInfo as useFetchPoolsInfo } from "@/protoOS/api/hooks/usePoolsI
 import { asPoolId } from "@/protoOS/store/contract";
 import useMinerStore from "@/protoOS/store/useMinerStore";
 
-const mocks = vi.hoisted(() => ({ adapter: { getPools: vi.fn(), getPoolHistory: vi.fn() } }));
+const mocks = vi.hoisted(() => ({
+  adapter: {
+    getPools: vi.fn(),
+    getPoolHistory: vi.fn(),
+    getPoolRecordedShares: undefined as ReturnType<typeof vi.fn> | undefined,
+  },
+}));
 vi.mock("@/protoOS/contexts/MinerHostingContext", () => ({
   useMinerHosting: () => ({ adapter: mocks.adapter, isFleetHosted: true }),
 }));
@@ -27,10 +33,32 @@ describe("pool statistics lifecycle", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-16T12:00:00Z"));
     vi.resetAllMocks();
+    mocks.adapter.getPoolRecordedShares = undefined;
     useMinerStore.getState().resetDeviceData();
     useMinerStore.getState().pools.setPoolsInfo([{ id: asPoolId("pool:1"), name: "Primary", priority: 0 }]);
   });
   afterEach(() => vi.useRealTimers());
+
+  it("fetches last recorded shares only while Pools is open, separate from the shell pool poll", async () => {
+    mocks.adapter.getPoolHistory.mockResolvedValue(history(10));
+    const getRecorded = vi.fn().mockResolvedValue({
+      [asPoolId("pool:1")]: {
+        resultAtMs: Date.parse("2026-09-29T02:00:00Z"),
+        assignedDifficulty: "2048",
+        outcome: "accepted",
+      },
+    });
+    mocks.adapter.getPoolRecordedShares = getRecorded;
+    const { result, unmount } = renderHook(() => usePoolStatistics("24h"));
+    await act(async () => {});
+
+    expect(getRecorded).toHaveBeenCalledTimes(1);
+    expect(mocks.adapter.getPools).not.toHaveBeenCalled();
+    expect(result.current.pools?.[0]).toMatchObject({ lastAssignedDifficulty: "2048", lastShareOutcome: "accepted" });
+    unmount();
+    await act(() => vi.advanceTimersByTimeAsync(60_000));
+    expect(getRecorded).toHaveBeenCalledTimes(1);
+  });
 
   it("exposes initial shared pool-fetch failure and recovers on the shell poll", async () => {
     useMinerStore.getState().resetDeviceData();
@@ -149,7 +177,11 @@ describe("pool statistics lifecycle", () => {
     expect(firstSignal.aborted).toBe(true);
     expect(mocks.adapter.getPoolHistory.mock.calls[1][0].poolIds).toEqual(["pool:2"]);
     const secondSignal = mocks.adapter.getPoolHistory.mock.calls[1][1].signal;
-    mocks.adapter = { getPools: vi.fn(), getPoolHistory: vi.fn().mockResolvedValue(history(99)) };
+    mocks.adapter = {
+      getPools: vi.fn(),
+      getPoolHistory: vi.fn().mockResolvedValue(history(99)),
+      getPoolRecordedShares: undefined,
+    };
     act(() => useMinerStore.getState().resetDeviceData());
     rerender();
     expect(secondSignal.aborted).toBe(true);

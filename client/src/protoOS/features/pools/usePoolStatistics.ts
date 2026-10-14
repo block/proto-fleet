@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { PoolHistoryResult } from "@/protoOS/api/adapters/poolHistory";
+import type { PoolHistoryResult, PoolRecordedShares } from "@/protoOS/api/adapters/poolHistory";
 import { useMinerHosting } from "@/protoOS/contexts/MinerHostingContext";
 import { useAuthRetry } from "@/protoOS/store/hooks/useAuthRetry";
 import { usePoolsInfo, usePoolsInfoResource } from "@/protoOS/store/hooks/usePools";
@@ -24,6 +24,12 @@ interface Snapshot {
   error?: string;
 }
 
+interface RecordedShareSnapshot {
+  selection: Pick<Selection, "adapter" | "poolIdsKey">;
+  byPool?: PoolRecordedShares;
+  error?: string;
+}
+
 export function usePoolStatistics(duration: PoolDuration) {
   const { adapter } = useMinerHosting();
   // AuthenticatedShell owns pool configuration/diagnostics polling. Read its
@@ -34,6 +40,8 @@ export function usePoolStatistics(duration: PoolDuration) {
   const poolIdsKey = pools === undefined ? undefined : JSON.stringify(pools.map(({ id }) => id).sort());
   const params = useMemo(() => ({ adapter, duration, poolIdsKey }), [adapter, duration, poolIdsKey]);
   const [snapshot, setSnapshot] = useState<Snapshot>();
+  const shareParams = useMemo(() => ({ adapter, poolIdsKey }), [adapter, poolIdsKey]);
+  const [recordedShares, setRecordedShares] = useState<RecordedShareSnapshot>();
   usePoll({
     params,
     enabled: Boolean(adapter) && pools !== undefined,
@@ -79,7 +87,34 @@ export function usePoolStatistics(duration: PoolDuration) {
       });
     },
   });
+  // Share results are queried only while this page is mounted. The global
+  // 15-second pool poll keeps using the unmodified, low-cost diagnostics call.
+  usePoll({
+    params: shareParams,
+    enabled: Boolean(adapter?.getPoolRecordedShares) && pools !== undefined,
+    poll: true,
+    pollIntervalMs: 30_000,
+    fetchData: async (signal) => {
+      if (!adapter?.getPoolRecordedShares || !pools) return;
+      await authRetry({
+        signal,
+        request: (options) => adapter.getPoolRecordedShares!(options),
+        onSuccess: (byPool) => {
+          if (!signal.aborted) setRecordedShares({ selection: shareParams, byPool });
+        },
+        onError: () => {
+          if (!signal.aborted)
+            setRecordedShares((previous) => ({
+              selection: shareParams,
+              byPool: previous?.selection === shareParams ? previous.byPool : undefined,
+              error: "Could not refresh last recorded share results. Displayed values may be out of date.",
+            }));
+        },
+      });
+    },
+  });
   const current = snapshot?.selection === params ? snapshot : undefined;
+  const currentShares = recordedShares?.selection === shareParams ? recordedShares : undefined;
   const poolsError =
     poolsResource?.status === "error"
       ? pools === undefined
@@ -87,9 +122,24 @@ export function usePoolStatistics(duration: PoolDuration) {
         : "Could not refresh pool information. Displayed pool details may be out of date."
       : undefined;
   return {
-    pools: adapter ? pools : undefined,
+    pools:
+      adapter && currentShares?.byPool
+        ? pools?.map((pool) => {
+            const share = currentShares.byPool?.[pool.id];
+            return share
+              ? {
+                  ...pool,
+                  lastShareAtMs: share.resultAtMs,
+                  lastAssignedDifficulty: share.assignedDifficulty,
+                  lastShareOutcome: share.outcome,
+                }
+              : pool;
+          })
+        : adapter
+          ? pools
+          : undefined,
     history: current?.history,
     pending: pools === undefined ? !poolsError : (current?.pending ?? true),
-    error: [poolsError, current?.error].filter(Boolean).join(" ") || undefined,
+    error: [poolsError, current?.error, currentShares?.error].filter(Boolean).join(" ") || undefined,
   };
 }

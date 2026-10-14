@@ -1,3 +1,4 @@
+import type { PoolRecordedShares } from "../poolHistory";
 import type { AsicTelemetrySample, HashboardStatus } from "../types";
 import type {
   V2GetContainerHealthResponse,
@@ -264,6 +265,28 @@ export const toCanonicalPools = (
       difficulty: pool.id === undefined ? undefined : diagnosticsById.get(pool.id)?.currentDifficulty,
     }))
     .sort((left, right) => left.priority - right.priority);
+};
+
+/** An absent result is unavailable, including when an older Frigate ignores the opt-in query. */
+export const toCanonicalPoolRecordedShares = (wire: V2GetPoolDiagnosticsResponse): PoolRecordedShares => {
+  const byPool: PoolRecordedShares = {};
+  for (const result of wire.lastRecordedShares ?? []) {
+    if (!result.poolId) continue;
+    const resultAtMs = result.resultAt ? Date.parse(result.resultAt) : NaN;
+    byPool[asPoolId(`pool:${result.poolId}`)] = {
+      resultAtMs: Number.isFinite(resultAtMs) ? resultAtMs : undefined,
+      assignedDifficulty: result.assignedDifficulty,
+      outcome:
+        result.accepted === true
+          ? "accepted"
+          : result.rejectReason === "submit_error"
+            ? "submitError"
+            : result.accepted === false
+              ? "rejected"
+              : "unknown",
+    };
+  }
+  return byPool;
 };
 
 type BoardEntry = {
