@@ -84,7 +84,7 @@ describe("account directory and host workspace isolation", () => {
                 </HostWorkspaceGate>
               }
             />
-            <Route path={`/accounts/${accountId}/overview`} element={<div>Customer workspace</div>} />
+            <Route path={`/accounts/${accountId}/settings`} element={<div>Customer workspace</div>} />
           </Routes>
         </HostedAccountsProvider>
       </MemoryRouter>,

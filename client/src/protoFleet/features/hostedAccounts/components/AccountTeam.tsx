@@ -69,6 +69,7 @@ const AccountTeam = () => {
           items={members.data.members}
           itemKey="userId"
           itemSelectable={false}
+          stickyFirstColumn={false}
           activeCols={["username", "role", "joinedAt"]}
           colTitles={{ username: "Username", role: "Role", joinedAt: "Joined" }}
           colConfig={{
@@ -105,6 +106,7 @@ const AccountTeam = () => {
             items={invitations.data.invitations}
             itemKey="invitationId"
             itemSelectable={false}
+            stickyFirstColumn={false}
             activeCols={["role", "expiresAt", "state"]}
             colTitles={{ role: "Role", expiresAt: "Expires", state: "Status" }}
             colConfig={{

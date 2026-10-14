@@ -8,13 +8,13 @@ import Button from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Row from "@/shared/components/Row";
 
-const AccountOverview = ({ onRenamed }: { onRenamed: () => void }) => {
+const AccountSettings = ({ onRenamed }: { onRenamed: () => void }) => {
   const { account, client } = useRequiredAccountScope();
   const [renaming, setRenaming] = useState(false);
   const [name, setName] = useState(account.name);
   return (
     <div className="flex flex-col gap-6">
-      <SettingsPageHeader title={account.name} />
+      <SettingsPageHeader title="Settings" />
       <div>
         <Row className="flex items-center justify-between gap-4">
           Your access
@@ -37,6 +37,7 @@ const AccountOverview = ({ onRenamed }: { onRenamed: () => void }) => {
       {can(account, 8n) ? (
         <Button
           variant="secondary"
+          className="self-start"
           text="Rename account"
           onClick={() => {
             setName(account.name);
@@ -61,4 +62,4 @@ const AccountOverview = ({ onRenamed }: { onRenamed: () => void }) => {
     </div>
   );
 };
-export default AccountOverview;
+export default AccountSettings;

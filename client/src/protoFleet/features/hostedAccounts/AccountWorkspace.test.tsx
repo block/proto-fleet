@@ -3,6 +3,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { create, toJson } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
+import AccountDirectory from "./AccountDirectory";
 import AccountWorkspace from "./AccountWorkspace";
 import { HostedAccountsContext } from "./HostedAccountsContext";
 import { AccountRole, AccountSchema } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
@@ -34,6 +35,7 @@ function mount(
       >
         <Routes>
           <Route path="/accounts/:accountId/:section?" element={<AccountWorkspace />} />
+          <Route path="/accounts" element={<AccountDirectory />} />
         </Routes>
       </HostedAccountsContext.Provider>
     </MemoryRouter>,
@@ -55,6 +57,34 @@ const fetchRpc = (reply: (method: string, body: Record<string, unknown>) => unkn
   return calls;
 };
 describe("real account workspace routing", () => {
+  it("opens account settings without duplicate Home/Overview navigation and keeps the directory in the picker", async () => {
+    const account = create(AccountSchema, {
+      accountId,
+      parentAccountId: rootId,
+      depth: 1,
+      name: "Customer",
+      role: AccountRole.ADMINISTRATOR,
+      effectiveCapabilities: 31n,
+      capabilityCeiling: 31n,
+    });
+    fetchRpc(() => ({ account: toJson(AccountSchema, account) }));
+    const user = userEvent.setup();
+    mount(account, "settings");
+    await screen.findByRole("button", { name: "Rename account" });
+    const menu = within(screen.getByRole("navigation", { name: "Main" })).getByRole("list");
+    expect(within(menu).getByRole("link", { name: "Settings" })).toHaveAttribute(
+      "href",
+      `/accounts/${accountId}/settings`,
+    );
+    expect(within(menu).queryByRole("link", { name: "Home" })).not.toBeInTheDocument();
+    expect(within(menu).queryByRole("link", { name: "Overview" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Switch account" }));
+    await user.click(
+      within(screen.getByRole("dialog", { name: "Switch account" })).getByRole("link", { name: "All accounts" }),
+    );
+    await screen.findByRole("link", { name: "Join an account" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
   it("opens host administration and creates a customer using the root ceiling", async () => {
     const calls = fetchRpc((method) => {
       if (method === "GetAccount") throw new Error("Root is not a private customer account");

@@ -66,6 +66,19 @@ describe("Navigation Menu", () => {
     accountMock.role = "SUPER_ADMIN";
   });
 
+  it("keeps account Settings separate from the global Settings drawer and links the logo to Accounts", async () => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: true });
+    permissionsMock.current = ["role:read"];
+    render(
+      <MemoryRouter>
+        <NavigationMenu items={[{ path: "/accounts/customer/settings", label: "Settings" }]} isVisible />
+      </MemoryRouter>,
+    );
+    await screen.findByRole("link", { name: "Settings" });
+    expect(screen.queryByRole("button", { name: "Settings menu toggle" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Accounts" })).toHaveAttribute("href", "/accounts");
+  });
+
   it.each([
     ["SUPER_ADMIN", "achen · Owner"],
     ["Night Shift", "achen · Night Shift"],

@@ -98,6 +98,7 @@ const AccountPools = () => {
             items={query.data.configurations}
             itemKey="poolId"
             itemSelectable={false}
+            stickyFirstColumn={false}
             activeCols={["name", "number", "primary", "backups"]}
             colTitles={{
               name: "Configuration",
@@ -108,7 +109,16 @@ const AccountPools = () => {
             colConfig={{
               name: {
                 width: "min-w-40",
-                component: (pool) => <Button variant="textOnly" text={pool.name} onClick={() => setViewing(pool)} />,
+                component: (pool) => (
+                  <Button
+                    variant="textOnly"
+                    textColor="text-text-primary"
+                    className="font-normal"
+                    textOnlyUnderlineOnHover={false}
+                    text={pool.name}
+                    onClick={() => setViewing(pool)}
+                  />
+                ),
               },
               number: { width: "min-w-24", component: (pool) => String(pool.number) },
               primary: {

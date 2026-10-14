@@ -7,19 +7,19 @@ import { createAccountConnection } from "./api";
 import { accountPath, can, roleLabel } from "./capabilities";
 import AccountAccess from "./components/AccountAccess";
 import AccountChildren from "./components/AccountChildren";
-import AccountOverview from "./components/AccountOverview";
 import AccountPools from "./components/AccountPools";
+import AccountSettings from "./components/AccountSettings";
 import { AccountState } from "./components/AccountState";
 import AccountTeam from "./components/AccountTeam";
 import { useHostedAccounts } from "./HostedAccountsContext";
 import { useAccountQuery } from "./useAccountQuery";
 import { type NavItem } from "@/protoFleet/config/navItems";
 import { useFleetStore } from "@/protoFleet/store";
-import { Groups, Home, LightningAlt, Settings } from "@/shared/assets/icons";
+import { Groups, LightningAlt, Lock, Settings } from "@/shared/assets/icons";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 
 const AccountPage = ({ accountId }: { accountId: string }) => {
-  const { section = "overview" } = useParams();
+  const { section = "settings" } = useParams();
   const directory = useHostedAccounts();
   const [connection] = useState(() => createAccountConnection(accountId));
   useEffect(() => {
@@ -55,8 +55,7 @@ const AccountPage = ({ accountId }: { accountId: string }) => {
   const error = directory?.error ?? query.error;
   const loading = directory?.loading || (!account && !error && query.loading);
   const navItems: NavItem[] = [
-    { path: "/accounts", label: "Home", icon: Home, exact: true },
-    { path: accountPath(accountId), label: "Overview", icon: Home },
+    { path: accountPath(accountId), label: "Settings", icon: Settings },
     ...(account && account.depth > 0 && can(account, 1n)
       ? [{ path: accountPath(accountId, "pools"), label: "Pools", icon: LightningAlt }]
       : []),
@@ -64,7 +63,7 @@ const AccountPage = ({ accountId }: { accountId: string }) => {
       ? [{ path: accountPath(accountId, "team"), label: "Team", icon: Groups }]
       : []),
     ...(account && account.depth > 0 && can(account, 1n)
-      ? [{ path: accountPath(accountId, "access"), label: "Access", icon: Settings }]
+      ? [{ path: accountPath(accountId, "access"), label: "Access", icon: Lock }]
       : []),
     ...(can(account, 16n) && account!.depth < 2
       ? [
@@ -115,7 +114,7 @@ const AccountPage = ({ accountId }: { accountId: string }) => {
               ) : section === "access" ? (
                 <AccountAccess />
               ) : (
-                <AccountOverview
+                <AccountSettings
                   onRenamed={() => {
                     refreshQuery();
                     directory?.refresh();
@@ -123,7 +122,7 @@ const AccountPage = ({ accountId }: { accountId: string }) => {
                 />
               )
             ) : (
-              <AccountOverview
+              <AccountSettings
                 onRenamed={() => {
                   refreshQuery();
                   directory?.refresh();

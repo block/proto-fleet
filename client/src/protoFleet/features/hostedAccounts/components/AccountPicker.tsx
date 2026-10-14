@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 
 import { accountPath, roleLabel } from "@/protoFleet/features/hostedAccounts/capabilities";
 import { useHostedAccounts } from "@/protoFleet/features/hostedAccounts/HostedAccountsContext";
@@ -80,6 +80,13 @@ const AccountPicker = () => {
             </label>
           ))}
         </div>
+        <Link
+          className="mt-4 inline-block text-text-primary hover:underline"
+          to="/accounts"
+          onClick={() => setOpen(false)}
+        >
+          All accounts
+        </Link>
       </Modal>
     </>
   );

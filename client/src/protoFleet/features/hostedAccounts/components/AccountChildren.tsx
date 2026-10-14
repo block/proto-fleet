@@ -45,6 +45,7 @@ const AccountChildren = () => {
           items={query.data.accounts}
           itemKey="accountId"
           itemSelectable={false}
+          stickyFirstColumn={false}
           activeCols={["name", "status", "permissions"]}
           colTitles={{ name: "Account", status: "Status", permissions: "Permissions" }}
           colConfig={{
@@ -52,7 +53,14 @@ const AccountChildren = () => {
               width: "min-w-48",
               component: (child) =>
                 can(child, 1n) ? (
-                  <Button variant="textOnly" text={child.name} to={accountPath(child.accountId)} />
+                  <Button
+                    variant="textOnly"
+                    textColor="text-text-primary"
+                    className="font-normal"
+                    textOnlyUnderlineOnHover={false}
+                    text={child.name}
+                    to={accountPath(child.accountId)}
+                  />
                 ) : (
                   child.name
                 ),

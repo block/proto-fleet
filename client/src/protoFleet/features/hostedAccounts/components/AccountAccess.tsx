@@ -71,6 +71,7 @@ const AccountAccess = () => {
               items={grants.data.grants}
               itemKey="ancestorAccountId"
               itemSelectable={false}
+              stickyFirstColumn={false}
               activeCols={["ancestor", "permissions"]}
               colTitles={{ ancestor: "Ancestor", permissions: "Granted permissions" }}
               colConfig={{
@@ -115,6 +116,7 @@ const AccountAccess = () => {
                 items={keys.data.keys}
                 itemKey="keyId"
                 itemSelectable={false}
+                stickyFirstColumn={false}
                 activeCols={["name", "prefix", "issuer", "scope", "expires"]}
                 colTitles={{ name: "Name", prefix: "Prefix", issuer: "Issued by", scope: "Access", expires: "Expires" }}
                 colConfig={{

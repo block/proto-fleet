@@ -64,7 +64,9 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail,
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
   const homeItem = useMemo(() => items.find((item) => item.label === "Home"), [items]);
-  const settingsItem = useMemo(() => items.find((item) => item.label === "Settings"), [items]);
+  const accountNavigation = items.some((item) => item.path === "/accounts" || item.path?.startsWith("/accounts/"));
+  const homeTarget = homeItem?.path ? scopeLink(homeItem) : accountNavigation ? "/accounts" : undefined;
+  const settingsItem = useMemo(() => items.find((item) => item.path === "/settings"), [items]);
   const visibleSettingsItems = useMemo(
     () =>
       secondaryNavItems
@@ -133,7 +135,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail,
       )}
     >
       <div className="flex min-h-0 flex-1 flex-col items-start gap-1">
-        {homeItem && homeItem.path ? (
+        {homeTarget ? (
           <div
             className={clsx(
               "flex h-15 w-full shrink-0 items-center px-3 py-3",
@@ -144,8 +146,8 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail,
             )}
           >
             <Link
-              to={scopeLink(homeItem)}
-              aria-label="Home"
+              to={homeTarget}
+              aria-label={homeItem?.path ? "Home" : "Accounts"}
               data-testid="navigation-home-link"
               onClick={handleNavigate}
               className="flex min-h-[44px] min-w-[44px] items-center px-2.5"

@@ -53,7 +53,7 @@ describe("invited login lifecycle", () => {
         <LocationReader />
         <Routes>
           <Route path="/account-invitation" element={<AccountInvitation />} />
-          <Route path="/accounts/:accountId/overview" element={<div>Joined account</div>} />
+          <Route path="/accounts/:accountId/settings" element={<div>Joined account</div>} />
         </Routes>
       </MemoryRouter>,
     );
@@ -93,7 +93,7 @@ function openCodeEntry() {
       <LocationReader />
       <Routes>
         <Route path="/account-invitation" element={<AccountInvitation />} />
-        <Route path="/accounts/:accountId/overview" element={<div>Joined account</div>} />
+        <Route path="/accounts/:accountId/settings" element={<div>Joined account</div>} />
       </Routes>
     </MemoryRouter>,
   );

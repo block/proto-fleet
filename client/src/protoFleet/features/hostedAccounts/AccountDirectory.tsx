@@ -5,7 +5,7 @@ import { useHostedAccounts } from "./HostedAccountsContext";
 import type { Account } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
-import { Home } from "@/shared/assets/icons";
+import { Groups } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import List from "@/shared/components/List";
 
@@ -13,7 +13,7 @@ const AccountDirectory = () => {
   const directory = useHostedAccounts();
   if (!directory) return null;
   return (
-    <AccountLayout items={[{ path: "/accounts", label: "Home", icon: Home, exact: true }]} roleLabel="Accounts">
+    <AccountLayout items={[{ path: "/accounts", label: "Accounts", icon: Groups, exact: true }]} roleLabel="Accounts">
       <div className="flex flex-col gap-6 p-10 phone:p-6">
         <div className="flex items-start justify-between gap-4 phone:flex-col">
           <SettingsPageHeader title="Accounts" />
@@ -25,6 +25,7 @@ const AccountDirectory = () => {
             items={directory.accounts}
             itemKey="accountId"
             itemSelectable={false}
+            stickyFirstColumn={false}
             activeCols={["name", "parent", "access", "status"]}
             colTitles={{ name: "Account", parent: "Parent", access: "Your access", status: "Status" }}
             colConfig={{
@@ -33,6 +34,9 @@ const AccountDirectory = () => {
                 component: (account) => (
                   <Button
                     variant="textOnly"
+                    textColor="text-text-primary"
+                    className="font-normal"
+                    textOnlyUnderlineOnHover={false}
                     text={account.name}
                     to={accountPath(account.accountId)}
                     disabled={account.suspended}
