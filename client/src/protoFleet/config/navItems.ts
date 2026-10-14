@@ -33,6 +33,8 @@ export interface SecondaryNavItem {
   requiredAnyPermission?: (string | string[])[];
   // When set, the entry is shown only if the server reports this feature enabled.
   requiredFeature?: NavFeature;
+  // Available only to hosts with an accessible account directory.
+  requiresHostedAccounts?: boolean;
   // Whether the page honors the topbar SitePicker selection as a soft default
   // filter (schedules today). Org-wide pages (the default) deliberately ignore
   // the picker; SettingsLayout surfaces an OrgWideNotice on those so the
@@ -199,6 +201,13 @@ export const secondaryNavItems: SecondaryNavItem[] = [
     // Team now owns member and role management. Show the entry when either
     // surface is usable so role-only admins are not stranded after the merge.
     requiredAnyPermission: ["user:read", "role:manage"],
+  },
+  {
+    path: "/accounts",
+    label: "Accounts",
+    parent: "/settings",
+    section: "Admin",
+    requiresHostedAccounts: true,
   },
   {
     path: "/settings/integrations",

@@ -493,7 +493,9 @@ to the API’s effective capabilities. The root hosting account uses its
 directory summary for customer administration; private account reads apply
 to customers and subclients. `/accounts` lists accessible workspaces.
 Settings contains account details and rename controls; the account picker links
-back to the account directory without a separate Home tab.
+back to the account directory without a separate Home tab. Hosts manage Accounts
+under Settings → Admin, keeping the fleet navigation and using tabs for account
+sections. Customer-only users keep the scoped account navigation.
 These routes reuse the Fleet layout and shared components without mounting
 host fleet providers; host curtailment and fleet commands keep their existing
 organization scope. Account RPC clients capture `X-Fleet-Account-ID` for the

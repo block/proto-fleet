@@ -26,13 +26,12 @@ function mount(
     capabilityCeiling: 31n,
   }),
   section = "children",
+  hostAccess = account.depth === 0,
 ) {
   const refresh = vi.fn();
   render(
     <MemoryRouter initialEntries={[`/accounts/${account.accountId}/${section}`]}>
-      <HostedAccountsContext.Provider
-        value={{ accounts: [account], hostAccess: account.depth === 0, loading: false, error: null, refresh }}
-      >
+      <HostedAccountsContext.Provider value={{ accounts: [account], hostAccess, loading: false, error: null, refresh }}>
         <Routes>
           <Route path="/accounts/:accountId/:section?" element={<AccountWorkspace />} />
           <Route path="/accounts" element={<AccountDirectory />} />
@@ -57,6 +56,37 @@ const fetchRpc = (reply: (method: string, body: Record<string, unknown>) => unkn
   return calls;
 };
 describe("real account workspace routing", () => {
+  it("retains the host shell and opens account sections as tabs under Settings Admin", async () => {
+    const account = create(AccountSchema, {
+      accountId,
+      name: "Customer",
+      depth: 1,
+      role: AccountRole.ADMINISTRATOR,
+      effectiveCapabilities: 31n,
+      capabilityCeiling: 31n,
+    });
+    useFleetStore.setState({ auth: { ...initialAuth, permissions: ["miner:read", "fleet:read"] } });
+    fetchRpc((method) => (method === "GetAccount" ? { account: toJson(AccountSchema, account) } : {}));
+    const user = userEvent.setup();
+    mount(account, "settings", true);
+    await screen.findByRole("button", { name: "Rename account" });
+    const main = screen.getByRole("navigation", { name: "Main" });
+    expect(within(main).getByRole("link", { name: "Fleet" })).toBeInTheDocument();
+    expect(within(main).queryByRole("link", { name: "Accounts" })).not.toBeInTheDocument();
+    expect(within(main).getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+    const admin = screen.getByRole("navigation", { name: "Settings" });
+    expect(within(admin).getByText("Admin")).toBeInTheDocument();
+    expect(within(admin).getByRole("link", { name: "Accounts" })).toHaveAttribute("aria-current", "page");
+    const tabs = screen.getByRole("navigation", { name: "Account sections" });
+    await user.click(within(tabs).getByRole("button", { name: "Pools" }));
+    await screen.findByRole("button", { name: "Change selection" });
+    expect(
+      within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Fleet" }),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("navigation", { name: "Account sections" })).getByRole("button", { name: "Pools" }),
+    ).toHaveAttribute("aria-current", "page");
+  });
   it("opens account settings without duplicate Home/Overview navigation and keeps the directory in the picker", async () => {
     const account = create(AccountSchema, {
       accountId,

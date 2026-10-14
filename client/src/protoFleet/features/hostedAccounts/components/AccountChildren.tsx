@@ -56,7 +56,7 @@ const AccountChildren = () => {
                   <Button
                     variant="textOnly"
                     textColor="text-text-primary"
-                    className="font-normal"
+                    className="justify-start text-left font-normal"
                     textOnlyUnderlineOnHover={false}
                     text={child.name}
                     to={accountPath(child.accountId)}

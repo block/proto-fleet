@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { AccountLayout } from "./AccountLayout";
 import { AccountScopeContext } from "./AccountScope";
@@ -14,13 +14,17 @@ import AccountTeam from "./components/AccountTeam";
 import { useHostedAccounts } from "./HostedAccountsContext";
 import { useAccountQuery } from "./useAccountQuery";
 import { type NavItem } from "@/protoFleet/config/navItems";
-import { useFleetStore } from "@/protoFleet/store";
+import { useFleetStore, usePermissions } from "@/protoFleet/store";
 import { Groups, LightningAlt, Lock, Settings } from "@/shared/assets/icons";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 
 const AccountPage = ({ accountId }: { accountId: string }) => {
   const { section = "settings" } = useParams();
   const directory = useHostedAccounts();
+  const permissions = usePermissions();
+  const host = permissions.length > 0 || !!directory?.hostAccess;
+  const navigate = useNavigate();
   const [connection] = useState(() => createAccountConnection(accountId));
   useEffect(() => {
     connection.activate();
@@ -103,6 +107,19 @@ const AccountPage = ({ accountId }: { accountId: string }) => {
               invalidateAccount: invalidate,
             }}
           >
+            {host ? (
+              <div className="mb-6 overflow-x-auto">
+                <TabStrip
+                  ariaLabel="Account sections"
+                  activeId={accessible ? accountPath(accountId, section) : accountPath(accountId)}
+                  onSelect={navigate}
+                >
+                  {navItems.map((item) => (
+                    <TabStripItem key={item.path} id={item.path} label={item.label} />
+                  ))}
+                </TabStrip>
+              </div>
+            ) : null}
             {error ? <AccountState error={error} retry={refresh} /> : null}
             {accessible ? (
               section === "team" ? (

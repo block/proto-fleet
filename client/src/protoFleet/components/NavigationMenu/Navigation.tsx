@@ -11,13 +11,11 @@ import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { scopedPath, unscopedScopablePath } from "@/protoFleet/routing/siteScope";
 import { usePermissions, useRole, useUsername } from "@/protoFleet/store";
-import { ArrowLeftCompact, Groups, LogoAlt } from "@/shared/assets/icons";
+import { ArrowLeftCompact, LogoAlt } from "@/shared/assets/icons";
 import MorphingPlusMinus from "@/shared/components/MorphingPlusMinus";
 import useCssVariable from "@/shared/hooks/useCssVariable";
 import { cubicBezierValues } from "@/shared/utils/cssUtils";
 import { stripLeadingSlash } from "@/shared/utils/stringUtils";
-
-const accountsNavItem: NavItem = { path: "/accounts", label: "Accounts", icon: Groups };
 
 type NavigationProps = {
   items: NavItem[];
@@ -52,12 +50,8 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail,
   const [settingsManuallyToggled, setSettingsManuallyToggled] = useState(false);
   const directory = useHostedAccounts();
   const visibleItems = useMemo(
-    () =>
-      [
-        ...items,
-        ...(directory?.accounts.length && items.some((item) => item.path === "/settings") ? [accountsNavItem] : []),
-      ].filter((item) => isNavItemAllowedByPermissions(item, permissions)),
-    [items, permissions, directory?.accounts.length],
+    () => items.filter((item) => isNavItemAllowedByPermissions(item, permissions)),
+    [items, permissions],
   );
   const [showSettingsHover, setShowSettingsHover] = useState(false);
 
@@ -72,8 +66,9 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail,
       secondaryNavItems
         .filter((nav) => nav.parent === "/settings")
         .filter((nav) => isNavItemAllowedByPermissions(nav, permissions))
-        .filter((nav) => !nav.requiredFeature || featureEnabled[nav.requiredFeature]),
-    [featureEnabled, permissions],
+        .filter((nav) => !nav.requiredFeature || featureEnabled[nav.requiredFeature])
+        .filter((nav) => !nav.requiresHostedAccounts || (directory?.hostAccess && directory.accounts.length > 0)),
+    [featureEnabled, permissions, directory],
   );
   const visibleSettingsGroups = useMemo(
     () =>
@@ -93,13 +88,11 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail,
   // Check if current page is a settings sub-item
   const isOnSettingsSubPage = useMemo(() => {
     const _pathname = stripLeadingSlash(pathname);
-    return secondaryNavItems
-      .filter((nav) => nav.parent === "/settings")
-      .some((nav) => {
-        const _navPath = stripLeadingSlash(nav.path);
-        return _pathname === _navPath || _pathname.startsWith(`${_navPath}/`);
-      });
-  }, [pathname]);
+    return visibleSettingsItems.some((nav) => {
+      const _navPath = stripLeadingSlash(nav.path);
+      return _pathname === _navPath || _pathname.startsWith(`${_navPath}/`);
+    });
+  }, [pathname, visibleSettingsItems]);
 
   // Derive expanded state: auto-expand if on settings page OR manually toggled
   const isSettingsExpanded = settingsManuallyToggled || isOnSettingsSubPage;
@@ -114,6 +107,8 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail,
       const _path = stripLeadingSlash(item);
       return _pathname === _path || _pathname.startsWith(`${_path}/`);
     }
+
+    if (item.path === "/settings" && isOnSettingsSubPage) return true;
 
     const _pathname = stripLeadingSlash(item.scopable ? unscopedScopablePath(pathname) : pathname);
     const path = item.path;

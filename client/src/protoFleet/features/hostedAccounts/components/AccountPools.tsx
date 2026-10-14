@@ -113,7 +113,7 @@ const AccountPools = () => {
                   <Button
                     variant="textOnly"
                     textColor="text-text-primary"
-                    className="font-normal"
+                    className="justify-start text-left font-normal"
                     textOnlyUnderlineOnHover={false}
                     text={pool.name}
                     onClick={() => setViewing(pool)}

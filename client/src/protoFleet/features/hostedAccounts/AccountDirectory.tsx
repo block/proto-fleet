@@ -35,7 +35,7 @@ const AccountDirectory = () => {
                   <Button
                     variant="textOnly"
                     textColor="text-text-primary"
-                    className="font-normal"
+                    className="justify-start text-left font-normal"
                     textOnlyUnderlineOnHover={false}
                     text={account.name}
                     to={accountPath(account.accountId)}
