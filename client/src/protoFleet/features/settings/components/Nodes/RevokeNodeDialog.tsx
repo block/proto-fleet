@@ -1,3 +1,4 @@
+import type { FleetNodeDeviceSummary } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
@@ -5,7 +6,7 @@ import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 interface RevokeNodeDialogProps {
   open?: boolean;
   nodeName: string;
-  affectedDeviceTypes: string[];
+  affectedDevices: Pick<FleetNodeDeviceSummary, "manufacturer" | "model">[];
   isLoadingImpact: boolean;
   impactError: string;
   onConfirm: () => void;
@@ -13,31 +14,28 @@ interface RevokeNodeDialogProps {
   isSubmitting: boolean;
 }
 
-const minerTypeLabels = new Map<string, [singular: string, plural: string]>([
-  ["proto", ["Proto Rig", "Proto Rigs"]],
-  ["antminer", ["Antminer", "Antminers"]],
-  ["asicrs", ["ASIC-RS miner", "ASIC-RS miners"]],
-  ["virtual", ["virtual miner", "virtual miners"]],
-  ["whatsminer", ["WhatsMiner", "WhatsMiners"]],
-  ["unknown", ["miner of unknown type", "miners of unknown type"]],
-]);
-
 const RevokeNodeDialog = ({
   open,
   nodeName,
-  affectedDeviceTypes,
+  affectedDevices,
   isLoadingImpact,
   impactError,
   onConfirm,
   onDismiss,
   isSubmitting,
 }: RevokeNodeDialogProps) => {
-  const countsByType = new Map<string, number>();
-  for (const deviceType of affectedDeviceTypes) {
-    const type = deviceType.trim().toLowerCase() || "unknown";
-    countsByType.set(type, (countsByType.get(type) ?? 0) + 1);
+  const countsByHardware = new Map<string, { label: string; count: number }>();
+  for (const device of affectedDevices) {
+    const manufacturer = device.manufacturer.trim() || "Unknown manufacturer";
+    const model = device.model.trim() || "Unknown model";
+    const key = JSON.stringify([manufacturer, model]);
+    const group = countsByHardware.get(key);
+    if (group) group.count++;
+    else countsByHardware.set(key, { label: `${manufacturer} ${model}`, count: 1 });
   }
-  const groupedTypes = [...countsByType].sort(([first], [second]) => first.localeCompare(second));
+  const groupedHardware = [...countsByHardware].sort(([, first], [, second]) =>
+    first.label.localeCompare(second.label),
+  );
 
   return (
     <Dialog
@@ -77,13 +75,12 @@ const RevokeNodeDialog = ({
         </div>
       ) : null}
       {!isLoadingImpact && !impactError ? (
-        groupedTypes.length > 0 ? (
+        groupedHardware.length > 0 ? (
           <ul className="mt-3 max-h-32 list-disc overflow-y-auto pl-5 text-300">
-            {groupedTypes.map(([type, count]) => {
-              const [singular, plural] = minerTypeLabels.get(type) ?? [`${type} miner`, `${type} miners`];
+            {groupedHardware.map(([key, { label, count }]) => {
               return (
-                <li key={type}>
-                  {count} paired {count === 1 ? singular : plural} will lose connection.
+                <li key={key}>
+                  {count} paired {label} {count === 1 ? "miner" : "miners"} will lose connection.
                 </li>
               );
             })}

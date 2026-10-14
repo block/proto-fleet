@@ -211,6 +211,8 @@ SELECT fnd.fleet_node_id,
        fnd.device_id,
        d.device_identifier,
        COALESCE(dd.driver_name, '')::text AS device_type,
+       COALESCE(dd.manufacturer, '')::text AS manufacturer,
+       COALESCE(dd.model, '')::text AS model,
        fnd.assigned_at,
        fnd.assigned_by
 FROM fleet_node_device fnd
@@ -231,6 +233,8 @@ type ListFleetNodeDevicesRow struct {
 	DeviceID         int64
 	DeviceIdentifier string
 	DeviceType       string
+	Manufacturer     string
+	Model            string
 	AssignedAt       time.Time
 	AssignedBy       sql.NullInt64
 }
@@ -249,6 +253,8 @@ func (q *Queries) ListFleetNodeDevices(ctx context.Context, arg ListFleetNodeDev
 			&i.DeviceID,
 			&i.DeviceIdentifier,
 			&i.DeviceType,
+			&i.Manufacturer,
+			&i.Model,
 			&i.AssignedAt,
 			&i.AssignedBy,
 		); err != nil {

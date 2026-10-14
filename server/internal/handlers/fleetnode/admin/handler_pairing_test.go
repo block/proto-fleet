@@ -256,7 +256,10 @@ func TestListFleetNodeDevices_HappyPath(t *testing.T) {
 	h := newPairingHarness(t)
 	fleetNodeID := h.createFleetNode(t, "admin-list-1")
 	deviceID := h.insertDevice(t)
-	_, err := h.handler.PairDeviceToFleetNode(h.adminCtx(), connect.NewRequest(&pb.PairDeviceToFleetNodeRequest{FleetNodeId: fleetNodeID, DeviceId: deviceID}))
+	_, err := h.db.Exec(`UPDATE discovered_device SET driver_name = 'asicrs', manufacturer = 'Bitmain', model = 'S19'
+		WHERE id = (SELECT discovered_device_id FROM device WHERE id = $1)`, deviceID)
+	require.NoError(t, err)
+	_, err = h.handler.PairDeviceToFleetNode(h.adminCtx(), connect.NewRequest(&pb.PairDeviceToFleetNodeRequest{FleetNodeId: fleetNodeID, DeviceId: deviceID}))
 	require.NoError(t, err)
 
 	// Act
@@ -267,6 +270,9 @@ func TestListFleetNodeDevices_HappyPath(t *testing.T) {
 	require.Len(t, resp.Msg.GetPairs(), 1)
 	assert.Equal(t, fleetNodeID, resp.Msg.GetPairs()[0].GetFleetNodeId())
 	assert.Equal(t, deviceID, resp.Msg.GetPairs()[0].GetDeviceId())
+	assert.Equal(t, "asicrs", resp.Msg.GetPairs()[0].GetDeviceType())
+	assert.Equal(t, "Bitmain", resp.Msg.GetPairs()[0].GetManufacturer())
+	assert.Equal(t, "S19", resp.Msg.GetPairs()[0].GetModel())
 }
 
 func TestListFleetNodeDevices_RequiresAdminSession(t *testing.T) {

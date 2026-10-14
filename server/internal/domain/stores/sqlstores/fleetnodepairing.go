@@ -110,6 +110,8 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDevices(ctx context.Context, org
 			DeviceID:         r.DeviceID,
 			DeviceIdentifier: r.DeviceIdentifier,
 			DeviceType:       r.DeviceType,
+			Manufacturer:     r.Manufacturer,
+			Model:            r.Model,
 			AssignedAt:       r.AssignedAt,
 			AssignedBy:       nullInt64ToPtr(r.AssignedBy),
 		})

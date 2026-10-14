@@ -177,6 +177,8 @@ func (h *Handler) ListFleetNodeDevices(ctx context.Context, req *connect.Request
 			DeviceId:         p.DeviceID,
 			DeviceIdentifier: p.DeviceIdentifier,
 			DeviceType:       p.DeviceType,
+			Manufacturer:     p.Manufacturer,
+			Model:            p.Model,
 			AssignedAt:       timestamppb.New(p.AssignedAt),
 		}
 		if p.AssignedBy != nil {
