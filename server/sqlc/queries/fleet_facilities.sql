@@ -26,21 +26,23 @@ WITH parents AS (
  SELECT r.kind AS kind, r.id AS id, r.org_id AS org_id, r.site_id AS site_id,
    r.name AS name, r.device_identifier AS device_identifier, r.position AS position, r.reported_id AS reported_id,
    r.facility_kind AS facility_kind, r.facility_id AS facility_id,
-   CASE WHEN access.telemetry_allowed THEN a.hashrate_ths END AS hashrate_ths,
-   CASE WHEN access.telemetry_allowed THEN a.power_kw END AS power_kw,
-   CASE WHEN access.telemetry_allowed THEN a.min_temperature_c END AS min_temperature_c,
-   CASE WHEN access.telemetry_allowed THEN a.max_temperature_c END AS max_temperature_c,
-   CASE WHEN access.telemetry_allowed THEN a.observed_at END AS observed_at,
-   CASE WHEN access.telemetry_allowed THEN (a.power_kw * 1000 / NULLIF(a.hashrate_ths, 0))::double precision END AS efficiency_jth,
+   CASE WHEN access.telemetry_allowed THEN CASE WHEN r.kind=2 THEN cm.hashrate_hs / 1e12 ELSE a.hashrate_ths END END AS hashrate_ths,
+   CASE WHEN access.telemetry_allowed THEN CASE WHEN r.kind=2 THEN cm.power_w / 1000 ELSE a.power_kw END END AS power_kw,
+   CASE WHEN access.telemetry_allowed THEN CASE WHEN r.kind=2 THEN cm.min_temperature_c ELSE a.min_temperature_c END END AS min_temperature_c,
+   CASE WHEN access.telemetry_allowed THEN CASE WHEN r.kind=2 THEN cm.max_temperature_c ELSE a.max_temperature_c END END AS max_temperature_c,
+   CASE WHEN access.telemetry_allowed THEN CASE WHEN r.kind=2 THEN cm.time ELSE a.observed_at END END AS observed_at,
+   CASE WHEN access.telemetry_allowed THEN (CASE WHEN r.kind=2 THEN cm.efficiency_jh * 1e12 ELSE a.power_kw * 1000 / NULLIF(a.hashrate_ths, 0) END)::double precision END AS efficiency_jth,
    COALESCE(a.asset_count, 0)::bigint AS asset_count,
-   CASE WHEN access.telemetry_allowed THEN COALESCE(a.hashrate_reporting_count, 0) ELSE 0 END::bigint AS hashrate_reporting_count,
-   CASE WHEN access.telemetry_allowed THEN COALESCE(a.power_reporting_count, 0) ELSE 0 END::bigint AS power_reporting_count,
+   CASE WHEN access.telemetry_allowed THEN COALESCE(CASE WHEN r.kind=2 THEN CASE WHEN cm.hashrate_hs IS NOT NULL THEN (cm.coverage#>>'{hashrate,reporting}')::bigint END ELSE a.hashrate_reporting_count END, 0) ELSE 0 END::bigint AS hashrate_reporting_count,
+   CASE WHEN access.telemetry_allowed THEN COALESCE(CASE WHEN r.kind=2 THEN CASE WHEN cm.power_w IS NOT NULL THEN (cm.coverage#>>'{power,reporting}')::bigint END ELSE a.power_reporting_count END, 0) ELSE 0 END::bigint AS power_reporting_count,
+   CASE WHEN access.telemetry_allowed THEN cm.coverage END AS coverage,
    access.telemetry_allowed AS telemetry_allowed,
    issues.issue_count, issues.issue_types,
-   CASE WHEN access.telemetry_allowed THEN dm.hash_rate_hs / 1e12 END AS reported_hashrate_ths,
-   CASE WHEN access.telemetry_allowed THEN dm.power_w / 1e3 END AS reported_power_kw
+   CASE WHEN access.telemetry_allowed THEN cm.hashrate_hs / 1e12 END AS reported_hashrate_ths,
+   CASE WHEN access.telemetry_allowed THEN cm.power_w / 1e3 END AS reported_power_kw
  FROM parents r
  LEFT JOIN aggregates a ON a.org_id=r.org_id AND a.facility_kind=r.kind AND a.facility_id=r.id
+ LEFT JOIN container_equipment_current_metrics cm ON cm.kind=r.kind AND cm.id=r.id AND r.kind=2
  CROSS JOIN LATERAL (
    SELECT NOT EXISTS (
      SELECT 1 FROM jsonb_to_recordset(sqlc.arg('authority')::jsonb) AS a(org_wide boolean, sites bigint[])
@@ -57,12 +59,6 @@ WITH parents AS (
        AND a.facility_kind=r.kind AND a.facility_id=r.id
    )
  ) issues ON r.kind=1 AND access.telemetry_allowed
- LEFT JOIN LATERAL (
-   SELECT hash_rate_hs, power_w FROM device_metrics
-   WHERE r.kind=2 AND device_identifier=r.device_identifier
-     AND time > now() - INTERVAL '2 minutes' AND time <= now() + INTERVAL '5 seconds'
-   ORDER BY time DESC LIMIT 1
- ) dm ON TRUE
  WHERE r.org_id=sqlc.arg('org_id') AND r.kind=ANY(sqlc.arg('kinds')::int[])
 ), filtered AS (
  SELECT r.*,

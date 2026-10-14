@@ -19,7 +19,7 @@ rollback does not reverse committed database changes.
 
 ## Hosted write-fence upgrade
 
-Private migrations 1008 through 1013 require a stopped-application maintenance
+Private migrations 1008 through 1017 require a stopped-application maintenance
 window. Stop every Fleet API replica and scheduled database writer before
 running the target release's `fleet-db-transition migrate` command. Keep them
 stopped until that command succeeds and `fleet-db-transition check --state=startup`
@@ -39,6 +39,10 @@ empty-history guard; it refuses any history rather than reconstructing
 identities from an unfinished implementation. Migration 1013 separates node
 heartbeats from locked route rows and backfills existing node timestamps. The
 mining-asset view reads live node heartbeats for state and metrics eligibility.
+Migration 1014 retains discovery serial/MAC fields for pairing; existing rows
+receive empty defaults without inferring identity from previously paired devices.
+Migration 1017 records ownership-independent host curtailment authority on attempts
+without changing existing attempt history.
 Stop API replicas, plugins, Fleet Node dispatchers and scheduled writers
 together for these migrations. The existing queue retains historical rows, so
 miner count alone does not bound upgrade time. Rehearse on a recent database
@@ -60,12 +64,14 @@ not delete attempts, rewrite snapshots/statuses, or force a version to proceed.
 Disposable development databases can be recreated. A database with real
 operation history requires an explicit evidence-preserving migration decision.
 
-After migration, require clean checkpoint 1013 and preserved queue history.
+After migration, require clean checkpoint 1017 and preserved queue history.
 Verify that `idx_device_write_attempt_outstanding_identity_keys` is valid.
 Downgrade 1012 refuses any retained attempt whose status is not `complete`,
 including audited `resolved` attempts, or any deletion permits; downgrade 1011
 refuses any direct-attempt history, including completed attempts. Preserve that
-evidence and fix forward.
+evidence and fix forward. Downgrade 1017 refuses any retained curtailment attempt,
+including completed or resolved attempts, and pending or processing curtailment
+commands.
 
 The new `(created_at, id)` pending index keeps deterministic dequeue ordering.
 The older pending index remains part of the shared baseline catalog contract;

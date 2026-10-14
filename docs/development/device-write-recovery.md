@@ -57,7 +57,10 @@ use it unless the operator can establish all the required facts.
 ## Dispatch binding
 
 Direct SDK and Fleet Node mutations lock the device, discovery, pairing,
-credentials and node route through the actual adapter call. Binding writers wait
+credentials and node route through the actual adapter call. Durably admitted
+observations share binding locks so same-miner reads can overlap. A mutation
+attempt takes its exclusive parent lock before preliminary login and retains it
+through subsequent writes; it never upgrades an observation lock. Binding writers wait
 until it returns; canceled callers do not release locks while a context-ignoring
 adapter continues. Admission commits before these locks are taken. The lock
 transaction performs no retry and reuses its connection for the final attempt
@@ -74,6 +77,14 @@ can set a smaller or larger cap below the pool capacity. At least one connection
 must remain available for authentication, artifact downloads and attempt
 completion; physical dispatch is refused for a one-connection pool.
 
+Miner proxy traffic has its own immediate admission cap:
+`MINER_PROXY_MAX_CONCURRENT_REQUESTS` defaults to sixteen and is capped below the
+shared dispatch capacity, leaving capacity for commands and curtailment. Excess
+requests return 503 before creating an attempt. The proxy is disabled when the
+shared dispatch capacity is below two. Each proxy operation has a 30-second
+budget including request-body reads, connection and binding-lock waits; downstream
+response delivery has a separate 30-second budget.
+
 Fleet Node heartbeats write `fleet_node_heartbeat` independently of the routing
 row. Enrollment, mining-asset status and unavailable-node alerts read `fleet_node_live`.
 Dispatch locks the node identity and route associations, while authentication
@@ -88,8 +99,9 @@ Scoped SDK references also carry an opaque backend generation. Replacing the
 same external identifier cannot redirect that reference; a stale token is
 rejected before backend I/O. Fleet requires scoped resolution for persisted miner
 handles, including a fresh transient scope for password recovery. That specific
-SDK rejection is recorded as an
-undispatched attempt. Other failures follow the completion contract above.
+SDK rejection never marks the attempt dispatched; after its callback ends, the
+transient direct admission is removed. Other failures follow the completion
+contract above.
 ASIC-rs rechecks live hardware identity before writes and on fresh telemetry,
 while keeping the state needed to restore curtailment.
 
@@ -196,11 +208,21 @@ The miner proxy commits `observation` admission before forwarding endpoints
 classified as reads by its authorization contract. The admitted context cannot
 dispatch a mutation. The captured binding stays locked through login, forwarding, response reads,
 downstream flush and upstream body close. All of these remain inside admission. A completed read removes its transient
-admission; process interruption or failed completion leaves a running record.
+admission, as does a completed direct mutation admission that never dispatched.
+Dispatched, queued and claimed deletion-permit evidence remains retained. Process
+interruption or failed completion leaves a running record.
 
 Recover that record only after authoritative termination of its recorded owner
 and the maintenance shutdown described above. No device mutation verification
 is required for a durably classified observation, unless restoring host custody.
 Deletion and rediscovery do not clear the block. Other direct calls and queued
-commands remain conservatively classified as mutations, even when they fail
-before a mutation can be proven to have occurred.
+commands remain conservatively classified as mutations. Direct admissions that
+finish without dispatch are removed; interruption cannot establish that fact.
+
+Fleet handles SIGINT and SIGTERM by stopping new HTTP admissions and canceling
+active request contexts. After graceful shutdown, it closes remaining sockets,
+including hijacked h2c connections, to interrupt blocked transport I/O. It waits
+for HTTP/1 and h2c handlers to finish before stopping runtime dependencies,
+allowing completion bookkeeping to retire reads.
+The graceful socket deadline does not prove callback completion; crash or forced
+termination still requires the interrupted-read recovery above.

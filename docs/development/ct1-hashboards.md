@@ -3,12 +3,13 @@
 The CT1 plugin collects three slot observations per module from the existing bulk
 controller map. It makes no additional board or ASIC requests. Each occupied
 slot carries normalized MAC/serial identity, mining state, isolation evidence,
-source timestamps, and optional SI-valued hashrate and temperature. The pinned protobuf
+source timestamps, and optional SI-valued hashrate, temperature, board power, and saved efficiency. The pinned protobuf
 board object is retained as diagnostic JSON metadata, excluding `health`; health
 is retained separately in firmware units. This preserves known firmware fields,
 nested issues, sensors, counters, and string-encoded integers. See the
 [native gRPC contract and presence limits](ct1-grpc.md).
-PSU readings remain diagnostic evidence, not per-board power measurements.
+PSU readings supply module power once; they never substitute for board power.
+See [polling measurements](ct1-polling-metrics.md) for source, coverage, and topology rules.
 
 An explicit unoccupied slot is `empty`; an omitted slot, omitted occupancy, or
 occupied slot without a board is `unknown`. Health at least two minutes old or

@@ -3,6 +3,7 @@ package fleetinventory.v1;
 
 import "buf/validate/validate.proto";
 import "common/v1/fleet_list_stats.proto";
+import "common/v1/equipment_coverage.proto";
 import "common/v1/zone.proto";
 import "errors/v1/errors.proto";
 import "fleetmanagement/v1/fleetmanagement.proto";
@@ -82,6 +83,11 @@ enum InventorySort {
 }
 
 message ListInventoryRequest {
+  option (buf.validate.message).cel = {
+    id: "unassigned_scope_view"
+    message: "Unassigned facility and group scopes must apply to the requested inventory view"
+    expression: "(!this.include_no_facility || this.view in [2, 3]) && (!this.include_no_group || this.view == 3)"
+  };
   InventoryView view = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
   int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 1000}];
   string page_token = 3 [(buf.validate.field).string.max_len = 4096];
@@ -111,9 +117,16 @@ message ListInventoryRequest {
   fleetmanagement.v1.MinerListFilter miner_filter = 17;
   // Current module/miner health buckets. Valid only in the mining-assets view.
   repeated string states = 18;
+  // OR with facility ancestors; matches conventional equipment without a building.
+  // Valid in equipment-groups and mining-assets views.
+  bool include_no_facility = 19;
+  // OR with group ancestors; matches conventional miners without a rack.
+  // Valid only in the mining-assets view.
+  bool include_no_group = 20;
 }
 
 message InventoryItem {
+ common.v1.EquipmentCoverage coverage = 29;
   EntityRef ref = 1;
   string name = 2;
   optional int64 site_id = 3;
@@ -170,6 +183,8 @@ message ListModuleHistoryRequest {
 }
 
 message ModuleSample {
+ optional double efficiency_jh = 6;
+ common.v1.EquipmentCoverage coverage = 7;
   google.protobuf.Timestamp observed_at = 1;
   google.protobuf.Timestamp collected_at = 2;
   optional double hashrate_hs = 3;
@@ -249,6 +264,8 @@ message HashboardSlot {
 // Durable board identity and the installation under which it was observed.
 // The server derives state and suppresses stale current measurements.
 message HashboardReading {
+ optional double power_w = 19;
+ optional double efficiency_jh = 20;
   int64 hashboard_id = 1;
   int64 installation_id = 2;
   int64 module_id = 3;

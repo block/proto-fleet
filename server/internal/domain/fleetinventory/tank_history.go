@@ -16,8 +16,8 @@ import (
 )
 
 // TankHistory returns chart buckets computed by the database, scoped to both
-// the Fleet tank identity and its owning container. Current membership matches
-// the tank overview; historical membership reconstruction is not implied.
+// the Fleet tank identity and its owning container. Reads use stored poll-time
+// totals and the sample site, independently of current board membership.
 func (s *Service) TankHistory(ctx context.Context, orgID int64, req *pb.GetTankHistoryRequest, scopes []Scope) (*pb.GetTankHistoryResponse, error) {
 	if err := validateTankHistory(req); err != nil {
 		return nil, err
@@ -47,11 +47,13 @@ func (s *Service) TankHistory(ctx context.Context, orgID int64, req *pb.GetTankH
 	for _, row := range rows {
 		metric := &telemetrypb.Metric{
 			MeasurementType: telemetrypb.MeasurementType(row.MeasurementType),
-			OpenTime:        timestamppb.New(time.Unix(row.Bucket, 0)), DeviceCount: row.ModuleCount,
+			ReportingCount:  &row.ReportingCount, ExpectedCount: &row.ExpectedCount, CoverageComplete: &row.CoverageComplete, MetricSemantics: new(int32(2)),
+			OpenTime: timestamppb.New(time.Unix(row.Bucket, 0)), DeviceCount: 0,
 		}
 		// COALESCE in SQL supplies typed values for sqlc; only HasValues permits
 		// exposing them. Missing and non-finite values are gaps, never zeroes.
 		if row.HasValues && finite(row.Average) {
+			metric.DeviceCount = 1
 			metric.AggregatedValues = append(metric.AggregatedValues, &telemetrypb.AggregatedValue{AggregationType: telemetrypb.AggregationType_AGGREGATION_TYPE_AVERAGE, Value: row.Average})
 			if row.HasMinimum && finite(row.Minimum) {
 				metric.AggregatedValues = append(metric.AggregatedValues, &telemetrypb.AggregatedValue{AggregationType: telemetrypb.AggregationType_AGGREGATION_TYPE_MIN, Value: row.Minimum})

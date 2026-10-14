@@ -212,7 +212,7 @@ it("restores multiple containers, composes site scope, and keeps selections when
   await user.click(screen.getAllByRole("button", { name: "View grid" })[0]);
   expect(listInventory).toHaveBeenCalledTimes(callsBeforeDisplayChange);
   expect(screen.getByTestId("location")).toHaveTextContent("container=7&container=8");
-  await user.click(screen.getAllByRole("button", { name: "Clear Containers filter" })[0]);
+  await user.click(screen.getAllByRole("button", { name: "Clear Buildings filter" })[0]);
   await waitFor(() => expect(screen.getByTestId("location")).not.toHaveTextContent("container="));
   expect(screen.getByTestId("location")).toHaveTextContent("site=1");
   expect(screen.getByTestId("location")).toHaveTextContent("sort=name");
@@ -228,8 +228,8 @@ it("selects a container from the filter menu and sends its typed ancestor", asyn
   );
   await waitFor(() => expect(listInventory).toHaveBeenCalled());
   await user.click(screen.getAllByRole("button", { name: "Add Filter" })[0]);
-  await user.click(screen.getByText("Containers", { exact: true, selector: "button *" }));
-  await user.click(screen.getByText("CT1 North", { exact: true }));
+  await user.click(screen.getByText("Buildings", { exact: true, selector: "button *" }));
+  await user.click(screen.getByText("CT1 North (Container)", { exact: true }));
   await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("container=7"));
   expect(screen.getByTestId("location")).toHaveTextContent("site=1");
   await waitFor(() =>
@@ -239,4 +239,36 @@ it("selects a container from the filter menu and sends its typed ancestor", asyn
       ),
     ).toBe(true),
   );
+});
+
+it("combines colliding building and container IDs and clears both from one chip", async () => {
+  const user = userEvent.setup();
+  listAllBuildings.mockImplementation(({ onSuccess }) =>
+    onSuccess([{ building: { id: 7n, name: "Conventional Building", siteId: 1n } }]),
+  );
+  render(
+    <MemoryRouter initialEntries={["/fleet/racks?building=7&container=7&site=1&sort=name&display=list"]}>
+      <RacksPage />
+      <Location />
+    </MemoryRouter>,
+  );
+  await waitFor(() =>
+    expect(
+      listInventory.mock.calls.some(
+        ([request]) =>
+          request.ancestors?.some(
+            (ancestor: { kind: EntityKind; id: bigint }) => ancestor.kind === EntityKind.BUILDING && ancestor.id === 7n,
+          ) &&
+          request.ancestors?.some(
+            (ancestor: { kind: EntityKind; id: bigint }) =>
+              ancestor.kind === EntityKind.CONTAINER && ancestor.id === 7n,
+          ),
+      ),
+    ).toBe(true),
+  );
+  await user.click(screen.getAllByRole("button", { name: "Clear Buildings filter" })[0]);
+  await waitFor(() => expect(screen.getByTestId("location")).not.toHaveTextContent("container="));
+  expect(screen.getByTestId("location")).not.toHaveTextContent("building=");
+  expect(screen.getByTestId("location")).toHaveTextContent("site=1");
+  expect(screen.getByTestId("location")).toHaveTextContent("sort=name");
 });

@@ -22,10 +22,12 @@ WITH assets AS (
    CASE WHEN power_w IS NULL THEN 0 ELSE 1 END::bigint AS power_reporting_count,
    hashrate_hs / 1e12 AS hashrate_ths, power_w / 1e3 AS power_kw,
    temperature_c AS min_temperature_c, temperature_c AS max_temperature_c,
-   CASE WHEN kind=5 THEN miner_efficiency_jth ELSE (power_w / 1e3 * 1000) / NULLIF(hashrate_hs / 1e12, 0) END AS efficiency_jth
+   miner_efficiency_jth AS efficiency_jth
  FROM fleet_mining_asset a WHERE a.org_id=$1
 ), options AS (
  SELECT COALESCE(($2::jsonb->>'miner_only')::boolean,FALSE) AS miner_only,
+   COALESCE(($2::jsonb->>'no_facility')::boolean,FALSE) AS no_facility,
+   COALESCE(($2::jsonb->>'no_group')::boolean,FALSE) AS no_group,
    COALESCE(($2::jsonb->>'no_building')::boolean,FALSE) AS no_building,
    COALESCE(($2::jsonb->>'no_rack')::boolean,FALSE) AS no_rack,
    COALESCE(($2::jsonb->>'unassigned')::boolean,FALSE) AS unassigned,
@@ -114,15 +116,15 @@ WITH assets AS (
    AND ((cardinality($6::bigint[]) = 0 AND NOT $7::boolean)
         OR r.site_id = ANY($6::bigint[]) OR ($7::boolean AND r.site_id IS NULL))
    AND ($8::text = '' OR strpos(lower(r.search_text), lower($8)) > 0)
-   AND (NOT EXISTS (
+   AND ((NOT f.no_facility AND NOT EXISTS (
      SELECT 1 FROM jsonb_to_recordset($9::jsonb) AS p(kind int, id bigint) WHERE p.kind IN (1,2)
-   ) OR EXISTS (
+   )) OR (f.no_facility AND r.kind=5 AND r.facility_id IS NULL AND (r.group_id IS NOT NULL OR f.no_group)) OR EXISTS (
      SELECT 1 FROM jsonb_to_recordset($9::jsonb) AS p(kind int, id bigint)
      WHERE r.facility_kind = p.kind AND r.facility_id = p.id
    ))
-   AND (NOT EXISTS (
+   AND ((NOT f.no_group AND NOT EXISTS (
      SELECT 1 FROM jsonb_to_recordset($9::jsonb) AS p(kind int, id bigint) WHERE p.kind IN (3,4)
-   ) OR EXISTS (
+   )) OR (f.no_group AND r.kind=5 AND r.group_id IS NULL) OR EXISTS (
      SELECT 1 FROM jsonb_to_recordset($9::jsonb) AS p(kind int, id bigint)
      WHERE r.group_kind = p.kind AND r.group_id = p.id
    ))
@@ -200,6 +202,7 @@ WITH assets AS (
  LIMIT $18::int
 )
 SELECT COALESCE((SELECT jsonb_agg(to_jsonb(p) || jsonb_build_object(
+ 'coverage', CASE WHEN p.telemetry_allowed THEN cm.coverage END,
  'module_issues',CASE WHEN p.telemetry_allowed THEN module.issues END,
  'module_issues_last_seen_at',module.last_seen_at,
  'site_name',COALESCE(site.name,''), 'facility_name',COALESCE(parent_b.name,parent_d.custom_name,'Container '||parent_d.serial_number,''),
@@ -211,6 +214,7 @@ SELECT COALESCE((SELECT jsonb_agg(to_jsonb(p) || jsonb_build_object(
  'psu_issues',issues.psu_issues,'fan_issues',issues.fan_issues,'hashboard_issues',issues.hashboard_issues,'control_issues',issues.control_issues
  ) ORDER BY p.ordinal)
  FROM page p
+ LEFT JOIN container_equipment_current_metrics cm ON p.kind=6 AND cm.kind=6 AND cm.id=p.id
  LEFT JOIN container_module module ON p.kind=6 AND module.id=p.id AND module.retired_at IS NULL
  LEFT JOIN site ON site.id=p.site_id AND site.org_id=p.org_id AND site.deleted_at IS NULL
  LEFT JOIN building parent_b ON p.facility_kind=1 AND parent_b.id=p.facility_id AND parent_b.org_id=p.org_id

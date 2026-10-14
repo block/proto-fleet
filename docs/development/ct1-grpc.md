@@ -2,10 +2,9 @@
 
 The Proto plugin uses Frigate MDK v2 gRPC for CT1 discovery, pairing,
 current telemetry, and the existing boolean equipment controls. ProtoOS and
-Fleet's web proxy continue to use HTTP(S). Poll frequency, sequential reads,
-module calculations, persistence, and container power/efficiency selection are
-unchanged. Polling and storage corrections are tracked separately in #200;
-retained historical ingestion remains #179.
+Fleet's web proxy continue to use HTTP(S). Poll frequency is unchanged. Concurrent polling, physical-equipment rollups,
+and topology persistence are described in [polling measurements](ct1-polling-metrics.md).
+Retained historical ingestion remains #179.
 
 ## Firmware contract
 
@@ -81,8 +80,8 @@ Temporary discovery/pairing connections are closed on success and failure.
 Client construction is lazy; a bounded SystemInfo call proves reachability.
 The transport reconnects after interruptions. No CT1 REST fallback is enabled.
 
-Collection requires `HashboardService.GetContainerMap`. Mining totals, plant/fan
-health and controls remain sequential supplemental calls with individual budgets.
+Collection requires `HashboardService.GetContainerMap`. Mining status, plant/PDU/fan
+health and controls run concurrently as supplemental calls with individual budgets.
 The outer collection deadline is ten seconds; supplements reserve 500 ms for
 returning the core result. Cancellation and gRPC status errors are retained.
 Structured warnings identify unavailable supplements and rejected slot data.

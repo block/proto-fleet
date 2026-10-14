@@ -84,6 +84,7 @@ func TestContainerPersistenceAndMinerSeparation(t *testing.T) {
 	snapshot := &sdk.ContainerSnapshot{ObservedAt: now, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, State: sdk.ModuleAttention, ObservedAt: now}, {Position: 2, State: sdk.ModuleHashing, ObservedAt: now}}}}}
 	pue := 1.05
 	snapshot.Plant = &sdk.ContainerPlant{ObservedAt: now, PUE: &pue}
+	snapshot.Metrics = &sdk.ContainerRollup{PowerW: new(9000.0), PowerSource: "facility", Power: sdk.MetricCoverage{Reporting: 1, Expected: 1, TopologyComplete: true, OldestAt: now, NewestAt: now}, SourceTimes: map[string]time.Time{"facility": now}}
 	require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: device.DeviceIdentifier, Timestamp: now, Container: snapshot, PowerW: &telemetry.MetricValue{Value: 9000}}))
 	var plantCount int
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT count(*) FROM container_plant_metrics").Scan(&plantCount))

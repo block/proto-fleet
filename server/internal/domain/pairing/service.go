@@ -1210,11 +1210,16 @@ func (s *Service) handleAuthenticationRequiredPairing(ctx context.Context, disco
 			if err := s.deviceStore.InsertDevice(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, discoveredDevice.DeviceIdentifier); err != nil {
 				return fleeterror.NewInternalErrorf("failed to insert device: %v", err)
 			}
-		} else {
-			// Device already exists, update MAC address and serial number
-			if err := s.deviceStore.UpdateDeviceInfo(ctx, &discoveredDevice.Device, discoveredDevice.OrgID); err != nil {
-				return fleeterror.NewInternalErrorf("failed to update device info: %v", err)
-			}
+		}
+		// A failed login cannot establish replacement identity for an existing
+		// miner. The conditional write also protects a concurrent successful pair
+		// and holds the device lock through the remaining worker-name update.
+		applied, err := s.deviceStore.SetDevicePairingAuthNeededIfNotPaired(ctx, &discoveredDevice.Device, discoveredDevice.OrgID)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("failed to set auth-needed pairing: %v", err)
+		}
+		if !applied {
+			return nil
 		}
 
 		workerName := networking.NormalizeMAC(discoveredDevice.MacAddress)
@@ -1230,11 +1235,6 @@ func (s *Service) handleAuthenticationRequiredPairing(ctx context.Context, disco
 			if err := s.deviceStore.UpdateWorkerName(ctx, models.DeviceIdentifier(discoveredDevice.DeviceIdentifier), workerName); err != nil {
 				return fleeterror.NewInternalErrorf("failed to update worker name: %v", err)
 			}
-		}
-
-		// Create pairing record with AUTHENTICATION_NEEDED status
-		if err := s.deviceStore.UpsertDevicePairing(ctx, &discoveredDevice.Device, discoveredDevice.OrgID, StatusAuthenticationNeeded); err != nil {
-			return fleeterror.NewInternalErrorf("failed to upsert device pairing: %v", err)
 		}
 
 		return nil

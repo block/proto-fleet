@@ -75,6 +75,9 @@ func GetTestDB(t *testing.T) *sql.DB {
 		dropTestDatabase(context.Background(), t, &adminConfig, dbName)
 	})
 
+	// Maintenance must not race backdated fixtures or deliberate lock barriers.
+	// Policy tests can still run jobs explicitly, or enable their own schedule.
+	PauseBackgroundJobs(t, conn)
 	return conn
 }
 

@@ -1,7 +1,7 @@
 import type { ContainerTank } from "./components/ContainerOverviewLayout";
 import type { TankModuleState } from "./components/TankModuleGrid";
 import type { ContainerOverviewData } from "./hooks/useContainerOverview";
-import { tankMetricCoverage } from "./tankMetricCoverage";
+import { measurementCoverage, tankMetricCoverage } from "./tankMetricCoverage";
 import { EntityKind, type EntityRef } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import {
   formatEfficiencyOrDash,
@@ -32,12 +32,17 @@ export function buildContainerOverview(data: ContainerOverviewData, unit: "C" | 
     modules.length === tanks.reduce((total, tank) => total + Number(tank.assetCount), 0) &&
     modules.every((module) => states[module.state]);
   const kpis = [
-    { label: "Hashrate", value: formatHashrateOrDash(hashrate), preformatted: true },
+    {
+      label: "Hashrate",
+      value: formatHashrateOrDash(hashrate),
+      preformatted: true,
+      subtitle: hashrate !== null ? measurementCoverage(container.coverage?.hashrate, "boards") : undefined,
+    },
     { label: "Container power", value: formatPowerKwOrDash(power), preformatted: true },
     {
       label: "Efficiency",
       value: formatEfficiencyOrDash(
-        hashrate !== null && hashrate > 0 && power !== null ? (power * 1000) / hashrate : null,
+        !stale && container.efficiencyJh !== undefined ? container.efficiencyJh * 1e12 : null,
       ),
       preformatted: true,
     },

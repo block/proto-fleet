@@ -174,6 +174,12 @@ func hashboardObservation(slot Slot, position int32, now time.Time) sdk.Containe
 			if nonnegative(h.Hashrate) && !math.IsInf(*h.Hashrate*1e12, 0) {
 				v.HashrateHS = new(*h.Hashrate * 1e12)
 			}
+			if nonnegative(h.Power) {
+				v.PowerW = h.Power
+			}
+			if v.HashrateHS != nil && *v.HashrateHS > 0 && v.PowerW != nil {
+				v.EfficiencyJH = new(*v.PowerW / *v.HashrateHS)
+			}
 			if finite(h.AverageAsicTemperatureC) {
 				v.TemperatureC = h.AverageAsicTemperatureC
 			}

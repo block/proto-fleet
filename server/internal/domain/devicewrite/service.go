@@ -143,8 +143,8 @@ func (a *Attempt) Finish(ctx context.Context, outcome error) error {
 			// The owning callback and its response lifetime have ended. This is
 			// transient direct admission, not durable physical-outcome history.
 			// Queue and claimed deletion-permit rows remain retained by the query.
-			if err := q.DeleteCompletedObservationAttempt(ctx, sqlc.DeleteCompletedObservationAttemptParams{AttemptID: a.id, DeviceID: a.deviceID, OrganizationID: a.organizationID}); err != nil {
-				return fmt.Errorf("retire completed observation admission: %w", err)
+			if err := q.DeleteUndispatchedDirectAttempt(ctx, sqlc.DeleteUndispatchedDirectAttemptParams{AttemptID: a.id, DeviceID: a.deviceID, OrganizationID: a.organizationID}); err != nil {
+				return fmt.Errorf("retire undispatched direct admission: %w", err)
 			}
 		}
 		return nil

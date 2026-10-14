@@ -11,7 +11,7 @@ func containerSnapshotToProto(s *ContainerSnapshot) *pb.ContainerSnapshot {
 	if s == nil {
 		return nil
 	}
-	out := &pb.ContainerSnapshot{ObservedAt: timestamppb.New(s.ObservedAt), TopologyComplete: s.TopologyComplete}
+	out := &pb.ContainerSnapshot{ObservedAt: timestamppb.New(s.ObservedAt), TopologyComplete: s.TopologyComplete, Metrics: rollupToProto(s.Metrics)}
 	for _, f := range s.Fans {
 		out.Fans = append(out.Fans, &pb.ContainerFan{ComponentId: f.ComponentID, ObservedAt: timestamppb.New(f.ObservedAt), SpeedPercent: f.SpeedPercent, PowerW: f.PowerW, Direction: f.Direction, AlarmActive: f.AlarmActive})
 	}
@@ -28,7 +28,7 @@ func containerSnapshotToProto(s *ContainerSnapshot) *pb.ContainerSnapshot {
 		out.Plant = &pb.ContainerPlant{DryCoolerInletTemperatureC: p.DryCoolerInletTemperatureC, ObservedAt: timestamppb.New(p.ObservedAt), TotalPowerW: p.TotalPowerW, FacilityPowerW: p.FacilityPowerW, Pue: p.PUE, InletTemperatureC: p.InletTemperatureC, OutletTemperatureC: p.OutletTemperatureC, AlarmActive: p.AlarmActive, CriticalAlarmActive: p.CriticalAlarmActive}
 	}
 	for _, tank := range s.Tanks {
-		t := &pb.ContainerTank{Position: tank.Position}
+		t := &pb.ContainerTank{Position: tank.Position, Metrics: rollupToProto(tank.Metrics), TopologyComplete: tank.TopologyComplete}
 		for _, m := range tank.Modules {
 			module := &pb.ContainerModule{Position: m.Position, ReportedId: m.ReportedID, State: string(m.State), ObservedAt: timestamppb.New(m.ObservedAt)}
 			if v := m.Issues; v != nil {
@@ -48,10 +48,10 @@ func containerSnapshotToProto(s *ContainerSnapshot) *pb.ContainerSnapshot {
 				for _, c := range b.IdentityClaims {
 					claims = append(claims, &pb.HashboardIdentityClaim{MacAddress: c.MACAddress, Serial: c.Serial})
 				}
-				module.Hashboards = append(module.Hashboards, &pb.ContainerHashboard{IdentityClaims: claims, UnavailableReason: b.UnavailableReason, Position: b.Position, Occupancy: b.Occupancy, MacAddress: b.MACAddress, Serial: b.Serial, State: string(b.State), MiningState: b.MiningState, Isolated: b.Isolated, ObservedAt: timestamppb.New(b.ObservedAt), StateObservedAt: timestamppb.New(b.StateObservedAt), HashrateHs: b.HashrateHS, TemperatureC: b.TemperatureC, HashrailOk: b.HashrailOK, RefclksOk: b.RefclksOK, MetadataJson: b.MetadataJSON, HealthJson: b.HealthJSON})
+				module.Hashboards = append(module.Hashboards, &pb.ContainerHashboard{IdentityClaims: claims, UnavailableReason: b.UnavailableReason, Position: b.Position, Occupancy: b.Occupancy, MacAddress: b.MACAddress, Serial: b.Serial, State: string(b.State), MiningState: b.MiningState, Isolated: b.Isolated, ObservedAt: timestamppb.New(b.ObservedAt), StateObservedAt: timestamppb.New(b.StateObservedAt), PowerW: b.PowerW, EfficiencyJh: b.EfficiencyJH, Feed: feedToProto(b.Feed), HashrateHs: b.HashrateHS, TemperatureC: b.TemperatureC, HashrailOk: b.HashrailOK, RefclksOk: b.RefclksOK, MetadataJson: b.MetadataJSON, HealthJson: b.HealthJSON})
 			}
 			if v := m.Metrics; v != nil {
-				module.Metrics = &pb.ContainerModuleMetrics{ObservedAt: timestamppb.New(v.ObservedAt), HashrateHs: v.HashrateHS, PowerW: v.PowerW, TemperatureC: v.TemperatureC}
+				module.Metrics = &pb.ContainerModuleMetrics{ObservedAt: timestamppb.New(v.ObservedAt), EfficiencyJh: v.EfficiencyJH, Rollup: rollupToProto(v.Rollup), HashrateHs: v.HashrateHS, PowerW: v.PowerW, TemperatureC: v.TemperatureC}
 			}
 			t.Modules = append(t.Modules, module)
 		}
@@ -63,7 +63,7 @@ func containerSnapshotFromProto(s *pb.ContainerSnapshot) *ContainerSnapshot {
 	if s == nil {
 		return nil
 	}
-	out := &ContainerSnapshot{ObservedAt: s.ObservedAt.AsTime(), TopologyComplete: s.TopologyComplete, Tanks: []ContainerTank{}}
+	out := &ContainerSnapshot{ObservedAt: s.ObservedAt.AsTime(), TopologyComplete: s.TopologyComplete, Metrics: rollupFromProto(s.Metrics), Tanks: []ContainerTank{}}
 	for _, f := range s.Fans {
 		if f == nil {
 			continue
@@ -87,7 +87,7 @@ func containerSnapshotFromProto(s *pb.ContainerSnapshot) *ContainerSnapshot {
 		out.Plant = &ContainerPlant{DryCoolerInletTemperatureC: p.DryCoolerInletTemperatureC, ObservedAt: p.ObservedAt.AsTime(), TotalPowerW: p.TotalPowerW, FacilityPowerW: p.FacilityPowerW, PUE: p.Pue, InletTemperatureC: p.InletTemperatureC, OutletTemperatureC: p.OutletTemperatureC, AlarmActive: p.AlarmActive, CriticalAlarmActive: p.CriticalAlarmActive}
 	}
 	for _, tank := range s.Tanks {
-		t := ContainerTank{Position: tank.Position, Modules: []ContainerModule{}}
+		t := ContainerTank{Position: tank.Position, Metrics: rollupFromProto(tank.Metrics), TopologyComplete: tank.TopologyComplete, Modules: []ContainerModule{}}
 		for _, m := range tank.Modules {
 			module := ContainerModule{Position: m.Position, ReportedID: m.ReportedId, State: ModuleState(m.State), ObservedAt: m.ObservedAt.AsTime()}
 			if v := m.Issues; v != nil {
@@ -112,14 +112,56 @@ func containerSnapshotFromProto(s *pb.ContainerSnapshot) *ContainerSnapshot {
 				for _, c := range b.IdentityClaims {
 					claims = append(claims, HashboardIdentityClaim{MACAddress: c.MacAddress, Serial: c.Serial})
 				}
-				module.Hashboards = append(module.Hashboards, ContainerHashboard{IdentityClaims: claims, UnavailableReason: b.UnavailableReason, Position: b.Position, Occupancy: b.Occupancy, MACAddress: b.MacAddress, Serial: b.Serial, State: ModuleState(b.State), MiningState: b.MiningState, Isolated: b.Isolated, ObservedAt: b.ObservedAt.AsTime(), StateObservedAt: b.StateObservedAt.AsTime(), HashrateHS: b.HashrateHs, TemperatureC: b.TemperatureC, HashrailOK: b.HashrailOk, RefclksOK: b.RefclksOk, MetadataJSON: b.MetadataJson, HealthJSON: b.HealthJson})
+				module.Hashboards = append(module.Hashboards, ContainerHashboard{IdentityClaims: claims, UnavailableReason: b.UnavailableReason, Position: b.Position, Occupancy: b.Occupancy, MACAddress: b.MacAddress, Serial: b.Serial, State: ModuleState(b.State), MiningState: b.MiningState, Isolated: b.Isolated, ObservedAt: b.ObservedAt.AsTime(), StateObservedAt: b.StateObservedAt.AsTime(), PowerW: b.PowerW, EfficiencyJH: b.EfficiencyJh, Feed: feedFromProto(b.Feed), HashrateHS: b.HashrateHs, TemperatureC: b.TemperatureC, HashrailOK: b.HashrailOk, RefclksOK: b.RefclksOk, MetadataJSON: b.MetadataJson, HealthJSON: b.HealthJson})
 			}
 			if v := m.Metrics; v != nil {
-				module.Metrics = &ContainerModuleMetrics{ObservedAt: v.ObservedAt.AsTime(), HashrateHS: v.HashrateHs, PowerW: v.PowerW, TemperatureC: v.TemperatureC}
+				module.Metrics = &ContainerModuleMetrics{ObservedAt: v.ObservedAt.AsTime(), EfficiencyJH: v.EfficiencyJh, Rollup: rollupFromProto(v.Rollup), HashrateHS: v.HashrateHs, PowerW: v.PowerW, TemperatureC: v.TemperatureC}
 			}
 			t.Modules = append(t.Modules, module)
 		}
 		out.Tanks = append(out.Tanks, t)
 	}
 	return out
+}
+
+func coverageToProto(c MetricCoverage) *pb.MetricCoverage {
+	return &pb.MetricCoverage{Reporting: c.Reporting, Expected: c.Expected, TopologyComplete: c.TopologyComplete, OldestAt: timestamppb.New(c.OldestAt), NewestAt: timestamppb.New(c.NewestAt)}
+}
+func coverageFromProto(c *pb.MetricCoverage) MetricCoverage {
+	if c == nil {
+		return MetricCoverage{}
+	}
+	return MetricCoverage{Reporting: c.Reporting, Expected: c.Expected, TopologyComplete: c.TopologyComplete, OldestAt: c.OldestAt.AsTime(), NewestAt: c.NewestAt.AsTime()}
+}
+func rollupToProto(r *ContainerRollup) *pb.ContainerRollup {
+	if r == nil {
+		return nil
+	}
+	out := &pb.ContainerRollup{HashrateHs: r.HashrateHS, PowerW: r.PowerW, EfficiencyJh: r.EfficiencyJH, TemperatureC: r.TemperatureC, MinTemperatureC: r.MinTemperatureC, MaxTemperatureC: r.MaxTemperatureC, Hashrate: coverageToProto(r.Hashrate), Power: coverageToProto(r.Power), Temperature: coverageToProto(r.Temperature), PowerSource: r.PowerSource, Attribution: r.Attribution, SourceTimes: map[string]*timestamppb.Timestamp{}}
+	for k, v := range r.SourceTimes {
+		out.SourceTimes[k] = timestamppb.New(v)
+	}
+	return out
+}
+func rollupFromProto(r *pb.ContainerRollup) *ContainerRollup {
+	if r == nil {
+		return nil
+	}
+	out := &ContainerRollup{HashrateHS: r.HashrateHs, PowerW: r.PowerW, EfficiencyJH: r.EfficiencyJh, TemperatureC: r.TemperatureC, MinTemperatureC: r.MinTemperatureC, MaxTemperatureC: r.MaxTemperatureC, Hashrate: coverageFromProto(r.Hashrate), Power: coverageFromProto(r.Power), Temperature: coverageFromProto(r.Temperature), PowerSource: r.PowerSource, Attribution: r.Attribution, SourceTimes: map[string]time.Time{}}
+	for k, v := range r.SourceTimes {
+		out.SourceTimes[k] = v.AsTime()
+	}
+	return out
+}
+func feedToProto(f *ContainerFeedEvidence) *pb.ContainerFeedEvidence {
+	if f == nil {
+		return nil
+	}
+	return &pb.ContainerFeedEvidence{PowerFeedId: f.PowerFeedID, ObservedPowerFeedId: f.ObservedPowerFeedID, ExpectedPowerFeedId: f.ExpectedPowerFeedID, WiringStatus: f.WiringStatus, WiringReasons: f.WiringReasons, ConfiguredTank: f.ConfiguredTank, ConfiguredModule: f.ConfiguredModule}
+}
+func feedFromProto(f *pb.ContainerFeedEvidence) *ContainerFeedEvidence {
+	if f == nil {
+		return nil
+	}
+	return &ContainerFeedEvidence{PowerFeedID: f.PowerFeedId, ObservedPowerFeedID: f.ObservedPowerFeedId, ExpectedPowerFeedID: f.ExpectedPowerFeedId, WiringStatus: f.WiringStatus, WiringReasons: f.WiringReasons, ConfiguredTank: f.ConfiguredTank, ConfiguredModule: f.ConfiguredModule}
 }

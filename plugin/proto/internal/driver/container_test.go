@@ -25,13 +25,18 @@ func (containerServer) GetSystemInfo(context.Context, *mdk.GetSystemInfoRequest)
 	return &mdk.GetSystemInfoResponse{Info: &mdk.SystemInfo{Id: "controller-a", Product: "Frigate", Version: "v1"}}, nil
 }
 func (containerServer) GetContainerMap(context.Context, *mdk.GetContainerMapRequest) (*mdk.GetContainerMapResponse, error) {
-	return &mdk.GetContainerMapResponse{ContainerMap: &mdk.ContainerMap{Tanks: []*mdk.Tank{{Id: 1, Modules: []*mdk.Module{{Id: 1}}}}}}, nil
+	slots := []*mdk.Slot{
+		{Occupied: true, Hashboard: &mdk.Hashboard{Serial: "board-a", Location: &mdk.HashboardLocation{HashboardPosition: new(uint32(1))}, Health: &mdk.HashboardHealth{Timestamp: timestamppb.Now(), Hashrate: 100, AverageAsicTemperatureC: new(65.0)}}},
+		{ConfiguredLocation: &mdk.HashboardLocation{HashboardPosition: new(uint32(2))}},
+		{ConfiguredLocation: &mdk.HashboardLocation{HashboardPosition: new(uint32(3))}},
+	}
+	return &mdk.GetContainerMapResponse{ContainerMap: &mdk.ContainerMap{Tanks: []*mdk.Tank{{Id: 1, Modules: []*mdk.Module{{Id: 1, Slots: slots}}}}}}, nil
 }
 func (containerServer) GetMiningStatus(context.Context, *mdk.GetMiningStatusRequest) (*mdk.GetMiningStatusResponse, error) {
-	return &mdk.GetMiningStatusResponse{Hashrate: 100, Mining: true}, nil
+	return &mdk.GetMiningStatusResponse{Hashrate: 999, Mining: true}, nil
 }
 func (containerServer) GetContainerHealth(context.Context, *mdk.GetContainerHealthRequest) (*mdk.GetContainerHealthResponse, error) {
-	return &mdk.GetContainerHealthResponse{Timestamp: timestamppb.Now(), Plant: &mdk.PlantHealth{TotalPowerW: new(3200.0)}}, nil
+	return &mdk.GetContainerHealthResponse{Timestamp: timestamppb.Now(), Plant: &mdk.PlantHealth{TotalPowerW: new(9000.0), FacilityPowerW: new(3200.0), InletTemperatureC: new(25.0)}}, nil
 }
 
 func TestContainerLifecycle(t *testing.T) {
@@ -68,8 +73,14 @@ func TestContainerLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "container-1", metrics.DeviceID)
 	require.Equal(t, "v1", metrics.FirmwareVersion)
+	require.NotNil(t, metrics.HashrateHS)
 	require.Equal(t, 100e12, metrics.HashrateHS.Value)
+	require.NotNil(t, metrics.PowerW)
 	require.Equal(t, 3200.0, metrics.PowerW.Value)
+	require.NotNil(t, metrics.TempC)
+	require.Equal(t, 65.0, metrics.TempC.Value)
+	require.Equal(t, 25.0, *metrics.Container.Plant.InletTemperatureC)
+	require.Nil(t, metrics.EfficiencyJH, "the partial container map cannot establish full coverage")
 	require.Equal(t, sdk.ModuleUnknown, metrics.Container.Tanks[0].Modules[0].State)
 	web, ok, err := result.Device.TryGetWebViewURL(t.Context())
 	require.NoError(t, err)

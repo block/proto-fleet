@@ -191,7 +191,7 @@ test("passes tank labels through the layout to saved views and preserves them on
   fireEvent.click(await screen.findByRole("button", { name: "Publish tanks" }));
   fireEvent.click(screen.getByRole("button", { name: "Publish sites" }));
   fireEvent.click(screen.getAllByTestId("fleet-view-tabs-new-view-button")[0]);
-  expect(await screen.findByText("CT1 North T1 · North")).toBeInTheDocument();
+  expect(await screen.findByText("CT1 North T1 · North (Tank)")).toBeInTheDocument();
 });
 
 describe("FleetLayout redirect logic", () => {

@@ -226,6 +226,9 @@ var reflectEnabledServices = []string{
 }
 
 func start(config *Config) (result error) {
+	if err := config.MinerProxy.Validate(); err != nil {
+		return err
+	}
 	clientIP, err := middleware.NewClientIPMiddleware(config.HTTP.TrustedProxyCIDRs)
 	if err != nil {
 		return err
@@ -872,7 +875,7 @@ func start(config *Config) (result error) {
 	mux.Handle("PATCH /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewUpdateMetadataHandler(filesService, requestAuth, activitySvc)))
 	mux.Handle("DELETE /api/v1/firmware/files/{fileId}", activeHTTP.Wrap(firmwareHandler.NewDeleteFileHandler(filesService, requestAuth)))
 	mux.Handle("DELETE /api/v1/firmware/files", activeHTTP.Wrap(firmwareHandler.NewDeleteAllFilesHandler(filesService, requestAuth)))
-	mux.Handle("/miners/{deviceIdentifier}/api/{apiVersion}/{rest...}", activeHTTP.Wrap(minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc)))
+	mux.Handle("/miners/{deviceIdentifier}/api/{apiVersion}/{rest...}", activeHTTP.Wrap(minerProxyHandler.NewHandler(conn, sessionSvc, userStore, permissionResolver, encryptSvc, config.MinerProxy)))
 
 	if len(reflectEnabledServices) != 0 {
 		slog.Debug("enabling reflection", "services", reflectEnabledServices)
@@ -974,7 +977,8 @@ func start(config *Config) (result error) {
 		handler = m.Wrap(handler)
 	}
 
-	handler = h2c.NewHandler(handler, newHTTP2Server(config.HTTP))
+	requestDrain := &httpRequestDrain{handler: handler}
+	handler = h2c.NewHandler(requestDrain, newHTTP2Server(config.HTTP))
 	httpServer := http.Server{
 		Addr:              config.HTTP.Address,
 		Handler:           handler,
@@ -991,7 +995,7 @@ func start(config *Config) (result error) {
 		}
 	}()
 
-	return serveFleetRuntime(&httpServer, listener, fleetRuntime, shutdownTimeout)
+	return serveFleetRuntime(&httpServer, listener, fleetRuntime, shutdownTimeout, requestDrain)
 }
 
 func newHTTP2Server(config HTTPConfig) *http2.Server {

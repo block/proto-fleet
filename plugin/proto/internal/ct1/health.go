@@ -14,9 +14,9 @@ import (
 
 // Frigate health is sampled independently of RPC responses. A successful poll
 // does not make an old board sample fresh. Allow brief replication/poll delays.
-const healthMaxAge = 2 * time.Minute
-const clockSkewAllowance = 5 * time.Second
-const boardsPerModule = 3
+const healthMaxAge = sdk.ContainerReadingMaxAge
+const clockSkewAllowance = sdk.ContainerClockSkewAllowance
+const boardsPerModule = sdk.CT1HashboardsPerModule
 
 const (
 	miningStateMining = "MINING_STATE_MINING"
@@ -34,6 +34,7 @@ type PSUThermal struct {
 	OverTemperatureWarning bool     `json:"overTemperatureWarning"`
 }
 type Health struct {
+	Power                   *float64       `json:"power"`
 	Hashrate                *float64       `json:"hashrate"`
 	AverageAsicTemperatureC *float64       `json:"averageAsicTemperatureC"`
 	PSUElectrical           *PSUElectrical `json:"psuElectrical"`
@@ -56,6 +57,7 @@ type Board struct {
 	Health      *Health `json:"health"`
 }
 type Slot struct {
+	Feed       *sdk.ContainerFeedEvidence `json:"-"`
 	invalid    bool
 	unreported bool
 	Occupied   bool   `json:"occupied"`
@@ -66,8 +68,9 @@ type Module struct {
 	Slots []Slot `json:"slots"`
 }
 type Tank struct {
-	ID      int32    `json:"id"`
-	Modules []Module `json:"modules"`
+	ExpectedModules int32    `json:"-"`
+	ID              int32    `json:"id"`
+	Modules         []Module `json:"modules"`
 }
 type ContainerMap struct {
 	Tanks []Tank `json:"tanks"`
@@ -141,7 +144,7 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 	if wire.ContainerMap == nil {
 		return nil, fmt.Errorf("container map missing")
 	}
-	result := &sdk.ContainerSnapshot{ObservedAt: now, TopologyComplete: true, Tanks: []sdk.ContainerTank{}}
+	result := &sdk.ContainerSnapshot{ObservedAt: now, TopologyComplete: len(wire.ContainerMap.Tanks) == sdk.CT1TankCount, Tanks: []sdk.ContainerTank{}}
 	tankIDs := map[int32]bool{}
 	boardIDs := boardIdentityCounts(wire)
 	issuesBudget := issueBudget{remaining: maxContainerIssueBytes}
@@ -150,27 +153,41 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 			return nil, fmt.Errorf("invalid or duplicate tank %d", tank.ID)
 		}
 		tankIDs[tank.ID] = true
-		out := sdk.ContainerTank{Position: tank.ID, Modules: []sdk.ContainerModule{}}
+		expected := tank.ExpectedModules
+		if expected == 0 {
+			expected = sdk.CT1ModulesPerTank
+		} // CT1 Trident96 layout; absent modules remain unknown.
+		out := sdk.ContainerTank{Position: tank.ID, Modules: []sdk.ContainerModule{}, TopologyComplete: len(tank.Modules) == int(expected) && tank.ID <= sdk.CT1TankCount}
 		moduleIDs := map[int32]bool{}
 		for _, m := range tank.Modules {
 			if m.ID <= 0 || moduleIDs[m.ID] {
 				return nil, fmt.Errorf("invalid or duplicate module %d in tank %d", m.ID, tank.ID)
 			}
 			moduleIDs[m.ID] = true
+			if m.ID > expected {
+				out.TopologyComplete = false
+			}
 			boards := []Board{}
 			reportedID := ""
 			identityConflict := false
 			hashboards := hashboardObservations(m.Slots, now)
 			for index := range hashboards {
 				observation := &hashboards[index]
+				if index < len(m.Slots) {
+					observation.Feed = m.Slots[index].Feed
+				}
 				for _, key := range boardIdentityKeys(observation.MACAddress, observation.Serial) {
 					if boardIDs[key] > 1 {
 						*observation = unavailableBoard(observation.Position, sdk.HashboardIdentityConflict, m.Slots[index].Hashboard)
+						observation.Feed = m.Slots[index].Feed
 						break
 					}
 				}
 				if observation.UnavailableReason != "" {
 					slog.Warn("CT1 hashboard observation unavailable", "tank", tank.ID, "module", m.ID, "position", observation.Position, "reason", observation.UnavailableReason)
+				}
+				if observation.Occupancy == "unknown" {
+					out.TopologyComplete = false
 				}
 				if observation.Occupancy != "occupied" {
 					continue
@@ -189,10 +206,23 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 			if identityConflict {
 				reportedID = ""
 				state = sdk.ModuleUnknown
+				out.TopologyComplete = false
+				for i := range hashboards {
+					board := hashboards[i]
+					rejected := sdk.UnavailableHashboard(board.Position, sdk.HashboardIdentityConflict)
+					rejected.Feed, rejected.IdentityClaims = board.Feed, board.IdentityClaims
+					// Rejected placements still veto another slot claiming a known alias.
+					if board.MACAddress != "" || board.Serial != "" {
+						rejected.IdentityClaims = append(rejected.IdentityClaims, sdk.HashboardIdentityClaim{MACAddress: board.MACAddress, Serial: board.Serial})
+					}
+					hashboards[i] = rejected
+				}
+				boards = nil
 			}
 			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, State: state, ObservedAt: moduleObservedAt(boards, state, now), Metrics: moduleMetrics(boards, now), Hashboards: hashboards, Issues: moduleIssuesWithBudget(boards, now, identityConflict, &issuesBudget)})
 		}
 		sort.Slice(out.Modules, func(i, j int) bool { return out.Modules[i].Position < out.Modules[j].Position })
+		result.TopologyComplete = result.TopologyComplete && out.TopologyComplete
 		result.Tanks = append(result.Tanks, out)
 	}
 	sort.Slice(result.Tanks, func(i, j int) bool { return result.Tanks[i].Position < result.Tanks[j].Position })

@@ -799,6 +799,7 @@ service Driver {
 
 // Container topology and health are observations, not independently paired miners.
 message ContainerSnapshot {
+ ContainerRollup metrics = 7;
  repeated ContainerFan fans = 5;
  ContainerControls controls = 6;
   google.protobuf.Timestamp observed_at = 1;
@@ -807,6 +808,8 @@ message ContainerSnapshot {
   bool topology_complete = 4;
 }
 message ContainerTank {
+ ContainerRollup metrics = 3;
+ bool topology_complete = 4;
   int32 position = 1;
   repeated ContainerModule modules = 2;
 }
@@ -830,6 +833,9 @@ message HashboardIdentityClaim {
 }
 
 message ContainerHashboard {
+ optional double power_w = 18;
+ optional double efficiency_jh = 19;
+ ContainerFeedEvidence feed = 20;
   repeated HashboardIdentityClaim identity_claims = 17;
   string unavailable_reason = 16; // Bounded SDK reason code for rejected evidence.
   int32 position = 1;
@@ -854,6 +860,8 @@ message ContainerHashboard {
 
 // SI units; absent values are unavailable. Power is module PSU input power.
 message ContainerModuleMetrics {
+ optional double efficiency_jh = 5;
+ ContainerRollup rollup = 6;
   google.protobuf.Timestamp observed_at = 1;
   optional double hashrate_hs = 2;
   optional double power_w = 3;
@@ -928,4 +936,36 @@ message SetTankMiningRequest {
   DeviceRef ref = 1;
   repeated int32 positions = 2;
   optional bool mining = 3;
+}
+
+// Poll-time physical measurements; never allocated customer power.
+message ContainerRollup {
+ optional double hashrate_hs = 1;
+ optional double power_w = 2;
+ optional double efficiency_jh = 3;
+ optional double temperature_c = 4;
+ optional double min_temperature_c = 5;
+ optional double max_temperature_c = 6;
+ MetricCoverage hashrate = 7;
+ MetricCoverage power = 8;
+ MetricCoverage temperature = 9;
+ string power_source = 10;
+ string attribution = 11;
+ map<string, google.protobuf.Timestamp> source_times = 12;
+}
+message MetricCoverage {
+ int32 reporting = 1;
+ int32 expected = 2;
+ bool topology_complete = 3;
+ google.protobuf.Timestamp oldest_at = 4;
+ google.protobuf.Timestamp newest_at = 5;
+}
+message ContainerFeedEvidence {
+ string power_feed_id = 1;
+ string expected_power_feed_id = 2;
+ string wiring_status = 3;
+ repeated string wiring_reasons = 4;
+ int32 configured_tank = 5;
+ int32 configured_module = 6;
+ string observed_power_feed_id = 7;
 }

@@ -39,7 +39,8 @@ func TestBaselinePreservesContinuousAggregateStorageIntervals(t *testing.T) {
 	require.NoError(t, rows.Err())
 	// Tightening the source hypertable's interval never changed these existing
 	// materializations. Fresh creation otherwise derives a different interval.
-	require.Equal(t, map[string]string{
+	// Later feature migrations may add their own materializations.
+	require.Subset(t, actual, map[string]string{
 		"device_metrics_daily":               "10 days",
 		"device_metrics_hourly":              "10 days",
 		"device_status_daily":                "10 days",
@@ -48,7 +49,7 @@ func TestBaselinePreservesContinuousAggregateStorageIntervals(t *testing.T) {
 		"miner_state_snapshot_device_1m":     "10 days",
 		"miner_state_snapshot_device_daily":  "10 days",
 		"miner_state_snapshot_device_hourly": "10 days",
-	}, actual)
+	})
 }
 
 func TestSharedBaselineDownRefusesWithoutRemovingData(t *testing.T) {

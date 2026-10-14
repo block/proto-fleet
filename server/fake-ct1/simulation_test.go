@@ -274,9 +274,9 @@ func TestHistoryIncludesBriefStopsAndRejectsWrongComponents(t *testing.T) {
 		t.Fatalf("brief stop lost: %+v", history)
 	}
 	for _, query := range []string{
-		"TIME_SERIES_METRIC_PLANT_PHASE_POWER&identifier=pdu-t1",
+		"TIME_SERIES_METRIC_PLANT_PHASE_POWER&identifier=pdu-1",
 		"TIME_SERIES_METRIC_PLANT_DISTRIBUTION_POWER&identifier=dry-cooler-fan-1",
-		"TIME_SERIES_METRIC_PLANT_FAN_POWER&identifier=pdu-t1",
+		"TIME_SERIES_METRIC_PLANT_FAN_POWER&identifier=pdu-1",
 		"TIME_SERIES_METRIC_POWER_FEED_POWER&identifier=missing",
 		"POWER",
 	} {

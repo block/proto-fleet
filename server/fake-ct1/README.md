@@ -87,8 +87,8 @@ memory. Samples are advanced lazily before each request, so idle polling periods
 are filled using the settings that actually applied. Changes never rewrite older
 samples. Buckets report measured min/max/average and sample counts, with at most
 300 buckets per general-history query. Choose 1h buckets for a five-day view.
-Board identifiers, `pdu-t1` through `pdu-t6`, `dry-cooler-fan-1` through
-`dry-cooler-fan-10`, `PHASE_A/B/C`, and `PF-T1-01` style CU1 feed IDs scope the
+Board identifiers, `pdu-1` through `pdu-6`, `dry-cooler-fan-1` through
+`dry-cooler-fan-10`, `PHASE_A/B/C`, and `pdu-1-outlet-01` style feed IDs scope the
 corresponding metrics. Unknown components are rejected. Startup backfill is
 synthetic; runtime history is not persisted across restarts.
 

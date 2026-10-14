@@ -13,6 +13,8 @@ import (
 	"math"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/containerreadings"
+
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetinventory/v1"
 	fleetpb "github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -121,6 +123,7 @@ func encodeCursor(c pageCursor) (string, error) {
 }
 
 type listRow struct {
+	Coverage                  *sdk.ContainerRollup       `json:"coverage"`
 	ModuleIssues              *sdk.ContainerModuleIssues `json:"module_issues"`
 	ModuleIssuesLastSeenAt    *time.Time                 `json:"module_issues_last_seen_at"`
 	TemperatureReportingCount int64                      `json:"temperature_reporting_count"`
@@ -169,7 +172,7 @@ type listRow struct {
 }
 
 func (r listRow) item() *pb.InventoryItem {
-	item := &pb.InventoryItem{Ref: &pb.EntityRef{Kind: pb.EntityKind(r.Kind), Id: r.ID}, Name: r.Name, SiteId: r.SiteID,
+	item := &pb.InventoryItem{Coverage: containerreadings.Coverage(r.Coverage), Ref: &pb.EntityRef{Kind: pb.EntityKind(r.Kind), Id: r.ID}, Name: r.Name, SiteId: r.SiteID,
 		DeviceIdentifier: r.DeviceIdentifier, Position: r.Position, ReportedId: r.ReportedID, State: r.State,
 		AssetCount: r.AssetCount, HashrateReportingCount: r.HashrateReportingCount, PowerReportingCount: r.PowerReportingCount,
 		HashrateThs: r.HashrateTHS, PowerKw: r.PowerKW, EfficiencyJth: r.EfficiencyJTH,
@@ -309,6 +312,16 @@ func (s *Service) History(ctx context.Context, orgID int64, req *pb.ListModuleHi
 		}
 		if r.PowerW.Valid {
 			v.PowerW = &r.PowerW.Float64
+		}
+		if r.EfficiencyJh.Valid {
+			v.EfficiencyJh = &r.EfficiencyJh.Float64
+		}
+		if r.Coverage.Valid {
+			var coverage sdk.ContainerRollup
+			if err := json.Unmarshal(r.Coverage.RawMessage, &coverage); err != nil {
+				return nil, fmt.Errorf("decode module coverage: %w", err)
+			}
+			v.Coverage = containerreadings.Coverage(&coverage)
 		}
 		if r.TemperatureC.Valid {
 			v.TemperatureC = &r.TemperatureC.Float64

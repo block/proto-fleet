@@ -347,7 +347,7 @@ SELECT
     chip_count_kind,
     chip_frequency_mhz,
     health,
-    site_id
+    site_id, metric_semantics, coverage, topology_observation_id, topology_version_id
 FROM device_metrics
 WHERE time >= $1
   AND time <= $2
@@ -397,6 +397,10 @@ func (q *Queries) GetAllDeviceMetricsTimeSeries(ctx context.Context, arg GetAllD
 			&i.ChipFrequencyMhz,
 			&i.Health,
 			&i.SiteID,
+			&i.MetricSemantics,
+			&i.Coverage,
+			&i.TopologyObservationID,
+			&i.TopologyVersionID,
 		); err != nil {
 			return nil, err
 		}
@@ -889,7 +893,7 @@ SELECT
     chip_count_kind,
     chip_frequency_mhz,
     health,
-    site_id
+    site_id, metric_semantics, coverage, topology_observation_id, topology_version_id
 FROM device_metrics
 WHERE device_identifier = ANY($3::text[])
   AND time >= $1
@@ -944,6 +948,10 @@ func (q *Queries) GetDeviceMetricsTimeSeries(ctx context.Context, arg GetDeviceM
 			&i.ChipFrequencyMhz,
 			&i.Health,
 			&i.SiteID,
+			&i.MetricSemantics,
+			&i.Coverage,
+			&i.TopologyObservationID,
+			&i.TopologyVersionID,
 		); err != nil {
 			return nil, err
 		}
@@ -1135,7 +1143,7 @@ SELECT DISTINCT ON (device_identifier)
     chip_count_kind,
     chip_frequency_mhz,
     health,
-    site_id
+    site_id, metric_semantics, coverage, topology_observation_id, topology_version_id
 FROM device_metrics
 WHERE time >= $1
 ORDER BY device_identifier, time DESC
@@ -1175,6 +1183,10 @@ func (q *Queries) GetLatestAllDeviceMetrics(ctx context.Context, argTime time.Ti
 			&i.ChipFrequencyMhz,
 			&i.Health,
 			&i.SiteID,
+			&i.MetricSemantics,
+			&i.Coverage,
+			&i.TopologyObservationID,
+			&i.TopologyVersionID,
 		); err != nil {
 			return nil, err
 		}
@@ -1214,10 +1226,10 @@ SELECT
     dm.chip_count_kind,
     dm.chip_frequency_mhz,
     dm.health,
-    dm.site_id
+    dm.site_id, dm.metric_semantics, dm.coverage, dm.topology_observation_id, dm.topology_version_id
 FROM unnest($2::text[]) AS ids(device_identifier)
 CROSS JOIN LATERAL (
-    SELECT time, device_identifier, hash_rate_hs, hash_rate_hs_kind, temp_c, temp_c_kind, fan_rpm, fan_rpm_kind, power_w, power_w_kind, efficiency_jh, efficiency_jh_kind, voltage_v, voltage_v_kind, current_a, current_a_kind, inlet_temp_c, outlet_temp_c, ambient_temp_c, chip_count, chip_count_kind, chip_frequency_mhz, health, site_id
+    SELECT time, device_identifier, hash_rate_hs, hash_rate_hs_kind, temp_c, temp_c_kind, fan_rpm, fan_rpm_kind, power_w, power_w_kind, efficiency_jh, efficiency_jh_kind, voltage_v, voltage_v_kind, current_a, current_a_kind, inlet_temp_c, outlet_temp_c, ambient_temp_c, chip_count, chip_count_kind, chip_frequency_mhz, health, site_id, metric_semantics, coverage, topology_observation_id, topology_version_id
     FROM device_metrics
     WHERE device_metrics.device_identifier = ids.device_identifier
       AND device_metrics.time >= $1
@@ -1265,6 +1277,10 @@ func (q *Queries) GetLatestDeviceMetrics(ctx context.Context, arg GetLatestDevic
 			&i.ChipFrequencyMhz,
 			&i.Health,
 			&i.SiteID,
+			&i.MetricSemantics,
+			&i.Coverage,
+			&i.TopologyObservationID,
+			&i.TopologyVersionID,
 		); err != nil {
 			return nil, err
 		}
