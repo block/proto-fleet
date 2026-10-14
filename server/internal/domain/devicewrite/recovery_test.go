@@ -2,6 +2,7 @@ package devicewrite_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 
@@ -9,9 +10,79 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
+
+func TestOfflineRecoveryRetainsPendingCurtailmentRetry(t *testing.T) {
+	database, org, device, message, messages := queuedFenceFixture(t, commandtype.Curtail)
+	q := sqlc.New(database.DB)
+	ctx, ordinaryBatch := curtailmentBatch(t, database.DB, org, message.BatchLogUUID, commandtype.Reboot, 1)
+	require.NoError(t, messages.Enqueue(ctx, ordinaryBatch, commandtype.Reboot, []int64{device}, nil))
+	service := devicewrite.NewService(database.DB)
+	attempt, err := service.BeginQueuedHost(ctx, message)
+	require.NoError(t, err)
+	uncertain := devicewrite.UncertainDelivery(errors.New("intermediary may still dispatch curtailment"))
+	require.ErrorIs(t, devicewrite.Dispatch(attempt.Context(ctx), func(context.Context) error { return uncertain }), uncertain)
+	require.NoError(t, attempt.Finish(ctx, uncertain))
+	_, err = q.UpdateMessageAfterFailure(ctx, sqlc.UpdateMessageAfterFailureParams{ID: message.ID, RetryCount: messages.MaxFailureRetries(), ErrorInfo: sql.NullString{String: uncertain.Error(), Valid: true}})
+	require.NoError(t, err)
+	inspections, err := service.InspectRecovery(ctx, org, device)
+	require.NoError(t, err)
+	require.Len(t, inspections, 1)
+	require.Equal(t, "unknown", inspections[0].Attempt.Status)
+	require.Equal(t, message.CommandType.String(), inspections[0].Attempt.CurtailmentCommand.String)
+	evidence := inspections[0].EvidenceTemplate
+	evidence.Operator = "host operator"
+	evidence.MaintenanceTermination = "supervisor receipt: all dispatchers stopped"
+	evidence.OwnerTermination = "supervisor receipt: exact owner exited"
+	evidence.TransportQuiescence = "node and plugin dispatchers stopped"
+	evidence.DeviceQuiescence = "physical isolation and completed cold reset"
+	evidence.ConfigurationVerification = "qualified verification receipt"
+	require.False(t, evidence.RestoreHost)
+	drained, err := service.Drained(ctx, org, device, evidence.FenceEpoch)
+	require.NoError(t, err)
+	require.False(t, drained)
+	result, err := service.ResolveOffline(ctx, evidence, true)
+	require.NoError(t, err)
+	require.NotEqual(t, uuid.Nil, result.RecoveryID)
+	require.Equal(t, evidence.FenceEpoch+1, result.FenceEpoch)
+	var status, prior string
+	require.NoError(t, database.DB.QueryRowContext(ctx, `SELECT a.status,r.prior_status FROM device_write_attempt a JOIN device_write_recovery r USING(attempt_id) WHERE a.attempt_id=$1`, evidence.AttemptID).Scan(&status, &prior))
+	require.Equal(t, "resolved", status)
+	require.Equal(t, "unknown", prior)
+	retained, err := q.GetQueueMessagesByBatch(ctx, message.BatchLogUUID)
+	require.NoError(t, err)
+	require.Len(t, retained, 1)
+	require.Equal(t, sqlc.QueueStatusEnumPENDING, retained[0].Status)
+	canceled, err := q.GetQueueMessagesByBatch(ctx, ordinaryBatch)
+	require.NoError(t, err)
+	require.Len(t, canceled, 1)
+	require.Equal(t, sqlc.QueueStatusEnumFAILED, canceled[0].Status)
+	drained, err = service.Drained(ctx, org, device, result.FenceEpoch)
+	require.NoError(t, err)
+	require.True(t, drained, "pending fleet controls do not invalidate recovery of the earlier attempt")
+
+	// Restart can redispatch the retained retry despite its old queue epoch.
+	rows, err := messages.Dequeue(ctx, 1)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, message.ID, rows[0].ID)
+	require.Equal(t, int32(1), rows[0].RetryCount)
+	retry, err := service.BeginQueuedHost(ctx, rows[0])
+	require.NoError(t, err)
+	require.ErrorIs(t, devicewrite.Dispatch(retry.Context(ctx), func(context.Context) error { return uncertain }), uncertain)
+	require.NoError(t, retry.Finish(ctx, uncertain))
+	inspections, err = service.InspectRecovery(ctx, org, device)
+	require.NoError(t, err)
+	require.Len(t, inspections, 1)
+	require.NotEqual(t, evidence.AttemptID, inspections[0].Attempt.AttemptID)
+	require.Equal(t, "unknown", inspections[0].Attempt.Status)
+	drained, err = service.Drained(ctx, org, device, result.FenceEpoch)
+	require.NoError(t, err)
+	require.False(t, drained, "fresh delivery uncertainty creates a new drain block")
+}
 
 func TestOfflineRecoveryBindsEvidenceAndRestoresReservationPath(t *testing.T) {
 	database, org, device, message, _ := queuedFenceFixture(t)

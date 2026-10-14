@@ -24,8 +24,10 @@ they do not use this configuration-write completion contract. A failed plugin RP
 or failed/missing Fleet Node acknowledgement also retains uncertainty: the intermediary may still queue or
 dispatch the command before it reaches the firmware API. Even a failed terminal
 node acknowledgement may report a timed-out plugin RPC whose backend still runs.
-A successful plugin RPC or node acknowledgement qualifies ordered writes; a
-transport failure does not. Preparation refusals remain known to be undispatched.
+A successful synchronous plugin gRPC response or Fleet Node acknowledgement
+completes an ordered write. Most returned RPC errors lack a backend-completion
+guarantee and retain uncertainty. Preparation refusals remain known to be
+undispatched.
 
 A canceled caller cannot retire an adapter that is still running. Crashed or
 hung dispatchers, panics, and failures to persist completion leave durable
@@ -47,6 +49,8 @@ Uncertain device operations retain their attempt records indefinitely. Timeouts,
 queue reaping, disconnected transports, a new process starting, and successful
 configuration readback do not prove an earlier operation ended. Unknown attempts
 block a new ownership reservation. Running attempts continue to block drain.
+An unknown curtailment control on reserved or active custody quarantines its
+fence; successful synchronous controls leave that custody unchanged.
 
 `fleet-device-write-recovery` provides an offline host-operations recovery path.
 It uses privileged database access, not customer API permissions. The named
@@ -177,14 +181,20 @@ Preview performs the binding checks without changing safety evidence. Apply
 locks the fence and attempt, checks the exact device/organization, immutable
 identity digest, process owner, operation class, status, and both epochs, then
 commits the audit record, `resolved` status, epoch advancement, and cancellation
-of pending stale commands together. The original attempt remains retained;
+of pending stale ordinary commands together. The original attempt remains retained;
 operator resolution is distinguishable from successful physical execution.
 Reusing stale evidence is refused. A database failure rolls the transaction back.
 
 Inspect again before resolving another attempt because each resolution advances
 the fence epoch. Resolving one attempt never clears another outstanding attempt.
 Processing queue status is not changed into proof of physical completion; old
-processing/retried commands fail their epoch check before device I/O.
+ordinary processing/retried commands fail their epoch check before device I/O.
+Global host curtailment remains independent of configuration ownership and can
+run at the current custody state; resolving one attempt does not revoke that
+fleet authority. Pending curtail, restore, and fallback-config commands remain
+queued and can dispatch after restart. A fresh uncertain delivery creates a new
+unknown attempt and drain block; it does not undo the earlier audited resolution.
+Its physical uncertainty still requires mutation recovery evidence.
 
 Host custody remains host custody, so after its last unknown attempt is resolved,
 a new reservation can succeed. To abandon reserved or quarantined custody, set
@@ -193,10 +203,15 @@ verified and include its verification reference. Restoration is refused while
 other attempts are unresolved, or when custody is active or quarantined from an
 active allocation. The persisted quarantine origin preserves that distinction. It does not release an
 active customer allocation. Otherwise the existing custody state is retained.
+Restoring active allocation custody after recovery requires future allocation
+controller integration to reconcile the allocation, apply and verify its intended
+configuration, and restore the appropriate fence state. The offline command
+cannot restore active-origin quarantine to host custody.
 
-Keep dispatchers stopped until the result and audit record have been reviewed,
-then restart them. Retain backup and recovery evidence under normal operational
-retention. Never delete attempt history, force migration versions, or directly
+Keep dispatchers stopped until the result, audit record, and pending curtailment
+controls have been reviewed. Account for their redispatch before restarting;
+recovery preserves global curtailment authority. Retain backup and recovery
+evidence under normal operational retention. Never delete attempt history, force migration versions, or directly
 update statuses to get out of a block.
 
 ### Interrupted proxy reads

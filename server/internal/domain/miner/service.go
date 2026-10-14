@@ -231,6 +231,9 @@ func (s *Service) resolveMiner(ctx context.Context, deviceID models.DeviceIdenti
 	}
 	// SDK scope excludes facade-only metadata; write gates still capture the entire fresh row.
 	sdkBinding := deviceData
+	// Custody changes must preserve plugin-local curtailment restore state.
+	// The facade and its write gate still bind the complete row and epoch.
+	sdkBinding.WriteEpoch = 0
 	sdkBinding.SiteID = sql.NullInt64{}
 	sdkBinding.Model = sql.NullString{}
 	sdkBinding.Manufacturer = sql.NullString{}

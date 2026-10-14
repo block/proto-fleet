@@ -146,7 +146,7 @@ func TestFreshCommandFacadesRetainRealSDKBackendAcrossReadCacheExpiry(t *testing
 	require.Equal(t, int64(1), calls.Load())
 }
 
-func TestFreshCommandSDKReuseRejectsChangedAuthoritativeBindings(t *testing.T) {
+func TestFreshCommandFacadesFenceChangedBindings(t *testing.T) {
 	changes := []string{"route", "credential contents", "credential version", "pairing version", "epoch", "org", "discovery incarnation", "numeric incarnation", "driver", "driver process"}
 	for _, change := range changes {
 		t.Run(change, func(t *testing.T) {
@@ -205,12 +205,16 @@ func TestFreshCommandSDKReuseRejectsChangedAuthoritativeBindings(t *testing.T) {
 			current, err := service.GetMinerForCommand(t.Context(), id)
 			require.NoError(t, err)
 			require.NotSame(t, old, current)
-			require.Equal(t, int64(2), creates.Load(), "trusted binding change must replace the active SDK backend")
+			expectedCreates := int64(2)
+			if change == "epoch" {
+				expectedCreates = 1 // Custody changes fence the facade, not the physical backend.
+			}
+			require.Equal(t, expectedCreates, creates.Load())
 			again, err := service.GetMinerForCommand(t.Context(), id)
 			require.NoError(t, err)
 			require.NotSame(t, current, again)
-			require.Equal(t, int64(2), creates.Load())
-			require.Error(t, old.Reboot(t.Context()), "stale captured binding must not dispatch through the newly registered ID")
+			require.Equal(t, expectedCreates, creates.Load())
+			require.Error(t, old.Reboot(t.Context()), "stale captured binding must not dispatch through the current backend")
 			require.Zero(t, calls.Load())
 		})
 	}

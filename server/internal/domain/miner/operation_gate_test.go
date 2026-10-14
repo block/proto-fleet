@@ -484,7 +484,7 @@ func TestOrderedDirectPoolWritePermitsHandoffAndFencesOldHandle(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			device := sdkMocks.NewMockDevice(ctrl)
 			driver := sdkMocks.NewMockDriver(ctrl)
-			driver.EXPECT().NewDevice(gomock.Any(), string(identifier), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: device}, nil).Times(2)
+			driver.EXPECT().NewDevice(gomock.Any(), string(identifier), gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: device}, nil).Times(1)
 			var outcome error
 			if lostResponse {
 				outcome = context.DeadlineExceeded

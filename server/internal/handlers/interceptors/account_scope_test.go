@@ -159,3 +159,22 @@ func TestInvitationOnboardingRemainsUnscoped(t *testing.T) {
 	_, err := interceptor.authenticate(t.Context(), hostedAccountProcedurePrefix+"AcceptInvitation", http.Header{})
 	require.True(t, fleeterror.IsAuthenticationError(err))
 }
+
+func TestSelectedAccountCannotControlHostCurtailment(t *testing.T) {
+	for _, procedure := range []string{
+		"/curtailment.v1.CurtailmentService/StartCurtailment",
+		"/curtailment.v1.CurtailmentService/StopCurtailment",
+		"/curtailment.v1.CurtailmentService/UpdateCurtailmentEvent",
+	} {
+		t.Run(procedure, func(t *testing.T) {
+			interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, []string{procedure}, nil, []string{procedure})
+			request := connect.NewRequest(&commonpb.ResourceRef{})
+			request.Header().Set(hostedaccounts.RequestAccountHeader, selectedAccount)
+			called := false
+			wrapped := interceptor.WrapUnary(func(context.Context, connect.AnyRequest) (connect.AnyResponse, error) { called = true; return nil, nil })
+			_, err := wrapped(t.Context(), accountScopeRequest{AnyRequest: request, procedure: procedure})
+			require.True(t, fleeterror.IsForbiddenError(err))
+			require.False(t, called)
+		})
+	}
+}
