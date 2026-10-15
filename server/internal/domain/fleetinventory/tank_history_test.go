@@ -26,7 +26,7 @@ func TestTankHistory(t *testing.T) {
 	require.NoError(t, err)
 	var deviceID, tankID, emptyTankID, first, second, retired, siteID int64
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT id FROM device WHERE device_identifier=$1`, identifier).Scan(&deviceID))
-	_, err = db.ExecContext(ctx, `INSERT INTO container_inventory VALUES ($1, now())`, deviceID)
+	_, err = db.ExecContext(ctx, `INSERT INTO container_inventory(device_id,observed_at,org_id) SELECT id,now(),org_id FROM device WHERE id=$1`, deviceID)
 	require.NoError(t, err)
 	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO container_tank (device_id,position,first_seen_at,last_seen_at) VALUES ($1,1,now(),now()) RETURNING id`, deviceID).Scan(&tankID))
 	require.NoError(t, db.QueryRowContext(ctx, `INSERT INTO container_tank (device_id,position,first_seen_at,last_seen_at) VALUES ($1,2,now(),now()) RETURNING id`, deviceID).Scan(&emptyTankID))

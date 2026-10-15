@@ -5,6 +5,7 @@
 // with the rack picker.
 
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 
 export interface BuildingPickerItem {
   id: string;
@@ -14,6 +15,25 @@ export interface BuildingPickerItem {
   disabled: boolean;
 }
 
+// Other-site rows stay visible but disabled: cross-site moves require an
+// explicit change-site action, rather than a picker selection.
+const sitePlacement = (
+  siteId: bigint | undefined,
+  currentSiteId: bigint,
+  siteLabels: Record<string, string>,
+  fallbackLabel = "—",
+) => {
+  if (siteId === undefined || siteId === 0n) {
+    return { siteLabel: "—", statusLabel: "Unassigned", disabled: false };
+  }
+  const inThisSite = siteId === currentSiteId;
+  return {
+    siteLabel: siteLabels[siteId.toString()] ?? fallbackLabel,
+    statusLabel: inThisSite ? "In this site" : "In another site",
+    disabled: !inThisSite,
+  };
+};
+
 export const buildBuildingPickerItem = (
   row: BuildingWithCounts,
   currentSiteId: bigint,
@@ -21,17 +41,21 @@ export const buildBuildingPickerItem = (
 ): BuildingPickerItem | null => {
   const building = row.building;
   if (!building) return null;
-  const siteId = building.siteId;
-  const inThisSite = siteId !== undefined && siteId !== 0n && siteId === currentSiteId;
-  // Buildings under a *different* site are ineligible because moving them
-  // across sites cascades site_id down to every rack + device — a heavier
-  // operator decision than this picker should make implicitly. The picker
-  // only adds buildings that already share this site or are unassigned.
-  const inOtherSite = siteId !== undefined && siteId !== 0n && siteId !== currentSiteId;
-  // Ineligible-but-visible: buildings in another site render disabled so
-  // the operator sees why they can't be added.
-  const disabled = inOtherSite;
-  const statusLabel = inOtherSite ? "In another site" : inThisSite ? "In this site" : "Unassigned";
-  const siteLabel = siteId === undefined || siteId === 0n ? "—" : (siteLabels[siteId.toString()] ?? "—");
-  return { id: building.id.toString(), label: building.name, siteLabel, statusLabel, disabled };
+  return {
+    id: building.id.toString(),
+    label: building.name,
+    ...sitePlacement(building.siteId, currentSiteId, siteLabels),
+  };
 };
+
+export const containerPickerId = (identifier: string) => `container:${identifier}`;
+
+export const buildContainerPickerItem = (
+  container: Container,
+  currentSiteId: bigint,
+  siteLabels: Record<string, string>,
+): BuildingPickerItem => ({
+  id: containerPickerId(container.deviceIdentifier),
+  label: container.name || container.deviceIdentifier,
+  ...sitePlacement(container.site?.id, currentSiteId, siteLabels, container.site?.label),
+});

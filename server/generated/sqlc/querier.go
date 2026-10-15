@@ -86,6 +86,7 @@ type Querier interface {
 	// order: site → buildings). Returns the row count of buildings
 	// actually moved (skips soft-deleted rows).
 	AssignBuildingsToSiteBulk(ctx context.Context, arg AssignBuildingsToSiteBulkParams) (int64, error)
+	AssignContainersToSite(ctx context.Context, arg AssignContainersToSiteParams) (int64, error)
 	// Bulk update of device.building_id for the given identifiers within
 	// the org. Caller is expected to have already validated that no device
 	// is in a rack at a different building (see FindDeviceBuildingConflicts).
@@ -322,6 +323,7 @@ type Querier interface {
 	ConsumeHostedAccountInvitation(ctx context.Context, arg ConsumeHostedAccountInvitationParams) (int64, error)
 	ConsumeReservedInventoryPart(ctx context.Context, arg ConsumeReservedInventoryPartParams) (int64, error)
 	ContainerOwnsCommandBatch(ctx context.Context, arg ContainerOwnsCommandBatchParams) (bool, error)
+	ContainsContainerIdentifiers(ctx context.Context, arg ContainsContainerIdentifiersParams) (bool, error)
 	// Counts live (user_organization_role, user) pairs. Filtering on
 	// u.deleted_at IS NULL matches the resolver and the last-SUPER_ADMIN
 	// guards: a role only assigned to deactivated users is not actually
@@ -1204,6 +1206,8 @@ type Querier interface {
 	// Raw reads retain the original nullable fields; older/longer windows return
 	// source-bucket averages, with authorization before combining topology versions.
 	ListContainerModuleHistory(ctx context.Context, arg ListContainerModuleHistoryParams) ([]ListContainerModuleHistoryRow, error)
+	// Match the unified Miners list: count observed modules, not controllers as miners.
+	ListContainerSiteStats(ctx context.Context, arg ListContainerSiteStatsParams) ([]ListContainerSiteStatsRow, error)
 	// Reuse the inventory state projection so cards agree with module lists about
 	// freshness, retained partial topology, and retired/replaced hardware.
 	ListContainers(ctx context.Context, arg ListContainersParams) ([]ListContainersRow, error)
@@ -1628,6 +1632,7 @@ type Querier interface {
 	LockCommandBatch(ctx context.Context, argUuid string) (BatchStatusEnum, error)
 	// Lock current ownership/site through dispatch; child inventory IDs are never targets.
 	LockContainerCommandTarget(ctx context.Context, arg LockContainerCommandTargetParams) (LockContainerCommandTargetRow, error)
+	LockContainersForSiteAssignment(ctx context.Context, arg LockContainersForSiteAssignmentParams) ([]LockContainersForSiteAssignmentRow, error)
 	// Keep the current event and its immutable selector in the same transaction
 	// as dynamic membership fencing and target admission.
 	LockCurtailmentAdmissionEventForWrite(ctx context.Context, curtailmentEventID int64) (LockCurtailmentAdmissionEventForWriteRow, error)

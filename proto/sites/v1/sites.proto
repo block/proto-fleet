@@ -72,6 +72,11 @@ service SiteService {
     rpc AssignBuildingsToSite(AssignBuildingsToSiteRequest)
         returns (AssignBuildingsToSiteResponse);
 
+    // Moves whole CT1 containers, including their observed children. Requires
+    // site:manage at the current and destination sites. Unset means unassigned.
+    rpc AssignContainersToSite(AssignContainersToSiteRequest)
+        returns (AssignContainersToSiteResponse);
+
     // AssignRacksToSite moves one or more racks to a target site (or
     // to "Unassigned" when target_site_id is unset) as a partial
     // update — the rack's label, layout, members, and slot
@@ -386,6 +391,19 @@ message AssignBuildingsToSiteResponse {
     // building in the batch.
     int64 reassigned_rack_count   = 1;
     int64 reassigned_device_count = 2;
+}
+
+message AssignContainersToSiteRequest {
+    repeated string container_identifiers = 1 [(buf.validate.field).repeated = {
+        min_items: 1
+        max_items: 1000
+        items: {string: {min_len: 1, max_len: 256}}
+    }];
+    optional int64 target_site_id = 2 [(buf.validate.field).int64.gt = 0];
+}
+
+message AssignContainersToSiteResponse {
+    int64 reassigned_count = 1;
 }
 
 // AssignRacksToSite

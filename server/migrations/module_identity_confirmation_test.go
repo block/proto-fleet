@@ -15,7 +15,7 @@ func TestModuleIdentityConfirmationMigrationRequiresFreshObservation(t *testing.
 	user := database.CreateSuperAdminUser()
 	device := database.CreateDevice(user.OrganizationID, "proto")
 	conn, ctx := database.DB, t.Context()
-	_, err = conn.ExecContext(ctx, `INSERT INTO container_inventory(device_id,observed_at) VALUES($1,now())`, device.DatabaseID)
+	_, err = conn.ExecContext(ctx, `INSERT INTO container_inventory(device_id,observed_at,org_id) SELECT id,now(),org_id FROM device WHERE id=$1`, device.DatabaseID)
 	require.NoError(t, err)
 	var tankID, moduleID int64
 	require.NoError(t, conn.QueryRowContext(ctx, `INSERT INTO container_tank(device_id,position,first_seen_at,last_seen_at) VALUES($1,1,now(),now()) RETURNING id`, device.DatabaseID).Scan(&tankID))

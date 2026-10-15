@@ -61,6 +61,7 @@ type Service struct {
 	telemetry       devicerollup.TelemetryCollector
 	transactor      interfaces.Transactor
 	activitySvc     *activity.Service
+	containerStats  ContainerStatsReader
 }
 
 // NewService wires a SiteStore, Transactor, and the activity Service.
@@ -1364,14 +1365,16 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	}
 
 	stats := &models.SiteStats{
-		SiteID:        siteID,
-		BuildingCount: int32(buildingCount),  //nolint:gosec // building count bounded by org config
-		RackCount:     int32(rackCount),      //nolint:gosec // rack count bounded by org config
-		DeviceCount:   int32(len(deviceIDs)), //nolint:gosec // device count bounded by org fleet
+		SiteID: siteID,
+		FleetListStats: models.FleetListStats{
+			BuildingCount: int32(buildingCount),  //nolint:gosec // building count bounded by org config
+			RackCount:     int32(rackCount),      //nolint:gosec // rack count bounded by org config
+			DeviceCount:   int32(len(deviceIDs)), //nolint:gosec // device count bounded by org fleet
+		},
 	}
 
 	if len(deviceIDs) == 0 {
-		return stats, nil
+		return stats, s.addContainerStats(ctx, orgID, map[int64]*models.FleetListStats{siteID: &stats.FleetListStats})
 	}
 
 	// State counts via the flat by-device-ids query (covers un-racked devices
@@ -1417,7 +1420,7 @@ func (s *Service) GetSiteStats(ctx context.Context, orgID, siteID int64) (*model
 	stats.MinTemperatureC = rollup.MinTemperatureC
 	stats.MaxTemperatureC = rollup.MaxTemperatureC
 
-	return stats, nil
+	return stats, s.addContainerStats(ctx, orgID, map[int64]*models.FleetListStats{siteID: &stats.FleetListStats})
 }
 
 func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []models.SiteWithCounts, includeStatsForSite ListStatsAuthorizer, requireTelemetry bool) error {
@@ -1523,7 +1526,13 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 		stats.HashBoardIssueCount = issues.HashBoardIssueCount
 		stats.PsuIssueCount = issues.PsuIssueCount
 	}
-	return nil
+	targets := make(map[int64]*models.FleetListStats)
+	for i := range rows {
+		if rows[i].ListStats != nil {
+			targets[rows[i].Site.ID] = rows[i].ListStats
+		}
+	}
+	return s.addContainerStats(ctx, orgID, targets)
 }
 
 func filterSiteRowsByListStats(rows []models.SiteWithCounts, filter fleetlistfilter.Filter) []models.SiteWithCounts {

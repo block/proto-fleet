@@ -535,6 +535,7 @@ type ContainerFanObservation struct {
 type ContainerInventory struct {
 	DeviceID   int64
 	ObservedAt time.Time
+	OrgID      int64
 }
 
 type ContainerLatestMetric struct {
@@ -736,6 +737,23 @@ type ContainerPlantMetric struct {
 	DeviceID int64
 	Time     time.Time
 	Metrics  json.RawMessage
+}
+
+type ContainerScope struct {
+	ID                       int64
+	DeviceIdentifier         string
+	MacAddress               string
+	SerialNumber             sql.NullString
+	OrgID                    int64
+	DiscoveredDeviceID       int64
+	CreatedAt                sql.NullTime
+	UpdatedAt                sql.NullTime
+	DeletedAt                sql.NullTime
+	CustomName               sql.NullString
+	WorkerName               sql.NullString
+	WorkerNamePoolSyncStatus NullWorkerNamePoolSyncStatusEnum
+	SiteID                   sql.NullInt64
+	BuildingID               sql.NullInt64
 }
 
 type ContainerSetpointObservation struct {

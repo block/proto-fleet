@@ -587,7 +587,7 @@ func start(config *Config) (result error) {
 	)
 	curtailmentResponseProfileSvc := curtailmentDomain.NewResponseProfileService(curtailmentStore)
 
-	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
+	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc).WithContainerStats(db.NewFailoverResettingQuerier(db.NewRetryDB(conn)))
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	infrastructureSvc := infrastructureDomain.NewService(infrastructureStore, siteStore, infrastructureDriverRegistry, transactor, activitySvc)
 	sitemapSvc := sitemapDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, fleetMgmtSvc, transactor, activitySvc)

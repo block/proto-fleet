@@ -33,6 +33,7 @@ func (h *Handler) ListContainers(ctx context.Context, req *connect.Request[pb.Li
 	}
 	for _, container := range rows {
 		container.CanControlEquipment = canWriteEquipment(ctx, container)
+		container.CanAssignSite = CanAssignSite(ctx, container)
 	}
 	return connect.NewResponse(&pb.ListContainersResponse{Containers: rows}), nil
 }
@@ -58,6 +59,7 @@ func (h *Handler) GetContainer(ctx context.Context, req *connect.Request[pb.GetC
 		return nil, err
 	}
 	container.CanControlEquipment = canWriteEquipment(ctx, container)
+	container.CanAssignSite = CanAssignSite(ctx, container)
 	return connect.NewResponse(&pb.GetContainerResponse{Container: container}), nil
 }
 
@@ -111,4 +113,14 @@ func canWriteEquipment(ctx context.Context, container *pb.Container) bool {
 		site = &container.Site.Id
 	}
 	return authorizeEquipmentWrite(ctx, site) == nil
+}
+
+// CanAssignSite checks assignment authority at the container's current site.
+func CanAssignSite(ctx context.Context, container *pb.Container) bool {
+	var site *int64
+	if container.Site != nil {
+		site = &container.Site.Id
+	}
+	_, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: site})
+	return err == nil
 }

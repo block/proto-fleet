@@ -571,3 +571,51 @@ WHERE d.id = dsm.device_id
   AND d.org_id = sqlc.arg('org_id')
   AND dsr.building_id = sqlc.arg('building_id')
   AND d.deleted_at IS NULL;
+-- name: LockContainersForSiteAssignment :many
+SELECT d.device_identifier, d.site_id
+FROM device d
+JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+WHERE d.org_id=sqlc.arg('org_id') AND d.device_identifier=ANY(sqlc.arg('identifiers')::text[])
+  AND d.deleted_at IS NULL AND dd.deleted_at IS NULL AND dd.device_class=2
+ORDER BY d.id
+FOR UPDATE OF d;
+
+-- name: ContainsContainerIdentifiers :one
+SELECT EXISTS (
+ SELECT 1 FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+ WHERE d.org_id=sqlc.arg('org_id') AND d.device_identifier=ANY(sqlc.arg('identifiers')::text[])
+ AND d.deleted_at IS NULL AND dd.device_class=2
+)::boolean;
+
+-- name: AssignContainersToSite :execrows
+UPDATE device d SET site_id=sqlc.narg('target_site_id')::bigint, updated_at=CURRENT_TIMESTAMP
+FROM discovered_device dd
+WHERE dd.id=d.discovered_device_id AND dd.org_id=d.org_id AND dd.device_class=2
+  AND d.org_id=sqlc.arg('org_id') AND d.device_identifier=ANY(sqlc.arg('identifiers')::text[])
+  AND d.deleted_at IS NULL AND dd.deleted_at IS NULL;
+
+-- name: ListContainerSiteStats :many
+-- Match the unified Miners list: count observed modules, not controllers as miners.
+SELECT s.id AS site_id,
+ (SELECT count(*)::int FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+  WHERE d.site_id=s.id AND d.org_id=s.org_id AND d.deleted_at IS NULL AND dd.deleted_at IS NULL AND dd.device_class=2) AS container_count,
+ (SELECT count(*)::int FROM container_tank t JOIN container_scope d ON d.id=t.device_id
+  WHERE d.site_id=s.id AND d.org_id=s.org_id AND d.deleted_at IS NULL AND t.present) AS tank_count,
+ count(a.id)::int AS module_count,
+ count(*) FILTER (WHERE a.state='hashing')::int AS hashing_count,
+ count(*) FILTER (WHERE a.state='attention')::int AS broken_count,
+ count(*) FILTER (WHERE a.state IN ('offline','unknown'))::int AS offline_count,
+ count(*) FILTER (WHERE a.state IN ('sleeping','isolated'))::int AS sleeping_count,
+ count(*) FILTER (WHERE a.hashrate_hs IS NOT NULL OR a.power_w IS NOT NULL OR a.temperature_c IS NOT NULL)::int AS reporting_count,
+ count(a.hashrate_hs)::int AS hashrate_reporting_count,
+ count(a.power_w)::int AS power_reporting_count,
+ count(a.miner_efficiency_jth)::int AS efficiency_reporting_count,
+ count(a.temperature_c)::int AS temperature_reporting_count,
+ COALESCE(sum(a.hashrate_hs)/1e12,0)::float8 AS total_hashrate_ths,
+ COALESCE(sum(a.power_w)/1000,0)::float8 AS total_power_kw,
+ COALESCE(avg(a.miner_efficiency_jth),0)::float8 AS avg_efficiency_jth,
+ COALESCE(min(a.temperature_c),0)::float8 AS min_temperature_c,
+ COALESCE(max(a.temperature_c),0)::float8 AS max_temperature_c
+FROM site s LEFT JOIN fleet_mining_asset a ON a.kind=6 AND a.org_id=s.org_id AND a.site_id=s.id
+WHERE s.org_id=sqlc.arg('org_id') AND s.id=ANY(sqlc.arg('site_ids')::bigint[]) AND s.deleted_at IS NULL
+GROUP BY s.id,s.org_id;

@@ -4,8 +4,19 @@ import { create } from "@bufbuild/protobuf";
 
 import ManageSiteModal from "./ManageSiteModal";
 import { BuildingSchema, BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { SiteSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { emptySiteFormValues, type SiteFormValues } from "@/protoFleet/api/sites";
+
+const containerState = vi.hoisted(() => ({
+  containers: [] as unknown[] | undefined,
+  loadError: undefined as string | undefined,
+  retry: vi.fn(),
+  assign: vi.fn(),
+}));
+vi.mock("../../hooks/useSiteContainers", () => ({
+  useSiteContainers: () => ({ ...containerState, saving: false }),
+}));
 
 // Per-test seeding for the building fetch. listBuildingsBySite invokes the
 // caller's onSuccess synchronously with whatever rows the test queued.
@@ -87,7 +98,36 @@ const baseProps = {
 };
 
 describe("ManageSiteModal", () => {
-  beforeEach(() => listBuildingsBySiteMock.mockReset());
+  beforeEach(() => {
+    listBuildingsBySiteMock.mockReset();
+    containerState.containers = [];
+    containerState.loadError = undefined;
+    containerState.retry.mockReset();
+    containerState.assign.mockReset().mockResolvedValue(true);
+  });
+
+  it("lists containers and buildings together, including their shared count and preview", async () => {
+    seedBuildings([{ id: 1n, name: "Building A", siteId: 7n, rackCount: 3n }]);
+    containerState.containers = [
+      create(ContainerSchema, {
+        deviceIdentifier: "ct1",
+        name: "CT1",
+        site: { id: 7n },
+        tanks: [{}, {}],
+      }),
+    ];
+    render(<ManageSiteModal {...baseProps} />);
+    const list = screen.getByTestId("manage-site-modal-buildings-list");
+    expect(list).toHaveTextContent("Building A");
+    expect(list).toHaveTextContent("CT1");
+    expect(list).toHaveTextContent("2 tanks");
+    expect(screen.getAllByText("2 buildings")).toHaveLength(2);
+    expect(screen.getByTestId("manage-site-modal-building-grid")).toHaveTextContent("CT1");
+    expect(screen.queryByRole("button", { name: "Add containers" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("manage-site-modal-building-menu-ct1"));
+    fireEvent.click(screen.getByTestId("manage-site-modal-remove-building-ct1"));
+    await waitFor(() => expect(containerState.assign).toHaveBeenCalledWith(["ct1"]));
+  });
 
   it("Save writes nothing and just closes (placement has no backend yet)", async () => {
     seedBuildings([]);
@@ -109,6 +149,27 @@ describe("ManageSiteModal", () => {
     render(<ManageSiteModal {...baseProps} />);
 
     expect(screen.getByTestId("manage-site-modal-save")).toBeDisabled();
+  });
+
+  it("offers a retry instead of loading forever when containers fail to load", () => {
+    seedBuildings([{ id: 1n, name: "Building A", siteId: 7n, rackCount: 3n }]);
+    containerState.containers = undefined;
+    containerState.loadError = "Containers unavailable";
+    const { rerender } = render(<ManageSiteModal {...baseProps} />);
+
+    expect(screen.getByRole("alert")).toHaveTextContent("Containers unavailable");
+    expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
+    expect(screen.queryByText("Loading buildings…")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(containerState.retry).toHaveBeenCalledOnce();
+
+    containerState.containers = [];
+    containerState.loadError = undefined;
+    rerender(<ManageSiteModal {...baseProps} />);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByTestId("manage-site-modal-buildings-list")).toHaveTextContent("Building A");
+    expect(screen.getByTestId("manage-site-modal-manage-buildings")).toBeEnabled();
+    expect(screen.getByTestId("manage-site-modal-save")).toBeEnabled();
   });
 
   it("Site settings fires the parent callback", () => {
