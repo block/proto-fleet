@@ -52,7 +52,7 @@ func TestListFleetNodes_HostMetadataAndEnrollment(t *testing.T) {
 	require.Equal(t, []string{"192.168.1.7", "fd00::7"}, summary.GetIpAddresses())
 	require.Equal(t, "v0.5.1-internal.3", summary.GetVersion())
 	require.Equal(t, "op", summary.GetEnrolledBy())
-	require.WithinDuration(t, time.Now(), summary.GetEnrolledAt().AsTime(), 2*time.Second)
+	require.Equal(t, node.CreatedAt.UTC(), summary.GetCreatedAt().AsTime())
 
 	redacted, err := h.handler.ListFleetNodes(h.ctxWithPerms(authz.PermMinerPair), connect.NewRequest(&pb.ListFleetNodesRequest{}))
 	require.NoError(t, err)
@@ -61,7 +61,6 @@ func TestListFleetNodes_HostMetadataAndEnrollment(t *testing.T) {
 	require.NotContains(t, string(data), "ipAddresses")
 	require.NotContains(t, string(data), "version")
 	require.NotContains(t, string(data), "enrolledBy")
-	require.NotContains(t, string(data), "enrolledAt")
 
 	_, err = h.db.Exec(`UPDATE pending_enrollment SET confirmed_by=NULL WHERE id=$1`, pendingID)
 	require.NoError(t, err)
@@ -71,7 +70,6 @@ func TestListFleetNodes_HostMetadataAndEnrollment(t *testing.T) {
 	require.NoError(t, err)
 	summary = resp.Msg.FleetNodes[0]
 	require.Empty(t, summary.GetEnrolledBy())
-	require.NotNil(t, summary.GetEnrolledAt())
 	require.Empty(t, summary.GetIpAddresses())
 	require.Empty(t, summary.GetVersion())
 }

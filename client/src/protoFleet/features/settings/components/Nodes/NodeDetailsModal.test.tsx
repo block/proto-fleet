@@ -19,7 +19,6 @@ const node = {
   ipAddresses: ["192.168.1.7", "fd00::7"],
   version: "v0.5.1-internal.3",
   enrolledBy: "operator@example.com",
-  enrolledAt: new Date("2026-07-09T12:05:00Z"),
 } as FleetNodeItem;
 
 const show = (overrides: Partial<FleetNodeItem> = {}) =>
@@ -35,17 +34,17 @@ describe("NodeDetailsModal", () => {
     expect(screen.getByText("v0.5.1-internal.3")).toBeVisible();
     expect(screen.getByText("operator@example.com")).toBeVisible();
     expect(screen.getByText("12")).toBeVisible();
-    expect(screen.getByText(node.enrolledAt!.toLocaleString())).toBeVisible();
+    expect(screen.getByText("Registered")).toBeVisible();
+    expect(screen.getByText(node.createdAt!.toLocaleString())).toBeVisible();
     expect(screen.getByText("Technical details").closest("details")).not.toHaveAttribute("open");
     fireEvent.click(screen.getByText("Technical details"));
     expect(screen.getByText(node.identityFingerprint)).toBeVisible();
   });
 
-  it("explicitly marks missing metadata and does not present registration as enrollment", async () => {
-    show({ ipAddresses: [], version: "", enrolledBy: "", enrolledAt: null, lastSeenAt: null });
+  it("explicitly marks missing metadata and registration time", async () => {
+    show({ ipAddresses: [], version: "", enrolledBy: "", createdAt: null, lastSeenAt: null });
     expect(screen.getAllByText("Unavailable")).toHaveLength(4);
     await waitFor(() => expect(screen.getByText("Never")).toBeVisible());
-    expect(screen.queryByText(node.createdAt!.toLocaleString())).not.toBeInTheDocument();
   });
 
   it.each([{ controlStreamConnected: false }, { commandProtocolUpgradeRequired: true }])(

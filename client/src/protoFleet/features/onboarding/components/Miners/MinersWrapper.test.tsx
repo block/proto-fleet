@@ -113,7 +113,6 @@ function fleetNode(overrides: Partial<FleetNodeItem> = {}): FleetNodeItem {
     ipAddresses: [],
     version: "",
     enrolledBy: "",
-    enrolledAt: null,
     createdAt: null,
     lastSeenAt: null,
     ...overrides,

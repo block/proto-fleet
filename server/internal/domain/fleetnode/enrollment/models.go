@@ -50,7 +50,6 @@ type FleetNodeListing struct {
 	IPAddresses []string
 	Version     string
 	EnrolledBy  string
-	EnrolledAt  *time.Time
 	FleetNode
 	PendingEnrollmentID     *int64
 	PendingEnrollmentStatus Status

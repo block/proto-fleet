@@ -75,8 +75,6 @@ message FleetNodeSummary {
     string version = 14;
     // Username of the operator who confirmed enrollment, empty for older records.
     string enrolled_by = 15;
-    // Completed enrollment time, distinct from registration/created_at.
-    optional google.protobuf.Timestamp enrolled_at = 16;
 }
 
 message ConfirmFleetNodeRequest {

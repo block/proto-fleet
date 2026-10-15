@@ -60,15 +60,14 @@ SELECT a.id, a.org_id, a.name, a.identity_pubkey,
        pe.id AS pending_enrollment_id,
        COALESCE(h.ip_addresses, '{}'::text[])::text[] AS ip_addresses,
        COALESCE(h.version, '')::text AS version,
-       COALESCE(u.username, '')::text AS enrolled_by,
-       completed.consumed_at AS enrolled_at
+       COALESCE(u.username, '')::text AS enrolled_by
 FROM fleet_node a
 LEFT JOIN pending_enrollment pe
   ON pe.fleet_node_id = a.id
  AND pe.status = 'AWAITING_CONFIRMATION'
 LEFT JOIN fleet_node_heartbeat h ON h.fleet_node_id = a.id AND h.org_id = a.org_id
 LEFT JOIN LATERAL (
-    SELECT confirmed_by, consumed_at FROM pending_enrollment
+    SELECT confirmed_by FROM pending_enrollment
     WHERE fleet_node_id = a.id AND org_id = a.org_id AND status = 'CONFIRMED'
     ORDER BY consumed_at DESC, id DESC LIMIT 1
 ) completed ON TRUE

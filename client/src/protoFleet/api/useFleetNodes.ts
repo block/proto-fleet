@@ -26,7 +26,6 @@ export interface FleetNodeItem {
   ipAddresses: string[];
   version: string;
   enrolledBy: string;
-  enrolledAt: Date | null;
   createdAt: Date | null;
   lastSeenAt: Date | null;
 }
@@ -48,7 +47,6 @@ function toFleetNodeItem(summary: FleetNodeSummary): FleetNodeItem {
     ipAddresses: summary.ipAddresses,
     version: summary.version,
     enrolledBy: summary.enrolledBy,
-    enrolledAt: toDate(summary.enrolledAt),
     enrollmentStatus: summary.enrollmentStatus,
     identityFingerprint: summary.identityFingerprint,
     commandProtocolUpgradeRequired: summary.commandProtocolUpgradeRequired,

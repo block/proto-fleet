@@ -96,7 +96,7 @@ const NodeDetailsModal = ({ node, canFindMiners, onDismiss, onFindMiners }: Node
         </h3>
         <dl className="divide-y divide-border-5">
           <DetailField label="Enrolled by">{node.enrolledBy || "Unavailable"}</DetailField>
-          <DetailField label="Enrolled">{node.enrolledAt?.toLocaleString() ?? "Unavailable"}</DetailField>
+          <DetailField label="Registered">{node.createdAt?.toLocaleString() ?? "Unavailable"}</DetailField>
         </dl>
       </section>
       <details className="rounded-xl border border-border-5 bg-surface-base p-4">

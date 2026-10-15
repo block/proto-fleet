@@ -179,7 +179,6 @@ func (s *SQLFleetNodeEnrollmentStore) ListFleetNodesForOrganization(ctx context.
 			IPAddresses:             r.IpAddresses,
 			Version:                 r.Version,
 			EnrolledBy:              r.EnrolledBy,
-			EnrolledAt:              nullTimeToPtr(r.EnrolledAt),
 			PendingEnrollmentID:     nullInt64ToPtr(r.PendingEnrollmentID),
 			PendingEnrollmentStatus: enrollment.Status(r.PendingEnrollmentStatus),
 		})

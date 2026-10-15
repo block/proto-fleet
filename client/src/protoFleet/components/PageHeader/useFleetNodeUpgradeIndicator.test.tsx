@@ -28,7 +28,6 @@ const node = (upgradeRecommended: boolean): FleetNodeItem => ({
   ipAddresses: [],
   version: "",
   enrolledBy: "",
-  enrolledAt: null,
   createdAt: null,
   lastSeenAt: new Date(),
 });

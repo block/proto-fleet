@@ -159,7 +159,6 @@ func TestFleetNodeDetailsMigrationPreservesExistingHeartbeats(t *testing.T) {
 	require.Empty(t, nodes[0].IpAddresses)
 	require.Empty(t, nodes[0].Version)
 	require.Empty(t, nodes[0].EnrolledBy)
-	require.False(t, nodes[0].EnrolledAt.Valid)
 	_, err = q.UpdateFleetNodeLastSeenAt(ctx, sqlc.UpdateFleetNodeLastSeenAtParams{ID: node, OrgID: org, LastSeenAt: seen.Add(time.Minute), IpAddresses: []string{"10.0.0.7"}, Version: "v1.0.0"})
 	require.NoError(t, err)
 	_, err = q.UpdateFleetNodeLastSeenAt(ctx, sqlc.UpdateFleetNodeLastSeenAtParams{ID: node, OrgID: org, LastSeenAt: seen, IpAddresses: []string{"10.0.0.8"}, Version: "v0.9.0"})

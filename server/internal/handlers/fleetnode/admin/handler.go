@@ -88,9 +88,6 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 			summary.IpAddresses = n.IPAddresses
 			summary.Version = n.Version
 			summary.EnrolledBy = n.EnrolledBy
-			if n.EnrolledAt != nil {
-				summary.EnrolledAt = timestamppb.New(*n.EnrolledAt)
-			}
 			summary.IdentityFingerprint = enrollment.IdentityFingerprint(n.IdentityPubkey)
 			summary.CreatedAt = timestamppb.New(n.CreatedAt)
 			if n.PendingEnrollmentID != nil {

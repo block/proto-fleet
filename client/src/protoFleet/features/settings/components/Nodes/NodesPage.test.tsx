@@ -154,7 +154,6 @@ const confirmedNode: FleetNodeItem = {
   ipAddresses: [],
   version: "",
   enrolledBy: "",
-  enrolledAt: null,
   createdAt: new Date("2026-07-09T12:00:00Z"),
   lastSeenAt: new Date("2026-07-09T12:01:00Z"),
 };
