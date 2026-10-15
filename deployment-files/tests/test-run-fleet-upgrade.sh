@@ -4,6 +4,9 @@
 # recorded through PATH shims.
 set -u
 
+# The Buildx preflight reads Compose's builder settings from the environment.
+unset COMPOSE_BAKE DOCKER_BUILDKIT
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TMP_DIR=$(mktemp -d)
@@ -162,6 +165,11 @@ make_stage() {
 printf 'docker' >> "$CALL_LOG"
 printf ' %s' "$@" >> "$CALL_LOG"
 printf '\n' >> "$CALL_LOG"
+
+if [ "${1:-}" = "compose" ] && [ "${2:-}" = "version" ] && [ "${3:-}" = "--short" ]; then
+    echo "${FAKE_COMPOSE_VERSION:-5.5.1}"
+    exit 0
+fi
 
 if [ "${1:-}" = "info" ] && [[ "${3:-}" == *ClientInfo.Plugins* ]]; then
     if [ "${FAKE_BUILDX_INSTALLED:-false}" = "true" ]; then
@@ -735,6 +743,48 @@ assert_not_contains "broken Buildx does not repair host packages" "$HARNESS_CALL
 assert_not_contains "broken Buildx fails before pulling images" "$HARNESS_CALL_LOG" 'pull --ignore-buildable'
 assert_not_contains "broken Buildx fails before building images" "$HARNESS_CALL_LOG" ' build '
 assert_not_contains "broken Buildx leaves existing services running" "$HARNESS_CALL_LOG" ' down --remove-orphans'
+
+# A broken plugin stops the run only when the installed Compose builds through
+# it; "-" leaves the setting unset. Stage names avoid the version's dots, which
+# are not valid in the directory-derived Compose project name.
+case_index=0
+while read -r compose_version compose_bake docker_buildkit expected; do
+    case_index=$((case_index + 1))
+    case_name="Compose $compose_version COMPOSE_BAKE=$compose_bake DOCKER_BUILDKIT=$docker_buildkit"
+    make_stage "docker-buildx-broken-compose-case-$case_index"
+    if (
+        [ "$compose_bake" = - ] || export COMPOSE_BAKE="$compose_bake"
+        [ "$docker_buildkit" = - ] || export DOCKER_BUILDKIT="$docker_buildkit"
+        FAKE_BUILDX_FAILURE=true FAKE_BUILDX_INSTALLED=true FAKE_COMPOSE_VERSION="$compose_version" \
+            run_stage "$STAGE" --non-interactive --preflight-only < /dev/null
+    ); then
+        outcome=warn
+    else
+        outcome=stop
+    fi
+    if [ "$outcome" = "$expected" ]; then
+        pass "broken Buildx with $case_name: $expected"
+    else
+        fail "broken Buildx with $case_name should $expected, got $outcome"
+    fi
+    if [ "$expected" = warn ]; then
+        assert_contains "broken Buildx warning with $case_name" "$HARNESS_OUTPUT_LOG" 'Warning: Docker Buildx is installed but not working'
+        assert_contains "broken Buildx warning still builds with $case_name" "$HARNESS_CALL_LOG" ' build --no-cache'
+    else
+        assert_contains "broken Buildx stop explains the problem with $case_name" "$HARNESS_OUTPUT_LOG" 'Error: Docker Buildx is installed but not working'
+        assert_not_contains "broken Buildx stop skips builds with $case_name" "$HARNESS_CALL_LOG" ' build '
+    fi
+done <<'EOF'
+2.17.3 - - warn
+2.36.2 - - warn
+2.36.2 true - stop
+2.40.3 - - stop
+2.40.3 false - warn
+v2.40.3 - 0 warn
+5.5.1 false - stop
+5.5.1 - 0 warn
+unknown - - warn
+EOF
 
 for buildx_absent in true false; do
     make_stage "docker-build-failure-buildx-absent-$buildx_absent"
