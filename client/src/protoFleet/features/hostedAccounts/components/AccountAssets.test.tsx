@@ -1,5 +1,5 @@
 import { MemoryRouter } from "react-router-dom";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -96,7 +96,7 @@ describe("account mining asset allocation", () => {
     expect(screen.queryByRole("button", { name: "Assign selected" })).not.toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Assigned to" })).toBeInTheDocument();
   });
-  it("disables confirmation while the exact assignment is in flight", async () => {
+  it("keeps the reviewed assignment pending across window focus and prevents another submission", async () => {
     let finish!: (value: object) => void;
     const assign = vi.fn(
       () =>
@@ -113,6 +113,10 @@ describe("account mining asset allocation", () => {
     await user.dblClick(confirm);
     expect(assign).toHaveBeenCalledTimes(1);
     expect(confirm).toBeDisabled();
+    act(() => window.dispatchEvent(new Event("focus")));
+    expect(screen.getByRole("dialog", { name: "Assign assets" })).toBeInTheDocument();
+    expect(confirm).toBeDisabled();
+    expect(assign).toHaveBeenCalledTimes(1);
     finish({});
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });

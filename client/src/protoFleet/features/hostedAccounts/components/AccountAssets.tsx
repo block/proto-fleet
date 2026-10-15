@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import { useRequiredAccountScope } from "../AccountScope";
@@ -48,6 +48,7 @@ const AccountAssets = () => {
   const [selected, setSelected] = useState<string[]>([]);
   const [review, setReview] = useState<Review | null>(null);
   const [notice, setNotice] = useState("");
+  const assignmentPending = useRef(false);
   const pageToken = pages[pages.length - 1];
   const load = useCallback(
     async (signal: AbortSignal) => {
@@ -74,8 +75,11 @@ const AccountAssets = () => {
     invalidate();
   }, [invalidate]);
   useEffect(() => {
-    window.addEventListener("focus", refresh);
-    return () => window.removeEventListener("focus", refresh);
+    const refreshOnFocus = () => {
+      if (!assignmentPending.current) refresh();
+    };
+    window.addEventListener("focus", refreshOnFocus);
+    return () => window.removeEventListener("focus", refreshOnFocus);
   }, [refresh]);
   const rows = useMemo(
     () => (query.data?.inventory.assets ?? []).map((asset) => ({ ...asset, key: assetKey(asset) })),
@@ -331,31 +335,37 @@ const AccountAssets = () => {
           valid={reviewTarget ? review.intent === AssetAssignmentIntent.RECALL || !reviewTarget.suspended : false}
           onDismiss={() => setReview(null)}
           onSubmit={async () => {
+            if (assignmentPending.current) return;
+            assignmentPending.current = true;
             try {
-              await client.assignAccountAssets({
-                accountId: account.accountId,
-                childAccountId: review.childId,
-                intent: review.intent,
-                assets: review.assets.map((asset) => ({
-                  kind: asset.kind,
-                  id: asset.id,
-                  expectedRevision: asset.revision,
-                })),
-              });
-            } catch (error) {
-              if ([Code.Aborted, Code.FailedPrecondition, Code.NotFound].includes(ConnectError.from(error).code)) {
-                refresh();
-                setNotice("Assignments or equipment changed. Review the refreshed assets and select them again.");
-                return;
+              try {
+                await client.assignAccountAssets({
+                  accountId: account.accountId,
+                  childAccountId: review.childId,
+                  intent: review.intent,
+                  assets: review.assets.map((asset) => ({
+                    kind: asset.kind,
+                    id: asset.id,
+                    expectedRevision: asset.revision,
+                  })),
+                });
+              } catch (error) {
+                if ([Code.Aborted, Code.FailedPrecondition, Code.NotFound].includes(ConnectError.from(error).code)) {
+                  refresh();
+                  setNotice("Assignments or equipment changed. Review the refreshed assets and select them again.");
+                  return;
+                }
+                throw error;
               }
-              throw error;
+              setNotice(
+                review.intent === AssetAssignmentIntent.ASSIGN
+                  ? `Assigned ${countLabel(review.assets.length)} to ${reviewTarget!.name}.`
+                  : `Recalled ${countLabel(review.assets.length)} to ${account.name}.`,
+              );
+              refresh();
+            } finally {
+              assignmentPending.current = false;
             }
-            setNotice(
-              review.intent === AssetAssignmentIntent.ASSIGN
-                ? `Assigned ${countLabel(review.assets.length)} to ${reviewTarget!.name}.`
-                : `Recalled ${countLabel(review.assets.length)} to ${account.name}.`,
-            );
-            refresh();
           }}
         >
           <p>

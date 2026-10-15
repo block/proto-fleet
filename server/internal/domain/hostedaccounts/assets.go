@@ -318,7 +318,7 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 				return nil, fleeterror.NewInvalidArgumentError("asset page token scope changed")
 			}
 		}
-		limit := int(request.PageSize)
+		limit := request.PageSize
 		if limit == 0 {
 			limit = 50
 		}
@@ -355,12 +355,12 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 			AfterKind: cursor.Kind, AfterID: cursor.ID, HostAuthority: encodedAuthority,
 			HasOwnerFilter: request.OwnerAccountId != nil, OwnerInternalID: ownerID,
 			ContainerFilter: request.GetContainerId(), PolicyRestricted: e.policy.EffectiveRestricted, PolicySites: e.policy.EffectiveSiteIDs,
-			Search: strings.TrimSpace(request.Search), PageLimit: int32(limit + 1),
+			Search: strings.TrimSpace(request.Search), PageLimit: limit + 1,
 		})
 		if err != nil {
 			return nil, err
 		}
-		if len(rows) > limit {
+		if len(rows) > int(limit) {
 			rows = rows[:limit]
 			last := rows[len(rows)-1]
 			expected.Kind = last.Kind

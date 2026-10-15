@@ -1,6 +1,7 @@
 package hostedaccounts_test
 
 import (
+	"database/sql"
 	"encoding/json"
 	"testing"
 	"time"
@@ -365,4 +366,56 @@ func TestAccountAssetSelectedProjectionKeepsExactTypedPairs(t *testing.T) {
 	rows, err := query.ListHostedAccountMiningAssets(t.Context(), sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: f.org, IsRoot: true, SelectedAssets: []byte("[]")})
 	require.NoError(t, err)
 	require.Len(t, rows, 2, "summary's empty selection keeps full scoped estate")
+}
+
+func TestAccountMiningRootMixedSiteAuthority(t *testing.T) {
+	for _, narrowed := range []bool{false, true} {
+		name := "site allowlist"
+		if narrowed {
+			name = "org grant narrowed at site"
+		}
+		t.Run(name, func(t *testing.T) {
+			f := setup(t)
+			client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+			q := sqlc.New(f.db)
+			allowed, err := q.CreateSite(t.Context(), sqlc.CreateSiteParams{OrgID: f.org, Name: "Allowed", Slug: "allowed"})
+			require.NoError(t, err)
+			hidden, err := q.CreateSite(t.Context(), sqlc.CreateSiteParams{OrgID: f.org, Name: "Hidden", Slug: "hidden"})
+			require.NoError(t, err)
+			first := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+			second := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+			_, err = f.db.ExecContext(t.Context(), `UPDATE device SET site_id=CASE WHEN id=$1 THEN $3::bigint ELSE $4::bigint END WHERE id IN ($1,$2)`, first, second, allowed.ID, hidden.ID)
+			require.NoError(t, err)
+			_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs,power_w) SELECT now(),device_identifier,CASE WHEN id=$1 THEN 200e12 ELSE 900e12 END,6000 FROM device WHERE id IN ($1,$2)`, first, second)
+			require.NoError(t, err)
+			svc := authz.NewService(f.db, nil)
+			manager, err := svc.CreateCustomRole(t.Context(), f.host, f.org, "Account management", "", []string{authz.PermAccountManage})
+			require.NoError(t, err)
+			reader, err := svc.CreateCustomRole(t.Context(), f.host, f.org, "Physical reader", "", []string{authz.PermAccountManage, authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead})
+			require.NoError(t, err)
+			orgRole, siteRole, siteID := manager.ID, reader.ID, allowed.ID
+			if narrowed {
+				orgRole, siteRole, siteID = reader.ID, manager.ID, hidden.ID
+			}
+			_, err = q.AssignRole(t.Context(), sqlc.AssignRoleParams{UserID: f.user, OrganizationID: f.org, RoleID: orgRole, ScopeType: "org"})
+			require.NoError(t, err)
+			_, err = q.AssignRole(t.Context(), sqlc.AssignRoleParams{UserID: f.user, OrganizationID: f.org, RoleID: siteRole, ScopeType: "site", ScopeID: sql.NullInt64{Int64: siteID, Valid: true}})
+			require.NoError(t, err)
+			summary, err := f.svc.MiningSummary(t.Context(), f.user, f.org, f.root)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, summary.Totals.AssetCount)
+			require.Equal(t, 200e12, *summary.Totals.HashrateHs)
+			rows, err := f.svc.ListAssets(t.Context(), f.user, f.org, &pb.ListAccountAssetsRequest{AccountId: f.root, PageSize: 1})
+			require.NoError(t, err)
+			require.Len(t, rows.Assets, 1)
+			require.Equal(t, first, rows.Assets[0].Id)
+			require.Equal(t, 200e12, *rows.Assets[0].HashrateHs)
+			require.Empty(t, rows.NextPageToken, "unauthorized leaves must not fill or extend a page")
+			require.Error(t, f.allocate(t, f.user, f.root, client.AccountID, 1, selected(5, first, 0), selected(5, second, 0)))
+			var allocations int
+			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_asset`).Scan(&allocations))
+			require.Zero(t, allocations, "mixed selection must fail atomically")
+			require.NoError(t, f.allocate(t, f.user, f.root, client.AccountID, 1, selected(5, first, 0)))
+		})
+	}
 }
