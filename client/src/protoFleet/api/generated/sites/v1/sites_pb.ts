@@ -156,16 +156,22 @@ export type SiteWithCounts = Message<"sites.v1.SiteWithCounts"> & {
   site?: Site | undefined;
 
   /**
+   * Conventional miners plus current CT1 modules; excludes controller devices.
+   *
    * @generated from field: int64 device_count = 2;
    */
   deviceCount: bigint;
 
   /**
+   * Conventional buildings plus CT1 containers.
+   *
    * @generated from field: int64 building_count = 3;
    */
   buildingCount: bigint;
 
   /**
+   * Conventional racks plus present CT1 tanks.
+   *
    * @generated from field: int64 rack_count = 4;
    */
   rackCount: bigint;
@@ -965,8 +971,9 @@ export const GetSiteStatsRequestSchema: GenMessage<GetSiteStatsRequest> =
 
 /**
  * GetSiteStatsResponse mirrors device_set.v1.DeviceSetStats for the
- * rollup-shaped fields. Scope is every device with site_id = request.site_id
- * (racked or not) — the /sites overview joins this onto the site row.
+ * rollup-shaped fields. Scope includes conventional miners (racked or not) and
+ * CT1 modules under controllers at request.site_id. The /sites overview joins
+ * this onto the site row; module power is PSU input, not container facility power.
  *
  * @generated from message sites.v1.GetSiteStatsResponse
  */
@@ -977,11 +984,15 @@ export type GetSiteStatsResponse = Message<"sites.v1.GetSiteStatsResponse"> & {
   siteId: bigint;
 
   /**
+   * Conventional buildings plus CT1 containers.
+   *
    * @generated from field: int32 building_count = 2;
    */
   buildingCount: number;
 
   /**
+   * Conventional miners plus current CT1 modules; excludes controller devices.
+   *
    * @generated from field: int32 device_count = 3;
    */
   deviceCount: number;
@@ -1086,6 +1097,8 @@ export type GetSiteStatsResponse = Message<"sites.v1.GetSiteStatsResponse"> & {
   psuIssueCount: number;
 
   /**
+   * Conventional racks plus present CT1 tanks.
+   *
    * @generated from field: int32 rack_count = 22;
    */
   rackCount: number;
@@ -1166,7 +1179,7 @@ export const PerDeviceConflictReasonSchema: GenEnum<PerDeviceConflictReason> =
 export const SiteService: GenService<{
   /**
    * ListSites returns every live site in the caller's org with
-   * attachment counts (device_count, building_count, rack_count) so
+   * attachment counts (miners + modules, buildings + containers, racks + tanks) so
    * the delete-confirm dialog can render impact numbers without a
    * second round trip.
    *

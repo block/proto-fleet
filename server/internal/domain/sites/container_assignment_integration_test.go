@@ -205,6 +205,8 @@ func TestContainerSiteMigrationIgnoresDeletedPlacements(t *testing.T) {
 	require.NoError(t, err)
 	_, err = tx.ExecContext(t.Context(), string(up))
 	require.ErrorContains(t, err, "CT1 containers must be removed")
+	require.ErrorContains(t, err, buildingContainer.ID)
+	require.ErrorContains(t, err, rackContainer.ID)
 	require.NoError(t, tx.Rollback())
 	q := sqlc.New(conn)
 	deleted, err := q.SoftDeleteDevices(t.Context(), sqlc.SoftDeleteDevicesParams{OrgID: org, DeviceIdentifiers: identifiers})

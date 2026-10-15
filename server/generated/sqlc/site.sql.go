@@ -904,7 +904,8 @@ type ListSitesRow struct {
 
 // Returns each site with attachment counts so the delete-confirm dialog
 // can show "N miners, M buildings, K racks, J infrastructure devices"
-// without an extra round trip.
+// without an extra round trip. These UI categories include CT1 modules,
+// containers, and present tanks respectively.
 func (q *Queries) ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, error) {
 	rows, err := q.query(ctx, q.listSitesStmt, listSites, orgID)
 	if err != nil {

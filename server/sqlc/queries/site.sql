@@ -87,7 +87,8 @@ WHERE org_id = $1
 -- name: ListSites :many
 -- Returns each site with attachment counts so the delete-confirm dialog
 -- can show "N miners, M buildings, K racks, J infrastructure devices"
--- without an extra round trip.
+-- without an extra round trip. These UI categories include CT1 modules,
+-- containers, and present tanks respectively.
 SELECT
     s.*,
     (COALESCE(d.device_count, 0) + COALESCE(c.module_count, 0))::bigint AS device_count,

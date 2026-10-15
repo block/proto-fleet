@@ -1,10 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { sitesClient } from "@/protoFleet/api/clients";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { getSiteAssignmentErrorMessage } from "@/protoFleet/features/sites/siteAssignmentErrors";
-import { useAuthErrors } from "@/protoFleet/store";
-import { useFleetStore } from "@/protoFleet/store/useFleetStore";
+import { useAssignContainersToSite } from "@/protoFleet/features/sites/hooks/useAssignContainersToSite";
 import { Alert } from "@/shared/assets/icons";
 import Callout from "@/shared/components/Callout";
 import Modal from "@/shared/components/Modal";
@@ -22,11 +20,9 @@ export default function ContainerSiteDialog({
 }) {
   const [target, setTarget] = useState(container.site?.id.toString() ?? "");
   const [options, setOptions] = useState<{ value: string; label: string }[]>();
-  const [error, setError] = useState<string>();
-  const [saving, setSaving] = useState(false);
-  const busy = useRef(false);
-  const { handleAuthErrors } = useAuthErrors();
-  const bumpSitesRevision = useFleetStore((state) => state.ui.bumpSitesRevision);
+  const [loadError, setLoadError] = useState<string>();
+  const { assign, error: assignmentError, saving, clearError } = useAssignContainersToSite();
+  const error = assignmentError ?? loadError;
   useEffect(() => {
     const controller = new AbortController();
     void sitesClient
@@ -39,30 +35,15 @@ export default function ContainerSiteDialog({
           ]);
       })
       .catch((err: unknown) => {
-        if (!controller.signal.aborted) setError(getErrorMessage(err));
+        if (!controller.signal.aborted) setLoadError(getErrorMessage(err));
       });
     return () => controller.abort();
   }, []);
   const save = async () => {
-    if (busy.current) return;
-    busy.current = true;
-    setSaving(true);
-    setError(undefined);
-    try {
-      await sitesClient.assignContainersToSite({
-        containerIdentifiers: [container.deviceIdentifier],
-        targetSiteId: target ? BigInt(target) : undefined,
-      });
-      bumpSitesRevision();
+    if (await assign([container.deviceIdentifier], target ? BigInt(target) : undefined)) {
       pushToast({ message: "Container site updated", status: STATUSES.success });
       onSaved?.();
       onClose();
-    } catch (err) {
-      handleAuthErrors({ error: err });
-      setError(getSiteAssignmentErrorMessage(err));
-    } finally {
-      busy.current = false;
-      setSaving(false);
     }
   };
   return (
@@ -89,7 +70,7 @@ export default function ContainerSiteDialog({
           options={options ?? []}
           onChange={(value) => {
             setTarget(value);
-            setError(undefined);
+            clearError();
           }}
           disabled={saving || !options}
         />

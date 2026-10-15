@@ -740,20 +740,12 @@ type ContainerPlantMetric struct {
 }
 
 type ContainerScope struct {
-	ID                       int64
-	DeviceIdentifier         string
-	MacAddress               string
-	SerialNumber             sql.NullString
-	OrgID                    int64
-	DiscoveredDeviceID       int64
-	CreatedAt                sql.NullTime
-	UpdatedAt                sql.NullTime
-	DeletedAt                sql.NullTime
-	CustomName               sql.NullString
-	WorkerName               sql.NullString
-	WorkerNamePoolSyncStatus NullWorkerNamePoolSyncStatusEnum
-	SiteID                   sql.NullInt64
-	BuildingID               sql.NullInt64
+	ID                 int64
+	OrgID              int64
+	SiteID             sql.NullInt64
+	DeviceIdentifier   string
+	DiscoveredDeviceID int64
+	DeletedAt          sql.NullTime
 }
 
 type ContainerSetpointObservation struct {

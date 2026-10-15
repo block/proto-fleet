@@ -9,12 +9,12 @@ export function useContainers(siteIds: bigint[], includeUnassigned: boolean, ena
   const [refreshKey, setRefreshKey] = useState(0);
   const refetch = useCallback(() => setRefreshKey((key) => key + 1), []);
   const revision = useFleetStore((state) => state.ui.sitesRevision);
-  const key = `${siteIds.join(",")}:${includeUnassigned}:${revision}:${refreshKey}`;
+  const key = `${siteIds.join(",")}:${includeUnassigned}`;
   const [result, setResult] = useState<{ key: string; containers: Container[]; error?: string }>();
   usePoll({
     enabled,
     poll: true,
-    params: key,
+    params: `${key}:${revision}:${refreshKey}`,
     fetchData: async (signal) => {
       try {
         const response = await containersClient.listContainers({ siteIds, includeUnassigned }, { signal });

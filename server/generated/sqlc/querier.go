@@ -1577,7 +1577,8 @@ type Querier interface {
 	ListSiteSlugs(ctx context.Context, orgID int64) ([]string, error)
 	// Returns each site with attachment counts so the delete-confirm dialog
 	// can show "N miners, M buildings, K racks, J infrastructure devices"
-	// without an extra round trip.
+	// without an extra round trip. These UI categories include CT1 modules,
+	// containers, and present tanks respectively.
 	ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, error)
 	// Which candidate labels are already live in the org for this type. Backs bulk
 	// create's duplicate check: uk_device_collection_org_type_label spans

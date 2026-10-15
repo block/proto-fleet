@@ -13,7 +13,7 @@ import "google/protobuf/timestamp.proto";
 // run with zero sites and the app renders site-less.
 service SiteService {
     // ListSites returns every live site in the caller's org with
-    // attachment counts (device_count, building_count, rack_count) so
+    // attachment counts (miners + modules, buildings + containers, racks + tanks) so
     // the delete-confirm dialog can render impact numbers without a
     // second round trip.
     rpc ListSites(ListSitesRequest) returns (ListSitesResponse);
@@ -157,8 +157,11 @@ message Site {
 // ListSites so the delete-confirm dialog has the impact numbers.
 message SiteWithCounts {
     Site site = 1;
+    // Conventional miners plus current CT1 modules; excludes controller devices.
     int64 device_count = 2;
+    // Conventional buildings plus CT1 containers.
     int64 building_count = 3;
+    // Conventional racks plus present CT1 tanks.
     int64 rack_count = 4;
     // Lightweight list/table rollup. Omitted when the caller is not
     // authorized for telemetry stats.
@@ -465,11 +468,14 @@ message GetSiteStatsRequest {
 }
 
 // GetSiteStatsResponse mirrors device_set.v1.DeviceSetStats for the
-// rollup-shaped fields. Scope is every device with site_id = request.site_id
-// (racked or not) — the /sites overview joins this onto the site row.
+// rollup-shaped fields. Scope includes conventional miners (racked or not) and
+// CT1 modules under controllers at request.site_id. The /sites overview joins
+// this onto the site row; module power is PSU input, not container facility power.
 message GetSiteStatsResponse {
     int64  site_id           = 1;
+    // Conventional buildings plus CT1 containers.
     int32  building_count    = 2;
+    // Conventional miners plus current CT1 modules; excludes controller devices.
     int32  device_count      = 3;
     int32  reporting_count   = 4;
     double total_hashrate_ths = 5;
@@ -496,5 +502,6 @@ message GetSiteStatsResponse {
     int32  fan_issue_count             = 19;
     int32  hash_board_issue_count      = 20;
     int32  psu_issue_count             = 21;
+    // Conventional racks plus present CT1 tanks.
     int32  rack_count                  = 22;
 }

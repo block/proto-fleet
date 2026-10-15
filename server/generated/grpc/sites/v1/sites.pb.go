@@ -303,11 +303,14 @@ func (x *Site) GetSlug() string {
 // SiteWithCounts pairs a Site with its attachment counts. Returned by
 // ListSites so the delete-confirm dialog has the impact numbers.
 type SiteWithCounts struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Site          *Site                  `protobuf:"bytes,1,opt,name=site,proto3" json:"site,omitempty"`
-	DeviceCount   int64                  `protobuf:"varint,2,opt,name=device_count,json=deviceCount,proto3" json:"device_count,omitempty"`
-	BuildingCount int64                  `protobuf:"varint,3,opt,name=building_count,json=buildingCount,proto3" json:"building_count,omitempty"`
-	RackCount     int64                  `protobuf:"varint,4,opt,name=rack_count,json=rackCount,proto3" json:"rack_count,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Site  *Site                  `protobuf:"bytes,1,opt,name=site,proto3" json:"site,omitempty"`
+	// Conventional miners plus current CT1 modules; excludes controller devices.
+	DeviceCount int64 `protobuf:"varint,2,opt,name=device_count,json=deviceCount,proto3" json:"device_count,omitempty"`
+	// Conventional buildings plus CT1 containers.
+	BuildingCount int64 `protobuf:"varint,3,opt,name=building_count,json=buildingCount,proto3" json:"building_count,omitempty"`
+	// Conventional racks plus present CT1 tanks.
+	RackCount int64 `protobuf:"varint,4,opt,name=rack_count,json=rackCount,proto3" json:"rack_count,omitempty"`
 	// Lightweight list/table rollup. Omitted when the caller is not
 	// authorized for telemetry stats.
 	ListStats *v1.FleetListStats `protobuf:"bytes,5,opt,name=list_stats,json=listStats,proto3" json:"list_stats,omitempty"`
@@ -1901,17 +1904,20 @@ func (x *GetSiteStatsRequest) GetSiteId() int64 {
 }
 
 // GetSiteStatsResponse mirrors device_set.v1.DeviceSetStats for the
-// rollup-shaped fields. Scope is every device with site_id = request.site_id
-// (racked or not) — the /sites overview joins this onto the site row.
+// rollup-shaped fields. Scope includes conventional miners (racked or not) and
+// CT1 modules under controllers at request.site_id. The /sites overview joins
+// this onto the site row; module power is PSU input, not container facility power.
 type GetSiteStatsResponse struct {
-	state            protoimpl.MessageState `protogen:"open.v1"`
-	SiteId           int64                  `protobuf:"varint,1,opt,name=site_id,json=siteId,proto3" json:"site_id,omitempty"`
-	BuildingCount    int32                  `protobuf:"varint,2,opt,name=building_count,json=buildingCount,proto3" json:"building_count,omitempty"`
-	DeviceCount      int32                  `protobuf:"varint,3,opt,name=device_count,json=deviceCount,proto3" json:"device_count,omitempty"`
-	ReportingCount   int32                  `protobuf:"varint,4,opt,name=reporting_count,json=reportingCount,proto3" json:"reporting_count,omitempty"`
-	TotalHashrateThs float64                `protobuf:"fixed64,5,opt,name=total_hashrate_ths,json=totalHashrateThs,proto3" json:"total_hashrate_ths,omitempty"`
-	AvgEfficiencyJth float64                `protobuf:"fixed64,6,opt,name=avg_efficiency_jth,json=avgEfficiencyJth,proto3" json:"avg_efficiency_jth,omitempty"`
-	TotalPowerKw     float64                `protobuf:"fixed64,7,opt,name=total_power_kw,json=totalPowerKw,proto3" json:"total_power_kw,omitempty"`
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	SiteId int64                  `protobuf:"varint,1,opt,name=site_id,json=siteId,proto3" json:"site_id,omitempty"`
+	// Conventional buildings plus CT1 containers.
+	BuildingCount int32 `protobuf:"varint,2,opt,name=building_count,json=buildingCount,proto3" json:"building_count,omitempty"`
+	// Conventional miners plus current CT1 modules; excludes controller devices.
+	DeviceCount      int32   `protobuf:"varint,3,opt,name=device_count,json=deviceCount,proto3" json:"device_count,omitempty"`
+	ReportingCount   int32   `protobuf:"varint,4,opt,name=reporting_count,json=reportingCount,proto3" json:"reporting_count,omitempty"`
+	TotalHashrateThs float64 `protobuf:"fixed64,5,opt,name=total_hashrate_ths,json=totalHashrateThs,proto3" json:"total_hashrate_ths,omitempty"`
+	AvgEfficiencyJth float64 `protobuf:"fixed64,6,opt,name=avg_efficiency_jth,json=avgEfficiencyJth,proto3" json:"avg_efficiency_jth,omitempty"`
+	TotalPowerKw     float64 `protobuf:"fixed64,7,opt,name=total_power_kw,json=totalPowerKw,proto3" json:"total_power_kw,omitempty"`
 	// Fleet-health buckets mirror DeviceSetStats so the colour map stays
 	// consistent across surfaces.
 	HashingCount  int32 `protobuf:"varint,8,opt,name=hashing_count,json=hashingCount,proto3" json:"hashing_count,omitempty"`
@@ -1933,9 +1939,10 @@ type GetSiteStatsResponse struct {
 	FanIssueCount             int32   `protobuf:"varint,19,opt,name=fan_issue_count,json=fanIssueCount,proto3" json:"fan_issue_count,omitempty"`
 	HashBoardIssueCount       int32   `protobuf:"varint,20,opt,name=hash_board_issue_count,json=hashBoardIssueCount,proto3" json:"hash_board_issue_count,omitempty"`
 	PsuIssueCount             int32   `protobuf:"varint,21,opt,name=psu_issue_count,json=psuIssueCount,proto3" json:"psu_issue_count,omitempty"`
-	RackCount                 int32   `protobuf:"varint,22,opt,name=rack_count,json=rackCount,proto3" json:"rack_count,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// Conventional racks plus present CT1 tanks.
+	RackCount     int32 `protobuf:"varint,22,opt,name=rack_count,json=rackCount,proto3" json:"rack_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *GetSiteStatsResponse) Reset() {

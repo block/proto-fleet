@@ -71,7 +71,7 @@ const (
 // SiteServiceClient is a client for the sites.v1.SiteService service.
 type SiteServiceClient interface {
 	// ListSites returns every live site in the caller's org with
-	// attachment counts (device_count, building_count, rack_count) so
+	// attachment counts (miners + modules, buildings + containers, racks + tanks) so
 	// the delete-confirm dialog can render impact numbers without a
 	// second round trip.
 	ListSites(context.Context, *connect.Request[v1.ListSitesRequest]) (*connect.Response[v1.ListSitesResponse], error)
@@ -303,7 +303,7 @@ func (c *siteServiceClient) GetSiteStats(ctx context.Context, req *connect.Reque
 // SiteServiceHandler is an implementation of the sites.v1.SiteService service.
 type SiteServiceHandler interface {
 	// ListSites returns every live site in the caller's org with
-	// attachment counts (device_count, building_count, rack_count) so
+	// attachment counts (miners + modules, buildings + containers, racks + tanks) so
 	// the delete-confirm dialog can render impact numbers without a
 	// second round trip.
 	ListSites(context.Context, *connect.Request[v1.ListSitesRequest]) (*connect.Response[v1.ListSitesResponse], error)

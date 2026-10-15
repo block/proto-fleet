@@ -424,6 +424,13 @@
       "required_fields": ["target_site_id", "building_ids"]
     },
     {
+      "method": "/sites.v1.SiteService/AssignContainersToSite",
+      "group": "sites",
+      "command": "assign-containers",
+      "usage": "Assign whole containers to a site; omit target-site-id to unassign",
+      "required_fields": ["container_identifiers"]
+    },
+    {
       "method": "/sites.v1.SiteService/AssignRacksToSite",
       "group": "sites",
       "command": "assign-racks",
