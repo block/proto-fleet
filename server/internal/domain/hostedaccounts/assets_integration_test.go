@@ -1,0 +1,304 @@
+package hostedaccounts_test
+
+import (
+	"testing"
+	"time"
+
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/google/uuid"
+
+	pb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
+	"github.com/stretchr/testify/require"
+)
+
+func TestAccountMiningEmptyAndPrivateAuthority(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Mining customer", f.user, hostedaccounts.AllCapabilities)
+	child, err := f.svc.CreateChild(t.Context(), f.user, f.org, client.AccountID, "Private subclient", f.host, hostedaccounts.DefaultCapabilities)
+	require.NoError(t, err)
+	result, err := f.svc.MiningSummary(t.Context(), f.user, f.org, client.AccountID)
+	require.NoError(t, err)
+	require.Zero(t, result.Totals.AssetCount)
+	require.Len(t, result.Children, 1)
+	require.Equal(t, child.AccountID, result.Children[0].AccountId)
+	require.NotNil(t, result.GeneratedAt)
+	_, err = f.svc.GetAccount(t.Context(), f.user, f.org, child.AccountID)
+	require.Error(t, err, "report breakdown does not grant private child authority")
+	require.NoError(t, f.svc.SetMembership(t.Context(), f.user, f.org, client.AccountID, f.host, hostedaccounts.RoleViewer))
+	result, err = f.svc.MiningSummary(t.Context(), f.host, f.org, client.AccountID)
+	require.NoError(t, err)
+	require.Nil(t, result.Direct)
+	require.Empty(t, result.Children)
+	require.False(t, result.CanManageAssignments)
+	_, err = f.svc.ListAssets(t.Context(), f.host, f.org, &pb.ListAccountAssetsRequest{AccountId: client.AccountID, OwnerAccountId: &child.AccountID})
+	require.Error(t, err, "viewers cannot infer ownership through filters")
+}
+
+func (f fixture) miningDevice(t *testing.T, class commonpb.DeviceClass) int64 {
+	t.Helper()
+	identifier := uuid.NewString()
+	discovered := &discoverymodels.DiscoveredDevice{Device: pairingpb.Device{DeviceIdentifier: identifier, DeviceClass: class, Model: "Synthetic", Manufacturer: "Proto", DriverName: "proto", IpAddress: "192.0.2.1", Port: "8080", UrlScheme: "http"}, OrgID: f.org, IsActive: true}
+	_, err := sqlstores.NewSQLDiscoveredDeviceStore(f.db).Save(t.Context(), discoverymodels.DeviceOrgIdentifier{OrgID: f.org, DeviceIdentifier: identifier}, discovered)
+	require.NoError(t, err)
+	store := sqlstores.NewSQLDeviceStore(f.db)
+	require.NoError(t, store.InsertDevice(t.Context(), &discovered.Device, f.org, identifier))
+	require.NoError(t, store.UpsertDevicePairing(t.Context(), &discovered.Device, f.org, "PAIRED"))
+	var id int64
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT id FROM device WHERE org_id=$1 AND device_identifier=$2`, f.org, identifier).Scan(&id))
+	return id
+}
+func (f fixture) miningModule(t *testing.T) (int64, int64) {
+	t.Helper()
+	controller := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER)
+	_, err := f.db.ExecContext(t.Context(), `INSERT INTO container_inventory(device_id,observed_at) VALUES($1,now())`, controller)
+	require.NoError(t, err)
+	var tank, module int64
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_tank(device_id,position,first_seen_at,last_seen_at) VALUES($1,1,now(),now()) RETURNING id`, controller).Scan(&tank))
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) VALUES($1,1,now(),now(),'hashing',now()) RETURNING id`, tank).Scan(&module))
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO container_module_latest_metrics(module_id,time,collected_at,hashrate_hs,power_w,coverage) VALUES($1,now(),now(),100e12,2000,jsonb_build_object('hashrate',jsonb_build_object('reporting',1,'expected',2,'topology_complete',true,'oldest_at',now()),'power',jsonb_build_object('reporting',1,'expected',2,'topology_complete',true,'oldest_at',now())))`, module)
+	require.NoError(t, err)
+	return module, controller
+}
+func selected(kind pb.MiningAssetKind, id, revision int64) *pb.MiningAssetSelection {
+	return &pb.MiningAssetSelection{Kind: kind, Id: id, ExpectedRevision: revision}
+}
+func (f fixture) allocate(t *testing.T, actor int64, parent, child string, intent pb.AssetAssignmentIntent, assets ...*pb.MiningAssetSelection) error {
+	t.Helper()
+	return f.svc.AssignAssets(t.Context(), actor, f.org, &pb.AssignAccountAssetsRequest{AccountId: parent, ChildAccountId: child, Intent: intent, Assets: assets})
+}
+func TestAccountMiningMixedLeavesAllocationCoverageAndRecall(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	child, err := f.svc.CreateChild(t.Context(), f.user, f.org, client.AccountID, "Subclient", f.host, hostedaccounts.DefaultCapabilities)
+	require.NoError(t, err)
+	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	module, _ := f.miningModule(t)
+	assign, recall := pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_RECALL
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, assign, selected(5, miner, 0), selected(6, module, 0)))
+	require.NoError(t, f.allocate(t, f.user, client.AccountID, child.AccountID, assign, selected(6, module, 1)))
+	summary, err := f.svc.MiningSummary(t.Context(), f.user, f.org, client.AccountID)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, summary.Totals.AssetCount)
+	require.EqualValues(t, 1, summary.Totals.MinerCount)
+	require.EqualValues(t, 1, summary.Totals.ModuleCount)
+	require.EqualValues(t, 1, summary.Direct.AssetCount)
+	require.EqualValues(t, 1, summary.Children[0].Summary.AssetCount)
+	require.Equal(t, 100e12, *summary.Totals.HashrateHs)
+	require.Equal(t, 2000.0, *summary.Totals.PowerW)
+	require.Equal(t, 20.0, *summary.Totals.EfficiencyJTh)
+	require.EqualValues(t, 1, summary.Totals.HashrateReportingCount)
+	require.EqualValues(t, 1, summary.Totals.PartialModuleCount)
+	rootRows, err := f.svc.ListAssets(t.Context(), f.host, f.org, &pb.ListAccountAssetsRequest{AccountId: f.root})
+	require.NoError(t, err)
+	for _, asset := range rootRows.Assets {
+		require.Equal(t, client.AccountID, asset.OwnerAccountId, "host sees customer owner, not subclient identity")
+	}
+	// A stale leaf aborts every mutation and emits no success audit.
+	var before, after int
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM activity_log WHERE event_type='account_assets_assigned'`).Scan(&before))
+	require.Error(t, f.allocate(t, f.user, client.AccountID, child.AccountID, assign, selected(5, miner, 1), selected(6, module, 1)))
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM activity_log WHERE event_type='account_assets_assigned'`).Scan(&after))
+	require.Equal(t, before, after)
+	summary, err = f.svc.MiningSummary(t.Context(), f.user, f.org, client.AccountID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, summary.Direct.AssetCount)
+	// Suspension blocks child access, but never erases capacity from parent totals.
+	require.NoError(t, f.svc.ConfigureChild(t.Context(), f.user, f.org, child.AccountID, hostedaccounts.DefaultCapabilities, true))
+	summary, err = f.svc.MiningSummary(t.Context(), f.user, f.org, client.AccountID)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, summary.Totals.AssetCount)
+	_, err = f.svc.MiningSummary(t.Context(), f.host, f.org, child.AccountID)
+	require.Error(t, err)
+	// Retirement retains allocation and hides identifying physical details.
+	_, err = f.db.ExecContext(t.Context(), `UPDATE container_module SET retired_at=now() WHERE id=$1`, module)
+	require.NoError(t, err)
+	rows, err := f.svc.ListAssets(t.Context(), f.user, f.org, &pb.ListAccountAssetsRequest{AccountId: client.AccountID})
+	require.NoError(t, err)
+	require.Len(t, rows.Assets, 2)
+	retired := rows.Assets[1]
+	require.False(t, retired.Available)
+	require.Empty(t, retired.Name)
+	require.Zero(t, retired.ContainerId)
+	require.Nil(t, retired.HashrateHs)
+	var replacement int64
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) SELECT tank_id,position,now(),now(),'hashing',now() FROM container_module WHERE id=$1 RETURNING id`, module).Scan(&replacement))
+	rootPage, err := f.svc.ListAssets(t.Context(), f.host, f.org, &pb.ListAccountAssetsRequest{AccountId: f.root, OwnerAccountId: &f.root})
+	require.NoError(t, err)
+	require.Len(t, rootPage.Assets, 1)
+	require.Equal(t, replacement, rootPage.Assets[0].Id)
+	require.Zero(t, rootPage.Assets[0].Revision, "replacement modules never inherit old allocations")
+	require.NoError(t, f.allocate(t, f.user, client.AccountID, child.AccountID, recall, selected(6, module, 2)))
+	require.Error(t, f.allocate(t, f.user, client.AccountID, child.AccountID, assign, selected(6, module, 1)), "old revision cannot survive recall")
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, recall, selected(5, miner, 1), selected(6, module, 3)))
+	require.Error(t, f.allocate(t, f.host, f.root, client.AccountID, assign, selected(5, miner, 0)), "recall must preserve ABA witness")
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, assign, selected(5, miner, 2)))
+}
+
+func TestAccountMiningPoliciesPrivacyPagingAndBoundaries(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	child, err := f.svc.CreateChild(t.Context(), f.user, f.org, client.AccountID, "Child", f.host, hostedaccounts.DefaultCapabilities)
+	require.NoError(t, err)
+	sibling := f.client(t, "Sibling", f.host, hostedaccounts.AllCapabilities)
+	first := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	second := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	assign := pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, assign, selected(5, first, 0), selected(5, second, 0)))
+	require.Error(t, f.allocate(t, f.user, client.AccountID, sibling.AccountID, assign, selected(5, first, 1)))
+	require.NoError(t, f.svc.SetMembership(t.Context(), f.user, f.org, client.AccountID, f.host, hostedaccounts.RoleViewer))
+	viewer, err := f.svc.ListAssets(t.Context(), f.host, f.org, &pb.ListAccountAssetsRequest{AccountId: client.AccountID, PageSize: 1})
+	require.NoError(t, err)
+	require.Len(t, viewer.Assets, 1)
+	require.Empty(t, viewer.Assets[0].OwnerAccountId)
+	require.Empty(t, viewer.Assets[0].OwnerAccountName)
+	require.NotEmpty(t, viewer.NextPageToken)
+	page, err := f.svc.ListAssets(t.Context(), f.host, f.org, &pb.ListAccountAssetsRequest{AccountId: client.AccountID, PageSize: 1, PageToken: viewer.NextPageToken})
+	require.NoError(t, err)
+	require.Len(t, page.Assets, 1)
+	require.NotEqual(t, viewer.Assets[0].Id, page.Assets[0].Id)
+	_, err = f.svc.ListAssets(t.Context(), f.host, f.org, &pb.ListAccountAssetsRequest{AccountId: client.AccountID, PageToken: viewer.NextPageToken, Search: "changed"})
+	require.Error(t, err)
+	require.Error(t, f.allocate(t, f.host, client.AccountID, child.AccountID, assign, selected(5, first, 1)), "host role must not leak into customer viewer mode")
+	// Restrict the customer to no sites: retain count, redact every physical detail.
+	require.NoError(t, f.svc.ConfigureSites(t.Context(), f.user, f.org, client.AccountID, true, nil))
+	report, err := f.svc.MiningSummary(t.Context(), f.host, f.org, client.AccountID)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, report.Totals.AssetCount)
+	require.EqualValues(t, 2, report.Totals.OutsidePolicyCount)
+	require.EqualValues(t, 2, report.Totals.UnknownCount)
+	viewer, err = f.svc.ListAssets(t.Context(), f.host, f.org, &pb.ListAccountAssetsRequest{AccountId: client.AccountID})
+	require.NoError(t, err)
+	for _, asset := range viewer.Assets {
+		require.Empty(t, asset.Name)
+		require.Zero(t, asset.SiteId)
+		require.Empty(t, asset.SiteName)
+		require.Nil(t, asset.ObservedAt)
+	}
+	require.Error(t, f.allocate(t, f.user, client.AccountID, child.AccountID, assign, selected(5, first, 1)))
+	require.NoError(t, f.svc.ConfigureSites(t.Context(), f.user, f.org, client.AccountID, false, nil))
+	// A foreign organization cannot read or select another organization's leaf.
+	var foreignOrg int64
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO organization(org_id,name) VALUES($1,'Foreign') RETURNING id`, uuid.NewString()).Scan(&foreignOrg))
+	other := fixture{db: f.db, org: foreignOrg}
+	foreign := other.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	require.Error(t, f.allocate(t, f.host, f.root, client.AccountID, assign, selected(5, foreign, 0)))
+	_, err = f.svc.MiningSummary(t.Context(), f.host, other.org, client.AccountID)
+	require.Error(t, err)
+}
+
+func TestAccountMiningAssignmentRechecksConcurrentModuleRetirement(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	module, controller := f.miningModule(t)
+	tx, err := f.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer tx.Rollback()
+	_, err = tx.ExecContext(t.Context(), `SELECT device_id FROM container_inventory WHERE device_id=$1 FOR UPDATE`, controller)
+	require.NoError(t, err)
+	result := make(chan error, 1)
+	go func() {
+		result <- f.svc.AssignAssets(t.Context(), f.host, f.org, &pb.AssignAccountAssetsRequest{AccountId: f.root, ChildAccountId: client.AccountID, Intent: 1, Assets: []*pb.MiningAssetSelection{selected(6, module, 0)}})
+	}()
+	require.Eventually(t, func() bool {
+		var blocked bool
+		err := f.db.QueryRowContext(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%FROM container_inventory WHERE device_id=ANY%')`).Scan(&blocked)
+		return err == nil && blocked
+	}, 5*time.Second, 10*time.Millisecond)
+	_, err = tx.ExecContext(t.Context(), `UPDATE container_module SET retired_at=now() WHERE id=$1`, module)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+	require.Error(t, <-result, "retirement committed during admission must reject assignment")
+	var count int
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_asset`).Scan(&count))
+	require.Zero(t, count)
+}
+
+func TestAccountMiningAssignmentRechecksConcurrentSiteMove(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	first, err := sqlc.New(f.db).CreateSite(t.Context(), sqlc.CreateSiteParams{OrgID: f.org, Name: "Allowed", Slug: "allowed"})
+	require.NoError(t, err)
+	second, err := sqlc.New(f.db).CreateSite(t.Context(), sqlc.CreateSiteParams{OrgID: f.org, Name: "Moved", Slug: "moved"})
+	require.NoError(t, err)
+	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	_, err = f.db.ExecContext(t.Context(), `UPDATE device SET site_id=$1 WHERE id=$2`, first.ID, miner)
+	require.NoError(t, err)
+	require.NoError(t, f.svc.ConfigureSites(t.Context(), f.user, f.org, client.AccountID, true, []int64{first.ID}))
+	tx, err := f.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer tx.Rollback()
+	_, err = tx.ExecContext(t.Context(), `SELECT id FROM device WHERE id=$1 FOR UPDATE`, miner)
+	require.NoError(t, err)
+	result := make(chan error, 1)
+	go func() {
+		result <- f.svc.AssignAssets(t.Context(), f.host, f.org, &pb.AssignAccountAssetsRequest{AccountId: f.root, ChildAccountId: client.AccountID, Intent: 1, Assets: []*pb.MiningAssetSelection{selected(5, miner, 0)}})
+	}()
+	require.Eventually(t, func() bool {
+		var blocked bool
+		err := f.db.QueryRowContext(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%SELECT discovered_device_id FROM device WHERE id=%')`).Scan(&blocked)
+		return err == nil && blocked
+	}, 5*time.Second, 10*time.Millisecond)
+	_, err = tx.ExecContext(t.Context(), `UPDATE device SET site_id=$1 WHERE id=$2`, second.ID, miner)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit())
+	require.Error(t, <-result, "site moved while admission waited must fail live destination policy")
+	var count int
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_asset`).Scan(&count))
+	require.Zero(t, count)
+}
+
+func TestAccountMiningWeightedMetricsAndStaleCoverage(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	stale := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	module, _ := f.miningModule(t)
+	_, err := f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs,power_w) SELECT now(),device_identifier,200e12,6000 FROM device WHERE id=$1 UNION ALL SELECT now()-interval '11 minutes',device_identifier,900e12,9999 FROM device WHERE id=$2`, miner, stale)
+	require.NoError(t, err)
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0), selected(5, stale, 0), selected(6, module, 0)))
+	result, err := f.svc.MiningSummary(t.Context(), f.user, f.org, client.AccountID)
+	require.NoError(t, err)
+	require.EqualValues(t, 3, result.Totals.AssetCount)
+	require.EqualValues(t, 2, result.Totals.HashrateReportingCount)
+	require.Equal(t, 300e12, *result.Totals.HashrateHs)
+	require.Equal(t, 8000.0, *result.Totals.PowerW)
+	require.InDelta(t, 8000.0/300.0, *result.Totals.EfficiencyJTh, 0.00001)
+}
+func TestAccountMiningRootRequiresPhysicalReadAuthority(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	role, err := authz.NewService(f.db, nil).CreateCustomRole(t.Context(), f.host, f.org, "Account management only", "", []string{authz.PermAccountManage})
+	require.NoError(t, err)
+	_, err = sqlc.New(f.db).AssignRole(t.Context(), sqlc.AssignRoleParams{UserID: f.user, OrganizationID: f.org, RoleID: role.ID, ScopeType: "org"})
+	require.NoError(t, err)
+	rows, err := f.svc.ListAssets(t.Context(), f.user, f.org, &pb.ListAccountAssetsRequest{AccountId: f.root})
+	require.NoError(t, err)
+	require.Empty(t, rows.Assets)
+	summary, err := f.svc.MiningSummary(t.Context(), f.user, f.org, f.root)
+	require.NoError(t, err)
+	require.Zero(t, summary.Totals.AssetCount)
+	require.Error(t, f.allocate(t, f.user, f.root, client.AccountID, 1, selected(5, miner, 0)))
+}
+func TestAccountMiningTypedPersistenceAndSubclientDirectFilter(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	child, err := f.svc.CreateChild(t.Context(), f.user, f.org, client.AccountID, "Child", f.host, hostedaccounts.AllCapabilities)
+	require.NoError(t, err)
+	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	// A missing typed FK must never pass SQL CHECK's three-valued logic.
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,client_id) VALUES($1,5,$2,$2,$3)`, f.org, miner, client.ID)
+	require.Error(t, err)
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0)))
+	require.NoError(t, f.allocate(t, f.user, client.AccountID, child.AccountID, 1, selected(5, miner, 1)))
+	rows, err := f.svc.ListAssets(t.Context(), f.host, f.org, &pb.ListAccountAssetsRequest{AccountId: child.AccountID, OwnerAccountId: &child.AccountID})
+	require.NoError(t, err)
+	require.Len(t, rows.Assets, 1)
+	require.False(t, rows.CanManageAssignments)
+}

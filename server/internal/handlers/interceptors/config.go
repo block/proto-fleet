@@ -86,6 +86,9 @@ var RedactedResponseProcedures = []string{
 // endpoints to prevent a leaked API key from escalating to interactive
 // credentials or modifying user accounts.
 var SessionOnlyProcedures = []string{
+	hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure,
+	hostedv1connect.HostedAccountServiceListAccountAssetsProcedure,
+	hostedv1connect.HostedAccountServiceAssignAccountAssetsProcedure,
 	hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure,
 	hostedv1connect.HostedAccountServiceListAccountKeysProcedure,
 	hostedv1connect.HostedAccountServiceRevokeAccountKeyProcedure,
@@ -243,6 +246,9 @@ var FleetNodeAuthenticatedProcedures = []string{
 // For streaming RPCs, this also suppresses individual message bodies in
 // loggingStreamingHandlerConn.
 var SensitiveBodyProcedures = map[string]bool{
+	hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure: true,
+	hostedv1connect.HostedAccountServiceListAccountAssetsProcedure:       true,
+	hostedv1connect.HostedAccountServiceAssignAccountAssetsProcedure:     true,
 	hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure: true,
 	hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure: true,
 	hostedv1connect.HostedAccountServiceSetIncomingPoolProfileProcedure:  true,

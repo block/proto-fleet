@@ -1840,6 +1840,19 @@ type HostedAccountAncestorGrant struct {
 	UpdatedAt      time.Time
 }
 
+type HostedAccountAsset struct {
+	OrganizationID int64
+	Kind           int32
+	AssetID        int64
+	DeviceID       int64
+	MinerID        sql.NullInt64
+	ModuleID       sql.NullInt64
+	ClientID       sql.NullInt64
+	SubclientID    sql.NullInt64
+	Revision       int64
+	UpdatedAt      time.Time
+}
+
 type HostedAccountInvitation struct {
 	InvitationID         string
 	OrganizationID       int64

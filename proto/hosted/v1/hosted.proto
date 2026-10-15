@@ -8,6 +8,9 @@ import "google/protobuf/timestamp.proto";
 // HostedAccountService uses account authority independently of organization RBAC.
 // Every private account operation names its account; names are display labels.
 service HostedAccountService {
+  rpc GetAccountMiningSummary(GetAccountMiningSummaryRequest) returns (GetAccountMiningSummaryResponse);
+  rpc ListAccountAssets(ListAccountAssetsRequest) returns (ListAccountAssetsResponse);
+  rpc AssignAccountAssets(AssignAccountAssetsRequest) returns (AssignAccountAssetsResponse);
   rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse);
   rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
   rpc ListChildren(ListChildrenRequest) returns (ListChildrenResponse);
@@ -371,3 +374,102 @@ message SetIncomingPoolProfileRequest {
   string password = 3 [(buf.validate.field).string = {min_len: 1, max_bytes: 72}];
 }
 message SetIncomingPoolProfileResponse {}
+
+// Reporting allocations never change placement, equipment control or pool configuration.
+enum MiningAssetKind {
+  MINING_ASSET_KIND_UNSPECIFIED = 0;
+  MINING_ASSET_KIND_MINER = 5;
+  MINING_ASSET_KIND_MODULE = 6;
+}
+enum AssetAssignmentIntent {
+  ASSET_ASSIGNMENT_INTENT_UNSPECIFIED = 0;
+  ASSET_ASSIGNMENT_INTENT_ASSIGN = 1;
+  ASSET_ASSIGNMENT_INTENT_RECALL = 2;
+}
+message MiningSummary {
+  int64 asset_count = 1;
+  int64 miner_count = 2;
+  int64 module_count = 3;
+  int64 unavailable_count = 4;
+  int64 outside_policy_count = 5;
+  optional double hashrate_hs = 6;
+  optional double power_w = 7;
+  // Sum of power / sum of hashrate, using only leaves reporting both values.
+  optional double efficiency_j_th = 8;
+  int64 hashrate_reporting_count = 9;
+  int64 power_reporting_count = 10;
+  int64 paired_reporting_count = 11;
+  int64 partial_module_count = 12;
+  int64 unknown_module_count = 13;
+  int64 hashing_count = 14;
+  int64 attention_count = 15;
+  int64 offline_count = 16;
+  int64 sleeping_count = 17;
+  int64 unknown_count = 18;
+}
+message AccountMiningBucket {
+  string account_id = 1;
+  string name = 2;
+  bool suspended = 3;
+  MiningSummary summary = 4;
+}
+message GetAccountMiningSummaryRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message GetAccountMiningSummaryResponse {
+  MiningSummary totals = 1;
+  // Direct and named child partitions require membership-management or delegation.
+  MiningSummary direct = 2;
+  repeated AccountMiningBucket children = 3;
+  bool can_manage_assignments = 4;
+  google.protobuf.Timestamp generated_at = 5;
+}
+message AccountAsset {
+  MiningAssetKind kind = 1;
+  int64 id = 2;
+  int64 revision = 3;
+  string name = 4;
+  int64 container_id = 5;
+  string container_name = 6;
+  int64 site_id = 7;
+  string site_name = 8;
+  // Owner labels require membership-management or delegation authority.
+  string owner_account_id = 9;
+  string owner_account_name = 10;
+  optional double hashrate_hs = 11;
+  optional double power_w = 12;
+  bool available = 13;
+  bool outside_policy = 14;
+  bool partial_coverage = 15;
+  bool unknown_coverage = 16;
+  string state = 17;
+  google.protobuf.Timestamp observed_at = 18;
+}
+message ListAccountAssetsRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  string page_token = 3 [(buf.validate.field).string.max_len = 2048];
+  string search = 4 [(buf.validate.field).string.max_len = 255];
+  // Active account means directly held; otherwise only a direct child is valid.
+  optional string owner_account_id = 5 [(buf.validate.field).string.uuid = true];
+  optional int64 container_id = 6 [(buf.validate.field).int64.gt = 0];
+}
+message ListAccountAssetsResponse {
+  repeated AccountAsset assets = 1;
+  string next_page_token = 2;
+  bool can_manage_assignments = 3;
+}
+message MiningAssetSelection {
+  MiningAssetKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  int64 id = 2 [(buf.validate.field).int64.gt = 0];
+  // Zero denotes a leaf never allocated. Recall retains and increments revisions.
+  int64 expected_revision = 3 [(buf.validate.field).int64.gte = 0];
+}
+message AssignAccountAssetsRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string child_account_id = 2 [(buf.validate.field).string.uuid = true];
+  AssetAssignmentIntent intent = 3 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  // Exact reviewed leaves: a container is never expanded during mutation.
+  repeated MiningAssetSelection assets = 4 [(buf.validate.field).repeated = {min_items: 1, max_items: 500}];
+}
+message AssignAccountAssetsResponse {}
