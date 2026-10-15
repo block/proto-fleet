@@ -1467,11 +1467,11 @@ func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, provider 
 		case "installing", "downloaded":
 			slog.Debug("firmware install in progress", "device_id", deviceID, "state", status.State, "progress", status.Progress)
 
-		case "current":
+		case "current", "available":
 			if revertErr := firmwareInstallRevertedError(deviceID, status, time.Since(uploadCompletedAt)); revertErr != nil {
 				return false, revertErr
 			}
-			slog.Debug("firmware install not started yet (grace window)", "device_id", deviceID)
+			slog.Debug("firmware install not started yet (grace window)", "device_id", deviceID, "state", status.State)
 
 		case "error":
 			errMsg := "unknown error"
@@ -1503,18 +1503,18 @@ func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, provider 
 	}
 }
 
-// firmwareInstallRevertedError reports a post-upload `current` status as a
-// failed install once the grace window has passed. A `current` status can carry
-// an earlier catalog-check or update failure in Error, so that text only
-// explains the revert and never fails the install on its own.
+// firmwareInstallRevertedError reports a post-upload `current` or `available`
+// status as a failed install once the grace window has passed. Either status
+// can carry an earlier catalog-check or update failure in Error, so that text
+// only explains the revert and never fails the install on its own.
 func firmwareInstallRevertedError(deviceID int64, status *sdk.FirmwareUpdateStatus, sinceUpload time.Duration) error {
 	if sinceUpload <= firmwareInstallGraceWindow {
 		return nil
 	}
 	if status.Error != nil && *status.Error != "" {
-		return fleeterror.NewInternalErrorf("firmware install reverted to 'current' on device %d; rig reported update error: %s", deviceID, *status.Error)
+		return fleeterror.NewInternalErrorf("firmware install reverted to '%s' on device %d; rig reported update error: %s", status.State, deviceID, *status.Error)
 	}
-	return fleeterror.NewInternalErrorf("firmware install reverted to 'current' on device %d (install may have failed silently)", deviceID)
+	return fleeterror.NewInternalErrorf("firmware install reverted to '%s' on device %d (install may have failed silently)", status.State, deviceID)
 }
 
 func (es *ExecutionService) rebootAfterFirmwareInstall(ctx context.Context, minerInfo interfaces.Miner, deviceID int64) error {
