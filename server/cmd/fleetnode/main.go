@@ -7,12 +7,16 @@ import (
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
+// version is set on release binaries with -ldflags "-X main.version=<tag>".
+var version = "dev"
+
 type Context struct {
 	StateDir string
 }
 
 type CLI struct {
-	StateDir string `help:"override state directory; defaults to $XDG_STATE_HOME/fleetnode or ~/.local/state/fleetnode" type:"path"`
+	Version  kong.VersionFlag `help:"print running binary version"`
+	StateDir string           `help:"override state directory; defaults to $XDG_STATE_HOME/fleetnode or ~/.local/state/fleetnode" type:"path"`
 
 	Enroll  EnrollCmd  `cmd:"" help:"register this fleet node with a fleet server"`
 	Status  StatusCmd  `cmd:"" help:"print local fleet node state"`
@@ -24,6 +28,7 @@ func main() {
 	var cli CLI
 	kctx := kong.Parse(&cli,
 		kong.Name("fleetnode"),
+		kong.Vars{"version": version},
 		kong.Description("Fleet node CLI: enroll, authenticate, refresh."),
 		kong.Configuration(kongyaml.Loader, "/etc/fleetnode/config.yaml"),
 	)

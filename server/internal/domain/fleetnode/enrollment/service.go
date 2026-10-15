@@ -46,7 +46,7 @@ type PendingEnrollmentStore interface {
 	GetPendingEnrollmentByFleetNode(ctx context.Context, agentID, orgID int64) (*PendingEnrollment, error)
 	GetCancelledEnrollmentByFleetNode(ctx context.Context, enrollmentID, agentID, orgID int64) (*PendingEnrollment, error)
 	BindEnrollmentToFleetNode(ctx context.Context, enrollmentID, agentID int64) (int64, error)
-	ConfirmEnrollment(ctx context.Context, enrollmentID int64, consumedAt time.Time) (int64, error)
+	ConfirmEnrollment(ctx context.Context, enrollmentID int64, consumedAt time.Time, confirmedBy int64) (int64, error)
 	CancelPendingEnrollment(ctx context.Context, enrollmentID, orgID int64, consumedAt time.Time) (int64, error)
 	CancelEnrollmentForFleetNode(ctx context.Context, agentID, orgID int64, consumedAt time.Time) (int64, error)
 	SweepExpiredEnrollments(ctx context.Context, now time.Time) (int64, error)
@@ -68,7 +68,7 @@ type AgentStore interface {
 	SetFleetNodeEnrollmentStatus(ctx context.Context, status FleetNodeStatus, agentID, orgID int64) (int64, error)
 	SoftDeleteFleetNode(ctx context.Context, agentID, orgID int64, deletedAt time.Time) (int64, error)
 	SoftDeleteFleetNodesForExpiredEnrollments(ctx context.Context, now time.Time) (int64, error)
-	UpdateLastSeen(ctx context.Context, fleetNodeID, orgID int64, now time.Time) (int64, error)
+	UpdateLastSeen(ctx context.Context, fleetNodeID, orgID int64, now time.Time, ipAddresses []string, version string) (int64, error)
 }
 
 type RevocationCleanupStore interface {
@@ -202,16 +202,16 @@ func (s *Service) RegisterFleetNode(ctx context.Context, plaintextCode, name str
 	return agent, pe, nil
 }
 
-func (s *Service) ConfirmExpected(ctx context.Context, agentID, orgID, pendingEnrollmentID int64) (string, time.Time, error) {
+func (s *Service) ConfirmExpected(ctx context.Context, agentID, orgID, pendingEnrollmentID, confirmedBy int64) (string, time.Time, error) {
 	if pendingEnrollmentID <= 0 {
 		return "", time.Time{}, fleeterror.NewInvalidArgumentError("pending_enrollment_id is required")
 	}
-	return s.confirm(ctx, agentID, orgID, pendingEnrollmentID)
+	return s.confirm(ctx, agentID, orgID, pendingEnrollmentID, confirmedBy)
 }
 
 // confirm runs in a transaction: confirm enrollment, mark agent CONFIRMED,
 // issue the api_key. The plaintext api_key is returned exactly once.
-func (s *Service) confirm(ctx context.Context, agentID, orgID, pendingEnrollmentID int64) (string, time.Time, error) {
+func (s *Service) confirm(ctx context.Context, agentID, orgID, pendingEnrollmentID, confirmedBy int64) (string, time.Time, error) {
 	var (
 		plaintext string
 		expires   time.Time
@@ -244,7 +244,7 @@ func (s *Service) confirm(ctx context.Context, agentID, orgID, pendingEnrollment
 			return fleeterror.NewFailedPreconditionError("pending enrollment mismatch; refresh and retry")
 		}
 		now := time.Now().UTC()
-		rows, err := s.store.ConfirmEnrollment(ctx, pe.ID, now)
+		rows, err := s.store.ConfirmEnrollment(ctx, pe.ID, now, confirmedBy)
 		if err != nil {
 			return logInternal("confirm enrollment", clientErrConfirmFleetNode, err)
 		}
@@ -421,8 +421,8 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 // affected means the fleet_node was soft-deleted (or scoped to a different
 // org) between the auth interceptor's session lookup and now; surface
 // NotFound so the daemon's session resolver fails on its next refresh.
-func (s *Service) UpdateLastSeen(ctx context.Context, fleetNodeID, orgID int64, now time.Time) error {
-	rows, err := s.store.UpdateLastSeen(ctx, fleetNodeID, orgID, now)
+func (s *Service) UpdateLastSeen(ctx context.Context, fleetNodeID, orgID int64, now time.Time, ipAddresses []string, version string) error {
+	rows, err := s.store.UpdateLastSeen(ctx, fleetNodeID, orgID, now, ipAddresses, version)
 	if err != nil {
 		return logInternal("update last_seen_at", clientErrUpdateLastSeen, err)
 	}

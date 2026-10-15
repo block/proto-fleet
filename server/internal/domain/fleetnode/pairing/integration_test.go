@@ -51,7 +51,7 @@ func setupPairingTest(t *testing.T) (*sql.DB, int64, *fleetnodepairing.Service, 
 func createFleetNode(t *testing.T, enrollment *fleetnodeenrollment.Service, orgID int64, name string) int64 {
 	t.Helper()
 	id, pendingEnrollmentID := createPendingFleetNode(t, enrollment, orgID, name)
-	_, _, err := enrollment.ConfirmExpected(t.Context(), id, orgID, pendingEnrollmentID)
+	_, _, err := enrollment.ConfirmExpected(t.Context(), id, orgID, pendingEnrollmentID, 1)
 	require.NoError(t, err)
 	return id
 }

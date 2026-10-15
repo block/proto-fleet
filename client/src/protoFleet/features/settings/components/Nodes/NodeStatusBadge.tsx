@@ -3,12 +3,20 @@ import { getNodeDisplayStatus } from "./getNodeDisplayStatus";
 import type { NodeDisplayStatus } from "./getNodeDisplayStatus";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 
-const DISPLAY_STATUS_CONFIG: Record<NodeDisplayStatus, { label: string; dotClass: string }> = {
+const DISPLAY_STATUS_CONFIG: Record<NodeDisplayStatus, { label: string; dotClass: string; description?: string }> = {
   connected: { label: "Connected", dotClass: "bg-intent-success-fill" },
-  heartbeatOnly: { label: "Heartbeat only", dotClass: "bg-intent-warning-fill" },
+  heartbeatOnly: {
+    label: "Heartbeat only",
+    dotClass: "bg-intent-warning-fill",
+    description: "Recent heartbeat received, but no command connection is available.",
+  },
   upgradeRequired: { label: "Upgrade required", dotClass: "bg-intent-critical-fill" },
   upgradeRecommended: { label: "Upgrade recommended", dotClass: "bg-intent-warning-fill" },
-  stale: { label: "Stale", dotClass: "bg-intent-warning-fill" },
+  stale: {
+    label: "Stale",
+    dotClass: "bg-intent-warning-fill",
+    description: "No heartbeat received in the last 2 minutes.",
+  },
   neverConnected: { label: "Never connected", dotClass: "bg-border-20" },
   awaitingConfirmation: { label: "Awaiting confirmation", dotClass: "bg-intent-info-fill" },
   pending: { label: "Pending", dotClass: "bg-border-20" },
@@ -19,7 +27,7 @@ const NodeStatusBadge = ({ node }: { node: FleetNodeItem }) => {
   const status = getNodeDisplayStatus(node);
   const config = DISPLAY_STATUS_CONFIG[status];
   return (
-    <span className="inline-flex items-center gap-2 text-300 text-text-primary-50">
+    <span title={config.description} className="inline-flex items-center gap-2 text-300 text-text-primary-50">
       <span className={clsx("h-2 w-2 rounded-full", config.dotClass)} />
       {config.label}
     </span>

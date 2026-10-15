@@ -287,8 +287,15 @@ type FleetNodeSummary struct {
 	// True only for a connected node behind the server's latest command protocol.
 	// Advisory only; command eligibility uses each command's minimum version.
 	CommandProtocolUpgradeRecommended bool `protobuf:"varint,12,opt,name=command_protocol_upgrade_recommended,json=commandProtocolUpgradeRecommended,proto3" json:"command_protocol_upgrade_recommended,omitempty"`
-	unknownFields                     protoimpl.UnknownFields
-	sizeCache                         protoimpl.SizeCache
+	// Last heartbeat's local interface addresses and running binary version.
+	IpAddresses []string `protobuf:"bytes,13,rep,name=ip_addresses,json=ipAddresses,proto3" json:"ip_addresses,omitempty"`
+	Version     string   `protobuf:"bytes,14,opt,name=version,proto3" json:"version,omitempty"`
+	// Username of the operator who confirmed enrollment, empty for older records.
+	EnrolledBy string `protobuf:"bytes,15,opt,name=enrolled_by,json=enrolledBy,proto3" json:"enrolled_by,omitempty"`
+	// Completed enrollment time, distinct from registration/created_at.
+	EnrolledAt    *timestamppb.Timestamp `protobuf:"bytes,16,opt,name=enrolled_at,json=enrolledAt,proto3,oneof" json:"enrolled_at,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FleetNodeSummary) Reset() {
@@ -396,6 +403,34 @@ func (x *FleetNodeSummary) GetCommandProtocolUpgradeRecommended() bool {
 		return x.CommandProtocolUpgradeRecommended
 	}
 	return false
+}
+
+func (x *FleetNodeSummary) GetIpAddresses() []string {
+	if x != nil {
+		return x.IpAddresses
+	}
+	return nil
+}
+
+func (x *FleetNodeSummary) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *FleetNodeSummary) GetEnrolledBy() string {
+	if x != nil {
+		return x.EnrolledBy
+	}
+	return ""
+}
+
+func (x *FleetNodeSummary) GetEnrolledAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.EnrolledAt
+	}
+	return nil
 }
 
 type ConfirmFleetNodeRequest struct {
@@ -1534,7 +1569,7 @@ var file_fleetnodeadmin_v1_fleetnodeadmin_proto_rawDesc = string([]byte{
 	0x64, 0x65, 0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x23, 0x2e, 0x66, 0x6c, 0x65, 0x65,
 	0x74, 0x6e, 0x6f, 0x64, 0x65, 0x61, 0x64, 0x6d, 0x69, 0x6e, 0x2e, 0x76, 0x31, 0x2e, 0x46, 0x6c,
 	0x65, 0x65, 0x74, 0x4e, 0x6f, 0x64, 0x65, 0x53, 0x75, 0x6d, 0x6d, 0x61, 0x72, 0x79, 0x52, 0x0a,
-	0x66, 0x6c, 0x65, 0x65, 0x74, 0x4e, 0x6f, 0x64, 0x65, 0x73, 0x22, 0xc9, 0x05, 0x0a, 0x10, 0x46,
+	0x66, 0x6c, 0x65, 0x65, 0x74, 0x4e, 0x6f, 0x64, 0x65, 0x73, 0x22, 0xf9, 0x06, 0x0a, 0x10, 0x46,
 	0x6c, 0x65, 0x65, 0x74, 0x4e, 0x6f, 0x64, 0x65, 0x53, 0x75, 0x6d, 0x6d, 0x61, 0x72, 0x79, 0x12,
 	0x22, 0x0a, 0x0d, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x5f, 0x6e, 0x6f, 0x64, 0x65, 0x5f, 0x69, 0x64,
 	0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x52, 0x0b, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x4e, 0x6f, 0x64,
@@ -1576,10 +1611,21 @@ var file_fleetnodeadmin_v1_fleetnodeadmin_proto_rawDesc = string([]byte{
 	0x70, 0x67, 0x72, 0x61, 0x64, 0x65, 0x5f, 0x72, 0x65, 0x63, 0x6f, 0x6d, 0x6d, 0x65, 0x6e, 0x64,
 	0x65, 0x64, 0x18, 0x0c, 0x20, 0x01, 0x28, 0x08, 0x52, 0x21, 0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e,
 	0x64, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x55, 0x70, 0x67, 0x72, 0x61, 0x64, 0x65,
-	0x52, 0x65, 0x63, 0x6f, 0x6d, 0x6d, 0x65, 0x6e, 0x64, 0x65, 0x64, 0x42, 0x0f, 0x0a, 0x0d, 0x5f,
+	0x52, 0x65, 0x63, 0x6f, 0x6d, 0x6d, 0x65, 0x6e, 0x64, 0x65, 0x64, 0x12, 0x21, 0x0a, 0x0c, 0x69,
+	0x70, 0x5f, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x65, 0x73, 0x18, 0x0d, 0x20, 0x03, 0x28,
+	0x09, 0x52, 0x0b, 0x69, 0x70, 0x41, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x65, 0x73, 0x12, 0x18,
+	0x0a, 0x07, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x18, 0x0e, 0x20, 0x01, 0x28, 0x09, 0x52,
+	0x07, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x12, 0x1f, 0x0a, 0x0b, 0x65, 0x6e, 0x72, 0x6f,
+	0x6c, 0x6c, 0x65, 0x64, 0x5f, 0x62, 0x79, 0x18, 0x0f, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0a, 0x65,
+	0x6e, 0x72, 0x6f, 0x6c, 0x6c, 0x65, 0x64, 0x42, 0x79, 0x12, 0x40, 0x0a, 0x0b, 0x65, 0x6e, 0x72,
+	0x6f, 0x6c, 0x6c, 0x65, 0x64, 0x5f, 0x61, 0x74, 0x18, 0x10, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1a,
+	0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66,
+	0x2e, 0x54, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d, 0x70, 0x48, 0x02, 0x52, 0x0a, 0x65, 0x6e,
+	0x72, 0x6f, 0x6c, 0x6c, 0x65, 0x64, 0x41, 0x74, 0x88, 0x01, 0x01, 0x42, 0x0f, 0x0a, 0x0d, 0x5f,
 	0x6c, 0x61, 0x73, 0x74, 0x5f, 0x73, 0x65, 0x65, 0x6e, 0x5f, 0x61, 0x74, 0x42, 0x18, 0x0a, 0x16,
 	0x5f, 0x70, 0x65, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x5f, 0x65, 0x6e, 0x72, 0x6f, 0x6c, 0x6c, 0x6d,
-	0x65, 0x6e, 0x74, 0x5f, 0x69, 0x64, 0x22, 0x83, 0x01, 0x0a, 0x17, 0x43, 0x6f, 0x6e, 0x66, 0x69,
+	0x65, 0x6e, 0x74, 0x5f, 0x69, 0x64, 0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x65, 0x6e, 0x72, 0x6f, 0x6c,
+	0x6c, 0x65, 0x64, 0x5f, 0x61, 0x74, 0x22, 0x83, 0x01, 0x0a, 0x17, 0x43, 0x6f, 0x6e, 0x66, 0x69,
 	0x72, 0x6d, 0x46, 0x6c, 0x65, 0x65, 0x74, 0x4e, 0x6f, 0x64, 0x65, 0x52, 0x65, 0x71, 0x75, 0x65,
 	0x73, 0x74, 0x12, 0x2b, 0x0a, 0x0d, 0x66, 0x6c, 0x65, 0x65, 0x74, 0x5f, 0x6e, 0x6f, 0x64, 0x65,
 	0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x03, 0x42, 0x07, 0xba, 0x48, 0x04, 0x22, 0x02,
@@ -1921,42 +1967,43 @@ var file_fleetnodeadmin_v1_fleetnodeadmin_proto_depIdxs = []int32{
 	0,  // 2: fleetnodeadmin.v1.FleetNodeSummary.enrollment_status:type_name -> fleetnodeadmin.v1.FleetNodeEnrollmentStatus
 	25, // 3: fleetnodeadmin.v1.FleetNodeSummary.created_at:type_name -> google.protobuf.Timestamp
 	25, // 4: fleetnodeadmin.v1.FleetNodeSummary.last_seen_at:type_name -> google.protobuf.Timestamp
-	25, // 5: fleetnodeadmin.v1.ConfirmFleetNodeResponse.expires_at:type_name -> google.protobuf.Timestamp
-	16, // 6: fleetnodeadmin.v1.ListFleetNodeDevicesResponse.pairs:type_name -> fleetnodeadmin.v1.FleetNodeDeviceSummary
-	25, // 7: fleetnodeadmin.v1.FleetNodeDeviceSummary.assigned_at:type_name -> google.protobuf.Timestamp
-	26, // 8: fleetnodeadmin.v1.DiscoverOnFleetNodeRequest.request:type_name -> pairing.v1.DiscoverRequest
-	27, // 9: fleetnodeadmin.v1.DiscoverOnFleetNodeResponse.response:type_name -> pairing.v1.DiscoverResponse
-	21, // 10: fleetnodeadmin.v1.ListFleetNodeDiscoveredDevicesResponse.devices:type_name -> fleetnodeadmin.v1.FleetNodeDiscoveredDevice
-	28, // 11: fleetnodeadmin.v1.FleetNodeDiscoveredDevice.device_class:type_name -> common.v1.DeviceClass
-	25, // 12: fleetnodeadmin.v1.FleetNodeDiscoveredDevice.last_seen:type_name -> google.protobuf.Timestamp
-	29, // 13: fleetnodeadmin.v1.PairDiscoveredDevicesOnFleetNodeRequest.credentials:type_name -> pairing.v1.Credentials
-	24, // 14: fleetnodeadmin.v1.PairDiscoveredDevicesOnFleetNodeResponse.results:type_name -> fleetnodeadmin.v1.DevicePairingResult
-	30, // 15: fleetnodeadmin.v1.DevicePairingResult.pairing_status:type_name -> fleetmanagement.v1.PairingStatus
-	1,  // 16: fleetnodeadmin.v1.FleetNodeAdminService.CreateEnrollmentCode:input_type -> fleetnodeadmin.v1.CreateEnrollmentCodeRequest
-	3,  // 17: fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodes:input_type -> fleetnodeadmin.v1.ListFleetNodesRequest
-	6,  // 18: fleetnodeadmin.v1.FleetNodeAdminService.ConfirmFleetNode:input_type -> fleetnodeadmin.v1.ConfirmFleetNodeRequest
-	8,  // 19: fleetnodeadmin.v1.FleetNodeAdminService.RevokeFleetNode:input_type -> fleetnodeadmin.v1.RevokeFleetNodeRequest
-	10, // 20: fleetnodeadmin.v1.FleetNodeAdminService.PairDeviceToFleetNode:input_type -> fleetnodeadmin.v1.PairDeviceToFleetNodeRequest
-	12, // 21: fleetnodeadmin.v1.FleetNodeAdminService.UnpairDevice:input_type -> fleetnodeadmin.v1.UnpairDeviceRequest
-	14, // 22: fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodeDevices:input_type -> fleetnodeadmin.v1.ListFleetNodeDevicesRequest
-	17, // 23: fleetnodeadmin.v1.FleetNodeAdminService.DiscoverOnFleetNode:input_type -> fleetnodeadmin.v1.DiscoverOnFleetNodeRequest
-	19, // 24: fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodeDiscoveredDevices:input_type -> fleetnodeadmin.v1.ListFleetNodeDiscoveredDevicesRequest
-	22, // 25: fleetnodeadmin.v1.FleetNodeAdminService.PairDiscoveredDevicesOnFleetNode:input_type -> fleetnodeadmin.v1.PairDiscoveredDevicesOnFleetNodeRequest
-	2,  // 26: fleetnodeadmin.v1.FleetNodeAdminService.CreateEnrollmentCode:output_type -> fleetnodeadmin.v1.CreateEnrollmentCodeResponse
-	4,  // 27: fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodes:output_type -> fleetnodeadmin.v1.ListFleetNodesResponse
-	7,  // 28: fleetnodeadmin.v1.FleetNodeAdminService.ConfirmFleetNode:output_type -> fleetnodeadmin.v1.ConfirmFleetNodeResponse
-	9,  // 29: fleetnodeadmin.v1.FleetNodeAdminService.RevokeFleetNode:output_type -> fleetnodeadmin.v1.RevokeFleetNodeResponse
-	11, // 30: fleetnodeadmin.v1.FleetNodeAdminService.PairDeviceToFleetNode:output_type -> fleetnodeadmin.v1.PairDeviceToFleetNodeResponse
-	13, // 31: fleetnodeadmin.v1.FleetNodeAdminService.UnpairDevice:output_type -> fleetnodeadmin.v1.UnpairDeviceResponse
-	15, // 32: fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodeDevices:output_type -> fleetnodeadmin.v1.ListFleetNodeDevicesResponse
-	18, // 33: fleetnodeadmin.v1.FleetNodeAdminService.DiscoverOnFleetNode:output_type -> fleetnodeadmin.v1.DiscoverOnFleetNodeResponse
-	20, // 34: fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodeDiscoveredDevices:output_type -> fleetnodeadmin.v1.ListFleetNodeDiscoveredDevicesResponse
-	23, // 35: fleetnodeadmin.v1.FleetNodeAdminService.PairDiscoveredDevicesOnFleetNode:output_type -> fleetnodeadmin.v1.PairDiscoveredDevicesOnFleetNodeResponse
-	26, // [26:36] is the sub-list for method output_type
-	16, // [16:26] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	25, // 5: fleetnodeadmin.v1.FleetNodeSummary.enrolled_at:type_name -> google.protobuf.Timestamp
+	25, // 6: fleetnodeadmin.v1.ConfirmFleetNodeResponse.expires_at:type_name -> google.protobuf.Timestamp
+	16, // 7: fleetnodeadmin.v1.ListFleetNodeDevicesResponse.pairs:type_name -> fleetnodeadmin.v1.FleetNodeDeviceSummary
+	25, // 8: fleetnodeadmin.v1.FleetNodeDeviceSummary.assigned_at:type_name -> google.protobuf.Timestamp
+	26, // 9: fleetnodeadmin.v1.DiscoverOnFleetNodeRequest.request:type_name -> pairing.v1.DiscoverRequest
+	27, // 10: fleetnodeadmin.v1.DiscoverOnFleetNodeResponse.response:type_name -> pairing.v1.DiscoverResponse
+	21, // 11: fleetnodeadmin.v1.ListFleetNodeDiscoveredDevicesResponse.devices:type_name -> fleetnodeadmin.v1.FleetNodeDiscoveredDevice
+	28, // 12: fleetnodeadmin.v1.FleetNodeDiscoveredDevice.device_class:type_name -> common.v1.DeviceClass
+	25, // 13: fleetnodeadmin.v1.FleetNodeDiscoveredDevice.last_seen:type_name -> google.protobuf.Timestamp
+	29, // 14: fleetnodeadmin.v1.PairDiscoveredDevicesOnFleetNodeRequest.credentials:type_name -> pairing.v1.Credentials
+	24, // 15: fleetnodeadmin.v1.PairDiscoveredDevicesOnFleetNodeResponse.results:type_name -> fleetnodeadmin.v1.DevicePairingResult
+	30, // 16: fleetnodeadmin.v1.DevicePairingResult.pairing_status:type_name -> fleetmanagement.v1.PairingStatus
+	1,  // 17: fleetnodeadmin.v1.FleetNodeAdminService.CreateEnrollmentCode:input_type -> fleetnodeadmin.v1.CreateEnrollmentCodeRequest
+	3,  // 18: fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodes:input_type -> fleetnodeadmin.v1.ListFleetNodesRequest
+	6,  // 19: fleetnodeadmin.v1.FleetNodeAdminService.ConfirmFleetNode:input_type -> fleetnodeadmin.v1.ConfirmFleetNodeRequest
+	8,  // 20: fleetnodeadmin.v1.FleetNodeAdminService.RevokeFleetNode:input_type -> fleetnodeadmin.v1.RevokeFleetNodeRequest
+	10, // 21: fleetnodeadmin.v1.FleetNodeAdminService.PairDeviceToFleetNode:input_type -> fleetnodeadmin.v1.PairDeviceToFleetNodeRequest
+	12, // 22: fleetnodeadmin.v1.FleetNodeAdminService.UnpairDevice:input_type -> fleetnodeadmin.v1.UnpairDeviceRequest
+	14, // 23: fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodeDevices:input_type -> fleetnodeadmin.v1.ListFleetNodeDevicesRequest
+	17, // 24: fleetnodeadmin.v1.FleetNodeAdminService.DiscoverOnFleetNode:input_type -> fleetnodeadmin.v1.DiscoverOnFleetNodeRequest
+	19, // 25: fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodeDiscoveredDevices:input_type -> fleetnodeadmin.v1.ListFleetNodeDiscoveredDevicesRequest
+	22, // 26: fleetnodeadmin.v1.FleetNodeAdminService.PairDiscoveredDevicesOnFleetNode:input_type -> fleetnodeadmin.v1.PairDiscoveredDevicesOnFleetNodeRequest
+	2,  // 27: fleetnodeadmin.v1.FleetNodeAdminService.CreateEnrollmentCode:output_type -> fleetnodeadmin.v1.CreateEnrollmentCodeResponse
+	4,  // 28: fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodes:output_type -> fleetnodeadmin.v1.ListFleetNodesResponse
+	7,  // 29: fleetnodeadmin.v1.FleetNodeAdminService.ConfirmFleetNode:output_type -> fleetnodeadmin.v1.ConfirmFleetNodeResponse
+	9,  // 30: fleetnodeadmin.v1.FleetNodeAdminService.RevokeFleetNode:output_type -> fleetnodeadmin.v1.RevokeFleetNodeResponse
+	11, // 31: fleetnodeadmin.v1.FleetNodeAdminService.PairDeviceToFleetNode:output_type -> fleetnodeadmin.v1.PairDeviceToFleetNodeResponse
+	13, // 32: fleetnodeadmin.v1.FleetNodeAdminService.UnpairDevice:output_type -> fleetnodeadmin.v1.UnpairDeviceResponse
+	15, // 33: fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodeDevices:output_type -> fleetnodeadmin.v1.ListFleetNodeDevicesResponse
+	18, // 34: fleetnodeadmin.v1.FleetNodeAdminService.DiscoverOnFleetNode:output_type -> fleetnodeadmin.v1.DiscoverOnFleetNodeResponse
+	20, // 35: fleetnodeadmin.v1.FleetNodeAdminService.ListFleetNodeDiscoveredDevices:output_type -> fleetnodeadmin.v1.ListFleetNodeDiscoveredDevicesResponse
+	23, // 36: fleetnodeadmin.v1.FleetNodeAdminService.PairDiscoveredDevicesOnFleetNode:output_type -> fleetnodeadmin.v1.PairDiscoveredDevicesOnFleetNodeResponse
+	27, // [27:37] is the sub-list for method output_type
+	17, // [17:27] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_fleetnodeadmin_v1_fleetnodeadmin_proto_init() }

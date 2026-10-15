@@ -25,6 +25,10 @@ const awaitingNode: FleetNodeItem = {
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: false,
   pairedDeviceCount: 0,
+  ipAddresses: [],
+  version: "",
+  enrolledBy: "",
+  enrolledAt: null,
   createdAt: new Date("2026-07-09T12:00:00Z"),
   lastSeenAt: null,
 };

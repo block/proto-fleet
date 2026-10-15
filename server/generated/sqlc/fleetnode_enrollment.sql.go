@@ -9,6 +9,8 @@ import (
 	"context"
 	"database/sql"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 const bindEnrollmentToFleetNode = `-- name: BindEnrollmentToFleetNode :execrows
@@ -73,17 +75,18 @@ func (q *Queries) CancelPendingEnrollment(ctx context.Context, arg CancelPending
 
 const confirmEnrollment = `-- name: ConfirmEnrollment :execrows
 UPDATE pending_enrollment
-SET status = 'CONFIRMED', consumed_at = $1
+SET status = 'CONFIRMED', consumed_at = $1, confirmed_by = $3
 WHERE id = $2 AND status = 'AWAITING_CONFIRMATION'
 `
 
 type ConfirmEnrollmentParams struct {
-	ConsumedAt sql.NullTime
-	ID         int64
+	ConsumedAt  sql.NullTime
+	ID          int64
+	ConfirmedBy sql.NullInt64
 }
 
 func (q *Queries) ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error) {
-	result, err := q.exec(ctx, q.confirmEnrollmentStmt, confirmEnrollment, arg.ConsumedAt, arg.ID)
+	result, err := q.exec(ctx, q.confirmEnrollmentStmt, confirmEnrollment, arg.ConsumedAt, arg.ID, arg.ConfirmedBy)
 	if err != nil {
 		return 0, err
 	}
@@ -141,7 +144,7 @@ func (q *Queries) CreateFleetNode(ctx context.Context, arg CreateFleetNodeParams
 const createPendingEnrollment = `-- name: CreatePendingEnrollment :one
 INSERT INTO pending_enrollment (code_hash, org_id, created_by, status, expires_at)
 VALUES ($1, $2, $3, 'PENDING', $4)
-RETURNING id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at
+RETURNING id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by
 `
 
 type CreatePendingEnrollmentParams struct {
@@ -169,12 +172,13 @@ func (q *Queries) CreatePendingEnrollment(ctx context.Context, arg CreatePending
 		&i.ExpiresAt,
 		&i.ConsumedAt,
 		&i.CreatedAt,
+		&i.ConfirmedBy,
 	)
 	return i, err
 }
 
 const getCancelledEnrollmentByFleetNode = `-- name: GetCancelledEnrollmentByFleetNode :one
-SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at
+SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by
 FROM pending_enrollment
 WHERE id = $1 AND fleet_node_id = $2 AND org_id = $3 AND status = 'CANCELLED'
 `
@@ -199,6 +203,7 @@ func (q *Queries) GetCancelledEnrollmentByFleetNode(ctx context.Context, arg Get
 		&i.ExpiresAt,
 		&i.ConsumedAt,
 		&i.CreatedAt,
+		&i.ConfirmedBy,
 	)
 	return i, err
 }
@@ -281,7 +286,7 @@ func (q *Queries) GetFleetNodeByIDUnscoped(ctx context.Context, id int64) (GetFl
 }
 
 const getPendingEnrollmentByCodeHash = `-- name: GetPendingEnrollmentByCodeHash :one
-SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at
+SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by
 FROM pending_enrollment
 WHERE code_hash = $1
 `
@@ -299,12 +304,13 @@ func (q *Queries) GetPendingEnrollmentByCodeHash(ctx context.Context, codeHash s
 		&i.ExpiresAt,
 		&i.ConsumedAt,
 		&i.CreatedAt,
+		&i.ConfirmedBy,
 	)
 	return i, err
 }
 
 const getPendingEnrollmentByFleetNode = `-- name: GetPendingEnrollmentByFleetNode :one
-SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at
+SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by
 FROM pending_enrollment
 WHERE fleet_node_id = $1 AND org_id = $2 AND status = 'AWAITING_CONFIRMATION'
 `
@@ -330,6 +336,7 @@ func (q *Queries) GetPendingEnrollmentByFleetNode(ctx context.Context, arg GetPe
 		&i.ExpiresAt,
 		&i.ConsumedAt,
 		&i.CreatedAt,
+		&i.ConfirmedBy,
 	)
 	return i, err
 }
@@ -338,11 +345,22 @@ const listFleetNodesForOrganization = `-- name: ListFleetNodesForOrganization :m
 SELECT a.id, a.org_id, a.name, a.identity_pubkey,
        a.enrollment_status, a.last_seen_at, a.created_at, a.updated_at,
        COALESCE(pe.status, '')::text AS pending_enrollment_status,
-       pe.id AS pending_enrollment_id
+       pe.id AS pending_enrollment_id,
+       COALESCE(h.ip_addresses, '{}'::text[])::text[] AS ip_addresses,
+       COALESCE(h.version, '')::text AS version,
+       COALESCE(u.username, '')::text AS enrolled_by,
+       completed.consumed_at AS enrolled_at
 FROM fleet_node_live a
 LEFT JOIN pending_enrollment pe
   ON pe.fleet_node_id = a.id
  AND pe.status = 'AWAITING_CONFIRMATION'
+LEFT JOIN fleet_node_heartbeat h ON h.fleet_node_id = a.id AND h.org_id = a.org_id
+LEFT JOIN LATERAL (
+    SELECT confirmed_by, consumed_at FROM pending_enrollment
+    WHERE fleet_node_id = a.id AND org_id = a.org_id AND status = 'CONFIRMED'
+    ORDER BY consumed_at DESC, id DESC LIMIT 1
+) completed ON TRUE
+LEFT JOIN "user" u ON u.id = completed.confirmed_by
 WHERE a.org_id = $1
   AND a.deleted_at IS NULL
 ORDER BY a.created_at DESC
@@ -359,6 +377,10 @@ type ListFleetNodesForOrganizationRow struct {
 	UpdatedAt               time.Time
 	PendingEnrollmentStatus string
 	PendingEnrollmentID     sql.NullInt64
+	IpAddresses             []string
+	Version                 string
+	EnrolledBy              string
+	EnrolledAt              sql.NullTime
 }
 
 // A fleet node can have multiple pending_enrollment rows over its lifetime
@@ -385,6 +407,10 @@ func (q *Queries) ListFleetNodesForOrganization(ctx context.Context, orgID int64
 			&i.UpdatedAt,
 			&i.PendingEnrollmentStatus,
 			&i.PendingEnrollmentID,
+			pq.Array(&i.IpAddresses),
+			&i.Version,
+			&i.EnrolledBy,
+			&i.EnrolledAt,
 		); err != nil {
 			return nil, err
 		}
@@ -601,21 +627,33 @@ func (q *Queries) SweepExpiredEnrollments(ctx context.Context, expiresAt time.Ti
 }
 
 const updateFleetNodeLastSeenAt = `-- name: UpdateFleetNodeLastSeenAt :execrows
-INSERT INTO fleet_node_heartbeat (fleet_node_id,org_id,last_seen_at)
-SELECT fn.id,fn.org_id,$1::timestamptz FROM fleet_node fn
-WHERE fn.id=$2 AND fn.org_id=$3 AND fn.deleted_at IS NULL
+INSERT INTO fleet_node_heartbeat (fleet_node_id,org_id,last_seen_at,ip_addresses,version)
+SELECT fn.id,fn.org_id,$1::timestamptz,
+       COALESCE($2::text[], '{}'::text[]), $3::text
+FROM fleet_node fn
+WHERE fn.id=$4 AND fn.org_id=$5 AND fn.deleted_at IS NULL
 ON CONFLICT (fleet_node_id) DO UPDATE
-SET last_seen_at=GREATEST(fleet_node_heartbeat.last_seen_at,EXCLUDED.last_seen_at)
+SET last_seen_at=GREATEST(fleet_node_heartbeat.last_seen_at,EXCLUDED.last_seen_at),
+    ip_addresses=CASE WHEN EXCLUDED.last_seen_at >= fleet_node_heartbeat.last_seen_at THEN EXCLUDED.ip_addresses ELSE fleet_node_heartbeat.ip_addresses END,
+    version=CASE WHEN EXCLUDED.last_seen_at >= fleet_node_heartbeat.last_seen_at THEN EXCLUDED.version ELSE fleet_node_heartbeat.version END
 `
 
 type UpdateFleetNodeLastSeenAtParams struct {
-	LastSeenAt time.Time
-	ID         int64
-	OrgID      int64
+	LastSeenAt  time.Time
+	IpAddresses []string
+	Version     string
+	ID          int64
+	OrgID       int64
 }
 
 func (q *Queries) UpdateFleetNodeLastSeenAt(ctx context.Context, arg UpdateFleetNodeLastSeenAtParams) (int64, error) {
-	result, err := q.exec(ctx, q.updateFleetNodeLastSeenAtStmt, updateFleetNodeLastSeenAt, arg.LastSeenAt, arg.ID, arg.OrgID)
+	result, err := q.exec(ctx, q.updateFleetNodeLastSeenAtStmt, updateFleetNodeLastSeenAt,
+		arg.LastSeenAt,
+		pq.Array(arg.IpAddresses),
+		arg.Version,
+		arg.ID,
+		arg.OrgID,
+	)
 	if err != nil {
 		return 0, err
 	}

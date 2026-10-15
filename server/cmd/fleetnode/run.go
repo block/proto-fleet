@@ -471,7 +471,9 @@ func (r *RunCmd) sendHeartbeat(ctx context.Context, client gatewayClient) error 
 	callCtx, cancel := context.WithTimeout(ctx, heartbeatTimeout)
 	defer cancel()
 	_, err := client.UploadHeartbeat(callCtx, connect.NewRequest(&pb.UploadHeartbeatRequest{
-		SentAt: timestamppb.New(r.now()),
+		SentAt:      timestamppb.New(r.now()),
+		IpAddresses: localIPAddresses(),
+		Version:     version,
 	}))
 	return err
 }

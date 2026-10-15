@@ -35,6 +35,10 @@ const node: FleetNodeItem = {
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: true,
   pairedDeviceCount: 1,
+  ipAddresses: [],
+  version: "",
+  enrolledBy: "",
+  enrolledAt: null,
   createdAt: new Date("2026-07-09T12:00:00Z"),
   lastSeenAt: new Date(),
 };

@@ -78,7 +78,7 @@ func newControlHarness(t *testing.T) *controlHarness {
 	require.NoError(t, err)
 	// Confirm the node so pairDeviceLocked (which requires CONFIRMED) can bind
 	// devices during ReportPairedDevices persistence.
-	_, _, err = enrollmentSvc.ConfirmExpected(t.Context(), agent.ID, 1, pendingEnrollmentID)
+	_, _, err = enrollmentSvc.ConfirmExpected(t.Context(), agent.ID, 1, pendingEnrollmentID, 1)
 	require.NoError(t, err)
 	filesService, err := files.NewService(files.Config{})
 	require.NoError(t, err)

@@ -245,7 +245,7 @@ func (s *registerFleetNodeStore) BindEnrollmentToFleetNode(context.Context, int6
 	return 1, nil
 }
 
-func (s *registerFleetNodeStore) ConfirmEnrollment(context.Context, int64, time.Time) (int64, error) {
+func (s *registerFleetNodeStore) ConfirmEnrollment(context.Context, int64, time.Time, int64) (int64, error) {
 	panic("unexpected ConfirmEnrollment")
 }
 
@@ -307,7 +307,7 @@ func (s *registerFleetNodeStore) SoftDeleteFleetNodesForExpiredEnrollments(conte
 	panic("unexpected SoftDeleteFleetNodesForExpiredEnrollments")
 }
 
-func (s *registerFleetNodeStore) UpdateLastSeen(context.Context, int64, int64, time.Time) (int64, error) {
+func (s *registerFleetNodeStore) UpdateLastSeen(context.Context, int64, int64, time.Time, []string, string) (int64, error) {
 	panic("unexpected UpdateLastSeen")
 }
 
