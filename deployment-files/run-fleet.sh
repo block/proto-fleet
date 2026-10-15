@@ -1806,16 +1806,16 @@ fi
 # Docker Buildx Check
 # ----------------------------------------------------------------------------
 
-# Image preparation builds the Fleet API and client images. Compose builds
-# without the Buildx plugin when none is installed, so a missing plugin only
-# warns, with the guidance repeated if the build fails. An installed but broken
-# plugin, such as a partially configured package, fails before any image work
-# when this Compose builds through the plugin, and otherwise only warns; that
-# choice is checked again after Compose setup, which can install a Compose that
-# builds through it. `docker buildx version` reports missing and broken plugins
-# alike; the client-only plugin listing tells them apart without daemon access.
-# The probe runs before the Docker group setup, which exits for a new login, so
-# both repairs surface in one run. Prepared-release activation skips it.
+# Image preparation builds the Fleet API and client images. Current Compose
+# (v2.37 and later) builds through an installed Buildx plugin and falls back to
+# its classic builder only when no plugin is installed, so a missing plugin
+# warns (with the guidance repeated if the build fails) while an installed but
+# broken one, such as a partially configured package, fails before any image
+# work. Older Compose releases that embed Buildx are not distinguished.
+# `docker buildx version` reports both cases as an unknown command; the
+# client-only plugin listing tells them apart without daemon access. The probe
+# runs before the Docker group setup, which exits for a new login, so both
+# repairs surface in one run. Prepared-release activation skips it.
 print_buildx_repair_guidance() {
     echo "Install or repair Docker Buildx until 'docker buildx version' succeeds." >&2
     if [ "$(uname)" = "Linux" ] && command -v apt-get >/dev/null 2>&1; then
@@ -1823,71 +1823,18 @@ print_buildx_repair_guidance() {
     fi
 }
 
-report_broken_buildx() {
-    echo "Error: Docker Buildx is installed but not working. Docker Compose builds through the installed plugin, so Fleet images cannot be built until it is repaired." >&2
-    printf '%s\n' "$buildx_version_output" "$buildx_plugin" >&2
-}
-
-# Docker persists plugin settings as `"plugins": {"<plugin>": {"<key>":
-# "<value>"}}` with string values only, which these patterns match without a
-# JSON parser.
-compose_bake_configured() {
-    tr -d '\r\n' < "${DOCKER_CONFIG:-$HOME/.docker}/config.json" 2>/dev/null \
-        | grep -oE '"plugins"[[:space:]]*:[[:space:]]*\{([^{}]*\{[^{}]*\})*[^{}]*\}' \
-        | grep -oE '"compose"[[:space:]]*:[[:space:]]*\{[^{}]*\}' \
-        | grep -qE '"build"[[:space:]]*:[[:space:]]*"bake"'
-}
-
-# Mirrors Compose's builder choice: v2.17-v2.30 embed Buildx as a library,
-# v2.31-v2.36 build through the plugin (Bake) only when COMPOSE_BAKE, or when
-# unset the persisted compose plugin setting, opts in, v2.37+ do unless
-# COMPOSE_BAKE or DOCKER_BUILDKIT disables it, and v5+ ignore COMPOSE_BAKE. A
-# version or setting this cannot read counts as not using the plugin, so the
-# check never blocks a build that could succeed.
-compose_builds_through_buildx_plugin() {
-    local version major minor
-    version=$(docker compose version --short 2>/dev/null) || return 1
-    [[ "$version" =~ ^v?([0-9]+)\.([0-9]+) ]] || return 1
-    major=${BASH_REMATCH[1]}
-    minor=${BASH_REMATCH[2]}
-    if [ "$major" -eq 2 ] && [ "$minor" -lt 37 ]; then
-        [ "$minor" -ge 31 ] || return 1
-        if [ -n "${COMPOSE_BAKE+set}" ]; then
-            case "$COMPOSE_BAKE" in
-                1|t|T|true|TRUE|True) return 0 ;;
-                *) return 1 ;;
-            esac
-        fi
-        compose_bake_configured
-        return
-    fi
-    [ "$major" -ge 2 ] || return 1
-    case "${DOCKER_BUILDKIT:-}" in
-        0|f|F|false|FALSE|False) return 1 ;;
-    esac
-    if [ "$major" -eq 2 ]; then
-        case "${COMPOSE_BAKE:-true}" in
-            0|f|F|false|FALSE|False) return 1 ;;
-        esac
-    fi
-    return 0
-}
-
 BUILDX_STATE=ok
 if [ "$SKIP_BUILD" != "true" ]; then
     if ! buildx_version_output=$(docker buildx version 2>&1); then
         buildx_plugin=$(docker info --format '{{range .ClientInfo.Plugins}}{{if eq .Name "buildx"}}{{.Path}}{{with .Err}}: {{.}}{{end}}{{end}}{{end}}' 2>/dev/null || true)
-        if [ -z "$buildx_plugin" ]; then
-            BUILDX_STATE=absent
-            echo "Warning: Docker Buildx is not installed. Continuing: Docker Compose builds without the plugin when none is installed." >&2
-            printf '%s\n' "$buildx_version_output" >&2
-        elif compose_builds_through_buildx_plugin; then
+        if [ -n "$buildx_plugin" ]; then
             BUILDX_STATE=broken
-            report_broken_buildx
-        else
-            BUILDX_STATE=unused
-            echo "Warning: Docker Buildx is installed but not working. Continuing: Docker Compose is not set to build through the plugin." >&2
+            echo "Error: Docker Buildx is installed but not working. Docker Compose builds through the installed plugin, so Fleet images cannot be built until it is repaired." >&2
             printf '%s\n' "$buildx_version_output" "$buildx_plugin" >&2
+        else
+            BUILDX_STATE=absent
+            echo "Warning: Docker Buildx is not installed. Continuing: Docker Compose builds with its classic builder when Buildx is absent." >&2
+            printf '%s\n' "$buildx_version_output" >&2
         fi
         print_buildx_repair_guidance
     fi
@@ -2043,12 +1990,6 @@ for flag in --wait --wait-timeout --no-build --pull; do
         exit 1
     fi
 done
-
-if [ "$BUILDX_STATE" = "unused" ] && compose_builds_through_buildx_plugin; then
-    report_broken_buildx
-    print_buildx_repair_guidance
-    exit 1
-fi
 
 # Replace exact keys without ever truncating the live environment file. The
 # temporary file lives beside .env so the final rename is atomic, while the
@@ -2691,8 +2632,8 @@ if [ "$SKIP_BUILD" != "true" ]; then
     # Build Docker images (fleet-api and fleet-client only; TimescaleDB uses pre-built image)
     if ! compose build --no-cache; then
         echo "Error: Build failed. Exiting."
-        if [ "$BUILDX_STATE" != "ok" ]; then
-            echo "Docker Buildx was missing or not working before the build." >&2
+        if [ "$BUILDX_STATE" = "absent" ]; then
+            echo "Docker Buildx was not installed before the build." >&2
             print_buildx_repair_guidance
         fi
         exit 1

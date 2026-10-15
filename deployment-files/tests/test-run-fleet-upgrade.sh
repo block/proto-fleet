@@ -4,14 +4,9 @@
 # recorded through PATH shims.
 set -u
 
-# The Buildx preflight reads Compose's builder settings from the environment
-# and the Docker client configuration.
-unset COMPOSE_BAKE DOCKER_BUILDKIT
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TMP_DIR=$(mktemp -d)
-export DOCKER_CONFIG="$TMP_DIR/docker-config"
 REAL_AWK=$(command -v awk)
 REAL_CHMOD=$(command -v chmod)
 REAL_CHOWN=$(command -v chown)
@@ -167,16 +162,6 @@ make_stage() {
 printf 'docker' >> "$CALL_LOG"
 printf ' %s' "$@" >> "$CALL_LOG"
 printf '\n' >> "$CALL_LOG"
-
-if [ "${1:-}" = "compose" ] && [ "${2:-}" = "version" ] && \
-    [ "${FAKE_COMPOSE_MISSING:-false}" = "true" ] && [ ! -e "$CALL_LOG.compose-installed" ]; then
-    exit 1
-fi
-
-if [ "${1:-}" = "compose" ] && [ "${2:-}" = "version" ] && [ "${3:-}" = "--short" ]; then
-    echo "${FAKE_COMPOSE_VERSION:-5.5.1}"
-    exit 0
-fi
 
 if [ "${1:-}" = "info" ] && [[ "${3:-}" == *ClientInfo.Plugins* ]]; then
     if [ "${FAKE_BUILDX_INSTALLED:-false}" = "true" ]; then
@@ -596,7 +581,6 @@ printf 'sudo %s\n' "$*" >> "$CALL_LOG"
 case "${1:-}" in
     groupadd) [ "${FAKE_GROUPADD_FAILURE:-false}" != 'true' ] || exit 1 ;;
     usermod) [ "${FAKE_USERMOD_FAILURE:-false}" != 'true' ] || exit 1 ;;
-    apt-get) [[ " $* " != *" docker-compose-plugin "* ]] || touch "$CALL_LOG.compose-installed" ;;
 esac
 exit 0
 EOF
@@ -751,85 +735,6 @@ assert_not_contains "broken Buildx does not repair host packages" "$HARNESS_CALL
 assert_not_contains "broken Buildx fails before pulling images" "$HARNESS_CALL_LOG" 'pull --ignore-buildable'
 assert_not_contains "broken Buildx fails before building images" "$HARNESS_CALL_LOG" ' build '
 assert_not_contains "broken Buildx leaves existing services running" "$HARNESS_CALL_LOG" ' down --remove-orphans'
-
-# A broken plugin stops the run only when the installed Compose builds through
-# it; "-" leaves the setting unset. Every Docker config also gives an unrelated
-# plugin a "build": "bake" entry, which must not count as the Compose setting.
-# Stage names avoid the version's dots, which are not valid in the
-# directory-derived Compose project name.
-case_index=0
-while read -r compose_version compose_bake docker_buildkit compose_plugin_build expected; do
-    case_index=$((case_index + 1))
-    case_name="Compose $compose_version COMPOSE_BAKE=$compose_bake DOCKER_BUILDKIT=$docker_buildkit compose.build=$compose_plugin_build"
-    make_stage "docker-buildx-broken-compose-case-$case_index"
-    docker_config_dir="$(dirname "$HARNESS_CALL_LOG")/docker-config"
-    mkdir -p "$docker_config_dir"
-    {
-        printf '{\n\t"auths": {\n\t\t"registry.example": {}\n\t},\n\t"plugins": {\n\t\t"other": {\n\t\t\t"build": "bake"\n\t\t}'
-        [ "$compose_plugin_build" = - ] || printf ',\n\t\t"compose": {\n\t\t\t"build": "%s"\n\t\t}' "$compose_plugin_build"
-        printf '\n\t}\n}\n'
-    } > "$docker_config_dir/config.json"
-    if (
-        export DOCKER_CONFIG="$docker_config_dir"
-        [ "$compose_bake" = - ] || export COMPOSE_BAKE="$compose_bake"
-        [ "$docker_buildkit" = - ] || export DOCKER_BUILDKIT="$docker_buildkit"
-        FAKE_BUILDX_FAILURE=true FAKE_BUILDX_INSTALLED=true FAKE_COMPOSE_VERSION="$compose_version" \
-            run_stage "$STAGE" --non-interactive --preflight-only < /dev/null
-    ); then
-        outcome=warn
-    else
-        outcome=stop
-    fi
-    if [ "$outcome" = "$expected" ]; then
-        pass "broken Buildx with $case_name: $expected"
-    else
-        fail "broken Buildx with $case_name should $expected, got $outcome"
-    fi
-    if [ "$expected" = warn ]; then
-        assert_contains "broken Buildx warning with $case_name" "$HARNESS_OUTPUT_LOG" 'Warning: Docker Buildx is installed but not working'
-        assert_contains "broken Buildx warning still builds with $case_name" "$HARNESS_CALL_LOG" ' build --no-cache'
-    else
-        assert_contains "broken Buildx stop explains the problem with $case_name" "$HARNESS_OUTPUT_LOG" 'Error: Docker Buildx is installed but not working'
-        assert_not_contains "broken Buildx stop skips builds with $case_name" "$HARNESS_CALL_LOG" ' build '
-    fi
-done <<'EOF'
-2.17.3 - - bake warn
-2.36.2 - - - warn
-2.36.2 true - - stop
-2.36.2 - - bake stop
-2.36.2 - - classic warn
-2.36.2 false - bake warn
-2.40.3 - - - stop
-2.40.3 false - - warn
-v2.40.3 - 0 - warn
-5.5.1 false - - stop
-5.5.1 - 0 - warn
-unknown - - - warn
-EOF
-
-# A first install can lack Compose when the Buildx probe runs. Compose setup
-# then installs one, and the builder choice is checked again before image work.
-for installed_builder in plugin library; do
-    if [ "$installed_builder" = plugin ]; then compose_version=5.5.1; else compose_version=2.17.3; fi
-    make_stage "docker-buildx-broken-compose-installed-$installed_builder"
-    if FAKE_COMPOSE_MISSING=true FAKE_COMPOSE_VERSION="$compose_version" \
-        FAKE_BUILDX_FAILURE=true FAKE_BUILDX_INSTALLED=true FAKE_COMPOSE_BUILD_FAILURE=true \
-        run_stage "$STAGE" < /dev/null; then
-        fail "installed Compose $compose_version with broken Buildx must stop the run"
-    else
-        pass "installed Compose $compose_version with broken Buildx stops the run"
-    fi
-    assert_contains "Compose $compose_version is installed during the run" "$HARNESS_CALL_LOG" 'sudo apt-get install -y docker-compose-plugin'
-    assert_contains "Compose $compose_version run first warns about broken Buildx" "$HARNESS_OUTPUT_LOG" 'Warning: Docker Buildx is installed but not working'
-    if [ "$installed_builder" = plugin ]; then
-        assert_contains "installed Compose $compose_version re-checks broken Buildx" "$HARNESS_OUTPUT_LOG" 'Error: Docker Buildx is installed but not working'
-        assert_not_contains "installed Compose $compose_version stops before pulling images" "$HARNESS_CALL_LOG" 'pull --ignore-buildable'
-        assert_not_contains "installed Compose $compose_version stops before building images" "$HARNESS_CALL_LOG" ' build '
-    else
-        assert_not_contains "installed Compose $compose_version does not stop for Buildx" "$HARNESS_OUTPUT_LOG" 'Error: Docker Buildx is installed but not working'
-        assert_contains "installed Compose $compose_version reaches the image build" "$HARNESS_OUTPUT_LOG" 'Error: Build failed.'
-    fi
-done
 
 for buildx_absent in true false; do
     make_stage "docker-build-failure-buildx-absent-$buildx_absent"
