@@ -252,7 +252,7 @@ type hashboardLoc struct {
 	Module            int      `json:"module"`
 	BreakerID         string   `json:"breakerId"`
 	PowerFeedID       string   `json:"powerFeedId"`
-	HashboardPosition int64str `json:"hashboardPosition"`
+	HashboardPosition int64str `json:"hashboardPosition,omitempty"`
 }
 
 type hashboardHealth struct {
@@ -677,6 +677,11 @@ func (h *RESTApiHandler) handleContainerMap(w http.ResponseWriter, r *http.Reque
 
 func (s *ContainerState) containerMapDTO() containerMapResponse {
 	cm := containerMap{}
+	unlocated := []slotDTO{}
+	remaining := s.Config.UnlocatedBoards
+	if remaining < 0 {
+		remaining = s.BoardCount()
+	}
 	for _, tank := range s.Tanks {
 		td := tankDTO{ID: tank.ID}
 		for _, module := range tank.Modules {
@@ -689,12 +694,30 @@ func (s *ContainerState) containerMapDTO() containerMapResponse {
 				}
 				if slot.Board != nil {
 					sd.Hashboard = s.hashboardDTO(slot.Board)
+					if remaining > 0 {
+						// Project unknown wiring without changing simulated hardware,
+						// identity, or telemetry. No physical slot is claimed twice.
+						sd.Hashboard.Location = hashboardLoc{}
+						sd.Hashboard.ModuleID = ""
+						sd.Hashboard.Source = "HASHBOARD_SOURCE_INVENTORY"
+						sd.BreakerID, sd.PowerFeedID = "", ""
+						unlocated = append(unlocated, sd)
+						remaining--
+						continue
+					}
 				}
 				md.Slots = append(md.Slots, sd)
 			}
-			td.Modules = append(td.Modules, md)
+			if len(md.Slots) > 0 {
+				td.Modules = append(td.Modules, md)
+			}
 		}
-		cm.Tanks = append(cm.Tanks, td)
+		if len(td.Modules) > 0 {
+			cm.Tanks = append(cm.Tanks, td)
+		}
+	}
+	if len(unlocated) > 0 {
+		cm.Tanks = append([]tankDTO{{ID: 0, Modules: []moduleDTO{{ID: 0, Slots: unlocated}}}}, cm.Tanks...)
 	}
 
 	return containerMapResponse{ContainerMap: cm}

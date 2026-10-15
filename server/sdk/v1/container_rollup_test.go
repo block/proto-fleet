@@ -195,3 +195,63 @@ func rollupTestModule(now time.Time, position int32, readings ...[2]float64) Con
 func rollupTestPower(at time.Time, power float64, source string) *ContainerRollup {
 	return &ContainerRollup{PowerW: new(power), PowerSource: source, Power: MetricCoverage{Reporting: 1, Expected: 1, TopologyComplete: true, OldestAt: at, NewestAt: at}, SourceTimes: map[string]time.Time{source: at}}
 }
+
+func TestContainerRollupsRetainUnlocatedInventory(t *testing.T) {
+	now := time.Now().UTC()
+	snapshot := rollupTestSnapshot(now, rollupTestModule(now, 1, [2]float64{100e12, 60}))
+	snapshot.TopologyComplete = false
+	snapshot.Metrics = rollupTestPower(now, 3000, "facility")
+	snapshot.UnlocatedHashboards = make([]ContainerHashboard, 6)
+	for range 2 { // Collection and server reconciliation both recalculate rollups.
+		CalculateContainerRollups(snapshot)
+		require.EqualValues(t, 6, snapshot.Metrics.UnlocatedHashboards)
+		require.False(t, snapshot.Metrics.Hashrate.Complete())
+		require.Nil(t, snapshot.Metrics.EfficiencyJH)
+	}
+	snapshot.UnlocatedHashboards = nil
+	snapshot.TopologyComplete = true
+	CalculateContainerRollups(snapshot)
+	require.Zero(t, snapshot.Metrics.UnlocatedHashboards)
+	require.True(t, snapshot.Metrics.Hashrate.Complete())
+	require.NotNil(t, snapshot.Metrics.EfficiencyJH)
+}
+
+func TestUnlocatedReadingsOnlyContributeToContainer(t *testing.T) {
+	now := time.Now().UTC()
+	for _, bad := range []string{"", "stale", "future", "conflict", "negative", "missing", "position"} {
+		t.Run(bad, func(t *testing.T) {
+			b := ContainerHashboard{Occupancy: "occupied", Serial: "unlocated", ObservedAt: now, HashrateHS: new(50e12), TemperatureC: new(99.0)}
+			switch bad {
+			case "stale":
+				b.ObservedAt = now.Add(-3 * time.Minute)
+			case "future":
+				b.ObservedAt = now.Add(time.Minute)
+			case "conflict":
+				b = UnavailableHashboard(0, HashboardIdentityConflict)
+			case "negative":
+				b.HashrateHS = new(-1.0)
+			case "missing":
+				b.HashrateHS = nil
+			case "position":
+				b.Position = 1
+			}
+			s := rollupTestSnapshot(now, rollupTestModule(now, 1, [2]float64{100e12, 60}))
+			s.TopologyComplete = false
+			s.UnlocatedHashboards = []ContainerHashboard{b}
+			for range 2 {
+				CalculateContainerRollups(s)
+				want := 100e12
+				if bad == "" {
+					want += 50e12
+				}
+				require.Equal(t, want, *s.Metrics.HashrateHS)
+				require.Equal(t, 100e12, *s.Tanks[0].Metrics.HashrateHS)
+				require.Equal(t, 100e12, *s.Tanks[0].Modules[0].Metrics.HashrateHS)
+				require.EqualValues(t, 1, s.Metrics.UnlocatedHashboards)
+				require.False(t, s.Metrics.Hashrate.Complete())
+				require.Nil(t, s.Metrics.EfficiencyJH)
+				require.Equal(t, 60.0, *s.Metrics.TemperatureC)
+			}
+		})
+	}
+}

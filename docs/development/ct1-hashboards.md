@@ -46,14 +46,34 @@ controllers are an expected no-op for container reconciliation.
 placement. Removal, replacement, module replacement, site reassignment, and
 moves close the old interval and open a new one. Reinstallation retains the
 hardware ID. Unknown slots do not prove removal. Controllers reporting the same
-board concurrently have the incoming conflicting slot marked unavailable while
-the old installation was seen within two minutes; explicit removal or expiration of that window allows a move. Older
+board concurrently have the incoming conflicting observation marked unavailable while
+the owning controller was seen within two minutes; explicit removal or expiration of that window allows a move. Older
 reports cannot undo a newer placement or removal. Reconciliation is batched and
 serialized within the organization inside the container telemetry transaction.
 If a module is replaced while its slot evidence is rejected, the prior hardware
 installation is retained but hidden with its retired module. Repeated rejected
 reports retain that interval; trustworthy removal, replacement, movement, or
 complete-topology disappearance resolves it.
+
+Frigate's `tank=0/module=0` group contains inventory without an established physical
+location. These boards travel separately from tank/module observations. Accepted
+hashrate contributes only to the container total; location coverage stays incomplete
+and container temperature keeps its module-average definition.
+
+`hashboard_observation` records the current reporting controller, captured site,
+last accepted inventory time, greatest health source time, and attribution boundary
+for each durable board. This record applies to mapped and unlocated boards alike;
+an installation is not required. Controller or site changes establish a boundary
+that rejects cached prior-attribution readings on every subsequent poll. Health
+and state timestamps are checked independently before persistence: rejected health
+cannot create a metric row, and rejected state, flags, and diagnostic JSON cannot
+become readable through the first-installation exception. Inventory identity and
+source-ordering evidence survive this redaction. Source watermarks never regress across controller transfers or explicit removal. Rejected
+claims cannot refresh ownership. Unknown or unlocated observations do not prove
+removal; an explicitly closed placement releases ownership only if the same poll
+does not also accept that board elsewhere. Migration 1023 seeds this state from
+the latest existing installation and latest board metrics, without scanning raw
+metric history.
 
 `hashboard_slot` tracks the current occupancy and freshness separately from
 hardware identity. `hashboard_latest_metrics` supplies current readings;

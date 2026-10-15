@@ -3446,6 +3446,18 @@ func (q *retryingQuerier) GetHAProfileDatabaseIdentity(ctx context.Context) (Get
 	return result, err
 }
 
+func (q *retryingQuerier) GetHashboardControllerSite(ctx context.Context, deviceID int64) (sql.NullInt64, error) {
+	var result sql.NullInt64
+	err := q.retrier.RetryQuery(ctx, "GetHashboardControllerSite", func() error {
+		callResult, callErr := q.next.GetHashboardControllerSite(ctx, deviceID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetHashboardInstallations(ctx context.Context, arg GetHashboardInstallationsParams) ([]GetHashboardInstallationsRow, error) {
 	var result []GetHashboardInstallationsRow
 	err := q.retrier.RetryQuery(ctx, "GetHashboardInstallations", func() error {
@@ -3462,6 +3474,18 @@ func (q *retryingQuerier) GetHashboardMetricWatermarks(ctx context.Context, boar
 	var result []GetHashboardMetricWatermarksRow
 	err := q.retrier.RetryQuery(ctx, "GetHashboardMetricWatermarks", func() error {
 		callResult, callErr := q.next.GetHashboardMetricWatermarks(ctx, boardIds)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetHashboardObservations(ctx context.Context, arg GetHashboardObservationsParams) ([]HashboardObservation, error) {
+	var result []HashboardObservation
+	err := q.retrier.RetryQuery(ctx, "GetHashboardObservations", func() error {
+		callResult, callErr := q.next.GetHashboardObservations(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -7616,6 +7640,12 @@ func (q *retryingQuerier) ReleaseDeviceWriteFenceToHost(ctx context.Context, arg
 	return result, err
 }
 
+func (q *retryingQuerier) ReleaseHashboardObservations(ctx context.Context, arg ReleaseHashboardObservationsParams) error {
+	return q.retrier.RetryQuery(ctx, "ReleaseHashboardObservations", func() error {
+		return q.next.ReleaseHashboardObservations(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) ReleaseInventoryPart(ctx context.Context, arg ReleaseInventoryPartParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ReleaseInventoryPart", func() error {
@@ -9203,6 +9233,12 @@ func (q *retryingQuerier) UpsertFleetNodeSession(ctx context.Context, arg Upsert
 func (q *retryingQuerier) UpsertHashboardInstallations(ctx context.Context, arg UpsertHashboardInstallationsParams) error {
 	return q.retrier.RetryQuery(ctx, "UpsertHashboardInstallations", func() error {
 		return q.next.UpsertHashboardInstallations(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) UpsertHashboardObservations(ctx context.Context, arg UpsertHashboardObservationsParams) error {
+	return q.retrier.RetryQuery(ctx, "UpsertHashboardObservations", func() error {
+		return q.next.UpsertHashboardObservations(ctx, arg)
 	})
 }
 

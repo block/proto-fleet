@@ -1798,6 +1798,16 @@ type HashboardMetricsHourly struct {
 	EfficiencyMax     interface{}
 }
 
+type HashboardObservation struct {
+	HashboardID      int64
+	DeviceID         int64
+	SiteID           sql.NullInt64
+	LastSeenAt       time.Time
+	SourceAt         sql.NullTime
+	AttributionSince sql.NullTime
+	ReleasedAt       sql.NullTime
+}
+
 type HashboardSlot struct {
 	ModuleID          int64
 	HashboardID       sql.NullInt64

@@ -152,6 +152,9 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 			result.Health = sdk.HealthHealthyActive
 		}
 	}
+	if !topology.TopologyComplete {
+		result.Health = sdk.HealthWarning
+	}
 	for _, tank := range topology.Tanks {
 		for _, m := range tank.Modules {
 			if m.State != sdk.ModuleHashing && m.State != sdk.ModuleSleeping && m.State != sdk.ModuleIsolated {
@@ -168,6 +171,11 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 		if p.AlarmActive || p.CriticalAlarmActive {
 			result.Health = sdk.HealthWarning
 		}
+	}
+	// A successful stopped status must not become Active via the server's
+	// Warning mapping. Detailed module, plant and coverage warnings remain available.
+	if miningErr == nil && !mining.Mining {
+		result.Health = sdk.HealthHealthyInactive
 	}
 	// Fans have their own source observation time and do not depend on plant
 	// aggregate availability. A failed read leaves them absent.
