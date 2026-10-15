@@ -11,7 +11,7 @@ import {
   FleetNodeEnrollmentStatus,
 } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
-import type { ListAction, ListActionValue } from "@/shared/components/List/types";
+import type { ColConfig, ColTitles, ListAction, ListActionValue } from "@/shared/components/List/types";
 
 const permissionsMock = vi.hoisted(() => ({ current: [] as string[] }));
 const listFleetNodesMock = vi.hoisted(() => vi.fn());
@@ -100,18 +100,29 @@ vi.mock("@/shared/components/List", () => {
       noDataElement,
       actions,
       onRowClick,
+      activeCols,
+      colConfig,
+      colTitles,
     }: {
       items: FleetNodeItem[];
       noDataElement?: ReactNode;
       actions?: ListAction<FleetNodeItem>[];
       onRowClick?: (node: FleetNodeItem) => void;
+      activeCols: string[];
+      colConfig: ColConfig<FleetNodeItem, string, string>;
+      colTitles: ColTitles<string>;
     }) => (
       <div data-testid="nodes-list">
+        {activeCols.map((column) => (
+          <span key={column}>{colTitles[column]}</span>
+        ))}
         {items.length === 0
           ? noDataElement
           : items.map((node) => (
               <div key={node.fleetNodeId}>
-                <span>{node.name}</span>
+                {activeCols.map((column) => (
+                  <div key={column}>{colConfig[column]?.component?.(node, [])}</div>
+                ))}
                 {onRowClick ? (
                   <button type="button" onClick={() => onRowClick(node)}>
                     View {node.name}
@@ -198,6 +209,26 @@ describe("NodesPage", () => {
     expect(screen.queryByRole("button", { name: "Enroll node" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Confirm enrollment" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { ipAddresses: ["192.168.1.7"], expected: "192.168.1.7", version: "v0.5.1-test" },
+    { ipAddresses: ["192.168.1.7", "fd00::7"], expected: "192.168.1.7 +1", version: "v0.5.1-test" },
+    { ipAddresses: [], expected: "Unavailable", version: "" },
+  ])("renders host metadata for $expected", async ({ ipAddresses, expected, version }) => {
+    listFleetNodesMock.mockResolvedValue([{ ...confirmedNode, ipAddresses, version }]);
+
+    renderNodesPage();
+
+    await screen.findByText("node-01");
+    expect(screen.getByText("IP address")).toBeVisible();
+    expect(screen.getByText("Version")).toBeVisible();
+    if (ipAddresses.length) {
+      expect(screen.getByTitle(ipAddresses.join(", "))).toHaveTextContent(expected);
+      expect(screen.getByText(version)).toBeVisible();
+    } else {
+      expect(screen.getAllByText("Unavailable")).toHaveLength(2);
+    }
   });
 
   it("shows management actions for users with fleetnode manage permission", async () => {
