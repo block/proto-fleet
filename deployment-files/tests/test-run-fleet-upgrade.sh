@@ -4,12 +4,14 @@
 # recorded through PATH shims.
 set -u
 
-# The Buildx preflight reads Compose's builder settings from the environment.
+# The Buildx preflight reads Compose's builder settings from the environment
+# and the Docker client configuration.
 unset COMPOSE_BAKE DOCKER_BUILDKIT
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TMP_DIR=$(mktemp -d)
+export DOCKER_CONFIG="$TMP_DIR/docker-config"
 REAL_AWK=$(command -v awk)
 REAL_CHMOD=$(command -v chmod)
 REAL_CHOWN=$(command -v chown)
@@ -745,14 +747,24 @@ assert_not_contains "broken Buildx fails before building images" "$HARNESS_CALL_
 assert_not_contains "broken Buildx leaves existing services running" "$HARNESS_CALL_LOG" ' down --remove-orphans'
 
 # A broken plugin stops the run only when the installed Compose builds through
-# it; "-" leaves the setting unset. Stage names avoid the version's dots, which
-# are not valid in the directory-derived Compose project name.
+# it; "-" leaves the setting unset. Every Docker config also gives an unrelated
+# plugin a "build": "bake" entry, which must not count as the Compose setting.
+# Stage names avoid the version's dots, which are not valid in the
+# directory-derived Compose project name.
 case_index=0
-while read -r compose_version compose_bake docker_buildkit expected; do
+while read -r compose_version compose_bake docker_buildkit compose_plugin_build expected; do
     case_index=$((case_index + 1))
-    case_name="Compose $compose_version COMPOSE_BAKE=$compose_bake DOCKER_BUILDKIT=$docker_buildkit"
+    case_name="Compose $compose_version COMPOSE_BAKE=$compose_bake DOCKER_BUILDKIT=$docker_buildkit compose.build=$compose_plugin_build"
     make_stage "docker-buildx-broken-compose-case-$case_index"
+    docker_config_dir="$(dirname "$HARNESS_CALL_LOG")/docker-config"
+    mkdir -p "$docker_config_dir"
+    {
+        printf '{\n\t"auths": {\n\t\t"registry.example": {}\n\t},\n\t"plugins": {\n\t\t"other": {\n\t\t\t"build": "bake"\n\t\t}'
+        [ "$compose_plugin_build" = - ] || printf ',\n\t\t"compose": {\n\t\t\t"build": "%s"\n\t\t}' "$compose_plugin_build"
+        printf '\n\t}\n}\n'
+    } > "$docker_config_dir/config.json"
     if (
+        export DOCKER_CONFIG="$docker_config_dir"
         [ "$compose_bake" = - ] || export COMPOSE_BAKE="$compose_bake"
         [ "$docker_buildkit" = - ] || export DOCKER_BUILDKIT="$docker_buildkit"
         FAKE_BUILDX_FAILURE=true FAKE_BUILDX_INSTALLED=true FAKE_COMPOSE_VERSION="$compose_version" \
@@ -775,15 +787,18 @@ while read -r compose_version compose_bake docker_buildkit expected; do
         assert_not_contains "broken Buildx stop skips builds with $case_name" "$HARNESS_CALL_LOG" ' build '
     fi
 done <<'EOF'
-2.17.3 - - warn
-2.36.2 - - warn
-2.36.2 true - stop
-2.40.3 - - stop
-2.40.3 false - warn
-v2.40.3 - 0 warn
-5.5.1 false - stop
-5.5.1 - 0 warn
-unknown - - warn
+2.17.3 - - bake warn
+2.36.2 - - - warn
+2.36.2 true - - stop
+2.36.2 - - bake stop
+2.36.2 - - classic warn
+2.36.2 false - bake warn
+2.40.3 - - - stop
+2.40.3 false - - warn
+v2.40.3 - 0 - warn
+5.5.1 false - - stop
+5.5.1 - 0 - warn
+unknown - - - warn
 EOF
 
 for buildx_absent in true false; do

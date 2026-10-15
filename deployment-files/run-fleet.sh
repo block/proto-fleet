@@ -1822,11 +1822,22 @@ print_buildx_repair_guidance() {
     fi
 }
 
+# Docker persists plugin settings as `"plugins": {"<plugin>": {"<key>":
+# "<value>"}}` with string values only, which these patterns match without a
+# JSON parser.
+compose_bake_configured() {
+    tr -d '\r\n' < "${DOCKER_CONFIG:-$HOME/.docker}/config.json" 2>/dev/null \
+        | grep -oE '"plugins"[[:space:]]*:[[:space:]]*\{([^{}]*\{[^{}]*\})*[^{}]*\}' \
+        | grep -oE '"compose"[[:space:]]*:[[:space:]]*\{[^{}]*\}' \
+        | grep -qE '"build"[[:space:]]*:[[:space:]]*"bake"'
+}
+
 # Mirrors Compose's builder choice: v2.17-v2.30 embed Buildx as a library,
-# v2.31-v2.36 build through the plugin (Bake) only when COMPOSE_BAKE opts in,
-# v2.37+ do unless COMPOSE_BAKE or DOCKER_BUILDKIT disables it, and v5+ ignore
-# COMPOSE_BAKE. A version or setting this cannot read counts as not using the
-# plugin, so the check never blocks a build that could succeed.
+# v2.31-v2.36 build through the plugin (Bake) only when COMPOSE_BAKE, or when
+# unset the persisted compose plugin setting, opts in, v2.37+ do unless
+# COMPOSE_BAKE or DOCKER_BUILDKIT disables it, and v5+ ignore COMPOSE_BAKE. A
+# version or setting this cannot read counts as not using the plugin, so the
+# check never blocks a build that could succeed.
 compose_builds_through_buildx_plugin() {
     local version major minor
     version=$(docker compose version --short 2>/dev/null) || return 1
@@ -1835,10 +1846,14 @@ compose_builds_through_buildx_plugin() {
     minor=${BASH_REMATCH[2]}
     if [ "$major" -eq 2 ] && [ "$minor" -lt 37 ]; then
         [ "$minor" -ge 31 ] || return 1
-        case "${COMPOSE_BAKE:-}" in
-            1|t|T|true|TRUE|True) return 0 ;;
-            *) return 1 ;;
-        esac
+        if [ -n "${COMPOSE_BAKE+set}" ]; then
+            case "$COMPOSE_BAKE" in
+                1|t|T|true|TRUE|True) return 0 ;;
+                *) return 1 ;;
+            esac
+        fi
+        compose_bake_configured
+        return
     fi
     [ "$major" -ge 2 ] || return 1
     case "${DOCKER_BUILDKIT:-}" in
