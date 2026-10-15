@@ -1810,16 +1810,22 @@ fi
 # without the Buildx plugin when none is installed, so a missing plugin only
 # warns, with the guidance repeated if the build fails. An installed but broken
 # plugin, such as a partially configured package, fails before any image work
-# when this Compose builds through the plugin, and otherwise only warns.
-# `docker buildx version` reports missing and broken plugins alike; the
-# client-only plugin listing tells them apart without daemon access. The probe
-# runs before the Docker group setup, which exits for a new login, so both
-# repairs surface in one run. Prepared-release activation skips it.
+# when this Compose builds through the plugin, and otherwise only warns; that
+# choice is checked again after Compose setup, which can install a Compose that
+# builds through it. `docker buildx version` reports missing and broken plugins
+# alike; the client-only plugin listing tells them apart without daemon access.
+# The probe runs before the Docker group setup, which exits for a new login, so
+# both repairs surface in one run. Prepared-release activation skips it.
 print_buildx_repair_guidance() {
     echo "Install or repair Docker Buildx until 'docker buildx version' succeeds." >&2
     if [ "$(uname)" = "Linux" ] && command -v apt-get >/dev/null 2>&1; then
         echo "On Debian/Ubuntu, install it with 'sudo apt-get install docker-buildx-plugin'; for a broken package, inspect errors with 'sudo dpkg --audit' and run 'sudo apt-get install --reinstall docker-buildx-plugin'." >&2
     fi
+}
+
+report_broken_buildx() {
+    echo "Error: Docker Buildx is installed but not working. Docker Compose builds through the installed plugin, so Fleet images cannot be built until it is repaired." >&2
+    printf '%s\n' "$buildx_version_output" "$buildx_plugin" >&2
 }
 
 # Docker persists plugin settings as `"plugins": {"<plugin>": {"<key>":
@@ -1877,11 +1883,10 @@ if [ "$SKIP_BUILD" != "true" ]; then
             printf '%s\n' "$buildx_version_output" >&2
         elif compose_builds_through_buildx_plugin; then
             BUILDX_STATE=broken
-            echo "Error: Docker Buildx is installed but not working. Docker Compose builds through the installed plugin, so Fleet images cannot be built until it is repaired." >&2
-            printf '%s\n' "$buildx_version_output" "$buildx_plugin" >&2
+            report_broken_buildx
         else
             BUILDX_STATE=unused
-            echo "Warning: Docker Buildx is installed but not working. Continuing: this Docker Compose does not build through the plugin." >&2
+            echo "Warning: Docker Buildx is installed but not working. Continuing: Docker Compose is not set to build through the plugin." >&2
             printf '%s\n' "$buildx_version_output" "$buildx_plugin" >&2
         fi
         print_buildx_repair_guidance
@@ -2038,6 +2043,12 @@ for flag in --wait --wait-timeout --no-build --pull; do
         exit 1
     fi
 done
+
+if [ "$BUILDX_STATE" = "unused" ] && compose_builds_through_buildx_plugin; then
+    report_broken_buildx
+    print_buildx_repair_guidance
+    exit 1
+fi
 
 # Replace exact keys without ever truncating the live environment file. The
 # temporary file lives beside .env so the final rename is atomic, while the
