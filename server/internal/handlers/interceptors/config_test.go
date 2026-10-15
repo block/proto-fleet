@@ -2,7 +2,9 @@ package interceptors
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"connectrpc.com/connect"
@@ -13,6 +15,8 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/curtailment/v1/curtailmentv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetmanagement/v1/fleetmanagementv1connect"
+	fleetnodeadmin "github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
@@ -25,6 +29,36 @@ func TestUpdateWorkerNamesProcedureIsRedacted(t *testing.T) {
 
 	assert.Contains(t, RedactedRequestProcedures, procedure)
 	assert.True(t, SensitiveBodyProcedures[procedure])
+}
+
+func TestListFleetNodesResponseIsRedactedFromDebugLogs(t *testing.T) {
+	out := captureSlogWarn(t)
+	procedure := fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure
+	node := &fleetnodeadmin.FleetNodeSummary{
+		IpAddresses: []string{"192.0.2.42", "fd00::42"},
+		Version:     "v0.5.1-private-test",
+		EnrolledBy:  "operator@example.com",
+	}
+	logging := NewRequestLoggingInterceptor(slog.LevelDebug, RedactedRequestProcedures, RedactedResponseProcedures)
+	handler := connect.NewUnaryHandler(procedure,
+		func(context.Context, *connect.Request[fleetnodeadmin.ListFleetNodesRequest]) (*connect.Response[fleetnodeadmin.ListFleetNodesResponse], error) {
+			return connect.NewResponse(&fleetnodeadmin.ListFleetNodesResponse{FleetNodes: []*fleetnodeadmin.FleetNodeSummary{node}}), nil
+		}, connect.WithInterceptors(logging))
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	client := connect.NewClient[fleetnodeadmin.ListFleetNodesRequest, fleetnodeadmin.ListFleetNodesResponse](server.Client(), server.URL+procedure)
+	resp, err := client.CallUnary(t.Context(), connect.NewRequest(&fleetnodeadmin.ListFleetNodesRequest{}))
+	require.NoError(t, err)
+	require.Len(t, resp.Msg.FleetNodes, 1)
+	require.Equal(t, node.IpAddresses, resp.Msg.FleetNodes[0].IpAddresses)
+	require.Equal(t, node.Version, resp.Msg.FleetNodes[0].Version)
+	require.Equal(t, node.EnrolledBy, resp.Msg.FleetNodes[0].EnrolledBy)
+	logged := out.String()
+	require.Contains(t, logged, procedure)
+	require.Contains(t, logged, "result=[REDACTED]")
+	for _, value := range append(node.IpAddresses, node.Version, node.EnrolledBy) {
+		require.NotContains(t, logged, value)
+	}
 }
 
 func TestSiteMapCsvProceduresAreSensitiveBody(t *testing.T) {

@@ -70,6 +70,7 @@ var RedactedResponseProcedures = []string{
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceCompleteAuthHandshakeProcedure,
 	fleetnodeadminv1connect.FleetNodeAdminServiceCreateEnrollmentCodeProcedure,
 	fleetnodeadminv1connect.FleetNodeAdminServiceConfirmFleetNodeProcedure,
+	fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure,
 	serverlogv1connect.ServerLogServiceListServerLogsProcedure,
 	// Update status exposes the instance patch level and a copy-paste host
 	// command. Upgrade operations can additionally expose raw host errors,
