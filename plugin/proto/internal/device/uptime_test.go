@@ -88,7 +88,85 @@ func TestStatusClearsUptimeWhenSystemProbeHasNoEvidence(t *testing.T) {
 	}
 }
 
+func TestFirmwareUpdateStatusUptimeReachesNextStatus(t *testing.T) {
+	var response atomic.Pointer[string]
+	initialResponse := `{"system-info":{"os":{"version":"1.0.0"},"uptime_seconds":7200}}`
+	response.Store(&initialResponse)
+	var systemReads atomic.Int32
+	dev := newUptimeTestDevice(t, func(w http.ResponseWriter, _ *http.Request) {
+		systemReads.Add(1)
+		_, _ = w.Write([]byte(*response.Load()))
+	})
+	dev.statusTTL = time.Hour
+
+	initial, err := dev.Status(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, initial.UptimeSeconds)
+	require.Equal(t, uint64(7200), *initial.UptimeSeconds)
+
+	// The installer reboots the rig well inside the firmware refresh interval.
+	confirmingResponse := `{"system-info":{"os":{"version":"2.0.0"},"uptime_seconds":5,"sw_update_status":{"status":"confirming"}}}`
+	response.Store(&confirmingResponse)
+	beforeStatusPoll := time.Now()
+	status, err := dev.GetFirmwareUpdateStatus(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, status)
+	require.Equal(t, "confirming", status.State)
+
+	metrics, err := dev.Status(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, metrics.UptimeSeconds)
+	require.Equal(t, uint64(5), *metrics.UptimeSeconds)
+	require.False(t, metrics.UptimeObservedAt.Before(beforeStatusPoll))
+	require.Equal(t, "2.0.0", metrics.FirmwareVersion)
+	require.Equal(t, int32(2), systemReads.Load(), "Status must reuse the install-status sample")
+}
+
+func TestStatusRereadsUptimeAfterUnreachablePoll(t *testing.T) {
+	var response atomic.Pointer[string]
+	initialResponse := `{"system-info":{"os":{"version":"1.0.0"},"uptime_seconds":7200}}`
+	response.Store(&initialResponse)
+	var systemReads atomic.Int32
+	var miningUnavailable atomic.Bool
+	dev := newUptimeTestDeviceWithMining(t, func(w http.ResponseWriter, _ *http.Request) {
+		systemReads.Add(1)
+		_, _ = w.Write([]byte(*response.Load()))
+	}, func(w http.ResponseWriter, _ *http.Request) {
+		if miningUnavailable.Load() {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(`{"mining-status":{"status":"Mining"}}`))
+	})
+
+	initial, err := dev.Status(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, initial.UptimeSeconds)
+	require.Equal(t, uint64(7200), *initial.UptimeSeconds)
+
+	miningUnavailable.Store(true)
+	_, err = dev.Status(t.Context())
+	require.Error(t, err)
+
+	rebootedResponse := `{"system-info":{"os":{"version":"1.0.0"},"uptime_seconds":3}}`
+	response.Store(&rebootedResponse)
+	miningUnavailable.Store(false)
+	recovered, err := dev.Status(t.Context())
+	require.NoError(t, err)
+	require.NotNil(t, recovered.UptimeSeconds)
+	require.Equal(t, uint64(3), *recovered.UptimeSeconds)
+	require.True(t, recovered.UptimeObservedAt.After(initial.UptimeObservedAt))
+	require.Equal(t, int32(2), systemReads.Load())
+}
+
 func newUptimeTestDevice(t *testing.T, systemHandler http.HandlerFunc) *Device {
+	t.Helper()
+	return newUptimeTestDeviceWithMining(t, systemHandler, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"mining-status":{"status":"Mining"}}`))
+	})
+}
+
+func newUptimeTestDeviceWithMining(t *testing.T, systemHandler, miningHandler http.HandlerFunc) *Device {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -98,7 +176,7 @@ func newUptimeTestDevice(t *testing.T, systemHandler http.HandlerFunc) *Device {
 		case "/api/v1/auth/login":
 			_, _ = w.Write([]byte(`{"access_token":"test-token","refresh_token":"r"}`))
 		case "/api/v1/mining":
-			_, _ = w.Write([]byte(`{"mining-status":{"status":"Mining"}}`))
+			miningHandler(w, r)
 		case "/api/v1/pools":
 			_, _ = w.Write([]byte(`{"pools":[{"id":0,"url":"stratum+tcp://pool.example:3333","user":"worker"}]}`))
 		case "/api/v1/telemetry":

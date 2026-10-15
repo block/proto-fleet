@@ -858,16 +858,21 @@ func checkResponse(resp *http.Response, failurePrefix string, okStatuses ...int)
 	return fmt.Errorf("%s with status %d", failurePrefix, resp.StatusCode)
 }
 
-// SystemInfo contains the firmware version and optional reboot evidence from a
-// single system response. UptimeObservedAt is the request start, not its end, so
-// network latency cannot make the inferred boot time later than the actual boot.
+// SystemInfo contains the firmware version, optional reboot evidence, and
+// firmware install status from a single system response. UptimeObservedAt is the
+// request start, not its end, so network latency cannot make the inferred boot
+// time later than the actual boot.
 type SystemInfo struct {
 	FirmwareVersion  string
 	UptimeSeconds    *uint64
 	UptimeObservedAt time.Time
+	// UpdateStatus tracks the swupdate lifecycle: "current", "downloading",
+	// "downloaded", "installing", "installed", "confirming", "success".
+	// On failure, the rig sets status back to "current" with the error field populated.
+	UpdateStatus *swUpdateStatus
 }
 
-// GetSystemInfo retrieves firmware and uptime together from the miner.
+// GetSystemInfo retrieves firmware, uptime, and install status together from the miner.
 func (c *Client) GetSystemInfo(ctx context.Context) (SystemInfo, error) {
 	var resp systemInfoResponse
 	observedAt := time.Now()
@@ -875,7 +880,7 @@ func (c *Client) GetSystemInfo(ctx context.Context) (SystemInfo, error) {
 		return SystemInfo{}, fmt.Errorf("failed to get system info: %w", err)
 	}
 
-	info := SystemInfo{UptimeSeconds: resp.SystemInfo.UptimeSeconds}
+	info := SystemInfo{UptimeSeconds: resp.SystemInfo.UptimeSeconds, UpdateStatus: resp.SystemInfo.SwUpdateStatus}
 	if resp.SystemInfo.OS != nil {
 		info.FirmwareVersion = resp.SystemInfo.OS.Version
 	}
@@ -908,18 +913,6 @@ func (c *Client) IsDefaultPasswordActive(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("failed to get system status: %w", err)
 	}
 	return resp.DefaultPasswordActive, nil
-}
-
-// GetUpdateStatus retrieves the firmware update installation status from the miner.
-// The status field tracks the swupdate lifecycle: "current", "downloading",
-// "downloaded", "installing", "installed", "confirming", "success".
-// On failure, the rig sets status back to "current" with the error field populated.
-func (c *Client) GetUpdateStatus(ctx context.Context) (*swUpdateStatus, error) {
-	var resp systemInfoResponse
-	if err := c.doGet(ctx, "/api/v1/system", &resp); err != nil {
-		return nil, fmt.Errorf("failed to get system info: %w", err)
-	}
-	return resp.SystemInfo.SwUpdateStatus, nil
 }
 
 // GetDeviceInfo retrieves basic device information via the pairing info endpoint.

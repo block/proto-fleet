@@ -349,6 +349,10 @@ type TelemetryService struct {
 	// lastReconciledBoot records successfully cleared reboot requirements.
 	// That boot cannot satisfy a later firmware upload's reboot boundary.
 	lastReconciledBoot sync.Map // map[DeviceIdentifier]time.Time
+	// firmwareStatusPending records whether the status writer last read each
+	// device's stored status as UPDATING or REBOOT_REQUIRED. Reboot
+	// reconciliation skips the database for devices last read in any other status.
+	firmwareStatusPending sync.Map // map[DeviceIdentifier]bool
 	// inFlight tracks devices currently claimed for processing (scheduled
 	// full telemetry, status-only recovery, RefreshDevice, or a direct
 	// sample). Values are *inFlightEntry carrying the fleetd-owned flight
@@ -439,6 +443,7 @@ func (s *TelemetryService) addDevicesLocked(ctx context.Context, deviceID ...mod
 		}
 		s.lastDefaultPwActive.Delete(id)
 		s.lastReconciledBoot.Delete(id)
+		s.firmwareStatusPending.Delete(id)
 	}
 	// The scheduler is the single admission path. It makes one new device
 	// immediately eligible and spreads bulk startup discovery across the poll
@@ -501,6 +506,7 @@ func (s *TelemetryService) removeDevicesLocked(ctx context.Context, deviceIDs ..
 		s.lastKnownFirmware.Delete(id)
 		s.lastDefaultPwActive.Delete(id)
 		s.lastReconciledBoot.Delete(id)
+		s.firmwareStatusPending.Delete(id)
 		s.metricsObserver.onDeviceRemoved(ctx, id)
 	}
 	return s.updateScheduler.RemoveDevices(ctx, deviceIDs...)
@@ -1199,12 +1205,12 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context, activation *
 		statusUpdates := make([]stores.DeviceStatusUpdate, 0, len(pendingUpdates))
 		result.devices = make(map[models.DeviceIdentifier]bool)
 		for deviceID, pending := range pendingUpdates {
-			if currentStatuses != nil {
-				if currentStatus, ok := currentStatuses[deviceID]; ok {
-					if currentStatus == mm.MinerStatusUpdating || currentStatus == mm.MinerStatusRebootRequired {
-						continue
-					}
-				}
+			currentStatus, hasStatus := currentStatuses[deviceID]
+			firmwareStatusPending := hasStatus &&
+				(currentStatus == mm.MinerStatusUpdating || currentStatus == mm.MinerStatusRebootRequired)
+			s.firmwareStatusPending.Store(deviceID, firmwareStatusPending)
+			if firmwareStatusPending {
+				continue
 			}
 			statusUpdates = append(statusUpdates, stores.DeviceStatusUpdate{
 				DeviceIdentifier: deviceID,

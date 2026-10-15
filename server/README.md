@@ -65,6 +65,9 @@ depend on synchronized node and server clocks. Missing or ambiguous evidence
 leaves the status unchanged. The database checks the current status and reboot boundary
 atomically so an older boot cannot clear a newer firmware update. Ordinary
 telemetry still preserves `UPDATING` and pending `REBOOT_REQUIRED` states.
+Telemetry queries the database only for devices the status writer last read as
+`UPDATING` or `REBOOT_REQUIRED`, or has not read yet. A firmware status written
+after that read is checked from the next poll onward.
 
 For firmware reporting `confirming` or `success`, Fleet retains the successful
 upload time separately from the time it records `REBOOT_REQUIRED`. A proven boot

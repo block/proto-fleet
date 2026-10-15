@@ -128,6 +128,42 @@ func TestRebootReconciliationUsesBootBoundAcrossCachedObservations(t *testing.T)
 	require.Equal(t, mm.MinerStatusActive, statuses["reboot-rig"])
 }
 
+func TestRebootReconciliationFollowsStatusWriterReads(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires PostgreSQL")
+	}
+	now := time.Now()
+	_, store := newRebootTestDevice(t, now.Add(-time.Minute))
+	require.NoError(t, store.UpsertDeviceStatus(t.Context(), "reboot-rig", mm.MinerStatusActive, ""))
+	service := NewTelemetryService(Config{ConcurrencyLimit: 1, MetricTimeout: time.Second, StatusFlushInterval: time.Hour}, nil, nil, nil, store, nil)
+	flushStatus := func() {
+		activation := telemetryActivationForTest(service)
+		activation.results.status <- statusResult{deviceIdentifier: "reboot-rig", status: mm.MinerStatusActive}
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		service.statusWriterRoutine(ctx, activation)
+	}
+	requireStatus := func(want mm.MinerStatus) {
+		t.Helper()
+		statuses, err := store.GetDeviceStatusForDeviceIdentifiers(t.Context(), []models.DeviceIdentifier{"reboot-rig"})
+		require.NoError(t, err)
+		require.Equal(t, want, statuses["reboot-rig"])
+	}
+	metrics := modelsV2.DeviceMetrics{UptimeSeconds: new(uint64(0)), UptimeObservedAt: now}
+
+	flushStatus()
+	// The install starts after the writer last read ACTIVE, and the rig reboots
+	// before the writer reads the pending status again.
+	require.NoError(t, store.MarkFirmwareRebootRequiredStatus(t.Context(), "reboot-rig", now.Add(-time.Minute)))
+	service.reconcileRebootRequiredState(t.Context(), "reboot-rig", metrics, mm.MinerStatusActive)
+	requireStatus(mm.MinerStatusRebootRequired)
+
+	flushStatus()
+	requireStatus(mm.MinerStatusRebootRequired)
+	service.reconcileRebootRequiredState(t.Context(), "reboot-rig", metrics, mm.MinerStatusActive)
+	requireStatus(mm.MinerStatusActive)
+}
+
 func TestRebootReconciliationRetriesDatabaseFailure(t *testing.T) {
 	if testing.Short() {
 		t.Skip("requires PostgreSQL")
