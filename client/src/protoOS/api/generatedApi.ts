@@ -779,12 +779,12 @@ export interface GetPoolParams {
 
 export interface GetSystemLogsParams {
   /**
-   * Number of log lines to return from the tail of the log, up to a maximum of 10000 lines. Defaults to 100 lines.
+   * Number of journal entries to return from the tail, up to a maximum of 10000 entries. Defaults to 100 entries; zero returns an empty result. Multiline entries can produce more physical lines than requested.
    * @default 100
    */
   lines?: number;
   /**
-   * Source of logs to fetch. Defaults to `miner_sw`, which returns the combined miner software-stack logs (mcdd, all hashboard-service and psu-service instances, miner-ui-service, and miner-api-server) merged in timestamp order. `os` returns kernel logs, `pool_sw` the pool interface (mcdd), and `miner_web_server` the API server only.
+   * Source of logs to fetch. Defaults to `miner_sw`, which returns the combined miner software-stack logs (mcdd, all hashboard-service and psu-service instances, miner-ui-service, and miner-api-server) merged in journal order. `os` returns current-boot kernel records retained by journald, using the same formatted journal lines rather than dmesg ring-buffer output. `pool_sw` returns the pool interface (mcdd), and `miner_web_server` the API server only.
    * @default "miner_sw"
    * @example "miner_sw"
    */
@@ -2287,12 +2287,12 @@ export interface UpdateStatus {
    */
   current_version?: string;
   /**
-   * Error message if status is 'error'
+   * Error message. Present when status is 'error'. In 'available' or 'current' it holds the newest failure: a failed catalog check or update request, or the last failed update attempt.
    * @example "Download failed"
    */
   error?: string;
   /**
-   * Human-readable message about the update status
+   * Human-readable message about the update status. When error is present, a one-line summary of it (at most 512 bytes).
    * @example "Update available"
    */
   message?: string;
@@ -3034,7 +3034,7 @@ export class Api<
       }),
 
     /**
-     * @description The logs endpoint provides the most recent log lines from a given source, either OS, pool software, or miner logs.
+     * @description The logs endpoint provides the most recent log lines from a given source, either OS, pool software, or miner logs. The default miner_sw source examines up to 10000 journal entries, plus one exhaustion probe; requests requiring more history fail rather than returning truncated logs. Exact-unit sources and current-boot kernel logs do not use this wildcard scan limit.
      *
      * @tags System
      * @name GetSystemLogs
