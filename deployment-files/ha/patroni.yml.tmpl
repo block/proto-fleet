@@ -2,6 +2,13 @@ scope: proto-fleet
 namespace: /service/
 name: ${HA_NODE_NAME}
 
+log:
+  type: json
+  format:
+    - asctime: timestamp
+    - levelname: level
+    - message
+
 restapi:
   listen: ${HA_NODE_IP}:8008
   connect_address: ${HA_NODE_IP}:8008

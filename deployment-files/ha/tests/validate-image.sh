@@ -86,6 +86,10 @@ PY
     python3 - "$config" <<"PY"
 import sys
 import yaml
+import io
+import json
+import logging
+from patroni.log import PatroniLogger
 
 with open(sys.argv[1], encoding="utf-8") as config_file:
     config = yaml.safe_load(config_file)
@@ -94,6 +98,20 @@ assert config["etcd3"]["password"] == "value # still a password"
 assert config["restapi"]["authentication"]["password"] == "quoted \"value\": with space"
 assert config["postgresql"]["authentication"]["superuser"]["password"] == "true"
 assert config["postgresql"]["authentication"]["replication"]["password"] == "colon: space"
+
+# Exercise Patroni itself: a missing JSON dependency otherwise silently falls
+# back to plain text, even when the configuration validator succeeds.
+logger = PatroniLogger()
+logger.reload_config(config["log"])
+output = io.StringIO()
+handler = logging.StreamHandler(output)
+handler.setFormatter(logger.log_handler.formatter)
+for level in (logging.INFO, logging.WARNING, logging.ERROR):
+    handler.handle(logging.LogRecord("patroni", level, "", 0, "test message", (), None))
+    record = json.loads(output.getvalue().splitlines()[-1])
+    assert record["level"] == logging.getLevelName(level), record
+    assert record["message"] == "test message", record
+    assert record["timestamp"], record
 PY
 
     patroni --validate-config --ignore-listen-port "$config"
