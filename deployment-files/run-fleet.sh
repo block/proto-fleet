@@ -1802,6 +1802,33 @@ if ! command -v docker &> /dev/null; then
     fi
 fi
 
+# ----------------------------------------------------------------------------
+# Docker Buildx Check
+# ----------------------------------------------------------------------------
+
+# Image preparation builds the Fleet API and client images. A partial package
+# installation can leave Buildx missing or broken, but Compose builds with its
+# classic builder when the plugin is absent, so the probe only warns and its
+# repair guidance is repeated if the build fails. It runs before the Docker
+# group setup, which exits for a new login, so both repairs surface together.
+# Prepared-release activation does not build images and skips the probe.
+print_buildx_repair_guidance() {
+    echo "Repair Docker Buildx until 'docker buildx version' succeeds." >&2
+    if [ "$(uname)" = "Linux" ] && command -v apt-get >/dev/null 2>&1; then
+        echo "On Debian/Ubuntu, inspect package errors with 'sudo dpkg --audit'; a broken Buildx package may need 'sudo apt-get install --reinstall docker-buildx-plugin'." >&2
+    fi
+}
+
+BUILDX_UNAVAILABLE=false
+if [ "$SKIP_BUILD" != "true" ]; then
+    if ! buildx_version_output=$(docker buildx version 2>&1); then
+        BUILDX_UNAVAILABLE=true
+        echo "Warning: Docker Buildx is missing or not working. Continuing: Docker Compose builds with its classic builder when Buildx is absent." >&2
+        printf '%s\n' "$buildx_version_output" >&2
+        print_buildx_repair_guidance
+    fi
+fi
+
 # Configure Docker for Linux systems
 if [ "$(uname)" == "Linux" ]; then
     # The Windows installer supports non-systemd WSL distros by starting
@@ -1823,7 +1850,8 @@ if [ "$(uname)" == "Linux" ]; then
     # Without this skip, `sudo bash install.sh ...` (the recommended remediation
     # for the sudo-mismatch detection in install.sh) would exit here telling
     # the user to log out and back in, leaving the upgrade half-applied.
-    if [ "$(id -u)" -ne 0 ] && ! groups "$USER" | grep -q '\bdocker\b'; then
+    docker_user="${USER:-$(id -un)}"
+    if [ "$(id -u)" -ne 0 ] && ! groups "$docker_user" | grep -q '\bdocker\b'; then
         refuse_non_interactive_host_repair "the upgrade user cannot access Docker."
         if ! getent group docker >/dev/null 2>&1; then
             echo "Creating the docker group..."
@@ -1833,8 +1861,8 @@ if [ "$(uname)" == "Linux" ]; then
             fi
         fi
         echo "Adding current user to the docker group for passwordless Docker usage..."
-        if ! sudo usermod -aG docker "$USER"; then
-            echo "Error: could not add user '$USER' to the docker group. Fix group membership, then re-run this script." >&2
+        if ! sudo usermod -aG docker "$docker_user"; then
+            echo "Error: could not add user '$docker_user' to the docker group. Fix group membership, then re-run this script." >&2
             exit 1
         fi
         echo "Please log out and log back in to apply group changes, then re-run this script."
@@ -1945,22 +1973,6 @@ for flag in --wait --wait-timeout --no-build --pull; do
         exit 1
     fi
 done
-
-# Image preparation builds the Fleet API and client images. An executable
-# Docker CLI and working Compose plugin do not guarantee a usable Buildx plugin
-# after a partial package installation. Activation of a prepared release does
-# not build images and must not require Buildx.
-if [ "$SKIP_BUILD" != "true" ]; then
-    if ! buildx_version_output=$(docker buildx version 2>&1); then
-        echo "Error: Docker Buildx is missing or not working; Fleet images cannot be built." >&2
-        printf '%s\n' "$buildx_version_output" >&2
-        echo "Repair the Docker Buildx installation and verify 'docker buildx version' succeeds, then re-run this script." >&2
-        if [ "$(uname)" = "Linux" ] && command -v apt-get >/dev/null 2>&1; then
-            echo "On Debian/Ubuntu, inspect package errors with 'sudo dpkg --audit'; a broken Buildx package may need 'sudo apt-get install --reinstall docker-buildx-plugin'." >&2
-        fi
-        exit 1
-    fi
-fi
 
 # Replace exact keys without ever truncating the live environment file. The
 # temporary file lives beside .env so the final rename is atomic, while the
@@ -2601,7 +2613,14 @@ if [ "$SKIP_BUILD" != "true" ]; then
     fi
 
     # Build Docker images (fleet-api and fleet-client only; TimescaleDB uses pre-built image)
-    compose build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
+    if ! compose build --no-cache; then
+        echo "Error: Build failed. Exiting."
+        if [ "$BUILDX_UNAVAILABLE" = "true" ]; then
+            echo "Docker Buildx was missing or not working before the build." >&2
+            print_buildx_repair_guidance
+        fi
+        exit 1
+    fi
 else
     echo "Skipping image preparation; this release already passed updater preflight."
 fi
