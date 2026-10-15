@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	capabilitiespb "github.com/block/proto-fleet/server/generated/grpc/capabilities/v1"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -16,6 +18,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	sitemodels "github.com/block/proto-fleet/server/internal/domain/sites/models"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
+	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -23,12 +27,10 @@ import (
 
 type scheduleTestCapabilities struct{}
 
-func (scheduleTestCapabilities) GetMinerCapabilitiesForDevice(_ context.Context, device *pairingpb.Device) *capabilitiespb.MinerCapabilities {
-	// CT1's model overrides disable the shared Proto driver's generic commands.
-	supported := device.Model != "CT1"
-	return &capabilitiespb.MinerCapabilities{Commands: &capabilitiespb.CommandCapabilities{
-		RebootSupported: supported, MiningStopSupported: supported, PowerModeEfficiencySupported: supported,
-	}}
+func (scheduleTestCapabilities) GetMinerCapabilitiesForDevice(context.Context, *pairingpb.Device) *capabilitiespb.MinerCapabilities {
+	// Model capability discovery is unavailable. This must not exclude an
+	// ordinary miner or turn a window restore into a successful empty batch.
+	return nil
 }
 
 func TestProcessorDispatchMixedSiteSkipsUnsupportedContainers(t *testing.T) {
@@ -64,7 +66,7 @@ func TestProcessorDispatchMixedSiteSkipsUnsupportedContainers(t *testing.T) {
 	})
 	commands := command.NewService(commandConfig, database.DB, execution, messageQueue,
 		command.NewStatusService(database.DB, messageQueue), nil, nil, deviceStore, nil, nil, nil, scheduleTestCapabilities{}, nil)
-	commands.RegisterFilter(command.NewScheduleCapabilityFilter(database.DB, scheduleTestCapabilities{}))
+	commands.RegisterFilter(command.NewScheduleContainerFilter(database.DB))
 	processor := NewProcessor(nil, nil, nil, deviceStore, commands, nil)
 	identifiers, err := processor.expandTargets(ctx, []*pb.ScheduleTarget{{
 		TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_SITE,
@@ -92,8 +94,8 @@ func TestProcessorDispatchMixedSiteSkipsUnsupportedContainers(t *testing.T) {
 			require.Equal(t, []string{miner.ID}, result.DispatchedDeviceIdentifiers)
 			require.Equal(t, []command.SkippedDevice{{
 				DeviceIdentifier: controller.ID,
-				FilterName:       command.ScheduleCapabilityFilterName,
-				Reason:           "device does not advertise support for " + tc.kind.String(),
+				FilterName:       command.ScheduleContainerFilterName,
+				Reason:           "containers do not support generic " + tc.kind.String() + " commands",
 			}}, result.Skipped)
 			var count, deviceID int64
 			var kind string
@@ -111,6 +113,46 @@ func TestProcessorDispatchMixedSiteSkipsUnsupportedContainers(t *testing.T) {
 			}, time.Second, 10*time.Millisecond)
 		})
 	}
+
+	t.Run("window restore proceeds without capability discovery", func(t *testing.T) {
+		mockController := gomock.NewController(t)
+		procStore := mocks.NewMockScheduleProcessorStore(mockController)
+		targetStore := mocks.NewMockScheduleTargetStore(mockController)
+		windowProcessor := NewProcessor(procStore, targetStore, nil, deviceStore, commands, nil)
+		now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+		windowProcessor.now = func() time.Time { return now }
+		sched := &pb.Schedule{
+			Id: 1, CreatedBy: user.DatabaseID, Action: pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET,
+			ScheduleType: pb.ScheduleType_SCHEDULE_TYPE_ONE_TIME, Status: pb.ScheduleStatus_SCHEDULE_STATUS_RUNNING,
+			StartDate: "2026-10-15", StartTime: "09:00", EndTime: "10:00", Timezone: "UTC",
+			LastRunAt: timestamppb.New(now.Add(-3 * time.Hour)),
+		}
+		procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return([]interfaces.ScheduleWithOrg{{Schedule: sched, OrgID: user.OrganizationID}}, nil)
+		targetStore.EXPECT().GetScheduleTargets(gomock.Any(), user.OrganizationID, sched.Id).Return([]*pb.ScheduleTarget{
+			{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: miner.ID},
+		}, nil)
+		var before int
+		require.NoError(t, database.DB.QueryRowContext(ctx, `SELECT count(*) FROM queue_message`).Scan(&before))
+		var batchID string
+		procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), sched.Id, gomock.Nil(), gomock.Nil(), statusCompleted).
+			DoAndReturn(func(context.Context, int64, *int64, *int64, string) error {
+				var after int
+				require.NoError(t, database.DB.QueryRowContext(ctx, `SELECT count(*) FROM queue_message`).Scan(&after))
+				require.Equal(t, before+1, after, "window must not complete without enqueueing the miner's restore")
+				var deviceID int64
+				require.NoError(t, database.DB.QueryRowContext(ctx, `SELECT command_batch_log_uuid, device_id FROM queue_message ORDER BY id DESC LIMIT 1`).Scan(&batchID, &deviceID))
+				require.Equal(t, miner.DatabaseID, deviceID)
+				return nil
+			})
+		windowProcessor.checkEndOfWindow(ctx)
+		_, err := database.DB.ExecContext(ctx, `UPDATE queue_message SET status='FAILED' WHERE command_batch_log_uuid=$1`, batchID)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			var status string
+			err := database.DB.QueryRowContext(ctx, `SELECT status FROM command_batch_log WHERE uuid=$1`, batchID).Scan(&status)
+			return err == nil && status == "FINISHED"
+		}, time.Second, 10*time.Millisecond)
+	})
 
 	controllerOnly := &commandpb.DeviceSelector{SelectionType: &commandpb.DeviceSelector_IncludeDevices{
 		IncludeDevices: &commonpb.DeviceIdentifierList{DeviceIdentifiers: []string{controller.ID}},

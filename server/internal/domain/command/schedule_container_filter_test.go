@@ -1,6 +1,7 @@
 package command
 
 import (
+	"database/sql"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -9,8 +10,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/session"
 )
 
-func TestScheduleCapabilityFilterOnlyChecksScheduledCommands(t *testing.T) {
-	filter := NewScheduleCapabilityFilter(nil, nil)
+func TestScheduleContainerFilterOnlyChecksScheduledCommands(t *testing.T) {
+	filter := NewScheduleContainerFilter(nil)
 	for _, tc := range []struct {
 		name  string
 		actor session.Actor
@@ -29,8 +30,17 @@ func TestScheduleCapabilityFilterOnlyChecksScheduledCommands(t *testing.T) {
 			require.Empty(t, out.Skipped)
 		})
 	}
-	_, err := filter.Apply(t.Context(), CommandFilterInput{
-		Actor: session.ActorScheduler, CommandType: commandtype.StopMining, DeviceIdentifiers: []string{"device"},
+}
+
+func TestScheduleContainerFilterLookupFailureIsAnError(t *testing.T) {
+	conn, err := sql.Open("pgx", "")
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+	out, err := NewScheduleContainerFilter(conn).Apply(t.Context(), CommandFilterInput{
+		Actor: session.ActorScheduler, CommandType: commandtype.SetPowerTarget,
+		OrganizationID: 1, DeviceIdentifiers: []string{"miner"},
 	})
-	require.ErrorContains(t, err, "schedule capability provider is not configured")
+	require.Error(t, err)
+	require.Empty(t, out.Kept)
+	require.Empty(t, out.Skipped, "a failed lookup must remain retryable, not become a successful skip")
 }

@@ -669,6 +669,8 @@ type Querier interface {
 	// Supports retrying teardown after authentication revocation has committed.
 	GetCancelledEnrollmentByFleetNode(ctx context.Context, arg GetCancelledEnrollmentByFleetNodeParams) (PendingEnrollment, error)
 	GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPostgresIdentity, error)
+	// Class metadata excludes known containers without live capability discovery.
+	GetContainerIdentifiersForCommands(ctx context.Context, arg GetContainerIdentifiersForCommandsParams) ([]string, error)
 	GetContainerModuleScope(ctx context.Context, arg GetContainerModuleScopeParams) (GetContainerModuleScopeRow, error)
 	GetContainerPollHistory(ctx context.Context, arg GetContainerPollHistoryParams) ([]GetContainerPollHistoryRow, error)
 	GetContainerRollupContext(ctx context.Context, deviceID int64) (GetContainerRollupContextRow, error)

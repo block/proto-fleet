@@ -726,6 +726,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getConnectedPostgresIdentityStmt, err = db.PrepareContext(ctx, getConnectedPostgresIdentity); err != nil {
 		return nil, fmt.Errorf("error preparing query GetConnectedPostgresIdentity: %w", err)
 	}
+	if q.getContainerIdentifiersForCommandsStmt, err = db.PrepareContext(ctx, getContainerIdentifiersForCommands); err != nil {
+		return nil, fmt.Errorf("error preparing query GetContainerIdentifiersForCommands: %w", err)
+	}
 	if q.getContainerModuleScopeStmt, err = db.PrepareContext(ctx, getContainerModuleScope); err != nil {
 		return nil, fmt.Errorf("error preparing query GetContainerModuleScope: %w", err)
 	}
@@ -3789,6 +3792,11 @@ func (q *Queries) Close() error {
 	if q.getConnectedPostgresIdentityStmt != nil {
 		if cerr := q.getConnectedPostgresIdentityStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getConnectedPostgresIdentityStmt: %w", cerr)
+		}
+	}
+	if q.getContainerIdentifiersForCommandsStmt != nil {
+		if cerr := q.getContainerIdentifiersForCommandsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getContainerIdentifiersForCommandsStmt: %w", cerr)
 		}
 	}
 	if q.getContainerModuleScopeStmt != nil {
@@ -7214,6 +7222,7 @@ type Queries struct {
 	getBuiltinRoleForOrgStmt                                     *sql.Stmt
 	getCancelledEnrollmentByFleetNodeStmt                        *sql.Stmt
 	getConnectedPostgresIdentityStmt                             *sql.Stmt
+	getContainerIdentifiersForCommandsStmt                       *sql.Stmt
 	getContainerModuleScopeStmt                                  *sql.Stmt
 	getContainerPollHistoryStmt                                  *sql.Stmt
 	getContainerRollupContextStmt                                *sql.Stmt
@@ -8084,6 +8093,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getBuiltinRoleForOrgStmt:                                     q.getBuiltinRoleForOrgStmt,
 		getCancelledEnrollmentByFleetNodeStmt:                        q.getCancelledEnrollmentByFleetNodeStmt,
 		getConnectedPostgresIdentityStmt:                             q.getConnectedPostgresIdentityStmt,
+		getContainerIdentifiersForCommandsStmt:                       q.getContainerIdentifiersForCommandsStmt,
 		getContainerModuleScopeStmt:                                  q.getContainerModuleScopeStmt,
 		getContainerPollHistoryStmt:                                  q.getContainerPollHistoryStmt,
 		getContainerRollupContextStmt:                                q.getContainerRollupContextStmt,

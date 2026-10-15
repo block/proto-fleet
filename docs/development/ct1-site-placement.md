@@ -55,11 +55,12 @@ summaries include CT1 module counts and current module measurements, matching th
 unified Miners inventory: module power is PSU input, not container facility power.
 Container and tank detail retain their distinct facility/PDU power measurements.
 Site-selected schedules resolve the current device placement, including CT1s.
-Before enqueueing, schedules skip devices that do not advertise the requested
-command and report the capability skip in activity. CT1s currently support tank
-and module controls, not generic sleep, reboot, or power-target commands, so those
-schedule actions skip CT1s while continuing on supported miners. Site placement
-does not add generic CT1 schedule or curtailment command support.
+Before enqueueing generic sleep, reboot, or power-target commands, schedules use
+stored device-class metadata to skip containers and report that skip in activity.
+CT1s currently support tank and module controls instead of those generic commands.
+Conventional miners retain their existing dispatch and retry behavior, without
+depending on live capability discovery. Site placement does not add generic CT1
+schedule or curtailment command support.
 
 Moving a container does not rewrite the recorded site on poll-time observations
 or hashboard installations. Module/tank history

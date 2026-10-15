@@ -807,7 +807,7 @@ func TestExecuteSchedule_DispatchFailureRevertFails_KeepsJob(t *testing.T) {
 	assert.True(t, exists, "job should still exist when revert fails")
 }
 
-func TestExecuteSchedule_FullyCapabilityFilteredSkipsExecutionActivity(t *testing.T) {
+func TestExecuteSchedule_FullyContainerFilteredSkipsExecutionActivity(t *testing.T) {
 	now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
 	p, procStore, targetStore, _, cmdSvc := newTestProcessor(t, now)
 	activityStore := withRecordingActivity(p)
@@ -822,13 +822,13 @@ func TestExecuteSchedule_FullyCapabilityFilteredSkipsExecutionActivity(t *testin
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "ct1"},
 	}, nil)
 	cmdSvc.EXPECT().StopMining(gomock.Any(), gomock.Any()).Return(&commanddomain.CommandResult{
-		Skipped: []commanddomain.SkippedDevice{{DeviceIdentifier: "ct1", FilterName: commanddomain.ScheduleCapabilityFilterName}},
+		Skipped: []commanddomain.SkippedDevice{{DeviceIdentifier: "ct1", FilterName: commanddomain.ScheduleContainerFilterName}},
 	}, nil)
 	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Nil(), statusCompleted).Return(nil)
 
 	p.executeSchedule(context.Background(), 1)
 
-	assert.Equal(t, 1, countActivityType(activityStore, "schedule_capability_skip"))
+	assert.Equal(t, 1, countActivityType(activityStore, "schedule_container_skip"))
 	assert.Equal(t, 0, countActivityType(activityStore, "schedule_executed"))
 }
 

@@ -1,3 +1,12 @@
+-- name: GetContainerIdentifiersForCommands :many
+-- Class metadata excludes known containers without live capability discovery.
+SELECT d.device_identifier
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.org_id
+WHERE d.org_id = sqlc.arg('org_id') AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL AND dd.device_class = 2
+  AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[]);
+
 -- name: ListContainerPlacements :many
 -- Membership lists need identity and topology counts, never telemetry.
 SELECT d.device_identifier, d.site_id,

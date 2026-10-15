@@ -36,6 +36,44 @@ func (q *Queries) ContainerOwnsCommandBatch(ctx context.Context, arg ContainerOw
 	return column_1, err
 }
 
+const getContainerIdentifiersForCommands = `-- name: GetContainerIdentifiersForCommands :many
+SELECT d.device_identifier
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.org_id
+WHERE d.org_id = $1 AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL AND dd.device_class = 2
+  AND d.device_identifier = ANY($2::text[])
+`
+
+type GetContainerIdentifiersForCommandsParams struct {
+	OrgID             int64
+	DeviceIdentifiers []string
+}
+
+// Class metadata excludes known containers without live capability discovery.
+func (q *Queries) GetContainerIdentifiersForCommands(ctx context.Context, arg GetContainerIdentifiersForCommandsParams) ([]string, error) {
+	rows, err := q.query(ctx, q.getContainerIdentifiersForCommandsStmt, getContainerIdentifiersForCommands, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var device_identifier string
+		if err := rows.Scan(&device_identifier); err != nil {
+			return nil, err
+		}
+		items = append(items, device_identifier)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const hasPendingContainerControl = `-- name: HasPendingContainerControl :one
 SELECT EXISTS (
  SELECT 1 FROM queue_message

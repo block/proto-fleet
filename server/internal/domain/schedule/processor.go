@@ -521,15 +521,15 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 
 	conflictSkips := countSkipsByFilter(result, command.ScheduleConflictFilterName)
 	curtailmentSkips := countSkipsByFilter(result, command.CurtailmentActiveFilterName)
-	capabilitySkips := countSkipsByFilter(result, command.ScheduleCapabilityFilterName)
+	containerSkips := countSkipsByFilter(result, command.ScheduleContainerFilterName)
 	if conflictSkips > 0 {
 		p.logConflictSkip(ctx, sched, orgID, conflictSkips)
 	}
 	if curtailmentSkips > 0 {
 		p.logCurtailmentActiveSkip(ctx, sched, orgID, curtailmentSkips)
 	}
-	if capabilitySkips > 0 {
-		p.logCapabilitySkip(ctx, sched, orgID, capabilitySkips)
+	if containerSkips > 0 {
+		p.logContainerSkip(ctx, sched, orgID, containerSkips)
 	}
 
 	dispatched := 0
@@ -542,7 +542,7 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 
 	p.updateAfterRunWithGeneration(ctx, sched, orgID, now, gen, hasGen)
 	// Fully-filtered dispatches are already logged via per-filter skip events.
-	if dispatched > 0 || (conflictSkips == 0 && curtailmentSkips == 0 && capabilitySkips == 0) {
+	if dispatched > 0 || (conflictSkips == 0 && curtailmentSkips == 0 && containerSkips == 0) {
 		p.logExecution(ctx, sched, orgID, dispatched)
 	}
 }
@@ -823,8 +823,8 @@ func (p *Processor) checkEndOfWindow(ctx context.Context) {
 			if skipped := countSkipsByFilter(result, command.CurtailmentActiveFilterName); skipped > 0 {
 				p.logCurtailmentActiveSkip(ctx, sched, sw.OrgID, skipped)
 			}
-			if skipped := countSkipsByFilter(result, command.ScheduleCapabilityFilterName); skipped > 0 {
-				p.logCapabilitySkip(ctx, sched, sw.OrgID, skipped)
+			if skipped := countSkipsByFilter(result, command.ScheduleContainerFilterName); skipped > 0 {
+				p.logContainerSkip(ctx, sched, sw.OrgID, skipped)
 			}
 		}
 
@@ -955,15 +955,15 @@ func (p *Processor) logCurtailmentActiveSkip(ctx context.Context, sched *pb.Sche
 	})
 }
 
-func (p *Processor) logCapabilitySkip(ctx context.Context, sched *pb.Schedule, orgID int64, skipped int) {
+func (p *Processor) logContainerSkip(ctx context.Context, sched *pb.Schedule, orgID int64, skipped int) {
 	if p.activitySvc == nil {
 		return
 	}
 	actor := schedulerActorName
 	p.activitySvc.Log(ctx, activitymodels.Event{
 		Category:       activitymodels.CategorySchedule,
-		Type:           "schedule_capability_skip",
-		Description:    fmt.Sprintf("Schedule %q skipped %d devices because the command is unsupported or the device is unavailable", sched.Name, skipped),
+		Type:           "schedule_container_skip",
+		Description:    fmt.Sprintf("Schedule %q skipped %d containers because they do not support generic miner commands", sched.Name, skipped),
 		ActorType:      activitymodels.ActorScheduler,
 		UserID:         &actor,
 		Username:       &actor,

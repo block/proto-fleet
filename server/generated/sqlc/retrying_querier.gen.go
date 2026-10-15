@@ -2558,6 +2558,18 @@ func (q *retryingQuerier) GetConnectedPostgresIdentity(ctx context.Context) (Con
 	return result, err
 }
 
+func (q *retryingQuerier) GetContainerIdentifiersForCommands(ctx context.Context, arg GetContainerIdentifiersForCommandsParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "GetContainerIdentifiersForCommands", func() error {
+		callResult, callErr := q.next.GetContainerIdentifiersForCommands(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetContainerModuleScope(ctx context.Context, arg GetContainerModuleScopeParams) (GetContainerModuleScopeRow, error) {
 	var result GetContainerModuleScopeRow
 	err := q.retrier.RetryQuery(ctx, "GetContainerModuleScope", func() error {
