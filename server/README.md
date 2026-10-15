@@ -246,7 +246,31 @@ The codebase follows a domain-driven design with clear separation of concerns:
 - **Commands**: Asynchronous command execution with a database-backed message queue.
 - **Fleet Management**: High-level operations for managing groups of devices (listing, filtering, monitoring status).
 - **Authentication**: Token-based auth with separate token types for clients (users) and miners (devices).
-- **Hosted Accounts**: Internal account hierarchy and fixed customer memberships, separate from organization RBAC. Live membership resolution applies ancestor restrictions and suspension; administration and audit commit together. Customer RPCs, onboarding, asset allocation, and account switching are not yet exposed.
+- **Hosted Accounts**: Account hierarchy and fixed customer memberships, separate from organization RBAC, with scoped administration, invitations, pool revisions and reporting allocations. Live authority applies ancestor ceilings, site restrictions and suspension; allocation changes and audit commit together. Session-only mining reports aggregate the account’s allocated estate, including subclients, without granting child-private account access. See [the client workspace contract](../client/README.md#hosted-account-workspaces) for persona and reporting boundaries.
+
+### Hosted mining reporting and allocation
+
+`hosted_account_asset` stores an exclusive typed mining leaf: conventional miner
+or container module, its primary customer and optional immediate subclient.
+Both account references empty means available to the host. Recalled rows retain
+monotonic revisions, so an old selection cannot overwrite a later recall and
+reassignment. Replacing/retiring a module does not transfer its reporting
+allocation to another module ID.
+
+Account View permits the primary customer estate aggregate and scoped inventory.
+Membership-management or delegation permits relative child buckets/owner labels;
+only delegation permits assignment and recall. These reporting permissions do
+not alter the existing private account resolver. A host needs account management
+and physical site/fleet/miner read authority; organization roles never supplement
+customer authority in a selected customer workspace.
+
+Allocation mutations validate an exact bounded list of typed leaves and expected
+revisions. The transaction serializes with account administration, physical
+identity bindings and container reconciliation, then rechecks eligibility and
+site scope before writing the ledger and audit. New allocations require active
+eligible hardware and destination policy. Recall can release retained unavailable
+allocations. Assignment does not reserve/activate device-write fences, dispatch
+firmware changes or apply incoming pool profiles.
 
 ### Rig Curtailment Configuration Delivery
 

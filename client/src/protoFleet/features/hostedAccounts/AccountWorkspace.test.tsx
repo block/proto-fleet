@@ -56,6 +56,89 @@ const fetchRpc = (reply: (method: string, body: Record<string, unknown>) => unkn
   return calls;
 };
 describe("real account workspace routing", () => {
+  it.each([
+    { role: AccountRole.VIEWER, mask: 1n, depth: 1, management: false, children: false },
+    { role: AccountRole.POOL_OPERATOR, mask: 7n, depth: 1, management: false, children: false },
+    { role: AccountRole.ADMINISTRATOR, mask: 31n, depth: 1, management: true, children: true },
+    { role: AccountRole.ADMINISTRATOR, mask: 31n, depth: 2, management: true, children: false },
+  ])(
+    "opens the mining Overview for role $role at depth $depth with only permitted tools",
+    async ({ role, mask, depth, management, children }) => {
+      const account = create(AccountSchema, { accountId, name: "Customer", depth, role, effectiveCapabilities: mask });
+      fetchRpc((method) => (method === "GetAccount" ? { account: toJson(AccountSchema, account) } : { totals: {} }));
+      mount(account, "");
+      const main = within(screen.getByRole("navigation", { name: "Main" }));
+      expect(await main.findByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
+      expect(main.getByRole("link", { name: "Mining assets" })).toBeInTheDocument();
+      expect(main.getByRole("link", { name: "Pools" })).toBeInTheDocument();
+      expect(main.getByRole("link", { name: "Access" })).toBeInTheDocument();
+      expect(main.getByRole("link", { name: "Settings" })).toHaveAttribute("href", `/accounts/${accountId}/settings`);
+      expect(!!main.queryByRole("link", { name: "Team" })).toBe(management);
+      expect(!!main.queryByRole("link", { name: "Subclients" })).toBe(children);
+      expect(main.queryByRole("link", { name: "Fleet" })).not.toBeInTheDocument();
+      await screen.findByText("No mining assets assigned");
+    },
+  );
+  it("opens host root administration by default without resolving a private customer", async () => {
+    const calls = fetchRpc((method) => {
+      if (method === "GetAccount") throw new Error("Root is not a private customer account");
+      return method === "ListChildren" ? { accounts: [] } : {};
+    });
+    mount(undefined, "");
+    await screen.findByRole("button", { name: "Create customer" });
+    expect(calls.some((call) => call.method === "GetAccount" || call.method === "GetAccountMiningSummary")).toBe(false);
+    const tabs = within(screen.getByRole("navigation", { name: "Account sections" }));
+    expect(tabs.getByRole("button", { name: "Customers" })).toHaveAttribute("aria-current", "page");
+    expect(tabs.getByRole("button", { name: "Mining assets" })).toBeInTheDocument();
+    expect(tabs.queryByRole("button", { name: "Overview" })).not.toBeInTheDocument();
+  });
+  it("clears private assignment filters when live account capabilities are reduced", async () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 20, 240, 40));
+    const childId = "22222222-2222-4222-8222-222222222222";
+    let reduced = false;
+    const account = create(AccountSchema, {
+      accountId,
+      name: "Customer",
+      depth: 1,
+      effectiveCapabilities: 31n,
+      capabilityCeiling: 31n,
+    });
+    const calls = fetchRpc((method) => {
+      if (method === "GetAccount")
+        return {
+          account: toJson(
+            AccountSchema,
+            create(AccountSchema, { ...account, effectiveCapabilities: reduced ? 1n : 31n }),
+          ),
+        };
+      if (method === "GetAccountMiningSummary")
+        return reduced ? { totals: {} } : { totals: {}, direct: {}, children: [{ accountId: childId, name: "East" }] };
+      return {
+        assets: [],
+        canManageAssignments: !reduced,
+        canViewAssignments: !reduced,
+        children: reduced ? [] : [{ accountId: childId, name: "East" }],
+      };
+    });
+    const user = userEvent.setup();
+    mount(account, "assets");
+    await user.click(await screen.findByRole("button", { name: /Assignment/ }));
+    await user.click(await screen.findByRole("option", { name: "East" }));
+    await waitFor(() =>
+      expect(calls.filter((call) => call.method === "ListAccountAssets").slice(-1)[0]?.body.ownerAccountId).toBe(
+        childId,
+      ),
+    );
+    reduced = true;
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Assignment/ })).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(
+        calls.filter((call) => call.method === "ListAccountAssets").slice(-1)[0]?.body.ownerAccountId,
+      ).toBeUndefined(),
+    );
+    expect(screen.queryByText("East")).not.toBeInTheDocument();
+  });
   it("retains the host shell and opens account sections as tabs under Settings Admin", async () => {
     const account = create(AccountSchema, {
       accountId,
@@ -87,7 +170,7 @@ describe("real account workspace routing", () => {
       within(screen.getByRole("navigation", { name: "Account sections" })).getByRole("button", { name: "Pools" }),
     ).toHaveAttribute("aria-current", "page");
   });
-  it("opens account settings without duplicate Home/Overview navigation and keeps the directory in the picker", async () => {
+  it("keeps Overview and Mining assets available beside account settings without duplicate Home navigation", async () => {
     const account = create(AccountSchema, {
       accountId,
       parentAccountId: rootId,
@@ -107,7 +190,14 @@ describe("real account workspace routing", () => {
       `/accounts/${accountId}/settings`,
     );
     expect(within(menu).queryByRole("link", { name: "Home" })).not.toBeInTheDocument();
-    expect(within(menu).queryByRole("link", { name: "Overview" })).not.toBeInTheDocument();
+    expect(within(menu).getByRole("link", { name: "Overview" })).toHaveAttribute(
+      "href",
+      `/accounts/${accountId}/overview`,
+    );
+    expect(within(menu).getByRole("link", { name: "Mining assets" })).toHaveAttribute(
+      "href",
+      `/accounts/${accountId}/assets`,
+    );
     await user.click(screen.getByRole("button", { name: "Switch account" }));
     await user.click(
       within(screen.getByRole("dialog", { name: "Switch account" })).getByRole("link", { name: "All accounts" }),

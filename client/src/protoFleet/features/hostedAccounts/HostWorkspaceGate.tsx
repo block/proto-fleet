@@ -15,6 +15,15 @@ export const HostWorkspaceGate = ({ children }: { children: ReactNode }) => {
   if (directory.loading || directory.error)
     return <AccountState loading={directory.loading} error={directory.error} retry={directory.refresh} />;
   if (!directory.hostAccess)
-    return <Navigate to={directory.accounts[0] ? accountPath(directory.accounts[0].accountId) : "/accounts"} replace />;
+    return (
+      <Navigate
+        to={
+          directory.accounts[0]
+            ? accountPath(directory.accounts[0].accountId, directory.accounts[0].depth === 0 ? "children" : "overview")
+            : "/accounts"
+        }
+        replace
+      />
+    );
   return children;
 };

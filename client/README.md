@@ -487,19 +487,55 @@ All shared components have Storybook stories, support light/dark themes, and inc
 
 ### Hosted account workspaces
 
-Fleet’s account picker opens `/accounts/:accountId/:section`, with settings,
-team, pool configurations, access and direct customer/subclient pages according
-to the API’s effective capabilities. The root hosting account uses its
-directory summary for customer administration; private account reads apply
-to customers and subclients. `/accounts` lists accessible workspaces.
-Settings contains account details and rename controls; the account picker links
-back to the account directory without a separate Home tab. Hosts manage Accounts
-under Settings → Admin, keeping the fleet navigation and using tabs for account
-sections. Customer-only users keep the scoped account navigation.
-These routes reuse the Fleet layout and shared components without mounting
-host fleet providers; host curtailment and fleet commands keep their existing
-organization scope. Account RPC clients capture `X-Fleet-Account-ID` for the
-page lifetime and abort when the account or login changes.
+Fleet’s account picker opens `/accounts/:accountId/:section`. Customers and
+subclients land on Overview, followed by Mining assets and Pools. Team, Access,
+Subclients and Settings use the API’s effective capabilities. `/accounts` lists
+accessible workspaces. Hosts retain Fleet navigation and manage Accounts under
+Settings → Admin, with account sections as tabs; the root account opens Customers
+and has a Mining assets tab for allocating reporting capacity.
+
+| Persona                    | Primary experience                                                  |
+| -------------------------- | ------------------------------------------------------------------- |
+| Host operator              | Existing physical fleet operations in Fleet                         |
+| Host account administrator | Customers and reporting assignments in Settings → Admin → Accounts  |
+| Account viewer             | Whole-account metrics and read-only mining assets                   |
+| Pool operator              | Account metrics, assets and existing pool configuration tools       |
+| Account administrator      | Direct/subclient comparison, team and permitted allocation controls |
+| Subclient                  | Its own assigned estate, without another delegation level           |
+
+Overview counts conventional miners and container modules as mining assets.
+Controllers are not additional miners. An account total includes resources
+allocated to its subclients; administrators with membership-management or
+delegation capability can compare the direct remainder and each subclient.
+This reporting privilege does not grant access to a child’s private pools,
+team, keys or settings. Private child workspace links still require explicit
+account authority. Viewers receive no child ownership labels or owner filters.
+
+Hashrate and mining equipment power show current available readings and separate
+reporting counts. Efficiency uses only assets reporting both measurements.
+Partial/unknown module coverage, unavailable assets and assets outside the current
+site policy are labeled. Allocation counts retain unavailable and outside-policy
+assets, with their physical details and readings withheld; suspended child
+allocations remain in the parent’s totals. Reports describe current assignments,
+not historical ownership or plant power.
+
+Mining assets separates commercial reporting allocation from physical placement.
+Hosts assign available miners/modules to customers; permitted customers delegate
+their direct resources to immediate subclients. Recall returns the selected
+allocation to its parent. Whole-customer recall also clears its subclient
+allocation. Selection and confirmation are limited to the displayed page;
+filtering a container selects its displayed current modules, never its controller
+or future/replacement hardware. Stale assignments require a fresh selection and
+review. Retired/outside-policy child allocations can be recalled to clear them.
+Assignments do not apply pools, change payout destinations, activate customer
+firmware control or move equipment. Host operations continue under existing
+organization permissions.
+
+These routes reuse the Fleet layout and shared components without mounting host
+fleet providers for account-only users. Page-owned RPC clients capture
+`X-Fleet-Account-ID` and abort when account or login changes. Permission changes
+reset report and selection state; selected-account reporting and assignment RPCs
+currently require a Fleet session rather than an account API key.
 
 Invitations show a portable code once for manual sharing. Recipients select
 **Join an account** on the login screen or account list, paste the code, then use
@@ -516,5 +552,5 @@ Ancestor grants can be created for the direct parent and updated for existing
 ancestors. Creating a subclient’s first grant to the hosting root needs ancestor
 metadata that the current API does not expose.
 
-Account inventory/history and miner assignment or pool application controls
-await their corresponding client APIs and are not exposed by these pages.
+Historical account telemetry, hashboard-level allocation, automatic allocation of
+new hardware, customer firmware commands and pool application remain unsupported.

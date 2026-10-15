@@ -38,7 +38,7 @@ const AccountDirectory = () => {
                     className="justify-start text-left font-normal"
                     textOnlyUnderlineOnHover={false}
                     text={account.name}
-                    to={accountPath(account.accountId)}
+                    to={accountPath(account.accountId, account.depth === 0 ? "children" : "overview")}
                     disabled={account.suspended}
                   />
                 ),

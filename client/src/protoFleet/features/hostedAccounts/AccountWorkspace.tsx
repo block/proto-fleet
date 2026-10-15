@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 
 import { AccountLayout } from "./AccountLayout";
 import { AccountScopeContext } from "./AccountScope";
 import { createAccountConnection } from "./api";
 import { accountPath, can, roleLabel } from "./capabilities";
 import AccountAccess from "./components/AccountAccess";
+import AccountAssets from "./components/AccountAssets";
 import AccountChildren from "./components/AccountChildren";
+import AccountOverview from "./components/AccountOverview";
 import AccountPools from "./components/AccountPools";
 import AccountSettings from "./components/AccountSettings";
 import { AccountState } from "./components/AccountState";
@@ -15,12 +17,12 @@ import { useHostedAccounts } from "./HostedAccountsContext";
 import { useAccountQuery } from "./useAccountQuery";
 import { type NavItem } from "@/protoFleet/config/navItems";
 import { useFleetStore, usePermissions } from "@/protoFleet/store";
-import { Groups, LightningAlt, Lock, Settings } from "@/shared/assets/icons";
+import { Activity, Fleet, Groups, LightningAlt, Lock, Settings } from "@/shared/assets/icons";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 
 const AccountPage = ({ accountId }: { accountId: string }) => {
-  const { section = "settings" } = useParams();
+  const { section } = useParams();
   const directory = useHostedAccounts();
   const permissions = usePermissions();
   const host = permissions.length > 0 || !!directory?.hostAccess;
@@ -59,15 +61,14 @@ const AccountPage = ({ accountId }: { accountId: string }) => {
   const error = directory?.error ?? query.error;
   const loading = directory?.loading || (!account && !error && query.loading);
   const navItems: NavItem[] = [
-    { path: accountPath(accountId), label: "Settings", icon: Settings },
+    ...(account && account.depth > 0 && can(account, 1n)
+      ? [{ path: accountPath(accountId), label: "Overview", icon: Activity }]
+      : []),
+    ...(account && ((account.depth > 0 && can(account, 1n)) || (account.depth === 0 && can(account, 16n)))
+      ? [{ path: accountPath(accountId, "assets"), label: "Mining assets", icon: Fleet }]
+      : []),
     ...(account && account.depth > 0 && can(account, 1n)
       ? [{ path: accountPath(accountId, "pools"), label: "Pools", icon: LightningAlt }]
-      : []),
-    ...(account && account.depth > 0 && can(account, 8n)
-      ? [{ path: accountPath(accountId, "team"), label: "Team", icon: Groups }]
-      : []),
-    ...(account && account.depth > 0 && can(account, 1n)
-      ? [{ path: accountPath(accountId, "access"), label: "Access", icon: Lock }]
       : []),
     ...(can(account, 16n) && account!.depth < 2
       ? [
@@ -78,8 +79,18 @@ const AccountPage = ({ accountId }: { accountId: string }) => {
           },
         ]
       : []),
+    ...(account && account.depth > 0 && can(account, 8n)
+      ? [{ path: accountPath(accountId, "team"), label: "Team", icon: Groups }]
+      : []),
+    ...(account && account.depth > 0 && can(account, 1n)
+      ? [{ path: accountPath(accountId, "access"), label: "Access", icon: Lock }]
+      : []),
+    ...(account && (account.depth === 0 || can(account, 1n))
+      ? [{ path: accountPath(accountId, "settings"), label: "Settings", icon: Settings }]
+      : []),
   ];
-  const accessible = navItems.some((item) => item.path === accountPath(accountId, section));
+  const defaultPath = accountPath(accountId, account?.depth === 0 ? "children" : "overview");
+  const accessible = !!section && navItems.some((item) => item.path === accountPath(accountId, section));
   return (
     <AccountLayout
       items={navItems}
@@ -111,7 +122,7 @@ const AccountPage = ({ accountId }: { accountId: string }) => {
               <div className="mb-6 overflow-x-auto">
                 <TabStrip
                   ariaLabel="Account sections"
-                  activeId={accessible ? accountPath(accountId, section) : accountPath(accountId)}
+                  activeId={accessible ? accountPath(accountId, section) : defaultPath}
                   onSelect={navigate}
                 >
                   {navItems.map((item) => (
@@ -122,7 +133,11 @@ const AccountPage = ({ accountId }: { accountId: string }) => {
             ) : null}
             {error ? <AccountState error={error} retry={refresh} /> : null}
             {accessible ? (
-              section === "team" ? (
+              section === "overview" ? (
+                <AccountOverview key={`${account.effectiveCapabilities}:${account.suspended}`} />
+              ) : section === "assets" ? (
+                <AccountAssets key={`${account.effectiveCapabilities}:${account.suspended}`} />
+              ) : section === "team" ? (
                 <AccountTeam />
               ) : section === "pools" ? (
                 <AccountPools />
@@ -139,12 +154,7 @@ const AccountPage = ({ accountId }: { accountId: string }) => {
                 />
               )
             ) : (
-              <AccountSettings
-                onRenamed={() => {
-                  refreshQuery();
-                  directory?.refresh();
-                }}
-              />
+              <Navigate to={navItems.some((item) => item.path === defaultPath) ? defaultPath : "/accounts"} replace />
             )}
           </AccountScopeContext.Provider>
         ) : (

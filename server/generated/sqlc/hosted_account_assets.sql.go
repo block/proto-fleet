@@ -227,9 +227,11 @@ const listHostedAccountMiningAssets = `-- name: ListHostedAccountMiningAssets :m
 WITH leaves AS (
  SELECT f.kind,f.id,f.org_id,CASE WHEN f.kind=5 THEN f.id ELSE f.facility_id END::bigint AS device_id
  FROM fleet_mining_asset f WHERE f.org_id=$3
+ AND (jsonb_array_length($4::jsonb)=0 OR EXISTS (SELECT 1 FROM jsonb_to_recordset($4::jsonb) AS selected(kind integer,id bigint) WHERE selected.kind=f.kind AND selected.id=f.id))
  UNION
  SELECT a.kind,a.asset_id,a.organization_id,a.device_id FROM hosted_account_asset a
  WHERE a.organization_id=$3 AND a.client_id IS NOT NULL
+ AND (jsonb_array_length($4::jsonb)=0 OR EXISTS (SELECT 1 FROM jsonb_to_recordset($4::jsonb) AS selected(kind integer,id bigint) WHERE selected.kind=a.kind AND selected.id=a.asset_id))
 )
 SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  COALESCE(a.client_id,0)::bigint AS client_id,COALESCE(a.subclient_id,0)::bigint AS subclient_id,
@@ -259,6 +261,7 @@ type ListHostedAccountMiningAssetsParams struct {
 	IsRoot            bool
 	AccountInternalID int64
 	OrganizationID    int64
+	SelectedAssets    json.RawMessage
 }
 
 type ListHostedAccountMiningAssetsRow struct {
@@ -287,7 +290,12 @@ type ListHostedAccountMiningAssetsRow struct {
 
 // Include retained assignments even after retirement or policy changes.
 func (q *Queries) ListHostedAccountMiningAssets(ctx context.Context, arg ListHostedAccountMiningAssetsParams) ([]ListHostedAccountMiningAssetsRow, error) {
-	rows, err := q.query(ctx, q.listHostedAccountMiningAssetsStmt, listHostedAccountMiningAssets, arg.IsRoot, arg.AccountInternalID, arg.OrganizationID)
+	rows, err := q.query(ctx, q.listHostedAccountMiningAssetsStmt, listHostedAccountMiningAssets,
+		arg.IsRoot,
+		arg.AccountInternalID,
+		arg.OrganizationID,
+		arg.SelectedAssets,
+	)
 	if err != nil {
 		return nil, err
 	}

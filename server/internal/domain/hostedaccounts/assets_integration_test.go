@@ -1,6 +1,7 @@
 package hostedaccounts_test
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -301,4 +302,67 @@ func TestAccountMiningTypedPersistenceAndSubclientDirectFilter(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows.Assets, 1)
 	require.False(t, rows.CanManageAssignments)
+}
+
+func TestAccountAssetListReturnsLiveManagementMetadataWithoutMetrics(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	child, err := f.svc.CreateChild(t.Context(), f.user, f.org, client.AccountID, "Child", f.host, hostedaccounts.DefaultCapabilities)
+	require.NoError(t, err)
+	require.NoError(t, f.svc.ConfigureChild(t.Context(), f.user, f.org, child.AccountID, hostedaccounts.DefaultCapabilities, true))
+	response, err := f.svc.ListAssets(t.Context(), f.user, f.org, &pb.ListAccountAssetsRequest{AccountId: client.AccountID})
+	require.NoError(t, err)
+	require.True(t, response.CanViewAssignments)
+	require.True(t, response.CanManageAssignments)
+	require.Len(t, response.Children, 1)
+	require.Equal(t, child.AccountID, response.Children[0].AccountId)
+	require.Equal(t, "Child", response.Children[0].Name)
+	require.True(t, response.Children[0].Suspended)
+	require.Nil(t, response.Children[0].Summary, "list metadata must not compute child metrics")
+	// Removing delegation keeps named management metadata but removes mutation authority.
+	require.NoError(t, f.svc.ConfigureChild(t.Context(), f.host, f.org, client.AccountID, hostedaccounts.View|hostedaccounts.ManageMembers, false))
+	response, err = f.svc.ListAssets(t.Context(), f.user, f.org, &pb.ListAccountAssetsRequest{AccountId: client.AccountID})
+	require.NoError(t, err)
+	require.True(t, response.CanViewAssignments)
+	require.False(t, response.CanManageAssignments)
+	require.Len(t, response.Children, 1)
+	require.Nil(t, response.Children[0].Summary)
+	require.NoError(t, f.svc.SetMembership(t.Context(), f.user, f.org, client.AccountID, f.host, hostedaccounts.RoleViewer))
+	response, err = f.svc.ListAssets(t.Context(), f.host, f.org, &pb.ListAccountAssetsRequest{AccountId: client.AccountID})
+	require.NoError(t, err)
+	require.False(t, response.CanViewAssignments)
+	require.False(t, response.CanManageAssignments)
+	require.Empty(t, response.Children)
+}
+
+func TestAccountAssetSelectedProjectionKeepsExactTypedPairs(t *testing.T) {
+	f := setup(t)
+	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	module, _ := f.miningModule(t)
+	// A fresh fixture gives miner1/module1; equal numeric IDs cannot expand selection.
+	require.Equal(t, miner, module)
+	query := sqlc.New(f.db)
+	for _, kind := range []pb.MiningAssetKind{pb.MiningAssetKind_MINING_ASSET_KIND_MINER, pb.MiningAssetKind_MINING_ASSET_KIND_MODULE} {
+		selection, err := json.Marshal([]map[string]any{{"kind": kind, "id": miner}})
+		require.NoError(t, err)
+		rows, err := query.ListHostedAccountMiningAssets(t.Context(), sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: f.org, IsRoot: true, SelectedAssets: selection})
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+		require.Equal(t, int32(kind), rows[0].Kind)
+		require.Equal(t, miner, rows[0].ID)
+	}
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(pb.MiningAssetKind_MINING_ASSET_KIND_MODULE, module, 0)))
+	_, err := f.db.ExecContext(t.Context(), `UPDATE container_module SET retired_at=now() WHERE id=$1`, module)
+	require.NoError(t, err)
+	selection, err := json.Marshal([]map[string]any{{"kind": pb.MiningAssetKind_MINING_ASSET_KIND_MODULE, "id": module}})
+	require.NoError(t, err)
+	retained, err := query.ListHostedAccountMiningAssets(t.Context(), sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: f.org, IsRoot: true, SelectedAssets: selection})
+	require.NoError(t, err)
+	require.Len(t, retained, 1)
+	require.False(t, retained[0].Available)
+	require.Equal(t, module, retained[0].ID)
+	rows, err := query.ListHostedAccountMiningAssets(t.Context(), sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: f.org, IsRoot: true, SelectedAssets: []byte("[]")})
+	require.NoError(t, err)
+	require.Len(t, rows, 2, "summary's empty selection keeps full scoped estate")
 }

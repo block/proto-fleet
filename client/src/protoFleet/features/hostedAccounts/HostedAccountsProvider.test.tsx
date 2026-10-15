@@ -63,7 +63,7 @@ describe("account directory and host workspace isolation", () => {
   });
   it("does not mount host providers for a membership-only login", async () => {
     vi.spyOn(hostedAccountsClient, "listAccounts").mockResolvedValue({
-      accounts: [create(AccountSchema, { accountId })],
+      accounts: [create(AccountSchema, { accountId, depth: 1 })],
       hostAccess: false,
     } as Awaited<ReturnType<typeof hostedAccountsClient.listAccounts>>);
     const mountHost = vi.fn();
@@ -84,7 +84,7 @@ describe("account directory and host workspace isolation", () => {
                 </HostWorkspaceGate>
               }
             />
-            <Route path={`/accounts/${accountId}/settings`} element={<div>Customer workspace</div>} />
+            <Route path={`/accounts/${accountId}/overview`} element={<div>Customer workspace</div>} />
           </Routes>
         </HostedAccountsProvider>
       </MemoryRouter>,

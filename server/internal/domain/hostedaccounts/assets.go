@@ -62,7 +62,7 @@ func loadMiningEstate(ctx context.Context, q sqlc.Querier, actorID, orgID int64,
 		}
 	}
 	if includeRows {
-		estate.rows, err = q.ListHostedAccountMiningAssets(ctx, sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: orgID, AccountInternalID: estate.account.ID, IsRoot: estate.account.Depth == 0})
+		estate.rows, err = q.ListHostedAccountMiningAssets(ctx, sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: orgID, AccountInternalID: estate.account.ID, IsRoot: estate.account.Depth == 0, SelectedAssets: json.RawMessage("[]")})
 		if err != nil {
 			return estate, err
 		}
@@ -123,7 +123,7 @@ func (e miningEstate) asset(row sqlc.ListHostedAccountMiningAssetsRow) *pb.Accou
 		}
 	}
 	if !row.Available || outside {
-		if row.Kind == 6 {
+		if pb.MiningAssetKind(row.Kind) == pb.MiningAssetKind_MINING_ASSET_KIND_MODULE {
 			a.UnknownCoverage = true
 		}
 		return a
@@ -143,7 +143,7 @@ func (e miningEstate) asset(row sqlc.ListHostedAccountMiningAssetsRow) *pb.Accou
 	if row.HasPower && finiteNonnegative(row.PowerW) {
 		a.PowerW = &row.PowerW
 	}
-	if row.Kind == 6 {
+	if pb.MiningAssetKind(row.Kind) == pb.MiningAssetKind_MINING_ASSET_KIND_MODULE {
 		var coverage map[string]struct {
 			Reporting int  `json:"reporting"`
 			Expected  int  `json:"expected"`
@@ -322,7 +322,10 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 		if limit == 0 {
 			limit = 50
 		}
-		response := &pb.ListAccountAssetsResponse{CanManageAssignments: e.capabilities&Delegate != 0 && e.account.Depth < 2}
+		response := &pb.ListAccountAssetsResponse{CanManageAssignments: e.capabilities&Delegate != 0 && e.account.Depth < 2, CanViewAssignments: e.management()}
+		for _, child := range e.children {
+			response.Children = append(response.Children, &pb.AccountMiningBucket{AccountId: child.AccountID, Name: child.Name, Suspended: child.Suspended})
+		}
 
 		ownerID := int64(0)
 		if e.account.Depth == 2 {
@@ -468,7 +471,11 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 		}
 		// Refresh after the last lock: retirement, replacement and site movement
 		// committed while we waited must invalidate the original selection.
-		rows, err := q.ListHostedAccountMiningAssets(ctx, sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: orgID, AccountInternalID: e.account.ID, IsRoot: e.account.Depth == 0})
+		selectedAssets, err := json.Marshal(request.Assets)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("encode selected mining assets: %w", err)
+		}
+		rows, err := q.ListHostedAccountMiningAssets(ctx, sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: orgID, AccountInternalID: e.account.ID, IsRoot: e.account.Depth == 0, SelectedAssets: selectedAssets})
 		if err != nil {
 			return err
 		}
@@ -495,7 +502,7 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 		for _, selection := range request.Assets {
 			row := current[[2]int64{int64(selection.Kind), selection.Id}]
 			params := sqlc.SetHostedAccountAssetParams{OrganizationID: orgID, Kind: int32(selection.Kind), AssetID: selection.Id, DeviceID: row.DeviceID}
-			if row.Kind == 5 {
+			if pb.MiningAssetKind(row.Kind) == pb.MiningAssetKind_MINING_ASSET_KIND_MINER {
 				params.MinerID = sql.NullInt64{Int64: row.ID, Valid: true}
 			} else {
 				params.ModuleID = sql.NullInt64{Int64: row.ID, Valid: true}

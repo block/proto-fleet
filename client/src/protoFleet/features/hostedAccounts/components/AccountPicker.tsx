@@ -64,7 +64,7 @@ const AccountPicker = () => {
                 selected={selected?.accountId === account.accountId}
                 onChange={() => {
                   setOpen(false);
-                  navigate(accountPath(account.accountId));
+                  navigate(accountPath(account.accountId, account.depth === 0 ? "children" : "overview"));
                 }}
               />
               <div>

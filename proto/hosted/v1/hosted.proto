@@ -458,6 +458,11 @@ message ListAccountAssetsResponse {
   repeated AccountAsset assets = 1;
   string next_page_token = 2;
   bool can_manage_assignments = 3;
+  // Live membership-management or delegation authority permits owner labels.
+  bool can_view_assignments = 4;
+  // Direct child management metadata only: summary is absent in this response.
+  // This does not grant access to child-private settings, members or pools.
+  repeated AccountMiningBucket children = 5;
 }
 message MiningAssetSelection {
   MiningAssetKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];

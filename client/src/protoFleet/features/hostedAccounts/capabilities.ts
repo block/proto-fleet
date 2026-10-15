@@ -29,5 +29,5 @@ export const roleOptions = [
     description: "Manage pools, memberships and permitted delegation",
   },
 ];
-export const accountPath = (accountId: string, section = "settings") =>
+export const accountPath = (accountId: string, section = "overview") =>
   `/accounts/${encodeURIComponent(accountId)}/${section}`;
