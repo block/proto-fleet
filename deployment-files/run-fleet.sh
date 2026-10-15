@@ -1802,6 +1802,44 @@ if ! command -v docker &> /dev/null; then
     fi
 fi
 
+# ----------------------------------------------------------------------------
+# Docker Buildx Check
+# ----------------------------------------------------------------------------
+
+# Image preparation builds the Fleet API and client images. Current Compose
+# (v2.37 and later) builds through an installed Buildx plugin and falls back to
+# its classic builder only when no plugin is installed, so a missing plugin
+# warns (with the guidance repeated if the build fails) while an installed but
+# broken one, such as a partially configured package, fails before any image
+# work. Older Compose releases that embed Buildx are not distinguished.
+# `docker buildx version` reports both cases as an unknown command; the
+# client-only plugin listing tells them apart without daemon access. The probe
+# runs before the Docker group setup, which exits for a new login, so both
+# repairs surface in one run. Prepared-release activation skips it.
+print_buildx_repair_guidance() {
+    echo "Install or repair Docker Buildx until 'docker buildx version' succeeds." >&2
+    if [ "$(uname)" = "Linux" ] && command -v apt-get >/dev/null 2>&1; then
+        echo "On Debian/Ubuntu, install it with 'sudo apt-get install docker-buildx-plugin'; for a broken package, inspect errors with 'sudo dpkg --audit' and run 'sudo apt-get install --reinstall docker-buildx-plugin'." >&2
+    fi
+}
+
+BUILDX_STATE=ok
+if [ "$SKIP_BUILD" != "true" ]; then
+    if ! buildx_version_output=$(docker buildx version 2>&1); then
+        buildx_plugin=$(docker info --format '{{range .ClientInfo.Plugins}}{{if eq .Name "buildx"}}{{.Path}}{{with .Err}}: {{.}}{{end}}{{end}}{{end}}' 2>/dev/null || true)
+        if [ -n "$buildx_plugin" ]; then
+            BUILDX_STATE=broken
+            echo "Error: Docker Buildx is installed but not working. Docker Compose builds through the installed plugin, so Fleet images cannot be built until it is repaired." >&2
+            printf '%s\n' "$buildx_version_output" "$buildx_plugin" >&2
+        else
+            BUILDX_STATE=absent
+            echo "Warning: Docker Buildx is not installed. Continuing: Docker Compose builds with its classic builder when Buildx is absent." >&2
+            printf '%s\n' "$buildx_version_output" >&2
+        fi
+        print_buildx_repair_guidance
+    fi
+fi
+
 # Configure Docker for Linux systems
 if [ "$(uname)" == "Linux" ]; then
     # The Windows installer supports non-systemd WSL distros by starting
@@ -1823,13 +1861,30 @@ if [ "$(uname)" == "Linux" ]; then
     # Without this skip, `sudo bash install.sh ...` (the recommended remediation
     # for the sudo-mismatch detection in install.sh) would exit here telling
     # the user to log out and back in, leaving the upgrade half-applied.
-    if [ "$(id -u)" -ne 0 ] && ! groups $USER | grep -q '\bdocker\b'; then
+    docker_user="${USER:-$(id -un)}"
+    if [ "$(id -u)" -ne 0 ] && ! groups "$docker_user" | grep -q '\bdocker\b'; then
         refuse_non_interactive_host_repair "the upgrade user cannot access Docker."
+        if ! getent group docker >/dev/null 2>&1; then
+            echo "Creating the docker group..."
+            if ! sudo groupadd docker; then
+                echo "Error: could not create the docker group. Repair the Docker installation, then re-run this script." >&2
+                exit 1
+            fi
+        fi
         echo "Adding current user to the docker group for passwordless Docker usage..."
-        sudo usermod -aG docker $USER
+        if ! sudo usermod -aG docker "$docker_user"; then
+            echo "Error: could not add user '$docker_user' to the docker group. Fix group membership, then re-run this script." >&2
+            exit 1
+        fi
         echo "Please log out and log back in to apply group changes, then re-run this script."
         exit 0
     fi
+fi
+
+# A broken Buildx was reported above; stopping here lets the Docker group setup
+# surface in the same run.
+if [ "$BUILDX_STATE" = "broken" ]; then
+    exit 1
 fi
 
 # ----------------------------------------------------------------------------
@@ -2575,7 +2630,14 @@ if [ "$SKIP_BUILD" != "true" ]; then
     fi
 
     # Build Docker images (fleet-api and fleet-client only; TimescaleDB uses pre-built image)
-    compose build --no-cache || { echo "Error: Build failed. Exiting."; exit 1; }
+    if ! compose build --no-cache; then
+        echo "Error: Build failed. Exiting."
+        if [ "$BUILDX_STATE" = "absent" ]; then
+            echo "Docker Buildx was not installed before the build." >&2
+            print_buildx_repair_guidance
+        fi
+        exit 1
+    fi
 else
     echo "Skipping image preparation; this release already passed updater preflight."
 fi
