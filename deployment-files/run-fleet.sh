@@ -1806,25 +1806,35 @@ fi
 # Docker Buildx Check
 # ----------------------------------------------------------------------------
 
-# Image preparation builds the Fleet API and client images. A partial package
-# installation can leave Buildx missing or broken, but Compose builds with its
-# classic builder when the plugin is absent, so the probe only warns and its
-# repair guidance is repeated if the build fails. It runs before the Docker
-# group setup, which exits for a new login, so both repairs surface together.
-# Prepared-release activation does not build images and skips the probe.
+# Image preparation builds the Fleet API and client images. Compose builds
+# through an installed Buildx plugin and falls back to its classic builder only
+# when no plugin is installed, so a missing plugin warns (with the guidance
+# repeated if the build fails) while an installed but broken one, such as a
+# partially configured package, fails before any image work. `docker buildx
+# version` reports both cases as an unknown command; the client-only plugin
+# listing tells them apart without daemon access. The probe runs before the
+# Docker group setup, which exits for a new login, so both repairs surface in
+# one run. Prepared-release activation does not build images and skips it.
 print_buildx_repair_guidance() {
-    echo "Repair Docker Buildx until 'docker buildx version' succeeds." >&2
+    echo "Install or repair Docker Buildx until 'docker buildx version' succeeds." >&2
     if [ "$(uname)" = "Linux" ] && command -v apt-get >/dev/null 2>&1; then
-        echo "On Debian/Ubuntu, inspect package errors with 'sudo dpkg --audit'; a broken Buildx package may need 'sudo apt-get install --reinstall docker-buildx-plugin'." >&2
+        echo "On Debian/Ubuntu, install it with 'sudo apt-get install docker-buildx-plugin'; for a broken package, inspect errors with 'sudo dpkg --audit' and run 'sudo apt-get install --reinstall docker-buildx-plugin'." >&2
     fi
 }
 
-BUILDX_UNAVAILABLE=false
+BUILDX_STATE=ok
 if [ "$SKIP_BUILD" != "true" ]; then
     if ! buildx_version_output=$(docker buildx version 2>&1); then
-        BUILDX_UNAVAILABLE=true
-        echo "Warning: Docker Buildx is missing or not working. Continuing: Docker Compose builds with its classic builder when Buildx is absent." >&2
-        printf '%s\n' "$buildx_version_output" >&2
+        buildx_plugin=$(docker info --format '{{range .ClientInfo.Plugins}}{{if eq .Name "buildx"}}{{.Path}}{{with .Err}}: {{.}}{{end}}{{end}}{{end}}' 2>/dev/null || true)
+        if [ -n "$buildx_plugin" ]; then
+            BUILDX_STATE=broken
+            echo "Error: Docker Buildx is installed but not working. Docker Compose builds through the installed plugin, so Fleet images cannot be built until it is repaired." >&2
+            printf '%s\n' "$buildx_version_output" "$buildx_plugin" >&2
+        else
+            BUILDX_STATE=absent
+            echo "Warning: Docker Buildx is not installed. Continuing: Docker Compose builds with its classic builder when Buildx is absent." >&2
+            printf '%s\n' "$buildx_version_output" >&2
+        fi
         print_buildx_repair_guidance
     fi
 fi
@@ -1868,6 +1878,12 @@ if [ "$(uname)" == "Linux" ]; then
         echo "Please log out and log back in to apply group changes, then re-run this script."
         exit 0
     fi
+fi
+
+# A broken Buildx was reported above; stopping here lets the Docker group setup
+# surface in the same run.
+if [ "$BUILDX_STATE" = "broken" ]; then
+    exit 1
 fi
 
 # ----------------------------------------------------------------------------
@@ -2615,8 +2631,8 @@ if [ "$SKIP_BUILD" != "true" ]; then
     # Build Docker images (fleet-api and fleet-client only; TimescaleDB uses pre-built image)
     if ! compose build --no-cache; then
         echo "Error: Build failed. Exiting."
-        if [ "$BUILDX_UNAVAILABLE" = "true" ]; then
-            echo "Docker Buildx was missing or not working before the build." >&2
+        if [ "$BUILDX_STATE" = "absent" ]; then
+            echo "Docker Buildx was not installed before the build." >&2
             print_buildx_repair_guidance
         fi
         exit 1

@@ -163,6 +163,13 @@ printf 'docker' >> "$CALL_LOG"
 printf ' %s' "$@" >> "$CALL_LOG"
 printf '\n' >> "$CALL_LOG"
 
+if [ "${1:-}" = "info" ] && [[ "${3:-}" == *ClientInfo.Plugins* ]]; then
+    if [ "${FAKE_BUILDX_INSTALLED:-false}" = "true" ]; then
+        echo '/usr/libexec/docker/cli-plugins/docker-buildx: failed to fetch metadata: exec format error'
+    fi
+    exit 0
+fi
+
 if [ "${1:-}" = "info" ]; then
     printf '%s\n' "${FAKE_DOCKER_ID:-test-daemon}"
     exit 0
@@ -653,14 +660,14 @@ assert_contains "membership setup falls back to the login name" "$HARNESS_CALL_L
 
 # Buildx diagnostics surface in the same run that asks for a new login, so
 # the operator can repair both before retrying.
-make_stage docker-group-buildx-warning
-if FAKE_UID=1000 USER="$HARNESS_USER" FAKE_DOCKER_GROUP_EXISTS=false FAKE_BUILDX_FAILURE=true \
-    run_stage "$STAGE"; then
+make_stage docker-group-buildx-broken
+if FAKE_UID=1000 USER="$HARNESS_USER" FAKE_DOCKER_GROUP_EXISTS=false \
+    FAKE_BUILDX_FAILURE=true FAKE_BUILDX_INSTALLED=true run_stage "$STAGE"; then
     pass "group setup with broken Buildx still requests a new login"
 else
     fail "group setup with broken Buildx should still request a new login"
 fi
-assert_contains "group setup run reports broken Buildx" "$HARNESS_OUTPUT_LOG" 'Docker Buildx is missing or not working'
+assert_contains "group setup run reports broken Buildx" "$HARNESS_OUTPUT_LOG" 'Docker Buildx is installed but not working'
 assert_contains "group setup run includes Buildx repair guidance" "$HARNESS_OUTPUT_LOG" 'sudo apt-get install --reinstall docker-buildx-plugin'
 assert_contains "group setup run requests a new login" "$HARNESS_OUTPUT_LOG" 'Please log out and log back in'
 
@@ -694,15 +701,16 @@ assert_contains "non-interactive group refusal explains the issue" "$HARNESS_OUT
 assert_not_contains "non-interactive upgrade does not create groups" "$HARNESS_CALL_LOG" 'sudo groupadd'
 assert_not_contains "non-interactive upgrade does not change membership" "$HARNESS_CALL_LOG" 'sudo usermod'
 
-# Compose builds with its classic builder when Buildx is absent, so a failed
-# probe warns without blocking image preparation.
-make_stage docker-buildx-failure
+# Compose builds with its classic builder when no Buildx plugin is installed,
+# so a missing plugin warns without blocking image preparation.
+make_stage docker-buildx-absent
 if FAKE_BUILDX_FAILURE=true run_stage "$STAGE" --non-interactive --preflight-only; then
-    pass "broken Buildx warns without blocking preflight"
+    pass "missing Buildx warns without blocking preflight"
 else
-    fail "broken Buildx should not block preflight"
+    fail "missing Buildx should not block preflight"
 fi
-assert_contains "Buildx warning explains the problem" "$HARNESS_OUTPUT_LOG" 'Warning: Docker Buildx is missing or not working'
+assert_contains "Buildx probe consults the client plugin listing" "$HARNESS_CALL_LOG" 'ClientInfo.Plugins'
+assert_contains "Buildx warning explains the problem" "$HARNESS_OUTPUT_LOG" 'Warning: Docker Buildx is not installed'
 assert_contains "Buildx warning preserves the command diagnostic" "$HARNESS_OUTPUT_LOG" 'buildx plugin failed to execute'
 assert_contains "Buildx warning gives package remediation" "$HARNESS_OUTPUT_LOG" 'sudo apt-get install --reinstall docker-buildx-plugin'
 assert_not_contains "Buildx warning does not repair host packages" "$HARNESS_CALL_LOG" 'apt-get '
@@ -711,17 +719,34 @@ assert_not_contains "root never checks Docker group membership" "$HARNESS_CALL_L
 assert_not_contains "root never creates a Docker group" "$HARNESS_CALL_LOG" 'sudo groupadd'
 assert_not_contains "root never adds itself to a Docker group" "$HARNESS_CALL_LOG" 'sudo usermod'
 
-for buildx_failure in true false; do
-    make_stage "docker-build-failure-buildx-$buildx_failure"
-    if FAKE_BUILDX_FAILURE="$buildx_failure" FAKE_COMPOSE_BUILD_FAILURE=true \
+# Compose builds through an installed plugin, so a broken one fails before any
+# image work instead of after pulls and archive loading.
+make_stage docker-buildx-broken
+if FAKE_BUILDX_FAILURE=true FAKE_BUILDX_INSTALLED=true \
+    run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "broken Buildx must fail preflight"
+else
+    pass "broken Buildx fails preflight"
+fi
+assert_contains "broken Buildx explains the problem" "$HARNESS_OUTPUT_LOG" 'Error: Docker Buildx is installed but not working'
+assert_contains "broken Buildx shows the plugin error" "$HARNESS_OUTPUT_LOG" 'failed to fetch metadata: exec format error'
+assert_contains "broken Buildx gives package remediation" "$HARNESS_OUTPUT_LOG" 'sudo apt-get install --reinstall docker-buildx-plugin'
+assert_not_contains "broken Buildx does not repair host packages" "$HARNESS_CALL_LOG" 'apt-get '
+assert_not_contains "broken Buildx fails before pulling images" "$HARNESS_CALL_LOG" 'pull --ignore-buildable'
+assert_not_contains "broken Buildx fails before building images" "$HARNESS_CALL_LOG" ' build '
+assert_not_contains "broken Buildx leaves existing services running" "$HARNESS_CALL_LOG" ' down --remove-orphans'
+
+for buildx_absent in true false; do
+    make_stage "docker-build-failure-buildx-absent-$buildx_absent"
+    if FAKE_BUILDX_FAILURE="$buildx_absent" FAKE_COMPOSE_BUILD_FAILURE=true \
         run_stage "$STAGE" --non-interactive --preflight-only; then
-        fail "failed image build must stop preflight (Buildx broken=$buildx_failure)"
+        fail "failed image build must stop preflight (Buildx missing=$buildx_absent)"
     else
-        pass "failed image build stops preflight (Buildx broken=$buildx_failure)"
+        pass "failed image build stops preflight (Buildx missing=$buildx_absent)"
     fi
     assert_contains "image build failure is reported" "$HARNESS_OUTPUT_LOG" 'Error: Build failed.'
     assert_not_contains "image build failure leaves existing services running" "$HARNESS_CALL_LOG" ' down --remove-orphans'
-    if [ "$buildx_failure" = false ]; then
+    if [ "$buildx_absent" = false ]; then
         assert_not_contains "build failure without a Buildx problem omits Buildx guidance" "$HARNESS_OUTPUT_LOG" 'docker buildx version'
     elif awk '/Error: Build failed/ { failed = 1 } failed && /docker buildx version/ { found = 1 } END { exit !found }' "$HARNESS_OUTPUT_LOG"; then
         pass "build failure repeats Buildx repair guidance"
@@ -737,9 +762,9 @@ else
     fail "working Buildx should prepare a release"
 fi
 assert_contains "image preflight checks Buildx" "$HARNESS_CALL_LOG" 'docker buildx version'
-assert_not_contains "working Buildx does not warn" "$HARNESS_OUTPUT_LOG" 'Docker Buildx is missing or not working'
+assert_not_contains "working Buildx does not warn" "$HARNESS_OUTPUT_LOG" 'Docker Buildx is'
 : > "$HARNESS_CALL_LOG"
-if FAKE_BUILDX_FAILURE=true run_stage "$STAGE" --non-interactive --skip-build; then
+if FAKE_BUILDX_FAILURE=true FAKE_BUILDX_INSTALLED=true run_stage "$STAGE" --non-interactive --skip-build; then
     pass "prepared activation does not require Buildx"
 else
     fail "prepared activation should not require Buildx"
@@ -761,6 +786,18 @@ assert_not_contains "existing member does not look up the Docker group" "$HARNES
 assert_not_contains "existing member does not create a Docker group" "$HARNESS_CALL_LOG" 'sudo groupadd'
 assert_not_contains "existing member does not change membership" "$HARNESS_CALL_LOG" 'sudo usermod'
 assert_not_contains "existing member does not need a new login" "$HARNESS_OUTPUT_LOG" 'Please log out'
+
+# The broken-Buildx stop waits until the Docker group check has run.
+make_stage docker-existing-member-broken-buildx
+if FAKE_UID=1000 USER="$HARNESS_USER" FAKE_DOCKER_GROUP_MEMBER=true \
+    FAKE_BUILDX_FAILURE=true FAKE_BUILDX_INSTALLED=true \
+    run_stage "$STAGE" --non-interactive --preflight-only; then
+    fail "existing member with broken Buildx must fail preflight"
+else
+    pass "existing member with broken Buildx fails preflight"
+fi
+assert_contains "broken Buildx stop follows the membership check" "$HARNESS_CALL_LOG" "groups $HARNESS_USER"
+assert_not_contains "existing member with broken Buildx does not build" "$HARNESS_CALL_LOG" ' build '
 
 # The installer activates the overlay only after updater bootstrap.
 make_stage help
