@@ -1437,10 +1437,7 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 			continue
 		}
 		siteIDs = append(siteIDs, siteID)
-		rows[i].ListStats = &models.FleetListStats{
-			BuildingCount: int32(rows[i].BuildingCount), //nolint:gosec // bounded by org capacity
-			RackCount:     int32(rows[i].RackCount),     //nolint:gosec // bounded by org capacity
-		}
+		rows[i].ListStats = &models.FleetListStats{}
 		deviceIDs, err := s.deviceQueryer.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, &interfaces.MinerFilter{
 			SiteIDs: []int64{siteID},
 			PairingStatuses: []fm.PairingStatus{
@@ -1532,7 +1529,17 @@ func (s *Service) populateListStats(ctx context.Context, orgID int64, rows []mod
 			targets[rows[i].Site.ID] = rows[i].ListStats
 		}
 	}
-	return s.addContainerStats(ctx, orgID, targets)
+	if err := s.addContainerStats(ctx, orgID, targets); err != nil {
+		return err
+	}
+	for i := range rows {
+		if stats := rows[i].ListStats; stats != nil {
+			// Attachment counts already include containers and tanks, independently of telemetry access.
+			stats.BuildingCount = int32(rows[i].BuildingCount) //nolint:gosec // bounded by org capacity
+			stats.RackCount = int32(rows[i].RackCount)         //nolint:gosec // bounded by org capacity
+		}
+	}
+	return nil
 }
 
 func filterSiteRowsByListStats(rows []models.SiteWithCounts, filter fleetlistfilter.Filter) []models.SiteWithCounts {

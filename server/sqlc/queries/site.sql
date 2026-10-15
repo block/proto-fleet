@@ -90,9 +90,9 @@ WHERE org_id = $1
 -- without an extra round trip.
 SELECT
     s.*,
-    COALESCE(d.device_count, 0)::bigint AS device_count,
-    COALESCE(b.building_count, 0)::bigint AS building_count,
-    COALESCE(r.rack_count, 0)::bigint AS rack_count,
+    (COALESCE(d.device_count, 0) + COALESCE(c.module_count, 0))::bigint AS device_count,
+    (COALESCE(b.building_count, 0) + COALESCE(c.container_count, 0))::bigint AS building_count,
+    (COALESCE(r.rack_count, 0) + COALESCE(c.tank_count, 0))::bigint AS rack_count,
     COALESCE(i.infrastructure_device_count, 0)::bigint AS infrastructure_device_count
 FROM site s
 LEFT JOIN (
@@ -121,6 +121,22 @@ LEFT JOIN (
       AND ds.deleted_at IS NULL
     GROUP BY dsr.site_id
 ) r ON r.site_id = s.id
+LEFT JOIN (
+    SELECT controller.site_id,
+        COUNT(DISTINCT controller.id) AS container_count,
+        COUNT(DISTINCT tank.id) AS tank_count,
+        COUNT(module.id) AS module_count
+    FROM device controller
+    JOIN discovered_device dd ON dd.id = controller.discovered_device_id AND dd.org_id = controller.org_id
+    LEFT JOIN container_tank tank ON tank.device_id = controller.id AND tank.present
+    LEFT JOIN container_module module ON module.tank_id = tank.id AND module.retired_at IS NULL
+    WHERE controller.org_id = sqlc.arg('org_id')
+      AND controller.site_id IS NOT NULL
+      AND controller.deleted_at IS NULL
+      AND dd.deleted_at IS NULL
+      AND dd.device_class = 2
+    GROUP BY controller.site_id
+) c ON c.site_id = s.id
 LEFT JOIN (
     SELECT infrastructure_device.site_id, COUNT(*) AS infrastructure_device_count
     FROM infrastructure_device
@@ -603,9 +619,9 @@ SELECT s.id AS site_id,
   WHERE d.site_id=s.id AND d.org_id=s.org_id AND d.deleted_at IS NULL AND t.present) AS tank_count,
  count(a.id)::int AS module_count,
  count(*) FILTER (WHERE a.state='hashing')::int AS hashing_count,
- count(*) FILTER (WHERE a.state='attention')::int AS broken_count,
- count(*) FILTER (WHERE a.state IN ('offline','unknown'))::int AS offline_count,
- count(*) FILTER (WHERE a.state IN ('sleeping','isolated'))::int AS sleeping_count,
+ count(*) FILTER (WHERE a.state IN ('attention','isolated'))::int AS broken_count,
+ count(*) FILTER (WHERE a.state='offline')::int AS offline_count,
+ count(*) FILTER (WHERE a.state='sleeping')::int AS sleeping_count,
  count(*) FILTER (WHERE a.hashrate_hs IS NOT NULL OR a.power_w IS NOT NULL OR a.temperature_c IS NOT NULL)::int AS reporting_count,
  count(a.hashrate_hs)::int AS hashrate_reporting_count,
  count(a.power_w)::int AS power_reporting_count,
