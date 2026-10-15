@@ -35,6 +35,17 @@ export const Current: Story = {
   },
 };
 
+export const CurrentWithError: Story = {
+  args: {
+    updateStatus: {
+      status: "current",
+      current_version: "1.0.0",
+      error: "Download failed",
+      message: "Last update attempt failed: Download failed",
+    } as UpdateStatus,
+  },
+};
+
 export const Downloading: Story = {
   args: {
     installing: true,

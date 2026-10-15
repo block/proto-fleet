@@ -2,15 +2,18 @@
 
 ## Source
 - Repository: miner-firmware (private)
-  - Commit SHA: 43528f31b52379fc12356e88e9497a53a1e97ab6
-  - Commit Date: 2026-09-15
-  - Extraction Date: 2026-09-22
+  - Commit SHA: def3bae416409d693aa9536d8bbdf2a0b902421a
+  - Commit Date: 2026-10-13
+  - Extraction Date: 2026-10-15
 
-This snapshot tracks the `proto-apps-1.9.0` source revision. The
-`UnlockResponse.lock-status` field uses a `LockStatus` enum with `OPEN`,
-`CLOSED`, `UNLOCKED`, `UNINITIALIZED`, and `UNKNOWN` states. Secure-boot
-documentation clarifies that the hardware lock state is independent of
-the effective secure override.
+This snapshot tracks the `proto-apps-1.9.4` source revision. The
+`GET /api/v1/system/logs` contract counts `lines` in journal entries, returns
+an empty result for `lines=0`, and fails rather than truncating when the
+default `miner_sw` source needs more than 10000 entries of history.
+`UpdateStatus.error` can now be present in `available` or `current` to report
+the newest failed catalog check, update request, or update attempt, and
+`message` carries a one-line summary of `error` (at most 512 bytes). The
+fake-proto-rig simulator is updated for the `lines=0` and `message` changes.
 
 ## Files Extracted
 

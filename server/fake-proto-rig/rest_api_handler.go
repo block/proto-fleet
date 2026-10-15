@@ -273,10 +273,13 @@ func buildSystemUpdateStatus(status, currentVersion, previousVersion, newVersion
 		updateStatus.Message = &message
 	case "error":
 		message := "Update failed"
-		updateStatus.Message = &message
 		if updateError != "" {
+			// MDK-API: message is a one-line summary of error (at most 512
+			// bytes); the simulated failure messages already satisfy that.
+			message = updateError
 			updateStatus.Error = &updateError
 		}
+		updateStatus.Message = &message
 	}
 
 	if newVersion != "" {
@@ -1836,7 +1839,7 @@ func (h *RESTApiHandler) handleLogs(w http.ResponseWriter, r *http.Request) {
 
 	lines := 100 // default
 	if linesStr != "" {
-		if parsed, err := strconv.Atoi(linesStr); err == nil && parsed > 0 {
+		if parsed, err := strconv.Atoi(linesStr); err == nil && parsed >= 0 {
 			lines = parsed
 		}
 	}

@@ -3859,6 +3859,9 @@ func TestFakeFirmwareUpdateOutcome_FailsNextUpdateWithoutPromoting(t *testing.T)
 			if got := swUpdate["error"]; got != tt.expectedError {
 				t.Fatalf("expected update error %q, got %v", tt.expectedError, got)
 			}
+			if got := swUpdate["message"]; got != tt.expectedError {
+				t.Fatalf("expected update message to summarize error %q, got %v", tt.expectedError, got)
+			}
 
 			state.mu.RLock()
 			nextOutcome := state.FWNextUpdateOutcome
@@ -3890,6 +3893,45 @@ func TestFakeFirmwareUpdateOutcome_FailsNextUpdateWithoutPromoting(t *testing.T)
 			}
 			if _, present := swUpdate["previous_version"]; present {
 				t.Fatalf("expected no previous version after failed update, got %v", swUpdate["previous_version"])
+			}
+		})
+	}
+}
+
+func TestHandleLogs_LinesQuery(t *testing.T) {
+	tests := []struct {
+		name          string
+		query         string
+		expectedLines int
+	}{
+		{name: "default", query: "", expectedLines: 10},
+		{name: "limited", query: "?lines=3", expectedLines: 3},
+		{name: "zero returns empty result", query: "?lines=0", expectedLines: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := NewRESTApiHandler(NewMinerState("SN12345678", "00:11:22:33:44:55"))
+
+			rr := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/system/logs"+tt.query, nil)
+			h.handleLogs(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected %d, got %d; body=%s", http.StatusOK, rr.Code, rr.Body.String())
+			}
+			var resp LogsResponse
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("failed to unmarshal logs: %v; body=%s", err, rr.Body.String())
+			}
+			if resp.Logs.Lines != tt.expectedLines {
+				t.Errorf("expected lines %d, got %d", tt.expectedLines, resp.Logs.Lines)
+			}
+			if len(resp.Logs.Content) != tt.expectedLines {
+				t.Errorf("expected %d content lines, got %d", tt.expectedLines, len(resp.Logs.Content))
+			}
+			if resp.Logs.Source != "miner_sw" {
+				t.Errorf("expected default source %q, got %q", "miner_sw", resp.Logs.Source)
 			}
 		})
 	}
