@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"testing"
+	"time"
 
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,7 @@ import (
 func TestNewDeviceVerifiesFirmwareOnEveryFreshHandle(t *testing.T) {
 	firmwareVersion := "2.0.0"
 	firmwareReads := 0
+	uptimeSeconds := uint64(3600)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/pairing/info" {
 			w.Header().Set("Content-Type", "application/json")
@@ -37,7 +39,7 @@ func TestNewDeviceVerifiesFirmwareOnEveryFreshHandle(t *testing.T) {
 			_, _ = w.Write([]byte(`{"default_password_active":false}`))
 		case "/api/v1/system":
 			firmwareReads++
-			_, _ = fmt.Fprintf(w, `{"system-info":{"os":{"name":"ProtoOS","version":%q}}}`, firmwareVersion)
+			_, _ = fmt.Fprintf(w, `{"system-info":{"os":{"name":"ProtoOS","version":%q},"uptime_seconds":%d}}`, firmwareVersion, uptimeSeconds)
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -52,8 +54,17 @@ func TestNewDeviceVerifiesFirmwareOnEveryFreshHandle(t *testing.T) {
 
 	// Fleet Node repeatedly seeds fresh handles with the last stored version.
 	// Each handle must read the current firmware rather than trust that hint.
-	for i, version := range []string{"2.0.0", "3.0.0", "3.0.0"} {
-		firmwareVersion = version
+	for i, sample := range []struct {
+		version string
+		uptime  uint64
+	}{
+		{version: "2.0.0", uptime: 3600},
+		{version: "3.0.0", uptime: 0},
+		{version: "3.0.0", uptime: 1},
+	} {
+		firmwareVersion = sample.version
+		uptimeSeconds = sample.uptime
+		beforeNewHandle := time.Now()
 		dev, err := New(t.Context(), "node-miner", sdk.DeviceInfo{
 			Host: host, Port: int32(port), URLScheme: "http", FirmwareVersion: "1.0.0",
 		}, sdk.UsernamePassword{Username: "admin", Password: "proto"}, SetStatusTTL(0))
@@ -61,7 +72,10 @@ func TestNewDeviceVerifiesFirmwareOnEveryFreshHandle(t *testing.T) {
 		for range 2 {
 			metrics, err := dev.Status(t.Context())
 			require.NoError(t, err)
-			require.Equal(t, version, metrics.FirmwareVersion)
+			require.Equal(t, sample.version, metrics.FirmwareVersion)
+			require.NotNil(t, metrics.UptimeSeconds)
+			require.Equal(t, uptimeSeconds, *metrics.UptimeSeconds)
+			require.False(t, metrics.UptimeObservedAt.Before(beforeNewHandle))
 		}
 		require.Equal(t, i+1, firmwareReads, "later polls on the same handle must remain throttled")
 		require.NoError(t, dev.Close(context.Background()))

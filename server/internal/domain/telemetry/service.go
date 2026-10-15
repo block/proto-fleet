@@ -346,6 +346,9 @@ type TelemetryService struct {
 	// lastDefaultPwActive caches the last-seen default-password flag per device so
 	// the poll only checks for a pairing-status change on transitions, not every poll.
 	lastDefaultPwActive sync.Map // map[DeviceIdentifier]bool
+	// lastReconciledBoot records successfully cleared reboot requirements.
+	// That boot cannot satisfy a later firmware upload's reboot boundary.
+	lastReconciledBoot sync.Map // map[DeviceIdentifier]time.Time
 	// inFlight tracks devices currently claimed for processing (scheduled
 	// full telemetry, status-only recovery, RefreshDevice, or a direct
 	// sample). Values are *inFlightEntry carrying the fleetd-owned flight
@@ -435,6 +438,7 @@ func (s *TelemetryService) addDevicesLocked(ctx context.Context, deviceID ...mod
 			newlyTracked = append(newlyTracked, id)
 		}
 		s.lastDefaultPwActive.Delete(id)
+		s.lastReconciledBoot.Delete(id)
 	}
 	// The scheduler is the single admission path. It makes one new device
 	// immediately eligible and spreads bulk startup discovery across the poll
@@ -496,6 +500,7 @@ func (s *TelemetryService) removeDevicesLocked(ctx context.Context, deviceIDs ..
 		s.lastKnownStatuses.Delete(id)
 		s.lastKnownFirmware.Delete(id)
 		s.lastDefaultPwActive.Delete(id)
+		s.lastReconciledBoot.Delete(id)
 		s.metricsObserver.onDeviceRemoved(ctx, id)
 	}
 	return s.updateScheduler.RemoveDevices(ctx, deviceIDs...)
@@ -1177,7 +1182,8 @@ func (s *TelemetryService) statusWriterRoutine(ctx context.Context, activation *
 
 		// Check current DB statuses to avoid overwriting firmware update states
 		// (UPDATING, REBOOT_REQUIRED) that are managed by the command execution service.
-		// REBOOT_REQUIRED persists until the user triggers a reboot command from Fleet.
+		// Reboot commands and telemetry with evidence of a later boot clear
+		// REBOOT_REQUIRED separately; ordinary health samples must not clear it.
 		deviceIDs := make([]models.DeviceIdentifier, 0, len(pendingUpdates))
 		for deviceID := range pendingUpdates {
 			deviceIDs = append(deviceIDs, deviceID)
@@ -1600,6 +1606,10 @@ func (s *TelemetryService) collectTelemetryFromDevice(ctx context.Context, devic
 
 		s.persistFirmwareVersionIfChanged(ctx, device.ID, result.metrics.FirmwareVersion)
 		s.reconcileDefaultPasswordState(ctx, device.ID, result.metrics.DefaultPasswordActive)
+		// A confirmed boot completes the reboot requirement independently of
+		// mining health. Ambiguous inactive health clears to UNKNOWN until
+		// processDevice's explicit status poll distinguishes idle from no pool.
+		s.reconcileRebootRequiredState(ctx, device.ID, result.metrics, result.status)
 	}
 
 	if err := s.updateScheduler.AddDevices(ctx, models.Device{

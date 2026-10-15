@@ -264,6 +264,7 @@ type systemInfoInner struct {
 	Manufacturer    string          `json:"manufacturer"`
 	Model           string          `json:"model"`
 	CBSN            string          `json:"cb_sn"`
+	UptimeSeconds   *uint64         `json:"uptime_seconds,omitempty"`
 	OS              *swInfo         `json:"os,omitempty"`
 	MiningDriverSW  *swInfo         `json:"mining_driver_sw,omitempty"`
 	WebServer       *swInfo         `json:"web_server,omitempty"`
@@ -857,18 +858,37 @@ func checkResponse(resp *http.Response, failurePrefix string, okStatuses ...int)
 	return fmt.Errorf("%s with status %d", failurePrefix, resp.StatusCode)
 }
 
+// SystemInfo contains the firmware version and optional reboot evidence from a
+// single system response. UptimeObservedAt is the request start, not its end, so
+// network latency cannot make the inferred boot time later than the actual boot.
+type SystemInfo struct {
+	FirmwareVersion  string
+	UptimeSeconds    *uint64
+	UptimeObservedAt time.Time
+}
+
+// GetSystemInfo retrieves firmware and uptime together from the miner.
+func (c *Client) GetSystemInfo(ctx context.Context) (SystemInfo, error) {
+	var resp systemInfoResponse
+	observedAt := time.Now()
+	if err := c.doGet(ctx, "/api/v1/system", &resp); err != nil {
+		return SystemInfo{}, fmt.Errorf("failed to get system info: %w", err)
+	}
+
+	info := SystemInfo{UptimeSeconds: resp.SystemInfo.UptimeSeconds}
+	if resp.SystemInfo.OS != nil {
+		info.FirmwareVersion = resp.SystemInfo.OS.Version
+	}
+	if info.UptimeSeconds != nil {
+		info.UptimeObservedAt = observedAt
+	}
+	return info, nil
+}
+
 // GetSoftwareInfo retrieves the firmware (OS) version string from the miner.
 func (c *Client) GetSoftwareInfo(ctx context.Context) (string, error) {
-	var resp systemInfoResponse
-	if err := c.doGet(ctx, "/api/v1/system", &resp); err != nil {
-		return "", fmt.Errorf("failed to get system info: %w", err)
-	}
-
-	if resp.SystemInfo.OS != nil {
-		return resp.SystemInfo.OS.Version, nil
-	}
-
-	return "", nil
+	info, err := c.GetSystemInfo(ctx)
+	return info.FirmwareVersion, err
 }
 
 // GetFirmwareVersion retrieves the firmware (OS) version string from the miner.

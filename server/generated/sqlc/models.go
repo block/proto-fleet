@@ -1287,6 +1287,8 @@ type DeviceStatus struct {
 	StatusTimestamp sql.NullTime
 	StatusDetails   sql.NullString
 	CreatedAt       sql.NullTime
+	// Earliest time a boot must follow to satisfy the pending firmware installation; NULL falls back to status_timestamp.
+	RebootRequiredAfter sql.NullTime
 }
 
 type DeviceStatusDaily struct {

@@ -257,6 +257,12 @@ message DeviceMetrics {
   // must not change remediation state.
   optional bool default_password_active = 17;
   ContainerSnapshot container = 18;
+
+  // Whole elapsed seconds since device boot; absent means unknown, zero is valid.
+  optional uint64 uptime_seconds = 19;
+  // Start of the device request that sampled uptime. Cache this together with
+  // uptime_seconds unchanged. Missing observation time provides no reboot evidence.
+  google.protobuf.Timestamp uptime_observed_at = 20;
 }
 
 

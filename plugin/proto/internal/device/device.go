@@ -70,6 +70,8 @@ type Device struct {
 	statusTTL    time.Duration
 
 	lastFirmwareCheckAt        time.Time
+	lastUptimeSeconds          *uint64
+	lastUptimeObservedAt       time.Time
 	lastDefaultPasswordCheckAt time.Time
 	lastDefaultPasswordActive  *bool
 
@@ -307,14 +309,17 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	return metrics, nil
 }
 
-// refreshFirmwareVersion periodically re-fetches firmware version from the device
-// to detect firmware updates. Throttled to avoid excessive API calls.
+// refreshFirmwareVersion periodically reads firmware and uptime from the same
+// system response. Cached uptime always keeps its original observation time.
 func (d *Device) refreshFirmwareVersion(ctx context.Context, metrics *sdk.DeviceMetrics) error {
 	if time.Since(d.lastFirmwareCheckAt) < firmwareRefreshInterval {
+		d.copyUptimeToMetrics(metrics)
 		return nil
 	}
-	fwVersion, err := d.client.GetFirmwareVersion(ctx)
+	info, err := d.client.GetSystemInfo(ctx)
 	d.lastFirmwareCheckAt = time.Now()
+	d.lastUptimeSeconds = nil
+	d.lastUptimeObservedAt = time.Time{}
 	if err != nil {
 		if errors.Is(err, proto.ErrDeviceIdentity) {
 			return err
@@ -322,11 +327,22 @@ func (d *Device) refreshFirmwareVersion(ctx context.Context, metrics *sdk.Device
 		slog.Debug("failed to get firmware version during Status", "error", err)
 		return nil
 	}
-	if fwVersion != "" {
-		d.deviceInfo.FirmwareVersion = fwVersion
-		metrics.FirmwareVersion = fwVersion
+	if info.FirmwareVersion != "" {
+		d.deviceInfo.FirmwareVersion = info.FirmwareVersion
+		metrics.FirmwareVersion = info.FirmwareVersion
 	}
+	d.lastUptimeSeconds = info.UptimeSeconds
+	d.lastUptimeObservedAt = info.UptimeObservedAt
+	d.copyUptimeToMetrics(metrics)
 	return nil
+}
+
+func (d *Device) copyUptimeToMetrics(metrics *sdk.DeviceMetrics) {
+	if d.lastUptimeSeconds != nil {
+		uptime := *d.lastUptimeSeconds
+		metrics.UptimeSeconds = &uptime
+		metrics.UptimeObservedAt = d.lastUptimeObservedAt
+	}
 }
 
 // refreshDefaultPasswordStatus periodically re-fetches the factory-password flag.
@@ -810,6 +826,8 @@ func (d *Device) invalidateStatusAndFirmwareCaches() {
 	defer d.mutex.Unlock()
 	d.clearStatusCacheLocked()
 	d.lastFirmwareCheckAt = time.Time{}
+	d.lastUptimeSeconds = nil
+	d.lastUptimeObservedAt = time.Time{}
 }
 
 func (d *Device) clearStatusCacheLocked() {

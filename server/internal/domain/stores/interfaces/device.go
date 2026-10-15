@@ -3,6 +3,7 @@ package interfaces
 import (
 	"context"
 	"net/netip"
+	"time"
 
 	mm "github.com/block/proto-fleet/server/internal/domain/miner/models"
 
@@ -230,7 +231,9 @@ type DeviceStore interface {
 	GetAvailableFirmwareVersions(ctx context.Context, orgID int64) ([]string, error)
 	GetMinerModelGroups(ctx context.Context, orgID int64, filter *MinerFilter) ([]MinerModelGroupResult, error)
 	UpsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status mm.MinerStatus, details string) error
+	MarkFirmwareRebootRequiredStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, rebootRequiredAfter time.Time) error
 	UpsertDeviceStatuses(ctx context.Context, updates []DeviceStatusUpdate) error
+	ReconcileRebootRequiredStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, bootedAfter time.Time, status mm.MinerStatus) (bool, error)
 	GetDeviceStatusForDeviceIdentifiers(ctx context.Context, deviceIdentifiers []models.DeviceIdentifier) (map[models.DeviceIdentifier]mm.MinerStatus, error)
 	GetOfflineDevices(ctx context.Context, limit int) ([]OfflineDeviceInfo, error)
 	GetOfflineFleetNodeDevices(ctx context.Context) ([]FleetNodeRecoveryTarget, error)

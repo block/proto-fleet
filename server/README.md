@@ -55,6 +55,30 @@ The SDK reserves an ID during creation and rejected-result cleanup, returning a
 retryable close error while either is running. IDs being closed cannot be reused
 until cleanup succeeds.
 
+## Firmware reboot reconciliation
+
+Proto miner telemetry clears `REBOOT_REQUIRED` when sampled uptime proves the
+miner booted after the pending update's reboot boundary, including reboots outside
+Fleet and reboot requests whose responses were lost. Uptime retains its observation
+time while cached; Fleet Node transports its age so reconciliation does not
+depend on synchronized node and server clocks. Missing or ambiguous evidence
+leaves the status unchanged. The database checks the current status and reboot boundary
+atomically so an older boot cannot clear a newer firmware update. Ordinary
+telemetry still preserves `UPDATING` and pending `REBOOT_REQUIRED` states.
+
+For firmware reporting `confirming` or `success`, Fleet retains the successful
+upload time separately from the time it records `REBOOT_REQUIRED`. A proven boot
+after that upload avoids a redundant reboot and can clear a late status marker.
+The state name alone is insufficient: older firmware can reconstruct `confirming`
+after restarting only its API service. `installed` and devices without status
+reporting continue to require a boot after Fleet observes installation completion.
+Reboot completion does not establish successful image activation or rollback status.
+
+This requires firmware to report actual host uptime or omit it when unavailable.
+Older Go MDK firmware that substitutes API-process uptime after a failed
+`/proc/uptime` read must receive the corresponding firmware correction; Fleet
+cannot distinguish that fabricated value from a real host boot through MDKv1.
+
 ## Fleet Node bootstrap rate limits
 
 | RPC | Requests per source IP per minute |

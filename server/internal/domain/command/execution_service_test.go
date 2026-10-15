@@ -26,6 +26,7 @@ import (
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	storeMocks "github.com/block/proto-fleet/server/internal/domain/stores/interfaces/mocks"
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	modelsV2 "github.com/block/proto-fleet/server/internal/domain/telemetry/models/v2"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
@@ -995,22 +996,29 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 
 				mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
 				mockProvider := minerIfaceMocks.NewMockFirmwareUpdateStatusProvider(ctrl)
+				mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 				devID := tmodels.DeviceIdentifier("device-123")
+				uploadCompletedAt := time.Now()
 
 				mockDeviceStore.EXPECT().
 					UpsertDeviceStatus(gomock.Any(), devID, models.MinerStatusUpdating, "").
 					Return(nil)
-				mockDeviceStore.EXPECT().
-					UpsertDeviceStatus(gomock.Any(), devID, models.MinerStatusRebootRequired, "").
-					Return(nil)
+				if state == "installed" {
+					mockDeviceStore.EXPECT().UpsertDeviceStatus(gomock.Any(), devID, models.MinerStatusRebootRequired, "").Return(nil)
+				} else {
+					mockDeviceStore.EXPECT().MarkFirmwareRebootRequiredStatus(gomock.Any(), devID, uploadCompletedAt).Return(nil)
+					mockMiner.EXPECT().GetDeviceMetrics(gomock.Any()).Return(modelsV2.DeviceMetrics{}, nil)
+				}
 
 				svc := &ExecutionService{deviceStore: mockDeviceStore}
 
 				installVerified, err := svc.doPollFirmwareInstall(
 					t.Context(),
+					mockMiner,
 					mockProvider,
 					devID,
 					42,
+					uploadCompletedAt,
 					&sdk.FirmwareUpdateStatus{State: state},
 					nil,
 				)
@@ -1070,7 +1078,7 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 		mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 		svc := &ExecutionService{}
 
-		installVerified, err := svc.pollFirmwareInstallStatus(t.Context(), mockMiner, 42)
+		installVerified, err := svc.pollFirmwareInstallStatus(t.Context(), mockMiner, 42, time.Now())
 
 		require.NoError(t, err)
 		assert.True(t, installVerified)
@@ -1087,7 +1095,7 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 		svc := &ExecutionService{}
 		miner := firmwareStatusMiner{Miner: mockMiner, FirmwareUpdateStatusProvider: mockProvider}
 
-		installVerified, err := svc.pollFirmwareInstallStatus(t.Context(), miner, 42)
+		installVerified, err := svc.pollFirmwareInstallStatus(t.Context(), miner, 42, time.Now())
 
 		require.NoError(t, err)
 		assert.True(t, installVerified)

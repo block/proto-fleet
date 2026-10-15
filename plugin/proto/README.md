@@ -66,6 +66,12 @@ plugin/proto/                  # Plugin root
 - Web view URL generation for device management interfaces
 - TLS/HTTP2 support with configurable security settings
 
+R2 status polling reads firmware version and optional system uptime together on
+the first poll and every five minutes afterward. Uptime retains the original
+request-start timestamp between probes so Fleet can safely recognize an external
+reboot without treating cached uptime as a new observation. A missing, invalid,
+or failed uptime read supplies no reboot evidence.
+
 ### 🔐 **Authentication & Security**
 - Username/password login with factory-default auto-pairing (`admin`/`proto`)
 - Cached access tokens with automatic re-login when the rig rejects a token
