@@ -1016,6 +1016,74 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 		}
 	})
 
+	t.Run("current status with a rig error keeps polling within the grace window", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
+		mockProvider := minerIfaceMocks.NewMockFirmwareUpdateStatusProvider(ctrl)
+		devID := tmodels.DeviceIdentifier("device-123")
+
+		mockDeviceStore.EXPECT().
+			UpsertDeviceStatus(gomock.Any(), devID, models.MinerStatusUpdating, "").
+			Return(nil)
+
+		svc := &ExecutionService{deviceStore: mockDeviceStore}
+		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+		defer cancel()
+		rigErr := "catalog check failed: connection refused"
+
+		installVerified, err := svc.doPollFirmwareInstall(
+			ctx,
+			mockProvider,
+			devID,
+			42,
+			&sdk.FirmwareUpdateStatus{State: "current", Error: &rigErr},
+			nil,
+		)
+
+		require.Error(t, err)
+		assert.False(t, installVerified)
+		assert.Contains(t, err.Error(), "polling timed out")
+		assert.NotContains(t, err.Error(), rigErr)
+	})
+
+	t.Run("current status fails the install only after the grace window", func(t *testing.T) {
+		rigErr := "catalog check failed: connection refused"
+		for _, tc := range []struct {
+			name        string
+			rigErr      *string
+			sinceUpload time.Duration
+			wantErr     string
+		}{
+			{name: "within grace window without rig error", sinceUpload: firmwareInstallGraceWindow},
+			{name: "within grace window with rig error", rigErr: &rigErr, sinceUpload: firmwareInstallGraceWindow},
+			{
+				name:        "after grace window without rig error",
+				sinceUpload: firmwareInstallGraceWindow + time.Second,
+				wantErr:     "install may have failed silently",
+			},
+			{
+				name:        "after grace window with rig error",
+				rigErr:      &rigErr,
+				sinceUpload: firmwareInstallGraceWindow + time.Second,
+				wantErr:     "rig reported update error: " + rigErr,
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				err := firmwareInstallRevertedError(42, &sdk.FirmwareUpdateStatus{State: "current", Error: tc.rigErr}, tc.sinceUpload)
+
+				if tc.wantErr == "" {
+					require.NoError(t, err)
+					return
+				}
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "firmware install reverted to 'current' on device 42")
+				assert.Contains(t, err.Error(), tc.wantErr)
+			})
+		}
+	})
+
 	t.Run("successful automatic reboot clears firmware status", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
