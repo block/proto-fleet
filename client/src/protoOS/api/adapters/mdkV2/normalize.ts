@@ -737,7 +737,10 @@ export const toCanonicalContainer = (
   const boardSummary = mapWire === undefined ? undefined : boardRollup(boards);
   const containerRollup: LevelRollup = {
     ...boardSummary,
-    hashrate: latest(statusWire.hashrate, "TH/s"),
+    // Home requests the bulk map: its board health is the live device rate.
+    // Mining status reports trailing accepted-share hashrate instead. Missing
+    // map health must remain unknown rather than falling back to that rate.
+    hashrate: boardSummary?.hashrate ?? latest(statusWire.hashrate, "TH/s"),
     power: latest(statusWire.power, "W"),
     // Container mining power comes from firmware; its coverage is independent
     // of the module PSU input totals.

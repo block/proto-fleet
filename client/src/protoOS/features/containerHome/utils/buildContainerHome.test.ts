@@ -236,7 +236,7 @@ describe("container Home live refresh", () => {
     { label: "invalid facility power", snapshot: { plant: { facilityPowerW: Number.NaN } } },
   ])("clears stale power and efficiency after $label, then accepts zero and restored readings", ({ snapshot }) => {
     const initial = toCanonicalContainer(
-      { containerMap: { tanks: [] } },
+      undefined,
       { power: 1500, hashrate: 100 },
       { plant: { facilityPowerW: 2000 } },
       "ct1",
@@ -267,7 +267,7 @@ describe("container Home live refresh", () => {
 describe("container Home mapping", () => {
   it("uses facility power for container efficiency and rejects unknown module power coverage", () => {
     const state = toCanonicalContainer(
-      { containerMap: { tanks: [] } },
+      undefined,
       { power: 1500, hashrate: 100 },
       {
         plant: { facilityPowerW: 2000, totalPowerW: 1500 },
@@ -287,7 +287,7 @@ describe("container Home mapping", () => {
     // Two boards: 1000 W / 80 TH/s and 500 W / 20 TH/s. Their combined
     // efficiency is 15 J/TH, not the arithmetic mean of 12.5 and 25 J/TH.
     const state = toCanonicalContainer(
-      { containerMap: { tanks: [] } },
+      undefined,
       { power: 1500, hashrate: 100 },
       { plant: { facilityPowerW: 2000 }, coolingFans: [{ componentId: "fan", powerW: 100 }] },
       "ct1",
@@ -304,7 +304,7 @@ describe("container Home mapping", () => {
 
   it("does not substitute mining or plant power when overhead-inclusive power is absent", () => {
     const state = toCanonicalContainer(
-      { containerMap: { tanks: [] } },
+      undefined,
       { power: 1500, hashrate: 100 },
       { plant: { totalPowerW: 1500, heatRejectionPowerW: 500 } },
       "ct1",

@@ -72,6 +72,44 @@ const map = {
 
 describe("MDK v2 CT1 normalization", () => {
   test.each([
+    { rates: [60, 40], expected: 100 },
+    { rates: [0, 0], expected: 0 },
+    { rates: [60, undefined], expected: null },
+    { rates: [60, Number.NaN], expected: null },
+    { rates: [60, Number.POSITIVE_INFINITY], expected: null },
+    { rates: [], expected: null },
+  ])("uses complete current board hashrate, not accepted shares: $rates", ({ rates, expected }) => {
+    const wire = {
+      containerMap: {
+        tanks: [
+          {
+            id: 1,
+            modules: [
+              {
+                id: 1,
+                slots: rates.map((hashrate, index) => ({
+                  hashboard: { serial: `HB-${index}`, health: hashrate === undefined ? undefined : { hashrate } },
+                })),
+              },
+            ],
+          },
+        ],
+      },
+    };
+    useMinerStore.getState().resetDeviceData();
+    // A later missing reading must clear the previous complete total.
+    for (const snapshot of [map, wire]) {
+      const { telemetry } = toCanonicalContainer(snapshot, { hashrate: 900 }, {}, "ct1");
+      useMinerStore.getState().telemetry.mergeTelemetry(telemetry);
+    }
+    expect(useMinerStore.getState().telemetry.rollupsByEntity.get(ROOT_MODULE_KEY)?.hashrate?.latest).toEqual({
+      value: expected,
+      units: "TH/s",
+    });
+    useMinerStore.getState().resetDeviceData();
+  });
+
+  test.each([
     [V2MiningState.MINING_STATE_IDLE, "stopped", "ok"],
     [V2MiningState.MINING_STATE_READY, "stopped", "ok"],
     [V2MiningState.MINING_STATE_DISCONNECTED, "unknown", "offline"],
@@ -520,7 +558,7 @@ describe("MDK v2 CT1 normalization", () => {
       miningAsicCount: 2,
     });
     expect(result.telemetry.rollupsByEntity.get("container:ct1-a" as never)).toMatchObject({
-      hashrate: { latest: { value: 2.4, units: "TH/s" } },
+      hashrate: { latest: { value: 2.5, units: "TH/s" } },
       temperature: { latest: { value: 65.5, units: "°C" } },
       boardCount: 1,
       onlineBoardCount: 1,
