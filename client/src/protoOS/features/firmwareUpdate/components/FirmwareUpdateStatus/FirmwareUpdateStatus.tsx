@@ -26,18 +26,26 @@ const FirmwareUpdateStatus = ({
   onUpdate,
 }: FirmwareUpdateStatusProps) => {
   const [showModal, setShowModal] = useState(false);
-  const firmwareStatusMessage = useMemo(() => {
-    return statusLabelFromUpdateStatus(updateStatus);
+  // A `current` status can still carry the newest failed catalog check or
+  // update attempt in `error`; surface it as an update error.
+  const displayedUpdateStatus = useMemo<UpdateStatus | undefined>(() => {
+    return updateStatus?.status === "current" && updateStatus.error
+      ? { ...updateStatus, status: "error" }
+      : updateStatus;
   }, [updateStatus]);
+  const firmwareStatusMessage = useMemo(() => {
+    return statusLabelFromUpdateStatus(displayedUpdateStatus);
+  }, [displayedUpdateStatus]);
 
   return (
     <div
       className={clsx("relative", {
-        hidden: !updateStatus || updateStatus.status === "current" || firmwareStatusMessage === undefined,
+        hidden:
+          !displayedUpdateStatus || displayedUpdateStatus.status === "current" || firmwareStatusMessage === undefined,
       })}
     >
       <FirmwareUpdateStatusWidget
-        updateStatus={updateStatus}
+        updateStatus={displayedUpdateStatus}
         statusMessage={firmwareStatusMessage}
         installing={installing}
         loading={loading}
@@ -45,7 +53,7 @@ const FirmwareUpdateStatus = ({
       />
       <FirmwareUpdateStatusModal
         open={showModal}
-        updateStatus={updateStatus}
+        updateStatus={displayedUpdateStatus}
         onReboot={onReboot}
         rebootPending={rebootPending}
         onDismiss={() => setShowModal(false)}
