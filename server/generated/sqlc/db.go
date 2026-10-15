@@ -1431,6 +1431,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listContainerModuleHistoryStmt, err = db.PrepareContext(ctx, listContainerModuleHistory); err != nil {
 		return nil, fmt.Errorf("error preparing query ListContainerModuleHistory: %w", err)
 	}
+	if q.listContainerPlacementsStmt, err = db.PrepareContext(ctx, listContainerPlacements); err != nil {
+		return nil, fmt.Errorf("error preparing query ListContainerPlacements: %w", err)
+	}
 	if q.listContainerSiteStatsStmt, err = db.PrepareContext(ctx, listContainerSiteStats); err != nil {
 		return nil, fmt.Errorf("error preparing query ListContainerSiteStats: %w", err)
 	}
@@ -4963,6 +4966,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listContainerModuleHistoryStmt: %w", cerr)
 		}
 	}
+	if q.listContainerPlacementsStmt != nil {
+		if cerr := q.listContainerPlacementsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listContainerPlacementsStmt: %w", cerr)
+		}
+	}
 	if q.listContainerSiteStatsStmt != nil {
 		if cerr := q.listContainerSiteStatsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listContainerSiteStatsStmt: %w", cerr)
@@ -7441,6 +7449,7 @@ type Queries struct {
 	listCompletedTicketAssigneesStmt                             *sql.Stmt
 	listCompletedTicketsStmt                                     *sql.Stmt
 	listContainerModuleHistoryStmt                               *sql.Stmt
+	listContainerPlacementsStmt                                  *sql.Stmt
 	listContainerSiteStatsStmt                                   *sql.Stmt
 	listContainersStmt                                           *sql.Stmt
 	listCurtailmentAutomationRulesByOrgStmt                      *sql.Stmt
@@ -8310,6 +8319,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listCompletedTicketAssigneesStmt:                             q.listCompletedTicketAssigneesStmt,
 		listCompletedTicketsStmt:                                     q.listCompletedTicketsStmt,
 		listContainerModuleHistoryStmt:                               q.listContainerModuleHistoryStmt,
+		listContainerPlacementsStmt:                                  q.listContainerPlacementsStmt,
 		listContainerSiteStatsStmt:                                   q.listContainerSiteStatsStmt,
 		listContainersStmt:                                           q.listContainersStmt,
 		listCurtailmentAutomationRulesByOrgStmt:                      q.listCurtailmentAutomationRulesByOrgStmt,

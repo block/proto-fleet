@@ -21,6 +21,25 @@ type Handler struct {
 }
 
 func NewHandler(service *containers.Service) *Handler { return &Handler{service: service} }
+func (h *Handler) ListContainerPlacements(ctx context.Context, req *connect.Request[pb.ListContainerPlacementsRequest]) (*connect.Response[pb.ListContainerPlacementsResponse], error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	rows, err := h.service.ListPlacements(ctx, info.OrganizationID, func(siteID *int64) (bool, error) {
+		for _, permission := range []string{authz.PermSiteRead, authz.PermSiteManage} {
+			allowed, err := middleware.HasPermission(ctx, permission, authz.ResourceContext{SiteID: siteID})
+			if err != nil || !allowed {
+				return allowed, err
+			}
+		}
+		return true, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.ListContainerPlacementsResponse{Containers: rows}), nil
+}
 func (h *Handler) ListContainers(ctx context.Context, req *connect.Request[pb.ListContainersRequest]) (*connect.Response[pb.ListContainersResponse], error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {

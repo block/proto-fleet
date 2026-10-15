@@ -1,3 +1,17 @@
+-- name: ListContainerPlacements :many
+-- Membership lists need identity and topology counts, never telemetry.
+SELECT d.device_identifier, d.site_id,
+       COALESCE(NULLIF(d.custom_name, ''), 'Container ' || COALESCE(d.serial_number, ''))::text AS name,
+       COALESCE(s.name, '')::text AS site_name,
+       (SELECT count(*) FROM container_tank t WHERE t.device_id = d.id AND t.present)::bigint AS tank_count
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.org_id
+JOIN device_pairing dp ON dp.device_id = d.id
+LEFT JOIN site s ON s.id = d.site_id AND s.org_id = d.org_id AND s.deleted_at IS NULL
+WHERE d.org_id = sqlc.arg('org_id') AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL AND dd.device_class = 2
+ORDER BY d.id;
+
 -- name: ListContainers :many
 SELECT d.id, d.device_identifier, d.site_id, d.serial_number,
        COALESCE(d.custom_name, '')::text AS name,

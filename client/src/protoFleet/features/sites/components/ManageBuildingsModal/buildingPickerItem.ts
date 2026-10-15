@@ -5,7 +5,7 @@
 // with the rack picker.
 
 import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import type { ContainerPlacement } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 
 export interface BuildingPickerItem {
   id: string;
@@ -51,7 +51,7 @@ export const buildBuildingPickerItem = (
 export const containerPickerId = (identifier: string) => `container:${identifier}`;
 
 export const buildContainerPickerItem = (
-  container: Container,
+  container: ContainerPlacement,
   currentSiteId: bigint,
   siteLabels: Record<string, string>,
 ): BuildingPickerItem => ({

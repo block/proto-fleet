@@ -1206,6 +1206,8 @@ type Querier interface {
 	// Raw reads retain the original nullable fields; older/longer windows return
 	// source-bucket averages, with authorization before combining topology versions.
 	ListContainerModuleHistory(ctx context.Context, arg ListContainerModuleHistoryParams) ([]ListContainerModuleHistoryRow, error)
+	// Membership lists need identity and topology counts, never telemetry.
+	ListContainerPlacements(ctx context.Context, orgID int64) ([]ListContainerPlacementsRow, error)
 	// Match the unified Miners list: count observed modules, not controllers as miners.
 	ListContainerSiteStats(ctx context.Context, arg ListContainerSiteStatsParams) ([]ListContainerSiteStatsRow, error)
 	// Reuse the inventory state projection so cards agree with module lists about

@@ -25,6 +25,12 @@ without a live device connection.
 The Change site action uses the server's current-site management capability,
 including site-scoped grants. Saving rechecks both source and destination sites.
 
+Membership modals use `ContainerService.ListContainerPlacements`, which returns
+only container identity, name, site, and tank count. Each row requires `site:read`
+and `site:manage` at its current placement (organization-wide for Unassigned).
+Placement-only managers do not need `fleet:read` or `miner:read`. Container detail
+and telemetry lists still require all three read permissions.
+
 Pairing has no site argument. Pairing a new container leaves it unassigned,
 as the pairing API does for ordinary miners; sidebar scope never silently changes
 placement. Assign its site explicitly after pairing. Deleting a site unassigns
@@ -46,12 +52,18 @@ unified Miners inventory: module power is PSU input, not container facility powe
 Container and tank detail retain their distinct facility/PDU power measurements.
 Site-selected schedules and curtailment resolve the current device placement.
 
-Moving a container does not rewrite historical site attribution. Poll-time
-observations, hashboard installations, and persisted site metric buckets retain
-their recorded site, consistent with existing device history. Module/tank history
+Moving a container does not rewrite the recorded site on poll-time observations
+or hashboard installations. Module/tank history
 requires access to the current container and filters samples by their recorded
 site. An operator limited to the old site loses access to the moved container;
 access to its new site alone does not grant its old site's samples.
+
+Fleet/site dashboard rollups are an exception: their refresh deletes and rebuilds
+metric buckets within its refresh window using the device's **current** site.
+After a move, pre-move buckets rebuilt by a refresh or backfill can therefore be
+attributed to the destination site. Buckets outside the rebuilt window keep their
+existing attribution. This is the same rollup behavior used for conventional
+miners, separate from the recorded-site filtering of module/tank history.
 
 ## CSV and migration
 

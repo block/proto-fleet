@@ -5282,6 +5282,18 @@ func (q *retryingQuerier) ListContainerModuleHistory(ctx context.Context, arg Li
 	return result, err
 }
 
+func (q *retryingQuerier) ListContainerPlacements(ctx context.Context, orgID int64) ([]ListContainerPlacementsRow, error) {
+	var result []ListContainerPlacementsRow
+	err := q.retrier.RetryQuery(ctx, "ListContainerPlacements", func() error {
+		callResult, callErr := q.next.ListContainerPlacements(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListContainerSiteStats(ctx context.Context, arg ListContainerSiteStatsParams) ([]ListContainerSiteStatsRow, error) {
 	var result []ListContainerSiteStatsRow
 	err := q.retrier.RetryQuery(ctx, "ListContainerSiteStats", func() error {

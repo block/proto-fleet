@@ -4,7 +4,7 @@ import { create } from "@bufbuild/protobuf";
 
 import ManageSiteModal from "./ManageSiteModal";
 import { BuildingSchema, BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import { ContainerPlacementSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { SiteSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { emptySiteFormValues, type SiteFormValues } from "@/protoFleet/api/sites";
 
@@ -109,11 +109,11 @@ describe("ManageSiteModal", () => {
   it("lists containers and buildings together, including their shared count and preview", async () => {
     seedBuildings([{ id: 1n, name: "Building A", siteId: 7n, rackCount: 3n }]);
     containerState.containers = [
-      create(ContainerSchema, {
+      create(ContainerPlacementSchema, {
         deviceIdentifier: "ct1",
         name: "CT1",
         site: { id: 7n },
-        tanks: [{}, {}],
+        tankCount: 2n,
       }),
     ];
     render(<ManageSiteModal {...baseProps} />);

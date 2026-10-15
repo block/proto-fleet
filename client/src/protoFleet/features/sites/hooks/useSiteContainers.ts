@@ -3,14 +3,14 @@ import { create } from "@bufbuild/protobuf";
 import { getSiteAssignmentErrorMessage } from "../siteAssignmentErrors";
 import { containersClient, sitesClient } from "@/protoFleet/api/clients";
 import { ResourceRefSchema } from "@/protoFleet/api/generated/common/v1/common_pb";
-import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import type { ContainerPlacement } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 
 // Containers share the Buildings UI, but membership writes use their typed API.
 export function useSiteContainers(enabled: boolean) {
-  const [containers, setContainers] = useState<Container[]>();
+  const [containers, setContainers] = useState<ContainerPlacement[]>();
   const [loadError, setLoadError] = useState<string>();
   const [retryKey, setRetryKey] = useState(0);
   const [error, setError] = useState<string>();
@@ -27,7 +27,7 @@ export function useSiteContainers(enabled: boolean) {
     if (!enabled) return;
     const controller = new AbortController();
     void containersClient
-      .listContainers({}, { signal: controller.signal })
+      .listContainerPlacements({}, { signal: controller.signal })
       .then(({ containers }) => {
         if (!controller.signal.aborted) {
           setContainers(containers);

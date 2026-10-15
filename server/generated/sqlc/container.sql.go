@@ -84,6 +84,58 @@ func (q *Queries) InsertContainerPlantMetrics(ctx context.Context, arg InsertCon
 	return err
 }
 
+const listContainerPlacements = `-- name: ListContainerPlacements :many
+SELECT d.device_identifier, d.site_id,
+       COALESCE(NULLIF(d.custom_name, ''), 'Container ' || COALESCE(d.serial_number, ''))::text AS name,
+       COALESCE(s.name, '')::text AS site_name,
+       (SELECT count(*) FROM container_tank t WHERE t.device_id = d.id AND t.present)::bigint AS tank_count
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.org_id
+JOIN device_pairing dp ON dp.device_id = d.id
+LEFT JOIN site s ON s.id = d.site_id AND s.org_id = d.org_id AND s.deleted_at IS NULL
+WHERE d.org_id = $1 AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL AND dd.device_class = 2
+ORDER BY d.id
+`
+
+type ListContainerPlacementsRow struct {
+	DeviceIdentifier string
+	SiteID           sql.NullInt64
+	Name             string
+	SiteName         string
+	TankCount        int64
+}
+
+// Membership lists need identity and topology counts, never telemetry.
+func (q *Queries) ListContainerPlacements(ctx context.Context, orgID int64) ([]ListContainerPlacementsRow, error) {
+	rows, err := q.query(ctx, q.listContainerPlacementsStmt, listContainerPlacements, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListContainerPlacementsRow
+	for rows.Next() {
+		var i ListContainerPlacementsRow
+		if err := rows.Scan(
+			&i.DeviceIdentifier,
+			&i.SiteID,
+			&i.Name,
+			&i.SiteName,
+			&i.TankCount,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listContainers = `-- name: ListContainers :many
 SELECT d.id, d.device_identifier, d.site_id, d.serial_number,
        COALESCE(d.custom_name, '')::text AS name,

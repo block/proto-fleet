@@ -130,6 +130,8 @@ var ProcedurePermissions = map[string]string{
 	buildingsv1connect.BuildingServiceListBuildingsProcedure:     authz.PermSiteRead,
 	buildingsv1connect.BuildingServiceGetBuildingProcedure:       authz.PermSiteRead,
 	buildingsv1connect.BuildingServiceListBuildingRacksProcedure: authz.PermSiteRead,
+	// Placement metadata requires management at each current site, without telemetry permissions.
+	containersv1connect.ContainerServiceListContainerPlacementsProcedure: authz.PermSiteManage,
 	// Container lists filter each row by current-site permissions. The handler
 	// also checks fleet:read and miner:read before exposing telemetry.
 	containersv1connect.ContainerServiceListContainersProcedure:                authz.PermSiteRead,

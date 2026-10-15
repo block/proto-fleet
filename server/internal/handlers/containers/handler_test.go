@@ -53,6 +53,53 @@ func TestGetContainerCurrentSite(t *testing.T) {
 	now := time.Now().UTC()
 	require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: "ct1", Timestamp: now, Container: &sdk.ContainerSnapshot{ObservedAt: now, Fans: []sdk.ContainerFan{{ComponentID: "fan-1", ObservedAt: now, SpeedPercent: new(25.0)}}, Controls: &sdk.ContainerControls{ObservedAt: now, Supported: new(true), Controls: []sdk.ContainerControl{{Name: "dry_cooler", Enabled: new(true)}}}}}))
 	handler := containers.NewHandler(domain.NewService(sqlstores.NewSQLContainerStore(db)))
+	_, err = db.ExecContext(ctx, `INSERT INTO container_tank (device_id,position,first_seen_at,last_seen_at,present)
+		SELECT device_id,position,$1,$1,present FROM container_inventory
+		CROSS JOIN (VALUES (1,TRUE),(2,TRUE),(3,FALSE)) AS tanks(position,present)`, now)
+	require.NoError(t, err)
+	placementManager := handlerstest.CtxWithAssignments(t, orgID, handlerstest.OrgAssignment(authz.PermSiteRead, authz.PermSiteManage))
+	assertPlacement := func(t *testing.T, caller context.Context, wantSite *commonpb.ResourceRef, visible bool) {
+		t.Helper()
+		placements, err := handler.ListContainerPlacements(caller, connect.NewRequest(&pb.ListContainerPlacementsRequest{}))
+		require.NoError(t, err)
+		if !visible {
+			require.Empty(t, placements.Msg.Containers)
+			return
+		}
+		require.Len(t, placements.Msg.Containers, 1)
+		placement := placements.Msg.Containers[0]
+		require.Equal(t, "ct1", placement.DeviceIdentifier)
+		require.NotEmpty(t, placement.Name)
+		require.Equal(t, wantSite, placement.Site)
+		require.EqualValues(t, 2, placement.TankCount, "absent tanks are excluded")
+		// Placement authority must not grant access to equipment or module telemetry.
+		telemetry, err := handler.ListContainers(caller, connect.NewRequest(&pb.ListContainersRequest{}))
+		require.NoError(t, err)
+		require.Empty(t, telemetry.Msg.Containers)
+		_, err = handler.GetContainer(caller, connect.NewRequest(&pb.GetContainerRequest{DeviceIdentifier: "ct1"}))
+		require.True(t, fleeterror.IsNotFoundError(err))
+	}
+	for _, tc := range []struct {
+		name        string
+		assignments []authz.Assignment
+		visible     bool
+	}{
+		{"placement-only org manager", []authz.Assignment{handlerstest.OrgAssignment(authz.PermSiteRead, authz.PermSiteManage)}, true},
+		{"placement-only current site manager", []authz.Assignment{handlerstest.SiteAssignment(site.ID, authz.PermSiteRead, authz.PermSiteManage)}, true},
+		{"other site manager", []authz.Assignment{handlerstest.SiteAssignment(other.ID, authz.PermSiteRead, authz.PermSiteManage)}, false},
+		{"read only", []authz.Assignment{handlerstest.OrgAssignment(authz.PermSiteRead)}, false},
+		{"no site read", []authz.Assignment{handlerstest.OrgAssignment(authz.PermSiteManage)}, false},
+		{"read-only site override", []authz.Assignment{handlerstest.OrgAssignment(authz.PermSiteRead, authz.PermSiteManage), handlerstest.SiteAssignment(site.ID, authz.PermSiteRead)}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assertPlacement(t, handlerstest.CtxWithAssignments(t, orgID, tc.assignments...), &commonpb.ResourceRef{Id: site.ID, Label: site.Name}, tc.visible)
+		})
+	}
+	foreignOrgID, err := q.CreateOrganization(ctx, sqlc.CreateOrganizationParams{OrgID: "foreign", Name: "Foreign"})
+	require.NoError(t, err)
+	assertPlacement(t, handlerstest.CtxWithAssignments(t, foreignOrgID, handlerstest.OrgAssignment(authz.PermSiteRead, authz.PermSiteManage)), nil, false)
+	_, err = handler.ListContainerPlacements(ctx, connect.NewRequest(&pb.ListContainerPlacementsRequest{}))
+	require.True(t, fleeterror.IsAuthenticationError(err))
 	inventory := inventoryhandler.NewHandler(inventorydomain.NewService(q))
 	assertInventoryCanAssign := func(t *testing.T, caller context.Context, want bool) {
 		t.Helper()
@@ -110,10 +157,14 @@ func TestGetContainerCurrentSite(t *testing.T) {
 	}
 	_, err = db.ExecContext(ctx, `UPDATE device SET site_id=$1 WHERE org_id=$2 AND device_identifier='ct1'`, other.ID, orgID)
 	require.NoError(t, err)
+	assertPlacement(t, placementManager, &commonpb.ResourceRef{Id: other.ID, Label: other.Name}, true)
+	assertPlacement(t, handlerstest.CtxWithAssignments(t, orgID, handlerstest.SiteAssignment(site.ID, authz.PermSiteRead, authz.PermSiteManage)), nil, false)
 	_, err = handler.GetContainer(withPermissions(read), request)
 	require.True(t, fleeterror.IsNotFoundError(err), "authorization must follow current placement after a move, got %v", err)
 	_, err = db.ExecContext(ctx, `UPDATE device SET site_id=NULL WHERE org_id=$1 AND device_identifier='ct1'`, orgID)
 	require.NoError(t, err)
+	assertPlacement(t, placementManager, nil, true)
+	assertPlacement(t, handlerstest.CtxWithAssignments(t, orgID, handlerstest.SiteAssignment(other.ID, authz.PermSiteRead, authz.PermSiteManage)), nil, false)
 	for _, assignment := range []authz.Assignment{
 		handlerstest.SiteAssignment(site.ID, authz.PermSiteManage),
 		handlerstest.OrgAssignment(authz.PermSiteManage),

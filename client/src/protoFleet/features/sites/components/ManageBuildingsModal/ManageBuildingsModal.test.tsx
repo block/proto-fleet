@@ -5,7 +5,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 
 import ManageBuildingsModal from "./ManageBuildingsModal";
 import { BuildingSchema, BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
-import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import { ContainerPlacementSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 
 const { listAllBuildingsMock, listSitesMock } = vi.hoisted(() => ({
@@ -23,7 +23,7 @@ vi.mock("@/protoFleet/api/sites", () => ({
 
 const containersMock = vi.hoisted(() => ({ list: vi.fn(), assign: vi.fn(), bump: vi.fn(), auth: vi.fn() }));
 vi.mock("@/protoFleet/api/clients", () => ({
-  containersClient: { listContainers: containersMock.list },
+  containersClient: { listContainerPlacements: containersMock.list },
   sitesClient: { assignContainersToSite: containersMock.assign },
 }));
 vi.mock("@/protoFleet/store", () => ({ useAuthErrors: () => ({ handleAuthErrors: containersMock.auth }) }));
@@ -144,7 +144,7 @@ describe("ManageBuildingsModal — Save", () => {
   it("recovers from a failed container load without closing or losing existing assignments", async () => {
     seed([{ id: 1n, name: "Building A", siteId: 7n }]);
     containersMock.list.mockRejectedValueOnce(new Error("Containers unavailable")).mockResolvedValueOnce({
-      containers: [create(ContainerSchema, { deviceIdentifier: "ct1", name: "CT1", site: { id: 7n } })],
+      containers: [create(ContainerPlacementSchema, { deviceIdentifier: "ct1", name: "CT1", site: { id: 7n } })],
     });
     const onConfirm = vi.fn();
     const onDismiss = vi.fn();
@@ -240,9 +240,13 @@ describe("ManageBuildingsModal — containers in the shared list", () => {
     seed([{ id: 1n, name: "Building A", siteId: 0n }]);
     containersMock.list.mockResolvedValue({
       containers: [
-        create(ContainerSchema, { id: 1n, deviceIdentifier: "loose", name: "CT1 loose" }),
-        create(ContainerSchema, { deviceIdentifier: "member", name: "CT1 member", site: { id: 7n } }),
-        create(ContainerSchema, { deviceIdentifier: "other", name: "CT1 other", site: { id: 8n, label: "West" } }),
+        create(ContainerPlacementSchema, { deviceIdentifier: "loose", name: "CT1 loose" }),
+        create(ContainerPlacementSchema, { deviceIdentifier: "member", name: "CT1 member", site: { id: 7n } }),
+        create(ContainerPlacementSchema, {
+          deviceIdentifier: "other",
+          name: "CT1 other",
+          site: { id: 8n, label: "West" },
+        }),
       ],
     });
   };

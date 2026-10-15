@@ -18,6 +18,18 @@ service ContainerService {
   rpc SetEquipmentControl(SetEquipmentControlRequest) returns (SetEquipmentControlResponse);
   rpc GetContainer(GetContainerRequest) returns (GetContainerResponse);
   rpc ListContainers(ListContainersRequest) returns (ListContainersResponse);
+  // Site management metadata only; does not grant access to container telemetry.
+  rpc ListContainerPlacements(ListContainerPlacementsRequest) returns (ListContainerPlacementsResponse);
+}
+message ListContainerPlacementsRequest {}
+message ListContainerPlacementsResponse {
+  repeated ContainerPlacement containers = 1;
+}
+message ContainerPlacement {
+  string device_identifier = 1;
+  string name = 2;
+  common.v1.ResourceRef site = 3;
+  int64 tank_count = 4;
 }
 message GetContainerRequest {
   string device_identifier = 1 [(buf.validate.field).string = {min_len: 1, max_len: 255}];

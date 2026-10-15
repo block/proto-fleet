@@ -225,7 +225,7 @@ const ManageSiteModal = ({
       .map((container) => ({
         buildingId: container.deviceIdentifier,
         label: container.name || container.deviceIdentifier,
-        rackCount: BigInt(container.tanks.length),
+        rackCount: container.tankCount,
       }));
     return [...entries, ...containerEntries].sort((a, b) => a.label.localeCompare(b.label));
   }, [entries, containers, site.id]);
