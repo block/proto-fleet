@@ -63,10 +63,8 @@ func TestListFleetNodes_HostMetadataAndEnrollment(t *testing.T) {
 	require.NotContains(t, string(data), "enrolledBy")
 	require.NotContains(t, string(data), "enrolledAt")
 
-	// Legacy records retain their known completion time without inventing an actor.
 	_, err = h.db.Exec(`UPDATE pending_enrollment SET confirmed_by=NULL WHERE id=$1`, pendingID)
 	require.NoError(t, err)
-	// An older binary sends no metadata; do not keep claiming its predecessor's version.
 	_, err = gw.UploadHeartbeat(ctx, connect.NewRequest(&gatewaypb.UploadHeartbeatRequest{SentAt: timestamppb.Now()}))
 	require.NoError(t, err)
 	resp, err = h.handler.ListFleetNodes(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodesRequest{}))

@@ -343,14 +343,14 @@ func (q *Queries) GetPendingEnrollmentByFleetNode(ctx context.Context, arg GetPe
 
 const listFleetNodesForOrganization = `-- name: ListFleetNodesForOrganization :many
 SELECT a.id, a.org_id, a.name, a.identity_pubkey,
-       a.enrollment_status, a.last_seen_at, a.created_at, a.updated_at,
+       a.enrollment_status, h.last_seen_at, a.created_at, a.updated_at,
        COALESCE(pe.status, '')::text AS pending_enrollment_status,
        pe.id AS pending_enrollment_id,
        COALESCE(h.ip_addresses, '{}'::text[])::text[] AS ip_addresses,
        COALESCE(h.version, '')::text AS version,
        COALESCE(u.username, '')::text AS enrolled_by,
        completed.consumed_at AS enrolled_at
-FROM fleet_node_live a
+FROM fleet_node a
 LEFT JOIN pending_enrollment pe
   ON pe.fleet_node_id = a.id
  AND pe.status = 'AWAITING_CONFIRMATION'

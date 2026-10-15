@@ -7,7 +7,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
-// version is set on release binaries with -ldflags "-X main.version=<tag>".
 var version = "dev"
 
 type Context struct {

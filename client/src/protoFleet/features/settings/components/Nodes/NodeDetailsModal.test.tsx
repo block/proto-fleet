@@ -38,7 +38,7 @@ describe("NodeDetailsModal", () => {
     expect(screen.getByText(node.enrolledAt!.toLocaleString())).toBeVisible();
     expect(screen.getByText("Technical details").closest("details")).not.toHaveAttribute("open");
     fireEvent.click(screen.getByText("Technical details"));
-    expect(screen.getByText(node.identityFingerprint)).toBeInTheDocument();
+    expect(screen.getByText(node.identityFingerprint)).toBeVisible();
   });
 
   it("explicitly marks missing metadata and does not present registration as enrollment", async () => {
