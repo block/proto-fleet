@@ -373,21 +373,6 @@ hosts.
 The uninstaller supports intact HA installations only. Missing or corrupt
 installation ownership files still require manual recovery or reimaging.
 
-## Logs
-
-HA Fleet API logs use the existing `LOG_JSON=true` setting. Patroni emits JSON
-with `timestamp`, `level`, and `message` fields; its image includes the pinned
-`python-json-logger` dependency. PostgreSQL continues to emit its text log format.
-The database container's Datadog Autodiscovery label sets `source:postgresql`
-and preserves `service:proto-fleet-timescaledb-ha`, selecting the PostgreSQL
-integration parser. Datadog reads JSON `level` fields automatically.
-
-These changes take effect with a new HA release and container recreation.
-For hosts using Agent-side Patroni log sampling, install the observer version
-that supports JSON before updating Fleet. After rollout, verify fresh API and
-Patroni INFO/WARN/ERROR statuses and PostgreSQL LOG/WARNING/ERROR statuses in
-Datadog, along with the PostgreSQL integration pipeline's installation.
-
 ## Qualification
 
 The distributions above are installer-compatible targets. The HA profile is
