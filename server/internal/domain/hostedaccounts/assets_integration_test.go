@@ -537,3 +537,43 @@ func TestAccountMiningExactSelectionLookup(t *testing.T) {
 		require.Error(t, err)
 	}
 }
+
+func TestAccountMiningMaximumMixedBatchAssignRecallAndStaleRevision(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Maximum batch", f.user, hostedaccounts.AllCapabilities)
+	assets := make([]*pb.MiningAssetSelection, 0, 500)
+	for range 250 {
+		assets = append(assets, selected(pb.MiningAssetKind_MINING_ASSET_KIND_MINER, f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG), 0))
+	}
+	module, _ := f.miningModule(t)
+	assets = append(assets, selected(pb.MiningAssetKind_MINING_ASSET_KIND_MODULE, module, 0))
+	for position := 2; position <= 250; position++ {
+		var id int64
+		require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) SELECT tank_id,$2,now(),now(),'hashing',now() FROM container_module WHERE id=$1 RETURNING id`, module, position).Scan(&id))
+		assets = append(assets, selected(pb.MiningAssetKind_MINING_ASSET_KIND_MODULE, id, 0))
+	}
+	require.Len(t, assets, 500)
+	assign := pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN
+	recall := pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_RECALL
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, assign, assets...))
+	assertLedger := func(clientID any, revision int64, auditCount int) {
+		t.Helper()
+		var count, miners, modules, audits int
+		require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*),count(*) FILTER (WHERE kind=5),count(*) FILTER (WHERE kind=6) FROM hosted_account_asset WHERE organization_id=$1 AND client_id IS NOT DISTINCT FROM $2::bigint AND subclient_id IS NULL AND revision=$3`, f.org, clientID, revision).Scan(&count, &miners, &modules))
+		require.Equal(t, 500, count)
+		require.Equal(t, 250, miners)
+		require.Equal(t, 250, modules)
+		require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM activity_log WHERE event_type='account_assets_assigned'`).Scan(&audits))
+		require.Equal(t, auditCount, audits)
+	}
+	assertLedger(client.ID, 1, 1)
+	for _, asset := range assets {
+		asset.ExpectedRevision = 1
+	}
+	assets[len(assets)-1].ExpectedRevision = 0
+	require.ErrorContains(t, f.allocate(t, f.host, f.root, client.AccountID, recall, assets...), "selected assets changed")
+	assertLedger(client.ID, 1, 1)
+	assets[len(assets)-1].ExpectedRevision = 1
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, recall, assets...))
+	assertLedger(nil, 2, 2)
+}

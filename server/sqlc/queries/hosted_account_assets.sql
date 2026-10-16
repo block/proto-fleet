@@ -1,9 +1,13 @@
 -- name: ListHostedAccountMiningAssets :many
 -- Include retained assignments even after retirement or policy changes.
-WITH leaves AS (
- SELECT f.kind,f.id,f.org_id,CASE WHEN f.kind=5 THEN f.id ELSE f.facility_id END::bigint AS device_id
- FROM fleet_mining_asset f WHERE f.org_id=sqlc.arg(organization_id)
+WITH live_assets AS MATERIALIZED (
+ -- Reuse the selected Fleet projection for leaves and readings. Inlining it
+ -- twice can rebuild the entire projection for every selected leaf.
+ SELECT f.* FROM fleet_mining_asset f WHERE f.org_id=sqlc.arg(organization_id)
  AND (jsonb_array_length(sqlc.arg(selected_assets)::jsonb)=0 OR EXISTS (SELECT 1 FROM jsonb_to_recordset(sqlc.arg(selected_assets)::jsonb) AS selected(kind integer,id bigint) WHERE selected.kind=f.kind AND selected.id=f.id))
+), leaves AS (
+ SELECT f.kind,f.id,f.org_id,CASE WHEN f.kind=5 THEN f.id ELSE f.facility_id END::bigint AS device_id
+ FROM live_assets f
  UNION
  SELECT a.kind,a.asset_id,a.organization_id,a.device_id FROM hosted_account_asset a
  WHERE a.organization_id=sqlc.arg(organization_id) AND a.client_id IS NOT NULL
@@ -29,7 +33,7 @@ FROM leaves l
 LEFT JOIN hosted_account_asset a ON a.organization_id=l.org_id AND a.kind=l.kind AND a.asset_id=l.id
 LEFT JOIN hosted_account c ON c.id=a.client_id
 LEFT JOIN hosted_account sc ON sc.id=a.subclient_id
-LEFT JOIN fleet_mining_asset f ON f.org_id=l.org_id AND f.kind=l.kind AND f.id=l.id
+LEFT JOIN live_assets f ON f.org_id=l.org_id AND f.kind=l.kind AND f.id=l.id
 JOIN device d ON d.id=l.device_id AND d.org_id=l.org_id
 LEFT JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=l.org_id
 LEFT JOIN site s ON s.id=d.site_id AND s.org_id=l.org_id
