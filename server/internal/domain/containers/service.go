@@ -18,11 +18,40 @@ import (
 )
 
 type Store interface {
+	ListContainerPlacements(ctx context.Context, orgID int64) ([]sqlc.ListContainerPlacementsRow, error)
 	ListContainers(ctx context.Context, params sqlc.ListContainersParams) ([]sqlc.ListContainersRow, error)
 }
 type Service struct{ store Store }
 
 func NewService(store Store) *Service { return &Service{store: store} }
+
+// ListPlacements exposes only membership metadata at sites the caller can manage.
+func (s *Service) ListPlacements(ctx context.Context, orgID int64, canManage func(*int64) (bool, error)) ([]*pb.ContainerPlacement, error) {
+	rows, err := s.store.ListContainerPlacements(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*pb.ContainerPlacement, 0, len(rows))
+	for _, row := range rows {
+		var siteID *int64
+		if row.SiteID.Valid {
+			siteID = &row.SiteID.Int64
+		}
+		allowed, err := canManage(siteID)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			continue
+		}
+		placement := &pb.ContainerPlacement{DeviceIdentifier: row.DeviceIdentifier, Name: row.Name, TankCount: row.TankCount}
+		if siteID != nil {
+			placement.Site = &commonpb.ResourceRef{Id: *siteID, Label: row.SiteName}
+		}
+		result = append(result, placement)
+	}
+	return result, nil
+}
 
 // List authorizes each current site before exposing identity or telemetry.
 func (s *Service) List(ctx context.Context, orgID int64, siteIDs []int64, unassigned bool, canRead func(*int64) (bool, error)) ([]*pb.Container, error) {

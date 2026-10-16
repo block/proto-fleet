@@ -1,9 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
+import { Code, ConnectError } from "@connectrpc/connect";
 
 import ManageBuildingsModal from "./ManageBuildingsModal";
 import { BuildingSchema, BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
+import { ContainerPlacementSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { SiteSchema, SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 
 const { listAllBuildingsMock, listSitesMock } = vi.hoisted(() => ({
@@ -18,6 +20,21 @@ vi.mock("@/protoFleet/api/buildings", () => ({
 vi.mock("@/protoFleet/api/sites", () => ({
   useSites: () => ({ listSites: listSitesMock }),
 }));
+
+const containersMock = vi.hoisted(() => ({ list: vi.fn(), assign: vi.fn(), bump: vi.fn(), auth: vi.fn() }));
+vi.mock("@/protoFleet/api/clients", () => ({
+  containersClient: { listContainerPlacements: containersMock.list },
+  sitesClient: { assignContainersToSite: containersMock.assign },
+}));
+vi.mock("@/protoFleet/store", () => ({ useAuthErrors: () => ({ handleAuthErrors: containersMock.auth }) }));
+vi.mock("@/protoFleet/store/useFleetStore", () => ({
+  useFleetStore: (select: (state: unknown) => unknown) =>
+    select({ ui: { sitesRevision: 0, bumpSitesRevision: containersMock.bump } }),
+}));
+beforeEach(() => {
+  containersMock.list.mockReset().mockResolvedValue({ containers: [] });
+  containersMock.assign.mockReset().mockResolvedValue({});
+});
 
 // The picker self-fetches the org-wide building list plus the site catalog for
 // its Site column; both mocks resolve synchronously through onSuccess.
@@ -124,6 +141,38 @@ describe("ManageBuildingsModal — Save", () => {
     listSitesMock.mockReset();
   });
 
+  it("recovers from a failed container load without closing or losing existing assignments", async () => {
+    seed([{ id: 1n, name: "Building A", siteId: 7n }]);
+    containersMock.list.mockRejectedValueOnce(new Error("Containers unavailable")).mockResolvedValueOnce({
+      containers: [create(ContainerPlacementSchema, { deviceIdentifier: "ct1", name: "CT1", site: { id: 7n } })],
+    });
+    const onConfirm = vi.fn();
+    const onDismiss = vi.fn();
+    render(
+      <ManageBuildingsModal
+        {...baseProps}
+        initialSelectedBuildingIds={[1n]}
+        onConfirm={onConfirm}
+        onDismiss={onDismiss}
+      />,
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Containers unavailable");
+    expect(screen.queryByTestId("manage-buildings-modal-loading")).not.toBeInTheDocument();
+    expect(screen.getByTestId("manage-buildings-modal-confirm")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(screen.getByTestId("manage-buildings-modal-confirm")).toBeEnabled());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("Building A")).toBeInTheDocument();
+    expect(screen.getByText("CT1")).toBeInTheDocument();
+    expect(containersMock.list).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByTestId("manage-buildings-modal-confirm"));
+    await waitFor(() => expect(onDismiss).toHaveBeenCalledOnce());
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(containersMock.assign).not.toHaveBeenCalled();
+  });
+
   it("closes without an AssignBuildingsToSite no-op when the selection matches the site", async () => {
     seed([{ id: 1n, name: "Building A", siteId: 0n }]);
     const onConfirm = vi.fn();
@@ -183,5 +232,67 @@ describe("ManageBuildingsModal — Save", () => {
 
     expect(onConfirm).not.toHaveBeenCalled();
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("ManageBuildingsModal — containers in the shared list", () => {
+  const seedMixed = () => {
+    seed([{ id: 1n, name: "Building A", siteId: 0n }]);
+    containersMock.list.mockResolvedValue({
+      containers: [
+        create(ContainerPlacementSchema, { deviceIdentifier: "loose", name: "CT1 loose" }),
+        create(ContainerPlacementSchema, { deviceIdentifier: "member", name: "CT1 member", site: { id: 7n } }),
+        create(ContainerPlacementSchema, {
+          deviceIdentifier: "other",
+          name: "CT1 other",
+          site: { id: 8n, label: "West" },
+        }),
+      ],
+    });
+  };
+  const checkbox = (name: string) => within(screen.getByText(name).closest("tr")!).getByRole("checkbox");
+
+  it("saves a mixed selection through the respective APIs, with cross-site rows disabled", async () => {
+    seedMixed();
+    const onConfirm = vi.fn();
+    render(<ManageBuildingsModal {...baseProps} onConfirm={onConfirm} />);
+    await screen.findByText("CT1 loose");
+    await waitFor(() => expect(checkbox("CT1 member")).toBeChecked());
+    expect(checkbox("CT1 other")).toBeDisabled();
+    fireEvent.click(checkbox("Building A"));
+    fireEvent.click(checkbox("CT1 loose"));
+    fireEvent.click(checkbox("CT1 member"));
+    fireEvent.click(screen.getByTestId("manage-buildings-modal-confirm"));
+    await waitFor(() =>
+      expect(onConfirm).toHaveBeenCalledWith({ added: [{ buildingId: 1n, label: "Building A" }], removed: [] }),
+    );
+    expect(containersMock.assign.mock.calls).toEqual([
+      [{ containerIdentifiers: ["loose"], targetSiteId: 7n }],
+      [{ containerIdentifiers: ["member"], targetSiteId: undefined }],
+    ]);
+  });
+
+  it("keeps failed assignments open and does not replay a successful batch on retry", async () => {
+    seedMixed();
+    containersMock.assign
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(
+        new ConnectError('{"required":"site:manage","scope":{"site_id":7}}', Code.PermissionDenied),
+      );
+    const dismiss = vi.fn();
+    render(<ManageBuildingsModal {...baseProps} onConfirm={vi.fn()} onDismiss={dismiss} />);
+    await screen.findByText("CT1 loose");
+    fireEvent.click(checkbox("CT1 loose"));
+    fireEvent.click(checkbox("CT1 member"));
+    fireEvent.click(screen.getByTestId("manage-buildings-modal-confirm"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("You don't have permission to change site assignments.");
+    expect(dismiss).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("manage-buildings-modal-confirm"));
+    await waitFor(() => expect(dismiss).toHaveBeenCalledOnce());
+    expect(containersMock.assign.mock.calls).toEqual([
+      [{ containerIdentifiers: ["loose"], targetSiteId: 7n }],
+      [{ containerIdentifiers: ["member"], targetSiteId: undefined }],
+      [{ containerIdentifiers: ["member"], targetSiteId: undefined }],
+    ]);
   });
 });

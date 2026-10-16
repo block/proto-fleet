@@ -6,6 +6,7 @@ import {
   containerMiningCommand,
   requestContainerAction,
 } from "./containerActions";
+import ContainerSiteDialog from "./ContainerSiteDialog";
 import ContainerUnpairDialog from "./ContainerUnpairDialog";
 import { useOpenContainerView } from "./useOpenContainerView";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
@@ -28,9 +29,11 @@ const unavailableSettings = [
 
 export default function ContainerActionsMenu({
   container,
+  onSiteChanged,
   onUnpaired,
 }: {
   container: Container;
+  onSiteChanged?: () => void;
   onUnpaired?: (deviceIdentifier: string) => void;
 }) {
   const permissions = usePermissions();
@@ -38,6 +41,7 @@ export default function ContainerActionsMenu({
   const [action, setAction] = useState<ContainerAction>();
   const [unpairOpen, setUnpairOpen] = useState(false);
   const [open, setOpen] = useState(false);
+  const [assigningSite, setAssigningSite] = useState(false);
   const [status, setStatus] = useState<{
     deviceIdentifier: string;
     available: boolean;
@@ -125,6 +129,14 @@ export default function ContainerActionsMenu({
       ]
     : [];
 
+  if (container.canAssignSite)
+    actions.push({
+      label: "Change site",
+      icon: <Settings />,
+      showGroupDivider: true,
+      onClick: () => setAssigningSite(true),
+    });
+
   return (
     <div
       title={currentStatus?.available === false ? "Container controls are unavailable through Fleet." : undefined}
@@ -143,6 +155,9 @@ export default function ContainerActionsMenu({
           setOpen(nextOpen);
         }}
       />
+      {assigningSite ? (
+        <ContainerSiteDialog container={container} onClose={() => setAssigningSite(false)} onSaved={onSiteChanged} />
+      ) : null}
       {action ? (
         <ContainerActionDialog
           key={`${container.deviceIdentifier}:${action.path}`}

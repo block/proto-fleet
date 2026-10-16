@@ -1,9 +1,9 @@
 -- Serializes reconciliation for each controller. A delayed response cannot
 -- change placement, retire inventory, or overwrite a newer status observation.
 -- name: AdvanceContainerInventory :one
-INSERT INTO container_inventory (device_id, observed_at)
-SELECT d.id, sqlc.arg('observed_at')::timestamptz
-FROM device d JOIN discovered_device dd ON dd.id = d.discovered_device_id
+INSERT INTO container_inventory (device_id, observed_at, org_id)
+SELECT d.id, sqlc.arg('observed_at')::timestamptz, d.org_id
+FROM device d JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id=d.org_id
 WHERE d.device_identifier = sqlc.arg('device_identifier') AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL AND dd.device_class = 2
 ON CONFLICT (device_id) DO UPDATE SET observed_at = EXCLUDED.observed_at

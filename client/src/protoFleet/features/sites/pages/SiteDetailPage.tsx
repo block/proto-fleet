@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import SiteMetricsRow from "../components/SiteMetricsRow";
@@ -9,6 +9,7 @@ import { type BuildingWithCounts } from "@/protoFleet/api/generated/buildings/v1
 import { AggregationType, MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { buildKnownSiteIds, parseBigIntId } from "@/protoFleet/api/sites";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
+import { useContainers } from "@/protoFleet/api/useContainers";
 import { useSiteStats } from "@/protoFleet/api/useSiteStats";
 import { useTelemetryMetrics } from "@/protoFleet/api/useTelemetryMetrics";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
@@ -16,9 +17,11 @@ import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import BuildingModals from "@/protoFleet/features/buildings/components/BuildingModals";
 import BuildingSummaryCard from "@/protoFleet/features/buildings/components/BuildingSummaryCard";
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
+import ContainerCard from "@/protoFleet/features/containers/ContainerCard";
 import { DeviceSetPerformanceSection } from "@/protoFleet/features/groupManagement/components/DeviceSetPerformanceSection";
 import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
 import { useDuration, useHasPermission, useSetDuration } from "@/protoFleet/store";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { Alert } from "@/shared/assets/icons";
 import Breadcrumb from "@/shared/components/Breadcrumb";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -119,6 +122,27 @@ const SiteDetailPage = () => {
   const visibleBuildings = buildings && buildings.siteId === siteIdText ? buildings.rows : undefined;
   const visibleBuildingsError = buildingsError && buildingsError.siteId === siteIdText ? buildingsError.message : null;
 
+  const {
+    containers,
+    loading: containersLoading,
+    error: containersError,
+    refetch: refetchContainers,
+  } = useContainers(siteId === undefined ? [] : [siteId], false, siteId !== undefined);
+  const visibleFacilities = useMemo(() => {
+    if (visibleBuildings === undefined || containersLoading) return undefined;
+    const buildingCards = visibleBuildings.map((building) => ({
+      key: `building:${building.building?.id}`,
+      label: building.building?.name ?? "",
+      content: <BuildingSummaryCard building={building} />,
+    }));
+    const containerCards = containers.map((container) => ({
+      key: `container:${container.deviceIdentifier}`,
+      label: container.name,
+      content: <ContainerCard container={container} />,
+    }));
+    return [...buildingCards, ...containerCards].sort((a, b) => a.label.localeCompare(b.label));
+  }, [visibleBuildings, containers, containersLoading]);
+
   useEffect(() => {
     if (siteId === undefined) return undefined;
     return fetchBuildings(siteId);
@@ -132,6 +156,13 @@ const SiteDetailPage = () => {
     error: siteStatsError,
     refetch: refetchSiteStats,
   } = useSiteStats({ siteId: siteId ?? 0n, enabled: siteId !== undefined, pollIntervalMs: POLL_INTERVAL_MS });
+  const sitesRevision = useFleetStore((state) => state.ui.sitesRevision);
+  const previousSitesRevision = useRef(sitesRevision);
+  useEffect(() => {
+    if (previousSitesRevision.current === sitesRevision) return;
+    previousSitesRevision.current = sitesRevision;
+    refetchSiteStats();
+  }, [sitesRevision, refetchSiteStats]);
   // Site-level caches any building mutation invalidates: the catalog carries
   // building counts, and the metrics row reads its building count from
   // siteStats before falling back to the building list — so refreshing the
@@ -208,9 +239,10 @@ const SiteDetailPage = () => {
     );
   }
 
-  const hasLoadedVisibleBuildings = visibleBuildings !== undefined && visibleBuildingsError === null;
+  const hasLoadedVisibleBuildings =
+    visibleFacilities !== undefined && visibleBuildingsError === null && !containersError;
   const detailBuildingCount =
-    siteStats?.buildingCount ?? (hasLoadedVisibleBuildings ? visibleBuildings.length : Number(site.buildingCount));
+    siteStats?.buildingCount ?? (hasLoadedVisibleBuildings ? visibleFacilities.length : Number(site.buildingCount));
 
   const siteSiblings = sites
     .filter((row) => row.site !== undefined)
@@ -318,11 +350,22 @@ const SiteDetailPage = () => {
               testId="site-detail-buildings-error"
             />
           ) : null}
+          {containersError ? (
+            <Callout
+              intent="danger"
+              prefixIcon={<Alert />}
+              title="Couldn't load containers"
+              subtitle={containersError}
+              buttonText="Retry"
+              buttonOnClick={refetchContainers}
+              testId="site-detail-containers-error"
+            />
+          ) : null}
           <div className="overflow-visible p-2">
             <div className="rounded-xl bg-surface-elevated-base p-10 shadow-100 phone:p-6">
-              {visibleBuildings === undefined ? (
+              {visibleFacilities === undefined ? (
                 <div className="text-200 text-text-primary-50">Loading buildings…</div>
-              ) : visibleBuildings.length === 0 ? (
+              ) : visibleFacilities.length === 0 && !visibleBuildingsError && !containersError ? (
                 // The surrounding panel is already the card, so this centers
                 // inside it rather than nesting a second surface. NullState
                 // isn't the fit here: it brings its own tinted panel and
@@ -351,9 +394,9 @@ const SiteDetailPage = () => {
                 </div>
               ) : (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(12rem,1fr))] gap-3">
-                  {visibleBuildings.map((building) => (
-                    <div key={(building.building?.id ?? 0n).toString()} className="min-w-0">
-                      <BuildingSummaryCard building={building} />
+                  {visibleFacilities.map((facility) => (
+                    <div key={facility.key} className="min-w-0">
+                      {facility.content}
                     </div>
                   ))}
                 </div>

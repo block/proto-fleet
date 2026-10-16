@@ -521,11 +521,15 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 
 	conflictSkips := countSkipsByFilter(result, command.ScheduleConflictFilterName)
 	curtailmentSkips := countSkipsByFilter(result, command.CurtailmentActiveFilterName)
+	containerSkips := countSkipsByFilter(result, command.ScheduleContainerFilterName)
 	if conflictSkips > 0 {
 		p.logConflictSkip(ctx, sched, orgID, conflictSkips)
 	}
 	if curtailmentSkips > 0 {
 		p.logCurtailmentActiveSkip(ctx, sched, orgID, curtailmentSkips)
+	}
+	if containerSkips > 0 {
+		p.logContainerSkip(ctx, sched, orgID, containerSkips)
 	}
 
 	dispatched := 0
@@ -537,9 +541,8 @@ func (p *Processor) executeSchedule(ctx context.Context, scheduleID int64) {
 	}
 
 	p.updateAfterRunWithGeneration(ctx, sched, orgID, now, gen, hasGen)
-	// Fully-filtered dispatches are already logged via per-filter skip
-	// events (schedule_conflict_skip / schedule_skipped_due_to_curtailment).
-	if dispatched > 0 || (conflictSkips == 0 && curtailmentSkips == 0) {
+	// Fully-filtered dispatches are already logged via per-filter skip events.
+	if dispatched > 0 || (conflictSkips == 0 && curtailmentSkips == 0 && containerSkips == 0) {
 		p.logExecution(ctx, sched, orgID, dispatched)
 	}
 }
@@ -820,6 +823,9 @@ func (p *Processor) checkEndOfWindow(ctx context.Context) {
 			if skipped := countSkipsByFilter(result, command.CurtailmentActiveFilterName); skipped > 0 {
 				p.logCurtailmentActiveSkip(ctx, sched, sw.OrgID, skipped)
 			}
+			if skipped := countSkipsByFilter(result, command.ScheduleContainerFilterName); skipped > 0 {
+				p.logContainerSkip(ctx, sched, sw.OrgID, skipped)
+			}
 		}
 
 		if err := p.revertToActive(ctx, sched, now); err != nil {
@@ -942,6 +948,22 @@ func (p *Processor) logCurtailmentActiveSkip(ctx context.Context, sched *pb.Sche
 		Category:       activitymodels.CategorySchedule,
 		Type:           "schedule_skipped_due_to_curtailment",
 		Description:    fmt.Sprintf("Schedule %q skipped %d miners locked by an active curtailment event", sched.Name, skipped),
+		ActorType:      activitymodels.ActorScheduler,
+		UserID:         &actor,
+		Username:       &actor,
+		OrganizationID: &orgID,
+	})
+}
+
+func (p *Processor) logContainerSkip(ctx context.Context, sched *pb.Schedule, orgID int64, skipped int) {
+	if p.activitySvc == nil {
+		return
+	}
+	actor := schedulerActorName
+	p.activitySvc.Log(ctx, activitymodels.Event{
+		Category:       activitymodels.CategorySchedule,
+		Type:           "schedule_container_skip",
+		Description:    fmt.Sprintf("Schedule %q skipped %d containers because they do not support generic miner commands", sched.Name, skipped),
 		ActorType:      activitymodels.ActorScheduler,
 		UserID:         &actor,
 		Username:       &actor,

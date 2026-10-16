@@ -87,8 +87,8 @@ func TestGeneratedLeafCommandsMatchManifest(t *testing.T) {
 		want[strings.Join(parts, " ")] = true
 	}
 	got := leafCommandPaths(generatedCommands())
-	if len(got) != 118 || len(want) != 118 {
-		t.Fatalf("generated leaves = %d, manifest leaves = %d, want 118 each", len(got), len(want))
+	if len(got) != 119 || len(want) != 119 {
+		t.Fatalf("generated leaves = %d, manifest leaves = %d, want 119 each", len(got), len(want))
 	}
 	for path := range want {
 		if !got[path] {
@@ -100,8 +100,8 @@ func TestGeneratedLeafCommandsMatchManifest(t *testing.T) {
 			t.Errorf("generated command %q missing from manifest", path)
 		}
 	}
-	if gotAll := leafCommandPaths(allCommands()); len(gotAll) != 133 {
-		t.Fatalf("all command leaves = %d, want 133", len(gotAll))
+	if gotAll := leafCommandPaths(allCommands()); len(gotAll) != 134 {
+		t.Fatalf("all command leaves = %d, want 134", len(gotAll))
 	}
 }
 
@@ -310,6 +310,41 @@ func TestGeneratedComplexMutationsRequireJSON(t *testing.T) {
 	}
 }
 
+func TestGeneratedContainerAssignmentAllowsUnassignment(t *testing.T) {
+	pinFleetAuthEnv(t, nil)
+	var requests []map[string]any
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /sites.v1.SiteService/AssignContainersToSite", func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, requestBodyMap(t, r))
+		w.Header().Set("Content-Type", contentTypeJSON)
+		_, _ = w.Write([]byte(`{"reassigned_count":"1"}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	args := []string{"fleetcli", "--server", srv.URL + "/", "--api-key", "test-key", "sites", "assign-containers", "--container-identifiers", "ct1"}
+	if err := newRootCommand().Run(t.Context(), append(append([]string{}, args...), "--target-site-id", "42")); err != nil {
+		t.Fatalf("assign container: %v", err)
+	}
+	if err := newRootCommand().Run(t.Context(), args); err != nil {
+		t.Fatalf("unassign container: %v", err)
+	}
+	if len(requests) != 2 {
+		t.Fatalf("got %d requests, want assign and unassign", len(requests))
+	}
+	if requests[0]["target_site_id"] != "42" {
+		t.Fatalf("assign body = %#v, want target site 42", requests[0])
+	}
+	if _, present := requests[1]["target_site_id"]; present {
+		t.Fatalf("unassign body = %#v, want omitted target", requests[1])
+	}
+	for _, request := range requests {
+		members, ok := request["container_identifiers"].([]any)
+		if !ok || len(members) != 1 || members[0] != "ct1" {
+			t.Fatalf("body = %#v, want container identifier ct1", request)
+		}
+	}
+}
+
 func TestGeneratedAssignmentsRequireTargetsAndMembers(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -318,6 +353,7 @@ func TestGeneratedAssignmentsRequireTargetsAndMembers(t *testing.T) {
 	}{
 		{name: "sites assign devices", command: findSubcommand(t, generatedSitesCommand(), "assign-devices"), requiredFlags: []string{"target-site-id", "device-identifiers"}},
 		{name: "sites assign buildings", command: findSubcommand(t, generatedSitesCommand(), "assign-buildings"), requiredFlags: []string{"target-site-id", "building-ids"}},
+		{name: "sites assign containers", command: findSubcommand(t, generatedSitesCommand(), "assign-containers"), requiredFlags: []string{"container-identifiers"}},
 		{name: "sites assign racks", command: findSubcommand(t, generatedSitesCommand(), "assign-racks"), requiredFlags: []string{"target-site-id", "rack-ids"}},
 		{name: "buildings assign devices", command: findSubcommand(t, generatedBuildingsCommand(), "assign-devices"), requiredFlags: []string{"target-building-id", "device-identifiers"}},
 	}

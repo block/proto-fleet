@@ -3,7 +3,7 @@
 -- name: GetModuleHashboards :one
 WITH modules AS (
  SELECT m.id, d.site_id FROM container_module m JOIN container_tank t ON t.id=m.tank_id
- JOIN device d ON d.id=t.device_id JOIN discovered_device dd ON dd.id=d.discovered_device_id
+ JOIN container_scope d ON d.id=t.device_id JOIN discovered_device dd ON dd.id=d.discovered_device_id
  WHERE m.id=ANY(sqlc.arg('module_ids')::bigint[]) AND d.org_id=sqlc.arg('org_id')
  AND m.retired_at IS NULL AND t.present AND d.deleted_at IS NULL AND dd.deleted_at IS NULL
  AND NOT EXISTS (
