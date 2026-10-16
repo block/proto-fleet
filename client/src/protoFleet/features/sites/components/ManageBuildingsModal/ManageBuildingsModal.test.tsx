@@ -257,7 +257,7 @@ describe("ManageBuildingsModal — containers in the shared list", () => {
     const onConfirm = vi.fn();
     render(<ManageBuildingsModal {...baseProps} onConfirm={onConfirm} />);
     await screen.findByText("CT1 loose");
-    expect(checkbox("CT1 member")).toBeChecked();
+    await waitFor(() => expect(checkbox("CT1 member")).toBeChecked());
     expect(checkbox("CT1 other")).toBeDisabled();
     fireEvent.click(checkbox("Building A"));
     fireEvent.click(checkbox("CT1 loose"));

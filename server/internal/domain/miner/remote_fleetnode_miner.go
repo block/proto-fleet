@@ -152,11 +152,12 @@ func (m *RemoteFleetNodeMiner) GetWebViewURL() *url.URL {
 }
 
 func (m *RemoteFleetNodeMiner) GetDeviceMetrics(ctx context.Context) (modelsV2.DeviceMetrics, error) {
+	requestStartedAt := m.now()
 	result, err := m.fetchTelemetry(ctx)
 	if err != nil {
 		return modelsV2.DeviceMetrics{}, err
 	}
-	metrics, err := telemetryResultToDeviceMetrics(result)
+	metrics, err := telemetryResultToDeviceMetrics(result, requestStartedAt)
 	if err != nil {
 		return modelsV2.DeviceMetrics{}, err
 	}
@@ -398,7 +399,15 @@ func (m *RemoteFleetNodeMiner) rememberStatus(status telemetrypb.DeviceStatus) {
 	}
 }
 
-func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult) (modelsV2.DeviceMetrics, error) {
+func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult, requestStartedAt time.Time) (modelsV2.DeviceMetrics, error) {
+	var uptimeSeconds *uint64
+	var uptimeObservedAt time.Time
+	if age := result.UptimeObservationAge; result.UptimeSeconds != nil && age != nil && age.CheckValid() == nil && age.AsDuration() >= 0 && !requestStartedAt.IsZero() {
+		uptimeSeconds = result.UptimeSeconds
+		// Subtracting the age at response assembly from our earlier request start
+		// gives a conservative bound without comparing node and server wall clocks.
+		uptimeObservedAt = requestStartedAt.Add(-age.AsDuration())
+	}
 	if len(result.GetDeviceMetricsJson()) > 0 {
 		var metrics modelsV2.DeviceMetrics
 		if err := json.Unmarshal(result.GetDeviceMetricsJson(), &metrics); err != nil {
@@ -407,6 +416,9 @@ func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult
 		metrics.DeviceIdentifier = result.GetDeviceIdentifier()
 		metrics.Timestamp = result.GetTimestamp().AsTime()
 		metrics.FirmwareVersion = result.GetFirmwareVersion()
+		// Never use the absolute node observation timestamp carried by the JSON.
+		metrics.UptimeSeconds = uptimeSeconds
+		metrics.UptimeObservedAt = uptimeObservedAt
 		return metrics, nil
 	}
 	var healthReason *string
@@ -418,6 +430,8 @@ func telemetryResultToDeviceMetrics(result *telemetrypb.FleetNodeTelemetryResult
 		DeviceIdentifier:      result.GetDeviceIdentifier(),
 		Timestamp:             result.GetTimestamp().AsTime(),
 		FirmwareVersion:       result.GetFirmwareVersion(),
+		UptimeSeconds:         uptimeSeconds,
+		UptimeObservedAt:      uptimeObservedAt,
 		Health:                telemetryHealthToV2(result.GetHealthStatus(), result.GetDeviceStatus()),
 		HealthReason:          healthReason,
 		DefaultPasswordActive: result.DefaultPasswordActive,

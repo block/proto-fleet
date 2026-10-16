@@ -82,14 +82,14 @@ are deliberately excluded: mapping a controller into a miner or building row
 would confuse its device identifier with building IDs and could imply invalid
 rack membership. Manage CT1 placement through the container site controls.
 
-Migration 1023 backfills root org ownership and installs placement constraints.
+Migration 1025 backfills root org ownership and installs placement constraints.
 It refuses pre-existing live containers in buildings/racks instead of silently moving
 them. Correct those placements before upgrading. Deleted controllers' retained
 placements do not block the upgrade. The down migration removes the
 new view, ownership column, and triggers; it preserves site assignments and all
 inventory/history rows.
 
-Before applying migration 1023, run this read-only preflight against the target
+Before applying migration 1025, run this read-only preflight against the target
 database. It reports every live CT1 with forbidden building/rack placement,
 including the site to preserve:
 
@@ -130,8 +130,8 @@ Rack-slot rows cascade from the removed rack membership. Keep group memberships,
 upgrade only when it returns no rows. If the migration was already attempted and
 marked dirty, keep the service stopped, back up the database, and have the
 operator inspect both the schema and `schema_migrations`. Only after proving that
-1023 rolled back may they restore the last successfully applied version and retry
-the upgrade. Do not mark 1023 as applied or copy a recovery version from an
+1025 rolled back may they restore the last successfully applied version and retry
+the upgrade. Do not mark 1025 as applied or copy a recovery version from an
 unrelated migration. The exception lists offending controllers and points here.
 
 The placement guards take device `NO KEY UPDATE` locks, which remain compatible

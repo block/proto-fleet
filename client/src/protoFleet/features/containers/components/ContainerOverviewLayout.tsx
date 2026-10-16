@@ -40,6 +40,7 @@ type ContainerKpi = Omit<StatProps, "size">;
 export interface ContainerOverviewLayoutProps {
   breadcrumb: BreadcrumbSegment[];
   title: string;
+  unlocatedHashboards?: number;
   kpis: ContainerKpi[];
   tanks: ContainerTank[];
   fans: ContainerFan[];
@@ -81,6 +82,13 @@ export default function ContainerOverviewLayout(props: ContainerOverviewLayoutPr
           {props.actions}
         </div>
         <Header title={<h1>{title}</h1>} titleSize="text-heading-300" />
+        {props.unlocatedHashboards !== undefined && props.unlocatedHashboards > 0 ? (
+          <p role="status" className="text-200 text-text-critical">
+            {props.unlocatedHashboards === 1
+              ? "1 hashboard has an unknown location and is excluded from tank and module telemetry."
+              : `${props.unlocatedHashboards} hashboards have unknown locations and are excluded from tank and module telemetry.`}
+          </p>
+        ) : null}
       </div>
       <Stats
         stats={kpis}

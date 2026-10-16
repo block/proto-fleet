@@ -21,6 +21,10 @@ const (
 // are selectors; ReportedID is firmware identity evidence, not a Fleet miner ID.
 // Nil snapshots mean collection failed and must never erase a previous snapshot.
 type ContainerSnapshot struct {
+	// UnlocatedHashboards retains inventory observations without physical placement.
+	// Position must be zero; readings contribute only to container totals after
+	// identity reconciliation. These observations never create installations.
+	UnlocatedHashboards []ContainerHashboard `json:"unlocated_hashboards,omitempty"`
 	// InventoryAccepted is set only by server reconciliation, never by a plugin.
 	InventoryAccepted bool               `json:"-"`
 	Metrics           *ContainerRollup   `json:"metrics,omitempty"`

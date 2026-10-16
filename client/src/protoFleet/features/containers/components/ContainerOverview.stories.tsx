@@ -187,7 +187,7 @@ const kpis: ContainerOverviewProps["kpis"] = [
 ];
 
 /** Interactive wrapper: owns tank, fan, and auxiliary control state so every toggle flips live in the story. */
-function InteractiveContainerOverview() {
+function InteractiveContainerOverview({ unlocatedHashboards }: { unlocatedHashboards?: number }) {
   const [tanks, setTanks] = useState(initialTanks);
   const [fans, setFans] = useState(initialFans);
   const [controls, setControls] = useState(initialControls);
@@ -196,6 +196,7 @@ function InteractiveContainerOverview() {
     () => ({
       breadcrumb,
       title: "Container 01",
+      unlocatedHashboards,
       kpis,
       tanks,
       fans,
@@ -213,7 +214,7 @@ function InteractiveContainerOverview() {
       // is the full Subtank drill-down.
       onModuleAction: () => {},
     }),
-    [tanks, fans, controls],
+    [tanks, fans, controls, unlocatedHashboards],
   );
 
   return <ContainerOverview {...props} />;
@@ -237,6 +238,10 @@ export default meta;
 type Story = StoryObj<typeof InteractiveContainerOverview>;
 
 export const Default: Story = {};
+
+export const UnlocatedHashboards: Story = {
+  args: { unlocatedHashboards: 6 },
+};
 
 // ----------------------------------------------------------------------------
 // Overview inside the REAL Fleet app chrome (icon nav rail). Frames the same

@@ -1,7 +1,7 @@
 import type { ContainerTank } from "./components/ContainerOverviewLayout";
 import type { TankModuleState } from "./components/TankModuleGrid";
 import type { ContainerOverviewData } from "./hooks/useContainerOverview";
-import { measurementCoverage, tankMetricCoverage } from "./tankMetricCoverage";
+import { tankMetricCoverage } from "./tankMetricCoverage";
 import { EntityKind, type EntityRef } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import {
   formatEfficiencyOrDash,
@@ -36,7 +36,6 @@ export function buildContainerOverview(data: ContainerOverviewData, unit: "C" | 
       label: "Hashrate",
       value: formatHashrateOrDash(hashrate),
       preformatted: true,
-      subtitle: hashrate !== null ? measurementCoverage(container.coverage?.hashrate, "boards") : undefined,
     },
     { label: "Container power", value: formatPowerKwOrDash(power), preformatted: true },
     {
@@ -100,5 +99,5 @@ export function buildContainerOverview(data: ContainerOverviewData, unit: "C" | 
         ],
       };
     });
-  return { kpis, tanks: cards, stale };
+  return { kpis, tanks: cards, stale, unlocatedHashboards: stale ? undefined : container.unlocatedHashboards };
 }

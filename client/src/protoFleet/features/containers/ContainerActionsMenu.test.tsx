@@ -4,9 +4,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import ContainerActionsMenu from "./ContainerActionsMenu";
 import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import { STATUSES } from "@/shared/features/toaster";
 
-const state = vi.hoisted(() => ({ permissions: [] as string[] }));
+const state = vi.hoisted(() => ({ permissions: [] as string[], deleteMiners: vi.fn(), pushToast: vi.fn() }));
 vi.mock("@/protoFleet/store", () => ({ usePermissions: () => state.permissions }));
+vi.mock("@/protoFleet/api/clients", () => ({ fleetManagementClient: { deleteMiners: state.deleteMiners } }));
+
+vi.mock("@/shared/features/toaster", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/shared/features/toaster")>()),
+  pushToast: state.pushToast,
+}));
 
 // JSDOM has no layout; keep the real menu and portal, bypassing only positioning.
 vi.mock("@/shared/components/Popover/usePopoverPosition", () => ({
@@ -27,17 +34,19 @@ const openAction = async (name: string) => {
   fireEvent.click(button);
 };
 const LocationProbe = () => <output data-testid="location">{useLocation().pathname}</output>;
-const renderMenu = (overrides = {}) =>
+const renderMenu = (overrides = {}, onUnpaired = vi.fn()) =>
   render(
     <MemoryRouter>
-      <ContainerActionsMenu container={{ ...container, ...overrides }} />
+      <ContainerActionsMenu container={{ ...container, ...overrides }} onUnpaired={onUnpaired} />
       <LocationProbe />
     </MemoryRouter>,
   );
 
 beforeEach(() => {
+  state.pushToast.mockClear();
   state.permissions = [
     "miner:read",
+    "miner:delete",
     "miner:stop_mining",
     "miner:start_mining",
     "miner:set_power_target",
@@ -50,6 +59,7 @@ beforeEach(() => {
     "miner:update_worker_names",
   ];
   request.mockReset().mockResolvedValue(json({}));
+  state.deleteMiners.mockReset().mockResolvedValue({ deletedCount: 1 });
   statusRequest.mockReset().mockImplementation(async () => json({ mining: true }));
   vi.stubGlobal("fetch", (...args: Parameters<typeof fetch>) =>
     String(args[0]).endsWith("/mining/status") ? statusRequest(...args) : request(...args),
@@ -229,6 +239,7 @@ describe("container command dispatch", () => {
       "Update firmware",
       "Edit pool",
       "Update worker name",
+      "Unpair",
     ]);
     expect(statusRequest).toHaveBeenCalledWith(
       "/api-proxy/miners/ct1%2Fboard/api/v2/mining/status",
@@ -400,5 +411,99 @@ describe("container command dispatch", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Manage power" })).toBeEnabled());
     expect(statusRequest).toHaveBeenCalledTimes(2);
     expect(request).not.toHaveBeenCalled();
+  });
+});
+
+describe("container unpair", () => {
+  it("confirms and unpairs only the controller even when its proxy is unavailable", async () => {
+    statusRequest.mockResolvedValueOnce(json({ error: "Controller unavailable" }, 502));
+    renderMenu();
+    await openAction("Unpair");
+    expect(state.deleteMiners).not.toHaveBeenCalled();
+    const dialog = screen.getByTestId("container-unpair-dialog");
+    expect(dialog).toHaveTextContent("Container 1");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Unpair" }));
+    await waitFor(() => expect(screen.queryByTestId("container-unpair-dialog")).not.toBeInTheDocument());
+    expect(state.pushToast).toHaveBeenCalledWith({
+      message: "Container 1: container unpaired.",
+      status: STATUSES.success,
+    });
+    expect(state.deleteMiners).toHaveBeenCalledExactlyOnceWith({
+      deviceSelector: {
+        selectionType: { case: "includeDevices", value: { deviceIdentifiers: ["ct1/board"] } },
+      },
+    });
+    expect(request).not.toHaveBeenCalled();
+    expect(screen.getByTestId("location")).toHaveTextContent("/");
+  });
+
+  it("cancels without unpairing", async () => {
+    renderMenu();
+    await openAction("Unpair");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByTestId("container-unpair-dialog")).not.toBeInTheDocument();
+    expect(state.deleteMiners).not.toHaveBeenCalled();
+  });
+
+  it("hides Unpair without delete permission", async () => {
+    state.permissions = ["miner:read"];
+    renderMenu();
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+    expect(screen.queryByRole("button", { name: "Unpair" })).not.toBeInTheDocument();
+  });
+
+  it("does not require controller command permissions", async () => {
+    state.permissions = ["miner:read", "miner:delete"];
+    renderMenu();
+    await openAction("Unpair");
+    expect(screen.getByTestId("container-unpair-dialog")).toBeInTheDocument();
+    expect(statusRequest).not.toHaveBeenCalled();
+  });
+
+  it("prevents duplicate submissions and dismissal while unpairing", async () => {
+    let finish!: (result: { deletedCount: number }) => void;
+    state.deleteMiners.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    renderMenu();
+    await openAction("Unpair");
+    const confirm = screen.getByRole("button", { name: "Unpair" });
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    expect(confirm).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(state.deleteMiners).toHaveBeenCalledTimes(1);
+    finish({ deletedCount: 1 });
+    await waitFor(() => expect(screen.queryByTestId("container-unpair-dialog")).not.toBeInTheDocument());
+  });
+
+  it("shows errors and allows retry", async () => {
+    state.deleteMiners.mockRejectedValueOnce(new Error("Unable to unpair container"));
+    const onUnpaired = vi.fn();
+    renderMenu({}, onUnpaired);
+    await openAction("Unpair");
+    fireEvent.click(screen.getByRole("button", { name: "Unpair" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to unpair container");
+    expect(onUnpaired).not.toHaveBeenCalled();
+    expect(state.pushToast).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Unpair" }));
+    await waitFor(() => expect(screen.queryByTestId("container-unpair-dialog")).not.toBeInTheDocument());
+    expect(state.deleteMiners).toHaveBeenCalledTimes(2);
+    expect(onUnpaired).toHaveBeenCalledExactlyOnceWith("ct1/board");
+  });
+
+  it("rechecks permission before confirmation", async () => {
+    const view = renderMenu();
+    await openAction("Unpair");
+    state.permissions = ["miner:read"];
+    view.rerender(
+      <MemoryRouter>
+        <ContainerActionsMenu container={container} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("button", { name: "Unpair" })).toBeDisabled();
+    expect(state.deleteMiners).not.toHaveBeenCalled();
   });
 });

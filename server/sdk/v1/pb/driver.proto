@@ -257,6 +257,12 @@ message DeviceMetrics {
   // must not change remediation state.
   optional bool default_password_active = 17;
   ContainerSnapshot container = 18;
+
+  // Whole elapsed seconds since device boot; absent means unknown, zero is valid.
+  optional uint64 uptime_seconds = 19;
+  // Start of the device request that sampled uptime. Cache this together with
+  // uptime_seconds unchanged. Missing observation time provides no reboot evidence.
+  google.protobuf.Timestamp uptime_observed_at = 20;
 }
 
 
@@ -800,6 +806,8 @@ service Driver {
 
 // Container topology and health are observations, not independently paired miners.
 message ContainerSnapshot {
+ // Inventory observations without physical placement; position must be zero.
+ repeated ContainerHashboard unlocated_hashboards = 8;
  ContainerRollup metrics = 7;
  repeated ContainerFan fans = 5;
  ContainerControls controls = 6;
@@ -955,6 +963,8 @@ message SetModuleMiningRequest {
 
 // Poll-time physical measurements; never allocated customer power.
 message ContainerRollup {
+ // Container-only inventory count; these boards have no physical placement.
+ uint32 unlocated_hashboards = 13;
  optional double hashrate_hs = 1;
  optional double power_w = 2;
  optional double efficiency_jh = 3;

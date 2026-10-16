@@ -85,12 +85,14 @@ func TestContainerPersistenceAndMinerSeparation(t *testing.T) {
 	pue := 1.05
 	snapshot.Plant = &sdk.ContainerPlant{ObservedAt: now, PUE: &pue}
 	snapshot.Metrics = &sdk.ContainerRollup{PowerW: new(9000.0), PowerSource: "facility", Power: sdk.MetricCoverage{Reporting: 1, Expected: 1, TopologyComplete: true, OldestAt: now, NewestAt: now}, SourceTimes: map[string]time.Time{"facility": now}}
+	snapshot.UnlocatedHashboards = make([]sdk.ContainerHashboard, 6)
 	require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: device.DeviceIdentifier, Timestamp: now, Container: snapshot, PowerW: &telemetry.MetricValue{Value: 9000}}))
 	var plantCount int
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT count(*) FROM container_plant_metrics").Scan(&plantCount))
 	require.Equal(t, 1, plantCount)
 	// An older successful response must not overwrite more recent health.
 	snapshot.ObservedAt = now.Add(-time.Minute)
+	snapshot.UnlocatedHashboards = nil // An older map cannot clear the current location warning.
 	snapshot.Tanks[0].Modules[0].State = sdk.ModuleHashing
 	require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: device.DeviceIdentifier, Timestamp: snapshot.ObservedAt, Container: snapshot}))
 	rows, err = service.List(ctx, orgID, nil, false, allow)
@@ -100,6 +102,7 @@ func TestContainerPersistenceAndMinerSeparation(t *testing.T) {
 	require.EqualValues(t, 1, rows[0].Tanks[0].AttentionCount)
 	require.EqualValues(t, 1, rows[0].Tanks[0].HashingCount)
 	require.Equal(t, 9000.0, rows[0].GetPowerW())
+	require.EqualValues(t, 6, rows[0].GetUnlocatedHashboards())
 
 	t.Run("card counts use current inventory states", func(t *testing.T) {
 		for _, state := range []sdk.ModuleState{sdk.ModuleHashing, sdk.ModuleAttention, sdk.ModuleOffline, sdk.ModuleSleeping, sdk.ModuleIsolated, sdk.ModuleUnknown} {

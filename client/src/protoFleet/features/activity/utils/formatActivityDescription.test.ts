@@ -9,6 +9,14 @@ import {
 import { ActivityEntrySchema } from "@/protoFleet/api/generated/activity/v1/activity_pb";
 
 describe("formatActivityDescription", () => {
+  it("distinguishes container unpairing from miner unpairing", () => {
+    expect(formatActivityDescription(create(ActivityEntrySchema, { eventType: "unpair_container" }))).toBe(
+      "Unpaired container",
+    );
+    expect(formatActivityDescription(create(ActivityEntrySchema, { eventType: "unpair_miners" }))).toBe(
+      "Unpaired miners",
+    );
+  });
   it("uses plain language for auth activity", () => {
     const entry = create(ActivityEntrySchema, {
       eventType: "login_failed",

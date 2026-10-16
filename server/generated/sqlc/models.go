@@ -1297,6 +1297,8 @@ type DeviceStatus struct {
 	StatusTimestamp sql.NullTime
 	StatusDetails   sql.NullString
 	CreatedAt       sql.NullTime
+	// Earliest time a boot must follow to satisfy the pending firmware installation; NULL falls back to status_timestamp.
+	RebootRequiredAfter sql.NullTime
 }
 
 type DeviceStatusDaily struct {
@@ -1806,6 +1808,16 @@ type HashboardMetricsHourly struct {
 	EfficiencyCount   int64
 	EfficiencyMin     interface{}
 	EfficiencyMax     interface{}
+}
+
+type HashboardObservation struct {
+	HashboardID      int64
+	DeviceID         int64
+	SiteID           sql.NullInt64
+	LastSeenAt       time.Time
+	SourceAt         sql.NullTime
+	AttributionSince sql.NullTime
+	ReleasedAt       sql.NullTime
 }
 
 type HashboardSlot struct {

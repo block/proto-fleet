@@ -363,6 +363,13 @@ including for FleetNode-owned and unreachable controllers. The menu checks proxy
 availability on open and disables controller actions when that check fails;
 navigation remains available. Power controls wait for a successful status read,
 even for operators who only have power-management permission.
+Unpair requires `miner:delete` and confirmation, then removes the controller through
+Fleet's `DeleteMiners` API. It remains available when the controller proxy is
+unreachable, including FleetNode-owned controllers. After success, the row or card
+is removed immediately and inventory refreshes in the background. Failed requests
+keep the container visible for retry. Single-container unpairing records
+`unpair_container` activity with “Unpaired container” and a container scope;
+miner and bulk deletion retain their existing activity labels.
 
 The action contract is `proto-rig-api/openapi/MDK-v2-API.json`, checked against
 Frigate revision `7a033dbff47e3521d8b87358c1be63bb337ea636`. Host reboot and firmware

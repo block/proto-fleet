@@ -226,3 +226,42 @@ describe("native container detail", () => {
     expect(screen.getByText("No tanks reported.")).toBeInTheDocument();
   });
 });
+
+it.each([1, 6, 288])("shows %i unlocated hashboards below the container title", (count) => {
+  const container = mocks.load("ct1").data!.container;
+  container.unlocatedHashboards = count;
+  renderPage();
+  const notice = screen.getByText(
+    count === 1
+      ? "1 hashboard has an unknown location and is excluded from tank and module telemetry."
+      : `${count} hashboards have unknown locations and are excluded from tank and module telemetry.`,
+  );
+  expect(notice).toHaveClass("text-text-critical");
+  expect(notice).toHaveAttribute("role", "status");
+  expect(notice.parentElement).toContainElement(screen.getByRole("heading", { name: "CT1 North", level: 1 }));
+});
+
+it.each(["zero", "unknown", "stale", "refresh error"])("hides the unlocated notice for %s evidence", (state) => {
+  const current = mocks.load("ct1");
+  current.data!.container.unlocatedHashboards = state === "unknown" ? undefined : state === "zero" ? 0 : 6;
+  current.data!.container.stale = state === "stale";
+  if (state === "refresh error") current.error = "Connection unavailable";
+  renderPage();
+  expect(screen.queryByText(/unknown location/)).not.toBeInTheDocument();
+});
+
+it("removes headline hashrate coverage without treating nonreporting boards as unlocated", () => {
+  const container = mocks.load("ct1").data!.container;
+  Object.assign(
+    container,
+    create(ContainerSchema, {
+      name: "CT1 North",
+      hashrateHs: 50e15,
+      coverage: { hashrate: { reporting: 272, expected: 288, topologyComplete: true } },
+    }),
+  );
+  renderPage();
+  expect(screen.getByText("Hashrate")).toBeInTheDocument();
+  expect(screen.queryByText("272/288 boards reporting")).not.toBeInTheDocument();
+  expect(screen.queryByText(/unknown location/)).not.toBeInTheDocument();
+});

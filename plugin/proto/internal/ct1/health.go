@@ -150,10 +150,40 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 	identities := collectTopologyIdentities(wire)
 	issuesBudget := issueBudget{remaining: maxContainerIssueBytes}
 	for _, tank := range wire.ContainerMap.Tanks {
-		if tank.ID <= 0 || tankIDs[tank.ID] {
+		if tank.ID < 0 || tankIDs[tank.ID] {
 			return nil, fmt.Errorf("invalid or duplicate tank %d", tank.ID)
 		}
 		tankIDs[tank.ID] = true
+		if tank.ID == 0 {
+			// In switch_ports mode Frigate groups unlocated inventory under
+			// tank=0/module=0. This is not a physical three-slot module and may
+			// contain arbitrarily many boards. Keep its identity claims, but
+			// never manufacture placements or claim complete inventory coverage.
+			var unlocatedBoards uint32
+			moduleSeen := false
+			for _, m := range tank.Modules {
+				if m.ID != 0 || moduleSeen {
+					return nil, fmt.Errorf("invalid or duplicate module %d in tank %d", m.ID, tank.ID)
+				}
+				moduleSeen = true
+				for _, slot := range m.Slots {
+					if slot.Hashboard != nil || slot.Occupied {
+						unlocatedBoards++
+						observation := hashboardObservation(slot, 0, now)
+						for _, key := range boardIdentityKeys(observation.MACAddress, observation.Serial) {
+							if identities.boards[key] > 1 {
+								observation = unavailableBoard(0, sdk.HashboardIdentityConflict, slot.Hashboard)
+								break
+							}
+						}
+						result.UnlocatedHashboards = append(result.UnlocatedHashboards, observation)
+					}
+				}
+			}
+			result.TopologyComplete = false
+			slog.Warn("CT1 inventory contains unlocated hashboards", "hashboards", unlocatedBoards)
+			continue
+		}
 		expected := tank.ExpectedModules
 		if expected == 0 {
 			expected = sdk.CT1ModulesPerTank

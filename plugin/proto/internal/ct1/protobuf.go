@@ -30,6 +30,10 @@ func mapResponse(v *mdk.GetContainerMapResponse) MapResponse {
 		} // CT1 has 16 module positions per tank.
 		for _, module := range tank.GetModules() {
 			m := Module{ID: module.GetId(), Slots: make([]Slot, boardsPerModule)}
+			unlocated := tank.GetId() == 0 && module.GetId() == 0
+			if unlocated {
+				m.Slots = nil
+			}
 			for i := range m.Slots {
 				m.Slots[i].unreported = true
 			}
@@ -39,6 +43,12 @@ func mapResponse(v *mdk.GetContainerMapResponse) MapResponse {
 				configuredLocation := slot.GetConfiguredLocation()
 				feed := &sdk.ContainerFeedEvidence{PowerFeedID: slot.GetPowerFeedId(), ObservedPowerFeedID: location.GetPowerFeedId(), ExpectedPowerFeedID: location.GetExpectedPowerFeedId(), WiringStatus: location.GetWiringStatus(), WiringReasons: location.GetWiringReasons(), ConfiguredTank: configuredLocation.GetTank(), ConfiguredModule: configuredLocation.GetModule()}
 				value := Slot{Feed: feed, Occupied: slot.GetOccupied(), Hashboard: b, invalid: b != nil && b.raw == nil}
+				if unlocated {
+					// Inventory has no physical slots or feed assignment.
+					value.Feed = nil
+					m.Slots = append(m.Slots, value)
+					continue
+				}
 				position := slot.GetHashboard().GetLocation().GetHashboardPosition()
 				configured := slot.GetConfiguredLocation().GetHashboardPosition()
 				if position == 0 {

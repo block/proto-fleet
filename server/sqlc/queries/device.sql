@@ -558,17 +558,20 @@ INSERT INTO device_status (
     device_id,
     status,
     status_timestamp,
-    status_details
+    status_details,
+    reboot_required_after
 ) VALUES (
     $1,
     $2,
     $3,
-    $4
+    $4,
+    sqlc.narg('reboot_required_after')::timestamptz
 )
 ON CONFLICT (device_id) DO UPDATE SET
     status = EXCLUDED.status,
     status_timestamp = EXCLUDED.status_timestamp,
-    status_details = EXCLUDED.status_details
+    status_details = EXCLUDED.status_details,
+    reboot_required_after = EXCLUDED.reboot_required_after
 WHERE device_status.status_details IS DISTINCT FROM 'fleet_node_revoked'
   AND NOT EXISTS (
     SELECT 1
@@ -579,6 +582,27 @@ WHERE device_status.status_details IS DISTINCT FROM 'fleet_node_revoked'
       AND dd.discovered_by_fleet_node_id IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = d.id)
   );
+
+-- name: ReconcileRebootRequiredStatus :execrows
+-- The status and reboot-boundary predicates apply to the current status row even
+-- after waiting for a concurrent firmware install's write to finish. Boot
+-- evidence from an earlier install must not clear a later pending reboot.
+UPDATE device_status ds
+SET status = sqlc.arg('status')::device_status_enum,
+    status_timestamp = CURRENT_TIMESTAMP,
+    status_details = NULL,
+    reboot_required_after = NULL
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+JOIN device_pairing dp ON dp.device_id = d.id
+WHERE ds.device_id = d.id
+  AND d.device_identifier = sqlc.arg('device_identifier')
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+  AND ds.status = 'REBOOT_REQUIRED'
+  AND COALESCE(ds.reboot_required_after, ds.status_timestamp) < sqlc.arg('booted_after')::timestamptz
+  AND ds.status_details IS DISTINCT FROM 'fleet_node_revoked';
 
 -- name: GetDeviceStatus :one
 SELECT

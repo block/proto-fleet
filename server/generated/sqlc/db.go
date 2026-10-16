@@ -957,11 +957,17 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getHAProfileDatabaseIdentityStmt, err = db.PrepareContext(ctx, getHAProfileDatabaseIdentity); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHAProfileDatabaseIdentity: %w", err)
 	}
+	if q.getHashboardControllerSiteStmt, err = db.PrepareContext(ctx, getHashboardControllerSite); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHashboardControllerSite: %w", err)
+	}
 	if q.getHashboardInstallationsStmt, err = db.PrepareContext(ctx, getHashboardInstallations); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHashboardInstallations: %w", err)
 	}
 	if q.getHashboardMetricWatermarksStmt, err = db.PrepareContext(ctx, getHashboardMetricWatermarks); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHashboardMetricWatermarks: %w", err)
+	}
+	if q.getHashboardObservationsStmt, err = db.PrepareContext(ctx, getHashboardObservations); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHashboardObservations: %w", err)
 	}
 	if q.getHistoryResolutionStmt, err = db.PrepareContext(ctx, getHistoryResolution); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHistoryResolution: %w", err)
@@ -2058,6 +2064,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.reconcileDefaultPasswordPairingStatusByIdentifierStmt, err = db.PrepareContext(ctx, reconcileDefaultPasswordPairingStatusByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query ReconcileDefaultPasswordPairingStatusByIdentifier: %w", err)
 	}
+	if q.reconcileRebootRequiredStatusStmt, err = db.PrepareContext(ctx, reconcileRebootRequiredStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query ReconcileRebootRequiredStatus: %w", err)
+	}
 	if q.recordCurtailPendingDispatchStmt, err = db.PrepareContext(ctx, recordCurtailPendingDispatch); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordCurtailPendingDispatch: %w", err)
 	}
@@ -2078,6 +2087,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.releaseDeviceWriteFenceToHostStmt, err = db.PrepareContext(ctx, releaseDeviceWriteFenceToHost); err != nil {
 		return nil, fmt.Errorf("error preparing query ReleaseDeviceWriteFenceToHost: %w", err)
+	}
+	if q.releaseHashboardObservationsStmt, err = db.PrepareContext(ctx, releaseHashboardObservations); err != nil {
+		return nil, fmt.Errorf("error preparing query ReleaseHashboardObservations: %w", err)
 	}
 	if q.releaseInventoryPartStmt, err = db.PrepareContext(ctx, releaseInventoryPart); err != nil {
 		return nil, fmt.Errorf("error preparing query ReleaseInventoryPart: %w", err)
@@ -2597,6 +2609,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.upsertHashboardInstallationsStmt, err = db.PrepareContext(ctx, upsertHashboardInstallations); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertHashboardInstallations: %w", err)
+	}
+	if q.upsertHashboardObservationsStmt, err = db.PrepareContext(ctx, upsertHashboardObservations); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertHashboardObservations: %w", err)
 	}
 	if q.upsertHashboardSlotsStmt, err = db.PrepareContext(ctx, upsertHashboardSlots); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertHashboardSlots: %w", err)
@@ -4179,6 +4194,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getHAProfileDatabaseIdentityStmt: %w", cerr)
 		}
 	}
+	if q.getHashboardControllerSiteStmt != nil {
+		if cerr := q.getHashboardControllerSiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHashboardControllerSiteStmt: %w", cerr)
+		}
+	}
 	if q.getHashboardInstallationsStmt != nil {
 		if cerr := q.getHashboardInstallationsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getHashboardInstallationsStmt: %w", cerr)
@@ -4187,6 +4207,11 @@ func (q *Queries) Close() error {
 	if q.getHashboardMetricWatermarksStmt != nil {
 		if cerr := q.getHashboardMetricWatermarksStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getHashboardMetricWatermarksStmt: %w", cerr)
+		}
+	}
+	if q.getHashboardObservationsStmt != nil {
+		if cerr := q.getHashboardObservationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHashboardObservationsStmt: %w", cerr)
 		}
 	}
 	if q.getHistoryResolutionStmt != nil {
@@ -6014,6 +6039,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing reconcileDefaultPasswordPairingStatusByIdentifierStmt: %w", cerr)
 		}
 	}
+	if q.reconcileRebootRequiredStatusStmt != nil {
+		if cerr := q.reconcileRebootRequiredStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reconcileRebootRequiredStatusStmt: %w", cerr)
+		}
+	}
 	if q.recordCurtailPendingDispatchStmt != nil {
 		if cerr := q.recordCurtailPendingDispatchStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing recordCurtailPendingDispatchStmt: %w", cerr)
@@ -6047,6 +6077,11 @@ func (q *Queries) Close() error {
 	if q.releaseDeviceWriteFenceToHostStmt != nil {
 		if cerr := q.releaseDeviceWriteFenceToHostStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing releaseDeviceWriteFenceToHostStmt: %w", cerr)
+		}
+	}
+	if q.releaseHashboardObservationsStmt != nil {
+		if cerr := q.releaseHashboardObservationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing releaseHashboardObservationsStmt: %w", cerr)
 		}
 	}
 	if q.releaseInventoryPartStmt != nil {
@@ -6914,6 +6949,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertHashboardInstallationsStmt: %w", cerr)
 		}
 	}
+	if q.upsertHashboardObservationsStmt != nil {
+		if cerr := q.upsertHashboardObservationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertHashboardObservationsStmt: %w", cerr)
+		}
+	}
 	if q.upsertHashboardSlotsStmt != nil {
 		if cerr := q.upsertHashboardSlotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing upsertHashboardSlotsStmt: %w", cerr)
@@ -7299,8 +7339,10 @@ type Queries struct {
 	getFleetNodeTelemetryRouteByDeviceIdentifierStmt             *sql.Stmt
 	getGroupRefsForDevicesStmt                                   *sql.Stmt
 	getHAProfileDatabaseIdentityStmt                             *sql.Stmt
+	getHashboardControllerSiteStmt                               *sql.Stmt
 	getHashboardInstallationsStmt                                *sql.Stmt
 	getHashboardMetricWatermarksStmt                             *sql.Stmt
+	getHashboardObservationsStmt                                 *sql.Stmt
 	getHistoryResolutionStmt                                     *sql.Stmt
 	getHostedAccountAncestorGrantStmt                            *sql.Stmt
 	getHostedAccountInvitationByHashStmt                         *sql.Stmt
@@ -7666,6 +7708,7 @@ type Queries struct {
 	reconcileContainerModulesStmt                                *sql.Stmt
 	reconcileContainerTanksStmt                                  *sql.Stmt
 	reconcileDefaultPasswordPairingStatusByIdentifierStmt        *sql.Stmt
+	reconcileRebootRequiredStatusStmt                            *sql.Stmt
 	recordCurtailPendingDispatchStmt                             *sql.Stmt
 	recordDeviceWriteRecoveryStmt                                *sql.Stmt
 	recordFirmwareDeploymentStmt                                 *sql.Stmt
@@ -7673,6 +7716,7 @@ type Queries struct {
 	refreshOpenErrorsLastSeenByDeviceStmt                        *sql.Stmt
 	reincludeFirmwareRolloutDevicesStmt                          *sql.Stmt
 	releaseDeviceWriteFenceToHostStmt                            *sql.Stmt
+	releaseHashboardObservationsStmt                             *sql.Stmt
 	releaseInventoryPartStmt                                     *sql.Stmt
 	releaseUndispatchedTargetsForRestoreStmt                     *sql.Stmt
 	removeAllDevicesFromDeviceSetStmt                            *sql.Stmt
@@ -7846,6 +7890,7 @@ type Queries struct {
 	upsertFleetNodeAuthChallengeStmt                             *sql.Stmt
 	upsertFleetNodeSessionStmt                                   *sql.Stmt
 	upsertHashboardInstallationsStmt                             *sql.Stmt
+	upsertHashboardObservationsStmt                              *sql.Stmt
 	upsertHashboardSlotsStmt                                     *sql.Stmt
 	upsertMQTTSourceStateStmt                                    *sql.Stmt
 	upsertMinerCredentialsStmt                                   *sql.Stmt
@@ -8170,8 +8215,10 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFleetNodeTelemetryRouteByDeviceIdentifierStmt:             q.getFleetNodeTelemetryRouteByDeviceIdentifierStmt,
 		getGroupRefsForDevicesStmt:                                   q.getGroupRefsForDevicesStmt,
 		getHAProfileDatabaseIdentityStmt:                             q.getHAProfileDatabaseIdentityStmt,
+		getHashboardControllerSiteStmt:                               q.getHashboardControllerSiteStmt,
 		getHashboardInstallationsStmt:                                q.getHashboardInstallationsStmt,
 		getHashboardMetricWatermarksStmt:                             q.getHashboardMetricWatermarksStmt,
+		getHashboardObservationsStmt:                                 q.getHashboardObservationsStmt,
 		getHistoryResolutionStmt:                                     q.getHistoryResolutionStmt,
 		getHostedAccountAncestorGrantStmt:                            q.getHostedAccountAncestorGrantStmt,
 		getHostedAccountInvitationByHashStmt:                         q.getHostedAccountInvitationByHashStmt,
@@ -8537,6 +8584,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		reconcileContainerModulesStmt:                                q.reconcileContainerModulesStmt,
 		reconcileContainerTanksStmt:                                  q.reconcileContainerTanksStmt,
 		reconcileDefaultPasswordPairingStatusByIdentifierStmt:        q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
+		reconcileRebootRequiredStatusStmt:                            q.reconcileRebootRequiredStatusStmt,
 		recordCurtailPendingDispatchStmt:                             q.recordCurtailPendingDispatchStmt,
 		recordDeviceWriteRecoveryStmt:                                q.recordDeviceWriteRecoveryStmt,
 		recordFirmwareDeploymentStmt:                                 q.recordFirmwareDeploymentStmt,
@@ -8544,6 +8592,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		refreshOpenErrorsLastSeenByDeviceStmt:                        q.refreshOpenErrorsLastSeenByDeviceStmt,
 		reincludeFirmwareRolloutDevicesStmt:                          q.reincludeFirmwareRolloutDevicesStmt,
 		releaseDeviceWriteFenceToHostStmt:                            q.releaseDeviceWriteFenceToHostStmt,
+		releaseHashboardObservationsStmt:                             q.releaseHashboardObservationsStmt,
 		releaseInventoryPartStmt:                                     q.releaseInventoryPartStmt,
 		releaseUndispatchedTargetsForRestoreStmt:                     q.releaseUndispatchedTargetsForRestoreStmt,
 		removeAllDevicesFromDeviceSetStmt:                            q.removeAllDevicesFromDeviceSetStmt,
@@ -8717,6 +8766,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertFleetNodeAuthChallengeStmt:                             q.upsertFleetNodeAuthChallengeStmt,
 		upsertFleetNodeSessionStmt:                                   q.upsertFleetNodeSessionStmt,
 		upsertHashboardInstallationsStmt:                             q.upsertHashboardInstallationsStmt,
+		upsertHashboardObservationsStmt:                              q.upsertHashboardObservationsStmt,
 		upsertHashboardSlotsStmt:                                     q.upsertHashboardSlotsStmt,
 		upsertMQTTSourceStateStmt:                                    q.upsertMQTTSourceStateStmt,
 		upsertMinerCredentialsStmt:                                   q.upsertMinerCredentialsStmt,

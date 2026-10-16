@@ -826,7 +826,7 @@ func TestFleetNodeEquipmentTelemetryRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	decoded := &telemetrypb.FleetNodeTelemetryResult{}
 	require.NoError(t, proto.Unmarshal(wire, decoded))
-	metrics, err := telemetryResultToDeviceMetrics(decoded)
+	metrics, err := telemetryResultToDeviceMetrics(decoded, now)
 	require.NoError(t, err)
 	require.Equal(t, snapshot, metrics.Container)
 	require.Equal(t, "ct1", metrics.DeviceIdentifier)
