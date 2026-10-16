@@ -6,10 +6,10 @@ import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { copyToClipboard } from "@/shared/utils/utility";
 
-vi.mock("@/shared/features/toaster", async () => {
-  const actual = await vi.importActual<typeof import("@/shared/features/toaster")>("@/shared/features/toaster");
-  return { ...actual, pushToast: vi.fn() };
-});
+vi.mock("@/shared/features/toaster", () => ({
+  pushToast: vi.fn(),
+  STATUSES: { success: "success", error: "error" },
+}));
 vi.mock("@/shared/utils/utility", async () => {
   const actual = await vi.importActual<typeof import("@/shared/utils/utility")>("@/shared/utils/utility");
   return { ...actual, copyToClipboard: vi.fn() };
@@ -47,10 +47,7 @@ describe("NodeDetailsModal", () => {
   });
 
   it("shows host metadata and enrollment attribution, with technical identity collapsed", async () => {
-    // Act
     show();
-
-    // Assert
     await waitFor(() => expect(screen.getByText("192.168.1.7")).toBeVisible());
     expect(screen.getByText("fd00::7")).toBeVisible();
     expect(screen.getByText("v0.5.1-internal.3")).toBeVisible();
@@ -59,19 +56,12 @@ describe("NodeDetailsModal", () => {
     expect(screen.getByText("Registered")).toBeVisible();
     expect(screen.getByText(node.createdAt!.toLocaleString())).toBeVisible();
     expect(screen.getByText("Technical details").closest("details")).not.toHaveAttribute("open");
-
-    // Act
     fireEvent.click(screen.getByText("Technical details"));
-
-    // Assert
     expect(screen.getByText(node.identityFingerprint)).toBeVisible();
   });
 
   it("explicitly marks missing metadata and registration time", async () => {
-    // Act
     show({ ipAddresses: [], version: "", enrolledBy: "", createdAt: null, lastSeenAt: null });
-
-    // Assert
     expect(screen.getAllByText("Unavailable")).toHaveLength(4);
     await waitFor(() => expect(screen.getByText("Never")).toBeVisible());
   });
@@ -79,23 +69,15 @@ describe("NodeDetailsModal", () => {
   it.each([{ controlStreamConnected: false }, { commandProtocolUpgradeRequired: true }])(
     "preserves discovery eligibility for %j",
     (overrides) => {
-      // Act
       show(overrides);
-
-      // Assert
       expect(screen.getByRole("button", { name: "Find miners" })).toBeDisabled();
     },
   );
 
   it("copies the node id and confirms with a toast", async () => {
-    // Arrange
     show();
     fireEvent.click(screen.getByText("Technical details"));
-
-    // Act
     fireEvent.click(screen.getByRole("button", { name: "Copy node id" }));
-
-    // Assert
     await waitFor(() =>
       expect(mockPushToast).toHaveBeenCalledWith({ message: "Node ID copied to clipboard", status: STATUSES.success }),
     );
@@ -103,15 +85,10 @@ describe("NodeDetailsModal", () => {
   });
 
   it("reports an error toast when copying the identity fingerprint fails", async () => {
-    // Arrange
     mockCopyToClipboard.mockRejectedValue(new Error("copy failed"));
     show();
     fireEvent.click(screen.getByText("Technical details"));
-
-    // Act
     fireEvent.click(screen.getByRole("button", { name: "Copy identity fingerprint" }));
-
-    // Assert
     await waitFor(() =>
       expect(mockPushToast).toHaveBeenCalledWith({
         message: "Failed to copy identity fingerprint",
@@ -122,13 +99,8 @@ describe("NodeDetailsModal", () => {
   });
 
   it("marks an empty identity fingerprint as unavailable without a copy button", async () => {
-    // Arrange
     show({ identityFingerprint: "" });
-
-    // Act
     fireEvent.click(screen.getByText("Technical details"));
-
-    // Assert
     await waitFor(() => expect(screen.getByText("Unavailable")).toBeVisible());
     expect(screen.queryByRole("button", { name: "Copy identity fingerprint" })).not.toBeInTheDocument();
   });
