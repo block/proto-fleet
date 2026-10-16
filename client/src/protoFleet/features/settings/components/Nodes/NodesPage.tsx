@@ -21,16 +21,18 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { getRelativeTimeFromEpoch } from "@/shared/utils/datetime";
 
-type NodeColumns = "name" | "status" | "miners" | "lastSeen";
+type NodeColumns = "name" | "ipAddresses" | "status" | "version" | "miners" | "lastSeen";
 
 const colTitles: ColTitles<NodeColumns> = {
   name: "Name",
+  ipAddresses: "IP address",
   status: "Status",
+  version: "Version",
   miners: "Paired miners",
-  lastSeen: "Last Seen",
+  lastSeen: "Last heartbeat",
 };
 
-const activeCols: NodeColumns[] = ["name", "status", "miners", "lastSeen"];
+const activeCols: NodeColumns[] = ["name", "ipAddresses", "status", "version", "miners", "lastSeen"];
 
 const NodesPage = () => {
   const { listFleetNodes, listFleetNodeDevices, revokeFleetNode, discoverOnFleetNode } = useFleetNodes();
@@ -231,6 +233,22 @@ const NodesPage = () => {
         component: (node: FleetNodeItem) => <span className="text-emphasis-300">{node.name}</span>,
         width: "w-48",
       },
+      ipAddresses: {
+        component: (node: FleetNodeItem) => (
+          <span className="break-all" title={node.ipAddresses.join(", ")}>
+            {node.ipAddresses.length
+              ? `${node.ipAddresses[0]}${node.ipAddresses.length > 1 ? ` +${node.ipAddresses.length - 1}` : ""}`
+              : "—"}
+          </span>
+        ),
+        width: "w-44",
+        allowWrap: true,
+      },
+      version: {
+        component: (node: FleetNodeItem) => <span className="break-all">{node.version || "—"}</span>,
+        width: "w-44",
+        allowWrap: true,
+      },
       status: {
         component: (node: FleetNodeItem) => <NodeStatusBadge node={node} />,
         width: "w-56",
@@ -241,7 +259,9 @@ const NodesPage = () => {
       },
       lastSeen: {
         component: (node: FleetNodeItem) => (
-          <span>{node.lastSeenAt ? getRelativeTimeFromEpoch(node.lastSeenAt.getTime()) : "Never"}</span>
+          <span title={node.lastSeenAt?.toLocaleString()}>
+            {node.lastSeenAt ? getRelativeTimeFromEpoch(node.lastSeenAt.getTime()) : "Never"}
+          </span>
         ),
         width: "w-40",
       },
@@ -258,10 +278,7 @@ const NodesPage = () => {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-        <SettingsPageHeader
-          title="Nodes"
-          description="Hosts running the fleet-node daemon. Each node discovers miners on its network and brokers commands and telemetry between them and Fleet."
-        />
+        <SettingsPageHeader title="Nodes" />
         {canManageNodes ? (
           <Button
             variant={variants.primary}

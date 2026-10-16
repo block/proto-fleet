@@ -14,6 +14,9 @@ const baseNode: FleetNodeItem = {
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: false,
   pairedDeviceCount: 0,
+  ipAddresses: [],
+  version: "",
+  enrolledBy: "",
   createdAt: new Date("2026-07-09T12:00:00Z"),
   lastSeenAt: null,
 };
@@ -50,6 +53,28 @@ describe("NodeStatusBadge", () => {
     const { getByText } = render(<NodeStatusBadge node={node} />);
 
     expect(getByText("Heartbeat only")).toBeInTheDocument();
+  });
+
+  it("exposes the Stale description as screen-reader text", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-09T12:10:00Z"));
+    const node = { ...baseNode, controlStreamConnected: true, lastSeenAt: new Date(Date.now() - 120_001) };
+
+    const { getByText } = render(<NodeStatusBadge node={node} />);
+
+    expect(getByText("Stale")).toBeInTheDocument();
+    expect(getByText("No heartbeat received in the last 2 minutes.")).toHaveClass("sr-only");
+  });
+
+  it("adds no screen-reader description to a Connected badge", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-09T12:10:00Z"));
+    const node = { ...baseNode, controlStreamConnected: true, lastSeenAt: new Date(Date.now() - 30_000) };
+
+    const { container, getByText } = render(<NodeStatusBadge node={node} />);
+
+    expect(getByText("Connected")).toBeInTheDocument();
+    expect(container.querySelector(".sr-only")).toBeNull();
   });
 
   it("ignores upgrade recommendations for a node without a control stream or heartbeat", () => {

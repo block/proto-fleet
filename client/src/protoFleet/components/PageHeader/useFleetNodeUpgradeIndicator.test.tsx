@@ -25,6 +25,9 @@ const node = (upgradeRecommended: boolean): FleetNodeItem => ({
   commandProtocolUpgradeRecommended: upgradeRecommended,
   controlStreamConnected: true,
   pairedDeviceCount: 0,
+  ipAddresses: [],
+  version: "",
+  enrolledBy: "",
   createdAt: null,
   lastSeenAt: new Date(),
 });

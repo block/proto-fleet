@@ -92,6 +92,10 @@ message UploadEventsResponse {
 
 message UploadHeartbeatRequest {
     google.protobuf.Timestamp sent_at = 1 [(buf.validate.field).required = true];
+    // Local interface addresses reported by the node, not its NAT/proxy address.
+    repeated string ip_addresses = 2 [(buf.validate.field).repeated = {max_items: 64, items: {string: {ip: true, max_len: 45}}}];
+    // Running binary's release version; empty when unavailable.
+    string version = 3 [(buf.validate.field).string.max_len = 128];
 }
 
 message UploadHeartbeatResponse {
