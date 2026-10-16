@@ -35,6 +35,16 @@ export const Current: Story = {
   },
 };
 
+export const CurrentWithError: Story = {
+  args: {
+    updateStatus: {
+      status: "failed",
+      currentVersion: "1.0.0",
+      message: "Last update attempt failed: Download failed",
+    } as FirmwareUpdateInfo,
+  },
+};
+
 export const Downloading: Story = {
   args: {
     installing: true,

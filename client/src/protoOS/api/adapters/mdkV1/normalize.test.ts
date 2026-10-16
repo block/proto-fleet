@@ -20,6 +20,24 @@ import { getAsicId, getPsuId } from "@/protoOS/store";
 import { asHashboardId, ROOT_MODULE_KEY } from "@/protoOS/store/contract";
 
 describe("MDK v1 normalization", () => {
+  it.each([
+    { status: "current" as const, error: "Catalog check failed", expected: "failed" },
+    { status: "current" as const, error: "", expected: "current" },
+    { status: "available" as const, error: "Last install failed", expected: "available" },
+    { status: "downloading" as const, error: "Earlier failure", expected: "downloading" },
+  ])("normalizes $status with error '$error' to $expected", ({ status, error, expected }) => {
+    const { firmwareUpdate } = toCanonicalSystemInfo({
+      sw_update_status: { status, error, current_version: "1.0.0", new_version: "1.1.0" },
+    });
+
+    expect(firmwareUpdate).toMatchObject({
+      status: expected,
+      currentVersion: "1.0.0",
+      newVersion: "1.1.0",
+      message: error,
+    });
+  });
+
   it("keeps v1 rig identity independent of the model prefix", () => {
     const systemInfo = toCanonicalSystemInfo({
       product_name: "Proto CU1",
