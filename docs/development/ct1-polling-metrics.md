@@ -187,6 +187,44 @@ and instantaneous state are unavailable. Groups remain separate when topology or
 installation changes within a bucket. Latest readings still expire after two
 minutes, independently of durable latest rows.
 
+## Raw telemetry compression
+
+CT1 plant, tank, module, and hashboard telemetry use the same compression schedule
+as `device_metrics`: one-hour chunks, compressed after the entire chunk is six
+hours old, with the policy running hourly. Segments use `device_id`, `tank_id`,
+`module_id`, and `hashboard_id`, respectively, ordered by `time DESC`. Existing
+day/week chunks keep their original ranges and become eligible after those ranges
+age out; migration 1026 does not split or synchronously compress them. Retention
+and summary policies are unchanged. Container rollup summaries read
+`device_metrics`; plant JSON has its own raw history and no continuous aggregate.
+
+Late inserts and topology stamps remain supported on compressed chunks. Board
+source timestamps can predate a poll by more than six hours even though stale
+numeric readings are withdrawn. `stamp_hashboard_topology` groups samples by exact
+source time inside PostgreSQL and updates only the requested board IDs and
+collection time. It forces custom plans within the function so Timescale can
+prune the board-ID array before decompression, even when the outer prepared query
+uses a generic plan. PostgreSQL restores the caller's planning mode on return
+through the [function's SET clause](https://www.postgresql.org/docs/18/sql-createfunction.html).
+Future backfills must likewise bound updates by equipment ID and time.
+
+Topology compaction probes tank history by the observation's collection time and
+the controller's tank IDs, including historical tanks. Migration 1026 also replaces
+the tank observation FK with `(topology_observation_id, time)` referencing
+`(id, collected_at)`. PostgreSQL's independent FK checks can then prune by time;
+the application lookup alone cannot bound those checks. The migration validates
+this collection-time invariant against existing tank rows before enabling
+compression. Rehearse that validation on retained data when sizing upgrade time.
+
+The compression down migration decompresses retained chunks before disabling
+compression and restoring the original chunk intervals; allow enough time and
+disk space for the uncompressed data. Prefer a forward correction for deployed
+databases.
+
+See TimescaleDB's [compression policy](https://github.com/timescale/docs/blob/latest/api/compression/add_compression_policy.md)
+and [compressed-data writes](https://github.com/timescale/docs/blob/latest/use-timescale/compression/modify-compressed-data.md)
+for the underlying policy and DML behavior.
+
 ## Topology compaction
 
 A version is an immutable container layout. An installation is one board's
@@ -209,14 +247,20 @@ Cleanup retains any redundant observation still referenced by raw container/tank
 or latest-value records. Container raw references are logical because compressed
 `device_metrics` has no observation FK. Ingestion stamps them at the observation's
 collection time for the same controller; cleanup uses that invariant for chunk and
-compressed-segment pruning. Tank/latest FKs have supporting indexes. Pinned
+compressed-segment pruning. Tank checks also constrain collection time and tank
+ID; compressed chunks do not use the raw observation index. Tank/latest FKs
+remain enforced and have supporting rowstore indexes. Pinned
 interiors enter a separate retry queue and do not stall the forward cursor or split
 the span. Due retries keep a controller eligible for another bounded turn even
 when forward scanning has caught up; retries deferred into the future do not.
 Latest references can pin an observation indefinitely.
 
 Each run processes one controller, at most `batch_size` new observations plus
-`batch_size` due retries (default 500, maximum 10,000). A nonblocking organization
+`batch_size` due retries. Migration 1026 caps each scheduled queue at 50, even if
+an older job config still requests 500; smaller configured batches are honored.
+This leaves room for chunk-level FK trigger overhead within the two-second
+deadline. Direct manual calls still accept limits up to 10,000.
+A nonblocking organization
 lock serializes reference checks and deletion with ingestion. Expected lock
 contention defers cleanup without incrementing the failure counter. Progress, span
 updates, and deletes commit atomically. A separate committed one-minute scheduling
@@ -242,7 +286,7 @@ It identifies redundant candidates, not a promise they are unreferenced; inspect
 reviewing a representative dry run and runtime:
 
 ```sql
-SELECT alter_job(job_id, config=>'{"enabled":true,"batch_size":500}'::jsonb)
+SELECT alter_job(job_id, config=>'{"enabled":true,"batch_size":50}'::jsonb)
 FROM timescaledb_information.jobs WHERE proc_name='compact_container_topology_job';
 ```
 
