@@ -186,6 +186,68 @@ class MigrationHistoryTest(unittest.TestCase):
         self.write(CURRENT + "001002_shared_promoted.up.sql", "SELECT 3;\n")
         self.check("--public-ref", public, error="public shared migration differs")
 
+    def test_collision_repair_allows_only_exact_renamed_pair(self):
+        old = CURRENT + "001026_internal_container_telemetry_compression"
+        new = CURRENT + "001027_internal_container_telemetry_compression"
+        body = "-- requires-shared: 1000\nSELECT 1;\n"
+        self.pair("001026_internal_fleet_node_details", body)
+        before_collision = self.commit()
+        self.pair("001026_internal_container_telemetry_compression", body)
+        self.base = self.commit()
+        renames = {
+            f"{old}.{direction}.sql": (
+                f"{new}.{direction}.sql",
+                hashlib.sha256(body.encode()).hexdigest(),
+            )
+            for direction in ("up", "down")
+        }
+        with mock.patch.object(HISTORY, "RENAMED_MIGRATIONS", renames, create=True):
+            # The broken merged history still fails until both files move.
+            with self.assertRaisesRegex(ValueError, "duplicate migration version"):
+                HISTORY.check(self.repo, self.base)
+            for source, (target, _) in renames.items():
+                (self.repo / source).rename(self.repo / target)
+            HISTORY.check(self.repo, self.base)
+            HISTORY.check(self.repo, before_collision)
+
+            for source, (target, _) in renames.items():
+                with self.subTest(target=target, mutation="change"):
+                    self.write(target, body + "-- changed\n")
+                    with self.assertRaisesRegex(ValueError, "immutable migration"):
+                        HISTORY.check(self.repo, self.base)
+                self.write(target, body)
+                with self.subTest(target=target, mutation="delete"):
+                    (self.repo / target).unlink()
+                    with self.assertRaisesRegex(ValueError, "immutable migration"):
+                        HISTORY.check(self.repo, self.base)
+                self.write(target, body)
+                with self.subTest(target=target, mutation="retain original"):
+                    self.write(source, body)
+                    with self.assertRaisesRegex(
+                        ValueError, "duplicate migration version"
+                    ):
+                        HISTORY.check(self.repo, self.base)
+                (self.repo / source).unlink()
+
+            # Once repaired, the renamed files are immutable as usual.
+            repaired_base = self.commit()
+            HISTORY.check(self.repo, repaired_base)
+            self.write(new + ".up.sql", body + "-- changed again\n")
+            with self.assertRaisesRegex(ValueError, "immutable migration"):
+                HISTORY.check(self.repo, repaired_base)
+            self.write(new + ".up.sql", body)
+
+            # Never accept unknown original SQL under the allowlisted name.
+            for source, (target, _) in renames.items():
+                (self.repo / target).rename(self.repo / source)
+            self.write(old + ".up.sql", body + "-- unknown original\n")
+            unknown_base = self.commit()
+            for source, (target, _) in renames.items():
+                (self.repo / source).rename(self.repo / target)
+                self.write(target, body)
+            with self.assertRaisesRegex(ValueError, "immutable migration"):
+                HISTORY.check(self.repo, unknown_base)
+
     def test_public_shared_files_cannot_skip_internal_shared_migration(self):
         self.pair("001002_shared_promoted")
         public = self.commit()

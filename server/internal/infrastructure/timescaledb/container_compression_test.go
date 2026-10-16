@@ -116,7 +116,7 @@ func TestContainerCompressionRollbackPreservesData(t *testing.T) {
 		require.NoError(t, err)
 	}
 	for _, direction := range []string{"down", "up"} {
-		migration, err := os.ReadFile("../../../migrations/current/001026_internal_container_telemetry_compression." + direction + ".sql")
+		migration, err := os.ReadFile("../../../migrations/current/001027_internal_container_telemetry_compression." + direction + ".sql")
 		require.NoError(t, err)
 		tx, err := r.db.BeginTx(t.Context(), nil)
 		require.NoError(t, err)

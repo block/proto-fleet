@@ -194,7 +194,7 @@ as `device_metrics`: one-hour chunks, compressed after the entire chunk is six
 hours old, with the policy running hourly. Segments use `device_id`, `tank_id`,
 `module_id`, and `hashboard_id`, respectively, ordered by `time DESC`. Existing
 day/week chunks keep their original ranges and become eligible after those ranges
-age out; migration 1026 does not split or synchronously compress them. Retention
+age out; migration 1027 does not split or synchronously compress them. Retention
 and summary policies are unchanged. Container rollup summaries read
 `device_metrics`; plant JSON has its own raw history and no continuous aggregate.
 
@@ -209,7 +209,7 @@ through the [function's SET clause](https://www.postgresql.org/docs/18/sql-creat
 Future backfills must likewise bound updates by equipment ID and time.
 
 Topology compaction probes tank history by the observation's collection time and
-the controller's tank IDs, including historical tanks. Migration 1026 also replaces
+the controller's tank IDs, including historical tanks. Migration 1027 also replaces
 the tank observation FK with `(topology_observation_id, time)` referencing
 `(id, collected_at)`. PostgreSQL's independent FK checks can then prune by time;
 the application lookup alone cannot bound those checks. The migration validates
@@ -256,7 +256,7 @@ when forward scanning has caught up; retries deferred into the future do not.
 Latest references can pin an observation indefinitely.
 
 Each run processes one controller, at most `batch_size` new observations plus
-`batch_size` due retries. Migration 1026 caps each scheduled queue at 50, even if
+`batch_size` due retries. Migration 1027 caps each scheduled queue at 50, even if
 an older job config still requests 500; smaller configured batches are honored.
 This leaves room for chunk-level FK trigger overhead within the two-second
 deadline. Direct manual calls still accept limits up to 10,000.
