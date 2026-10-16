@@ -193,11 +193,14 @@ RC releases, while the shell installer also resolves nightly builds.
 Both release and nightly workflows explicitly pass `github.repository` into
 the reusable artifact workflow's required `release_repository` input. The build
 validates it before interpolating linker arguments or metadata, embeds it in
-fleetd, fleet-ha, and fleet-updater, and records it in deployment, server, and
-Fleet Node `version.txt` files. The publishing jobs download staged installer
-assets from `proto-fleet-release-installers`; they do not upload source-default
-installer scripts. Windows uses the selected bundle metadata and does not
-perform release discovery itself.
+fleetd, fleet-ha, fleet-updater, and the Fleet Node binary, and records it in
+deployment, server, and Fleet Node `version.txt` files. The Fleet Node build
+also embeds the release version and fails unless `fleetnode --version` and
+`fleetnode --print-release-repository` report the expected values. The
+publishing jobs download staged installer assets from
+`proto-fleet-release-installers`; they do not upload source-default installer
+scripts. Windows uses the selected bundle metadata and does not perform release
+discovery itself.
 
 For custom source builds, use the same validated identity in the Go linker
 setting `github.com/block/proto-fleet/server/internal/releaseinfo.Repository`,
