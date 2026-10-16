@@ -134,7 +134,7 @@ func TestFleetMiningAssetUsesLiveHeartbeatAcrossMigration(t *testing.T) {
 
 func applyFleetNodeDetailsMigration(t *testing.T, conn *sql.DB, direction string) {
 	t.Helper()
-	migration, err := migrations.Current.ReadFile("current/001024_internal_fleet_node_details." + direction + ".sql")
+	migration, err := migrations.Current.ReadFile("current/001026_internal_fleet_node_details." + direction + ".sql")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(t.Context(), string(migration))
 	require.NoError(t, err)

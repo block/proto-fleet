@@ -535,6 +535,7 @@ type ContainerFanObservation struct {
 type ContainerInventory struct {
 	DeviceID   int64
 	ObservedAt time.Time
+	OrgID      int64
 }
 
 type ContainerLatestMetric struct {
@@ -736,6 +737,15 @@ type ContainerPlantMetric struct {
 	DeviceID int64
 	Time     time.Time
 	Metrics  json.RawMessage
+}
+
+type ContainerScope struct {
+	ID                 int64
+	OrgID              int64
+	SiteID             sql.NullInt64
+	DeviceIdentifier   string
+	DiscoveredDeviceID int64
+	DeletedAt          sql.NullTime
 }
 
 type ContainerSetpointObservation struct {
@@ -1287,6 +1297,8 @@ type DeviceStatus struct {
 	StatusTimestamp sql.NullTime
 	StatusDetails   sql.NullString
 	CreatedAt       sql.NullTime
+	// Earliest time a boot must follow to satisfy the pending firmware installation; NULL falls back to status_timestamp.
+	RebootRequiredAfter sql.NullTime
 }
 
 type DeviceStatusDaily struct {

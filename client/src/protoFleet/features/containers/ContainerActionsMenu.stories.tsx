@@ -30,6 +30,7 @@ const meta = {
           .getState()
           .auth.setPermissions([
             "miner:read",
+            "miner:delete",
             ...CONTAINER_ACTIONS.map((action) => action.permission),
             "miner:firmware_update",
             "miner:reboot",
@@ -41,6 +42,12 @@ const meta = {
         let mining = context.parameters.containerMining !== false;
         // These examples never dispatch to a real controller.
         window.fetch = async (input, init) => {
+          const url = input instanceof Request ? input.url : String(input);
+          if (url.endsWith("/fleetmanagement.v1.FleetManagementService/DeleteMiners")) {
+            return new Response(JSON.stringify({ deletedCount: 1 }), {
+              headers: { "Content-Type": "application/json" },
+            });
+          }
           if (String(input).startsWith("/api-proxy/miners/ct1-actions-demo/")) {
             if (context.parameters.containerUnavailable) {
               return new Response(JSON.stringify({ error: "miner not found or cannot be proxied" }), {

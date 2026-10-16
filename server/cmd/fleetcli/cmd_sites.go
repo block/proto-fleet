@@ -46,6 +46,31 @@ func generatedSitesCommand() *cli.Command {
 				func() proto.Message { return &sitesv1.AssignBuildingsToSiteResponse{} },
 			),
 			generatedRequestCommand(
+				"assign-containers",
+				"Assign whole containers to a site; omit target-site-id to unassign",
+				"/sites.v1.SiteService/AssignContainersToSite",
+				generatedAuthAuthenticated,
+				[]cli.Flag{
+					&cli.StringSliceFlag{Name: "container-identifiers", Usage: "(required) container identifiers", Required: true},
+					&cli.Int64Flag{Name: "target-site-id", Usage: "target site id"},
+				},
+				func(ctx context.Context, cmd *cli.Command, client *Client) (proto.Message, error) {
+					req := &sitesv1.AssignContainersToSiteRequest{}
+					if cmd.IsSet("container-identifiers") {
+						req.ContainerIdentifiers = cmd.StringSlice("container-identifiers")
+					}
+					if cmd.IsSet("target-site-id") {
+						value := cmd.Int64("target-site-id")
+						req.TargetSiteId = &value
+					}
+					if err := generatedValidateRequest(req); err != nil {
+						return nil, err
+					}
+					return req, nil
+				},
+				func() proto.Message { return &sitesv1.AssignContainersToSiteResponse{} },
+			),
+			generatedRequestCommand(
 				"assign-devices",
 				"Assign devices to site",
 				"/sites.v1.SiteService/AssignDevicesToSite",

@@ -21,6 +21,25 @@ type Handler struct {
 }
 
 func NewHandler(service *containers.Service) *Handler { return &Handler{service: service} }
+func (h *Handler) ListContainerPlacements(ctx context.Context, req *connect.Request[pb.ListContainerPlacementsRequest]) (*connect.Response[pb.ListContainerPlacementsResponse], error) {
+	info, err := session.GetInfo(ctx)
+	if err != nil {
+		return nil, fleeterror.NewUnauthenticatedError("authentication required")
+	}
+	rows, err := h.service.ListPlacements(ctx, info.OrganizationID, func(siteID *int64) (bool, error) {
+		for _, permission := range []string{authz.PermSiteRead, authz.PermSiteManage} {
+			allowed, err := middleware.HasPermission(ctx, permission, authz.ResourceContext{SiteID: siteID})
+			if err != nil || !allowed {
+				return allowed, err
+			}
+		}
+		return true, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.ListContainerPlacementsResponse{Containers: rows}), nil
+}
 func (h *Handler) ListContainers(ctx context.Context, req *connect.Request[pb.ListContainersRequest]) (*connect.Response[pb.ListContainersResponse], error) {
 	info, err := session.GetInfo(ctx)
 	if err != nil {
@@ -33,6 +52,7 @@ func (h *Handler) ListContainers(ctx context.Context, req *connect.Request[pb.Li
 	}
 	for _, container := range rows {
 		container.CanControlEquipment = canWriteEquipment(ctx, container)
+		container.CanAssignSite = CanAssignSite(ctx, container)
 	}
 	return connect.NewResponse(&pb.ListContainersResponse{Containers: rows}), nil
 }
@@ -58,6 +78,7 @@ func (h *Handler) GetContainer(ctx context.Context, req *connect.Request[pb.GetC
 		return nil, err
 	}
 	container.CanControlEquipment = canWriteEquipment(ctx, container)
+	container.CanAssignSite = CanAssignSite(ctx, container)
 	return connect.NewResponse(&pb.GetContainerResponse{Container: container}), nil
 }
 
@@ -111,4 +132,14 @@ func canWriteEquipment(ctx context.Context, container *pb.Container) bool {
 		site = &container.Site.Id
 	}
 	return authorizeEquipmentWrite(ctx, site) == nil
+}
+
+// CanAssignSite checks assignment authority at the container's current site.
+func CanAssignSite(ctx context.Context, container *pb.Container) bool {
+	var site *int64
+	if container.Site != nil {
+		site = &container.Site.Id
+	}
+	_, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{SiteID: site})
+	return err == nil
 }

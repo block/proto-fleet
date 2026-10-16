@@ -70,6 +70,8 @@ type Device struct {
 	statusTTL    time.Duration
 
 	lastFirmwareCheckAt        time.Time
+	lastUptimeSeconds          *uint64
+	lastUptimeObservedAt       time.Time
 	lastDefaultPasswordCheckAt time.Time
 	lastDefaultPasswordActive  *bool
 
@@ -275,6 +277,9 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 
 	minerStatus, err := d.client.GetStatus(ctx)
 	if err != nil {
+		// An unreachable miner may be rebooting, so its next successful poll
+		// must not reuse uptime observed before the outage.
+		d.clearFirmwareCacheLocked()
 		return sdk.DeviceMetrics{}, fmt.Errorf("failed to get miner status: %w", err)
 	}
 	if minerStatus.IsCurtailed && d.hasActiveFullCurtailment() {
@@ -307,26 +312,48 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	return metrics, nil
 }
 
-// refreshFirmwareVersion periodically re-fetches firmware version from the device
-// to detect firmware updates. Throttled to avoid excessive API calls.
+// refreshFirmwareVersion periodically reads firmware and uptime from the same
+// system response. Cached uptime always keeps its original observation time.
 func (d *Device) refreshFirmwareVersion(ctx context.Context, metrics *sdk.DeviceMetrics) error {
 	if time.Since(d.lastFirmwareCheckAt) < firmwareRefreshInterval {
+		d.copyUptimeToMetrics(metrics)
 		return nil
 	}
-	fwVersion, err := d.client.GetFirmwareVersion(ctx)
-	d.lastFirmwareCheckAt = time.Now()
+	info, err := d.client.GetSystemInfo(ctx)
 	if err != nil {
+		d.clearFirmwareCacheLocked()
+		d.lastFirmwareCheckAt = time.Now()
 		if errors.Is(err, proto.ErrDeviceIdentity) {
 			return err
 		}
 		slog.Debug("failed to get firmware version during Status", "error", err)
 		return nil
 	}
-	if fwVersion != "" {
-		d.deviceInfo.FirmwareVersion = fwVersion
-		metrics.FirmwareVersion = fwVersion
+	d.recordSystemInfoLocked(info)
+	if info.FirmwareVersion != "" {
+		metrics.FirmwareVersion = info.FirmwareVersion
 	}
+	d.copyUptimeToMetrics(metrics)
 	return nil
+}
+
+// recordSystemInfoLocked caches a successful system response for the firmware
+// refresh interval. Uptime keeps that response's observation time.
+func (d *Device) recordSystemInfoLocked(info proto.SystemInfo) {
+	d.lastFirmwareCheckAt = time.Now()
+	if info.FirmwareVersion != "" {
+		d.deviceInfo.FirmwareVersion = info.FirmwareVersion
+	}
+	d.lastUptimeSeconds = info.UptimeSeconds
+	d.lastUptimeObservedAt = info.UptimeObservedAt
+}
+
+func (d *Device) copyUptimeToMetrics(metrics *sdk.DeviceMetrics) {
+	if d.lastUptimeSeconds != nil {
+		uptime := *d.lastUptimeSeconds
+		metrics.UptimeSeconds = &uptime
+		metrics.UptimeObservedAt = d.lastUptimeObservedAt
+	}
 }
 
 // refreshDefaultPasswordStatus periodically re-fetches the factory-password flag.
@@ -809,7 +836,13 @@ func (d *Device) invalidateStatusAndFirmwareCaches() {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 	d.clearStatusCacheLocked()
+	d.clearFirmwareCacheLocked()
+}
+
+func (d *Device) clearFirmwareCacheLocked() {
 	d.lastFirmwareCheckAt = time.Time{}
+	d.lastUptimeSeconds = nil
+	d.lastUptimeObservedAt = time.Time{}
 }
 
 func (d *Device) clearStatusCacheLocked() {
@@ -993,10 +1026,17 @@ func (d *Device) FirmwareUpdate(ctx context.Context, firmware sdk.FirmwareFile) 
 //
 // Returns the current firmware installation status from the rig's sw_update_status.
 func (d *Device) GetFirmwareUpdateStatus(ctx context.Context) (*sdk.FirmwareUpdateStatus, error) {
-	status, err := d.client.GetUpdateStatus(ctx)
+	info, err := d.client.GetSystemInfo(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get update status: %w", err)
 	}
+	// Fleet decides whether a post-install reboot already happened from the
+	// next Status, so it must carry the uptime sampled with this install state.
+	d.mutex.Lock()
+	d.recordSystemInfoLocked(info)
+	d.clearStatusCacheLocked()
+	d.mutex.Unlock()
+	status := info.UpdateStatus
 	if status == nil {
 		return nil, nil
 	}

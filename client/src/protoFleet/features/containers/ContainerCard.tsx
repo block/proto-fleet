@@ -8,7 +8,15 @@ import type { Container } from "@/protoFleet/api/generated/containers/v1/contain
 import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { HEAT_CLASS } from "@/protoFleet/features/buildings/components/cardHealth";
 
-export default function ContainerCard({ container, inventory }: { container: Container; inventory?: InventoryItem }) {
+export default function ContainerCard({
+  container,
+  inventory,
+  onUnpaired,
+}: {
+  container: Container;
+  inventory?: InventoryItem;
+  onUnpaired?: (deviceIdentifier: string) => void;
+}) {
   const { tanks: states, total, affected, incomplete } = containerHealth(container);
   const className = "flex h-full flex-col rounded-2xl bg-surface-overlay p-5";
   const content = (
@@ -80,7 +88,7 @@ export default function ContainerCard({ container, inventory }: { container: Con
         {content}
       </Link>
       <div className="absolute top-4 right-5">
-        <ContainerActionsMenu container={container} />
+        <ContainerActionsMenu container={container} onUnpaired={onUnpaired} />
       </div>
     </div>
   );

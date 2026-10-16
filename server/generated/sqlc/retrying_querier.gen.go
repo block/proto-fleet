@@ -248,6 +248,18 @@ func (q *retryingQuerier) AssignBuildingsToSiteBulk(ctx context.Context, arg Ass
 	return result, err
 }
 
+func (q *retryingQuerier) AssignContainersToSite(ctx context.Context, arg AssignContainersToSiteParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "AssignContainersToSite", func() error {
+		callResult, callErr := q.next.AssignContainersToSite(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) AssignDevicesToBuilding(ctx context.Context, arg AssignDevicesToBuildingParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "AssignDevicesToBuilding", func() error {
@@ -918,6 +930,18 @@ func (q *retryingQuerier) ContainerOwnsCommandBatch(ctx context.Context, arg Con
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "ContainerOwnsCommandBatch", func() error {
 		callResult, callErr := q.next.ContainerOwnsCommandBatch(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ContainsContainerIdentifiers(ctx context.Context, arg ContainsContainerIdentifiersParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "ContainsContainerIdentifiers", func() error {
+		callResult, callErr := q.next.ContainsContainerIdentifiers(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -2526,6 +2550,18 @@ func (q *retryingQuerier) GetConnectedPostgresIdentity(ctx context.Context) (Con
 	var result ConnectedPostgresIdentity
 	err := q.retrier.RetryQuery(ctx, "GetConnectedPostgresIdentity", func() error {
 		callResult, callErr := q.next.GetConnectedPostgresIdentity(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetContainerIdentifiersForCommands(ctx context.Context, arg GetContainerIdentifiersForCommandsParams) ([]string, error) {
+	var result []string
+	err := q.retrier.RetryQuery(ctx, "GetContainerIdentifiersForCommands", func() error {
+		callResult, callErr := q.next.GetContainerIdentifiersForCommands(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5282,6 +5318,30 @@ func (q *retryingQuerier) ListContainerModuleHistory(ctx context.Context, arg Li
 	return result, err
 }
 
+func (q *retryingQuerier) ListContainerPlacements(ctx context.Context, orgID int64) ([]ListContainerPlacementsRow, error) {
+	var result []ListContainerPlacementsRow
+	err := q.retrier.RetryQuery(ctx, "ListContainerPlacements", func() error {
+		callResult, callErr := q.next.ListContainerPlacements(ctx, orgID)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListContainerSiteStats(ctx context.Context, arg ListContainerSiteStatsParams) ([]ListContainerSiteStatsRow, error) {
+	var result []ListContainerSiteStatsRow
+	err := q.retrier.RetryQuery(ctx, "ListContainerSiteStats", func() error {
+		callResult, callErr := q.next.ListContainerSiteStats(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListContainers(ctx context.Context, arg ListContainersParams) ([]ListContainersRow, error) {
 	var result []ListContainersRow
 	err := q.retrier.RetryQuery(ctx, "ListContainers", func() error {
@@ -6656,6 +6716,18 @@ func (q *retryingQuerier) LockContainerCommandTarget(ctx context.Context, arg Lo
 	return result, err
 }
 
+func (q *retryingQuerier) LockContainersForSiteAssignment(ctx context.Context, arg LockContainersForSiteAssignmentParams) ([]LockContainersForSiteAssignmentRow, error) {
+	var result []LockContainersForSiteAssignmentRow
+	err := q.retrier.RetryQuery(ctx, "LockContainersForSiteAssignment", func() error {
+		callResult, callErr := q.next.LockContainersForSiteAssignment(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockCurtailmentAdmissionEventForWrite(ctx context.Context, curtailmentEventID int64) (LockCurtailmentAdmissionEventForWriteRow, error) {
 	var result LockCurtailmentAdmissionEventForWriteRow
 	err := q.retrier.RetryQuery(ctx, "LockCurtailmentAdmissionEventForWrite", func() error {
@@ -7572,6 +7644,18 @@ func (q *retryingQuerier) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx 
 	var result ReconcileDefaultPasswordPairingStatusByIdentifierRow
 	err := q.retrier.RetryQuery(ctx, "ReconcileDefaultPasswordPairingStatusByIdentifier", func() error {
 		callResult, callErr := q.next.ReconcileDefaultPasswordPairingStatusByIdentifier(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ReconcileRebootRequiredStatus(ctx context.Context, arg ReconcileRebootRequiredStatusParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ReconcileRebootRequiredStatus", func() error {
+		callResult, callErr := q.next.ReconcileRebootRequiredStatus(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

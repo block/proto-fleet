@@ -17,7 +17,7 @@ import (
 
 const getContainerModuleScope = `-- name: GetContainerModuleScope :one
 SELECT d.org_id, d.site_id FROM container_module m
-JOIN container_tank t ON t.id = m.tank_id JOIN device d ON d.id = t.device_id
+JOIN container_tank t ON t.id = m.tank_id JOIN container_scope d ON d.id = t.device_id
 WHERE m.id = $1 AND d.org_id = $2 AND d.deleted_at IS NULL
 `
 
@@ -48,7 +48,7 @@ WITH resolution AS (
  mm.measurement_type,mm.samples,mm.total,mm.minimum,mm.maximum,mm.reporting_count,mm.expected_count,mm.coverage_complete,
  CASE mm.measurement_type WHEN 2 THEN 1e-12 WHEN 3 THEN 0.001 WHEN 4 THEN 1e12 ELSE 1 END::float8 AS scale
  FROM container_equipment_history mm JOIN container_tank t ON t.id=mm.tank_id
- JOIN device d ON d.id=t.device_id CROSS JOIN settings
+ JOIN container_scope d ON d.id=t.device_id CROSS JOIN settings
  WHERE mm.equipment_kind=4 AND mm.resolution_seconds=settings.seconds AND t.id=$4 AND d.device_identifier=$5 AND d.org_id=$6 AND d.deleted_at IS NULL
  AND mm.bucket>=CASE WHEN settings.seconds=0 THEN $1::timestamptz ELSE to_timestamp(floor(extract(epoch FROM $1::timestamptz)/settings.seconds)*settings.seconds) END
  AND mm.bucket<$2::timestamptz
@@ -142,7 +142,7 @@ func (q *Queries) GetContainerTankHistory(ctx context.Context, arg GetContainerT
 
 const getContainerTankScope = `-- name: GetContainerTankScope :one
 SELECT d.site_id FROM container_tank t
-JOIN device d ON d.id = t.device_id
+JOIN container_scope d ON d.id = t.device_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.org_id
 WHERE t.id = $1 AND t.present
   AND d.device_identifier = $2 AND d.org_id = $3
@@ -186,7 +186,7 @@ WITH resolution AS (
 ), readable AS (
  SELECT mm.equipment_kind, mm.container_identifier, mm.tank_id, mm.module_id, mm.site_id, mm.topology_version_id, mm.bucket, mm.collected_at, mm.resolution_seconds, mm.measurement_type, mm.total, mm.samples, mm.minimum, mm.maximum, mm.reporting_count, mm.expected_count, mm.coverage_complete FROM container_equipment_history mm
  JOIN container_module m ON m.id=mm.module_id
- JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id
+ JOIN container_tank t ON t.id=m.tank_id JOIN container_scope d ON d.id=t.device_id
  CROSS JOIN resolution
  WHERE mm.equipment_kind=6 AND mm.resolution_seconds=resolution.seconds AND m.id=$3
  AND d.org_id=$4 AND d.deleted_at IS NULL

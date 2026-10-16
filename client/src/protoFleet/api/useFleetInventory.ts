@@ -6,14 +6,16 @@ import {
   type ListInventoryResponse,
 } from "./generated/fleetinventory/v1/fleetinventory_pb";
 import { getErrorMessage } from "./getErrorMessage";
+import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { usePoll } from "@/shared/hooks/usePoll";
 
 // Each page is selected and ordered by the server across all entity kinds.
 // Keys include every filter; previous-scope rows are never returned while a
 // new request is pending, even if a cancelled transport resolves late.
 export function useFleetInventory(input: MessageInitShape<typeof ListInventoryRequestSchema>, enabled = true) {
+  const sitesRevision = useFleetStore((state) => state.ui.sitesRevision);
   const request = create(ListInventoryRequestSchema, input);
-  const key = toJsonString(ListInventoryRequestSchema, request);
+  const key = `${toJsonString(ListInventoryRequestSchema, request)}:${sitesRevision}`;
   const [navigation, setNavigation] = useState({ key, page: 0, cursors: [""] });
   const [revision, setRevision] = useState(0);
   const [result, setResult] = useState<{
