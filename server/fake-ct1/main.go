@@ -36,6 +36,10 @@ func main() {
 	webRoot := flag.String("web-root", "", "Serve a built ProtoOS directory on the API origin (disabled by default)")
 	flag.Parse()
 
+	unlocatedBoards, err := parseUnlocatedBoards(os.Getenv("CT1_UNLOCATED_BOARDS"))
+	if err != nil {
+		log.Fatal(err)
+	}
 	instanceID := simulatorInstanceID()
 
 	cfg := ContainerConfig{
@@ -49,6 +53,7 @@ func main() {
 		SlotsPerModule:   getEnvInt("CT1_SLOTS_PER_MODULE", defaultSlotsPerModule),
 		AsicsPerBoard:    getEnvInt("CT1_ASICS_PER_BOARD", defaultAsicsPerBoard),
 		DemoModuleStates: getEnv("CT1_DEMO_MODULE_STATES", "true") == "true",
+		UnlocatedBoards:  unlocatedBoards,
 	}
 
 	state := NewContainerState(cfg)
@@ -139,6 +144,20 @@ func startHTTPServer(ctx context.Context, state *ContainerState, port int, webRo
 }
 
 // Helper functions for environment variables.
+
+func parseUnlocatedBoards(value string) (int, error) {
+	if value == "" {
+		return 0, nil
+	}
+	if value == "all" {
+		return -1, nil
+	}
+	count, err := strconv.Atoi(value)
+	if err != nil || count < 0 {
+		return 0, fmt.Errorf("invalid CT1_UNLOCATED_BOARDS=%q: expected a nonnegative integer or all", value)
+	}
+	return count, nil
+}
 
 func getEnv(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {

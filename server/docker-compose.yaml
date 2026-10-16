@@ -344,6 +344,7 @@ services:
       HTTP_PORT: "8080"
       GRPC_PORT: "9095"
       SERVER_ID: "ct1-sim-001"
+      CT1_UNLOCATED_BOARDS: "${CT1_UNLOCATED_BOARDS:-0}"
     healthcheck:
       test: [ "CMD", "wget", "-qO-", "http://localhost:8080/health" ]
       interval: 10s

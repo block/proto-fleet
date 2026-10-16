@@ -54,6 +54,7 @@ export default function ContainerPage() {
     <>
       <ContainerOverviewLayout
         title={container.name}
+        unlocatedHashboards={view.unlocatedHashboards}
         breadcrumb={
           container.site
             ? [

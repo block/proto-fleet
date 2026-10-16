@@ -76,6 +76,9 @@ type ContainerConfig struct {
 	AsicsPerBoard    int
 	DemoModuleStates bool
 	Seed             int
+	// UnlocatedBoards moves the first N boards into the map's inventory group;
+	// -1 selects all boards. The underlying physical simulation stays intact.
+	UnlocatedBoards int
 }
 
 // ContainerState holds the full simulated container tree and shared metadata.

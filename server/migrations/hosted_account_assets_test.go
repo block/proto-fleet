@@ -33,7 +33,7 @@ func TestAccountAssetRollbackPreservesAllocationsAndRecallWitnesses(t *testing.T
 				require.NoError(t, err)
 				expectedRevision++
 			}
-			down, err := migrations.Current.ReadFile("current/001023_internal_hosted_account_assets.down.sql")
+			down, err := migrations.Current.ReadFile("current/001024_internal_hosted_account_assets.down.sql")
 			require.NoError(t, err)
 			// A prepared statement verifies the refusal and destructive DDL stay in one
 			// atomic statement even when run without an outer migration transaction.
@@ -57,7 +57,7 @@ func TestAccountAssetRollbackPreservesAllocationsAndRecallWitnesses(t *testing.T
 			var schemaDropped bool
 			require.NoError(t, database.DB.QueryRowContext(ctx, `SELECT to_regclass('hosted_account_asset') IS NULL AND to_regprocedure('check_hosted_account_asset()') IS NULL`).Scan(&schemaDropped))
 			require.True(t, schemaDropped)
-			up, err := migrations.Current.ReadFile("current/001023_internal_hosted_account_assets.up.sql")
+			up, err := migrations.Current.ReadFile("current/001024_internal_hosted_account_assets.up.sql")
 			require.NoError(t, err)
 			_, err = database.DB.ExecContext(ctx, string(up))
 			require.NoError(t, err)

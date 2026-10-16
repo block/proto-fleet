@@ -923,7 +923,8 @@ class DeviceErrors(_message.Message):
     def __init__(self, device_id: _Optional[str] = ..., errors: _Optional[_Iterable[_Union[DeviceError, _Mapping]]] = ...) -> None: ...
 
 class ContainerSnapshot(_message.Message):
-    __slots__ = ("metrics", "fans", "controls", "observed_at", "tanks", "plant", "topology_complete")
+    __slots__ = ("unlocated_hashboards", "metrics", "fans", "controls", "observed_at", "tanks", "plant", "topology_complete")
+    UNLOCATED_HASHBOARDS_FIELD_NUMBER: _ClassVar[int]
     METRICS_FIELD_NUMBER: _ClassVar[int]
     FANS_FIELD_NUMBER: _ClassVar[int]
     CONTROLS_FIELD_NUMBER: _ClassVar[int]
@@ -931,6 +932,7 @@ class ContainerSnapshot(_message.Message):
     TANKS_FIELD_NUMBER: _ClassVar[int]
     PLANT_FIELD_NUMBER: _ClassVar[int]
     TOPOLOGY_COMPLETE_FIELD_NUMBER: _ClassVar[int]
+    unlocated_hashboards: _containers.RepeatedCompositeFieldContainer[ContainerHashboard]
     metrics: ContainerRollup
     fans: _containers.RepeatedCompositeFieldContainer[ContainerFan]
     controls: ContainerControls
@@ -938,7 +940,7 @@ class ContainerSnapshot(_message.Message):
     tanks: _containers.RepeatedCompositeFieldContainer[ContainerTank]
     plant: ContainerPlant
     topology_complete: bool
-    def __init__(self, metrics: _Optional[_Union[ContainerRollup, _Mapping]] = ..., fans: _Optional[_Iterable[_Union[ContainerFan, _Mapping]]] = ..., controls: _Optional[_Union[ContainerControls, _Mapping]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., tanks: _Optional[_Iterable[_Union[ContainerTank, _Mapping]]] = ..., plant: _Optional[_Union[ContainerPlant, _Mapping]] = ..., topology_complete: bool = ...) -> None: ...
+    def __init__(self, unlocated_hashboards: _Optional[_Iterable[_Union[ContainerHashboard, _Mapping]]] = ..., metrics: _Optional[_Union[ContainerRollup, _Mapping]] = ..., fans: _Optional[_Iterable[_Union[ContainerFan, _Mapping]]] = ..., controls: _Optional[_Union[ContainerControls, _Mapping]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., tanks: _Optional[_Iterable[_Union[ContainerTank, _Mapping]]] = ..., plant: _Optional[_Union[ContainerPlant, _Mapping]] = ..., topology_complete: bool = ...) -> None: ...
 
 class ContainerTank(_message.Message):
     __slots__ = ("metrics", "topology_complete", "position", "modules")
@@ -1192,7 +1194,7 @@ class SetModuleMiningRequest(_message.Message):
     def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., modules: _Optional[_Iterable[_Union[ModuleMiningTarget, _Mapping]]] = ..., mining: bool = ...) -> None: ...
 
 class ContainerRollup(_message.Message):
-    __slots__ = ("hashrate_hs", "power_w", "efficiency_jh", "temperature_c", "min_temperature_c", "max_temperature_c", "hashrate", "power", "temperature", "power_source", "attribution", "source_times")
+    __slots__ = ("unlocated_hashboards", "hashrate_hs", "power_w", "efficiency_jh", "temperature_c", "min_temperature_c", "max_temperature_c", "hashrate", "power", "temperature", "power_source", "attribution", "source_times")
     class SourceTimesEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -1200,6 +1202,7 @@ class ContainerRollup(_message.Message):
         key: str
         value: _timestamp_pb2.Timestamp
         def __init__(self, key: _Optional[str] = ..., value: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+    UNLOCATED_HASHBOARDS_FIELD_NUMBER: _ClassVar[int]
     HASHRATE_HS_FIELD_NUMBER: _ClassVar[int]
     POWER_W_FIELD_NUMBER: _ClassVar[int]
     EFFICIENCY_JH_FIELD_NUMBER: _ClassVar[int]
@@ -1212,6 +1215,7 @@ class ContainerRollup(_message.Message):
     POWER_SOURCE_FIELD_NUMBER: _ClassVar[int]
     ATTRIBUTION_FIELD_NUMBER: _ClassVar[int]
     SOURCE_TIMES_FIELD_NUMBER: _ClassVar[int]
+    unlocated_hashboards: int
     hashrate_hs: float
     power_w: float
     efficiency_jh: float
@@ -1224,7 +1228,7 @@ class ContainerRollup(_message.Message):
     power_source: str
     attribution: str
     source_times: _containers.MessageMap[str, _timestamp_pb2.Timestamp]
-    def __init__(self, hashrate_hs: _Optional[float] = ..., power_w: _Optional[float] = ..., efficiency_jh: _Optional[float] = ..., temperature_c: _Optional[float] = ..., min_temperature_c: _Optional[float] = ..., max_temperature_c: _Optional[float] = ..., hashrate: _Optional[_Union[MetricCoverage, _Mapping]] = ..., power: _Optional[_Union[MetricCoverage, _Mapping]] = ..., temperature: _Optional[_Union[MetricCoverage, _Mapping]] = ..., power_source: _Optional[str] = ..., attribution: _Optional[str] = ..., source_times: _Optional[_Mapping[str, _timestamp_pb2.Timestamp]] = ...) -> None: ...
+    def __init__(self, unlocated_hashboards: _Optional[int] = ..., hashrate_hs: _Optional[float] = ..., power_w: _Optional[float] = ..., efficiency_jh: _Optional[float] = ..., temperature_c: _Optional[float] = ..., min_temperature_c: _Optional[float] = ..., max_temperature_c: _Optional[float] = ..., hashrate: _Optional[_Union[MetricCoverage, _Mapping]] = ..., power: _Optional[_Union[MetricCoverage, _Mapping]] = ..., temperature: _Optional[_Union[MetricCoverage, _Mapping]] = ..., power_source: _Optional[str] = ..., attribution: _Optional[str] = ..., source_times: _Optional[_Mapping[str, _timestamp_pb2.Timestamp]] = ...) -> None: ...
 
 class MetricCoverage(_message.Message):
     __slots__ = ("reporting", "expected", "topology_complete", "oldest_at", "newest_at")

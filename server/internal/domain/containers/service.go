@@ -115,6 +115,9 @@ func Project(rows []sqlc.ListContainersRow, canRead func(*int64) (bool, error)) 
 				return nil, fmt.Errorf("decode container coverage: %w", err)
 			}
 			c.Coverage = containerreadings.Coverage(&coverage)
+			if metricsFresh && !c.Stale {
+				c.UnlocatedHashboards = &coverage.UnlocatedHashboards
+			}
 		}
 		if err := projectEquipment(c, r.Fans, r.Controls, now); err != nil {
 			return nil, err
