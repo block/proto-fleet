@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package notes.v1;
+
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+
+// NoteService is the org-wide shared team notepad: one append-style
+// feed every member of the org can read and post to. Authors edit and
+// delete their own notes; note:manage holders can delete any note.
+// All RPCs gate on the any-scope permission check — a role assignment
+// at any scope (org or site) makes the caller a member of the team
+// the feed serves.
+service NoteService {
+    // ListNotes returns the org feed newest-first with keyset
+    // pagination. An empty next_page_token means the feed is
+    // exhausted.
+    rpc ListNotes(ListNotesRequest) returns (ListNotesResponse);
+
+    // CreateNote appends a note authored by the caller. Content is
+    // trimmed server-side and must be non-empty after trimming.
+    rpc CreateNote(CreateNoteRequest) returns (CreateNoteResponse);
+
+    // UpdateNote edits the content of the caller's own note. Editing
+    // another author's note is rejected regardless of role.
+    rpc UpdateNote(UpdateNoteRequest) returns (UpdateNoteResponse);
+
+    // DeleteNote soft-deletes the caller's own note, or any note when
+    // the caller holds note:manage.
+    rpc DeleteNote(DeleteNoteRequest) returns (DeleteNoteResponse);
+}
+
+// Note is one entry in the shared notepad.
+message Note {
+    int64 id = 1;
+    string content = 2;
+    // Display attribution and the client's "own note" comparison key:
+    // usernames are unique and the client auth store carries exactly
+    // this value. The server enforces authorship from the session
+    // regardless of what the client renders.
+    string author_username = 3;
+    google.protobuf.Timestamp created_at = 4;
+    // updated_at > created_at means the note was edited — content
+    // edits are the only mutation a live note can receive.
+    google.protobuf.Timestamp updated_at = 5;
+}
+
+message ListNotesRequest {
+    int32 page_size = 1 [(buf.validate.field).int32 = {gte: 1, lte: 100}];
+    // Opaque cursor from a prior response. Empty requests the first
+    // (newest) page.
+    string page_token = 2;
+}
+
+message ListNotesResponse {
+    repeated Note notes = 1;
+    // Empty when there are no further pages.
+    string next_page_token = 2;
+}
+
+message CreateNoteRequest {
+    // Server trims surrounding whitespace; must be non-empty after
+    // the trim. max_len counts codepoints, matching the domain cap.
+    string content = 1 [(buf.validate.field).string = {min_len: 1, max_len: 4096}];
+}
+
+message CreateNoteResponse {
+    Note note = 1;
+}
+
+message UpdateNoteRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+    string content = 2 [(buf.validate.field).string = {min_len: 1, max_len: 4096}];
+}
+
+message UpdateNoteResponse {
+    Note note = 1;
+}
+
+message DeleteNoteRequest {
+    int64 id = 1 [(buf.validate.field).int64.gt = 0];
+}
+
+// Empty: success/failure is carried by the RPC status.
+message DeleteNoteResponse {}

@@ -26,6 +26,9 @@ export interface UISlice {
   racksViewMode: RacksViewMode;
   buildingsViewMode: BuildingsViewMode;
   isActionBarVisible: boolean;
+  // Ephemeral by design — deliberately absent from the persist
+  // partialize so a reload never resurrects an open notepad.
+  isNotepadOpen: boolean;
   activeSite: ActiveSite;
   // Monotonic counter bumped whenever the org's site list changes (create /
   // rename / delete). The PageHeader's SitePicker fetches sites once on mount
@@ -45,6 +48,7 @@ export interface UISlice {
   setRacksViewMode: (mode: RacksViewMode) => void;
   setBuildingsViewMode: (mode: BuildingsViewMode) => void;
   setActionBarVisible: (visible: boolean) => void;
+  setNotepadOpen: (open: boolean) => void;
   setActiveSite: (next: ActiveSite) => void;
   bumpSitesRevision: () => void;
 }
@@ -67,6 +71,7 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   // affordance. Racks defaults to grid because its cards are interactive.
   buildingsViewMode: "list",
   isActionBarVisible: false,
+  isNotepadOpen: false,
   activeSite: DEFAULT_ACTIVE_SITE,
   sitesRevision: 0,
 
@@ -114,6 +119,11 @@ export const createUISlice: StateCreator<FleetStore, [["zustand/immer", never]],
   setActionBarVisible: (visible) =>
     set((state) => {
       state.ui.isActionBarVisible = visible;
+    }),
+
+  setNotepadOpen: (open) =>
+    set((state) => {
+      state.ui.isNotepadOpen = open;
     }),
 
   setActiveSite: (next) =>

@@ -391,6 +391,7 @@ type Querier interface {
 	// AlreadyExists.
 	CreateInfrastructureDevice(ctx context.Context, arg CreateInfrastructureDeviceParams) (InfrastructureDevice, error)
 	CreateInventoryPart(ctx context.Context, arg CreateInventoryPartParams) (int64, error)
+	CreateNote(ctx context.Context, arg CreateNoteParams) (Note, error)
 	CreateOrganization(ctx context.Context, arg CreateOrganizationParams) (int64, error)
 	CreatePendingEnrollment(ctx context.Context, arg CreatePendingEnrollmentParams) (PendingEnrollment, error)
 	CreatePool(ctx context.Context, arg CreatePoolParams) (int64, error)
@@ -772,6 +773,7 @@ type Querier interface {
 	// DISTINCT ON keeps one state per device per bucket so summed counts always
 	// equal a real fleet size regardless of snapshot alignment within the bucket.
 	GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateSnapshotsParams) ([]GetMinerStateSnapshotsRow, error)
+	GetNote(ctx context.Context, arg GetNoteParams) (Note, error)
 	GetOfflineDevices(ctx context.Context, limit int32) ([]GetOfflineDevicesRow, error)
 	// Stable oldest-offline ordering lets the recovery service rotate bounded
 	// per-node batches in memory. Credentials remain the Fleet Node-encrypted
@@ -1286,6 +1288,11 @@ type Querier interface {
 	// System-scope (no org filter); reconciler is a singleton driving all orgs.
 	// Order by id keeps per-tick processing deterministic.
 	ListNonTerminalCurtailmentEvents(ctx context.Context) ([]CurtailmentEvent, error)
+	// Keyset pagination mirrors activity.sql: strict (created_at, id) tuple
+	// descent, newest first. The "user" join supplies the display username;
+	// it deliberately ignores user.deleted_at so a deactivated author still
+	// attributes.
+	ListNotes(ctx context.Context, arg ListNotesParams) ([]ListNotesRow, error)
 	// Resolution rows remain stored so the notification_active trigger can close firing alerts,
 	// but the activity feed records only the alert firing event.
 	ListNotificationHistory(ctx context.Context, arg ListNotificationHistoryParams) ([]ListNotificationHistoryRow, error)
@@ -1897,6 +1904,7 @@ type Querier interface {
 	// wraps this in the same tx as the SoftDeleteSite + cascade.
 	SoftDeleteInfrastructureDevicesBySite(ctx context.Context, arg SoftDeleteInfrastructureDevicesBySiteParams) (int64, error)
 	SoftDeleteInventoryPart(ctx context.Context, arg SoftDeleteInventoryPartParams) (int64, error)
+	SoftDeleteNote(ctx context.Context, arg SoftDeleteNoteParams) (int64, error)
 	SoftDeleteOrganization(ctx context.Context, id int64) error
 	SoftDeletePool(ctx context.Context, arg SoftDeletePoolParams) error
 	SoftDeleteRepairTicketCommentByAuthor(ctx context.Context, arg SoftDeleteRepairTicketCommentByAuthorParams) (int64, error)
@@ -2056,6 +2064,9 @@ type Querier interface {
 	UpdateMessagePermanentlyFailed(ctx context.Context, arg UpdateMessagePermanentlyFailedParams) (sql.Result, error)
 	UpdateMessageStatus(ctx context.Context, arg UpdateMessageStatusParams) (sql.Result, error)
 	UpdateMinerPassword(ctx context.Context, arg UpdateMinerPasswordParams) (int64, error)
+	// The author predicate lives in the WHERE so the ownership check cannot
+	// race the domain layer's read; zero rows maps to NotFound at the store.
+	UpdateNoteContent(ctx context.Context, arg UpdateNoteContentParams) (Note, error)
 	// Updates mutable fields on an existing open error.
 	// Only updates if closed_at IS NULL to prevent updating closed errors.
 	// Can also close the error by setting closed_at.

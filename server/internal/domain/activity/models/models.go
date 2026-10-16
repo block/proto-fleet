@@ -15,6 +15,7 @@ const (
 	CategoryPool            EventCategory = "pool"
 	CategorySchedule        EventCategory = "schedule"
 	CategoryCurtailment     EventCategory = "curtailment"
+	CategoryNote            EventCategory = "note"
 	CategorySystem          EventCategory = "system"
 )
 
@@ -36,7 +37,7 @@ const (
 
 // orgLevelCategories are the event categories with no single-site concept for
 // their DIRECT (non-batch) rows: login/auth, system events, mining-pool config,
-// schedules, curtailment, and device-command audits. They are the single source
+// schedules, curtailment, notepad notes, and device-command audits. They are the single source
 // of truth for the "unassigned" activity bucket: a direct (batch_id IS NULL) row
 // with site_id IS NULL only belongs in /{unassigned}/activity if its category is
 // NOT one of these, so org-level events surface only in the all-sites feed and
@@ -59,6 +60,7 @@ var orgLevelCategories = [...]EventCategory{
 	CategorySchedule,
 	CategoryCurtailment,
 	CategoryDeviceCommand,
+	CategoryNote,
 }
 
 // OrgLevelCategories returns the org-level categories as a fresh string slice
@@ -76,7 +78,7 @@ func (c EventCategory) Valid() bool {
 	switch c {
 	case CategoryAuth, CategoryDeviceCommand, CategoryFleetManagement,
 		CategoryCollection, CategoryPool, CategorySchedule,
-		CategoryCurtailment, CategorySystem:
+		CategoryCurtailment, CategoryNote, CategorySystem:
 		return true
 	}
 	return false

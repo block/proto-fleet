@@ -34,6 +34,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/marketdata/v1/marketdatav1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/notes/v1/notesv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pools/v1/poolsv1connect"
@@ -91,6 +92,7 @@ var registeredServices = []struct {
 	{alertsv1connect.RuleServiceName, reflect.TypeOf((*alertsv1connect.RuleServiceHandler)(nil)).Elem()},
 	{alertsv1connect.MaintenanceWindowServiceName, reflect.TypeOf((*alertsv1connect.MaintenanceWindowServiceHandler)(nil)).Elem()},
 	{alertsv1connect.HistoryServiceName, reflect.TypeOf((*alertsv1connect.HistoryServiceHandler)(nil)).Elem()},
+	{notesv1connect.NoteServiceName, reflect.TypeOf((*notesv1connect.NoteServiceHandler)(nil)).Elem()},
 	{onboardingv1connect.OnboardingServiceName, reflect.TypeOf((*onboardingv1connect.OnboardingServiceHandler)(nil)).Elem()},
 	{pairingv1connect.PairingServiceName, reflect.TypeOf((*pairingv1connect.PairingServiceHandler)(nil)).Elem()},
 	{poolsv1connect.PoolsServiceName, reflect.TypeOf((*poolsv1connect.PoolsServiceHandler)(nil)).Elem()},

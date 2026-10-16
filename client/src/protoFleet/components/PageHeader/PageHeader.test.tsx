@@ -90,8 +90,12 @@ vi.mock("@/shared/hooks/useReactiveLocalStorage", () => ({
   useReactiveLocalStorage: () => mockUseReactiveLocalStorage(),
 }));
 
+const mockSetNotepadOpen = vi.fn();
+
 vi.mock("@/protoFleet/store", () => ({
   useHasPermission: vi.fn(),
+  useIsNotepadOpen: vi.fn(() => false),
+  useSetNotepadOpen: vi.fn(() => mockSetNotepadOpen),
 }));
 
 vi.mock("@/shared/assets/icons", async (importOriginal) => {
@@ -607,5 +611,36 @@ describe("PageHeader", () => {
     );
 
     expect(screen.getByTestId("site-picker-trigger")).toBeInTheDocument();
+  });
+
+  it("shows the notepad toggle with note:read and forwards clicks to the store", () => {
+    mockUseWindowDimensions.mockReturnValue({
+      isPhone: false,
+      isTablet: false,
+    });
+    vi.mocked(useHasPermission).mockImplementation((key: string) => key === "note:read");
+
+    render(
+      <MemoryRouter>
+        <PageHeader schedulePillData={createSchedulePillData()} />
+      </MemoryRouter>,
+    );
+
+    const toggle = screen.getByTestId("notepad-toggle");
+    expect(toggle).toBeVisible();
+    toggle.click();
+    expect(mockSetNotepadOpen).toHaveBeenCalledWith(true);
+  });
+
+  it("hides the notepad toggle without note:read", () => {
+    vi.mocked(useHasPermission).mockReturnValue(false);
+
+    render(
+      <MemoryRouter>
+        <PageHeader schedulePillData={createSchedulePillData()} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByTestId("notepad-toggle")).not.toBeInTheDocument();
   });
 });

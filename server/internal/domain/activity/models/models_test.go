@@ -20,6 +20,7 @@ func TestEventCategoryValid(t *testing.T) {
 		{CategoryPool, true},
 		{CategorySchedule, true},
 		{CategoryCurtailment, true},
+		{CategoryNote, true},
 		{CategorySystem, true},
 		{EventCategory(""), false},
 		{EventCategory("unknown"), false},
@@ -147,7 +148,7 @@ func TestOrgLevelCategories(t *testing.T) {
 	t.Parallel()
 
 	got := OrgLevelCategories()
-	want := []string{"auth", "system", "pool", "schedule", "curtailment", "device_command"}
+	want := []string{"auth", "system", "pool", "schedule", "curtailment", "device_command", "note"}
 	assert.ElementsMatch(t, want, got)
 }
 
@@ -162,7 +163,7 @@ func TestOrgLevelCategoriesIsImmutable(t *testing.T) {
 	}
 
 	assert.ElementsMatch(t,
-		[]string{"auth", "system", "pool", "schedule", "curtailment", "device_command"},
+		[]string{"auth", "system", "pool", "schedule", "curtailment", "device_command", "note"},
 		OrgLevelCategories(),
 	)
 }

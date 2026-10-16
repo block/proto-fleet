@@ -1217,6 +1217,16 @@ type MinerStateSnapshotDeviceHourly struct {
 	State            int16
 }
 
+type Note struct {
+	ID        int64
+	OrgID     int64
+	UserID    int64
+	Content   string
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt sql.NullTime
+}
+
 type NotificationActive struct {
 	OrganizationID int64
 	AlertKey       string

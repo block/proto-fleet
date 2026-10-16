@@ -23,9 +23,9 @@ import AlertInstancesModal from "@/protoFleet/features/alerts/components/AlertIn
 import type { ActiveAlertGroup } from "@/protoFleet/features/alerts/types";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { scopedPath, unscopedScopablePath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
-import { useHasPermission } from "@/protoFleet/store";
+import { useHasPermission, useIsNotepadOpen, useSetNotepadOpen } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
-import { Alert, Menu } from "@/shared/assets/icons";
+import { Alert, Edit, Menu } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { useReactiveLocalStorage } from "@/shared/hooks/useReactiveLocalStorage";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
@@ -221,6 +221,9 @@ function PageHeader({
   const [drilledInAlertGroup, setDrilledInAlertGroup] = useState<ActiveAlertGroup | null>(null);
   const hasDismissedSetup = Boolean(dismissedSetup);
   const canReadCurtailment = useHasPermission("curtailment:read");
+  const canReadNotes = useHasPermission("note:read");
+  const isNotepadOpen = useIsNotepadOpen();
+  const setNotepadOpen = useSetNotepadOpen();
   // ListSites is server-gated on org-scoped site:read; without it we skip the
   // fetch and hide the picker so non-site readers keep a clean header.
   const canReadSites = useHasPermission("site:read");
@@ -309,17 +312,32 @@ function PageHeader({
               )}
             </div>
           </div>
-          {!isPhone && headerWidgetEnabled ? (
-            <HeaderWidgets testId="page-header-desktop-widgets" widgets={headerWidgetKinds} {...headerWidgetsProps} />
-          ) : null}
-          {inlineFirstPhoneWidget ? (
-            <HeaderWidgets
-              className="min-w-0 justify-end overflow-hidden"
-              testId="page-header-inline-widgets"
-              widgets={phoneTopWidgetKinds}
-              {...headerWidgetsProps}
-            />
-          ) : null}
+          <div className="flex min-w-0 items-center justify-end gap-3">
+            {!isPhone && headerWidgetEnabled ? (
+              <HeaderWidgets testId="page-header-desktop-widgets" widgets={headerWidgetKinds} {...headerWidgetsProps} />
+            ) : null}
+            {inlineFirstPhoneWidget ? (
+              <HeaderWidgets
+                className="min-w-0 justify-end overflow-hidden"
+                testId="page-header-inline-widgets"
+                widgets={phoneTopWidgetKinds}
+                {...headerWidgetsProps}
+              />
+            ) : null}
+            {canReadNotes ? (
+              <Button
+                className="shrink-0"
+                variant={isNotepadOpen ? variants.primary : variants.secondary}
+                size={sizes.compact}
+                prefixIcon={<Edit width="w-4" />}
+                text={isPhone ? undefined : "Notepad"}
+                ariaLabel="Toggle notepad"
+                ariaExpanded={isNotepadOpen}
+                onClick={() => setNotepadOpen(!isNotepadOpen)}
+                testId="notepad-toggle"
+              />
+            ) : null}
+          </div>
         </div>
       </div>
       {showPhoneWidgets ? (
