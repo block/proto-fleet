@@ -186,12 +186,12 @@ func TestTelemetrySummaryImportExcludesConcurrentWriters(t *testing.T) {
 	importer, err := db.Conn(t.Context())
 	require.NoError(t, err)
 	defer importer.Close()
-	_, err = importer.ExecContext(t.Context(), `SELECT pg_advisory_lock(1026,'device_metrics'::regclass::oid::integer)`)
+	_, err = importer.ExecContext(t.Context(), `SELECT pg_advisory_lock(1027,'device_metrics'::regclass::oid::integer)`)
 	require.NoError(t, err)
 	locked := true
 	defer func() {
 		if locked {
-			_, _ = importer.ExecContext(context.Background(), `SELECT pg_advisory_unlock(1026,'device_metrics'::regclass::oid::integer)`) //nolint:usetesting // Release even after an assertion cancels the test context.
+			_, _ = importer.ExecContext(context.Background(), `SELECT pg_advisory_unlock(1027,'device_metrics'::regclass::oid::integer)`) //nolint:usetesting // Release even after an assertion cancels the test context.
 		}
 	}()
 	writer, err := db.Conn(t.Context())
@@ -212,7 +212,7 @@ func TestTelemetrySummaryImportExcludesConcurrentWriters(t *testing.T) {
 		err := db.QueryRowContext(t.Context(), `SELECT $1::integer=ANY(pg_blocking_pids($2::integer))`, importerPID, writerPID).Scan(&waiting)
 		return err == nil && waiting
 	}, 5*time.Second, 10*time.Millisecond, "live writes must wait while an import reopens historical coverage")
-	_, err = importer.ExecContext(t.Context(), `SELECT pg_advisory_unlock(1026,'device_metrics'::regclass::oid::integer)`)
+	_, err = importer.ExecContext(t.Context(), `SELECT pg_advisory_unlock(1027,'device_metrics'::regclass::oid::integer)`)
 	require.NoError(t, err)
 	locked = false
 	require.NoError(t, <-result)

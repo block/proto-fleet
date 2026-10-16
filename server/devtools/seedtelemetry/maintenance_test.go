@@ -99,7 +99,7 @@ func TestSeedTelemetryRefreshFailurePinsRawAndReleasesMaintenance(t *testing.T) 
 	var pending, available bool
 	require.NoError(t, database.QueryRowContext(t.Context(), `SELECT bool_or(pending) FROM telemetry_summary_work`).Scan(&pending))
 	require.True(t, pending, "a failed refresh must remain recoverable without acknowledging coverage")
-	require.NoError(t, database.QueryRowContext(t.Context(), `SELECT pg_try_advisory_xact_lock(1026,'device_metrics'::regclass::oid::integer)`).Scan(&available))
+	require.NoError(t, database.QueryRowContext(t.Context(), `SELECT pg_try_advisory_xact_lock(1027,'device_metrics'::regclass::oid::integer)`).Scan(&available))
 	require.True(t, available, "the failed command must release its session maintenance lock")
 	var count int
 	require.NoError(t, database.QueryRowContext(t.Context(), `SELECT count(*) FROM device_metrics WHERE device_identifier LIKE 'seed-device-%'`).Scan(&count))

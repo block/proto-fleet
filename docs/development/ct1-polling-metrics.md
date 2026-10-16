@@ -147,7 +147,7 @@ Real-time aggregates include the latest raw tail while scheduled materialization
 catches up. The existing maximum API request span remains 366 days; older years
 can be queried in separate windows.
 
-Migration 1026 supersedes the one-time bootstrap jobs from 1016 and 1021 and
+Migration 1027 supersedes the one-time bootstrap jobs from 1016 and 1021 and
 replaces independent refresh/raw-retention policies with persistent recovery.
 Every hourly/daily tier has its own contiguous coverage checkpoint. Raw chunks
 expire only after every dependent tier has completed that interval; miner metric,
@@ -162,7 +162,7 @@ absence of a retention policy.
 See [telemetry summary recovery](telemetry-summary-recovery.md) for late-data
 assumptions, upgrade boundaries, monitoring, and recovery procedures.
 
-Migration 1021 adds hashboard hourly/daily aggregates; 1026 takes over their
+Migration 1021 adds hashboard hourly/daily aggregates; 1027 takes over their
 initialization and gates the ten-day raw-retention target on durable coverage.
 Board groups include physical board ID, installation ID, and nullable topology
 version. Unknown legacy topology stays NULL and its measurements still summarize.

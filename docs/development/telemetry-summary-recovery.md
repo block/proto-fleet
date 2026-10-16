@@ -1,6 +1,6 @@
 # Telemetry summary recovery and retention
 
-Migration 1026 protects miner, CT1 container, tank, module, and hashboard history
+Migration 1027 protects miner, CT1 container, tank, module, and hashboard history
 after summary-job interruptions. Twelve summary streams cover hourly/daily
 measurements for all five equipment types plus miner status. Miner and container
 streams share `device_metrics`; tank, module, and hashboard streams each have a
@@ -101,7 +101,7 @@ hourly summaries and three years for daily summaries, with whole-chunk rounding.
 
 ## Upgrade and existing gaps
 
-Stop application writers and scheduled database maintenance for migration 1026,
+Stop application writers and scheduled database maintenance for migration 1027,
 as for the earlier private maintenance migrations. Rehearse the upgrade on a
 recent database copy. It removes the old bootstrap jobs and raw retention/refresh
 policies, captures raw boundaries, and installs the replacement maintenance.

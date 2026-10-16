@@ -70,6 +70,11 @@ message FleetNodeSummary {
     // True only for a connected node behind the server's latest command protocol.
     // Advisory only; command eligibility uses each command's minimum version.
     bool command_protocol_upgrade_recommended = 12;
+    // Last heartbeat's local interface addresses and running binary version.
+    repeated string ip_addresses = 13;
+    string version = 14;
+    // Username of the operator who confirmed enrollment, empty for older records.
+    string enrolled_by = 15;
 }
 
 message ConfirmFleetNodeRequest {
