@@ -11,10 +11,10 @@ import {
   AssetAssignmentIntent,
   MiningAssetKind,
 } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
+import ListSearchInput from "@/protoFleet/components/ListSearchInput";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import Button from "@/shared/components/Button";
-import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 import { formatListCountLabel } from "@/shared/components/List/listCountLabel";
 import Select from "@/shared/components/Select";
@@ -57,7 +57,7 @@ const AccountAssets = () => {
           accountId: account.accountId,
           pageSize: 100,
           pageToken,
-          search,
+          search: search.trim(),
           ownerAccountId: owner || undefined,
           containerId: container.id ? BigInt(container.id) : undefined,
         },
@@ -128,18 +128,6 @@ const AccountAssets = () => {
         Assignments control account reporting. They do not move equipment or apply pools.
       </p>
       <div className="flex flex-wrap items-center gap-3">
-        <div className="min-w-48 grow">
-          <Input
-            id="account-assets-search"
-            label="Search mining assets"
-            initValue={search}
-            maxLength={255}
-            onChange={(value) => {
-              resetSelection();
-              setSearch(value);
-            }}
-          />
-        </div>
         {management ? (
           <Select
             id="account-assets-owner"
@@ -173,6 +161,21 @@ const AccountAssets = () => {
             }}
           />
         ) : null}
+        <ListSearchInput
+          id="account-assets-search"
+          label="Search mining assets"
+          className="phone:w-full"
+          initialValue={search}
+          onQueryInput={() => {
+            setSelected([]);
+            setReview(null);
+          }}
+          onQueryChange={(value) => {
+            resetSelection();
+            setSearch(value);
+          }}
+          collapsible
+        />
       </div>
       {notice ? (
         <p role="status" className="text-300">
