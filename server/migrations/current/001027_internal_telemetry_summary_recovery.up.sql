@@ -6,8 +6,6 @@ WHERE proc_name IN ('initialize_container_metric_summaries','initialize_hashboar
 DROP PROCEDURE initialize_container_metric_summaries(integer,jsonb);
 DROP PROCEDURE initialize_hashboard_metric_summaries(integer,jsonb);
 
-SELECT remove_retention_policy(source::regclass,if_exists=>true)
-FROM unnest(ARRAY['device_metrics','container_tank_metrics','container_module_metrics','hashboard_metrics']) source;
 SELECT remove_continuous_aggregate_policy(aggregate_name::regclass,if_exists=>true)
 FROM unnest(ARRAY[
  'device_metrics_hourly','device_metrics_daily','device_status_hourly','device_status_daily',
@@ -30,19 +28,28 @@ CREATE TABLE telemetry_summary_source (
 INSERT INTO telemetry_summary_source(source_name)
 VALUES ('device_metrics'),('container_tank_metrics'),('container_module_metrics'),('hashboard_metrics');
 
--- Capture this boundary while writers are stopped. If an empty source starts
--- collecting before its first job, its first chunk must not move daily coverage
--- past the first day's live samples. Keep existing partial upgrade days pinned.
+-- An old chunk can have been recreated by a late observation after expiration.
+-- Capture the old policy BEFORE removing it, and trust only its retained window,
+-- capped by the repository's shortest prior raw target. Missing policy/history
+-- (including an unfinished bootstrap) cannot prove older raw complete either.
+-- Empty sources still start at this UTC day so their first live day is covered.
 -- The extension catalog is unavailable to sqlc's offline schema parser.
 DO $$ BEGIN
  UPDATE telemetry_summary_source s SET raw_floor=f.initial_floor,dropped_through=f.initial_floor
  FROM (
-  SELECT s.source_name,COALESCE(min(c.range_start),time_bucket(INTERVAL '24 hours',now())) AS initial_floor
+  SELECT s.source_name,CASE WHEN min(c.range_start) IS NULL THEN time_bucket(INTERVAL '24 hours',now())
+   ELSE GREATEST(min(c.range_start),now()-LEAST(s.raw_retention,
+    COALESCE(min(CASE WHEN j.job_id IS NOT NULL THEN
+     COALESCE((j.config->>'drop_after')::interval,INTERVAL '0') END),s.raw_retention))) END AS initial_floor
   FROM telemetry_summary_source s LEFT JOIN timescaledb_information.chunks c
    ON c.hypertable_schema='public' AND c.hypertable_name=s.source_name
-  GROUP BY s.source_name
+  LEFT JOIN timescaledb_information.jobs j ON j.hypertable_schema='public'
+   AND j.hypertable_name=s.source_name AND j.proc_name='policy_retention'
+  GROUP BY s.source_name,s.raw_retention
  ) f WHERE s.source_name=f.source_name;
 END $$;
+SELECT remove_retention_policy(source_name::regclass,if_exists=>true)
+FROM telemetry_summary_source;
 
 -- Writers hold a shared row lock through their transaction. Before certifying
 -- a range, maintenance publishes its write fence and commits, waiting for all

@@ -108,9 +108,17 @@ policies, captures raw boundaries, and installs the replacement maintenance.
 Unrelated aggregates and compression policies remain in place. Do not restart old
 bootstrap procedures or re-add independent raw-retention policies.
 
-Recovery starts at the first complete bucket supported by retained raw chunks,
-rounded upward separately for each tier. Earlier history is unverified: existing
-summaries remain available, but missing summaries cannot be assumed recoverable.
+Recovery starts at the first complete bucket within the prior policy's retained
+window, rounded upward separately for each tier and bounded by available raw
+chunks. The migration captures that policy before removing it. It caps the trusted
+window at the repository's shortest prior raw target of ten days; missing policy
+history also uses that conservative bound. A shorter configured policy narrows
+the window further, and a policy without a row-age bound trusts no earlier data.
+An old chunk may have been recreated by a late observation after expiration, so
+its presence alone never authorizes refreshing older history. Earlier intervals
+stay unverified even if raw chunks exist: existing summaries remain available,
+but missing summaries cannot be assumed recoverable. Previously customized or
+manual expiration boundaries require operator review before this upgrade.
 A partially retained first UTC day is never refreshed as a complete day. Remaining
 raw chunks before the common coverage start stay pinned for operator review;
 later verified chunks expire normally. Empty sources capture the UTC day boundary
@@ -206,5 +214,6 @@ Closing the command's connection releases its session lock, including on errors.
 Real Timescale regressions cover all twelve streams after long outages, shared
 source coverage gates, fair work rotation, recent materialization during catch-up,
 adaptive retries, blocked minimum batches, worker timeouts, restricted-role manual
-requests, bounded chunk deletion, DST, in-flight writers, stale board samples, coordinated seed replacement/cleanup,
+requests, bounded chunk deletion, recreated expired chunks under present/removed
+retention policies, DST, in-flight writers, stale board samples, coordinated seed replacement/cleanup,
 and preservation of expired/partial history.

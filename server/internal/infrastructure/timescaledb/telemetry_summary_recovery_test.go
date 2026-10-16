@@ -54,7 +54,26 @@ func telemetryRecoveryMigration(t *testing.T) string {
 func reinstallTelemetryRecovery(t *testing.T, db *sql.DB) {
 	t.Helper()
 	removeTelemetryRecovery(t, db)
-	_, err := db.ExecContext(t.Context(), telemetryRecoveryMigration(t))
+	// These fixtures model maintenance installed before a later outage. Install
+	// at their first raw day, then restore the real clock before driving recovery.
+	// Upgrade regressions apply telemetryRecoveryMigration directly at today's
+	// clock, exercising its conservative boundary for uncertain older history.
+	var installedAt time.Time
+	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT COALESCE(min(range_start),now())
+ FROM timescaledb_information.chunks WHERE hypertable_schema='public'
+ AND hypertable_name IN ('device_metrics','container_tank_metrics','container_module_metrics','hashboard_metrics')`).Scan(&installedAt))
+	conn, err := db.Conn(t.Context())
+	require.NoError(t, err)
+	defer conn.Close()
+	_, err = conn.ExecContext(t.Context(), fmt.Sprintf(`CREATE OR REPLACE FUNCTION public.now() RETURNS timestamptz LANGUAGE sql STABLE AS
+ $$ SELECT '%s'::timestamptz $$; SET search_path=public,pg_catalog`, installedAt.Format(time.RFC3339Nano)))
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), telemetryRecoveryMigration(t))
+	require.NoError(t, err)
+	// Health views resolve now() during creation; retain their dependency while
+	// delegating it back to the actual transaction clock.
+	_, err = conn.ExecContext(t.Context(), `CREATE OR REPLACE FUNCTION public.now() RETURNS timestamptz LANGUAGE sql STABLE AS
+ $$ SELECT pg_catalog.now() $$; RESET search_path`)
 	require.NoError(t, err)
 }
 
@@ -420,6 +439,82 @@ func TestTelemetrySummaryUpgradePreservesExpiredAndPartialHistory(t *testing.T) 
 	source := selectRecoveryWork(t, r.db, "device_metrics_daily", "recent")
 	_, err = r.db.ExecContext(t.Context(), `CALL telemetry_summary_step($1)`, source)
 	require.NoError(t, err, "routine replay must stay above expired raw")
+}
+
+func TestTelemetrySummaryUpgradePreservesHistoryAfterRawChunkRecreation(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		retention    string
+		removePolicy bool
+	}{{"ten_day_policy", "10 days", false}, {"shorter_policy", "2 days", false}, {"missing_policy", "10 days", true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newContainerRollupRig(t)
+			r.base = time.Now().UTC().Truncate(24 * time.Hour).Add(-20 * 24 * time.Hour)
+			r.store(t, r.snapshot(time.Hour, false, 100e12, 200e12))
+			r.store(t, r.snapshot(49*time.Hour, false, 300e12, 400e12))
+			start, end := r.base, r.base.Add(72*time.Hour)
+			before := make(map[string]int)
+			for _, aggregate := range recoveryAggregates {
+				var beforeCount int
+				testutil.RefreshContinuousAggregate(t, r.db, aggregate, &start, &end)
+				require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT count(*) FROM `+aggregate+` WHERE bucket>=$1 AND bucket<$2`, start, end).Scan(&beforeCount))
+				before[aggregate] = beforeCount
+				require.Positive(t, beforeCount, aggregate)
+			}
+			for _, source := range recoverySources {
+				//nolint:unqueryvet // Copy the entire fixture row, including all keys and topology, for reinsertion after expiration.
+				_, err := r.db.ExecContext(t.Context(), `CREATE TABLE upgrade_sample_`+source+` AS SELECT * FROM `+source+` WHERE time=$1 LIMIT 1`, r.base.Add(time.Hour))
+				require.NoError(t, err)
+			}
+			removeTelemetryRecovery(t, r.db)
+			for _, source := range recoverySources {
+				var id int
+				require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT add_retention_policy($1::regclass,$2::interval)`, source, tc.retention).Scan(&id))
+				_, err := r.db.ExecContext(t.Context(), `SELECT alter_job($1,scheduled=>false)`, id)
+				require.NoError(t, err)
+				_, err = r.db.ExecContext(t.Context(), `CALL run_job($1)`, id)
+				require.NoError(t, err)
+				if tc.removePolicy {
+					_, err = r.db.ExecContext(t.Context(), `SELECT remove_retention_policy($1::regclass)`, source)
+					require.NoError(t, err)
+				}
+			}
+			// A cached observation recreates the oldest expired chunks. The other
+			// board and the entire second day's raw evidence remain absent.
+			for _, source := range recoverySources {
+				//nolint:gosec,unqueryvet // Reinsert complete fixtures; table names come only from the fixed recoverySources allowlist above.
+				_, err := r.db.ExecContext(t.Context(), `INSERT INTO `+source+` SELECT * FROM upgrade_sample_`+source+`; DROP TABLE upgrade_sample_`+source)
+				require.NoError(t, err)
+				var recreated int
+				require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT count(*) FROM `+source+` WHERE time=$1`, r.base.Add(time.Hour)).Scan(&recreated))
+				require.Equal(t, 1, recreated, source+" must actually recreate its expired chunk")
+			}
+			r.store(t, r.snapshot(time.Now().UTC().Add(-8*24*time.Hour).Sub(r.base), false, 500e12, 600e12))
+			var earliestSafe time.Time
+			require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT now()-$1::interval`, tc.retention).Scan(&earliestSafe))
+			_, err := r.db.ExecContext(t.Context(), telemetryRecoveryMigration(t))
+			require.NoError(t, err)
+			var safe bool
+			require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT bool_and(raw_floor>=$1)
+ FROM telemetry_summary_source`, earliestSafe).Scan(&safe))
+			finishRecovery(t, r.db, recoveryAggregates)
+			for _, source := range recoverySources {
+				runRawRetention(t, r.db, source)
+			}
+			for _, aggregate := range recoveryAggregates {
+				var after int
+				require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT count(*) FROM `+aggregate+` WHERE bucket>=$1 AND bucket<$2`, start, end).Scan(&after))
+				require.Equal(t, before[aggregate], after, "old summaries must survive incomplete/empty raw: %s", aggregate)
+			}
+			require.True(t, safe, "recreated old chunks cannot prove complete raw coverage")
+			var original float64
+			require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT sum(hashrate_sum) FROM hashboard_metrics_hourly WHERE bucket=$1`, r.base.Add(time.Hour)).Scan(&original))
+			require.Equal(t, 300e12, original, "late subset must not replace original board history")
+			var pinned int
+			require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT sum(unverified_raw_chunks) FROM telemetry_retention_health`).Scan(&pinned))
+			require.Positive(t, pinned, "uncertain recreated chunks remain for operator review")
+		})
+	}
 }
 
 func TestTelemetrySummaryFairRotationAndRecentDuringCatchup(t *testing.T) {
