@@ -11,6 +11,7 @@ import {
   AssetAssignmentIntent,
   MiningAssetKind,
 } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
+import ListPagination from "@/protoFleet/components/ListPagination";
 import ListSearchInput from "@/protoFleet/components/ListSearchInput";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
@@ -19,6 +20,8 @@ import List from "@/shared/components/List";
 import { formatListCountLabel } from "@/shared/components/List/listCountLabel";
 import Select from "@/shared/components/Select";
 import { formatHashrateOrDash, formatPowerKwOrDash } from "@/shared/utils/telemetryFormat";
+
+const ASSETS_PAGE_SIZE = 100;
 
 const assetKey = (asset: AccountAsset) => `${asset.kind}:${asset.id}`;
 const kindName = (asset: AccountAsset) => (asset.kind === MiningAssetKind.MODULE ? "module" : "miner");
@@ -55,7 +58,7 @@ const AccountAssets = () => {
       const inventory = await client.listAccountAssets(
         {
           accountId: account.accountId,
-          pageSize: 100,
+          pageSize: ASSETS_PAGE_SIZE,
           pageToken,
           search: search.trim(),
           ownerAccountId: owner || undefined,
@@ -117,6 +120,8 @@ const AccountAssets = () => {
       String(row.containerId) === container.id &&
       (row.ownerAccountId !== account.accountId || (row.available && !row.outsidePolicy)),
   );
+  const firstItemIndex = (pages.length - 1) * ASSETS_PAGE_SIZE + 1;
+  const lastItemIndex = (pages.length - 1) * ASSETS_PAGE_SIZE + rows.length;
   const reviewTarget = children.find((child) => child.accountId === review?.childId);
   return (
     <div className="flex min-w-0 flex-col gap-6">
@@ -306,29 +311,22 @@ const AccountAssets = () => {
               />
             }
           />
-          <div className="flex items-center justify-between gap-4">
-            <p className="text-200 text-text-primary-50">Page {pages.length} · Up to 100 assets per page</p>
-            <div className="flex gap-3">
-              <Button
-                variant="secondary"
-                text="Previous"
-                disabled={pages.length === 1}
-                onClick={() => {
-                  setSelected([]);
-                  setPages((previous) => previous.slice(0, -1));
-                }}
-              />
-              <Button
-                variant="secondary"
-                text="Next"
-                disabled={!query.data.inventory.nextPageToken}
-                onClick={() => {
-                  setSelected([]);
-                  setPages((previous) => [...previous, query.data!.inventory.nextPageToken]);
-                }}
-              />
-            </div>
-          </div>
+          <ListPagination
+            firstItemIndex={firstItemIndex}
+            lastItemIndex={lastItemIndex}
+            total={query.data.inventory.nextPageToken ? undefined : lastItemIndex}
+            itemName="mining assets"
+            hasPreviousPage={pages.length > 1}
+            hasNextPage={!!query.data.inventory.nextPageToken}
+            onPrevious={() => {
+              setSelected([]);
+              setPages((previous) => previous.slice(0, -1));
+            }}
+            onNext={() => {
+              setSelected([]);
+              setPages((previous) => [...previous, query.data!.inventory.nextPageToken]);
+            }}
+          />
         </>
       ) : null}
       {review ? (

@@ -38,6 +38,7 @@ import {
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useModuleHashboards } from "@/protoFleet/api/useModuleHashboards";
+import ListPagination from "@/protoFleet/components/ListPagination";
 import MinerSearchInput from "@/protoFleet/components/MinerSearchInput";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import { useOpenMinerView } from "@/protoFleet/components/SingleMinerWrapper/useOpenMinerView";
@@ -711,42 +712,26 @@ const ScopedMinerListBody = ({
       />
 
       {shouldRenderPagination ? (
-        <div
+        <ListPagination
+          firstItemIndex={firstItemIndex}
+          lastItemIndex={lastItemIndex}
+          total={totalMiners}
+          itemName={inventoryItems ? "mining assets" : "miners"}
+          hasPreviousPage={hasPreviousPage}
+          hasNextPage={hasNextPage}
+          onPrevious={handlePrevPage}
+          onNext={handleNextPage}
           className={clsx(
-            "sticky left-0 flex flex-col items-center gap-4 pt-6",
-            // Under the page's w-max subtree this auto-width sticky bar would
-            // stretch to the table and center Prev/Next off-screen; pin it to
-            // the viewport like the rest of the page-scroll chrome.
+            "sticky left-0 pt-6",
+            // Pin the controls to the viewport when the table scrolls with the page.
             overflowContainer === false && PAGE_SCROLL_CHROME_WIDTH,
             {
               "pb-24": selectionMode !== "none",
               "pb-6": selectionMode === "none",
             },
           )}
-          data-testid="miners-pagination"
-        >
-          <span className="text-300 text-text-primary">
-            Showing {firstItemIndex}–{lastItemIndex} of {totalMiners} {inventoryItems ? "mining assets" : "miners"}
-          </span>
-          <div className="flex gap-3">
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              ariaLabel="Previous page"
-              prefixIcon={<ChevronDown className="rotate-90" />}
-              onClick={handlePrevPage}
-              disabled={!hasPreviousPage}
-            />
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              ariaLabel="Next page"
-              prefixIcon={<ChevronDown className="rotate-270" />}
-              onClick={handleNextPage}
-              disabled={!hasNextPage}
-            />
-          </div>
-        </div>
+          testId="miners-pagination"
+        />
       ) : null}
       {openModule ? (
         <ModuleHistoryDialog

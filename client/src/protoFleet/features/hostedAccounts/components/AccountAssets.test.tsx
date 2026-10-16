@@ -47,11 +47,12 @@ const module = create(AccountAssetSchema, {
   state: "hashing",
   partialCoverage: true,
 });
-function mount(mask = 31n, assets = [miner, module], assignment = vi.fn().mockResolvedValue({})) {
+function mount(mask = 31n, assets = [miner, module], assignment = vi.fn().mockResolvedValue({}), nextPageToken = "") {
   const client = {
     listAccountAssets: vi.fn().mockResolvedValue(
       create(ListAccountAssetsResponseSchema, {
         assets,
+        nextPageToken,
         canManageAssignments: (mask & 16n) !== 0n,
         canViewAssignments: (mask & 24n) !== 0n,
         children: (mask & 24n) !== 0n ? [{ accountId: childId, name: "East" }] : [],
@@ -81,6 +82,45 @@ const selectTarget = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 
 describe("account mining asset allocation", () => {
+  it("follows asset cursors with miner-list ranges and clears selection between pages", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) =>
+      create(AccountAssetSchema, {
+        ...miner,
+        id: BigInt(index + 1),
+        name: `Miner ${index + 1}`,
+      }),
+    );
+    const lastPage = [101, 102].map((id) =>
+      create(AccountAssetSchema, { ...miner, id: BigInt(id), name: `Miner ${id}` }),
+    );
+    const { client } = mount(31n, firstPage, undefined, "page-2");
+    const user = userEvent.setup();
+    await screen.findByText("Showing 1–100 mining assets");
+    expect(screen.getByRole("button", { name: "Previous page" })).toBeDisabled();
+    await user.click(screen.getByRole("checkbox", { name: "Select Miner 1" }));
+    client.listAccountAssets.mockResolvedValueOnce(
+      create(ListAccountAssetsResponseSchema, {
+        assets: lastPage,
+        canManageAssignments: true,
+        canViewAssignments: true,
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+    await screen.findByText("Showing 101–102 of 102 mining assets");
+    expect(client.listAccountAssets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ pageToken: "page-2", pageSize: 100 }),
+      expect.anything(),
+    );
+    expect(screen.getByText("0 selected on this page")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next page" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Previous page" }));
+    await screen.findByText("Showing 1–100 mining assets");
+    expect(client.listAccountAssets).toHaveBeenLastCalledWith(
+      expect.objectContaining({ pageToken: "", pageSize: 100 }),
+      expect.anything(),
+    );
+    expect(screen.getByRole("checkbox", { name: "Select Miner 1" })).not.toBeChecked();
+  });
   it("keeps viewers read-only and names reporting-only assignment semantics", async () => {
     mount(1n, [create(AccountAssetSchema, { ...miner, ownerAccountId: "", ownerAccountName: "" })]);
     await screen.findByText("Miner One");

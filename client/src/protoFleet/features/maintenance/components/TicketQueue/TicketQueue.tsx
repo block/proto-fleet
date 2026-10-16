@@ -5,7 +5,6 @@ import { getComponentIcon, getComponentIconColor } from "../../componentIcons";
 import type { TicketItem } from "../../types";
 import BulkCloseModal from "../BulkClose/BulkCloseModal";
 import CreateTicketModal from "../CreateTicket/CreateTicketModal";
-import ListPagination from "../ListPagination";
 import TicketDetailModal from "../TicketDetail/TicketDetailModal";
 import {
   SortDirection,
@@ -14,6 +13,7 @@ import {
   TicketStatus,
 } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import type { TicketVersion } from "@/protoFleet/api/maintenance";
+import ListPagination from "@/protoFleet/components/ListPagination";
 import ListSearchInput from "@/protoFleet/components/ListSearchInput";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
 import { useTicketQueue } from "@/protoFleet/features/maintenance/hooks/useTicketQueue";
@@ -438,9 +438,9 @@ const TicketQueue = ({ initialViewMode = "list" }: TicketQueueProps) => {
       )}
       {viewMode === "list" ? (
         <ListPagination
-          currentPage={queue.currentPage}
-          pageSize={50}
-          visibleCount={queue.data.length}
+          firstItemIndex={queue.currentPage * 50 + 1}
+          lastItemIndex={queue.currentPage * 50 + queue.data.length}
+          hasPreviousPage={queue.currentPage > 0}
           total={queue.total}
           itemName="tickets"
           hasNextPage={!!queue.nextPageToken}
