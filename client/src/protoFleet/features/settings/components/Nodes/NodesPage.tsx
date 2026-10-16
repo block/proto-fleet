@@ -278,10 +278,7 @@ const NodesPage = () => {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
-        <SettingsPageHeader
-          title="Nodes"
-          description="Hosts running the fleet-node daemon. Each node discovers miners on its network and brokers commands and telemetry between them and Fleet."
-        />
+        <SettingsPageHeader title="Nodes" />
         {canManageNodes ? (
           <Button
             variant={variants.primary}
