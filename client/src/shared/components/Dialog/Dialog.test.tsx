@@ -1,10 +1,58 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import Dialog from "./Dialog";
 import { variants } from "@/shared/components/Button";
 
 describe("Dialog", () => {
+  it("optionally traps keyboard focus, skips disabled actions, and restores the trigger", () => {
+    const rects = vi
+      .spyOn(HTMLElement.prototype, "getClientRects")
+      .mockReturnValue(Object.assign([new DOMRect()], { item: () => null }));
+    const trigger = document.createElement("button");
+    document.body.append(trigger);
+    trigger.focus();
+    try {
+      const { unmount } = render(
+        <Dialog
+          open
+          manageFocus
+          title="Assign assets"
+          buttons={[
+            { text: "Cancel", variant: "secondary" },
+            { text: "Assign", variant: "primary", disabled: true },
+          ]}
+        >
+          <input aria-label="Destination" />
+        </Dialog>,
+      );
+      const destination = screen.getByRole("textbox", { name: "Destination" });
+      const cancel = screen.getByRole("button", { name: "Cancel" });
+      expect(screen.getByRole("dialog", { name: "Assign assets" })).toHaveAttribute("aria-modal", "true");
+      expect(destination).toHaveFocus();
+      act(() => cancel.focus());
+      fireEvent.keyDown(cancel, { key: "Tab" });
+      expect(destination).toHaveFocus();
+      fireEvent.keyDown(destination, { key: "Tab", shiftKey: true });
+      expect(cancel).toHaveFocus();
+      unmount();
+      expect(trigger).toHaveFocus();
+    } finally {
+      trigger.remove();
+      rects.mockRestore();
+    }
+  });
+  it("focuses its container when it opens without enabled actions", () => {
+    render(
+      <Dialog open manageFocus title="Working" buttons={[{ text: "Cancel", variant: "secondary", disabled: true }]} />,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Working" });
+    expect(dialog).toHaveFocus();
+    expect(fireEvent.keyDown(dialog, { key: "Tab" })).toBe(false);
+    expect(dialog).toHaveFocus();
+    expect(fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true })).toBe(false);
+    expect(dialog).toHaveFocus();
+  });
   it("does not dismiss from scrim clicks", () => {
     const onDismiss = vi.fn();
     render(<Dialog title="Intentional dismiss" onDismiss={onDismiss} testId="dialog" />);

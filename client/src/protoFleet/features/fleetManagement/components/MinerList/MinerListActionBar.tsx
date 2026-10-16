@@ -11,12 +11,16 @@ import MiningActionsMenu from "@/protoFleet/features/containers/MiningActionsMen
 import FleetListActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar/FleetListActionBar";
 import useActionBarLifecycle from "@/protoFleet/features/fleetManagement/components/ActionBar/useActionBarLifecycle";
 import MinerActionsMenu from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu";
+import { FleetAccountAssignment } from "@/protoFleet/features/hostedAccounts/components/FleetAccountAssignment";
+import type { AssetReference } from "@/protoFleet/features/hostedAccounts/useFleetAccountInventory";
 import { ActionBarSelectionControls } from "@/shared/components/ActionBar";
 import { type SelectionMode } from "@/shared/components/List";
 
 interface MinerListActionBarProps {
   selectedKeys: MiningSelectionKey[];
   modules?: InventoryItem[];
+  assetReferences?: AssetReference[];
+  onAssigned?: () => void;
   onClearSelection?: () => void;
   onSelectAll?: () => void;
   selectAllOnPage?: boolean;
@@ -40,6 +44,7 @@ const MinerListActionBar = ({
   onSelectNone,
   onRefetchMiners,
   onWorkerNameUpdated,
+  onAssigned,
   ...selection
 }: MinerListActionBarProps) => {
   const { isActionBusy, onActionStart, onActionComplete } = useActionBarLifecycle(selection.selectedKeys.length);
@@ -50,6 +55,7 @@ const MinerListActionBar = ({
   }
   const {
     selectedKeys,
+    assetReferences = [],
     modules = [],
     selectAllOnPage = false,
     selectionMode,
@@ -95,6 +101,15 @@ const MinerListActionBar = ({
       selectionControls={selectionControls}
     >
       <div className="flex items-center gap-2">
+        <FleetAccountAssignment
+          assets={assetReferences}
+          exactSelection={effectiveSelectionMode !== "all" ? assetReferences.length === selectedKeys.length : false}
+          onActionStart={onActionStart}
+          onActionComplete={onActionComplete}
+          onAssigned={() => {
+            onAssigned?.();
+          }}
+        />
         {modules.length > 0 ? (
           <MiningActionsMenu
             kind="module"

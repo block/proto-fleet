@@ -36,6 +36,7 @@ import {
   NumericRangeFilterSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { MiningAssetKind } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useModuleHashboards } from "@/protoFleet/api/useModuleHashboards";
 import ListPagination from "@/protoFleet/components/ListPagination";
@@ -77,6 +78,11 @@ import {
 } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import { VIEW_URL_PARAM } from "@/protoFleet/features/fleetManagement/views/savedViews";
 import type { FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
+import {
+  allocationKey,
+  type AssetReference,
+  useFleetAccountInventory,
+} from "@/protoFleet/features/hostedAccounts/useFleetAccountInventory";
 import { useHasPermission, useUsername } from "@/protoFleet/store";
 
 import { ChevronDown, LogoAlt, Plus, Slider } from "@/shared/assets/icons";
@@ -418,6 +424,27 @@ const ScopedMinerListBody = ({
       return row ? [{ kind: "miner", row, selectionKey: `miner:${row.deviceIdentifier}` }] : [];
     });
   }, [deviceItems, inventoryItems]);
+  const referencesBySelection = useMemo(
+    () =>
+      new Map<MiningSelectionKey, AssetReference>(
+        (inventoryItems ?? []).flatMap<[MiningSelectionKey, AssetReference]>((item) => {
+          if (item.ref?.kind === EntityKind.MODULE)
+            return [[`module:${item.ref.id}` as MiningSelectionKey, { kind: MiningAssetKind.MODULE, id: item.ref.id }]];
+          if (item.ref?.kind === EntityKind.MINER)
+            return [
+              [
+                `miner:${item.deviceIdentifier}` as MiningSelectionKey,
+                { kind: MiningAssetKind.MINER, id: item.ref.id },
+              ],
+            ];
+          return [];
+        }),
+      ),
+    [inventoryItems],
+  );
+  const fleetAssignments = useFleetAccountInventory([...referencesBySelection.values()], true);
+  const { byAsset: allocationsByAsset, loading: allocationsLoading } = fleetAssignments;
+  const allocationRootId = fleetAssignments.root?.accountId;
   const listColumns = useMemo<ColConfig<MiningListItem, MiningSelectionKey, MinerColumn>>(() => {
     const result: ColConfig<MiningListItem, MiningSelectionKey, MinerColumn> = {};
     for (const column of Object.keys(minerColConfig) as MinerColumn[]) {
@@ -456,8 +483,36 @@ const ScopedMinerListBody = ({
           ),
       };
     }
+    result.assignedAccount = {
+      width: "min-w-48",
+      component: (item) => {
+        const ref = referencesBySelection.get(item.selectionKey);
+        const allocation = ref ? allocationsByAsset.get(allocationKey(ref)) : undefined;
+        if (!allocation) return allocationsLoading ? "Loading…" : "Unavailable";
+        return allocation.ownerAccountId === allocationRootId ? (
+          "Unassigned"
+        ) : (
+          <div data-no-row-click>
+            <Button
+              variant="textOnly"
+              text={allocation.ownerAccountName}
+              to={`/accounts?assets=${encodeURIComponent(allocation.ownerAccountId)}`}
+            />
+          </div>
+        );
+      },
+    };
     return result;
-  }, [minerColConfig, expanded, toggleModule, onRefetchMiners]);
+  }, [
+    minerColConfig,
+    expanded,
+    toggleModule,
+    onRefetchMiners,
+    referencesBySelection,
+    allocationsByAsset,
+    allocationsLoading,
+    allocationRootId,
+  ]);
   const currentPageSelectionKeys = listItems.map((item) => item.selectionKey);
   const selectAllOnPage =
     selectionMode !== "all" &&
@@ -571,7 +626,7 @@ const ScopedMinerListBody = ({
             };
           });
         }}
-        activeCols={activeCols}
+        activeCols={fleetAssignments.root ? [activeCols[0], "assignedAccount", ...activeCols.slice(1)] : activeCols}
         colTitles={minerColTitles}
         colConfig={listColumns}
         filters={filters}
@@ -647,6 +702,15 @@ const ScopedMinerListBody = ({
             <div className="flex w-full justify-center">
               <MinerListActionBar
                 selectedKeys={selectedItems}
+                assetReferences={selectedItems.flatMap((key) => {
+                  const ref = referencesBySelection.get(key);
+                  return ref ? [ref] : [];
+                })}
+                onAssigned={() => {
+                  fleetAssignments.refresh();
+                  onRefetchMiners?.();
+                  clearSelection();
+                }}
                 modules={listItems.flatMap((item) =>
                   item.kind === "module" && selectedItemKeys.has(item.selectionKey) ? [item.row] : [],
                 )}

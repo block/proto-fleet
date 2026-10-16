@@ -107,10 +107,33 @@ WITH actor AS (
         CASE WHEN a.depth>0 AND NOT a.path_suspended AND (COALESCE(auth.capabilities,0) & a.ceiling & 1)<>0
              THEN COALESCE(auth.role,'') ELSE '' END::text AS role
  FROM accounts a CROSS JOIN host_authority h LEFT JOIN authority auth ON auth.id=a.id
+), management_clients AS (
+ SELECT id FROM accounts WHERE depth=1 AND parent_id=sqlc.narg(parent_id)::bigint
+), assignment_counts AS (
+ SELECT a.client_id,
+        count(*) FILTER (WHERE a.kind=5)::bigint AS miner_count,
+        count(*) FILTER (WHERE a.kind=6)::bigint AS module_count,
+        count(DISTINCT a.device_id) FILTER (WHERE a.kind=6)::bigint AS container_count
+ FROM hosted_account_asset a JOIN management_clients c ON c.id=a.client_id
+ WHERE a.organization_id=sqlc.arg(organization_id)
+ GROUP BY a.client_id
+), login_counts AS (
+ SELECT m.account_id, count(*)::bigint AS login_count
+ FROM hosted_account_membership m JOIN management_clients c ON c.id=m.account_id
+ JOIN "user" u ON u.id=m.user_id AND u.deleted_at IS NULL
+ JOIN user_organization uo ON uo.user_id=m.user_id AND uo.organization_id=m.organization_id AND uo.deleted_at IS NULL
+ WHERE m.organization_id=sqlc.arg(organization_id) AND m.revoked_at IS NULL
+ GROUP BY m.account_id
 )
-SELECT * FROM summaries
-WHERE sqlc.narg(parent_id)::bigint IS NOT NULL OR effective_capabilities<>0
-ORDER BY depth,name,account_id;
+SELECT s.*, COALESCE(ac.miner_count,0)::bigint AS miner_count,
+       COALESCE(ac.module_count,0)::bigint AS module_count,
+       COALESCE(ac.container_count,0)::bigint AS container_count,
+       COALESCE(lc.login_count,0)::bigint AS login_count
+FROM summaries s JOIN accounts a ON a.account_id=s.account_id
+LEFT JOIN assignment_counts ac ON ac.client_id=a.id
+LEFT JOIN login_counts lc ON lc.account_id=a.id
+WHERE sqlc.narg(parent_id)::bigint IS NOT NULL OR s.effective_capabilities<>0
+ORDER BY s.depth,s.name,s.account_id;
 
 -- name: GetHostedAccountAncestorGrant :one
 SELECT * FROM hosted_account_ancestor_grant WHERE organization_id=$1 AND account_id=$2 AND ancestor_id=$3 AND revoked_at IS NULL;

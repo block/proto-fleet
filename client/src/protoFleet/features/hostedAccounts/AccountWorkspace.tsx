@@ -64,7 +64,7 @@ const AccountPage = ({ accountId }: { accountId: string }) => {
     ...(account && account.depth > 0 && can(account, 1n)
       ? [{ path: accountPath(accountId), label: "Overview", icon: Activity }]
       : []),
-    ...(account && ((account.depth > 0 && can(account, 1n)) || (account.depth === 0 && can(account, 16n)))
+    ...(account && account.depth > 0 && can(account, 1n)
       ? [{ path: accountPath(accountId, "assets"), label: "Mining assets", icon: Fleet }]
       : []),
     ...(account && account.depth > 0 && can(account, 1n)
@@ -74,7 +74,7 @@ const AccountPage = ({ accountId }: { accountId: string }) => {
       ? [
           {
             path: accountPath(accountId, "children"),
-            label: account!.depth === 0 ? "Customers" : "Subclients",
+            label: account!.depth === 0 ? "Clients" : "Subclients",
             icon: Groups,
           },
         ]

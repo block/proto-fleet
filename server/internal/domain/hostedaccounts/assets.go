@@ -10,11 +10,14 @@ import (
 	"strings"
 	"time"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/containerreadings"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -128,6 +131,7 @@ func (e miningEstate) asset(row sqlc.ListHostedAccountMiningAssetsRow) *pb.Accou
 		}
 		return a
 	}
+	a.Model = row.Model
 	a.Name = row.Name
 	a.ContainerId = row.ContainerID
 	a.ContainerName = row.ContainerName
@@ -143,18 +147,20 @@ func (e miningEstate) asset(row sqlc.ListHostedAccountMiningAssetsRow) *pb.Accou
 	if row.HasPower && finiteNonnegative(row.PowerW) {
 		a.PowerW = &row.PowerW
 	}
+	if row.HasTemperature && !math.IsInf(row.TemperatureC, 0) && !math.IsNaN(row.TemperatureC) {
+		a.TemperatureC = &row.TemperatureC
+	}
+	if row.HasEfficiency && finiteNonnegative(row.EfficiencyJTh) {
+		a.EfficiencyJTh = &row.EfficiencyJTh
+	}
 	if pb.MiningAssetKind(row.Kind) == pb.MiningAssetKind_MINING_ASSET_KIND_MODULE {
-		var coverage map[string]struct {
-			Reporting int  `json:"reporting"`
-			Expected  int  `json:"expected"`
-			Complete  bool `json:"topology_complete"`
-		}
+		var coverage *sdk.ContainerRollup
 		if json.Unmarshal(row.Coverage, &coverage) != nil || coverage == nil {
 			a.UnknownCoverage = true
 		} else {
-			for _, key := range []string{"hashrate", "power"} {
-				c, ok := coverage[key]
-				if !ok || !c.Complete || c.Expected <= 0 {
+			a.Coverage = containerreadings.Coverage(coverage)
+			for _, c := range []sdk.MetricCoverage{coverage.Hashrate, coverage.Power} {
+				if !c.TopologyComplete || c.Expected <= 0 {
 					a.UnknownCoverage = true
 				}
 				if c.Expected > 0 && c.Reporting < c.Expected {
@@ -163,6 +169,7 @@ func (e miningEstate) asset(row sqlc.ListHostedAccountMiningAssetsRow) *pb.Accou
 			}
 		}
 	}
+
 	return a
 }
 func finiteNonnegative(value float64) bool {
@@ -281,11 +288,46 @@ type miningCursor struct {
 	Container     int64
 	Kind          int32
 	ID            int64
+	Sort          int32
+	Descending    bool
+	Number        float64
+	Text          string
+	Null          bool
 }
 
 func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request *pb.ListAccountAssetsRequest) (*pb.ListAccountAssetsResponse, error) {
-	if request.PageSize < 0 || request.PageSize > 100 || len(request.Search) > 1020 {
+	if request.PageSize < 0 || request.PageSize > 100 || len(request.Search) > 1020 || len(request.PageToken) > 8192 {
 		return nil, fleeterror.NewInvalidArgumentError("invalid asset list")
+	}
+	if len(request.SelectedAssets) > 500 || len(request.SelectedAssets) > 0 && (request.PageSize != 0 || request.PageToken != "" || request.Search != "" || request.OwnerAccountId != nil || request.ContainerId != nil || request.Sort != nil) {
+		return nil, fleeterror.NewInvalidArgumentError("selected assets cannot be combined with pagination or filters")
+	}
+	field := commonpb.SortField_SORT_FIELD_NAME
+	descending := false
+	if request.Sort != nil {
+		switch request.Sort.Field {
+		case commonpb.SortField_SORT_FIELD_UNSPECIFIED, commonpb.SortField_SORT_FIELD_NAME:
+		case commonpb.SortField_SORT_FIELD_MODEL, commonpb.SortField_SORT_FIELD_HASHRATE, commonpb.SortField_SORT_FIELD_TEMPERATURE, commonpb.SortField_SORT_FIELD_POWER, commonpb.SortField_SORT_FIELD_EFFICIENCY:
+			field = request.Sort.Field
+		case commonpb.SortField_SORT_FIELD_IP_ADDRESS, commonpb.SortField_SORT_FIELD_MAC_ADDRESS, commonpb.SortField_SORT_FIELD_ISSUE_COUNT, commonpb.SortField_SORT_FIELD_FIRMWARE, commonpb.SortField_SORT_FIELD_DEVICE_COUNT, commonpb.SortField_SORT_FIELD_LOCATION, commonpb.SortField_SORT_FIELD_WORKER_NAME:
+			return nil, fleeterror.NewInvalidArgumentError("unsupported asset sort field")
+		default:
+			return nil, fleeterror.NewInvalidArgumentError("unsupported asset sort field")
+		}
+		switch request.Sort.Direction {
+		case commonpb.SortDirection_SORT_DIRECTION_UNSPECIFIED, commonpb.SortDirection_SORT_DIRECTION_ASC:
+		case commonpb.SortDirection_SORT_DIRECTION_DESC:
+			descending = true
+		default:
+			return nil, fleeterror.NewInvalidArgumentError("invalid asset sort direction")
+		}
+	}
+	seen := map[[2]int64]bool{}
+	for _, asset := range request.SelectedAssets {
+		if asset == nil || (asset.Kind != pb.MiningAssetKind_MINING_ASSET_KIND_MINER && asset.Kind != pb.MiningAssetKind_MINING_ASSET_KIND_MODULE) || asset.Id <= 0 || seen[[2]int64{int64(asset.Kind), asset.Id}] {
+			return nil, fleeterror.NewInvalidArgumentError("invalid selected assets")
+		}
+		seen[[2]int64{int64(asset.Kind), asset.Id}] = true
 	}
 	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (*pb.ListAccountAssetsResponse, error) {
 		e, err := loadMiningEstate(ctx, q, actorID, orgID, request.AccountId, false)
@@ -304,7 +346,7 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 				return nil, denied()
 			}
 		}
-		expected := miningCursor{Account: request.AccountId, Actor: actorID, Org: orgID, Search: request.Search, Owner: request.GetOwnerAccountId(), Container: request.GetContainerId()}
+		expected := miningCursor{Account: request.AccountId, Actor: actorID, Org: orgID, Search: request.Search, Owner: request.GetOwnerAccountId(), Container: request.GetContainerId(), Sort: int32(field), Descending: descending}
 		cursor := expected
 		if request.PageToken != "" {
 			encoded, err := base64.RawURLEncoding.DecodeString(request.PageToken)
@@ -314,7 +356,10 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 			check := cursor
 			check.Kind = 0
 			check.ID = 0
-			if check != expected {
+			check.Number = 0
+			check.Text = ""
+			check.Null = false
+			if check != expected || (cursor.Kind != int32(pb.MiningAssetKind_MINING_ASSET_KIND_MINER) && cursor.Kind != int32(pb.MiningAssetKind_MINING_ASSET_KIND_MODULE)) || cursor.ID <= 0 {
 				return nil, fleeterror.NewInvalidArgumentError("asset page token scope changed")
 			}
 		}
@@ -325,6 +370,23 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 		response := &pb.ListAccountAssetsResponse{CanManageAssignments: e.capabilities&Delegate != 0 && e.account.Depth < 2, CanViewAssignments: e.management()}
 		for _, child := range e.children {
 			response.Children = append(response.Children, &pb.AccountMiningBucket{AccountId: child.AccountID, Name: child.Name, Suspended: child.Suspended})
+		}
+
+		if len(request.SelectedAssets) > 0 {
+			selection, err := json.Marshal(request.SelectedAssets)
+			if err != nil {
+				return nil, fleeterror.NewInternalErrorf("encode asset lookup: %w", err)
+			}
+			rows, err := q.ListHostedAccountMiningAssets(ctx, sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: orgID, AccountInternalID: e.account.ID, IsRoot: e.account.Depth == 0, SelectedAssets: selection})
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range rows {
+				if e.physicalRead(row) {
+					response.Assets = append(response.Assets, e.asset(row))
+				}
+			}
+			return response, nil
 		}
 
 		ownerID := int64(0)
@@ -353,6 +415,8 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 		rows, err := q.ListHostedAccountMiningAssetPage(ctx, sqlc.ListHostedAccountMiningAssetPageParams{
 			OrganizationID: orgID, AccountInternalID: e.account.ID, IsRoot: e.account.Depth == 0,
 			AfterKind: cursor.Kind, AfterID: cursor.ID, HostAuthority: encodedAuthority,
+			SortField: int32(field), Descending: descending, HasCursor: request.PageToken != "",
+			CursorNull: cursor.Null, CursorNumber: cursor.Number, CursorText: cursor.Text,
 			HasOwnerFilter: request.OwnerAccountId != nil, OwnerInternalID: ownerID,
 			ContainerFilter: request.GetContainerId(), PolicyRestricted: e.policy.EffectiveRestricted, PolicySites: e.policy.EffectiveSiteIDs,
 			Search: strings.TrimSpace(request.Search), PageLimit: limit + 1,
@@ -365,6 +429,9 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 			last := rows[len(rows)-1]
 			expected.Kind = last.Kind
 			expected.ID = last.ID
+			expected.Number = last.SortNumber
+			expected.Text = last.SortText
+			expected.Null = last.SortNull
 			encoded, _ := json.Marshal(expected)
 			response.NextPageToken = base64.RawURLEncoding.EncodeToString(encoded)
 		}

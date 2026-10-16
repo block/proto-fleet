@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
 	domain "github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/stretchr/testify/require"
@@ -36,4 +37,16 @@ func TestHostedMiningRPCRequiresSelectedMatchingAccountAndSession(t *testing.T) 
 	require.NoError(t, f.accounts.RevokeMembership(t.Context(), f.host, f.org, account.AccountID, user))
 	_, err = f.client.GetAccountMiningSummary(t.Context(), rpcRequest(&pb.GetAccountMiningSummaryRequest{AccountId: account.AccountID}, cookie, account.AccountID))
 	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
+}
+
+func TestHostedMiningRPCRejectsUnsupportedAssetSort(t *testing.T) {
+	f := newRPCFixture(t)
+	account := f.account(t, "Client", f.host, domain.AllCapabilities)
+	for _, request := range []*pb.ListAccountAssetsRequest{
+		{AccountId: account.AccountID, Sort: &commonpb.SortConfig{Field: commonpb.SortField_SORT_FIELD_IP_ADDRESS}},
+		{AccountId: account.AccountID, SelectedAssets: []*pb.MiningAssetReference{{Kind: 5, Id: 1}}, Sort: &commonpb.SortConfig{Field: commonpb.SortField_SORT_FIELD_NAME}},
+	} {
+		_, err := f.client.ListAccountAssets(t.Context(), rpcRequest(request, f.cookie, account.AccountID))
+		require.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(err))
+	}
 }

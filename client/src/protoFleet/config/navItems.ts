@@ -204,7 +204,7 @@ export const secondaryNavItems: SecondaryNavItem[] = [
   },
   {
     path: "/accounts",
-    label: "Accounts",
+    label: "Clients",
     parent: "/settings",
     section: "Admin",
     requiresHostedAccounts: true,

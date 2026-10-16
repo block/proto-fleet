@@ -357,7 +357,8 @@ describe("hosted account pages", () => {
       { value, client } = scope();
     mount(<AccountChildren />, value);
     const row = (await screen.findByText("Child", { exact: true })).closest("tr")!;
-    await user.click(within(row).getByRole("button", { name: "Manage permissions" }));
+    await user.click(within(row).getByRole("button", { name: "Row actions" }));
+    await user.click(await screen.findByRole("button", { name: "Manage permissions" }));
     expect(screen.getByRole("checkbox", { name: "Manage memberships" })).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "View account data" })).toBeDisabled();
     await user.click(screen.getByRole("checkbox", { name: "Change pools" }));

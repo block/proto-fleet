@@ -1,17 +1,55 @@
+import { useEffect, useState } from "react";
+
 import { AccountLayout } from "./AccountLayout";
-import { accountPath, roleLabel } from "./capabilities";
+import { AccountScopeContext } from "./AccountScope";
+import { createAccountConnection } from "./api";
+import { accountPath, can, roleLabel } from "./capabilities";
+import AccountChildren from "./components/AccountChildren";
 import { AccountState } from "./components/AccountState";
 import { useHostedAccounts } from "./HostedAccountsContext";
 import type { Account } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
+import { useFleetStore } from "@/protoFleet/store";
 import { Groups } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import List from "@/shared/components/List";
 
+const ClientDirectory = ({ root }: { root: Account }) => {
+  const directory = useHostedAccounts()!;
+  const [connection] = useState(() => createAccountConnection(root.accountId));
+  useEffect(() => {
+    connection.activate();
+    return () => connection.dispose();
+  }, [connection]);
+  return (
+    <AccountScopeContext.Provider
+      value={{
+        account: root,
+        client: connection.client,
+        signal: connection.signal,
+        refreshAccount: directory.refresh,
+        invalidateAccount: directory.refresh,
+      }}
+    >
+      <AccountChildren />
+    </AccountScopeContext.Provider>
+  );
+};
+
 const AccountDirectory = () => {
   const directory = useHostedAccounts();
+  const generation = useFleetStore((state) => state.auth.sessionGeneration);
   if (!directory) return null;
+  const root = directory.accounts.find((account) => account.depth === 0 && can(account, 16n));
+  if (root)
+    return (
+      <AccountLayout items={[{ path: "/accounts", label: "Clients", icon: Groups, exact: true }]} roleLabel="Clients">
+        <div className="p-10 phone:p-6">
+          <ClientDirectory key={`${root.accountId}:${generation}`} root={root} />
+        </div>
+      </AccountLayout>
+    );
   return (
     <AccountLayout items={[{ path: "/accounts", label: "Accounts", icon: Groups, exact: true }]} roleLabel="Accounts">
       <div className="flex flex-col gap-6 p-10 phone:p-6">

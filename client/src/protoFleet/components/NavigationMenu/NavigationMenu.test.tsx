@@ -70,7 +70,7 @@ describe("Navigation Menu", () => {
   });
 
   it.each([true, false])(
-    "shows Accounts inside the phone Settings Admin group only for hosts (host=%s)",
+    "shows Clients inside the phone Settings Admin group only for hosts (host=%s)",
     async (hostAccess) => {
       mockUseWindowDimensions.mockReturnValue({ isPhone: true });
       permissionsMock.current = ["miner:read", "fleet:read"];
@@ -94,14 +94,14 @@ describe("Navigation Menu", () => {
       const submenu = screen.getByTestId("secondary-nav");
       if (hostAccess) {
         expect(within(submenu).getByText("Admin")).toBeInTheDocument();
-        expect(within(submenu).getByRole("link", { name: "Accounts" })).toHaveAttribute("href", "/accounts");
-        await user.click(within(submenu).getByRole("link", { name: "Accounts" }));
+        expect(within(submenu).getByRole("link", { name: "Clients" })).toHaveAttribute("href", "/accounts");
+        await user.click(within(submenu).getByRole("link", { name: "Clients" }));
         await waitFor(() =>
-          expect(screen.getByRole("link", { name: "Accounts" })).toHaveAttribute("aria-current", "page"),
+          expect(screen.getByRole("link", { name: "Clients" })).toHaveAttribute("aria-current", "page"),
         );
         expect(screen.getByRole("link", { name: "Fleet" })).toBeInTheDocument();
       } else {
-        expect(screen.queryByRole("link", { name: "Accounts" })).not.toBeInTheDocument();
+        expect(screen.queryByRole("link", { name: "Clients" })).not.toBeInTheDocument();
       }
     },
   );

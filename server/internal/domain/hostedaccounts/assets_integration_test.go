@@ -420,6 +420,10 @@ func TestAccountMiningRootMixedSiteAuthority(t *testing.T) {
 			require.Equal(t, first, rows.Assets[0].Id)
 			require.Equal(t, 200e12, *rows.Assets[0].HashrateHs)
 			require.Empty(t, rows.NextPageToken, "unauthorized leaves must not fill or extend a page")
+			exact, err := f.svc.ListAssets(t.Context(), f.user, f.org, &pb.ListAccountAssetsRequest{AccountId: f.root, SelectedAssets: []*pb.MiningAssetReference{{Kind: 5, Id: first}, {Kind: 5, Id: second}}})
+			require.NoError(t, err)
+			require.Len(t, exact.Assets, 1, "exact lookup must preserve physical site authority")
+			require.Equal(t, first, exact.Assets[0].Id)
 			require.Error(t, f.allocate(t, f.user, f.root, client.AccountID, 1, selected(5, first, 0), selected(5, second, 0)))
 			var allocations int
 			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_asset`).Scan(&allocations))
@@ -495,4 +499,41 @@ func TestAccountMiningAssignmentBoundsPhysicalLockWait(t *testing.T) {
 	var count int
 	require.NoError(t, f.db.QueryRowContext(ctx, `SELECT count(*) FROM hosted_account_asset`).Scan(&count))
 	require.Zero(t, count)
+}
+
+func TestAccountMiningExactSelectionLookup(t *testing.T) {
+	f := setup(t)
+	customer := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	first := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	other := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	module, _ := f.miningModule(t)
+	refs := []*pb.MiningAssetReference{{Kind: 5, Id: first}, {Kind: 6, Id: module}}
+	root, err := f.svc.ListAssets(t.Context(), f.host, f.org, &pb.ListAccountAssetsRequest{AccountId: f.root, SelectedAssets: refs})
+	require.NoError(t, err)
+	require.Len(t, root.Assets, 2)
+	require.Empty(t, root.NextPageToken)
+	require.Equal(t, first, root.Assets[0].Id)
+	require.Equal(t, module, root.Assets[1].Id)
+	require.NotEqual(t, other, root.Assets[0].Id)
+	require.NoError(t, f.allocate(t, f.host, f.root, customer.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(5, first, 0)))
+	root, err = f.svc.ListAssets(t.Context(), f.host, f.org, &pb.ListAccountAssetsRequest{AccountId: f.root, SelectedAssets: refs})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, root.Assets[0].Revision)
+	require.Equal(t, customer.AccountID, root.Assets[0].OwnerAccountId)
+	scoped, err := f.svc.ListAssets(t.Context(), f.user, f.org, &pb.ListAccountAssetsRequest{AccountId: customer.AccountID, SelectedAssets: refs})
+	require.NoError(t, err)
+	require.Len(t, scoped.Assets, 1, "exact lookup must never expand account scope")
+	require.Equal(t, first, scoped.Assets[0].Id)
+	for _, request := range []*pb.ListAccountAssetsRequest{
+		{SelectedAssets: refs, Search: "ignored"},
+		{SelectedAssets: refs, PageSize: 1},
+		{SelectedAssets: refs, PageToken: "cursor"},
+		{SelectedAssets: refs, OwnerAccountId: &f.root},
+		{SelectedAssets: []*pb.MiningAssetReference{{Kind: 5, Id: first}, {Kind: 5, Id: first}}},
+		{SelectedAssets: []*pb.MiningAssetReference{{Kind: 1, Id: first}}},
+	} {
+		request.AccountId = f.root
+		_, err = f.svc.ListAssets(t.Context(), f.host, f.org, request)
+		require.Error(t, err)
+	}
 }

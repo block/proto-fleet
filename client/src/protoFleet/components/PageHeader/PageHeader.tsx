@@ -21,7 +21,6 @@ import type { UseSchedulePillDataResult } from "./useSchedulePillData";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import AlertInstancesModal from "@/protoFleet/features/alerts/components/AlertInstancesModal";
 import type { ActiveAlertGroup } from "@/protoFleet/features/alerts/types";
-import AccountPicker from "@/protoFleet/features/hostedAccounts/components/AccountPicker";
 import { usePageBackground } from "@/protoFleet/hooks/usePageBackground";
 import { scopedPath, unscopedScopablePath, useRouteSiteScope } from "@/protoFleet/routing/siteScope";
 import { useHasPermission } from "@/protoFleet/store";
@@ -311,7 +310,6 @@ function PageHeader({
               />
             ) : null}
             <div className="flex min-w-0 flex-1 items-center gap-4" data-testid="page-header-selector-area">
-              <AccountPicker />
               {isDashboard || !canReadSites ? null : (
                 <SitePicker sites={sites} error={sitesError} onRetry={refetchSites} />
               )}

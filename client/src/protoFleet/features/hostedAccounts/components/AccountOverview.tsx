@@ -82,7 +82,8 @@ const AccountOverview = () => {
                     text: reporting(summary.hashrateReportingCount, summary.assetCount),
                   },
                   {
-                    label: "Equipment power",
+                    label: "Power",
+                    tooltipContent: "Power reported by assigned miners and modules. Excludes container plant power.",
                     value: power(summary),
                     preformatted: true,
                     text: reporting(summary.powerReportingCount, summary.assetCount),
@@ -157,7 +158,7 @@ const AccountOverview = () => {
                   name: "Account",
                   assets: "Mining assets",
                   hashrate: "Hashrate",
-                  power: "Equipment power",
+                  power: "Power",
                   efficiency: "Efficiency",
                 }}
                 colConfig={{

@@ -3,6 +3,8 @@ syntax = "proto3";
 package hosted.v1;
 
 import "buf/validate/validate.proto";
+import "common/v1/equipment_coverage.proto";
+import "common/v1/sort.proto";
 import "google/protobuf/timestamp.proto";
 
 // HostedAccountService uses account authority independently of organization RBAC.
@@ -63,6 +65,20 @@ message Account {
   AccountRole role = 7;
   bool suspended = 8;
   int64 revision = 9;
+  // Present only for direct clients returned by the host's ListChildren.
+  ClientManagementSummary management_summary = 10;
+}
+
+// Commercial allocation and direct membership counts for host client management.
+// Includes retained assignments and allocations delegated to subclients.
+message ClientManagementSummary {
+  int64 miner_count = 1;
+  int64 module_count = 2;
+  // Distinct containers represented by assigned modules, not assigned controllers.
+  int64 container_count = 3;
+  // Live direct memberships with an active user and organization affiliation.
+  // Excludes invitations, ancestor grants, and subclient-only memberships.
+  int64 login_count = 4;
 }
 
 message SitePolicy {
@@ -444,15 +460,39 @@ message AccountAsset {
   bool unknown_coverage = 16;
   string state = 17;
   google.protobuf.Timestamp observed_at = 18;
+  // Model belongs to the miner itself; a controller model is never a module model.
+  string model = 19;
+  optional double temperature_c = 20;
+  optional double efficiency_j_th = 21;
+  common.v1.EquipmentCoverage coverage = 22;
+}
+message MiningAssetReference {
+  MiningAssetKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  int64 id = 2 [(buf.validate.field).int64.gt = 0];
 }
 message ListAccountAssetsRequest {
+  option (buf.validate.message).cel = {
+    id: "asset_lookup_scope"
+    message: "selected assets cannot be combined with pagination or filters"
+    expression: "size(this.selected_assets) == 0 || (this.page_size == 0 && this.page_token == '' && this.search == '' && !has(this.owner_account_id) && !has(this.container_id) && !has(this.sort))"
+  };
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
-  string page_token = 3 [(buf.validate.field).string.max_len = 2048];
+  string page_token = 3 [(buf.validate.field).string.max_len = 8192];
   string search = 4 [(buf.validate.field).string.max_len = 255];
   // Active account means directly held; otherwise only a direct child is valid.
   optional string owner_account_id = 5 [(buf.validate.field).string.uuid = true];
   optional int64 container_id = 6 [(buf.validate.field).int64.gt = 0];
+  // Bounded exact lookup for Fleet selection; returns only authorized leaves.
+  // Missing leaves are omitted. Callers must reject incomplete selections.
+  repeated MiningAssetReference selected_assets = 7 [(buf.validate.field).repeated.max_items = 500];
+  // Name ascending by default. Metrics and model use the same sort fields as Fleet.
+  common.v1.SortConfig sort = 8;
+  option (buf.validate.message).cel = {
+    id: "asset_sort_fields"
+    message: "unsupported asset sort field"
+    expression: "!has(this.sort) || int(this.sort.field) in [0, 1, 5, 6, 7, 8, 9]"
+  };
 }
 message ListAccountAssetsResponse {
   repeated AccountAsset assets = 1;

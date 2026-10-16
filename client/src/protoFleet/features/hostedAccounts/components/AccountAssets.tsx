@@ -2,48 +2,68 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import { useRequiredAccountScope } from "../AccountScope";
-import { can } from "../capabilities";
+import { accountPath, can } from "../capabilities";
 import { useAccountQuery } from "../useAccountQuery";
+import { defaultAssetColumns, useAssetColumnPreferences } from "../useAssetColumnPreferences";
+import { allocationKey } from "../useFleetAccountInventory";
+import { AccountAssetCell } from "./AccountAssetCell";
+import { type AssetColumn, assetColumnTitles, assetColumnWidths, assetName } from "./accountAssetColumns";
 import { AccountState } from "./AccountState";
 import { ActionModal } from "./ActionModal";
+import { SortDirection as ApiSortDirection, SortField } from "@/protoFleet/api/generated/common/v1/sort_pb";
 import {
   type AccountAsset,
+  type AccountMiningBucket,
   AssetAssignmentIntent,
   MiningAssetKind,
 } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import ListPagination from "@/protoFleet/components/ListPagination";
 import ListSearchInput from "@/protoFleet/components/ListSearchInput";
+import FleetListActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar/FleetListActionBar";
+import {
+  type MinerColumn,
+  MINERS_PAGE_SIZE,
+} from "@/protoFleet/features/fleetManagement/components/MinerList/constants";
+import {
+  getDefaultSortDirection,
+  getSortField,
+} from "@/protoFleet/features/fleetManagement/components/MinerList/sortConfig";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
-import Button from "@/shared/components/Button";
+import { useFleetStore } from "@/protoFleet/store";
+import { Slider } from "@/shared/assets/icons";
+import { ActionBarSelectionControls } from "@/shared/components/ActionBar";
+import Button, { sizes } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import { formatListCountLabel } from "@/shared/components/List/listCountLabel";
+import type { ColConfig, SortDirection } from "@/shared/components/List/types";
+import ManageColumnsModal from "@/shared/components/ManageColumnsModal";
 import Select from "@/shared/components/Select";
-import { formatHashrateOrDash, formatPowerKwOrDash } from "@/shared/utils/telemetryFormat";
 
-const ASSETS_PAGE_SIZE = 100;
+const ASSETS_PAGE_SIZE = MINERS_PAGE_SIZE;
+const sortableColumns = new Set<AssetColumn>(["name", "model", "hashrate", "efficiency", "powerUsage", "temperature"]);
 
-const assetKey = (asset: AccountAsset) => `${asset.kind}:${asset.id}`;
-const kindName = (asset: AccountAsset) => (asset.kind === MiningAssetKind.MODULE ? "module" : "miner");
-const assetName = (asset: AccountAsset) => asset.name || `Unavailable ${kindName(asset)} ${asset.id}`;
 const countLabel = (count: number) => formatListCountLabel(count, { singular: "asset", plural: "assets" });
-const stateLabel = (asset: AccountAsset) => {
-  if (asset.outsidePolicy) return "Outside site policy";
-  if (!asset.available) return "Unavailable";
-  return (
-    {
-      hashing: "Hashing",
-      attention: "Needs attention",
-      isolated: "Isolated",
-      offline: "Offline",
-      sleeping: "Sleeping",
-    }[asset.state] ?? "Unknown"
-  );
-};
 type Review = { intent: AssetAssignmentIntent; childId: string; assets: AccountAsset[] };
 
-const AccountAssets = () => {
+const AccountAssets = ({
+  child,
+  mode = "inventory",
+  onAssigned,
+}: {
+  child?: Pick<AccountMiningBucket, "accountId" | "name" | "suspended">;
+  mode?: "inventory" | "assign";
+  onAssigned?: () => void;
+}) => {
+  const assigning = mode === "assign";
   const { account, client } = useRequiredAccountScope();
+  const username = useFleetStore((state) => state.auth.username);
+  const columnPreferences = useAssetColumnPreferences(username, account.accountId);
+  const [managingColumns, setManagingColumns] = useState(false);
+  const [sort, setSort] = useState<{ field: AssetColumn; direction: SortDirection }>({
+    field: "name",
+    direction: "asc",
+  });
   const [search, setSearch] = useState("");
   const [owner, setOwner] = useState("");
   const [container, setContainer] = useState({ id: "", name: "" });
@@ -61,14 +81,18 @@ const AccountAssets = () => {
           pageSize: ASSETS_PAGE_SIZE,
           pageToken,
           search: search.trim(),
-          ownerAccountId: owner || undefined,
+          sort: {
+            field: getSortField(sort.field as MinerColumn) ?? SortField.NAME,
+            direction: sort.direction === "desc" ? ApiSortDirection.DESC : ApiSortDirection.ASC,
+          },
+          ownerAccountId: assigning ? account.accountId : child?.accountId || owner || undefined,
           containerId: container.id ? BigInt(container.id) : undefined,
         },
         { signal },
       );
       return { inventory };
     },
-    [account.accountId, client, pageToken, search, owner, container.id],
+    [account.accountId, client, pageToken, search, owner, container.id, assigning, child?.accountId, sort],
   );
   const query = useAccountQuery(load);
   const { invalidate } = query;
@@ -85,16 +109,22 @@ const AccountAssets = () => {
     return () => window.removeEventListener("focus", refreshOnFocus);
   }, [refresh]);
   const rows = useMemo(
-    () => (query.data?.inventory.assets ?? []).map((asset) => ({ ...asset, key: assetKey(asset) })),
+    () => (query.data?.inventory.assets ?? []).map((asset) => ({ ...asset, key: allocationKey(asset) })),
     [query.data],
   );
   const children = query.data?.inventory.children ?? [];
   const management = !!query.data?.inventory.canViewAssignments;
-  const editable = !!query.data?.inventory.canManageAssignments && can(account, 16n) && account.depth < 2;
+  const editable =
+    !!query.data?.inventory.canManageAssignments && can(account, 16n) && account.depth < 2 && (assigning || !!child);
   if (!editable && (selected.length > 0 || review !== null)) {
     setSelected([]);
     setReview(null);
   }
+  const isAssetSelectable = (asset: AccountAsset) =>
+    !!asset.ownerAccountId &&
+    (assigning
+      ? asset.ownerAccountId === account.accountId && asset.available && !asset.outsidePolicy
+      : asset.ownerAccountId !== account.accountId);
   const selectedAssets = rows.filter((row) => selected.includes(row.key));
   const assignable =
     selectedAssets.length > 0 &&
@@ -108,6 +138,22 @@ const AccountAssets = () => {
     recallChild !== account.accountId &&
     selectedAssets.every((asset) => asset.ownerAccountId === recallChild) &&
     children.some((child) => child.accountId === recallChild);
+  const hasAssignmentTarget = children.some(
+    (target) => !target.suspended && (!child || target.accountId === child.accountId),
+  );
+  const childLabel = account.depth === 0 ? "client" : "subclient";
+  let selectionHint = "";
+  if (selected.length > 0) {
+    if ((assigning && assignable && hasAssignmentTarget) || (!assigning && recallable)) {
+      selectionHint = "";
+    } else if (assigning) {
+      selectionHint = hasAssignmentTarget
+        ? "Only available assets held directly by this account can be assigned."
+        : `No active ${childLabel}s are available to receive these assets.`;
+    } else {
+      selectionHint = `Select assets assigned to one ${childLabel} to recall them together.`;
+    }
+  }
   const containers = new Map(
     rows.filter((row) => row.containerId > 0n).map((row) => [String(row.containerId), row.containerName]),
   );
@@ -119,25 +165,59 @@ const AccountAssets = () => {
     setNotice("");
   };
   const selectedInContainer = rows.filter(
-    (row) =>
-      row.kind === MiningAssetKind.MODULE &&
-      String(row.containerId) === container.id &&
-      (row.ownerAccountId !== account.accountId || (row.available && !row.outsidePolicy)),
+    (row) => row.kind === MiningAssetKind.MODULE && String(row.containerId) === container.id && isAssetSelectable(row),
   );
   const firstItemIndex = (pages.length - 1) * ASSETS_PAGE_SIZE + 1;
   const lastItemIndex = (pages.length - 1) * ASSETS_PAGE_SIZE + rows.length;
   const reviewTarget = children.find((child) => child.accountId === review?.childId);
+  const showAssignment = management && !child && !assigning;
+  const configurableColumns = useMemo(
+    () => columnPreferences.columns.filter((column) => column.id !== "assignedAccount" || showAssignment),
+    [columnPreferences.columns, showAssignment],
+  );
+  const defaults = useMemo(
+    () => defaultAssetColumns.filter((column) => column.id !== "assignedAccount" || showAssignment),
+    [showAssignment],
+  );
+  const activeColumns: AssetColumn[] = [
+    "name",
+    ...configurableColumns.filter((column) => column.visible).map((column) => column.id),
+  ];
+  const columnConfig: ColConfig<(typeof rows)[number], string, AssetColumn> = {};
+  for (const column of Object.keys(assetColumnTitles) as AssetColumn[]) {
+    columnConfig[column] = {
+      width: assetColumnWidths[column],
+      component: (asset) =>
+        column === "assignedAccount" ? (
+          asset.ownerAccountId === account.accountId ? (
+            "This account"
+          ) : (
+            asset.ownerAccountName || "—"
+          )
+        ) : (
+          <AccountAssetCell asset={asset} column={column} />
+        ),
+    };
+  }
+
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      <div className="flex items-center justify-between gap-4">
-        <SettingsPageHeader title="Mining assets" />
-        <Button variant="secondary" text="Refresh" onClick={refresh} />
-      </div>
-      <p className="text-200 text-text-primary-50">
-        Assignments control account reporting. They do not move equipment or apply pools.
-      </p>
+      {!child ? (
+        <SettingsPageHeader title={assigning ? "Assign assets" : "Mining assets"} description={account.name} />
+      ) : null}
+      {assigning ? (
+        <p className="text-200 text-text-primary-50">
+          Choose assets held directly by {account.name} to assign to {child?.name ?? "a subclient"}.
+        </p>
+      ) : !child ? (
+        <p className="text-200 text-text-primary-50">
+          {account.depth < 2
+            ? "Assets allocated to this account, including its subclients."
+            : "Assets allocated to this account."}
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-3">
-        {management ? (
+        {management && !child && !assigning ? (
           <Select
             id="account-assets-owner"
             label="Assignment"
@@ -170,6 +250,13 @@ const AccountAssets = () => {
             }}
           />
         ) : null}
+        {!child && !assigning && owner && owner !== account.accountId && can(account, 16n) ? (
+          <Button
+            variant="secondary"
+            text="Manage subclient assets"
+            to={`${accountPath(account.accountId, "children")}?assets=${encodeURIComponent(owner)}`}
+          />
+        ) : null}
         <ListSearchInput
           id="account-assets-search"
           label="Search mining assets"
@@ -185,6 +272,23 @@ const AccountAssets = () => {
           }}
           collapsible
         />
+        {editable && container.id ? (
+          <Button
+            variant="textOnly"
+            text="Select modules on this page"
+            disabled={!selectedInContainer.length}
+            onClick={() => setSelected(selectedInContainer.map((asset) => asset.key))}
+          />
+        ) : null}
+        <Button
+          className="ml-auto"
+          ariaLabel="Manage columns"
+          ariaHasPopup="dialog"
+          variant="secondary"
+          size={sizes.compact}
+          prefixIcon={<Slider width="w-4" />}
+          onClick={() => setManagingColumns(true)}
+        />
       </div>
       {notice ? (
         <p role="status" className="text-300">
@@ -194,38 +298,58 @@ const AccountAssets = () => {
       <AccountState loading={query.loading} error={query.error} retry={refresh} />
       {query.data ? (
         <>
-          {editable ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                variant="primary"
-                text="Assign selected"
-                disabled={!assignable || !children.some((child) => !child.suspended)}
-                onClick={() => setReview({ intent: AssetAssignmentIntent.ASSIGN, childId: "", assets: selectedAssets })}
-              />
-              <Button
-                variant="secondary"
-                text="Recall selected"
-                disabled={!recallable}
-                onClick={() =>
-                  setReview({ intent: AssetAssignmentIntent.RECALL, childId: recallChild, assets: selectedAssets })
-                }
-              />
-              {container.id ? (
-                <Button
-                  variant="textOnly"
-                  text="Select modules on this page"
-                  disabled={!selectedInContainer.length}
-                  onClick={() => setSelected(selectedInContainer.map((asset) => asset.key))}
+          {editable && selected.length > 0 ? (
+            <FleetListActionBar
+              isActionBusy={review !== null}
+              selectedItems={selected}
+              selectionMode="subset"
+              itemNoun={{ singular: "mining asset", plural: "mining assets" }}
+              onClose={() => {
+                setSelected([]);
+                setReview(null);
+              }}
+              selectionControls={
+                <ActionBarSelectionControls
+                  visibleOnly
+                  onSelectAll={() => setSelected(rows.filter(isAssetSelectable).map((asset) => asset.key))}
+                  onSelectNone={() => setSelected([])}
                 />
-              ) : null}
-              <span className="text-200 text-text-primary-50">{selected.length} selected on this page</span>
-            </div>
+              }
+            >
+              <div className="flex flex-wrap items-center justify-end gap-3">
+                {assigning && assignable && hasAssignmentTarget ? (
+                  <Button
+                    variant="secondary"
+                    className="bg-grayscale-white-10! text-grayscale-white-90!"
+                    text="Assign selected"
+                    onClick={() =>
+                      setReview({
+                        intent: AssetAssignmentIntent.ASSIGN,
+                        childId: child?.accountId ?? "",
+                        assets: selectedAssets,
+                      })
+                    }
+                  />
+                ) : null}
+                {!assigning && recallable ? (
+                  <Button
+                    variant="secondary"
+                    className="bg-grayscale-white-10! text-grayscale-white-90!"
+                    text="Recall selected"
+                    onClick={() =>
+                      setReview({ intent: AssetAssignmentIntent.RECALL, childId: recallChild, assets: selectedAssets })
+                    }
+                  />
+                ) : null}
+                {selectionHint ? (
+                  <p className="text-200 text-grayscale-white-90" aria-live="polite">
+                    {selectionHint}
+                  </p>
+                ) : null}
+              </div>
+            </FleetListActionBar>
           ) : null}
-          <List<
-            (typeof rows)[number],
-            string,
-            "name" | "kind" | "site" | "container" | "assignment" | "state" | "hashrate" | "power"
-          >
+          <List<(typeof rows)[number], string, AssetColumn>
             items={rows}
             itemKey="key"
             itemSelectable={editable}
@@ -233,66 +357,17 @@ const AccountAssets = () => {
             rowSelectionLabel={(asset) => `Select ${assetName(asset)}`}
             customSelectedItems={selected}
             customSetSelectedItems={setSelected}
-            isRowSelectable={(asset) =>
-              !!asset.ownerAccountId &&
-              (asset.ownerAccountId !== account.accountId || (asset.available && !asset.outsidePolicy))
-            }
-            stickyFirstColumn={false}
-            activeCols={[
-              "name",
-              "kind",
-              "site",
-              "container",
-              ...(management ? ["assignment" as const] : []),
-              "state",
-              "hashrate",
-              "power",
-            ]}
-            colTitles={{
-              name: "Asset",
-              kind: "Type",
-              site: "Site",
-              container: "Container",
-              assignment: "Assigned to",
-              state: "Status",
-              hashrate: "Hashrate",
-              power: "Equipment power",
-            }}
-            colConfig={{
-              name: { width: "min-w-56", component: assetName },
-              kind: {
-                width: "min-w-24",
-                component: (asset) => (asset.kind === MiningAssetKind.MODULE ? "Module" : "Miner"),
-              },
-              site: { width: "min-w-40", component: (asset) => asset.siteName || "—" },
-              container: { width: "min-w-48", component: (asset) => asset.containerName || "—" },
-              assignment: {
-                width: "min-w-40",
-                component: (asset) =>
-                  asset.ownerAccountId === account.accountId
-                    ? account.depth === 0
-                      ? "Available to assign"
-                      : "This account"
-                    : asset.ownerAccountName || "—",
-              },
-              state: { width: "min-w-40", component: stateLabel },
-              hashrate: {
-                width: "min-w-40",
-                component: (asset) => (
-                  <div>
-                    {formatHashrateOrDash(asset.hashrateHs === undefined ? null : asset.hashrateHs / 1e12)}
-                    {asset.partialCoverage || asset.unknownCoverage ? (
-                      <div className="text-200 text-text-primary-50">
-                        {asset.partialCoverage ? "Partial module reading" : "Module coverage unknown"}
-                      </div>
-                    ) : null}
-                  </div>
-                ),
-              },
-              power: {
-                width: "min-w-40",
-                component: (asset) => formatPowerKwOrDash(asset.powerW === undefined ? undefined : asset.powerW / 1000),
-              },
+            isRowSelectable={isAssetSelectable}
+            stickyFirstColumn
+            activeCols={activeColumns}
+            colTitles={assetColumnTitles}
+            colConfig={columnConfig}
+            sortableColumns={sortableColumns}
+            currentSort={sort}
+            getDefaultSortDirection={(field) => getDefaultSortDirection(field as MinerColumn)}
+            onSort={(field, direction) => {
+              resetSelection();
+              setSort({ field, direction });
             }}
             total={rows.length}
             itemName={{ singular: "asset on this page", plural: "assets on this page" }}
@@ -333,9 +408,26 @@ const AccountAssets = () => {
           />
         </>
       ) : null}
+      {managingColumns ? (
+        <ManageColumnsModal
+          columns={configurableColumns}
+          defaultColumns={defaults}
+          titles={assetColumnTitles}
+          onDismiss={() => setManagingColumns(false)}
+          onSave={(columns) => {
+            columnPreferences.save(columns);
+            if (!columns.some((column) => column.id === sort.field && column.visible) && sort.field !== "name") {
+              resetSelection();
+              setSort({ field: "name", direction: "asc" });
+            }
+            setManagingColumns(false);
+          }}
+        />
+      ) : null}
       {review && editable ? (
         <ActionModal
-          title={review.intent === AssetAssignmentIntent.ASSIGN ? "Assign assets" : "Recall assets"}
+          presentation="dialog"
+          title={`${review.intent === AssetAssignmentIntent.ASSIGN ? "Assign" : "Recall"} ${countLabel(review.assets.length)}?`}
           confirm={`${review.intent === AssetAssignmentIntent.ASSIGN ? "Assign" : "Recall"} ${countLabel(review.assets.length)}`}
           valid={reviewTarget ? review.intent === AssetAssignmentIntent.RECALL || !reviewTarget.suspended : false}
           onDismiss={() => setReview(null)}
@@ -368,47 +460,38 @@ const AccountAssets = () => {
                   : `Recalled ${countLabel(review.assets.length)} to ${account.name}.`,
               );
               refresh();
+              if (review.intent === AssetAssignmentIntent.ASSIGN) onAssigned?.();
             } finally {
               assignmentPending.current = false;
             }
           }}
         >
-          <p>
-            {review.assets.filter((asset) => asset.kind === MiningAssetKind.MINER).length}{" "}
-            {review.assets.filter((asset) => asset.kind === MiningAssetKind.MINER).length === 1 ? "miner" : "miners"} ·{" "}
-            {review.assets.filter((asset) => asset.kind === MiningAssetKind.MODULE).length}{" "}
-            {review.assets.filter((asset) => asset.kind === MiningAssetKind.MODULE).length === 1 ? "module" : "modules"}
-          </p>
           {review.intent === AssetAssignmentIntent.ASSIGN ? (
             <>
-              <p>From {account.name}</p>
-              <Select
-                id="asset-assignment-target"
-                label={account.depth === 0 ? "Assign to customer" : "Assign to subclient"}
-                value={review.childId}
-                options={children
-                  .filter((child) => !child.suspended)
-                  .map((child) => ({ value: child.accountId, label: child.name }))}
-                onChange={(value) => setReview({ ...review, childId: value })}
-              />
+              <p>Assign the selected assets from {account.name}.</p>
+              {child ? (
+                <p>To {child.name}</p>
+              ) : (
+                <Select
+                  id="asset-assignment-target"
+                  label={account.depth === 0 ? "Assign to client" : "Assign to subclient"}
+                  value={review.childId}
+                  options={children
+                    .filter((child) => !child.suspended)
+                    .map((child) => ({ value: child.accountId, label: child.name }))}
+                  onChange={(value) => setReview({ ...review, childId: value })}
+                />
+              )}
             </>
           ) : (
             <p>
-              From {reviewTarget?.name} to {account.name}.{" "}
-              {account.depth === 0
-                ? "Any subclient allocation on these assets will also be recalled."
-                : "These assets will be directly assigned to this account."}
+              Recall the selected assets from {reviewTarget?.name} to {account.name}.{" "}
+              {account.depth === 0 ? "Any subclient allocation on these assets will also be recalled." : ""}
             </p>
           )}
-          <ul className="max-h-48 overflow-y-auto text-200 text-text-primary-70">
-            {review.assets.map((asset) => (
-              <li key={assetKey(asset)}>{assetName(asset)}</li>
-            ))}
-          </ul>
           {review.assets.some((asset) => asset.kind === MiningAssetKind.MODULE) ? (
             <p className="text-200 text-text-primary-50">
-              This changes only the modules selected on this page. Newly discovered or replacement modules are not
-              included.
+              Only the selected modules are included. New or replacement modules are excluded.
             </p>
           ) : null}
           <p className="text-200 text-text-primary-50">

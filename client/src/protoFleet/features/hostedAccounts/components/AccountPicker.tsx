@@ -17,13 +17,15 @@ const AccountPicker = () => {
   const selected = directory.accounts.find(
     (a) => pathname === `/accounts/${a.accountId}` || pathname.startsWith(`/accounts/${a.accountId}/`),
   );
+  if (directory.hostAccess || directory.accounts.length === 1)
+    return selected && selected.depth > 0 ? <span className="truncate text-text-primary">{selected.name}</span> : null;
   return (
     <>
       <Button
         variant="textOnly"
         textColor="text-text-primary"
         borderColor="border-border-primary"
-        text={selected?.name ?? (directory.hostAccess ? "Fleet" : "Accounts")}
+        text={selected?.name ?? "Accounts"}
         suffixIcon={<ChevronDown width="w-3" />}
         textOnlyUnderlineOnHover={false}
         onClick={() => setOpen(true)}
@@ -40,19 +42,6 @@ const AccountPicker = () => {
         manageFocus
       >
         <div className="flex flex-col gap-2">
-          {directory.hostAccess ? (
-            <label className="flex cursor-pointer items-center gap-3 rounded-xl p-3 text-left hover:bg-core-primary-5">
-              <Radio
-                name="account-workspace"
-                selected={!selected}
-                onChange={() => {
-                  setOpen(false);
-                  navigate("/dashboard");
-                }}
-              />
-              <div>Fleet</div>
-            </label>
-          ) : null}
           {directory.accounts.map((account) => (
             <label
               key={account.accountId}
@@ -64,17 +53,13 @@ const AccountPicker = () => {
                 selected={selected?.accountId === account.accountId}
                 onChange={() => {
                   setOpen(false);
-                  navigate(accountPath(account.accountId, account.depth === 0 ? "children" : "overview"));
+                  navigate(accountPath(account.accountId));
                 }}
               />
               <div>
                 {account.name}
                 <div className="text-200 text-text-primary-50">
-                  {account.suspended
-                    ? "Suspended"
-                    : account.depth === 0
-                      ? "Customer administration"
-                      : roleLabel(account.role)}
+                  {account.suspended ? "Suspended" : roleLabel(account.role)}
                 </div>
               </div>
             </label>
