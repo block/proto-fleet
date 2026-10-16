@@ -67,14 +67,19 @@ function mount(mask = 31n, assets = [miner, module], assignment = vi.fn().mockRe
     refreshAccount: vi.fn(),
     invalidateAccount: vi.fn(),
   };
-  render(
+  const page = (currentScope: AccountScope) => (
     <MemoryRouter>
-      <AccountScopeContext.Provider value={scope}>
+      <AccountScopeContext.Provider value={currentScope}>
         <AccountAssets />
       </AccountScopeContext.Provider>
-    </MemoryRouter>,
+    </MemoryRouter>
   );
-  return { client, scope };
+  const view = render(page(scope));
+  return {
+    client,
+    scope,
+    rerenderAccount: (account: AccountScope["account"]) => view.rerender(page({ ...scope, account })),
+  };
 }
 const selectTarget = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(screen.getByRole("button", { name: /Assign to subclient/ }));
@@ -121,11 +126,22 @@ describe("account mining asset allocation", () => {
     );
     expect(screen.getByRole("checkbox", { name: "Select Miner 1" })).not.toBeChecked();
   });
-  it("keeps viewers read-only and names reporting-only assignment semantics", async () => {
-    mount(1n, [create(AccountAssetSchema, { ...miner, ownerAccountId: "", ownerAccountName: "" })]);
+  it.each([1n, 7n])("keeps non-delegating access %s free of allocation controls", async (mask) => {
+    mount(
+      mask,
+      [miner, module].map((asset) =>
+        create(AccountAssetSchema, { ...asset, ownerAccountId: "", ownerAccountName: "" }),
+      ),
+    );
+    const user = userEvent.setup();
     await screen.findByText("Miner One");
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Assign selected" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Recall selected" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Container" }));
+    await user.click(await screen.findByRole("option", { name: "Container A" }));
+    expect(screen.queryByRole("button", { name: "Select modules on this page" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/selected on this page/)).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Assigned to" })).not.toBeInTheDocument();
     expect(screen.getByText(/Assignments control account reporting/)).toBeInTheDocument();
   });
@@ -135,6 +151,25 @@ describe("account mining asset allocation", () => {
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Assign selected" })).not.toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Assigned to" })).toBeInTheDocument();
+  });
+  it("removes an open allocation review when delegation is revoked without reopening it on restoration", async () => {
+    const { scope, rerenderAccount, client } = mount();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
+    await user.click(screen.getByRole("button", { name: "Assign selected" }));
+    await selectTarget(user);
+    expect(screen.getByRole("dialog", { name: "Assign assets" })).toBeInTheDocument();
+
+    rerenderAccount(create(AccountSchema, { ...scope.account, effectiveCapabilities: 9n }));
+    expect(screen.queryByRole("button", { name: "Assign selected" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Recall selected" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    rerenderAccount(scope.account);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Select Miner One" })).not.toBeChecked();
+    expect(client.assignAccountAssets).not.toHaveBeenCalled();
   });
   it("keeps the reviewed assignment pending across window focus and prevents another submission", async () => {
     let finish!: (value: object) => void;

@@ -91,6 +91,10 @@ const AccountAssets = () => {
   const children = query.data?.inventory.children ?? [];
   const management = !!query.data?.inventory.canViewAssignments;
   const editable = !!query.data?.inventory.canManageAssignments && can(account, 16n) && account.depth < 2;
+  if (!editable && (selected.length > 0 || review !== null)) {
+    setSelected([]);
+    setReview(null);
+  }
   const selectedAssets = rows.filter((row) => selected.includes(row.key));
   const assignable =
     selectedAssets.length > 0 &&
@@ -329,7 +333,7 @@ const AccountAssets = () => {
           />
         </>
       ) : null}
-      {review ? (
+      {review && editable ? (
         <ActionModal
           title={review.intent === AssetAssignmentIntent.ASSIGN ? "Assign assets" : "Recall assets"}
           confirm={`${review.intent === AssetAssignmentIntent.ASSIGN ? "Assign" : "Recall"} ${countLabel(review.assets.length)}`}
