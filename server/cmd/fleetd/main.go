@@ -587,7 +587,7 @@ func start(config *Config) (result error) {
 	)
 	curtailmentResponseProfileSvc := curtailmentDomain.NewResponseProfileService(curtailmentStore)
 
-	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
+	sitesSvc := sitesDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc).WithContainerStats(db.NewFailoverResettingQuerier(db.NewRetryDB(conn)))
 	buildingsSvc := buildingsDomain.NewService(buildingStore, siteStore, collectionStore, deviceStore, telemetryService, transactor, activitySvc)
 	infrastructureSvc := infrastructureDomain.NewService(infrastructureStore, siteStore, infrastructureDriverRegistry, transactor, activitySvc)
 	sitemapSvc := sitemapDomain.NewService(siteStore, buildingStore, collectionStore, deviceStore, fleetMgmtSvc, transactor, activitySvc)
@@ -598,6 +598,7 @@ func start(config *Config) (result error) {
 	// only ran inline inside the schedule processor, leaving manual
 	// SetPowerTarget calls free to race a running power-target schedule.
 	commandSvc.RegisterFilter(commandDomain.NewScheduleConflictFilter(scheduleStore))
+	commandSvc.RegisterFilter(commandDomain.NewScheduleContainerFilter(conn))
 	// CurtailmentActiveFilter blocks non-curtailment commands on locked
 	// devices; reconciler self-traffic bypasses via ActorCurtailment.
 	commandSvc.RegisterFilter(commandDomain.NewCurtailmentActiveFilter(curtailmentStore))

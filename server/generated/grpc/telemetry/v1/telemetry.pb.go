@@ -1454,8 +1454,15 @@ type FleetNodeTelemetryResult struct {
 	// This preserves component-level metrics without duplicating the V2 model in
 	// the control proto. Scalar fields above remain for validation and fallback.
 	DeviceMetricsJson []byte `protobuf:"bytes,14,opt,name=device_metrics_json,json=deviceMetricsJson,proto3" json:"device_metrics_json,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Whole elapsed seconds since device boot; absent means unknown, zero is valid.
+	UptimeSeconds *uint64 `protobuf:"varint,15,opt,name=uptime_seconds,json=uptimeSeconds,proto3,oneof" json:"uptime_seconds,omitempty"`
+	// Age of the uptime observation when the node builds this result, including
+	// time spent in the plugin cache. The server derives a conservative observation
+	// time from its own request start and this age, avoiding node clock skew.
+	// Missing or negative age provides no reboot evidence to the server.
+	UptimeObservationAge *durationpb.Duration `protobuf:"bytes,16,opt,name=uptime_observation_age,json=uptimeObservationAge,proto3" json:"uptime_observation_age,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *FleetNodeTelemetryResult) Reset() {
@@ -1582,6 +1589,20 @@ func (x *FleetNodeTelemetryResult) GetHealthStatus() DeviceHealthStatus {
 func (x *FleetNodeTelemetryResult) GetDeviceMetricsJson() []byte {
 	if x != nil {
 		return x.DeviceMetricsJson
+	}
+	return nil
+}
+
+func (x *FleetNodeTelemetryResult) GetUptimeSeconds() uint64 {
+	if x != nil && x.UptimeSeconds != nil {
+		return *x.UptimeSeconds
+	}
+	return 0
+}
+
+func (x *FleetNodeTelemetryResult) GetUptimeObservationAge() *durationpb.Duration {
+	if x != nil {
+		return x.UptimeObservationAge
 	}
 	return nil
 }
@@ -2330,7 +2351,7 @@ var file_telemetry_v1_telemetry_proto_rawDesc = string([]byte{
 	0x17, 0x0a, 0x07, 0x72, 0x70, 0x63, 0x5f, 0x74, 0x6c, 0x73, 0x18, 0x12, 0x20, 0x01, 0x28, 0x08,
 	0x52, 0x06, 0x72, 0x70, 0x63, 0x54, 0x6c, 0x73, 0x4a, 0x04, 0x08, 0x0b, 0x10, 0x0c, 0x4a, 0x04,
 	0x08, 0x0c, 0x10, 0x0d, 0x52, 0x08, 0x75, 0x73, 0x65, 0x72, 0x6e, 0x61, 0x6d, 0x65, 0x52, 0x08,
-	0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x22, 0xbb, 0x06, 0x0a, 0x18, 0x46, 0x6c, 0x65,
+	0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x22, 0xcb, 0x07, 0x0a, 0x18, 0x46, 0x6c, 0x65,
 	0x65, 0x74, 0x4e, 0x6f, 0x64, 0x65, 0x54, 0x65, 0x6c, 0x65, 0x6d, 0x65, 0x74, 0x72, 0x79, 0x52,
 	0x65, 0x73, 0x75, 0x6c, 0x74, 0x12, 0x37, 0x0a, 0x11, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x5f,
 	0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x69, 0x65, 0x72, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09,
@@ -2376,13 +2397,22 @@ var file_telemetry_v1_telemetry_proto_rawDesc = string([]byte{
 	0x76, 0x69, 0x63, 0x65, 0x5f, 0x6d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x5f, 0x6a, 0x73, 0x6f,
 	0x6e, 0x18, 0x0e, 0x20, 0x01, 0x28, 0x0c, 0x42, 0x09, 0xba, 0x48, 0x06, 0x7a, 0x04, 0x18, 0x80,
 	0x80, 0x10, 0x52, 0x11, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63,
-	0x73, 0x4a, 0x73, 0x6f, 0x6e, 0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x68, 0x61, 0x73, 0x68, 0x72, 0x61,
-	0x74, 0x65, 0x5f, 0x68, 0x73, 0x42, 0x09, 0x0a, 0x07, 0x5f, 0x74, 0x65, 0x6d, 0x70, 0x5f, 0x63,
-	0x42, 0x0a, 0x0a, 0x08, 0x5f, 0x66, 0x61, 0x6e, 0x5f, 0x72, 0x70, 0x6d, 0x42, 0x0a, 0x0a, 0x08,
-	0x5f, 0x70, 0x6f, 0x77, 0x65, 0x72, 0x5f, 0x77, 0x42, 0x10, 0x0a, 0x0e, 0x5f, 0x65, 0x66, 0x66,
-	0x69, 0x63, 0x69, 0x65, 0x6e, 0x63, 0x79, 0x5f, 0x6a, 0x68, 0x42, 0x1a, 0x0a, 0x18, 0x5f, 0x64,
-	0x65, 0x66, 0x61, 0x75, 0x6c, 0x74, 0x5f, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x5f,
-	0x61, 0x63, 0x74, 0x69, 0x76, 0x65, 0x22, 0x9c, 0x05, 0x0a, 0x19, 0x47, 0x65, 0x74, 0x43, 0x6f,
+	0x73, 0x4a, 0x73, 0x6f, 0x6e, 0x12, 0x2a, 0x0a, 0x0e, 0x75, 0x70, 0x74, 0x69, 0x6d, 0x65, 0x5f,
+	0x73, 0x65, 0x63, 0x6f, 0x6e, 0x64, 0x73, 0x18, 0x0f, 0x20, 0x01, 0x28, 0x04, 0x48, 0x06, 0x52,
+	0x0d, 0x75, 0x70, 0x74, 0x69, 0x6d, 0x65, 0x53, 0x65, 0x63, 0x6f, 0x6e, 0x64, 0x73, 0x88, 0x01,
+	0x01, 0x12, 0x4f, 0x0a, 0x16, 0x75, 0x70, 0x74, 0x69, 0x6d, 0x65, 0x5f, 0x6f, 0x62, 0x73, 0x65,
+	0x72, 0x76, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x5f, 0x61, 0x67, 0x65, 0x18, 0x10, 0x20, 0x01, 0x28,
+	0x0b, 0x32, 0x19, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f,
+	0x62, 0x75, 0x66, 0x2e, 0x44, 0x75, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x52, 0x14, 0x75, 0x70,
+	0x74, 0x69, 0x6d, 0x65, 0x4f, 0x62, 0x73, 0x65, 0x72, 0x76, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x41,
+	0x67, 0x65, 0x42, 0x0e, 0x0a, 0x0c, 0x5f, 0x68, 0x61, 0x73, 0x68, 0x72, 0x61, 0x74, 0x65, 0x5f,
+	0x68, 0x73, 0x42, 0x09, 0x0a, 0x07, 0x5f, 0x74, 0x65, 0x6d, 0x70, 0x5f, 0x63, 0x42, 0x0a, 0x0a,
+	0x08, 0x5f, 0x66, 0x61, 0x6e, 0x5f, 0x72, 0x70, 0x6d, 0x42, 0x0a, 0x0a, 0x08, 0x5f, 0x70, 0x6f,
+	0x77, 0x65, 0x72, 0x5f, 0x77, 0x42, 0x10, 0x0a, 0x0e, 0x5f, 0x65, 0x66, 0x66, 0x69, 0x63, 0x69,
+	0x65, 0x6e, 0x63, 0x79, 0x5f, 0x6a, 0x68, 0x42, 0x1a, 0x0a, 0x18, 0x5f, 0x64, 0x65, 0x66, 0x61,
+	0x75, 0x6c, 0x74, 0x5f, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64, 0x5f, 0x61, 0x63, 0x74,
+	0x69, 0x76, 0x65, 0x42, 0x11, 0x0a, 0x0f, 0x5f, 0x75, 0x70, 0x74, 0x69, 0x6d, 0x65, 0x5f, 0x73,
+	0x65, 0x63, 0x6f, 0x6e, 0x64, 0x73, 0x22, 0x9c, 0x05, 0x0a, 0x19, 0x47, 0x65, 0x74, 0x43, 0x6f,
 	0x6d, 0x62, 0x69, 0x6e, 0x65, 0x64, 0x4d, 0x65, 0x74, 0x72, 0x69, 0x63, 0x73, 0x52, 0x65, 0x71,
 	0x75, 0x65, 0x73, 0x74, 0x12, 0x4d, 0x0a, 0x0f, 0x64, 0x65, 0x76, 0x69, 0x63, 0x65, 0x5f, 0x73,
 	0x65, 0x6c, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x1c, 0x2e,
@@ -2749,38 +2779,39 @@ var file_telemetry_v1_telemetry_proto_depIdxs = []int32{
 	28, // 24: telemetry.v1.FleetNodeTelemetryResult.timestamp:type_name -> google.protobuf.Timestamp
 	4,  // 25: telemetry.v1.FleetNodeTelemetryResult.device_status:type_name -> telemetry.v1.DeviceStatus
 	5,  // 26: telemetry.v1.FleetNodeTelemetryResult.health_status:type_name -> telemetry.v1.DeviceHealthStatus
-	7,  // 27: telemetry.v1.GetCombinedMetricsRequest.device_selector:type_name -> telemetry.v1.DeviceSelector
-	0,  // 28: telemetry.v1.GetCombinedMetricsRequest.measurement_types:type_name -> telemetry.v1.MeasurementType
-	1,  // 29: telemetry.v1.GetCombinedMetricsRequest.aggregations:type_name -> telemetry.v1.AggregationType
-	30, // 30: telemetry.v1.GetCombinedMetricsRequest.granularity:type_name -> google.protobuf.Duration
-	28, // 31: telemetry.v1.GetCombinedMetricsRequest.start_time:type_name -> google.protobuf.Timestamp
-	28, // 32: telemetry.v1.GetCombinedMetricsRequest.end_time:type_name -> google.protobuf.Timestamp
-	1,  // 33: telemetry.v1.AggregatedValue.aggregation_type:type_name -> telemetry.v1.AggregationType
-	0,  // 34: telemetry.v1.Metric.measurement_type:type_name -> telemetry.v1.MeasurementType
-	28, // 35: telemetry.v1.Metric.open_time:type_name -> google.protobuf.Timestamp
-	20, // 36: telemetry.v1.Metric.aggregated_values:type_name -> telemetry.v1.AggregatedValue
-	21, // 37: telemetry.v1.GetCombinedMetricsResponse.metrics:type_name -> telemetry.v1.Metric
-	9,  // 38: telemetry.v1.GetCombinedMetricsResponse.temperature_status_counts:type_name -> telemetry.v1.TemperatureStatusCount
-	10, // 39: telemetry.v1.GetCombinedMetricsResponse.uptime_status_counts:type_name -> telemetry.v1.UptimeStatusCount
-	7,  // 40: telemetry.v1.StreamCombinedMetricUpdatesRequest.device_selector:type_name -> telemetry.v1.DeviceSelector
-	0,  // 41: telemetry.v1.StreamCombinedMetricUpdatesRequest.metrics:type_name -> telemetry.v1.MeasurementType
-	1,  // 42: telemetry.v1.StreamCombinedMetricUpdatesRequest.aggregations:type_name -> telemetry.v1.AggregationType
-	30, // 43: telemetry.v1.StreamCombinedMetricUpdatesRequest.granularity:type_name -> google.protobuf.Duration
-	30, // 44: telemetry.v1.StreamCombinedMetricUpdatesRequest.update_interval:type_name -> google.protobuf.Duration
-	21, // 45: telemetry.v1.StreamCombinedMetricUpdatesResponse.metrics:type_name -> telemetry.v1.Metric
-	28, // 46: telemetry.v1.StreamCombinedMetricUpdatesResponse.next_update_time:type_name -> google.protobuf.Timestamp
-	9,  // 47: telemetry.v1.StreamCombinedMetricUpdatesResponse.temperature_status_counts:type_name -> telemetry.v1.TemperatureStatusCount
-	10, // 48: telemetry.v1.StreamCombinedMetricUpdatesResponse.uptime_status_counts:type_name -> telemetry.v1.UptimeStatusCount
-	15, // 49: telemetry.v1.StreamCombinedMetricUpdatesResponse.miner_state_counts:type_name -> telemetry.v1.MinerStateCounts
-	19, // 50: telemetry.v1.TelemetryService.GetCombinedMetrics:input_type -> telemetry.v1.GetCombinedMetricsRequest
-	23, // 51: telemetry.v1.TelemetryService.StreamCombinedMetricUpdates:input_type -> telemetry.v1.StreamCombinedMetricUpdatesRequest
-	22, // 52: telemetry.v1.TelemetryService.GetCombinedMetrics:output_type -> telemetry.v1.GetCombinedMetricsResponse
-	24, // 53: telemetry.v1.TelemetryService.StreamCombinedMetricUpdates:output_type -> telemetry.v1.StreamCombinedMetricUpdatesResponse
-	52, // [52:54] is the sub-list for method output_type
-	50, // [50:52] is the sub-list for method input_type
-	50, // [50:50] is the sub-list for extension type_name
-	50, // [50:50] is the sub-list for extension extendee
-	0,  // [0:50] is the sub-list for field type_name
+	30, // 27: telemetry.v1.FleetNodeTelemetryResult.uptime_observation_age:type_name -> google.protobuf.Duration
+	7,  // 28: telemetry.v1.GetCombinedMetricsRequest.device_selector:type_name -> telemetry.v1.DeviceSelector
+	0,  // 29: telemetry.v1.GetCombinedMetricsRequest.measurement_types:type_name -> telemetry.v1.MeasurementType
+	1,  // 30: telemetry.v1.GetCombinedMetricsRequest.aggregations:type_name -> telemetry.v1.AggregationType
+	30, // 31: telemetry.v1.GetCombinedMetricsRequest.granularity:type_name -> google.protobuf.Duration
+	28, // 32: telemetry.v1.GetCombinedMetricsRequest.start_time:type_name -> google.protobuf.Timestamp
+	28, // 33: telemetry.v1.GetCombinedMetricsRequest.end_time:type_name -> google.protobuf.Timestamp
+	1,  // 34: telemetry.v1.AggregatedValue.aggregation_type:type_name -> telemetry.v1.AggregationType
+	0,  // 35: telemetry.v1.Metric.measurement_type:type_name -> telemetry.v1.MeasurementType
+	28, // 36: telemetry.v1.Metric.open_time:type_name -> google.protobuf.Timestamp
+	20, // 37: telemetry.v1.Metric.aggregated_values:type_name -> telemetry.v1.AggregatedValue
+	21, // 38: telemetry.v1.GetCombinedMetricsResponse.metrics:type_name -> telemetry.v1.Metric
+	9,  // 39: telemetry.v1.GetCombinedMetricsResponse.temperature_status_counts:type_name -> telemetry.v1.TemperatureStatusCount
+	10, // 40: telemetry.v1.GetCombinedMetricsResponse.uptime_status_counts:type_name -> telemetry.v1.UptimeStatusCount
+	7,  // 41: telemetry.v1.StreamCombinedMetricUpdatesRequest.device_selector:type_name -> telemetry.v1.DeviceSelector
+	0,  // 42: telemetry.v1.StreamCombinedMetricUpdatesRequest.metrics:type_name -> telemetry.v1.MeasurementType
+	1,  // 43: telemetry.v1.StreamCombinedMetricUpdatesRequest.aggregations:type_name -> telemetry.v1.AggregationType
+	30, // 44: telemetry.v1.StreamCombinedMetricUpdatesRequest.granularity:type_name -> google.protobuf.Duration
+	30, // 45: telemetry.v1.StreamCombinedMetricUpdatesRequest.update_interval:type_name -> google.protobuf.Duration
+	21, // 46: telemetry.v1.StreamCombinedMetricUpdatesResponse.metrics:type_name -> telemetry.v1.Metric
+	28, // 47: telemetry.v1.StreamCombinedMetricUpdatesResponse.next_update_time:type_name -> google.protobuf.Timestamp
+	9,  // 48: telemetry.v1.StreamCombinedMetricUpdatesResponse.temperature_status_counts:type_name -> telemetry.v1.TemperatureStatusCount
+	10, // 49: telemetry.v1.StreamCombinedMetricUpdatesResponse.uptime_status_counts:type_name -> telemetry.v1.UptimeStatusCount
+	15, // 50: telemetry.v1.StreamCombinedMetricUpdatesResponse.miner_state_counts:type_name -> telemetry.v1.MinerStateCounts
+	19, // 51: telemetry.v1.TelemetryService.GetCombinedMetrics:input_type -> telemetry.v1.GetCombinedMetricsRequest
+	23, // 52: telemetry.v1.TelemetryService.StreamCombinedMetricUpdates:input_type -> telemetry.v1.StreamCombinedMetricUpdatesRequest
+	22, // 53: telemetry.v1.TelemetryService.GetCombinedMetrics:output_type -> telemetry.v1.GetCombinedMetricsResponse
+	24, // 54: telemetry.v1.TelemetryService.StreamCombinedMetricUpdates:output_type -> telemetry.v1.StreamCombinedMetricUpdatesResponse
+	53, // [53:55] is the sub-list for method output_type
+	51, // [51:53] is the sub-list for method input_type
+	51, // [51:51] is the sub-list for extension type_name
+	51, // [51:51] is the sub-list for extension extendee
+	0,  // [0:51] is the sub-list for field type_name
 }
 
 func init() { file_telemetry_v1_telemetry_proto_init() }

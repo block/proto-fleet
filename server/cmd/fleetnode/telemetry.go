@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -403,6 +404,12 @@ func telemetryResultFromV2(deviceIdentifier string, metrics modelsV2.DeviceMetri
 		PowerW:            metricValue(metrics.PowerW),
 		EfficiencyJh:      metricValue(metrics.EfficiencyJH),
 		DeviceMetricsJson: metricsJSON,
+		UptimeSeconds:     metrics.UptimeSeconds,
+	}
+	if metrics.UptimeSeconds != nil && !metrics.UptimeObservedAt.IsZero() {
+		if age := time.Since(metrics.UptimeObservedAt); age >= 0 {
+			result.UptimeObservationAge = durationpb.New(age)
+		}
 	}
 	if metrics.HealthReason != nil {
 		result.HealthReason = truncateUTF8(*metrics.HealthReason, maxAckErrorMessageBytes)

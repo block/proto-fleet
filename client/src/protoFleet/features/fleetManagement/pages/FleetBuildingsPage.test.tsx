@@ -1,5 +1,5 @@
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
@@ -13,6 +13,14 @@ import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/contai
 import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import type { FleetOutletContext } from "@/protoFleet/features/fleetManagement/components/FleetLayout";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
+
+vi.mock("@/shared/components/Popover/usePopoverPosition", () => ({
+  default: () => ({ popoverRef: { current: null }, popoverStyle: {}, popoverAnimation: "" }),
+}));
+vi.mock("@/protoFleet/api/clients", async (importActual) => ({
+  ...(await importActual<typeof import("@/protoFleet/api/clients")>()),
+  fleetManagementClient: { deleteMiners: vi.fn().mockResolvedValue({ deletedCount: 1 }) },
+}));
 
 const inventoryMock = vi.hoisted(() => vi.fn());
 vi.mock("@/protoFleet/api/useFleetInventory", () => ({ useFleetInventory: inventoryMock }));
@@ -192,6 +200,49 @@ describe("FleetBuildingsPage view toggle", () => {
     expect(buildingListSpy).toHaveBeenLastCalledWith(expect.objectContaining({ buildings, containers: [container] }));
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
     expect(screen.queryByText("Containers (1)")).not.toBeInTheDocument();
+  });
+
+  test.each(["list", "grid"])(
+    "removes an unpaired container immediately from %s, even with stale inventory",
+    async (display) => {
+      const container = create(ContainerSchema, { deviceIdentifier: "ct1", name: "Container 1" });
+      const result = inventoryResult([container]);
+      inventoryMock.mockReturnValue(result);
+      useFleetStore.getState().auth.setPermissions(["miner:read", "miner:delete"]);
+      const user = userEvent.setup();
+      renderPage(`/fleet/buildings?display=${display}`);
+      if (display === "list") {
+        const props = buildingListSpy.mock.lastCall![0];
+        act(() => props.onContainerUnpaired("ct1"));
+        expect(buildingListSpy).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            containers: [],
+            inventoryItems: expect.not.arrayContaining([result.items[2]]),
+            total: 2,
+          }),
+        );
+      } else {
+        await user.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+        await user.click(screen.getByRole("button", { name: "Unpair" }));
+        await user.click(screen.getByRole("button", { name: "Unpair" }));
+        expect(await screen.findByTestId("fleet-buildings-count-label")).toHaveTextContent("2 facilities");
+        expect(screen.queryByTestId("container-card-ct1")).not.toBeInTheDocument();
+      }
+      expect(result.refresh).toHaveBeenCalled();
+      // The mocked request still returns the deleted container; switching views must not resurrect it.
+      await user.click(screen.getAllByRole("button", { name: display === "list" ? "View grid" : "View list" })[0]);
+      expect(screen.queryByTestId("container-card-ct1")).not.toBeInTheDocument();
+      if (display === "grid") expect(buildingListSpy.mock.lastCall![0].containers).toEqual([]);
+    },
+  );
+
+  test("removes an unpaired container from the legacy list", () => {
+    hasPermissionMock.mockImplementation((permission) => permission !== "miner:read");
+    const container = create(ContainerSchema, { deviceIdentifier: "ct1", name: "Container 1" });
+    containersMock.mockReturnValue({ containers: [container], loading: false });
+    renderPage();
+    act(() => buildingListSpy.mock.lastCall![0].onContainerUnpaired("ct1"));
+    expect(buildingListSpy.mock.lastCall![0].containers).toEqual([]);
   });
 
   test("defaults to the list view, rendering the BuildingList table", () => {

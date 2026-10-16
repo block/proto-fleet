@@ -130,6 +130,8 @@ var ProcedurePermissions = map[string]string{
 	buildingsv1connect.BuildingServiceListBuildingsProcedure:     authz.PermSiteRead,
 	buildingsv1connect.BuildingServiceGetBuildingProcedure:       authz.PermSiteRead,
 	buildingsv1connect.BuildingServiceListBuildingRacksProcedure: authz.PermSiteRead,
+	// Placement metadata requires management at each current site, without telemetry permissions.
+	containersv1connect.ContainerServiceListContainerPlacementsProcedure: authz.PermSiteManage,
 	// Container lists filter each row by current-site permissions. The handler
 	// also checks fleet:read and miner:read before exposing telemetry.
 	containersv1connect.ContainerServiceListContainersProcedure:                authz.PermSiteRead,
@@ -440,12 +442,13 @@ var ProcedurePermissions = map[string]string{
 	// This site:manage entry is the primary gate; when the caller opts into
 	// force_clear_conflicting_rack_membership the handler adds an inline
 	// rack:manage check (mirrors AssignDevicesToSite).
-	sitesv1connect.SiteServiceCreateSiteProcedure:            authz.PermSiteManage,
-	sitesv1connect.SiteServiceUpdateSiteProcedure:            authz.PermSiteManage,
-	sitesv1connect.SiteServiceDeleteSiteProcedure:            authz.PermSiteManage,
-	sitesv1connect.SiteServiceAssignDevicesToSiteProcedure:   authz.PermSiteManage,
-	sitesv1connect.SiteServiceAssignBuildingsToSiteProcedure: authz.PermSiteManage,
-	sitesv1connect.SiteServiceAssignRacksToSiteProcedure:     authz.PermSiteManage,
+	sitesv1connect.SiteServiceCreateSiteProcedure:             authz.PermSiteManage,
+	sitesv1connect.SiteServiceUpdateSiteProcedure:             authz.PermSiteManage,
+	sitesv1connect.SiteServiceDeleteSiteProcedure:             authz.PermSiteManage,
+	sitesv1connect.SiteServiceAssignDevicesToSiteProcedure:    authz.PermSiteManage,
+	sitesv1connect.SiteServiceAssignBuildingsToSiteProcedure:  authz.PermSiteManage,
+	sitesv1connect.SiteServiceAssignContainersToSiteProcedure: authz.PermSiteManage,
+	sitesv1connect.SiteServiceAssignRacksToSiteProcedure:      authz.PermSiteManage,
 	// Dedicated OT commissioning reads/writes require org-wide site:manage;
 	// handlers additionally require ADMIN/SUPER_ADMIN.
 	sitesv1connect.SiteServiceGetInfrastructureControlSubnetsProcedure: authz.PermSiteManage,

@@ -87,6 +87,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.assignBuildingsToSiteBulkStmt, err = db.PrepareContext(ctx, assignBuildingsToSiteBulk); err != nil {
 		return nil, fmt.Errorf("error preparing query AssignBuildingsToSiteBulk: %w", err)
 	}
+	if q.assignContainersToSiteStmt, err = db.PrepareContext(ctx, assignContainersToSite); err != nil {
+		return nil, fmt.Errorf("error preparing query AssignContainersToSite: %w", err)
+	}
 	if q.assignDevicesToBuildingStmt, err = db.PrepareContext(ctx, assignDevicesToBuilding); err != nil {
 		return nil, fmt.Errorf("error preparing query AssignDevicesToBuilding: %w", err)
 	}
@@ -275,6 +278,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.containerOwnsCommandBatchStmt, err = db.PrepareContext(ctx, containerOwnsCommandBatch); err != nil {
 		return nil, fmt.Errorf("error preparing query ContainerOwnsCommandBatch: %w", err)
+	}
+	if q.containsContainerIdentifiersStmt, err = db.PrepareContext(ctx, containsContainerIdentifiers); err != nil {
+		return nil, fmt.Errorf("error preparing query ContainsContainerIdentifiers: %w", err)
 	}
 	if q.countActiveAssignmentsForRoleStmt, err = db.PrepareContext(ctx, countActiveAssignmentsForRole); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveAssignmentsForRole: %w", err)
@@ -719,6 +725,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getConnectedPostgresIdentityStmt, err = db.PrepareContext(ctx, getConnectedPostgresIdentity); err != nil {
 		return nil, fmt.Errorf("error preparing query GetConnectedPostgresIdentity: %w", err)
+	}
+	if q.getContainerIdentifiersForCommandsStmt, err = db.PrepareContext(ctx, getContainerIdentifiersForCommands); err != nil {
+		return nil, fmt.Errorf("error preparing query GetContainerIdentifiersForCommands: %w", err)
 	}
 	if q.getContainerModuleScopeStmt, err = db.PrepareContext(ctx, getContainerModuleScope); err != nil {
 		return nil, fmt.Errorf("error preparing query GetContainerModuleScope: %w", err)
@@ -1434,6 +1443,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listContainerModuleHistoryStmt, err = db.PrepareContext(ctx, listContainerModuleHistory); err != nil {
 		return nil, fmt.Errorf("error preparing query ListContainerModuleHistory: %w", err)
 	}
+	if q.listContainerPlacementsStmt, err = db.PrepareContext(ctx, listContainerPlacements); err != nil {
+		return nil, fmt.Errorf("error preparing query ListContainerPlacements: %w", err)
+	}
+	if q.listContainerSiteStatsStmt, err = db.PrepareContext(ctx, listContainerSiteStats); err != nil {
+		return nil, fmt.Errorf("error preparing query ListContainerSiteStats: %w", err)
+	}
 	if q.listContainersStmt, err = db.PrepareContext(ctx, listContainers); err != nil {
 		return nil, fmt.Errorf("error preparing query ListContainers: %w", err)
 	}
@@ -1788,6 +1803,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockContainerCommandTargetStmt, err = db.PrepareContext(ctx, lockContainerCommandTarget); err != nil {
 		return nil, fmt.Errorf("error preparing query LockContainerCommandTarget: %w", err)
 	}
+	if q.lockContainersForSiteAssignmentStmt, err = db.PrepareContext(ctx, lockContainersForSiteAssignment); err != nil {
+		return nil, fmt.Errorf("error preparing query LockContainersForSiteAssignment: %w", err)
+	}
 	if q.lockCurtailmentAdmissionEventForWriteStmt, err = db.PrepareContext(ctx, lockCurtailmentAdmissionEventForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockCurtailmentAdmissionEventForWrite: %w", err)
 	}
@@ -2060,6 +2078,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.reconcileDefaultPasswordPairingStatusByIdentifierStmt, err = db.PrepareContext(ctx, reconcileDefaultPasswordPairingStatusByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query ReconcileDefaultPasswordPairingStatusByIdentifier: %w", err)
+	}
+	if q.reconcileRebootRequiredStatusStmt, err = db.PrepareContext(ctx, reconcileRebootRequiredStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query ReconcileRebootRequiredStatus: %w", err)
 	}
 	if q.recordCurtailPendingDispatchStmt, err = db.PrepareContext(ctx, recordCurtailPendingDispatch); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordCurtailPendingDispatch: %w", err)
@@ -2741,6 +2762,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing assignBuildingsToSiteBulkStmt: %w", cerr)
 		}
 	}
+	if q.assignContainersToSiteStmt != nil {
+		if cerr := q.assignContainersToSiteStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing assignContainersToSiteStmt: %w", cerr)
+		}
+	}
 	if q.assignDevicesToBuildingStmt != nil {
 		if cerr := q.assignDevicesToBuildingStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing assignDevicesToBuildingStmt: %w", cerr)
@@ -3054,6 +3080,11 @@ func (q *Queries) Close() error {
 	if q.containerOwnsCommandBatchStmt != nil {
 		if cerr := q.containerOwnsCommandBatchStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing containerOwnsCommandBatchStmt: %w", cerr)
+		}
+	}
+	if q.containsContainerIdentifiersStmt != nil {
+		if cerr := q.containsContainerIdentifiersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing containsContainerIdentifiersStmt: %w", cerr)
 		}
 	}
 	if q.countActiveAssignmentsForRoleStmt != nil {
@@ -3794,6 +3825,11 @@ func (q *Queries) Close() error {
 	if q.getConnectedPostgresIdentityStmt != nil {
 		if cerr := q.getConnectedPostgresIdentityStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getConnectedPostgresIdentityStmt: %w", cerr)
+		}
+	}
+	if q.getContainerIdentifiersForCommandsStmt != nil {
+		if cerr := q.getContainerIdentifiersForCommandsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getContainerIdentifiersForCommandsStmt: %w", cerr)
 		}
 	}
 	if q.getContainerModuleScopeStmt != nil {
@@ -4986,6 +5022,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listContainerModuleHistoryStmt: %w", cerr)
 		}
 	}
+	if q.listContainerPlacementsStmt != nil {
+		if cerr := q.listContainerPlacementsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listContainerPlacementsStmt: %w", cerr)
+		}
+	}
+	if q.listContainerSiteStatsStmt != nil {
+		if cerr := q.listContainerSiteStatsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listContainerSiteStatsStmt: %w", cerr)
+		}
+	}
 	if q.listContainersStmt != nil {
 		if cerr := q.listContainersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listContainersStmt: %w", cerr)
@@ -5576,6 +5622,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockContainerCommandTargetStmt: %w", cerr)
 		}
 	}
+	if q.lockContainersForSiteAssignmentStmt != nil {
+		if cerr := q.lockContainersForSiteAssignmentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockContainersForSiteAssignmentStmt: %w", cerr)
+		}
+	}
 	if q.lockCurtailmentAdmissionEventForWriteStmt != nil {
 		if cerr := q.lockCurtailmentAdmissionEventForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockCurtailmentAdmissionEventForWriteStmt: %w", cerr)
@@ -6029,6 +6080,11 @@ func (q *Queries) Close() error {
 	if q.reconcileDefaultPasswordPairingStatusByIdentifierStmt != nil {
 		if cerr := q.reconcileDefaultPasswordPairingStatusByIdentifierStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing reconcileDefaultPasswordPairingStatusByIdentifierStmt: %w", cerr)
+		}
+	}
+	if q.reconcileRebootRequiredStatusStmt != nil {
+		if cerr := q.reconcileRebootRequiredStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reconcileRebootRequiredStatusStmt: %w", cerr)
 		}
 	}
 	if q.recordCurtailPendingDispatchStmt != nil {
@@ -7041,6 +7097,7 @@ type Queries struct {
 	archiveHostedAccountPoolStmt                                 *sql.Stmt
 	assignBuildingToSiteStmt                                     *sql.Stmt
 	assignBuildingsToSiteBulkStmt                                *sql.Stmt
+	assignContainersToSiteStmt                                   *sql.Stmt
 	assignDevicesToBuildingStmt                                  *sql.Stmt
 	assignDevicesToSiteStmt                                      *sql.Stmt
 	assignPermissionToRoleStmt                                   *sql.Stmt
@@ -7104,6 +7161,7 @@ type Queries struct {
 	consumeHostedAccountInvitationStmt                           *sql.Stmt
 	consumeReservedInventoryPartStmt                             *sql.Stmt
 	containerOwnsCommandBatchStmt                                *sql.Stmt
+	containsContainerIdentifiersStmt                             *sql.Stmt
 	countActiveAssignmentsForRoleStmt                            *sql.Stmt
 	countActiveCurtailmentEventsByInfrastructureDevicesStmt      *sql.Stmt
 	countActiveRepairTicketsAssignedToUserStmt                   *sql.Stmt
@@ -7252,6 +7310,7 @@ type Queries struct {
 	getBuiltinRoleForOrgStmt                                     *sql.Stmt
 	getCancelledEnrollmentByFleetNodeStmt                        *sql.Stmt
 	getConnectedPostgresIdentityStmt                             *sql.Stmt
+	getContainerIdentifiersForCommandsStmt                       *sql.Stmt
 	getContainerModuleScopeStmt                                  *sql.Stmt
 	getContainerPollHistoryStmt                                  *sql.Stmt
 	getContainerRollupContextStmt                                *sql.Stmt
@@ -7490,6 +7549,8 @@ type Queries struct {
 	listCompletedTicketAssigneesStmt                             *sql.Stmt
 	listCompletedTicketsStmt                                     *sql.Stmt
 	listContainerModuleHistoryStmt                               *sql.Stmt
+	listContainerPlacementsStmt                                  *sql.Stmt
+	listContainerSiteStatsStmt                                   *sql.Stmt
 	listContainersStmt                                           *sql.Stmt
 	listCurtailmentAutomationRulesByOrgStmt                      *sql.Stmt
 	listCurtailmentBuildingScopeCoverageStmt                     *sql.Stmt
@@ -7608,6 +7669,7 @@ type Queries struct {
 	lockBuildingsBySiteForWriteStmt                              *sql.Stmt
 	lockCommandBatchStmt                                         *sql.Stmt
 	lockContainerCommandTargetStmt                               *sql.Stmt
+	lockContainersForSiteAssignmentStmt                          *sql.Stmt
 	lockCurtailmentAdmissionEventForWriteStmt                    *sql.Stmt
 	lockCurtailmentAutomationRuleForExecutionStmt                *sql.Stmt
 	lockCurtailmentAutomationRuleMutationStmt                    *sql.Stmt
@@ -7699,6 +7761,7 @@ type Queries struct {
 	reconcileContainerModulesStmt                                *sql.Stmt
 	reconcileContainerTanksStmt                                  *sql.Stmt
 	reconcileDefaultPasswordPairingStatusByIdentifierStmt        *sql.Stmt
+	reconcileRebootRequiredStatusStmt                            *sql.Stmt
 	recordCurtailPendingDispatchStmt                             *sql.Stmt
 	recordDeviceWriteRecoveryStmt                                *sql.Stmt
 	recordFirmwareDeploymentStmt                                 *sql.Stmt
@@ -7916,6 +7979,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		archiveHostedAccountPoolStmt:                                 q.archiveHostedAccountPoolStmt,
 		assignBuildingToSiteStmt:                                     q.assignBuildingToSiteStmt,
 		assignBuildingsToSiteBulkStmt:                                q.assignBuildingsToSiteBulkStmt,
+		assignContainersToSiteStmt:                                   q.assignContainersToSiteStmt,
 		assignDevicesToBuildingStmt:                                  q.assignDevicesToBuildingStmt,
 		assignDevicesToSiteStmt:                                      q.assignDevicesToSiteStmt,
 		assignPermissionToRoleStmt:                                   q.assignPermissionToRoleStmt,
@@ -7979,6 +8043,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		consumeHostedAccountInvitationStmt:                           q.consumeHostedAccountInvitationStmt,
 		consumeReservedInventoryPartStmt:                             q.consumeReservedInventoryPartStmt,
 		containerOwnsCommandBatchStmt:                                q.containerOwnsCommandBatchStmt,
+		containsContainerIdentifiersStmt:                             q.containsContainerIdentifiersStmt,
 		countActiveAssignmentsForRoleStmt:                            q.countActiveAssignmentsForRoleStmt,
 		countActiveCurtailmentEventsByInfrastructureDevicesStmt:      q.countActiveCurtailmentEventsByInfrastructureDevicesStmt,
 		countActiveRepairTicketsAssignedToUserStmt:                   q.countActiveRepairTicketsAssignedToUserStmt,
@@ -8127,6 +8192,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getBuiltinRoleForOrgStmt:                                     q.getBuiltinRoleForOrgStmt,
 		getCancelledEnrollmentByFleetNodeStmt:                        q.getCancelledEnrollmentByFleetNodeStmt,
 		getConnectedPostgresIdentityStmt:                             q.getConnectedPostgresIdentityStmt,
+		getContainerIdentifiersForCommandsStmt:                       q.getContainerIdentifiersForCommandsStmt,
 		getContainerModuleScopeStmt:                                  q.getContainerModuleScopeStmt,
 		getContainerPollHistoryStmt:                                  q.getContainerPollHistoryStmt,
 		getContainerRollupContextStmt:                                q.getContainerRollupContextStmt,
@@ -8365,6 +8431,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listCompletedTicketAssigneesStmt:                             q.listCompletedTicketAssigneesStmt,
 		listCompletedTicketsStmt:                                     q.listCompletedTicketsStmt,
 		listContainerModuleHistoryStmt:                               q.listContainerModuleHistoryStmt,
+		listContainerPlacementsStmt:                                  q.listContainerPlacementsStmt,
+		listContainerSiteStatsStmt:                                   q.listContainerSiteStatsStmt,
 		listContainersStmt:                                           q.listContainersStmt,
 		listCurtailmentAutomationRulesByOrgStmt:                      q.listCurtailmentAutomationRulesByOrgStmt,
 		listCurtailmentBuildingScopeCoverageStmt:                     q.listCurtailmentBuildingScopeCoverageStmt,
@@ -8483,6 +8551,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockBuildingsBySiteForWriteStmt:                              q.lockBuildingsBySiteForWriteStmt,
 		lockCommandBatchStmt:                                         q.lockCommandBatchStmt,
 		lockContainerCommandTargetStmt:                               q.lockContainerCommandTargetStmt,
+		lockContainersForSiteAssignmentStmt:                          q.lockContainersForSiteAssignmentStmt,
 		lockCurtailmentAdmissionEventForWriteStmt:                    q.lockCurtailmentAdmissionEventForWriteStmt,
 		lockCurtailmentAutomationRuleForExecutionStmt:                q.lockCurtailmentAutomationRuleForExecutionStmt,
 		lockCurtailmentAutomationRuleMutationStmt:                    q.lockCurtailmentAutomationRuleMutationStmt,
@@ -8574,6 +8643,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		reconcileContainerModulesStmt:                                q.reconcileContainerModulesStmt,
 		reconcileContainerTanksStmt:                                  q.reconcileContainerTanksStmt,
 		reconcileDefaultPasswordPairingStatusByIdentifierStmt:        q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
+		reconcileRebootRequiredStatusStmt:                            q.reconcileRebootRequiredStatusStmt,
 		recordCurtailPendingDispatchStmt:                             q.recordCurtailPendingDispatchStmt,
 		recordDeviceWriteRecoveryStmt:                                q.recordDeviceWriteRecoveryStmt,
 		recordFirmwareDeploymentStmt:                                 q.recordFirmwareDeploymentStmt,

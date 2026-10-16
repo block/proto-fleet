@@ -71,6 +71,21 @@ func (mr *MockSiteStoreMockRecorder) AssignBuildingsToSiteBulk(ctx, orgID, build
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignBuildingsToSiteBulk", reflect.TypeOf((*MockSiteStore)(nil).AssignBuildingsToSiteBulk), ctx, orgID, buildingIDs, targetSiteID)
 }
 
+// AssignContainersToSite mocks base method.
+func (m *MockSiteStore) AssignContainersToSite(ctx context.Context, orgID int64, targetSiteID *int64, identifiers []string) (int64, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AssignContainersToSite", ctx, orgID, targetSiteID, identifiers)
+	ret0, _ := ret[0].(int64)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// AssignContainersToSite indicates an expected call of AssignContainersToSite.
+func (mr *MockSiteStoreMockRecorder) AssignContainersToSite(ctx, orgID, targetSiteID, identifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignContainersToSite", reflect.TypeOf((*MockSiteStore)(nil).AssignContainersToSite), ctx, orgID, targetSiteID, identifiers)
+}
+
 // AssignDevicesToSite mocks base method.
 func (m *MockSiteStore) AssignDevicesToSite(ctx context.Context, orgID int64, targetSiteID *int64, deviceIdentifiers []string) (int64, error) {
 	m.ctrl.T.Helper()
@@ -428,6 +443,21 @@ func (m *MockSiteStore) LockBuildingsBySiteForWrite(ctx context.Context, orgID, 
 func (mr *MockSiteStoreMockRecorder) LockBuildingsBySiteForWrite(ctx, orgID, siteID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockBuildingsBySiteForWrite", reflect.TypeOf((*MockSiteStore)(nil).LockBuildingsBySiteForWrite), ctx, orgID, siteID)
+}
+
+// LockContainersForSiteAssignment mocks base method.
+func (m *MockSiteStore) LockContainersForSiteAssignment(ctx context.Context, orgID int64, identifiers []string) ([]models.ContainerSitePlacement, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockContainersForSiteAssignment", ctx, orgID, identifiers)
+	ret0, _ := ret[0].([]models.ContainerSitePlacement)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// LockContainersForSiteAssignment indicates an expected call of LockContainersForSiteAssignment.
+func (mr *MockSiteStoreMockRecorder) LockContainersForSiteAssignment(ctx, orgID, identifiers any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockContainersForSiteAssignment", reflect.TypeOf((*MockSiteStore)(nil).LockContainersForSiteAssignment), ctx, orgID, identifiers)
 }
 
 // LockDevicesForReassign mocks base method.

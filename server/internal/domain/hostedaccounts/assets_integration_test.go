@@ -59,7 +59,7 @@ func (f fixture) miningDevice(t *testing.T, class commonpb.DeviceClass) int64 {
 func (f fixture) miningModule(t *testing.T) (int64, int64) {
 	t.Helper()
 	controller := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER)
-	_, err := f.db.ExecContext(t.Context(), `INSERT INTO container_inventory(device_id,observed_at) VALUES($1,now())`, controller)
+	_, err := f.db.ExecContext(t.Context(), `INSERT INTO container_inventory(device_id,org_id,observed_at) VALUES($1,$2,now())`, controller, f.org)
 	require.NoError(t, err)
 	var tank, module int64
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_tank(device_id,position,first_seen_at,last_seen_at) VALUES($1,1,now(),now()) RETURNING id`, controller).Scan(&tank))
