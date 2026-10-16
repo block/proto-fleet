@@ -997,12 +997,18 @@ func TestRunCmd_ExitsWhenTickRefreshHitsBeginAuthRejected(t *testing.T) {
 }
 
 func TestSendHeartbeatReportsHostMetadata(t *testing.T) {
+	// Arrange
 	oldVersion := version
 	version = "v0.5.1-test"
 	t.Cleanup(func() { version = oldVersion })
 	client := &stubGatewayClient{}
 	r := &RunCmd{now: time.Now}
-	require.NoError(t, r.sendHeartbeat(t.Context(), client))
+
+	// Act
+	err := r.sendHeartbeat(t.Context(), client)
+
+	// Assert
+	require.NoError(t, err)
 	require.Equal(t, "v0.5.1-test", client.lastHeartbeat.GetVersion())
 	require.Equal(t, localIPAddresses(), client.lastHeartbeat.GetIpAddresses())
 }

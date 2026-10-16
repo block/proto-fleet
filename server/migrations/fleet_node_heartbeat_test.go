@@ -141,6 +141,7 @@ func applyFleetNodeDetailsMigration(t *testing.T, conn *sql.DB, direction string
 }
 
 func TestFleetNodeDetailsMigrationPreservesExistingHeartbeats(t *testing.T) {
+	// Arrange
 	conn := dbtest.GetTestDB(t)
 	ctx := t.Context()
 	var org, node int64
@@ -150,25 +151,37 @@ func TestFleetNodeDetailsMigrationPreservesExistingHeartbeats(t *testing.T) {
 	seen := time.Now().UTC().Truncate(time.Microsecond)
 	_, err := conn.ExecContext(ctx, "INSERT INTO fleet_node_heartbeat(fleet_node_id,org_id,last_seen_at) VALUES($1,$2,$3)", node, org, seen)
 	require.NoError(t, err)
+
+	// Act
 	applyFleetNodeDetailsMigration(t, conn, "up")
 	q := sqlc.New(conn)
 	nodes, err := q.ListFleetNodesForOrganization(ctx, org)
 	require.NoError(t, err)
+
+	// Assert
 	require.Len(t, nodes, 1)
 	require.Equal(t, seen, nodes[0].LastSeenAt.Time.UTC())
 	require.Empty(t, nodes[0].IpAddresses)
 	require.Empty(t, nodes[0].Version)
 	require.Empty(t, nodes[0].EnrolledBy)
+
+	// Act
 	_, err = q.UpdateFleetNodeLastSeenAt(ctx, sqlc.UpdateFleetNodeLastSeenAtParams{ID: node, OrgID: org, LastSeenAt: seen.Add(time.Minute), IpAddresses: []string{"10.0.0.7"}, Version: "v1.0.0"})
 	require.NoError(t, err)
 	_, err = q.UpdateFleetNodeLastSeenAt(ctx, sqlc.UpdateFleetNodeLastSeenAtParams{ID: node, OrgID: org, LastSeenAt: seen, IpAddresses: []string{"10.0.0.8"}, Version: "v0.9.0"})
 	require.NoError(t, err)
 	nodes, err = q.ListFleetNodesForOrganization(ctx, org)
 	require.NoError(t, err)
+
+	// Assert
 	require.Equal(t, []string{"10.0.0.7"}, nodes[0].IpAddresses)
 	require.Equal(t, "v1.0.0", nodes[0].Version)
+
+	// Act
 	applyFleetNodeDetailsMigration(t, conn, "down")
 	var preserved time.Time
 	require.NoError(t, conn.QueryRowContext(ctx, "SELECT last_seen_at FROM fleet_node_heartbeat WHERE fleet_node_id=$1", node).Scan(&preserved))
+
+	// Assert
 	require.Equal(t, seen.Add(time.Minute), preserved.UTC())
 }

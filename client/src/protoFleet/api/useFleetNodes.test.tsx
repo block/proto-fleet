@@ -15,6 +15,7 @@ vi.mock("@/protoFleet/store", () => ({
 }));
 
 it("maps reported metadata and protobuf defaults into node items", async () => {
+  // Arrange
   const registered = new Date("2026-07-09T12:00:00Z");
   listFleetNodes.mockResolvedValue({
     fleetNodes: [
@@ -30,7 +31,11 @@ it("maps reported metadata and protobuf defaults into node items", async () => {
   });
   const { result } = renderHook(() => useFleetNodes());
 
-  expect(await result.current.listFleetNodes()).toMatchObject([
+  // Act
+  const nodes = await result.current.listFleetNodes();
+
+  // Assert
+  expect(nodes).toMatchObject([
     {
       fleetNodeId: "7",
       ipAddresses: ["192.168.1.7", "fd00::7"],

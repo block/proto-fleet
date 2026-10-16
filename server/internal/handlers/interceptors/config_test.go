@@ -32,6 +32,7 @@ func TestUpdateWorkerNamesProcedureIsRedacted(t *testing.T) {
 }
 
 func TestListFleetNodesResponseIsRedactedFromDebugLogs(t *testing.T) {
+	// Arrange
 	out := captureSlogWarn(t)
 	procedure := fleetnodeadminv1connect.FleetNodeAdminServiceListFleetNodesProcedure
 	node := &fleetnodeadmin.FleetNodeSummary{
@@ -47,7 +48,11 @@ func TestListFleetNodesResponseIsRedactedFromDebugLogs(t *testing.T) {
 	server := httptest.NewServer(handler)
 	defer server.Close()
 	client := connect.NewClient[fleetnodeadmin.ListFleetNodesRequest, fleetnodeadmin.ListFleetNodesResponse](server.Client(), server.URL+procedure)
+
+	// Act
 	resp, err := client.CallUnary(t.Context(), connect.NewRequest(&fleetnodeadmin.ListFleetNodesRequest{}))
+
+	// Assert
 	require.NoError(t, err)
 	require.Len(t, resp.Msg.FleetNodes, 1)
 	require.Equal(t, node.IpAddresses, resp.Msg.FleetNodes[0].IpAddresses)

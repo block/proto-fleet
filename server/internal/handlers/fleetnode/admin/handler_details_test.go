@@ -20,6 +20,7 @@ import (
 )
 
 func TestListFleetNodes_HostMetadataAndEnrollment(t *testing.T) {
+	// Arrange
 	h := newPairingHarness(t)
 	_, err := h.db.Exec(`INSERT INTO "user" (id,user_id,username,password_hash) VALUES (2,'code-creator','creator','dummy')`)
 	require.NoError(t, err)
@@ -42,11 +43,14 @@ func TestListFleetNodes_HostMetadataAndEnrollment(t *testing.T) {
 	require.NoError(t, protojson.Unmarshal([]byte(`{"sentAt":"2026-10-15T12:00:00Z","ipAddresses":["192.168.1.7","fd00::7"],"version":"v0.5.1-internal.3"}`), req))
 	gw := gateway.NewHandler(h.enrollment, nil, nil, h.registry, nil)
 	ctx := authn.SetInfo(t.Context(), &auth.Subject{FleetNodeID: node.ID, OrgID: h.orgID})
+
+	// Act
 	_, err = gw.UploadHeartbeat(ctx, connect.NewRequest(req))
 	require.NoError(t, err)
-
 	resp, err := h.handler.ListFleetNodes(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodesRequest{}))
 	require.NoError(t, err)
+
+	// Assert
 	require.Len(t, resp.Msg.FleetNodes, 1)
 	summary := resp.Msg.FleetNodes[0]
 	require.Equal(t, []string{"192.168.1.7", "fd00::7"}, summary.GetIpAddresses())
@@ -54,20 +58,28 @@ func TestListFleetNodes_HostMetadataAndEnrollment(t *testing.T) {
 	require.Equal(t, "op", summary.GetEnrolledBy())
 	require.Equal(t, node.CreatedAt.UTC(), summary.GetCreatedAt().AsTime())
 
+	// Act
 	redacted, err := h.handler.ListFleetNodes(h.ctxWithPerms(authz.PermMinerPair), connect.NewRequest(&pb.ListFleetNodesRequest{}))
 	require.NoError(t, err)
+
+	// Assert
 	data, err := protojson.Marshal(redacted.Msg.FleetNodes[0])
 	require.NoError(t, err)
 	require.NotContains(t, string(data), "ipAddresses")
 	require.NotContains(t, string(data), "version")
 	require.NotContains(t, string(data), "enrolledBy")
 
+	// Arrange
 	_, err = h.db.Exec(`UPDATE pending_enrollment SET confirmed_by=NULL WHERE id=$1`, pendingID)
 	require.NoError(t, err)
+
+	// Act
 	_, err = gw.UploadHeartbeat(ctx, connect.NewRequest(&gatewaypb.UploadHeartbeatRequest{SentAt: timestamppb.Now()}))
 	require.NoError(t, err)
 	resp, err = h.handler.ListFleetNodes(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodesRequest{}))
 	require.NoError(t, err)
+
+	// Assert
 	summary = resp.Msg.FleetNodes[0]
 	require.Empty(t, summary.GetEnrolledBy())
 	require.Empty(t, summary.GetIpAddresses())
