@@ -216,14 +216,11 @@ describe("NodesPage", () => {
     { ipAddresses: ["192.168.1.7", "fd00::7"], expected: "192.168.1.7 +1", version: "v0.5.1-test" },
     { ipAddresses: [], expected: "Unavailable", version: "" },
   ])("renders host metadata for $expected", async ({ ipAddresses, expected, version }) => {
-    // Arrange
     listFleetNodesMock.mockResolvedValue([{ ...confirmedNode, ipAddresses, version }]);
 
-    // Act
     renderNodesPage();
-    await screen.findByText("node-01");
 
-    // Assert
+    await screen.findByText("node-01");
     expect(screen.getByText("IP address")).toBeVisible();
     expect(screen.getByText("Version")).toBeVisible();
     if (ipAddresses.length) {

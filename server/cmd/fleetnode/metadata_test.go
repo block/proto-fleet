@@ -137,6 +137,6 @@ func TestSendHeartbeatClampsVersion(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
-	require.Equal(t, strings.Repeat("é世", 64), client.lastHeartbeat.GetVersion())
+	require.Equal(t, strings.Repeat("é世", 25)+"...", client.lastHeartbeat.GetVersion())
 	require.NoError(t, protovalidate.Validate(client.lastHeartbeat))
 }

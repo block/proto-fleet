@@ -4,17 +4,9 @@ import "net"
 
 // These mirror the UploadHeartbeatRequest validation rules.
 const (
-	maxReportedIPAddresses = 64
-	maxReportedVersionLen  = 128
+	maxHeartbeatIPAddresses  = 64
+	maxHeartbeatVersionBytes = 128
 )
-
-func reportedVersion() string {
-	runes := []rune(version)
-	if len(runes) > maxReportedVersionLen {
-		runes = runes[:maxReportedVersionLen]
-	}
-	return string(runes)
-}
 
 func localIPAddresses() []string {
 	interfaces, err := net.Interfaces()
@@ -56,8 +48,8 @@ func usableIPAddresses(addresses []net.Addr) []string {
 		seen[addr] = struct{}{}
 		ips = append(ips, addr)
 	}
-	if len(ips) > maxReportedIPAddresses {
-		ips = ips[:maxReportedIPAddresses]
+	if len(ips) > maxHeartbeatIPAddresses {
+		ips = ips[:maxHeartbeatIPAddresses]
 	}
 	return ips
 }

@@ -473,7 +473,7 @@ func (r *RunCmd) sendHeartbeat(ctx context.Context, client gatewayClient) error 
 	_, err := client.UploadHeartbeat(callCtx, connect.NewRequest(&pb.UploadHeartbeatRequest{
 		SentAt:      timestamppb.New(r.now()),
 		IpAddresses: localIPAddresses(),
-		Version:     reportedVersion(),
+		Version:     truncateUTF8(version, maxHeartbeatVersionBytes),
 	}))
 	return err
 }
