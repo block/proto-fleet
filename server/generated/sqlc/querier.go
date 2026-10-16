@@ -1904,6 +1904,10 @@ type Querier interface {
 	// Late samples must not resurrect devices moved to UNPAIRED,
 	// AUTHENTICATION_NEEDED, PENDING, or FAILED by another flow.
 	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, arg ReconcileDefaultPasswordPairingStatusByIdentifierParams) (ReconcileDefaultPasswordPairingStatusByIdentifierRow, error)
+	// The status and reboot-boundary predicates apply to the current status row even
+	// after waiting for a concurrent firmware install's write to finish. Boot
+	// evidence from an earlier install must not clear a later pending reboot.
+	ReconcileRebootRequiredStatus(ctx context.Context, arg ReconcileRebootRequiredStatusParams) (int64, error)
 	RecordCurtailPendingDispatch(ctx context.Context, arg RecordCurtailPendingDispatchParams) (int64, error)
 	RecordDeviceWriteRecovery(ctx context.Context, arg RecordDeviceWriteRecoveryParams) error
 	// Managed-deployment provenance: the miners listed reported the artifact a

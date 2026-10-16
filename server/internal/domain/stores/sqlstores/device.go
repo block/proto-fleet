@@ -719,6 +719,16 @@ func buildFilterParams(filter *stores.MinerFilter) modelGroupFilterParams {
 }
 
 func (s *SQLDeviceStore) UpsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status minermodels.MinerStatus, details string) error {
+	return s.upsertDeviceStatus(ctx, deviceIdentifier, status, details, sql.NullTime{})
+}
+
+// MarkFirmwareRebootRequiredStatus records when the installed firmware first
+// required a reboot independently of when polling notices the terminal state.
+func (s *SQLDeviceStore) MarkFirmwareRebootRequiredStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, rebootRequiredAfter time.Time) error {
+	return s.upsertDeviceStatus(ctx, deviceIdentifier, minermodels.MinerStatusRebootRequired, "", sql.NullTime{Time: rebootRequiredAfter, Valid: !rebootRequiredAfter.IsZero()})
+}
+
+func (s *SQLDeviceStore) upsertDeviceStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, status minermodels.MinerStatus, details string, rebootRequiredAfter sql.NullTime) error {
 	sqlStatus := toDeviceStatus(status)
 	deviceID, err := s.getQueries(ctx).GetDeviceIDByDeviceIdentifier(ctx, deviceIdentifier.String())
 	if err != nil {
@@ -728,15 +738,31 @@ func (s *SQLDeviceStore) UpsertDeviceStatus(ctx context.Context, deviceIdentifie
 	}
 
 	err = s.getQueries(ctx).UpsertDeviceStatus(ctx, sqlc.UpsertDeviceStatusParams{
-		DeviceID:        deviceID,
-		Status:          sqlStatus,
-		StatusTimestamp: sql.NullTime{Time: time.Now(), Valid: true},
-		StatusDetails:   sql.NullString{String: details, Valid: false},
+		DeviceID:            deviceID,
+		Status:              sqlStatus,
+		StatusTimestamp:     sql.NullTime{Time: time.Now(), Valid: true},
+		StatusDetails:       sql.NullString{String: details, Valid: false},
+		RebootRequiredAfter: rebootRequiredAfter,
 	})
 	if err != nil {
 		return fleeterror.NewInternalErrorf("failed to upsert device status: %v", err)
 	}
 	return nil
+}
+
+// ReconcileRebootRequiredStatus clears a pending reboot only when the observed
+// boot is newer than the current installation's reboot boundary. The conditional
+// update also protects a newer installation that raced with the telemetry sample.
+func (s *SQLDeviceStore) ReconcileRebootRequiredStatus(ctx context.Context, deviceIdentifier models.DeviceIdentifier, bootedAfter time.Time, status minermodels.MinerStatus) (bool, error) {
+	updated, err := s.getQueries(ctx).ReconcileRebootRequiredStatus(ctx, sqlc.ReconcileRebootRequiredStatusParams{
+		DeviceIdentifier: deviceIdentifier.String(),
+		BootedAfter:      bootedAfter,
+		Status:           toDeviceStatus(status),
+	})
+	if err != nil {
+		return false, fleeterror.NewInternalErrorf("failed to reconcile reboot-required device status: %v", err)
+	}
+	return updated > 0, nil
 }
 
 // UpsertDeviceStatuses upserts multiple device statuses in a single bulk query.
@@ -844,7 +870,8 @@ func buildDeviceStatusBulkUpsert(rowCount int) string {
 			"ON CONFLICT (device_id) DO UPDATE SET "+
 			"status = EXCLUDED.status, "+
 			"status_timestamp = EXCLUDED.status_timestamp, "+
-			"status_details = EXCLUDED.status_details "+
+			"status_details = EXCLUDED.status_details, "+
+			"reboot_required_after = NULL "+
 			"WHERE device_status.status NOT IN ('UPDATING', 'REBOOT_REQUIRED') "+
 			"AND device_status.status_details IS DISTINCT FROM 'fleet_node_revoked' "+
 			"AND NOT EXISTS ("+

@@ -282,6 +282,13 @@ message FleetNodeTelemetryResult {
   // This preserves component-level metrics without duplicating the V2 model in
   // the control proto. Scalar fields above remain for validation and fallback.
   bytes device_metrics_json = 14 [(buf.validate.field).bytes.max_len = 262144];
+  // Whole elapsed seconds since device boot; absent means unknown, zero is valid.
+  optional uint64 uptime_seconds = 15;
+  // Age of the uptime observation when the node builds this result, including
+  // time spent in the plugin cache. The server derives a conservative observation
+  // time from its own request start and this age, avoiding node clock skew.
+  // Missing or negative age provides no reboot evidence to the server.
+  google.protobuf.Duration uptime_observation_age = 16;
 }
 
 message GetCombinedMetricsRequest {

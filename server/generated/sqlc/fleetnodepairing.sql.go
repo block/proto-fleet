@@ -545,7 +545,8 @@ ORDER BY fnd.device_id
 ON CONFLICT (device_id) DO UPDATE SET
     status = EXCLUDED.status,
     status_timestamp = EXCLUDED.status_timestamp,
-    status_details = EXCLUDED.status_details
+    status_details = EXCLUDED.status_details,
+    reboot_required_after = NULL
 `
 
 type OfflineDevicesForFleetNodeRevocationParams struct {

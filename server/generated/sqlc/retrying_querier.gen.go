@@ -7580,6 +7580,18 @@ func (q *retryingQuerier) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx 
 	return result, err
 }
 
+func (q *retryingQuerier) ReconcileRebootRequiredStatus(ctx context.Context, arg ReconcileRebootRequiredStatusParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ReconcileRebootRequiredStatus", func() error {
+		callResult, callErr := q.next.ReconcileRebootRequiredStatus(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) RecordCurtailPendingDispatch(ctx context.Context, arg RecordCurtailPendingDispatchParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "RecordCurtailPendingDispatch", func() error {

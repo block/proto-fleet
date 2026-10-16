@@ -12,6 +12,7 @@ package mocks
 import (
 	context "context"
 	reflect "reflect"
+	time "time"
 
 	pairingv1 "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	telemetryv1 "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
@@ -547,6 +548,20 @@ func (mr *MockDeviceStoreMockRecorder) LockDeviceForCloudRecoveryByIdentifier(ct
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockDeviceForCloudRecoveryByIdentifier", reflect.TypeOf((*MockDeviceStore)(nil).LockDeviceForCloudRecoveryByIdentifier), ctx, deviceIdentifier, orgID)
 }
 
+// MarkFirmwareRebootRequiredStatus mocks base method.
+func (m *MockDeviceStore) MarkFirmwareRebootRequiredStatus(ctx context.Context, deviceIdentifier models1.DeviceIdentifier, rebootRequiredAfter time.Time) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "MarkFirmwareRebootRequiredStatus", ctx, deviceIdentifier, rebootRequiredAfter)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// MarkFirmwareRebootRequiredStatus indicates an expected call of MarkFirmwareRebootRequiredStatus.
+func (mr *MockDeviceStoreMockRecorder) MarkFirmwareRebootRequiredStatus(ctx, deviceIdentifier, rebootRequiredAfter any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkFirmwareRebootRequiredStatus", reflect.TypeOf((*MockDeviceStore)(nil).MarkFirmwareRebootRequiredStatus), ctx, deviceIdentifier, rebootRequiredAfter)
+}
+
 // ReconcileAuthenticationNeededPairingStatusByIdentifier mocks base method.
 func (m *MockDeviceStore) ReconcileAuthenticationNeededPairingStatusByIdentifier(ctx context.Context, deviceIdentifier string, orgID int64, endpoint networking.ConnectionInfo) (bool, bool, error) {
 	m.ctrl.T.Helper()
@@ -593,6 +608,21 @@ func (m *MockDeviceStore) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx 
 func (mr *MockDeviceStoreMockRecorder) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx, deviceIdentifier, pairingStatus any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileDefaultPasswordPairingStatusByIdentifier", reflect.TypeOf((*MockDeviceStore)(nil).ReconcileDefaultPasswordPairingStatusByIdentifier), ctx, deviceIdentifier, pairingStatus)
+}
+
+// ReconcileRebootRequiredStatus mocks base method.
+func (m *MockDeviceStore) ReconcileRebootRequiredStatus(ctx context.Context, deviceIdentifier models1.DeviceIdentifier, bootedAfter time.Time, status models.MinerStatus) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReconcileRebootRequiredStatus", ctx, deviceIdentifier, bootedAfter, status)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReconcileRebootRequiredStatus indicates an expected call of ReconcileRebootRequiredStatus.
+func (mr *MockDeviceStoreMockRecorder) ReconcileRebootRequiredStatus(ctx, deviceIdentifier, bootedAfter, status any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileRebootRequiredStatus", reflect.TypeOf((*MockDeviceStore)(nil).ReconcileRebootRequiredStatus), ctx, deviceIdentifier, bootedAfter, status)
 }
 
 // SetDevicePairingAuthNeededIfNotPaired mocks base method.

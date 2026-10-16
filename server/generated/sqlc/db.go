@@ -2046,6 +2046,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.reconcileDefaultPasswordPairingStatusByIdentifierStmt, err = db.PrepareContext(ctx, reconcileDefaultPasswordPairingStatusByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query ReconcileDefaultPasswordPairingStatusByIdentifier: %w", err)
 	}
+	if q.reconcileRebootRequiredStatusStmt, err = db.PrepareContext(ctx, reconcileRebootRequiredStatus); err != nil {
+		return nil, fmt.Errorf("error preparing query ReconcileRebootRequiredStatus: %w", err)
+	}
 	if q.recordCurtailPendingDispatchStmt, err = db.PrepareContext(ctx, recordCurtailPendingDispatch); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordCurtailPendingDispatch: %w", err)
 	}
@@ -5988,6 +5991,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing reconcileDefaultPasswordPairingStatusByIdentifierStmt: %w", cerr)
 		}
 	}
+	if q.reconcileRebootRequiredStatusStmt != nil {
+		if cerr := q.reconcileRebootRequiredStatusStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing reconcileRebootRequiredStatusStmt: %w", cerr)
+		}
+	}
 	if q.recordCurtailPendingDispatchStmt != nil {
 		if cerr := q.recordCurtailPendingDispatchStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing recordCurtailPendingDispatchStmt: %w", cerr)
@@ -7646,6 +7654,7 @@ type Queries struct {
 	reconcileContainerModulesStmt                                *sql.Stmt
 	reconcileContainerTanksStmt                                  *sql.Stmt
 	reconcileDefaultPasswordPairingStatusByIdentifierStmt        *sql.Stmt
+	reconcileRebootRequiredStatusStmt                            *sql.Stmt
 	recordCurtailPendingDispatchStmt                             *sql.Stmt
 	recordDeviceWriteRecoveryStmt                                *sql.Stmt
 	recordFirmwareDeploymentStmt                                 *sql.Stmt
@@ -8515,6 +8524,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		reconcileContainerModulesStmt:                                q.reconcileContainerModulesStmt,
 		reconcileContainerTanksStmt:                                  q.reconcileContainerTanksStmt,
 		reconcileDefaultPasswordPairingStatusByIdentifierStmt:        q.reconcileDefaultPasswordPairingStatusByIdentifierStmt,
+		reconcileRebootRequiredStatusStmt:                            q.reconcileRebootRequiredStatusStmt,
 		recordCurtailPendingDispatchStmt:                             q.recordCurtailPendingDispatchStmt,
 		recordDeviceWriteRecoveryStmt:                                q.recordDeviceWriteRecoveryStmt,
 		recordFirmwareDeploymentStmt:                                 q.recordFirmwareDeploymentStmt,
