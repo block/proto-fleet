@@ -202,12 +202,28 @@ const FleetBuildingsPage = () => {
     },
     canViewBuildingStats && hasActiveFilters,
   );
+  // Keep confirmed removals hidden across view switches and stale in-flight polls.
+  // Pairing the controller again creates a new identifier.
+  const [unpairedContainerIds, setUnpairedContainerIds] = useState<Set<string>>(() => new Set());
+  const inventoryItems = useMemo(
+    () =>
+      inventory.items.filter(
+        (item) => item.details.case !== "container" || !unpairedContainerIds.has(item.details.value.deviceIdentifier),
+      ),
+    [inventory.items, unpairedContainerIds],
+  );
+  const inventoryTotal = Math.max(0, inventory.total - (inventory.items.length - inventoryItems.length));
+  const handleContainerUnpaired = (deviceIdentifier: string) => {
+    setUnpairedContainerIds((previous) => new Set(previous).add(deviceIdentifier));
+    inventory.refresh();
+    unfilteredInventory.refresh();
+  };
   const containers = useMemo(
     () =>
       canViewBuildingStats
-        ? inventory.items.flatMap((item) => (item.details.case === "container" ? [item.details.value] : []))
-        : legacyContainers,
-    [canViewBuildingStats, inventory.items, legacyContainers],
+        ? inventoryItems.flatMap((item) => (item.details.case === "container" ? [item.details.value] : []))
+        : legacyContainers.filter((container) => !unpairedContainerIds.has(container.deviceIdentifier)),
+    [canViewBuildingStats, inventoryItems, legacyContainers, unpairedContainerIds],
   );
 
   // usePoll keeps fetchData in a ref and doesn't re-run on its identity
@@ -751,7 +767,7 @@ const FleetBuildingsPage = () => {
               data-testid="fleet-buildings-count-label"
             >
               {canViewBuildingStats ? (
-                formatListCountLabel(inventory.total, {
+                formatListCountLabel(inventoryTotal, {
                   unfilteredTotal: unfilteredInventory.total,
                   hasActiveFilters,
                   singular: "facility",
@@ -790,12 +806,13 @@ const FleetBuildingsPage = () => {
             <div className="px-6 pb-6 laptop:px-10" ref={measureRef}>
               <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${numColumns}, 1fr)` }}>
                 {canViewBuildingStats ? (
-                  inventory.items.map((item) =>
+                  inventoryItems.map((item) =>
                     item.details.case === "container" ? (
                       <ContainerCard
                         key={`container:${item.ref?.id}`}
                         container={item.details.value}
                         inventory={item}
+                        onUnpaired={handleContainerUnpaired}
                       />
                     ) : item.details.case === "building" ? (
                       <BuildingCard key={`building:${item.ref?.id}`} building={item.details.value} />
@@ -804,7 +821,11 @@ const FleetBuildingsPage = () => {
                 ) : (
                   <>
                     {containers.map((container) => (
-                      <ContainerCard key={container.deviceIdentifier} container={container} />
+                      <ContainerCard
+                        key={container.deviceIdentifier}
+                        container={container}
+                        onUnpaired={handleContainerUnpaired}
+                      />
                     ))}
                     {visibleBuildings.map((building, index) => (
                       <BuildingCard
@@ -822,9 +843,10 @@ const FleetBuildingsPage = () => {
             <BuildingList
               buildings={visibleBuildings}
               containers={containers}
+              onContainerUnpaired={handleContainerUnpaired}
               sites={sites}
-              inventoryItems={canViewBuildingStats ? inventory.items : undefined}
-              total={canViewBuildingStats ? inventory.total : undefined}
+              inventoryItems={canViewBuildingStats ? inventoryItems : undefined}
+              total={canViewBuildingStats ? inventoryTotal : undefined}
               currentPage={inventory.currentPage}
               hasNextPage={Boolean(canViewBuildingStats && inventory.hasNextPage)}
               hasPreviousPage={Boolean(canViewBuildingStats && inventory.hasPreviousPage)}

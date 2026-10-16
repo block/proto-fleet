@@ -67,6 +67,7 @@ const labelMap: Record<string, string> = {
   clear_rack_slot: "Updated rack position",
   save_rack: "Saved rack",
   unpair_miners: "Unpaired miners",
+  unpair_container: "Unpaired container",
   rename_miners: "Renamed miners",
 
   create_pool: "Created pool",
@@ -186,6 +187,7 @@ const filterLabelMap: Record<string, string> = {
   clear_rack_slot: "Update rack position",
   save_rack: "Save rack",
   unpair_miners: "Unpair miners",
+  unpair_container: "Unpair container",
   rename_miners: "Rename miners",
 
   create_pool: "Create pool",

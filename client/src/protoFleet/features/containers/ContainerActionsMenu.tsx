@@ -6,6 +6,7 @@ import {
   containerMiningCommand,
   requestContainerAction,
 } from "./containerActions";
+import ContainerUnpairDialog from "./ContainerUnpairDialog";
 import { useOpenContainerView } from "./useOpenContainerView";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { ACTION_PERMISSIONS } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/actionPermissions";
@@ -14,7 +15,7 @@ import {
   settingsActions,
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
 import { usePermissions } from "@/protoFleet/store";
-import { ArrowRight, MiningPools, Play, Power, Settings, Speedometer } from "@/shared/assets/icons";
+import { ArrowRight, MiningPools, Play, Power, Settings, Speedometer, Unpair } from "@/shared/assets/icons";
 import RowActionsMenu, { type RowAction } from "@/shared/components/RowActionsMenu";
 
 // CT1 does not implement Fleet's pool configuration or firmware capabilities.
@@ -25,10 +26,17 @@ const unavailableSettings = [
   { label: "Update worker name", action: settingsActions.updateWorkerNames, icon: <MiningPools /> },
 ];
 
-export default function ContainerActionsMenu({ container }: { container: Container }) {
+export default function ContainerActionsMenu({
+  container,
+  onUnpaired,
+}: {
+  container: Container;
+  onUnpaired?: (deviceIdentifier: string) => void;
+}) {
   const permissions = usePermissions();
   const openContainerView = useOpenContainerView();
   const [action, setAction] = useState<ContainerAction>();
+  const [unpairOpen, setUnpairOpen] = useState(false);
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<{
     deviceIdentifier: string;
@@ -108,6 +116,12 @@ export default function ContainerActionsMenu({ container }: { container: Contain
             disabled: true,
             onClick: () => undefined,
           })),
+        {
+          label: "Unpair",
+          icon: <Unpair />,
+          hidden: !permissions.includes("miner:delete"),
+          onClick: () => setUnpairOpen(true),
+        },
       ]
     : [];
 
@@ -135,6 +149,14 @@ export default function ContainerActionsMenu({ container }: { container: Contain
           container={container}
           action={action}
           onClose={() => setAction(undefined)}
+        />
+      ) : null}
+      {unpairOpen ? (
+        <ContainerUnpairDialog
+          key={container.deviceIdentifier}
+          container={container}
+          onClose={() => setUnpairOpen(false)}
+          onUnpaired={onUnpaired}
         />
       ) : null}
     </div>

@@ -85,6 +85,7 @@ interface BuildingListProps {
   onPrevPage?: () => void;
   buildings: BuildingWithCounts[];
   containers?: Container[];
+  onContainerUnpaired?: (deviceIdentifier: string) => void;
   sites: SiteWithCounts[];
   emptyStateRow?: ReactNode;
   onEditBuilding?: (building: BuildingWithCounts) => void;
@@ -110,6 +111,7 @@ const BuildingList = ({
   onNextPage,
   onPrevPage,
   containers = EMPTY_CONTAINERS,
+  onContainerUnpaired,
   sites,
   emptyStateRow,
   onEditBuilding,
@@ -222,7 +224,7 @@ const BuildingList = ({
             <span className="block truncate text-emphasis-300">{buildingName}</span>
           </div>
           {item.kind === "container" ? (
-            <ContainerActionsMenu container={item.container} />
+            <ContainerActionsMenu container={item.container} onUnpaired={onContainerUnpaired} />
           ) : buildingId !== undefined && buildingId !== 0n ? (
             <FleetGroupActionsMenu
               scopes={[{ kind: "building", id: buildingId, name: buildingName }]}
@@ -234,7 +236,7 @@ const BuildingList = ({
         </div>
       );
     },
-    [buildExtraActions],
+    [buildExtraActions, onContainerUnpaired],
   );
 
   const colConfig = useMemo(
