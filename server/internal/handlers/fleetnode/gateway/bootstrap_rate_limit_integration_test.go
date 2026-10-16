@@ -70,7 +70,7 @@ func TestBootstrapRateLimitsAllow100NodesBehindOneIP(t *testing.T) {
 		if regErr != nil {
 			return fmt.Errorf("register: %w", regErr)
 		}
-		key, _, confirmErr := enroll.ConfirmExpected(t.Context(), registered.Msg.GetFleetNodeId(), 1, n.pendingID)
+		key, _, confirmErr := enroll.ConfirmExpected(t.Context(), registered.Msg.GetFleetNodeId(), 1, n.pendingID, 1)
 		if confirmErr != nil {
 			return fmt.Errorf("confirm: %w", confirmErr)
 		}

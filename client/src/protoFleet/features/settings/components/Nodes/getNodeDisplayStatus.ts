@@ -2,7 +2,7 @@ import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodea
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 
 // Four missed heartbeats matches the miner availability and alert thresholds.
-const STALE_AFTER_MS = 120_000;
+export const STALE_AFTER_MS = 120_000;
 
 export type NodeDisplayStatus =
   | "connected"

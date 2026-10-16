@@ -118,13 +118,13 @@ func (h *Handler) CompleteAuthHandshake(ctx context.Context, req *connect.Reques
 	}), nil
 }
 
-func (h *Handler) UploadHeartbeat(ctx context.Context, _ *connect.Request[pb.UploadHeartbeatRequest]) (*connect.Response[pb.UploadHeartbeatResponse], error) {
+func (h *Handler) UploadHeartbeat(ctx context.Context, req *connect.Request[pb.UploadHeartbeatRequest]) (*connect.Response[pb.UploadHeartbeatResponse], error) {
 	subject, err := auth.GetSubject(ctx)
 	if err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
-	if err := h.enrollment.UpdateLastSeen(ctx, subject.FleetNodeID, subject.OrgID, now); err != nil {
+	if err := h.enrollment.UpdateLastSeen(ctx, subject.FleetNodeID, subject.OrgID, now, req.Msg.GetIpAddresses(), req.Msg.GetVersion()); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.UploadHeartbeatResponse{

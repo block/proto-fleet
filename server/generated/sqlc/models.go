@@ -1627,6 +1627,8 @@ type FleetNodeHeartbeat struct {
 	FleetNodeID int64
 	OrgID       int64
 	LastSeenAt  time.Time
+	IpAddresses []string
+	Version     string
 }
 
 type FleetNodeLive struct {
@@ -2091,6 +2093,7 @@ type PendingEnrollment struct {
 	ExpiresAt   time.Time
 	ConsumedAt  sql.NullTime
 	CreatedAt   time.Time
+	ConfirmedBy sql.NullInt64
 }
 
 type Permission struct {
