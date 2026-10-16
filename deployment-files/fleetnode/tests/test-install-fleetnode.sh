@@ -243,6 +243,12 @@ printf 'proto = "=https"\n' > "$TEST_DIR/curl-home/.curlrc"
 run_installer() {
   local version="$1"
   shift
+  local download_base_url="file://$ASSETS_DIR/$version"
+  local -a release_args=()
+  if [[ -n "${STAGED_RELEASE_DIR:-}" ]]; then
+    download_base_url=""
+    release_args=(--release-dir "$STAGED_RELEASE_DIR")
+  fi
   FAKE_FLEETNODE_ENABLED="${FAKE_FLEETNODE_ENABLED:-0}" \
   FAKE_FLEETNODE_LOAD_STATE="${FAKE_FLEETNODE_LOAD_STATE:-not-found}" \
   FAKE_FLEETNODE_ACTIVE_STATE="${FAKE_FLEETNODE_ACTIVE_STATE:-active}" \
@@ -265,13 +271,14 @@ run_installer() {
   REAL_FLOCK="${REAL_FLOCK:-}" \
   SYSTEMCTL_LOG="$SYSTEMCTL_LOG" \
   SUDO_LOG="$SUDO_LOG" \
-  PATH="$TEST_DIR/bin:$PATH" \
+  PATH="${INSTALLER_PATH_PREFIX:-}$TEST_DIR/bin:$PATH" \
   FLEETNODE_TEST_MODE=1 \
   FLEETNODE_ROOT_PREFIX="$ROOT_PREFIX" \
   FLEETNODE_ARCH=amd64 \
   FLEETNODE_SYSTEMCTL="$TEST_DIR/bin/systemctl" \
-  FLEETNODE_DOWNLOAD_BASE_URL="file://$ASSETS_DIR/$version" \
-    bash <(curl --disable --fail --silent --show-error "file://${INSTALLER_PATH:-$FLEETNODE_DIR/install-fleet-node.sh}") "$version" "$@"
+  FLEETNODE_DOWNLOAD_BASE_URL="$download_base_url" \
+    bash <(curl --disable --fail --silent --show-error "file://${INSTALLER_PATH:-$FLEETNODE_DIR/install-fleet-node.sh}") \
+      ${release_args[@]+"${release_args[@]}"} "$version" "$@"
 }
 
 run_uninstaller() {
@@ -717,5 +724,122 @@ fi
 assert_file_contains "$TEST_DIR/alternate-pin.out" "persisted release repository conflicts"
 run_installer v2.2.0
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" 'release_repository: example-owner/fleet-fork'
+
+# Staged releases must use the normal verification and activation path without
+# ever contacting the network, and must refuse unsafe staging locations.
+ROOT_PREFIX="$TEST_DIR/staged-root"
+INSTALLER_PATH="$FLEETNODE_DIR/install-fleet-node.sh"
+mkdir -p "$ROOT_PREFIX/run/systemd/system" "$TEST_DIR/offline-bin"
+CURL_LOG="$TEST_DIR/offline-curl.log"
+: > "$CURL_LOG"
+cat > "$TEST_DIR/offline-bin/curl" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$CURL_LOG"
+exit 1
+EOF
+chmod 0755 "$TEST_DIR/offline-bin/curl"
+STAGED_DIR="$(cd "$TEST_DIR" && pwd -P)/staged"
+mkdir -m 0755 "$STAGED_DIR"
+for version in v1.0.0 v1.1.0 v1.3.0 v2.0.0; do
+  cp -R "$ASSETS_DIR/$version" "$STAGED_DIR/$version"
+done
+chmod -R go-w "$STAGED_DIR"
+
+run_staged_installer() {
+  STAGED_RELEASE_DIR="$STAGED_DIR" INSTALLER_PATH_PREFIX="$TEST_DIR/offline-bin:" run_installer "$@"
+}
+
+assert_no_service_change() {
+  if grep -Eq '^(stop|start) fleet-node.service$' "$SYSTEMCTL_LOG"; then
+    fail "$1 changed the Fleet Node service state"
+  fi
+}
+
+run_staged_installer v1.0.0 > "$TEST_DIR/staged-fresh.out"
+assert_file_contains "$TEST_DIR/staged-fresh.out" "Installing staged Fleet Node v1.0.0 for linux/amd64 from $STAGED_DIR/v1.0.0"
+assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.0.0"
+
+: > "$SYSTEMCTL_LOG"
+STAGED_RELEASE_DIR="$STAGED_DIR/" INSTALLER_PATH_PREFIX="$TEST_DIR/offline-bin:" \
+  run_installer v1.1.0 > "$TEST_DIR/staged-upgrade.out"
+assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.1.0"
+assert_file_contains "$SYSTEMCTL_LOG" "stop fleet-node.service"
+assert_file_contains "$SYSTEMCTL_LOG" "start fleet-node.service"
+
+: > "$SYSTEMCTL_LOG"
+if run_staged_installer v1.2.0 > "$TEST_DIR/staged-missing.out" 2>&1; then
+  fail "installer accepted a release that was not staged"
+fi
+assert_file_contains "$TEST_DIR/staged-missing.out" "staged release directory not found: $STAGED_DIR/v1.2.0"
+assert_no_service_change "missing staged release"
+
+mv "$STAGED_DIR/v1.3.0/fleetnode-v1.3.0-linux-amd64.tar.gz" "$TEST_DIR/staged-v1.3.0.tar.gz"
+ln -s "$TEST_DIR/staged-v1.3.0.tar.gz" "$STAGED_DIR/v1.3.0/fleetnode-v1.3.0-linux-amd64.tar.gz"
+: > "$SYSTEMCTL_LOG"
+if run_staged_installer v1.3.0 > "$TEST_DIR/staged-symlink-file.out" 2>&1; then
+  fail "installer accepted a symlinked staged archive"
+fi
+assert_file_contains "$TEST_DIR/staged-symlink-file.out" "staged release file must not be a symlink"
+assert_no_service_change "symlinked staged archive"
+rm -f "$STAGED_DIR/v1.3.0/fleetnode-v1.3.0-linux-amd64.tar.gz"
+mv "$TEST_DIR/staged-v1.3.0.tar.gz" "$STAGED_DIR/v1.3.0/fleetnode-v1.3.0-linux-amd64.tar.gz"
+
+chmod g+w "$STAGED_DIR/v1.3.0/fleetnode-v1.3.0-linux-amd64.tar.gz.sha256"
+: > "$SYSTEMCTL_LOG"
+if run_staged_installer v1.3.0 > "$TEST_DIR/staged-writable-file.out" 2>&1; then
+  fail "installer accepted a group-writable staged checksum"
+fi
+assert_file_contains "$TEST_DIR/staged-writable-file.out" "staged release file must not be writable by group or others"
+assert_no_service_change "group-writable staged checksum"
+chmod g-w "$STAGED_DIR/v1.3.0/fleetnode-v1.3.0-linux-amd64.tar.gz.sha256"
+
+chmod o+w "$STAGED_DIR/v1.3.0"
+if run_staged_installer v1.3.0 > "$TEST_DIR/staged-writable-dir.out" 2>&1; then
+  fail "installer accepted a world-writable staged version directory"
+fi
+assert_file_contains "$TEST_DIR/staged-writable-dir.out" "staged release directory must not be writable by group or others: $STAGED_DIR/v1.3.0"
+chmod o-w "$STAGED_DIR/v1.3.0"
+
+ln -s "$STAGED_DIR" "$TEST_DIR/staged-link"
+if STAGED_RELEASE_DIR="$TEST_DIR/staged-link/" INSTALLER_PATH_PREFIX="$TEST_DIR/offline-bin:" \
+    run_installer v1.3.0 > "$TEST_DIR/staged-symlink-dir.out" 2>&1; then
+  fail "installer accepted a symlinked release directory"
+fi
+assert_file_contains "$TEST_DIR/staged-symlink-dir.out" "staged release directory must not be a symlink: $TEST_DIR/staged-link"
+
+for invalid_dir in relative/releases "$STAGED_DIR/./v1.3.0/.." "$STAGED_DIR/../staged"; do
+  if STAGED_RELEASE_DIR="$invalid_dir" run_installer v1.3.0 > "$TEST_DIR/staged-invalid-dir.out" 2>&1; then
+    fail "installer accepted release directory $invalid_dir"
+  fi
+  assert_file_contains "$TEST_DIR/staged-invalid-dir.out" "release directory must be an absolute path without . or .. components"
+done
+
+if run_installer v1.3.0 --release-dir "$STAGED_DIR" --release-dir "$STAGED_DIR" > "$TEST_DIR/staged-duplicate.out" 2>&1; then
+  fail "installer accepted a repeated --release-dir"
+fi
+assert_file_contains "$TEST_DIR/staged-duplicate.out" "Usage: install-fleet-node.sh VERSION"
+if run_uninstaller --release-dir "$STAGED_DIR" > "$TEST_DIR/staged-uninstall.out" 2>&1; then
+  fail "uninstaller accepted --release-dir"
+fi
+assert_file_contains "$TEST_DIR/staged-uninstall.out" "Usage: install-fleet-node.sh VERSION"
+if run_installer v1.3.0 --release-dir "$STAGED_DIR" > "$TEST_DIR/staged-download-override.out" 2>&1; then
+  fail "installer combined --release-dir with a download URL override"
+fi
+assert_file_contains "$TEST_DIR/staged-download-override.out" "--release-dir cannot be combined with a download URL override"
+
+printf 'tampered\n' >> "$STAGED_DIR/v1.3.0/fleetnode-v1.3.0-linux-amd64.tar.gz"
+: > "$SYSTEMCTL_LOG"
+if run_staged_installer v1.3.0 > "$TEST_DIR/staged-bad-checksum.out" 2>&1; then
+  fail "installer accepted a staged checksum mismatch"
+fi
+assert_file_contains "$TEST_DIR/staged-bad-checksum.out" "checksum sidecar is not bound"
+assert_no_service_change "staged checksum mismatch"
+
+if run_staged_installer v2.0.0 > "$TEST_DIR/staged-wrong-repository.out" 2>&1; then
+  fail "installer accepted a staged bundle from another repository"
+fi
+assert_file_contains "$TEST_DIR/staged-wrong-repository.out" "release bundle repository conflicts with selected source"
+assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.1.0"
+[[ ! -s "$CURL_LOG" ]] || fail "staged installs contacted the network: $(cat "$CURL_LOG")"
 
 echo "Fleet Node installer tests passed"

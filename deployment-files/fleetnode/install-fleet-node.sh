@@ -33,6 +33,8 @@ INSTALL_LOCK_PID=""
 INSTALL_LOCK_RELEASE_PATH=""
 ACTION=install
 VERSION=""
+RELEASE_DIR=""
+RELEASE_DIR_SET=0
 
 case "$TEST_MODE" in
   0|1|systemd) ;;
@@ -47,10 +49,18 @@ fi
 usage() {
   cat <<'EOF'
 Usage: install-fleet-node.sh VERSION
+       install-fleet-node.sh --release-dir DIR VERSION
        install-fleet-node.sh uninstall
 
 Install one exact Proto Fleet Node release on Linux. VERSION must be a
 release-specific tag such as v1.2.3 or nightly-20260825-0123456789ab.
+
+--release-dir installs operator-staged files instead of downloading them:
+  DIR/VERSION/fleetnode-VERSION-linux-ARCH.tar.gz
+  DIR/VERSION/fleetnode-VERSION-linux-ARCH.tar.gz.sha256
+DIR must be absolute. DIR, DIR/VERSION, and both files must be owned by root
+or the invoking user, must not be symlinks, and must not be writable by group
+or others. Missing or invalid files fail without falling back to a download.
 
 uninstall removes the program and systemd unit while preserving configuration,
 state, and the service account.
@@ -64,6 +74,18 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help) usage; exit 0 ;;
     uninstall) ACTION=uninstall; shift ;;
+    --release-dir)
+      [[ $# -ge 2 && "$RELEASE_DIR_SET" == "0" ]] || { usage >&2; exit 2; }
+      RELEASE_DIR="$2"
+      RELEASE_DIR_SET=1
+      shift 2
+      ;;
+    --release-dir=*)
+      [[ "$RELEASE_DIR_SET" == "0" ]] || { usage >&2; exit 2; }
+      RELEASE_DIR="${1#*=}"
+      RELEASE_DIR_SET=1
+      shift
+      ;;
     -*) usage >&2; exit 2 ;;
     *)
       [[ -z "$VERSION" ]] || { usage >&2; exit 2; }
@@ -78,7 +100,23 @@ if [[ "$ACTION" == install ]]; then
     echo "version must be an explicit release identifier (1-128 letters, numbers, dots, underscores, or hyphens; not latest)" >&2
     exit 2
   fi
-elif [[ -n "$VERSION" ]]; then
+  if [[ "$RELEASE_DIR_SET" == "1" ]]; then
+    case "/$RELEASE_DIR/" in
+      *$'\n'*|*/./*|*/../*) RELEASE_DIR="" ;;
+    esac
+    if [[ "$RELEASE_DIR" != /* ]]; then
+      echo "release directory must be an absolute path without . or .. components" >&2
+      exit 2
+    fi
+    while [[ "$RELEASE_DIR" == */ && "$RELEASE_DIR" != / ]]; do
+      RELEASE_DIR="${RELEASE_DIR%/}"
+    done
+    if [[ -n "$DOWNLOAD_BASE_URL" ]]; then
+      echo "--release-dir cannot be combined with a download URL override" >&2
+      exit 2
+    fi
+  fi
+elif [[ -n "$VERSION" || "$RELEASE_DIR_SET" == "1" ]]; then
   usage >&2; exit 2
 fi
 if [[ "$TEST_MODE" == "0" ]]; then
@@ -143,7 +181,13 @@ for command in install flock "$SYSTEMCTL"; do
   command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; exit 1; }
 done
 if [[ "$ACTION" == "install" ]]; then
-  for command in curl sha256sum tar; do
+  release_commands=(sha256sum tar)
+  if [[ -n "$RELEASE_DIR" ]]; then
+    release_commands+=(cp stat)
+  else
+    release_commands+=(curl)
+  fi
+  for command in "${release_commands[@]}"; do
     command -v "$command" >/dev/null 2>&1 || { echo "required command not found: $command" >&2; exit 1; }
   done
 fi
@@ -478,30 +522,71 @@ if as_root test -e "$source_config" || as_root test -L "$source_config"; then
     echo "persisted release repository conflicts with this packaged installer" >&2; exit 1
   fi
 fi
-if [[ -z "$DOWNLOAD_BASE_URL" ]]; then
-  DOWNLOAD_BASE_URL="https://github.com/$RELEASE_REPOSITORY/releases/download/$VERSION"
-fi
+staged_path_owner_and_mode() {
+  stat -c '%u %a' -- "$1" 2>/dev/null || stat -f '%u %Lp' -- "$1"
+}
 
-echo "Downloading Fleet Node $VERSION for linux/$ARCH..."
-curl_options=(
-  --disable
-  --fail
-  --location
-  --silent
-  --show-error
-  --connect-timeout 10
-  --max-time 300
-  --retry 3
-  --retry-delay 2
-  --retry-connrefused
-)
-if [[ "$TEST_MODE" == "0" ]]; then
-  curl_options+=(--proto '=https' --proto-redir '=https')
+validate_staged_release_path() {
+  local path="$1" kind="$2" metadata owner mode
+  if [[ -L "$path" ]]; then
+    echo "staged release $kind must not be a symlink: $path" >&2
+    return 1
+  fi
+  if [[ "$kind" == directory && ! -d "$path" ]] || [[ "$kind" == file && ! -f "$path" ]]; then
+    echo "staged release $kind not found: $path" >&2
+    return 1
+  fi
+  metadata=$(staged_path_owner_and_mode "$path") || { echo "cannot inspect staged release $kind: $path" >&2; return 1; }
+  read -r owner mode <<< "$metadata"
+  if [[ ! "$owner" =~ ^[0-9]+$ || ! "$mode" =~ ^[0-7]+$ ]]; then
+    echo "cannot inspect staged release $kind: $path" >&2
+    return 1
+  fi
+  if [[ "$owner" != "0" && "$owner" != "$EUID" ]]; then
+    echo "staged release $kind must be owned by root or the invoking user: $path" >&2
+    return 1
+  fi
+  if (( 8#$mode & 8#022 )); then
+    echo "staged release $kind must not be writable by group or others: $path" >&2
+    return 1
+  fi
+}
+
+if [[ -n "$RELEASE_DIR" ]]; then
+  staged_release_dir="${RELEASE_DIR%/}/$VERSION"
+  echo "Installing staged Fleet Node $VERSION for linux/$ARCH from $staged_release_dir..."
+  validate_staged_release_path "$RELEASE_DIR" directory
+  validate_staged_release_path "$staged_release_dir" directory
+  for name in "$ARCHIVE_NAME" "$ARCHIVE_NAME.sha256"; do
+    validate_staged_release_path "$staged_release_dir/$name" file
+    cp -- "$staged_release_dir/$name" "$work_dir/$name"
+  done
+else
+  if [[ -z "$DOWNLOAD_BASE_URL" ]]; then
+    DOWNLOAD_BASE_URL="https://github.com/$RELEASE_REPOSITORY/releases/download/$VERSION"
+  fi
+
+  echo "Downloading Fleet Node $VERSION for linux/$ARCH..."
+  curl_options=(
+    --disable
+    --fail
+    --location
+    --silent
+    --show-error
+    --connect-timeout 10
+    --max-time 300
+    --retry 3
+    --retry-delay 2
+    --retry-connrefused
+  )
+  if [[ "$TEST_MODE" == "0" ]]; then
+    curl_options+=(--proto '=https' --proto-redir '=https')
+  fi
+  curl "${curl_options[@]}" \
+    --output "$work_dir/$ARCHIVE_NAME" "$DOWNLOAD_BASE_URL/$ARCHIVE_NAME"
+  curl "${curl_options[@]}" \
+    --output "$work_dir/$ARCHIVE_NAME.sha256" "$DOWNLOAD_BASE_URL/$ARCHIVE_NAME.sha256"
 fi
-curl "${curl_options[@]}" \
-  --output "$work_dir/$ARCHIVE_NAME" "$DOWNLOAD_BASE_URL/$ARCHIVE_NAME"
-curl "${curl_options[@]}" \
-  --output "$work_dir/$ARCHIVE_NAME.sha256" "$DOWNLOAD_BASE_URL/$ARCHIVE_NAME.sha256"
 
 (
   cd "$work_dir"
