@@ -123,6 +123,7 @@ export const FleetAccountAssignment = ({
       <span title={!exactSelection ? "Select specific assets on this page to assign them." : undefined}>
         <Button
           variant="secondary"
+          className="bg-grayscale-white-10! text-grayscale-white-90! disabled:opacity-40"
           text="Assign to account"
           disabled={!exactSelection || assets.length === 0 || assets.length > 500}
           onClick={() => {

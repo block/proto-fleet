@@ -78,9 +78,9 @@ const ActionBar = ({
 
   const actionsClassName = clsx(
     "ml-auto flex items-center justify-end gap-3",
-    "phone:col-start-2 phone:row-start-2 phone:ml-0 phone:justify-end",
+    selectionControls ? "phone:row-start-3 phone:ml-0 phone:flex-wrap" : "phone:row-start-2 phone:ml-0 phone:flex-wrap",
     "tablet-only:col-start-2 tablet-only:row-start-2 tablet-only:ml-0 tablet-only:justify-end",
-    selectionControls ? "" : "phone:col-span-2 tablet-only:col-span-2",
+    selectionControls ? "" : "tablet-only:col-span-2",
   );
 
   return (
@@ -94,8 +94,8 @@ const ActionBar = ({
       )}
       data-testid="action-bar"
     >
-      <div className="flex w-[calc(100%-theme(spacing.24))] items-center gap-2 rounded-2xl bg-black px-3 py-3 shadow-300 dark:bg-surface-elevated-base phone:grid phone:w-[calc(100%-theme(spacing.4))] phone:grid-cols-[minmax(0,1fr),auto] phone:gap-x-3 phone:gap-y-1 phone:py-2 tablet-only:grid tablet-only:w-[calc(100%-theme(spacing.12))] tablet-only:grid-cols-[minmax(0,1fr),auto] tablet-only:gap-x-3 tablet-only:gap-y-1 tablet-only:py-2">
-        <div className="flex min-w-0 items-center gap-2 phone:col-span-2 tablet-only:col-span-2">
+      <div className="flex w-[calc(100%-theme(spacing.24))] items-center gap-2 rounded-2xl bg-black px-3 py-3 shadow-300 dark:bg-surface-elevated-base phone:grid phone:w-[calc(100%-theme(spacing.4))] phone:grid-cols-1 phone:gap-x-3 phone:gap-y-1 phone:py-2 tablet-only:grid tablet-only:w-[calc(100%-theme(spacing.12))] tablet-only:grid-cols-[minmax(0,1fr),auto] tablet-only:gap-x-3 tablet-only:gap-y-1 tablet-only:py-2">
+        <div className="flex min-w-0 items-center gap-2 tablet-only:col-span-2">
           <Button
             className="bg-grayscale-white-10! text-grayscale-white-90!"
             prefixIcon={<DismissTiny />}

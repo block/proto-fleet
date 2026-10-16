@@ -8,7 +8,8 @@ import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_
 
 let minersById: Record<string, { pairingStatus: PairingStatus; deviceStatus: DeviceStatus }> = {};
 
-vi.mock("@/protoFleet/store", () => ({
+vi.mock("@/protoFleet/store", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/protoFleet/store")>()),
   useUsername: () => "",
   useHasPermission: () => false,
 }));
