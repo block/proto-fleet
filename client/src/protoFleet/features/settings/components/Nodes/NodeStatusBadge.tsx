@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import { getNodeDisplayStatus } from "./getNodeDisplayStatus";
+import { getNodeDisplayStatus, STALE_AFTER_MS } from "./getNodeDisplayStatus";
 import type { NodeDisplayStatus } from "./getNodeDisplayStatus";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 
@@ -15,7 +15,7 @@ const DISPLAY_STATUS_CONFIG: Record<NodeDisplayStatus, { label: string; dotClass
   stale: {
     label: "Stale",
     dotClass: "bg-intent-warning-fill",
-    description: "No heartbeat received in the last 2 minutes.",
+    description: `No heartbeat received in the last ${STALE_AFTER_MS / 60_000} minutes.`,
   },
   neverConnected: { label: "Never connected", dotClass: "bg-border-20" },
   awaitingConfirmation: { label: "Awaiting confirmation", dotClass: "bg-intent-info-fill" },
@@ -30,6 +30,7 @@ const NodeStatusBadge = ({ node }: { node: FleetNodeItem }) => {
     <span title={config.description} className="inline-flex items-center gap-2 text-300 text-text-primary-50">
       <span className={clsx("h-2 w-2 rounded-full", config.dotClass)} />
       {config.label}
+      {config.description ? <span className="sr-only">{config.description}</span> : null}
     </span>
   );
 };

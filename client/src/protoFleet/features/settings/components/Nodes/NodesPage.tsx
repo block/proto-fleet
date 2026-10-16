@@ -242,10 +242,16 @@ const NodesPage = () => {
           </span>
         ),
         width: "w-44",
+        allowWrap: true,
       },
       version: {
-        component: (node: FleetNodeItem) => <span className="break-all">{node.version || "Unavailable"}</span>,
+        component: (node: FleetNodeItem) => (
+          <span className="break-all" title={node.version || undefined}>
+            {node.version || "Unavailable"}
+          </span>
+        ),
         width: "w-44",
+        allowWrap: true,
       },
       status: {
         component: (node: FleetNodeItem) => <NodeStatusBadge node={node} />,
