@@ -68,7 +68,7 @@ describe("real account workspace routing", () => {
       fetchRpc((method) => (method === "GetAccount" ? { account: toJson(AccountSchema, account) } : { totals: {} }));
       mount(account, "");
       const main = within(screen.getByRole("navigation", { name: "Main" }));
-      expect(await main.findByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
+      await waitFor(() => expect(main.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page"));
       expect(main.getByRole("link", { name: "Mining assets" })).toBeInTheDocument();
       expect(main.getByRole("link", { name: "Pools" })).toBeInTheDocument();
       expect(main.getByRole("link", { name: "Access" })).toBeInTheDocument();
