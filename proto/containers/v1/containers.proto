@@ -36,6 +36,8 @@ message ListContainersResponse {
   repeated Container containers = 1;
 }
 message Container {
+ // Present only with fresh inventory coverage; zero means none reported.
+ optional uint32 unlocated_hashboards = 20;
  optional double efficiency_jh = 16;
  common.v1.EquipmentCoverage coverage = 17;
  optional double min_temperature_c = 18;

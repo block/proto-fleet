@@ -18,12 +18,15 @@ import (
 const occupiedHashboardSlot = "occupied"
 
 type hashboardObservation struct {
-	claims []string
+	unlocated bool
+	claims    []string
 	sdk.ContainerHashboard
-	BoardID  int64      `json:"board_id"`
-	ModuleID int64      `json:"module_id"`
-	SiteID   *int64     `json:"site_id"`
-	Time     *time.Time `json:"time"`
+	BoardID   int64      `json:"board_id"`
+	ModuleID  int64      `json:"module_id"`
+	SiteID    *int64     `json:"site_id"`
+	Time      *time.Time `json:"time"`
+	SourceAt  *time.Time `json:"source_at"`
+	StateTime *time.Time `json:"state_observed_at"`
 }
 
 // Runs under the telemetry transaction and org lock. All database operations
@@ -44,7 +47,22 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 			byPosition[[2]int32{m.TankPosition, m.Position}] = m
 		}
 	}
+	site, err := q.GetHashboardControllerSite(ctx, deviceID)
+	if err != nil {
+		return err
+	}
 	observations := collectHashboardObservations(ctx, deviceID, snapshot, byPosition)
+	for i := range observations {
+		if site.Valid {
+			observations[i].SiteID = &site.Int64
+		}
+		if !observations[i].ObservedAt.IsZero() {
+			observations[i].SourceAt = &observations[i].ObservedAt
+		}
+		if !observations[i].StateObservedAt.IsZero() {
+			observations[i].StateTime = &observations[i].StateObservedAt
+		}
+	}
 	identityClaims := []map[string]string{}
 	for _, v := range observations {
 		for _, key := range v.claims {
@@ -122,6 +140,42 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 			boardIDs = append(boardIDs, v.BoardID)
 		}
 	}
+	// Ownership and attribution are properties of the durable board, not its slot.
+	prior, err := q.GetHashboardObservations(ctx, sqlc.GetHashboardObservationsParams{OrgID: orgID, BoardIds: boardIDs})
+	if err != nil {
+		return err
+	}
+	byObservation := map[int64]sqlc.HashboardObservation{}
+	for _, o := range prior {
+		byObservation[o.HashboardID] = o
+	}
+	for i := range observations {
+		v := &observations[i]
+		old, ok := byObservation[v.BoardID]
+		if !ok || v.Occupancy != occupiedHashboardSlot {
+			continue
+		}
+		if old.LastSeenAt.After(snapshot.ObservedAt) {
+			rejectHashboard(ctx, deviceID, v, sdk.HashboardOlderObservation)
+			continue
+		}
+		if old.DeviceID != deviceID && !old.ReleasedAt.Valid && snapshot.ObservedAt.Sub(old.LastSeenAt) < 2*time.Minute {
+			rejectHashboard(ctx, deviceID, v, sdk.HashboardControllerConflict)
+			continue
+		}
+		boundary := old.AttributionSince
+		if old.DeviceID != deviceID || old.SiteID != site || old.ReleasedAt.Valid {
+			boundary = sql.NullTime{Time: snapshot.ObservedAt, Valid: true}
+		}
+		if old.SourceAt.Valid && v.ObservedAt.Before(old.SourceAt.Time) {
+			v.HashrateHS, v.PowerW, v.TemperatureC, v.EfficiencyJH = nil, nil, nil, nil
+		}
+		if boundary.Valid {
+			if err := applyHashboardAttributionBoundary(v, boundary.Time); err != nil {
+				return err
+			}
+		}
+	}
 	watermarks, err := q.GetHashboardMetricWatermarks(ctx, boardIDs)
 	if err != nil {
 		return err
@@ -157,15 +211,20 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 			rejectHashboard(ctx, deviceID, v, sdk.HashboardOlderObservation)
 			continue
 		}
-		changedPlacement := old.ModuleID != v.ModuleID || old.Position != v.Position || old.SiteID != (sql.NullInt64{Int64: siteValue(v.SiteID), Valid: v.SiteID != nil})
+		changedPlacement := !v.unlocated && (old.ModuleID != v.ModuleID || old.Position != v.Position)
 		// Apply the installation boundary on every poll, not just the poll that
 		// changes placement. Initial discovery may contain asynchronous readings.
-		beforeInstallation := old.HasPriorInstallation && v.ObservedAt.Before(old.InstalledAt)
-		if beforeInstallation || (changedPlacement && v.ObservedAt.Before(snapshot.ObservedAt)) {
-			v.HashrateHS, v.PowerW, v.TemperatureC, v.EfficiencyJH = nil, nil, nil, nil
+		var boundary time.Time
+		if old.HasPriorInstallation {
+			boundary = old.InstalledAt
 		}
-		if old.DeviceID != deviceID && snapshot.ObservedAt.Sub(old.LastSeenAt) < 2*time.Minute {
-			rejectHashboard(ctx, deviceID, v, sdk.HashboardControllerConflict)
+		if changedPlacement {
+			boundary = snapshot.ObservedAt
+		}
+		if !boundary.IsZero() {
+			if err := applyHashboardAttributionBoundary(v, boundary); err != nil {
+				return err
+			}
 		}
 	}
 	// Allocate durable IDs and enrich their aliases only after conflict checks.
@@ -185,6 +244,31 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 			aliases["serial:"+b.Serial] = b.ID
 		}
 	}
+	for i := range observations {
+		v := &observations[i]
+		if v.Occupancy == occupiedHashboardSlot {
+			v.BoardID = max(aliases["mac:"+v.MACAddress], aliases["serial:"+v.Serial])
+		}
+	}
+	data, err = json.Marshal(observations)
+	if err != nil {
+		return fmt.Errorf("encode hashboard ownership: %w", err)
+	}
+	if err := q.UpsertHashboardObservations(ctx, sqlc.UpsertHashboardObservationsParams{DeviceID: deviceID, ObservedAt: snapshot.ObservedAt, Boards: data}); err != nil {
+		return err
+	}
+	// Unlocated observations take part in validation and durable identity lookup,
+	// but never enter slot, installation, or placement-scoped metric writes.
+	mapped := make([]hashboardObservation, 0, len(observations))
+	snapshot.UnlocatedHashboards = nil
+	for _, v := range observations {
+		if !v.unlocated {
+			mapped = append(mapped, v)
+			continue
+		}
+		snapshot.UnlocatedHashboards = append(snapshot.UnlocatedHashboards, v.ContainerHashboard)
+	}
+	observations = mapped
 	bySlot := map[[2]int64]hashboardObservation{}
 	newByBoard := map[int64]hashboardObservation{}
 	occupied := []hashboardObservation{}
@@ -219,6 +303,9 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 		}
 	}
 	if err := q.CloseHashboardInstallations(ctx, sqlc.CloseHashboardInstallationsParams{ObservedAt: snapshot.ObservedAt, Ids: closeIDs}); err != nil {
+		return err
+	}
+	if err := q.ReleaseHashboardObservations(ctx, sqlc.ReleaseHashboardObservationsParams{DeviceID: deviceID, ObservedAt: snapshot.ObservedAt, InstallationIds: closeIDs}); err != nil {
 		return err
 	}
 	data, err = json.Marshal(observations)
@@ -269,6 +356,42 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 	}
 	if snapshot.Metrics != nil {
 		sdk.CalculateContainerRollups(snapshot)
+	}
+	return nil
+}
+
+// Health and state have independent source times. Redact evidence before it
+// reaches either slot state or metric history; a first installation otherwise
+// permits asynchronous discovery samples. Keep ObservedAt/SourceAt intact for
+// durable ordering, while Time=nil prevents a rejected health row being written.
+func applyHashboardAttributionBoundary(v *hashboardObservation, boundary time.Time) error {
+	if v.ObservedAt.Before(boundary) {
+		v.Time = nil
+		v.HashrateHS, v.PowerW, v.TemperatureC, v.EfficiencyJH = nil, nil, nil, nil
+		v.HashrailOK, v.RefclksOK = nil, nil
+		v.HealthJSON = nil
+	}
+	if v.StateObservedAt.Before(boundary) {
+		v.State = sdk.ModuleUnknown
+		v.StateObservedAt = time.Time{}
+		v.StateTime = nil
+		v.MiningState = ""
+		v.Isolated = nil
+		// The raw health object also contains fault/state classification evidence.
+		v.HealthJSON = nil
+		if len(v.MetadataJSON) > 0 {
+			var metadata map[string]json.RawMessage
+			if err := json.Unmarshal(v.MetadataJSON, &metadata); err != nil {
+				return fmt.Errorf("decode hashboard metadata for attribution: %w", err)
+			}
+			delete(metadata, "miningState")
+			delete(metadata, "isolated")
+			var err error
+			v.MetadataJSON, err = json.Marshal(metadata)
+			if err != nil {
+				return fmt.Errorf("encode attributed hashboard metadata: %w", err)
+			}
+		}
 	}
 	return nil
 }
@@ -385,11 +508,21 @@ func hashboardClaims(board sdk.ContainerHashboard) []string {
 func rejectHashboard(ctx context.Context, deviceID int64, v *hashboardObservation, reason string) {
 	slog.WarnContext(ctx, "hashboard observation unavailable", "device_id", deviceID, "module_id", v.ModuleID, "position", v.Position, "board_id", v.BoardID, "mac", v.MACAddress, "serial", v.Serial, "reason", reason)
 	v.ContainerHashboard = sdk.UnavailableHashboard(v.Position, reason)
-	v.BoardID, v.Time = 0, nil
+	v.BoardID, v.Time, v.StateTime = 0, nil, nil
 }
 
 func collectHashboardObservations(ctx context.Context, deviceID int64, snapshot *sdk.ContainerSnapshot, modules map[[2]int32]sqlc.ListHashboardModulesRow) []hashboardObservation {
 	observations := []hashboardObservation{}
+	for _, b := range snapshot.UnlocatedHashboards {
+		v := hashboardObservation{ContainerHashboard: b, unlocated: true, claims: hashboardClaims(b)}
+		if b.Position != 0 || b.Occupancy == "empty" {
+			rejectHashboard(ctx, deviceID, &v, sdk.HashboardInvalidObservation)
+		} else if err := normalizeHashboard(&v.ContainerHashboard, snapshot.ObservedAt); err != nil {
+			rejectHashboard(ctx, deviceID, &v, sdk.HashboardInvalidObservation)
+		}
+		v.Position, v.Feed = 0, nil
+		observations = append(observations, v)
+	}
 	for _, tank := range snapshot.Tanks {
 		for _, module := range tank.Modules {
 			m, ok := modules[[2]int32{tank.Position, module.Position}]

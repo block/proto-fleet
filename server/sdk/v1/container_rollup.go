@@ -15,7 +15,7 @@ const (
 	ContainerClockSkewAllowance = 5 * time.Second
 )
 
-// MetricCoverage counts installed boards for hashrate, modules for equipment
+// MetricCoverage counts observed boards for hashrate, modules for equipment
 // temperature, and the single dedicated meter for power. Unknown topology is
 // independent of reporting counts: equal counts alone do not prove completeness.
 type MetricCoverage struct {
@@ -31,17 +31,20 @@ func (c *MetricCoverage) Complete() bool {
 }
 
 type ContainerRollup struct {
-	HashrateHS      *float64       `json:"hashrate_hs"`
-	PowerW          *float64       `json:"power_w"`
-	EfficiencyJH    *float64       `json:"efficiency_jh"`
-	TemperatureC    *float64       `json:"temperature_c"`
-	MinTemperatureC *float64       `json:"min_temperature_c"`
-	MaxTemperatureC *float64       `json:"max_temperature_c"`
-	Hashrate        MetricCoverage `json:"hashrate"`
-	Power           MetricCoverage `json:"power"`
-	Temperature     MetricCoverage `json:"temperature"`
-	PowerSource     string         `json:"power_source"`
-	Attribution     string         `json:"attribution"`
+	// Container-only count of inventory boards without an established physical
+	// location. These boards do not contribute to mapped measurement coverage.
+	UnlocatedHashboards uint32         `json:"unlocated_hashboards"`
+	HashrateHS          *float64       `json:"hashrate_hs"`
+	PowerW              *float64       `json:"power_w"`
+	EfficiencyJH        *float64       `json:"efficiency_jh"`
+	TemperatureC        *float64       `json:"temperature_c"`
+	MinTemperatureC     *float64       `json:"min_temperature_c"`
+	MaxTemperatureC     *float64       `json:"max_temperature_c"`
+	Hashrate            MetricCoverage `json:"hashrate"`
+	Power               MetricCoverage `json:"power"`
+	Temperature         MetricCoverage `json:"temperature"`
+	PowerSource         string         `json:"power_source"`
+	Attribution         string         `json:"attribution"`
 	// Ordering evidence is retained even when a measurement is unavailable.
 	SourceTimes map[string]time.Time `json:"source_times"`
 }
@@ -109,11 +112,28 @@ func finishRollup(r *ContainerRollup) {
 	}
 }
 
-// CalculateContainerRollups uses only this poll's accepted board placement. The
+// CalculateContainerRollups uses this poll's accepted board observations. The
 // store invokes it again after durable-identity reconciliation so rejected
 // identities cannot contribute to persisted totals. Dedicated power is retained.
 func CalculateContainerRollups(s *ContainerSnapshot) {
 	s.Metrics = newRollup(s.Metrics, s.TopologyComplete, s.ObservedAt)
+	s.Metrics.UnlocatedHashboards = uint32(len(s.UnlocatedHashboards)) //nolint:gosec // RPC inventory size is bounded by message limits
+	for _, b := range s.UnlocatedHashboards {
+		s.Metrics.Hashrate.TopologyComplete = false
+		s.Metrics.Temperature.TopologyComplete = false
+		s.Metrics.Hashrate.Expected++
+		if b.Position != 0 || b.Occupancy != "occupied" || b.UnavailableReason != "" {
+			continue
+		}
+		key := fmt.Sprintf("board:%s:%s", b.MACAddress, b.Serial)
+		if !b.ObservedAt.IsZero() && !b.ObservedAt.After(s.ObservedAt.Add(ContainerClockSkewAllowance)) {
+			s.Metrics.SourceTimes[key] = b.ObservedAt
+		}
+		if FreshContainerReading(b.ObservedAt, s.ObservedAt) && finiteReading(b.HashrateHS) && *b.HashrateHS >= 0 {
+			addReading(&s.Metrics.HashrateHS, *b.HashrateHS)
+			s.Metrics.Hashrate.add(b.ObservedAt)
+		}
+	}
 	for ti := range s.Tanks {
 		t := &s.Tanks[ti]
 		t.Metrics = newRollup(t.Metrics, t.TopologyComplete, s.ObservedAt)

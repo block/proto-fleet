@@ -7,8 +7,19 @@ import { tankHealth } from "./containerHealth";
 import { ContainerSchema, TankHealthSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { healthHeatBand } from "@/protoFleet/features/buildings/components/cardHealth";
 
+// JSDOM has no layout; keep the real menu and portal, bypassing only positioning.
+vi.mock("@/shared/components/Popover/usePopoverPosition", () => ({
+  default: () => ({ popoverRef: { current: null }, popoverStyle: {}, popoverAnimation: "" }),
+}));
+
 vi.mock("@/protoFleet/store", () => ({
-  usePermissions: () => ["miner:stop_mining", "miner:start_mining", "miner:set_power_target", "miner:read"],
+  usePermissions: () => [
+    "miner:stop_mining",
+    "miner:start_mining",
+    "miner:set_power_target",
+    "miner:read",
+    "miner:delete",
+  ],
 }));
 
 describe("ContainerCard", () => {
@@ -38,6 +49,8 @@ describe("ContainerCard", () => {
     fireEvent.click(trigger);
     expect(trigger).toHaveAttribute("aria-expanded", "true");
     expect(await screen.findByText("Sleep container")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Unpair" }));
+    expect(screen.getByTestId("container-unpair-dialog")).toHaveTextContent("Unpair Container 1?");
     fetchStatus.mockRestore();
   });
   it("never renders incomplete or stale observations as healthy", () => {

@@ -138,6 +138,17 @@ func (q *Queries) FindHashboardIdentities(ctx context.Context, arg FindHashboard
 	return items, nil
 }
 
+const getHashboardControllerSite = `-- name: GetHashboardControllerSite :one
+SELECT site_id FROM device WHERE id=$1
+`
+
+func (q *Queries) GetHashboardControllerSite(ctx context.Context, deviceID int64) (sql.NullInt64, error) {
+	row := q.queryRow(ctx, q.getHashboardControllerSiteStmt, getHashboardControllerSite, deviceID)
+	var site_id sql.NullInt64
+	err := row.Scan(&site_id)
+	return site_id, err
+}
+
 const getHashboardInstallations = `-- name: GetHashboardInstallations :many
 SELECT i.id, i.hashboard_id, i.module_id, i.position, i.site_id, i.installed_at, i.last_seen_at, i.removed_at, i.metadata, t.device_id, h.last_seen_at AS board_last_seen_at,
  EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id
@@ -191,6 +202,47 @@ func (q *Queries) GetHashboardInstallations(ctx context.Context, arg GetHashboar
 			&i.DeviceID,
 			&i.BoardLastSeenAt,
 			&i.HasPriorInstallation,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getHashboardObservations = `-- name: GetHashboardObservations :many
+SELECT o.hashboard_id, o.device_id, o.site_id, o.last_seen_at, o.source_at, o.attribution_since, o.released_at FROM hashboard_observation o JOIN hashboard h ON h.id=o.hashboard_id
+WHERE h.org_id=$1 AND o.hashboard_id=ANY($2::bigint[])
+`
+
+type GetHashboardObservationsParams struct {
+	OrgID    int64
+	BoardIds []int64
+}
+
+func (q *Queries) GetHashboardObservations(ctx context.Context, arg GetHashboardObservationsParams) ([]HashboardObservation, error) {
+	rows, err := q.query(ctx, q.getHashboardObservationsStmt, getHashboardObservations, arg.OrgID, pq.Array(arg.BoardIds))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []HashboardObservation
+	for rows.Next() {
+		var i HashboardObservation
+		if err := rows.Scan(
+			&i.HashboardID,
+			&i.DeviceID,
+			&i.SiteID,
+			&i.LastSeenAt,
+			&i.SourceAt,
+			&i.AttributionSince,
+			&i.ReleasedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -294,6 +346,26 @@ func (q *Queries) LockHashboardOrganization(ctx context.Context, identifier stri
 	return id, err
 }
 
+const releaseHashboardObservations = `-- name: ReleaseHashboardObservations :exec
+UPDATE hashboard_observation SET released_at=$1::timestamptz,
+ last_seen_at=$1::timestamptz
+WHERE device_id=$2 AND last_seen_at<$1::timestamptz
+ AND hashboard_id IN (SELECT hashboard_id FROM hashboard_installation WHERE id=ANY($3::bigint[]))
+`
+
+type ReleaseHashboardObservationsParams struct {
+	ObservedAt      time.Time
+	DeviceID        int64
+	InstallationIds []int64
+}
+
+// Explicit removal permits a prompt transfer, but cannot release a board still
+// reported elsewhere in this same poll (including unlocated inventory).
+func (q *Queries) ReleaseHashboardObservations(ctx context.Context, arg ReleaseHashboardObservationsParams) error {
+	_, err := q.exec(ctx, q.releaseHashboardObservationsStmt, releaseHashboardObservations, arg.ObservedAt, arg.DeviceID, pq.Array(arg.InstallationIds))
+	return err
+}
+
 const upsertHashboardInstallations = `-- name: UpsertHashboardInstallations :exec
 INSERT INTO hashboard_installation(hashboard_id, module_id, position, site_id, installed_at, last_seen_at, metadata)
 SELECT x.board_id, x.module_id, x.position, x.site_id, $1::timestamptz, $1::timestamptz, COALESCE(x.metadata, '{}')
@@ -310,6 +382,34 @@ type UpsertHashboardInstallationsParams struct {
 
 func (q *Queries) UpsertHashboardInstallations(ctx context.Context, arg UpsertHashboardInstallationsParams) error {
 	_, err := q.exec(ctx, q.upsertHashboardInstallationsStmt, upsertHashboardInstallations, arg.ObservedAt, arg.Boards)
+	return err
+}
+
+const upsertHashboardObservations = `-- name: UpsertHashboardObservations :exec
+INSERT INTO hashboard_observation(hashboard_id, device_id, site_id, last_seen_at, source_at)
+SELECT x.board_id, $1, x.site_id, $2::timestamptz, x.source_at
+FROM jsonb_to_recordset($3::jsonb) AS x(board_id bigint, site_id bigint, source_at timestamptz, occupancy text)
+WHERE x.occupancy='occupied' AND x.board_id>0
+ON CONFLICT (hashboard_id) DO UPDATE SET
+ device_id=EXCLUDED.device_id, site_id=EXCLUDED.site_id, last_seen_at=EXCLUDED.last_seen_at,
+ source_at=GREATEST(hashboard_observation.source_at,EXCLUDED.source_at),
+ attribution_since=CASE WHEN hashboard_observation.device_id<>EXCLUDED.device_id
+   OR hashboard_observation.site_id IS DISTINCT FROM EXCLUDED.site_id
+   OR hashboard_observation.released_at IS NOT NULL
+   THEN EXCLUDED.last_seen_at ELSE hashboard_observation.attribution_since END,
+ released_at=NULL
+WHERE hashboard_observation.last_seen_at<=EXCLUDED.last_seen_at
+`
+
+type UpsertHashboardObservationsParams struct {
+	DeviceID   int64
+	ObservedAt time.Time
+	Boards     json.RawMessage
+}
+
+// The org lock serializes these accepted claims, including boards with no installation.
+func (q *Queries) UpsertHashboardObservations(ctx context.Context, arg UpsertHashboardObservationsParams) error {
+	_, err := q.exec(ctx, q.upsertHashboardObservationsStmt, upsertHashboardObservations, arg.DeviceID, arg.ObservedAt, arg.Boards)
 	return err
 }
 

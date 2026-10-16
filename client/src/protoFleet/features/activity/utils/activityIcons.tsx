@@ -68,7 +68,8 @@ function isDestructiveEvent(eventType: string): boolean {
     eventType.startsWith("revoke_") ||
     (eventType.startsWith("clear_") && eventType !== "clear_rack_slot") ||
     eventType === "unpair" ||
-    eventType === "unpair_miners"
+    eventType === "unpair_miners" ||
+    eventType === "unpair_container"
   );
 }
 
@@ -96,6 +97,7 @@ const iconMap: Record<string, (props: IconProps) => ReactNode> = {
   unpair: Unpair,
 
   unpair_miners: Unpair,
+  unpair_container: Unpair,
   rename_miners: Edit,
 
   delete_collection: MinusFilled,

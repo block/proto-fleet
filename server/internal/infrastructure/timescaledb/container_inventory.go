@@ -43,6 +43,10 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 	if snapshot.ObservedAt.IsZero() || snapshot.ObservedAt.After(received.Add(5*time.Second)) {
 		return fmt.Errorf("invalid container observation time")
 	}
+	if len(snapshot.UnlocatedHashboards) > 0 {
+		// Unlocated inventory cannot establish that absent placements are empty.
+		snapshot.TopologyComplete = false
+	}
 	normalizeContainerPowerTimes(snapshot, received)
 	orgID, err := q.LockHashboardOrganization(ctx, identifier)
 	if errors.Is(err, sql.ErrNoRows) {

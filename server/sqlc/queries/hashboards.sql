@@ -93,3 +93,34 @@ ON CONFLICT (hashboard_id) DO UPDATE SET installation_id=EXCLUDED.installation_i
  hashrate_hs=EXCLUDED.hashrate_hs, power_w=EXCLUDED.power_w, efficiency_jh=EXCLUDED.efficiency_jh, temperature_c=EXCLUDED.temperature_c, hashrail_ok=EXCLUDED.hashrail_ok, refclks_ok=EXCLUDED.refclks_ok, health=EXCLUDED.health
 WHERE (hashboard_latest_metrics.time, hashboard_latest_metrics.collected_at) < (EXCLUDED.time, EXCLUDED.collected_at)
  OR (hashboard_latest_metrics.installation_id <> EXCLUDED.installation_id AND hashboard_latest_metrics.collected_at < EXCLUDED.collected_at);
+
+-- name: GetHashboardControllerSite :one
+SELECT site_id FROM device WHERE id=sqlc.arg('device_id');
+
+-- name: GetHashboardObservations :many
+SELECT o.* FROM hashboard_observation o JOIN hashboard h ON h.id=o.hashboard_id
+WHERE h.org_id=sqlc.arg('org_id') AND o.hashboard_id=ANY(sqlc.arg('board_ids')::bigint[]);
+
+-- The org lock serializes these accepted claims, including boards with no installation.
+-- name: UpsertHashboardObservations :exec
+INSERT INTO hashboard_observation(hashboard_id, device_id, site_id, last_seen_at, source_at)
+SELECT x.board_id, sqlc.arg('device_id'), x.site_id, sqlc.arg('observed_at')::timestamptz, x.source_at
+FROM jsonb_to_recordset(sqlc.arg('boards')::jsonb) AS x(board_id bigint, site_id bigint, source_at timestamptz, occupancy text)
+WHERE x.occupancy='occupied' AND x.board_id>0
+ON CONFLICT (hashboard_id) DO UPDATE SET
+ device_id=EXCLUDED.device_id, site_id=EXCLUDED.site_id, last_seen_at=EXCLUDED.last_seen_at,
+ source_at=GREATEST(hashboard_observation.source_at,EXCLUDED.source_at),
+ attribution_since=CASE WHEN hashboard_observation.device_id<>EXCLUDED.device_id
+   OR hashboard_observation.site_id IS DISTINCT FROM EXCLUDED.site_id
+   OR hashboard_observation.released_at IS NOT NULL
+   THEN EXCLUDED.last_seen_at ELSE hashboard_observation.attribution_since END,
+ released_at=NULL
+WHERE hashboard_observation.last_seen_at<=EXCLUDED.last_seen_at;
+
+-- Explicit removal permits a prompt transfer, but cannot release a board still
+-- reported elsewhere in this same poll (including unlocated inventory).
+-- name: ReleaseHashboardObservations :exec
+UPDATE hashboard_observation SET released_at=sqlc.arg('observed_at')::timestamptz,
+ last_seen_at=sqlc.arg('observed_at')::timestamptz
+WHERE device_id=sqlc.arg('device_id') AND last_seen_at<sqlc.arg('observed_at')::timestamptz
+ AND hashboard_id IN (SELECT hashboard_id FROM hashboard_installation WHERE id=ANY(sqlc.arg('installation_ids')::bigint[]));

@@ -1,6 +1,6 @@
 import { Fragment, type ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
@@ -42,7 +42,10 @@ vi.mock("@/shared/hooks/useClickOutside", () => ({
 }));
 
 vi.mock("@/protoFleet/api/clients", () => ({
-  fleetManagementClient: { listMinerStateSnapshots: vi.fn() },
+  fleetManagementClient: {
+    listMinerStateSnapshots: vi.fn(),
+    deleteMiners: vi.fn().mockResolvedValue({ deletedCount: 1 }),
+  },
 }));
 
 vi.mock("@/protoFleet/api/useMinerCommand", () => ({
@@ -113,6 +116,7 @@ type EditBuildingCallback = (building: BuildingWithCounts) => void;
 
 const renderList = ({
   onEditBuilding,
+  onContainerUnpaired,
   containers,
   selectedIds,
   onSelectedIdsChange,
@@ -121,6 +125,7 @@ const renderList = ({
   routePath = "/fleet/buildings",
 }: {
   onEditBuilding?: EditBuildingCallback;
+  onContainerUnpaired?: (deviceIdentifier: string) => void;
   containers?: Container[];
   selectedIds?: string[];
   onSelectedIdsChange?: (ids: string[]) => void;
@@ -138,6 +143,7 @@ const renderList = ({
               <BuildingList
                 buildings={[makeBuilding(42, "Alpha", 7)]}
                 containers={containers}
+                onContainerUnpaired={onContainerUnpaired}
                 sites={[makeSite(7, "North")]}
                 onEditBuilding={onEditBuilding}
                 selectedIds={selectedIds}
@@ -253,11 +259,16 @@ describe("combined building and container rows", () => {
     const fetchStatus = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(JSON.stringify({ mining: true })));
-    renderList({ containers: [container] });
+    const onContainerUnpaired = vi.fn();
+    renderList({ containers: [container], onContainerUnpaired });
     fireEvent.click(screen.getByRole("button", { name: "Actions for A container" }));
     expect(await screen.findByRole("button", { name: "Sleep container" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Wake container" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Reboot miners" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Unpair" }));
+    expect(screen.getByTestId("container-unpair-dialog")).toHaveTextContent("Unpair A container?");
+    fireEvent.click(within(screen.getByTestId("container-unpair-dialog")).getByRole("button", { name: "Unpair" }));
+    await waitFor(() => expect(onContainerUnpaired).toHaveBeenCalledExactlyOnceWith(container.deviceIdentifier));
     expect(screen.getByTestId("probe-path")).toHaveTextContent("/fleet/buildings");
     fetchStatus.mockRestore();
   });

@@ -1615,6 +1615,17 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 		return &pb.DeleteMinersResponse{DeletedCount: 0}, nil
 	}
 
+	// Container menus unpair one controller at a time. Classify that target before
+	// deletion, without adding per-device lookups to bulk miner operations.
+	isContainer := false
+	if len(deviceIdentifiers) == 1 {
+		device, err := s.deviceStore.GetDeviceByDeviceIdentifier(ctx, deviceIdentifiers[0], info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+		isContainer = device.GetDeviceClass() == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
+	}
+
 	// Collect Proto miner objects BEFORE soft-delete (lookups filter deleted_at IS NULL)
 	miners := s.collectProtoMinersForUnpair(ctx, deviceIdentifiers)
 
@@ -1647,6 +1658,12 @@ func (s *Service) DeleteMiners(ctx context.Context, req *pb.DeleteMinersRequest)
 		UserID:         &info.ExternalUserID,
 		Username:       &info.Username,
 		OrganizationID: &info.OrganizationID,
+	}
+	if isContainer {
+		unpairEvent.Type = "unpair_container"
+		unpairEvent.Description = "Unpaired container"
+		scopeType := "container"
+		unpairEvent.ScopeType = &scopeType
 	}
 	unpairEvent.ApplySiteScope(siteScope)
 	s.logActivity(ctx, unpairEvent)

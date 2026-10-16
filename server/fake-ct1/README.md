@@ -156,9 +156,47 @@ docker run -p 8080:8080 -p 9095:9095 fake-ct1
 | `CT1_SLOTS_PER_MODULE`   | Hashboard slots per module                                                                                                                     | `3`               |
 | `CT1_ASICS_PER_BOARD`    | ASICs reported per board                                                                                                                       | `312`             |
 | `CT1_DEMO_MODULE_STATES` | Set to `true` for mixed failures in tank 2, a single-board fault in tank 3, and sleeping/offline modules in tank 4 (tanks 1, 5, and 6 healthy) | `true`            |
+| `CT1_UNLOCATED_BOARDS` | Number of existing boards to report under tank/module zero, or `all` for entirely unlocated inventory | `0` |
 | `CT1_SEED`               | Positive integer controlling deterministic variation                                                                                           | `1`               |
 
 Shrink the tree for fast tests, e.g. `CT1_TANKS=1 CT1_MODULES_PER_TANK=2`.
+
+### Unlocated inventory
+
+Set `CT1_UNLOCATED_BOARDS=6` to reproduce Frigate's `switch_ports` inventory
+group at `tank=0/module=0`, alongside the remaining mapped tanks. Set it to
+`all` for entirely unlocated inventory, or `0` (the default) for normal mapping:
+
+```bash
+# From the repository root, run the simulator with the ProtoOS dev client:
+CT1_UNLOCATED_BOARDS=6 just dev-ct1
+CT1_UNLOCATED_BOARDS=all just dev-ct1
+
+# Or run only the simulator:
+(cd server/fake-ct1 && CT1_UNLOCATED_BOARDS=6 GOWORK=off go run .)
+
+# Docker: read CT1_UNLOCATED_BOARDS from the repository-root .env and rebuild:
+docker compose --env-file .env -f server/docker-compose.yaml up -d --build fake-ct1
+```
+
+Compose must recreate the simulator to apply a changed environment setting;
+restarting Fleet API does not change the simulator's map. Fleet API and the
+Proto plugin must also be rebuilt after changing their telemetry contracts.
+
+The first N existing boards in tank/module/slot order move into the unlocated
+group in both REST and gRPC container maps. They retain MACs, serials, health,
+and mining state, report `HASHBOARD_SOURCE_INVENTORY`, and omit their physical
+board position and module/feed assignments. Their former mapped entries are
+omitted; no duplicate boards or replacement empty-slot claims are emitted.
+Modules and tanks with no remaining mapped slots are omitted too. The default
+six-board scenario leaves all six tanks and 282 mapped boards. Counts larger
+than the inventory select every board; negative or malformed values fail startup.
+
+This changes the reported map only. The underlying physical simulation, mining
+totals, plant telemetry, controls, and controller identity stay the same. The
+Fleet collector should retain mapped readings, report incomplete location
+coverage, and log the unlocated board count. Restart without the setting to
+restore normal mapping.
 
 The standalone defaults and `just dev-ct1` use the same topology and demo states:
 

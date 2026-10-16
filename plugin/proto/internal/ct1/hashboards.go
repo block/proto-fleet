@@ -223,6 +223,11 @@ func collectTopologyIdentities(wire MapResponse) topologyIdentities {
 				if selectorSerial != "" && selectorSerial != mac {
 					out.selectors[selectorSerial]++
 				}
+				// Unlocated inventory can retain a module identity, but does not
+				// claim a second physical location for that module.
+				if tank.ID == 0 {
+					continue
+				}
 				if id := strings.TrimSpace(b.ModuleID); id != "" {
 					if out.modules[id] == nil {
 						out.modules[id] = map[[2]int32]bool{}

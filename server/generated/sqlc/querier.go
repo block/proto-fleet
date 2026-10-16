@@ -812,8 +812,10 @@ type Querier interface {
 	// Batch query to get group refs for multiple devices at once (for miner list)
 	GetGroupRefsForDevices(ctx context.Context, arg GetGroupRefsForDevicesParams) ([]GetGroupRefsForDevicesRow, error)
 	GetHAProfileDatabaseIdentity(ctx context.Context) (GetHAProfileDatabaseIdentityRow, error)
+	GetHashboardControllerSite(ctx context.Context, deviceID int64) (sql.NullInt64, error)
 	GetHashboardInstallations(ctx context.Context, arg GetHashboardInstallationsParams) ([]GetHashboardInstallationsRow, error)
 	GetHashboardMetricWatermarks(ctx context.Context, boardIds []int64) ([]GetHashboardMetricWatermarksRow, error)
+	GetHashboardObservations(ctx context.Context, arg GetHashboardObservationsParams) ([]HashboardObservation, error)
 	// Resolve once per page; services bind the result to the cursor and pass that
 	// same value into the data query so crossing a cutoff mid-request cannot switch tiers.
 	GetHistoryResolution(ctx context.Context, arg GetHistoryResolutionParams) (int32, error)
@@ -1927,6 +1929,9 @@ type Querier interface {
 	// have changed while they were out of scope.
 	ReincludeFirmwareRolloutDevices(ctx context.Context, arg ReincludeFirmwareRolloutDevicesParams) error
 	ReleaseDeviceWriteFenceToHost(ctx context.Context, arg ReleaseDeviceWriteFenceToHostParams) (int64, error)
+	// Explicit removal permits a prompt transfer, but cannot release a board still
+	// reported elsewhere in this same poll (including unlocated inventory).
+	ReleaseHashboardObservations(ctx context.Context, arg ReleaseHashboardObservationsParams) error
 	ReleaseInventoryPart(ctx context.Context, arg ReleaseInventoryPartParams) (int64, error)
 	// Targets that never received a Curtail command do not need Uncurtail. Release
 	// them before the restore reset so graceful Stop does not enqueue commands
@@ -2445,6 +2450,8 @@ type Querier interface {
 	UpsertFleetNodeAuthChallenge(ctx context.Context, arg UpsertFleetNodeAuthChallengeParams) error
 	UpsertFleetNodeSession(ctx context.Context, arg UpsertFleetNodeSessionParams) error
 	UpsertHashboardInstallations(ctx context.Context, arg UpsertHashboardInstallationsParams) error
+	// The org lock serializes these accepted claims, including boards with no installation.
+	UpsertHashboardObservations(ctx context.Context, arg UpsertHashboardObservationsParams) error
 	UpsertHashboardSlots(ctx context.Context, arg UpsertHashboardSlotsParams) error
 	// Subscriber upserts source signal state on each successful message receive,
 	// after precedence/dedup processing. Singleton per source.
