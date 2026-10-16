@@ -232,13 +232,23 @@ Run the downloaded installer as the user who owns the staged files:
 bash install-fleet-node.sh --release-dir <dir> <version>
 ```
 
-`<dir>` must be absolute. `<dir>`, `<dir>/<version>`, and both files must be
-owned by root or the invoking user, must not be symlinks, and must not be
-writable by group or others. The installer copies the files into its private
-work directory, then applies the same checksum, archive, version, and
-repository checks and the same rollback as a download. Missing or invalid
-files fail without falling back to a download, and the repository rules above
-still apply: a fork's bundle needs that fork's packaged installer.
+`<dir>` must be an absolute path without symlinks. Every directory from `/`
+down to `<dir>/<version>`, and both files, must be owned by root or the
+invoking user and accessible to the invoking user; root-owned files need read
+access, for example `sudo chmod -R a+rX <dir>`. `<dir>`, `<dir>/<version>`,
+and both files must not be writable by group or others, and a directory above
+`<dir>` may be only if it is sticky, like `/tmp`. These rules keep accounts
+other than root and the invoking user from swapping the files between the
+checks and the copy.
+
+The installer copies the files into its private work directory, then applies
+the same checksum, archive, version, and repository checks and the same
+rollback as a download. Missing or invalid files fail without falling back to
+a download, and the repository rules above still apply: a fork's bundle needs
+that fork's packaged installer. The checksum and `release_repository` come
+from the staged files themselves, so they detect a damaged copy but not a
+replaced one. Move the files over a channel you trust, or compare the `.sha256`
+on the host with the one you downloaded.
 
 ## Resetting the SUPER_ADMIN password
 

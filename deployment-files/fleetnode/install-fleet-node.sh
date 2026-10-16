@@ -58,9 +58,12 @@ release-specific tag such as v1.2.3 or nightly-20260825-0123456789ab.
 --release-dir installs operator-staged files instead of downloading them:
   DIR/VERSION/fleetnode-VERSION-linux-ARCH.tar.gz
   DIR/VERSION/fleetnode-VERSION-linux-ARCH.tar.gz.sha256
-DIR must be absolute. DIR, DIR/VERSION, and both files must be owned by root
-or the invoking user, must not be symlinks, and must not be writable by group
-or others. Missing or invalid files fail without falling back to a download.
+DIR must be an absolute path without symlinks. Every directory from / down to
+DIR/VERSION, and both files, must be owned by root or the invoking user and
+accessible to the invoking user. DIR, DIR/VERSION, and both files must not be
+writable by group or others; a directory above DIR may be only if it is
+sticky, like /tmp. Missing or invalid files fail without falling back to a
+download.
 
 uninstall removes the program and systemd unit while preserving configuration,
 state, and the service account.
@@ -523,7 +526,7 @@ if as_root test -e "$source_config" || as_root test -L "$source_config"; then
   fi
 fi
 staged_path_owner_and_mode() {
-  stat -c '%u %a' -- "$1" 2>/dev/null || stat -f '%u %Lp' -- "$1"
+  stat -c '%u %a' -- "$1" 2>/dev/null || stat -f '%u %Mp%Lp' -- "$1"
 }
 
 validate_staged_release_path() {
@@ -532,7 +535,7 @@ validate_staged_release_path() {
     echo "staged release $kind must not be a symlink: $path" >&2
     return 1
   fi
-  if [[ "$kind" == directory && ! -d "$path" ]] || [[ "$kind" == file && ! -f "$path" ]]; then
+  if [[ "$kind" == file && ! -f "$path" ]] || [[ "$kind" != file && ! -d "$path" ]]; then
     echo "staged release $kind not found: $path" >&2
     return 1
   fi
@@ -546,15 +549,42 @@ validate_staged_release_path() {
     echo "staged release $kind must be owned by root or the invoking user: $path" >&2
     return 1
   fi
-  if (( 8#$mode & 8#022 )); then
+  if [[ "$kind" == "parent directory" ]]; then
+    if (( (8#$mode & 8#022) && !(8#$mode & 8#1000) )); then
+      echo "staged release parent directory must not be writable by group or others unless it is sticky: $path" >&2
+      return 1
+    fi
+  elif (( 8#$mode & 8#022 )); then
     echo "staged release $kind must not be writable by group or others: $path" >&2
     return 1
   fi
+  if [[ "$kind" == file && ! -r "$path" ]] || [[ "$kind" != file && ! -x "$path" ]]; then
+    echo "staged release $kind is not accessible to the invoking user: $path" >&2
+    return 1
+  fi
+}
+
+# Root installs whatever is copied below, so no account other than root or the
+# invoking user may be able to rename any directory on the path to the staged
+# files. A shared sticky directory such as /tmp is safe because only an entry's
+# owner can rename that entry.
+validate_staged_release_parents() {
+  local remaining="${RELEASE_DIR#/}" parent="" component
+  [[ "$RELEASE_DIR" != / ]] || return 0
+  validate_staged_release_path / "parent directory" || return 1
+  while [[ "$remaining" == */* ]]; do
+    component="${remaining%%/*}"
+    remaining="${remaining#*/}"
+    [[ -n "$component" ]] || continue
+    parent="$parent/$component"
+    validate_staged_release_path "$parent" "parent directory" || return 1
+  done
 }
 
 if [[ -n "$RELEASE_DIR" ]]; then
   staged_release_dir="${RELEASE_DIR%/}/$VERSION"
   echo "Installing staged Fleet Node $VERSION for linux/$ARCH from $staged_release_dir..."
+  validate_staged_release_parents
   validate_staged_release_path "$RELEASE_DIR" directory
   validate_staged_release_path "$staged_release_dir" directory
   for name in "$ARCHIVE_NAME" "$ARCHIVE_NAME.sha256"; do

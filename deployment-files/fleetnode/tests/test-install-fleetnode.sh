@@ -738,7 +738,8 @@ printf '%s\n' "\$*" >> "$CURL_LOG"
 exit 1
 EOF
 chmod 0755 "$TEST_DIR/offline-bin/curl"
-STAGED_DIR="$(cd "$TEST_DIR" && pwd -P)/staged"
+STAGED_PARENT="$(cd "$TEST_DIR" && pwd -P)"
+STAGED_DIR="$STAGED_PARENT/staged"
 mkdir -m 0755 "$STAGED_DIR"
 for version in v1.0.0 v1.1.0 v1.3.0 v2.0.0; do
   cp -R "$ASSETS_DIR/$version" "$STAGED_DIR/$version"
@@ -794,21 +795,95 @@ assert_no_service_change "group-writable staged checksum"
 chmod g-w "$STAGED_DIR/v1.3.0/fleetnode-v1.3.0-linux-amd64.tar.gz.sha256"
 
 chmod o+w "$STAGED_DIR/v1.3.0"
+: > "$SYSTEMCTL_LOG"
 if run_staged_installer v1.3.0 > "$TEST_DIR/staged-writable-dir.out" 2>&1; then
   fail "installer accepted a world-writable staged version directory"
 fi
 assert_file_contains "$TEST_DIR/staged-writable-dir.out" "staged release directory must not be writable by group or others: $STAGED_DIR/v1.3.0"
+assert_no_service_change "world-writable staged version directory"
 chmod o-w "$STAGED_DIR/v1.3.0"
 
-ln -s "$STAGED_DIR" "$TEST_DIR/staged-link"
-if STAGED_RELEASE_DIR="$TEST_DIR/staged-link/" INSTALLER_PATH_PREFIX="$TEST_DIR/offline-bin:" \
+ln -s "$STAGED_DIR" "$STAGED_PARENT/staged-link"
+: > "$SYSTEMCTL_LOG"
+if STAGED_RELEASE_DIR="$STAGED_PARENT/staged-link/" INSTALLER_PATH_PREFIX="$TEST_DIR/offline-bin:" \
     run_installer v1.3.0 > "$TEST_DIR/staged-symlink-dir.out" 2>&1; then
   fail "installer accepted a symlinked release directory"
 fi
-assert_file_contains "$TEST_DIR/staged-symlink-dir.out" "staged release directory must not be a symlink: $TEST_DIR/staged-link"
+assert_file_contains "$TEST_DIR/staged-symlink-dir.out" "staged release directory must not be a symlink: $STAGED_PARENT/staged-link"
+assert_no_service_change "symlinked release directory"
 
-for invalid_dir in relative/releases "$STAGED_DIR/./v1.3.0/.." "$STAGED_DIR/../staged"; do
-  if STAGED_RELEASE_DIR="$invalid_dir" run_installer v1.3.0 > "$TEST_DIR/staged-invalid-dir.out" 2>&1; then
+ln -s "$STAGED_PARENT" "$STAGED_PARENT/parent-link"
+: > "$SYSTEMCTL_LOG"
+if STAGED_RELEASE_DIR="$STAGED_PARENT/parent-link/staged" INSTALLER_PATH_PREFIX="$TEST_DIR/offline-bin:" \
+    run_installer v1.3.0 > "$TEST_DIR/staged-symlink-parent.out" 2>&1; then
+  fail "installer accepted a release directory below a symlinked parent"
+fi
+assert_file_contains "$TEST_DIR/staged-symlink-parent.out" "staged release parent directory must not be a symlink: $STAGED_PARENT/parent-link"
+assert_no_service_change "symlinked staged parent directory"
+
+SHARED_PARENT="$STAGED_PARENT/shared"
+mkdir -m 0755 "$SHARED_PARENT" "$SHARED_PARENT/releases"
+cp -R "$STAGED_DIR/v1.3.0" "$SHARED_PARENT/releases/v1.3.0"
+chmod -R go-w "$SHARED_PARENT/releases"
+chmod 0777 "$SHARED_PARENT"
+: > "$SYSTEMCTL_LOG"
+if STAGED_RELEASE_DIR="$SHARED_PARENT/releases" INSTALLER_PATH_PREFIX="$TEST_DIR/offline-bin:" \
+    run_installer v1.3.0 > "$TEST_DIR/staged-shared-parent.out" 2>&1; then
+  fail "installer accepted a release directory below a non-sticky shared parent"
+fi
+assert_file_contains "$TEST_DIR/staged-shared-parent.out" "staged release parent directory must not be writable by group or others unless it is sticky: $SHARED_PARENT"
+assert_no_service_change "non-sticky shared staged parent directory"
+chmod 1777 "$SHARED_PARENT"
+if STAGED_RELEASE_DIR="$SHARED_PARENT/releases" INSTALLER_PATH_PREFIX="$TEST_DIR/offline-bin:" \
+    run_installer v1.2.0 > "$TEST_DIR/staged-sticky-parent.out" 2>&1; then
+  fail "installer accepted a release that was not staged below a sticky parent"
+fi
+assert_file_contains "$TEST_DIR/staged-sticky-parent.out" "staged release directory not found: $SHARED_PARENT/releases/v1.2.0"
+
+FOREIGN_OWNED_FILE="$STAGED_DIR/v1.3.0/fleetnode-v1.3.0-linux-amd64.tar.gz.sha256"
+mkdir -p "$TEST_DIR/foreign-owner-bin"
+cat > "$TEST_DIR/foreign-owner-bin/stat" <<EOF
+#!/usr/bin/env bash
+if [[ "\${!#}" == "$FOREIGN_OWNED_FILE" ]]; then
+  echo "$((EUID + 1)) 644"
+  exit 0
+fi
+exec "$(command -v stat)" "\$@"
+EOF
+chmod 0755 "$TEST_DIR/foreign-owner-bin/stat"
+: > "$SYSTEMCTL_LOG"
+if STAGED_RELEASE_DIR="$STAGED_DIR" INSTALLER_PATH_PREFIX="$TEST_DIR/foreign-owner-bin:$TEST_DIR/offline-bin:" \
+    run_installer v1.3.0 > "$TEST_DIR/staged-foreign-owner.out" 2>&1; then
+  fail "installer accepted a staged checksum owned by another user"
+fi
+assert_file_contains "$TEST_DIR/staged-foreign-owner.out" "staged release file must be owned by root or the invoking user: $FOREIGN_OWNED_FILE"
+assert_no_service_change "staged checksum owned by another user"
+
+# Root bypasses read and search permission bits, so only a non-root run can
+# exercise these refusals.
+if [[ "$EUID" != "0" ]]; then
+  chmod 0600 "$STAGED_DIR/v1.3.0"
+  : > "$SYSTEMCTL_LOG"
+  if run_staged_installer v1.3.0 > "$TEST_DIR/staged-unsearchable-dir.out" 2>&1; then
+    fail "installer accepted a staged version directory it cannot search"
+  fi
+  assert_file_contains "$TEST_DIR/staged-unsearchable-dir.out" "staged release directory is not accessible to the invoking user: $STAGED_DIR/v1.3.0"
+  assert_no_service_change "unsearchable staged version directory"
+  chmod 0755 "$STAGED_DIR/v1.3.0"
+
+  chmod 0200 "$STAGED_DIR/v1.3.0/fleetnode-v1.3.0-linux-amd64.tar.gz"
+  : > "$SYSTEMCTL_LOG"
+  if run_staged_installer v1.3.0 > "$TEST_DIR/staged-unreadable-file.out" 2>&1; then
+    fail "installer accepted a staged archive it cannot read"
+  fi
+  assert_file_contains "$TEST_DIR/staged-unreadable-file.out" "staged release file is not accessible to the invoking user: $STAGED_DIR/v1.3.0/fleetnode-v1.3.0-linux-amd64.tar.gz"
+  assert_no_service_change "unreadable staged archive"
+  chmod 0644 "$STAGED_DIR/v1.3.0/fleetnode-v1.3.0-linux-amd64.tar.gz"
+fi
+
+for invalid_dir in relative/releases "$STAGED_DIR/." "$STAGED_PARENT/staged-link/." "$STAGED_DIR/../staged"; do
+  if STAGED_RELEASE_DIR="$invalid_dir" INSTALLER_PATH_PREFIX="$TEST_DIR/offline-bin:" \
+      run_installer v1.3.0 > "$TEST_DIR/staged-invalid-dir.out" 2>&1; then
     fail "installer accepted release directory $invalid_dir"
   fi
   assert_file_contains "$TEST_DIR/staged-invalid-dir.out" "release directory must be an absolute path without . or .. components"
@@ -835,10 +910,12 @@ fi
 assert_file_contains "$TEST_DIR/staged-bad-checksum.out" "checksum sidecar is not bound"
 assert_no_service_change "staged checksum mismatch"
 
+: > "$SYSTEMCTL_LOG"
 if run_staged_installer v2.0.0 > "$TEST_DIR/staged-wrong-repository.out" 2>&1; then
   fail "installer accepted a staged bundle from another repository"
 fi
 assert_file_contains "$TEST_DIR/staged-wrong-repository.out" "release bundle repository conflicts with selected source"
+assert_no_service_change "staged bundle from another repository"
 assert_file_contains "$ROOT_PREFIX/opt/fleetnode/version.txt" "version: v1.1.0"
 [[ ! -s "$CURL_LOG" ]] || fail "staged installs contacted the network: $(cat "$CURL_LOG")"
 
