@@ -22,8 +22,10 @@ const Auth = () => {
     <div className="flex h-screen w-full flex-col bg-surface-base">
       <div className="flex flex-grow items-center-safe justify-center-safe">
         <div className="flex w-full max-w-100 flex-col gap-6 p-6 phone:h-full">
-          <LoginForm onSuccess={handleLoginSuccess} />
-          <Button variant="textOnly" text="Join an account" to="/account-invitation" />
+          <LoginForm
+            onSuccess={handleLoginSuccess}
+            secondaryAction={<Button variant="textOnly" text="Join an account" to="/account-invitation" />}
+          />
         </div>
       </div>
       <Footer />

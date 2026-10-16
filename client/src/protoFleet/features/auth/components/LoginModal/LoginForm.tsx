@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 
 import { create } from "@bufbuild/protobuf";
@@ -18,10 +18,11 @@ import { deepClone } from "@/shared/utils/utility";
 
 interface LoginFormProps {
   onDismiss?: () => void;
+  secondaryAction?: ReactNode;
   onSuccess: (requiresPasswordChange: boolean) => void;
 }
 
-const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
+const LoginForm = ({ onDismiss, onSuccess, secondaryAction }: LoginFormProps) => {
   const [values, setValues] = useState<Values>(deepClone(initValues));
   const [errors, setErrors] = useState<Values>(deepClone(initValues));
   const [apiError, setApiError] = useState<string | null>(null);
@@ -136,6 +137,7 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
             ].filter((button) => !!button.text) as ButtonProps[]
           }
         />
+        {secondaryAction}
       </div>
       <div className="flex flex-col gap-2">
         <div className="text-300 text-text-primary-70">Powerful mining tools. Built for decentralization.</div>
