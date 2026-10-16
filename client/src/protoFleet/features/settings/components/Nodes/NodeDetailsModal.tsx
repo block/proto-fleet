@@ -47,9 +47,6 @@ const NodeDetailsModal = ({ node, canFindMiners, onDismiss, onFindMiners }: Node
         <DetailField label="Status">
           <NodeStatusBadge node={node} />
         </DetailField>
-        <DetailField label="Commands">
-          {node.controlStreamConnected ? "Connection established" : "Connection unavailable"}
-        </DetailField>
         <DetailField label="Last heartbeat">
           <span title={node.lastSeenAt?.toLocaleString()}>
             {node.lastSeenAt ? getRelativeTimeFromEpoch(node.lastSeenAt.getTime()) : "Never"}
