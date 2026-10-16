@@ -1,9 +1,20 @@
 package main
 
-import (
-	"net"
-	"slices"
+import "net"
+
+// These mirror the UploadHeartbeatRequest validation rules.
+const (
+	maxReportedIPAddresses = 64
+	maxReportedVersionLen  = 128
 )
+
+func reportedVersion() string {
+	runes := []rune(version)
+	if len(runes) > maxReportedVersionLen {
+		runes = runes[:maxReportedVersionLen]
+	}
+	return string(runes)
+}
 
 func localIPAddresses() []string {
 	interfaces, err := net.Interfaces()
@@ -18,7 +29,7 @@ func localIPAddresses() []string {
 func activeIPAddresses(interfaces []net.Interface, getAddresses func(net.Interface) ([]net.Addr, error)) []string {
 	var addresses []net.Addr
 	for _, iface := range interfaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagRunning == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
 		current, err := getAddresses(iface)
@@ -32,17 +43,21 @@ func activeIPAddresses(interfaces []net.Interface, getAddresses func(net.Interfa
 
 func usableIPAddresses(addresses []net.Addr) []string {
 	ips := make([]string, 0, len(addresses))
+	seen := make(map[string]struct{}, len(addresses))
 	for _, address := range addresses {
 		ip, _, err := net.ParseCIDR(address.String())
 		if err != nil || !ip.IsGlobalUnicast() {
 			continue
 		}
-		ips = append(ips, ip.String())
+		addr := ip.String()
+		if _, dup := seen[addr]; dup {
+			continue
+		}
+		seen[addr] = struct{}{}
+		ips = append(ips, addr)
 	}
-	slices.Sort(ips)
-	ips = slices.Compact(ips)
-	if len(ips) > 64 {
-		ips = ips[:64]
+	if len(ips) > maxReportedIPAddresses {
+		ips = ips[:maxReportedIPAddresses]
 	}
 	return ips
 }
