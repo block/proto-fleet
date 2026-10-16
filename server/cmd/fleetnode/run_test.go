@@ -25,6 +25,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
+	"github.com/block/proto-fleet/server/internal/releaseinfo"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -218,6 +219,28 @@ func TestRunCmd_NotifiesReadyAfterFirstHeartbeatAttempt(t *testing.T) {
 	assert.True(t, notified)
 	calls, _ := stub.snapshot()
 	assert.Equal(t, 1, calls, "readiness must follow the first heartbeat attempt")
+}
+
+func TestRunCmd_StartupLogReportsBuildIdentity(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	freshState(t, dir, time.Now().Add(24*time.Hour))
+
+	parent, cancel := context.WithCancel(context.Background())
+	stub := &stubGatewayClient{}
+	cmd := &RunCmd{
+		parentCtx:     parent,
+		clientFactory: func(_ string, _ func() string) (gatewayClient, error) { return stub, nil },
+		notifyReady: func() error {
+			cancel()
+			return nil
+		},
+	}
+	var logs bytes.Buffer
+
+	require.NoError(t, cmd.run(&Context{StateDir: dir}, &logs))
+	assert.Contains(t, logs.String(), `msg="daemon started" version=`+version+" release_repository="+releaseinfo.Repository+" ")
 }
 
 func TestRunCmd_TransientInitialRefreshFailureStillBecomesReady(t *testing.T) {

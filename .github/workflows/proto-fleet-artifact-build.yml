@@ -306,7 +306,16 @@ jobs:
       - name: Build Fleet Node and Go plugins
         run: |
           go work sync
-          go build -v -o server/fleetnode ./server/cmd/fleetnode
+          go build -v -ldflags "-X main.version=$VERSION -X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY" -o server/fleetnode ./server/cmd/fleetnode
+          fleetnode_version=$(server/fleetnode --version)
+          if [[ "$fleetnode_version" != "$VERSION" ]]; then
+            echo "::error::Fleet Node reports version '$fleetnode_version', expected '$VERSION'"
+            exit 1
+          fi
+          if [[ "$(server/fleetnode --print-release-repository)" != "$RELEASE_REPOSITORY" ]]; then
+            echo '::error::Fleet Node publishing repository was not embedded correctly.'
+            exit 1
+          fi
           go build -o server/proto-plugin ./plugin/proto
           go build -o server/antminer-plugin ./plugin/antminer
 
