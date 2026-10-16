@@ -238,14 +238,14 @@ const NodesPage = () => {
           <span className="break-all" title={node.ipAddresses.join(", ")}>
             {node.ipAddresses.length
               ? `${node.ipAddresses[0]}${node.ipAddresses.length > 1 ? ` +${node.ipAddresses.length - 1}` : ""}`
-              : "Unavailable"}
+              : "—"}
           </span>
         ),
         width: "w-44",
         allowWrap: true,
       },
       version: {
-        component: (node: FleetNodeItem) => <span className="break-all">{node.version || "Unavailable"}</span>,
+        component: (node: FleetNodeItem) => <span className="break-all">{node.version || "—"}</span>,
         width: "w-44",
         allowWrap: true,
       },

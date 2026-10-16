@@ -214,7 +214,7 @@ describe("NodesPage", () => {
   it.each([
     { ipAddresses: ["192.168.1.7"], expected: "192.168.1.7", version: "v0.5.1-test" },
     { ipAddresses: ["192.168.1.7", "fd00::7"], expected: "192.168.1.7 +1", version: "v0.5.1-test" },
-    { ipAddresses: [], expected: "Unavailable", version: "" },
+    { ipAddresses: [], expected: "—", version: "" },
   ])("renders host metadata for $expected", async ({ ipAddresses, expected, version }) => {
     listFleetNodesMock.mockResolvedValue([{ ...confirmedNode, ipAddresses, version }]);
 
@@ -227,7 +227,7 @@ describe("NodesPage", () => {
       expect(screen.getByTitle(ipAddresses.join(", "))).toHaveTextContent(expected);
       expect(screen.getByText(version)).toBeVisible();
     } else {
-      expect(screen.getAllByText("Unavailable")).toHaveLength(2);
+      expect(screen.getAllByText("—")).toHaveLength(2);
     }
   });
 

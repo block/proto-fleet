@@ -62,7 +62,7 @@ describe("NodeDetailsModal", () => {
 
   it("explicitly marks missing metadata and registration time", async () => {
     show({ ipAddresses: [], version: "", enrolledBy: "", createdAt: null, lastSeenAt: null });
-    expect(screen.getAllByText("Unavailable")).toHaveLength(4);
+    expect(screen.getAllByText("—")).toHaveLength(4);
     await waitFor(() => expect(screen.getByText("Never")).toBeVisible());
   });
 
@@ -101,7 +101,7 @@ describe("NodeDetailsModal", () => {
   it("marks an empty identity fingerprint as unavailable without a copy button", async () => {
     show({ identityFingerprint: "" });
     fireEvent.click(screen.getByText("Technical details"));
-    await waitFor(() => expect(screen.getByText("Unavailable")).toBeVisible());
+    await waitFor(() => expect(screen.getByText("—")).toBeVisible());
     expect(screen.queryByRole("button", { name: "Copy identity fingerprint" })).not.toBeInTheDocument();
   });
 });

@@ -24,7 +24,7 @@ const DetailField = ({ label, children }: { label: string; children: ReactNode }
 
 const CopyableIdentity = ({ label, value }: { label: string; value: string }) => (
   <span className="flex items-center justify-end gap-2 phone:justify-start">
-    <code className="min-w-0 font-mono text-200 break-all">{value || "Unavailable"}</code>
+    <code className="min-w-0 font-mono text-200 break-all">{value || "—"}</code>
     {value ? (
       <Button
         variant={variants.ghost}
@@ -60,13 +60,13 @@ const NodeDetailsModal = ({ node, canFindMiners, onDismiss, onFindMiners }: Node
                   {ip}
                 </div>
               ))
-            : "Unavailable"}
+            : "—"}
         </DetailField>
         <DetailField label="Version">
-          <span className="break-all">{node.version || "Unavailable"}</span>
+          <span className="break-all">{node.version || "—"}</span>
         </DetailField>
-        <DetailField label="Enrolled by">{node.enrolledBy || "Unavailable"}</DetailField>
-        <DetailField label="Registered">{node.createdAt?.toLocaleString() ?? "Unavailable"}</DetailField>
+        <DetailField label="Enrolled by">{node.enrolledBy || "—"}</DetailField>
+        <DetailField label="Registered">{node.createdAt?.toLocaleString() ?? "—"}</DetailField>
       </dl>
       <details className="rounded-xl border border-border-5 bg-surface-base p-4">
         <summary className="cursor-pointer text-emphasis-300 text-text-primary">Technical details</summary>
