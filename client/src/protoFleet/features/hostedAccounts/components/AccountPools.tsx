@@ -64,8 +64,10 @@ const AccountPools = () => {
           <div className="rounded-xl border border-border-10 p-6">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-heading-200 text-text-primary">Incoming miners</h2>
-                <p className="mt-1 text-300 text-text-primary-70">Pools for newly assigned miners.</p>
+                <h2 className="text-heading-200 text-text-primary">Stored pool profile</h2>
+                <p className="mt-1 text-300 text-text-primary-70">
+                  Save a pool configuration revision for this account.
+                </p>
               </div>
               {change ? (
                 <Button
@@ -92,7 +94,9 @@ const AccountPools = () => {
                 <span className="text-text-primary-50">Not selected</span>
               )}
             </Row>
-            <p className="text-200 text-text-primary-50">Existing miner pools stay unchanged.</p>
+            <p className="text-200 text-text-primary-50">
+              Saving a profile does not apply pool settings to miners or modules, including newly assigned assets.
+            </p>
           </div>
           <List<PoolRevision, string, "name" | "number" | "primary" | "backups">
             items={query.data.configurations}
@@ -207,14 +211,14 @@ const AccountPools = () => {
           <p>Archive {archiving.name}? Existing revisions remain readable. Miner pools are unchanged.</p>
           {query.data?.profile?.poolId === archiving.poolId ? (
             <p className="text-text-warning">
-              This configuration is selected for incoming miners. Change or clear the selection before archiving.
+              This configuration is selected as the stored pool profile. Change or clear the selection before archiving.
             </p>
           ) : null}
         </ActionModal>
       ) : null}
       {selecting && change ? (
         <ActionModal
-          title="Incoming pool configuration"
+          title="Stored pool profile"
           confirm="Confirm selection"
           valid={password ? Boolean(clear || revisionId) : false}
           onDismiss={() => {
@@ -256,7 +260,10 @@ const AccountPools = () => {
             autoComplete="current-password"
             maxLength={72}
           />
-          <p className="text-200 text-text-primary-50">This changes future assignments, not existing miner pools.</p>
+          <p className="text-200 text-text-primary-50">
+            This changes the stored profile. It does not apply pool settings to existing or newly assigned miners or
+            modules.
+          </p>
         </ActionModal>
       ) : null}
     </div>

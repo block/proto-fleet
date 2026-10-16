@@ -117,6 +117,13 @@ describe("hosted account pages", () => {
     const { value, client } = scope(1n);
     mount(<AccountPools />, value);
     expect(await screen.findByRole("button", { name: "Original destination · revision 3" })).toBeInTheDocument();
+    expect(screen.getByText("Stored pool profile")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Saving a profile does not apply pool settings to miners or modules, including newly assigned assets.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Pools for newly assigned miners.")).not.toBeInTheDocument();
     expect(client.getPoolRevision).toHaveBeenCalledWith(
       { accountId, poolId, revisionId: oldRevisionId },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
@@ -130,7 +137,12 @@ describe("hosted account pages", () => {
       { value, client } = scope(7n);
     mount(<AccountPools />, value);
     await user.click(await screen.findByRole("button", { name: "Change selection" }));
-    const dialog = screen.getByRole("dialog", { name: "Incoming pool configuration" });
+    const dialog = screen.getByRole("dialog", { name: "Stored pool profile" });
+    expect(
+      within(dialog).getByText(
+        "This changes the stored profile. It does not apply pool settings to existing or newly assigned miners or modules.",
+      ),
+    ).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Revision" }));
     await user.click(await screen.findByRole("option", { name: "New destination · revision 4" }));
     await user.type(within(dialog).getByLabelText("Your Fleet password"), "test-current-password");

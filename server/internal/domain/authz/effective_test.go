@@ -356,3 +356,17 @@ func TestEffective_IsSubsumedBy(t *testing.T) {
 	require.False(t, adminOrg.IsSubsumedBy(callerOrgFullPlusNarrowSite7),
 		"caller's site-7 narrowing strips miner:reboot, but the org-scope ADMIN target's miner:reboot authority remains live at site 7 — caller must not subsume target")
 }
+
+func TestEffective_HasAnyPermissionForWorkspaceEntry(t *testing.T) {
+	var missing *authz.EffectivePermissions
+	require.False(t, missing.HasAnyPermission())
+	require.False(t, authz.NewEffectivePermissions(nil).HasAnyPermission())
+	require.False(t, authz.NewEffectivePermissions([]authz.Assignment{siteScope(1)}).HasAnyPermission())
+	require.True(t, authz.NewEffectivePermissions([]authz.Assignment{orgScope(authz.PermFleetRead)}).HasAnyPermission())
+	eff := authz.NewEffectivePermissions([]authz.Assignment{siteScope(1, authz.PermMinerRead)})
+	require.True(t, eff.HasAnyPermission())
+	require.Empty(t, eff.Keys(), "workspace entry never broadens the default/org permission projection")
+	require.False(t, eff.Has(authz.PermMinerRead, orgResource()))
+	require.False(t, eff.Has(authz.PermMinerRead, site(2)))
+	require.True(t, eff.Has(authz.PermMinerRead, site(1)))
+}

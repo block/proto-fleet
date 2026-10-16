@@ -75,7 +75,7 @@ func (h *Handler) ListAccounts(ctx context.Context, _ *connect.Request[pb.ListAc
 	if err != nil {
 		return nil, err
 	}
-	response := &pb.ListAccountsResponse{HostAccess: len(permissions.Keys()) > 0}
+	response := &pb.ListAccountsResponse{HostAccess: permissions.HasAnyPermission()}
 	for _, row := range rows {
 		response.Accounts = append(response.Accounts, accountDTO(row))
 	}

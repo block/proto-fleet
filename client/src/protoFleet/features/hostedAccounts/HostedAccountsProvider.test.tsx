@@ -107,6 +107,65 @@ describe("account directory and host workspace isolation", () => {
     expect(screen.getByText("Host workspace")).toBeInTheDocument();
     await waitFor(() => expect(hostedAccountsClient.listAccounts).toHaveBeenCalled());
   });
+  it("mounts Fleet for a site-only operator without org-scoped permissions or account memberships", async () => {
+    vi.spyOn(hostedAccountsClient, "listAccounts").mockResolvedValue(
+      create(ListAccountsResponseSchema, {
+        accounts: [],
+        hostAccess: true,
+      }),
+    );
+    login(31);
+    render(
+      <MemoryRouter initialEntries={["/sites/site-one"]}>
+        <HostedAccountsProvider>
+          <Routes>
+            <Route
+              path="/sites/site-one"
+              element={
+                <HostWorkspaceGate>
+                  <div>Authorized site details</div>
+                </HostWorkspaceGate>
+              }
+            />
+            <Route path="/accounts" element={<div>Account directory</div>} />
+          </Routes>
+        </HostedAccountsProvider>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("Authorized site details")).toBeInTheDocument();
+    expect(useFleetStore.getState().auth.permissions).toEqual([]);
+    expect(screen.queryByText("Account directory")).not.toBeInTheDocument();
+  });
+  it("keeps a login without Fleet authority out of host providers", async () => {
+    vi.spyOn(hostedAccountsClient, "listAccounts").mockResolvedValue(
+      create(ListAccountsResponseSchema, { accounts: [], hostAccess: false }),
+    );
+    const mountHost = vi.fn();
+    const HostPage = () => {
+      mountHost();
+      return <div>Host data</div>;
+    };
+    login(32);
+    render(
+      <MemoryRouter initialEntries={["/dashboard"]}>
+        <HostedAccountsProvider>
+          <Routes>
+            <Route
+              path="/dashboard"
+              element={
+                <HostWorkspaceGate>
+                  <HostPage />
+                </HostWorkspaceGate>
+              }
+            />
+            <Route path="/accounts" element={<div>Account directory</div>} />
+          </Routes>
+        </HostedAccountsProvider>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("Account directory")).toBeInTheDocument();
+    expect(mountHost).not.toHaveBeenCalled();
+  });
   it("retains this login's directory on a transient focus failure", async () => {
     vi.spyOn(hostedAccountsClient, "listAccounts")
       .mockResolvedValueOnce(

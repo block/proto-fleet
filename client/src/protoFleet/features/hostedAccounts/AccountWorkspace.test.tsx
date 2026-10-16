@@ -303,13 +303,13 @@ describe("real account workspace routing", () => {
     const user = userEvent.setup();
     mount(account, "pools");
     await user.click(await screen.findByRole("button", { name: "Change selection" }));
-    const dialog = screen.getByRole("dialog", { name: "Incoming pool configuration" });
+    const dialog = screen.getByRole("dialog", { name: "Stored pool profile" });
     await user.click(within(dialog).getByRole("checkbox", { name: /Clear/ }));
     await user.type(within(dialog).getByLabelText("Your Fleet password"), "incorrect-test-password");
     await user.click(within(dialog).getByRole("button", { name: "Confirm selection" }));
     expect(await screen.findByText(/Incorrect confirmation password/)).toBeInTheDocument();
     await waitFor(() => expect(calls.filter((c) => c.method === "GetAccount").length).toBeGreaterThanOrEqual(2));
-    expect(screen.getByRole("dialog", { name: "Incoming pool configuration" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Stored pool profile" })).toBeInTheDocument();
     expect(screen.getByLabelText("Your Fleet password")).toHaveValue("incorrect-test-password");
   });
   it("discards forms and secrets when the login changes on the same account route", async () => {
