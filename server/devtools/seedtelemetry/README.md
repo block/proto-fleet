@@ -74,12 +74,23 @@ The tool connects to PostgreSQL/TimescaleDB using these environment variables (o
 | `DB_PASSWORD` | `--db-password` | `fleet` |
 | `DB_NAME` | `--db-name` | `fleet` |
 
-After insertion, the following continuous aggregates are refreshed:
+Seeding and cleanup coordinate with telemetry maintenance on a dedicated database
+connection. The command briefly blocks raw `device_metrics` writers while it
+replaces data and rebuilds summaries; use it on development databases. It preserves
+paused maintenance schedules.
 
-- `device_metrics_hourly`
-- `device_metrics_daily`
-- `device_status_hourly`
-- `device_status_daily`
+The default ten-day backfill works on a fresh database even after maintenance
+initializes coverage. On an established source, the command uses complete retained
+UTC days and logs any omitted older samples. It refuses to delete existing seed
+rows outside that recoverable range, preserving expired/partial history.
+Replacement deletes and insert batches are atomic: a failed insert preserves the
+previous seed data.
+
+The command invalidates coverage before changing raw and rebuilds all six dependent
+summary tiers through the normal bounded recovery procedure: miner metrics,
+miner status, and container measurements, each hourly/daily. Cleanup uses the same
+coordination. If rebuilding fails, raw remains pinned for recovery after the error
+is repaired. See [telemetry summary recovery](../../../docs/development/telemetry-summary-recovery.md).
 
 ## Generated Data
 

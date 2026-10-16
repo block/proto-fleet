@@ -1022,6 +1022,8 @@ type Querier interface {
 	// 'canceled' (operator canceled the remaining updates) or 'skipped' (a caller
 	// settled them without updating, with its note).
 	HaltFirmwareRolloutDevices(ctx context.Context, arg HaltFirmwareRolloutDevicesParams) error
+	HasBlockedTelemetrySeedRecovery(ctx context.Context) (bool, error)
+	HasDueTelemetrySeedRecovery(ctx context.Context) (bool, error)
 	HasHostedAccountHostAuthority(ctx context.Context, arg HasHostedAccountHostAuthorityParams) (bool, error)
 	HasPendingContainerControl(ctx context.Context, deviceID int64) (bool, error)
 	HasPendingScopedMining(ctx context.Context, deviceID int64) (bool, error)
@@ -1813,6 +1815,7 @@ type Querier interface {
 	// between the existence check and the cascade write. Returns the
 	// site id when alive; sql.ErrNoRows when soft-deleted or missing.
 	LockSiteForWrite(ctx context.Context, arg LockSiteForWriteParams) (int64, error)
+	LockTelemetrySeedMaintenance(ctx context.Context) error
 	MarkAbsentContainerTanks(ctx context.Context, arg MarkAbsentContainerTanksParams) error
 	MarkCommandBatchFinished(ctx context.Context, argUuid string) (int64, error)
 	MarkCommandBatchFinishedWithStartedAt(ctx context.Context, argUuid string) (int64, error)
@@ -1843,6 +1846,7 @@ type Querier interface {
 	// Timestamp the pause after the header lock, never before the creation or
 	// stage transition the caller observed. Repeated pauses keep the first event.
 	PauseFirmwareRollout(ctx context.Context, arg PauseFirmwareRolloutParams) (int64, error)
+	PrepareTelemetrySeed(ctx context.Context, requestedStart time.Time) (time.Time, error)
 	// Retrying a failed deployment preserves its original health expectations.
 	// A failed update can itself stop hashing; recapturing that degraded state
 	// would incorrectly lower the requirements for the retry to succeed.
@@ -1932,6 +1936,7 @@ type Querier interface {
 	// Attributes an action that changes only the rollout's devices (retry) to
 	// its actor.
 	RecordFirmwareRolloutAction(ctx context.Context, arg RecordFirmwareRolloutActionParams) error
+	RecoverTelemetrySeedBatch(ctx context.Context) error
 	// ============================================================================
 	// Error Lifecycle Management
 	// ============================================================================
@@ -2239,6 +2244,7 @@ type Querier interface {
 	UnassignRole(ctx context.Context, id int64) error
 	UndeleteOrganization(ctx context.Context, id int64) error
 	UndeleteRole(ctx context.Context, id int64) error
+	UnlockTelemetrySeedMaintenance(ctx context.Context) error
 	UnpairDevice(ctx context.Context, arg UnpairDeviceParams) (int64, error)
 	UnpairDevicesForFleetNodeRevocation(ctx context.Context, arg UnpairDevicesForFleetNodeRevocationParams) (int64, error)
 	// Reopens convergence for verified miners the enforcement loop sees drifting

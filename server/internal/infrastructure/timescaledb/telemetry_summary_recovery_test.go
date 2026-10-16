@@ -33,9 +33,10 @@ func removeTelemetryRecovery(t *testing.T, db *sql.DB) {
 	 WHERE proc_name='maintain_telemetry_source';
 	 DROP VIEW telemetry_summary_health,telemetry_retention_health;
 	 DROP PROCEDURE maintain_telemetry_source(integer,jsonb),telemetry_summary_step(text);
-     DROP FUNCTION retain_telemetry_raw(text);
-     DROP TABLE telemetry_summary_work,telemetry_summary_progress,telemetry_summary_source;
-     DROP FUNCTION guard_telemetry_summary_time() CASCADE;`)
+     DROP FUNCTION retain_telemetry_raw(text),prepare_telemetry_seed(timestamptz),telemetry_bucket_ceiling(interval,timestamptz);
+     DROP TABLE telemetry_summary_work,telemetry_summary_progress,telemetry_summary_write_gate,telemetry_summary_source;
+     DROP FUNCTION guard_telemetry_summary_time() CASCADE;
+     DROP FUNCTION lock_telemetry_summary_writes() CASCADE;`)
 	require.NoError(t, err)
 	testutil.RestoreLegacySummaryBootstraps(t, db,
 		"001016_internal_ct1_metric_summaries",
@@ -499,7 +500,7 @@ func TestTelemetrySummaryScheduledWorkerSerializesManualRequests(t *testing.T) {
 	selectRecoveryWork(t, r.db, "hashboard_metrics_hourly", "catchup")
 	tx := lockSummaryMaterialization(t, r.db, "hashboard_metrics_hourly")
 	id := recoveryJob(t, r.db, "hashboard_metrics")
-	_, err := r.db.ExecContext(t.Context(), `SELECT alter_job($1,max_runtime=>INTERVAL '1 second')`, id)
+	_, err := r.db.ExecContext(t.Context(), `SELECT alter_job($1,max_runtime=>INTERVAL '1 second',scheduled=>true,next_start=>now()+INTERVAL '1 day')`, id)
 	require.NoError(t, err)
 	_, err = r.db.ExecContext(t.Context(), `SELECT _timescaledb_functions.start_background_workers()`)
 	require.NoError(t, err)
@@ -583,7 +584,7 @@ func TestTelemetrySummaryScheduledWorkerSerializesManualRequests(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestTelemetrySummaryPreservesStatusRetentionAndRejectsLateWrites(t *testing.T) {
+func TestTelemetrySummaryPreservesStatusRetentionAndSkipsLateWrites(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	var count int
 	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT count(*) FROM timescaledb_information.jobs WHERE proc_name='policy_retention'
@@ -599,8 +600,13 @@ func TestTelemetrySummaryPreservesStatusRetentionAndRejectsLateWrites(t *testing
 	require.NoError(t, err)
 	_, err = db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs) VALUES(now(),'live-miner',100)`)
 	require.NoError(t, err)
-	_, err = db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs) VALUES(now()-INTERVAL '40 days','late-miner',100)`)
-	require.ErrorContains(t, err, "historical imports require maintenance coordination")
+	_, err = db.ExecContext(t.Context(), `UPDATE telemetry_summary_write_gate SET frozen_through=now()-INTERVAL '24 hours' WHERE source_name='device_metrics'`)
+	require.NoError(t, err)
+	result, err := db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs) VALUES(now()-INTERVAL '40 days','late-miner',100) ON CONFLICT DO NOTHING`)
+	require.NoError(t, err)
+	inserted, err := result.RowsAffected()
+	require.NoError(t, err)
+	require.Zero(t, inserted, "stale rows must not abort their enclosing transaction")
 	var jobs int
 	var phases int
 	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT count(*),count(DISTINCT initial_start) FROM timescaledb_information.jobs WHERE proc_name='maintain_telemetry_source'`).Scan(&jobs, &phases))

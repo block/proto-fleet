@@ -8,6 +8,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/block/proto-fleet/server/generated/sqlc"
 )
 
 const (
@@ -16,12 +18,6 @@ const (
 	// Number of columns in the device_metrics INSERT.
 	columnsPerRow = 23
 
-	// Continuous aggregate names to refresh after insertion.
-	aggregateMetricsHourly = "device_metrics_hourly"
-	aggregateMetricsDaily  = "device_metrics_daily"
-	aggregateStatusHourly  = "device_status_hourly"
-	aggregateStatusDaily   = "device_status_daily"
-
 	// PostgreSQL extended protocol limits queries to math.MaxUint16 parameters.
 	maxRowsPerBatch = math.MaxUint16 / columnsPerRow
 
@@ -29,14 +25,7 @@ const (
 	logEveryNBatches = 10
 )
 
-var continuousAggregates = []string{
-	aggregateMetricsHourly,
-	aggregateMetricsDaily,
-	aggregateStatusHourly,
-	aggregateStatusDaily,
-}
-
-func clearSeedData(ctx context.Context, db *sql.DB) (int64, error) {
+func clearSeedData(ctx context.Context, db sqlc.DBTX) (int64, error) {
 	result, err := db.ExecContext(ctx,
 		"DELETE FROM device_metrics WHERE device_identifier LIKE $1",
 		seedDevicePrefix+"%",
@@ -51,7 +40,7 @@ func clearSeedData(ctx context.Context, db *sql.DB) (int64, error) {
 	return n, nil
 }
 
-func findSeedDataBounds(ctx context.Context, db *sql.DB) (time.Time, time.Time, bool, error) {
+func findSeedDataBounds(ctx context.Context, db sqlc.DBTX) (time.Time, time.Time, bool, error) {
 	var minTime sql.NullTime
 	var maxTime sql.NullTime
 	err := db.QueryRowContext(ctx,
@@ -69,12 +58,7 @@ func findSeedDataBounds(ctx context.Context, db *sql.DB) (time.Time, time.Time, 
 	return minTime.Time, maxTime.Time, true, nil
 }
 
-func cleanupRefreshWindow(start, end time.Time) (time.Time, time.Time) {
-	// Extend the refresh range to ensure affected hourly and daily buckets are recomputed.
-	return start.Add(-24 * time.Hour), end.Add(24 * time.Hour)
-}
-
-func insertBatches(ctx context.Context, db *sql.DB, metrics []deviceMetric, batchSize int) (int64, error) {
+func insertBatches(ctx context.Context, db sqlc.DBTX, metrics []deviceMetric, batchSize int) (int64, error) {
 	if batchSize > maxRowsPerBatch {
 		batchSize = maxRowsPerBatch
 	}
@@ -105,7 +89,7 @@ func insertBatches(ctx context.Context, db *sql.DB, metrics []deviceMetric, batc
 	return totalInserted, nil
 }
 
-func insertBatch(ctx context.Context, db *sql.DB, batch []deviceMetric) (int64, error) {
+func insertBatch(ctx context.Context, db sqlc.DBTX, batch []deviceMetric) (int64, error) {
 	if len(batch) == 0 {
 		return 0, nil
 	}
@@ -167,16 +151,26 @@ func insertBatch(ctx context.Context, db *sql.DB, batch []deviceMetric) (int64, 
 	return n, nil
 }
 
-func refreshAggregates(ctx context.Context, db *sql.DB, start, end time.Time) error {
-	for _, agg := range continuousAggregates {
-		log.Printf("  refreshing %s ...", agg)
-		_, err := db.ExecContext(ctx,
-			fmt.Sprintf("CALL refresh_continuous_aggregate('%s', $1::timestamptz, $2::timestamptz)", agg),
-			start, end,
-		)
+// Run the same bounded, checkpointed recovery as scheduled maintenance. Imports
+// invalidate all dependent tiers, including container summaries on this source.
+func recoverSeedSummaries(ctx context.Context, q *sqlc.Queries) error {
+	for {
+		blocked, err := q.HasBlockedTelemetrySeedRecovery(ctx)
 		if err != nil {
-			return fmt.Errorf("refreshing %s: %w", agg, err)
+			return err
+		}
+		if blocked {
+			return fmt.Errorf("telemetry recovery is blocked; inspect telemetry_summary_health")
+		}
+		due, err := q.HasDueTelemetrySeedRecovery(ctx)
+		if err != nil {
+			return err
+		}
+		if !due {
+			return nil
+		}
+		if err := q.RecoverTelemetrySeedBatch(ctx); err != nil {
+			return fmt.Errorf("recovering telemetry seed summaries: %w", err)
 		}
 	}
-	return nil
 }

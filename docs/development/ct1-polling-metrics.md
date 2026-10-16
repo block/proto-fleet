@@ -153,7 +153,9 @@ Every hourly/daily tier has its own contiguous coverage checkpoint. Raw chunks
 expire only after every dependent tier has completed that interval; miner metric,
 miner status, and container tiers share the `device_metrics` gate. One staggered
 job per raw source rotates catch-up and recent refreshes, with smaller batches
-after interrupted attempts. Recent refreshes continue during catch-up at their
+after interrupted attempts and gradual growth after fast successes. A shared write
+gate waits for in-flight writers before finalization; stale cached readings are
+skipped without rolling back live ingestion. Recent refreshes continue during catch-up at their
 30-minute/hourly and 6-hour/daily cadences. Measurement summaries still retain
 three months hourly and three years daily; status summaries keep their existing
 absence of a retention policy.
