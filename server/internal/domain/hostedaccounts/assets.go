@@ -381,6 +381,11 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 	if len(request.Assets) == 0 || len(request.Assets) > 500 || (request.Intent != pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN && request.Intent != pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_RECALL) {
 		return fleeterror.NewInvalidArgumentError("invalid asset assignment")
 	}
+	// Physical dispatch retains binding locks during miner I/O. Bound the whole
+	// assignment so contention cannot retain organization admission indefinitely.
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
 	return db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
 		e, err := loadMiningEstate(ctx, q, actorID, orgID, request.AccountId, false)
 		if err != nil {
@@ -422,6 +427,44 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 				return fleeterror.NewInvalidArgumentError("duplicate selected asset")
 			}
 			selected[key] = selection
+		}
+		selectedAssets, err := json.Marshal(request.Assets)
+		if err != nil {
+			return fleeterror.NewInternalErrorf("encode selected mining assets: %w", err)
+		}
+		loadSelection := func() (map[[2]int64]sqlc.ListHostedAccountMiningAssetsRow, error) {
+			rows, err := q.ListHostedAccountMiningAssets(ctx, sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: orgID, AccountInternalID: e.account.ID, IsRoot: e.account.Depth == 0, SelectedAssets: selectedAssets})
+			if err != nil {
+				return nil, err
+			}
+			current := map[[2]int64]sqlc.ListHostedAccountMiningAssetsRow{}
+			for _, row := range rows {
+				current[[2]int64{int64(row.Kind), row.ID}] = row
+			}
+			for key, selection := range selected {
+				row, ok := current[key]
+				if !ok || row.Revision != selection.ExpectedRevision || !e.physicalRead(row) {
+					return nil, assetConflict()
+				}
+				if assigning {
+					if !row.Available || !siteAllowed(e.policy, row.SiteID) || !siteAllowed(destinationPolicy, row.SiteID) {
+						return nil, assetConflict()
+					}
+					if e.account.Depth == 0 && row.ClientID != 0 || e.account.Depth == 1 && (row.ClientID != e.account.ID || row.SubclientID != 0) {
+						return nil, assetConflict()
+					}
+				} else if e.account.Depth == 0 && row.ClientID != child.ID || e.account.Depth == 1 && (row.ClientID != e.account.ID || row.SubclientID != child.ID) {
+					return nil, assetConflict()
+				}
+			}
+			return current, nil
+		}
+		// Reject the entire batch before acquiring any physical-device locks.
+		// The same checks run again after locking to close placement/retirement races.
+		if _, err := loadSelection(); err != nil {
+			return err
+		}
+		for _, selection := range request.Assets {
 			deviceID, err := q.GetHostedAccountAssetDevice(ctx, sqlc.GetHostedAccountAssetDeviceParams{OrganizationID: orgID, Kind: int32(selection.Kind), AssetID: selection.Id})
 			if err != nil {
 				return assetConflict()
@@ -471,33 +514,9 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 		}
 		// Refresh after the last lock: retirement, replacement and site movement
 		// committed while we waited must invalidate the original selection.
-		selectedAssets, err := json.Marshal(request.Assets)
-		if err != nil {
-			return fleeterror.NewInternalErrorf("encode selected mining assets: %w", err)
-		}
-		rows, err := q.ListHostedAccountMiningAssets(ctx, sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: orgID, AccountInternalID: e.account.ID, IsRoot: e.account.Depth == 0, SelectedAssets: selectedAssets})
+		current, err := loadSelection()
 		if err != nil {
 			return err
-		}
-		current := map[[2]int64]sqlc.ListHostedAccountMiningAssetsRow{}
-		for _, row := range rows {
-			current[[2]int64{int64(row.Kind), row.ID}] = row
-		}
-		for key, selection := range selected {
-			row, ok := current[key]
-			if !ok || row.Revision != selection.ExpectedRevision || !e.physicalRead(row) {
-				return assetConflict()
-			}
-			if assigning {
-				if !row.Available || !siteAllowed(e.policy, row.SiteID) || !siteAllowed(destinationPolicy, row.SiteID) {
-					return assetConflict()
-				}
-				if e.account.Depth == 0 && row.ClientID != 0 || e.account.Depth == 1 && (row.ClientID != e.account.ID || row.SubclientID != 0) {
-					return assetConflict()
-				}
-			} else if e.account.Depth == 0 && row.ClientID != child.ID || e.account.Depth == 1 && (row.ClientID != e.account.ID || row.SubclientID != child.ID) {
-				return assetConflict()
-			}
 		}
 		for _, selection := range request.Assets {
 			row := current[[2]int64{int64(selection.Kind), selection.Id}]

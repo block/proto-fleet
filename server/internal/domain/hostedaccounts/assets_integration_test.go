@@ -1,6 +1,7 @@
 package hostedaccounts_test
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"testing"
@@ -286,7 +287,15 @@ func TestAccountMiningRootRequiresPhysicalReadAuthority(t *testing.T) {
 	summary, err := f.svc.MiningSummary(t.Context(), f.user, f.org, f.root)
 	require.NoError(t, err)
 	require.Zero(t, summary.Totals.AssetCount)
-	require.Error(t, f.allocate(t, f.user, f.root, client.AccountID, 1, selected(5, miner, 0)))
+	tx, err := f.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer tx.Rollback()
+	_, err = tx.ExecContext(t.Context(), `SELECT id FROM device WHERE id=$1 FOR UPDATE`, miner)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	err = f.svc.AssignAssets(ctx, f.user, f.org, &pb.AssignAccountAssetsRequest{AccountId: f.root, ChildAccountId: client.AccountID, Intent: 1, Assets: []*pb.MiningAssetSelection{selected(5, miner, 0)}})
+	require.ErrorContains(t, err, "selected assets changed", "physical read authority must be checked before contended device admission")
 }
 func TestAccountMiningTypedPersistenceAndSubclientDirectFilter(t *testing.T) {
 	f := setup(t)
@@ -418,4 +427,72 @@ func TestAccountMiningRootMixedSiteAuthority(t *testing.T) {
 			require.NoError(t, f.allocate(t, f.user, f.root, client.AccountID, 1, selected(5, first, 0)))
 		})
 	}
+}
+
+func TestAccountMiningRejectsUnauthorizedSelectionBeforePhysicalLocks(t *testing.T) {
+	for _, kind := range []pb.MiningAssetKind{5, 6} {
+		t.Run(kind.String(), func(t *testing.T) {
+			f := setup(t)
+			client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+			child, err := f.svc.CreateChild(t.Context(), f.user, f.org, client.AccountID, "Child", f.host, hostedaccounts.AllCapabilities)
+			require.NoError(t, err)
+			own := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+			require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, own, 0)))
+			foreign := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+			device := foreign
+			if kind == 6 {
+				foreign, device = f.miningModule(t)
+			}
+			other := f.client(t, "Other customer", f.host, hostedaccounts.AllCapabilities)
+			require.NoError(t, f.allocate(t, f.host, f.root, other.AccountID, 1, selected(kind, foreign, 0)))
+			tx, err := f.db.BeginTx(t.Context(), nil)
+			require.NoError(t, err)
+			defer tx.Rollback()
+			_, err = tx.ExecContext(t.Context(), `SELECT id FROM device WHERE id=$1 FOR UPDATE`, device)
+			require.NoError(t, err)
+			ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+			defer cancel()
+			result := make(chan error, 1)
+			go func() {
+				result <- f.svc.AssignAssets(ctx, f.user, f.org, &pb.AssignAccountAssetsRequest{AccountId: client.AccountID, ChildAccountId: child.AccountID, Intent: 1, Assets: []*pb.MiningAssetSelection{selected(5, own, 1), selected(kind, foreign, 1)}})
+			}()
+			select {
+			case err := <-result:
+				require.ErrorContains(t, err, "selected assets changed")
+			case <-time.After(time.Second):
+				t.Fatal("unauthorized selection waited for an unrelated physical-device lock")
+			}
+			// The unrelated device lock remains held, but the rejected batch must have
+			// released account admission so other reports can proceed.
+			_, err = f.svc.MiningSummary(ctx, f.user, f.org, client.AccountID)
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestAccountMiningAssignmentBoundsPhysicalLockWait(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	tx, err := f.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer tx.Rollback()
+	_, err = tx.ExecContext(t.Context(), `SELECT id FROM device WHERE id=$1 FOR UPDATE`, miner)
+	require.NoError(t, err)
+	result := make(chan error, 1)
+	go func() { result <- f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0)) }()
+	select {
+	case err := <-result:
+		require.Error(t, err)
+	case <-time.After(8 * time.Second):
+		t.Fatal("assignment did not bound its physical lock wait")
+	}
+	// The operation must roll back its organization lock before the device is free.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	_, err = f.svc.MiningSummary(ctx, f.user, f.org, client.AccountID)
+	require.NoError(t, err)
+	var count int
+	require.NoError(t, f.db.QueryRowContext(ctx, `SELECT count(*) FROM hosted_account_asset`).Scan(&count))
+	require.Zero(t, count)
 }
