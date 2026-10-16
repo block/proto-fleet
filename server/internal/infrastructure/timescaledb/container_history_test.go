@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/domain/telemetry/models"
+	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,6 +31,9 @@ func TestStoredContainerHistorySeparatesMetricDefinitions(t *testing.T) {
 
 func TestStoredContainerRollupsMigrationRollback(t *testing.T) {
 	r := newContainerRollupRig(t)
+	testutil.RestoreLegacySummaryBootstraps(t, r.db,
+		"001016_internal_ct1_metric_summaries",
+		"001021_internal_hashboard_metric_summaries")
 	r.store(t, r.snapshot(0, false, 100e12, 200e12))
 	// Exercise the destructive rollback only in this disposable test database.
 	_, err := r.db.ExecContext(t.Context(), "TRUNCATE hashboard_metrics")

@@ -68,6 +68,7 @@ func TestContainerEquipmentSummariesSurviveRawRetention(t *testing.T) {
 // existing samples outside that transaction before enabling raw retention.
 func TestContainerSummaryBootstrapAndPolicies(t *testing.T) {
 	r := newContainerRollupRig(t)
+	testutil.RestoreLegacySummaryBootstraps(t, r.db, "001016_internal_ct1_metric_summaries")
 	r.base = time.Now().UTC().Truncate(24 * time.Hour).Add(-20 * 24 * time.Hour)
 	var siteA, siteB int64
 	require.NoError(t, r.db.QueryRowContext(t.Context(), `INSERT INTO site(org_id,name,slug) SELECT org_id,'A','bootstrap-a' FROM device WHERE id=$1 RETURNING id`, r.databaseID).Scan(&siteA))

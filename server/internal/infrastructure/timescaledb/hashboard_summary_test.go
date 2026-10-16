@@ -74,6 +74,7 @@ func TestHashboardSummariesSurviveRawRetention(t *testing.T) {
 
 func TestHashboardSummaryBootstrapRetriesBeforeEnablingRetention(t *testing.T) {
 	r := newContainerRollupRig(t)
+	testutil.RestoreLegacySummaryBootstraps(t, r.db, "001021_internal_hashboard_metric_summaries")
 	r.base = time.Now().UTC().Truncate(24 * time.Hour).Add(-20 * 24 * time.Hour)
 	r.store(t, r.snapshot(time.Hour, false, 100e12, 200e12))
 	var job, policies int

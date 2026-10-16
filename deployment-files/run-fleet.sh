@@ -2719,15 +2719,20 @@ DECLARE
     r RECORD;
     n integer := 0;
 BEGIN
-    FOR r IN SELECT job_id FROM timescaledb_information.jobs
+    FOR r IN SELECT job_id, fixed_schedule FROM timescaledb_information.jobs
              WHERE proc_name IN ('policy_compression',
                                  'policy_refresh_continuous_aggregate',
-                                 'policy_retention')
+                                 'policy_retention',
+                                 'maintain_telemetry_source')
              ORDER BY job_id
     LOOP
         -- initial_start (not next_start) re-phases fixed-schedule jobs so
         -- the stagger survives future scheduled runs
-        PERFORM public.alter_job(r.job_id, initial_start => now() + (n * interval '45 seconds'));
+        IF r.fixed_schedule THEN
+            PERFORM public.alter_job(r.job_id, initial_start => now() + (n * interval '45 seconds'));
+        ELSE
+            PERFORM public.alter_job(r.job_id, next_start => now() + (n * interval '45 seconds'));
+        END IF;
         n := n + 1;
     END LOOP;
 END $$;

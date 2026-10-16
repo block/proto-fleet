@@ -30,15 +30,15 @@ func TestTemplateCloneDisablesScheduledMaintenance(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, database.Close()) })
 
-	var policies, bootstraps, scheduled int
+	var policies, recoveryJobs, scheduled int
 	err = database.QueryRowContext(t.Context(), `SELECT
  count(*) FILTER (WHERE proc_name LIKE 'policy_%'),
- count(*) FILTER (WHERE proc_name = 'initialize_container_metric_summaries'),
+ count(*) FILTER (WHERE proc_name = 'maintain_telemetry_source'),
  count(*) FILTER (WHERE scheduled)
- FROM timescaledb_information.jobs`).Scan(&policies, &bootstraps, &scheduled)
+ FROM timescaledb_information.jobs`).Scan(&policies, &recoveryJobs, &scheduled)
 	require.NoError(t, err)
 	require.Positive(t, policies, "template clones must retain the migrated maintenance policies")
-	require.Equal(t, 1, bootstraps, "template clones must retain the bootstrap job")
+	require.Equal(t, 4, recoveryJobs, "template clones must retain every summary recovery job")
 	require.Zero(t, scheduled, "template clones must inherit disabled schedules for every job")
 }
 
