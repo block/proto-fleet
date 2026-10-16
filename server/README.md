@@ -66,8 +66,10 @@ leaves the status unchanged. The database checks the current status and reboot b
 atomically so an older boot cannot clear a newer firmware update. Ordinary
 telemetry still preserves `UPDATING` and pending `REBOOT_REQUIRED` states.
 Telemetry queries the database only for devices the status writer last read as
-`UPDATING` or `REBOOT_REQUIRED`, or has not read yet. A firmware status written
-after that read is checked from the next poll onward.
+`UPDATING` or `REBOOT_REQUIRED`, or whose cached status hint is absent. The writer
+refreshes the hint as it processes status results. If a separate status read fails
+before a result reaches the writer, telemetry discards the hint so the next
+successful uptime sample can check for a newly recorded reboot requirement.
 
 For firmware reporting `confirming` or `success`, Fleet retains the successful
 upload time separately from the time it records `REBOOT_REQUIRED`. A proven boot

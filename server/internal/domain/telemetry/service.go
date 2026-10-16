@@ -1016,6 +1016,9 @@ func (s *TelemetryService) processDevice(ctx context.Context, device models.Devi
 		)
 		status, statusOrg, statusDriverName, statusSite, statusErr = s.fetchStatusFromMiner(ctx, device.ID)
 		if statusErr != nil {
+			// No status result will reach the writer to refresh its firmware hint.
+			// Let the next uptime sample check the current reboot requirement.
+			s.firmwareStatusPending.Delete(device.ID)
 			slog.Warn("failed to get status for device", "deviceID", device.ID, "error", statusErr)
 
 			if requiresCredentialRemediation(statusErr) {

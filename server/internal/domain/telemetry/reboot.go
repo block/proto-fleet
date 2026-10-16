@@ -17,8 +17,8 @@ func (s *TelemetryService) reconcileRebootRequiredState(ctx context.Context, dev
 	if !ok {
 		return
 	}
-	// Devices the status writer has not read yet are still checked. A firmware
-	// state written after its last read waits at most one poll for the next read.
+	// Check devices without a cached status hint as well as pending firmware
+	// states. Failed status refinement invalidates the hint so uptime can retry.
 	if value, seen := s.firmwareStatusPending.Load(deviceID); seen {
 		if pending, _ := value.(bool); !pending {
 			return

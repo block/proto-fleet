@@ -164,6 +164,79 @@ func TestRebootReconciliationFollowsStatusWriterReads(t *testing.T) {
 	requireStatus(mm.MinerStatusActive)
 }
 
+func TestRebootReconciliationSurvivesFailedStatusRefinement(t *testing.T) {
+	if testing.Short() {
+		t.Skip("requires PostgreSQL")
+	}
+	for _, test := range []struct {
+		name                  string
+		storedStatus          mm.MinerStatus
+		uptime                uint64
+		readPendingBeforePoll bool
+		want                  mm.MinerStatus
+	}{
+		{name: "reboot marker written after last active read", storedStatus: mm.MinerStatusRebootRequired, want: mm.MinerStatusUnknown},
+		{name: "reboot marker already observed", storedStatus: mm.MinerStatusRebootRequired, readPendingBeforePoll: true, want: mm.MinerStatusUnknown},
+		{name: "old boot preserves pending reboot", storedStatus: mm.MinerStatusRebootRequired, uptime: 7200, want: mm.MinerStatusRebootRequired},
+		{name: "installation remains protected", storedStatus: mm.MinerStatusUpdating, want: mm.MinerStatusUpdating},
+		{name: "ordinary status remains unchanged", storedStatus: mm.MinerStatusActive, want: mm.MinerStatusActive},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Now()
+			_, store := newRebootTestDevice(t, now.Add(-time.Minute))
+			require.NoError(t, store.UpsertDeviceStatus(t.Context(), "reboot-rig", mm.MinerStatusActive, ""))
+			ctrl := gomock.NewController(t)
+			getter := mock.NewMockCachedMinerGetter(ctrl)
+			scheduler := mock.NewMockUpdateScheduler(ctrl)
+			miner := minerMocks.NewMockMiner(ctrl)
+			statusErr := errors.New("explicit status unavailable")
+			const polls = 2
+			getter.EXPECT().GetMinerFromDeviceIdentifier(gomock.Any(), models.DeviceIdentifier("reboot-rig")).Return(miner, nil).Times(polls * 2)
+			miner.EXPECT().GetOrgID().Return(int64(1)).Times(polls * 2)
+			miner.EXPECT().GetSiteID().Return(int64(0)).Times(polls * 2)
+			miner.EXPECT().GetDriverName().Return("proto").Times(polls * 2)
+			miner.EXPECT().GetDeviceMetrics(gomock.Any()).Return(modelsV2.DeviceMetrics{
+				DeviceIdentifier: "reboot-rig", Timestamp: now,
+				Health:        modelsV2.HealthHealthyInactive,
+				UptimeSeconds: &test.uptime, UptimeObservedAt: now,
+			}, nil).Times(polls)
+			miner.EXPECT().GetDeviceStatus(gomock.Any()).Return(mm.MinerStatusUnknown, statusErr).Times(polls)
+			scheduler.EXPECT().AddDevices(gomock.Any(), gomock.Any()).Return(nil).Times(polls)
+			service := NewTelemetryService(Config{ConcurrencyLimit: 1, MetricTimeout: time.Second, StatusFlushInterval: time.Hour}, nil, getter, scheduler, store, nil)
+			activation := telemetryActivationForTest(service)
+			flushStatus := func() {
+				ctx, cancel := context.WithCancel(t.Context())
+				cancel()
+				service.statusWriterRoutine(ctx, activation)
+			}
+			// Populate the ordinary-status cache through the actual writer before
+			// the command records its pending firmware state.
+			activation.results.status <- statusResult{deviceIdentifier: "reboot-rig", status: mm.MinerStatusActive}
+			flushStatus()
+			if test.storedStatus == mm.MinerStatusRebootRequired {
+				require.NoError(t, store.MarkFirmwareRebootRequiredStatus(t.Context(), "reboot-rig", now.Add(-time.Minute)))
+			} else {
+				require.NoError(t, store.UpsertDeviceStatus(t.Context(), "reboot-rig", test.storedStatus, ""))
+			}
+			if test.readPendingBeforePoll {
+				activation.results.status <- statusResult{deviceIdentifier: "reboot-rig", status: mm.MinerStatusActive}
+				flushStatus()
+			}
+			// The ambiguous metrics carry valid reboot evidence, but the separate
+			// status RPC fails before a status result reaches the writer. A second
+			// successful metrics poll must still complete a proven reboot.
+			for range polls {
+				err := service.processDevice(t.Context(), models.Device{ID: "reboot-rig"}, activation.results)
+				require.ErrorIs(t, err, statusErr)
+				flushStatus()
+			}
+			statuses, err := store.GetDeviceStatusForDeviceIdentifiers(t.Context(), []models.DeviceIdentifier{"reboot-rig"})
+			require.NoError(t, err)
+			require.Equal(t, test.want, statuses["reboot-rig"], "boot completion must not depend on successful mining-status refinement")
+		})
+	}
+}
+
 func TestRebootReconciliationRetriesDatabaseFailure(t *testing.T) {
 	if testing.Short() {
 		t.Skip("requires PostgreSQL")
