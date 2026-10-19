@@ -2180,7 +2180,8 @@ type Querier interface {
 	SoftDeleteUserFromOrganization(ctx context.Context, arg SoftDeleteUserFromOrganizationParams) error
 	StampContainerSample(ctx context.Context, arg StampContainerSampleParams) error
 	// Board health time can precede the poll. Stamp only samples inserted by this
-	// collection, using their primary keys rather than scanning the retained history.
+	// collection. The function groups by exact source time and supplies explicit
+	// board/time filters before Timescale decompresses batches, including generic plans.
 	StampHashboardTopology(ctx context.Context, arg StampHashboardTopologyParams) error
 	// Reclaims rows for never-created rule UIDs left by ambiguous create failures (see CreateRule).
 	// The hour of slack protects in-flight creates, whose config row lands before the Grafana rule exists.

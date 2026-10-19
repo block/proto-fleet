@@ -23,6 +23,20 @@ REPAIRED_MIGRATIONS = {
     ),
 }
 
+# PRs #229 and #232 both merged version 1026. The duplicate prevents loading
+# any migrations, so a later corrective migration cannot run. Preserve #229's
+# checkpoint and allow only #232's exact SQL bytes to move to 1027.
+RENAMED_MIGRATIONS = {
+    CURRENT + "001026_internal_container_telemetry_compression.up.sql": (
+        CURRENT + "001027_internal_container_telemetry_compression.up.sql",
+        "85c6e743d79f3fd9ccd2f293c239ad4d428d762e6860b81f44ba0d1a99012e0e",
+    ),
+    CURRENT + "001026_internal_container_telemetry_compression.down.sql": (
+        CURRENT + "001027_internal_container_telemetry_compression.down.sql",
+        "8ab20fb3ec8d6de03966b3e2601e83b0f03eb16cde4e28b723f55be6cba9c0e2",
+    ),
+}
+
 
 def git(repo, *args):
     result = subprocess.run(
@@ -97,6 +111,17 @@ def check(repo, base_ref, public_ref=None, public_only=False):
         if path.is_symlink() or not path.is_file():
             raise ValueError(f"migration must be a regular file: {path}")
         local[path.relative_to(repo).as_posix()] = path.read_bytes()
+    # Normalize only an exact repair, including the base used for ordering:
+    # the merged base itself has duplicate versions and cannot be parsed as-is.
+    for source, (target, checksum) in RENAMED_MIGRATIONS.items():
+        if (
+            source in base
+            and source not in local
+            and target not in base
+            and local.get(target) == base[source]
+            and hashlib.sha256(base[source]).hexdigest() == checksum
+        ):
+            base[target] = base.pop(source)
     for path, body in base.items():
         if local.get(path) != body:
             repair = REPAIRED_MIGRATIONS.get(path)

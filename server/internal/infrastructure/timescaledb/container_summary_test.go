@@ -21,6 +21,11 @@ func TestContainerEquipmentSummariesSurviveRawRetention(t *testing.T) {
 			r.base = time.Now().UTC().Truncate(24 * time.Hour).Add(-age)
 			r.store(t, r.snapshot(time.Hour, false, 100e12, 200e12))
 			r.store(t, r.snapshot(time.Hour+10*time.Second, false, 300e12, 200e12))
+			// Refresh both summary tiers from compressed raw history before retention.
+			for _, table := range []string{"device_metrics", "container_tank_metrics", "container_module_metrics"} {
+				_, err := r.db.ExecContext(t.Context(), `SELECT compress_chunk(c) FROM show_chunks($1::regclass) c`, table)
+				require.NoError(t, err)
+			}
 			start, end := r.base, r.base.Add(24*time.Hour)
 			for _, equipment := range []string{"container", "container_tank", "container_module"} {
 				for _, tier := range []string{"hourly", "daily"} {
