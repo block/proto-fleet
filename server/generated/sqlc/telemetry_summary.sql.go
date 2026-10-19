@@ -35,7 +35,7 @@ func (q *Queries) HasDueTelemetrySeedRecovery(ctx context.Context) (bool, error)
 }
 
 const lockTelemetrySeedMaintenance = `-- name: LockTelemetrySeedMaintenance :exec
-SELECT pg_advisory_lock(1027,'device_metrics'::regclass::oid::integer)
+SELECT pg_advisory_lock(1028,'device_metrics'::regclass::oid::integer)
 `
 
 func (q *Queries) LockTelemetrySeedMaintenance(ctx context.Context) error {
@@ -64,7 +64,7 @@ func (q *Queries) RecoverTelemetrySeedBatch(ctx context.Context) error {
 }
 
 const unlockTelemetrySeedMaintenance = `-- name: UnlockTelemetrySeedMaintenance :exec
-SELECT pg_advisory_unlock(1027,'device_metrics'::regclass::oid::integer)
+SELECT pg_advisory_unlock(1028,'device_metrics'::regclass::oid::integer)
 `
 
 func (q *Queries) UnlockTelemetrySeedMaintenance(ctx context.Context) error {

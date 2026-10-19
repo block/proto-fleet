@@ -171,6 +171,7 @@ BEGIN
   minimum_batch_failures=minimum_batch_failures+CASE WHEN batch_buckets=1 THEN 1 ELSE 0 END,
   blocked=minimum_batch_failures+CASE WHEN batch_buckets=1 THEN 1 ELSE 0 END>=3,
   batch_buckets=GREATEST(1,batch_buckets/2),successful_batches=0,
+  next_run_at=GREATEST(w.next_run_at,clock_timestamp()+INTERVAL '5 minutes'),
   last_error='refresh interrupted before acknowledgement; inspect Timescale job_errors'
  FROM telemetry_summary_progress p WHERE p.aggregate_name=w.aggregate_name AND p.source_name=source_key AND w.pending;
 
@@ -284,12 +285,12 @@ BEGIN
  -- Shared session lock survives refresh commits. The dedicated worker exits
  -- on failure, releasing it. A seeder holds the exclusive counterpart on its
  -- dedicated connection; an idle ordinary run_job caller holds no session lock.
- IF NOT pg_try_advisory_lock_shared(1027,source.source_name::regclass::oid::integer) THEN
+ IF NOT pg_try_advisory_lock_shared(1028,source.source_name::regclass::oid::integer) THEN
   PERFORM alter_job(job_id,next_start=>clock_timestamp()+INTERVAL '30 seconds');
   RETURN;
  END IF;
  CALL telemetry_summary_step(source.source_name);
- PERFORM pg_advisory_unlock_shared(1027,source.source_name::regclass::oid::integer);
+ PERFORM pg_advisory_unlock_shared(1028,source.source_name::regclass::oid::integer);
  SELECT LEAST(s.next_retention_at,min(w.next_run_at) FILTER (WHERE NOT w.blocked)) INTO due
  FROM telemetry_summary_source s JOIN telemetry_summary_progress p USING (source_name)
  JOIN telemetry_summary_work w USING (aggregate_name) WHERE s.source_name=source.source_name GROUP BY s.next_retention_at;
@@ -312,7 +313,7 @@ FROM telemetry_summary_source;
 CREATE FUNCTION lock_telemetry_summary_writes() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE floor_at timestamptz;
 BEGIN
- PERFORM pg_advisory_xact_lock_shared(1027,TG_RELID::integer);
+ PERFORM pg_advisory_xact_lock_shared(1028,TG_RELID::integer);
  SELECT frozen_through INTO STRICT floor_at FROM telemetry_summary_write_gate
  WHERE source_name=TG_ARGV[0] FOR SHARE;
  PERFORM set_config('protofleet.'||TG_ARGV[0]||'_write_floor',COALESCE(floor_at::text,'-infinity'),true);
@@ -348,7 +349,7 @@ DECLARE
  empty_history boolean := true;
 BEGIN
  IF NOT EXISTS (SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid()
-  AND classid=1027 AND objid='device_metrics'::regclass::oid AND objsubid=2 AND mode='ExclusiveLock' AND granted) THEN
+  AND classid=1028 AND objid='device_metrics'::regclass::oid AND objsubid=2 AND mode='ExclusiveLock' AND granted) THEN
   RAISE EXCEPTION 'telemetry seeding requires the exclusive maintenance lock';
  END IF;
  SELECT * INTO STRICT source FROM telemetry_summary_source WHERE source_name='device_metrics';

@@ -376,10 +376,8 @@ func (q *Queries) StampContainerSample(ctx context.Context, arg StampContainerSa
 }
 
 const stampHashboardTopology = `-- name: StampHashboardTopology :exec
-UPDATE hashboard_metrics m SET topology_version_id=$1::bigint
-FROM jsonb_to_recordset($3::jsonb) x(hashboard_id bigint,time timestamptz)
-WHERE m.hashboard_id=x.hashboard_id AND m.time=x.time
- AND m.collected_at=$2::timestamptz
+SELECT stamp_hashboard_topology($1::bigint,
+ $2::timestamptz,$3::jsonb)
 `
 
 type StampHashboardTopologyParams struct {
@@ -389,7 +387,8 @@ type StampHashboardTopologyParams struct {
 }
 
 // Board health time can precede the poll. Stamp only samples inserted by this
-// collection, using their primary keys rather than scanning the retained history.
+// collection. The function groups by exact source time and supplies explicit
+// board/time filters before Timescale decompresses batches, including generic plans.
 func (q *Queries) StampHashboardTopology(ctx context.Context, arg StampHashboardTopologyParams) error {
 	_, err := q.exec(ctx, q.stampHashboardTopologyStmt, stampHashboardTopology, arg.VersionID, arg.CollectedAt, arg.Samples)
 	return err

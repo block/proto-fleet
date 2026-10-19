@@ -25,7 +25,7 @@ var recoveryAggregates = append(deviceMetricRecoveryAggregates,
 
 var recoverySources = []string{"device_metrics", "container_tank_metrics", "container_module_metrics", "hashboard_metrics"}
 
-// removeTelemetryRecovery reconstructs the pre-1027 schema so tests can apply
+// removeTelemetryRecovery reconstructs the pre-1028 schema so tests can apply
 // the real migration after loading backdated upgrade fixtures.
 func removeTelemetryRecovery(t *testing.T, db *sql.DB) {
 	t.Helper()
@@ -45,7 +45,7 @@ func removeTelemetryRecovery(t *testing.T, db *sql.DB) {
 
 func telemetryRecoveryMigration(t *testing.T) string {
 	t.Helper()
-	up, err := migrations.Current.ReadFile("current/001027_internal_telemetry_summary_recovery.up.sql")
+	up, err := migrations.Current.ReadFile("current/001028_internal_telemetry_summary_recovery.up.sql")
 	require.NoError(t, err)
 	return string(up) + `
 	 SELECT alter_job(job_id,scheduled=>false) FROM timescaledb_information.jobs WHERE scheduled;`
@@ -92,6 +92,10 @@ func selectRecoveryWork(t *testing.T, db *sql.DB, aggregate, kind string) string
 	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT source_name FROM telemetry_summary_progress WHERE aggregate_name=$1`, aggregate).Scan(&source))
 	_, err := db.ExecContext(t.Context(), `UPDATE telemetry_summary_work SET next_run_at=now()+INTERVAL '1 day';
  UPDATE telemetry_summary_source SET next_retention_at=now()+INTERVAL '1 day'`)
+	require.NoError(t, err)
+	// Reconcile an interrupted attempt before forcing the selected task due.
+	// This skips the wait in batch tests; scheduling fairness is tested separately.
+	_, err = db.ExecContext(t.Context(), `CALL telemetry_summary_step($1)`, source)
 	require.NoError(t, err)
 	_, err = db.ExecContext(t.Context(), `UPDATE telemetry_summary_work SET next_run_at=now()-INTERVAL '1 second' WHERE aggregate_name=$1 AND work_kind=$2`, aggregate, kind)
 	require.NoError(t, err)
@@ -276,10 +280,12 @@ func TestTelemetrySummaryRecoveryCheckpointFailureAndRetry(t *testing.T) {
 	r.store(t, r.snapshot(36*time.Hour, false, 300e12, 400e12))
 	aggregate := "hashboard_metrics_hourly"
 	reinstallTelemetryRecovery(t, r.db)
+	_, err := r.db.ExecContext(t.Context(), `ALTER MATERIALIZED VIEW hashboard_metrics_hourly SET (timescaledb.materialized_only=true)`)
+	require.NoError(t, err)
 	runRecovery(t, r.db, aggregate)
 	before := recoveryCompletedThrough(t, r.db, aggregate)
 	require.WithinDuration(t, r.base.Add(24*time.Hour), before, time.Microsecond, "only one day per batch")
-	_, err := r.db.ExecContext(t.Context(), `ALTER MATERIALIZED VIEW hashboard_metrics_hourly RENAME TO hashboard_metrics_hourly_unavailable`)
+	_, err = r.db.ExecContext(t.Context(), `ALTER MATERIALIZED VIEW hashboard_metrics_hourly RENAME TO hashboard_metrics_hourly_unavailable`)
 	require.NoError(t, err)
 	source := selectRecoveryWork(t, r.db, aggregate, "catchup")
 	_, err = r.db.ExecContext(t.Context(), `CALL telemetry_summary_step($1)`, source)
@@ -319,6 +325,11 @@ func TestTelemetrySummaryRecoveryCheckpointFailureAndRetry(t *testing.T) {
 	// from the newest bucket or starting over after an interrupted worker.
 	finishRecovery(t, r.db, []string{aggregate, "hashboard_metrics_daily"})
 	runRawRetention(t, r.db, "hashboard_metrics")
+	var rawCount int
+	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hashboard_metrics WHERE time=$1`, r.base.Add(36*time.Hour)).Scan(&rawCount))
+	require.Zero(t, rawCount, "retention must remove the recovered raw sample")
+	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT sum(observations) FROM hashboard_metrics_hourly WHERE bucket=$1`, r.base.Add(36*time.Hour)).Scan(&observations))
+	require.Equal(t, 2, observations, "materialized history must survive raw expiration")
 }
 
 func TestTelemetrySummaryHourlyGapAndRecentRevision(t *testing.T) {
@@ -376,6 +387,8 @@ func TestTelemetrySummaryRecoveryKeepsUTCBucketsAcrossDST(t *testing.T) {
 	r.store(t, r.snapshot(0, false, 100e12, 200e12))
 	r.store(t, r.snapshot(23*time.Hour, false, 300e12, 400e12))
 	reinstallTelemetryRecovery(t, r.db)
+	_, err := r.db.ExecContext(t.Context(), `ALTER MATERIALIZED VIEW hashboard_metrics_daily SET (timescaledb.materialized_only=true)`)
+	require.NoError(t, err)
 	conn, err := r.db.Conn(t.Context())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, conn.Close()) })
@@ -413,7 +426,7 @@ func TestTelemetrySummaryUpgradePreservesExpiredAndPartialHistory(t *testing.T) 
 	_, err = r.db.ExecContext(t.Context(), `SELECT drop_chunks('device_metrics',older_than=>$1::timestamptz)`, partial)
 	require.NoError(t, err)
 	r.store(t, r.snapshot(48*time.Hour, false, 300e12, 400e12))
-	// Reconstruct the pre-1027 scheduling state, then apply the real up file.
+	// Reconstruct the pre-1028 scheduling state, then apply the real up file.
 	removeTelemetryRecovery(t, r.db)
 	_, err = r.db.ExecContext(t.Context(), `SELECT add_retention_policy(source::regclass,INTERVAL '10 days')
 	 FROM unnest(ARRAY['device_metrics','container_tank_metrics','container_module_metrics','hashboard_metrics']) source;
@@ -554,6 +567,42 @@ func TestTelemetrySummaryFairRotationAndRecentDuringCatchup(t *testing.T) {
 	require.Positive(t, deferrals)
 }
 
+func TestTelemetrySummaryInterruptedRetryYieldsToDueSibling(t *testing.T) {
+	r := newContainerRollupRig(t)
+	r.base = time.Now().UTC().Truncate(24 * time.Hour).Add(-12 * 24 * time.Hour)
+	r.store(t, r.snapshot(0, false, 100e12, 200e12))
+	reinstallTelemetryRecovery(t, r.db)
+	source := selectRecoveryWork(t, r.db, "hashboard_metrics_hourly", "catchup")
+	before := recoveryCompletedThrough(t, r.db, "hashboard_metrics_hourly")
+	_, err := r.db.ExecContext(t.Context(), `ALTER MATERIALIZED VIEW hashboard_metrics_hourly RENAME TO unavailable_summary`)
+	require.NoError(t, err)
+	_, err = r.db.ExecContext(t.Context(), `CALL telemetry_summary_step($1)`, source)
+	require.Error(t, err)
+	_, err = r.db.ExecContext(t.Context(), `ALTER MATERIALIZED VIEW unavailable_summary RENAME TO hashboard_metrics_hourly;
+ UPDATE telemetry_summary_work SET next_run_at=now()-INTERVAL '2 minutes'
+ WHERE aggregate_name='hashboard_metrics_hourly' AND work_kind='catchup';
+ UPDATE telemetry_summary_work SET next_run_at=now()-INTERVAL '1 minute'
+ WHERE aggregate_name='hashboard_metrics_daily' AND work_kind='catchup'`)
+	require.NoError(t, err)
+	// Model an interrupted refresh that outlasted its pre-refresh retry delay.
+	// Drive the real queue without the helper that forces one selected task due.
+	var resumedAt time.Time
+	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT clock_timestamp()`).Scan(&resumedAt))
+	_, err = r.db.ExecContext(t.Context(), `CALL telemetry_summary_step($1)`, source)
+	require.NoError(t, err)
+	var retryAt time.Time
+	var buckets, failures int
+	var pending bool
+	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT next_run_at,batch_buckets,failures,pending
+ FROM telemetry_summary_work WHERE aggregate_name='hashboard_metrics_hourly' AND work_kind='catchup'`).Scan(&retryAt, &buckets, &failures, &pending))
+	require.True(t, retryAt.After(resumedAt.Add(5*time.Minute)), "retry must be deferred from failure detection")
+	require.Equal(t, 12, buckets)
+	require.Equal(t, 1, failures)
+	require.False(t, pending)
+	require.True(t, before.Equal(recoveryCompletedThrough(t, r.db, "hashboard_metrics_hourly")), "failed hourly task must yield")
+	require.True(t, recoveryCompletedThrough(t, r.db, "hashboard_metrics_daily").After(before), "the sibling that became due must run first")
+}
+
 func TestTelemetrySummaryAdaptiveRetriesAndBlockedMinimum(t *testing.T) {
 	r := newContainerRollupRig(t)
 	r.base = time.Now().UTC().Truncate(24 * time.Hour).Add(-12 * 24 * time.Hour)
@@ -647,8 +696,6 @@ func TestTelemetrySummaryScheduledWorkerSerializesManualRequests(t *testing.T) {
 		return err == nil && failures > 0
 	}, 10*time.Second, 20*time.Millisecond)
 	require.NoError(t, tx.Rollback())
-	_, err = r.db.ExecContext(t.Context(), `SELECT alter_job($1,max_runtime=>INTERVAL '30 minutes')`, id)
-	require.NoError(t, err)
 	require.Eventually(t, func() bool {
 		var failures int
 		err := r.db.QueryRowContext(t.Context(), `SELECT failures FROM telemetry_summary_work WHERE aggregate_name='hashboard_metrics_hourly' AND work_kind='catchup'`).Scan(&failures)
@@ -693,8 +740,11 @@ func TestTelemetrySummaryPreservesStatusRetentionAndSkipsLateWrites(t *testing.T
  completed_through=time_bucket(INTERVAL '24 hours',now())+INTERVAL '24 hours'
  WHERE source_name='device_metrics' AND bucket_width=INTERVAL '24 hours'`)
 	require.NoError(t, err)
-	_, err = db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs) VALUES(now(),'live-miner',100)`)
+	live, err := db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs) VALUES(now(),'live-miner',100)`)
 	require.NoError(t, err)
+	affected, err := live.RowsAffected()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), affected, "live samples must be inserted")
 	_, err = db.ExecContext(t.Context(), `UPDATE telemetry_summary_write_gate SET frozen_through=now()-INTERVAL '24 hours' WHERE source_name='device_metrics'`)
 	require.NoError(t, err)
 	result, err := db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs) VALUES(now()-INTERVAL '40 days','late-miner',100) ON CONFLICT DO NOTHING`)
@@ -711,10 +761,11 @@ func TestTelemetrySummaryPreservesStatusRetentionAndSkipsLateWrites(t *testing.T
 
 func TestTelemetrySummaryRecoveryMigrationRollbackPreservesSafeguards(t *testing.T) {
 	db := testutil.GetTestDB(t)
-	down, err := migrations.Current.ReadFile("current/001027_internal_telemetry_summary_recovery.down.sql")
+	down, err := migrations.Current.ReadFile("current/001028_internal_telemetry_summary_recovery.down.sql")
 	require.NoError(t, err)
 	_, err = db.ExecContext(t.Context(), string(down))
 	require.ErrorContains(t, err, "protects retained evidence")
+	require.ErrorContains(t, err, "downgrade is unsupported")
 	var count int
 	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT count(*) FROM telemetry_summary_progress`).Scan(&count))
 	require.Len(t, recoveryAggregates, count)

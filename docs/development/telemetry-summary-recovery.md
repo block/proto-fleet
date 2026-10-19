@@ -1,6 +1,6 @@
 # Telemetry summary recovery and retention
 
-Migration 1027 protects miner, CT1 container, tank, module, and hashboard history
+Migration 1028 protects miner, CT1 container, tank, module, and hashboard history
 after summary-job interruptions. Twelve summary streams cover hourly/daily
 measurements for all five equipment types plus miner status. Miner and container
 streams share `device_metrics`; tank, module, and hashboard streams each have a
@@ -56,7 +56,10 @@ and four retention jobs. Each source has exactly one registered canonical job.
 Its worker attempts due retention first, then one due refresh quantum. A durable
 work queue orders tasks by due time. Before refresh commits internally, the worker
 moves that task's retry time five minutes forward, allowing siblings to run even
-when one task fails. Successful catch-up batches rejoin the queue behind other
+when one task fails. When the next worker records an interrupted attempt, it
+defers that retry at least five minutes from detection, including when the old
+deadline elapsed during a long refresh. Siblings that became due in the meantime
+keep their turn. Successful catch-up batches rejoin the queue behind other
 due tasks. Jobs start 45 seconds apart; deployment tuning includes these custom
 jobs independently of the built-in policies. Deployment tuning preserves their
 adaptive schedules instead of postponing catch-up. A successful worker requests its next run
@@ -101,7 +104,7 @@ hourly summaries and three years for daily summaries, with whole-chunk rounding.
 
 ## Upgrade and existing gaps
 
-Stop application writers and scheduled database maintenance for migration 1027,
+Stop application writers and scheduled database maintenance for migration 1028,
 as for the earlier private maintenance migrations. Rehearse the upgrade on a
 recent database copy. It removes the old bootstrap jobs and raw retention/refresh
 policies, captures raw boundaries, and installs the replacement maintenance.
@@ -127,9 +130,14 @@ ingestion starts before the first maintenance run.
 
 The migration cannot recover previously deleted data. It does not infer coverage
 from materialized buckets or destructively repair pre-existing gaps. The down
-migration refuses to remove these safeguards; an application rollback leaves the
-additive schema in place. Fix forward or disable the replacement jobs while
-preserving raw evidence.
+migration refuses to remove these safeguards. Binaries whose embedded migration
+history predates this checkpoint reject the upgraded database at startup;
+retaining the additive schema does not support an application downgrade.
+Preserve the database and fix forward with a release that includes this migration.
+The four replacement maintenance jobs can be paused during investigation while
+monitoring raw-data disk growth. A coordinated rollback requires a pre-deploy
+database snapshot together with its matching application release. Do not force
+the migration version or restore independent raw-retention policies.
 
 ## Monitoring and recovery
 
