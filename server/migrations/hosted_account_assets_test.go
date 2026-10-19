@@ -6,6 +6,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/block/proto-fleet/server/migrations"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 )
 
@@ -71,4 +72,56 @@ func TestAccountAssetRollbackPreservesAllocationsAndRecallWitnesses(t *testing.T
 			require.Zero(t, count)
 		})
 	}
+}
+
+// The service checks the hierarchy before writing, but the trigger is the
+// durable guard against direct writes that would corrupt reporting ownership.
+func TestAccountAssetChainTriggerRejectsBrokenOwnership(t *testing.T) {
+	cfg, err := testutil.GetTestConfig()
+	require.NoError(t, err)
+	database := testutil.NewDatabaseService(t, cfg)
+	user := database.CreateSuperAdminUser()
+	org := user.OrganizationID
+	miner := database.CreateDevice(org, "proto").DatabaseID
+	controller := database.CreateDevice(org, "proto").DatabaseID
+	other := database.CreateDevice(org, "proto").DatabaseID
+	ctx := t.Context()
+	var root, customer, otherCustomer, subclient, tank, module int64
+	require.NoError(t, database.DB.QueryRowContext(ctx, `SELECT id FROM hosted_account WHERE organization_id=$1 AND depth=0`, org).Scan(&root))
+	account := func(parent int64, depth int, name string) (id int64) {
+		require.NoError(t, database.DB.QueryRowContext(ctx, `INSERT INTO hosted_account(account_id,organization_id,parent_id,depth,name,capabilities) VALUES($1,$2,$3,$4,$5,31) RETURNING id`, uuid.NewString(), org, parent, depth, name).Scan(&id))
+		return id
+	}
+	customer = account(root, 1, "Customer")
+	otherCustomer = account(root, 1, "Other customer")
+	subclient = account(otherCustomer, 2, "Foreign subclient")
+	_, err = database.DB.ExecContext(ctx, `INSERT INTO container_inventory(device_id,org_id,observed_at) VALUES($1,$2,now())`, controller, org)
+	require.NoError(t, err)
+	require.NoError(t, database.DB.QueryRowContext(ctx, `INSERT INTO container_tank(device_id,position,first_seen_at,last_seen_at) VALUES($1,1,now(),now()) RETURNING id`, controller).Scan(&tank))
+	require.NoError(t, database.DB.QueryRowContext(ctx, `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) VALUES($1,1,now(),now(),'hashing',now()) RETURNING id`, tank).Scan(&module))
+	for _, broken := range []struct {
+		name    string
+		insert  string
+		args    []any
+		message string
+	}{
+		{"subclient as customer", `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,miner_id,client_id) VALUES($1,5,$2,$2,$2,$3)`, []any{org, miner, subclient}, "allocation requires customer"},
+		{"root as customer", `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,miner_id,client_id) VALUES($1,5,$2,$2,$2,$3)`, []any{org, miner, root}, "allocation requires customer"},
+		{"another customer's subclient", `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,miner_id,client_id,subclient_id) VALUES($1,5,$2,$2,$2,$3,$4)`, []any{org, miner, customer, subclient}, "allocation requires direct subclient"},
+		{"module under another controller", `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,module_id,client_id) VALUES($1,6,$2,$3,$2,$4)`, []any{org, module, other, customer}, "module controller mismatch"},
+	} {
+		t.Run(broken.name, func(t *testing.T) {
+			_, err := database.DB.ExecContext(ctx, broken.insert, broken.args...)
+			var pgErr *pgconn.PgError
+			require.ErrorAs(t, err, &pgErr)
+			require.Equal(t, "23514", pgErr.Code)
+			require.Contains(t, pgErr.Message, broken.message)
+		})
+	}
+	// Updates pass through the same trigger, so a valid row cannot be moved under
+	// a foreign subclient after insert either.
+	_, err = database.DB.ExecContext(ctx, `INSERT INTO hosted_account_asset(organization_id,kind,asset_id,device_id,miner_id,client_id) VALUES($1,5,$2,$2,$2,$3)`, org, miner, customer)
+	require.NoError(t, err)
+	_, err = database.DB.ExecContext(ctx, `UPDATE hosted_account_asset SET subclient_id=$3 WHERE organization_id=$1 AND asset_id=$2`, org, miner, subclient)
+	require.ErrorContains(t, err, "allocation requires direct subclient")
 }

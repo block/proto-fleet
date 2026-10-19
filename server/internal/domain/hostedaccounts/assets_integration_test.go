@@ -16,6 +16,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/stretchr/testify/require"
 )
@@ -623,4 +624,62 @@ func TestAccountMiningMaximumMixedBatchAssignRecallAndStaleRevision(t *testing.T
 	assets[len(assets)-1].ExpectedRevision = 1
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, recall, assets...))
 	assertLedger(nil, 2, 2)
+}
+
+// Every rejected assignment must leave both the reporting ledger and the audit
+// trail untouched, whichever guard rejects it.
+func TestAccountMiningAssignmentGuardsLeaveLedgerUnchanged(t *testing.T) {
+	f := setup(t)
+	first := f.client(t, "First", f.user, hostedaccounts.AllCapabilities)
+	second := f.client(t, "Second", f.host, hostedaccounts.AllCapabilities)
+	child, err := f.svc.CreateChild(t.Context(), f.user, f.org, first.AccountID, "Child", f.host, hostedaccounts.AllCapabilities)
+	require.NoError(t, err)
+	held := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	free := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	assign, recall := pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_RECALL
+	require.NoError(t, f.allocate(t, f.host, f.root, first.AccountID, assign, selected(5, held, 0)))
+	require.NoError(t, f.svc.ConfigureChild(t.Context(), f.user, f.org, child.AccountID, hostedaccounts.AllCapabilities, true))
+	snapshot := func() (ledger string, audits int) {
+		require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT coalesce(json_agg(a ORDER BY kind,asset_id),'[]')::text FROM hosted_account_asset a WHERE organization_id=$1`, f.org).Scan(&ledger))
+		require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM activity_log WHERE organization_id=$1`, f.org).Scan(&audits))
+		return ledger, audits
+	}
+	ledger, audits := snapshot()
+	oversized := make([]*pb.MiningAssetSelection, 501)
+	for i := range oversized {
+		oversized[i] = selected(5, int64(i+1), 0)
+	}
+	for _, guard := range []struct {
+		name     string
+		actor    int64
+		parent   string
+		child    string
+		intent   pb.AssetAssignmentIntent
+		assets   []*pb.MiningAssetSelection
+		rejected func(error) bool
+	}{
+		{"already held at current revision", f.host, f.root, second.AccountID, assign, []*pb.MiningAssetSelection{selected(5, held, 1)}, fleeterror.IsFailedPreconditionError},
+		{"recall from the wrong child", f.host, f.root, second.AccountID, recall, []*pb.MiningAssetSelection{selected(5, held, 1)}, fleeterror.IsFailedPreconditionError},
+		{"assign to suspended child", f.user, first.AccountID, child.AccountID, assign, []*pb.MiningAssetSelection{selected(5, held, 1)}, fleeterror.IsForbiddenError},
+		{"child of another parent", f.host, f.root, child.AccountID, assign, []*pb.MiningAssetSelection{selected(5, free, 0)}, fleeterror.IsForbiddenError},
+		{"empty selection", f.host, f.root, second.AccountID, assign, nil, fleeterror.IsInvalidArgumentError},
+		{"oversized selection", f.host, f.root, second.AccountID, assign, oversized, fleeterror.IsInvalidArgumentError},
+		{"unspecified intent", f.host, f.root, second.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_UNSPECIFIED, []*pb.MiningAssetSelection{selected(5, free, 0)}, fleeterror.IsInvalidArgumentError},
+		{"negative revision", f.host, f.root, second.AccountID, assign, []*pb.MiningAssetSelection{selected(5, free, -1)}, fleeterror.IsInvalidArgumentError},
+		{"duplicate selection", f.host, f.root, second.AccountID, assign, []*pb.MiningAssetSelection{selected(5, free, 0), selected(5, free, 0)}, fleeterror.IsInvalidArgumentError},
+		{"unknown kind", f.host, f.root, second.AccountID, assign, []*pb.MiningAssetSelection{selected(pb.MiningAssetKind_MINING_ASSET_KIND_UNSPECIFIED, free, 0)}, fleeterror.IsInvalidArgumentError},
+	} {
+		t.Run(guard.name, func(t *testing.T) {
+			err := f.allocate(t, guard.actor, guard.parent, guard.child, guard.intent, guard.assets...)
+			require.True(t, guard.rejected(err), "unexpected rejection: %v", err)
+			after, afterAudits := snapshot()
+			require.JSONEq(t, ledger, after)
+			require.Equal(t, audits, afterAudits)
+		})
+	}
+	// Suspension stops new capacity, but parents can still reclaim what they lent.
+	require.NoError(t, f.svc.ConfigureChild(t.Context(), f.user, f.org, child.AccountID, hostedaccounts.AllCapabilities, false))
+	require.NoError(t, f.allocate(t, f.user, first.AccountID, child.AccountID, assign, selected(5, held, 1)))
+	require.NoError(t, f.svc.ConfigureChild(t.Context(), f.user, f.org, child.AccountID, hostedaccounts.AllCapabilities, true))
+	require.NoError(t, f.allocate(t, f.user, first.AccountID, child.AccountID, recall, selected(5, held, 2)))
 }
