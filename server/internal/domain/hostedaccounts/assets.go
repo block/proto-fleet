@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"math"
 	"slices"
 	"strings"
@@ -20,6 +21,11 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
+
+// Bound account admission and telemetry work together, including lock waits
+// and transaction retries, so a report or assignment cannot indefinitely delay
+// revocation or other organization administration.
+const miningTransactionTimeout = 5 * time.Second
 
 type miningEstate struct {
 	account         Account
@@ -58,11 +64,9 @@ func loadMiningEstate(ctx context.Context, q sqlc.Querier, actorID, orgID int64,
 	if err != nil {
 		return estate, err
 	}
-	if estate.account.Depth == 0 {
-		estate.hostPermissions, err = authz.LoadEffectiveForUpdate(ctx, q, actorID, orgID)
-		if err != nil {
-			return estate, err
-		}
+	estate.hostPermissions, err = hostReadAuthority(ctx, q, actorID, orgID, estate.account)
+	if err != nil {
+		return estate, err
 	}
 	if includeRows {
 		estate.rows, err = q.ListHostedAccountMiningAssets(ctx, sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: orgID, AccountInternalID: estate.account.ID, IsRoot: estate.account.Depth == 0, SelectedAssets: json.RawMessage("[]")})
@@ -75,9 +79,30 @@ func loadMiningEstate(ctx context.Context, q sqlc.Querier, actorID, orgID int64,
 	}
 	return estate, err
 }
+
+// Host operators reach clients through root ancestor grants (or legacy creator
+// memberships), so their host site authority bounds physical metadata in client
+// reports exactly as it does in the host report. Customers have no host scope.
+func hostReadAuthority(ctx context.Context, q sqlc.Querier, actorID, orgID int64, account Account) (*authz.EffectivePermissions, error) {
+	if account.Depth != 0 {
+		host, err := q.HasHostedAccountHostAuthority(ctx, sqlc.HasHostedAccountHostAuthorityParams{UserID: actorID, OrganizationID: orgID})
+		if err != nil || !host {
+			return nil, err
+		}
+	}
+	effective, err := authz.LoadEffectiveForUpdate(ctx, q, actorID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if account.Depth != 0 && !effective.Has(authz.PermAccountManage, authz.ResourceContext{}) {
+		return nil, nil
+	}
+	return effective, nil
+}
+
 func (e miningEstate) management() bool { return e.capabilities&(ManageMembers|Delegate) != 0 }
 func (e miningEstate) physicalRead(row sqlc.ListHostedAccountMiningAssetsRow) bool {
-	if e.account.Depth != 0 {
+	if e.hostPermissions == nil {
 		return true
 	}
 	var site *int64
@@ -245,9 +270,7 @@ func (a *miningAccumulator) result() *pb.MiningSummary {
 }
 
 func (s *Service) MiningSummary(ctx context.Context, actorID, orgID int64, accountID string) (*pb.GetAccountMiningSummaryResponse, error) {
-	// Bound account admission and telemetry work together, including lock waits
-	// and transaction retries, so a report cannot indefinitely delay revocation.
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, miningTransactionTimeout)
 	defer cancel()
 
 	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (*pb.GetAccountMiningSummaryResponse, error) {
@@ -334,6 +357,9 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 		}
 		seen[[2]int64{int64(asset.Kind), asset.Id}] = true
 	}
+	ctx, cancel := context.WithTimeout(ctx, miningTransactionTimeout)
+	defer cancel()
+
 	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (*pb.ListAccountAssetsResponse, error) {
 		e, err := loadMiningEstate(ctx, q, actorID, orgID, request.AccountId, false)
 		if err != nil {
@@ -407,7 +433,7 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 			}
 		}
 		authority := []map[string]any{}
-		if e.account.Depth == 0 {
+		if e.hostPermissions != nil {
 			for _, permission := range []string{authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead} {
 				orgWide, sites := e.hostPermissions.SiteScopeFor(permission)
 				if sites == nil {
@@ -453,9 +479,9 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 	if len(request.Assets) == 0 || len(request.Assets) > 500 || (request.Intent != pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN && request.Intent != pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_RECALL) {
 		return fleeterror.NewInvalidArgumentError("invalid asset assignment")
 	}
-	// Physical dispatch retains binding locks during miner I/O. Bound the whole
-	// assignment so contention cannot retain organization admission indefinitely.
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	// Binding and inventory lock waits run under organization admission. Bound the
+	// whole assignment so contention cannot retain that admission indefinitely.
+	ctx, cancel := context.WithTimeout(ctx, miningTransactionTimeout)
 	defer cancel()
 
 	return db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
@@ -539,7 +565,7 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 		for _, selection := range request.Assets {
 			deviceID, err := q.GetHostedAccountAssetDevice(ctx, sqlc.GetHostedAccountAssetDeviceParams{OrganizationID: orgID, Kind: int32(selection.Kind), AssetID: selection.Id})
 			if err != nil {
-				return assetConflict()
+				return missingAssetConflict(err)
 			}
 			deviceIDs = append(deviceIDs, deviceID)
 			identity, err := q.GetDeviceWriteIdentityKeys(ctx, deviceID)
@@ -557,7 +583,7 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 		for _, deviceID := range deviceIDs {
 			discoveryID, err := q.LockMinerBindingDevice(ctx, deviceID)
 			if err != nil {
-				return assetConflict()
+				return missingAssetConflict(err)
 			}
 			if _, err = q.LockMinerBindingDiscovery(ctx, discoveryID); err != nil {
 				return err
@@ -621,4 +647,13 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 }
 func assetConflict() error {
 	return fleeterror.NewFailedPreconditionError("selected assets changed or are unavailable; refresh and review the selection")
+}
+
+// A vanished row is a stale selection. Deadlines, deadlocks and connection
+// failures must keep their cause so transactions retry or report them honestly.
+func missingAssetConflict(err error) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		return assetConflict()
+	}
+	return err
 }

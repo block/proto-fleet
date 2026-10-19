@@ -103,6 +103,20 @@ func TestAccountMiningSummaryScopesLargeFleetBeforeProjection(t *testing.T) {
 			require.True(t, found, "expected the executed live-assets projection")
 			require.EqualValues(t, account.expected, projection.ActualRows*projection.ActualLoops, "account %s must not materialize unrelated host telemetry", account.account.Name)
 			require.EqualValues(t, account.miners, projection.minerTelemetryLookups(), "account %s must not read unrelated miner telemetry", account.account.Name)
+
+			// The paginated list shares the estate scope, so a customer page must not
+			// materialize the host fleet either.
+			capture = &miningProjectionDB{DB: f.db}
+			page, err := sqlc.New(capture).ListHostedAccountMiningAssetPage(t.Context(), sqlc.ListHostedAccountMiningAssetPageParams{OrganizationID: f.org, AccountInternalID: account.account.ID, HostAuthority: json.RawMessage("[]"), PolicySites: []int64{}, PageLimit: 101})
+			require.NoError(t, err)
+			require.Len(t, page, account.expected)
+			plans = nil
+			require.NoError(t, json.Unmarshal(capture.plan, &plans))
+			require.Len(t, plans, 1)
+			projection, found = plans[0].Plan.liveProjection()
+			require.True(t, found, "expected the executed page live-assets projection")
+			require.EqualValues(t, account.expected, projection.ActualRows*projection.ActualLoops, "account %s page must not materialize unrelated host telemetry", account.account.Name)
+			require.EqualValues(t, account.miners, projection.minerTelemetryLookups(), "account %s page must not read unrelated miner telemetry", account.account.Name)
 		}
 	})
 
@@ -145,25 +159,37 @@ func TestAccountMiningSummaryScopesLargeFleetBeforeProjection(t *testing.T) {
 	})
 }
 
-func TestAccountMiningSummaryBoundsOrganizationLockWait(t *testing.T) {
-	f := setup(t)
-	client := f.client(t, "Blocked report", f.user, hostedaccounts.AllCapabilities)
-	tx, err := f.db.BeginTx(t.Context(), nil)
-	require.NoError(t, err)
-	defer tx.Rollback()
-	_, err = tx.ExecContext(t.Context(), `SELECT id FROM organization WHERE id=$1 FOR NO KEY UPDATE`, f.org)
-	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	result := make(chan error, 1)
-	go func() { _, err := f.svc.MiningSummary(ctx, f.user, f.org, client.AccountID); result <- err }()
-	select {
-	case err := <-result:
-		require.Error(t, err)
-	case <-time.After(8 * time.Second):
-		t.Fatal("report did not bound organization lock wait")
+func TestAccountMiningReadsBoundOrganizationLockWait(t *testing.T) {
+	for name, read := range map[string]func(context.Context, fixture, string) error{
+		"summary": func(ctx context.Context, f fixture, account string) error {
+			_, err := f.svc.MiningSummary(ctx, f.user, f.org, account)
+			return err
+		},
+		"asset list": func(ctx context.Context, f fixture, account string) error {
+			_, err := f.svc.ListAssets(ctx, f.user, f.org, &pb.ListAccountAssetsRequest{AccountId: account})
+			return err
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := setup(t)
+			client := f.client(t, "Blocked report", f.user, hostedaccounts.AllCapabilities)
+			tx, err := f.db.BeginTx(t.Context(), nil)
+			require.NoError(t, err)
+			defer tx.Rollback()
+			_, err = tx.ExecContext(t.Context(), `SELECT id FROM organization WHERE id=$1 FOR NO KEY UPDATE`, f.org)
+			require.NoError(t, err)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			result := make(chan error, 1)
+			go func() { result <- read(ctx, f, client.AccountID) }()
+			select {
+			case err := <-result:
+				require.Error(t, err)
+			case <-time.After(8 * time.Second):
+				t.Fatal("report did not bound organization lock wait")
+			}
+			require.NoError(t, tx.Rollback())
+			require.NoError(t, read(t.Context(), f, client.AccountID), "timed-out report must release its transaction")
+		})
 	}
-	require.NoError(t, tx.Rollback())
-	_, err = f.svc.MiningSummary(t.Context(), f.user, f.org, client.AccountID)
-	require.NoError(t, err, "timed-out report must release its transaction")
 }

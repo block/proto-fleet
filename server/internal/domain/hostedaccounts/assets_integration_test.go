@@ -433,6 +433,53 @@ func TestAccountMiningRootMixedSiteAuthority(t *testing.T) {
 	}
 }
 
+// Root ancestor grants let host operators administer clients without a seat, so
+// their host site authority must bound client reports as it bounds the host one.
+func TestAccountMiningClientReportPreservesHostSiteAuthority(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", 0, hostedaccounts.AllCapabilities)
+	customer := addUser(t, f.db, f.org)
+	require.NoError(t, f.svc.SetMembership(t.Context(), f.host, f.org, client.AccountID, customer, hostedaccounts.RoleViewer))
+	q := sqlc.New(f.db)
+	allowed, err := q.CreateSite(t.Context(), sqlc.CreateSiteParams{OrgID: f.org, Name: "Allowed", Slug: "allowed"})
+	require.NoError(t, err)
+	hidden, err := q.CreateSite(t.Context(), sqlc.CreateSiteParams{OrgID: f.org, Name: "Hidden", Slug: "hidden"})
+	require.NoError(t, err)
+	visible := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	private := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	_, err = f.db.ExecContext(t.Context(), `UPDATE device SET site_id=CASE WHEN id=$1 THEN $3::bigint ELSE $4::bigint END WHERE id IN ($1,$2)`, visible, private, allowed.ID, hidden.ID)
+	require.NoError(t, err)
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, visible, 0), selected(5, private, 0)))
+	svc := authz.NewService(f.db, nil)
+	manager, err := svc.CreateCustomRole(t.Context(), f.host, f.org, "Account management", "", []string{authz.PermAccountManage})
+	require.NoError(t, err)
+	reader, err := svc.CreateCustomRole(t.Context(), f.host, f.org, "Physical reader", "", []string{authz.PermAccountManage, authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead})
+	require.NoError(t, err)
+	_, err = q.AssignRole(t.Context(), sqlc.AssignRoleParams{UserID: f.user, OrganizationID: f.org, RoleID: manager.ID, ScopeType: "org"})
+	require.NoError(t, err)
+	_, err = q.AssignRole(t.Context(), sqlc.AssignRoleParams{UserID: f.user, OrganizationID: f.org, RoleID: reader.ID, ScopeType: "site", ScopeID: sql.NullInt64{Int64: allowed.ID, Valid: true}})
+	require.NoError(t, err)
+
+	for _, reader := range []struct {
+		name   string
+		actor  int64
+		assets []int64
+	}{{"host operator", f.user, []int64{visible}}, {"customer member", customer, []int64{visible, private}}} {
+		t.Run(reader.name, func(t *testing.T) {
+			summary, err := f.svc.MiningSummary(t.Context(), reader.actor, f.org, client.AccountID)
+			require.NoError(t, err)
+			require.EqualValues(t, len(reader.assets), summary.Totals.AssetCount)
+			rows, err := f.svc.ListAssets(t.Context(), reader.actor, f.org, &pb.ListAccountAssetsRequest{AccountId: client.AccountID})
+			require.NoError(t, err)
+			ids := make([]int64, 0, len(rows.Assets))
+			for _, asset := range rows.Assets {
+				ids = append(ids, asset.Id)
+			}
+			require.ElementsMatch(t, reader.assets, ids)
+		})
+	}
+}
+
 func TestAccountMiningRejectsUnauthorizedSelectionBeforePhysicalLocks(t *testing.T) {
 	for _, kind := range []pb.MiningAssetKind{5, 6} {
 		t.Run(kind.String(), func(t *testing.T) {

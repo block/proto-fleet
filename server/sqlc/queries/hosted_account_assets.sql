@@ -75,12 +75,30 @@ ON CONFLICT (organization_id,kind,asset_id) DO UPDATE SET client_id=EXCLUDED.cli
 RETURNING revision;
 
 -- name: ListHostedAccountMiningAssetPage :many
-WITH leaves AS (
+-- Scope like ListHostedAccountMiningAssets: customer pages enter the Fleet view
+-- by allocated ID so a small estate never evaluates the host fleet's telemetry.
+WITH allocations AS MATERIALIZED (
+ SELECT a.* FROM hosted_account_asset a
+ WHERE a.organization_id=sqlc.arg(organization_id)
+ AND (sqlc.arg(is_root)::boolean OR a.client_id=sqlc.arg(account_internal_id)::bigint OR a.subclient_id=sqlc.arg(account_internal_id)::bigint)
+), live_assets AS MATERIALIZED (
+ SELECT f.* FROM fleet_mining_asset f
+ WHERE sqlc.arg(is_root)::boolean AND f.org_id=sqlc.arg(organization_id)
+ UNION ALL
+ SELECT f.* FROM allocations a
+ CROSS JOIN LATERAL (
+  SELECT f.* FROM fleet_mining_asset f
+  WHERE f.org_id=sqlc.arg(organization_id) AND f.kind=a.kind AND f.id=a.asset_id
+  -- Prevent pull-up from moving allocation filtering after telemetry joins.
+  OFFSET 0
+ ) f
+ WHERE NOT sqlc.arg(is_root)::boolean
+), leaves AS (
  SELECT f.kind,f.id,f.org_id,CASE WHEN f.kind=5 THEN f.id ELSE f.facility_id END::bigint AS device_id
- FROM fleet_mining_asset f WHERE f.org_id=sqlc.arg(organization_id)
+ FROM live_assets f
  UNION
- SELECT a.kind,a.asset_id,a.organization_id,a.device_id FROM hosted_account_asset a
- WHERE a.organization_id=sqlc.arg(organization_id) AND a.client_id IS NOT NULL
+ SELECT a.kind,a.asset_id,a.organization_id,a.device_id FROM allocations a
+ WHERE a.client_id IS NOT NULL
 ), projection AS (
 SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  COALESCE(a.client_id,0)::bigint AS client_id,COALESCE(a.subclient_id,0)::bigint AS subclient_id,
@@ -98,10 +116,10 @@ SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  (f.hashrate_hs IS NOT NULL)::boolean AS has_hashrate,(f.power_w IS NOT NULL)::boolean AS has_power,f.observed_at,
  COALESCE(cm.coverage,'null'::jsonb)::jsonb AS coverage
 FROM leaves l
-LEFT JOIN hosted_account_asset a ON a.organization_id=l.org_id AND a.kind=l.kind AND a.asset_id=l.id
+LEFT JOIN allocations a ON a.organization_id=l.org_id AND a.kind=l.kind AND a.asset_id=l.id
 LEFT JOIN hosted_account c ON c.id=a.client_id
 LEFT JOIN hosted_account sc ON sc.id=a.subclient_id
-LEFT JOIN fleet_mining_asset f ON f.org_id=l.org_id AND f.kind=l.kind AND f.id=l.id
+LEFT JOIN live_assets f ON f.org_id=l.org_id AND f.kind=l.kind AND f.id=l.id
 JOIN device d ON d.id=l.device_id AND d.org_id=l.org_id
 LEFT JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=l.org_id
 LEFT JOIN site s ON s.id=d.site_id AND s.org_id=l.org_id
@@ -110,7 +128,8 @@ WHERE sqlc.arg(is_root)::boolean OR a.client_id=sqlc.arg(account_internal_id)::b
 
 ), filtered AS (
 SELECT p.* FROM projection p
-WHERE (NOT sqlc.arg(is_root)::boolean OR NOT EXISTS (
+-- Host operators carry host read authority at every depth; customers pass none.
+WHERE (NOT EXISTS (
   SELECT 1 FROM jsonb_to_recordset(sqlc.arg(host_authority)::jsonb) AS a(org_wide boolean,sites bigint[])
   WHERE NOT (CASE WHEN a.org_wide THEN p.site_id=0 OR NOT(p.site_id=ANY(a.sites)) ELSE p.site_id=ANY(a.sites) END)
  ))

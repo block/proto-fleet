@@ -78,12 +78,28 @@ func (q *Queries) ListHostedAccountAssetChildren(ctx context.Context, arg ListHo
 }
 
 const listHostedAccountMiningAssetPage = `-- name: ListHostedAccountMiningAssetPage :many
-WITH leaves AS (
+WITH allocations AS MATERIALIZED (
+ SELECT a.organization_id, a.kind, a.asset_id, a.device_id, a.miner_id, a.module_id, a.client_id, a.subclient_id, a.revision, a.updated_at FROM hosted_account_asset a
+ WHERE a.organization_id=$9
+ AND ($10::boolean OR a.client_id=$11::bigint OR a.subclient_id=$11::bigint)
+), live_assets AS MATERIALIZED (
+ SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM fleet_mining_asset f
+ WHERE $10::boolean AND f.org_id=$9
+ UNION ALL
+ SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM allocations a
+ CROSS JOIN LATERAL (
+  SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM fleet_mining_asset f
+  WHERE f.org_id=$9 AND f.kind=a.kind AND f.id=a.asset_id
+  -- Prevent pull-up from moving allocation filtering after telemetry joins.
+  OFFSET 0
+ ) f
+ WHERE NOT $10::boolean
+), leaves AS (
  SELECT f.kind,f.id,f.org_id,CASE WHEN f.kind=5 THEN f.id ELSE f.facility_id END::bigint AS device_id
- FROM fleet_mining_asset f WHERE f.org_id=$9
+ FROM live_assets f
  UNION
- SELECT a.kind,a.asset_id,a.organization_id,a.device_id FROM hosted_account_asset a
- WHERE a.organization_id=$9 AND a.client_id IS NOT NULL
+ SELECT a.kind,a.asset_id,a.organization_id,a.device_id FROM allocations a
+ WHERE a.client_id IS NOT NULL
 ), projection AS (
 SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  COALESCE(a.client_id,0)::bigint AS client_id,COALESCE(a.subclient_id,0)::bigint AS subclient_id,
@@ -101,10 +117,10 @@ SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  (f.hashrate_hs IS NOT NULL)::boolean AS has_hashrate,(f.power_w IS NOT NULL)::boolean AS has_power,f.observed_at,
  COALESCE(cm.coverage,'null'::jsonb)::jsonb AS coverage
 FROM leaves l
-LEFT JOIN hosted_account_asset a ON a.organization_id=l.org_id AND a.kind=l.kind AND a.asset_id=l.id
+LEFT JOIN allocations a ON a.organization_id=l.org_id AND a.kind=l.kind AND a.asset_id=l.id
 LEFT JOIN hosted_account c ON c.id=a.client_id
 LEFT JOIN hosted_account sc ON sc.id=a.subclient_id
-LEFT JOIN fleet_mining_asset f ON f.org_id=l.org_id AND f.kind=l.kind AND f.id=l.id
+LEFT JOIN live_assets f ON f.org_id=l.org_id AND f.kind=l.kind AND f.id=l.id
 JOIN device d ON d.id=l.device_id AND d.org_id=l.org_id
 LEFT JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=l.org_id
 LEFT JOIN site s ON s.id=d.site_id AND s.org_id=l.org_id
@@ -113,7 +129,7 @@ WHERE $10::boolean OR a.client_id=$11::bigint OR a.subclient_id=$11::bigint
 
 ), filtered AS (
 SELECT p.kind, p.id, p.device_id, p.revision, p.client_id, p.subclient_id, p.owner_account_id, p.owner_account_name, p.name, p.state, p.model, p.temperature_c, p.has_temperature, p.efficiency_j_th, p.has_efficiency, p.site_id, p.site_name, p.container_id, p.container_name, p.available, p.hashrate_hs, p.power_w, p.has_hashrate, p.has_power, p.observed_at, p.coverage FROM projection p
-WHERE (NOT $10::boolean OR NOT EXISTS (
+WHERE (NOT EXISTS (
   SELECT 1 FROM jsonb_to_recordset($12::jsonb) AS a(org_wide boolean,sites bigint[])
   WHERE NOT (CASE WHEN a.org_wide THEN p.site_id=0 OR NOT(p.site_id=ANY(a.sites)) ELSE p.site_id=ANY(a.sites) END)
  ))
@@ -213,6 +229,9 @@ type ListHostedAccountMiningAssetPageRow struct {
 	SortNull         bool
 }
 
+// Scope like ListHostedAccountMiningAssets: customer pages enter the Fleet view
+// by allocated ID so a small estate never evaluates the host fleet's telemetry.
+// Host operators carry host read authority at every depth; customers pass none.
 func (q *Queries) ListHostedAccountMiningAssetPage(ctx context.Context, arg ListHostedAccountMiningAssetPageParams) ([]ListHostedAccountMiningAssetPageRow, error) {
 	rows, err := q.query(ctx, q.listHostedAccountMiningAssetPageStmt, listHostedAccountMiningAssetPage,
 		arg.HasCursor,

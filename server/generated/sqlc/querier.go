@@ -1424,6 +1424,9 @@ type Querier interface {
 	// Bound key rows before expanding their retained descendant scopes.
 	ListHostedAccountKeys(ctx context.Context, arg ListHostedAccountKeysParams) ([]ListHostedAccountKeysRow, error)
 	ListHostedAccountMembers(ctx context.Context, arg ListHostedAccountMembersParams) ([]ListHostedAccountMembersRow, error)
+	// Scope like ListHostedAccountMiningAssets: customer pages enter the Fleet view
+	// by allocated ID so a small estate never evaluates the host fleet's telemetry.
+	// Host operators carry host read authority at every depth; customers pass none.
 	ListHostedAccountMiningAssetPage(ctx context.Context, arg ListHostedAccountMiningAssetPageParams) ([]ListHostedAccountMiningAssetPageRow, error)
 	// Include retained assignments even after retirement or policy changes.
 	ListHostedAccountMiningAssets(ctx context.Context, arg ListHostedAccountMiningAssetsParams) ([]ListHostedAccountMiningAssetsRow, error)
