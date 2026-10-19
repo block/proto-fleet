@@ -34,6 +34,8 @@ function mount({
   children = [{ accountId: childId, name: "Customer", suspended: false }],
   exact = true,
   failure = false,
+  failureCode = "aborted",
+  failureMessage = "changed",
   mask = 16n,
 } = {}) {
   const calls: { method: string; body: Record<string, unknown>; account: string | null }[] = [];
@@ -57,11 +59,11 @@ function mount({
                 }),
               )
             : failure
-              ? { code: "aborted", message: "changed" }
+              ? { code: failureCode, message: failureMessage }
               : {},
         ),
         {
-          status: method === "AssignAccountAssets" && failure ? 409 : 200,
+          status: method === "AssignAccountAssets" && failure ? (failureCode === "invalid_argument" ? 400 : 409) : 200,
           headers: { "Content-Type": "application/json" },
         },
       );
@@ -170,6 +172,30 @@ describe("Fleet account assignment", () => {
     await screen.findByText(/Assignments or equipment changed/);
     expect(within(screen.getByRole("dialog")).getByRole("button", { name: "Assign 2 assets" })).toBeDisabled();
     expect(calls.filter((call) => call.method === "AssignAccountAssets")).toHaveLength(1);
+  });
+  it("keeps the reviewed assets available to retry after a destination policy error", async () => {
+    const policyError = "selected assets are outside the destination account's site policy";
+    const { calls, onAssigned } = mount({
+      failure: true,
+      failureCode: "invalid_argument",
+      failureMessage: policyError,
+    });
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Assign to account" }));
+    await chooseCustomer(user);
+    const dialog = screen.getByRole("dialog");
+    const confirm = within(dialog).getByRole("button", { name: "Assign 2 assets" });
+    await user.click(confirm);
+    expect(await within(dialog).findByText(policyError)).toBeInTheDocument();
+    expect(confirm).toBeEnabled();
+    expect(screen.queryByText(/Assignments or equipment changed/)).not.toBeInTheDocument();
+    expect(calls.filter((call) => call.method === "ListAccountAssets")).toHaveLength(1);
+    await user.click(confirm);
+    await waitFor(() => expect(calls.filter((call) => call.method === "AssignAccountAssets")).toHaveLength(2));
+    expect(await within(dialog).findByText(policyError)).toBeInTheDocument();
+    expect(confirm).toBeEnabled();
+    expect(calls.filter((call) => call.method === "ListAccountAssets")).toHaveLength(1);
+    expect(onAssigned).not.toHaveBeenCalled();
   });
   it("never expands a global selection into a partial assignment", () => {
     const { calls } = mount({ exact: false });

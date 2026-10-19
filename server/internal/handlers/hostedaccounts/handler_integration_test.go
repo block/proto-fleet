@@ -133,7 +133,7 @@ func (f rpcFixture) account(t *testing.T, name string, adminID int64, capabiliti
 	t.Helper()
 	account, err := f.accounts.CreateChild(t.Context(), f.host, f.org, f.root, name, adminID, capabilities)
 	require.NoError(t, err)
-	return account
+	return account.Account
 }
 
 func rpcRequest[T any](message *T, cookie, accountID string) *connect.Request[T] {

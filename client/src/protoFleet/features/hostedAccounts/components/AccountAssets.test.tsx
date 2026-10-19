@@ -476,16 +476,44 @@ describe("account mining asset allocation", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("Assigned 2 assets to East");
   });
   it("selects only displayed modules for a container and states the page boundary", async () => {
-    mount(31n, undefined, undefined, "", "assign");
+    const { client } = mount(31n, undefined, undefined, "", "assign");
     const user = userEvent.setup();
     await screen.findByText("Module One");
     await user.click(screen.getByRole("button", { name: /Container/ }));
     await user.click(await screen.findByRole("option", { name: "Container A" }));
+    await waitFor(() =>
+      expect(client.listAccountAssets).toHaveBeenLastCalledWith(
+        expect.objectContaining({ containerId: 10n, pageToken: "" }),
+        expect.anything(),
+      ),
+    );
     await user.click(await screen.findByRole("button", { name: "Select modules on this page" }));
     expect(screen.getByRole("checkbox", { name: "Select Module One" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Select Miner One" })).not.toBeChecked();
     await user.click(screen.getByRole("button", { name: "Assign selected" }));
     expect(within(screen.getByRole("dialog")).getByText(/Only the selected modules are included/)).toBeInTheDocument();
+  });
+  it("keeps the reviewed selection available to retry after a destination policy error", async () => {
+    const policyError = "selected assets are outside the destination account's site policy";
+    const assign = vi
+      .fn()
+      .mockRejectedValueOnce(new ConnectError(policyError, Code.InvalidArgument))
+      .mockResolvedValue({});
+    const { client } = mount(31n, [miner], assign, "", "assign");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
+    await user.click(screen.getByRole("button", { name: "Assign selected" }));
+    await selectTarget(user);
+    const dialog = screen.getByRole("dialog");
+    const confirm = within(dialog).getByRole("button", { name: "Assign 1 asset" });
+    await user.click(confirm);
+    expect(await within(dialog).findByText(policyError)).toBeInTheDocument();
+    expect(confirm).toBeEnabled();
+    expect(screen.getByRole("checkbox", { name: "Select Miner One" })).toBeChecked();
+    expect(client.listAccountAssets).toHaveBeenCalledOnce();
+    await user.click(confirm);
+    expect(await screen.findByRole("status")).toHaveTextContent("Assigned 1 asset to East");
+    expect(assign).toHaveBeenCalledTimes(2);
   });
   it("clears stale selections and requires another review after an ownership conflict", async () => {
     const assign = vi.fn().mockRejectedValue(new ConnectError("Assignment changed", Code.Aborted));

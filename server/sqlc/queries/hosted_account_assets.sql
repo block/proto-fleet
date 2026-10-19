@@ -6,12 +6,23 @@ WITH allocations AS MATERIALIZED (
  AND (sqlc.arg(is_root)::boolean OR a.client_id=sqlc.arg(account_internal_id)::bigint OR a.subclient_id=sqlc.arg(account_internal_id)::bigint)
  AND (jsonb_array_length(sqlc.arg(selected_assets)::jsonb)=0 OR EXISTS (SELECT 1 FROM jsonb_to_recordset(sqlc.arg(selected_assets)::jsonb) AS selected(kind integer,id bigint) WHERE selected.kind=a.kind AND selected.id=a.asset_id))
 ), live_assets AS MATERIALIZED (
- -- Materialize the host projection once for root selections. Customer reports
- -- instead enter the Fleet view by allocated ID; filtering its output alone
- -- can still evaluate telemetry across the host fleet before applying scope.
+ -- Unselected root reports need the full fleet. Exact root selections and
+ -- customer reports enter the Fleet view by typed ID, before telemetry joins.
  SELECT f.* FROM fleet_mining_asset f
  WHERE sqlc.arg(is_root)::boolean AND f.org_id=sqlc.arg(organization_id)
- AND (jsonb_array_length(sqlc.arg(selected_assets)::jsonb)=0 OR EXISTS (SELECT 1 FROM jsonb_to_recordset(sqlc.arg(selected_assets)::jsonb) AS selected(kind integer,id bigint) WHERE selected.kind=f.kind AND selected.id=f.id))
+ AND jsonb_array_length(sqlc.arg(selected_assets)::jsonb)=0
+ UNION ALL
+ SELECT f.* FROM (
+  SELECT DISTINCT (value->>'kind')::integer AS kind,(value->>'id')::bigint AS id
+  FROM jsonb_array_elements(sqlc.arg(selected_assets)::jsonb)
+ ) selected
+ CROSS JOIN LATERAL (
+  SELECT f.* FROM fleet_mining_asset f
+  WHERE f.org_id=sqlc.arg(organization_id) AND f.kind=selected.kind AND f.id=selected.id
+  -- Prevent pull-up from moving selection filtering after telemetry joins.
+  OFFSET 0
+ ) f
+ WHERE sqlc.arg(is_root)::boolean
  UNION ALL
  SELECT f.* FROM allocations a
  CROSS JOIN LATERAL (

@@ -84,6 +84,24 @@ The new `(created_at, id)` pending index keeps deterministic dequeue ordering.
 The older pending index remains part of the shared baseline catalog contract;
 removing it requires a separate shared migration and baseline decision.
 
+## Hosted account allocation rollback
+
+Migration 1028 retains allocation rows after recall. Their revisions reject stale
+selections even when no client currently owns the asset. Its down migration
+refuses any retained row; do not delete allocation history or recalled-row
+revision witnesses to make rollback succeed. Preserve the database and fix
+forward, or restore a rehearsed, coordinated application and database backup.
+Disposable development databases can be recreated.
+
+Normal application rollback and `fleet-db-transition` do not run down migrations.
+The checkpoint runner commits migration SQL and its clean checkpoint together;
+a failed migration rolls back to the previous completed checkpoint. After a
+lost commit acknowledgement, reconnect and inspect the checkpoint before retrying.
+If unsupported manual rollback tooling reports a dirty version, stop writers and
+preserve the database. Inspect the actual schema and retained allocation rows
+before choosing an evidence-preserving recovery; do not force a version or clear
+the dirty marker based only on the reported version.
+
 ## Author and promote
 
 1. Allocate numbers from internal main with

@@ -36,15 +36,26 @@ type miningEstate struct {
 	children        []sqlc.ListHostedAccountAssetChildrenRow
 }
 
+type miningAdmission bool
+
+const (
+	miningRead  miningAdmission = false
+	miningWrite miningAdmission = true
+)
+
 // Account reports are a distinct entitlement. They never resolve child-private
 // authority. The organization lock keeps reporting scope and policy consistent
 // with concurrent account administration and allocation transactions.
-func loadMiningEstate(ctx context.Context, q sqlc.Querier, actorID, orgID int64, accountID string, includeRows bool) (miningEstate, error) {
+func loadMiningEstate(ctx context.Context, q sqlc.Querier, actorID, orgID int64, accountID string, includeRows bool, admission miningAdmission) (miningEstate, error) {
 	var estate miningEstate
 	if err := RequireRequestAccount(ctx, accountID); err != nil {
 		return estate, err
 	}
-	if _, err := lockActor(ctx, q, orgID, actorID); err != nil {
+	if admission == miningWrite {
+		if _, err := lockActor(ctx, q, orgID, actorID); err != nil {
+			return estate, err
+		}
+	} else if err := lockActorForRead(ctx, q, orgID, actorID); err != nil {
 		return estate, err
 	}
 	path, err := loadPath(ctx, q, orgID, accountID)
@@ -56,7 +67,11 @@ func loadMiningEstate(ctx context.Context, q sqlc.Querier, actorID, orgID int64,
 	if estate.account.Depth == 0 {
 		required = Delegate
 	}
-	estate.capabilities, err = authorize(ctx, q, actorID, orgID, path, required)
+	authorizeEstate := authorizeForRead
+	if admission == miningWrite {
+		authorizeEstate = authorize
+	}
+	estate.capabilities, err = authorizeEstate(ctx, q, actorID, orgID, path, required)
 	if err != nil {
 		return estate, err
 	}
@@ -64,7 +79,7 @@ func loadMiningEstate(ctx context.Context, q sqlc.Querier, actorID, orgID int64,
 	if err != nil {
 		return estate, err
 	}
-	estate.hostPermissions, err = hostReadAuthority(ctx, q, actorID, orgID, estate.account)
+	estate.hostPermissions, err = hostReadAuthority(ctx, q, actorID, orgID, estate.account, admission)
 	if err != nil {
 		return estate, err
 	}
@@ -83,14 +98,18 @@ func loadMiningEstate(ctx context.Context, q sqlc.Querier, actorID, orgID int64,
 // Host operators reach clients through root ancestor grants (or legacy creator
 // memberships), so their host site authority bounds physical metadata in client
 // reports exactly as it does in the host report. Customers have no host scope.
-func hostReadAuthority(ctx context.Context, q sqlc.Querier, actorID, orgID int64, account Account) (*authz.EffectivePermissions, error) {
+func hostReadAuthority(ctx context.Context, q sqlc.Querier, actorID, orgID int64, account Account, admission miningAdmission) (*authz.EffectivePermissions, error) {
 	if account.Depth != 0 {
 		host, err := q.HasHostedAccountHostAuthority(ctx, sqlc.HasHostedAccountHostAuthorityParams{UserID: actorID, OrganizationID: orgID})
 		if err != nil || !host {
 			return nil, err
 		}
 	}
-	effective, err := authz.LoadEffectiveForUpdate(ctx, q, actorID, orgID)
+	loadEffective := authz.LoadEffectiveForShare
+	if admission == miningWrite {
+		loadEffective = authz.LoadEffectiveForUpdate
+	}
+	effective, err := loadEffective(ctx, q, actorID, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -273,8 +292,8 @@ func (s *Service) MiningSummary(ctx context.Context, actorID, orgID int64, accou
 	ctx, cancel := context.WithTimeout(ctx, miningTransactionTimeout)
 	defer cancel()
 
-	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (*pb.GetAccountMiningSummaryResponse, error) {
-		e, err := loadMiningEstate(ctx, q, actorID, orgID, accountID, true)
+	return db.WithTransactionTimeout(ctx, s.conn, miningTransactionTimeout, func(q sqlc.Querier) (*pb.GetAccountMiningSummaryResponse, error) {
+		e, err := loadMiningEstate(ctx, q, actorID, orgID, accountID, true, miningRead)
 		if err != nil {
 			return nil, err
 		}
@@ -360,8 +379,8 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 	ctx, cancel := context.WithTimeout(ctx, miningTransactionTimeout)
 	defer cancel()
 
-	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (*pb.ListAccountAssetsResponse, error) {
-		e, err := loadMiningEstate(ctx, q, actorID, orgID, request.AccountId, false)
+	return db.WithTransactionTimeout(ctx, s.conn, miningTransactionTimeout, func(q sqlc.Querier) (*pb.ListAccountAssetsResponse, error) {
+		e, err := loadMiningEstate(ctx, q, actorID, orgID, request.AccountId, false, miningRead)
 		if err != nil {
 			return nil, err
 		}
@@ -484,8 +503,8 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 	ctx, cancel := context.WithTimeout(ctx, miningTransactionTimeout)
 	defer cancel()
 
-	return db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
-		e, err := loadMiningEstate(ctx, q, actorID, orgID, request.AccountId, false)
+	return db.WithTransactionTimeoutNoResult(ctx, s.conn, miningTransactionTimeout, func(q sqlc.Querier) error {
+		e, err := loadMiningEstate(ctx, q, actorID, orgID, request.AccountId, false, miningWrite)
 		if err != nil {
 			return err
 		}
@@ -545,8 +564,11 @@ func (s *Service) AssignAssets(ctx context.Context, actorID, orgID int64, reques
 					return nil, assetConflict()
 				}
 				if assigning {
-					if !row.Available || !siteAllowed(e.policy, row.SiteID) || !siteAllowed(destinationPolicy, row.SiteID) {
+					if !row.Available || !siteAllowed(e.policy, row.SiteID) {
 						return nil, assetConflict()
+					}
+					if !siteAllowed(destinationPolicy, row.SiteID) {
+						return nil, fleeterror.NewInvalidArgumentError("selected assets are outside the destination account's site policy")
 					}
 					if e.account.Depth == 0 && row.ClientID != 0 || e.account.Depth == 1 && (row.ClientID != e.account.ID || row.SubclientID != 0) {
 						return nil, assetConflict()

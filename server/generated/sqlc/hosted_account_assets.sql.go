@@ -312,12 +312,23 @@ WITH allocations AS MATERIALIZED (
  AND ($1::boolean OR a.client_id=$2::bigint OR a.subclient_id=$2::bigint)
  AND (jsonb_array_length($4::jsonb)=0 OR EXISTS (SELECT 1 FROM jsonb_to_recordset($4::jsonb) AS selected(kind integer,id bigint) WHERE selected.kind=a.kind AND selected.id=a.asset_id))
 ), live_assets AS MATERIALIZED (
- -- Materialize the host projection once for root selections. Customer reports
- -- instead enter the Fleet view by allocated ID; filtering its output alone
- -- can still evaluate telemetry across the host fleet before applying scope.
+ -- Unselected root reports need the full fleet. Exact root selections and
+ -- customer reports enter the Fleet view by typed ID, before telemetry joins.
  SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM fleet_mining_asset f
  WHERE $1::boolean AND f.org_id=$3
- AND (jsonb_array_length($4::jsonb)=0 OR EXISTS (SELECT 1 FROM jsonb_to_recordset($4::jsonb) AS selected(kind integer,id bigint) WHERE selected.kind=f.kind AND selected.id=f.id))
+ AND jsonb_array_length($4::jsonb)=0
+ UNION ALL
+ SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM (
+  SELECT DISTINCT (value->>'kind')::integer AS kind,(value->>'id')::bigint AS id
+  FROM jsonb_array_elements($4::jsonb)
+ ) selected
+ CROSS JOIN LATERAL (
+  SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM fleet_mining_asset f
+  WHERE f.org_id=$3 AND f.kind=selected.kind AND f.id=selected.id
+  -- Prevent pull-up from moving selection filtering after telemetry joins.
+  OFFSET 0
+ ) f
+ WHERE $1::boolean
  UNION ALL
  SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM allocations a
  CROSS JOIN LATERAL (

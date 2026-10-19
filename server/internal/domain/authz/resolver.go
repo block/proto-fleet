@@ -108,6 +108,22 @@ func LoadEffectiveForUpdate(ctx context.Context, q sqlc.Querier, userID, organiz
 	return assignmentsForUpdateFromRows(rows), nil
 }
 
+// LoadEffectiveForShare retains live authority for the duration of a reporting
+// transaction without serializing reports by the same user or shared role.
+func LoadEffectiveForShare(ctx context.Context, q sqlc.Querier, userID, organizationID int64) (*EffectivePermissions, error) {
+	rows, err := q.ListEffectivePermissionsForUserForShare(ctx, sqlc.ListEffectivePermissionsForUserForShareParams{
+		UserID: userID, OrganizationID: organizationID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("authz resolver: list effective permissions (for share): %w", err)
+	}
+	assignments := make([]sqlc.ListEffectivePermissionsForUserRow, len(rows))
+	for i, row := range rows {
+		assignments[i] = sqlc.ListEffectivePermissionsForUserRow(row)
+	}
+	return assignmentsFromRows(assignments), nil
+}
+
 // assignmentsForUpdateFromRows mirrors assignmentsFromRows for the
 // locking query's row shape. The two row types are structurally
 // identical (sqlc generates a distinct struct per query), so the

@@ -1518,6 +1518,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listEffectivePermissionsForUserStmt, err = db.PrepareContext(ctx, listEffectivePermissionsForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEffectivePermissionsForUser: %w", err)
 	}
+	if q.listEffectivePermissionsForUserForShareStmt, err = db.PrepareContext(ctx, listEffectivePermissionsForUserForShare); err != nil {
+		return nil, fmt.Errorf("error preparing query ListEffectivePermissionsForUserForShare: %w", err)
+	}
 	if q.listEffectivePermissionsForUserForUpdateStmt, err = db.PrepareContext(ctx, listEffectivePermissionsForUserForUpdate); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEffectivePermissionsForUserForUpdate: %w", err)
 	}
@@ -1782,6 +1785,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockActiveHostedAccountUserStmt, err = db.PrepareContext(ctx, lockActiveHostedAccountUser); err != nil {
 		return nil, fmt.Errorf("error preparing query LockActiveHostedAccountUser: %w", err)
 	}
+	if q.lockActiveHostedAccountUserForShareStmt, err = db.PrepareContext(ctx, lockActiveHostedAccountUserForShare); err != nil {
+		return nil, fmt.Errorf("error preparing query LockActiveHostedAccountUserForShare: %w", err)
+	}
 	if q.lockActiveSuperAdminUsersStmt, err = db.PrepareContext(ctx, lockActiveSuperAdminUsers); err != nil {
 		return nil, fmt.Errorf("error preparing query LockActiveSuperAdminUsers: %w", err)
 	}
@@ -1913,6 +1919,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.lockHostedAccountOrganizationStmt, err = db.PrepareContext(ctx, lockHostedAccountOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query LockHostedAccountOrganization: %w", err)
+	}
+	if q.lockHostedAccountOrganizationForShareStmt, err = db.PrepareContext(ctx, lockHostedAccountOrganizationForShare); err != nil {
+		return nil, fmt.Errorf("error preparing query LockHostedAccountOrganizationForShare: %w", err)
 	}
 	if q.lockInfrastructureDeviceForWriteStmt, err = db.PrepareContext(ctx, lockInfrastructureDeviceForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockInfrastructureDeviceForWrite: %w", err)
@@ -5147,6 +5156,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listEffectivePermissionsForUserStmt: %w", cerr)
 		}
 	}
+	if q.listEffectivePermissionsForUserForShareStmt != nil {
+		if cerr := q.listEffectivePermissionsForUserForShareStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listEffectivePermissionsForUserForShareStmt: %w", cerr)
+		}
+	}
 	if q.listEffectivePermissionsForUserForUpdateStmt != nil {
 		if cerr := q.listEffectivePermissionsForUserForUpdateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listEffectivePermissionsForUserForUpdateStmt: %w", cerr)
@@ -5587,6 +5601,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockActiveHostedAccountUserStmt: %w", cerr)
 		}
 	}
+	if q.lockActiveHostedAccountUserForShareStmt != nil {
+		if cerr := q.lockActiveHostedAccountUserForShareStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockActiveHostedAccountUserForShareStmt: %w", cerr)
+		}
+	}
 	if q.lockActiveSuperAdminUsersStmt != nil {
 		if cerr := q.lockActiveSuperAdminUsersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockActiveSuperAdminUsersStmt: %w", cerr)
@@ -5805,6 +5824,11 @@ func (q *Queries) Close() error {
 	if q.lockHostedAccountOrganizationStmt != nil {
 		if cerr := q.lockHostedAccountOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockHostedAccountOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.lockHostedAccountOrganizationForShareStmt != nil {
+		if cerr := q.lockHostedAccountOrganizationForShareStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockHostedAccountOrganizationForShareStmt: %w", cerr)
 		}
 	}
 	if q.lockInfrastructureDeviceForWriteStmt != nil {
@@ -7574,6 +7598,7 @@ type Queries struct {
 	listEarlierCurtailmentReservationDevicesStmt                 *sql.Stmt
 	listEarlierCurtailmentTopologyReservationScopesStmt          *sql.Stmt
 	listEffectivePermissionsForUserStmt                          *sql.Stmt
+	listEffectivePermissionsForUserForShareStmt                  *sql.Stmt
 	listEffectivePermissionsForUserForUpdateStmt                 *sql.Stmt
 	listEligibleConfirmationTargetsStmt                          *sql.Stmt
 	listEnabledCurtailmentAutomationRulesByMQTTSourceStmt        *sql.Stmt
@@ -7662,6 +7687,7 @@ type Queries struct {
 	listUnresolvedDeviceWriteAttemptsStmt                        *sql.Stmt
 	listUsersForOrganizationStmt                                 *sql.Stmt
 	lockActiveHostedAccountUserStmt                              *sql.Stmt
+	lockActiveHostedAccountUserForShareStmt                      *sql.Stmt
 	lockActiveSuperAdminUsersStmt                                *sql.Stmt
 	lockAlertMaintenanceWindowOrgForWriteStmt                    *sql.Stmt
 	lockAndCountOrgScopeSuperAdminsStmt                          *sql.Stmt
@@ -7706,6 +7732,7 @@ type Queries struct {
 	lockHostedAccountAdministratorsStmt                          *sql.Stmt
 	lockHostedAccountAssetInventoryStmt                          *sql.Stmt
 	lockHostedAccountOrganizationStmt                            *sql.Stmt
+	lockHostedAccountOrganizationForShareStmt                    *sql.Stmt
 	lockInfrastructureDeviceForWriteStmt                         *sql.Stmt
 	lockInfrastructureDevicesBySiteForWriteStmt                  *sql.Stmt
 	lockInfrastructureDevicesForResponseProfileStmt              *sql.Stmt
@@ -8456,6 +8483,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listEarlierCurtailmentReservationDevicesStmt:                 q.listEarlierCurtailmentReservationDevicesStmt,
 		listEarlierCurtailmentTopologyReservationScopesStmt:          q.listEarlierCurtailmentTopologyReservationScopesStmt,
 		listEffectivePermissionsForUserStmt:                          q.listEffectivePermissionsForUserStmt,
+		listEffectivePermissionsForUserForShareStmt:                  q.listEffectivePermissionsForUserForShareStmt,
 		listEffectivePermissionsForUserForUpdateStmt:                 q.listEffectivePermissionsForUserForUpdateStmt,
 		listEligibleConfirmationTargetsStmt:                          q.listEligibleConfirmationTargetsStmt,
 		listEnabledCurtailmentAutomationRulesByMQTTSourceStmt:        q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt,
@@ -8544,6 +8572,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listUnresolvedDeviceWriteAttemptsStmt:                        q.listUnresolvedDeviceWriteAttemptsStmt,
 		listUsersForOrganizationStmt:                                 q.listUsersForOrganizationStmt,
 		lockActiveHostedAccountUserStmt:                              q.lockActiveHostedAccountUserStmt,
+		lockActiveHostedAccountUserForShareStmt:                      q.lockActiveHostedAccountUserForShareStmt,
 		lockActiveSuperAdminUsersStmt:                                q.lockActiveSuperAdminUsersStmt,
 		lockAlertMaintenanceWindowOrgForWriteStmt:                    q.lockAlertMaintenanceWindowOrgForWriteStmt,
 		lockAndCountOrgScopeSuperAdminsStmt:                          q.lockAndCountOrgScopeSuperAdminsStmt,
@@ -8588,6 +8617,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockHostedAccountAdministratorsStmt:                          q.lockHostedAccountAdministratorsStmt,
 		lockHostedAccountAssetInventoryStmt:                          q.lockHostedAccountAssetInventoryStmt,
 		lockHostedAccountOrganizationStmt:                            q.lockHostedAccountOrganizationStmt,
+		lockHostedAccountOrganizationForShareStmt:                    q.lockHostedAccountOrganizationForShareStmt,
 		lockInfrastructureDeviceForWriteStmt:                         q.lockInfrastructureDeviceForWriteStmt,
 		lockInfrastructureDevicesBySiteForWriteStmt:                  q.lockInfrastructureDevicesBySiteForWriteStmt,
 		lockInfrastructureDevicesForResponseProfileStmt:              q.lockInfrastructureDevicesForResponseProfileStmt,

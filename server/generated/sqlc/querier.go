@@ -1296,6 +1296,9 @@ type Querier interface {
 	// with this narrowing rule: site-scope assignment overrides the
 	// org grant at that site; site-scope absence falls back to org-scope.
 	ListEffectivePermissionsForUser(ctx context.Context, arg ListEffectivePermissionsForUserParams) ([]ListEffectivePermissionsForUserRow, error)
+	// Reporting rechecks may overlap while still excluding assignment revocation,
+	// user deactivation and role-permission edits until the report commits.
+	ListEffectivePermissionsForUserForShare(ctx context.Context, arg ListEffectivePermissionsForUserForShareParams) ([]ListEffectivePermissionsForUserForShareRow, error)
 	// Race-safety variant of ListEffectivePermissionsForUser. Same join
 	// shape, same row order, same narrowing semantics — but takes
 	// FOR NO KEY UPDATE on every row whose mutation can revoke the caller's
@@ -1607,6 +1610,7 @@ type Querier interface {
 	ListUnresolvedDeviceWriteAttempts(ctx context.Context, arg ListUnresolvedDeviceWriteAttemptsParams) ([]DeviceWriteAttempt, error)
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
 	LockActiveHostedAccountUser(ctx context.Context, arg LockActiveHostedAccountUserParams) (User, error)
+	LockActiveHostedAccountUserForShare(ctx context.Context, arg LockActiveHostedAccountUserForShareParams) (User, error)
 	// Break-glass resets intentionally target the sole live org-scope
 	// SUPER_ADMIN. Lock the complete identity/assignment chain so concurrent
 	// resets serialize on the same rows. The live membership join matches what
@@ -1744,6 +1748,9 @@ type Querier interface {
 	// Serialize hierarchy, policy, and membership mutations for one organization.
 	// Allow foreign-key KEY SHARE locks from concurrent organization role writes.
 	LockHostedAccountOrganization(ctx context.Context, id int64) (int64, error)
+	// Reports may overlap, while hierarchy, policy, membership and allocation
+	// mutations keep their exclusive organization admission lock.
+	LockHostedAccountOrganizationForShare(ctx context.Context, id int64) (int64, error)
 	// Canonical serialization point for device moves/deletes and response-profile
 	// references. Callers lock parent sites first, then device rows by ID.
 	LockInfrastructureDeviceForWrite(ctx context.Context, arg LockInfrastructureDeviceForWriteParams) (int64, error)

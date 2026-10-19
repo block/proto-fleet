@@ -5630,6 +5630,18 @@ func (q *retryingQuerier) ListEffectivePermissionsForUser(ctx context.Context, a
 	return result, err
 }
 
+func (q *retryingQuerier) ListEffectivePermissionsForUserForShare(ctx context.Context, arg ListEffectivePermissionsForUserForShareParams) ([]ListEffectivePermissionsForUserForShareRow, error) {
+	var result []ListEffectivePermissionsForUserForShareRow
+	err := q.retrier.RetryQuery(ctx, "ListEffectivePermissionsForUserForShare", func() error {
+		callResult, callErr := q.next.ListEffectivePermissionsForUserForShare(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListEffectivePermissionsForUserForUpdate(ctx context.Context, arg ListEffectivePermissionsForUserForUpdateParams) ([]ListEffectivePermissionsForUserForUpdateRow, error) {
 	var result []ListEffectivePermissionsForUserForUpdateRow
 	err := q.retrier.RetryQuery(ctx, "ListEffectivePermissionsForUserForUpdate", func() error {
@@ -6686,6 +6698,18 @@ func (q *retryingQuerier) LockActiveHostedAccountUser(ctx context.Context, arg L
 	return result, err
 }
 
+func (q *retryingQuerier) LockActiveHostedAccountUserForShare(ctx context.Context, arg LockActiveHostedAccountUserForShareParams) (User, error) {
+	var result User
+	err := q.retrier.RetryQuery(ctx, "LockActiveHostedAccountUserForShare", func() error {
+		callResult, callErr := q.next.LockActiveHostedAccountUserForShare(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockActiveSuperAdminUsers(ctx context.Context) ([]LockActiveSuperAdminUsersRow, error) {
 	var result []LockActiveSuperAdminUsersRow
 	err := q.retrier.RetryQuery(ctx, "LockActiveSuperAdminUsers", func() error {
@@ -7128,6 +7152,18 @@ func (q *retryingQuerier) LockHostedAccountOrganization(ctx context.Context, id 
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "LockHostedAccountOrganization", func() error {
 		callResult, callErr := q.next.LockHostedAccountOrganization(ctx, id)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) LockHostedAccountOrganizationForShare(ctx context.Context, id int64) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "LockHostedAccountOrganizationForShare", func() error {
+		callResult, callErr := q.next.LockHostedAccountOrganizationForShare(ctx, id)
 		if callErr == nil {
 			result = callResult
 		}

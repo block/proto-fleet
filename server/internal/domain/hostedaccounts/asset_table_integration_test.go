@@ -116,11 +116,37 @@ func TestAccountAssetTableMetricsSortingAndRedaction(t *testing.T) {
 	require.Len(t, nextLong.Assets, 1)
 	require.NotEqual(t, longPage.Assets[0].Id, nextLong.Assets[0].Id)
 	require.Empty(t, nextLong.NextPageToken)
+	filteredRequests := []struct {
+		name    string
+		request *pb.ListAccountAssetsRequest
+		kind    pb.MiningAssetKind
+		id      int64
+	}{
+		{"container", &pb.ListAccountAssetsRequest{AccountId: account.AccountID, ContainerId: &controller}, pb.MiningAssetKind_MINING_ASSET_KIND_MODULE, module},
+		{"name search", &pb.ListAccountAssetsRequest{AccountId: account.AccountID, Search: longSearch + "A"}, pb.MiningAssetKind_MINING_ASSET_KIND_MINER, fast},
+	}
+	for _, test := range filteredRequests {
+		response, err := f.svc.ListAssets(t.Context(), f.user, f.org, test.request)
+		require.NoError(t, err)
+		require.Len(t, response.Assets, 1, "%s must match before physical details are redacted", test.name)
+		require.Equal(t, test.kind, response.Assets[0].Kind)
+		require.Equal(t, test.id, response.Assets[0].Id)
+	}
 	require.NoError(t, f.svc.ConfigureSites(t.Context(), f.user, f.org, account.AccountID, true, nil))
+	for _, test := range filteredRequests {
+		response, err := f.svc.ListAssets(t.Context(), f.user, f.org, test.request)
+		require.NoError(t, err)
+		require.Empty(t, response.Assets, "%s must not reveal retained assets through redacted physical details", test.name)
+		require.Empty(t, response.NextPageToken)
+	}
 	ascending := list(commonpb.SortField_SORT_FIELD_MODEL, false)
+	require.Len(t, ascending, 4, "unfiltered inventory must retain the redacted allocations")
 	descending := list(commonpb.SortField_SORT_FIELD_MODEL, true)
 	for i, row := range ascending {
 		require.Equal(t, ref(int(row.Kind), row.Id), ref(int(descending[i].Kind), descending[i].Id), "redacted values cannot affect sort order")
+		require.Empty(t, row.Name)
+		require.Zero(t, row.ContainerId)
+		require.Empty(t, row.ContainerName)
 		require.Empty(t, row.Model)
 		require.Nil(t, row.TemperatureC)
 		require.Nil(t, row.EfficiencyJTh)

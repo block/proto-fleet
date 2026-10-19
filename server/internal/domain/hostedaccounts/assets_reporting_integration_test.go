@@ -91,7 +91,7 @@ func TestAccountMiningSummaryScopesLargeFleetBeforeProjection(t *testing.T) {
 			account  hostedaccounts.Account
 			expected int
 			miners   int
-		}{{first, 2, 1}, {second, 1, 1}, {child, 1, 0}} {
+		}{{first, 2, 1}, {second, 1, 1}, {child.Account, 1, 0}} {
 			capture := &miningProjectionDB{DB: f.db}
 			rows, err := sqlc.New(capture).ListHostedAccountMiningAssets(t.Context(), sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: f.org, AccountInternalID: account.account.ID, SelectedAssets: json.RawMessage("[]")})
 			require.NoError(t, err)
@@ -117,6 +117,38 @@ func TestAccountMiningSummaryScopesLargeFleetBeforeProjection(t *testing.T) {
 			require.True(t, found, "expected the executed page live-assets projection")
 			require.EqualValues(t, account.expected, projection.ActualRows*projection.ActualLoops, "account %s page must not materialize unrelated host telemetry", account.account.Name)
 			require.EqualValues(t, account.miners, projection.minerTelemetryLookups(), "account %s page must not read unrelated miner telemetry", account.account.Name)
+		}
+	})
+
+	t.Run("root projection", func(t *testing.T) {
+		selection, err := json.Marshal([]map[string]int64{{"kind": 5, "id": miners[0]}, {"kind": 5, "id": miners[1]}})
+		require.NoError(t, err)
+		for _, test := range []struct {
+			name      string
+			selection json.RawMessage
+			expected  int
+			miners    int
+		}{
+			{"exact selection", selection, 2, 2},
+			{"full fleet", json.RawMessage("[]"), len(miners) + 1, len(miners)},
+		} {
+			t.Run(test.name, func(t *testing.T) {
+				capture := &miningProjectionDB{DB: f.db}
+				rows, err := sqlc.New(capture).ListHostedAccountMiningAssets(t.Context(), sqlc.ListHostedAccountMiningAssetsParams{OrganizationID: f.org, IsRoot: true, SelectedAssets: test.selection})
+				require.NoError(t, err)
+				require.Len(t, rows, test.expected)
+				if test.name == "exact selection" {
+					require.Equal(t, miners[0], rows[0].ID)
+					require.Equal(t, miners[1], rows[1].ID)
+				}
+				var plans []struct{ Plan miningProjectionPlan }
+				require.NoError(t, json.Unmarshal(capture.plan, &plans))
+				require.Len(t, plans, 1)
+				projection, found := plans[0].Plan.liveProjection()
+				require.True(t, found, "expected the executed root live-assets projection")
+				require.EqualValues(t, test.expected, projection.ActualRows*projection.ActualLoops)
+				require.EqualValues(t, test.miners, projection.minerTelemetryLookups(), "root reports must read telemetry only for their selected miners")
+			})
 		}
 	})
 
