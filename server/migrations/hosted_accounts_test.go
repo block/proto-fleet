@@ -16,7 +16,7 @@ import (
 func TestHostedAccountsMigrationBackfillsRootsAndRollsBack(t *testing.T) {
 	conn := dbtest.GetTestDB(t)
 	ctx := t.Context()
-	assetsDown, err := migrations.Current.ReadFile("current/001027_internal_hosted_account_assets.down.sql")
+	assetsDown, err := migrations.Current.ReadFile("current/001028_internal_hosted_account_assets.down.sql")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(ctx, string(assetsDown))
 	require.NoError(t, err)
@@ -103,7 +103,7 @@ func TestHostedAccountSchemaEnforcesHierarchyAndOrganization(t *testing.T) {
 func TestHostedAccountsMigrationBackfillsExistingAdmins(t *testing.T) {
 	conn := dbtest.GetTestDB(t)
 	ctx := t.Context()
-	assetsDown, err := migrations.Current.ReadFile("current/001027_internal_hosted_account_assets.down.sql")
+	assetsDown, err := migrations.Current.ReadFile("current/001028_internal_hosted_account_assets.down.sql")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(ctx, string(assetsDown))
 	require.NoError(t, err)
@@ -202,7 +202,7 @@ func TestHostedAccountsMigrationIncludesOrganizationsCreatedBeforeItsFence(t *te
 	conn := dbtest.GetTestDB(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
-	assetsDown, err := migrations.Current.ReadFile("current/001027_internal_hosted_account_assets.down.sql")
+	assetsDown, err := migrations.Current.ReadFile("current/001028_internal_hosted_account_assets.down.sql")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(ctx, string(assetsDown))
 	require.NoError(t, err)
