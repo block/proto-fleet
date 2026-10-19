@@ -221,7 +221,7 @@ function InteractiveContainerOverview({ unlocatedHashboards }: { unlocatedHashbo
 }
 
 const meta: Meta<typeof InteractiveContainerOverview> = {
-  title: "Proto Containers/Overview/Overview",
+  title: "Proto Fleet/Containers/Overview",
   component: InteractiveContainerOverview,
   parameters: {
     layout: "fullscreen",

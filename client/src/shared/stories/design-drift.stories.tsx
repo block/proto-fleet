@@ -650,7 +650,7 @@ export const AllSpecimens = () => (
 );
 
 export default {
-  title: "Proto Fleet/Design Audit/Visual Diffs",
+  title: "Foundation/Design Drift",
   parameters: {
     layout: "fullscreen",
   },

@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import TankPowerConfirmationDialog from "./TankPowerConfirmationDialog";
 
 const meta: Meta<typeof TankPowerConfirmationDialog> = {
-  title: "Proto Containers/Overview/Tank Power Confirmation",
+  title: "Proto Fleet/Containers/Tank Power Confirmation",
   component: TankPowerConfirmationDialog,
   parameters: {
     layout: "fullscreen",

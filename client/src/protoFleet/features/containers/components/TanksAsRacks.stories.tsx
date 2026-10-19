@@ -116,7 +116,7 @@ function TanksAsRacks() {
 }
 
 const meta: Meta<typeof TanksAsRacks> = {
-  title: "Proto Containers/Overview/Tanks as Racks",
+  title: "Proto Fleet/Containers/Tanks as Racks",
   component: TanksAsRacks,
   parameters: {
     layout: "fullscreen",

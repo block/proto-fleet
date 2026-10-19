@@ -512,6 +512,36 @@ Reusable components in `src/shared/components/` include:
 
 All shared components have Storybook stories, support light/dark themes, and include TypeScript prop types.
 
+### Storybook organization
+
+Use these exact top-level names in story metadata `title` values. The sidebar
+shows them in this order, with groups sorted alphabetically within each root:
+
+| Root          | Content                                                         |
+| ------------- | --------------------------------------------------------------- |
+| `Foundation`  | Design tokens, typography, icons, and design guidance           |
+| `Shared`      | App-neutral components and interactions from `src/shared/`      |
+| `Proto Fleet` | Fleet-owned components and feature flows from `src/protoFleet/` |
+| `Proto OS`    | Device-owned components and feature flows from `src/protoOS/`   |
+
+Group app stories by the relevant existing feature, such as
+`Proto Fleet/Containers/Overview` or `Proto OS/Containers/Tanks`. A feature using
+shared primitives still belongs to its owning app. Avoid new catch-all roots
+such as `Components`, separate product roots for containers, or alternative app
+spellings. Keep stories beside their implementations; cross-app design guidance
+lives in `src/shared/stories/`. Story title changes also change generated story
+URLs, so update any links or automation that reference the old IDs.
+
+`Foundation/Design Drift` lives in
+[design-drift.stories.tsx](src/shared/stories/design-drift.stories.tsx). It collects
+common pitfalls and proposed improvements using shared primitives and tokens;
+its Fleet examples illustrate guidance useful to both apps. When adding or
+updating a specimen, show the pitfall and the preferred pattern, explain when
+the recommendation applies, and verify referenced source locations and component
+APIs. Identify historical examples as such once their source is fixed; do not
+present them as outstanding defects. Keep only examples that teach a distinct,
+recurring lesson, and check both themes when updating their presentation.
+
 ## Testing on Hardware
 
 1. Compile the UI: `npm run build`

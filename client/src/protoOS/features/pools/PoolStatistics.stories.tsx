@@ -14,7 +14,7 @@ const pools = ["Default pool", "Backup 1", "Backup 2"].map((name, index) => ({
   difficulty: 524_300,
 }));
 const meta = {
-  title: "protoOS/Pools/Statistics",
+  title: "Proto OS/Pools/Statistics",
   component: PoolStatisticsView,
   parameters: { layout: "fullscreen" },
   args: {
