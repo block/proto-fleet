@@ -49,6 +49,7 @@ export const importSettingsIntegrations = () => import("@/protoFleet/features/se
 export const importSettingsUpdates = () => import("@/protoFleet/features/settings/components/Updates");
 export const importSiteDetailPage = () => import("@/protoFleet/features/sites/pages/SiteDetailPage");
 export const importTankPage = () => import("@/protoFleet/features/containers/pages/TankPage");
+export const importModulePage = () => import("@/protoFleet/features/containers/pages/ModulePage");
 export const importContainerPage = () => import("@/protoFleet/features/containers/pages/ContainerPage");
 export const importBuildingPage = () => import("@/protoFleet/features/buildings/pages/BuildingPage");
 export const importFleetLayout = () => import("@/protoFleet/features/fleetManagement/components/FleetLayout");
@@ -68,6 +69,7 @@ export const globalRoutePrefetch: readonly RouteImporter[] = [
   importMiners,
   importRacksPage,
   importTankPage,
+  importModulePage,
   importFleetBuildingsPage,
   importFleetSitesPage,
   importFleetInfraPage,

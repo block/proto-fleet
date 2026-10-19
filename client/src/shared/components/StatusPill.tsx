@@ -1,25 +1,27 @@
-import WidgetWrapper from "../WidgetWrapper";
-import { variants as buttonVariants } from "@/shared/components/Button";
+import Button, { variants as buttonVariants } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import StatusCircle, { statuses, variants } from "@/shared/components/StatusCircle/";
 
-interface MinerStatusWidgetProps {
+interface StatusPillProps {
   onClick: () => void;
+  ariaLabel?: string;
   summary?: string;
   circle?: keyof typeof statuses;
 }
 
-const MinerStatusWidget = ({ onClick, summary, circle }: MinerStatusWidgetProps) => {
+const StatusPill = ({ onClick, summary, circle, ariaLabel }: StatusPillProps) => {
   return (
-    <WidgetWrapper
+    <Button
       onClick={summary ? onClick : undefined}
       variant={buttonVariants.secondary}
-      // workaround for a one off button style
-      // TODO: we should either expand our DS or use a button from our DS here
       textColor="text-text-primary"
       borderColor="border-transparent"
+      size="compact"
+      className="flex h-7 items-center rounded-2xl px-2 py-1 whitespace-nowrap"
+      ariaLabel={ariaLabel}
+      ariaHasPopup="dialog"
     >
-      <>
+      <div className="flex gap-2">
         {!summary ? (
           <div className="flex items-center">
             <ProgressCircular indeterminate dataTestId="miner-status-spinner" size={12} />
@@ -34,9 +36,9 @@ const MinerStatusWidget = ({ onClick, summary, circle }: MinerStatusWidgetProps)
           </>
         )}
         {summary || "Status"}
-      </>
-    </WidgetWrapper>
+      </div>
+    </Button>
   );
 };
 
-export default MinerStatusWidget;
+export default StatusPill;

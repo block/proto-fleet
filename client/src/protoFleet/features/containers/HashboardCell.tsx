@@ -1,12 +1,17 @@
+import type { ReactNode } from "react";
 import { create } from "@bufbuild/protobuf";
+import { timestampFromMs } from "@bufbuild/protobuf/wkt";
+import { isCurrentObservation } from "./moduleDetail";
 import { ModuleIssues } from "./ModuleIssues";
 import { ModuleStatus } from "./ModuleStatus";
+import { getModuleStatusPresentation } from "./moduleStatusPresentation";
 import {
   type HashboardReading,
   ModuleIssuesSchema,
 } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import type { HashboardSlot } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { useTemperatureUnit } from "@/protoFleet/store";
+import ComponentMetadata from "@/shared/components/StatusModal/ComponentMetadata";
 import { formatEfficiencyOrDash, formatHashrateOrDash, formatPowerKwOrDash } from "@/shared/utils/telemetryFormat";
 
 const unavailableReasons: Record<string, string> = {
@@ -18,7 +23,48 @@ const unavailableReasons: Record<string, string> = {
   older_observation: "Newer board observation exists",
 };
 
-function HashboardIssues({ board, position, name }: { board: HashboardReading; position: number; name: string }) {
+// CT1 folds shared PSU thermal issues into each board's aggregate attention state.
+// Only suppress the unknown-fault fallback when no board-local cause is reported.
+function hasOnlyPsuAttention(board: HashboardReading, now: number | undefined) {
+  const health = board.health;
+  if (now === undefined || !health || !isCurrentObservation(board.observedAt, now)) return false;
+  if (
+    !Array.isArray(health.errors) ||
+    health.errors.length ||
+    !Array.isArray(health.warnings) ||
+    health.warnings.length
+  )
+    return false;
+  if (board.miningState === "MINING_STATE_ERROR") return false;
+  if (board.miningState === "MINING_STATE_MINING" && (board.hashrailOk === false || board.refclksOk === false))
+    return false;
+  const thermal = health.psuThermal;
+  if (!thermal || typeof thermal !== "object" || Array.isArray(thermal) || thermal.thermalStateValid !== true)
+    return false;
+  if (thermal.overTemperatureWarning !== true && thermal.overTemperatureFault !== true) return false;
+  // An omitted age is permitted by the CT1 collector; otherwise include the
+  // embedded sample age so a fresh board response cannot revive old PSU data.
+  const age = thermal.thermalStateAgeMs ?? 0;
+  if (typeof age !== "number" || !Number.isFinite(age) || age < 0) return false;
+  const sourceMs = Number(board.observedAt!.seconds) * 1000 + board.observedAt!.nanos / 1e6 - age;
+  return isCurrentObservation(timestampFromMs(sourceMs), now);
+}
+
+export function HashboardIssues({
+  board,
+  position,
+  name,
+  iconOnly = false,
+  renderTrigger,
+  now,
+}: {
+  board: HashboardReading;
+  position: number;
+  name: string;
+  iconOnly?: boolean;
+  now?: number;
+  renderTrigger?: (open: () => void, hasIssues: boolean) => ReactNode;
+}) {
   const items = (["errors", "warnings"] as const).flatMap((kind) => {
     const values = board.health?.[kind];
     if (!Array.isArray(values)) return [];
@@ -39,15 +85,39 @@ function HashboardIssues({ board, position, name }: { board: HashboardReading; p
       ];
     });
   });
+  if ((iconOnly || renderTrigger) && !items.length && board.state === "attention" && !hasOnlyPsuAttention(board, now)) {
+    items.push({
+      component: "hashboard",
+      componentId: board.macAddress,
+      cause: "Fault reported; details unavailable",
+      severity: "fault",
+      observedAt: board.stateObservedAt,
+    });
+  }
   const evidence = create(ModuleIssuesSchema, {
     observedAt: board.observedAt,
     complete: board.health !== undefined,
     items,
   });
+  const status = getModuleStatusPresentation(board.state);
   return (
-    <ModuleIssues item={{ name, moduleIssues: evidence }} hashboardPosition={position}>
-      <p>Hashrail: {board.hashrailOk === undefined ? "Unknown" : board.hashrailOk ? "OK" : "Not ready"}</p>
-      <p>Reference clocks: {board.refclksOk === undefined ? "Unknown" : board.refclksOk ? "OK" : "Not ready"}</p>
+    <ModuleIssues
+      item={{ name, moduleIssues: evidence }}
+      hashboardPosition={position}
+      iconOnly={iconOnly}
+      renderTrigger={renderTrigger}
+      status={renderTrigger ? (status.label === "Unknown" ? "Status unknown" : status.label) : undefined}
+    >
+      <ComponentMetadata
+        metadata={{
+          serial: { label: "Serial number", value: board.serial || undefined },
+          mac: { label: "MAC address", value: board.macAddress || undefined },
+          firmware: {
+            label: "Firmware",
+            value: typeof board.metadata?.firmwareVersion === "string" ? board.metadata.firmwareVersion : undefined,
+          },
+        }}
+      />
     </ModuleIssues>
   );
 }
@@ -77,7 +147,6 @@ export function HashboardCell({ slot, column }: { slot: HashboardSlot; column: s
             ) : null}
           </span>
         );
-      if (board.state === "isolated") return <span>Isolated</span>;
       return <ModuleStatus state={board.state} />;
     case "hashrate":
       return <span>{formatHashrateOrDash(board?.hashrateHs === undefined ? null : board.hashrateHs / 1e12)}</span>;

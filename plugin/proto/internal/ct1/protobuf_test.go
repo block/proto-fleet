@@ -2,6 +2,7 @@ package ct1
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -111,4 +112,24 @@ func TestProtoMapKeepsEmptyAndInvalidSlotsDistinct(t *testing.T) {
 	require.Nil(t, boards[0].HashrateHS)
 	require.Equal(t, "empty", boards[1].Occupancy)
 	require.Equal(t, "unknown", boards[2].Occupancy)
+}
+
+func TestProtoASICMaximumSurvivesCollection(t *testing.T) {
+	now := time.Now().UTC()
+	for _, maximum := range []*float64{nil, new(0.0), new(73.2)} {
+		board := boardFromProto(&mdk.Hashboard{
+			MacAddress: "00:01:02:03:04:05", ModuleId: "module", MiningState: mdk.MiningState_MINING_STATE_MINING,
+			Health: &mdk.HashboardHealth{Timestamp: timestamppb.New(now), MaximumAsicTemperatureC: maximum, AsicTemperatureObservedAt: timestamppb.New(now)},
+		})
+		observation := hashboardObservation(Slot{Occupied: true, Hashboard: board}, 1, now)
+		require.Equal(t, "occupied", observation.Occupancy)
+		var health map[string]any
+		require.NoError(t, json.Unmarshal(observation.HealthJSON, &health))
+		if maximum == nil {
+			require.NotContains(t, health, "maximumAsicTemperatureC")
+		} else {
+			require.Equal(t, *maximum, health["maximumAsicTemperatureC"])
+		}
+		require.NotEmpty(t, health["asicTemperatureObservedAt"])
+	}
 }

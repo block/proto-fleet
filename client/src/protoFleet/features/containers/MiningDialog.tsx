@@ -11,6 +11,7 @@ export default function MiningDialog({
   onClose,
   onRefresh,
   onActionComplete,
+  unavailable = false,
 }: {
   items: InventoryItem[];
   kind: "tank" | "module";
@@ -18,6 +19,7 @@ export default function MiningDialog({
   onClose: () => void;
   onRefresh: () => void;
   onActionComplete?: () => void;
+  unavailable?: boolean;
 }) {
   const submitted = useRef(false);
   const action = mining ? "Start mining" : "Stop mining";
@@ -28,7 +30,7 @@ export default function MiningDialog({
     affectedItems = `All modules in ${tankSelection}`;
   }
   const submit = () => {
-    if (submitted.current) return;
+    if (submitted.current || unavailable) return;
     submitted.current = true;
     const ids = items.map((item) => item.ref!.id);
     onClose();
@@ -37,10 +39,13 @@ export default function MiningDialog({
   return (
     <BulkActionConfirmDialog
       open
+      confirmationDisabled={unavailable}
       testId={`${kind}-mining-dialog`}
       actionConfirmation={{
         title: `${action} on ${items.length} ${noun}?`,
-        subtitle: `${affectedItems} will ${mining ? "start" : "stop"} hashing.`,
+        subtitle: unavailable
+          ? "Controls unavailable until module status refreshes."
+          : `${affectedItems} will ${mining ? "start" : "stop"} hashing.`,
         confirmAction: { title: action, variant: variants.primary },
         testId: `${kind}-mining-confirm-button`,
       }}

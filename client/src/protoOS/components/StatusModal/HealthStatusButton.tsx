@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { HealthScope } from "./scopeHealth";
 import StatusModal from "./StatusModal";
 import { useScopeHealth } from "./useScopeHealth";
-import { Info } from "@/shared/assets/icons";
+import StatusPill from "@/shared/components/StatusPill";
 
 /** Tank/module entry point, derived from the same data as the modal. */
 export default function HealthStatusButton({ scope }: { scope: HealthScope }) {
@@ -11,16 +11,20 @@ export default function HealthStatusButton({ scope }: { scope: HealthScope }) {
   const title = summary?.title ?? "Status unavailable";
   return (
     <>
-      <button
-        type="button"
-        aria-haspopup="dialog"
-        aria-label={`${summary?.label ?? "Container"} health: ${title}`}
-        className="flex items-center gap-2 rounded-full bg-surface-10 px-3 py-2 text-300 text-text-primary hover:bg-surface-20 focus-visible:outline-2 focus-visible:outline-core-accent-fill"
+      <StatusPill
+        ariaLabel={`${summary?.label ?? "Container"} health: ${title}`}
+        summary={title}
+        circle={
+          summary?.needsAttention
+            ? "error"
+            : title === "All components operational"
+              ? "normal"
+              : title === "Sleeping"
+                ? "sleeping"
+                : "inactive"
+        }
         onClick={() => setOpen(true)}
-      >
-        <Info />
-        {title}
-      </button>
+      />
       {open ? <StatusModal scope={scope} onClose={() => setOpen(false)} /> : null}
     </>
   );

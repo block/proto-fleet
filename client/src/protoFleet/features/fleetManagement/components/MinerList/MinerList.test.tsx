@@ -246,6 +246,28 @@ describe("MinerList", () => {
     }));
   });
 
+  it("opens the native module route from the Miners list", () => {
+    renderMinerList(
+      {
+        onAddMiners: vi.fn(),
+        minerIds: [],
+        totalMiners: 1,
+        inventoryItems: [
+          create(InventoryItemSchema, {
+            ref: { kind: EntityKind.MODULE, id: 91n },
+            name: "CT1 module",
+            deviceIdentifier: "ct1",
+            ancestors: [{ kind: EntityKind.TANK, id: 81n }],
+          }),
+        ],
+      },
+      ["/fleet/miners"],
+    );
+    fireEvent.click(screen.getByText("CT1 module"));
+    expect(screen.getByTestId("path-display")).toHaveTextContent("/containers/ct1/tanks/81/modules/91");
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("keeps modules in server order and selects exact module and miner identities", () => {
     const miner = createMinerSnapshot("A miner");
     renderMinerList({

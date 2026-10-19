@@ -91,3 +91,20 @@ it("hides mining operations that are not authorized", async () => {
   await waitFor(() => expect(screen.getByRole("button", { name: "Start mining" })).toBeEnabled());
   expect(screen.queryByRole("button", { name: "Stop mining" })).not.toBeInTheDocument();
 });
+
+it("retains an open confirmation but prevents submission when the module becomes unavailable", async () => {
+  const { rerender } = render(<MiningActionsMenu kind="module" items={[modules[0]]} />);
+  fireEvent.click(screen.getByRole("button", { name: "Actions for North T1 M2" }));
+  const stop = await screen.findByRole("button", { name: "Stop mining" });
+  await waitFor(() => expect(stop).toBeEnabled());
+  fireEvent.click(stop);
+  rerender(<MiningActionsMenu kind="module" items={[modules[0]]} unavailable />);
+  const dialog = screen.getByTestId("module-mining-dialog");
+  expect(dialog).toHaveTextContent("Controls unavailable");
+  const confirm = within(dialog).getByRole("button", { name: "Stop mining" });
+  expect(confirm).toBeDisabled();
+  fireEvent.click(confirm);
+  expect(mocks.submit).not.toHaveBeenCalled();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  expect(screen.getByRole("button", { name: "Actions for North T1 M2" })).toHaveFocus();
+});

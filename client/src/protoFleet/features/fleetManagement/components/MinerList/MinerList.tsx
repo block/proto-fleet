@@ -50,7 +50,7 @@ import { AuthenticateMiners } from "@/protoFleet/features/auth/components/Authen
 import { HashboardCell } from "@/protoFleet/features/containers/HashboardCell";
 import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
 import MiningActionsMenu from "@/protoFleet/features/containers/MiningActionsMenu";
-import { ModuleHistoryDialog } from "@/protoFleet/features/containers/ModuleHistoryDialog";
+import { modulePath } from "@/protoFleet/features/containers/moduleDetail";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
@@ -383,7 +383,7 @@ const ScopedMinerListBody = ({
   }
   const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
 
-  const [openModule, setOpenModule] = useState<InventoryItem>();
+  const navigate = useNavigate();
   const location = useLocation();
   const [expansion, setExpansion] = useState<{ scope: string; ids: Set<string> }>({
     scope: location.key,
@@ -763,7 +763,13 @@ const ScopedMinerListBody = ({
         currentSort={currentSort}
         onSort={onSort}
         getDefaultSortDirection={getDefaultSortDirection}
-        onRowClick={(item, index) => (item.kind === "miner" ? onRowClick(item.row, index) : setOpenModule(item.row))}
+        onRowClick={(item, index) => {
+          if (item.kind === "miner") onRowClick(item.row, index);
+          else {
+            const destination = modulePath(item.row);
+            if (destination) navigate(destination);
+          }
+        }}
         emptyStateRow={
           totalMiners === 0 || listItems.length === 0 ? (
             <NoFilterResultsEmptyState
@@ -795,14 +801,6 @@ const ScopedMinerListBody = ({
             },
           )}
           testId="miners-pagination"
-        />
-      ) : null}
-      {openModule ? (
-        <ModuleHistoryDialog
-          key={openModule.ref?.id.toString()}
-          item={openModule}
-          onRefresh={onRefetchMiners}
-          onDismiss={() => setOpenModule(undefined)}
         />
       ) : null}
     </>

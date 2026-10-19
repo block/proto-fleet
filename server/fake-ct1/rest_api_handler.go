@@ -256,20 +256,22 @@ type hashboardLoc struct {
 }
 
 type hashboardHealth struct {
-	PsuElectrical           psuElectricalHealth    `json:"psuElectrical"`
-	PsuThermal              psuThermalHealth       `json:"psuThermal"`
-	Errors                  []hashboardHealthError `json:"errors,omitempty"`
-	Hashrate                float64                `json:"hashrate"`
-	HashrateIdeal           float64                `json:"hashrateIdeal"`
-	Temperatures            []float64              `json:"temperatures"`
-	Voltage                 float64                `json:"voltage"`
-	Current                 float64                `json:"current"`
-	Power                   float64                `json:"power"`
-	Uptime                  uint64str              `json:"uptime"`
-	HashrailOK              bool                   `json:"hashrailOk"`
-	RefclksOK               bool                   `json:"refclksOk"`
-	Timestamp               time.Time              `json:"timestamp"`
-	AverageAsicTemperatureC float64                `json:"averageAsicTemperatureC"`
+	PsuElectrical             psuElectricalHealth    `json:"psuElectrical"`
+	PsuThermal                psuThermalHealth       `json:"psuThermal"`
+	Errors                    []hashboardHealthError `json:"errors,omitempty"`
+	Hashrate                  float64                `json:"hashrate"`
+	HashrateIdeal             float64                `json:"hashrateIdeal"`
+	Temperatures              []float64              `json:"temperatures"`
+	Voltage                   float64                `json:"voltage"`
+	Current                   float64                `json:"current"`
+	Power                     float64                `json:"power"`
+	Uptime                    uint64str              `json:"uptime"`
+	HashrailOK                bool                   `json:"hashrailOk"`
+	RefclksOK                 bool                   `json:"refclksOk"`
+	Timestamp                 time.Time              `json:"timestamp"`
+	AverageAsicTemperatureC   float64                `json:"averageAsicTemperatureC"`
+	MaximumAsicTemperatureC   *float64               `json:"maximumAsicTemperatureC,omitempty"`
+	AsicTemperatureObservedAt *time.Time             `json:"asicTemperatureObservedAt,omitempty"`
 }
 
 type hashboardHealthError struct {
@@ -1237,6 +1239,16 @@ func (s *ContainerState) hashboardDTO(b *Hashboard) *hashboardDTO {
 	identity, electrical, thermal := s.modulePsu(b)
 	mining := b.isMining()
 	sample := s.boardSample(b)
+	var maximumAsicTemperature *float64
+	var asicTemperatureObservedAt *time.Time
+	if s.Config.AsicsPerBoard > 0 {
+		maximum := asicTemperatureDeciC(sample.AsicTemp, 0, s.Config.AsicsPerBoard)
+		for i := 1; i < s.Config.AsicsPerBoard; i++ {
+			maximum = max(maximum, asicTemperatureDeciC(sample.AsicTemp, i, s.Config.AsicsPerBoard))
+		}
+		maximumAsicTemperature = new(float64(maximum) / 10)
+		asicTemperatureObservedAt = &sample.Timestamp
+	}
 	var errors []hashboardHealthError
 	if s.Config.DemoModuleStates && b.TankID == demoFaultTank && b.ModuleNum == demoAttentionModule && b.State == miningStateError {
 		errors = []hashboardHealthError{
@@ -1265,20 +1277,22 @@ func (s *ContainerState) hashboardDTO(b *Hashboard) *hashboardDTO {
 			HashboardPosition: int64str(b.SlotIndex + 1),
 		},
 		Health: hashboardHealth{
-			PsuElectrical:           electrical,
-			PsuThermal:              thermal,
-			Errors:                  errors,
-			Hashrate:                sample.Hashrate,
-			HashrateIdeal:           boardIdealHashrateTHS,
-			Temperatures:            []float64{sample.BoardTemp - .2, sample.BoardTemp + .2},
-			Voltage:                 sample.Voltage,
-			Current:                 sample.Power / sample.Voltage,
-			Power:                   sample.Power,
-			Uptime:                  uint64str(math.Max(0, s.sampleTime.Sub(b.StartTime).Seconds())),
-			HashrailOK:              mining,
-			RefclksOK:               mining,
-			Timestamp:               sample.Timestamp,
-			AverageAsicTemperatureC: sample.AsicTemp,
+			PsuElectrical:             electrical,
+			PsuThermal:                thermal,
+			Errors:                    errors,
+			Hashrate:                  sample.Hashrate,
+			HashrateIdeal:             boardIdealHashrateTHS,
+			Temperatures:              []float64{sample.BoardTemp - .2, sample.BoardTemp + .2},
+			Voltage:                   sample.Voltage,
+			Current:                   sample.Power / sample.Voltage,
+			Power:                     sample.Power,
+			Uptime:                    uint64str(math.Max(0, s.sampleTime.Sub(b.StartTime).Seconds())),
+			HashrailOK:                mining,
+			RefclksOK:                 mining,
+			Timestamp:                 sample.Timestamp,
+			AverageAsicTemperatureC:   sample.AsicTemp,
+			MaximumAsicTemperatureC:   maximumAsicTemperature,
+			AsicTemperatureObservedAt: asicTemperatureObservedAt,
 		},
 		OwnerServerID:       s.ServerID,
 		Source:              "HASHBOARD_SOURCE_LOCAL",
@@ -1293,6 +1307,11 @@ func (s *ContainerState) hashboardDTO(b *Hashboard) *hashboardDTO {
 		ExpectedAsicCount:   int64str(s.Config.AsicsPerBoard),
 		ObservedAsicCount:   int64str(s.Config.AsicsPerBoard),
 	}
+}
+
+// Keep the summary and ASIC detail feed on the same simulated readings and precision.
+func asicTemperatureDeciC(average float64, index, count int) int {
+	return int(math.Round((average + 8*math.Sin(float64(index)*2*math.Pi/float64(max(1, count)))) * 10))
 }
 
 func (s *ContainerState) asicsResponse(b *Hashboard) asicsResponse {
@@ -1339,7 +1358,7 @@ func (s *ContainerState) asicsResponse(b *Hashboard) asicsResponse {
 		asics = append(asics, asicDTO{
 			Index:         i,
 			VoltageMv:     asicVoltageMv,
-			TemperatureDc: int(math.Round((sample.AsicTemp + 8*math.Sin(float64(i)*2*math.Pi/float64(max(1, total)))) * 10)),
+			TemperatureDc: asicTemperatureDeciC(sample.AsicTemp, i, total),
 			FrequencyMhz:  frequency,
 			PassRateBp:    passRate,
 			HashrateGhs10: ghs10,

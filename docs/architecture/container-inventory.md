@@ -160,8 +160,9 @@ export still apply to conventional miners, and CSV is labeled accordingly.
 Container cards and rows open the native Fleet detail at `/containers/:identifier`.
 It reads collected container metadata, tank/module inventory and controller history,
 including for FleetNode-owned controllers. Tank navigation scopes the mining list
-using the typed tank ancestor; module tiles open the same stored-history dialog
-as module rows. Fan telemetry and equipment states are collected for this view. Container-reported power stays separate from tank/module equipment power.
+using the typed tank ancestor; module tiles and module rows open the native Fleet
+module page at `/containers/:identifier/tanks/:tankId/modules/:moduleId`, with
+collected metrics, hardware status, and stored performance history. Fan telemetry and equipment states are collected for this view. Container-reported power stays separate from tank/module equipment power.
 Existing read-only roles lacking telemetry permissions retain their existing
 metadata-only list paths. Rack rows additionally require rack-read scope. Tanks, modules, and module
 history use their container’s current-site read permissions; tank rows do not

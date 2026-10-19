@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 
 import { ModuleStatus } from "../ModuleStatus";
+import { getModuleStatusPresentation } from "../moduleStatusPresentation";
 import { buildModuleActions, type ModuleActionType } from "./moduleActions";
 import type { TankModuleState } from "./TankModuleGrid";
 import TankStatusMarker from "./TankStatusMarker";
@@ -176,6 +177,7 @@ const ModuleTileInner = ({
 };
 
 const ModuleTile = ({ state, label, onAction, onView, number }: ModuleTileProps) => {
+  const statusLabel = state === "isolated" ? getModuleStatusPresentation(state).label : state;
   if (onView)
     return (
       <button
@@ -187,7 +189,7 @@ const ModuleTile = ({ state, label, onAction, onView, number }: ModuleTileProps)
         )}
         data-testid="tank-module"
         data-module-state={state}
-        aria-label={`${label}: ${state}. View module`}
+        aria-label={`${label}: ${statusLabel}. View module`}
         onClick={onView}
       >
         <ModuleBar state={state} number={number} />
@@ -199,7 +201,7 @@ const ModuleTile = ({ state, label, onAction, onView, number }: ModuleTileProps)
       <div
         className={barClassName(state, number)}
         role="img"
-        aria-label={`${label}: ${state}`}
+        aria-label={`${label}: ${statusLabel}`}
         data-testid="tank-module"
         data-module-state={state}
       >

@@ -1,11 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { action } from "storybook/actions";
-import CardHeader from "./CardHeader";
+import HardwareCardHeader from "./HardwareCardHeader";
 import { Alert, Fan, Settings, Success } from "@/shared/assets/icons";
 
-const meta: Meta<typeof CardHeader> = {
-  title: "Proto OS/Diagnostic/CardHeader",
-  component: CardHeader,
+const meta: Meta<typeof HardwareCardHeader> = {
+  title: "Shared/HardwareCardHeader",
+  component: HardwareCardHeader,
   parameters: {
     layout: "padded",
   },

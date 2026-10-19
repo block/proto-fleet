@@ -24,6 +24,7 @@ import {
   importMaintenancePage,
   importMiners,
   importMinersPage,
+  importModulePage,
   importOnboardingSettingsPage,
   importRackOverviewPage,
   importRacksPage,
@@ -105,6 +106,7 @@ const SettingsUpdates = lazy(importSettingsUpdates);
 const SiteDetailPage = lazy(importSiteDetailPage);
 const BuildingPage = lazy(importBuildingPage);
 const TankPage = lazy(importTankPage);
+const ModulePage = lazy(importModulePage);
 const ContainerPage = lazy(importContainerPage);
 const FleetLayout = lazy(importFleetLayout);
 const FleetBuildingsPage = lazy(importFleetBuildingsPage);
@@ -267,7 +269,7 @@ const router = createBrowserRouter([
   createRoute("/sites/:id", <SiteDetailPage />, { hideShellHeader: true }),
   createRoute("/buildings/:id", <BuildingPage />, { hideShellHeader: true }),
   createRoute("/containers/:identifier/tanks/:tankId", <TankPage />, { hideShellHeader: true }),
-  createRoute("/containers/:identifier/tanks/:tankId/modules/:moduleId", <TankPage />, { hideShellHeader: true }),
+  createRoute("/containers/:identifier/tanks/:tankId/modules/:moduleId", <ModulePage />, { hideShellHeader: true }),
   createRoute("/containers/:identifier", <ContainerPage />, { hideShellHeader: true }),
 
   createRoute("/maintenance", <MaintenancePage />),

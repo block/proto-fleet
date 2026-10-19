@@ -21,13 +21,6 @@ vi.mock("../hooks/useEquipmentCommand", async (importOriginal) => ({
 }));
 vi.mock("../hooks/useContainerOverview", () => ({ useContainerOverview: mocks.load }));
 vi.mock("../components/ContainerPerformance", () => ({ default: () => <section aria-label="Performance" /> }));
-vi.mock("../ModuleHistoryDialog", () => ({
-  ModuleHistoryDialog: ({ item, onDismiss }: { item: { name: string }; onDismiss: () => void }) => (
-    <div role="dialog" aria-label={item.name}>
-      <button onClick={onDismiss}>Close history</button>
-    </div>
-  ),
-}));
 vi.mock("@/protoFleet/hooks/useSyncScopeToEntity", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   useSyncScopeToEntity: mocks.sync,
@@ -155,7 +148,7 @@ describe("native container detail", () => {
     expect(cooler().queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("uses site breadcrumbs, Fleet scope and read-only collected module history", () => {
+  it("uses site breadcrumbs, Fleet scope and the native module destination", () => {
     renderPage();
     const breadcrumb = within(screen.getByTestId("container-overview-breadcrumb"));
     expect(breadcrumb.getByRole("link", { name: "North" })).toHaveAttribute("href", "/sites/2");
@@ -164,9 +157,7 @@ describe("native container detail", () => {
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
     expect(screen.getByText("No fan readings available.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Tank 1 module 1.*View module/ }));
-    expect(screen.getByRole("dialog", { name: "Tank 1 module 1" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Close history" }));
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/containers/ct1/tanks/81/modules/91");
   });
 
   it("opens the native tank detail using the stable tank ID", () => {

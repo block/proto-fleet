@@ -186,7 +186,7 @@ The page polls metadata and inventory every 15 seconds. Transient failures keep
 the topology visible with unavailable current readings and a retry; access
 denials or removal clear retained data. Navigation cancels outstanding loads.
 Tank cards open `/containers/:identifier/tanks/:tankId` using the stable Fleet
-tank ID. Module tiles open stored module history. Container performance uses Fleet's telemetry
+tank ID. Module tiles open the native Fleet module detail page. Container performance uses Fleet's telemetry
 API and existing performance charts, scoped to the controller and its site.
 Container-reported power remains distinct from summed module equipment power.
 
@@ -235,19 +235,53 @@ owning container and its current site, including during the aggregation query.
 The browser polls one bounded response and does no module aggregation. Tank
 charts use explicit TH/s, kW, J/TH, and Celsius units without legacy unit guessing.
 
-Module history currently has 30-day retention, so longer windows show available
-history with gaps for expired data. No historical membership reconstruction or
-long-term storage rollups are implied by the duration selector.
+History availability follows Fleet's retained raw samples and hourly/daily
+summaries. Longer windows can contain gaps where collection or retained summaries
+are unavailable.
 
-Module clicks open Fleet's existing history dialog at the shareable
-`/containers/:identifier/tanks/:tankId/modules/:moduleId` route. The richer
-module detail page is tracked separately in #162. Tank-scoped cooling/equipment
+Module clicks from Miners, container tiles, and tank tiles open the native Fleet
+page at `/containers/:identifier/tanks/:tankId/modules/:moduleId`. The page checks
+the stable module ID and both ancestors; removed, retired, replaced, and
+inaccessible modules are never substituted by position. It shows collected module
+KPIs, three hashboard slots, and existing scoped mining actions. The header
+status pill shares its presentation with ProtoOS and opens a modal with current
+board/PSU issue causes. Hashboard cards show an issue icon only when issues are
+reported; the info button opens board status details. Fleet and ProtoOS share the
+hashboard card layout. Fleet omits the ASIC preview and shows identity in the
+info modal. ASIC average uses the normalized temperature reading; ASIC high uses
+the optional `maximumAsicTemperatureC` already preserved in collected MDK health.
+Missing, non-finite, or stale temperatures render as a dash. No embedded ProtoOS view or live ASIC requests are used.
+
+Board cards distinguish empty, unknown, isolated, and stale evidence. Source
+freshness is checked independently for board state and measurements. Module
+refresh failures hide current readings and controls; access loss clears the page.
+Stored history remains available for stale controllers once Fleet access is
+resolved.
+
+The Other hardware section uses a shared PSU card in Fleet and ProtoOS, with input/output
+voltage and power plus average/high PSU temperature. Fleet reads existing collected
+`psuElectrical`, `psuThermal`, and `psuIdentity` payloads; no additional device polling is
+needed. The three boards report one module-owned PSU: Fleet picks the freshest electrical
+and temperature snapshots independently, accounting for source time and embedded sample
+age, and never sums duplicate PSU readings. Missing or expired metrics show a dash.
+The info button opens PSU-only collected issues and available manufacturer metadata;
+the issue indicator is non-interactive.
+
+Performance shows module history using the existing paginated Fleet history API. The page fetches all pages for a fixed time window, refreshes once per
+minute, and clears failed results. Requests are cancelled on navigation and
+bounded to 20 pages; an exceeded limit asks for a shorter range rather than
+showing partial history. Charts show 90-second sample averages for 1h/24h, hourly
+averages for 7d, and daily averages for longer windows, with explicit gaps and
+SI-to-display conversions. Interactive collected, stale, partial, and replaced
+states are under **Proto Fleet / Containers / Native module page** in Storybook.
+
+Tank-scoped cooling/equipment
 readings are not available in the current Fleet API; the page omits the empty
 cooling section. Tank rows, cards, and the native tank page expose scoped mining
 start/stop through the tank actions menu. List selection keeps tank IDs separate
 from rack IDs; bulk tank actions apply only to the selected tanks.
 
-Module rows in the Miners list and the module history dialog expose Start mining
+Module rows in the Miners list and the native module page expose Start mining
 and Stop mining. Module selections use stable Fleet module IDs and a separate
 Module actions menu; mixed miner/module selections keep their command paths
 separate. Confirmation names the selected modules. The server groups the exact

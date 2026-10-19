@@ -79,9 +79,10 @@ test("module info opens the exact board and PSU, traps focus, and restores the m
     </MemoryRouter>,
   );
   const moduleDialog = screen.getByRole("dialog", { name: "Modules" });
-  const openers = within(moduleDialog).getAllByRole("button", { name: "More info" });
-  openers[0].focus();
-  fireEvent.click(openers[0]);
+  const boardOpener = within(moduleDialog).getByRole("button", { name: "Board 1 info" });
+  const psuOpener = within(moduleDialog).getByRole("button", { name: "More info" });
+  boardOpener.focus();
+  fireEvent.click(boardOpener);
   const details = screen.getByRole("dialog", { name: /Hashboard status.*Tank 1.*Module 2.*Board 1/ });
   expect(details).toHaveTextContent("T1-M2-HB1");
   expect(details).toHaveTextContent("Selected board warning");
@@ -93,17 +94,17 @@ test("module info opens the exact board and PSU, traps focus, and restores the m
   fireEvent.keyDown(document, { key: "Tab" });
   expect(controls[0]).toHaveFocus();
   fireEvent.keyDown(document, { key: "Escape" });
-  expect(openers[0]).toHaveFocus();
+  expect(boardOpener).toHaveFocus();
   expect(moduleDialog).toBeInTheDocument();
-  openers[3].focus();
-  fireEvent.click(openers[3]);
+  psuOpener.focus();
+  fireEvent.click(psuOpener);
   const psuDetails = screen.getByRole("dialog", { name: /PSU status.*Module 2/ });
   expect(psuDetails).toHaveTextContent("PSU-2");
   expect(psuDetails).toHaveTextContent("Selected PSU warning");
   act(() => useMinerStore.getState().minerStatus.setErrors([]));
   expect(psuDetails).not.toHaveTextContent("Selected PSU warning");
   fireEvent.click(within(psuDetails).getAllByRole("button", { name: "Done" })[0]);
-  expect(openers[3]).toHaveFocus();
+  expect(psuOpener).toHaveFocus();
 });
 
 test("resolves rig error navigation to canonical IDs and preserves hardware and readings", () => {
