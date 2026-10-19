@@ -95,6 +95,8 @@ just build-fleetnode               # produces server/.fleetnode/{fleetnode, plug
 go build -o fleetnode ./server/cmd/fleetnode   # fast iteration
 ```
 
+Release builds embed the release tag and publishing repository with `-ldflags`. `fleetnode --version` and `fleetnode --print-release-repository` print them, and the daemon logs both in its `daemon started` line. Source builds report `dev` and `block/proto-fleet`.
+
 ## Run
 
 ```bash
