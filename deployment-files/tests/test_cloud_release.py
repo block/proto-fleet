@@ -19,6 +19,8 @@ class CompatibilityTests(unittest.TestCase):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("database dependency\n")
+            launcher = root / "deployment-files/ha/scripts/start-patroni.py"
+            launcher.write_text("initial launcher\n")
             migrations = root / "server/migrations/current"
             migrations.mkdir(parents=True)
             up = migrations / "000001_initial.up.sql"
@@ -28,6 +30,9 @@ class CompatibilityTests(unittest.TestCase):
             initial = cloud.metadata(root)
             self.assertEqual(initial["schema_version"], 1)
             self.assertEqual(set(initial), {"schema_version", "compatibility_sha256"})
+            launcher.write_text("changed launcher\n")
+            self.assertNotEqual(cloud.metadata(root), initial)
+            launcher.write_text("initial launcher\n")
             (root / "server/main.go").write_text("changed app\n")
             self.assertEqual(cloud.metadata(root), initial)
             down.write_text("DROP TABLE example CASCADE;\n")

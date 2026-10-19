@@ -127,6 +127,8 @@ test_patroni_contract() {
     assert_contains "$template" 'hostssl fleet grafana_ha_ro ${HA_DB_A_IP}/32 scram-sha-256'
     assert_not_contains "$template" "0.0.0.0/0"
     assert_contains "$entrypoint" "render-patroni-config"
+    assert_contains "$entrypoint" 'exec gosu postgres start-patroni "${run_dir}/patroni.yml"'
+    assert_contains "$dockerfile" 'COPY scripts/start-patroni.py /usr/local/bin/start-patroni'
     assert_contains "$bootstrap" 'psql --dbname="$connection_url" --set=ON_ERROR_STOP=1'
     assert_contains "$bootstrap" 'CREATE ROLE grafana_ha_ro LOGIN PASSWORD'
     assert_not_contains "$bootstrap" 'GRANT SELECT ON ALL TABLES'
