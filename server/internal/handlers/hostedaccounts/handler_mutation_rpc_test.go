@@ -64,7 +64,6 @@ func TestHostedRPCCreateAccountInitialAdministrator(t *testing.T) {
 		wantAdmin     int64
 		wantCode      connect.Code
 	}{
-		{name: "omitted administrator defaults to caller", wantAdmin: f.host},
 		{name: "eligible explicit administrator", administrator: &eligibleExternal, wantAdmin: eligible},
 		{name: "foreign organization administrator", administrator: &foreignExternal, wantCode: connect.CodePermissionDenied},
 		{name: "unknown administrator", administrator: &unknown, wantCode: connect.CodeInvalidArgument},
@@ -93,9 +92,85 @@ func TestHostedRPCCreateAccountInitialAdministrator(t *testing.T) {
 			require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT m.user_id, m.role FROM hosted_account_membership m JOIN hosted_account a ON a.id=m.account_id AND a.organization_id=m.organization_id WHERE a.organization_id=$1 AND a.account_id=$2 AND m.revoked_at IS NULL`, f.org, response.Msg.Account.AccountId).Scan(&administrator, &role))
 			require.Equal(t, tc.wantAdmin, administrator)
 			require.Equal(t, string(domain.RoleAdministrator), role)
-			if tc.administrator == nil {
-				require.Equal(t, pb.AccountRole_ACCOUNT_ROLE_ADMINISTRATOR, response.Msg.Account.Role)
-				require.Equal(t, uint64(domain.DefaultCapabilities), response.Msg.Account.EffectiveCapabilities)
+		})
+	}
+}
+
+func TestHostedRPCCreatingClientDoesNotAddHostToClientTeam(t *testing.T) {
+	f := newRPCFixture(t)
+	response, err := f.client.CreateAccount(t.Context(), rpcRequest(&pb.CreateAccountRequest{
+		AccountId: f.root, Name: "Client with separate host administration", Capabilities: uint64(domain.AllCapabilities),
+	}, f.cookie, f.root))
+	require.NoError(t, err)
+	require.NotNil(t, response.Msg.Account)
+	var memberships int
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_membership m JOIN hosted_account a ON a.id=m.account_id AND a.organization_id=m.organization_id WHERE a.organization_id=$1 AND a.account_id=$2 AND m.revoked_at IS NULL`, f.org, response.Msg.Account.AccountId).Scan(&memberships))
+	require.Zero(t, memberships, "creating a client must not create a customer login for the host")
+	require.Equal(t, pb.AccountRole_ACCOUNT_ROLE_UNSPECIFIED, response.Msg.Account.Role)
+	accountID := response.Msg.Account.AccountId
+	require.Equal(t, uint64(domain.AllCapabilities), response.Msg.Account.EffectiveCapabilities)
+	members, err := f.client.ListMembers(t.Context(), rpcRequest(&pb.ListMembersRequest{AccountId: accountID}, f.cookie, accountID))
+	require.NoError(t, err)
+	require.Empty(t, members.Msg.Members)
+	otherHost := f.addUser(t, "another-host-administrator", true)
+	access, err := f.accounts.Resolve(t.Context(), otherHost, f.org, accountID)
+	require.NoError(t, err)
+	require.Equal(t, domain.AllCapabilities, access.Capabilities)
+	require.Empty(t, access.Role, "host access is not a client team role")
+	outsider := f.addUser(t, "unaffiliated-user", false)
+	_, err = f.accounts.Resolve(t.Context(), outsider, f.org, accountID)
+	require.Error(t, err, "organization affiliation alone does not confer host access")
+	clients, err := f.accounts.ListChildren(t.Context(), f.host, f.org, f.root)
+	require.NoError(t, err)
+	for _, client := range clients {
+		if client.AccountID == response.Msg.Account.AccountId {
+			require.NotNil(t, client.ManagementSummary)
+			require.Zero(t, client.ManagementSummary.LoginCount, "client login counts include only its actual team")
+		}
+	}
+	issued := f.invite(t, accountID, pb.AccountRole_ACCOUNT_ROLE_ADMINISTRATOR)
+	f.register(t, issued.Token, "actual-client-admin")
+	members, err = f.client.ListMembers(t.Context(), rpcRequest(&pb.ListMembersRequest{AccountId: accountID}, f.cookie, accountID))
+	require.NoError(t, err)
+	require.Len(t, members.Msg.Members, 1)
+	require.Equal(t, "actual-client-admin", members.Msg.Members[0].Username)
+	clients, err = f.accounts.ListChildren(t.Context(), f.host, f.org, f.root)
+	require.NoError(t, err)
+	require.Len(t, clients, 1)
+	require.EqualValues(t, 1, clients[0].ManagementSummary.LoginCount)
+	// Replacing the sole host role immediately removes inherited authority;
+	// the independent client administrator remains a member.
+	_, err = f.db.ExecContext(t.Context(), `UPDATE user_organization_role SET deleted_at=NOW() WHERE organization_id=$1 AND user_id=$2`, f.org, otherHost)
+	require.NoError(t, err)
+	_, err = f.accounts.Resolve(t.Context(), otherHost, f.org, accountID)
+	require.Error(t, err)
+}
+
+func TestHostedRPCDefaultSubclientAdministrationFollowsCreatorPersona(t *testing.T) {
+	f := newRPCFixture(t)
+	created, err := f.client.CreateAccount(t.Context(), rpcRequest(&pb.CreateAccountRequest{AccountId: f.root, Name: "Parent", Capabilities: uint64(domain.AllCapabilities)}, f.cookie, f.root))
+	require.NoError(t, err)
+	parentID := created.Msg.Account.AccountId
+	issued := f.invite(t, parentID, pb.AccountRole_ACCOUNT_ROLE_ADMINISTRATOR)
+	customer := f.register(t, issued.Token, "customer-subclient-admin")
+	for _, tc := range []struct {
+		name, cookie string
+		members      int
+	}{
+		{"host-created subclient", f.cookie, 0},
+		{"customer-created subclient", customer.Header().Get("Set-Cookie"), 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sub, err := f.client.CreateAccount(t.Context(), rpcRequest(&pb.CreateAccountRequest{AccountId: parentID, Name: tc.name, Capabilities: uint64(domain.AllCapabilities)}, tc.cookie, parentID))
+			require.NoError(t, err)
+			subID := sub.Msg.Account.AccountId
+			members, err := f.client.ListMembers(t.Context(), rpcRequest(&pb.ListMembersRequest{AccountId: subID}, tc.cookie, subID))
+			require.NoError(t, err)
+			require.Len(t, members.Msg.Members, tc.members)
+			if tc.members == 0 {
+				require.Equal(t, pb.AccountRole_ACCOUNT_ROLE_UNSPECIFIED, sub.Msg.Account.Role)
+			} else {
+				require.Equal(t, "customer-subclient-admin", members.Msg.Members[0].Username)
 			}
 		})
 	}

@@ -4,7 +4,7 @@ import { useRequiredAccountScope } from "../AccountScope";
 import { can, capabilities, roleLabel } from "../capabilities";
 import { ActionModal } from "./ActionModal";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
-import Button from "@/shared/components/Button";
+import Button, { sizes } from "@/shared/components/Button";
 import Input from "@/shared/components/Input";
 import Row from "@/shared/components/Row";
 
@@ -21,6 +21,7 @@ const AccountSettings = ({ onRenamed }: { onRenamed: () => void }) => {
         {can(account, 8n) ? (
           <Button
             variant="secondary"
+            size={sizes.compact}
             className="shrink-0"
             text="Rename"
             ariaLabel="Rename account"

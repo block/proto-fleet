@@ -2,7 +2,6 @@ import { MemoryRouter } from "react-router-dom";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { create, toJson } from "@bufbuild/protobuf";
-import userEvent from "@testing-library/user-event";
 
 import { AccountScopeContext } from "../AccountScope";
 import { createAccountConnection } from "../api";
@@ -103,21 +102,20 @@ describe("account mining overview", () => {
     expect(screen.getAllByText("2 of 4 assets reporting")).toHaveLength(2);
     expect(screen.getByText(/1 module.*partial.*1 module.*unknown/i)).toBeInTheDocument();
     expect(screen.getByText(/1 unavailable.*1 outside.*policy/i)).toBeInTheDocument();
-    expect(screen.getByText(/Report generated/)).toBeInTheDocument();
-    expect(screen.getByText(/fresh readings.*sample/i)).toBeInTheDocument();
     expect(calls).toEqual([{ method: "GetAccountMiningSummary", account: accountId }]);
     expect(screen.getByRole("link", { name: "View mining assets" })).toHaveAttribute(
       "href",
       `/accounts/${accountId}/assets`,
     );
   });
-  it("switches to the server direct partition and preserves a measured zero", async () => {
+  it("keeps estate totals above the direct and subclient comparison without another tab row", async () => {
     mount();
-    const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: "Directly assigned" }));
-    expect(within(screen.getByTestId("stats-container")).getByText("0 TH/s")).toBeInTheDocument();
-    expect(within(screen.getByTestId("stats-container")).getByText("1 of 1 asset reporting")).toBeInTheDocument();
-    expect(screen.queryByText("200.0 TH/s")).not.toBeInTheDocument();
+    await screen.findByText("200.0 TH/s");
+    expect(screen.queryByRole("navigation", { name: "Mining summary scope" })).not.toBeInTheDocument();
+    expect(within(screen.getByTestId("stats-container")).getByText("200.0 TH/s")).toBeInTheDocument();
+    const direct = screen.getByText("Directly assigned").closest("tr")!;
+    expect(within(direct).getByText("0 TH/s")).toBeInTheDocument();
+    expect(within(direct).getByText("1 of 1 asset reporting")).toBeInTheDocument();
     expect(screen.getByText("Subclient A")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Subclient A" })).not.toBeInTheDocument();
   });
@@ -144,20 +142,21 @@ describe("account mining overview", () => {
       );
     else expect(screen.queryByRole("link", { name: "Subclient A" })).not.toBeInTheDocument();
   });
-  it("does not offer a direct selector when the server omits the partition", async () => {
+  it("omits the comparison when the server supplies only estate totals", async () => {
     mount({ reply: create(GetAccountMiningSummaryResponseSchema, { totals: total }) });
     await screen.findByText("200.0 TH/s");
-    expect(screen.queryByRole("button", { name: "Directly assigned" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Subclient comparison" })).not.toBeInTheDocument();
   });
   it("keeps viewer totals private from child partitions even if a malformed response includes them", async () => {
     mount({ mask: 1n });
     await screen.findByText("200.0 TH/s");
     expect(screen.queryByText("Subclient A")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Directly assigned" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Subclient comparison" })).not.toBeInTheDocument();
   });
   it.each([9n, 17n])("shows the server partition for either management capability: %s", async (mask) => {
     mount({ mask });
-    expect(await screen.findByRole("button", { name: "Directly assigned" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Subclient comparison" })).toBeInTheDocument();
+    expect(screen.getByText("Directly assigned")).toBeInTheDocument();
     expect(screen.getByText("Subclient A")).toBeInTheDocument();
   });
   it("distinguishes an empty estate from unavailable measurements", async () => {

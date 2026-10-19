@@ -18,6 +18,7 @@ import { useAccountQuery } from "./useAccountQuery";
 import { type NavItem } from "@/protoFleet/config/navItems";
 import { useFleetStore, usePermissions } from "@/protoFleet/store";
 import { Activity, Fleet, Groups, LightningAlt, Lock, Settings } from "@/shared/assets/icons";
+import Breadcrumb from "@/shared/components/Breadcrumb";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 
@@ -58,6 +59,9 @@ const AccountPage = ({ accountId }: { accountId: string }) => {
     return () => window.removeEventListener("focus", query.refresh);
   }, [query.refresh]);
   const account = rootAccount ?? query.data?.account;
+  const parent = directory?.accounts.find(
+    (item) => item.accountId === account?.parentAccountId && item.depth > 0 && can(item, 1n),
+  );
   const error = directory?.error ?? query.error;
   const loading = directory?.loading || (!account && !error && query.loading);
   const navItems: NavItem[] = [
@@ -118,6 +122,18 @@ const AccountPage = ({ accountId }: { accountId: string }) => {
               invalidateAccount: invalidate,
             }}
           >
+            {account.depth > 0 ? (
+              <div className="mb-6 flex min-h-10 items-center">
+                <Breadcrumb
+                  className="min-w-0 flex-wrap"
+                  segments={[
+                    ...(host ? [{ label: "Clients", to: "/accounts" }] : []),
+                    ...(parent ? [{ label: parent.name, to: accountPath(parent.accountId) }] : []),
+                    { label: account.name },
+                  ]}
+                />
+              </div>
+            ) : null}
             {host ? (
               <div className="mb-6 overflow-x-auto">
                 <TabStrip

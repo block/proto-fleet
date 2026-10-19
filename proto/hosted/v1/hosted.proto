@@ -136,7 +136,9 @@ message ListChildrenResponse { repeated Account accounts = 1; }
 message CreateAccountRequest {
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
-  // Omission uses the current user; this endpoint does not enumerate users.
+  // Omission gives host operators separate host administration, without a team
+  // membership. Customer-created subclients use the creator as administrator.
+  // An explicitly selected user becomes the initial member; users are not enumerated.
   optional string administrator_user_id = 3 [(buf.validate.field).string.uuid = true];
   uint64 capabilities = 4 [(buf.validate.field).uint64 = {gte: 1, lte: 31}];
 }

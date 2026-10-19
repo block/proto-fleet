@@ -17,8 +17,7 @@ const AccountPicker = () => {
   const selected = directory.accounts.find(
     (a) => pathname === `/accounts/${a.accountId}` || pathname.startsWith(`/accounts/${a.accountId}/`),
   );
-  if (directory.hostAccess || directory.accounts.length === 1)
-    return selected && selected.depth > 0 ? <span className="truncate text-text-primary">{selected.name}</span> : null;
+  if (directory.hostAccess || directory.accounts.length === 1) return null;
   return (
     <>
       <Button

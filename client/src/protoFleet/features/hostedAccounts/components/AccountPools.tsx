@@ -10,7 +10,7 @@ import { PoolRevisionEditor } from "./PoolRevisionEditor";
 import type { PoolRevision } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
-import Button from "@/shared/components/Button";
+import Button, { sizes } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
@@ -57,7 +57,19 @@ const AccountPools = () => {
     change = can(account, 4n);
   return (
     <div className="flex flex-col gap-6">
-      <SettingsPageHeader title="Pool configurations" />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <SettingsPageHeader title="Pool configurations" />
+        </div>
+        {query.data && manage ? (
+          <Button
+            variant="primary"
+            size={sizes.compact}
+            text="Create configuration"
+            onClick={() => setEditing("new")}
+          />
+        ) : null}
+      </div>
       <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
       {query.data ? (
         <>
@@ -72,6 +84,7 @@ const AccountPools = () => {
               {change ? (
                 <Button
                   variant="secondary"
+                  size={sizes.compact}
                   text="Change selection"
                   onClick={() => {
                     setRevisionId("");
@@ -132,9 +145,6 @@ const AccountPools = () => {
               },
               backups: { width: "min-w-24", component: (pool) => String(Math.max(0, pool.slots.length - 1)) },
             }}
-            headerControls={
-              manage ? <Button variant="primary" text="Create configuration" onClick={() => setEditing("new")} /> : null
-            }
             actions={
               manage
                 ? [

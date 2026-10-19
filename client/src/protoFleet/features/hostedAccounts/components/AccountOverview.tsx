@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
-import { timestampDate } from "@bufbuild/protobuf/wkt";
+import { useCallback, useEffect } from "react";
 
 import { useRequiredAccountScope } from "../AccountScope";
 import { accountPath, can } from "../capabilities";
@@ -9,10 +8,9 @@ import { AccountState } from "./AccountState";
 import type { AccountMiningBucket, MiningSummary } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
-import Button from "@/shared/components/Button";
+import Button, { sizes } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import Stats from "@/shared/components/Stats";
-import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 import { formatEfficiencyOrDash, formatHashrateOrDash, formatPowerKwOrDash } from "@/shared/utils/telemetryFormat";
 
 const count = (value: bigint) => value.toLocaleString();
@@ -26,7 +24,6 @@ const power = (summary?: MiningSummary) =>
 const AccountOverview = () => {
   const { account, client } = useRequiredAccountScope();
   const directory = useHostedAccounts();
-  const [scope, setScope] = useState("all");
   const load = useCallback(
     (signal: AbortSignal) => client.getAccountMiningSummary({ accountId: account.accountId }, { signal }),
     [account.accountId, client],
@@ -37,40 +34,39 @@ const AccountOverview = () => {
     return () => window.removeEventListener("focus", query.refresh);
   }, [query.refresh]);
   const partitions = (can(account, 8n) || can(account, 16n)) && !!query.data?.direct;
-  const summary = partitions && scope === "direct" ? query.data?.direct : query.data?.totals;
+  const summary = query.data?.totals;
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-4 phone:flex-col">
         <div className="min-w-0 flex-1">
-          <SettingsPageHeader title="Overview" description={account.name} />
+          <SettingsPageHeader title="Overview" />
         </div>
         <div className="flex flex-wrap gap-3">
-          <Button variant="secondary" text="Refresh" onClick={query.refresh} disabled={query.loading} />
-          <Button variant="primary" text="View mining assets" to={accountPath(account.accountId, "assets")} />
+          <Button
+            variant="secondary"
+            size={sizes.compact}
+            text="Refresh"
+            onClick={query.refresh}
+            disabled={query.loading}
+          />
+          <Button
+            variant="primary"
+            size={sizes.compact}
+            text="View mining assets"
+            to={accountPath(account.accountId, "assets")}
+          />
         </div>
       </div>
       <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
       {query.data ? (
         <>
-          {partitions ? (
-            <TabStrip ariaLabel="Mining summary scope" activeId={scope} onSelect={setScope}>
-              <TabStripItem id="all" label="All account assets" />
-              <TabStripItem id="direct" label="Directly assigned" />
-            </TabStrip>
-          ) : null}
-          <p className="text-300 text-text-primary-70">
-            {partitions && scope === "direct"
-              ? "Assets assigned directly to this account, excluding subclients."
-              : account.depth < 2
-                ? "All assets allocated to this account, including subclients."
-                : "Assets allocated to this account."}
-          </p>
           {summary ? (
             <>
               <Stats
                 stats={[
                   {
                     label: "Mining assets",
+                    tooltipContent: "Assets assigned to this account, including its subclients.",
                     value: count(summary.assetCount),
                     preformatted: true,
                     text: `${quantity(summary.minerCount, "miner")} · ${quantity(summary.moduleCount, "module")}`,
@@ -234,17 +230,6 @@ const AccountOverview = () => {
               />
             </section>
           ) : null}
-          <div className="space-y-2 text-200 text-text-primary-50">
-            <p>
-              Current reporting uses fresh readings where available; report time is not the sample time. Missing
-              readings are shown as —. Equipment power excludes container plant power. Efficiency uses assets reporting
-              both metrics.
-            </p>
-            {query.data.generatedAt ? (
-              <p>Report generated {timestampDate(query.data.generatedAt).toLocaleString()}.</p>
-            ) : null}
-            <p>Allocations control reporting. They do not apply pools or transfer equipment control.</p>
-          </div>
         </>
       ) : null}
     </div>

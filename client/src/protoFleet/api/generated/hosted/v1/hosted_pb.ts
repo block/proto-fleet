@@ -399,7 +399,9 @@ export type CreateAccountRequest = Message<"hosted.v1.CreateAccountRequest"> & {
   name: string;
 
   /**
-   * Omission uses the current user; this endpoint does not enumerate users.
+   * Omission gives host operators separate host administration, without a team
+   * membership. Customer-created subclients use the creator as administrator.
+   * An explicitly selected user becomes the initial member; users are not enumerated.
    *
    * @generated from field: optional string administrator_user_id = 3;
    */

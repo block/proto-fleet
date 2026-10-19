@@ -578,6 +578,14 @@ fleet providers for account-only users. Page-owned RPC clients capture
 reset report and selection state; selected-account reporting and assignment RPCs
 currently require a Fleet session rather than an account API key.
 
+Host-created clients record host administration as an ancestor-access grant,
+separate from the client's team. Creation does not add the host operator as a
+member or count host staff as client logins. Host operators with organization
+`account:manage` can open the client workspace and invite its first administrator;
+live role changes and client ceilings still constrain that access. An explicit
+initial administrator is an actual team member. Customer-created subclients keep
+the creating customer's initial administrator membership.
+
 Invitations show a portable code once for manual sharing. Recipients select
 **Join an account** on the login screen or account list, paste the code, then use
 an existing Fleet login or register a new one. Codes stay out of the URL and

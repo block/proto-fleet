@@ -120,7 +120,7 @@ func (h *Handler) CreateAccount(ctx context.Context, req *connect.Request[pb.Cre
 	if err != nil {
 		return nil, err
 	}
-	adminID := info.UserID
+	var adminID int64
 	if req.Msg.AdministratorUserId != nil {
 		user, err := h.users.GetUserByExternalID(ctx, req.Msg.GetAdministratorUserId())
 		if err != nil {
@@ -133,9 +133,13 @@ func (h *Handler) CreateAccount(ctx context.Context, req *connect.Request[pb.Cre
 		return nil, err
 	}
 	item := domain.AccountSummary{AccountID: created.AccountID, ParentAccountID: req.Msg.AccountId, Name: created.Name, Depth: created.Depth, Capabilities: domain.Capabilities(created.Capabilities), Revision: created.Revision}
-	if adminID == info.UserID {
-		item.EffectiveCapabilities = item.Capabilities
-		item.Role = domain.RoleAdministrator
+	if adminID == 0 || adminID == info.UserID {
+		access, err := h.accounts.Resolve(ctx, info.UserID, info.OrganizationID, created.AccountID)
+		if err != nil {
+			return nil, err
+		}
+		item.EffectiveCapabilities = access.Capabilities
+		item.Role = access.Role
 	}
 	return connect.NewResponse(&pb.CreateAccountResponse{Account: accountDTO(item)}), nil
 }

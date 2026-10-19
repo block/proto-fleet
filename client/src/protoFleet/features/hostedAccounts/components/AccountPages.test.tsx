@@ -13,6 +13,7 @@ import AccountTeam from "./AccountTeam";
 import {
   AccountRole,
   AccountSchema,
+  InvitationSchema,
   MemberSchema,
   PoolRevisionSchema,
 } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
@@ -74,6 +75,7 @@ function scope(mask = 31n) {
     listInvitations: vi.fn().mockResolvedValue({ invitations: [], nextPageToken: "" }),
     createInvitation: vi.fn().mockResolvedValue({ token: "x".repeat(43) }),
     revokeMember: vi.fn().mockResolvedValue({}),
+    revokeInvitation: vi.fn().mockResolvedValue({}),
     listAccountKeys: vi.fn().mockResolvedValue({ keys: [], nextPageToken: "" }),
     listAncestorGrants: vi.fn().mockResolvedValue({ grants: [] }),
     createAccountKey: vi.fn().mockResolvedValue({ secret: "one-time-test-secret" }),
@@ -155,6 +157,88 @@ describe("hosted account pages", () => {
       }),
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+  it("combines members and invitation lifecycle statuses with only applicable row actions", async () => {
+    const { value, client } = scope();
+    const user = userEvent.setup();
+    const now = BigInt(Math.floor(Date.now() / 1000));
+    const pending = create(InvitationSchema, {
+      invitationId: "pending",
+      role: AccountRole.VIEWER,
+      available: true,
+      expiresAt: { seconds: now + 3600n },
+    });
+    const history = [
+      create(InvitationSchema, { invitationId: "accepted", acceptedAt: { seconds: now - 30n } }),
+      create(InvitationSchema, { invitationId: "revoked", revokedAt: { seconds: now - 30n } }),
+      create(InvitationSchema, { invitationId: "expired", available: true, expiresAt: { seconds: now - 30n } }),
+      create(InvitationSchema, { invitationId: "unavailable" }),
+    ];
+    client.listInvitations
+      .mockResolvedValueOnce({ invitations: [pending, ...history], nextPageToken: "" })
+      .mockResolvedValue({
+        invitations: [
+          create(InvitationSchema, {
+            invitationId: pending.invitationId,
+            role: pending.role,
+            expiresAt: pending.expiresAt,
+            revokedAt: { seconds: now },
+          }),
+          ...history,
+        ],
+        nextPageToken: "",
+      });
+    mount(<AccountTeam />, value);
+    const pendingRow = (await screen.findByText("Pending")).closest("tr")!;
+    expect(screen.getAllByRole("table")).toHaveLength(1);
+    expect(screen.getByRole("columnheader", { name: "Status" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Account team sections" })).not.toBeInTheDocument();
+    const memberRow = screen.getByText("payout_ops").closest("tr")!;
+    expect(within(memberRow).getByText("Active")).toBeInTheDocument();
+    for (const status of ["Accepted", "Revoked", "Expired", "Unavailable"]) {
+      const row = screen.getByText(status).closest("tr")!;
+      expect(within(row).queryByRole("button", { name: "Row actions" })).not.toBeInTheDocument();
+    }
+    await user.click(within(memberRow).getByRole("button", { name: "Row actions" }));
+    expect(await screen.findByRole("button", { name: "Change role" })).toBeInTheDocument();
+    expect(within(memberRow).queryByRole("button", { name: "Revoke invitation" })).not.toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    expect(within(pendingRow).queryByRole("button", { name: "Change role" })).not.toBeInTheDocument();
+    await user.click(within(pendingRow).getByRole("button", { name: "Revoke invitation" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke invitation" }));
+    await waitFor(() => expect(client.revokeInvitation).toHaveBeenCalledWith({ accountId, invitationId: "pending" }));
+    await waitFor(() => expect(screen.getAllByText("Revoked")).toHaveLength(2));
+    expect(screen.queryByText("Pending")).not.toBeInTheDocument();
+    expect(screen.getByText("payout_ops")).toBeInTheDocument();
+  });
+  it("pages through invitation history without duplicating active members on later pages", async () => {
+    const { value, client } = scope();
+    const user = userEvent.setup();
+    client.listInvitations.mockImplementation(async ({ pageToken }: { pageToken: string }) =>
+      pageToken
+        ? {
+            invitations: [create(InvitationSchema, { invitationId: "old", revokedAt: { seconds: 1n } })],
+            nextPageToken: "",
+          }
+        : {
+            invitations: [create(InvitationSchema, { invitationId: "new", available: true })],
+            nextPageToken: "next-invitations",
+          },
+    );
+    mount(<AccountTeam />, value);
+    await screen.findByText("Pending");
+    expect(screen.getByText("payout_ops")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByText("Revoked");
+    expect(screen.queryByText("payout_ops")).not.toBeInTheDocument();
+    expect(client.listInvitations).toHaveBeenLastCalledWith(
+      { accountId, pageSize: 25, pageToken: "next-invitations" },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Previous" }));
+    await screen.findByText("payout_ops");
+    expect(screen.getByText("Pending")).toBeInTheDocument();
   });
   it("shows a portable invitation code once and keeps a fragment link as a convenience", async () => {
     const user = userEvent.setup(),

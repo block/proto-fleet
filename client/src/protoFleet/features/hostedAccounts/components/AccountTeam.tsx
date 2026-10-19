@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { useRequiredAccountScope } from "../AccountScope";
 import { roleLabel, roleOptions } from "../capabilities";
@@ -10,10 +11,9 @@ import { ShareInvitationModal } from "./ShareInvitationModal";
 import { AccountRole, type Invitation, type Member } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
-import Button from "@/shared/components/Button";
+import Button, { sizes } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import Select from "@/shared/components/Select";
-import { TabStrip, TabStripItem } from "@/shared/components/Tab";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
 const invitationState = (invitation: Invitation) =>
@@ -24,33 +24,56 @@ const invitationState = (invitation: Invitation) =>
       : invitation.expiresAt && Number(invitation.expiresAt.seconds) * 1000 <= Date.now()
         ? "Expired"
         : invitation.available
-          ? "Available"
+          ? "Pending"
           : "Unavailable";
+type TeamEntry =
+  { key: string; kind: "member"; member: Member } | { key: string; kind: "invitation"; invitation: Invitation };
+
 const AccountTeam = () => {
   const { account, client } = useRequiredAccountScope();
-  const [tab, setTab] = useState("members");
+  const [params, setParams] = useSearchParams();
+  const invite = params.get("invite");
   const [tokens, setTokens] = useState([""]);
   const [page, setPage] = useState(0);
-  const membersLoad = useCallback(
-    (signal: AbortSignal) => client.listMembers({ accountId: account.accountId }, { signal }),
-    [account.accountId, client],
-  );
-  const invitesLoad = useCallback(
-    (signal: AbortSignal) =>
-      client.listInvitations({ accountId: account.accountId, pageSize: 25, pageToken: tokens[page] }, { signal }),
+  const load = useCallback(
+    async (signal: AbortSignal) => {
+      const [members, invitations] = await Promise.all([
+        client.listMembers({ accountId: account.accountId }, { signal }),
+        client.listInvitations({ accountId: account.accountId, pageSize: 25, pageToken: tokens[page] }, { signal }),
+      ]);
+      return { members: members.members, ...invitations };
+    },
     [account.accountId, client, page, tokens],
   );
-  const members = useAccountQuery(membersLoad, tab === "members");
-  const invitations = useAccountQuery(invitesLoad, tab === "invitations");
+  const query = useAccountQuery(load);
+  const entries: TeamEntry[] = query.data
+    ? [
+        ...(page === 0
+          ? query.data.members.map((member) => ({ key: `member:${member.userId}`, kind: "member" as const, member }))
+          : []),
+        ...query.data.invitations.map((invitation) => ({
+          key: `invitation:${invitation.invitationId}`,
+          kind: "invitation" as const,
+          invitation,
+        })),
+      ]
+    : [];
   const [action, setAction] = useState<{
     kind: "invite" | "role" | "remove" | "revoke";
     member?: Member;
     invitation?: Invitation;
-  } | null>(null);
-  const [role, setRole] = useState(String(AccountRole.VIEWER));
+  } | null>(() => (invite === "1" || invite === "administrator" ? { kind: "invite" } : null));
+  const [role, setRole] = useState(String(invite === "administrator" ? AccountRole.ADMINISTRATOR : AccountRole.VIEWER));
   const [expiry, setExpiry] = useState("86400");
   const [invitationCode, setInvitationCode] = useState<string | null>(null);
-  const query = tab === "members" ? members : invitations;
+  const closeAction = () => {
+    setAction(null);
+    if (params.has("invite")) {
+      const next = new URLSearchParams(params);
+      next.delete("invite");
+      setParams(next, { replace: true });
+    }
+  };
   const createInvite = () => {
     setRole(String(AccountRole.VIEWER));
     setExpiry("86400");
@@ -58,88 +81,95 @@ const AccountTeam = () => {
   };
   return (
     <div className="flex flex-col gap-6">
-      <SettingsPageHeader title="Team" />
-      <TabStrip activeId={tab} onSelect={setTab} ariaLabel="Account team sections">
-        <TabStripItem id="members" label="Members" />
-        <TabStripItem id="invitations" label="Invitations" />
-      </TabStrip>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <SettingsPageHeader title="Team" />
+        </div>
+        {query.data ? (
+          <Button variant="primary" size={sizes.compact} text="Create invitation" onClick={createInvite} />
+        ) : null}
+      </div>
       <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
-      {tab === "members" && members.data ? (
-        <List<Member, string, "username" | "role" | "joinedAt">
-          items={members.data.members}
-          itemKey="userId"
-          itemSelectable={false}
-          stickyFirstColumn={false}
-          activeCols={["username", "role", "joinedAt"]}
-          colTitles={{ username: "Username", role: "Role", joinedAt: "Joined" }}
-          colConfig={{
-            username: { width: "min-w-40" },
-            role: { width: "min-w-44", component: (member) => roleLabel(member.role) },
-            joinedAt: {
-              width: "min-w-40",
-              component: (member) => formatTimestamp(member.joinedAt ? Number(member.joinedAt.seconds) : undefined),
-            },
-          }}
-          headerControls={<Button variant="primary" text="Create invitation" onClick={createInvite} />}
-          actions={[
-            {
-              title: "Change role",
-              actionHandler: (member) => {
-                setRole(String(member.role));
-                setAction({ kind: "role", member });
-              },
-            },
-            {
-              title: "Remove membership",
-              variant: "destructive",
-              actionHandler: (member) => setAction({ kind: "remove", member }),
-            },
-          ]}
-          noDataElement={<SettingsEmptyState title="No account members" />}
-          total={members.data.members.length}
-          itemName={{ singular: "member", plural: "members" }}
-        />
-      ) : null}
-      {tab === "invitations" && invitations.data ? (
+      {query.data ? (
         <>
-          <List<Invitation, string, "role" | "expiresAt" | "state">
-            items={invitations.data.invitations}
-            itemKey="invitationId"
+          <List<TeamEntry, string, "name" | "role" | "status" | "addedAt" | "expiresAt">
+            items={entries}
+            itemKey="key"
             itemSelectable={false}
             stickyFirstColumn={false}
-            activeCols={["role", "expiresAt", "state"]}
-            colTitles={{ role: "Role", expiresAt: "Expires", state: "Status" }}
+            activeCols={["name", "role", "status", "addedAt", "expiresAt"]}
+            colTitles={{ name: "Name", role: "Role", status: "Status", addedAt: "Added", expiresAt: "Expires" }}
             colConfig={{
-              role: { width: "min-w-40", component: (invitation) => roleLabel(invitation.role) },
-              expiresAt: {
-                width: "min-w-44",
-                component: (invitation) =>
-                  formatTimestamp(invitation.expiresAt ? Number(invitation.expiresAt.seconds) : undefined),
+              name: {
+                width: "min-w-40",
+                component: (entry) => (entry.kind === "member" ? entry.member.username : "Invitation"),
               },
-              state: { width: "min-w-28", component: invitationState },
+              role: {
+                width: "min-w-44",
+                component: (entry) => roleLabel(entry.kind === "member" ? entry.member.role : entry.invitation.role),
+              },
+              status: {
+                width: "min-w-28",
+                component: (entry) => (entry.kind === "member" ? "Active" : invitationState(entry.invitation)),
+              },
+              addedAt: {
+                width: "min-w-40",
+                component: (entry) => {
+                  const timestamp = entry.kind === "member" ? entry.member.joinedAt : entry.invitation.createdAt;
+                  return formatTimestamp(timestamp ? Number(timestamp.seconds) : undefined);
+                },
+              },
+              expiresAt: {
+                width: "min-w-40",
+                component: (entry) =>
+                  formatTimestamp(
+                    entry.kind === "invitation" && entry.invitation.expiresAt
+                      ? Number(entry.invitation.expiresAt.seconds)
+                      : undefined,
+                  ),
+              },
             }}
-            headerControls={<Button variant="primary" text="Create invitation" onClick={createInvite} />}
             actions={[
+              {
+                title: "Change role",
+                hidden: (entry) => entry.kind !== "member",
+                actionHandler: (entry) => {
+                  if (entry.kind === "member") {
+                    setRole(String(entry.member.role));
+                    setAction({ kind: "role", member: entry.member });
+                  }
+                },
+              },
+              {
+                title: "Remove membership",
+                variant: "destructive",
+                hidden: (entry) => entry.kind !== "member",
+                actionHandler: (entry) => {
+                  if (entry.kind === "member") setAction({ kind: "remove", member: entry.member });
+                },
+              },
               {
                 title: "Revoke invitation",
                 variant: "destructive",
-                hidden: (invitation) => !invitation.available,
-                actionHandler: (invitation) => setAction({ kind: "revoke", invitation }),
+                hidden: (entry) => entry.kind !== "invitation" || invitationState(entry.invitation) !== "Pending",
+                actionHandler: (entry) => {
+                  if (entry.kind === "invitation") setAction({ kind: "revoke", invitation: entry.invitation });
+                },
               },
             ]}
             noDataElement={
               <SettingsEmptyState
-                title="No invitations on this page"
+                title="No team members or invitations"
                 description="Create an invitation and share its code."
               />
             }
           />
           <PageControls
             previous={page > 0}
-            next={!!invitations.data.nextPageToken}
+            next={!!query.data.nextPageToken}
             onPrevious={() => setPage((p) => p - 1)}
             onNext={() => {
-              setTokens((t) => [...t.slice(0, page + 1), invitations.data!.nextPageToken]);
+              setTokens((t) => [...t.slice(0, page + 1), query.data!.nextPageToken]);
               setPage((p) => p + 1);
             }}
           />
@@ -165,7 +195,7 @@ const AccountTeam = () => {
                   ? "Revoke invitation"
                   : "Save role"
           }
-          onDismiss={() => setAction(null)}
+          onDismiss={closeAction}
           onSubmit={async () => {
             if (action.kind === "invite") {
               const result = await client.createInvitation({
@@ -174,6 +204,8 @@ const AccountTeam = () => {
                 expiresInSeconds: Number(expiry),
               });
               setInvitationCode(result.token);
+              setPage(0);
+              setTokens([""]);
             } else if (action.kind === "role")
               await client.setMemberRole({
                 accountId: account.accountId,
@@ -187,7 +219,7 @@ const AccountTeam = () => {
                 accountId: account.accountId,
                 invitationId: action.invitation!.invitationId,
               });
-            setAction(null);
+            closeAction();
             query.refresh();
           }}
         >
@@ -196,6 +228,7 @@ const AccountTeam = () => {
               <Select id="account-member-role" label="Role" value={role} options={roleOptions} onChange={setRole} />
               {action.kind === "invite" ? (
                 <>
+                  <p>Invite someone to {account.name}.</p>
                   <Select
                     id="account-invitation-expiry"
                     label="Expires after"

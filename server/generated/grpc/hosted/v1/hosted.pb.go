@@ -928,7 +928,9 @@ type CreateAccountRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	AccountId string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
 	Name      string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	// Omission uses the current user; this endpoint does not enumerate users.
+	// Omission gives host operators separate host administration, without a team
+	// membership. Customer-created subclients use the creator as administrator.
+	// An explicitly selected user becomes the initial member; users are not enumerated.
 	AdministratorUserId *string `protobuf:"bytes,3,opt,name=administrator_user_id,json=administratorUserId,proto3,oneof" json:"administrator_user_id,omitempty"`
 	Capabilities        uint64  `protobuf:"varint,4,opt,name=capabilities,proto3" json:"capabilities,omitempty"`
 	unknownFields       protoimpl.UnknownFields

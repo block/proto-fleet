@@ -183,7 +183,10 @@ describe("real account workspace routing", () => {
     mount(account, "settings", true);
     await screen.findByRole("button", { name: "Rename account" });
     expect(screen.queryByRole("button", { name: "Switch account" })).not.toBeInTheDocument();
-    expect(screen.getByText("Customer", { selector: "span" })).toBeInTheDocument();
+    const breadcrumb = within(screen.getByRole("navigation", { name: "Breadcrumb" }));
+    expect(breadcrumb.getByText("Customer")).toBeInTheDocument();
+    expect(breadcrumb.getByRole("link", { name: "Clients" })).toHaveAttribute("href", "/accounts");
+    expect(within(screen.getByTestId("app-header")).queryByText("Customer")).not.toBeInTheDocument();
     const main = screen.getByRole("navigation", { name: "Main" });
     expect(within(main).getByRole("link", { name: "Fleet" })).toBeInTheDocument();
     expect(within(main).queryByRole("link", { name: "Clients" })).not.toBeInTheDocument();
@@ -244,7 +247,10 @@ describe("real account workspace routing", () => {
         await user.click(dialog.getByRole("link", { name: "All accounts" }));
       } else {
         expect(screen.queryByRole("button", { name: "Switch account" })).not.toBeInTheDocument();
-        expect(screen.getByText("Customer", { selector: "span" })).toBeInTheDocument();
+        expect(
+          within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByText("Customer"),
+        ).toBeInTheDocument();
+        expect(within(screen.getByTestId("app-header")).queryByText("Customer")).not.toBeInTheDocument();
         await user.click(
           within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Accounts" }),
         );
@@ -253,6 +259,45 @@ describe("real account workspace routing", () => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     },
   );
+  it("keeps readable parents in subclient breadcrumbs and returns to their workspace", async () => {
+    const parent = create(AccountSchema, {
+      accountId: rootId,
+      name: "Parent client",
+      depth: 1,
+      effectiveCapabilities: 31n,
+    });
+    const child = create(AccountSchema, {
+      accountId,
+      parentAccountId: rootId,
+      name: "Subclient",
+      depth: 2,
+      effectiveCapabilities: 1n,
+    });
+    fetchRpc((method, body) =>
+      method === "GetAccount"
+        ? { account: toJson(AccountSchema, body.accountId === rootId ? parent : child) }
+        : { totals: {} },
+    );
+    mount(child, "overview", true, [parent, child]);
+    const user = userEvent.setup();
+    await screen.findByText("No mining assets assigned");
+    const breadcrumb = within(screen.getByRole("navigation", { name: "Breadcrumb" }));
+    expect(breadcrumb.getByRole("link", { name: "Clients" })).toHaveAttribute("href", "/accounts");
+    expect(breadcrumb.getByRole("link", { name: "Parent client" })).toHaveAttribute(
+      "href",
+      `/accounts/${rootId}/overview`,
+    );
+    expect(breadcrumb.getByText("Subclient")).toBeInTheDocument();
+    await user.click(breadcrumb.getByRole("link", { name: "Parent client" }));
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByText("Parent client"),
+      ).toBeInTheDocument(),
+    );
+    expect(
+      within(screen.getByRole("navigation", { name: "Breadcrumb" })).queryByText("Subclient"),
+    ).not.toBeInTheDocument();
+  });
   it("opens host administration and creates a customer using the root ceiling", async () => {
     const calls = fetchRpc((method) => {
       if (method === "GetAccount") throw new Error("Root is not a private customer account");

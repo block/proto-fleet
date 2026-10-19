@@ -102,7 +102,9 @@ func resolve(ctx context.Context, q sqlc.Querier, userID, orgID int64, accountID
 	return Access{AccountID: row.AccountID, Role: role, Capabilities: capabilities}, nil
 }
 
-// CreateChild atomically creates a client/subclient and its initial administrator.
+// CreateChild atomically creates an account with an explicit initial member or
+// separate host administration. Zero adminID uses host access for host operators
+// and the creator as the initial member for customer-created subclients.
 // Names are display labels; identities and memberships are independent of names.
 func (s *Service) CreateChild(ctx context.Context, actorID, orgID int64, parentID, name string, adminID int64, capabilities Capabilities) (Account, error) {
 	name = strings.TrimSpace(name)
@@ -137,8 +139,23 @@ func (s *Service) CreateChild(ctx context.Context, actorID, orgID int64, parentI
 				return Account{}, err
 			}
 		}
-		if _, err := q.LockActiveHostedAccountUser(ctx, sqlc.LockActiveHostedAccountUserParams{ID: adminID, OrganizationID: orgID}); err != nil {
-			return Account{}, accessError(err)
+		if adminID == 0 {
+			host, err := q.HasHostedAccountHostAuthority(ctx, sqlc.HasHostedAccountHostAuthorityParams{UserID: actorID, OrganizationID: orgID})
+			if err != nil {
+				return Account{}, err
+			}
+			effective, err := authz.LoadEffectiveForUpdate(ctx, q, actorID, orgID)
+			if err != nil {
+				return Account{}, err
+			}
+			if !host || !effective.Has(authz.PermAccountManage, authz.ResourceContext{}) {
+				adminID = actorID
+			}
+		}
+		if adminID != 0 {
+			if _, err := q.LockActiveHostedAccountUser(ctx, sqlc.LockActiveHostedAccountUserParams{ID: adminID, OrganizationID: orgID}); err != nil {
+				return Account{}, accessError(err)
+			}
 		}
 		account, err := q.CreateHostedAccount(ctx, sqlc.CreateHostedAccountParams{
 			AccountID: uuid.NewString(), OrganizationID: orgID,
@@ -148,10 +165,24 @@ func (s *Service) CreateChild(ctx context.Context, actorID, orgID int64, parentI
 		if err != nil {
 			return Account{}, fleeterror.NewInternalErrorf("create account: %w", err)
 		}
-		if err := q.SetHostedAccountMembership(ctx, sqlc.SetHostedAccountMembershipParams{OrganizationID: orgID, AccountID: account.ID, UserID: adminID, Role: string(RoleAdministrator)}); err != nil {
-			return Account{}, err
+		metadata := map[string]any{"capabilities": capabilities}
+		if adminID == 0 {
+			// A recorded root grant keeps host management independent of team seats.
+			// Full source authority mirrors the durable administrator role; hierarchy
+			// ceilings still bound the effective access and role-grant checks above.
+			if err := q.SetHostedAccountAncestorGrant(ctx, sqlc.SetHostedAccountAncestorGrantParams{OrganizationID: orgID, AccountID: account.ID, AncestorID: path[0].ID, Capabilities: int64(AllCapabilities)}); err != nil {
+				return Account{}, err
+			}
+			metadata["host_administration"] = true
+			metadata["ancestor_account_id"] = path[0].AccountID
+			metadata["ancestor_capabilities"] = AllCapabilities
+		} else {
+			if err := q.SetHostedAccountMembership(ctx, sqlc.SetHostedAccountMembershipParams{OrganizationID: orgID, AccountID: account.ID, UserID: adminID, Role: string(RoleAdministrator)}); err != nil {
+				return Account{}, err
+			}
+			metadata["administrator_user_id"] = adminID
 		}
-		if err := audit(ctx, q, actor, account, "create_hosted_account", map[string]any{"administrator_user_id": adminID, "capabilities": capabilities}); err != nil {
+		if err := audit(ctx, q, actor, account, "create_hosted_account", metadata); err != nil {
 			return Account{}, err
 		}
 		return account, nil

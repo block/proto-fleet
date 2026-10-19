@@ -253,6 +253,7 @@ const AccountAssets = ({
         {!child && !assigning && owner && owner !== account.accountId && can(account, 16n) ? (
           <Button
             variant="secondary"
+            size={sizes.compact}
             text="Manage subclient assets"
             to={`${accountPath(account.accountId, "children")}?assets=${encodeURIComponent(owner)}`}
           />

@@ -13,7 +13,7 @@ import { SecretModal } from "./SecretModal";
 import type { AccountKey, AncestorGrant } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
-import Button from "@/shared/components/Button";
+import Button, { sizes } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
@@ -89,6 +89,7 @@ const AccountAccess = () => {
               headerControls={
                 <Button
                   variant="secondary"
+                  size={sizes.compact}
                   text="Grant ancestor access"
                   onClick={() => setGrant({ ancestorId: account.parentAccountId, capabilities: 1n })}
                 />
@@ -140,6 +141,7 @@ const AccountAccess = () => {
                 headerControls={
                   <Button
                     variant="primary"
+                    size={sizes.compact}
                     text="Create API key"
                     onClick={() => {
                       setName("");

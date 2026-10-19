@@ -13,7 +13,7 @@ import type { Account } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import Breadcrumb from "@/shared/components/Breadcrumb";
-import Button from "@/shared/components/Button";
+import Button, { sizes } from "@/shared/components/Button";
 import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
@@ -65,17 +65,28 @@ const AccountChildren = () => {
               ...(assigning ? [{ label: "Assign assets" }] : []),
             ]}
           />
-          {selectedChild && !assigning && can(account, 16n) ? (
-            account.depth === 0 ? (
-              <Button variant="primary" text="Assign from Fleet" to="/fleet/miners" />
-            ) : !selectedChild.suspended ? (
+          <div className="flex flex-wrap gap-3">
+            {selectedChild && !assigning && can(selectedChild, 8n) ? (
               <Button
-                variant="primary"
-                text="Assign assets"
-                onClick={() => setParams({ assets: selectedChild.accountId, action: "assign" })}
+                variant="secondary"
+                size={sizes.compact}
+                text="Invite team member"
+                to={`${accountPath(selectedChild.accountId, "team")}?invite=1`}
               />
-            ) : null
-          ) : null}
+            ) : null}
+            {selectedChild && !assigning && can(account, 16n) ? (
+              account.depth === 0 ? (
+                <Button variant="primary" size={sizes.compact} text="Assign from Fleet" to="/fleet/miners" />
+              ) : !selectedChild.suspended ? (
+                <Button
+                  variant="primary"
+                  size={sizes.compact}
+                  text="Assign assets"
+                  onClick={() => setParams({ assets: selectedChild.accountId, action: "assign" })}
+                />
+              ) : null
+            ) : null}
+          </div>
         </div>
         <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
         {selectedChild ? (
@@ -100,6 +111,7 @@ const AccountChildren = () => {
         {canConfigure ? (
           <Button
             variant="primary"
+            size={sizes.compact}
             text={account.depth === 0 ? "Create client" : "Create subclient"}
             onClick={() => open("new")}
           />
@@ -134,7 +146,7 @@ const AccountChildren = () => {
                   className="justify-start text-left font-normal"
                   textOnlyUnderlineOnHover={false}
                   text={child.name}
-                  to={`?assets=${encodeURIComponent(child.accountId)}`}
+                  to={can(child, 1n) ? accountPath(child.accountId) : `?assets=${encodeURIComponent(child.accountId)}`}
                 />
               ),
             },
@@ -202,6 +214,11 @@ const AccountChildren = () => {
               },
               hidden: (child: Account) => !can(child, 1n),
             },
+            {
+              title: "Invite team member",
+              actionHandler: (child: Account) => navigate(`${accountPath(child.accountId, "team")}?invite=1`),
+              hidden: (child: Account) => !can(child, 8n),
+            },
             ...(canConfigure ? [{ title: "Manage permissions", actionHandler: open }] : []),
           ]}
           noDataElement={
@@ -237,9 +254,14 @@ const AccountChildren = () => {
           }
           onDismiss={() => setEditing(null)}
           onSubmit={async () => {
-            if (editing === "new")
-              await client.createAccount({ accountId: account.accountId, name: name.trim(), capabilities: ceiling });
-            else
+            if (editing === "new") {
+              const result = await client.createAccount({
+                accountId: account.accountId,
+                name: name.trim(),
+                capabilities: ceiling,
+              });
+              if (result.account) navigate(`${accountPath(result.account.accountId, "team")}?invite=administrator`);
+            } else
               await client.configureAccount({
                 accountId: account.accountId,
                 childAccountId: editing.accountId,
@@ -260,9 +282,7 @@ const AccountChildren = () => {
                 onChange={setName}
                 maxLength={255}
               />
-              <p className="text-200 text-text-primary-50">
-                You’ll be the first administrator. You can then invite the team.
-              </p>
+              <p className="text-200 text-text-primary-50">Next, create an invitation code for the client’s team.</p>
             </>
           ) : null}
           <CapabilityFields value={ceiling} allowed={allowed} required={required} onChange={setCeiling} />
