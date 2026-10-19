@@ -22,6 +22,20 @@ const normalize = (value: unknown): ColumnPreference<AssetColumn>[] => {
   }
   return result;
 };
+// Views can hide columns from the modal (a subclient has no assignment column), so
+// a saved subset keeps every omitted column's stored visibility and position.
+const merge = (current: ColumnPreference<AssetColumn>[], subset: ColumnPreference<AssetColumn>[]) => {
+  const result = [...subset];
+  current.forEach((column, index) => {
+    if (result.some((saved) => saved.id === column.id)) return;
+    const previous = current
+      .slice(0, index)
+      .reverse()
+      .find((before) => result.some((saved) => saved.id === before.id));
+    result.splice(previous ? result.findIndex((saved) => saved.id === previous.id) + 1 : 0, 0, column);
+  });
+  return result;
+};
 const read = (key: string) => {
   try {
     return normalize(JSON.parse(localStorage.getItem(key) ?? "null"));
@@ -38,7 +52,7 @@ export function useAssetColumnPreferences(username: string, accountId: string) {
   return {
     columns: state.key === key ? state.columns : read(key),
     save: (value: ColumnPreference<AssetColumn>[]) => {
-      const columns = normalize(value);
+      const columns = normalize(merge(state.key === key ? state.columns : read(key), value));
       setState({ key, columns });
       try {
         localStorage.setItem(key, JSON.stringify(columns));

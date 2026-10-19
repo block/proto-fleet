@@ -176,7 +176,7 @@ describe("account mining overview", () => {
     expect(within(screen.getByTestId("stats-container")).getAllByText("—")).toHaveLength(3);
     expect(within(screen.getByTestId("stats-container")).getAllByText("0 of 2 assets reporting")).toHaveLength(3);
   });
-  it("clears readings on refresh and invalidates the account when access is denied", async () => {
+  it("keeps readings while refreshing and clears them when access is denied", async () => {
     const { fetchMock, invalidate } = mount();
     await screen.findByText("200.0 TH/s");
     fetchMock.mockImplementation(() =>
@@ -188,8 +188,9 @@ describe("account mining overview", () => {
       ),
     );
     act(() => window.dispatchEvent(new Event("focus")));
-    expect(screen.queryByText("200.0 TH/s")).not.toBeInTheDocument();
+    expect(screen.getByText("200.0 TH/s")).toBeInTheDocument();
     await screen.findByText(/Access revoked/);
+    expect(screen.queryByText("200.0 TH/s")).not.toBeInTheDocument();
     await waitFor(() => expect(invalidate).toHaveBeenCalled());
   });
 });

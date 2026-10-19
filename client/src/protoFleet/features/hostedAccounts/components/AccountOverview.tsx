@@ -28,7 +28,7 @@ const AccountOverview = () => {
     (signal: AbortSignal) => client.getAccountMiningSummary({ accountId: account.accountId }, { signal }),
     [account.accountId, client],
   );
-  const query = useAccountQuery(load);
+  const query = useAccountQuery(load, true, true);
   useEffect(() => {
     window.addEventListener("focus", query.refresh);
     return () => window.removeEventListener("focus", query.refresh);

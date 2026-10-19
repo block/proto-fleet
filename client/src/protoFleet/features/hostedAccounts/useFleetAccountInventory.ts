@@ -41,7 +41,7 @@ export const useFleetAccountInventory = (assets: AssetReference[], refreshOnFocu
       ),
     [accountId, connection, keys],
   );
-  const query = useAccountQuery(load, !!accountId && !!keys);
+  const query = useAccountQuery(load, !!accountId && !!keys, true);
   useEffect(() => {
     if (!refreshOnFocus || !accountId || !keys) return;
     window.addEventListener("focus", query.refresh);

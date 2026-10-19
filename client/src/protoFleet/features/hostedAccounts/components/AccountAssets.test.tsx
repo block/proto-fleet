@@ -70,6 +70,7 @@ function mount(
   nextPageToken = "",
   mode: "inventory" | "assign" = "inventory",
   child?: { accountId: string; name: string; suspended: boolean },
+  props: { onAssigned?: (notice: string) => void; initialNotice?: string } = {},
 ) {
   const client = {
     listAccountAssets: vi.fn().mockResolvedValue(
@@ -93,7 +94,7 @@ function mount(
   const page = (currentScope: AccountScope) => (
     <MemoryRouter>
       <AccountScopeContext.Provider value={currentScope}>
-        <AccountAssets mode={mode} child={child} />
+        <AccountAssets mode={mode} child={child} {...props} />
       </AccountScopeContext.Provider>
     </MemoryRouter>
   );
@@ -371,6 +372,82 @@ describe("account mining asset allocation", () => {
     expect(assign).toHaveBeenCalledTimes(1);
     finish({});
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+  it("keeps an open review across window focus revalidation", async () => {
+    const { client } = mount(31n, [miner], undefined, "", "assign");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
+    await user.click(screen.getByRole("button", { name: "Assign selected" }));
+    await selectTarget(user);
+    act(() => window.dispatchEvent(new Event("focus")));
+    await waitFor(() => expect(client.listAccountAssets).toHaveBeenCalledTimes(2));
+    const dialog = screen.getByRole("dialog", { name: "Assign 1 asset?" });
+    expect(screen.getByText("Miner One")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Assign 1 asset" }));
+    await waitFor(() =>
+      expect(client.assignAccountAssets).toHaveBeenCalledWith(
+        expect.objectContaining({
+          childAccountId: childId,
+          assets: [{ kind: MiningAssetKind.MINER, id: 1n, expectedRevision: 7n }],
+        }),
+      ),
+    );
+  });
+  it("drops selections that a focus revalidation no longer offers", async () => {
+    const { client } = mount(31n, [miner, module], undefined, "", "assign");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select Module One" }));
+    expect(screen.getByText("2 mining assets selected")).toBeInTheDocument();
+    client.listAccountAssets.mockResolvedValue(
+      create(ListAccountAssetsResponseSchema, {
+        assets: [miner, create(AccountAssetSchema, { ...module, ownerAccountId: childId, revision: 10n })],
+        canManageAssignments: true,
+        canViewAssignments: true,
+        children: [{ accountId: childId, name: "East" }],
+      }),
+    );
+    act(() => window.dispatchEvent(new Event("focus")));
+    expect(await screen.findByText("1 mining asset selected")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Select Miner One" })).toBeChecked();
+  });
+  it("hands the assignment confirmation to the remounted inventory", async () => {
+    const onAssigned = vi.fn();
+    const child = { accountId: childId, name: "East", suspended: false };
+    const { unmount } = mount(31n, [miner], undefined, "", "assign", child, { onAssigned });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("checkbox", { name: "Select Miner One" }));
+    await user.click(screen.getByRole("button", { name: "Assign selected" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Assign 1 asset" }));
+    await waitFor(() => expect(onAssigned).toHaveBeenCalledWith("Assigned 1 asset to East."));
+    unmount();
+    mount(31n, [miner], undefined, "", "inventory", child, { initialNotice: "Assigned 1 asset to East." });
+    expect(screen.getByRole("status")).toHaveTextContent("Assigned 1 asset to East.");
+  });
+  it("keeps the hidden assignment column when a subclient view saves its columns", async () => {
+    const user = userEvent.setup();
+    const inventory = mount();
+    await screen.findByRole("columnheader", { name: "Assigned to" });
+    await user.click(screen.getByRole("button", { name: "Manage columns" }));
+    await user.click(screen.getByRole("checkbox", { name: "Toggle Assigned to column" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(screen.queryByRole("columnheader", { name: "Assigned to" })).not.toBeInTheDocument();
+    inventory.unmount();
+    const child = mount(31n, undefined, undefined, "", "inventory", {
+      accountId: childId,
+      name: "East",
+      suspended: false,
+    });
+    await screen.findByText("Miner One");
+    await user.click(screen.getByRole("button", { name: "Manage columns" }));
+    expect(screen.queryByRole("checkbox", { name: "Toggle Assigned to column" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: "Toggle Power column" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    child.unmount();
+    mount();
+    await screen.findByText("Miner One");
+    expect(screen.queryByRole("columnheader", { name: "Assigned to" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Power" })).not.toBeInTheDocument();
   });
   it("reviews typed selections with exact revisions and a chosen destination", async () => {
     const { client } = mount(31n, undefined, undefined, "", "assign");

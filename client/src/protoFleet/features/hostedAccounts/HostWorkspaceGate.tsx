@@ -12,7 +12,9 @@ export const HostWorkspaceGate = ({ children }: { children: ReactNode }) => {
   const permissions = usePermissions();
   const directory = useHostedAccounts();
   if (permissions.length || !directory) return children;
-  if (directory.loading || directory.error)
+  // A failed background refresh keeps the last directory; only an unresolved
+  // directory may replace an already-mounted host workspace with an error.
+  if (directory.loading || (directory.error && !directory.hostAccess))
     return <AccountState loading={directory.loading} error={directory.error} retry={directory.refresh} />;
   if (!directory.hostAccess)
     return (

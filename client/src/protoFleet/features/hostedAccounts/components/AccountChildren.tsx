@@ -22,7 +22,7 @@ const AccountChildren = () => {
   const { account, client } = useRequiredAccountScope();
   const directory = useHostedAccounts();
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const { pathname, state } = useLocation();
   const allowed = account.depth === 0 ? account.capabilityCeiling : account.effectiveCapabilities;
   const required = 9n; // Viewing and membership administration keep recovery possible.
   const canConfigure = (allowed & required) === required;
@@ -34,6 +34,9 @@ const AccountChildren = () => {
   const [params, setParams] = useSearchParams();
   const selectedChild = query.data?.accounts.find((child) => child.accountId === params.get("assets"));
   const assigning = params.get("action") === "assign";
+  // Assigning remounts the child inventory, so its confirmation rides on the
+  // history entry it navigates to instead of the unmounted form's state.
+  const assetNotice = (state as { assetNotice?: string } | null)?.assetNotice;
   const [editing, setEditing] = useState<Account | "new" | null>(null);
   const [name, setName] = useState("");
   const [ceiling, setCeiling] = useState(1n);
@@ -94,7 +97,8 @@ const AccountChildren = () => {
             key={`${selectedChild.accountId}:${assigning}`}
             child={selectedChild}
             mode={assigning ? "assign" : "inventory"}
-            onAssigned={() => setParams({ assets: selectedChild.accountId })}
+            initialNotice={assigning ? undefined : assetNotice}
+            onAssigned={(notice) => setParams({ assets: selectedChild.accountId }, { state: { assetNotice: notice } })}
           />
         ) : !query.loading && !query.error ? (
           <p>This account is unavailable.</p>

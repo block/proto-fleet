@@ -436,6 +436,34 @@ describe("hosted account pages", () => {
       ),
     );
   });
+  it("shows the assignment confirmation in the child inventory it returns to", async () => {
+    const { value, client } = scope();
+    const childId = "77777777-7777-4777-8777-777777777777";
+    render(
+      <MemoryRouter
+        initialEntries={[
+          {
+            pathname: `/accounts/${accountId}/children`,
+            search: `?assets=${childId}`,
+            state: { assetNotice: "Assigned 1 asset to Child." },
+          },
+        ]}
+      >
+        <AccountScopeContext.Provider
+          value={{
+            ...value,
+            client: {
+              ...client,
+              listAccountAssets: vi.fn().mockResolvedValue({ assets: [], nextPageToken: "", children: [] }),
+            } as unknown as AccountScope["client"],
+          }}
+        >
+          <AccountChildren />
+        </AccountScopeContext.Provider>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent("Assigned 1 asset to Child.");
+  });
   it("keeps required access bits while configuring a child", async () => {
     const user = userEvent.setup(),
       { value, client } = scope();

@@ -50,10 +50,12 @@ const AccountAssets = ({
   child,
   mode = "inventory",
   onAssigned,
+  initialNotice = "",
 }: {
   child?: Pick<AccountMiningBucket, "accountId" | "name" | "suspended">;
   mode?: "inventory" | "assign";
-  onAssigned?: () => void;
+  onAssigned?: (notice: string) => void;
+  initialNotice?: string;
 }) => {
   const assigning = mode === "assign";
   const { account, client } = useRequiredAccountScope();
@@ -70,7 +72,7 @@ const AccountAssets = ({
   const [pages, setPages] = useState([""]);
   const [selected, setSelected] = useState<string[]>([]);
   const [review, setReview] = useState<Review | null>(null);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState(initialNotice);
   const assignmentPending = useRef(false);
   const pageToken = pages[pages.length - 1];
   const load = useCallback(
@@ -94,20 +96,22 @@ const AccountAssets = ({
     },
     [account.accountId, client, pageToken, search, owner, container.id, assigning, child?.accountId, sort],
   );
-  const query = useAccountQuery(load);
-  const { invalidate } = query;
+  const query = useAccountQuery(load, true, true);
+  const { invalidate, refresh: revalidate } = query;
   const refresh = useCallback(() => {
     setSelected([]);
     setReview(null);
     invalidate();
   }, [invalidate]);
+  // Returning to the window revalidates in place: an open review and the current
+  // selection survive, and the server's revision check rejects stale snapshots.
   useEffect(() => {
     const refreshOnFocus = () => {
-      if (!assignmentPending.current) refresh();
+      if (!assignmentPending.current) revalidate();
     };
     window.addEventListener("focus", refreshOnFocus);
     return () => window.removeEventListener("focus", refreshOnFocus);
-  }, [refresh]);
+  }, [revalidate]);
   const rows = useMemo(
     () => (query.data?.inventory.assets ?? []).map((asset) => ({ ...asset, key: allocationKey(asset) })),
     [query.data],
@@ -125,6 +129,9 @@ const AccountAssets = ({
     (assigning
       ? asset.ownerAccountId === account.accountId && asset.available && !asset.outsidePolicy
       : asset.ownerAccountId !== account.accountId);
+  // A background revalidation can retire, move or reassign selected rows.
+  const liveSelection = selected.filter((key) => rows.some((row) => row.key === key && isAssetSelectable(row)));
+  if (query.data && liveSelection.length !== selected.length) setSelected(liveSelection);
   const selectedAssets = rows.filter((row) => selected.includes(row.key));
   const assignable =
     selectedAssets.length > 0 &&
@@ -455,13 +462,13 @@ const AccountAssets = ({
                 }
                 throw error;
               }
-              setNotice(
+              const success =
                 review.intent === AssetAssignmentIntent.ASSIGN
                   ? `Assigned ${countLabel(review.assets.length)} to ${reviewTarget!.name}.`
-                  : `Recalled ${countLabel(review.assets.length)} to ${account.name}.`,
-              );
+                  : `Recalled ${countLabel(review.assets.length)} to ${account.name}.`;
+              setNotice(success);
               refresh();
-              if (review.intent === AssetAssignmentIntent.ASSIGN) onAssigned?.();
+              if (review.intent === AssetAssignmentIntent.ASSIGN) onAssigned?.(success);
             } finally {
               assignmentPending.current = false;
             }

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -106,6 +107,31 @@ describe("account directory and host workspace isolation", () => {
     );
     expect(screen.getByText("Host workspace")).toBeInTheDocument();
     await waitFor(() => expect(hostedAccountsClient.listAccounts).toHaveBeenCalled());
+  });
+  it("keeps a mounted host workspace when a background directory refresh fails", async () => {
+    vi.spyOn(hostedAccountsClient, "listAccounts")
+      .mockResolvedValueOnce(create(ListAccountsResponseSchema, { accounts: [], hostAccess: true }))
+      .mockRejectedValue(new ConnectError("Unavailable", Code.Unavailable));
+    const mountHost = vi.fn();
+    const HostPage = () => {
+      const directory = useHostedAccounts()!;
+      useEffect(() => mountHost(), []);
+      return <div>{directory.error ? "Host fleet (stale directory)" : "Host fleet"}</div>;
+    };
+    login(33);
+    render(
+      <MemoryRouter>
+        <HostedAccountsProvider>
+          <HostWorkspaceGate>
+            <HostPage />
+          </HostWorkspaceGate>
+        </HostedAccountsProvider>
+      </MemoryRouter>,
+    );
+    await screen.findByText("Host fleet");
+    act(() => window.dispatchEvent(new Event("focus")));
+    await screen.findByText("Host fleet (stale directory)");
+    expect(mountHost).toHaveBeenCalledTimes(1);
   });
   it("mounts Fleet for a site-only operator without org-scoped permissions or account memberships", async () => {
     vi.spyOn(hostedAccountsClient, "listAccounts").mockResolvedValue(
