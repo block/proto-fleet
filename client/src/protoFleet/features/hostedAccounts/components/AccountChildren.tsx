@@ -108,9 +108,14 @@ const AccountChildren = () => {
   }
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex min-h-10 flex-wrap items-center justify-between gap-3">
+      <div className="flex min-h-10 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <SettingsPageHeader title={account.depth === 0 ? "Clients" : "Subclients"} />
+          <SettingsPageHeader
+            title={account.depth === 0 ? "Clients" : "Subclients"}
+            description={
+              account.depth === 0 ? "Manage client accounts, assigned mining assets, and team access." : undefined
+            }
+          />
         </div>
         {canConfigure ? (
           <Button
@@ -128,11 +133,7 @@ const AccountChildren = () => {
           itemKey="accountId"
           itemSelectable={false}
           stickyFirstColumn={false}
-          activeCols={
-            account.depth === 0
-              ? ["name", "status", "assets", "logins", "permissions"]
-              : ["name", "status", "permissions"]
-          }
+          activeCols={account.depth === 0 ? ["name", "status", "assets", "logins"] : ["name", "status", "permissions"]}
           colTitles={{
             name: account.depth === 0 ? "Client" : "Subclient",
             status: "Status",
