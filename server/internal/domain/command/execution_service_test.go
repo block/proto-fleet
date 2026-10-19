@@ -1037,6 +1037,7 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 
 				mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
 				mockProvider := minerIfaceMocks.NewMockFirmwareUpdateStatusProvider(ctrl)
+				mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
 				devID := tmodels.DeviceIdentifier("device-123")
 
 				mockDeviceStore.EXPECT().
@@ -1050,9 +1051,11 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 
 				installVerified, err := svc.doPollFirmwareInstall(
 					ctx,
+					mockMiner,
 					mockProvider,
 					devID,
 					42,
+					time.Now(),
 					&sdk.FirmwareUpdateStatus{State: state, Error: &rigErr},
 					nil,
 				)
@@ -1061,6 +1064,31 @@ func TestFirmwareUpdateAutoReboot(t *testing.T) {
 				assert.False(t, installVerified)
 				assert.Contains(t, err.Error(), "polling timed out")
 				assert.NotContains(t, err.Error(), rigErr)
+			})
+		}
+	})
+
+	t.Run("reverted initial status finishes polling without reboot after grace window", func(t *testing.T) {
+		for _, state := range []string{"current", "available"} {
+			t.Run(state, func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				mockDeviceStore := storeMocks.NewMockDeviceStore(ctrl)
+				mockProvider := minerIfaceMocks.NewMockFirmwareUpdateStatusProvider(ctrl)
+				mockMiner := minerIfaceMocks.NewMockMiner(ctrl)
+				devID := tmodels.DeviceIdentifier("device-123")
+				mockDeviceStore.EXPECT().UpsertDeviceStatus(gomock.Any(), devID, models.MinerStatusUpdating, "").Return(nil)
+				svc := &ExecutionService{deviceStore: mockDeviceStore}
+				ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+				defer cancel()
+				rigErr := "earlier install failed"
+
+				shouldReboot, err := svc.doPollFirmwareInstall(ctx, mockMiner, mockProvider, devID, 42,
+					time.Now().Add(-firmwareInstallGraceWindow-time.Second),
+					&sdk.FirmwareUpdateStatus{State: state, Error: &rigErr}, nil)
+
+				require.ErrorContains(t, err, "reverted to '"+state+"'")
+				assert.ErrorContains(t, err, rigErr)
+				assert.False(t, shouldReboot)
 			})
 		}
 	})
