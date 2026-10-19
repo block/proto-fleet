@@ -51,6 +51,9 @@ const (
 	// SiteServiceAssignBuildingsToSiteProcedure is the fully-qualified name of the SiteService's
 	// AssignBuildingsToSite RPC.
 	SiteServiceAssignBuildingsToSiteProcedure = "/sites.v1.SiteService/AssignBuildingsToSite"
+	// SiteServiceAssignContainersToSiteProcedure is the fully-qualified name of the SiteService's
+	// AssignContainersToSite RPC.
+	SiteServiceAssignContainersToSiteProcedure = "/sites.v1.SiteService/AssignContainersToSite"
 	// SiteServiceAssignRacksToSiteProcedure is the fully-qualified name of the SiteService's
 	// AssignRacksToSite RPC.
 	SiteServiceAssignRacksToSiteProcedure = "/sites.v1.SiteService/AssignRacksToSite"
@@ -68,7 +71,7 @@ const (
 // SiteServiceClient is a client for the sites.v1.SiteService service.
 type SiteServiceClient interface {
 	// ListSites returns every live site in the caller's org with
-	// attachment counts (device_count, building_count, rack_count) so
+	// attachment counts (miners + modules, buildings + containers, racks + tanks) so
 	// the delete-confirm dialog can render impact numbers without a
 	// second round trip.
 	ListSites(context.Context, *connect.Request[v1.ListSitesRequest]) (*connect.Response[v1.ListSitesResponse], error)
@@ -117,6 +120,9 @@ type SiteServiceClient interface {
 	// building's racks and their devices. Returns the aggregate cascade
 	// counts across every building in the batch.
 	AssignBuildingsToSite(context.Context, *connect.Request[v1.AssignBuildingsToSiteRequest]) (*connect.Response[v1.AssignBuildingsToSiteResponse], error)
+	// Moves whole CT1 containers, including their observed children. Requires
+	// site:manage at the current and destination sites. Unset means unassigned.
+	AssignContainersToSite(context.Context, *connect.Request[v1.AssignContainersToSiteRequest]) (*connect.Response[v1.AssignContainersToSiteResponse], error)
 	// AssignRacksToSite moves one or more racks to a target site (or
 	// to "Unassigned" when target_site_id is unset) as a partial
 	// update — the rack's label, layout, members, and slot
@@ -190,6 +196,11 @@ func NewSiteServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			baseURL+SiteServiceAssignBuildingsToSiteProcedure,
 			opts...,
 		),
+		assignContainersToSite: connect.NewClient[v1.AssignContainersToSiteRequest, v1.AssignContainersToSiteResponse](
+			httpClient,
+			baseURL+SiteServiceAssignContainersToSiteProcedure,
+			opts...,
+		),
 		assignRacksToSite: connect.NewClient[v1.AssignRacksToSiteRequest, v1.AssignRacksToSiteResponse](
 			httpClient,
 			baseURL+SiteServiceAssignRacksToSiteProcedure,
@@ -222,6 +233,7 @@ type siteServiceClient struct {
 	deleteSite                      *connect.Client[v1.DeleteSiteRequest, v1.DeleteSiteResponse]
 	assignDevicesToSite             *connect.Client[v1.AssignDevicesToSiteRequest, v1.AssignDevicesToSiteResponse]
 	assignBuildingsToSite           *connect.Client[v1.AssignBuildingsToSiteRequest, v1.AssignBuildingsToSiteResponse]
+	assignContainersToSite          *connect.Client[v1.AssignContainersToSiteRequest, v1.AssignContainersToSiteResponse]
 	assignRacksToSite               *connect.Client[v1.AssignRacksToSiteRequest, v1.AssignRacksToSiteResponse]
 	getInfrastructureControlSubnets *connect.Client[v1.GetInfrastructureControlSubnetsRequest, v1.GetInfrastructureControlSubnetsResponse]
 	setInfrastructureControlSubnets *connect.Client[v1.SetInfrastructureControlSubnetsRequest, v1.SetInfrastructureControlSubnetsResponse]
@@ -263,6 +275,11 @@ func (c *siteServiceClient) AssignBuildingsToSite(ctx context.Context, req *conn
 	return c.assignBuildingsToSite.CallUnary(ctx, req)
 }
 
+// AssignContainersToSite calls sites.v1.SiteService.AssignContainersToSite.
+func (c *siteServiceClient) AssignContainersToSite(ctx context.Context, req *connect.Request[v1.AssignContainersToSiteRequest]) (*connect.Response[v1.AssignContainersToSiteResponse], error) {
+	return c.assignContainersToSite.CallUnary(ctx, req)
+}
+
 // AssignRacksToSite calls sites.v1.SiteService.AssignRacksToSite.
 func (c *siteServiceClient) AssignRacksToSite(ctx context.Context, req *connect.Request[v1.AssignRacksToSiteRequest]) (*connect.Response[v1.AssignRacksToSiteResponse], error) {
 	return c.assignRacksToSite.CallUnary(ctx, req)
@@ -286,7 +303,7 @@ func (c *siteServiceClient) GetSiteStats(ctx context.Context, req *connect.Reque
 // SiteServiceHandler is an implementation of the sites.v1.SiteService service.
 type SiteServiceHandler interface {
 	// ListSites returns every live site in the caller's org with
-	// attachment counts (device_count, building_count, rack_count) so
+	// attachment counts (miners + modules, buildings + containers, racks + tanks) so
 	// the delete-confirm dialog can render impact numbers without a
 	// second round trip.
 	ListSites(context.Context, *connect.Request[v1.ListSitesRequest]) (*connect.Response[v1.ListSitesResponse], error)
@@ -335,6 +352,9 @@ type SiteServiceHandler interface {
 	// building's racks and their devices. Returns the aggregate cascade
 	// counts across every building in the batch.
 	AssignBuildingsToSite(context.Context, *connect.Request[v1.AssignBuildingsToSiteRequest]) (*connect.Response[v1.AssignBuildingsToSiteResponse], error)
+	// Moves whole CT1 containers, including their observed children. Requires
+	// site:manage at the current and destination sites. Unset means unassigned.
+	AssignContainersToSite(context.Context, *connect.Request[v1.AssignContainersToSiteRequest]) (*connect.Response[v1.AssignContainersToSiteResponse], error)
 	// AssignRacksToSite moves one or more racks to a target site (or
 	// to "Unassigned" when target_site_id is unset) as a partial
 	// update — the rack's label, layout, members, and slot
@@ -404,6 +424,11 @@ func NewSiteServiceHandler(svc SiteServiceHandler, opts ...connect.HandlerOption
 		svc.AssignBuildingsToSite,
 		opts...,
 	)
+	siteServiceAssignContainersToSiteHandler := connect.NewUnaryHandler(
+		SiteServiceAssignContainersToSiteProcedure,
+		svc.AssignContainersToSite,
+		opts...,
+	)
 	siteServiceAssignRacksToSiteHandler := connect.NewUnaryHandler(
 		SiteServiceAssignRacksToSiteProcedure,
 		svc.AssignRacksToSite,
@@ -440,6 +465,8 @@ func NewSiteServiceHandler(svc SiteServiceHandler, opts ...connect.HandlerOption
 			siteServiceAssignDevicesToSiteHandler.ServeHTTP(w, r)
 		case SiteServiceAssignBuildingsToSiteProcedure:
 			siteServiceAssignBuildingsToSiteHandler.ServeHTTP(w, r)
+		case SiteServiceAssignContainersToSiteProcedure:
+			siteServiceAssignContainersToSiteHandler.ServeHTTP(w, r)
 		case SiteServiceAssignRacksToSiteProcedure:
 			siteServiceAssignRacksToSiteHandler.ServeHTTP(w, r)
 		case SiteServiceGetInfrastructureControlSubnetsProcedure:
@@ -483,6 +510,10 @@ func (UnimplementedSiteServiceHandler) AssignDevicesToSite(context.Context, *con
 
 func (UnimplementedSiteServiceHandler) AssignBuildingsToSite(context.Context, *connect.Request[v1.AssignBuildingsToSiteRequest]) (*connect.Response[v1.AssignBuildingsToSiteResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sites.v1.SiteService.AssignBuildingsToSite is not implemented"))
+}
+
+func (UnimplementedSiteServiceHandler) AssignContainersToSite(context.Context, *connect.Request[v1.AssignContainersToSiteRequest]) (*connect.Response[v1.AssignContainersToSiteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("sites.v1.SiteService.AssignContainersToSite is not implemented"))
 }
 
 func (UnimplementedSiteServiceHandler) AssignRacksToSite(context.Context, *connect.Request[v1.AssignRacksToSiteRequest]) (*connect.Response[v1.AssignRacksToSiteResponse], error) {

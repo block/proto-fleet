@@ -29,7 +29,7 @@ func seedTankController(t *testing.T, conn *sql.DB, dbs *testutil.DatabaseServic
 	require.NoError(t, err)
 	_, err = conn.ExecContext(t.Context(), `INSERT INTO device_pairing(device_id,pairing_status) VALUES($1,'PAIRED')`, device.DatabaseID)
 	require.NoError(t, err)
-	_, err = conn.ExecContext(t.Context(), `INSERT INTO container_inventory(device_id,observed_at) VALUES($1,now())`, device.DatabaseID)
+	_, err = conn.ExecContext(t.Context(), `INSERT INTO container_inventory(device_id,observed_at,org_id) SELECT id,now(),org_id FROM device WHERE id=$1`, device.DatabaseID)
 	require.NoError(t, err)
 	tanks := []int64{}
 	for _, position := range []int{1, 2, 3} {

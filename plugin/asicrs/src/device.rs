@@ -524,6 +524,8 @@ impl AsicRsDevice {
             firmware_version,
             default_password_active: None,
             container: None,
+            uptime_seconds: None,
+            uptime_observed_at: None,
         }
     }
 

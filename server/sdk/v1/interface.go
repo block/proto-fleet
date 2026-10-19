@@ -174,6 +174,12 @@ type DeviceMetrics struct {
 	Timestamp       time.Time
 	FirmwareVersion string
 
+	// UptimeSeconds is whole elapsed seconds since the device booted; nil means unknown.
+	// UptimeObservedAt is the start of the device request that sampled uptime.
+	// Preserve both values together when caching; a zero observation time is unusable.
+	UptimeSeconds    *uint64
+	UptimeObservedAt time.Time
+
 	// Device-level health
 	Health       HealthStatus
 	HealthReason *string

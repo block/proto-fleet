@@ -8,6 +8,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleetinventory"
 	"github.com/block/proto-fleet/server/internal/domain/session"
+	"github.com/block/proto-fleet/server/internal/handlers/containers"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
 
@@ -82,6 +83,11 @@ func (h *Handler) ListInventory(ctx context.Context, req *connect.Request[pb.Lis
 	result, err := h.service.List(ctx, orgID, req.Msg, scopes)
 	if err != nil {
 		return nil, err
+	}
+	for _, item := range result.Items {
+		if container := item.GetContainer(); container != nil {
+			container.CanAssignSite = containers.CanAssignSite(ctx, container)
+		}
 	}
 	return connect.NewResponse(result), nil
 }

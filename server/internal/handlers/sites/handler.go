@@ -221,6 +221,21 @@ func (h *Handler) AssignBuildingsToSite(ctx context.Context, req *connect.Reques
 	}), nil
 }
 
+func (h *Handler) AssignContainersToSite(ctx context.Context, req *connect.Request[pb.AssignContainersToSiteRequest]) (*connect.Response[pb.AssignContainersToSiteResponse], error) {
+	info, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermSiteManage)
+	if err != nil {
+		return nil, err
+	}
+	count, err := h.service.AssignContainersToSite(ctx, info.OrganizationID, req.Msg.TargetSiteId, req.Msg.ContainerIdentifiers, func(txCtx context.Context, siteID *int64) error {
+		_, err := middleware.RequirePermission(txCtx, authz.PermSiteManage, authz.ResourceContext{SiteID: siteID})
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(&pb.AssignContainersToSiteResponse{ReassignedCount: count}), nil
+}
+
 func (h *Handler) AssignRacksToSite(ctx context.Context, req *connect.Request[pb.AssignRacksToSiteRequest]) (*connect.Response[pb.AssignRacksToSiteResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermSiteManage, authz.ResourceContext{})
 	if err != nil {

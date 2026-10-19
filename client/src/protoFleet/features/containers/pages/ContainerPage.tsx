@@ -5,6 +5,7 @@ import { buildEquipmentOverview } from "../buildEquipmentOverview";
 import { tankPath } from "../buildTankOverview";
 import ContainerOverviewLayout from "../components/ContainerOverviewLayout";
 import ContainerPerformance from "../components/ContainerPerformance";
+import ContainerActionsMenu from "../ContainerActionsMenu";
 import { useContainerOverview } from "../hooks/useContainerOverview";
 import { equipmentState, useEquipmentCommand } from "../hooks/useEquipmentCommand";
 import { ModuleHistoryDialog } from "../ModuleHistoryDialog";
@@ -53,6 +54,7 @@ export default function ContainerPage() {
   return (
     <>
       <ContainerOverviewLayout
+        actions={<ContainerActionsMenu container={container} onSiteChanged={retry} />}
         title={container.name}
         unlocatedHashboards={view.unlocatedHashboards}
         breadcrumb={

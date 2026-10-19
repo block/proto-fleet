@@ -629,6 +629,18 @@ func (s *SQLCollectionStore) AddDevicesToCollection(ctx context.Context, orgID i
 // AddDevicesToCollection; the activity layer uses this to scope the event to
 // the devices that actually changed (#538).
 func (s *SQLCollectionStore) AddDevicesToCollectionReturningAdded(ctx context.Context, orgID int64, collectionID int64, deviceIdentifiers []string) ([]string, error) {
+	kind, err := s.GetCollectionType(ctx, orgID, collectionID)
+	if fleeterror.IsNotFoundError(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if kind == pb.CollectionType_COLLECTION_TYPE_RACK {
+		if err := rejectContainerPlacement(ctx, s.GetQueries(ctx), orgID, deviceIdentifiers); err != nil {
+			return nil, err
+		}
+	}
 	added, err := s.GetQueries(ctx).AddDevicesToDeviceSet(ctx, sqlc.AddDevicesToDeviceSetParams{
 		OrgID:             orgID,
 		DeviceSetID:       collectionID,

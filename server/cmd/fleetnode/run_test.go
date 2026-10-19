@@ -31,6 +31,7 @@ import (
 type stubGatewayClient struct {
 	mu               sync.Mutex
 	calls            int
+	lastHeartbeat    *pb.UploadHeartbeatRequest
 	authHeaders      []string
 	responder        func(call int) error
 	cancelAfterCalls int
@@ -66,6 +67,7 @@ func (f *authRecordingControlGateway) controlAuthHeaders() []string {
 func (s *stubGatewayClient) UploadHeartbeat(_ context.Context, req *connect.Request[pb.UploadHeartbeatRequest]) (*connect.Response[pb.UploadHeartbeatResponse], error) {
 	s.mu.Lock()
 	s.calls++
+	s.lastHeartbeat = req.Msg
 	s.authHeaders = append(s.authHeaders, req.Header().Get("Authorization"))
 	call := s.calls
 	cancelAt := s.cancelAfterCalls
@@ -992,4 +994,21 @@ func TestRunCmd_ExitsWhenTickRefreshHitsBeginAuthRejected(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("daemon did not exit within 3s after tick refresh hit ErrBeginAuthRejected")
 	}
+}
+
+func TestSendHeartbeatReportsHostMetadata(t *testing.T) {
+	// Arrange
+	oldVersion := version
+	version = "v0.5.1-test"
+	t.Cleanup(func() { version = oldVersion })
+	client := &stubGatewayClient{}
+	r := &RunCmd{now: time.Now}
+
+	// Act
+	err := r.sendHeartbeat(t.Context(), client)
+
+	// Assert
+	require.NoError(t, err)
+	require.Equal(t, "v0.5.1-test", client.lastHeartbeat.GetVersion())
+	require.Equal(t, localIPAddresses(), client.lastHeartbeat.GetIpAddresses())
 }

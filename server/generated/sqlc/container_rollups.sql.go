@@ -23,7 +23,7 @@ WITH resolution AS (
  SELECT floor(extract(epoch FROM mm.bucket)/settings.width)::bigint*settings.width AS bucket,
  mm.measurement_type,mm.samples,mm.total,mm.minimum,mm.maximum,mm.reporting_count,mm.expected_count,mm.coverage_complete,
  1::float8 AS scale
- FROM container_equipment_history mm JOIN device d ON d.device_identifier=mm.container_identifier CROSS JOIN settings
+ FROM container_equipment_history mm JOIN container_scope d ON d.device_identifier=mm.container_identifier CROSS JOIN settings
  WHERE mm.equipment_kind=2 AND mm.resolution_seconds=settings.seconds AND d.device_identifier=$4 AND ($5::bigint=0 OR d.org_id=$5) AND d.deleted_at IS NULL
  AND mm.bucket>=CASE WHEN settings.seconds=0 THEN $1::timestamptz ELSE to_timestamp(floor(extract(epoch FROM $1::timestamptz)/GREATEST(1,settings.seconds))*GREATEST(1,settings.seconds)) END
  AND mm.bucket<$2::timestamptz
@@ -289,7 +289,7 @@ WITH inserted AS (
  x.hashrate_hs,x.power_w,x.efficiency_jh,x.temperature_c,x.min_temperature_c,x.max_temperature_c,x.coverage
  FROM jsonb_to_recordset($3::jsonb) x(position int,hashrate_hs double precision,power_w double precision,efficiency_jh double precision,temperature_c double precision,min_temperature_c double precision,max_temperature_c double precision,coverage jsonb)
  JOIN container_tank t ON t.device_id=$4 AND t.position=x.position
- JOIN device d ON d.id=t.device_id
+ JOIN container_scope d ON d.id=t.device_id
  JOIN container_topology_observation o ON o.id=$2
  ON CONFLICT(tank_id,time) DO NOTHING RETURNING tank_id, time, topology_observation_id, site_id, hashrate_hs, power_w, efficiency_jh, temperature_c, min_temperature_c, max_temperature_c, coverage, topology_version_id
 )
@@ -360,7 +360,7 @@ const stampContainerSample = `-- name: StampContainerSample :exec
 UPDATE device_metrics SET metric_semantics=2,coverage=lm.coverage,topology_observation_id=lm.topology_observation_id,
  topology_version_id=(SELECT version_id FROM container_topology_observation WHERE id=lm.topology_observation_id),
  hash_rate_hs=lm.hashrate_hs,power_w=lm.power_w,efficiency_jh=lm.efficiency_jh,temp_c=lm.temperature_c
-FROM container_latest_metrics lm JOIN device d ON d.id=lm.device_id
+FROM container_latest_metrics lm JOIN container_scope d ON d.id=lm.device_id
 WHERE device_metrics.device_identifier=$1 AND d.device_identifier=device_metrics.device_identifier
  AND device_metrics.time=$2::timestamptz AND lm.time=device_metrics.time
 `
@@ -376,10 +376,8 @@ func (q *Queries) StampContainerSample(ctx context.Context, arg StampContainerSa
 }
 
 const stampHashboardTopology = `-- name: StampHashboardTopology :exec
-UPDATE hashboard_metrics m SET topology_version_id=$1::bigint
-FROM jsonb_to_recordset($3::jsonb) x(hashboard_id bigint,time timestamptz)
-WHERE m.hashboard_id=x.hashboard_id AND m.time=x.time
- AND m.collected_at=$2::timestamptz
+SELECT stamp_hashboard_topology($1::bigint,
+ $2::timestamptz,$3::jsonb)
 `
 
 type StampHashboardTopologyParams struct {
@@ -389,7 +387,8 @@ type StampHashboardTopologyParams struct {
 }
 
 // Board health time can precede the poll. Stamp only samples inserted by this
-// collection, using their primary keys rather than scanning the retained history.
+// collection. The function groups by exact source time and supplies explicit
+// board/time filters before Timescale decompresses batches, including generic plans.
 func (q *Queries) StampHashboardTopology(ctx context.Context, arg StampHashboardTopologyParams) error {
 	_, err := q.exec(ctx, q.stampHashboardTopologyStmt, stampHashboardTopology, arg.VersionID, arg.CollectedAt, arg.Samples)
 	return err

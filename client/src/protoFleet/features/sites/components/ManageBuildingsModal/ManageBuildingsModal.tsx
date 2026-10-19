@@ -1,11 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { buildBuildingPickerItem, type BuildingPickerItem } from "./buildingPickerItem";
-import { computeBuildingSelectionDelta } from "./buildingSelectionDelta";
+import { useSiteContainers } from "../../hooks/useSiteContainers";
+import {
+  buildBuildingPickerItem,
+  buildContainerPickerItem,
+  type BuildingPickerItem,
+  containerPickerId,
+} from "./buildingPickerItem";
+import { computeBuildingSelectionDelta, computeSelectionDelta } from "./buildingSelectionDelta";
 import { useBuildings } from "@/protoFleet/api/buildings";
 import { useSites } from "@/protoFleet/api/sites";
-import { ChevronDown } from "@/shared/assets/icons";
+import { Alert, ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
+import Callout from "@/shared/components/Callout";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
 import Modal, { ModalSelectAllFooter } from "@/shared/components/Modal";
@@ -73,13 +80,24 @@ const ManageBuildingsModal = ({
   initialSelectedBuildingIds,
   onDismiss,
   onConfirm,
-  saving = false,
+  saving: parentSaving = false,
   onCreateNewLaunch,
   onCreateMultipleLaunch,
 }: ManageBuildingsModalProps) => {
+  const {
+    containers,
+    loadError: containerLoadError,
+    retry: retryContainers,
+    error: containerError,
+    saving: containerSaving,
+    assign,
+  } = useSiteContainers(open);
+  const saving = parentSaving || containerSaving;
+  const committing = useRef(false);
+  const seededContainers = useRef(false);
   const { listAllBuildings } = useBuildings();
   const { listSites } = useSites();
-  const [items, setItems] = useState<BuildingPickerItem[] | undefined>(undefined);
+  const [buildingItems, setBuildingItems] = useState<BuildingPickerItem[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [selectedItems, setSelectedItems] = useState<string[]>(() =>
     initialSelectedBuildingIds.map((id) => id.toString()),
@@ -128,13 +146,12 @@ const ManageBuildingsModal = ({
           const item = buildBuildingPickerItem(row, siteId, siteMap);
           if (item) out.push(item);
         }
-        out.sort((a, b) => a.label.localeCompare(b.label));
-        setItems(out);
+        setBuildingItems(out);
       },
       onError: (msg) => {
         if (cancelled) return;
         setError(msg);
-        setItems([]);
+        setBuildingItems([]);
       },
     });
     return () => {
@@ -142,7 +159,36 @@ const ManageBuildingsModal = ({
     };
   }, [open, siteId, siteMap, listAllBuildings]);
 
-  const isRowDisabled = useCallback((item: BuildingPickerItem) => item.disabled, []);
+  const currentContainerIds = useMemo(
+    () =>
+      containers
+        ?.filter((container) => container.site?.id === siteId)
+        .map((container) => containerPickerId(container.deviceIdentifier)),
+    [containers, siteId],
+  );
+  useEffect(() => {
+    if (!currentContainerIds || seededContainers.current) return;
+    seededContainers.current = true;
+    setSelectedItems((current) => [...current, ...currentContainerIds]);
+  }, [currentContainerIds]);
+
+  const containerItems = useMemo(
+    () => containers?.map((container) => buildContainerPickerItem(container, siteId, siteMap)),
+    [containers, siteId, siteMap],
+  );
+  const items = useMemo(
+    () =>
+      buildingItems && containerItems
+        ? [...buildingItems, ...containerItems].sort((a, b) => a.label.localeCompare(b.label))
+        : undefined,
+    [buildingItems, containerItems],
+  );
+  const containerDelta = useMemo(() => {
+    if (!containerItems || !currentContainerIds) return null;
+    return computeSelectionDelta(containerItems, currentContainerIds, selectedItems);
+  }, [containerItems, currentContainerIds, selectedItems]);
+
+  const isRowDisabled = useCallback((item: BuildingPickerItem) => saving || item.disabled, [saving]);
 
   // Client-side pagination — List consumes a flat array, so we slice here.
   const pageItems = useMemo(() => {
@@ -160,29 +206,46 @@ const ManageBuildingsModal = ({
   // became ineligible, are excluded on purpose (see
   // computeBuildingSelectionDelta), so a raw selection comparison would read as
   // a change when there's nothing to send.
-  const delta = useMemo(
-    () => (items ? computeBuildingSelectionDelta(items, initialSelectedBuildingIds, selectedItems) : null),
-    [items, initialSelectedBuildingIds, selectedItems],
-  );
-  const handleConfirm = useCallback(() => {
-    if (!delta) return;
-    // Nothing to write. AssignBuildingsToSite would report having changed
-    // membership it didn't touch, so close instead — reviewing the list and
-    // keeping it as-is is a legitimate outcome, not an error.
-    if (delta.added.length === 0 && delta.removed.length === 0) {
-      onDismiss();
-      return;
+  const buildingDelta = useMemo(() => {
+    if (!items || !buildingItems) return null;
+    return computeBuildingSelectionDelta(buildingItems, initialSelectedBuildingIds, selectedItems);
+  }, [items, buildingItems, initialSelectedBuildingIds, selectedItems]);
+  const handleConfirm = useCallback(async () => {
+    if (!buildingDelta || !containerDelta || committing.current) return;
+    committing.current = true;
+    try {
+      // Each successful batch updates the baseline, so a later failure can be
+      // retried without replaying container changes that already succeeded.
+      const toContainerIdentifiers = (ids: string[]) => ids.map((id) => id.slice("container:".length));
+      if (containerDelta.added.length > 0) {
+        const added = toContainerIdentifiers(containerDelta.added.map((item) => item.id));
+        const assigned = await assign(added, siteId);
+        if (!assigned) return;
+      }
+      if (containerDelta.removed.length > 0) {
+        const removed = toContainerIdentifiers(containerDelta.removed);
+        const unassigned = await assign(removed);
+        if (!unassigned) return;
+      }
+      if (buildingDelta.added.length === 0 && buildingDelta.removed.length === 0) {
+        onDismiss();
+        return;
+      }
+      await onConfirm(buildingDelta);
+    } finally {
+      committing.current = false;
     }
-    void onConfirm(delta);
-  }, [delta, onConfirm, onDismiss]);
+  }, [buildingDelta, containerDelta, assign, siteId, onConfirm, onDismiss]);
 
   const handleSelectAll = useCallback(() => {
-    if (!items) return;
+    if (!items || saving) return;
     // Select-all promotes the *eligible* set (excluding disabled rows).
     setSelectedItems(items.filter((b) => !b.disabled).map((b) => b.id));
-  }, [items]);
+  }, [items, saving]);
 
-  const handleSelectNone = useCallback(() => setSelectedItems([]), []);
+  const handleSelectNone = useCallback(() => {
+    if (!saving) setSelectedItems([]);
+  }, [saving]);
 
   return (
     <Modal
@@ -232,21 +295,35 @@ const ManageBuildingsModal = ({
           // Only the in-flight guard, plus not-yet-loaded: without the list
           // there's no delta to compute, so a click could only misread the
           // selection. The no-change case closes in handleConfirm instead.
-          disabled: saving || delta === null,
+          disabled: saving || buildingDelta === null,
           dismissModalOnClick: false,
           testId: "manage-buildings-modal-confirm",
         },
       ]}
     >
       <div className="flex h-full min-h-0 flex-col">
+        {containerLoadError || containerError ? (
+          <div role="alert">
+            <Callout
+              intent="danger"
+              prefixIcon={<Alert />}
+              title={containerLoadError ? "Couldn't load containers" : "Couldn't update buildings"}
+              subtitle={containerLoadError ?? containerError}
+              buttonText={containerLoadError ? "Retry" : undefined}
+              buttonOnClick={retryContainers}
+            />
+          </div>
+        ) : null}
         {error ? (
           <div className="py-6 text-300 text-intent-critical-fill" data-testid="manage-buildings-modal-error">
             {error}
           </div>
         ) : items === undefined ? (
-          <div className="flex flex-1 items-center justify-center py-12">
-            <ProgressCircular indeterminate />
-          </div>
+          containerLoadError ? null : (
+            <div className="flex flex-1 items-center justify-center py-12">
+              <ProgressCircular indeterminate dataTestId="manage-buildings-modal-loading" />
+            </div>
+          )
         ) : (
           <>
             <div className="min-h-0 flex-1 overflow-y-auto">

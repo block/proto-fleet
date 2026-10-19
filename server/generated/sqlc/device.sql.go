@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/lib/pq"
 )
@@ -2668,6 +2669,42 @@ func (q *Queries) ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.
 	return i, err
 }
 
+const reconcileRebootRequiredStatus = `-- name: ReconcileRebootRequiredStatus :execrows
+UPDATE device_status ds
+SET status = $1::device_status_enum,
+    status_timestamp = CURRENT_TIMESTAMP,
+    status_details = NULL,
+    reboot_required_after = NULL
+FROM device d
+JOIN discovered_device dd ON dd.id = d.discovered_device_id
+JOIN device_pairing dp ON dp.device_id = d.id
+WHERE ds.device_id = d.id
+  AND d.device_identifier = $2
+  AND d.deleted_at IS NULL
+  AND dd.deleted_at IS NULL
+  AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
+  AND ds.status = 'REBOOT_REQUIRED'
+  AND COALESCE(ds.reboot_required_after, ds.status_timestamp) < $3::timestamptz
+  AND ds.status_details IS DISTINCT FROM 'fleet_node_revoked'
+`
+
+type ReconcileRebootRequiredStatusParams struct {
+	Status           DeviceStatusEnum
+	DeviceIdentifier string
+	BootedAfter      time.Time
+}
+
+// The status and reboot-boundary predicates apply to the current status row even
+// after waiting for a concurrent firmware install's write to finish. Boot
+// evidence from an earlier install must not clear a later pending reboot.
+func (q *Queries) ReconcileRebootRequiredStatus(ctx context.Context, arg ReconcileRebootRequiredStatusParams) (int64, error) {
+	result, err := q.exec(ctx, q.reconcileRebootRequiredStatusStmt, reconcileRebootRequiredStatus, arg.Status, arg.DeviceIdentifier, arg.BootedAfter)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setDevicePairingAuthNeededIfNotPaired = `-- name: SetDevicePairingAuthNeededIfNotPaired :execrows
 WITH locked_device AS MATERIALIZED (
     SELECT device.id
@@ -2932,17 +2969,20 @@ INSERT INTO device_status (
     device_id,
     status,
     status_timestamp,
-    status_details
+    status_details,
+    reboot_required_after
 ) VALUES (
     $1,
     $2,
     $3,
-    $4
+    $4,
+    $5::timestamptz
 )
 ON CONFLICT (device_id) DO UPDATE SET
     status = EXCLUDED.status,
     status_timestamp = EXCLUDED.status_timestamp,
-    status_details = EXCLUDED.status_details
+    status_details = EXCLUDED.status_details,
+    reboot_required_after = EXCLUDED.reboot_required_after
 WHERE device_status.status_details IS DISTINCT FROM 'fleet_node_revoked'
   AND NOT EXISTS (
     SELECT 1
@@ -2956,10 +2996,11 @@ WHERE device_status.status_details IS DISTINCT FROM 'fleet_node_revoked'
 `
 
 type UpsertDeviceStatusParams struct {
-	DeviceID        int64
-	Status          DeviceStatusEnum
-	StatusTimestamp sql.NullTime
-	StatusDetails   sql.NullString
+	DeviceID            int64
+	Status              DeviceStatusEnum
+	StatusTimestamp     sql.NullTime
+	StatusDetails       sql.NullString
+	RebootRequiredAfter sql.NullTime
 }
 
 // Zone / building filters are not handled by this static query.
@@ -2975,6 +3016,7 @@ func (q *Queries) UpsertDeviceStatus(ctx context.Context, arg UpsertDeviceStatus
 		arg.Status,
 		arg.StatusTimestamp,
 		arg.StatusDetails,
+		arg.RebootRequiredAfter,
 	)
 	return err
 }

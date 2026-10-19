@@ -91,8 +91,9 @@ func Expand(
 				return nil, fmt.Errorf("invalid site target_id %q: %w", target.TargetId, err)
 			}
 			siteDevices, err := deviceResolver.GetDeviceIdentifiersByOrgWithFilter(ctx, orgID, &stores.MinerFilter{
-				SiteIDs:         []int64{siteID},
-				PairingStatuses: scheduleTargetPairingStatuses,
+				SiteIDs:           []int64{siteID},
+				PairingStatuses:   scheduleTargetPairingStatuses,
+				IncludeContainers: true,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve site %d devices: %w", siteID, err)

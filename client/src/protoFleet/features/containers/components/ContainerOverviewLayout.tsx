@@ -48,6 +48,7 @@ export interface ContainerOverviewLayoutProps {
   performance?: ReactNode;
   plantControls?: ReactNode;
   notice?: ReactNode;
+  actions?: ReactNode;
   fanCards?: ReactNode;
   onSelectModule?: (id: string) => void;
   onToggleTank?: (id: string, on: boolean) => void;
@@ -78,6 +79,7 @@ export default function ContainerOverviewLayout(props: ContainerOverviewLayoutPr
           data-testid="container-overview-breadcrumb-row"
         >
           <Breadcrumb segments={breadcrumb} testId="container-overview-breadcrumb" />
+          {props.actions}
         </div>
         <Header title={<h1>{title}</h1>} titleSize="text-heading-300" />
         {props.unlocatedHashboards !== undefined && props.unlocatedHashboards > 0 ? (

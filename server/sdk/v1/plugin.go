@@ -1645,6 +1645,10 @@ func deviceMetricsToProto(dm DeviceMetrics) *pb.DeviceMetrics {
 		Health:                pb.HealthStatus(safeIntToInt32(int(dm.Health))),
 		FirmwareVersion:       dm.FirmwareVersion,
 		DefaultPasswordActive: dm.DefaultPasswordActive,
+		UptimeSeconds:         dm.UptimeSeconds,
+	}
+	if !dm.UptimeObservedAt.IsZero() {
+		pbMetrics.UptimeObservedAt = timestamppb.New(dm.UptimeObservedAt)
 	}
 
 	if dm.HealthReason != nil {
@@ -1677,6 +1681,10 @@ func deviceMetricsFromProto(pb *pb.DeviceMetrics) DeviceMetrics {
 		Health:                HealthStatus(pb.Health),
 		FirmwareVersion:       pb.FirmwareVersion,
 		DefaultPasswordActive: pb.DefaultPasswordActive,
+		UptimeSeconds:         pb.UptimeSeconds,
+	}
+	if pb.UptimeObservedAt != nil && pb.UptimeObservedAt.CheckValid() == nil {
+		dm.UptimeObservedAt = pb.UptimeObservedAt.AsTime()
 	}
 
 	if pb.HealthReason != nil {

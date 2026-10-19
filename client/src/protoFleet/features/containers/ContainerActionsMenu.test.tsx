@@ -68,6 +68,21 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("container command dispatch", () => {
+  it("offers site assignment with a scoped capability and no org-wide grant", () => {
+    state.permissions = [];
+    renderMenu({ canAssignSite: true });
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+    expect(screen.getByRole("button", { name: "Change site" })).toBeEnabled();
+    expect(statusRequest).not.toHaveBeenCalled();
+  });
+
+  it("hides site assignment when the current site denies an org-wide manager", () => {
+    state.permissions = ["miner:read", "site:manage"];
+    renderMenu({ canAssignSite: false });
+    fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+    expect(screen.queryByRole("button", { name: "Change site" })).not.toBeInTheDocument();
+  });
+
   it.each([
     ["Sleep container", "mining/stop"],
     ["Wake container", "mining/start"],

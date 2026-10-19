@@ -23,6 +23,9 @@ export interface FleetNodeItem {
   commandProtocolUpgradeRecommended: boolean;
   controlStreamConnected: boolean;
   pairedDeviceCount: number;
+  ipAddresses: string[];
+  version: string;
+  enrolledBy: string;
   createdAt: Date | null;
   lastSeenAt: Date | null;
 }
@@ -41,6 +44,9 @@ function toFleetNodeItem(summary: FleetNodeSummary): FleetNodeItem {
     fleetNodeId: summary.fleetNodeId.toString(),
     pendingEnrollmentId: summary.pendingEnrollmentId?.toString() ?? null,
     name: summary.name,
+    ipAddresses: summary.ipAddresses,
+    version: summary.version,
+    enrolledBy: summary.enrolledBy,
     enrollmentStatus: summary.enrollmentStatus,
     identityFingerprint: summary.identityFingerprint,
     commandProtocolUpgradeRequired: summary.commandProtocolUpgradeRequired,
