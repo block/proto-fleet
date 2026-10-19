@@ -1,17 +1,32 @@
 -- name: ListHostedAccountMiningAssets :many
 -- Include retained assignments even after retirement or policy changes.
-WITH live_assets AS MATERIALIZED (
- -- Reuse the selected Fleet projection for leaves and readings. Inlining it
- -- twice can rebuild the entire projection for every selected leaf.
- SELECT f.* FROM fleet_mining_asset f WHERE f.org_id=sqlc.arg(organization_id)
+WITH allocations AS MATERIALIZED (
+ SELECT a.* FROM hosted_account_asset a
+ WHERE a.organization_id=sqlc.arg(organization_id)
+ AND (sqlc.arg(is_root)::boolean OR a.client_id=sqlc.arg(account_internal_id)::bigint OR a.subclient_id=sqlc.arg(account_internal_id)::bigint)
+ AND (jsonb_array_length(sqlc.arg(selected_assets)::jsonb)=0 OR EXISTS (SELECT 1 FROM jsonb_to_recordset(sqlc.arg(selected_assets)::jsonb) AS selected(kind integer,id bigint) WHERE selected.kind=a.kind AND selected.id=a.asset_id))
+), live_assets AS MATERIALIZED (
+ -- Materialize the host projection once for root selections. Customer reports
+ -- instead enter the Fleet view by allocated ID; filtering its output alone
+ -- can still evaluate telemetry across the host fleet before applying scope.
+ SELECT f.* FROM fleet_mining_asset f
+ WHERE sqlc.arg(is_root)::boolean AND f.org_id=sqlc.arg(organization_id)
  AND (jsonb_array_length(sqlc.arg(selected_assets)::jsonb)=0 OR EXISTS (SELECT 1 FROM jsonb_to_recordset(sqlc.arg(selected_assets)::jsonb) AS selected(kind integer,id bigint) WHERE selected.kind=f.kind AND selected.id=f.id))
+ UNION ALL
+ SELECT f.* FROM allocations a
+ CROSS JOIN LATERAL (
+  SELECT f.* FROM fleet_mining_asset f
+  WHERE f.org_id=sqlc.arg(organization_id) AND f.kind=a.kind AND f.id=a.asset_id
+  -- Prevent pull-up from moving allocation filtering after telemetry joins.
+  OFFSET 0
+ ) f
+ WHERE NOT sqlc.arg(is_root)::boolean
 ), leaves AS (
  SELECT f.kind,f.id,f.org_id,CASE WHEN f.kind=5 THEN f.id ELSE f.facility_id END::bigint AS device_id
  FROM live_assets f
  UNION
- SELECT a.kind,a.asset_id,a.organization_id,a.device_id FROM hosted_account_asset a
- WHERE a.organization_id=sqlc.arg(organization_id) AND a.client_id IS NOT NULL
- AND (jsonb_array_length(sqlc.arg(selected_assets)::jsonb)=0 OR EXISTS (SELECT 1 FROM jsonb_to_recordset(sqlc.arg(selected_assets)::jsonb) AS selected(kind integer,id bigint) WHERE selected.kind=a.kind AND selected.id=a.asset_id))
+ SELECT a.kind,a.asset_id,a.organization_id,a.device_id FROM allocations a
+ WHERE a.client_id IS NOT NULL
 )
 SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  COALESCE(a.client_id,0)::bigint AS client_id,COALESCE(a.subclient_id,0)::bigint AS subclient_id,
@@ -30,7 +45,7 @@ SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  COALESCE(cm.coverage,'null'::jsonb)::jsonb AS coverage,
  0::float8 AS sort_number, ''::text AS sort_text, true::boolean AS sort_null
 FROM leaves l
-LEFT JOIN hosted_account_asset a ON a.organization_id=l.org_id AND a.kind=l.kind AND a.asset_id=l.id
+LEFT JOIN allocations a ON a.organization_id=l.org_id AND a.kind=l.kind AND a.asset_id=l.id
 LEFT JOIN hosted_account c ON c.id=a.client_id
 LEFT JOIN hosted_account sc ON sc.id=a.subclient_id
 LEFT JOIN live_assets f ON f.org_id=l.org_id AND f.kind=l.kind AND f.id=l.id

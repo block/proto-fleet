@@ -287,18 +287,33 @@ func (q *Queries) ListHostedAccountMiningAssetPage(ctx context.Context, arg List
 }
 
 const listHostedAccountMiningAssets = `-- name: ListHostedAccountMiningAssets :many
-WITH live_assets AS MATERIALIZED (
- -- Reuse the selected Fleet projection for leaves and readings. Inlining it
- -- twice can rebuild the entire projection for every selected leaf.
- SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM fleet_mining_asset f WHERE f.org_id=$3
+WITH allocations AS MATERIALIZED (
+ SELECT a.organization_id, a.kind, a.asset_id, a.device_id, a.miner_id, a.module_id, a.client_id, a.subclient_id, a.revision, a.updated_at FROM hosted_account_asset a
+ WHERE a.organization_id=$3
+ AND ($1::boolean OR a.client_id=$2::bigint OR a.subclient_id=$2::bigint)
+ AND (jsonb_array_length($4::jsonb)=0 OR EXISTS (SELECT 1 FROM jsonb_to_recordset($4::jsonb) AS selected(kind integer,id bigint) WHERE selected.kind=a.kind AND selected.id=a.asset_id))
+), live_assets AS MATERIALIZED (
+ -- Materialize the host projection once for root selections. Customer reports
+ -- instead enter the Fleet view by allocated ID; filtering its output alone
+ -- can still evaluate telemetry across the host fleet before applying scope.
+ SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM fleet_mining_asset f
+ WHERE $1::boolean AND f.org_id=$3
  AND (jsonb_array_length($4::jsonb)=0 OR EXISTS (SELECT 1 FROM jsonb_to_recordset($4::jsonb) AS selected(kind integer,id bigint) WHERE selected.kind=f.kind AND selected.id=f.id))
+ UNION ALL
+ SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM allocations a
+ CROSS JOIN LATERAL (
+  SELECT f.kind, f.id, f.org_id, f.site_id, f.name, f.device_identifier, f.position, f.reported_id, f.facility_kind, f.facility_id, f.group_kind, f.group_id, f.state, f.observed_at, f.hashrate_hs, f.power_w, f.temperature_c, f.miner_efficiency_jth FROM fleet_mining_asset f
+  WHERE f.org_id=$3 AND f.kind=a.kind AND f.id=a.asset_id
+  -- Prevent pull-up from moving allocation filtering after telemetry joins.
+  OFFSET 0
+ ) f
+ WHERE NOT $1::boolean
 ), leaves AS (
  SELECT f.kind,f.id,f.org_id,CASE WHEN f.kind=5 THEN f.id ELSE f.facility_id END::bigint AS device_id
  FROM live_assets f
  UNION
- SELECT a.kind,a.asset_id,a.organization_id,a.device_id FROM hosted_account_asset a
- WHERE a.organization_id=$3 AND a.client_id IS NOT NULL
- AND (jsonb_array_length($4::jsonb)=0 OR EXISTS (SELECT 1 FROM jsonb_to_recordset($4::jsonb) AS selected(kind integer,id bigint) WHERE selected.kind=a.kind AND selected.id=a.asset_id))
+ SELECT a.kind,a.asset_id,a.organization_id,a.device_id FROM allocations a
+ WHERE a.client_id IS NOT NULL
 )
 SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  COALESCE(a.client_id,0)::bigint AS client_id,COALESCE(a.subclient_id,0)::bigint AS subclient_id,
@@ -317,7 +332,7 @@ SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  COALESCE(cm.coverage,'null'::jsonb)::jsonb AS coverage,
  0::float8 AS sort_number, ''::text AS sort_text, true::boolean AS sort_null
 FROM leaves l
-LEFT JOIN hosted_account_asset a ON a.organization_id=l.org_id AND a.kind=l.kind AND a.asset_id=l.id
+LEFT JOIN allocations a ON a.organization_id=l.org_id AND a.kind=l.kind AND a.asset_id=l.id
 LEFT JOIN hosted_account c ON c.id=a.client_id
 LEFT JOIN hosted_account sc ON sc.id=a.subclient_id
 LEFT JOIN live_assets f ON f.org_id=l.org_id AND f.kind=l.kind AND f.id=l.id

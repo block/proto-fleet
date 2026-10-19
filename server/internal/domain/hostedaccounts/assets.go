@@ -245,6 +245,11 @@ func (a *miningAccumulator) result() *pb.MiningSummary {
 }
 
 func (s *Service) MiningSummary(ctx context.Context, actorID, orgID int64, accountID string) (*pb.GetAccountMiningSummaryResponse, error) {
+	// Bound account admission and telemetry work together, including lock waits
+	// and transaction retries, so a report cannot indefinitely delay revocation.
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
 	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (*pb.GetAccountMiningSummaryResponse, error) {
 		e, err := loadMiningEstate(ctx, q, actorID, orgID, accountID, true)
 		if err != nil {
