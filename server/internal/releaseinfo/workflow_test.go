@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -64,6 +65,20 @@ func TestPublishingWorkflowsCarryRepository(t *testing.T) {
 		require.True(t, foundBuild, name)
 		require.True(t, foundInstallers, name)
 	}
+}
+
+func TestFleetNodeBuildEmbedsAndChecksReleaseIdentity(t *testing.T) {
+	t.Parallel()
+	build := readReleaseWorkflow(t, "proto-fleet-artifact-build.yml")
+	var script string
+	for _, step := range build.Jobs["package-fleet-node"].Steps {
+		if strings.Contains(step.Run, "./server/cmd/fleetnode") {
+			script = step.Run
+		}
+	}
+	require.Contains(t, script, `-ldflags "-X main.version=$VERSION -X github.com/block/proto-fleet/server/internal/releaseinfo.Repository=$RELEASE_REPOSITORY"`)
+	require.Contains(t, script, `$(server/fleetnode --version)`)
+	require.Contains(t, script, `$(server/fleetnode --print-release-repository)`)
 }
 
 func TestBuildValidatesPublishingRepositoryBeforeEmittingMetadata(t *testing.T) {
