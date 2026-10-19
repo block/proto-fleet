@@ -71,6 +71,84 @@ func TestSeedTelemetryAndCleanupUseCheckpointedRecovery(t *testing.T) {
 	require.Zero(t, scheduled, "seeding must preserve deliberately paused schedules")
 }
 
+func TestSeedTelemetryRebuildsRecentMaterializedBucketsWhilePaused(t *testing.T) {
+	for _, operation := range []string{"replace", "shorten", "cleanup"} {
+		t.Run(operation, func(t *testing.T) {
+			database := testutil.GetTestDB(t)
+			cfg := seedTestConfig(t, database)
+			metrics, start, end := seedFixture()
+			latest := metrics[len(metrics)-1]
+			// An inclusive raw maximum on a bucket boundary must still rebuild
+			// that entire completed bucket after deletion or a shorter import.
+			latest.Time = end.Add(-time.Hour)
+			metrics = append(metrics, latest)
+			for i := range metrics {
+				metrics[i].HashRateHs = 100
+				metrics[i].Health = healthActive
+			}
+			require.NoError(t, seedAndRefresh(cfg, metrics, start, end, time.Now()))
+			checks := []struct {
+				aggregate string
+				bucket    time.Time
+				column    string
+				want      float64
+			}{
+				{"device_metrics_hourly", latest.Time, "avg_hash_rate", 123},
+				{"device_metrics_daily", end.Truncate(24 * time.Hour).Add(-24 * time.Hour), "avg_hash_rate", 123},
+				{"device_status_hourly", latest.Time, "hashing_count", 0},
+				{"device_status_daily", end.Truncate(24 * time.Hour).Add(-24 * time.Hour), "hashing_count", 0},
+			}
+			for _, check := range checks {
+				_, err := database.ExecContext(t.Context(), `ALTER MATERIALIZED VIEW `+check.aggregate+` SET (timescaledb.materialized_only=true)`)
+				require.NoError(t, err)
+				_, err = database.ExecContext(t.Context(), `CALL refresh_continuous_aggregate($1::regclass,$2::timestamptz,$3::timestamptz,force=>true)`, check.aggregate, start, end)
+				require.NoError(t, err)
+				var count int
+				require.NoError(t, database.QueryRowContext(t.Context(), `SELECT count(*) FROM `+check.aggregate+` WHERE device_identifier=$1 AND bucket=$2`, latest.DeviceIdentifier, check.bucket).Scan(&count))
+				require.Equal(t, 1, count, "fixture must already contain the materialized bucket: %s", check.aggregate)
+			}
+			if operation == "cleanup" {
+				require.NoError(t, runCleanup(cfg))
+			} else {
+				if operation == "shorten" {
+					end = end.Add(-48 * time.Hour)
+				}
+				replacement := make([]deviceMetric, 0, len(metrics))
+				for _, metric := range metrics {
+					if metric.Time.Before(end) {
+						metric.HashRateHs = 123
+						metric.Health = healthCritical
+						replacement = append(replacement, metric)
+					}
+				}
+				require.NoError(t, seedAndRefresh(cfg, replacement, start, end, time.Now()))
+			}
+			for _, check := range checks {
+				var count int
+				require.NoError(t, database.QueryRowContext(t.Context(), `SELECT count(*) FROM `+check.aggregate+` WHERE device_identifier=$1 AND bucket=$2`, latest.DeviceIdentifier, check.bucket).Scan(&count))
+				if operation != "replace" {
+					require.Zero(t, count, "deleted seed values must disappear immediately: %s", check.aggregate)
+					continue
+				}
+				require.Equal(t, 1, count, check.aggregate)
+				var value float64
+				require.NoError(t, database.QueryRowContext(t.Context(), `SELECT `+check.column+` FROM `+check.aggregate+` WHERE device_identifier=$1 AND bucket=$2`, latest.DeviceIdentifier, check.bucket).Scan(&value))
+				require.Equal(t, check.want, value, "replacements must be materialized immediately: %s", check.aggregate)
+			}
+			var normalBoundary bool
+			require.NoError(t, database.QueryRowContext(t.Context(), `SELECT
+ bool_and(p.completed_through<=time_bucket(p.bucket_width,now()-p.lateness))
+ AND g.frozen_through<=max(time_bucket(p.bucket_width,now()-p.lateness))
+ FROM telemetry_summary_progress p JOIN telemetry_summary_write_gate g USING (source_name)
+ WHERE p.source_name='device_metrics' GROUP BY g.frozen_through`).Scan(&normalBoundary))
+			require.True(t, normalBoundary, "recent seed repairs must preserve the normal lateness boundary")
+			var scheduled int
+			require.NoError(t, database.QueryRowContext(t.Context(), `SELECT count(*) FROM timescaledb_information.jobs WHERE proc_name='maintain_telemetry_source' AND scheduled`).Scan(&scheduled))
+			require.Zero(t, scheduled, "maintenance must remain paused")
+		})
+	}
+}
+
 func TestSeedTelemetryFailedReplacementPreservesExistingRows(t *testing.T) {
 	database := testutil.GetTestDB(t)
 	cfg := seedTestConfig(t, database)
@@ -99,7 +177,7 @@ func TestSeedTelemetryRefreshFailurePinsRawAndReleasesMaintenance(t *testing.T) 
 	var pending, available bool
 	require.NoError(t, database.QueryRowContext(t.Context(), `SELECT bool_or(pending) FROM telemetry_summary_work`).Scan(&pending))
 	require.True(t, pending, "a failed refresh must remain recoverable without acknowledging coverage")
-	require.NoError(t, database.QueryRowContext(t.Context(), `SELECT pg_try_advisory_xact_lock(1028,'device_metrics'::regclass::oid::integer)`).Scan(&available))
+	require.NoError(t, database.QueryRowContext(t.Context(), `SELECT pg_try_advisory_xact_lock(1030,'device_metrics'::regclass::oid::integer)`).Scan(&available))
 	require.True(t, available, "the failed command must release its session maintenance lock")
 	var count int
 	require.NoError(t, database.QueryRowContext(t.Context(), `SELECT count(*) FROM device_metrics WHERE device_identifier LIKE 'seed-device-%'`).Scan(&count))

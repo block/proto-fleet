@@ -1,11 +1,11 @@
 -- name: LockTelemetrySeedMaintenance :exec
-SELECT pg_advisory_lock(1028,'device_metrics'::regclass::oid::integer);
+SELECT pg_advisory_lock(1030,'device_metrics'::regclass::oid::integer);
 
 -- name: UnlockTelemetrySeedMaintenance :exec
-SELECT pg_advisory_unlock(1028,'device_metrics'::regclass::oid::integer);
+SELECT pg_advisory_unlock(1030,'device_metrics'::regclass::oid::integer);
 
 -- name: PrepareTelemetrySeed :one
-SELECT prepare_telemetry_seed(sqlc.arg('requested_start')::timestamptz)::timestamptz AS safe_start;
+SELECT prepare_telemetry_seed(sqlc.arg('requested_start')::timestamptz,sqlc.arg('requested_end')::timestamptz)::timestamptz AS safe_start;
 
 -- name: HasDueTelemetrySeedRecovery :one
 SELECT EXISTS(SELECT 1 FROM telemetry_summary_work w JOIN telemetry_summary_progress p USING (aggregate_name)

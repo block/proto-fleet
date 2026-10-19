@@ -92,6 +92,12 @@ miner status, and container measurements, each hourly/daily. Cleanup uses the sa
 coordination. If rebuilding fails, raw remains pinned for recovery after the error
 is repaired. See [telemetry summary recovery](../../../docs/development/telemetry-summary-recovery.md).
 
+Replacement and cleanup rebuild every affected complete bucket through the later
+of the old and replacement data's end bounds, including the last completed hour
+and yesterday's daily bucket. These recent repairs run even when maintenance is
+paused; they preserve the normal lateness boundary for certified coverage and
+accepted writes. The current incomplete hour/day remains on the raw-data path.
+
 ## Generated Data
 
 Each data point includes correlated metrics modeled after an ASIC miner:

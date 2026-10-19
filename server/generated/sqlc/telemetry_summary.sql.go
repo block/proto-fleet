@@ -35,7 +35,7 @@ func (q *Queries) HasDueTelemetrySeedRecovery(ctx context.Context) (bool, error)
 }
 
 const lockTelemetrySeedMaintenance = `-- name: LockTelemetrySeedMaintenance :exec
-SELECT pg_advisory_lock(1028,'device_metrics'::regclass::oid::integer)
+SELECT pg_advisory_lock(1030,'device_metrics'::regclass::oid::integer)
 `
 
 func (q *Queries) LockTelemetrySeedMaintenance(ctx context.Context) error {
@@ -44,11 +44,16 @@ func (q *Queries) LockTelemetrySeedMaintenance(ctx context.Context) error {
 }
 
 const prepareTelemetrySeed = `-- name: PrepareTelemetrySeed :one
-SELECT prepare_telemetry_seed($1::timestamptz)::timestamptz AS safe_start
+SELECT prepare_telemetry_seed($1::timestamptz,$2::timestamptz)::timestamptz AS safe_start
 `
 
-func (q *Queries) PrepareTelemetrySeed(ctx context.Context, requestedStart time.Time) (time.Time, error) {
-	row := q.queryRow(ctx, q.prepareTelemetrySeedStmt, prepareTelemetrySeed, requestedStart)
+type PrepareTelemetrySeedParams struct {
+	RequestedStart time.Time
+	RequestedEnd   time.Time
+}
+
+func (q *Queries) PrepareTelemetrySeed(ctx context.Context, arg PrepareTelemetrySeedParams) (time.Time, error) {
+	row := q.queryRow(ctx, q.prepareTelemetrySeedStmt, prepareTelemetrySeed, arg.RequestedStart, arg.RequestedEnd)
 	var safe_start time.Time
 	err := row.Scan(&safe_start)
 	return safe_start, err
@@ -64,7 +69,7 @@ func (q *Queries) RecoverTelemetrySeedBatch(ctx context.Context) error {
 }
 
 const unlockTelemetrySeedMaintenance = `-- name: UnlockTelemetrySeedMaintenance :exec
-SELECT pg_advisory_unlock(1028,'device_metrics'::regclass::oid::integer)
+SELECT pg_advisory_unlock(1030,'device_metrics'::regclass::oid::integer)
 `
 
 func (q *Queries) UnlockTelemetrySeedMaintenance(ctx context.Context) error {

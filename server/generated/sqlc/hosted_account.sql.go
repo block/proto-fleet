@@ -206,6 +206,37 @@ func (q *Queries) LockActiveHostedAccountUser(ctx context.Context, arg LockActiv
 	return i, err
 }
 
+const lockActiveHostedAccountUserForShare = `-- name: LockActiveHostedAccountUserForShare :one
+SELECT u.id, u.user_id, u.username, u.password_hash, u.password_updated_at, u.last_login_at, u.requires_password_change, u.created_at, u.updated_at, u.deleted_at FROM "user" u
+JOIN user_organization uo ON uo.user_id = u.id
+WHERE u.id = $1 AND uo.organization_id = $2
+  AND u.deleted_at IS NULL AND uo.deleted_at IS NULL
+FOR SHARE OF u, uo
+`
+
+type LockActiveHostedAccountUserForShareParams struct {
+	ID             int64
+	OrganizationID int64
+}
+
+func (q *Queries) LockActiveHostedAccountUserForShare(ctx context.Context, arg LockActiveHostedAccountUserForShareParams) (User, error) {
+	row := q.queryRow(ctx, q.lockActiveHostedAccountUserForShareStmt, lockActiveHostedAccountUserForShare, arg.ID, arg.OrganizationID)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Username,
+		&i.PasswordHash,
+		&i.PasswordUpdatedAt,
+		&i.LastLoginAt,
+		&i.RequiresPasswordChange,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
 const lockHostedAccountAdministrators = `-- name: LockHostedAccountAdministrators :many
 SELECT u.id FROM hosted_account_membership m
 JOIN "user" u ON u.id = m.user_id AND u.deleted_at IS NULL
@@ -251,6 +282,18 @@ SELECT id FROM organization WHERE id = $1 AND deleted_at IS NULL FOR NO KEY UPDA
 // Allow foreign-key KEY SHARE locks from concurrent organization role writes.
 func (q *Queries) LockHostedAccountOrganization(ctx context.Context, id int64) (int64, error) {
 	row := q.queryRow(ctx, q.lockHostedAccountOrganizationStmt, lockHostedAccountOrganization, id)
+	err := row.Scan(&id)
+	return id, err
+}
+
+const lockHostedAccountOrganizationForShare = `-- name: LockHostedAccountOrganizationForShare :one
+SELECT id FROM organization WHERE id = $1 AND deleted_at IS NULL FOR SHARE
+`
+
+// Reports may overlap, while hierarchy, policy, membership and allocation
+// mutations keep their exclusive organization admission lock.
+func (q *Queries) LockHostedAccountOrganizationForShare(ctx context.Context, id int64) (int64, error) {
+	row := q.queryRow(ctx, q.lockHostedAccountOrganizationForShareStmt, lockHostedAccountOrganizationForShare, id)
 	err := row.Scan(&id)
 	return id, err
 }

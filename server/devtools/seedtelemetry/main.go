@@ -126,7 +126,8 @@ func runCleanup(cfg config) error {
 			log.Printf("Cleanup mode: no synthetic rows found for prefix %q", seedDevicePrefix)
 			return nil
 		}
-		safeStart, err := q.PrepareTelemetrySeed(ctx, start)
+		// The raw maximum is inclusive; recovery takes an exclusive end bound.
+		safeStart, err := q.PrepareTelemetrySeed(ctx, sqlc.PrepareTelemetrySeedParams{RequestedStart: start, RequestedEnd: end.Add(time.Microsecond)})
 		if err != nil {
 			return err
 		}
@@ -150,7 +151,7 @@ func seedAndRefresh(cfg config, metrics []deviceMetric, start, end, genStart tim
 	}
 	defer db.Close()
 	return withSeedMaintenance(db, func(ctx context.Context, conn *sql.Conn, q *sqlc.Queries) error {
-		oldStart, _, found, err := findSeedDataBounds(ctx, conn)
+		oldStart, oldEnd, found, err := findSeedDataBounds(ctx, conn)
 		if err != nil {
 			return err
 		}
@@ -158,7 +159,11 @@ func seedAndRefresh(cfg config, metrics []deviceMetric, start, end, genStart tim
 		if found && oldStart.Before(importStart) {
 			importStart = oldStart
 		}
-		safeStart, err := q.PrepareTelemetrySeed(ctx, importStart)
+		importEnd := end
+		if found && !oldEnd.Before(importEnd) {
+			importEnd = oldEnd.Add(time.Microsecond)
+		}
+		safeStart, err := q.PrepareTelemetrySeed(ctx, sqlc.PrepareTelemetrySeedParams{RequestedStart: importStart, RequestedEnd: importEnd})
 		if err != nil {
 			return err
 		}

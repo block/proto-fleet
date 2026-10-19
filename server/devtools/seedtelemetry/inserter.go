@@ -153,6 +153,8 @@ func insertBatch(ctx context.Context, db sqlc.DBTX, batch []deviceMetric) (int64
 
 // Run the same bounded, checkpointed recovery as scheduled maintenance. Imports
 // invalidate all dependent tiers, including container summaries on this source.
+// Their persisted recent cursors also cover affected complete buckets beyond
+// the normal refresh end offsets.
 func recoverSeedSummaries(ctx context.Context, q *sqlc.Queries) error {
 	for {
 		blocked, err := q.HasBlockedTelemetrySeedRecovery(ctx)

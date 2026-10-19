@@ -25,7 +25,7 @@ var recoveryAggregates = append(deviceMetricRecoveryAggregates,
 
 var recoverySources = []string{"device_metrics", "container_tank_metrics", "container_module_metrics", "hashboard_metrics"}
 
-// removeTelemetryRecovery reconstructs the pre-1028 schema so tests can apply
+// removeTelemetryRecovery reconstructs the pre-1030 schema so tests can apply
 // the real migration after loading backdated upgrade fixtures.
 func removeTelemetryRecovery(t *testing.T, db *sql.DB) {
 	t.Helper()
@@ -33,7 +33,7 @@ func removeTelemetryRecovery(t *testing.T, db *sql.DB) {
 	 WHERE proc_name='maintain_telemetry_source';
 	 DROP VIEW telemetry_summary_health,telemetry_retention_health;
 	 DROP PROCEDURE maintain_telemetry_source(integer,jsonb),telemetry_summary_step(text);
-     DROP FUNCTION retain_telemetry_raw(text),prepare_telemetry_seed(timestamptz),telemetry_bucket_ceiling(interval,timestamptz);
+     DROP FUNCTION retain_telemetry_raw(text),prepare_telemetry_seed(timestamptz,timestamptz),telemetry_bucket_ceiling(interval,timestamptz);
      DROP TABLE telemetry_summary_work,telemetry_summary_progress,telemetry_summary_write_gate,telemetry_summary_source;
      DROP FUNCTION guard_telemetry_summary_time() CASCADE;
      DROP FUNCTION lock_telemetry_summary_writes() CASCADE;`)
@@ -45,7 +45,7 @@ func removeTelemetryRecovery(t *testing.T, db *sql.DB) {
 
 func telemetryRecoveryMigration(t *testing.T) string {
 	t.Helper()
-	up, err := migrations.Current.ReadFile("current/001028_internal_telemetry_summary_recovery.up.sql")
+	up, err := migrations.Current.ReadFile("current/001030_internal_telemetry_summary_recovery.up.sql")
 	require.NoError(t, err)
 	return string(up) + `
 	 SELECT alter_job(job_id,scheduled=>false) FROM timescaledb_information.jobs WHERE scheduled;`
@@ -426,7 +426,7 @@ func TestTelemetrySummaryUpgradePreservesExpiredAndPartialHistory(t *testing.T) 
 	_, err = r.db.ExecContext(t.Context(), `SELECT drop_chunks('device_metrics',older_than=>$1::timestamptz)`, partial)
 	require.NoError(t, err)
 	r.store(t, r.snapshot(48*time.Hour, false, 300e12, 400e12))
-	// Reconstruct the pre-1028 scheduling state, then apply the real up file.
+	// Reconstruct the pre-1030 scheduling state, then apply the real up file.
 	removeTelemetryRecovery(t, r.db)
 	_, err = r.db.ExecContext(t.Context(), `SELECT add_retention_policy(source::regclass,INTERVAL '10 days')
 	 FROM unnest(ARRAY['device_metrics','container_tank_metrics','container_module_metrics','hashboard_metrics']) source;
@@ -761,7 +761,7 @@ func TestTelemetrySummaryPreservesStatusRetentionAndSkipsLateWrites(t *testing.T
 
 func TestTelemetrySummaryRecoveryMigrationRollbackPreservesSafeguards(t *testing.T) {
 	db := testutil.GetTestDB(t)
-	down, err := migrations.Current.ReadFile("current/001028_internal_telemetry_summary_recovery.down.sql")
+	down, err := migrations.Current.ReadFile("current/001030_internal_telemetry_summary_recovery.down.sql")
 	require.NoError(t, err)
 	_, err = db.ExecContext(t.Context(), string(down))
 	require.ErrorContains(t, err, "protects retained evidence")

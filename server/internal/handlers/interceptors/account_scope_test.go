@@ -178,3 +178,13 @@ func TestSelectedAccountCannotControlHostCurtailment(t *testing.T) {
 		})
 	}
 }
+
+func TestMiningMethodsAreExplicitlySessionOnlyAndAccountScoped(t *testing.T) {
+	for _, method := range []string{"GetAccountMiningSummary", "ListAccountAssets", "AssignAccountAssets"} {
+		procedure := hostedAccountProcedurePrefix + method
+		require.True(t, requiresSelectedAccount(procedure))
+		require.True(t, allowsSelectedAccount(procedure))
+		require.False(t, allowsAccountKey(procedure))
+		require.Contains(t, SessionOnlyProcedures, procedure)
+	}
+}

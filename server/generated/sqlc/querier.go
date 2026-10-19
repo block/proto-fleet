@@ -824,6 +824,7 @@ type Querier interface {
 	// same value into the data query so crossing a cutoff mid-request cannot switch tiers.
 	GetHistoryResolution(ctx context.Context, arg GetHistoryResolutionParams) (int32, error)
 	GetHostedAccountAncestorGrant(ctx context.Context, arg GetHostedAccountAncestorGrantParams) (HostedAccountAncestorGrant, error)
+	GetHostedAccountAssetDevice(ctx context.Context, arg GetHostedAccountAssetDeviceParams) (int64, error)
 	GetHostedAccountInvitationByHash(ctx context.Context, tokenHash string) (GetHostedAccountInvitationByHashRow, error)
 	GetHostedAccountKeyAuthority(ctx context.Context, arg GetHostedAccountKeyAuthorityParams) (GetHostedAccountKeyAuthorityRow, error)
 	GetHostedAccountKeyOwner(ctx context.Context, arg GetHostedAccountKeyOwnerParams) (sql.NullInt64, error)
@@ -1297,6 +1298,9 @@ type Querier interface {
 	// with this narrowing rule: site-scope assignment overrides the
 	// org grant at that site; site-scope absence falls back to org-scope.
 	ListEffectivePermissionsForUser(ctx context.Context, arg ListEffectivePermissionsForUserParams) ([]ListEffectivePermissionsForUserRow, error)
+	// Reporting rechecks may overlap while still excluding assignment revocation,
+	// user deactivation and role-permission edits until the report commits.
+	ListEffectivePermissionsForUserForShare(ctx context.Context, arg ListEffectivePermissionsForUserForShareParams) ([]ListEffectivePermissionsForUserForShareRow, error)
 	// Race-safety variant of ListEffectivePermissionsForUser. Same join
 	// shape, same row order, same narrowing semantics — but takes
 	// FOR NO KEY UPDATE on every row whose mutation can revoke the caller's
@@ -1417,6 +1421,7 @@ type Querier interface {
 	ListHashboardHistory(ctx context.Context, arg ListHashboardHistoryParams) ([]ListHashboardHistoryRow, error)
 	ListHashboardModules(ctx context.Context, deviceID int64) ([]ListHashboardModulesRow, error)
 	ListHostedAccountAncestorGrants(ctx context.Context, arg ListHostedAccountAncestorGrantsParams) ([]HostedAccountAncestorGrant, error)
+	ListHostedAccountAssetChildren(ctx context.Context, arg ListHostedAccountAssetChildrenParams) ([]ListHostedAccountAssetChildrenRow, error)
 	ListHostedAccountChildren(ctx context.Context, arg ListHostedAccountChildrenParams) ([]HostedAccount, error)
 	// Bound history first, then resolve each live inviter once in the same snapshot.
 	// Authority witnesses and durable-role checks match invitation acceptance.
@@ -1424,6 +1429,12 @@ type Querier interface {
 	// Bound key rows before expanding their retained descendant scopes.
 	ListHostedAccountKeys(ctx context.Context, arg ListHostedAccountKeysParams) ([]ListHostedAccountKeysRow, error)
 	ListHostedAccountMembers(ctx context.Context, arg ListHostedAccountMembersParams) ([]ListHostedAccountMembersRow, error)
+	// Scope like ListHostedAccountMiningAssets: customer pages enter the Fleet view
+	// by allocated ID so a small estate never evaluates the host fleet's telemetry.
+	// Host operators carry host read authority at every depth; customers pass none.
+	ListHostedAccountMiningAssetPage(ctx context.Context, arg ListHostedAccountMiningAssetPageParams) ([]ListHostedAccountMiningAssetPageRow, error)
+	// Include retained assignments even after retirement or policy changes.
+	ListHostedAccountMiningAssets(ctx context.Context, arg ListHostedAccountMiningAssetsParams) ([]ListHostedAccountMiningAssetsRow, error)
 	ListHostedAccountPools(ctx context.Context, arg ListHostedAccountPoolsParams) ([]ListHostedAccountPoolsRow, error)
 	ListHostedAccountSites(ctx context.Context, arg ListHostedAccountSitesParams) ([]ListHostedAccountSitesRow, error)
 	// Resolve the entire account list in one snapshot. A parent filter is used only
@@ -1601,6 +1612,7 @@ type Querier interface {
 	ListUnresolvedDeviceWriteAttempts(ctx context.Context, arg ListUnresolvedDeviceWriteAttemptsParams) ([]DeviceWriteAttempt, error)
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
 	LockActiveHostedAccountUser(ctx context.Context, arg LockActiveHostedAccountUserParams) (User, error)
+	LockActiveHostedAccountUserForShare(ctx context.Context, arg LockActiveHostedAccountUserForShareParams) (User, error)
 	// Break-glass resets intentionally target the sole live org-scope
 	// SUPER_ADMIN. Lock the complete identity/assignment chain so concurrent
 	// resets serialize on the same rows. The live membership join matches what
@@ -1734,9 +1746,13 @@ type Querier interface {
 	// Serialize cross-controller identity/placement reconciliation within an org.
 	LockHashboardOrganization(ctx context.Context, identifier string) (int64, error)
 	LockHostedAccountAdministrators(ctx context.Context, arg LockHostedAccountAdministratorsParams) ([]int64, error)
+	LockHostedAccountAssetInventory(ctx context.Context, deviceIds []int64) error
 	// Serialize hierarchy, policy, and membership mutations for one organization.
 	// Allow foreign-key KEY SHARE locks from concurrent organization role writes.
 	LockHostedAccountOrganization(ctx context.Context, id int64) (int64, error)
+	// Reports may overlap, while hierarchy, policy, membership and allocation
+	// mutations keep their exclusive organization admission lock.
+	LockHostedAccountOrganizationForShare(ctx context.Context, id int64) (int64, error)
 	// Canonical serialization point for device moves/deletes and response-profile
 	// references. Callers lock parent sites first, then device rows by ID.
 	LockInfrastructureDeviceForWrite(ctx context.Context, arg LockInfrastructureDeviceForWriteParams) (int64, error)
@@ -1846,7 +1862,7 @@ type Querier interface {
 	// Timestamp the pause after the header lock, never before the creation or
 	// stage transition the caller observed. Repeated pauses keep the first event.
 	PauseFirmwareRollout(ctx context.Context, arg PauseFirmwareRolloutParams) (int64, error)
-	PrepareTelemetrySeed(ctx context.Context, requestedStart time.Time) (time.Time, error)
+	PrepareTelemetrySeed(ctx context.Context, arg PrepareTelemetrySeedParams) (time.Time, error)
 	// Retrying a failed deployment preserves its original health expectations.
 	// A failed update can itself stop hashing; recapturing that degraded state
 	// would incorrectly lower the requirements for the retry to succeed.
@@ -2075,6 +2091,7 @@ type Querier interface {
 	SetFirmwareRolloutControllerWait(ctx context.Context, arg SetFirmwareRolloutControllerWaitParams) error
 	SetFleetNodeEnrollmentStatus(ctx context.Context, arg SetFleetNodeEnrollmentStatusParams) (int64, error)
 	SetHostedAccountAncestorGrant(ctx context.Context, arg SetHostedAccountAncestorGrantParams) error
+	SetHostedAccountAsset(ctx context.Context, arg SetHostedAccountAssetParams) (int64, error)
 	SetHostedAccountMembership(ctx context.Context, arg SetHostedAccountMembershipParams) error
 	SetHostedAccountPoolProfile(ctx context.Context, arg SetHostedAccountPoolProfileParams) (int64, error)
 	SetHostedAccountSitesRestricted(ctx context.Context, arg SetHostedAccountSitesRestrictedParams) error

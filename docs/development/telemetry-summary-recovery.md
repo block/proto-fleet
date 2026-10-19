@@ -1,6 +1,6 @@
 # Telemetry summary recovery and retention
 
-Migration 1028 protects miner, CT1 container, tank, module, and hashboard history
+Migration 1030 protects miner, CT1 container, tank, module, and hashboard history
 after summary-job interruptions. Twelve summary streams cover hourly/daily
 measurements for all five equipment types plus miner status. Miner and container
 streams share `device_metrics`; tank, module, and hashboard streams each have a
@@ -104,7 +104,7 @@ hourly summaries and three years for daily summaries, with whole-chunk rounding.
 
 ## Upgrade and existing gaps
 
-Stop application writers and scheduled database maintenance for migration 1028,
+Stop application writers and scheduled database maintenance for migration 1030,
 as for the earlier private maintenance migrations. Rehearse the upgrade on a
 recent database copy. It removes the old bootstrap jobs and raw retention/refresh
 policies, captures raw boundaries, and installs the replacement maintenance.
@@ -214,8 +214,13 @@ before deletion. Previously expired or partially retained history is preserved.
 Replacement deletes and all insertion batches run in one transaction, so a
 failed batch restores the previous seed rows. After commit, the tool runs the
 same bounded catch-up/recent tasks as scheduled maintenance until due work is
-complete. Cleanup likewise rewinds coverage before deletion and rebuilds through
-recovery, without uncoordinated manual refreshes. Refresh failure preserves raw
+complete. The affected range includes both the old and replacement data's end
+bounds. Persisted recent-work cursors rebuild every affected complete bucket,
+including yesterday's daily bucket and the last completed hour beyond the normal
+refresh end offsets, even with maintenance paused. These recent repairs do not
+advance certified coverage or the write gate beyond normal lateness. Cleanup
+likewise rewinds coverage before deletion and rebuilds through recovery,
+without uncoordinated manual refreshes. Refresh failure preserves raw
 and unfinished progress; rerun after repairing the cause, or resume maintenance.
 Closing the command's connection releases its session lock, including on errors.
 

@@ -1,12 +1,15 @@
 import { useState } from "react";
 import { MemoryRouter } from "react-router-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 import NavigationMenu from "./NavigationMenu";
 import NavigationRailToggle from "./NavigationRailToggle";
 import { useNavigationRail } from "./useNavigationRail";
+import { AccountSchema } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { NavItem, primaryNavItems } from "@/protoFleet/config/navItems";
+import { HostedAccountsContext } from "@/protoFleet/features/hostedAccounts/HostedAccountsContext";
 import type { ActiveSite } from "@/protoFleet/store/types/activeSite";
 
 const { mockUseWindowDimensions, permissionsMock, activeSiteMock, accountMock } = vi.hoisted(() => ({
@@ -64,6 +67,56 @@ describe("Navigation Menu", () => {
     activeSiteMock.current = { kind: "all" };
     accountMock.username = "achen";
     accountMock.role = "SUPER_ADMIN";
+  });
+
+  it.each([true, false])(
+    "shows Clients inside the phone Settings Admin group only for hosts (host=%s)",
+    async (hostAccess) => {
+      mockUseWindowDimensions.mockReturnValue({ isPhone: true });
+      permissionsMock.current = ["miner:read", "fleet:read"];
+      const user = userEvent.setup();
+      render(
+        <MemoryRouter initialEntries={["/settings/network"]}>
+          <HostedAccountsContext.Provider
+            value={{
+              accounts: [create(AccountSchema, { accountId: "customer" })],
+              hostAccess,
+              loading: false,
+              error: null,
+              refresh: vi.fn(),
+            }}
+          >
+            <NavigationMenu items={primaryNavItems} isVisible />
+          </HostedAccountsContext.Provider>
+        </MemoryRouter>,
+      );
+      await screen.findByRole("button", { name: "Settings menu toggle" });
+      const submenu = screen.getByTestId("secondary-nav");
+      if (hostAccess) {
+        expect(within(submenu).getByText("Admin")).toBeInTheDocument();
+        expect(within(submenu).getByRole("link", { name: "Clients" })).toHaveAttribute("href", "/accounts");
+        await user.click(within(submenu).getByRole("link", { name: "Clients" }));
+        await waitFor(() =>
+          expect(screen.getByRole("link", { name: "Clients" })).toHaveAttribute("aria-current", "page"),
+        );
+        expect(screen.getByRole("link", { name: "Fleet" })).toBeInTheDocument();
+      } else {
+        expect(screen.queryByRole("link", { name: "Clients" })).not.toBeInTheDocument();
+      }
+    },
+  );
+
+  it("keeps account Settings separate from the global Settings drawer and links the logo to Accounts", async () => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: true });
+    permissionsMock.current = ["role:read"];
+    render(
+      <MemoryRouter>
+        <NavigationMenu items={[{ path: "/accounts/customer/settings", label: "Settings" }]} isVisible />
+      </MemoryRouter>,
+    );
+    await screen.findByRole("link", { name: "Settings" });
+    expect(screen.queryByRole("button", { name: "Settings menu toggle" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Accounts" })).toHaveAttribute("href", "/accounts");
   });
 
   it.each([

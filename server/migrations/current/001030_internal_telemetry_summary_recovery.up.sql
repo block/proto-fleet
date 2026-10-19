@@ -204,7 +204,9 @@ BEGIN
   end_at := LEAST(start_at+progress.bucket_width*work.batch_buckets,final_target);
  ELSE
   -- Replay newest buckets first even during a multi-week cold catch-up.
-  end_at := LEAST(recent_target,COALESCE(work.replay_until,recent_target));
+  -- Coordinated imports can request newer complete buckets through this
+  -- cursor, without certifying coverage or advancing the write gate.
+  end_at := LEAST(time_bucket(progress.bucket_width,now()),COALESCE(work.replay_until,recent_target));
   start_at := GREATEST(progress.coverage_start,final_target,end_at-progress.bucket_width*work.batch_buckets);
  END IF;
  IF start_at<source.dropped_through THEN
@@ -285,12 +287,12 @@ BEGIN
  -- Shared session lock survives refresh commits. The dedicated worker exits
  -- on failure, releasing it. A seeder holds the exclusive counterpart on its
  -- dedicated connection; an idle ordinary run_job caller holds no session lock.
- IF NOT pg_try_advisory_lock_shared(1028,source.source_name::regclass::oid::integer) THEN
+ IF NOT pg_try_advisory_lock_shared(1030,source.source_name::regclass::oid::integer) THEN
   PERFORM alter_job(job_id,next_start=>clock_timestamp()+INTERVAL '30 seconds');
   RETURN;
  END IF;
  CALL telemetry_summary_step(source.source_name);
- PERFORM pg_advisory_unlock_shared(1028,source.source_name::regclass::oid::integer);
+ PERFORM pg_advisory_unlock_shared(1030,source.source_name::regclass::oid::integer);
  SELECT LEAST(s.next_retention_at,min(w.next_run_at) FILTER (WHERE NOT w.blocked)) INTO due
  FROM telemetry_summary_source s JOIN telemetry_summary_progress p USING (source_name)
  JOIN telemetry_summary_work w USING (aggregate_name) WHERE s.source_name=source.source_name GROUP BY s.next_retention_at;
@@ -313,7 +315,7 @@ FROM telemetry_summary_source;
 CREATE FUNCTION lock_telemetry_summary_writes() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE floor_at timestamptz;
 BEGIN
- PERFORM pg_advisory_xact_lock_shared(1028,TG_RELID::integer);
+ PERFORM pg_advisory_xact_lock_shared(1030,TG_RELID::integer);
  SELECT frozen_through INTO STRICT floor_at FROM telemetry_summary_write_gate
  WHERE source_name=TG_ARGV[0] FOR SHARE;
  PERFORM set_config('protofleet.'||TG_ARGV[0]||'_write_floor',COALESCE(floor_at::text,'-infinity'),true);
@@ -339,7 +341,7 @@ END $$;
 -- Development seeding uses an exclusive session maintenance lock. Reopen only
 -- complete retained UTC days, invalidating coverage BEFORE modifying any raw.
 -- Failure or disconnect leaves recovery able to rebuild the unfinished range.
-CREATE FUNCTION prepare_telemetry_seed(requested_start timestamptz) RETURNS timestamptz
+CREATE FUNCTION prepare_telemetry_seed(requested_start timestamptz,requested_end timestamptz) RETURNS timestamptz
 LANGUAGE plpgsql AS $$
 DECLARE
  source telemetry_summary_source%ROWTYPE;
@@ -348,8 +350,11 @@ DECLARE
  populated boolean;
  empty_history boolean := true;
 BEGIN
+ IF requested_start IS NULL OR requested_end IS NULL OR requested_start>=requested_end THEN
+  RAISE EXCEPTION 'telemetry seeding requires a nonempty affected range';
+ END IF;
  IF NOT EXISTS (SELECT 1 FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid()
-  AND classid=1028 AND objid='device_metrics'::regclass::oid AND objsubid=2 AND mode='ExclusiveLock' AND granted) THEN
+  AND classid=1030 AND objid='device_metrics'::regclass::oid AND objsubid=2 AND mode='ExclusiveLock' AND granted) THEN
   RAISE EXCEPTION 'telemetry seeding requires the exclusive maintenance lock';
  END IF;
  SELECT * INTO STRICT source FROM telemetry_summary_source WHERE source_name='device_metrics';
@@ -376,13 +381,16 @@ BEGIN
   completed_through=LEAST(COALESCE(completed_through,telemetry_bucket_ceiling(bucket_width,source.raw_floor)),safe_start)
  WHERE source_name=source.source_name;
  UPDATE telemetry_summary_write_gate SET frozen_through=LEAST(frozen_through,safe_start) WHERE source_name=source.source_name;
- UPDATE telemetry_summary_work w SET next_run_at=now(),replay_until=NULL,pending=false,blocked=false,
+ UPDATE telemetry_summary_work w SET next_run_at=now(),
+  replay_until=CASE WHEN w.work_kind='recent' THEN
+   LEAST(time_bucket(p.bucket_width,now()),telemetry_bucket_ceiling(p.bucket_width,requested_end)) END,
+  pending=false,blocked=false,
   minimum_batch_failures=0,successful_batches=0,last_error=NULL
  FROM telemetry_summary_progress p WHERE p.aggregate_name=w.aggregate_name AND p.source_name=source.source_name;
  RETURN safe_start;
 END;
 $$;
-REVOKE ALL ON FUNCTION prepare_telemetry_seed(timestamptz) FROM PUBLIC;
+REVOKE ALL ON FUNCTION prepare_telemetry_seed(timestamptz,timestamptz) FROM PUBLIC;
 
 -- Summary expiration remains independent: these targets intentionally discard
 -- old summary tiers, and never authorize discarding unfinished raw evidence.
