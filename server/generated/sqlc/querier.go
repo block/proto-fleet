@@ -86,6 +86,7 @@ type Querier interface {
 	// order: site → buildings). Returns the row count of buildings
 	// actually moved (skips soft-deleted rows).
 	AssignBuildingsToSiteBulk(ctx context.Context, arg AssignBuildingsToSiteBulkParams) (int64, error)
+	AssignContainersToSite(ctx context.Context, arg AssignContainersToSiteParams) (int64, error)
 	// Bulk update of device.building_id for the given identifiers within
 	// the org. Caller is expected to have already validated that no device
 	// is in a rack at a different building (see FindDeviceBuildingConflicts).
@@ -322,6 +323,7 @@ type Querier interface {
 	ConsumeHostedAccountInvitation(ctx context.Context, arg ConsumeHostedAccountInvitationParams) (int64, error)
 	ConsumeReservedInventoryPart(ctx context.Context, arg ConsumeReservedInventoryPartParams) (int64, error)
 	ContainerOwnsCommandBatch(ctx context.Context, arg ContainerOwnsCommandBatchParams) (bool, error)
+	ContainsContainerIdentifiers(ctx context.Context, arg ContainsContainerIdentifiersParams) (bool, error)
 	// Counts live (user_organization_role, user) pairs. Filtering on
 	// u.deleted_at IS NULL matches the resolver and the last-SUPER_ADMIN
 	// guards: a role only assigned to deactivated users is not actually
@@ -667,6 +669,8 @@ type Querier interface {
 	// Supports retrying teardown after authentication revocation has committed.
 	GetCancelledEnrollmentByFleetNode(ctx context.Context, arg GetCancelledEnrollmentByFleetNodeParams) (PendingEnrollment, error)
 	GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPostgresIdentity, error)
+	// Class metadata excludes known containers without live capability discovery.
+	GetContainerIdentifiersForCommands(ctx context.Context, arg GetContainerIdentifiersForCommandsParams) ([]string, error)
 	GetContainerModuleScope(ctx context.Context, arg GetContainerModuleScopeParams) (GetContainerModuleScopeRow, error)
 	GetContainerPollHistory(ctx context.Context, arg GetContainerPollHistoryParams) ([]GetContainerPollHistoryRow, error)
 	GetContainerRollupContext(ctx context.Context, deviceID int64) (GetContainerRollupContextRow, error)
@@ -820,6 +824,7 @@ type Querier interface {
 	// same value into the data query so crossing a cutoff mid-request cannot switch tiers.
 	GetHistoryResolution(ctx context.Context, arg GetHistoryResolutionParams) (int32, error)
 	GetHostedAccountAncestorGrant(ctx context.Context, arg GetHostedAccountAncestorGrantParams) (HostedAccountAncestorGrant, error)
+	GetHostedAccountAssetDevice(ctx context.Context, arg GetHostedAccountAssetDeviceParams) (int64, error)
 	GetHostedAccountInvitationByHash(ctx context.Context, tokenHash string) (GetHostedAccountInvitationByHashRow, error)
 	GetHostedAccountKeyAuthority(ctx context.Context, arg GetHostedAccountKeyAuthorityParams) (GetHostedAccountKeyAuthorityRow, error)
 	GetHostedAccountKeyOwner(ctx context.Context, arg GetHostedAccountKeyOwnerParams) (sql.NullInt64, error)
@@ -1206,6 +1211,10 @@ type Querier interface {
 	// Raw reads retain the original nullable fields; older/longer windows return
 	// source-bucket averages, with authorization before combining topology versions.
 	ListContainerModuleHistory(ctx context.Context, arg ListContainerModuleHistoryParams) ([]ListContainerModuleHistoryRow, error)
+	// Membership lists need identity and topology counts, never telemetry.
+	ListContainerPlacements(ctx context.Context, orgID int64) ([]ListContainerPlacementsRow, error)
+	// Match the unified Miners list: count observed modules, not controllers as miners.
+	ListContainerSiteStats(ctx context.Context, arg ListContainerSiteStatsParams) ([]ListContainerSiteStatsRow, error)
 	// Reuse the inventory state projection so cards agree with module lists about
 	// freshness, retained partial topology, and retired/replaced hardware.
 	ListContainers(ctx context.Context, arg ListContainersParams) ([]ListContainersRow, error)
@@ -1287,6 +1296,9 @@ type Querier interface {
 	// with this narrowing rule: site-scope assignment overrides the
 	// org grant at that site; site-scope absence falls back to org-scope.
 	ListEffectivePermissionsForUser(ctx context.Context, arg ListEffectivePermissionsForUserParams) ([]ListEffectivePermissionsForUserRow, error)
+	// Reporting rechecks may overlap while still excluding assignment revocation,
+	// user deactivation and role-permission edits until the report commits.
+	ListEffectivePermissionsForUserForShare(ctx context.Context, arg ListEffectivePermissionsForUserForShareParams) ([]ListEffectivePermissionsForUserForShareRow, error)
 	// Race-safety variant of ListEffectivePermissionsForUser. Same join
 	// shape, same row order, same narrowing semantics — but takes
 	// FOR NO KEY UPDATE on every row whose mutation can revoke the caller's
@@ -1407,6 +1419,7 @@ type Querier interface {
 	ListHashboardHistory(ctx context.Context, arg ListHashboardHistoryParams) ([]ListHashboardHistoryRow, error)
 	ListHashboardModules(ctx context.Context, deviceID int64) ([]ListHashboardModulesRow, error)
 	ListHostedAccountAncestorGrants(ctx context.Context, arg ListHostedAccountAncestorGrantsParams) ([]HostedAccountAncestorGrant, error)
+	ListHostedAccountAssetChildren(ctx context.Context, arg ListHostedAccountAssetChildrenParams) ([]ListHostedAccountAssetChildrenRow, error)
 	ListHostedAccountChildren(ctx context.Context, arg ListHostedAccountChildrenParams) ([]HostedAccount, error)
 	// Bound history first, then resolve each live inviter once in the same snapshot.
 	// Authority witnesses and durable-role checks match invitation acceptance.
@@ -1414,6 +1427,12 @@ type Querier interface {
 	// Bound key rows before expanding their retained descendant scopes.
 	ListHostedAccountKeys(ctx context.Context, arg ListHostedAccountKeysParams) ([]ListHostedAccountKeysRow, error)
 	ListHostedAccountMembers(ctx context.Context, arg ListHostedAccountMembersParams) ([]ListHostedAccountMembersRow, error)
+	// Scope like ListHostedAccountMiningAssets: customer pages enter the Fleet view
+	// by allocated ID so a small estate never evaluates the host fleet's telemetry.
+	// Host operators carry host read authority at every depth; customers pass none.
+	ListHostedAccountMiningAssetPage(ctx context.Context, arg ListHostedAccountMiningAssetPageParams) ([]ListHostedAccountMiningAssetPageRow, error)
+	// Include retained assignments even after retirement or policy changes.
+	ListHostedAccountMiningAssets(ctx context.Context, arg ListHostedAccountMiningAssetsParams) ([]ListHostedAccountMiningAssetsRow, error)
 	ListHostedAccountPools(ctx context.Context, arg ListHostedAccountPoolsParams) ([]ListHostedAccountPoolsRow, error)
 	ListHostedAccountSites(ctx context.Context, arg ListHostedAccountSitesParams) ([]ListHostedAccountSitesRow, error)
 	// Resolve the entire account list in one snapshot. A parent filter is used only
@@ -1573,7 +1592,8 @@ type Querier interface {
 	ListSiteSlugs(ctx context.Context, orgID int64) ([]string, error)
 	// Returns each site with attachment counts so the delete-confirm dialog
 	// can show "N miners, M buildings, K racks, J infrastructure devices"
-	// without an extra round trip.
+	// without an extra round trip. These UI categories include CT1 modules,
+	// containers, and present tanks respectively.
 	ListSites(ctx context.Context, orgID int64) ([]ListSitesRow, error)
 	// Which candidate labels are already live in the org for this type. Backs bulk
 	// create's duplicate check: uk_device_collection_org_type_label spans
@@ -1590,6 +1610,7 @@ type Querier interface {
 	ListUnresolvedDeviceWriteAttempts(ctx context.Context, arg ListUnresolvedDeviceWriteAttemptsParams) ([]DeviceWriteAttempt, error)
 	ListUsersForOrganization(ctx context.Context, organizationID int64) ([]ListUsersForOrganizationRow, error)
 	LockActiveHostedAccountUser(ctx context.Context, arg LockActiveHostedAccountUserParams) (User, error)
+	LockActiveHostedAccountUserForShare(ctx context.Context, arg LockActiveHostedAccountUserForShareParams) (User, error)
 	// Break-glass resets intentionally target the sole live org-scope
 	// SUPER_ADMIN. Lock the complete identity/assignment chain so concurrent
 	// resets serialize on the same rows. The live membership join matches what
@@ -1630,6 +1651,7 @@ type Querier interface {
 	LockCommandBatch(ctx context.Context, argUuid string) (BatchStatusEnum, error)
 	// Lock current ownership/site through dispatch; child inventory IDs are never targets.
 	LockContainerCommandTarget(ctx context.Context, arg LockContainerCommandTargetParams) (LockContainerCommandTargetRow, error)
+	LockContainersForSiteAssignment(ctx context.Context, arg LockContainersForSiteAssignmentParams) ([]LockContainersForSiteAssignmentRow, error)
 	// Keep the current event and its immutable selector in the same transaction
 	// as dynamic membership fencing and target admission.
 	LockCurtailmentAdmissionEventForWrite(ctx context.Context, curtailmentEventID int64) (LockCurtailmentAdmissionEventForWriteRow, error)
@@ -1722,9 +1744,13 @@ type Querier interface {
 	// Serialize cross-controller identity/placement reconciliation within an org.
 	LockHashboardOrganization(ctx context.Context, identifier string) (int64, error)
 	LockHostedAccountAdministrators(ctx context.Context, arg LockHostedAccountAdministratorsParams) ([]int64, error)
+	LockHostedAccountAssetInventory(ctx context.Context, deviceIds []int64) error
 	// Serialize hierarchy, policy, and membership mutations for one organization.
 	// Allow foreign-key KEY SHARE locks from concurrent organization role writes.
 	LockHostedAccountOrganization(ctx context.Context, id int64) (int64, error)
+	// Reports may overlap, while hierarchy, policy, membership and allocation
+	// mutations keep their exclusive organization admission lock.
+	LockHostedAccountOrganizationForShare(ctx context.Context, id int64) (int64, error)
 	// Canonical serialization point for device moves/deletes and response-profile
 	// references. Callers lock parent sites first, then device rows by ID.
 	LockInfrastructureDeviceForWrite(ctx context.Context, arg LockInfrastructureDeviceForWriteParams) (int64, error)
@@ -1904,6 +1930,10 @@ type Querier interface {
 	// Late samples must not resurrect devices moved to UNPAIRED,
 	// AUTHENTICATION_NEEDED, PENDING, or FAILED by another flow.
 	ReconcileDefaultPasswordPairingStatusByIdentifier(ctx context.Context, arg ReconcileDefaultPasswordPairingStatusByIdentifierParams) (ReconcileDefaultPasswordPairingStatusByIdentifierRow, error)
+	// The status and reboot-boundary predicates apply to the current status row even
+	// after waiting for a concurrent firmware install's write to finish. Boot
+	// evidence from an earlier install must not clear a later pending reboot.
+	ReconcileRebootRequiredStatus(ctx context.Context, arg ReconcileRebootRequiredStatusParams) (int64, error)
 	RecordCurtailPendingDispatch(ctx context.Context, arg RecordCurtailPendingDispatchParams) (int64, error)
 	RecordDeviceWriteRecovery(ctx context.Context, arg RecordDeviceWriteRecoveryParams) error
 	// Managed-deployment provenance: the miners listed reported the artifact a
@@ -2056,6 +2086,7 @@ type Querier interface {
 	SetFirmwareRolloutControllerWait(ctx context.Context, arg SetFirmwareRolloutControllerWaitParams) error
 	SetFleetNodeEnrollmentStatus(ctx context.Context, arg SetFleetNodeEnrollmentStatusParams) (int64, error)
 	SetHostedAccountAncestorGrant(ctx context.Context, arg SetHostedAccountAncestorGrantParams) error
+	SetHostedAccountAsset(ctx context.Context, arg SetHostedAccountAssetParams) (int64, error)
 	SetHostedAccountMembership(ctx context.Context, arg SetHostedAccountMembershipParams) error
 	SetHostedAccountPoolProfile(ctx context.Context, arg SetHostedAccountPoolProfileParams) (int64, error)
 	SetHostedAccountSitesRestricted(ctx context.Context, arg SetHostedAccountSitesRestrictedParams) error
@@ -2159,7 +2190,8 @@ type Querier interface {
 	SoftDeleteUserFromOrganization(ctx context.Context, arg SoftDeleteUserFromOrganizationParams) error
 	StampContainerSample(ctx context.Context, arg StampContainerSampleParams) error
 	// Board health time can precede the poll. Stamp only samples inserted by this
-	// collection, using their primary keys rather than scanning the retained history.
+	// collection. The function groups by exact source time and supplies explicit
+	// board/time filters before Timescale decompresses batches, including generic plans.
 	StampHashboardTopology(ctx context.Context, arg StampHashboardTopologyParams) error
 	// Reclaims rows for never-created rule UIDs left by ambiguous create failures (see CreateRule).
 	// The hour of slack protects in-flight creates, whose config row lands before the Grafana rule exists.

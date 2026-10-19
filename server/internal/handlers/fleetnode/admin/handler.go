@@ -85,6 +85,9 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 			summary.FleetNodeId = n.ID
 			summary.PairedDeviceCount = pairedCounts[n.ID]
 			summary.Name = n.Name
+			summary.IpAddresses = n.IPAddresses
+			summary.Version = n.Version
+			summary.EnrolledBy = n.EnrolledBy
 			summary.IdentityFingerprint = enrollment.IdentityFingerprint(n.IdentityPubkey)
 			summary.CreatedAt = timestamppb.New(n.CreatedAt)
 			if n.PendingEnrollmentID != nil {
@@ -104,7 +107,7 @@ func (h *Handler) ConfirmFleetNode(ctx context.Context, req *connect.Request[pb.
 	if err != nil {
 		return nil, err
 	}
-	apiKey, expiresAt, err := h.enrollment.ConfirmExpected(ctx, req.Msg.GetFleetNodeId(), info.OrganizationID, req.Msg.GetPendingEnrollmentId())
+	apiKey, expiresAt, err := h.enrollment.ConfirmExpected(ctx, req.Msg.GetFleetNodeId(), info.OrganizationID, req.Msg.GetPendingEnrollmentId(), info.UserID)
 	if err != nil {
 		return nil, err
 	}

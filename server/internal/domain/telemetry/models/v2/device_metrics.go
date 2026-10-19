@@ -1,6 +1,7 @@
 package models
 
 import (
+	"math"
 	"time"
 
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
@@ -19,6 +20,14 @@ type DeviceMetrics struct {
 	DeviceIdentifier string    `json:"device_identifier"`
 	Timestamp        time.Time `json:"timestamp"`
 	FirmwareVersion  string    `json:"firmware_version,omitempty"`
+
+	// UptimeSeconds is whole elapsed seconds since boot; nil means unknown.
+	// UptimeObservedAt is the sampling request start in the collector's clock.
+	// Fleet Node samples are translated conservatively to the server's clock using
+	// the observation age and server request start. Zero time provides no reboot evidence.
+	// Cached samples retain both values unchanged.
+	UptimeSeconds    *uint64   `json:"uptime_seconds,omitempty"`
+	UptimeObservedAt time.Time `json:"uptime_observed_at,omitzero"`
 
 	// Device-level health
 	Health       HealthStatus `json:"health"`
@@ -41,6 +50,21 @@ type DeviceMetrics struct {
 	ControlBoardMetrics []ControlBoardMetrics `json:"control_board_metrics,omitempty"`
 	FanMetrics          []FanMetrics          `json:"fan_metrics,omitempty"`
 	SensorMetrics       []SensorMetrics       `json:"sensor_metrics,omitempty"`
+}
+
+// BootTimeLowerBound derives the earliest possible boot time from whole-second
+// uptime. The sampling request start and an extra second for truncation keep
+// delayed or cached observations from making an old boot appear newer.
+func (m *DeviceMetrics) BootTimeLowerBound(now time.Time) (time.Time, bool) {
+	if m.UptimeSeconds == nil || m.UptimeObservedAt.IsZero() || m.UptimeObservedAt.After(now) {
+		return time.Time{}, false
+	}
+	uptime := *m.UptimeSeconds
+	if uptime >= uint64(math.MaxInt64/int64(time.Second)) {
+		return time.Time{}, false
+	}
+	// #nosec G115 -- the bound above ensures uptime plus one second fits in time.Duration.
+	return m.UptimeObservedAt.Add(-time.Duration(uptime+1) * time.Second), true
 }
 
 // DefaultMeasurementTypes returns the standard set of measurement types for conversion.

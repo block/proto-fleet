@@ -84,6 +84,24 @@ The new `(created_at, id)` pending index keeps deterministic dequeue ordering.
 The older pending index remains part of the shared baseline catalog contract;
 removing it requires a separate shared migration and baseline decision.
 
+## Hosted account allocation rollback
+
+Migration 1028 retains allocation rows after recall. Their revisions reject stale
+selections even when no client currently owns the asset. Its down migration
+refuses any retained row; do not delete allocation history or recalled-row
+revision witnesses to make rollback succeed. Preserve the database and fix
+forward, or restore a rehearsed, coordinated application and database backup.
+Disposable development databases can be recreated.
+
+Normal application rollback and `fleet-db-transition` do not run down migrations.
+The checkpoint runner commits migration SQL and its clean checkpoint together;
+a failed migration rolls back to the previous completed checkpoint. After a
+lost commit acknowledgement, reconnect and inspect the checkpoint before retrying.
+If unsupported manual rollback tooling reports a dirty version, stop writers and
+preserve the database. Inspect the actual schema and retained allocation rows
+before choosing an evidence-preserving recovery; do not force a version or clear
+the dirty marker based only on the reported version.
+
 ## Author and promote
 
 1. Allocate numbers from internal main with
@@ -97,6 +115,21 @@ removing it requires a separate shared migration and baseline decision.
    stay private.
 4. Never edit, delete or renumber merged/released SQL. Correct it with a new pair.
    Retain legacy SQL and the migration-143 bridge for upgrade waypoints.
+
+### Migration 1026 collision recovery
+
+PRs #229 and #232 both merged migration 1026. The resulting duplicate prevents
+the migration source from loading, so a later corrective migration cannot run.
+Fleet Node details (#229, merged first) remains at 1026. Container telemetry
+compression (#232) moves to 1027 with both SQL files byte-for-byte unchanged.
+The history checker permits only this exact rename, pinned by SHA-256 checksums,
+including when checking against the broken merged history.
+
+Fresh databases apply both migrations in order. Databases at the clean 1026
+checkpoint from #229 apply compression at 1027. A database migrated from the
+standalone #232 branch may instead have compression recorded at 1026 without
+Fleet Node details; that history requires separate reconciliation before using
+this sequence. Do not force its version or assume this rename repairs it.
 
 ## Constraint and index names
 

@@ -47,6 +47,9 @@ type FleetNode struct {
 // AWAITING_CONFIRMATION lives on pending_enrollment.status, not on
 // agent.enrollment_status, so operator listings need both fields.
 type FleetNodeListing struct {
+	IPAddresses []string
+	Version     string
+	EnrolledBy  string
 	FleetNode
 	PendingEnrollmentID     *int64
 	PendingEnrollmentStatus Status

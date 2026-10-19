@@ -399,7 +399,8 @@ UPDATE device_status
 SET
     status = 'ACTIVE'::device_status_enum,
     status_timestamp = CURRENT_TIMESTAMP,
-    status_details = NULL
+    status_details = NULL,
+    reboot_required_after = NULL
 WHERE device_id = ANY($1::BIGINT[])
   AND status IN ('UPDATING', 'REBOOT_REQUIRED')
 `

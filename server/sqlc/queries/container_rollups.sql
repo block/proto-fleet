@@ -5,12 +5,11 @@ ON CONFLICT(device_id, fingerprint) DO UPDATE SET fingerprint=EXCLUDED.fingerpri
 RETURNING id;
 
 -- Board health time can precede the poll. Stamp only samples inserted by this
--- collection, using their primary keys rather than scanning the retained history.
+-- collection. The function groups by exact source time and supplies explicit
+-- board/time filters before Timescale decompresses batches, including generic plans.
 -- name: StampHashboardTopology :exec
-UPDATE hashboard_metrics m SET topology_version_id=sqlc.arg('version_id')::bigint
-FROM jsonb_to_recordset(sqlc.arg('samples')::jsonb) x(hashboard_id bigint,time timestamptz)
-WHERE m.hashboard_id=x.hashboard_id AND m.time=x.time
- AND m.collected_at=sqlc.arg('collected_at')::timestamptz;
+SELECT stamp_hashboard_topology(sqlc.arg('version_id')::bigint,
+ sqlc.arg('collected_at')::timestamptz,sqlc.arg('samples')::jsonb);
 
 -- name: InsertContainerTopologyObservation :one
 INSERT INTO container_topology_observation(device_id, version_id, collected_at, complete)
@@ -37,7 +36,7 @@ WITH inserted AS (
  x.hashrate_hs,x.power_w,x.efficiency_jh,x.temperature_c,x.min_temperature_c,x.max_temperature_c,x.coverage
  FROM jsonb_to_recordset(sqlc.arg('samples')::jsonb) x(position int,hashrate_hs double precision,power_w double precision,efficiency_jh double precision,temperature_c double precision,min_temperature_c double precision,max_temperature_c double precision,coverage jsonb)
  JOIN container_tank t ON t.device_id=sqlc.arg('device_id') AND t.position=x.position
- JOIN device d ON d.id=t.device_id
+ JOIN container_scope d ON d.id=t.device_id
  JOIN container_topology_observation o ON o.id=sqlc.arg('observation_id')
  ON CONFLICT(tank_id,time) DO NOTHING RETURNING *
 )
@@ -65,7 +64,7 @@ WHERE container_latest_metrics.time < EXCLUDED.time;
 UPDATE device_metrics SET metric_semantics=2,coverage=lm.coverage,topology_observation_id=lm.topology_observation_id,
  topology_version_id=(SELECT version_id FROM container_topology_observation WHERE id=lm.topology_observation_id),
  hash_rate_hs=lm.hashrate_hs,power_w=lm.power_w,efficiency_jh=lm.efficiency_jh,temp_c=lm.temperature_c
-FROM container_latest_metrics lm JOIN device d ON d.id=lm.device_id
+FROM container_latest_metrics lm JOIN container_scope d ON d.id=lm.device_id
 WHERE device_metrics.device_identifier=sqlc.arg('device_identifier') AND d.device_identifier=device_metrics.device_identifier
  AND device_metrics.time=sqlc.arg('time')::timestamptz AND lm.time=device_metrics.time;
 
@@ -91,7 +90,7 @@ WITH resolution AS (
  SELECT floor(extract(epoch FROM mm.bucket)/settings.width)::bigint*settings.width AS bucket,
  mm.measurement_type,mm.samples,mm.total,mm.minimum,mm.maximum,mm.reporting_count,mm.expected_count,mm.coverage_complete,
  1::float8 AS scale
- FROM container_equipment_history mm JOIN device d ON d.device_identifier=mm.container_identifier CROSS JOIN settings
+ FROM container_equipment_history mm JOIN container_scope d ON d.device_identifier=mm.container_identifier CROSS JOIN settings
  WHERE mm.equipment_kind=2 AND mm.resolution_seconds=settings.seconds AND d.device_identifier=sqlc.arg('container_identifier') AND (sqlc.arg('org_id')::bigint=0 OR d.org_id=sqlc.arg('org_id')) AND d.deleted_at IS NULL
  AND mm.bucket>=CASE WHEN settings.seconds=0 THEN sqlc.arg('start_time')::timestamptz ELSE to_timestamp(floor(extract(epoch FROM sqlc.arg('start_time')::timestamptz)/GREATEST(1,settings.seconds))*GREATEST(1,settings.seconds)) END
  AND mm.bucket<sqlc.arg('end_time')::timestamptz

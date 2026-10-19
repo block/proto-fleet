@@ -71,10 +71,11 @@ func (s *SQLFleetNodeEnrollmentStore) BindEnrollmentToFleetNode(ctx context.Cont
 	})
 }
 
-func (s *SQLFleetNodeEnrollmentStore) ConfirmEnrollment(ctx context.Context, enrollmentID int64, consumedAt time.Time) (int64, error) {
+func (s *SQLFleetNodeEnrollmentStore) ConfirmEnrollment(ctx context.Context, enrollmentID int64, consumedAt time.Time, confirmedBy int64) (int64, error) {
 	return s.q(ctx).ConfirmEnrollment(ctx, sqlc.ConfirmEnrollmentParams{
-		ConsumedAt: sql.NullTime{Time: consumedAt, Valid: true},
-		ID:         enrollmentID,
+		ConsumedAt:  sql.NullTime{Time: consumedAt, Valid: true},
+		ConfirmedBy: sql.NullInt64{Int64: confirmedBy, Valid: true},
+		ID:          enrollmentID,
 	})
 }
 
@@ -175,6 +176,9 @@ func (s *SQLFleetNodeEnrollmentStore) ListFleetNodesForOrganization(ctx context.
 	for _, r := range rows {
 		out = append(out, enrollment.FleetNodeListing{
 			FleetNode:               *rowToFleetNode(r.ID, r.OrgID, r.Name, r.IdentityPubkey, nil, r.EnrollmentStatus, r.LastSeenAt, r.CreatedAt, r.UpdatedAt),
+			IPAddresses:             r.IpAddresses,
+			Version:                 r.Version,
+			EnrolledBy:              r.EnrolledBy,
 			PendingEnrollmentID:     nullInt64ToPtr(r.PendingEnrollmentID),
 			PendingEnrollmentStatus: enrollment.Status(r.PendingEnrollmentStatus),
 		})
@@ -202,11 +206,13 @@ func (s *SQLFleetNodeEnrollmentStore) SoftDeleteFleetNodesForExpiredEnrollments(
 	return s.q(ctx).SoftDeleteFleetNodesForExpiredEnrollments(ctx, sql.NullTime{Time: now, Valid: true})
 }
 
-func (s *SQLFleetNodeEnrollmentStore) UpdateLastSeen(ctx context.Context, fleetNodeID, orgID int64, now time.Time) (int64, error) {
+func (s *SQLFleetNodeEnrollmentStore) UpdateLastSeen(ctx context.Context, fleetNodeID, orgID int64, now time.Time, ipAddresses []string, version string) (int64, error) {
 	return s.q(ctx).UpdateFleetNodeLastSeenAt(ctx, sqlc.UpdateFleetNodeLastSeenAtParams{
-		LastSeenAt: now,
-		ID:         fleetNodeID,
-		OrgID:      orgID,
+		LastSeenAt:  now,
+		IpAddresses: ipAddresses,
+		Version:     version,
+		ID:          fleetNodeID,
+		OrgID:       orgID,
 	})
 }
 

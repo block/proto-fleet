@@ -149,6 +149,29 @@ WHERE uor.user_id = $1
 ORDER BY uor.id, p.key NULLS FIRST
 FOR NO KEY UPDATE OF uor, u, r;
 
+-- name: ListEffectivePermissionsForUserForShare :many
+-- Reporting rechecks may overlap while still excluding assignment revocation,
+-- user deactivation and role-permission edits until the report commits.
+SELECT
+    uor.id          AS assignment_id,
+    uor.role_id     AS role_id,
+    uor.scope_type  AS scope_type,
+    uor.scope_id    AS scope_id,
+    p.key           AS permission_key
+FROM user_organization_role uor
+JOIN role r              ON r.id = uor.role_id
+                        AND r.organization_id = uor.organization_id
+JOIN "user" u            ON u.id = uor.user_id
+LEFT JOIN role_permission rp ON rp.role_id = r.id
+LEFT JOIN permission p       ON p.id = rp.permission_id
+WHERE uor.user_id = $1
+  AND uor.organization_id = $2
+  AND uor.deleted_at IS NULL
+  AND r.deleted_at IS NULL
+  AND u.deleted_at IS NULL
+ORDER BY uor.id, p.key NULLS FIRST
+FOR SHARE OF uor, u, r;
+
 -- name: ListEffectivePermissionsForUser :many
 -- Single-query resolver source: one row per (assignment, permission)
 -- pair the user holds within an organization, with a NULL permission

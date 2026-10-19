@@ -6,6 +6,8 @@ import {
   containerMiningCommand,
   requestContainerAction,
 } from "./containerActions";
+import ContainerSiteDialog from "./ContainerSiteDialog";
+import ContainerUnpairDialog from "./ContainerUnpairDialog";
 import { useOpenContainerView } from "./useOpenContainerView";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { ACTION_PERMISSIONS } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/actionPermissions";
@@ -14,7 +16,7 @@ import {
   settingsActions,
 } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/constants";
 import { usePermissions } from "@/protoFleet/store";
-import { ArrowRight, MiningPools, Play, Power, Settings, Speedometer } from "@/shared/assets/icons";
+import { ArrowRight, MiningPools, Play, Power, Settings, Speedometer, Unpair } from "@/shared/assets/icons";
 import RowActionsMenu, { type RowAction } from "@/shared/components/RowActionsMenu";
 
 // CT1 does not implement Fleet's pool configuration or firmware capabilities.
@@ -25,11 +27,21 @@ const unavailableSettings = [
   { label: "Update worker name", action: settingsActions.updateWorkerNames, icon: <MiningPools /> },
 ];
 
-export default function ContainerActionsMenu({ container }: { container: Container }) {
+export default function ContainerActionsMenu({
+  container,
+  onSiteChanged,
+  onUnpaired,
+}: {
+  container: Container;
+  onSiteChanged?: () => void;
+  onUnpaired?: (deviceIdentifier: string) => void;
+}) {
   const permissions = usePermissions();
   const openContainerView = useOpenContainerView();
   const [action, setAction] = useState<ContainerAction>();
+  const [unpairOpen, setUnpairOpen] = useState(false);
   const [open, setOpen] = useState(false);
+  const [assigningSite, setAssigningSite] = useState(false);
   const [status, setStatus] = useState<{
     deviceIdentifier: string;
     available: boolean;
@@ -108,8 +120,22 @@ export default function ContainerActionsMenu({ container }: { container: Contain
             disabled: true,
             onClick: () => undefined,
           })),
+        {
+          label: "Unpair",
+          icon: <Unpair />,
+          hidden: !permissions.includes("miner:delete"),
+          onClick: () => setUnpairOpen(true),
+        },
       ]
     : [];
+
+  if (container.canAssignSite)
+    actions.push({
+      label: "Change site",
+      icon: <Settings />,
+      showGroupDivider: true,
+      onClick: () => setAssigningSite(true),
+    });
 
   return (
     <div
@@ -129,12 +155,23 @@ export default function ContainerActionsMenu({ container }: { container: Contain
           setOpen(nextOpen);
         }}
       />
+      {assigningSite ? (
+        <ContainerSiteDialog container={container} onClose={() => setAssigningSite(false)} onSaved={onSiteChanged} />
+      ) : null}
       {action ? (
         <ContainerActionDialog
           key={`${container.deviceIdentifier}:${action.path}`}
           container={container}
           action={action}
           onClose={() => setAction(undefined)}
+        />
+      ) : null}
+      {unpairOpen ? (
+        <ContainerUnpairDialog
+          key={container.deviceIdentifier}
+          container={container}
+          onClose={() => setUnpairOpen(false)}
+          onUnpaired={onUnpaired}
         />
       ) : null}
     </div>

@@ -55,6 +55,35 @@ The SDK reserves an ID during creation and rejected-result cleanup, returning a
 retryable close error while either is running. IDs being closed cannot be reused
 until cleanup succeeds.
 
+## Firmware reboot reconciliation
+
+Proto miner telemetry clears `REBOOT_REQUIRED` when sampled uptime proves the
+miner booted after the pending update's reboot boundary, including reboots outside
+Fleet and reboot requests whose responses were lost. Uptime retains its observation
+time while cached; Fleet Node transports its age so reconciliation does not
+depend on synchronized node and server clocks. Missing or ambiguous evidence
+leaves the status unchanged. The database checks the current status and reboot boundary
+atomically so an older boot cannot clear a newer firmware update. Ordinary
+telemetry still preserves `UPDATING` and pending `REBOOT_REQUIRED` states.
+Telemetry queries the database only for devices the status writer last read as
+`UPDATING` or `REBOOT_REQUIRED`, or whose cached status hint is absent. The writer
+refreshes the hint as it processes status results. If a separate status read fails
+before a result reaches the writer, telemetry discards the hint so the next
+successful uptime sample can check for a newly recorded reboot requirement.
+
+For firmware reporting `confirming` or `success`, Fleet retains the successful
+upload time separately from the time it records `REBOOT_REQUIRED`. A proven boot
+after that upload avoids a redundant reboot and can clear a late status marker.
+The state name alone is insufficient: older firmware can reconstruct `confirming`
+after restarting only its API service. `installed` and devices without status
+reporting continue to require a boot after Fleet observes installation completion.
+Reboot completion does not establish successful image activation or rollback status.
+
+This requires firmware to report actual host uptime or omit it when unavailable.
+Older Go MDK firmware that substitutes API-process uptime after a failed
+`/proc/uptime` read must receive the corresponding firmware correction; Fleet
+cannot distinguish that fabricated value from a real host boot through MDKv1.
+
 ## Fleet Node bootstrap rate limits
 
 | RPC | Requests per source IP per minute |
@@ -246,7 +275,31 @@ The codebase follows a domain-driven design with clear separation of concerns:
 - **Commands**: Asynchronous command execution with a database-backed message queue.
 - **Fleet Management**: High-level operations for managing groups of devices (listing, filtering, monitoring status).
 - **Authentication**: Token-based auth with separate token types for clients (users) and miners (devices).
-- **Hosted Accounts**: Internal account hierarchy and fixed customer memberships, separate from organization RBAC. Live membership resolution applies ancestor restrictions and suspension; administration and audit commit together. Customer RPCs, onboarding, asset allocation, and account switching are not yet exposed.
+- **Hosted Accounts**: Account hierarchy and fixed customer memberships, separate from organization RBAC, with scoped administration, invitations, pool revisions and reporting allocations. Live authority applies ancestor ceilings, site restrictions and suspension; allocation changes and audit commit together. Session-only mining reports aggregate the account’s allocated estate, including subclients, without granting child-private account access. See [the client workspace contract](../client/README.md#hosted-account-workspaces) for persona and reporting boundaries.
+
+### Hosted mining reporting and allocation
+
+`hosted_account_asset` stores an exclusive typed mining leaf: conventional miner
+or container module, its primary customer and optional immediate subclient.
+Both account references empty means available to the host. Recalled rows retain
+monotonic revisions, so an old selection cannot overwrite a later recall and
+reassignment. Replacing/retiring a module does not transfer its reporting
+allocation to another module ID.
+
+Account View permits the primary customer estate aggregate and scoped inventory.
+Membership-management or delegation permits relative child buckets/owner labels;
+only delegation permits assignment and recall. These reporting permissions do
+not alter the existing private account resolver. A host needs account management
+and physical site/fleet/miner read authority; organization roles never supplement
+customer authority in a selected customer workspace.
+
+Allocation mutations validate an exact bounded list of typed leaves and expected
+revisions. The transaction serializes with account administration, physical
+identity bindings and container reconciliation, then rechecks eligibility and
+site scope before writing the ledger and audit. New allocations require active
+eligible hardware and destination policy. Recall can release retained unavailable
+allocations. Assignment does not reserve/activate device-write fences, dispatch
+firmware changes or apply incoming pool profiles.
 
 ### Rig Curtailment Configuration Delivery
 

@@ -230,6 +230,28 @@ func (e *EffectivePermissions) IsSubsumedBy(other *EffectivePermissions) bool {
 	return true
 }
 
+// HasAnyPermission reports whether any permission is granted at organization or
+// site scope. It only selects the Fleet workspace; resource authorization must
+// still use Has or SiteScopeFor, and private account grants remain separate.
+func (e *EffectivePermissions) HasAnyPermission() bool {
+	if e == nil {
+		return false
+	}
+	for _, granted := range e.orgScope {
+		if granted {
+			return true
+		}
+	}
+	for _, permissions := range e.bySite {
+		for _, granted := range permissions {
+			if granted {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Keys returns every distinct default-scope permission key the user holds,
 // sorted lexicographically. UserInfo.permissions is projected from this for
 // client UI gates that map to org-scoped RPCs. Narrower resource-scoped grants

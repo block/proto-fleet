@@ -164,6 +164,7 @@ const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | u
   clear_rack_slot: (entry) => withTarget("Updated rack position", displayName(entry)),
   save_rack: (entry) => withTarget("Saved rack", displayName(entry)),
   unpair_miners: () => "Unpaired miners",
+  unpair_container: () => "Unpaired container",
   rename_miners: () => "Renamed miners",
 
   create_pool: (entry) => withTarget("Created pool", displayName(entry, "pool_name")),

@@ -25,6 +25,7 @@ export interface BreadcrumbSibling {
 export interface BreadcrumbSegment {
   label: string;
   to?: string;
+  onSelect?: () => void;
   siblings?: BreadcrumbSibling[];
 }
 
@@ -103,6 +104,7 @@ const Breadcrumb = ({ segments, testId = "breadcrumb", className }: BreadcrumbPr
             {!isLast && seg.to ? (
               <Link
                 to={seg.to}
+                onClick={seg.onSelect}
                 className="text-text-primary underline hover:opacity-80"
                 data-testid={`${testId}-link-${i}`}
               >

@@ -1,37 +1,48 @@
+import clsx from "clsx";
+
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 
 interface ListPaginationProps {
-  currentPage: number;
-  pageSize: number;
-  visibleCount: number;
-  total: number;
+  firstItemIndex: number;
+  lastItemIndex: number;
+  total?: number;
+  hasPreviousPage: boolean;
   itemName: string;
   hasNextPage: boolean;
   loading?: boolean;
+  className?: string;
+  testId?: string;
   onPrevious: () => void;
   onNext: () => void;
 }
 
 const ListPagination = ({
-  currentPage,
-  pageSize,
-  visibleCount,
+  firstItemIndex,
+  lastItemIndex,
+  hasPreviousPage,
   total,
   itemName,
   hasNextPage,
   loading = false,
+  className = "py-6",
+  testId,
   onPrevious,
   onNext,
 }: ListPaginationProps) => {
-  if (total <= 0) return null;
-  const firstItem = currentPage * pageSize + 1;
-  const lastItem = currentPage * pageSize + visibleCount;
+  if (total === 0 && !hasPreviousPage) return null;
 
   return (
-    <div className="flex flex-col items-center gap-4 py-6">
+    <div className={clsx("flex flex-col items-center gap-4", className)} data-testid={testId}>
       <span className="text-300 text-text-primary">
-        Showing {firstItem}–{lastItem} of {total} {itemName}
+        {lastItemIndex < firstItemIndex ? (
+          <>No {itemName} on this page</>
+        ) : (
+          <>
+            Showing {firstItemIndex}–{lastItemIndex}
+            {total === undefined ? "" : ` of ${total}`} {itemName}
+          </>
+        )}
       </span>
       <div className="flex gap-3">
         <Button
@@ -40,7 +51,7 @@ const ListPagination = ({
           ariaLabel="Previous page"
           prefixIcon={<ChevronDown className="rotate-90" />}
           onClick={onPrevious}
-          disabled={loading || currentPage === 0}
+          disabled={loading || !hasPreviousPage}
         />
         <Button
           variant={variants.secondary}

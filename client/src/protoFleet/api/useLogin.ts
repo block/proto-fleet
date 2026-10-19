@@ -25,6 +25,8 @@ interface LoginProps {
    * where a failed attempt should show an error, not log the user out.
    */
   skipLogoutOnError?: boolean;
+  /** Cancels a page-owned login without updating authentication after it leaves. */
+  signal?: AbortSignal;
 }
 
 const useLogin = () => {
@@ -37,10 +39,11 @@ const useLogin = () => {
   const { handleAuthErrors } = useAuthErrors();
 
   const login = useCallback(
-    async ({ loginRequest, onSuccess, onError, onFinally, skipLogoutOnError }: LoginProps) => {
+    async ({ loginRequest, onSuccess, onError, onFinally, skipLogoutOnError, signal }: LoginProps) => {
       await authClient
-        .authenticate(loginRequest)
+        .authenticate(loginRequest, { signal })
         .then((res) => {
+          if (signal?.aborted) return;
           const sessionExpiry = res.sessionExpiry;
           const userInfo = res.userInfo;
 
@@ -62,6 +65,7 @@ const useLogin = () => {
           onSuccess?.(userInfo.requiresPasswordChange);
         })
         .catch((err) => {
+          if (signal?.aborted) return;
           if (skipLogoutOnError) {
             onError?.(getErrorMessage(err));
             return;
@@ -75,7 +79,7 @@ const useLogin = () => {
           });
         })
         .finally(() => {
-          onFinally?.();
+          if (!signal?.aborted) onFinally?.();
         });
     },
     [setSessionExpiry, setIsAuthenticated, setUsername, setRole, setPermissions, setAuthLoading, handleAuthErrors],

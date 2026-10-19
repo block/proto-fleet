@@ -4,12 +4,14 @@ import clsx from "clsx";
 
 import { onboardingClient } from "@/protoFleet/api/clients";
 import AppLayout from "@/protoFleet/components/AppLayout";
+import { HostedAccountsProvider } from "@/protoFleet/features/hostedAccounts/HostedAccountsProvider";
+import { HostWorkspaceGate } from "@/protoFleet/features/hostedAccounts/HostWorkspaceGate";
 import { requiresAuth } from "@/protoFleet/routeAuth";
 import { globalRoutePrefetch } from "@/protoFleet/routePrefetch";
 import type { ProtoFleetRouteHandle } from "@/protoFleet/routing/routeHandle";
 import { useCheckAuthentication, useIsActionBarVisible } from "@/protoFleet/store";
 import { useDeviceTheme, useSetDeviceTheme, useTheme } from "@/protoFleet/store";
-import { redirectFromFleetDown } from "@/protoFleet/utils/fleetDownRedirect";
+import { fleetDownReturnPath, redirectFromFleetDown } from "@/protoFleet/utils/fleetDownRedirect";
 import ErrorBoundary from "@/shared/components/ErrorBoundary";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { useApplyTheme } from "@/shared/features/preferences";
@@ -49,7 +51,7 @@ const App = ({ children, fullscreen }: AppProps) => {
       } catch (error: unknown) {
         // Only redirect to error page if backend is down AND not already on error page
         if (isBackendDownError(error) && !isOnFleetDownErrorPage && isMounted) {
-          const currentPath = window.location.pathname + window.location.search + window.location.hash;
+          const currentPath = fleetDownReturnPath(window.location);
           window.location.href = `/fleet-down?from=${encodeURIComponent(currentPath)}`;
         }
       }
@@ -128,31 +130,35 @@ const App = ({ children, fullscreen }: AppProps) => {
   // ============================================================================
   return (
     <ErrorBoundary onError={handleRenderError}>
-      {/* Toaster - Fixed position, renders above overlays (z-50) and dialogs (z-40) */}
-      <div
-        className={clsx(
-          "fixed right-4 z-60 transition-[bottom] duration-200 phone:right-2",
-          isActionBarVisible ? "bottom-24 phone:bottom-30 tablet-only:bottom-30" : "bottom-4 phone:bottom-2",
-        )}
-      >
-        <Toaster />
-      </div>
+      <HostedAccountsProvider>
+        {/* Toaster - Fixed position, renders above overlays (z-50) and dialogs (z-40) */}
+        <div
+          className={clsx(
+            "fixed right-4 z-60 transition-[bottom] duration-200 phone:right-2",
+            isActionBarVisible ? "bottom-24 phone:bottom-30 tablet-only:bottom-30" : "bottom-4 phone:bottom-2",
+          )}
+        >
+          <Toaster />
+        </div>
 
-      <Suspense
-        fallback={
-          <div className="flex min-h-screen items-center justify-center">
-            <ProgressCircular indeterminate />
-          </div>
-        }
-      >
-        {fullscreen ? (
-          // Fullscreen mode: Just render children without AppLayout chrome
-          children
-        ) : (
-          // Normal mode: Render with AppLayout
-          <AppLayout hideShellHeader={hideShellHeader}>{children}</AppLayout>
-        )}
-      </Suspense>
+        <Suspense
+          fallback={
+            <div className="flex min-h-screen items-center justify-center">
+              <ProgressCircular indeterminate />
+            </div>
+          }
+        >
+          {fullscreen ? (
+            // Fullscreen mode: Just render children without AppLayout chrome
+            children
+          ) : (
+            // Normal mode: Render with AppLayout
+            <HostWorkspaceGate>
+              <AppLayout hideShellHeader={hideShellHeader}>{children}</AppLayout>
+            </HostWorkspaceGate>
+          )}
+        </Suspense>
+      </HostedAccountsProvider>
     </ErrorBoundary>
   );
 };

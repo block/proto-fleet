@@ -10,6 +10,15 @@ type MinerMeasurementProps = {
   className?: string;
 };
 
+export const MinerMetricValue = ({ value, unit }: { value?: number | string; unit: string }) =>
+  value === undefined ? (
+    <>{INACTIVE_PLACEHOLDER}</>
+  ) : (
+    <>
+      {getDisplayValue(value)} {unit}
+    </>
+  );
+
 const MinerMeasurement = ({ measurement, unit, className }: MinerMeasurementProps) => {
   // undefined = telemetry not loaded yet (show skeleton)
   if (measurement === undefined) {
@@ -28,16 +37,7 @@ const MinerMeasurement = ({ measurement, unit, className }: MinerMeasurementProp
 
   const latestValue = getLatestMeasurementWithData(measurement)?.value;
 
-  // Show value if available
-  if (latestValue !== undefined) {
-    return (
-      <>
-        {getDisplayValue(latestValue)} {unit}
-      </>
-    );
-  }
-
-  return <>{INACTIVE_PLACEHOLDER}</>;
+  return <MinerMetricValue value={latestValue} unit={unit} />;
 };
 
 export default MinerMeasurement;

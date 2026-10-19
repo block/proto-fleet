@@ -1,10 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
 import type { InventoryPartItem } from "../../types";
-import ListPagination from "../ListPagination";
 import AdjustPartModal from "./AdjustPartModal";
 import CreatePartModal from "./CreatePartModal";
 import DeletePartModal from "./DeletePartModal";
 import ImportCsvModal from "./ImportCsvModal";
+import ListPagination from "@/protoFleet/components/ListPagination";
 import ListSearchInput from "@/protoFleet/components/ListSearchInput";
 import { useInventory } from "@/protoFleet/features/maintenance/hooks/useInventory";
 import { useMaintenanceOptions } from "@/protoFleet/features/maintenance/hooks/useMaintenanceOptions";
@@ -227,9 +227,9 @@ const InventoryTab = () => {
       )}
 
       <ListPagination
-        currentPage={inventory.currentPage}
-        pageSize={50}
-        visibleCount={inventory.data.length}
+        firstItemIndex={inventory.currentPage * 50 + 1}
+        lastItemIndex={inventory.currentPage * 50 + inventory.data.length}
+        hasPreviousPage={inventory.currentPage > 0}
         total={inventory.total}
         itemName="parts"
         hasNextPage={!!inventory.nextPageToken}

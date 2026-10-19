@@ -7,10 +7,11 @@ import { usePreventScroll } from "@/shared/hooks/usePreventScroll";
 
 type FloatingNavigationProps = {
   items: NavItem[];
+  roleLabel?: string;
   closeMenu?: () => void;
 };
 
-const FloatingNavigation = ({ items, closeMenu }: FloatingNavigationProps) => {
+const FloatingNavigation = ({ items, closeMenu, roleLabel }: FloatingNavigationProps) => {
   const [isVisible, setIsVisible] = useState(true);
   const dialogRef = useRef<HTMLDivElement>(null);
   const { preventScroll } = usePreventScroll();
@@ -73,7 +74,13 @@ const FloatingNavigation = ({ items, closeMenu }: FloatingNavigationProps) => {
           "animate-[slide-left-nav_.3s_ease-in-out]": !isVisible,
         })}
       >
-        <Navigation items={items} className="rounded-r-xl" closeMenu={handleCloseMenu} isFloatingMenu />
+        <Navigation
+          roleLabel={roleLabel}
+          items={items}
+          className="rounded-r-xl"
+          closeMenu={handleCloseMenu}
+          isFloatingMenu
+        />
       </div>
     </div>
   );

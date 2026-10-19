@@ -5,6 +5,9 @@ import { createBrowserRouter, LoaderFunction, LoaderFunctionArgs, Navigate, Outl
 import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import {
+  importAccountDirectory,
+  importAccountInvitation,
+  importAccountWorkspace,
   importActivityPage,
   importAuth,
   importBuildingPage,
@@ -66,6 +69,10 @@ import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 // Route import factories and prefetch tier arrays live in
 // `routePrefetch.ts` so consumers can import the tiers without a cycle
 // through this file. Auth metadata for the router lives in `routeAuth.ts`.
+
+const AccountDirectory = lazy(importAccountDirectory);
+const AccountWorkspace = lazy(importAccountWorkspace);
+const AccountInvitation = lazy(importAccountInvitation);
 
 const Dashboard = lazy(importDashboard);
 const Miners = lazy(importMiners);
@@ -279,6 +286,10 @@ const router = createBrowserRouter([
     ),
     children: singleMinerRoutes,
   },
+
+  createRoute("/accounts", <AccountDirectory />, { fullscreen: true }),
+  createRoute("/accounts/:accountId/:section?", <AccountWorkspace />, { fullscreen: true }),
+  createRoute("/account-invitation", <AccountInvitation />, { fullscreen: true }),
 
   // Settings routes
   {

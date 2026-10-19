@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 
 import { create } from "@bufbuild/protobuf";
@@ -18,14 +18,20 @@ import { deepClone } from "@/shared/utils/utility";
 
 interface LoginFormProps {
   onDismiss?: () => void;
+  secondaryAction?: ReactNode;
   onSuccess: (requiresPasswordChange: boolean) => void;
 }
 
-const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
+const LoginForm = ({ onDismiss, onSuccess, secondaryAction }: LoginFormProps) => {
   const [values, setValues] = useState<Values>(deepClone(initValues));
   const [errors, setErrors] = useState<Values>(deepClone(initValues));
   const [apiError, setApiError] = useState<string | null>(null);
   const login = useLogin();
+  const [lifetime] = useState(() => ({ controller: new AbortController() }));
+  useEffect(() => {
+    if (lifetime.controller.signal.aborted) lifetime.controller = new AbortController();
+    return () => lifetime.controller.abort();
+  }, [lifetime]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const setTemporaryPassword = useSetTemporaryPassword();
 
@@ -42,6 +48,7 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
   const handleContinue = useCallback(() => {
     setIsSubmitting(true);
     login({
+      signal: lifetime.controller.signal,
       loginRequest: create(AuthenticateRequestSchema, {
         username: values.username,
         password: values.password,
@@ -55,7 +62,7 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
       onError: () => setApiError("Invalid credentials entered."),
       onFinally: () => setIsSubmitting(false),
     });
-  }, [login, values.username, values.password, onSuccess, setTemporaryPassword]);
+  }, [login, lifetime, values.username, values.password, onSuccess, setTemporaryPassword]);
 
   const handleEnter = useCallback(() => {
     if (isSubmitting) {
@@ -130,6 +137,7 @@ const LoginForm = ({ onDismiss, onSuccess }: LoginFormProps) => {
             ].filter((button) => !!button.text) as ButtonProps[]
           }
         />
+        {secondaryAction}
       </div>
       <div className="flex flex-col gap-2">
         <div className="text-300 text-text-primary-70">Powerful mining tools. Built for decentralization.</div>

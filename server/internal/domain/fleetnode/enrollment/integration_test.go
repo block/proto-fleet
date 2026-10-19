@@ -69,7 +69,7 @@ func TestEnrollmentHappyPath(t *testing.T) {
 	require.Equal(t, orgID, agent.OrgID)
 
 	// Act 3: operator confirms; api_key is issued
-	apiKeyPlaintext, _, err := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID)
+	apiKeyPlaintext, _, err := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID, 1)
 	require.NoError(t, err)
 	require.NotEmpty(t, apiKeyPlaintext)
 
@@ -134,7 +134,7 @@ func TestCompleteHandshakeRejectsReplayedChallenge(t *testing.T) {
 	pubKey, privKey, _ := ed25519.GenerateKey(rand.Reader)
 	code, pendingEnrollmentID, _, _ := enrollment.CreateCodeWithEnrollmentID(ctx, userID, orgID, time.Hour)
 	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, []byte("01234567890123456789012345678901"))
-	apiKeyPlaintext, _, _ := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID)
+	apiKeyPlaintext, _, _ := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID, 1)
 	challenge, _, err := auth.BeginHandshake(ctx, apiKeyPlaintext, pubKey)
 	require.NoError(t, err)
 	signature := ed25519.Sign(privKey, challenge)
@@ -155,7 +155,7 @@ func TestBeginHandshakeRejectsMismatchedIdentityPubkey(t *testing.T) {
 	enrolledPubKey, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, pendingEnrollmentID, _, _ := enrollment.CreateCodeWithEnrollmentID(ctx, userID, orgID, time.Hour)
 	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", enrolledPubKey, []byte("01234567890123456789012345678901"))
-	apiKeyPlaintext, _, _ := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID)
+	apiKeyPlaintext, _, _ := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID, 1)
 	differentPubKey, _, _ := ed25519.GenerateKey(rand.Reader)
 
 	// Act
@@ -195,7 +195,7 @@ func TestConfirmRejectsExpiredEnrollment(t *testing.T) {
 	require.NoError(t, err)
 
 	// Act
-	_, _, err = enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID)
+	_, _, err = enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID, 1)
 
 	// Assert
 	require.Error(t, err)
@@ -215,7 +215,7 @@ func TestConfirmExpectedRejectsMismatchedPendingEnrollment(t *testing.T) {
 	require.NoError(t, err)
 
 	// Act
-	apiKeyPlaintext, _, confirmErr := enrollment.ConfirmExpected(ctx, agent.ID, orgID, otherPendingEnrollmentID)
+	apiKeyPlaintext, _, confirmErr := enrollment.ConfirmExpected(ctx, agent.ID, orgID, otherPendingEnrollmentID, 1)
 
 	// Assert
 	require.Error(t, confirmErr)
@@ -232,7 +232,7 @@ func TestRevokeAgentLocksOutHandshake(t *testing.T) {
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, pendingEnrollmentID, _, _ := enrollment.CreateCodeWithEnrollmentID(ctx, userID, orgID, time.Hour)
 	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, []byte("01234567890123456789012345678901"))
-	apiKeyPlaintext, _, _ := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID)
+	apiKeyPlaintext, _, _ := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID, 1)
 
 	// Act
 	err := enrollment.RevokeFleetNode(ctx, agent.ID, orgID)
@@ -250,7 +250,7 @@ func TestRevokeFleetNodeInvalidatesPairedDeviceMiners(t *testing.T) {
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, pendingEnrollmentID, _, _ := enrollment.CreateCodeWithEnrollmentID(ctx, userID, orgID, time.Hour)
 	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-invalidate", pubKey, []byte("01234567890123456789012345678901"))
-	_, _, err := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID)
+	_, _, err := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID, 1)
 	require.NoError(t, err)
 	deviceA := insertFleetNodeDevice(t, db, orgID, agent.ID)
 	deviceB := insertFleetNodeDevice(t, db, orgID, agent.ID)
@@ -317,7 +317,7 @@ func TestConcurrentBeginHandshakesYieldOneChallenge(t *testing.T) {
 	pubKey, _, _ := ed25519.GenerateKey(rand.Reader)
 	code, pendingEnrollmentID, _, _ := enrollment.CreateCodeWithEnrollmentID(ctx, userID, orgID, time.Hour)
 	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, []byte("01234567890123456789012345678901"))
-	apiKeyPlaintext, _, _ := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID)
+	apiKeyPlaintext, _, _ := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID, 1)
 
 	// Act
 	const callers = 10
@@ -370,7 +370,7 @@ func TestRevokeBeforeConfirmCannotBeResurrected(t *testing.T) {
 	require.NoError(t, enrollment.RevokeFleetNodeForEnrollment(ctx, agent.ID, orgID, pendingEnrollmentID))
 
 	// Act
-	_, _, confirmErr := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID)
+	_, _, confirmErr := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID, 1)
 
 	// Assert
 	require.Error(t, confirmErr, "Confirm must reject a revoked agent")
@@ -383,7 +383,7 @@ func TestConcurrentCompleteHandshakesYieldOneSession(t *testing.T) {
 	pubKey, privKey, _ := ed25519.GenerateKey(rand.Reader)
 	code, pendingEnrollmentID, _, _ := enrollment.CreateCodeWithEnrollmentID(ctx, userID, orgID, time.Hour)
 	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, []byte("01234567890123456789012345678901"))
-	apiKeyPlaintext, _, _ := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID)
+	apiKeyPlaintext, _, _ := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID, 1)
 	// Pre-mint challenges so multiple CompleteHandshake calls can race against
 	// the latest one. Each BeginHandshake replaces the prior; the test then
 	// races as many CompleteHandshakes as we have stored signatures.
@@ -423,7 +423,7 @@ func TestCompleteHandshakeRaceWithRevokeReturnsUnauthenticated(t *testing.T) {
 	pubKey, privKey, _ := ed25519.GenerateKey(rand.Reader)
 	code, pendingEnrollmentID, _, _ := enrollment.CreateCodeWithEnrollmentID(ctx, userID, orgID, time.Hour)
 	agent, _, _ := enrollment.RegisterFleetNode(ctx, code, "agent-1", pubKey, []byte("01234567890123456789012345678901"))
-	apiKeyPlaintext, _, _ := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID)
+	apiKeyPlaintext, _, _ := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID, 1)
 	challenge, _, err := auth.BeginHandshake(ctx, apiKeyPlaintext, pubKey)
 	require.NoError(t, err)
 	require.NoError(t, enrollment.RevokeFleetNode(ctx, agent.ID, orgID))
@@ -449,7 +449,7 @@ func TestConfirmRejectsAgentRevokedMidConfirm(t *testing.T) {
 	require.NoError(t, err)
 
 	// Act
-	_, _, confirmErr := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID)
+	_, _, confirmErr := enrollment.ConfirmExpected(ctx, agent.ID, orgID, pendingEnrollmentID, 1)
 
 	// Assert
 	require.Error(t, confirmErr, "Confirm must reject when the agent is soft-deleted")
@@ -502,7 +502,7 @@ func TestConfirmRejectsBeforeRegister(t *testing.T) {
 	_, _, orgID, enrollment, _ := setupEnrollmentTest(t)
 
 	// Act
-	_, _, err := enrollment.ConfirmExpected(ctx, 99999, orgID, 1)
+	_, _, err := enrollment.ConfirmExpected(ctx, 99999, orgID, 1, 1)
 
 	// Assert
 	require.Error(t, err)

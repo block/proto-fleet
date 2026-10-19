@@ -58,6 +58,9 @@ const (
 	// ContainerServiceListContainersProcedure is the fully-qualified name of the ContainerService's
 	// ListContainers RPC.
 	ContainerServiceListContainersProcedure = "/containers.v1.ContainerService/ListContainers"
+	// ContainerServiceListContainerPlacementsProcedure is the fully-qualified name of the
+	// ContainerService's ListContainerPlacements RPC.
+	ContainerServiceListContainerPlacementsProcedure = "/containers.v1.ContainerService/ListContainerPlacements"
 )
 
 // ContainerServiceClient is a client for the containers.v1.ContainerService service.
@@ -70,6 +73,8 @@ type ContainerServiceClient interface {
 	SetEquipmentControl(context.Context, *connect.Request[v1.SetEquipmentControlRequest]) (*connect.Response[v1.SetEquipmentControlResponse], error)
 	GetContainer(context.Context, *connect.Request[v1.GetContainerRequest]) (*connect.Response[v1.GetContainerResponse], error)
 	ListContainers(context.Context, *connect.Request[v1.ListContainersRequest]) (*connect.Response[v1.ListContainersResponse], error)
+	// Site management metadata only; does not grant access to container telemetry.
+	ListContainerPlacements(context.Context, *connect.Request[v1.ListContainerPlacementsRequest]) (*connect.Response[v1.ListContainerPlacementsResponse], error)
 }
 
 // NewContainerServiceClient constructs a client for the containers.v1.ContainerService service. By
@@ -122,6 +127,11 @@ func NewContainerServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			baseURL+ContainerServiceListContainersProcedure,
 			opts...,
 		),
+		listContainerPlacements: connect.NewClient[v1.ListContainerPlacementsRequest, v1.ListContainerPlacementsResponse](
+			httpClient,
+			baseURL+ContainerServiceListContainerPlacementsProcedure,
+			opts...,
+		),
 	}
 }
 
@@ -135,6 +145,7 @@ type containerServiceClient struct {
 	setEquipmentControl       *connect.Client[v1.SetEquipmentControlRequest, v1.SetEquipmentControlResponse]
 	getContainer              *connect.Client[v1.GetContainerRequest, v1.GetContainerResponse]
 	listContainers            *connect.Client[v1.ListContainersRequest, v1.ListContainersResponse]
+	listContainerPlacements   *connect.Client[v1.ListContainerPlacementsRequest, v1.ListContainerPlacementsResponse]
 }
 
 // GetModuleMiningOptions calls containers.v1.ContainerService.GetModuleMiningOptions.
@@ -177,6 +188,11 @@ func (c *containerServiceClient) ListContainers(ctx context.Context, req *connec
 	return c.listContainers.CallUnary(ctx, req)
 }
 
+// ListContainerPlacements calls containers.v1.ContainerService.ListContainerPlacements.
+func (c *containerServiceClient) ListContainerPlacements(ctx context.Context, req *connect.Request[v1.ListContainerPlacementsRequest]) (*connect.Response[v1.ListContainerPlacementsResponse], error) {
+	return c.listContainerPlacements.CallUnary(ctx, req)
+}
+
 // ContainerServiceHandler is an implementation of the containers.v1.ContainerService service.
 type ContainerServiceHandler interface {
 	GetModuleMiningOptions(context.Context, *connect.Request[v1.GetModuleMiningOptionsRequest]) (*connect.Response[v1.GetModuleMiningOptionsResponse], error)
@@ -187,6 +203,8 @@ type ContainerServiceHandler interface {
 	SetEquipmentControl(context.Context, *connect.Request[v1.SetEquipmentControlRequest]) (*connect.Response[v1.SetEquipmentControlResponse], error)
 	GetContainer(context.Context, *connect.Request[v1.GetContainerRequest]) (*connect.Response[v1.GetContainerResponse], error)
 	ListContainers(context.Context, *connect.Request[v1.ListContainersRequest]) (*connect.Response[v1.ListContainersResponse], error)
+	// Site management metadata only; does not grant access to container telemetry.
+	ListContainerPlacements(context.Context, *connect.Request[v1.ListContainerPlacementsRequest]) (*connect.Response[v1.ListContainerPlacementsResponse], error)
 }
 
 // NewContainerServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -235,6 +253,11 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 		svc.ListContainers,
 		opts...,
 	)
+	containerServiceListContainerPlacementsHandler := connect.NewUnaryHandler(
+		ContainerServiceListContainerPlacementsProcedure,
+		svc.ListContainerPlacements,
+		opts...,
+	)
 	return "/containers.v1.ContainerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ContainerServiceGetModuleMiningOptionsProcedure:
@@ -253,6 +276,8 @@ func NewContainerServiceHandler(svc ContainerServiceHandler, opts ...connect.Han
 			containerServiceGetContainerHandler.ServeHTTP(w, r)
 		case ContainerServiceListContainersProcedure:
 			containerServiceListContainersHandler.ServeHTTP(w, r)
+		case ContainerServiceListContainerPlacementsProcedure:
+			containerServiceListContainerPlacementsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -292,4 +317,8 @@ func (UnimplementedContainerServiceHandler) GetContainer(context.Context, *conne
 
 func (UnimplementedContainerServiceHandler) ListContainers(context.Context, *connect.Request[v1.ListContainersRequest]) (*connect.Response[v1.ListContainersResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.ListContainers is not implemented"))
+}
+
+func (UnimplementedContainerServiceHandler) ListContainerPlacements(context.Context, *connect.Request[v1.ListContainerPlacementsRequest]) (*connect.Response[v1.ListContainerPlacementsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("containers.v1.ContainerService.ListContainerPlacements is not implemented"))
 }

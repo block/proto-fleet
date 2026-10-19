@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { COMPONENT_FILTER_OPTIONS } from "../../componentOptions";
-import ListPagination from "../ListPagination";
 import TicketDetailModal from "../TicketDetail/TicketDetailModal";
 import type { Assignee } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import {
@@ -9,6 +8,7 @@ import {
   TicketSortField,
 } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import { useMaintenanceApi } from "@/protoFleet/api/maintenance";
+import ListPagination from "@/protoFleet/components/ListPagination";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import type { ColConfig, ColTitles } from "@/shared/components/List/types";
@@ -224,9 +224,9 @@ const HistoryTab = () => {
         />
       )}
       <ListPagination
-        currentPage={currentPage}
-        pageSize={50}
-        visibleCount={items.length}
+        firstItemIndex={currentPage * 50 + 1}
+        lastItemIndex={currentPage * 50 + items.length}
+        hasPreviousPage={currentPage > 0}
         total={total}
         itemName="completed tickets"
         hasNextPage={!!next}

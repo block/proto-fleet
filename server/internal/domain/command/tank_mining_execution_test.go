@@ -54,7 +54,7 @@ func setupTankMiningExecution(t *testing.T) (*ExecutionService, *sql.DB, int64, 
 	var err error
 	_, err = conn.ExecContext(t.Context(), `UPDATE discovered_device SET device_class=2 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$1)`, deviceID)
 	require.NoError(t, err)
-	_, err = conn.ExecContext(t.Context(), `INSERT INTO container_inventory(device_id,observed_at) VALUES($1,now())`, deviceID)
+	_, err = conn.ExecContext(t.Context(), `INSERT INTO container_inventory(device_id,observed_at,org_id) SELECT id,now(),org_id FROM device WHERE id=$1`, deviceID)
 	require.NoError(t, err)
 	var tank int64
 	require.NoError(t, conn.QueryRowContext(t.Context(), `INSERT INTO container_tank(device_id,position,first_seen_at,last_seen_at) VALUES($1,1,now(),now()) RETURNING id`, deviceID).Scan(&tank))

@@ -41,8 +41,9 @@ func TestExpandResolvesSiteAndBuildingTargets(t *testing.T) {
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
 	deviceStore.EXPECT().
 		GetDeviceIdentifiersByOrgWithFilter(gomock.Any(), int64(1), &stores.MinerFilter{
-			SiteIDs:         []int64{7},
-			PairingStatuses: scheduleTargetPairingStatuses,
+			SiteIDs:           []int64{7},
+			PairingStatuses:   scheduleTargetPairingStatuses,
+			IncludeContainers: true,
 		}).
 		Return([]string{"site-miner", "shared"}, nil)
 	deviceStore.EXPECT().

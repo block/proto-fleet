@@ -69,7 +69,7 @@ func (f accountListFixture) create(t *testing.T, parentID, name string, actor, a
 	t.Helper()
 	a, err := f.svc.CreateChild(t.Context(), actor, f.org, parentID, name, administrator, AllCapabilities)
 	require.NoError(t, err)
-	return a
+	return a.Account
 }
 
 // Compare the batch projection against the mutation-path resolver, including
