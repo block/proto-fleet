@@ -6,6 +6,7 @@ import type { NavigationRail } from "./useNavigationRail";
 import { useLogoutAction } from "@/protoFleet/api/useLogout";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
 import { isNavItemAllowedByPermissions, NavItem, secondaryNavItems } from "@/protoFleet/config/navItems";
+import { useHostedAccounts } from "@/protoFleet/features/hostedAccounts/HostedAccountsContext";
 import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { scopedPath, unscopedScopablePath } from "@/protoFleet/routing/siteScope";
@@ -18,13 +19,14 @@ import { stripLeadingSlash } from "@/shared/utils/stringUtils";
 
 type NavigationProps = {
   items: NavItem[];
+  roleLabel?: string;
   className?: string;
   isFloatingMenu?: boolean;
   rail?: NavigationRail;
   closeMenu?: () => void;
 };
 
-const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail }: NavigationProps) => {
+const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail, roleLabel }: NavigationProps) => {
   const { pathname } = useLocation();
   const isExpanded = rail?.isExpanded ?? false;
   const handleNavigate = () => {
@@ -33,7 +35,8 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail 
   };
   const logout = useLogoutAction();
   const username = useUsername();
-  const role = formatRole(useRole());
+  const fleetRole = useRole();
+  const role = roleLabel ?? formatRole(fleetRole);
   const accountIdentity = role ? `${username} · ${role}` : username;
   const permissions = usePermissions();
   const featureEnabled = useNavFeatureEnabled();
@@ -45,6 +48,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail 
   const scopeLink = (item: Pick<NavItem, "path" | "scopable">) =>
     item.scopable && canScopeToSite ? scopedPath(item.path, activeSite) : item.path;
   const [settingsManuallyToggled, setSettingsManuallyToggled] = useState(false);
+  const directory = useHostedAccounts();
   const visibleItems = useMemo(
     () => items.filter((item) => isNavItemAllowedByPermissions(item, permissions)),
     [items, permissions],
@@ -54,14 +58,17 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail 
   const easeGentle = useCssVariable("--ease-gentle", cubicBezierValues);
 
   const homeItem = useMemo(() => items.find((item) => item.label === "Home"), [items]);
-  const settingsItem = useMemo(() => items.find((item) => item.label === "Settings"), [items]);
+  const accountNavigation = items.some((item) => item.path === "/accounts" || item.path?.startsWith("/accounts/"));
+  const homeTarget = homeItem?.path ? scopeLink(homeItem) : accountNavigation ? "/accounts" : undefined;
+  const settingsItem = useMemo(() => items.find((item) => item.path === "/settings"), [items]);
   const visibleSettingsItems = useMemo(
     () =>
       secondaryNavItems
         .filter((nav) => nav.parent === "/settings")
         .filter((nav) => isNavItemAllowedByPermissions(nav, permissions))
-        .filter((nav) => !nav.requiredFeature || featureEnabled[nav.requiredFeature]),
-    [featureEnabled, permissions],
+        .filter((nav) => !nav.requiredFeature || featureEnabled[nav.requiredFeature])
+        .filter((nav) => !nav.requiresHostedAccounts || (directory?.hostAccess && directory.accounts.length > 0)),
+    [featureEnabled, permissions, directory],
   );
   const visibleSettingsGroups = useMemo(
     () =>
@@ -81,13 +88,11 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail 
   // Check if current page is a settings sub-item
   const isOnSettingsSubPage = useMemo(() => {
     const _pathname = stripLeadingSlash(pathname);
-    return secondaryNavItems
-      .filter((nav) => nav.parent === "/settings")
-      .some((nav) => {
-        const _navPath = stripLeadingSlash(nav.path);
-        return _pathname === _navPath || _pathname.startsWith(`${_navPath}/`);
-      });
-  }, [pathname]);
+    return visibleSettingsItems.some((nav) => {
+      const _navPath = stripLeadingSlash(nav.path);
+      return _pathname === _navPath || _pathname.startsWith(`${_navPath}/`);
+    });
+  }, [pathname, visibleSettingsItems]);
 
   // Derive expanded state: auto-expand if on settings page OR manually toggled
   const isSettingsExpanded = settingsManuallyToggled || isOnSettingsSubPage;
@@ -96,17 +101,19 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail 
     setShowSettingsHover(hover);
   }, []);
 
-  const isCurrentPath = (item: string | Pick<NavItem, "path" | "scopable">) => {
+  const isCurrentPath = (item: string | Pick<NavItem, "path" | "scopable" | "exact">) => {
     if (typeof item === "string") {
       const _pathname = stripLeadingSlash(pathname);
       const _path = stripLeadingSlash(item);
       return _pathname === _path || _pathname.startsWith(`${_path}/`);
     }
 
+    if (item.path === "/settings" && isOnSettingsSubPage) return true;
+
     const _pathname = stripLeadingSlash(item.scopable ? unscopedScopablePath(pathname) : pathname);
     const path = item.path;
     const _path = stripLeadingSlash(path);
-    return _pathname === _path || _pathname.startsWith(`${_path}/`);
+    return _pathname === _path || (!item.exact && _pathname.startsWith(`${_path}/`));
   };
 
   return (
@@ -123,7 +130,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail 
       )}
     >
       <div className="flex min-h-0 flex-1 flex-col items-start gap-1">
-        {homeItem && homeItem.path ? (
+        {homeTarget ? (
           <div
             className={clsx(
               "flex h-15 w-full shrink-0 items-center px-3 py-3",
@@ -134,8 +141,8 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail 
             )}
           >
             <Link
-              to={scopeLink(homeItem)}
-              aria-label="Home"
+              to={homeTarget}
+              aria-label={homeItem?.path ? "Home" : "Accounts"}
               data-testid="navigation-home-link"
               onClick={handleNavigate}
               className="flex min-h-[44px] min-w-[44px] items-center px-2.5"

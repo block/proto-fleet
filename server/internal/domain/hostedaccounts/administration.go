@@ -28,6 +28,14 @@ type AccountSummary struct {
 	Revision              int64
 	EffectiveCapabilities Capabilities
 	Role                  Role
+	ManagementSummary     *ClientManagementSummary
+}
+
+type ClientManagementSummary struct {
+	MinerCount     int64
+	ModuleCount    int64
+	ContainerCount int64
+	LoginCount     int64
 }
 
 type Member struct {
@@ -74,12 +82,19 @@ func (s *Service) listAccountSummaries(ctx context.Context, actorID, orgID int64
 	}
 	result := make([]AccountSummary, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, AccountSummary{
+		item := AccountSummary{
 			AccountID: row.AccountID, ParentAccountID: row.ParentAccountID,
 			Name: row.Name, Depth: row.Depth, Capabilities: Capabilities(row.Capabilities),
 			Suspended: row.Suspended, Revision: row.Revision,
 			EffectiveCapabilities: Capabilities(row.EffectiveCapabilities), Role: Role(row.Role),
-		})
+		}
+		if parentID.Valid && row.Depth == 1 {
+			item.ManagementSummary = &ClientManagementSummary{
+				MinerCount: row.MinerCount, ModuleCount: row.ModuleCount,
+				ContainerCount: row.ContainerCount, LoginCount: row.LoginCount,
+			}
+		}
+		result = append(result, item)
 	}
 	return result, nil
 }
@@ -99,8 +114,9 @@ func (s *Service) GetAccount(ctx context.Context, actorID, orgID int64, accountI
 	return item, nil
 }
 
-// Delegation allows the parent's account policy list, never a child's private
-// membership roster, pool credentials, assets, or telemetry.
+// Delegation allows the parent's account policy list. Host client management
+// includes aggregate allocation and direct login counts, never a child's private
+// membership roster, pool credentials, or telemetry.
 func (s *Service) ListChildren(ctx context.Context, actorID, orgID int64, parentID string) ([]AccountSummary, error) {
 	path, err := loadPath(ctx, s.queries, orgID, parentID)
 	if err != nil {

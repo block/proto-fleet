@@ -2,6 +2,7 @@ import { Link, useLocation } from "react-router-dom";
 import { clsx } from "clsx";
 
 import { isNavItemAllowedByPermissions, type SecondaryNavItem } from "@/protoFleet/config/navItems";
+import { useHostedAccounts } from "@/protoFleet/features/hostedAccounts/HostedAccountsContext";
 import { useNavFeatureEnabled } from "@/protoFleet/hooks/useNavFeatureEnabled";
 import { usePermissions } from "@/protoFleet/store";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
@@ -9,25 +10,28 @@ import { stripLeadingSlash } from "@/shared/utils/stringUtils";
 
 type SecondaryNavigationProps = {
   items: SecondaryNavItem[];
+  parentPath?: string;
 };
 
-const SecondaryNavigation = ({ items }: SecondaryNavigationProps) => {
+const SecondaryNavigation = ({ items, parentPath }: SecondaryNavigationProps) => {
   const { pathname } = useLocation();
   const { isPhone } = useWindowDimensions();
   const permissions = usePermissions();
   const featureEnabled = useNavFeatureEnabled();
+  const directory = useHostedAccounts();
 
   // Phones expose Settings sections in the drawer; larger screens use this navigation.
   if (isPhone) return null;
 
   // Filter items by current-path parent, required permission, and feature gate.
   const visibleItems = items.filter((item) => {
-    const _pathname = stripLeadingSlash(pathname);
+    const _pathname = stripLeadingSlash(parentPath ?? pathname);
     const _parent = stripLeadingSlash(item.parent);
     const pathMatch = _pathname === _parent || _pathname.startsWith(`${_parent}/`);
     const permissionMatch = isNavItemAllowedByPermissions(item, permissions);
     const featureMatch = !item.requiredFeature || featureEnabled[item.requiredFeature];
-    return pathMatch && permissionMatch && featureMatch;
+    const accountMatch = !item.requiresHostedAccounts || (directory?.hostAccess && directory.accounts.length > 0);
+    return pathMatch && permissionMatch && featureMatch && accountMatch;
   });
 
   const isCurrentPath = (path: string) => {

@@ -55,7 +55,7 @@ func (f fixture) client(t *testing.T, name string, admin int64, capabilities hos
 	t.Helper()
 	a, err := f.svc.CreateChild(t.Context(), f.host, f.org, f.root, name, admin, capabilities)
 	require.NoError(t, err)
-	return a
+	return a.Account
 }
 
 func TestMembershipsAreAccountSpecificAndDoNotGrantHostPermissions(t *testing.T) {

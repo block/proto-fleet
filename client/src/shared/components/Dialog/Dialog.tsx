@@ -1,5 +1,5 @@
 import { motion } from "motion/react";
-import { ReactNode, useCallback } from "react";
+import { ReactNode, useCallback, useEffect, useRef } from "react";
 import clsx from "clsx";
 
 import { variants } from "@/shared/components/Button";
@@ -31,6 +31,7 @@ interface DialogProps {
   buttonGroupVariant?: keyof typeof groupVariants;
   buttons?: ButtonProps[];
   onDismiss?: () => void;
+  manageFocus?: boolean;
 }
 
 const Dialog = ({
@@ -51,7 +52,39 @@ const Dialog = ({
   buttonGroupVariant = groupVariants.justifyBetween,
   buttons,
   onDismiss,
+  manageFocus = false,
 }: DialogProps) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!manageFocus || open === false) return;
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const previous = document.activeElement;
+    const focusableElements = () =>
+      [...dialog.querySelectorAll<HTMLElement>("button, input, select, textarea, a[href], [tabindex]")].filter(
+        (element) => !element.matches(':disabled, [tabindex="-1"]') && element.getClientRects().length > 0,
+      );
+    (focusableElements()[0] ?? dialog).focus({ preventScroll: true });
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== "Tab" || [...document.querySelectorAll('[role="dialog"]')].slice(-1)[0] !== dialog) return;
+      const targets = focusableElements();
+      if (targets.length === 0) {
+        event.preventDefault();
+        dialog.focus({ preventScroll: true });
+        return;
+      }
+      const index = targets.findIndex((element) => element === document.activeElement);
+      if (index < 0 || (event.shiftKey && index === 0) || (!event.shiftKey && index === targets.length - 1)) {
+        event.preventDefault();
+        targets[event.shiftKey ? targets.length - 1 : 0].focus();
+      }
+    };
+    document.addEventListener("keydown", trapFocus);
+    return () => {
+      document.removeEventListener("keydown", trapFocus);
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, [manageFocus, open]);
   const slideUpAnimation = useSlideUpAnimation();
   const footerConfig = getDialogFooterConfig(buttons, buttonGroupVariant);
   const footerButtons = footerConfig.stacked
@@ -69,6 +102,11 @@ const Dialog = ({
       <PageOverlay open={open} zIndex="z-60" shouldPreventScroll={preventScroll} position="top">
         <motion.div
           {...slideUpAnimation}
+          ref={dialogRef}
+          role="dialog"
+          tabIndex={manageFocus ? -1 : undefined}
+          aria-modal="true"
+          aria-label={title}
           className={clsx(
             "mt-16 h-fit max-h-[calc(100dvh-(--spacing(32)))] w-108 max-w-[calc(100vw-theme(spacing.4))] overflow-x-hidden overflow-y-auto rounded-3xl bg-surface-elevated-base shadow-200 phone:mt-10 phone:max-h-[calc(100dvh-theme(spacing.10))] phone:w-screen phone:max-w-none phone:min-w-[100vw] phone:rounded-[16px]",
             className,

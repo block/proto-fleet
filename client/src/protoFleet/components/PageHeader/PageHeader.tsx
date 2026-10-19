@@ -309,7 +309,7 @@ function PageHeader({
                 testId="navigation-menu-button"
               />
             ) : null}
-            <div className="min-w-0 flex-1" data-testid="page-header-selector-area">
+            <div className="flex min-w-0 flex-1 items-center gap-4" data-testid="page-header-selector-area">
               {isDashboard || !canReadSites ? null : (
                 <SitePicker sites={sites} error={sitesError} onRetry={refetchSites} />
               )}

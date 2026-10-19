@@ -491,3 +491,115 @@ All shared components have Storybook stories, support light/dark themes, and inc
 - [Vite](https://vitejs.dev/guide/)
 - [Tailwind CSS](https://tailwindcss.com/docs/utility-first)
 - [Recharts](https://release--63da8268a0da9970db6992aa.chromatic.com/?path=/docs/welcome--docs)
+
+### Hosted account workspaces
+
+Hosts manage clients through Settings → Admin → Clients. Fleet navigation has
+no client account switcher. Explicitly opened client workspaces show their name
+as plain header context. Client users with one accessible account also see its
+name as plain text; users with multiple accounts retain an account picker for their
+workspaces at `/accounts/:accountId/:section`. Customers and subclients land on
+Overview, followed by Mining assets and Pools. Team, Access,
+Subclients and Settings use the API’s effective capabilities. `/accounts` lists
+accessible workspaces. Hosts retain Fleet navigation and manage Clients under
+Settings → Admin. The owner-facing `/accounts` page directly lists managed clients
+and offers **Create client**, without a Join an account CTA. It uses host authority,
+not private membership in each client. Rows summarize assigned miners and modules
+(including subclient allocations), distinct containers represented by those
+modules, and live direct client logins. Containers are placement groups, not
+additional assigned assets. Login counts exclude invitations, revoked memberships,
+deleted users, removed organization affiliations, ancestor grants, and subclient-only
+memberships. Membership-only users retain their account
+directory and invitation entry point. The root workspace opens Clients. Hosts allocate reporting capacity from Fleet;
+the root account has no separate Mining assets tab.
+
+| Persona                    | Primary experience                                                  |
+| -------------------------- | ------------------------------------------------------------------- |
+| Host operator              | Existing physical fleet operations in Fleet                         |
+| Host account administrator | Clients and reporting assignments in Settings → Admin → Clients     |
+| Account viewer             | Whole-account metrics and read-only mining assets                   |
+| Pool operator              | Account metrics, assets and existing pool configuration tools       |
+| Account administrator      | Direct/subclient comparison, team and permitted allocation controls |
+| Subclient                  | Its own assigned estate, without another delegation level           |
+
+Overview counts conventional miners and container modules as mining assets.
+Controllers are not additional miners. An account total includes resources
+allocated to its subclients; administrators with membership-management or
+delegation capability can compare the direct remainder and each subclient.
+This reporting privilege does not grant access to a child’s private pools,
+team, keys or settings. Private child workspace links still require explicit
+account authority. Viewers receive no child ownership labels or owner filters.
+
+Hashrate and mining equipment power show current available readings and separate
+reporting counts. Efficiency uses only assets reporting both measurements.
+Partial/unknown module coverage, unavailable assets and assets outside the current
+site policy are labeled. Allocation counts retain unavailable and outside-policy
+assets, with their physical details and readings withheld; suspended child
+allocations remain in the parent’s totals. Reports describe current assignments,
+not historical ownership or plant power.
+
+Mining assets shows only the selected account’s allocation, including its
+subclients. Its Name, Model, Status, Hashrate, Efficiency, Power, and Temp columns
+use Fleet's labels, widths, metric cells, and module coverage presentation.
+Column visibility and order are saved per login and parent account through the
+same Manage columns dialog as Fleet. Sorting applies across the inventory with
+missing readings last; cursors are bound to the account, user, filters, and sort.
+Both tables use 50-row pages and the same selection bar. Account selection stays
+limited to the visible page and exposes only assign/recall actions. Model names
+belong to miners; a module never inherits its controller's model or network details.
+Fresh temperature and reported efficiency follow the existing mining-asset view's
+freshness and site-policy redaction. It separates commercial reporting allocation from physical placement.
+Hosts select miners/modules in Fleet and choose **Assign to account**; Fleet’s
+**Assigned to** column opens the customer’s allocation inventory under the host’s
+authority. Clients and Subclients also open these focused inventories without
+requiring access to a child’s private workspace. A parent can recall from the
+receiving account’s inventory, including a suspended child’s retained allocations.
+An account’s own inventory is read-only; administrators can filter by subclient
+and open **Manage subclient assets** for parent-authorized recall. An account
+cannot surrender its own allocation using its own delegation grant.
+Customer administrators open **Assign assets** from Subclients and choose only
+resources held directly by their account. Host assignment and customer delegation
+use separate pickers from the inventory’s recall controls. Recall returns the selected
+allocation to its parent. Whole-customer recall also clears its subclient
+allocation. Fleet assignment resolves exact typed leaves with current allocation revisions in
+a bounded lookup; missing or ineligible leaves block the entire selection. It does
+not expand a global Fleet selection or silently assign a partial batch.
+Selection and confirmation are limited to the displayed page;
+filtering a container selects its displayed current modules, never its controller
+or future/replacement hardware. Stale assignments require a fresh selection and
+review. Retired/outside-policy child allocations can be recalled to clear them.
+Assignments do not apply pools, change payout destinations, activate customer
+firmware control or move equipment. Host operations continue under existing
+organization permissions.
+
+These routes reuse the Fleet layout and shared components without mounting host
+fleet providers for account-only users. Page-owned RPC clients capture
+`X-Fleet-Account-ID` and abort when account or login changes. Permission changes
+reset report and selection state; selected-account reporting and assignment RPCs
+currently require a Fleet session rather than an account API key.
+
+Host-created clients record host administration as an ancestor-access grant,
+separate from the client's team. Creation does not add the host operator as a
+member or count host staff as client logins. Host operators with organization
+`account:manage` can open the client workspace and invite its first administrator;
+live role changes and client ceilings still constrain that access. An explicit
+initial administrator is an actual team member. Customer-created subclients keep
+the creating customer's initial administrator membership.
+
+Invitations show a portable code once for manual sharing. Recipients select
+**Join an account** on the login screen or account list, paste the code, then use
+an existing Fleet login or register a new one. Codes stay out of the URL and
+are not retained across reloads. Optional links use
+`/account-invitation#token=…` at the sender’s current Fleet address; recipients
+must be able to reach that address. The page removes the fragment before
+previewing the invitation. New API-key secrets are also shown once for manual copying. Saved pool passwords are
+never read back; a revision can retain them only for unchanged slot destinations
+and usernames. Incoming profiles pin an immutable revision and require the
+current login password when changed.
+
+Ancestor grants can be created for the direct parent and updated for existing
+ancestors. Creating a subclient’s first grant to the hosting root needs ancestor
+metadata that the current API does not expose.
+
+Historical account telemetry, hashboard-level allocation, automatic allocation of
+new hardware, customer firmware commands and pool application remain unsupported.

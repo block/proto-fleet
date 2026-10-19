@@ -133,7 +133,7 @@ func (f rpcFixture) account(t *testing.T, name string, adminID int64, capabiliti
 	t.Helper()
 	account, err := f.accounts.CreateChild(t.Context(), f.host, f.org, f.root, name, adminID, capabilities)
 	require.NoError(t, err)
-	return account
+	return account.Account
 }
 
 func rpcRequest[T any](message *T, cookie, accountID string) *connect.Request[T] {
@@ -392,4 +392,26 @@ func TestHostedRPCBoundedManagerCannotPromoteOrInviteBroaderRoles(t *testing.T) 
 	got, err = f.client.GetAccount(t.Context(), rpcRequest(&pb.GetAccountRequest{AccountId: child.AccountID}, cookie, child.AccountID))
 	require.NoError(t, err)
 	require.Equal(t, uint64(domain.View), got.Msg.Account.EffectiveCapabilities)
+}
+
+func TestHostedRPCSiteOnlyOperatorKeepsFleetAccessWithoutPrivateAccounts(t *testing.T) {
+	f := newRPCFixture(t)
+	username := "site-operator-" + uuid.NewString()
+	userID := f.addUser(t, username, false)
+	site, err := sqlc.New(f.db).CreateSite(t.Context(), sqlc.CreateSiteParams{OrgID: f.org, Name: "Authorized site", Slug: "authorized"})
+	require.NoError(t, err)
+	role, err := authz.NewService(f.db, nil).CreateCustomRole(t.Context(), f.host, f.org, "Site observer", "", []string{authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead})
+	require.NoError(t, err)
+	_, err = sqlc.New(f.db).AssignRole(t.Context(), sqlc.AssignRoleParams{UserID: userID, OrganizationID: f.org, RoleID: role.ID, ScopeType: "site", ScopeID: sql.NullInt64{Int64: site.ID, Valid: true}})
+	require.NoError(t, err)
+	customer := f.account(t, "Private customer", f.host, domain.AllCapabilities)
+	login := f.login(t, username)
+	require.Empty(t, login.Msg.UserInfo.Permissions, "site authority must not become organization-wide UI permission")
+	cookie := login.Header().Get("Set-Cookie")
+	listed, err := f.client.ListAccounts(t.Context(), rpcRequest(&pb.ListAccountsRequest{}, cookie, ""))
+	require.NoError(t, err)
+	require.True(t, listed.Msg.HostAccess, "site-only operators retain entry to their existing Fleet pages")
+	require.Empty(t, listed.Msg.Accounts, "Fleet entry does not create hosted-account membership")
+	_, err = f.client.GetAccount(t.Context(), rpcRequest(&pb.GetAccountRequest{AccountId: customer.AccountID}, cookie, customer.AccountID))
+	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "workspace entry does not grant private account access")
 }
