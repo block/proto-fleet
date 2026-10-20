@@ -72,7 +72,7 @@ func TestSeedTelemetryAndCleanupUseCheckpointedRecovery(t *testing.T) {
 }
 
 func TestSeedTelemetryRebuildsRecentMaterializedBucketsWhilePaused(t *testing.T) {
-	for _, operation := range []string{"replace", "shorten", "cleanup"} {
+	for _, operation := range []string{"replace", "shorten", "retry_shorten", "cleanup"} {
 		t.Run(operation, func(t *testing.T) {
 			database := testutil.GetTestDB(t)
 			cfg := seedTestConfig(t, database)
@@ -110,7 +110,7 @@ func TestSeedTelemetryRebuildsRecentMaterializedBucketsWhilePaused(t *testing.T)
 			if operation == "cleanup" {
 				require.NoError(t, runCleanup(cfg))
 			} else {
-				if operation == "shorten" {
+				if operation == "shorten" || operation == "retry_shorten" {
 					end = end.Add(-48 * time.Hour)
 				}
 				replacement := make([]deviceMetric, 0, len(metrics))
@@ -120,6 +120,20 @@ func TestSeedTelemetryRebuildsRecentMaterializedBucketsWhilePaused(t *testing.T)
 						metric.Health = healthCritical
 						replacement = append(replacement, metric)
 					}
+				}
+				if operation == "retry_shorten" {
+					_, err := database.ExecContext(t.Context(), `CREATE FUNCTION fail_seed_ack() RETURNS trigger LANGUAGE plpgsql AS $$
+ BEGIN RAISE EXCEPTION 'injected retry acknowledgement failure'; END $$;
+ CREATE TRIGGER fail_seed_ack BEFORE UPDATE OF completed_through ON telemetry_summary_progress
+ FOR EACH ROW WHEN (NEW.completed_through>OLD.completed_through) EXECUTE FUNCTION fail_seed_ack()`)
+					require.NoError(t, err)
+					err = seedAndRefresh(cfg, replacement, start, end, time.Now())
+					require.ErrorContains(t, err, "injected retry acknowledgement failure")
+					var rawEnd time.Time
+					require.NoError(t, database.QueryRowContext(t.Context(), `SELECT max(time) FROM device_metrics WHERE device_identifier LIKE 'seed-device-%'`).Scan(&rawEnd))
+					require.True(t, rawEnd.Before(latest.Time), "the failed attempt must have committed the shorter raw replacement")
+					_, err = database.ExecContext(t.Context(), `DROP TRIGGER fail_seed_ack ON telemetry_summary_progress; DROP FUNCTION fail_seed_ack()`)
+					require.NoError(t, err)
 				}
 				require.NoError(t, seedAndRefresh(cfg, replacement, start, end, time.Now()))
 			}

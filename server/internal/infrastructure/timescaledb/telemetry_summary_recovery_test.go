@@ -629,15 +629,103 @@ func TestTelemetrySummaryAdaptiveRetriesAndBlockedMinimum(t *testing.T) {
 	require.True(t, recoveryCompletedThrough(t, r.db, "hashboard_metrics_daily").After(r.base))
 }
 
-func TestTelemetrySummaryScheduledWorkerSerializesManualRequests(t *testing.T) {
-	r := newContainerRollupRig(t)
+func requireTelemetryWorkerCapacity(t *testing.T, db *sql.DB) {
+	t.Helper()
 	var capacity int
-	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT current_setting('timescaledb.max_background_workers')::integer-count(*)::integer
+	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT current_setting('timescaledb.max_background_workers')::integer-count(*)::integer
  FROM pg_stat_activity WHERE backend_type LIKE 'TimescaleDB Background Worker%' AND backend_type<>'TimescaleDB Background Worker Launcher'
  AND datname IS DISTINCT FROM current_database()`).Scan(&capacity))
 	if capacity < 2 {
 		t.Skip("scheduled integration needs a scheduler and a worker slot")
 	}
+}
+
+func TestTelemetrySummaryRetentionCommitsBeforeImportHandoff(t *testing.T) {
+	r := newContainerRollupRig(t)
+	requireTelemetryWorkerCapacity(t, r.db)
+	r.base = time.Now().UTC().Truncate(24 * time.Hour).Add(-12 * 24 * time.Hour)
+	oldStart := r.base
+	r.store(t, r.snapshot(0, false, 100e12, 200e12))
+	reinstallTelemetryRecovery(t, r.db)
+	finishRecovery(t, r.db, deviceMetricRecoveryAggregates)
+	r.base = time.Now().UTC().Truncate(time.Hour).Add(-time.Hour)
+	r.store(t, r.snapshot(0, false, 100e12, 200e12))
+	_, err := r.db.ExecContext(t.Context(), `UPDATE telemetry_summary_work SET next_run_at=now()+INTERVAL '1 day';
+ UPDATE telemetry_summary_source SET next_retention_at=now(),last_retention_at=now()-INTERVAL '1 day' WHERE source_name='device_metrics'`)
+	require.NoError(t, err)
+	id := recoveryJob(t, r.db, "device_metrics")
+	// Pause the real worker immediately after releasing the import lock, before
+	// its final scheduling transaction commits. The importer must already see
+	// the committed deletion floor even when no refresh was due this run.
+	_, err = r.db.ExecContext(t.Context(), fmt.Sprintf(`CREATE FUNCTION pause_after_telemetry_unlock(integer,integer) RETURNS boolean LANGUAGE plpgsql AS $$
+ DECLARE unlocked boolean;
+ BEGIN
+  unlocked:=pg_catalog.pg_advisory_unlock_shared($1,$2);
+  PERFORM pg_catalog.pg_advisory_xact_lock(%d::bigint);
+  RETURN unlocked;
+ END $$`, id))
+	require.NoError(t, err)
+	var definition string
+	require.NoError(t, r.db.QueryRowContext(t.Context(), `SELECT pg_get_functiondef('maintain_telemetry_source(integer,jsonb)'::regprocedure)`).Scan(&definition))
+	const unlock = "PERFORM pg_advisory_unlock_shared("
+	require.Equal(t, 1, strings.Count(definition, unlock))
+	_, err = r.db.ExecContext(t.Context(), strings.Replace(definition, unlock, "PERFORM pause_after_telemetry_unlock(", 1))
+	require.NoError(t, err)
+	blocker, err := r.db.Conn(t.Context())
+	require.NoError(t, err)
+	defer func() {
+		_, err := blocker.ExecContext(context.Background(), `SELECT pg_advisory_unlock_all()`) //nolint:usetesting // Release session locks even after a failed assertion.
+		require.NoError(t, err)
+		require.NoError(t, blocker.Close())
+	}()
+	_, err = blocker.ExecContext(t.Context(), `SELECT pg_advisory_lock($1::bigint)`, id)
+	require.NoError(t, err)
+	_, err = r.db.ExecContext(t.Context(), `SELECT alter_job($1,scheduled=>true,next_start=>now()+INTERVAL '1 day')`, id)
+	require.NoError(t, err)
+	_, err = r.db.ExecContext(t.Context(), `SELECT _timescaledb_functions.start_background_workers()`)
+	require.NoError(t, err)
+	_, err = r.db.ExecContext(t.Context(), `CALL run_job($1)`, id)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := r.db.QueryRowContext(t.Context(), `SELECT EXISTS (
+ SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid=l.pid
+ JOIN timescaledb_information.jobs j ON a.backend_type=j.application_name
+ WHERE j.job_id=$1 AND l.locktype='advisory' AND NOT l.granted)`, id).Scan(&waiting)
+		return err == nil && waiting
+	}, 15*time.Second, 20*time.Millisecond, "worker must reach the post-unlock barrier")
+	importer, err := r.db.Conn(t.Context())
+	require.NoError(t, err)
+	defer func() {
+		_, err := importer.ExecContext(context.Background(), `SELECT pg_advisory_unlock_all()`) //nolint:usetesting // Release session locks even after a failed assertion.
+		require.NoError(t, err)
+		require.NoError(t, importer.Close())
+	}()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	_, err = importer.ExecContext(ctx, `SELECT pg_advisory_lock(1030,'device_metrics'::regclass::oid::integer)`)
+	require.NoError(t, err)
+	var droppedThrough, safeStart time.Time
+	require.NoError(t, importer.QueryRowContext(ctx, `SELECT dropped_through FROM telemetry_summary_source WHERE source_name='device_metrics'`).Scan(&droppedThrough))
+	require.True(t, droppedThrough.After(oldStart), "retention must commit before handing off to an importer")
+	require.NoError(t, importer.QueryRowContext(ctx, `SELECT prepare_telemetry_seed($1,$2)`, oldStart, oldStart.Add(24*time.Hour)).Scan(&safeStart))
+	require.False(t, safeStart.Before(droppedThrough), "imports cannot reopen deleted raw history")
+	_, err = importer.ExecContext(t.Context(), `SELECT pg_advisory_unlock_all()`)
+	require.NoError(t, err)
+	_, err = blocker.ExecContext(t.Context(), `SELECT pg_advisory_unlock_all()`)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		var successes int
+		err := r.db.QueryRowContext(t.Context(), `SELECT total_successes FROM timescaledb_information.job_stats WHERE job_id=$1`, id).Scan(&successes)
+		return err == nil && successes > 0
+	}, 10*time.Second, 20*time.Millisecond)
+	_, err = r.db.ExecContext(t.Context(), `SELECT alter_job($1,scheduled=>false)`, id)
+	require.NoError(t, err)
+}
+
+func TestTelemetrySummaryScheduledWorkerSerializesManualRequests(t *testing.T) {
+	r := newContainerRollupRig(t)
+	requireTelemetryWorkerCapacity(t, r.db)
 	r.base = time.Now().UTC().Truncate(24 * time.Hour).Add(-12 * 24 * time.Hour)
 	r.store(t, r.snapshot(0, false, 100e12, 200e12))
 	reinstallTelemetryRecovery(t, r.db)

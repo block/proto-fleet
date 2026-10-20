@@ -292,6 +292,9 @@ BEGIN
   RETURN;
  END IF;
  CALL telemetry_summary_step(source.source_name);
+ -- Publish retention and refresh acknowledgements before an importer can
+ -- acquire the exclusive lock and reopen retained history.
+ COMMIT;
  PERFORM pg_advisory_unlock_shared(1030,source.source_name::regclass::oid::integer);
  SELECT LEAST(s.next_retention_at,min(w.next_run_at) FILTER (WHERE NOT w.blocked)) INTO due
  FROM telemetry_summary_source s JOIN telemetry_summary_progress p USING (source_name)
@@ -381,9 +384,11 @@ BEGIN
   completed_through=LEAST(COALESCE(completed_through,telemetry_bucket_ceiling(bucket_width,source.raw_floor)),safe_start)
  WHERE source_name=source.source_name;
  UPDATE telemetry_summary_write_gate SET frozen_through=LEAST(frozen_through,safe_start) WHERE source_name=source.source_name;
+ -- A retry may have already replaced raw, hiding the end of its deleted tail.
+ -- Preserve any unfinished recent repair until those old buckets are rebuilt.
  UPDATE telemetry_summary_work w SET next_run_at=now(),
   replay_until=CASE WHEN w.work_kind='recent' THEN
-   LEAST(time_bucket(p.bucket_width,now()),telemetry_bucket_ceiling(p.bucket_width,requested_end)) END,
+   GREATEST(w.replay_until,LEAST(time_bucket(p.bucket_width,now()),telemetry_bucket_ceiling(p.bucket_width,requested_end))) END,
   pending=false,blocked=false,
   minimum_batch_failures=0,successful_batches=0,last_error=NULL
  FROM telemetry_summary_progress p WHERE p.aggregate_name=w.aggregate_name AND p.source_name=source.source_name;
