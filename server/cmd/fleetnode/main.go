@@ -1,14 +1,20 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/alecthomas/kong"
 	kongyaml "github.com/alecthomas/kong-yaml"
 
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
+	fleet_telemetry "github.com/block/proto-fleet/server/internal/infrastructure/fleet-telemetry"
 	"github.com/block/proto-fleet/server/internal/releaseinfo"
 )
+
+const tracerShutdownTimeout = 5 * time.Second
 
 var version = "dev"
 
@@ -20,6 +26,9 @@ type CLI struct {
 	Version                kong.VersionFlag           `help:"print running binary version"`
 	PrintReleaseRepository printReleaseRepositoryFlag `help:"print the embedded publishing repository and exit"`
 	StateDir               string                     `help:"override state directory; defaults to $XDG_STATE_HOME/fleetnode or ~/.local/state/fleetnode" type:"path"`
+	TracingEnabled         bool                       `name:"tracing-enabled" help:"enable OpenTelemetry command traces" env:"FLEETNODE_TRACING_ENABLED"`
+	TracingEndpoint        string                     `name:"tracing-endpoint" help:"OTLP HTTP endpoint for command traces" default:"http://localhost:4318" env:"FLEETNODE_TRACING_ENDPOINT"`
+	TracingSampleRate      float64                    `name:"tracing-sample-rate" help:"fraction of command traces to sample (0.0-1.0)" default:"1.0" env:"FLEETNODE_TRACING_SAMPLE_RATE"`
 
 	Enroll  EnrollCmd  `cmd:"" help:"register this fleet node with a fleet server"`
 	Status  StatusCmd  `cmd:"" help:"print local fleet node state"`
@@ -48,5 +57,17 @@ func main() {
 	)
 	stateDir, err := bootstrap.ResolveStateDir(cli.StateDir)
 	kctx.FatalIfErrorf(err)
-	kctx.FatalIfErrorf(kctx.Run(&Context{StateDir: stateDir}))
+	shutdownTracer, err := fleet_telemetry.Setup(context.Background(), version, fleet_telemetry.Config{
+		Enabled:     cli.TracingEnabled,
+		Endpoint:    cli.TracingEndpoint,
+		ServiceName: "fleetnode",
+		SampleRate:  cli.TracingSampleRate,
+	})
+	kctx.FatalIfErrorf(err)
+
+	runErr := kctx.Run(&Context{StateDir: stateDir})
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), tracerShutdownTimeout)
+	shutdownErr := shutdownTracer(shutdownCtx)
+	cancel()
+	kctx.FatalIfErrorf(errors.Join(runErr, shutdownErr))
 }

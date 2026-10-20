@@ -35,7 +35,10 @@ func RunCommandToCompletion(ctx context.Context, sender Sender, fleetNodeID int6
 	return runCommand(ctx, sender, fleetNodeID, minimumCommandProtocolVersion, cmd, scope, kind, pair, timeout, noun, onData, true)
 }
 
-func runCommand(ctx context.Context, sender Sender, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta, timeout time.Duration, noun string, onData func(CommandEvent) (terminal bool, err error), finishAfterCancellation bool) error {
+func runCommand(ctx context.Context, sender Sender, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta, timeout time.Duration, noun string, onData func(CommandEvent) (terminal bool, err error), finishAfterCancellation bool) (resultErr error) {
+	ctx, span := startCommandDispatchSpan(ctx, fleetNodeID, noun, cmd)
+	defer func() { finishCommandDispatchSpan(span, resultErr) }()
+
 	deadline := time.Now().Add(timeout)
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
@@ -62,6 +65,7 @@ func runCommand(ctx context.Context, sender Sender, fleetNodeID int64, minimumCo
 
 	handleEvent := func(ev CommandEvent) (terminal bool, err error) {
 		if ev.Ack != nil {
+			recordCommandAck(span, ev.Ack)
 			// Let discovery describe incomplete results; pairing ignores ACK-only events.
 			if ev.Ack.GetCode() == gatewaypb.AckCode_ACK_CODE_PARTIAL {
 				slog.Warn("fleet node command completed partially",
