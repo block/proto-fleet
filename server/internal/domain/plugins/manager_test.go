@@ -2,8 +2,10 @@ package plugins
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"strings"
 	"testing"
 	"time"
@@ -237,7 +239,18 @@ func TestManagerPluginHelperProcess(t *testing.T) {
 		Plugins: map[string]plugin.Plugin{
 			"driver": &managerCapabilityPlugin{supported: os.Args[len(os.Args)-1] == "supported"},
 		},
-		GRPCServer: plugin.DefaultGRPCServer,
+		GRPCServer: func(options []grpc.ServerOption) *grpc.Server {
+			if os.Getenv("FLEET_SHUTDOWN_TEST") == "stuck" {
+				options = append(options, grpc.UnaryInterceptor(func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+					if strings.HasSuffix(info.FullMethod, "/Shutdown") {
+						<-ctx.Done()
+						return nil, ctx.Err()
+					}
+					return handler(ctx, req)
+				}))
+			}
+			return grpc.NewServer(options...)
+		},
 	})
 	os.Exit(0)
 }
@@ -258,16 +271,24 @@ type managerCapabilityServer struct {
 }
 
 func (s *managerCapabilityServer) Handshake(context.Context, *emptypb.Empty) (*pb.HandshakeResponse, error) {
-	return &pb.HandshakeResponse{DriverName: "manager-capability-test", ApiVersion: "v1"}, nil
+	name := os.Getenv("FLEET_SHUTDOWN_TEST_NAME")
+	if name == "" {
+		name = "manager-capability-test"
+	}
+	return &pb.HandshakeResponse{DriverName: name, ApiVersion: "v1"}, nil
 }
 
-func (s *managerCapabilityServer) DescribeDriver(context.Context, *emptypb.Empty) (*pb.DescribeDriverResponse, error) {
+func (s *managerCapabilityServer) DescribeDriver(ctx context.Context, _ *emptypb.Empty) (*pb.DescribeDriverResponse, error) {
 	flags := map[string]bool{}
 	if s.supported {
 		flags[sdk.CapabilityScopedDeviceReuse] = true
 	}
+	identifier, err := s.Handshake(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
 	return &pb.DescribeDriverResponse{
-		DriverName: "manager-capability-test", ApiVersion: "v1", Caps: &pb.Capabilities{Flags: flags},
+		DriverName: identifier.DriverName, ApiVersion: identifier.ApiVersion, Caps: &pb.Capabilities{Flags: flags},
 	}, nil
 }
 
@@ -283,7 +304,7 @@ func TestManagerLoadRequiresScopedRuntime(t *testing.T) {
 			script := "#!/bin/sh\nexec " + quotedBinary + " -test.run='^TestManagerPluginHelperProcess$' -- " + capability + "\n"
 			require.NoError(t, os.WriteFile(pluginPath, []byte(script), 0700))
 			manager := NewManager(&Config{
-				Enabled: true, PluginsDir: pluginsDir, MaxStartupTimeSeconds: 10, LogLevel: "error",
+				Enabled: true, PluginsDir: pluginsDir, MaxStartupTimeSeconds: 10, LogLevel: "error", ShutdownGracePeriodSeconds: 5,
 			})
 			t.Cleanup(func() { require.NoError(t, manager.Shutdown(context.Background())) })
 			err := manager.LoadPlugins(t.Context())
@@ -301,4 +322,111 @@ func TestManagerLoadRequiresScopedRuntime(t *testing.T) {
 			require.Len(t, manager.GetAllPlugins(), 1)
 		})
 	}
+}
+
+func TestManager_ShutdownCleanPluginsWithoutExtraWait(t *testing.T) {
+	manager := NewManager(&Config{ShutdownGracePeriodSeconds: 5, MaxStartupTimeSeconds: 10})
+	for i := range 3 {
+		loadShutdownTestPlugin(t, manager, fmt.Sprintf("clean-%d", i), "clean")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+	started := time.Now()
+	err := manager.Shutdown(ctx)
+	t.Logf("three-plugin shutdown took %s", time.Since(started))
+	require.NoError(t, err)
+	assert.Empty(t, manager.GetAllPlugins())
+	assert.Empty(t, manager.pluginsByDriverName)
+	require.NoError(t, manager.Shutdown(ctx))
+}
+
+func TestManager_ShutdownStuckPluginDoesNotDelayOtherPlugins(t *testing.T) {
+	manager := NewManager(&Config{ShutdownGracePeriodSeconds: 2, MaxStartupTimeSeconds: 10})
+	stuck := loadShutdownTestPlugin(t, manager, "stuck", "stuck")
+	clean := loadShutdownTestPlugin(t, manager, "clean", "clean")
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	result := make(chan error, 1)
+	started := time.Now()
+	go func() { result <- manager.Shutdown(ctx) }()
+	// The clean plugin must finish while the stuck plugin is still within
+	// its grace period, regardless of map iteration order.
+	require.Eventually(t, clean.Client.Exited, time.Second, 10*time.Millisecond)
+	assert.False(t, stuck.Client.Exited())
+	select {
+	case err := <-result:
+		require.ErrorContains(t, err, "plugin stuck: shutdown interrupted before process exit: context deadline exceeded")
+		assert.NotContains(t, err.Error(), "plugin clean:")
+	case <-ctx.Done():
+		t.Fatal("shutdown did not finish within the shared budget")
+	}
+	assert.Less(t, time.Since(started), 4*time.Second)
+	assert.True(t, stuck.Client.Exited())
+	assert.Empty(t, manager.GetAllPlugins())
+	require.NoError(t, manager.Shutdown(ctx))
+	assertNoPluginKillGoroutines(t)
+}
+
+func TestManager_ShutdownCancelledContextReapsPlugins(t *testing.T) {
+	for _, expired := range []bool{false, true} {
+		t.Run(fmt.Sprintf("expired=%t", expired), func(t *testing.T) {
+			manager := NewManager(&Config{ShutdownGracePeriodSeconds: 5, MaxStartupTimeSeconds: 10})
+			loaded := loadShutdownTestPlugin(t, manager, "stuck", "stuck")
+			ctx, cancel := context.WithCancel(t.Context())
+			wantError := context.Canceled
+			if expired {
+				cancel()
+				ctx, cancel = context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
+				wantError = context.DeadlineExceeded
+			}
+			cancel()
+			started := time.Now()
+			err := manager.Shutdown(ctx)
+			require.ErrorContains(t, err, wantError.Error())
+			assert.Less(t, time.Since(started), time.Second)
+			assert.True(t, loaded.Client.Exited())
+			require.NoError(t, manager.Shutdown(ctx))
+			assertNoPluginKillGoroutines(t)
+		})
+	}
+}
+
+func TestManager_ShutdownAlreadyExitedPluginWithCancelledContext(t *testing.T) {
+	manager := NewManager(&Config{ShutdownGracePeriodSeconds: 5, MaxStartupTimeSeconds: 10})
+	loaded := loadShutdownTestPlugin(t, manager, "exited", "clean")
+	loaded.Client.Kill()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	require.NoError(t, manager.Shutdown(ctx))
+	assert.Empty(t, manager.GetAllPlugins())
+}
+
+func assertNoPluginKillGoroutines(t *testing.T) {
+	t.Helper()
+	var stacks strings.Builder
+	require.NoError(t, pprof.Lookup("goroutine").WriteTo(&stacks, 2))
+	assert.NotContains(t, stacks.String(), "go-plugin.(*Client).Kill(")
+}
+
+func loadShutdownTestPlugin(t *testing.T, manager *Manager, name, mode string) *LoadedPlugin {
+	t.Helper()
+	binary, err := os.Executable()
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), name)
+	// Execute this test binary as a real go-plugin subprocess, including the
+	// production loading and SDK handshake path.
+	script := fmt.Sprintf("#!/bin/sh\nGORACE=atexit_sleep_ms=0 PROTO_FLEET_PLUGIN_MANAGER_TEST_HELPER=1 FLEET_SHUTDOWN_TEST=%s FLEET_SHUTDOWN_TEST_NAME=%s exec '%s' -test.run=^TestManagerPluginHelperProcess$ -- supported\n", mode, name, strings.ReplaceAll(binary, "'", "'\\''"))
+	require.NoError(t, os.WriteFile(path, []byte(script), 0700))
+	require.NoError(t, manager.loadPlugin(t.Context(), name, path))
+	loaded, ok := manager.GetPlugin(name)
+	require.True(t, ok)
+	t.Cleanup(func() {
+		// A regression in Shutdown must not strand the test in Client.Kill's
+		// blocked RPC or leave a child behind after the test fails.
+		if loaded.process != nil {
+			_ = loaded.process.Kill()
+		}
+		loaded.Client.Kill()
+	})
+	return loaded
 }

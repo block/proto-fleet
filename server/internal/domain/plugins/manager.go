@@ -19,6 +19,9 @@ import (
 
 const (
 	dispenseDriver = "driver"
+	// Allow go-plugin to reap forced processes and finish its client goroutines,
+	// even when the caller's graceful shutdown budget has already expired.
+	forcedCleanupTimeout = 2 * time.Second
 )
 
 // LoadedPlugin represents a successfully loaded plugin
@@ -30,6 +33,7 @@ type LoadedPlugin struct {
 	Identifier     sdk.DriverIdentifier
 	Caps           sdk.Capabilities
 	DiscoveryPorts []string
+	process        *os.Process
 }
 
 // Manager handles loading and managing plugins
@@ -223,6 +227,7 @@ func (m *Manager) loadPlugin(ctx context.Context, name, path string) error {
 		Identifier:     identifier,
 		Caps:           caps,
 		DiscoveryPorts: discoveryPorts,
+		process:        cmd.Process,
 	}
 
 	m.mu.Lock()
@@ -377,31 +382,25 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 
 	slog.Info("Shutting down plugin manager", "count", len(m.plugins))
 
-	var shutdownErrors []error
-	for name, plugin := range m.plugins {
-		slog.Debug("Shutting down plugin", "name", name)
-
-		plugin.Client.Kill()
-
-		// Create a timer for the grace period that respects the context timeout
-		gracePeriod := time.Duration(m.config.ShutdownGracePeriodSeconds) * time.Second
-		timer := time.NewTimer(gracePeriod)
-		defer timer.Stop()
-
-		select {
-		case <-timer.C:
-			if !plugin.Client.Exited() {
-				slog.Warn("Plugin shutdown timed out after grace period",
-					"name", name,
-					"grace_period_seconds", m.config.ShutdownGracePeriodSeconds)
-				shutdownErrors = append(shutdownErrors, fmt.Errorf("plugin %s shutdown timeout", name))
-				continue
+	var wg sync.WaitGroup
+	errorsChan := make(chan error, len(m.plugins))
+	for _, loaded := range m.plugins {
+		wg.Go(func() {
+			if err := m.shutdownPlugin(ctx, loaded); err != nil {
+				pid := 0
+				if loaded.process != nil {
+					pid = loaded.process.Pid
+				}
+				slog.Warn("Plugin shutdown failed", "name", loaded.Name, "pid", pid, "error", err)
+				errorsChan <- fmt.Errorf("plugin %s: %w", loaded.Name, err)
 			}
-			slog.Debug("Plugin exited cleanly", "name", name)
-		case <-ctx.Done():
-			slog.Warn("Plugin shutdown cancelled due to context timeout", "name", name)
-			shutdownErrors = append(shutdownErrors, fmt.Errorf("plugin %s shutdown timeout: %w", name, ctx.Err()))
-		}
+		})
+	}
+	wg.Wait()
+	close(errorsChan)
+	var shutdownErrors []error
+	for err := range errorsChan {
+		shutdownErrors = append(shutdownErrors, err)
 	}
 
 	m.plugins = make(map[string]*LoadedPlugin)
@@ -413,4 +412,42 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 
 	slog.Info("Plugin manager shutdown completed")
 	return nil
+}
+
+func (m *Manager) shutdownPlugin(ctx context.Context, loaded *LoadedPlugin) error {
+	done := make(chan struct{})
+	go func() {
+		// Kill waits for process exit and client cleanup. In gRPC mode its
+		// shutdown RPC can block before go-plugin reaches its force-kill path.
+		loaded.Client.Kill()
+		close(done)
+	}()
+	graceCtx, cancel := context.WithTimeout(ctx, time.Duration(m.config.ShutdownGracePeriodSeconds)*time.Second)
+	defer cancel()
+	select {
+	case <-done:
+		if !loaded.Client.Exited() {
+			return errors.New("shutdown completed without confirmed process exit")
+		}
+		return nil
+	case <-graceCtx.Done():
+	}
+	var shutdownErr error
+	if !loaded.Client.Exited() {
+		shutdownErr = fmt.Errorf("shutdown interrupted before process exit: %w", graceCtx.Err())
+		slog.Warn("Forcing plugin shutdown", "name", loaded.Name, "error", shutdownErr)
+		if loaded.process != nil {
+			if err := loaded.process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+				shutdownErr = errors.Join(shutdownErr, fmt.Errorf("force kill: %w", err))
+			}
+		}
+	}
+	timer := time.NewTimer(forcedCleanupTimeout)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return shutdownErr
+	case <-timer.C:
+		return errors.Join(shutdownErr, errors.New("timed out waiting for plugin client cleanup"))
+	}
 }
