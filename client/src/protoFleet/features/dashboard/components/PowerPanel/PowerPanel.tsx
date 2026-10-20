@@ -10,6 +10,7 @@ import SkeletonBar from "@/shared/components/SkeletonBar";
 
 interface PowerPanelProps {
   connectNulls?: boolean;
+  metricsInKW?: boolean;
   tooltipNotes?: Record<number, string>;
   reportingSubtitle?: string;
   duration: FleetDuration;
@@ -26,17 +27,18 @@ export function PowerPanel({
   connectNulls,
   tooltipNotes,
   reportingSubtitle,
+  metricsInKW = false,
 }: PowerPanelProps) {
   // Transform metrics data to chart format (merging already done by store selectors)
   const chartData = useMemo(() => {
     if (metrics === undefined) return undefined; // Not loaded yet
     if (metrics.length === 0) return null; // Loaded but no data
 
-    const transformedData = transformPowerMetricsToChartData(metrics);
+    const transformedData = transformPowerMetricsToChartData(metrics, metricsInKW);
 
     // Pad with null values for the full duration
     return padChartDataWithNulls(transformedData, duration);
-  }, [metrics, duration]);
+  }, [metrics, duration, metricsInKW]);
 
   // Get the latest power value for the stat display
   const currentPower = useMemo(() => {

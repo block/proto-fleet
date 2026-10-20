@@ -842,8 +842,8 @@ export const GetSitePolicyResponseSchema: GenMessage<GetSitePolicyResponse> =
   messageDesc(file_hosted_v1_hosted, 33);
 
 /**
- * Invitation history, including accepted, revoked and expired links, remains
- * accessible through pages; listing does not delete historical records.
+ * Lists unaccepted invitations, including revoked and expired links.
+ * Accepted invitations remain stored but are excluded before pagination.
  *
  * @generated from message hosted.v1.ListInvitationsRequest
  */

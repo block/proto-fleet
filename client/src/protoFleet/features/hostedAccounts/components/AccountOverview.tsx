@@ -63,12 +63,10 @@ const AccountOverview = () => {
     },
     [account.accountId, client, duration, ownerAccountId, showAllocations, siteId],
   );
-  const query = useAccountQuery(load, true, true);
+  const query = useAccountQuery(load, true, true, POLL_INTERVAL_MS);
   useEffect(() => {
-    const timer = window.setInterval(query.refresh, POLL_INTERVAL_MS);
     window.addEventListener("focus", query.refresh);
     return () => {
-      window.clearInterval(timer);
       window.removeEventListener("focus", query.refresh);
     };
   }, [query.refresh]);
@@ -143,8 +141,6 @@ const AccountOverview = () => {
         <FilterChipsBar
           filters={reportFilters}
           onChange={(key, values) => {
-            // Reporting accepts one allocation and one site; the last toggled
-            // option replaces the previous selection, matching Fleet's Sort filter.
             const selected = values.slice(-1)[0] ?? "";
             if (key === "allocation") setOwnerAccountId(selected);
             if (key === "site") setSiteId(selected);

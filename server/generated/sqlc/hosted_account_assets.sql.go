@@ -182,7 +182,7 @@ SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  COALESCE(a.client_id,0)::bigint AS client_id,COALESCE(a.subclient_id,0)::bigint AS subclient_id,
  COALESCE(sc.account_id,c.account_id,'')::text AS owner_account_id,
  COALESCE(sc.name,c.name,'')::text AS owner_account_name,
- COALESCE(f.name,'')::text AS name,CASE WHEN g.state_allowed THEN CASE WHEN $10::boolean OR l.kind=6 THEN COALESCE(f.state,'unknown') ELSE CASE status.status WHEN 'ACTIVE' THEN 'hashing' WHEN 'OFFLINE' THEN 'offline' WHEN 'MAINTENANCE' THEN 'sleeping' WHEN 'INACTIVE' THEN 'sleeping' WHEN 'ERROR' THEN 'attention' WHEN 'NEEDS_MINING_POOL' THEN 'attention' WHEN 'UPDATING' THEN 'attention' WHEN 'REBOOT_REQUIRED' THEN 'attention' ELSE 'unknown' END END ELSE 'unknown' END::text AS state,
+ COALESCE(f.name,'')::text AS name,CASE WHEN g.state_allowed THEN CASE WHEN $10::boolean OR l.kind=6 OR f.state='offline' THEN COALESCE(f.state,'unknown') ELSE CASE status.status WHEN 'ACTIVE' THEN 'hashing' WHEN 'OFFLINE' THEN 'offline' WHEN 'MAINTENANCE' THEN 'sleeping' WHEN 'INACTIVE' THEN 'sleeping' WHEN 'ERROR' THEN 'attention' WHEN 'NEEDS_MINING_POOL' THEN 'attention' WHEN 'UPDATING' THEN 'attention' WHEN 'REBOOT_REQUIRED' THEN 'attention' ELSE 'unknown' END END ELSE 'unknown' END::text AS state,
  CASE WHEN l.kind=5 THEN COALESCE(dd.model,'') ELSE '' END::text AS model,
  COALESCE(CASE WHEN g.temperature_allowed THEN f.temperature_c END,0)::float8 AS temperature_c, (g.temperature_allowed AND f.temperature_c IS NOT NULL)::boolean AS has_temperature,
  COALESCE(CASE WHEN g.hash_allowed AND g.power_allowed THEN f.miner_efficiency_jth END,0)::float8 AS efficiency_j_th, COALESCE(g.hash_allowed AND g.power_allowed AND f.miner_efficiency_jth IS NOT NULL
@@ -214,7 +214,7 @@ LEFT JOIN device_metrics sample ON l.kind=5 AND sample.device_identifier=d.devic
 LEFT JOIN device_status status ON l.kind=5 AND status.device_id=l.id
 LEFT JOIN container_module module ON l.kind=6 AND module.id=l.id
 LEFT JOIN container_module_latest_metrics latest ON l.kind=6 AND latest.module_id=l.id
-LEFT JOIN container_module_metrics module_sample ON l.kind=6 AND module_sample.module_id=l.id AND module_sample.time=latest.time
+LEFT JOIN container_module_metrics module_sample ON l.kind=6 AND module_sample.module_id=l.id AND module_sample.time=latest.time AND module_sample.collected_at=latest.collected_at
 CROSS JOIN LATERAL (
  SELECT CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{hashrate,oldest_at}')::timestamptz END AS hash_old,
  CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{hashrate,newest_at}')::timestamptz END AS hash_new,
@@ -464,7 +464,7 @@ SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  COALESCE(a.client_id,0)::bigint AS client_id,COALESCE(a.subclient_id,0)::bigint AS subclient_id,
  COALESCE(sc.account_id,c.account_id,'')::text AS owner_account_id,
  COALESCE(sc.name,c.name,'')::text AS owner_account_name,
- COALESCE(f.name,'')::text AS name,CASE WHEN g.state_allowed THEN CASE WHEN $1::boolean OR l.kind=6 THEN COALESCE(f.state,'unknown') ELSE CASE status.status WHEN 'ACTIVE' THEN 'hashing' WHEN 'OFFLINE' THEN 'offline' WHEN 'MAINTENANCE' THEN 'sleeping' WHEN 'INACTIVE' THEN 'sleeping' WHEN 'ERROR' THEN 'attention' WHEN 'NEEDS_MINING_POOL' THEN 'attention' WHEN 'UPDATING' THEN 'attention' WHEN 'REBOOT_REQUIRED' THEN 'attention' ELSE 'unknown' END END ELSE 'unknown' END::text AS state,
+ COALESCE(f.name,'')::text AS name,CASE WHEN g.state_allowed THEN CASE WHEN $1::boolean OR l.kind=6 OR f.state='offline' THEN COALESCE(f.state,'unknown') ELSE CASE status.status WHEN 'ACTIVE' THEN 'hashing' WHEN 'OFFLINE' THEN 'offline' WHEN 'MAINTENANCE' THEN 'sleeping' WHEN 'INACTIVE' THEN 'sleeping' WHEN 'ERROR' THEN 'attention' WHEN 'NEEDS_MINING_POOL' THEN 'attention' WHEN 'UPDATING' THEN 'attention' WHEN 'REBOOT_REQUIRED' THEN 'attention' ELSE 'unknown' END END ELSE 'unknown' END::text AS state,
  CASE WHEN l.kind=5 THEN COALESCE(dd.model,'') ELSE '' END::text AS model,
  COALESCE(CASE WHEN g.temperature_allowed THEN f.temperature_c END,0)::float8 AS temperature_c, (g.temperature_allowed AND f.temperature_c IS NOT NULL)::boolean AS has_temperature,
  COALESCE(CASE WHEN g.hash_allowed AND g.power_allowed THEN f.miner_efficiency_jth END,0)::float8 AS efficiency_j_th, COALESCE(g.hash_allowed AND g.power_allowed AND f.miner_efficiency_jth IS NOT NULL
@@ -497,7 +497,7 @@ LEFT JOIN device_metrics sample ON l.kind=5 AND sample.device_identifier=d.devic
 LEFT JOIN device_status status ON l.kind=5 AND status.device_id=l.id
 LEFT JOIN container_module module ON l.kind=6 AND module.id=l.id
 LEFT JOIN container_module_latest_metrics latest ON l.kind=6 AND latest.module_id=l.id
-LEFT JOIN container_module_metrics module_sample ON l.kind=6 AND module_sample.module_id=l.id AND module_sample.time=latest.time
+LEFT JOIN container_module_metrics module_sample ON l.kind=6 AND module_sample.module_id=l.id AND module_sample.time=latest.time AND module_sample.collected_at=latest.collected_at
 CROSS JOIN LATERAL (
  SELECT CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{hashrate,oldest_at}')::timestamptz END AS hash_old,
  CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{hashrate,newest_at}')::timestamptz END AS hash_new,

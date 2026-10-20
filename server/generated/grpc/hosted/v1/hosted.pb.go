@@ -1984,8 +1984,8 @@ func (x *GetSitePolicyResponse) GetEffectiveSiteIds() []int64 {
 	return nil
 }
 
-// Invitation history, including accepted, revoked and expired links, remains
-// accessible through pages; listing does not delete historical records.
+// Lists unaccepted invitations, including revoked and expired links.
+// Accepted invitations remain stored but are excluded before pagination.
 type ListInvitationsRequest struct {
 	state     protoimpl.MessageState `protogen:"open.v1"`
 	AccountId string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`

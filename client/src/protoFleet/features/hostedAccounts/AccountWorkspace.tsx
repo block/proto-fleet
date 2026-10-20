@@ -148,6 +148,34 @@ const AccountPage = ({
       : navItems;
   const defaultPath = path(accountId, account?.depth === 0 ? "children" : management ? "team" : "overview");
   const accessible = !!section && navItems.some((item) => item.path === path(accountId, section));
+  const renderSection = (authorityKey: string) => {
+    switch (section) {
+      case "overview":
+        return <AccountOverview key={authorityKey} />;
+      case "assets":
+        if (kind && assetId) return <AccountAssetDetail key={`${kind}:${assetId}`} />;
+        return <AccountAssets key={authorityKey} />;
+      case "team":
+        return <AccountTeam />;
+      case "pools":
+        return <AccountPools />;
+      case "children":
+        return <AccountChildren />;
+      case "access":
+        return <AccountAccess />;
+      case "settings":
+        if (management) return <AccountAccess title="Client settings" />;
+        break;
+      case "preferences":
+        return <Preferences />;
+    }
+    return (
+      <div className="flex flex-col gap-6">
+        <h1 className="text-heading-300">Settings</h1>
+        <AccountDetails />
+      </div>
+    );
+  };
   const content = (
     <div className={embedded ? undefined : "p-10 phone:p-6"}>
       {loading ? (
@@ -199,32 +227,7 @@ const AccountPage = ({
           ) : null}
           {error ? <AccountState error={error} retry={refresh} /> : null}
           {accessible ? (
-            section === "overview" ? (
-              <AccountOverview key={`${account.effectiveCapabilities}:${account.suspended}`} />
-            ) : section === "assets" ? (
-              kind && assetId ? (
-                <AccountAssetDetail key={`${kind}:${assetId}`} />
-              ) : (
-                <AccountAssets key={`${account.effectiveCapabilities}:${account.suspended}`} />
-              )
-            ) : section === "team" ? (
-              <AccountTeam />
-            ) : section === "pools" ? (
-              <AccountPools />
-            ) : section === "children" ? (
-              <AccountChildren />
-            ) : section === "access" ? (
-              <AccountAccess />
-            ) : section === "settings" && management ? (
-              <AccountAccess title="Client settings" />
-            ) : section === "preferences" ? (
-              <Preferences />
-            ) : (
-              <div className="flex flex-col gap-6">
-                <h1 className="text-heading-300">Settings</h1>
-                <AccountDetails />
-              </div>
-            )
+            renderSection(`${account.effectiveCapabilities}:${account.suspended}`)
           ) : (
             <Navigate
               to={

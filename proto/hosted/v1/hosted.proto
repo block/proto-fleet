@@ -205,8 +205,8 @@ message GetSitePolicyResponse {
   repeated int64 effective_site_ids = 3;
 }
 
-// Invitation history, including accepted, revoked and expired links, remains
-// accessible through pages; listing does not delete historical records.
+// Lists unaccepted invitations, including revoked and expired links.
+// Accepted invitations remain stored but are excluded before pagination.
 message ListInvitationsRequest {
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   // Zero uses 25. At most 100 invitations are returned per page.

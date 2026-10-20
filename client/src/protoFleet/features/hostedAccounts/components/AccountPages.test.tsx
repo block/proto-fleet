@@ -601,6 +601,31 @@ describe("hosted account pages", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
+  it("keeps confirmed suspension when permissions change before the parent refresh finishes", async () => {
+    const user = userEvent.setup();
+    const { value, client } = scope();
+    const onSaved = vi.fn();
+    mount(
+      <ClientPermissions
+        child={create(AccountSchema, { accountId: "child", name: "Child", capabilityCeiling: 31n })}
+        onSaved={onSaved}
+      />,
+      value,
+    );
+    await user.click(screen.getByRole("button", { name: "Suspend account" }));
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Suspend account" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+    await user.click(screen.getByRole("checkbox", { name: "Change pools" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(2));
+    expect(client.configureAccount).toHaveBeenLastCalledWith({
+      accountId,
+      childAccountId: "child",
+      capabilities: 27n,
+      suspended: true,
+    });
+    expect(screen.getByRole("button", { name: "Resume account" })).toBeInTheDocument();
+  });
+
   it("disables immediate permission and status changes in read-only scope", () => {
     const { value, client } = scope();
     mount(

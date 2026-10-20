@@ -15,21 +15,22 @@ export const ClientPermissions = ({ child, onSaved }: { child: Account; onSaved:
   const allowed = account.depth === 0 ? account.capabilityCeiling : account.effectiveCapabilities;
   const required = 9n;
   const [ceiling, setCeiling] = useState((child.capabilityCeiling & allowed) | required);
+  const [suspended, setSuspended] = useState(child.suspended);
   const [confirming, setConfirming] = useState(false);
   const { run, busy, error, clearError } = useAccountMutation();
-  const configure = async (capabilities: bigint, suspended: boolean) => {
+  const configure = async (capabilities: bigint, nextSuspended: boolean) => {
     await client.configureAccount({
       accountId: account.accountId,
       childAccountId: child.accountId,
       capabilities,
-      suspended,
+      suspended: nextSuspended,
     });
   };
   const changePermissions = async (next: bigint) => {
     if (busy || readOnly || (next & required) !== required || (next & ~allowed) !== 0n) return;
     const previous = ceiling;
     setCeiling(next);
-    const saved = await run(() => configure(next, child.suspended));
+    const saved = await run(() => configure(next, suspended));
     if (scope.signal.aborted) return;
     if (saved) onSaved();
     else setCeiling(previous);
@@ -39,13 +40,15 @@ export const ClientPermissions = ({ child, onSaved }: { child: Account; onSaved:
     setConfirming(false);
   };
   const confirmSuspension = async () => {
-    const saved = await run(() => configure(ceiling, !child.suspended));
+    const nextSuspended = !suspended;
+    const saved = await run(() => configure(ceiling, nextSuspended));
     if (saved) {
+      setSuspended(nextSuspended);
       setConfirming(false);
       onSaved();
     }
   };
-  const action = child.suspended ? "Resume account" : "Suspend account";
+  const action = suspended ? "Resume account" : "Suspend account";
   return (
     <section className="flex flex-col gap-6" aria-label="Client permissions">
       <h2 className="text-heading-200 text-text-primary">Client permissions</h2>
@@ -69,14 +72,14 @@ export const ClientPermissions = ({ child, onSaved }: { child: Account; onSaved:
         <div>
           <h3 className="text-heading-100 text-text-primary">Account access</h3>
           <p className="mt-1 text-300 text-text-primary-70">
-            {child.suspended
+            {suspended
               ? "This account and its subclients are suspended."
               : "Suspend access for this account and its subclients."}
           </p>
         </div>
         <Button
           text={action}
-          variant={child.suspended ? variants.secondary : variants.secondaryDanger}
+          variant={suspended ? variants.secondary : variants.secondaryDanger}
           size={sizes.compact}
           disabled={busy || readOnly}
           onClick={() => {
@@ -89,9 +92,9 @@ export const ClientPermissions = ({ child, onSaved }: { child: Account; onSaved:
         <Dialog
           open
           manageFocus
-          title={`${child.suspended ? "Resume" : "Suspend"} ${child.name}?`}
+          title={`${suspended ? "Resume" : "Suspend"} ${child.name}?`}
           icon={
-            <DialogIcon intent={child.suspended ? "info" : "critical"}>
+            <DialogIcon intent={suspended ? "info" : "critical"}>
               <Alert />
             </DialogIcon>
           }
@@ -100,7 +103,7 @@ export const ClientPermissions = ({ child, onSaved }: { child: Account; onSaved:
             { text: "Cancel", variant: variants.secondary, disabled: busy, onClick: dismissConfirmation },
             {
               text: action,
-              variant: child.suspended ? variants.primary : variants.danger,
+              variant: suspended ? variants.primary : variants.danger,
               loading: busy,
               disabled: readOnly,
               onClick: () => {
@@ -111,7 +114,7 @@ export const ClientPermissions = ({ child, onSaved }: { child: Account; onSaved:
         >
           <div className="flex flex-col gap-4">
             <p className="text-300 text-text-primary-70">
-              {child.suspended
+              {suspended
                 ? `Restore access for ${child.name} and its subclients?`
                 : `Suspend access for ${child.name} and its subclients? Miner pools stay unchanged.`}
             </p>

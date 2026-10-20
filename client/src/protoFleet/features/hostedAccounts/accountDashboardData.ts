@@ -21,8 +21,6 @@ export const reportingCoverage = (count: bigint, summary: MiningSummary) => {
   return `${count.toLocaleString()} of ${summary.assetCount.toLocaleString()} ${label}${summary.assetCount === 1n ? "" : "s"} reporting`;
 };
 
-// The server has already authorized and attributed each reading. This adapter
-// only converts units; it never estimates missing power or allocation history.
 export const accountDashboardData = (
   readings: AccountDashboardReading[],
   duration: FleetDuration,

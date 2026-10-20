@@ -93,6 +93,25 @@ function chooseFilter(key: "allocation" | "site", id: string) {
 }
 
 describe("shared account dashboard", () => {
+  it("keeps high measured module power in kilowatts through the shared chart", async () => {
+    const reply = response();
+    const summary = { assetCount: 1n, moduleCount: 1n, powerW: 200_000, powerReportingCount: 1n };
+    reply.totals = create(GetAccountDashboardResponseSchema, { totals: summary }).totals;
+    reply.readings = [
+      create(AccountDashboardReadingSchema, {
+        time: { seconds: BigInt(Math.floor(Date.now() / 1000)) },
+        summary,
+      }),
+    ];
+    mount(reply);
+    await screen.findByRole("region", { name: "Current readings" });
+    const performance = within(screen.getByRole("region", { name: "Performance" }));
+    const power = performance
+      .getAllByTestId("stats-item")
+      .find((item) => within(item).queryByRole("heading", { name: "Power" }))!;
+    expect(power).toHaveTextContent("200.0");
+    expect(power).toHaveTextContent("kW");
+  });
   it("updates current and historical temperatures when personal units change", async () => {
     const reply = response();
     reply.readings = [

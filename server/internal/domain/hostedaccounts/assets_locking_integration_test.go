@@ -34,7 +34,8 @@ func waitForMiningProjections(t *testing.T, conn *sql.DB, blocker, count int) {
 		var waiting int
 		err := conn.QueryRowContext(t.Context(), `SELECT count(*) FROM pg_stat_activity
 			WHERE datname = current_database() AND $1 = ANY(pg_blocking_pids(pid))
-			AND query LIKE '-- name: ListHostedAccountMiningAsset%'`, blocker).Scan(&waiting)
+			AND (query LIKE '-- name: ListHostedAccountMiningAsset%'
+			 OR query LIKE '-- name: ListHostedAccountAssetFilterOptions%')`, blocker).Scan(&waiting)
 		return err == nil && waiting == count
 	}, 2*time.Second, 10*time.Millisecond)
 }
@@ -47,7 +48,8 @@ func waitForReportBlockedMutation(t *testing.T, conn *sql.DB, query string) {
 			SELECT 1 FROM pg_stat_activity mutation
 			JOIN pg_stat_activity report ON report.pid = ANY(pg_blocking_pids(mutation.pid))
 			WHERE mutation.datname = current_database() AND mutation.query LIKE $1
-			AND report.query LIKE '-- name: ListHostedAccountMiningAsset%'
+			AND (report.query LIKE '-- name: ListHostedAccountMiningAsset%'
+			 OR report.query LIKE '-- name: ListHostedAccountAssetFilterOptions%')
 		)`, query).Scan(&blocked)
 		return err == nil && blocked
 	}, 2*time.Second, 10*time.Millisecond)

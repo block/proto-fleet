@@ -94,6 +94,7 @@ export default function DashboardPerformance({
           <PowerPanel
             duration={duration}
             metrics={grouped.power}
+            metricsInKW={accountReadings}
             totalMiners={totalAssets}
             connectNulls={connectNulls}
             tooltipNotes={tooltipNotes?.[MeasurementType.POWER]}

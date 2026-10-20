@@ -27,15 +27,11 @@ const AccountAssetDetail = () => {
       ),
     [account.accountId, client, kind, assetId],
   );
-  // Current details are reauthorized independently of retained dashboard history.
-  // Clear readings while validating; a recall must not leave an old detail visible.
-  const query = useAccountQuery(load, valid);
+  const query = useAccountQuery(load, valid, false, 15_000);
   useEffect(() => {
     if (!valid) return;
-    const timer = window.setInterval(query.refresh, 15_000);
     window.addEventListener("focus", query.refresh);
     return () => {
-      window.clearInterval(timer);
       window.removeEventListener("focus", query.refresh);
     };
   }, [valid, query.refresh]);
