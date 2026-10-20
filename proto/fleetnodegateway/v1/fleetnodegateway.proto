@@ -290,9 +290,17 @@ message ControlAccepted {
     google.protobuf.Timestamp server_time = 1;
 }
 
+// TraceContext carries W3C trace propagation fields for one server-issued
+// command. Fleet nodes treat missing or invalid context as a new trace.
+message TraceContext {
+    string traceparent = 1 [(buf.validate.field).string.max_len = 512];
+    string tracestate  = 2 [(buf.validate.field).string.max_len = 512];
+}
+
 message ControlCommand {
-    string command_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
-    bytes  payload    = 2 [(buf.validate.field).bytes.max_len = 1048576];
+    string       command_id    = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    bytes        payload       = 2 [(buf.validate.field).bytes.max_len = 1048576];
+    TraceContext trace_context = 3;
 }
 
 // MinerConnectionDescriptor tells a fleet node how to reach one of its local

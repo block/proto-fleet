@@ -102,6 +102,24 @@ fleetnode enroll --server-url=https://fleet.example.com
 fleetnode run     # long-running daemon; logs to stdout
 ```
 
+### Command tracing
+
+Fleet Node command tracing is disabled by default. To export command spans,
+point Fleet Node at an OTLP HTTP receiver running on the node, such as a local
+OpenTelemetry Collector or a Datadog Agent with OTLP ingest enabled:
+
+```bash
+FLEETNODE_TRACING_ENABLED=true \
+FLEETNODE_TRACING_ENDPOINT=http://127.0.0.1:4318 \
+FLEETNODE_TRACING_SAMPLE_RATE=1.0 \
+fleetnode run
+```
+
+The exported service name is `fleetnode`. Server-issued commands continue the
+`fleetd` dispatch trace when both processes have tracing enabled; missing or
+invalid incoming trace context starts a new Fleet Node trace. The Fleet Node
+installer loads these variables from `/etc/fleetnode/fleetnode.env` when set.
+
 Stop with `SIGINT`, `SIGTERM`, or `SIGHUP` (terminal close). On shutdown the agent closes the control stream, drains in-flight probes, and reaps plugin subprocesses. At startup it also reaps any orphan plugin processes left under `<exe-dir>/plugins/` by a previous crash — see [orphan_reaper.go](orphan_reaper.go).
 
 ## Enrollment flow
