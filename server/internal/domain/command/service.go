@@ -1992,8 +1992,9 @@ func (s *Service) ApplyCurtailmentConfigToDevices(ctx context.Context, config sd
 	// or manufacturer change cannot invalidate a selected target mid-dispatch.
 	return sqlstores.NewSQLTransactor(s.conn).RunInTxNoRetry(ctx, func(txCtx context.Context) error {
 		eligible, err := db.GetTxQueries(txCtx).GetPairedProtoDeviceIdentifiersByIdentifiers(txCtx, sqlc.GetPairedProtoDeviceIdentifiersByIdentifiersParams{
-			OrgID:             info.OrganizationID,
-			DeviceIdentifiers: identifiers,
+			ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+			OrgID:                info.OrganizationID,
+			DeviceIdentifiers:    identifiers,
 		})
 		if err != nil {
 			return err

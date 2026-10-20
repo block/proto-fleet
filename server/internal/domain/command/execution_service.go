@@ -22,6 +22,7 @@ import (
 	tmodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
 	"github.com/block/proto-fleet/server/internal/domain/workername"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
@@ -441,8 +442,9 @@ func (es *ExecutionService) reapMessages(ctx context.Context, mode reapMode) ([]
 		})
 		for _, target := range targets {
 			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
-				OrganizationID: target.orgID,
-				DeviceID:       target.deviceID,
+				ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+				OrganizationID:       target.orgID,
+				DeviceID:             target.deviceID,
 			}); err != nil {
 				return fmt.Errorf("requeue reaped rig config reconciliation: %w", err)
 			}
@@ -680,8 +682,9 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 		}
 		if shouldRequeueRigConfig(message.CommandType, queueTerminal, workerError) {
 			if err := q.RequeueRigConfigReconciliationAfterTerminalFailure(dbCtx, sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
-				OrganizationID: orgID,
-				DeviceID:       message.DeviceID,
+				ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+				OrganizationID:       orgID,
+				DeviceID:             message.DeviceID,
 			}); err != nil {
 				return fmt.Errorf("requeue rig config reconciliation after terminal command failure: %w", err)
 			}

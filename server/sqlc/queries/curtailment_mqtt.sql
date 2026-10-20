@@ -244,7 +244,7 @@ WITH eligible AS MATERIALIZED (
       AND d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
       AND d.deleted_at IS NULL
       AND dd.manufacturer = 'Proto'
-      AND dd.device_class <> 2
+      AND dd.device_class <> sqlc.arg('container_device_class')::integer
       AND dp.pairing_status = 'PAIRED'
 ), requested AS (
     INSERT INTO curtailment_rig_config_reconciliation (
@@ -317,7 +317,7 @@ WHERE target.organization_id = sqlc.arg('organization_id')
   AND target.requested_generation <= sqlc.arg('desired_generation')
   AND d.deleted_at IS NULL
   AND dd.manufacturer = 'Proto'
-  AND dd.device_class <> 2
+  AND dd.device_class <> sqlc.arg('container_device_class')::integer
   AND dp.pairing_status = 'PAIRED'
 ORDER BY d.device_identifier;
 
@@ -360,7 +360,7 @@ WITH eligible AS MATERIALIZED (
       AND d.id = sqlc.arg('device_id')
       AND d.deleted_at IS NULL
       AND dd.manufacturer = 'Proto'
-      AND dd.device_class <> 2
+      AND dd.device_class <> sqlc.arg('container_device_class')::integer
       AND dp.pairing_status = 'PAIRED'
 ), requested AS (
 UPDATE curtailment_rig_config_reconciliation reconciliation

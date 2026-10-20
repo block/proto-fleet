@@ -2027,20 +2027,21 @@ WHERE d.org_id = $1
   AND d.deleted_at IS NULL
   AND dp.pairing_status = 'PAIRED'
   AND dd.manufacturer = 'Proto'
-  AND dd.device_class <> 2
+  AND dd.device_class <> $3::integer
 ORDER BY d.id
 FOR SHARE OF d, dd, dp
 `
 
 type GetPairedProtoDeviceIdentifiersByIdentifiersParams struct {
-	OrgID             int64
-	DeviceIdentifiers []string
+	OrgID                int64
+	DeviceIdentifiers    []string
+	ContainerDeviceClass int32
 }
 
 // Lock eligible rows until targeted fallback-config commands are enqueued.
 // Pairing, manufacturer, and deletion changes must wait for that transaction.
 func (q *Queries) GetPairedProtoDeviceIdentifiersByIdentifiers(ctx context.Context, arg GetPairedProtoDeviceIdentifiersByIdentifiersParams) ([]string, error) {
-	rows, err := q.query(ctx, q.getPairedProtoDeviceIdentifiersByIdentifiersStmt, getPairedProtoDeviceIdentifiersByIdentifiers, arg.OrgID, pq.Array(arg.DeviceIdentifiers))
+	rows, err := q.query(ctx, q.getPairedProtoDeviceIdentifiersByIdentifiersStmt, getPairedProtoDeviceIdentifiersByIdentifiers, arg.OrgID, pq.Array(arg.DeviceIdentifiers), arg.ContainerDeviceClass)
 	if err != nil {
 		return nil, err
 	}

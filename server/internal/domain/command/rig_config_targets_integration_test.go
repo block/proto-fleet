@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	commandmocks "github.com/block/proto-fleet/server/internal/domain/command/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
@@ -70,7 +71,7 @@ func TestApplyCurtailmentConfigToDevicesOnlyEnqueuesRequestedEligibleRigs(t *tes
 	seedRigConfigDevice(t, conn, 1, "default-password", "Proto", sqlc.PairingStatusEnumDEFAULTPASSWORD)
 	seedRigConfigDevice(t, conn, 1, "unpaired", "Proto", sqlc.PairingStatusEnumUNPAIRED)
 	seedRigConfigDevice(t, conn, 1, "ct1", "Proto", sqlc.PairingStatusEnumPAIRED)
-	_, err := conn.ExecContext(t.Context(), `UPDATE discovered_device SET device_class = 2, model = 'CT1' WHERE device_identifier = 'ct1'`)
+	_, err := conn.ExecContext(t.Context(), `UPDATE discovered_device SET device_class = $1, model = 'CT1' WHERE device_identifier = 'ct1'`, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER)
 	require.NoError(t, err)
 	deletedID := seedRigConfigDevice(t, conn, 1, "deleted", "Proto", sqlc.PairingStatusEnumPAIRED)
 	_, err = conn.ExecContext(t.Context(), `UPDATE device SET deleted_at = NOW() WHERE id = $1`, deletedID)
@@ -103,7 +104,7 @@ func TestApplyCurtailmentConfigToProtoRigsExcludesContainers(t *testing.T) {
 	svc, conn, legacyRigID, _ := newRigConfigCommandFixture(t)
 	rigID := seedRigConfigDevice(t, conn, 1, "rig", "Proto", sqlc.PairingStatusEnumPAIRED)
 	seedRigConfigDevice(t, conn, 1, "ct1", "Proto", sqlc.PairingStatusEnumPAIRED)
-	_, err := conn.ExecContext(t.Context(), `UPDATE discovered_device SET device_class = CASE device_identifier WHEN 'ct1' THEN 2 ELSE 1 END WHERE device_identifier IN ('rig', 'ct1')`)
+	_, err := conn.ExecContext(t.Context(), `UPDATE discovered_device SET device_class = CASE device_identifier WHEN 'ct1' THEN $1::integer ELSE $2::integer END WHERE device_identifier IN ('rig', 'ct1')`, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, commonpb.DeviceClass_DEVICE_CLASS_RIG)
 	require.NoError(t, err)
 
 	// No sources still sends a disabled config to clear stale rig settings.
