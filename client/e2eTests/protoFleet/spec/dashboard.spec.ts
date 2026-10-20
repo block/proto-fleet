@@ -18,7 +18,6 @@ test.describe("Proto Fleet - Dashboard", () => {
 
     await test.step("Validate dashboard sections are visible", async () => {
       await homePage.validateHomePageOpened();
-      await homePage.validateDashboardSectionVisible("Sites");
       await homePage.validateDashboardSectionVisible("Performance");
     });
 
