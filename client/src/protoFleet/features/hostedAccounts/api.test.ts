@@ -6,6 +6,14 @@ const accountB = "22222222-2222-4222-8222-222222222222";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("hosted account request scope", () => {
+  it("permits preview reads but blocks mutations before sending them", async () => {
+    const fetcher = vi.fn(async () => new Response("{}", { headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetcher);
+    const preview = createAccountConnection(accountA, { readOnly: true });
+    await preview.client.getAccount({ accountId: accountA });
+    await expect(preview.client.renameAccount({ accountId: accountA, name: "Changed" })).rejects.toThrow(/preview/i);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
   it("captures each page's account and leaves unscoped directory calls alone", async () => {
     const requests: { account: string | null; body: unknown }[] = [];
     vi.stubGlobal(

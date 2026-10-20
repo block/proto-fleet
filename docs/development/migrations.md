@@ -102,6 +102,65 @@ preserve the database. Inspect the actual schema and retained allocation rows
 before choosing an evidence-preserving recovery; do not force a version or clear
 the dirty marker based only on the reported version.
 
+## Hosted allocation history upgrade (1031–1033)
+
+Stop Fleet API replicas, plugins, Fleet Node dispatchers and scheduled database
+writers before upgrading. Take a coordinated application/database backup and
+rehearse its restore before running the target release's
+`fleet-db-transition migrate`. Include retained allocations, telemetry and
+ownership history in the backup; restoring only allocation rows cannot restore
+historical authorization. Migration 1031 locks device placement and allocations
+while it establishes one history epoch and seeds current assignments from that
+boundary. Earlier ownership is deliberately unknown. Migration 1032 builds
+`idx_container_module_metrics_module_collected_at`; rehearse its lock wait and
+build time on a representative backup to size the maintenance window.
+
+Each private checkpoint commits separately. If 1032 fails after 1031 commits,
+1031's epoch, intervals and triggers remain established at clean checkpoint 1031;
+1032's index creation rolls back. Keep writers stopped, reconnect and inspect
+`SELECT version, dirty FROM schema_migrations` before retrying. Correct the
+reported cause and rerun the same release's `fleet-db-transition migrate` to
+finish the target release. A lost acknowledgement may mean 1032 already committed: inspect the
+checkpoint first. Do not force a version, clear dirty state, delete intervals or
+reseed the epoch to make the retry succeed. Unexpected dirty state or catalog
+drift requires evidence-preserving inspection before recovery.
+
+Before restarting writers, require clean checkpoint 1033 and a successful
+`fleet-db-transition check --state=startup`. Verify:
+
+- Exactly one row exists in `hosted_account_history_epoch`, with the original
+  upgrade boundary preserved across retries.
+- Every allocated asset whose device is not deleted has exactly one open row in
+  `hosted_account_asset_interval`, matching its organization, kind, asset,
+  device, client, subclient, site and device identifier. Recalled allocations
+  have no open interval; closed history remains intact. Intervals seeded during
+  upgrade start at the epoch, never before it.
+- `idx_hosted_account_asset_interval_open` and
+  `idx_container_module_metrics_module_collected_at` exist and are valid in
+  `pg_index`, and both allocation/placement history triggers are enabled.
+- Customer history begins at the established boundary; data from before that
+  boundary or another account/site does not appear. Confirm current inventory
+  and allocation counts against the pre-upgrade snapshot.
+
+Migration 1031's down guard refuses rollback whenever any interval exists,
+including closed/recalled history. Preserve the database and fix forward, or
+restore the rehearsed coordinated application/database backup with writers
+stopped. Do not delete intervals to bypass the guard. Normal application
+rollback does not reverse these migrations.
+
+Migration 1033 orders compressed module history by collection time followed by
+source time. Its upgrade recompresses retained compressed chunks one at a time;
+rehearse storage, WAL volume and elapsed time on a representative backup, and
+schedule the upgrade for a maintenance window because recompression locks chunks
+until the checkpoint commits. A failure rolls
+back that migration and preserves the previous clean checkpoint and compression
+layout. Retry after correcting the underlying failure; do not roll back 1031.
+Its down migration restores the prior compression order without discarding
+telemetry or allocation history. After upgrading, verify that
+`timescaledb_information.compression_settings` lists `collected_at` first and
+`time` second for `container_module_metrics`; inspect an actual compressed query
+plan for collection-bound batch filtering.
+
 ## Author and promote
 
 1. Allocate numbers from internal main with

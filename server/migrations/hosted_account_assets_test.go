@@ -20,6 +20,7 @@ func TestAccountAssetRollbackPreservesAllocationsAndRecallWitnesses(t *testing.T
 			cfg, err := testutil.GetTestConfig()
 			require.NoError(t, err)
 			database := testutil.NewDatabaseService(t, cfg)
+			rollbackEmptyAllocationHistory(t, database.DB)
 			user := database.CreateSuperAdminUser()
 			device := database.CreateDevice(user.OrganizationID, "proto")
 			ctx := t.Context()

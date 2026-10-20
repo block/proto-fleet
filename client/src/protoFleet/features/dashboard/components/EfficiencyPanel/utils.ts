@@ -16,9 +16,9 @@ export function transformEfficiencyMetricsToChartData(metrics: Metric[]): ChartD
     // Find the AVERAGE aggregation value, default to the first value if not found
     const avgValue =
       metric.aggregatedValues.find((agg) => agg.aggregationType === AggregationType.AVERAGE)?.value ??
-      metric.aggregatedValues[0]?.value ??
-      0;
-    const normalizedEfficiency = normalizeEfficiencyToJTH(avgValue);
+      metric.aggregatedValues[0]?.value;
+    const normalizedEfficiency =
+      avgValue !== undefined && Number.isFinite(avgValue) ? normalizeEfficiencyToJTH(avgValue) : null;
 
     return {
       datetime: Number(metric.openTime?.seconds ?? 0) * 1000, // Convert seconds to milliseconds

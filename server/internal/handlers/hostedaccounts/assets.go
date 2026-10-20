@@ -39,3 +39,26 @@ func (h *Handler) AssignAccountAssets(ctx context.Context, request *connect.Requ
 	}
 	return connect.NewResponse(&pb.AssignAccountAssetsResponse{}), nil
 }
+
+func (h *Handler) GetAccountDashboard(ctx context.Context, request *connect.Request[pb.GetAccountDashboardRequest]) (*connect.Response[pb.GetAccountDashboardResponse], error) {
+	info, err := principal(ctx, request.Msg.AccountId)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.accounts.Dashboard(ctx, info.UserID, info.OrganizationID, request.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(result), nil
+}
+func (h *Handler) GetAccountAssetDetail(ctx context.Context, request *connect.Request[pb.GetAccountAssetDetailRequest]) (*connect.Response[pb.GetAccountAssetDetailResponse], error) {
+	info, err := principal(ctx, request.Msg.AccountId)
+	if err != nil {
+		return nil, err
+	}
+	result, err := h.accounts.AssetDetail(ctx, info.UserID, info.OrganizationID, request.Msg)
+	if err != nil {
+		return nil, err
+	}
+	return connect.NewResponse(result), nil
+}

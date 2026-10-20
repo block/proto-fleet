@@ -1,6 +1,7 @@
 package hostedaccounts
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"encoding/base64"
@@ -182,8 +183,8 @@ func (e miningEstate) asset(row sqlc.ListHostedAccountMiningAssetsRow) *pb.Accou
 	a.SiteId = row.SiteID
 	a.SiteName = row.SiteName
 	a.State = row.State
-	if row.ObservedAt.Valid {
-		a.ObservedAt = timestamppb.New(row.ObservedAt.Time)
+	if !row.ObservedAt.IsZero() {
+		a.ObservedAt = timestamppb.New(row.ObservedAt)
 	}
 	if row.HasHashrate && finiteNonnegative(row.HashrateHs) {
 		a.HashrateHs = &row.HashrateHs
@@ -214,6 +215,9 @@ func (e miningEstate) asset(row sqlc.ListHostedAccountMiningAssetsRow) *pb.Accou
 		}
 	}
 
+	if a.HashrateHs == nil || a.PowerW == nil || a.PartialCoverage || a.UnknownCoverage {
+		a.EfficiencyJTh = nil
+	}
 	return a
 }
 func finiteNonnegative(value float64) bool {
@@ -223,6 +227,8 @@ func finiteNonnegative(value float64) bool {
 type miningAccumulator struct {
 	summary                 *pb.MiningSummary
 	pairedHash, pairedPower float64
+	temperatureTotal        float64
+	incompleteCoverage      bool
 }
 
 func newMiningAccumulator() *miningAccumulator {
@@ -243,7 +249,10 @@ func (a *miningAccumulator) add(asset *pb.AccountAsset) {
 		s.OutsidePolicyCount++
 	}
 	if asset.PartialCoverage {
-		s.PartialModuleCount++
+		a.incompleteCoverage = true
+		if asset.Kind == pb.MiningAssetKind_MINING_ASSET_KIND_MODULE {
+			s.PartialModuleCount++
+		}
 	}
 	if asset.UnknownCoverage {
 		s.UnknownModuleCount++
@@ -274,6 +283,19 @@ func (a *miningAccumulator) add(asset *pb.AccountAsset) {
 		*s.PowerW += *asset.PowerW
 		s.PowerReportingCount++
 	}
+	if asset.TemperatureC != nil {
+		a.temperatureTotal += *asset.TemperatureC
+		s.TemperatureReportingCount++
+	}
+	if asset.HashrateHs != nil {
+		if s.UptimePercent == nil {
+			s.UptimePercent = new(float64)
+		}
+		if *asset.HashrateHs > 0 {
+			*s.UptimePercent += 100
+		}
+		s.UptimeReportingCount++
+	}
 	if asset.HashrateHs != nil && asset.PowerW != nil {
 		s.PairedReportingCount++
 		a.pairedHash += *asset.HashrateHs
@@ -281,9 +303,16 @@ func (a *miningAccumulator) add(asset *pb.AccountAsset) {
 	}
 }
 func (a *miningAccumulator) result() *pb.MiningSummary {
-	if a.pairedHash > 0 {
+	if a.pairedHash > 0 && a.summary.PairedReportingCount == a.summary.AssetCount && !a.incompleteCoverage && a.summary.UnknownModuleCount == 0 {
 		value := a.pairedPower / a.pairedHash * 1e12
 		a.summary.EfficiencyJTh = &value
+	}
+	if a.summary.TemperatureReportingCount > 0 {
+		value := a.temperatureTotal / float64(a.summary.TemperatureReportingCount)
+		a.summary.TemperatureC = &value
+	}
+	if a.summary.UptimeReportingCount > 0 {
+		*a.summary.UptimePercent /= float64(a.summary.UptimeReportingCount)
 	}
 	return a.summary
 }
@@ -333,6 +362,8 @@ type miningCursor struct {
 	Actor, Org    int64
 	Search, Owner string
 	Container     int64
+	Model         string
+	Site          int64
 	Kind          int32
 	ID            int64
 	Sort          int32
@@ -346,7 +377,7 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 	if request.PageSize < 0 || request.PageSize > 100 || len(request.Search) > 1020 || len(request.PageToken) > 8192 {
 		return nil, fleeterror.NewInvalidArgumentError("invalid asset list")
 	}
-	if len(request.SelectedAssets) > 500 || len(request.SelectedAssets) > 0 && (request.PageSize != 0 || request.PageToken != "" || request.Search != "" || request.OwnerAccountId != nil || request.ContainerId != nil || request.Sort != nil) {
+	if len(request.SelectedAssets) > 500 || len(request.SelectedAssets) > 0 && (request.PageSize != 0 || request.PageToken != "" || request.Search != "" || request.OwnerAccountId != nil || request.ContainerId != nil || request.Sort != nil || request.Model != nil || request.SiteId != nil) {
 		return nil, fleeterror.NewInvalidArgumentError("selected assets cannot be combined with pagination or filters")
 	}
 	field := commonpb.SortField_SORT_FIELD_NAME
@@ -368,6 +399,9 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 		default:
 			return nil, fleeterror.NewInvalidArgumentError("invalid asset sort direction")
 		}
+	}
+	if request.Model != nil && (request.GetModel() == "" || len(request.GetModel()) > 1020) || request.SiteId != nil && request.GetSiteId() <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("invalid asset filter")
 	}
 	seen := map[[2]int64]bool{}
 	for _, asset := range request.SelectedAssets {
@@ -396,7 +430,7 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 				return nil, denied()
 			}
 		}
-		expected := miningCursor{Account: request.AccountId, Actor: actorID, Org: orgID, Search: request.Search, Owner: request.GetOwnerAccountId(), Container: request.GetContainerId(), Sort: int32(field), Descending: descending}
+		expected := miningCursor{Account: request.AccountId, Actor: actorID, Org: orgID, Search: request.Search, Owner: request.GetOwnerAccountId(), Container: request.GetContainerId(), Model: request.GetModel(), Site: request.GetSiteId(), Sort: int32(field), Descending: descending}
 		cursor := expected
 		if request.PageToken != "" {
 			encoded, err := base64.RawURLEncoding.DecodeString(request.PageToken)
@@ -451,24 +485,25 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 				}
 			}
 		}
-		authority := []map[string]any{}
-		if e.hostPermissions != nil {
-			for _, permission := range []string{authz.PermSiteRead, authz.PermFleetRead, authz.PermMinerRead} {
-				orgWide, sites := e.hostPermissions.SiteScopeFor(permission)
-				if sites == nil {
-					sites = []int64{}
-				}
-				authority = append(authority, map[string]any{"org_wide": orgWide, "sites": sites})
-			}
+		encodedAuthority, err := e.physicalReadAuthority()
+		if err != nil {
+			return nil, err
 		}
-		encodedAuthority, _ := json.Marshal(authority)
+		options, err := q.ListHostedAccountAssetFilterOptions(ctx, sqlc.ListHostedAccountAssetFilterOptionsParams{
+			OrganizationID: orgID, AccountInternalID: e.account.ID, IsRoot: e.account.Depth == 0,
+			PolicyRestricted: e.policy.EffectiveRestricted, PolicySites: e.policy.EffectiveSiteIDs, HostAuthority: encodedAuthority,
+		})
+		if err != nil {
+			return nil, err
+		}
+		response.FilterOptions = assetFilterOptions(options)
 		rows, err := q.ListHostedAccountMiningAssetPage(ctx, sqlc.ListHostedAccountMiningAssetPageParams{
 			OrganizationID: orgID, AccountInternalID: e.account.ID, IsRoot: e.account.Depth == 0,
 			AfterKind: cursor.Kind, AfterID: cursor.ID, HostAuthority: encodedAuthority,
 			SortField: int32(field), Descending: descending, HasCursor: request.PageToken != "",
 			CursorNull: cursor.Null, CursorNumber: cursor.Number, CursorText: cursor.Text,
 			HasOwnerFilter: request.OwnerAccountId != nil, OwnerInternalID: ownerID,
-			ContainerFilter: request.GetContainerId(), PolicyRestricted: e.policy.EffectiveRestricted, PolicySites: e.policy.EffectiveSiteIDs,
+			ContainerFilter: request.GetContainerId(), ModelFilter: request.GetModel(), SiteFilter: request.GetSiteId(), PolicyRestricted: e.policy.EffectiveRestricted, PolicySites: e.policy.EffectiveSiteIDs,
 			Search: strings.TrimSpace(request.Search), PageLimit: limit + 1,
 		})
 		if err != nil {
@@ -490,6 +525,44 @@ func (s *Service) ListAssets(ctx context.Context, actorID, orgID int64, request 
 		}
 		return response, nil
 	})
+}
+
+func assetFilterOptions(rows []sqlc.ListHostedAccountAssetFilterOptionsRow) *pb.AccountAssetFilterOptions {
+	options := &pb.AccountAssetFilterOptions{}
+	models := map[string]bool{}
+	sites := map[int64]string{}
+	containers := map[int64]string{}
+	for _, row := range rows {
+		if row.Model != "" {
+			models[row.Model] = true
+		}
+		if row.SiteID > 0 {
+			sites[row.SiteID] = row.SiteName
+		}
+		if row.ContainerID > 0 {
+			containers[row.ContainerID] = row.ContainerName
+		}
+	}
+	for model := range models {
+		options.Models = append(options.Models, model)
+	}
+	slices.Sort(options.Models)
+	locations := func(values map[int64]string) []*pb.AccountAssetLocationOption {
+		result := make([]*pb.AccountAssetLocationOption, 0, len(values))
+		for id, name := range values {
+			result = append(result, &pb.AccountAssetLocationOption{Id: id, Name: name})
+		}
+		slices.SortFunc(result, func(a, b *pb.AccountAssetLocationOption) int {
+			if order := strings.Compare(a.Name, b.Name); order != 0 {
+				return order
+			}
+			return cmp.Compare(a.Id, b.Id)
+		})
+		return result
+	}
+	options.Sites = locations(sites)
+	options.Containers = locations(containers)
+	return options
 }
 
 // AssignAssets validates the exact reviewed snapshot after physical bindings and

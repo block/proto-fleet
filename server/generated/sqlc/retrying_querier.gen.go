@@ -3566,6 +3566,18 @@ func (q *retryingQuerier) GetHostedAccountAssetDevice(ctx context.Context, arg G
 	return result, err
 }
 
+func (q *retryingQuerier) GetHostedAccountHistoryEpoch(ctx context.Context) (time.Time, error) {
+	var result time.Time
+	err := q.retrier.RetryQuery(ctx, "GetHostedAccountHistoryEpoch", func() error {
+		callResult, callErr := q.next.GetHostedAccountHistoryEpoch(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetHostedAccountInvitationByHash(ctx context.Context, tokenHash string) (GetHostedAccountInvitationByHashRow, error) {
 	var result GetHostedAccountInvitationByHashRow
 	err := q.retrier.RetryQuery(ctx, "GetHostedAccountInvitationByHash", func() error {
@@ -5942,10 +5954,58 @@ func (q *retryingQuerier) ListHostedAccountAssetChildren(ctx context.Context, ar
 	return result, err
 }
 
+func (q *retryingQuerier) ListHostedAccountAssetFilterOptions(ctx context.Context, arg ListHostedAccountAssetFilterOptionsParams) ([]ListHostedAccountAssetFilterOptionsRow, error) {
+	var result []ListHostedAccountAssetFilterOptionsRow
+	err := q.retrier.RetryQuery(ctx, "ListHostedAccountAssetFilterOptions", func() error {
+		callResult, callErr := q.next.ListHostedAccountAssetFilterOptions(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ListHostedAccountChildren(ctx context.Context, arg ListHostedAccountChildrenParams) ([]HostedAccount, error) {
 	var result []HostedAccount
 	err := q.retrier.RetryQuery(ctx, "ListHostedAccountChildren", func() error {
 		callResult, callErr := q.next.ListHostedAccountChildren(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListHostedAccountHistoricalReadings(ctx context.Context, arg ListHostedAccountHistoricalReadingsParams) ([]ListHostedAccountHistoricalReadingsRow, error) {
+	var result []ListHostedAccountHistoricalReadingsRow
+	err := q.retrier.RetryQuery(ctx, "ListHostedAccountHistoricalReadings", func() error {
+		callResult, callErr := q.next.ListHostedAccountHistoricalReadings(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListHostedAccountHistoricalSites(ctx context.Context, arg ListHostedAccountHistoricalSitesParams) ([]ListHostedAccountHistoricalSitesRow, error) {
+	var result []ListHostedAccountHistoricalSitesRow
+	err := q.retrier.RetryQuery(ctx, "ListHostedAccountHistoricalSites", func() error {
+		callResult, callErr := q.next.ListHostedAccountHistoricalSites(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListHostedAccountHistoryIntervals(ctx context.Context, arg ListHostedAccountHistoryIntervalsParams) ([]ListHostedAccountHistoryIntervalsRow, error) {
+	var result []ListHostedAccountHistoryIntervalsRow
+	err := q.retrier.RetryQuery(ctx, "ListHostedAccountHistoryIntervals", func() error {
+		callResult, callErr := q.next.ListHostedAccountHistoryIntervals(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

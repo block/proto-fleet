@@ -79,6 +79,7 @@ import Slider from "./Slider";
 import Speedometer from "./Speedometer";
 import Stop from "./Stop";
 import Success from "./Success";
+import Team from "./Team";
 import Terminal from "./Terminal";
 import ThemeDark from "./ThemeDark";
 import ThemeLight from "./ThemeLight";
@@ -172,6 +173,7 @@ export {
   Speedometer,
   Stop,
   Success,
+  Team,
   Terminal,
   Thermometer,
   ThemeDark,

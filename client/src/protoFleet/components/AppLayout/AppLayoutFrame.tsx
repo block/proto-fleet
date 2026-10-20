@@ -16,6 +16,7 @@ export type ShellHeaderProps = { isMenuOpen: boolean; openMenu: () => void; navi
 type Props = {
   children: ReactNode;
   hideShellHeader?: boolean;
+  contained?: boolean;
   items?: NavItem[];
   roleLabel?: string;
   phoneRowWidgetCount?: number;
@@ -25,6 +26,7 @@ type Props = {
 const AppLayoutFrame = ({
   children,
   hideShellHeader = false,
+  contained = false,
   items = primaryNavItems,
   roleLabel,
   phoneRowWidgetCount = 0,
@@ -60,8 +62,14 @@ const AppLayoutFrame = ({
   }, []);
 
   return (
-    <div className={clsx("absolute top-0 right-0 bottom-0 left-0 overflow-hidden", bgClass)}>
-      <div className="fixed top-0 z-50 h-fit w-0 tablet:w-16 desktop:w-50">
+    <div
+      className={clsx(
+        "absolute top-0 right-0 bottom-0 left-0 overflow-hidden",
+        bgClass,
+        contained && "[--navigation-height:100%]",
+      )}
+    >
+      <div className={clsx("fixed top-0 z-50 w-0 tablet:w-16 desktop:w-50", contained ? "h-full" : "h-fit")}>
         <NavigationMenu
           rail={rail}
           items={items}

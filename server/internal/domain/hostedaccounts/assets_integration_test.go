@@ -69,6 +69,17 @@ func (f fixture) miningModule(t *testing.T) (int64, int64) {
 	require.NoError(t, err)
 	return module, controller
 }
+
+// Publish a new physical observation explicitly after the tested allocation.
+func (f fixture) publishCurrentModule(t *testing.T, module int64) {
+	t.Helper()
+	_, err := f.db.ExecContext(t.Context(), `UPDATE container_module_latest_metrics SET time=clock_timestamp(),collected_at=clock_timestamp(),coverage=(SELECT jsonb_object_agg(key,value || jsonb_build_object('oldest_at',clock_timestamp(),'newest_at',clock_timestamp())) FROM jsonb_each(coverage)) WHERE module_id=$1`, module)
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO container_module_metrics(module_id,time,collected_at,site_id,hashrate_hs,power_w,efficiency_jh,temperature_c,coverage) SELECT l.module_id,l.time,l.collected_at,d.site_id,l.hashrate_hs,l.power_w,l.efficiency_jh,l.temperature_c,l.coverage FROM container_module_latest_metrics l JOIN container_module m ON m.id=l.module_id JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id WHERE l.module_id=$1`, module)
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(t.Context(), `UPDATE container_module SET state_observed_at=clock_timestamp() WHERE id=$1`, module)
+	require.NoError(t, err)
+}
 func selected(kind pb.MiningAssetKind, id, revision int64) *pb.MiningAssetSelection {
 	return &pb.MiningAssetSelection{Kind: kind, Id: id, ExpectedRevision: revision}
 }
@@ -86,6 +97,7 @@ func TestAccountMiningMixedLeavesAllocationCoverageAndRecall(t *testing.T) {
 	assign, recall := pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_RECALL
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, assign, selected(5, miner, 0), selected(6, module, 0)))
 	require.NoError(t, f.allocate(t, f.user, client.AccountID, child.AccountID, assign, selected(6, module, 1)))
+	f.publishCurrentModule(t, module)
 	summary, err := f.svc.MiningSummary(t.Context(), f.user, f.org, client.AccountID)
 	require.NoError(t, err)
 	require.EqualValues(t, 2, summary.Totals.AssetCount)
@@ -95,7 +107,7 @@ func TestAccountMiningMixedLeavesAllocationCoverageAndRecall(t *testing.T) {
 	require.EqualValues(t, 1, summary.Children[0].Summary.AssetCount)
 	require.Equal(t, 100e12, *summary.Totals.HashrateHs)
 	require.Equal(t, 2000.0, *summary.Totals.PowerW)
-	require.Equal(t, 20.0, *summary.Totals.EfficiencyJTh)
+	require.Nil(t, summary.Totals.EfficiencyJTh, "partial selected estate cannot report efficiency")
 	require.EqualValues(t, 1, summary.Totals.HashrateReportingCount)
 	require.EqualValues(t, 1, summary.Totals.PartialModuleCount)
 	rootRows, err := f.svc.ListAssets(t.Context(), f.host, f.org, &pb.ListAccountAssetsRequest{AccountId: f.root})
@@ -263,16 +275,17 @@ func TestAccountMiningWeightedMetricsAndStaleCoverage(t *testing.T) {
 	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
 	stale := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
 	module, _ := f.miningModule(t)
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0), selected(5, stale, 0), selected(6, module, 0)))
+	f.publishCurrentModule(t, module)
 	_, err := f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs,power_w) SELECT now(),device_identifier,200e12,6000 FROM device WHERE id=$1 UNION ALL SELECT now()-interval '11 minutes',device_identifier,900e12,9999 FROM device WHERE id=$2`, miner, stale)
 	require.NoError(t, err)
-	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0), selected(5, stale, 0), selected(6, module, 0)))
 	result, err := f.svc.MiningSummary(t.Context(), f.user, f.org, client.AccountID)
 	require.NoError(t, err)
 	require.EqualValues(t, 3, result.Totals.AssetCount)
 	require.EqualValues(t, 2, result.Totals.HashrateReportingCount)
 	require.Equal(t, 300e12, *result.Totals.HashrateHs)
 	require.Equal(t, 8000.0, *result.Totals.PowerW)
-	require.InDelta(t, 8000.0/300.0, *result.Totals.EfficiencyJTh, 0.00001)
+	require.Nil(t, result.Totals.EfficiencyJTh, "stale selected asset makes coverage incomplete")
 }
 func TestAccountMiningRootRequiresPhysicalReadAuthority(t *testing.T) {
 	f := setup(t)
@@ -451,6 +464,12 @@ func TestAccountMiningClientReportPreservesHostSiteAuthority(t *testing.T) {
 	_, err = f.db.ExecContext(t.Context(), `UPDATE device SET site_id=CASE WHEN id=$1 THEN $3::bigint ELSE $4::bigint END WHERE id IN ($1,$2)`, visible, private, allowed.ID, hidden.ID)
 	require.NoError(t, err)
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, visible, 0), selected(5, private, 0)))
+	end := time.Now().UTC().Truncate(time.Second)
+	start := end.Add(-time.Hour)
+	_, err = f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE client_id=$2`, start, client.ID)
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,site_id,hash_rate_hs,power_w,temp_c) SELECT $1,device_identifier,site_id,CASE WHEN id=$2 THEN 100e12 ELSE 900e12 END,3000,60 FROM device WHERE id IN ($2,$3)`, start.Add(30*time.Minute), visible, private)
+	require.NoError(t, err)
 	svc := authz.NewService(f.db, nil)
 	manager, err := svc.CreateCustomRole(t.Context(), f.host, f.org, "Account management", "", []string{authz.PermAccountManage})
 	require.NoError(t, err)
@@ -477,6 +496,33 @@ func TestAccountMiningClientReportPreservesHostSiteAuthority(t *testing.T) {
 				ids = append(ids, asset.Id)
 			}
 			require.ElementsMatch(t, reader.assets, ids)
+			dashboard, err := f.svc.Dashboard(t.Context(), reader.actor, f.org, dashboardRequest(client.AccountID, start, end, nil))
+			require.NoError(t, err)
+			require.EqualValues(t, len(reader.assets), dashboard.Totals.AssetCount)
+			require.Len(t, dashboard.Readings, 1)
+			history := dashboard.Readings[0].Summary
+			require.EqualValues(t, len(reader.assets), history.AssetCount)
+			require.EqualValues(t, len(reader.assets), history.HashrateReportingCount)
+			if reader.name == "host operator" {
+				require.Equal(t, 100e12, history.GetHashrateHs(), "host must not read the hidden site's measurements")
+			} else {
+				require.Equal(t, 1000e12, history.GetHashrateHs())
+			}
+			var dashboardSites []int64
+			for _, site := range dashboard.Sites {
+				dashboardSites = append(dashboardSites, site.SiteId)
+			}
+			var siteIDs []int64
+			for _, site := range rows.FilterOptions.Sites {
+				siteIDs = append(siteIDs, site.Id)
+			}
+			if reader.name == "host operator" {
+				require.Equal(t, []int64{allowed.ID}, siteIDs, "host physical authority must also bound filter options")
+				require.Equal(t, []int64{allowed.ID}, dashboardSites, "host physical authority must also bound dashboard sites")
+			} else {
+				require.ElementsMatch(t, []int64{allowed.ID, hidden.ID}, siteIDs)
+				require.ElementsMatch(t, []int64{allowed.ID, hidden.ID}, dashboardSites)
+			}
 		})
 	}
 }
@@ -682,4 +728,55 @@ func TestAccountMiningAssignmentGuardsLeaveLedgerUnchanged(t *testing.T) {
 	require.NoError(t, f.allocate(t, f.user, first.AccountID, child.AccountID, assign, selected(5, held, 1)))
 	require.NoError(t, f.svc.ConfigureChild(t.Context(), f.user, f.org, child.AccountID, hostedaccounts.AllCapabilities, true))
 	require.NoError(t, f.allocate(t, f.user, first.AccountID, child.AccountID, recall, selected(5, held, 2)))
+}
+
+func TestAccountMiningPreservesNodeOfflineState(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(pb.MiningAssetKind_MINING_ASSET_KIND_MINER, miner, 0)))
+	var node int64
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO fleet_node(org_id,name,identity_pubkey,encryption_pubkey,enrollment_status,last_seen_at) VALUES($1,'Offline node',$2,$3,'CONFIRMED',now()-interval '3 minutes') RETURNING id`, f.org, []byte("hosted-test-node"), make([]byte, 32)).Scan(&node))
+	_, err := f.db.ExecContext(t.Context(), `INSERT INTO fleet_node_heartbeat(fleet_node_id,org_id,last_seen_at) VALUES($1,$2,now()-interval '3 minutes')`, node, f.org)
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,$3)`, node, miner, f.org)
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_status(device_id,status,status_timestamp) VALUES($1,'ACTIVE',clock_timestamp())`, miner)
+	require.NoError(t, err)
+	host, err := f.svc.MiningSummary(t.Context(), f.host, f.org, f.root)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, host.Totals.OfflineCount)
+	summary, err := f.svc.MiningSummary(t.Context(), f.user, f.org, client.AccountID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, summary.Totals.OfflineCount)
+	require.Zero(t, summary.Totals.HashingCount)
+	assets, err := f.svc.ListAssets(t.Context(), f.user, f.org, &pb.ListAccountAssetsRequest{AccountId: client.AccountID})
+	require.NoError(t, err)
+	require.Len(t, assets.Assets, 1)
+	require.Equal(t, "offline", assets.Assets[0].State)
+	detail, err := f.svc.AssetDetail(t.Context(), f.user, f.org, &pb.GetAccountAssetDetailRequest{AccountId: client.AccountID, Asset: &pb.MiningAssetReference{Kind: pb.MiningAssetKind_MINING_ASSET_KIND_MINER, Id: miner}})
+	require.NoError(t, err)
+	require.Equal(t, "offline", detail.Asset.State)
+}
+
+func TestAccountMiningRepeatedModuleSourceDoesNotDuplicateAssets(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	module, _ := f.miningModule(t)
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN, selected(pb.MiningAssetKind_MINING_ASSET_KIND_MODULE, module, 0)))
+	f.publishCurrentModule(t, module)
+	_, err := f.db.ExecContext(t.Context(), `INSERT INTO container_module_metrics(module_id,time,collected_at,site_id,hashrate_hs,power_w,efficiency_jh,temperature_c,coverage) SELECT module_id,time,collected_at+interval '1 microsecond',site_id,hashrate_hs,power_w,efficiency_jh,temperature_c,coverage FROM container_module_metrics WHERE module_id=$1`, module)
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(t.Context(), `UPDATE container_module_latest_metrics SET collected_at=collected_at+interval '1 microsecond' WHERE module_id=$1`, module)
+	require.NoError(t, err)
+	summary, err := f.svc.MiningSummary(t.Context(), f.user, f.org, client.AccountID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, summary.Totals.AssetCount)
+	require.Equal(t, 2000.0, summary.Totals.GetPowerW())
+	assets, err := f.svc.ListAssets(t.Context(), f.user, f.org, &pb.ListAccountAssetsRequest{AccountId: client.AccountID})
+	require.NoError(t, err)
+	require.Len(t, assets.Assets, 1)
+	detail, err := f.svc.AssetDetail(t.Context(), f.user, f.org, &pb.GetAccountAssetDetailRequest{AccountId: client.AccountID, Asset: &pb.MiningAssetReference{Kind: pb.MiningAssetKind_MINING_ASSET_KIND_MODULE, Id: module}})
+	require.NoError(t, err)
+	require.Equal(t, module, detail.Asset.Id)
 }

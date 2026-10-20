@@ -4,6 +4,11 @@ import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemet
 import { createMockMetric } from "@/protoFleet/features/dashboard/utils/createMockMetric";
 
 describe("transformHashrateMetricsToChartData", () => {
+  it("keeps an unavailable bucket as a gap instead of zero", () => {
+    const metric = createMockMetric(MeasurementType.HASHRATE, 500, 1000);
+    metric.aggregatedValues = [];
+    expect(transformHashrateMetricsToChartData([metric])[0].hashrate).toBeNull();
+  });
   it("should return empty array for empty metrics", () => {
     expect(transformHashrateMetricsToChartData([])).toEqual([]);
   });

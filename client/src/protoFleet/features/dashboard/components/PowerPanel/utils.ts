@@ -7,7 +7,7 @@ import type { ChartData } from "@/shared/components/LineChart/types";
  * @param metrics - Array of Metric objects from GetCombinedMetricsResponse
  * @returns Array of ChartData objects for LineChart
  */
-export function transformPowerMetricsToChartData(metrics: Metric[]): ChartData[] {
+export function transformPowerMetricsToChartData(metrics: Metric[], metricsInKW = false): ChartData[] {
   if (!metrics || metrics.length === 0) {
     return [];
   }
@@ -16,9 +16,13 @@ export function transformPowerMetricsToChartData(metrics: Metric[]): ChartData[]
     // Find the AVERAGE aggregation value, default to the first value if not found
     const avgValue =
       metric.aggregatedValues.find((agg) => agg.aggregationType === AggregationType.AVERAGE)?.value ??
-      metric.aggregatedValues[0]?.value ??
-      0;
-    const normalizedPower = normalizePowerToKW(avgValue, metric.deviceCount);
+      metric.aggregatedValues[0]?.value;
+    const normalizedPower =
+      avgValue !== undefined && Number.isFinite(avgValue)
+        ? metricsInKW
+          ? avgValue
+          : normalizePowerToKW(avgValue, metric.deviceCount)
+        : null;
 
     return {
       datetime: Number(metric.openTime?.seconds ?? 0) * 1000, // Convert seconds to milliseconds

@@ -1,5 +1,5 @@
 import { MemoryRouter } from "react-router-dom";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
@@ -15,6 +15,7 @@ import {
   ListAccountAssetsResponseSchema,
   MiningAssetKind,
 } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 
 beforeEach(() => {
   // Popovers require a visible trigger; JSDOM does not calculate layout.
@@ -77,6 +78,17 @@ function mount(
       create(ListAccountAssetsResponseSchema, {
         assets,
         nextPageToken,
+        filterOptions: {
+          models: ["S21", "S19"],
+          sites: [
+            { id: 7n, name: "North" },
+            { id: 8n, name: "South" },
+          ],
+          containers: [
+            { id: 10n, name: "Container A" },
+            { id: 20n, name: "Container B" },
+          ],
+        },
         canManageAssignments: (mask & 16n) !== 0n,
         canViewAssignments: (mask & 24n) !== 0n,
         children: (mask & 24n) !== 0n ? [{ accountId: childId, name: "East" }] : [],
@@ -112,9 +124,29 @@ const selectTarget = async (user: ReturnType<typeof userEvent.setup>) => {
 };
 
 describe("account mining asset allocation", () => {
-  it("uses Fleet's metric units and module cells with the common columns", async () => {
+  it("removes assets after a background authorization change without requiring window focus", async () => {
+    const polling = vi.spyOn(window, "setInterval");
+    const { client } = mount();
+    await screen.findByText("Miner One");
+    client.listAccountAssets.mockResolvedValue(create(ListAccountAssetsResponseSchema, { assets: [] }));
+    const poll = polling.mock.calls.find(([, interval]) => interval === POLL_INTERVAL_MS)?.[0];
+    expect(poll).toBeTypeOf("function");
+    await act(async () => {
+      if (typeof poll === "function") poll();
+    });
+    await waitFor(() => expect(screen.queryByText("Miner One")).not.toBeInTheDocument());
+    expect(screen.queryByText("Module One")).not.toBeInTheDocument();
+  });
+  it("uses Fleet's heading, navigation, tools, metric units and common columns", async () => {
     mount();
     const minerRow = (await screen.findByText("Miner One")).closest("tr")!;
+    expect(screen.getByRole("heading", { name: "Fleet" })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("navigation", { name: "Fleet sections" })).getByRole("button", { name: "Miners" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Add Filter" })).toBeInTheDocument();
+    expect(screen.getByText("2 mining assets")).toBeInTheDocument();
+    expect(screen.queryByText(/Assets allocated to this account/)).not.toBeInTheDocument();
     for (const label of ["Name", "Model", "Status", "Hashrate", "Efficiency", "Power", "Temp"])
       expect(screen.getByRole("columnheader", { name: label })).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Equipment power" })).not.toBeInTheDocument();
@@ -123,6 +155,67 @@ describe("account mining asset allocation", () => {
     const moduleRow = screen.getByText("Module One").closest("tr")!;
     expect(within(moduleRow).getByText("42.5 °C")).toBeInTheDocument();
     expect(within(moduleRow).getAllByText("1/2 boards reporting")).toHaveLength(2);
+  });
+  it("filters client Fleet through shared chips and resets pagination when filters change", async () => {
+    const { client } = mount(31n, undefined, undefined, "next");
+    await screen.findByText("Miner One");
+    expect(screen.getByText("2 mining assets on this page")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    await waitFor(() =>
+      expect(client.listAccountAssets).toHaveBeenLastCalledWith(
+        expect.objectContaining({ pageToken: "next" }),
+        expect.anything(),
+      ),
+    );
+    const user = userEvent.setup();
+    const selectFilter = async (key: string, id: string) => {
+      await user.click(screen.getByRole("button", { name: "Add Filter" }));
+      await user.click(screen.getByTestId(`nested-dropdown-filter-row-${key}`));
+      await user.click(await screen.findByTestId(`filter-option-${id}`));
+      fireEvent.mouseDown(screen.getByRole("heading", { name: "Fleet" }));
+    };
+    await selectFilter("assignment", childId);
+    await waitFor(() =>
+      expect(client.listAccountAssets).toHaveBeenLastCalledWith(
+        expect.objectContaining({ ownerAccountId: childId, pageToken: "" }),
+        expect.anything(),
+      ),
+    );
+    expect(screen.getByTestId("active-filter-assignment")).toHaveTextContent("East");
+    await selectFilter("model", "S19");
+    await selectFilter("site", "8");
+    await waitFor(() =>
+      expect(client.listAccountAssets).toHaveBeenLastCalledWith(
+        expect.objectContaining({ model: "S19", siteId: 8n, pageToken: "" }),
+        expect.anything(),
+      ),
+    );
+    expect(screen.getByTestId("active-filter-model")).toHaveTextContent("S19");
+    expect(screen.getByTestId("active-filter-site")).toHaveTextContent("South");
+    await selectFilter("container", "10");
+    await waitFor(() =>
+      expect(client.listAccountAssets).toHaveBeenLastCalledWith(
+        expect.objectContaining({ ownerAccountId: childId, containerId: 10n, pageToken: "" }),
+        expect.anything(),
+      ),
+    );
+    expect(screen.getByTestId("active-filter-container")).toHaveTextContent("Container A");
+    fireEvent.click(screen.getByRole("button", { name: "Clear Assigned to filter" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear Container filter" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear Model filter" }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear Site filter" }));
+    await waitFor(() =>
+      expect(client.listAccountAssets).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          ownerAccountId: undefined,
+          containerId: undefined,
+          model: undefined,
+          siteId: undefined,
+          pageToken: "",
+        }),
+        expect.anything(),
+      ),
+    );
   });
   it("retains unknown coverage hints for zero module readings", async () => {
     mount(31n, [
@@ -180,8 +273,10 @@ describe("account mining asset allocation", () => {
     expect(screen.queryByRole("button", { name: "Assign selected" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Recall selected" })).not.toBeInTheDocument();
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Assignment" }));
-    await user.click(await screen.findByRole("option", { name: "East" }));
+    await user.click(screen.getByRole("button", { name: "Add Filter" }));
+    await user.click(screen.getByTestId("nested-dropdown-filter-row-assignment"));
+    await user.click(screen.getByTestId(`filter-option-${childId}`));
+    fireEvent.mouseDown(screen.getByRole("heading", { name: "Fleet" }));
     expect(screen.getByRole("link", { name: "Manage subclient assets" })).toHaveAttribute(
       "href",
       `/accounts/${accountId}/children?assets=${childId}`,
@@ -301,7 +396,9 @@ describe("account mining asset allocation", () => {
     );
     await screen.findByText("Miner One");
     expect(screen.queryByRole("columnheader", { name: "Assigned to" })).not.toBeInTheDocument();
-    expect(screen.getByText(/Assets allocated to this account/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add Filter" }));
+    expect(screen.queryByTestId("nested-dropdown-filter-row-assignment")).not.toBeInTheDocument();
+    expect(screen.getByTestId("nested-dropdown-filter-row-container")).toBeInTheDocument();
   });
   it.each(
     [1n, 7n, 9n].flatMap((mask) => [

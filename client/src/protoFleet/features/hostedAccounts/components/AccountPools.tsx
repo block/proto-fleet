@@ -19,7 +19,7 @@ import Row from "@/shared/components/Row";
 import Select from "@/shared/components/Select";
 
 const AccountPools = () => {
-  const { account, client } = useRequiredAccountScope();
+  const { account, client, readOnly = false } = useRequiredAccountScope();
   const [tokens, setTokens] = useState([""]),
     [page, setPage] = useState(0);
   const load = useCallback(
@@ -57,15 +57,17 @@ const AccountPools = () => {
     change = can(account, 4n);
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
         <div className="min-w-0 flex-1">
-          <SettingsPageHeader title="Pool configurations" />
+          <SettingsPageHeader title="Pools" description="Add and manage the pools for your account." />
         </div>
         {query.data && manage ? (
           <Button
             variant="primary"
             size={sizes.compact}
-            text="Create configuration"
+            disabled={readOnly}
+            className="shrink-0 phone:w-full"
+            text="Add pool"
             onClick={() => setEditing("new")}
           />
         ) : null}
@@ -73,18 +75,81 @@ const AccountPools = () => {
       <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
       {query.data ? (
         <>
-          <div className="rounded-xl border border-border-10 p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-heading-200 text-text-primary">Stored pool profile</h2>
-                <p className="mt-1 text-300 text-text-primary-70">
-                  Save a pool configuration revision for this account.
-                </p>
+          <List<PoolRevision, string, "name" | "url" | "username">
+            items={query.data.configurations}
+            itemKey="poolId"
+            itemSelectable={false}
+            stickyFirstColumn={false}
+            applyColumnWidthsToCells
+            tableClassName="mb-0"
+            activeCols={["name", "url", "username"]}
+            colTitles={{ name: "Name", url: "URL", username: "Username" }}
+            colConfig={{
+              name: {
+                width: "w-1/3 min-w-40",
+                component: (pool) => (
+                  <div className="flex flex-col items-start">
+                    <Button
+                      variant="textOnly"
+                      textColor="text-text-primary"
+                      className="justify-start text-left font-normal"
+                      textOnlyUnderlineOnHover={false}
+                      text={pool.name}
+                      onClick={() => setViewing(pool)}
+                    />
+                    {pool.slots.length > 1 ? (
+                      <span className="text-200 text-text-primary-50">
+                        {pool.slots.length - 1} backup{pool.slots.length > 2 ? "s" : ""}
+                      </span>
+                    ) : null}
+                  </div>
+                ),
+              },
+              url: {
+                width: "w-1/3 min-w-56",
+                allowWrap: true,
+                component: (pool) => <span className="break-all">{pool.slots[0]?.url || "—"}</span>,
+              },
+              username: {
+                width: "w-1/3 min-w-40",
+                allowWrap: true,
+                component: (pool) => <span className="break-all">{pool.slots[0]?.username || "—"}</span>,
+              },
+            }}
+            actions={
+              manage
+                ? [
+                    { title: "Edit configuration", disabled: readOnly, actionHandler: setEditing },
+                    { title: "Archive", disabled: readOnly, variant: "destructive", actionHandler: setArchiving },
+                  ]
+                : []
+            }
+            noDataElement={
+              <SettingsEmptyState
+                title={page > 0 ? "No pools on this page" : "No pools yet"}
+                description={manage ? "Add a pool with optional backups." : "An account pool operator can add pools."}
+              />
+            }
+          />
+          {query.data.configurations.length || query.data.pinned ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border-5 pt-4">
+              <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
+                <span className="text-300 text-text-primary-70">Stored pool profile</span>
+                {query.data.pinned ? (
+                  <Button
+                    variant="textOnly"
+                    text={`${query.data.pinned.name} · revision ${query.data.pinned.number}`}
+                    onClick={() => setViewing(query.data!.pinned!)}
+                  />
+                ) : (
+                  <span className="text-300 text-text-primary-50">Not selected</span>
+                )}
               </div>
               {change ? (
                 <Button
                   variant="secondary"
                   size={sizes.compact}
+                  disabled={readOnly}
                   text="Change selection"
                   onClick={() => {
                     setRevisionId("");
@@ -95,75 +160,7 @@ const AccountPools = () => {
                 />
               ) : null}
             </div>
-            <Row className="flex items-center justify-between">
-              <span>Selected revision</span>
-              {query.data.pinned ? (
-                <Button
-                  variant="textOnly"
-                  text={`${query.data.pinned.name} · revision ${query.data.pinned.number}`}
-                  onClick={() => setViewing(query.data!.pinned!)}
-                />
-              ) : (
-                <span className="text-text-primary-50">Not selected</span>
-              )}
-            </Row>
-            <p className="text-200 text-text-primary-50">
-              Saving a profile does not apply pool settings to miners or modules, including newly assigned assets.
-            </p>
-          </div>
-          <List<PoolRevision, string, "name" | "number" | "primary" | "backups">
-            items={query.data.configurations}
-            itemKey="poolId"
-            itemSelectable={false}
-            stickyFirstColumn={false}
-            activeCols={["name", "number", "primary", "backups"]}
-            colTitles={{
-              name: "Configuration",
-              number: "Revision",
-              primary: "Primary pool",
-              backups: "Backups",
-            }}
-            colConfig={{
-              name: {
-                width: "min-w-40",
-                component: (pool) => (
-                  <Button
-                    variant="textOnly"
-                    textColor="text-text-primary"
-                    className="justify-start text-left font-normal"
-                    textOnlyUnderlineOnHover={false}
-                    text={pool.name}
-                    onClick={() => setViewing(pool)}
-                  />
-                ),
-              },
-              number: { width: "min-w-24", component: (pool) => String(pool.number) },
-              primary: {
-                width: "min-w-56",
-                allowWrap: true,
-                component: (pool) => <span className="break-all">{pool.slots[0]?.url}</span>,
-              },
-              backups: { width: "min-w-24", component: (pool) => String(Math.max(0, pool.slots.length - 1)) },
-            }}
-            actions={
-              manage
-                ? [
-                    { title: "Edit configuration", actionHandler: setEditing },
-                    { title: "Archive", variant: "destructive", actionHandler: setArchiving },
-                  ]
-                : []
-            }
-            noDataElement={
-              <SettingsEmptyState
-                title="No configurations on this page"
-                description={
-                  manage
-                    ? "Create a primary pool with optional backups."
-                    : "An account pool operator can create configurations."
-                }
-              />
-            }
-          />
+          ) : null}
           <PageControls
             previous={page > 0}
             next={!!query.data.nextPageToken}

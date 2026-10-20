@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestInvitationPaginationRetainsLifecycleHistoryAndTraversesTies(t *testing.T) {
+func TestInvitationPaginationExcludesAcceptedAndTraversesTies(t *testing.T) {
 	f := setup(t)
 	account := f.client(t, "Customer", f.host, hostedaccounts.DefaultCapabilities)
 	svc := invitations(f)
@@ -75,9 +75,10 @@ func TestInvitationPaginationRetainsLifecycleHistoryAndTraversesTies(t *testing.
 		}
 		token = next
 	}
-	require.Len(t, all, 107)
+	require.Len(t, all, 106)
 	seen := make(map[string]hostedaccounts.Invitation)
 	for i, row := range all {
+		require.False(t, row.AcceptedAt.Valid, "accepted invitations do not consume page slots")
 		_, duplicate := seen[row.InvitationID]
 		require.False(t, duplicate, "an invitation appears on only one page")
 		seen[row.InvitationID] = row
@@ -88,12 +89,12 @@ func TestInvitationPaginationRetainsLifecycleHistoryAndTraversesTies(t *testing.
 	}
 	require.False(t, seen[active.Invitation.InvitationID].AcceptedAt.Valid)
 	require.False(t, seen[active.Invitation.InvitationID].RevokedAt.Valid)
-	require.True(t, seen[accepted.Invitation.InvitationID].AcceptedAt.Valid)
+	require.NotContains(t, seen, accepted.Invitation.InvitationID)
 	require.True(t, seen[revoked.Invitation.InvitationID].RevokedAt.Valid)
 	require.True(t, seen[expired.Invitation.InvitationID].ExpiresAt.Before(time.Now()))
 	var count int
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT COUNT(*) FROM hosted_account_invitation WHERE organization_id=$1 AND account_id=$2`, f.org, account.ID).Scan(&count))
-	require.Equal(t, len(all), count, "paging preserves all historical records")
+	require.Equal(t, len(all)+1, count, "the accepted invitation is retained in storage")
 }
 
 func TestInvitationPaginationRejectsInvalidAndCrossScopeTokens(t *testing.T) {

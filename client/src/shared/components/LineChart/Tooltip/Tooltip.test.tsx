@@ -21,6 +21,15 @@ function expectAggregateOnlyTooltip(value: string): void {
 }
 
 describe("ChartTooltip", () => {
+  it("shows coverage for the hovered bucket without borrowing another bucket's coverage", () => {
+    renderAggregateTooltip({
+      notes: { 1000: "3 of 4 modules reporting", 2000: "4 of 4 modules reporting" },
+      payload: [{ name: "total", payload: { datetime: 1000, total: 9 } }],
+      units: "kW",
+    });
+    expect(screen.getByText("3 of 4 modules reporting")).toBeInTheDocument();
+    expect(screen.queryByText("4 of 4 modules reporting")).not.toBeInTheDocument();
+  });
   it("disables pointer events and flips left when it would overflow the chart width", () => {
     const { container } = render(
       <ChartTooltip

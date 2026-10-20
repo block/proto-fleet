@@ -5,6 +5,7 @@ import { useRequiredAccountScope } from "../AccountScope";
 import { can, capabilities } from "../capabilities";
 import { useHostedAccounts } from "../HostedAccountsContext";
 import { useAccountQuery } from "../useAccountQuery";
+import AccountDetails from "./AccountDetails";
 import { AccountState } from "./AccountState";
 import { ActionModal } from "./ActionModal";
 import { CapabilityFields } from "./CapabilityFields";
@@ -20,8 +21,8 @@ import List from "@/shared/components/List";
 import Select from "@/shared/components/Select";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
-const AccountAccess = () => {
-  const { account, client } = useRequiredAccountScope();
+const AccountAccess = ({ title = "Access" }: { title?: string }) => {
+  const { account, client, readOnly = false } = useRequiredAccountScope();
   const directory = useHostedAccounts();
   const [tokens, setTokens] = useState([""]),
     [page, setPage] = useState(0);
@@ -60,7 +61,8 @@ const AccountAccess = () => {
     directory?.accounts.filter((a) => a.parentAccountId === account.accountId && can(a, 1n)) ?? [];
   return (
     <div className="flex flex-col gap-6">
-      <SettingsPageHeader title="Access" />
+      <SettingsPageHeader title={title} />
+      <AccountDetails />
       {can(account, 8n) && account.depth > 0 ? (
         <section className="flex flex-col gap-4">
           <h2 className="text-heading-200 text-text-primary">Ancestor access</h2>
@@ -90,6 +92,7 @@ const AccountAccess = () => {
                 <Button
                   variant="secondary"
                   size={sizes.compact}
+                  disabled={readOnly}
                   text="Grant ancestor access"
                   onClick={() => setGrant({ ancestorId: account.parentAccountId, capabilities: 1n })}
                 />
@@ -97,9 +100,10 @@ const AccountAccess = () => {
               actions={[
                 {
                   title: "Edit access",
+                  disabled: readOnly,
                   actionHandler: (g) => setGrant({ ancestorId: g.ancestorAccountId, capabilities: g.capabilities }),
                 },
-                { title: "Revoke access", variant: "destructive", actionHandler: setRemovingGrant },
+                { title: "Revoke access", disabled: readOnly, variant: "destructive", actionHandler: setRemovingGrant },
               ]}
               noDataElement={<SettingsEmptyState size="section" title="No ancestor access granted" />}
             />
@@ -142,6 +146,7 @@ const AccountAccess = () => {
                   <Button
                     variant="primary"
                     size={sizes.compact}
+                    disabled={readOnly}
                     text="Create API key"
                     onClick={() => {
                       setName("");
@@ -153,7 +158,9 @@ const AccountAccess = () => {
                     }}
                   />
                 }
-                actions={[{ title: "Revoke key", variant: "destructive", actionHandler: setRevoking }]}
+                actions={[
+                  { title: "Revoke key", disabled: readOnly, variant: "destructive", actionHandler: setRevoking },
+                ]}
                 noDataElement={<SettingsEmptyState title="No account keys on this page" />}
               />
               <PageControls

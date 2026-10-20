@@ -9,6 +9,10 @@ import { FleetDuration } from "@/shared/components/DurationSelector";
 import SkeletonBar from "@/shared/components/SkeletonBar";
 
 interface PowerPanelProps {
+  connectNulls?: boolean;
+  metricsInKW?: boolean;
+  tooltipNotes?: Record<number, string>;
+  reportingSubtitle?: string;
   duration: FleetDuration;
   /** Power metrics — undefined = not loaded yet, empty array = loaded but no data */
   metrics: Metric[] | undefined;
@@ -16,17 +20,25 @@ interface PowerPanelProps {
   totalMiners: number;
 }
 
-export function PowerPanel({ duration, metrics, totalMiners }: PowerPanelProps) {
+export function PowerPanel({
+  duration,
+  metrics,
+  totalMiners,
+  connectNulls,
+  tooltipNotes,
+  reportingSubtitle,
+  metricsInKW = false,
+}: PowerPanelProps) {
   // Transform metrics data to chart format (merging already done by store selectors)
   const chartData = useMemo(() => {
     if (metrics === undefined) return undefined; // Not loaded yet
     if (metrics.length === 0) return null; // Loaded but no data
 
-    const transformedData = transformPowerMetricsToChartData(metrics);
+    const transformedData = transformPowerMetricsToChartData(metrics, metricsInKW);
 
     // Pad with null values for the full duration
     return padChartDataWithNulls(transformedData, duration);
-  }, [metrics, duration]);
+  }, [metrics, duration, metricsInKW]);
 
   // Get the latest power value for the stat display
   const currentPower = useMemo(() => {
@@ -71,7 +83,7 @@ export function PowerPanel({ duration, metrics, totalMiners }: PowerPanelProps) 
 
   const powerDisplayValue = currentPower !== null && currentPower !== undefined ? currentPower.toFixed(1) : "N/A";
 
-  const subtitle = getMinerCountSubtitle(deviceCount ?? null, totalMiners);
+  const subtitle = reportingSubtitle ?? getMinerCountSubtitle(deviceCount ?? null, totalMiners);
   const stat = {
     label: "Power",
     value: powerDisplayValue,
@@ -83,6 +95,8 @@ export function PowerPanel({ duration, metrics, totalMiners }: PowerPanelProps) 
   return (
     <ChartWidget stats={stat}>
       <LineChart
+        connectNulls={connectNulls}
+        tooltipNotes={tooltipNotes}
         chartData={chartData}
         aggregateKey="power"
         units="kW"

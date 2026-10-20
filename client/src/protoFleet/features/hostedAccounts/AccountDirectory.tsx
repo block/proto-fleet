@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 
 import { AccountLayout } from "./AccountLayout";
 import { AccountScopeContext } from "./AccountScope";
@@ -18,7 +18,7 @@ import List from "@/shared/components/List";
 const ClientDirectory = ({ root }: { root: Account }) => {
   const directory = useHostedAccounts()!;
   const [connection] = useState(() => createAccountConnection(root.accountId));
-  useEffect(() => {
+  useLayoutEffect(() => {
     connection.activate();
     return () => connection.dispose();
   }, [connection]);
@@ -27,7 +27,9 @@ const ClientDirectory = ({ root }: { root: Account }) => {
       value={{
         account: root,
         client: connection.client,
-        signal: connection.signal,
+        get signal() {
+          return connection.signal;
+        },
         refreshAccount: directory.refresh,
         invalidateAccount: directory.refresh,
       }}

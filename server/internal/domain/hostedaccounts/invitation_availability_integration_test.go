@@ -74,7 +74,13 @@ func TestInvitationListingMatchesLiveAcceptanceAuthority(t *testing.T) {
 			accepted := issue()
 			_, err = svc.Accept(t.Context(), accepted.Token, addUser(t, f.db, f.org), f.org)
 			require.NoError(t, err)
-			check(accepted, false)
+			rows, _, err = svc.List(t.Context(), f.host, f.org, child.AccountID, 100, "")
+			require.NoError(t, err)
+			for _, row := range rows {
+				require.NotEqual(t, accepted.Invitation.InvitationID, row.InvitationID)
+			}
+			_, err = svc.Preview(t.Context(), accepted.Token)
+			require.Error(t, err)
 			altered := issue()
 			require.NoError(t, f.svc.ConfigureChild(t.Context(), f.user, f.org, child.AccountID, hostedaccounts.AllCapabilities, false))
 			check(altered, false)

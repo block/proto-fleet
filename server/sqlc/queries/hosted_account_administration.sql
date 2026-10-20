@@ -62,11 +62,12 @@ FROM hosted_account_invitation i JOIN hosted_account a ON a.id = i.account_id AN
 WHERE i.token_hash = $1;
 
 -- name: ListHostedAccountInvitations :many
--- Bound history first, then resolve each live inviter once in the same snapshot.
+-- Exclude accepted invitations before paging, then resolve each live inviter once in the same snapshot.
 -- Authority witnesses and durable-role checks match invitation acceptance.
 WITH RECURSIVE page AS MATERIALIZED (
  SELECT invitation.* FROM hosted_account_invitation invitation
  WHERE invitation.organization_id = sqlc.arg('organization_id') AND invitation.account_id = sqlc.arg('account_id')
+  AND invitation.accepted_at IS NULL
   AND (sqlc.narg('cursor_time')::timestamptz IS NULL
    OR (invitation.created_at, invitation.invitation_id) < (sqlc.narg('cursor_time')::timestamptz, sqlc.arg('cursor_id')::varchar))
  ORDER BY invitation.created_at DESC, invitation.invitation_id DESC LIMIT sqlc.arg('page_limit')::int

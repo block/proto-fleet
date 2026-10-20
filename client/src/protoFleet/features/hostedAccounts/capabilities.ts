@@ -31,3 +31,5 @@ export const roleOptions = [
 ];
 export const accountPath = (accountId: string, section = "overview") =>
   `/accounts/${encodeURIComponent(accountId)}/${section}`;
+export const accountManagementPath = (accountId: string, section = "assets") =>
+  `/accounts/${encodeURIComponent(accountId)}/manage/${section}`;

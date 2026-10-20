@@ -17,7 +17,13 @@ const AccountPicker = () => {
   const selected = directory.accounts.find(
     (a) => pathname === `/accounts/${a.accountId}` || pathname.startsWith(`/accounts/${a.accountId}/`),
   );
-  if (directory.hostAccess || directory.accounts.length === 1) return null;
+  if (directory.hostAccess) return null;
+  if (directory.accounts.length === 1)
+    return (
+      <Link className="ml-auto text-200 text-text-emphasis" to="/accounts">
+        All accounts
+      </Link>
+    );
   return (
     <>
       <Button

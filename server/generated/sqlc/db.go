@@ -978,6 +978,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getHostedAccountAssetDeviceStmt, err = db.PrepareContext(ctx, getHostedAccountAssetDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHostedAccountAssetDevice: %w", err)
 	}
+	if q.getHostedAccountHistoryEpochStmt, err = db.PrepareContext(ctx, getHostedAccountHistoryEpoch); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedAccountHistoryEpoch: %w", err)
+	}
 	if q.getHostedAccountInvitationByHashStmt, err = db.PrepareContext(ctx, getHostedAccountInvitationByHash); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHostedAccountInvitationByHash: %w", err)
 	}
@@ -1596,8 +1599,20 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listHostedAccountAssetChildrenStmt, err = db.PrepareContext(ctx, listHostedAccountAssetChildren); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountAssetChildren: %w", err)
 	}
+	if q.listHostedAccountAssetFilterOptionsStmt, err = db.PrepareContext(ctx, listHostedAccountAssetFilterOptions); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedAccountAssetFilterOptions: %w", err)
+	}
 	if q.listHostedAccountChildrenStmt, err = db.PrepareContext(ctx, listHostedAccountChildren); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountChildren: %w", err)
+	}
+	if q.listHostedAccountHistoricalReadingsStmt, err = db.PrepareContext(ctx, listHostedAccountHistoricalReadings); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedAccountHistoricalReadings: %w", err)
+	}
+	if q.listHostedAccountHistoricalSitesStmt, err = db.PrepareContext(ctx, listHostedAccountHistoricalSites); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedAccountHistoricalSites: %w", err)
+	}
+	if q.listHostedAccountHistoryIntervalsStmt, err = db.PrepareContext(ctx, listHostedAccountHistoryIntervals); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedAccountHistoryIntervals: %w", err)
 	}
 	if q.listHostedAccountInvitationsStmt, err = db.PrepareContext(ctx, listHostedAccountInvitations); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountInvitations: %w", err)
@@ -4274,6 +4289,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getHostedAccountAssetDeviceStmt: %w", cerr)
 		}
 	}
+	if q.getHostedAccountHistoryEpochStmt != nil {
+		if cerr := q.getHostedAccountHistoryEpochStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedAccountHistoryEpochStmt: %w", cerr)
+		}
+	}
 	if q.getHostedAccountInvitationByHashStmt != nil {
 		if cerr := q.getHostedAccountInvitationByHashStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getHostedAccountInvitationByHashStmt: %w", cerr)
@@ -5304,9 +5324,29 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listHostedAccountAssetChildrenStmt: %w", cerr)
 		}
 	}
+	if q.listHostedAccountAssetFilterOptionsStmt != nil {
+		if cerr := q.listHostedAccountAssetFilterOptionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedAccountAssetFilterOptionsStmt: %w", cerr)
+		}
+	}
 	if q.listHostedAccountChildrenStmt != nil {
 		if cerr := q.listHostedAccountChildrenStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listHostedAccountChildrenStmt: %w", cerr)
+		}
+	}
+	if q.listHostedAccountHistoricalReadingsStmt != nil {
+		if cerr := q.listHostedAccountHistoricalReadingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedAccountHistoricalReadingsStmt: %w", cerr)
+		}
+	}
+	if q.listHostedAccountHistoricalSitesStmt != nil {
+		if cerr := q.listHostedAccountHistoricalSitesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedAccountHistoricalSitesStmt: %w", cerr)
+		}
+	}
+	if q.listHostedAccountHistoryIntervalsStmt != nil {
+		if cerr := q.listHostedAccountHistoryIntervalsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedAccountHistoryIntervalsStmt: %w", cerr)
 		}
 	}
 	if q.listHostedAccountInvitationsStmt != nil {
@@ -7466,6 +7506,7 @@ type Queries struct {
 	getHistoryResolutionStmt                                     *sql.Stmt
 	getHostedAccountAncestorGrantStmt                            *sql.Stmt
 	getHostedAccountAssetDeviceStmt                              *sql.Stmt
+	getHostedAccountHistoryEpochStmt                             *sql.Stmt
 	getHostedAccountInvitationByHashStmt                         *sql.Stmt
 	getHostedAccountKeyAuthorityStmt                             *sql.Stmt
 	getHostedAccountKeyOwnerStmt                                 *sql.Stmt
@@ -7672,7 +7713,11 @@ type Queries struct {
 	listHashboardModulesStmt                                     *sql.Stmt
 	listHostedAccountAncestorGrantsStmt                          *sql.Stmt
 	listHostedAccountAssetChildrenStmt                           *sql.Stmt
+	listHostedAccountAssetFilterOptionsStmt                      *sql.Stmt
 	listHostedAccountChildrenStmt                                *sql.Stmt
+	listHostedAccountHistoricalReadingsStmt                      *sql.Stmt
+	listHostedAccountHistoricalSitesStmt                         *sql.Stmt
+	listHostedAccountHistoryIntervalsStmt                        *sql.Stmt
 	listHostedAccountInvitationsStmt                             *sql.Stmt
 	listHostedAccountKeysStmt                                    *sql.Stmt
 	listHostedAccountMembersStmt                                 *sql.Stmt
@@ -8357,6 +8402,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getHistoryResolutionStmt:                                     q.getHistoryResolutionStmt,
 		getHostedAccountAncestorGrantStmt:                            q.getHostedAccountAncestorGrantStmt,
 		getHostedAccountAssetDeviceStmt:                              q.getHostedAccountAssetDeviceStmt,
+		getHostedAccountHistoryEpochStmt:                             q.getHostedAccountHistoryEpochStmt,
 		getHostedAccountInvitationByHashStmt:                         q.getHostedAccountInvitationByHashStmt,
 		getHostedAccountKeyAuthorityStmt:                             q.getHostedAccountKeyAuthorityStmt,
 		getHostedAccountKeyOwnerStmt:                                 q.getHostedAccountKeyOwnerStmt,
@@ -8563,7 +8609,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listHashboardModulesStmt:                                     q.listHashboardModulesStmt,
 		listHostedAccountAncestorGrantsStmt:                          q.listHostedAccountAncestorGrantsStmt,
 		listHostedAccountAssetChildrenStmt:                           q.listHostedAccountAssetChildrenStmt,
+		listHostedAccountAssetFilterOptionsStmt:                      q.listHostedAccountAssetFilterOptionsStmt,
 		listHostedAccountChildrenStmt:                                q.listHostedAccountChildrenStmt,
+		listHostedAccountHistoricalReadingsStmt:                      q.listHostedAccountHistoricalReadingsStmt,
+		listHostedAccountHistoricalSitesStmt:                         q.listHostedAccountHistoricalSitesStmt,
+		listHostedAccountHistoryIntervalsStmt:                        q.listHostedAccountHistoryIntervalsStmt,
 		listHostedAccountInvitationsStmt:                             q.listHostedAccountInvitationsStmt,
 		listHostedAccountKeysStmt:                                    q.listHostedAccountKeysStmt,
 		listHostedAccountMembersStmt:                                 q.listHostedAccountMembersStmt,
