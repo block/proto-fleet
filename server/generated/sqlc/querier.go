@@ -825,6 +825,7 @@ type Querier interface {
 	// Resolve once per page; services bind the result to the cursor and pass that
 	// same value into the data query so crossing a cutoff mid-request cannot switch tiers.
 	GetHistoryResolution(ctx context.Context, arg GetHistoryResolutionParams) (int32, error)
+	GetHostedAccountActivityPage(ctx context.Context, arg GetHostedAccountActivityPageParams) (json.RawMessage, error)
 	GetHostedAccountAncestorGrant(ctx context.Context, arg GetHostedAccountAncestorGrantParams) (HostedAccountAncestorGrant, error)
 	GetHostedAccountAssetDevice(ctx context.Context, arg GetHostedAccountAssetDeviceParams) (int64, error)
 	GetHostedAccountHistoryEpoch(ctx context.Context) (time.Time, error)

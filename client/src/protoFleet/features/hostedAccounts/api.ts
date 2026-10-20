@@ -19,7 +19,7 @@ export const createAccountClient = (
     const signal = typeof lifetime === "function" ? lifetime() : lifetime;
     if (signal.aborted || request.signal.aborted)
       throw new ConnectError("Account workspace is no longer active", Code.Canceled);
-    if (readOnly && !/^(Get|List)/.test(request.method.name))
+    if (readOnly && !/^(Get|List)/.test(request.method.name) && request.method.name !== "ExportAccountActivities")
       throw new ConnectError("Actions are unavailable in this read-only preview.", Code.PermissionDenied);
     request.header.set("X-Fleet-Account-ID", accountId);
     return next({

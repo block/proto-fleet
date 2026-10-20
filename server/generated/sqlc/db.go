@@ -975,6 +975,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getHistoryResolutionStmt, err = db.PrepareContext(ctx, getHistoryResolution); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHistoryResolution: %w", err)
 	}
+	if q.getHostedAccountActivityPageStmt, err = db.PrepareContext(ctx, getHostedAccountActivityPage); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedAccountActivityPage: %w", err)
+	}
 	if q.getHostedAccountAncestorGrantStmt, err = db.PrepareContext(ctx, getHostedAccountAncestorGrant); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHostedAccountAncestorGrant: %w", err)
 	}
@@ -4290,6 +4293,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getHistoryResolutionStmt: %w", cerr)
 		}
 	}
+	if q.getHostedAccountActivityPageStmt != nil {
+		if cerr := q.getHostedAccountActivityPageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedAccountActivityPageStmt: %w", cerr)
+		}
+	}
 	if q.getHostedAccountAncestorGrantStmt != nil {
 		if cerr := q.getHostedAccountAncestorGrantStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getHostedAccountAncestorGrantStmt: %w", cerr)
@@ -7521,6 +7529,7 @@ type Queries struct {
 	getHashboardMetricWatermarksStmt                             *sql.Stmt
 	getHashboardObservationsStmt                                 *sql.Stmt
 	getHistoryResolutionStmt                                     *sql.Stmt
+	getHostedAccountActivityPageStmt                             *sql.Stmt
 	getHostedAccountAncestorGrantStmt                            *sql.Stmt
 	getHostedAccountAssetDeviceStmt                              *sql.Stmt
 	getHostedAccountHistoryEpochStmt                             *sql.Stmt
@@ -8419,6 +8428,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getHashboardMetricWatermarksStmt:                             q.getHashboardMetricWatermarksStmt,
 		getHashboardObservationsStmt:                                 q.getHashboardObservationsStmt,
 		getHistoryResolutionStmt:                                     q.getHistoryResolutionStmt,
+		getHostedAccountActivityPageStmt:                             q.getHostedAccountActivityPageStmt,
 		getHostedAccountAncestorGrantStmt:                            q.getHostedAccountAncestorGrantStmt,
 		getHostedAccountAssetDeviceStmt:                              q.getHostedAccountAssetDeviceStmt,
 		getHostedAccountHistoryEpochStmt:                             q.getHostedAccountHistoryEpochStmt,

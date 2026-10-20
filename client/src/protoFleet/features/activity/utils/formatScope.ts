@@ -1,5 +1,5 @@
 export function formatScope(scopeType?: string, scopeLabel?: string, scopeCount?: number): string {
-  const singular = scopeType === "container" ? "container" : "miner";
+  const singular = scopeType === "container" ? "container" : scopeType === "asset" ? "asset" : "miner";
   const unit = scopeCount === 1 ? singular : `${singular}s`;
   if (!scopeLabel && !scopeCount) return "\u2014";
   if (scopeLabel && scopeCount) {

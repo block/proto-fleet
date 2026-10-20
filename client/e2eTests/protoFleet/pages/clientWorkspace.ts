@@ -71,6 +71,7 @@ export class ClientWorkspacePage {
     await expect(link).toHaveAttribute("href", `/accounts/${accountId}/${section}`);
     await link.click();
     await expect(this.page).toHaveURL(new RegExp(`/accounts/${accountId}/${section}$`));
+    if (this.isMobile) await expect(navigation).toBeHidden();
   }
 
   async setTemperatureUnit(unit: "C" | "F") {
@@ -108,14 +109,90 @@ export class ClientWorkspacePage {
     await expect(this.page.getByTestId("nested-dropdown-filter-popover")).toBeHidden();
   }
 
+  async expectActivity() {
+    await expect(this.page.getByRole("heading", { name: "Activity", exact: true })).toBeVisible();
+    await expect(this.page.getByText("Created pool configuration", { exact: true })).toBeVisible();
+    await expect(this.page.getByRole("button", { name: "Export activity CSV", exact: true })).toBeEnabled();
+  }
+
+  async loadMoreActivity() {
+    await this.requestMoreActivity();
+    await expect(this.page.getByText("Recalled mining assets", { exact: true })).toBeVisible();
+    await expect(this.page.getByText("2 assets", { exact: true })).toBeVisible();
+  }
+
+  async requestMoreActivity() {
+    await this.page.getByRole("button", { name: "Load more", exact: true }).click();
+  }
+
+  async openPoolActivityDetails() {
+    await this.page.getByText("Created pool configuration", { exact: true }).click();
+    await expect(this.page.getByRole("dialog", { name: "Created pool configuration", exact: true })).toBeVisible();
+  }
+
+  async expectActivityCleared() {
+    await expect(this.page.getByText("Created pool configuration", { exact: true })).toHaveCount(0);
+    await expect(this.page.getByRole("button", { name: "Export activity CSV", exact: true })).toHaveCount(0);
+    await expect(this.page.getByRole("textbox", { name: "Search activity", exact: true })).toHaveCount(0);
+  }
+
+  async expectMinerActivity(visible: boolean) {
+    if (visible) await expect(this.page.getByText("Rebooted miners", { exact: true })).toBeVisible();
+    else await expect(this.page.getByText("Rebooted miners", { exact: true })).toHaveCount(0);
+  }
+
+  async openMinerActivityDetails() {
+    await this.page.getByText("Rebooted miners", { exact: true }).click();
+    await expect(this.page.getByRole("dialog", { name: "Rebooted miners", exact: true })).toBeVisible();
+  }
+
+  async expectMinerActivityDetailsCleared() {
+    await expect(this.page.getByRole("dialog", { name: "Rebooted miners", exact: true })).toHaveCount(0);
+  }
+
+  async expectRenamedActivity() {
+    await expect(this.page.getByText("Renamed account", { exact: true })).toBeVisible();
+    await expect(this.page.getByText("Recalled mining assets", { exact: true })).toHaveCount(0);
+    await expect(this.page.getByText("Created pool configuration", { exact: true })).toHaveCount(0);
+  }
+
+  async openActivityDetails() {
+    await this.page.getByText("Recalled mining assets", { exact: true }).click();
+    const detail = this.page.getByRole("dialog", { name: "Recalled mining assets", exact: true });
+    await expect(detail).toBeVisible();
+    await expect(detail.getByText("Completed", { exact: true })).toBeVisible();
+    await this.page.keyboard.press("Escape");
+    await expect(detail).toHaveCount(0);
+  }
+
+  async searchActivity(text: string) {
+    await this.page.getByRole("textbox", { name: "Search activity", exact: true }).fill(text);
+  }
+
+  async exportActivity() {
+    const pending = this.page.waitForEvent("download");
+    await this.page.getByRole("button", { name: "Export activity CSV", exact: true }).click();
+    const download = await pending;
+    const stream = await download.createReadStream();
+    let csv = "";
+    for await (const chunk of stream) csv += chunk.toString();
+    return csv;
+  }
+
+  async expectFilteredActivity() {
+    await expect(this.page.getByText("Created pool configuration", { exact: true })).toHaveCount(0);
+    await expect(this.page.getByText("Recalled mining assets", { exact: true })).toBeVisible();
+    await expect(this.page.getByRole("textbox", { name: "Search activity", exact: true })).toBeFocused();
+  }
+
   async expectNavigation(accountId: string) {
     const navigation = await this.navigation();
-    for (const label of ["Home", "Fleet"])
+    for (const label of ["Home", "Fleet", "Activity"])
       await expect(navigation.getByRole("link", { name: label, exact: true })).toBeVisible();
     if (this.isMobile)
       await expect(navigation.getByRole("button", { name: "Settings menu toggle", exact: true })).toBeVisible();
     else await expect(navigation.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
-    for (const label of ["Maintenance", "Activity", "Reports", "Billing"])
+    for (const label of ["Maintenance", "Reports", "Billing"])
       await expect(navigation.getByRole("link", { name: label, exact: true })).toHaveCount(0);
     await expect(
       this.page
@@ -155,5 +232,7 @@ export class ClientWorkspacePage {
     const row = this.page.getByTestId("list-row").filter({ has: this.page.getByRole("link", { name, exact: true }) });
     await row.getByRole("button", { name: "Row actions", exact: true }).click();
     await this.page.getByRole("button", { name: "View as client", exact: true }).click();
+    await expect(this.page.getByRole("dialog", { name: `Viewing as ${name}`, exact: true })).toBeVisible();
+    await expect(this.page.getByRole("heading", { name: "Overview", exact: true })).toBeVisible();
   }
 }

@@ -117,7 +117,12 @@ const ActivityDetailModal = ({ entry, onDismiss }: ActivityDetailModalProps) => 
         : "Completed";
 
   return (
-    <Modal title={formatActivityDescription(entry)} onDismiss={onDismiss}>
+    <Modal
+      title={formatActivityDescription(entry)}
+      dialogLabel={formatActivityDescription(entry)}
+      manageFocus
+      onDismiss={onDismiss}
+    >
       <div className="flex flex-col gap-4">
         <div className="flex flex-col">
           <SummaryRow label="Time">{formatActivityTimestamp(Number(entry.createdAt?.seconds))}</SummaryRow>

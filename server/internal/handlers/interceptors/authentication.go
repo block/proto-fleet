@@ -153,7 +153,7 @@ func (i *AuthInterceptor) authenticate(ctx context.Context, procedure string, re
 		return ctx, err
 	}
 	if _, selected := hostedaccounts.RequestAccountID(ctx); !selected && requiresSelectedAccount(procedure) {
-		return ctx, fleeterror.NewForbiddenError("pool endpoints require an explicitly selected account workspace")
+		return ctx, fleeterror.NewForbiddenError("account endpoints require an explicitly selected account workspace")
 	}
 	if _, selected := hostedaccounts.RequestAccountID(ctx); selected && !allowsSelectedAccount(procedure) {
 		return ctx, fleeterror.NewForbiddenError("this endpoint is not available in an account workspace")
@@ -208,7 +208,9 @@ func publicHostedInvitation(procedure string) bool {
 // account administration deliberately continues to allow omitted selection.
 func requiresSelectedAccount(procedure string) bool {
 	switch procedure {
-	case hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure,
+	case hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure,
+		hostedv1connect.HostedAccountServiceExportAccountActivitiesProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure,
 		hostedv1connect.HostedAccountServiceGetAccountAssetDetailProcedure,
 		hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure,
 		hostedv1connect.HostedAccountServiceListAccountAssetsProcedure,
@@ -246,7 +248,9 @@ func allowsSelectedAccount(procedure string) bool {
 	// explicit decision before they can be called from a customer workspace.
 	// Token-bound invitation acceptance precedes selection and is excluded.
 	switch procedure {
-	case hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure,
+	case hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure,
+		hostedv1connect.HostedAccountServiceExportAccountActivitiesProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure,
 		hostedv1connect.HostedAccountServiceGetAccountAssetDetailProcedure,
 		hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure,
 		hostedv1connect.HostedAccountServiceListAccountAssetsProcedure,

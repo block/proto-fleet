@@ -3554,6 +3554,18 @@ func (q *retryingQuerier) GetHistoryResolution(ctx context.Context, arg GetHisto
 	return result, err
 }
 
+func (q *retryingQuerier) GetHostedAccountActivityPage(ctx context.Context, arg GetHostedAccountActivityPageParams) (json.RawMessage, error) {
+	var result json.RawMessage
+	err := q.retrier.RetryQuery(ctx, "GetHostedAccountActivityPage", func() error {
+		callResult, callErr := q.next.GetHostedAccountActivityPage(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetHostedAccountAncestorGrant(ctx context.Context, arg GetHostedAccountAncestorGrantParams) (HostedAccountAncestorGrant, error) {
 	var result HostedAccountAncestorGrant
 	err := q.retrier.RetryQuery(ctx, "GetHostedAccountAncestorGrant", func() error {
