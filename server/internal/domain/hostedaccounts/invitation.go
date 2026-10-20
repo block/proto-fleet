@@ -45,8 +45,9 @@ type Registration struct {
 	Cookie    *http.Cookie
 }
 
-// Public previews never queue for admission or consume the database pool with
-// unbounded concurrent snapshots. The limit is shared across service instances.
+// Public previews never queue for a process-local slot or consume the database
+// pool with unbounded concurrent snapshots. The durable guess budget separately
+// limits checks across all processes.
 var sharedInvitationPreviewSlots = make(chan struct{}, 16)
 
 type InvitationService struct {
@@ -55,10 +56,11 @@ type InvitationService struct {
 	admission    *registrationAdmission
 	previewSlots chan struct{}
 	hashPassword func([]byte) ([]byte, error)
+	generateCode func() (string, error)
 }
 
 func NewInvitationService(accounts *Service, sessions *session.Service) *InvitationService {
-	return &InvitationService{accounts: accounts, sessions: sessions, admission: sharedRegistrationAdmission, previewSlots: sharedInvitationPreviewSlots, hashPassword: func(password []byte) ([]byte, error) {
+	return &InvitationService{accounts: accounts, sessions: sessions, admission: sharedRegistrationAdmission, previewSlots: sharedInvitationPreviewSlots, generateCode: newInvitationCode, hashPassword: func(password []byte) ([]byte, error) {
 		return bcrypt.GenerateFromPassword(password, bcrypt.DefaultCost)
 	}}
 }
@@ -70,15 +72,9 @@ func (s *InvitationService) Create(ctx context.Context, actorID, orgID int64, ac
 	if lifetime == 0 {
 		lifetime = 24 * time.Hour
 	}
-	if lifetime <= 0 || lifetime > 7*24*time.Hour {
-		return IssuedInvitation{}, fleeterror.NewInvalidArgumentError("invitation lifetime must be at most seven days")
+	if lifetime <= 0 || lifetime > 24*time.Hour {
+		return IssuedInvitation{}, fleeterror.NewInvalidArgumentError("invitation lifetime must be at most 24 hours")
 	}
-	secret := make([]byte, 32)
-	if _, err := rand.Read(secret); err != nil {
-		return IssuedInvitation{}, fleeterror.NewInternalError("cannot create invitation")
-	}
-	token := base64.RawURLEncoding.EncodeToString(secret)
-	hash, _ := invitationHash(token)
 	return db.WithTransaction(ctx, s.accounts.conn, func(q sqlc.Querier) (IssuedInvitation, error) {
 		actor, err := lockActor(ctx, q, orgID, actorID)
 		if err != nil {
@@ -103,12 +99,35 @@ func (s *InvitationService) Create(ctx context.Context, actorID, orgID int64, ac
 		if err != nil {
 			return IssuedInvitation{}, err
 		}
-		row, err := q.CreateHostedAccountInvitation(ctx, sqlc.CreateHostedAccountInvitationParams{
-			InvitationID: uuid.NewString(), OrganizationID: orgID, AccountID: account.ID, InviterID: actorID,
-			AuthorityFingerprint: fingerprint, TokenHash: hash, Role: string(role), ExpiresAt: time.Now().Add(lifetime),
-		})
-		if err != nil {
+		if err := lockInvitationGuessBudget(ctx, q); err != nil {
 			return IssuedInvitation{}, err
+		}
+		var row sqlc.HostedAccountInvitation
+		var token string
+		for range 5 {
+			token, err = s.generateCode()
+			if err != nil {
+				return IssuedInvitation{}, fleeterror.NewInternalError("cannot create invitation")
+			}
+			hash, err := invitationHash(token)
+			if err != nil {
+				return IssuedInvitation{}, err
+			}
+			row, err = q.CreateHostedAccountInvitation(ctx, sqlc.CreateHostedAccountInvitationParams{
+				InvitationID: uuid.NewString(), OrganizationID: orgID, AccountID: account.ID, InviterID: actorID,
+				AuthorityFingerprint: fingerprint, TokenHash: hash, Role: string(role), ExpiresAt: time.Now().Add(lifetime),
+			})
+			// ON CONFLICT DO NOTHING leaves the transaction usable for a retry.
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return IssuedInvitation{}, err
+			}
+			break
+		}
+		if row.InvitationID == "" {
+			return IssuedInvitation{}, fleeterror.NewInternalError("cannot create invitation")
 		}
 		if err = audit(ctx, q, actor, account, "create_hosted_account_invitation", map[string]any{"invitation_id": row.InvitationID, "role": role, "expires_at": row.ExpiresAt}); err != nil {
 			return IssuedInvitation{}, err
@@ -221,6 +240,9 @@ func (s *InvitationService) Preview(ctx context.Context, token string) (Invitati
 	}
 	hash, err := invitationHash(token)
 	if err != nil {
+		return InvitationPreview{}, err
+	}
+	if _, err := s.admitInvitation(ctx, hash); err != nil {
 		return InvitationPreview{}, err
 	}
 	// Authority and lifecycle checks share one snapshot without taking the
@@ -367,10 +389,7 @@ func (s *InvitationService) withInvitation(ctx context.Context, token string, fn
 	if err != nil {
 		return err
 	}
-	initial, err := s.accounts.queries.GetHostedAccountInvitationByHash(ctx, hash)
-	if errors.Is(err, sql.ErrNoRows) {
-		return unavailableInvitation()
-	}
+	initial, err := s.admitInvitation(ctx, hash)
 	if err != nil {
 		return err
 	}
@@ -433,15 +452,46 @@ func validateInvitation(ctx context.Context, q sqlc.Querier, i sqlc.GetHostedAcc
 	return path, nil
 }
 
+// 32 symbols give eight independently uniform characters 40 bits of entropy.
+const invitationAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+func newInvitationCode() (string, error) {
+	var secret [8]byte
+	if _, err := rand.Read(secret[:]); err != nil {
+		return "", fmt.Errorf("generate invitation code: %w", err)
+	}
+	for i := range secret {
+		// 32 divides 256, so masking does not introduce modulo bias.
+		secret[i] = invitationAlphabet[secret[i]&31]
+	}
+	return string(secret[:4]) + "-" + string(secret[4:]), nil
+}
+
 func invitationHash(token string) (string, error) {
-	if len(token) != base64.RawURLEncoding.EncodedLen(32) {
+	if len(token) > 128 {
 		return "", unavailableInvitation()
 	}
-	decoded, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil || len(decoded) != 32 || base64.RawURLEncoding.EncodeToString(decoded) != token {
+	// Only ASCII spaces and ASCII case folding are permitted. Do not silently
+	// alias ambiguous symbols or Unicode lookalikes to valid code characters.
+	token = strings.ReplaceAll(token, " ", "")
+	if len(token) == 9 && token[4] == '-' {
+		token = token[:4] + token[5:]
+	}
+	if len(token) != 8 {
 		return "", unavailableInvitation()
 	}
-	sum := sha256.Sum256([]byte(token))
+	var normalized [8]byte
+	for i := range token {
+		char := token[i]
+		if char >= 'a' && char <= 'z' {
+			char -= 'a' - 'A'
+		}
+		if !strings.ContainsRune(invitationAlphabet, rune(char)) {
+			return "", unavailableInvitation()
+		}
+		normalized[i] = char
+	}
+	sum := sha256.Sum256(normalized[:])
 	return hex.EncodeToString(sum[:]), nil
 }
 

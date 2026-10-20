@@ -16,7 +16,7 @@ import {
 import { useFleetStore } from "@/protoFleet/store";
 const initialAuth = useFleetStore.getState().auth;
 const accountId = "11111111-1111-4111-8111-111111111111";
-const token = "x".repeat(43);
+const token = "K7MP-4X9R";
 afterEach(() => {
   vi.restoreAllMocks();
   useFleetStore.setState({ auth: initialAuth });
@@ -99,20 +99,24 @@ function openCodeEntry() {
   );
 }
 describe("portable invitation codes", () => {
-  it("removes an invitation link fragment before starting its preview", async () => {
+  it.each([token, " k7mp 4x9r "])("removes the invitation link fragment before previewing %j", async (code) => {
     const hashes: string[] = [];
     vi.spyOn(hostedAccountsClient, "previewInvitation").mockImplementation(async () => {
       hashes.push(screen.getByTestId("location").textContent ?? "");
       return create(PreviewInvitationResponseSchema, { accountName: "Customer" });
     });
     render(
-      <MemoryRouter initialEntries={[`/account-invitation#token=${token}`]}>
+      <MemoryRouter initialEntries={[`/account-invitation#token=${encodeURIComponent(code)}`]}>
         <LocationReader />
         <AccountInvitation />
       </MemoryRouter>,
     );
     await screen.findByText("Join Customer");
     expect(hashes).toEqual([""]);
+    expect(hostedAccountsClient.previewInvitation).toHaveBeenCalledWith(
+      { token: code },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
 
   it("previews a pasted code and joins with the existing login without putting the code in the URL", async () => {
@@ -127,15 +131,63 @@ describe("portable invitation codes", () => {
     openCodeEntry();
     expect(preview).not.toHaveBeenCalled();
     await user.click(screen.getByLabelText("Invitation code"));
-    await user.paste(`  ${token}  `);
+    const pastedCode = "  k7mp - 4x9r  ";
+    await user.paste(pastedCode);
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await screen.findByText("Join Customer");
-    expect(preview).toHaveBeenCalledWith({ token }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(preview).toHaveBeenCalledWith(
+      { token: pastedCode },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
     expect(screen.getByTestId("location")).toBeEmptyDOMElement();
     await user.click(screen.getByRole("button", { name: "Accept invitation" }));
     await screen.findByText("Joined account");
-    expect(accept).toHaveBeenCalledWith({ token }, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(accept).toHaveBeenCalledWith(
+      { token: pastedCode },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
   });
+  it.each(["K7MP4X9R", "k7mp4x9r", "K7MP-4X9R", "  k7 mp - 4x 9r  "])(
+    "previews the supported form %j without replacing server normalization",
+    async (code) => {
+      const preview = vi
+        .spyOn(hostedAccountsClient, "previewInvitation")
+        .mockResolvedValue(create(PreviewInvitationResponseSchema, { accountName: "Customer" }));
+      const user = userEvent.setup();
+      openCodeEntry();
+      await user.click(screen.getByLabelText("Invitation code"));
+      await user.paste(code);
+      await user.click(screen.getByRole("button", { name: "Continue" }));
+      await screen.findByText("Join Customer");
+      expect(preview).toHaveBeenCalledWith(
+        { token: code },
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      );
+    },
+  );
+
+  it.each([
+    "K7MP4X9",
+    "K7MP4X9RR",
+    "K7M-P4X9R",
+    "K7MP--4X9R",
+    "K7MP_4X9R",
+    "K7MP-4X0R",
+    "K7MP-4X1R",
+    "K7MP-4XIR",
+    "K7MP-4XOR",
+    "K7MP\t4X9R",
+    "K7MP\u00a04X9R",
+  ])("keeps malformed or ambiguous code %j out of preview", async (code) => {
+    const preview = vi.spyOn(hostedAccountsClient, "previewInvitation");
+    const user = userEvent.setup();
+    openCodeEntry();
+    await user.click(screen.getByLabelText("Invitation code"));
+    await user.paste(code);
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(preview).not.toHaveBeenCalled();
+  });
+
   it("does not preview incomplete codes and lets recipients replace unavailable invitations", async () => {
     const preview = vi
       .spyOn(hostedAccountsClient, "previewInvitation")
@@ -153,7 +205,7 @@ describe("portable invitation codes", () => {
     await user.click(screen.getByRole("button", { name: "Use another invitation code" }));
     expect(screen.getByLabelText("Invitation code")).toHaveValue("");
     expect(screen.queryByText(/Invitation expired/)).not.toBeInTheDocument();
-    await user.type(screen.getByLabelText("Invitation code"), "y".repeat(43));
+    await user.type(screen.getByLabelText("Invitation code"), "T2CW-8V5N");
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await screen.findByText("Join New customer");
   });

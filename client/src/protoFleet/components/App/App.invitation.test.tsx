@@ -18,7 +18,7 @@ it.each(["/account-invitation", "/account-invitation/", "/ACCOUNT-INVITATION", "
       "matchMedia",
       vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
     );
-    const token = "x".repeat(43);
+    const token = "K7MP-4X9R";
     const location = {
       pathname,
       search: "",

@@ -277,6 +277,55 @@ The codebase follows a domain-driven design with clear separation of concerns:
 - **Authentication**: Token-based auth with separate token types for clients (users) and miners (devices).
 - **Hosted Accounts**: Account hierarchy and fixed customer memberships, separate from organization RBAC, with scoped administration, invitations, pool revisions and reporting allocations. Live authority applies ancestor ceilings, site restrictions and suspension; allocation changes and audit commit together. Session-only mining reports aggregate the account’s allocated estate, including subclients, without granting child-private account access. See [the client workspace contract](../client/README.md#hosted-account-workspaces) for persona and reporting boundaries.
 
+### Hosted account invitation codes
+
+Invitation creation returns eight cryptographically random characters as
+`K7MP-4X9R`. The 32-symbol alphabet `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` excludes
+`I`, `O`, `0`, and `1` and provides 40 bits of entropy. The server accepts ASCII
+lowercase, ASCII spaces, and an optional single hyphen between the two groups.
+It hashes the canonical eight uppercase characters with SHA-256; only the digest
+is stored. Digest conflicts retry generation up to five times without replacing
+an existing invitation. Codes remain single-use, revocable, and subject to live
+inviter authority. Logs, audit records, and later list responses omit the secret.
+Optional links retain the fragment-only transport described in the client guide.
+
+The default and maximum lifetime are **24 hours**. The default accommodates
+manual sharing across time zones; the former seven-day option is removed to
+bound exposure. Issuers can select one hour for a shorter handoff.
+
+Migration 1034 adds a PostgreSQL admission budget shared by all organizations
+and every API replica using the database. In any rolling hour, preview,
+signed-in acceptance, and registration together may perform at most **1,000
+checks** and spend at most **100,000 exposure units**. Each check costs
+`max(1, active invitations)` units, counting all unexpired, unrevoked,
+unaccepted invitations, even when current inviter authority makes some unusable.
+For example, 10 active invitations permit 1,000 checks/hour; 1,000 active
+invitations permit 100. An excessive population fails closed rather than
+weakening the bound.
+
+Admission and issuance serialize through one database row. Admission counts
+targets and looks up the digest before releasing that lock, and commits the
+charge even for an unknown code. Successful previews and rejected redemptions
+also spend budget. Registration spends one check during preview and another
+before consumption, after password hashing. Malformed values never reach a
+digest lookup and do not spend budget. Per-process preview concurrency and
+registration CPU limits remain additional resource protections, not the
+guessing defense. Rotating IPs, users, codes, services, or replicas cannot reset
+the durable budget. Database errors fail closed; admission transactions have
+a two-second timeout. Expired attempt rows are pruned lazily; storage is bounded
+by the 1,000 admitted checks, with no caller identifiers or secrets in those rows.
+
+For uniformly random guesses, summing the active target count over admitted
+checks bounds success at `100,000 / 2^40`, about **1 in 11 million per hour**
+across the deployment, or `2,400,000 / 2^40`, about **1 in 458,000 over 24 hours**.
+These are conservative online guessing bounds, not protection against stolen
+codes or offline attacks after a database compromise. The entropy/budget
+tradeoff follows [RFC 8628 §5.1](https://www.rfc-editor.org/rfc/rfc8628.html#section-5.1).
+The global limit deliberately trades availability during abuse for a fixed
+guessing bound: exhausted requests return `ResourceExhausted` and recipients
+must retry as older checks leave the rolling hour. Increasing replicas does not
+increase the allowance.
+
 ### Hosted mining reporting and allocation
 
 `hosted_account_asset` stores an exclusive typed mining leaf: conventional miner

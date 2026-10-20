@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -151,7 +152,7 @@ func (f rpcFixture) invite(t *testing.T, accountID string, role pb.AccountRole) 
 	t.Helper()
 	response, err := f.client.CreateInvitation(t.Context(), rpcRequest(&pb.CreateInvitationRequest{AccountId: accountID, Role: role}, f.cookie, accountID))
 	require.NoError(t, err)
-	require.Len(t, response.Msg.Token, 43)
+	require.Regexp(t, `^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$`, response.Msg.Token)
 	return response.Msg
 }
 
@@ -167,11 +168,12 @@ func TestHostedRPCInvitedRegistrationAndRolelessAuthentication(t *testing.T) {
 	f := newRPCFixture(t)
 	account := f.account(t, "Customer team", f.host, domain.DefaultCapabilities)
 	issued := f.invite(t, account.AccountID, pb.AccountRole_ACCOUNT_ROLE_ADMINISTRATOR)
-	preview, err := f.client.PreviewInvitation(t.Context(), connect.NewRequest(&pb.PreviewInvitationRequest{Token: issued.Token}))
+	manualCode := " " + strings.ToLower(strings.ReplaceAll(issued.Token, "-", " ")) + " "
+	preview, err := f.client.PreviewInvitation(t.Context(), connect.NewRequest(&pb.PreviewInvitationRequest{Token: manualCode}))
 	require.NoError(t, err)
 	require.Equal(t, "Customer team", preview.Msg.AccountName)
 	require.Equal(t, pb.AccountRole_ACCOUNT_ROLE_ADMINISTRATOR, preview.Msg.Role)
-	registered := f.register(t, issued.Token, "username-without-email")
+	registered := f.register(t, manualCode, "username-without-email")
 	require.Equal(t, account.AccountID, registered.Msg.AccountId)
 	listed, err := f.client.ListAccounts(t.Context(), rpcRequest(&pb.ListAccountsRequest{}, registered.Header().Get("Set-Cookie"), ""))
 	require.NoError(t, err, "registration cookie must authenticate the real SQL session")
@@ -285,7 +287,8 @@ func TestHostedRPCExistingAcceptanceRequiresSessionAndPreservesIdentity(t *testi
 	listRequest.Header().Set("Authorization", "Bearer "+key)
 	_, err = f.client.ListAccounts(t.Context(), listRequest)
 	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "org API keys cannot access the dedicated customer service")
-	accepted, err := f.client.AcceptInvitation(t.Context(), rpcRequest(&pb.AcceptInvitationRequest{Token: issued.Token}, login.Header().Get("Set-Cookie"), ""))
+	manualCode := strings.ToLower(strings.ReplaceAll(issued.Token, "-", ""))
+	accepted, err := f.client.AcceptInvitation(t.Context(), rpcRequest(&pb.AcceptInvitationRequest{Token: manualCode}, login.Header().Get("Set-Cookie"), ""))
 	require.NoError(t, err)
 	require.Equal(t, account.AccountID, accepted.Msg.AccountId)
 	var linked int64

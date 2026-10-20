@@ -650,6 +650,18 @@ func (q *retryingQuerier) CascadeRackDeviceSitesBulk(ctx context.Context, arg Ca
 	return result, err
 }
 
+func (q *retryingQuerier) ChargeHostedInvitationGuess(ctx context.Context, arg ChargeHostedInvitationGuessParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ChargeHostedInvitationGuess", func() error {
+		callResult, callErr := q.next.ChargeHostedInvitationGuess(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CheckDeviceWriteAttempt(ctx context.Context, attemptID uuid.UUID) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "CheckDeviceWriteAttempt", func() error {
@@ -7256,6 +7268,18 @@ func (q *retryingQuerier) LockHostedAccountOrganizationForShare(ctx context.Cont
 	return result, err
 }
 
+func (q *retryingQuerier) LockHostedInvitationGuessBudget(ctx context.Context) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "LockHostedInvitationGuessBudget", func() error {
+		callResult, callErr := q.next.LockHostedInvitationGuessBudget(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockInfrastructureDeviceForWrite(ctx context.Context, arg LockInfrastructureDeviceForWriteParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "LockInfrastructureDeviceForWrite", func() error {
@@ -7686,6 +7710,12 @@ func (q *retryingQuerier) PruneExpiredAlertMaintenanceWindows(ctx context.Contex
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) PruneHostedInvitationGuesses(ctx context.Context) error {
+	return q.retrier.RetryQuery(ctx, "PruneHostedInvitationGuesses", func() error {
+		return q.next.PruneHostedInvitationGuesses(ctx)
+	})
 }
 
 func (q *retryingQuerier) PrunePermissionsOutsideKeys(ctx context.Context, arg PrunePermissionsOutsideKeysParams) error {

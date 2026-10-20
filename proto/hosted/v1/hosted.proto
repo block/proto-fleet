@@ -221,12 +221,13 @@ message ListInvitationsResponse {
 message CreateInvitationRequest {
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   AccountRole role = 2 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
-  // Zero uses 24 hours. Links expire at most seven days after creation.
-  uint32 expires_in_seconds = 3 [(buf.validate.field).uint32.lte = 604800];
+  // Zero uses 24 hours. Invitations expire at most 24 hours after creation.
+  uint32 expires_in_seconds = 3 [(buf.validate.field).uint32.lte = 86400];
 }
 message CreateInvitationResponse {
   Invitation invitation = 1;
-  // Bearer token shown once for manual sharing. Never retained in activity logs.
+  // Eight-character bearer code, formatted XXXX-XXXX, shown once for manual
+  // sharing. Never retained in activity logs.
   string token = 2;
 }
 message RevokeInvitationRequest {
@@ -235,7 +236,8 @@ message RevokeInvitationRequest {
 }
 message RevokeInvitationResponse {}
 message PreviewInvitationRequest {
-  string token = 1 [(buf.validate.field).string.len = 43];
+  // The server normalizes codes (ASCII case, spaces, optional middle hyphen).
+  string token = 1 [(buf.validate.field).string.max_bytes = 128];
 }
 message PreviewInvitationResponse {
   string account_name = 1;
@@ -243,11 +245,11 @@ message PreviewInvitationResponse {
   google.protobuf.Timestamp expires_at = 3;
 }
 message AcceptInvitationRequest {
-  string token = 1 [(buf.validate.field).string.len = 43];
+  string token = 1 [(buf.validate.field).string.max_bytes = 128];
 }
 message AcceptInvitationResponse { string account_id = 1; }
 message RegisterInvitedUserRequest {
-  string token = 1 [(buf.validate.field).string.len = 43];
+  string token = 1 [(buf.validate.field).string.max_bytes = 128];
   string username = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
   string password = 3 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
 }
