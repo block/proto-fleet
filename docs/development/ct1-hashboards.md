@@ -135,11 +135,14 @@ context remains available in the details of reported issues.
 
 ## Retention and volume
 
-The metrics hypertable uses one-day chunks and a 30-day retention policy.
+The metrics hypertable uses one-day chunks and a ten-day raw-retention target,
+with hourly summaries for three months and daily summaries for three years.
+[Summary recovery](telemetry-summary-recovery.md) defers raw expiration until
+both tiers have successfully materialized the interval.
 Hardware and installation records persist independently of telemetry retention.
 For `M` fully populated modules polled every `P` seconds, the upper bound is
 `3 × M × 86,400 / P` board samples per day. At 1,000 modules and a 30-second
-poll, this is 8.64 million samples/day, or 259.2 million over 30 days, in addition
+poll, this is 8.64 million samples/day, or 86.4 million over ten days, in addition
 to module telemetry. Missing health and unchanged retried snapshots reduce it.
 
 Payload size depends on firmware diagnostics. Deployment sizing must measure

@@ -11,6 +11,9 @@ import (
 
 func TestContainerInventoryMigrationRoundTrip(t *testing.T) {
 	db := testutil.GetTestDB(t)
+	testutil.RestoreLegacySummaryBootstraps(t, db,
+		"001016_internal_ct1_metric_summaries",
+		"001021_internal_hashboard_metric_summaries")
 	// Later child inventory must be rolled back before its parent schema.
 	for _, name := range []string{
 		"001028_internal_hosted_account_assets.down.sql",
@@ -44,6 +47,9 @@ func TestContainerInventoryMigrationRoundTrip(t *testing.T) {
 
 func TestHashboardMigrationRoundTrip(t *testing.T) {
 	db := testutil.GetTestDB(t)
+	testutil.RestoreLegacySummaryBootstraps(t, db,
+		"001016_internal_ct1_metric_summaries",
+		"001021_internal_hashboard_metric_summaries")
 	observations, err := migrations.Current.ReadFile("current/001023_internal_hashboard_observation.down.sql")
 	require.NoError(t, err)
 	_, err = db.ExecContext(t.Context(), string(observations))

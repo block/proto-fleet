@@ -4712,6 +4712,30 @@ func (q *retryingQuerier) HaltFirmwareRolloutDevices(ctx context.Context, arg Ha
 	})
 }
 
+func (q *retryingQuerier) HasBlockedTelemetrySeedRecovery(ctx context.Context) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "HasBlockedTelemetrySeedRecovery", func() error {
+		callResult, callErr := q.next.HasBlockedTelemetrySeedRecovery(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) HasDueTelemetrySeedRecovery(ctx context.Context) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "HasDueTelemetrySeedRecovery", func() error {
+		callResult, callErr := q.next.HasDueTelemetrySeedRecovery(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) HasHostedAccountHostAuthority(ctx context.Context, arg HasHostedAccountHostAuthorityParams) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "HasHostedAccountHostAuthority", func() error {
@@ -7424,6 +7448,12 @@ func (q *retryingQuerier) LockSiteForWrite(ctx context.Context, arg LockSiteForW
 	return result, err
 }
 
+func (q *retryingQuerier) LockTelemetrySeedMaintenance(ctx context.Context) error {
+	return q.retrier.RetryQuery(ctx, "LockTelemetrySeedMaintenance", func() error {
+		return q.next.LockTelemetrySeedMaintenance(ctx)
+	})
+}
+
 func (q *retryingQuerier) MarkAbsentContainerTanks(ctx context.Context, arg MarkAbsentContainerTanksParams) error {
 	return q.retrier.RetryQuery(ctx, "MarkAbsentContainerTanks", func() error {
 		return q.next.MarkAbsentContainerTanks(ctx, arg)
@@ -7560,6 +7590,18 @@ func (q *retryingQuerier) PauseFirmwareRollout(ctx context.Context, arg PauseFir
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "PauseFirmwareRollout", func() error {
 		callResult, callErr := q.next.PauseFirmwareRollout(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) PrepareTelemetrySeed(ctx context.Context, arg PrepareTelemetrySeedParams) (time.Time, error) {
+	var result time.Time
+	err := q.retrier.RetryQuery(ctx, "PrepareTelemetrySeed", func() error {
+		callResult, callErr := q.next.PrepareTelemetrySeed(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -7781,6 +7823,12 @@ func (q *retryingQuerier) RecordFirmwareDeployment(ctx context.Context, arg Reco
 func (q *retryingQuerier) RecordFirmwareRolloutAction(ctx context.Context, arg RecordFirmwareRolloutActionParams) error {
 	return q.retrier.RetryQuery(ctx, "RecordFirmwareRolloutAction", func() error {
 		return q.next.RecordFirmwareRolloutAction(ctx, arg)
+	})
+}
+
+func (q *retryingQuerier) RecoverTelemetrySeedBatch(ctx context.Context) error {
+	return q.retrier.RetryQuery(ctx, "RecoverTelemetrySeedBatch", func() error {
+		return q.next.RecoverTelemetrySeedBatch(ctx)
 	})
 }
 
@@ -8819,6 +8867,12 @@ func (q *retryingQuerier) UndeleteOrganization(ctx context.Context, id int64) er
 func (q *retryingQuerier) UndeleteRole(ctx context.Context, id int64) error {
 	return q.retrier.RetryQuery(ctx, "UndeleteRole", func() error {
 		return q.next.UndeleteRole(ctx, id)
+	})
+}
+
+func (q *retryingQuerier) UnlockTelemetrySeedMaintenance(ctx context.Context) error {
+	return q.retrier.RetryQuery(ctx, "UnlockTelemetrySeedMaintenance", func() error {
+		return q.next.UnlockTelemetrySeedMaintenance(ctx)
 	})
 }
 

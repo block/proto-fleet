@@ -10,6 +10,8 @@ import (
 	"log"
 	"time"
 
+	"github.com/block/proto-fleet/server/generated/sqlc"
+
 	"github.com/alecthomas/kong"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
@@ -73,50 +75,73 @@ func openDB(cfg config) (*sql.DB, error) {
 	return db, nil
 }
 
+// A dedicated connection owns the exclusive session lock across raw batches and
+// Timescale's committing refreshes. Closing this DB also releases the lock if an
+// error prevents explicit unlock; it cannot leak into the application's pool.
+func withSeedMaintenance(db *sql.DB, work func(context.Context, *sql.Conn, *sqlc.Queries) error) (result error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("acquiring telemetry maintenance connection: %w", err)
+	}
+	defer conn.Close()
+	q := sqlc.New(conn)
+	lockCtx, lockCancel := context.WithTimeout(ctx, 30*time.Second)
+	err = q.LockTelemetrySeedMaintenance(lockCtx)
+	lockCancel()
+	if err != nil {
+		return fmt.Errorf("waiting for telemetry maintenance: %w", err)
+	}
+	defer func() {
+		unlockCtx, unlockCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer unlockCancel()
+		if err := q.UnlockTelemetrySeedMaintenance(unlockCtx); err != nil && result == nil {
+			result = fmt.Errorf("releasing telemetry maintenance: %w", err)
+		}
+	}()
+	return work(ctx, conn, q)
+}
+
 func runCleanup(cfg config) error {
 	db, err := openDB(cfg)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-
-	ctx := context.Background()
-	start, end, found, err := findSeedDataBounds(ctx, db)
-	if err != nil {
-		return err
-	}
-	if !found {
-		log.Printf("Cleanup mode: no synthetic rows found for prefix %q", seedDevicePrefix)
-		return nil
-	}
-
-	refreshStart, refreshEnd := cleanupRefreshWindow(start, end)
-
-	log.Printf("Cleanup mode")
-	log.Printf("  seed window: %s → %s", start.Format(time.RFC3339), end.Format(time.RFC3339))
-	log.Printf("  refresh:     %s → %s", refreshStart.Format(time.RFC3339), refreshEnd.Format(time.RFC3339))
-
 	if cfg.DryRun {
-		log.Printf("Dry run — no data deleted.")
+		start, end, found, err := findSeedDataBounds(context.Background(), db)
+		if err != nil {
+			return err
+		}
+		log.Printf("Cleanup dry run: seed data present=%t, range %s to %s", found, start, end)
 		return nil
 	}
-
-	deleted, err := clearSeedData(ctx, db)
-	if err != nil {
-		return fmt.Errorf("clearing seed data: %w", err)
-	}
-	log.Printf("  deleted %d rows", deleted)
-
-	if deleted == 0 {
-		return nil
-	}
-
-	log.Printf("Refreshing continuous aggregates...")
-	if err := refreshAggregates(ctx, db, refreshStart, refreshEnd); err != nil {
-		return fmt.Errorf("refreshing aggregates: %w", err)
-	}
-	log.Printf("Cleanup complete.")
-	return nil
+	return withSeedMaintenance(db, func(ctx context.Context, conn *sql.Conn, q *sqlc.Queries) error {
+		start, end, found, err := findSeedDataBounds(ctx, conn)
+		if err != nil {
+			return err
+		}
+		if !found {
+			log.Printf("Cleanup mode: no synthetic rows found for prefix %q", seedDevicePrefix)
+			return nil
+		}
+		// The raw maximum is inclusive; recovery takes an exclusive end bound.
+		safeStart, err := q.PrepareTelemetrySeed(ctx, sqlc.PrepareTelemetrySeedParams{RequestedStart: start, RequestedEnd: end.Add(time.Microsecond)})
+		if err != nil {
+			return err
+		}
+		if start.Before(safeStart) {
+			return fmt.Errorf("seed cleanup begins at %s before complete retained coverage at %s; existing rows were preserved", start, safeStart)
+		}
+		log.Printf("Cleanup mode: seed window %s to %s", start, end)
+		deleted, err := clearSeedData(ctx, conn)
+		if err != nil {
+			return err
+		}
+		log.Printf("  deleted %d rows; recovering dependent summaries", deleted)
+		return recoverSeedSummaries(ctx, q)
+	})
 }
 
 func seedAndRefresh(cfg config, metrics []deviceMetric, start, end, genStart time.Time) error {
@@ -125,33 +150,66 @@ func seedAndRefresh(cfg config, metrics []deviceMetric, start, end, genStart tim
 		return err
 	}
 	defer db.Close()
-
-	ctx := context.Background()
-
-	log.Printf("Clearing existing seed data...")
-	deleted, err := clearSeedData(ctx, db)
-	if err != nil {
-		return fmt.Errorf("clearing seed data: %w", err)
-	}
-	log.Printf("  deleted %d rows", deleted)
-
-	log.Printf("Inserting %d rows...", len(metrics))
-	insertStart := time.Now()
-	inserted, err := insertBatches(ctx, db, metrics, cfg.BatchSize)
-	if err != nil {
-		return fmt.Errorf("inserting data: %w", err)
-	}
-	log.Printf("  inserted %d rows in %s", inserted, time.Since(insertStart).Round(time.Millisecond))
-
-	log.Printf("Refreshing continuous aggregates...")
-	refreshStart := time.Now()
-	if err := refreshAggregates(ctx, db, start, end); err != nil {
-		return fmt.Errorf("refreshing aggregates: %w", err)
-	}
-	log.Printf("  refreshed in %s", time.Since(refreshStart).Round(time.Millisecond))
-
-	log.Printf("Done. Total time: %s", time.Since(genStart).Round(time.Millisecond))
-	return nil
+	return withSeedMaintenance(db, func(ctx context.Context, conn *sql.Conn, q *sqlc.Queries) error {
+		oldStart, oldEnd, found, err := findSeedDataBounds(ctx, conn)
+		if err != nil {
+			return err
+		}
+		importStart := start
+		if found && oldStart.Before(importStart) {
+			importStart = oldStart
+		}
+		importEnd := end
+		if found && !oldEnd.Before(importEnd) {
+			importEnd = oldEnd.Add(time.Microsecond)
+		}
+		safeStart, err := q.PrepareTelemetrySeed(ctx, sqlc.PrepareTelemetrySeedParams{RequestedStart: importStart, RequestedEnd: importEnd})
+		if err != nil {
+			return err
+		}
+		// Never refresh a partially expired UTC day. A new, proven-empty source can
+		// extend its initial boundary; established sources use their retained range.
+		eligible := make([]deviceMetric, 0, len(metrics))
+		for _, metric := range metrics {
+			if !metric.Time.Before(safeStart) {
+				eligible = append(eligible, metric)
+			}
+		}
+		if len(eligible) == 0 {
+			return fmt.Errorf("requested seed window %s to %s precedes complete retained coverage at %s; existing rows were preserved", start, end, safeStart)
+		}
+		if found && oldStart.Before(safeStart) {
+			return fmt.Errorf("existing seed rows precede complete retained coverage at %s; existing rows were preserved", safeStart)
+		}
+		if len(eligible) != len(metrics) {
+			log.Printf("  using complete retained coverage from %s; omitted %d older samples", safeStart, len(metrics)-len(eligible))
+		}
+		log.Printf("Clearing existing seed data...")
+		//nolint:forbidigo // Keep the connection owning the import lock; a pooled transaction would block behind it.
+		tx, err := conn.BeginTx(ctx, nil)
+		if err != nil {
+			return fmt.Errorf("beginning seed replacement: %w", err)
+		}
+		defer tx.Rollback()
+		deleted, err := clearSeedData(ctx, tx)
+		if err != nil {
+			return fmt.Errorf("clearing seed data: %w", err)
+		}
+		log.Printf("  deleted %d rows", deleted)
+		inserted, err := insertBatches(ctx, tx, eligible, cfg.BatchSize)
+		if err != nil {
+			return fmt.Errorf("inserting data: %w", err)
+		}
+		if err := tx.Commit(); err != nil {
+			return fmt.Errorf("committing seed replacement: %w", err)
+		}
+		log.Printf("  inserted %d rows; recovering dependent summaries", inserted)
+		if err := recoverSeedSummaries(ctx, q); err != nil {
+			return err
+		}
+		log.Printf("Done. Total time: %s", time.Since(genStart).Round(time.Millisecond))
+		return nil
+	})
 }
 
 func buildProfiles(count int) []deviceProfile {
