@@ -1974,7 +1974,7 @@ func (s *Service) ApplyCurtailmentConfigToProtoRigs(ctx context.Context, config 
 	if err != nil {
 		return err
 	}
-	return s.applyCurtailmentConfigToIdentifiers(ctx, config, identifiers)
+	return s.ApplyCurtailmentConfigToDevices(ctx, config, identifiers)
 }
 
 // ApplyCurtailmentConfigToDevices replaces fallback config only on the requested

@@ -15,6 +15,9 @@ import (
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	commandmocks "github.com/block/proto-fleet/server/internal/domain/command/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	minerIfaceMocks "github.com/block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
@@ -66,8 +69,11 @@ func TestApplyCurtailmentConfigToDevicesOnlyEnqueuesRequestedEligibleRigs(t *tes
 	seedRigConfigDevice(t, conn, 1, "needs-auth", "Proto", sqlc.PairingStatusEnumAUTHENTICATIONNEEDED)
 	seedRigConfigDevice(t, conn, 1, "default-password", "Proto", sqlc.PairingStatusEnumDEFAULTPASSWORD)
 	seedRigConfigDevice(t, conn, 1, "unpaired", "Proto", sqlc.PairingStatusEnumUNPAIRED)
+	seedRigConfigDevice(t, conn, 1, "ct1", "Proto", sqlc.PairingStatusEnumPAIRED)
+	_, err := conn.ExecContext(t.Context(), `UPDATE discovered_device SET device_class = 2, model = 'CT1' WHERE device_identifier = 'ct1'`)
+	require.NoError(t, err)
 	deletedID := seedRigConfigDevice(t, conn, 1, "deleted", "Proto", sqlc.PairingStatusEnumPAIRED)
-	_, err := conn.ExecContext(t.Context(), `UPDATE device SET deleted_at = NOW() WHERE id = $1`, deletedID)
+	_, err = conn.ExecContext(t.Context(), `UPDATE device SET deleted_at = NOW() WHERE id = $1`, deletedID)
 	require.NoError(t, err)
 	_, err = conn.ExecContext(t.Context(), `INSERT INTO organization (id, org_id, name) VALUES (2, 'other-org', 'Other')`)
 	require.NoError(t, err)
@@ -76,7 +82,7 @@ func TestApplyCurtailmentConfigToDevicesOnlyEnqueuesRequestedEligibleRigs(t *tes
 	ctx := manualSessionCtx(1)
 	config := sdk.CurtailmentConfig{Enabled: true}
 	require.NoError(t, svc.ApplyCurtailmentConfigToDevices(ctx, config, []string{
-		requested, requested, "bitmain", "needs-auth", "default-password", "unpaired", "deleted", "foreign-rig", "missing",
+		requested, requested, "bitmain", "needs-auth", "default-password", "unpaired", "ct1", "deleted", "foreign-rig", "missing",
 	}))
 	var queuedID int64
 	require.NoError(t, conn.QueryRowContext(ctx, `SELECT device_id FROM queue_message`).Scan(&queuedID))
@@ -91,6 +97,28 @@ func TestApplyCurtailmentConfigToDevicesOnlyEnqueuesRequestedEligibleRigs(t *tes
 	require.NoError(t, svc.ApplyCurtailmentConfigToDevices(ctx, config, nil))
 	require.NoError(t, svc.ApplyCurtailmentConfigToDevices(ctx, config, []string{}))
 	assertCommandDispatchRows(t, conn, 1)
+}
+
+func TestApplyCurtailmentConfigToProtoRigsExcludesContainers(t *testing.T) {
+	svc, conn, legacyRigID, _ := newRigConfigCommandFixture(t)
+	rigID := seedRigConfigDevice(t, conn, 1, "rig", "Proto", sqlc.PairingStatusEnumPAIRED)
+	seedRigConfigDevice(t, conn, 1, "ct1", "Proto", sqlc.PairingStatusEnumPAIRED)
+	_, err := conn.ExecContext(t.Context(), `UPDATE discovered_device SET device_class = CASE device_identifier WHEN 'ct1' THEN 2 ELSE 1 END WHERE device_identifier IN ('rig', 'ct1')`)
+	require.NoError(t, err)
+
+	// No sources still sends a disabled config to clear stale rig settings.
+	require.NoError(t, svc.ApplyCurtailmentConfigToProtoRigs(manualSessionCtx(1), sdk.CurtailmentConfig{}))
+	rows, err := conn.QueryContext(t.Context(), `SELECT device_id FROM queue_message ORDER BY device_id`)
+	require.NoError(t, err)
+	defer rows.Close()
+	var queued []int64
+	for rows.Next() {
+		var id int64
+		require.NoError(t, rows.Scan(&id))
+		queued = append(queued, id)
+	}
+	require.NoError(t, rows.Err())
+	require.ElementsMatch(t, []int64{legacyRigID, rigID}, queued)
 }
 
 func TestApplyCurtailmentConfigToDevicesHoldsEligibilityThroughEnqueue(t *testing.T) {
@@ -179,8 +207,17 @@ func TestApplyCurtailmentConfigToDevicesHoldsEligibilityThroughEnqueue(t *testin
 }
 
 func TestRigConfigTerminalFailureRequeuesOnlyFailedDevice(t *testing.T) {
-	for _, path := range []string{"worker", "reaper"} {
-		t.Run(path, func(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		err     error
+		requeue bool
+	}{
+		{"worker", errors.New("device unavailable"), true},
+		{"reaper", nil, true},
+		{"unsupported", fmt.Errorf("device: %w", fleeterror.NewUnimplementedError("curtailment configuration")), false},
+		{"failed precondition", fleeterror.NewFailedPreconditionError("invalid config"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			svc, conn, failedID, failedIdentifier := newRigConfigCommandFixture(t)
 			otherID := seedRigConfigDevice(t, conn, 1, "other-rig", "Proto", sqlc.PairingStatusEnumPAIRED)
 			ctx := manualSessionCtx(1)
@@ -191,12 +228,17 @@ func TestRigConfigTerminalFailureRequeuesOnlyFailedDevice(t *testing.T) {
 			require.NoError(t, svc.ApplyCurtailmentConfigToDevices(ctx, sdk.CurtailmentConfig{}, []string{failedIdentifier, "other-rig"}))
 			message := queue.Message{OrgID: 1, DeviceID: failedID, CommandType: commandtype.ApplyCurtailmentConfig}
 			require.NoError(t, conn.QueryRowContext(ctx, `UPDATE queue_message SET status = 'PROCESSING'
-				WHERE device_id = $1 RETURNING id, command_batch_log_uuid`, failedID).Scan(&message.ID, &message.BatchLogUUID))
+				WHERE device_id = $1 RETURNING id, command_batch_log_uuid, payload`, failedID).Scan(&message.ID, &message.BatchLogUUID, &message.Payload))
 
 			execution := svc.executionService
-			if path == "worker" {
-				getter := commandmocks.NewMockCachedMinerGetter(gomock.NewController(t))
-				getter.EXPECT().GetMinerForCommand(gomock.Any(), failedID).Return(nil, errors.New("device unavailable"))
+			if tc.name != "reaper" {
+				ctrl := gomock.NewController(t)
+				getter := commandmocks.NewMockCachedMinerGetter(ctrl)
+				miner := minerIfaceMocks.NewMockMiner(ctrl)
+				miner.EXPECT().GetOrgID().Return(int64(1))
+				miner.EXPECT().GetSiteID().Return(int64(0))
+				handle := &fencedCurtailmentConfigMiner{MockMiner: miner, configure: func(context.Context, dto.ApplyCurtailmentConfigPayload) error { return tc.err }}
+				getter.EXPECT().GetMinerForCommand(gomock.Any(), failedID).Return(handle, nil)
 				execution.minerService = getter
 				execution.workerProcessCommand(ctx, message)
 			} else {
@@ -211,14 +253,22 @@ func TestRigConfigTerminalFailureRequeuesOnlyFailedDevice(t *testing.T) {
 				SELECT desired_generation, enqueued_generation, full_reconcile_generation
 				FROM curtailment_rig_config_reconciliation WHERE organization_id = 1
 			`).Scan(&desired, &enqueued, &fullReconcileGeneration))
-			assert.Equal(t, int64(2), desired)
+			if tc.requeue {
+				assert.Equal(t, int64(2), desired)
+				require.NoError(t, conn.QueryRowContext(ctx, `SELECT device_id FROM curtailment_rig_config_target`).Scan(&targetID))
+				assert.Equal(t, failedID, targetID)
+			} else {
+				assert.Equal(t, int64(1), desired)
+			}
 			assert.Equal(t, int64(1), enqueued)
 			assert.LessOrEqual(t, fullReconcileGeneration, enqueued, "terminal retry must not request another full reconciliation")
-			require.NoError(t, conn.QueryRowContext(ctx, `SELECT device_id FROM curtailment_rig_config_target`).Scan(&targetID))
-			assert.Equal(t, failedID, targetID)
 			var targetCount int
 			require.NoError(t, conn.QueryRowContext(ctx, `SELECT count(*) FROM curtailment_rig_config_target`).Scan(&targetCount))
-			assert.Equal(t, 1, targetCount)
+			if tc.requeue {
+				assert.Equal(t, 1, targetCount)
+			} else {
+				assert.Zero(t, targetCount)
+			}
 			var failedStatus, otherStatus string
 			require.NoError(t, conn.QueryRowContext(ctx, `SELECT status FROM queue_message WHERE device_id = $1`, failedID).Scan(&failedStatus))
 			require.NoError(t, conn.QueryRowContext(ctx, `SELECT status FROM queue_message WHERE device_id = $1`, otherID).Scan(&otherStatus))

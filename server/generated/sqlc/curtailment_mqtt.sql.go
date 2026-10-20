@@ -474,6 +474,7 @@ WHERE target.organization_id = $1
   AND target.requested_generation <= $3
   AND d.deleted_at IS NULL
   AND dd.manufacturer = 'Proto'
+  AND dd.device_class <> 2
   AND dp.pairing_status = 'PAIRED'
 ORDER BY d.device_identifier
 `
@@ -548,6 +549,7 @@ WITH eligible AS MATERIALIZED (
       AND d.device_identifier = ANY($2::text[])
       AND d.deleted_at IS NULL
       AND dd.manufacturer = 'Proto'
+      AND dd.device_class <> 2
       AND dp.pairing_status = 'PAIRED'
 ), requested AS (
     INSERT INTO curtailment_rig_config_reconciliation (
@@ -599,6 +601,7 @@ WITH eligible AS MATERIALIZED (
       AND d.id = $2
       AND d.deleted_at IS NULL
       AND dd.manufacturer = 'Proto'
+      AND dd.device_class <> 2
       AND dp.pairing_status = 'PAIRED'
 ), requested AS (
 UPDATE curtailment_rig_config_reconciliation reconciliation

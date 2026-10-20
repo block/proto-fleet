@@ -2027,6 +2027,7 @@ WHERE d.org_id = $1
   AND d.deleted_at IS NULL
   AND dp.pairing_status = 'PAIRED'
   AND dd.manufacturer = 'Proto'
+  AND dd.device_class <> 2
 ORDER BY d.id
 FOR SHARE OF d, dd, dp
 `
