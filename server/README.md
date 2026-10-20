@@ -305,6 +305,13 @@ For example, 10 active invitations permit 1,000 checks/hour; 1,000 active
 invitations permit 100. An excessive population fails closed rather than
 weakening the bound.
 
+Because the population is shared, issuance caps each customer at **50 active
+invitations**, counted across the customer and its subclients under the same
+lock. One customer therefore adds at most 50 units to each check, so its
+invitations alone cannot reduce the allowance below the 1,000-check limit
+(`100,000 / 50 = 2,000`). Further issuance for that customer returns
+`ResourceExhausted` until an invitation is revoked, accepted, or expires.
+
 Admission and issuance serialize through one database row. Admission counts
 targets and looks up the digest before releasing that lock, and commits the
 charge even for an unknown code. Successful previews and rejected redemptions

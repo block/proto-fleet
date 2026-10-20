@@ -291,6 +291,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countActiveCurtailmentEventsByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countActiveCurtailmentEventsByInfrastructureDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveCurtailmentEventsByInfrastructureDevices: %w", err)
 	}
+	if q.countActiveHostedCustomerInvitationsStmt, err = db.PrepareContext(ctx, countActiveHostedCustomerInvitations); err != nil {
+		return nil, fmt.Errorf("error preparing query CountActiveHostedCustomerInvitations: %w", err)
+	}
 	if q.countActiveRepairTicketsAssignedToUserStmt, err = db.PrepareContext(ctx, countActiveRepairTicketsAssignedToUser); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveRepairTicketsAssignedToUser: %w", err)
 	}
@@ -3148,6 +3151,11 @@ func (q *Queries) Close() error {
 	if q.countActiveCurtailmentEventsByInfrastructureDevicesStmt != nil {
 		if cerr := q.countActiveCurtailmentEventsByInfrastructureDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countActiveCurtailmentEventsByInfrastructureDevicesStmt: %w", cerr)
+		}
+	}
+	if q.countActiveHostedCustomerInvitationsStmt != nil {
+		if cerr := q.countActiveHostedCustomerInvitationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing countActiveHostedCustomerInvitationsStmt: %w", cerr)
 		}
 	}
 	if q.countActiveRepairTicketsAssignedToUserStmt != nil {
@@ -7293,6 +7301,7 @@ type Queries struct {
 	containsContainerIdentifiersStmt                             *sql.Stmt
 	countActiveAssignmentsForRoleStmt                            *sql.Stmt
 	countActiveCurtailmentEventsByInfrastructureDevicesStmt      *sql.Stmt
+	countActiveHostedCustomerInvitationsStmt                     *sql.Stmt
 	countActiveRepairTicketsAssignedToUserStmt                   *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt                     *sql.Stmt
 	countActivityLogsStmt                                        *sql.Stmt
@@ -8191,6 +8200,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		containsContainerIdentifiersStmt:                             q.containsContainerIdentifiersStmt,
 		countActiveAssignmentsForRoleStmt:                            q.countActiveAssignmentsForRoleStmt,
 		countActiveCurtailmentEventsByInfrastructureDevicesStmt:      q.countActiveCurtailmentEventsByInfrastructureDevicesStmt,
+		countActiveHostedCustomerInvitationsStmt:                     q.countActiveHostedCustomerInvitationsStmt,
 		countActiveRepairTicketsAssignedToUserStmt:                   q.countActiveRepairTicketsAssignedToUserStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:                     q.countActiveUnpairedDiscoveredDevicesStmt,
 		countActivityLogsStmt:                                        q.countActivityLogsStmt,

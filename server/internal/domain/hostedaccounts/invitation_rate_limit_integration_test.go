@@ -165,3 +165,57 @@ func TestInvitationCreationUsesRateLimitLockAndBoundsLifetime(t *testing.T) {
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_invitation`).Scan(&count))
 	require.Equal(t, 2, count)
 }
+
+func TestInvitationCreationCapsActiveInvitationsPerCustomer(t *testing.T) {
+	svc, conn, _ := registrationFixture(t)
+	var orgID, hostID int64
+	var customerID, root string
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT i.organization_id,i.inviter_id,a.account_id FROM hosted_account_invitation i JOIN hosted_account a ON a.id=i.account_id`).Scan(&orgID, &hostID, &customerID))
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT account_id FROM hosted_account WHERE organization_id=$1 AND depth=0`, orgID).Scan(&root))
+	_, err := conn.ExecContext(t.Context(), `UPDATE hosted_account SET capabilities=$1 WHERE account_id=$2`, int64(AllCapabilities), customerID)
+	require.NoError(t, err)
+	subclient, err := svc.accounts.CreateChild(t.Context(), hostID, orgID, customerID, "Subclient", hostID, DefaultCapabilities)
+	require.NoError(t, err)
+	other, err := svc.accounts.CreateChild(t.Context(), hostID, orgID, root, "Other customer", hostID, DefaultCapabilities)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), `
+INSERT INTO hosted_account_invitation(invitation_id,organization_id,account_id,inviter_id,authority_fingerprint,token_hash,role,expires_at)
+SELECT gen_random_uuid()::text,organization_id,account_id,inviter_id,authority_fingerprint,
+       'customer-cap-' || n::text,role,expires_at
+FROM hosted_account_invitation CROSS JOIN generate_series(1,$1) n`, customerInvitationLimit-2)
+	require.NoError(t, err)
+	_, err = svc.Create(t.Context(), hostID, orgID, subclient.AccountID, RoleViewer, time.Hour)
+	require.NoError(t, err, "subclient invitations fill the customer's allowance")
+	_, err = svc.Create(t.Context(), hostID, orgID, customerID, RoleViewer, time.Hour)
+	require.True(t, fleeterror.IsResourceExhaustedError(err), "%v", err)
+	_, err = svc.Create(t.Context(), hostID, orgID, subclient.AccountID, RoleViewer, time.Hour)
+	require.True(t, fleeterror.IsResourceExhaustedError(err), "subclients share the customer's allowance")
+	_, err = svc.Create(t.Context(), hostID, orgID, other.AccountID, RoleViewer, time.Hour)
+	require.NoError(t, err, "one customer's pending invitations cannot block another customer")
+	_, err = conn.ExecContext(t.Context(), `UPDATE hosted_account_invitation SET revoked_at=statement_timestamp() WHERE token_hash='customer-cap-1'`)
+	require.NoError(t, err)
+	_, err = svc.Create(t.Context(), hostID, orgID, customerID, RoleViewer, time.Hour)
+	require.NoError(t, err, "revocation frees capacity")
+}
+
+func TestInvitationLookupTimesOutWhileRateLimitLockIsHeld(t *testing.T) {
+	svc, conn, token := registrationFixture(t)
+	tx, err := conn.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(t.Context(), `SELECT singleton FROM hosted_invitation_rate_limit FOR UPDATE`)
+	require.NoError(t, err)
+	started := time.Now()
+	_, err = svc.Preview(t.Context(), token)
+	elapsed := time.Since(started)
+	require.Error(t, err)
+	require.False(t, fleeterror.IsFailedPreconditionError(err), "a lock timeout is not an unavailable invitation: %v", err)
+	require.Less(t, elapsed, 4*time.Second, "admission waits at most its two-second bound")
+	require.Empty(t, svc.previewSlots, "a timed-out preview releases its slot")
+	require.NoError(t, tx.Rollback())
+	var count int
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_invitation_rate_limit_attempt`).Scan(&count))
+	require.Zero(t, count, "a lookup that never acquired the lock records no charge")
+	_, err = svc.Preview(t.Context(), token)
+	require.NoError(t, err)
+}

@@ -335,6 +335,9 @@ type Querier interface {
 	// it rather than block the admin on phantom assignments.
 	CountActiveAssignmentsForRole(ctx context.Context, roleID int64) (int64, error)
 	CountActiveCurtailmentEventsByInfrastructureDevices(ctx context.Context, arg CountActiveCurtailmentEventsByInfrastructureDevicesParams) (int64, error)
+	// Issuance runs this under the rate-limit lock, so the per-customer cap is
+	// race-free. A customer's subclients share its allowance.
+	CountActiveHostedCustomerInvitations(ctx context.Context, arg CountActiveHostedCustomerInvitationsParams) (int64, error)
 	CountActiveRepairTicketsAssignedToUser(ctx context.Context, arg CountActiveRepairTicketsAssignedToUserParams) (int64, error)
 	CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error)
 	// Site filter must stay byte-for-byte identical to ListActivityLogs so the

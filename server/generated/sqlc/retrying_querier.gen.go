@@ -986,6 +986,18 @@ func (q *retryingQuerier) CountActiveCurtailmentEventsByInfrastructureDevices(ct
 	return result, err
 }
 
+func (q *retryingQuerier) CountActiveHostedCustomerInvitations(ctx context.Context, arg CountActiveHostedCustomerInvitationsParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "CountActiveHostedCustomerInvitations", func() error {
+		callResult, callErr := q.next.CountActiveHostedCustomerInvitations(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CountActiveRepairTicketsAssignedToUser(ctx context.Context, arg CountActiveRepairTicketsAssignedToUserParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountActiveRepairTicketsAssignedToUser", func() error {

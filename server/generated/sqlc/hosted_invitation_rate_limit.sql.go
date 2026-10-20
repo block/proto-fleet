@@ -48,6 +48,29 @@ func (q *Queries) ConsumeHostedInvitationRateLimit(ctx context.Context, arg Cons
 	return result.RowsAffected()
 }
 
+const countActiveHostedCustomerInvitations = `-- name: CountActiveHostedCustomerInvitations :one
+SELECT count(*)::bigint
+FROM hosted_account_invitation i
+JOIN hosted_account a ON a.organization_id = i.organization_id AND a.id = i.account_id
+WHERE i.organization_id = $1
+    AND (a.id = $2 OR a.parent_id = $2)
+    AND i.revoked_at IS NULL AND i.accepted_at IS NULL AND i.expires_at > statement_timestamp()
+`
+
+type CountActiveHostedCustomerInvitationsParams struct {
+	OrganizationID int64
+	CustomerID     int64
+}
+
+// Issuance runs this under the rate-limit lock, so the per-customer cap is
+// race-free. A customer's subclients share its allowance.
+func (q *Queries) CountActiveHostedCustomerInvitations(ctx context.Context, arg CountActiveHostedCustomerInvitationsParams) (int64, error) {
+	row := q.queryRow(ctx, q.countActiveHostedCustomerInvitationsStmt, countActiveHostedCustomerInvitations, arg.OrganizationID, arg.CustomerID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
+}
+
 const lockHostedInvitationRateLimit = `-- name: LockHostedInvitationRateLimit :one
 SELECT singleton FROM hosted_invitation_rate_limit FOR UPDATE
 `

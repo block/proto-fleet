@@ -14,11 +14,27 @@ import (
 const (
 	invitationAttemptLimit  = 1000
 	invitationExposureLimit = 100000
+	// Each check costs the deployment-wide active population. Keeping one
+	// customer's share at or below invitationExposureLimit/invitationAttemptLimit
+	// means a single customer cannot push the hourly budget below the attempt limit.
+	customerInvitationLimit = 50
 )
 
 func lockInvitationRateLimit(ctx context.Context, q sqlc.Querier) error {
 	_, err := q.LockHostedInvitationRateLimit(ctx)
 	return err
+}
+
+// requireCustomerInvitationCapacity must run after lockInvitationRateLimit.
+func requireCustomerInvitationCapacity(ctx context.Context, q sqlc.Querier, orgID, customerID int64) error {
+	active, err := q.CountActiveHostedCustomerInvitations(ctx, sqlc.CountActiveHostedCustomerInvitationsParams{OrganizationID: orgID, CustomerID: customerID})
+	if err != nil {
+		return err
+	}
+	if active >= customerInvitationLimit {
+		return fleeterror.NewResourceExhaustedErrorf("this customer has %d pending invitations; revoke unused invitations or wait for them to expire", customerInvitationLimit)
+	}
+	return nil
 }
 
 // lookupInvitation commits the charge before reporting a missing digest. Failed

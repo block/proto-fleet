@@ -102,6 +102,10 @@ func (s *InvitationService) Create(ctx context.Context, actorID, orgID int64, ac
 		if err := lockInvitationRateLimit(ctx, q); err != nil {
 			return IssuedInvitation{}, err
 		}
+		// path[1] is the customer; depth-0 targets were rejected above.
+		if err := requireCustomerInvitationCapacity(ctx, q, orgID, path[1].ID); err != nil {
+			return IssuedInvitation{}, err
+		}
 		var row sqlc.HostedAccountInvitation
 		var token string
 		for range 5 {
