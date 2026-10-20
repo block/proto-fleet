@@ -260,7 +260,8 @@ lock serializes reference checks and deletion with ingestion. Expected lock
 contention defers cleanup without incrementing the failure counter. Progress, span
 updates, and deletes commit atomically. A separate committed one-minute scheduling
 lease survives cancellation so a slow controller cannot monopolize subsequent
-runs. The job runs every ten seconds with a two-second maximum runtime. Do not wrap
+runs. Migration 1034 shortens the job interval from ten seconds to one second,
+with the same two-second maximum runtime and one cleanup worker. Do not wrap
 `CALL run_job(...)` or the job procedure in a client transaction; its scheduling
 lease requires a top-level CALL. Direct `compact_container_topology(...)` calls are
 atomic but do not have the scheduler's runtime limit.
@@ -281,9 +282,18 @@ It identifies redundant candidates, not a promise they are unreferenced; inspect
 reviewing a representative dry run and runtime:
 
 ```sql
-SELECT alter_job(job_id, config=>'{"enabled":true,"batch_size":50}'::jsonb)
+SELECT alter_job(job_id, config=>config || '{"enabled":true,"batch_size":50}'::jsonb)
 FROM timescaledb_information.jobs WHERE proc_name='compact_container_topology_job';
 ```
+
+Enablement is a separate rollout step after applying migration 1034 and validating
+the deployment's database capacity. The migration preserves both `config.enabled`
+and `scheduled`, including existing opt-outs; it does not enable cleanup. Record
+the deployment, migration version, job ID, enablement time, observation rate, and
+before/after progress in the deployment record. A job paused with `scheduled=false`
+also needs explicit scheduling after that review. Verify several successful
+scheduled runs, falling backlog, and acceptable ingestion latency before recording
+the deployment as enabled. No deployment is qualified by the local test alone.
 
 Set `enabled` false to stop future work. Track state-table examined/deleted totals,
 last duration/error, pending depth, and Timescale job statistics. Worker termination
@@ -291,6 +301,100 @@ may only appear in Timescale job statistics; the committed scheduling lease rema
 Reduce the configured batch size if runs hit the runtime limit. No version or
 installation deletion is included. Allocation authorization, subset rollups, and
 shared PSU attribution remain future work.
+
+### Scheduled capacity and backlog checks
+
+The sizing target is **100 controllers at one observation every 15 seconds**:
+6.67 newly eligible observations/second, plus retry work. The 50-row batch cap
+with the old ten-second interval could examine at most 5 new observations/second,
+even before runtime and contention. The one-second interval uses the existing
+worker more frequently instead of adding workers that contend on an organization's
+ingestion lock. At 50 new observations per successful batch, a two-second run
+plus a one-second scheduling delay would provide 16.67/second before additional
+worker delays: a sizing estimate, not a throughput guarantee. Do not count retry
+deletions as forward-scanning capacity.
+
+Qualify at least twice the incoming eligible-observation rate to leave backlog
+drain margin. Smaller configured batches, database load, failure backoff, and
+worker availability reduce that margin. The shared Timescale worker pool also
+serves retention, compression and aggregates; ensure it has headroom and check
+those jobs for regressions. Reaching the two-second deadline rolls back progress;
+increasing batch size beyond 50 cannot increase scheduled capacity. When a
+controller has caught up, its existing one-hour idle delay still applies, so a
+small sawtooth backlog is expected. Sustained growth across those cycles is not.
+
+Run the opt-in capacity regression on an isolated TimescaleDB using the repository
+image (substitute its port; do not point this at a deployment database):
+
+```sh
+DB_ADDRESS=127.0.0.1:<port> DB_PASSWORD=fleet CT1_TOPOLOGY_CAPACITY_TEST=1 \
+  go test ./internal/infrastructure/timescaledb \
+  -run '^TestTopologyCompactionScheduledCapacity$' -count=1 -v -timeout=12m
+```
+
+Run from `server/` with Hermit active. The fixture uses 100 controllers in one
+organization, six tanks each, 216 hourly chunks containing 129,600 compressed
+samples, 10,000 initially unscanned receipts, and 5,000 due retries. It adds one
+eligible observation and one current observation per controller every 15 seconds
+for 150 seconds. Backdated inserts simulate observations crossing the ten-day
+cutoff without waiting ten days; they are not a test of controller transport.
+The real background job uses its migrated schedule and runtime limit. The test
+requires every controller to receive service, forward throughput above 13.33/s,
+bounded and shrinking backlog during arrivals, and complete drain afterward.
+It also checks preserved compressed samples/current observations and zero cleanup
+or background-job failures. The separate three-million-sample deadline/FK
+regression remains required. Other maintenance jobs are paused in this fixture;
+production worker contention and controller ingestion need deployment validation.
+
+On 2026-10-20, the isolated local Docker run (PostgreSQL 18.6, TimescaleDB 2.30.2,
+256 MB shared buffers, four Timescale background-worker slots, `fsync=on`)
+measured **48.65 forward observations/second** during the 150-second arrival phase,
+against 6.67/second arrivals. All 100 controllers received service and all 5,000
+retries cleared during that phase; forward backlog fell from 10,000 to 3,700.
+The maximum simulated ingestion transaction was 142 ms. With arrivals stopped,
+all 11,000 forward receipts and 5,000 retries drained in 5 minutes 4 seconds
+from job start. All 129,600 compressed samples and 1,000 current observations
+survived, with no cleanup or background-job failures. These are fixture
+measurements, not deployment guarantees.
+
+Sample counters at two wall-clock times to calculate `delta(examined)/seconds`
+and `delta(deleted)/seconds`. Compare the former to the deployment's observed
+eligible input rate; the latter includes retries and cannot replace it:
+
+```sql
+SELECT sum(examined) AS examined, sum(deleted) AS deleted,
+       sum(failures) AS failures, max(last_duration_ms) AS last_run_max_ms
+FROM container_topology_compaction_state;
+SELECT count(*) AS pending, count(*) FILTER (WHERE next_check_at <= now()) AS due
+FROM container_topology_compaction_pending;
+SELECT j.job_id, j.schedule_interval, j.max_runtime, j.scheduled, j.config,
+       s.last_run_status, s.last_successful_finish, s.total_runs, s.total_failures,
+       s.next_start
+FROM timescaledb_information.jobs j
+LEFT JOIN timescaledb_information.job_stats s USING (job_id)
+WHERE j.proc_name = 'compact_container_topology_job';
+
+-- Oldest unscanned eligible receipt per controller; skips retained anchors and
+-- future pins so neither is mistaken for forward-scanning lag.
+SELECT s.device_id, s.scanned_through, s.next_run_at,
+       now() - INTERVAL '10 days' - oldest.collected_at AS eligible_lag
+FROM container_topology_compaction_state s
+CROSS JOIN LATERAL (
+  SELECT o.collected_at FROM container_topology_observation o
+  WHERE o.device_id = s.device_id
+    AND o.collected_at > COALESCE(s.scanned_through, '-infinity'::timestamptz)
+    AND o.collected_at < now() - INTERVAL '10 days'
+  ORDER BY o.collected_at LIMIT 1
+) oldest
+ORDER BY eligible_lag DESC;
+```
+
+Observe beyond the one-hour idle cycle before judging steady-state lag. Investigate
+increasing lag, controllers repeatedly deferred, failed jobs, or ingestion latency
+regressions. Disable cleanup if it harms ingestion; preserve progress and diagnose
+worker availability, locks and query runtime before re-enabling. Rolling back
+migration 1034 restores the ten-second interval without deleting progress or
+changing enablement, but also restores the known capacity limit.
 
 Prefer disabling jobs and fixing forward while preserving the schema and evidence.
 An application release must recognize the installed database checkpoint; see the
