@@ -58,6 +58,13 @@ In CI, non-setup spec files are distributed across a fixed number of shards (`SH
 
 Spec files whose names start with two digits, such as `00-onboarding.spec.ts` and `01-miningPools.spec.ts`, are treated as setup specs. They are not sharded; instead they run first, in filename order, as Playwright project dependencies in every shard.
 
+The self-contained `toastHelpers`, `rackToastHelpers`, and `firmwareRolloutHelpers` specs run in the `helpers-desktop` and `helpers-mobile` projects with empty auth state and no setup dependencies. They build their own DOM and need no Fleet backend or miners. CI runs them in a separate job and excludes them from the provisioned shards. Run them locally from this directory:
+
+```sh
+E2E_TARGET=fake npx playwright test --project=helpers-desktop
+E2E_TARGET=fake npx playwright test --project=helpers-mobile
+```
+
 `onboardingVisual.spec.ts` is excluded from the default `desktop` and `mobile` projects. It runs only in the dedicated visual-only CI job and in the Linux snapshot refresh flow below, both of which opt into `PROTOFLEET_VISUAL_ONLY=1` so the spec always sees a fresh backend instead of the normal setup-project state.
 
 **Using Playwright directly:**

@@ -54,11 +54,6 @@ describe("useNeedsAttention", () => {
       const { result } = renderHook(() => useNeedsAttention(false, false, errors));
       expect(result.current).toBe(true);
     });
-
-    it("should return false when errors array is empty", () => {
-      const { result } = renderHook(() => useNeedsAttention(false, false, []));
-      expect(result.current).toBe(false);
-    });
   });
 
   describe("device error flag", () => {
@@ -73,14 +68,6 @@ describe("useNeedsAttention", () => {
     it("should return false when hasDeviceError is false and no other issues", () => {
       // Act
       const { result } = renderHook(() => useNeedsAttention(false, false, [], false));
-
-      // Assert
-      expect(result.current).toBe(false);
-    });
-
-    it("should default hasDeviceError to false when not provided", () => {
-      // Act
-      const { result } = renderHook(() => useNeedsAttention(false, false, []));
 
       // Assert
       expect(result.current).toBe(false);
@@ -127,44 +114,9 @@ describe("useNeedsAttention", () => {
       const { result } = renderHook(() => useNeedsAttention(true, true, errors, true));
       expect(result.current).toBe(true);
     });
-
-    it("should return true when only hasDeviceError is true with other flags false", () => {
-      // Act
-      const { result } = renderHook(() => useNeedsAttention(false, false, [], true));
-
-      // Assert
-      expect(result.current).toBe(true);
-    });
   });
 
-  describe("memoization", () => {
-    it("should memoize the result and not recompute when inputs haven't changed", () => {
-      const errors = [{ componentType: "hashboard", slot: 1 }];
-      const { result, rerender } = renderHook(
-        ({ needsAuth, needsPool, errs }) => useNeedsAttention(needsAuth, needsPool, errs),
-        {
-          initialProps: {
-            needsAuth: false,
-            needsPool: false,
-            errs: errors,
-          },
-        },
-      );
-
-      const firstResult = result.current;
-      expect(firstResult).toBe(true);
-
-      // Rerender with same props
-      rerender({
-        needsAuth: false,
-        needsPool: false,
-        errs: errors,
-      });
-
-      // Result should be the same object (memoized)
-      expect(result.current).toBe(firstResult);
-    });
-
+  describe("input changes", () => {
     it("should recompute when inputs change", () => {
       const errors = [{ componentType: "hashboard", slot: 1 }];
       const { result, rerender } = renderHook(

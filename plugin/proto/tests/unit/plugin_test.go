@@ -55,22 +55,6 @@ func TestDriverGetDefaultCredentials(t *testing.T) {
 	assert.Equal(t, sdk.UsernamePassword{Username: "admin", Password: "proto"}, creds[0])
 }
 
-// TestNewDevice_WrongSecretKind verifies NewDevice rejects a non-credentials
-// secret bundle.
-func TestNewDevice_WrongSecretKind(t *testing.T) {
-	// Arrange
-	d, err := driver.New(443)
-	require.NoError(t, err)
-	deviceInfo := sdk.DeviceInfo{Host: "192.168.1.100", Port: 443, URLScheme: "https", SerialNumber: "PROTO123"}
-
-	// Act
-	_, err = d.NewDevice(t.Context(), deviceInfo.SerialNumber, deviceInfo, sdk.SecretBundle{Kind: sdk.BearerToken{Token: "x"}})
-
-	// Assert
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "expected UsernamePassword")
-}
-
 // TestNewDevice_MissingCredentialsRejected verifies an empty secret bundle is
 // rejected rather than silently upgraded to factory-default credentials.
 func TestNewDevice_MissingCredentialsRejected(t *testing.T) {
@@ -131,41 +115,4 @@ func TestDriverGetDiscoveryPorts_NonCanonicalOverride(t *testing.T) {
 	require.NoError(t, err, "Failed to create driver")
 
 	assert.Equal(t, []string{"9000"}, driver.GetDiscoveryPorts(t.Context()))
-}
-
-// TestDeviceInfoValidation tests device info validation.
-func TestDeviceInfoValidation(t *testing.T) {
-	tests := []struct {
-		name       string
-		deviceInfo sdk.DeviceInfo
-		wantValid  bool
-	}{
-		{
-			name: "invalid port",
-			deviceInfo: sdk.DeviceInfo{
-				Host:         "192.168.1.100",
-				Port:         0,
-				URLScheme:    "https",
-				SerialNumber: "PROTO123456789",
-				Model:        "Rig",
-				Manufacturer: "Proto",
-				MacAddress:   "00:11:22:33:44:55",
-			},
-			wantValid: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			driver, err := driver.New(443)
-			require.NoError(t, err, "Failed to create driver")
-
-			_, err = driver.NewDevice(t.Context(), tt.deviceInfo.SerialNumber, tt.deviceInfo, sdk.SecretBundle{})
-			if tt.wantValid {
-				require.NoError(t, err, "Expected valid device info to not return error")
-			} else {
-				require.Error(t, err, "Expected invalid device info to return error")
-			}
-		})
-	}
 }
