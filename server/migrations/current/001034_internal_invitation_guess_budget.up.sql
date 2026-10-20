@@ -1,3 +1,4 @@
+-- requires-shared: 1000
 -- One durable budget per database, shared by every organization and API replica.
 -- No caller-controlled keys, IP addresses, or invitation secrets are stored here.
 CREATE TABLE hosted_invitation_guess_budget (
