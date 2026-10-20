@@ -6,6 +6,7 @@ import { accountManagementPath, accountPath, can, capabilities } from "../capabi
 import { useHostedAccounts } from "../HostedAccountsContext";
 import { useAccountQuery } from "../useAccountQuery";
 import AccountAssets from "./AccountAssets";
+import { AccountPermissionsEditor } from "./AccountPermissionsEditor";
 import { AccountState } from "./AccountState";
 import { ActionModal } from "./ActionModal";
 import { CapabilityFields } from "./CapabilityFields";
@@ -15,7 +16,6 @@ import SettingsEmptyState from "@/protoFleet/features/settings/components/Settin
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import Breadcrumb from "@/shared/components/Breadcrumb";
 import Button, { sizes } from "@/shared/components/Button";
-import Checkbox from "@/shared/components/Checkbox";
 import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 
@@ -43,11 +43,9 @@ const AccountChildren = () => {
   const [editing, setEditing] = useState<Account | "new" | null>(null);
   const [name, setName] = useState("");
   const [ceiling, setCeiling] = useState(1n);
-  const [suspended, setSuspended] = useState(false);
   const open = (child: Account | "new") => {
     setName("");
-    setCeiling(child === "new" ? allowed | required : (child.capabilityCeiling & allowed) | required);
-    setSuspended(child !== "new" && child.suspended);
+    setCeiling(allowed | required);
     setEditing(child);
   };
   if (params.has("assets")) {
@@ -138,6 +136,7 @@ const AccountChildren = () => {
           items={query.data.accounts}
           itemKey="accountId"
           itemSelectable={false}
+          onRowClick={account.depth === 0 ? (child) => navigate(accountManagementPath(child.accountId)) : undefined}
           stickyFirstColumn={false}
           activeCols={account.depth === 0 ? ["name", "status", "assets", "logins"] : ["name", "status", "permissions"]}
           colTitles={{
@@ -157,7 +156,13 @@ const AccountChildren = () => {
                   className="justify-start text-left font-normal"
                   textOnlyUnderlineOnHover={false}
                   text={child.name}
-                  to={can(child, 1n) ? accountPath(child.accountId) : `?assets=${encodeURIComponent(child.accountId)}`}
+                  to={
+                    account.depth === 0
+                      ? accountManagementPath(child.accountId)
+                      : can(child, 1n)
+                        ? accountPath(child.accountId)
+                        : `?assets=${encodeURIComponent(child.accountId)}`
+                  }
                 />
               ),
             },
@@ -217,7 +222,13 @@ const AccountChildren = () => {
                   },
                 ]
               : []),
-            { title: "View mining assets", actionHandler: (child: Account) => setParams({ assets: child.accountId }) },
+            {
+              title: "View mining assets",
+              actionHandler: (child: Account) =>
+                account.depth === 0
+                  ? navigate(accountManagementPath(child.accountId))
+                  : setParams({ assets: child.accountId }),
+            },
             {
               title: account.depth === 0 ? "View as client" : "Open workspace",
               actionHandler: (child: Account) => {
@@ -240,7 +251,18 @@ const AccountChildren = () => {
                   },
                 ]
               : []),
-            ...(canConfigure ? [{ title: "Manage permissions", disabled: readOnly, actionHandler: open }] : []),
+            ...(canConfigure
+              ? [
+                  {
+                    title: "Manage permissions",
+                    disabled: readOnly,
+                    actionHandler: (child: Account) =>
+                      account.depth === 0
+                        ? navigate(accountManagementPath(child.accountId, "permissions"))
+                        : open(child),
+                  },
+                ]
+              : []),
           ]}
           noDataElement={
             <SettingsEmptyState
@@ -260,66 +282,44 @@ const AccountChildren = () => {
           }
         />
       ) : null}
-      {editing ? (
+      {editing === "new" ? (
         <ActionModal
-          title={
-            editing === "new" ? (account.depth === 0 ? "Create client" : "Create subclient") : `Manage ${editing.name}`
-          }
-          confirm={
-            editing === "new" ? (account.depth === 0 ? "Create client" : "Create subclient") : "Save permissions"
-          }
-          valid={
-            (editing !== "new" || !!name.trim()) && (ceiling & required) === required
-              ? (ceiling & ~allowed) === 0n
-              : false
-          }
+          title={account.depth === 0 ? "Create client" : "Create subclient"}
+          confirm={account.depth === 0 ? "Create client" : "Create subclient"}
+          valid={!!name.trim() && (ceiling & required) === required ? (ceiling & ~allowed) === 0n : false}
           onDismiss={() => setEditing(null)}
           onSubmit={async () => {
-            if (editing === "new") {
-              const result = await client.createAccount({
-                accountId: account.accountId,
-                name: name.trim(),
-                capabilities: ceiling,
-              });
-              if (result.account) navigate(`${childTeamPath(result.account.accountId)}?invite=administrator`);
-            } else
-              await client.configureAccount({
-                accountId: account.accountId,
-                childAccountId: editing.accountId,
-                capabilities: ceiling,
-                suspended,
-              });
+            const result = await client.createAccount({
+              accountId: account.accountId,
+              name: name.trim(),
+              capabilities: ceiling,
+            });
+            if (result.account) navigate(`${childTeamPath(result.account.accountId)}?invite=administrator`);
             setEditing(null);
             query.refresh();
             directory?.refresh();
           }}
         >
-          {editing === "new" ? (
-            <>
-              <Input
-                id="new-account-name"
-                label={account.depth === 0 ? "Client name" : "Subclient name"}
-                initValue={name}
-                onChange={setName}
-                maxLength={255}
-              />
-              <p className="text-200 text-text-primary-50">Next, create an invitation code for the client’s team.</p>
-            </>
-          ) : null}
+          <Input
+            id="new-account-name"
+            label={account.depth === 0 ? "Client name" : "Subclient name"}
+            initValue={name}
+            onChange={setName}
+            maxLength={255}
+          />
+          <p className="text-200 text-text-primary-50">Next, create an invitation code for the client’s team.</p>
           <CapabilityFields value={ceiling} allowed={allowed} required={required} onChange={setCeiling} />
           <p className="text-200 text-text-primary-50">Viewing data and managing the team are required.</p>
-          {editing !== "new" ? (
-            <label className="flex items-start gap-3">
-              <Checkbox checked={suspended} onChange={(e) => setSuspended(e.target.checked)} />
-              <span>
-                Suspend account
-                <p className="text-200 text-text-primary-50">
-                  Blocks this account and its subclients. Miner pools stay unchanged.
-                </p>
-              </span>
-            </label>
-          ) : null}
         </ActionModal>
+      ) : editing ? (
+        <AccountPermissionsEditor
+          child={editing}
+          onDismiss={() => setEditing(null)}
+          onSaved={() => {
+            query.refresh();
+            directory?.refresh();
+          }}
+        />
       ) : null}
     </div>
   );

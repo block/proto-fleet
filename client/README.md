@@ -579,8 +579,13 @@ section. Preferences reuses personal theme and temperature-unit settings, persis
 in the browser. All client roles can change them; host previews change only the
 operator’s display preferences. Current readings, history charts and inventory
 respect the selected temperature unit. `/accounts` lists accessible workspaces.
-Host management retains Fleet navigation under Settings → Admin; `/accounts/:accountId/manage/:section` holds client team and access
-management. The owner-facing `/accounts` page directly lists managed clients
+Host management retains Fleet navigation under Settings → Admin. Clicking a client
+name or row opens `/accounts/:accountId/manage/assets`, with Mining assets, Team,
+Client settings and Permissions tabs. Permission checkboxes save immediately, roll back failed updates, and lock while
+a request is pending. Suspension and resumption are separate confirmed actions. The Team tab contains **Invite team member**. Mining
+assets and permission limits use host authority; private team and account settings
+continue to require the client’s grants. **View as client** is an explicit preview
+action on the management page and in the list menu. The owner-facing `/accounts` page directly lists managed clients
 and offers **Create client**, without a Join an account CTA. It uses host authority,
 not private membership in each client. Rows summarize assigned miners and modules
 (including subclient allocations), distinct containers represented by those

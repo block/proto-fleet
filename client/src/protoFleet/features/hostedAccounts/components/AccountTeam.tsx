@@ -17,15 +17,13 @@ import Select from "@/shared/components/Select";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
 const invitationState = (invitation: Invitation) =>
-  invitation.acceptedAt
-    ? "Accepted"
-    : invitation.revokedAt
-      ? "Revoked"
-      : invitation.expiresAt && Number(invitation.expiresAt.seconds) * 1000 <= Date.now()
-        ? "Expired"
-        : invitation.available
-          ? "Pending"
-          : "Unavailable";
+  invitation.revokedAt
+    ? "Revoked"
+    : invitation.expiresAt && Number(invitation.expiresAt.seconds) * 1000 <= Date.now()
+      ? "Expired"
+      : invitation.available
+        ? "Pending"
+        : "Unavailable";
 type TeamEntry =
   { key: string; kind: "member"; member: Member } | { key: string; kind: "invitation"; invitation: Invitation };
 
@@ -90,7 +88,7 @@ const AccountTeam = () => {
             disabled={readOnly}
             variant="primary"
             size={sizes.compact}
-            text="Create invitation"
+            text="Invite team member"
             onClick={createInvite}
           />
         ) : null}

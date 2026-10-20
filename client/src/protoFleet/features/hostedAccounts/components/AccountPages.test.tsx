@@ -10,6 +10,7 @@ import AccountAccess from "./AccountAccess";
 import AccountChildren from "./AccountChildren";
 import AccountPools from "./AccountPools";
 import AccountTeam from "./AccountTeam";
+import { ClientPermissions } from "./ClientPermissions";
 import {
   AccountRole,
   AccountSchema,
@@ -119,7 +120,7 @@ describe("hosted account pages", () => {
   it.each([
     { page: <AccountPools />, controls: ["Add pool", "Change selection"] },
     { page: <AccountAccess />, controls: ["Create API key", "Grant ancestor access"] },
-    { page: <AccountTeam />, controls: ["Create invitation"] },
+    { page: <AccountTeam />, controls: ["Invite team member"] },
     { page: <AccountChildren />, controls: ["Create subclient"] },
   ])("keeps administrator mutation controls visible and disabled in preview: $controls", async ({ page, controls }) => {
     const { value } = scope();
@@ -169,7 +170,7 @@ describe("hosted account pages", () => {
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
-  it("combines members and invitation lifecycle statuses with only applicable row actions", async () => {
+  it("shows members and unaccepted invitation statuses with applicable actions", async () => {
     const { value, client } = scope();
     const user = userEvent.setup();
     const now = BigInt(Math.floor(Date.now() / 1000));
@@ -180,7 +181,6 @@ describe("hosted account pages", () => {
       expiresAt: { seconds: now + 3600n },
     });
     const history = [
-      create(InvitationSchema, { invitationId: "accepted", acceptedAt: { seconds: now - 30n } }),
       create(InvitationSchema, { invitationId: "revoked", revokedAt: { seconds: now - 30n } }),
       create(InvitationSchema, { invitationId: "expired", available: true, expiresAt: { seconds: now - 30n } }),
       create(InvitationSchema, { invitationId: "unavailable" }),
@@ -206,7 +206,9 @@ describe("hosted account pages", () => {
     expect(screen.queryByRole("navigation", { name: "Account team sections" })).not.toBeInTheDocument();
     const memberRow = screen.getByText("payout_ops").closest("tr")!;
     expect(within(memberRow).getByText("Active")).toBeInTheDocument();
-    for (const status of ["Accepted", "Revoked", "Expired", "Unavailable"]) {
+    expect(screen.queryByText("Accepted")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Invitation", { exact: true })).toHaveLength(4);
+    for (const status of ["Revoked", "Expired", "Unavailable"]) {
       const row = screen.getByText(status).closest("tr")!;
       expect(within(row).queryByRole("button", { name: "Row actions" })).not.toBeInTheDocument();
     }
@@ -255,7 +257,7 @@ describe("hosted account pages", () => {
     const user = userEvent.setup(),
       { value, client } = scope();
     mount(<AccountTeam />, value);
-    await user.click(await screen.findByRole("button", { name: "Create invitation" }));
+    await user.click(await screen.findByRole("button", { name: "Invite team member" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create invitation" }));
     const secret = await screen.findByLabelText("Invitation code");
     expect(secret).toHaveValue("x".repeat(43));
@@ -287,7 +289,7 @@ describe("hosted account pages", () => {
     Object.defineProperty(document, "execCommand", { configurable: true, value: copy });
     try {
       mount(<AccountTeam />, value);
-      await user.click(await screen.findByRole("button", { name: "Create invitation" }));
+      await user.click(await screen.findByRole("button", { name: "Invite team member" }));
       await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create invitation" }));
       await screen.findByLabelText("Invitation code");
       await user.click(screen.getByRole("button", { name: "Copy invitation code" }));
@@ -310,7 +312,7 @@ describe("hosted account pages", () => {
     Object.defineProperty(document, "execCommand", { configurable: true, value: vi.fn(() => false) });
     try {
       mount(<AccountTeam />, value);
-      await user.click(await screen.findByRole("button", { name: "Create invitation" }));
+      await user.click(await screen.findByRole("button", { name: "Invite team member" }));
       await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create invitation" }));
       await screen.findByLabelText("Invitation code");
       await user.click(screen.getByRole("button", { name: "Copy invitation code" }));
@@ -502,6 +504,117 @@ describe("hosted account pages", () => {
     );
     expect(await screen.findByRole("status")).toHaveTextContent("Assigned 1 asset to Child.");
   });
+  it("saves permission changes immediately and rolls a failed update back", async () => {
+    const user = userEvent.setup();
+    const { value, client } = scope();
+    const onSaved = vi.fn();
+    let reject!: (error: Error) => void;
+    client.configureAccount.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, rejectRequest) => {
+          reject = rejectRequest;
+        }),
+    );
+    mount(
+      <ClientPermissions
+        child={create(AccountSchema, { accountId: "child", name: "Child", capabilityCeiling: 31n })}
+        onSaved={onSaved}
+      />,
+      value,
+    );
+    const permissions = within(screen.getByRole("region", { name: "Client permissions" }));
+    expect(permissions.queryByRole("button", { name: "Save permissions" })).not.toBeInTheDocument();
+    const changePools = permissions.getByRole("checkbox", { name: "Change pools" });
+    await user.click(changePools);
+    expect(changePools).not.toBeChecked();
+    expect(changePools).toBeDisabled();
+    expect(permissions.getByRole("button", { name: "Suspend account" })).toBeDisabled();
+    await act(async () => reject(new Error("Could not save permissions")));
+    await screen.findByText(/Could not save permissions/);
+    expect(changePools).toBeChecked();
+    expect(changePools).toBeEnabled();
+    expect(onSaved).not.toHaveBeenCalled();
+    await user.click(changePools);
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+    expect(changePools).not.toBeChecked();
+    expect(client.configureAccount).toHaveBeenLastCalledWith({
+      accountId,
+      childAccountId: "child",
+      capabilities: 27n,
+      suspended: false,
+    });
+    expect(screen.queryByText(/Could not save permissions/)).not.toBeInTheDocument();
+  });
+
+  it("does not refresh another view after a pending permission update finishes", async () => {
+    const user = userEvent.setup();
+    const { value, client } = scope();
+    const onSaved = vi.fn();
+    let finish!: () => void;
+    client.configureAccount.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve({});
+        }),
+    );
+    const view = mount(
+      <ClientPermissions
+        child={create(AccountSchema, { accountId: "child", name: "Child", capabilityCeiling: 31n })}
+        onSaved={onSaved}
+      />,
+      value,
+    );
+    await user.click(screen.getByRole("checkbox", { name: "Change pools" }));
+    view.unmount();
+    await act(async () => finish());
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("confirms account status changes separately (suspended=%s)", async (suspended) => {
+    const user = userEvent.setup();
+    const { value, client } = scope();
+    const onSaved = vi.fn();
+    const action = suspended ? "Resume account" : "Suspend account";
+    mount(
+      <ClientPermissions
+        child={create(AccountSchema, { accountId: "child", name: "Child", capabilityCeiling: 31n, suspended })}
+        onSaved={onSaved}
+      />,
+      value,
+    );
+    expect(screen.queryByRole("checkbox", { name: /Suspend account/ })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: action }));
+    expect(client.configureAccount).not.toHaveBeenCalled();
+    let dialog = screen.getByRole("dialog", { name: suspended ? "Resume Child?" : "Suspend Child?" });
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(client.configureAccount).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: action }));
+    dialog = screen.getByRole("dialog", { name: suspended ? "Resume Child?" : "Suspend Child?" });
+    await user.click(within(dialog).getByRole("button", { name: action }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());
+    expect(client.configureAccount).toHaveBeenCalledWith({
+      accountId,
+      childAccountId: "child",
+      capabilities: 31n,
+      suspended: !suspended,
+    });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("disables immediate permission and status changes in read-only scope", () => {
+    const { value, client } = scope();
+    mount(
+      <ClientPermissions
+        child={create(AccountSchema, { accountId: "child", name: "Child", capabilityCeiling: 31n })}
+        onSaved={vi.fn()}
+      />,
+      { ...value, readOnly: true },
+    );
+    expect(screen.getByRole("checkbox", { name: "Change pools" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Suspend account" })).toBeDisabled();
+    expect(client.configureAccount).not.toHaveBeenCalled();
+  });
+
   it("keeps required access bits while configuring a child", async () => {
     const user = userEvent.setup(),
       { value, client } = scope();
@@ -538,7 +651,7 @@ describe("hosted account pages", () => {
       );
       useFleetStore.setState({ auth: { ...initialAuth, isAuthenticated: true, username: "current_user" } });
       mount(<AccountTeam />, value);
-      await user.click(await screen.findByRole("button", { name: "Create invitation" }));
+      await user.click(await screen.findByRole("button", { name: "Invite team member" }));
       await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create invitation" }));
       if (newLogin)
         act(() =>

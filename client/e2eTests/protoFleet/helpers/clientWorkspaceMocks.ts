@@ -45,6 +45,20 @@ const fulfill = (route: Route, data: unknown) =>
 
 /** Every RPC is intercepted: these scenarios never contact a backend or miner. */
 export async function mockClientWorkspace(context: BrowserContext, preview: boolean) {
+  const configured = new Map<string, { capabilities: string; suspended: boolean }>();
+  const accountFor = (id: string) => {
+    const saved = configured.get(id);
+    return {
+      ...account(id),
+      ...(saved
+        ? {
+            capabilityCeiling: saved.capabilities,
+            effectiveCapabilities: saved.capabilities,
+            suspended: saved.suspended,
+          }
+        : {}),
+    };
+  };
   const calls: WorkspaceCall[] = [];
   const unexpected: string[] = [];
   let denied = false;
@@ -93,8 +107,15 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
         hostAccess: preview,
         accounts: preview
           ? [{ accountId: hostAccount, name: "Host", depth: 0, capabilityCeiling: "31", effectiveCapabilities: "31" }]
-          : [account(clientA)],
+          : [accountFor(clientA)],
       });
+    if (method === "ConfigureAccount") {
+      configured.set(String(body.childAccountId), {
+        capabilities: String(body.capabilities),
+        suspended: !!body.suspended,
+      });
+      return fulfill(route, {});
+    }
     if (method === "GetAccount") {
       if (denied)
         return route.fulfill({
@@ -102,7 +123,7 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
           contentType: "application/json",
           body: JSON.stringify({ code: "permission_denied", message: "Account access removed" }),
         });
-      return fulfill(route, { account: account(id) });
+      return fulfill(route, { account: accountFor(id) });
     }
     if (method === "GetSitePolicy") return fulfill(route, {});
     if (method === "GetAccountDashboard") {
@@ -134,7 +155,7 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
     }
     if (method === "ListChildren")
       return fulfill(route, {
-        accounts: id === hostAccount ? [account(clientA), account(clientB)] : [account(subclient)],
+        accounts: id === hostAccount ? [accountFor(clientA), accountFor(clientB)] : [accountFor(subclient)],
       });
     if (method === "ListAccountAssets")
       return fulfill(route, {
@@ -154,7 +175,7 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
                   kind: "MINING_ASSET_KIND_MINER",
                   id: "42",
                   revision: "1",
-                  name: `${account(id).name} miner`,
+                  name: `${accountFor(id).name} miner`,
                   model: "S21",
                   siteId: "7",
                   siteName: "A allocated site",

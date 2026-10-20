@@ -30,10 +30,14 @@ const AccountPage = ({
   accountId,
   management = false,
   onPreviewClose,
+  onAccountChanged,
+  embedded = false,
 }: {
   accountId: string;
   management?: boolean;
   onPreviewClose?: () => void;
+  onAccountChanged?: () => void;
+  embedded?: boolean;
 }) => {
   const { section: sectionParam, kind, assetId } = useParams();
   const section = kind && assetId ? "assets" : sectionParam;
@@ -69,11 +73,13 @@ const AccountPage = ({
   const invalidate = useCallback(() => {
     invalidateQuery();
     directoryRefresh?.();
-  }, [invalidateQuery, directoryRefresh]);
+    onAccountChanged?.();
+  }, [invalidateQuery, directoryRefresh, onAccountChanged]);
   const refresh = useCallback(() => {
     refreshQuery();
     directoryRefresh?.();
-  }, [refreshQuery, directoryRefresh]);
+    onAccountChanged?.();
+  }, [refreshQuery, directoryRefresh, onAccountChanged]);
   useEffect(() => {
     window.addEventListener("focus", query.refresh);
     return () => window.removeEventListener("focus", query.refresh);
@@ -113,8 +119,10 @@ const AccountPage = ({
     ...(account && account.depth > 0 && can(account, 1n)
       ? [{ path: path(accountId, "preferences"), label: "Preferences" }]
       : []),
-    ...(account?.depth === 0 ? [{ path: path(accountId, "settings"), label: "Settings", icon: Settings }] : []),
-  ].filter((item) => !management || ["team", "access"].some((page) => item.path === path(accountId, page)));
+    ...(account?.depth === 0 || management
+      ? [{ path: path(accountId, "settings"), label: management ? "Client settings" : "Settings", icon: Settings }]
+      : []),
+  ].filter((item) => !management || ["team", "settings"].some((page) => item.path === path(accountId, page)));
   const settingsPath = path(accountId, "settings");
   const settingsPages: SecondaryNavItem[] = ["pools", "team", "access", "children", "preferences"].flatMap((page) => {
     const item = navItems.find((item) => item.path === path(accountId, page));
@@ -140,7 +148,104 @@ const AccountPage = ({
       : navItems;
   const defaultPath = path(accountId, account?.depth === 0 ? "children" : management ? "team" : "overview");
   const accessible = !!section && navItems.some((item) => item.path === path(accountId, section));
-  return (
+  const content = (
+    <div className={embedded ? undefined : "p-10 phone:p-6"}>
+      {loading ? (
+        <div className="flex justify-center p-10">
+          <ProgressCircular indeterminate />
+        </div>
+      ) : !account && error ? (
+        <>
+          <AccountState error={error} retry={refresh} />
+          <Link className="text-text-emphasis" to="/accounts">
+            Back to accounts
+          </Link>
+        </>
+      ) : account ? (
+        <AccountScopeProvider
+          key={authority}
+          account={account}
+          readOnly={preview}
+          refreshAccount={refresh}
+          invalidateAccount={invalidate}
+        >
+          {account.depth > 0 && !preview && !embedded ? (
+            <div className="mb-6 flex min-h-10 flex-wrap items-center justify-between gap-3">
+              <Breadcrumb
+                className="min-w-0 flex-wrap"
+                segments={[
+                  ...(host ? [{ label: "Clients", to: "/accounts" }] : []),
+                  ...(parent ? [{ label: parent.name, to: accountPath(parent.accountId) }] : []),
+                  { label: account.name },
+                ]}
+              />
+              {management ? (
+                <Button variant="secondary" size={sizes.compact} text="View as client" to={accountPath(accountId)} />
+              ) : null}
+            </div>
+          ) : null}
+          {!embedded && host && (rootAccount || management) ? (
+            <div className="mb-6 overflow-x-auto">
+              <TabStrip
+                ariaLabel="Account sections"
+                activeId={accessible ? path(accountId, section) : defaultPath}
+                onSelect={navigate}
+              >
+                {navItems.map((item) => (
+                  <TabStripItem key={item.path} id={item.path} label={item.label} />
+                ))}
+              </TabStrip>
+            </div>
+          ) : null}
+          {error ? <AccountState error={error} retry={refresh} /> : null}
+          {accessible ? (
+            section === "overview" ? (
+              <AccountOverview key={`${account.effectiveCapabilities}:${account.suspended}`} />
+            ) : section === "assets" ? (
+              kind && assetId ? (
+                <AccountAssetDetail key={`${kind}:${assetId}`} />
+              ) : (
+                <AccountAssets key={`${account.effectiveCapabilities}:${account.suspended}`} />
+              )
+            ) : section === "team" ? (
+              <AccountTeam />
+            ) : section === "pools" ? (
+              <AccountPools />
+            ) : section === "children" ? (
+              <AccountChildren />
+            ) : section === "access" ? (
+              <AccountAccess />
+            ) : section === "settings" && management ? (
+              <AccountAccess title="Client settings" />
+            ) : section === "preferences" ? (
+              <Preferences />
+            ) : (
+              <div className="flex flex-col gap-6">
+                <h1 className="text-heading-300">Settings</h1>
+                <AccountDetails />
+              </div>
+            )
+          ) : (
+            <Navigate
+              to={
+                section === "settings" && settingsPages.length
+                  ? settingsPages[0].path
+                  : navItems.some((item) => item.path === defaultPath)
+                    ? defaultPath
+                    : "/accounts"
+              }
+              replace
+            />
+          )}
+        </AccountScopeProvider>
+      ) : (
+        <AccountState error="This account is unavailable." retry={query.refresh} />
+      )}
+    </div>
+  );
+  return embedded ? (
+    content
+  ) : (
     <AccountLayout
       items={workspaceItems}
       workspace={rootAccount ? false : !management}
@@ -156,106 +261,20 @@ const AccountPage = ({
               : "Account workspace"
       }
     >
-      <div className="p-10 phone:p-6">
-        {loading ? (
-          <div className="flex justify-center p-10">
-            <ProgressCircular indeterminate />
-          </div>
-        ) : !account && error ? (
-          <>
-            <AccountState error={error} retry={refresh} />
-            <Link className="text-text-emphasis" to="/accounts">
-              Back to accounts
-            </Link>
-          </>
-        ) : account ? (
-          <AccountScopeProvider
-            key={authority}
-            account={account}
-            readOnly={preview}
-            refreshAccount={refresh}
-            invalidateAccount={invalidate}
-          >
-            {account.depth > 0 && !preview ? (
-              <div className="mb-6 flex min-h-10 flex-wrap items-center justify-between gap-3">
-                <Breadcrumb
-                  className="min-w-0 flex-wrap"
-                  segments={[
-                    ...(host ? [{ label: "Clients", to: "/accounts" }] : []),
-                    ...(parent ? [{ label: parent.name, to: accountPath(parent.accountId) }] : []),
-                    { label: account.name },
-                  ]}
-                />
-                {management ? (
-                  <Button variant="secondary" size={sizes.compact} text="View as client" to={accountPath(accountId)} />
-                ) : null}
-              </div>
-            ) : null}
-            {host && (rootAccount || management) ? (
-              <div className="mb-6 overflow-x-auto">
-                <TabStrip
-                  ariaLabel="Account sections"
-                  activeId={accessible ? path(accountId, section) : defaultPath}
-                  onSelect={navigate}
-                >
-                  {navItems.map((item) => (
-                    <TabStripItem key={item.path} id={item.path} label={item.label} />
-                  ))}
-                </TabStrip>
-              </div>
-            ) : null}
-            {error ? <AccountState error={error} retry={refresh} /> : null}
-            {accessible ? (
-              section === "overview" ? (
-                <AccountOverview key={`${account.effectiveCapabilities}:${account.suspended}`} />
-              ) : section === "assets" ? (
-                kind && assetId ? (
-                  <AccountAssetDetail key={`${kind}:${assetId}`} />
-                ) : (
-                  <AccountAssets key={`${account.effectiveCapabilities}:${account.suspended}`} />
-                )
-              ) : section === "team" ? (
-                <AccountTeam />
-              ) : section === "pools" ? (
-                <AccountPools />
-              ) : section === "children" ? (
-                <AccountChildren />
-              ) : section === "access" ? (
-                <AccountAccess />
-              ) : section === "preferences" ? (
-                <Preferences />
-              ) : (
-                <div className="flex flex-col gap-6">
-                  <h1 className="text-heading-300">Settings</h1>
-                  <AccountDetails />
-                </div>
-              )
-            ) : (
-              <Navigate
-                to={
-                  section === "settings" && settingsPages.length
-                    ? settingsPages[0].path
-                    : navItems.some((item) => item.path === defaultPath)
-                      ? defaultPath
-                      : "/accounts"
-                }
-                replace
-              />
-            )}
-          </AccountScopeProvider>
-        ) : (
-          <AccountState error="This account is unavailable." retry={query.refresh} />
-        )}
-      </div>
+      {content}
     </AccountLayout>
   );
 };
 const AccountWorkspace = ({
   management = false,
   onPreviewClose,
+  onAccountChanged,
+  embedded = false,
 }: {
   management?: boolean;
   onPreviewClose?: () => void;
+  onAccountChanged?: () => void;
+  embedded?: boolean;
 }) => {
   const { accountId = "" } = useParams();
   const generation = useFleetStore((s) => s.auth.sessionGeneration);
@@ -269,6 +288,8 @@ const AccountWorkspace = ({
       accountId={accountId}
       management={management}
       onPreviewClose={onPreviewClose}
+      onAccountChanged={onAccountChanged}
+      embedded={embedded}
     />
   );
 };

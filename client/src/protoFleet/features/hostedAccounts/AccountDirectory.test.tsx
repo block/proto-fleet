@@ -1,11 +1,10 @@
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create, toJson } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
 
-import AccountDirectory from "./AccountDirectory";
-import AccountWorkspace from "./AccountWorkspace";
+import AccountRoutes from "./AccountRoutes";
 import { HostedAccountsContext } from "./HostedAccountsContext";
 import { AccountRole, AccountSchema } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 
@@ -53,6 +52,8 @@ function mount(owner = true, entry = "/accounts", managedClient = client) {
       const body = init?.body ? JSON.parse(new TextDecoder().decode(init.body as Uint8Array)) : {};
       calls.push({ method, body, account: new Headers(init?.headers).get("X-Fleet-Account-ID") });
       if (method === "CreateAccount") created = true;
+      if (method === "RenameAccount")
+        managedClient = create(AccountSchema, { ...managedClient, name: String(body.name) });
       const reply =
         method === "ListChildren"
           ? { accounts: [toJson(AccountSchema, managedClient), ...(created ? [toJson(AccountSchema, newClient)] : [])] }
@@ -79,9 +80,7 @@ function mount(owner = true, entry = "/accounts", managedClient = client) {
         value={{ accounts: managed ? [root] : [client], hostAccess: managed, loading: false, error: null, refresh }}
       >
         <Routes>
-          <Route path="/accounts" element={<AccountDirectory />} />
-          <Route path="/accounts/:accountId/:section" element={<AccountWorkspace />} />
-          <Route path="/accounts/:accountId/manage/:section" element={<AccountWorkspace management />} />
+          <Route path="/accounts/*" element={<AccountRoutes />} />
         </Routes>
       </HostedAccountsContext.Provider>
     </MemoryRouter>
@@ -130,23 +129,51 @@ describe("owner Clients directory", () => {
     await user.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
-  it("opens a readable client in a preview and closes back to the directory", async () => {
+  it("opens client management from the name and previews only through the explicit action", async () => {
     const { calls } = mount(true, "/accounts", create(AccountSchema, { ...client, effectiveCapabilities: 31n }));
     const user = userEvent.setup();
     const link = await screen.findByRole("link", { name: "Existing client" });
-    expect(link).toHaveAttribute("href", `/accounts/${clientId}/overview`);
+    expect(link).toHaveAttribute("href", `/accounts/${clientId}/manage/assets`);
     await user.click(link);
-    await screen.findByRole("link", { name: "View mining assets" });
-    expect(screen.getByRole("dialog", { name: "Viewing as Existing client" })).toBeInTheDocument();
-    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
-    expect(calls.some((call) => call.method === "ListAccountAssets")).toBe(false);
+    await screen.findByRole("heading", { name: "Existing client" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    const tabs = within(screen.getByRole("navigation", { name: "Client sections" }));
+    for (const name of ["Mining assets", "Team", "Client settings", "Permissions"])
+      expect(tabs.getByRole("button", { name })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Invite team member" })).not.toBeInTheDocument();
+    await user.click(tabs.getByRole("button", { name: "Team" }));
+    expect(await screen.findByRole("button", { name: "Invite team member" })).toBeEnabled();
+    await user.click(tabs.getByRole("button", { name: "Mining assets" }));
+    expect(calls).toContainEqual(
+      expect.objectContaining({
+        method: "ListAccountAssets",
+        account: rootId,
+        body: expect.objectContaining({ accountId: rootId, ownerAccountId: clientId }),
+      }),
+    );
+    await user.click(screen.getByRole("link", { name: "View as client" }));
+    await screen.findByRole("dialog", { name: "Viewing as Existing client" });
     await user.click(screen.getByRole("button", { name: "Close client preview" }));
-    await screen.findByRole("button", { name: "Create client" });
+    await screen.findByRole("heading", { name: "Existing client" });
+    expect(tabs.getByRole("button", { name: "Mining assets" })).toHaveAttribute("aria-current", "page");
+    await user.click(tabs.getByRole("button", { name: "Client settings" }));
+    await user.click(await screen.findByRole("button", { name: "Rename account" }));
+    const rename = screen.getByRole("dialog", { name: "Rename account" });
+    await user.clear(within(rename).getByLabelText("Account name"));
+    await user.type(within(rename).getByLabelText("Account name"), "Updated client");
+    await user.click(within(rename).getByRole("button", { name: "Save" }));
+    await screen.findByRole("heading", { name: "Updated client" });
+    expect(calls).toContainEqual({
+      method: "RenameAccount",
+      account: clientId,
+      body: { accountId: clientId, name: "Updated client" },
+    });
   });
-  it("retains allocation-only inventory access without private workspace authority", async () => {
+  it("opens the whole row and retains host inventory and permission management without private access", async () => {
     const { calls } = mount();
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("link", { name: "Existing client" }));
+    const row = (await screen.findByRole("link", { name: "Existing client" })).closest("tr")!;
+    await user.click(within(row).getByRole("cell", { name: "Active" }));
     await screen.findByRole("link", { name: "Assign from Fleet" });
     expect(calls).toContainEqual(
       expect.objectContaining({
@@ -155,23 +182,26 @@ describe("owner Clients directory", () => {
         body: expect.objectContaining({ accountId: rootId, ownerAccountId: clientId }),
       }),
     );
-    const breadcrumb = within(screen.getByRole("navigation", { name: "Breadcrumb" }));
-    expect(breadcrumb.getByText("Existing client")).toBeInTheDocument();
-    expect(breadcrumb.getByRole("link", { name: "Clients" })).toHaveAttribute("href", "/accounts");
-    let finishRefresh!: () => void;
-    const originalFetch = vi.mocked(fetch).getMockImplementation()!;
-    vi.mocked(fetch).mockImplementationOnce(
-      (input, init) =>
-        new Promise((resolve) => {
-          finishRefresh = () => resolve(originalFetch(input, init));
-        }),
+    expect(calls.some((call) => call.method === "GetAccount")).toBe(false);
+    expect(screen.queryByRole("link", { name: "View as client" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Invite team member" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Permissions" }));
+    expect(screen.queryByRole("button", { name: "Manage permissions" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save permissions" })).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Manage memberships" })).toBeDisabled();
+    await user.click(screen.getByRole("checkbox", { name: "Change pools" }));
+    await waitFor(() =>
+      expect(calls).toContainEqual({
+        method: "ConfigureAccount",
+        account: rootId,
+        body: { accountId: rootId, childAccountId: clientId, capabilities: "27" },
+      }),
     );
-    await user.click(breadcrumb.getByRole("link", { name: "Clients" }));
-    expect(screen.getByRole("link", { name: "Existing client" })).toBeInTheDocument();
-    await act(async () => finishRefresh());
-    await screen.findByRole("link", { name: "Existing client" });
-    expect(calls.filter((call) => call.method === "ListChildren")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Create client" })).toBeInTheDocument();
+    await user.click(
+      within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByRole("link", { name: "Clients" }),
+    );
+    await screen.findByRole("button", { name: "Create client" });
   });
   it("opens invitations from the client's inventory without recreating the client", async () => {
     const { calls } = mount(

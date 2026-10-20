@@ -1,9 +1,7 @@
-import { type ReactNode, useRef, useState } from "react";
-import { Code, ConnectError } from "@connectrpc/connect";
+import { type ReactNode } from "react";
 
-import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { useAccountMutation } from "../useAccountMutation";
 import { useAccountScope } from "@/protoFleet/features/hostedAccounts/AccountScope";
-import { useFleetStore } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import { type ButtonProps } from "@/shared/components/ButtonGroup";
 import Callout from "@/shared/components/Callout";
@@ -27,33 +25,21 @@ export const ActionModal = ({
   onSubmit: () => Promise<void>;
   onDismiss: () => void;
 }) => {
-  const [busy, setBusy] = useState(false);
-  const submitting = useRef(false);
-  const [error, setError] = useState("");
   const scope = useAccountScope();
-  const submit = async () => {
-    if (submitting.current || scope?.readOnly) return;
-    submitting.current = true;
-    const generation = useFleetStore.getState().auth.sessionGeneration;
-    setBusy(true);
-    setError("");
-    try {
-      await onSubmit();
-    } catch (e) {
-      setError(getErrorMessage(e));
-      if (ConnectError.from(e).code === Code.PermissionDenied) scope?.refreshAccount();
-      if (
-        ConnectError.from(e).code === Code.Unauthenticated &&
-        useFleetStore.getState().auth.sessionGeneration === generation
-      )
-        useFleetStore.getState().auth.logout();
-    } finally {
-      submitting.current = false;
-      setBusy(false);
-    }
+  const { run, busy, error, clearError } = useAccountMutation();
+  const submit = () => {
+    if (valid) void run(onSubmit);
   };
   const buttons: ButtonProps[] = [
-    { text: "Cancel", variant: "secondary", onClick: onDismiss, disabled: busy },
+    {
+      text: "Cancel",
+      variant: "secondary",
+      onClick: () => {
+        clearError();
+        onDismiss();
+      },
+      disabled: busy,
+    },
     {
       text: confirm,
       variant: "primary",

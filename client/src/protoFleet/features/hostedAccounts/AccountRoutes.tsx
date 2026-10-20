@@ -3,6 +3,7 @@ import { type Location, matchPath, Route, Routes, useLocation, useNavigate } fro
 
 import AccountDirectory from "./AccountDirectory";
 import AccountWorkspace from "./AccountWorkspace";
+import ClientManagement from "./ClientManagement";
 import { useHostedAccounts } from "./HostedAccountsContext";
 import { usePermissions } from "@/protoFleet/store";
 
@@ -37,7 +38,7 @@ const AccountRoutes = () => {
       <div className="contents" inert={preview} aria-hidden={preview || undefined}>
         <Routes location={preview ? background : location}>
           <Route index element={<AccountDirectory />} />
-          <Route path=":accountId/manage/:section?" element={<AccountWorkspace management />} />
+          <Route path=":accountId/manage/:section?" element={<ClientManagement />} />
           <Route path=":accountId/assets/:kind/:assetId" element={<AccountWorkspace />} />
           <Route path=":accountId/:section?" element={<AccountWorkspace />} />
         </Routes>

@@ -102,6 +102,22 @@ export class ClientWorkspacePage {
     await expect(this.page).toHaveURL(new RegExp(`/accounts/${accountId}/overview$`));
   }
 
+  async openClientManagement(accountId: string, name: string) {
+    await this.page.goto("/accounts");
+    await this.page.getByRole("link", { name, exact: true }).click();
+    await expect(this.page).toHaveURL(new RegExp(`/accounts/${accountId}/manage/assets$`));
+    await expect(this.page.getByRole("heading", { name, exact: true })).toBeVisible();
+    await expect(this.page.getByRole("dialog")).toHaveCount(0);
+  }
+
+  async manageClientSection(accountId: string, label: string, section: string) {
+    await this.page
+      .getByRole("navigation", { name: "Client sections", exact: true })
+      .getByRole("button", { name: label, exact: true })
+      .click();
+    await expect(this.page).toHaveURL(new RegExp(`/accounts/${accountId}/manage/${section}$`));
+  }
+
   async previewFromAccountSettings() {
     await this.page.getByRole("link", { name: "View as client", exact: true }).click();
     await expect(this.page.getByRole("button", { name: "Close client preview", exact: true })).toBeVisible();

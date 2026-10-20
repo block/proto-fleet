@@ -302,7 +302,7 @@ describe("real account workspace routing", () => {
     const dialog = await screen.findByRole("dialog", { name: "Create invitation" });
     expect(screen.queryByText("Viewing as Customer")).not.toBeInTheDocument();
     const tabs = within(screen.getByRole("navigation", { name: "Account sections" }));
-    expect(tabs.getByRole("button", { name: "Access" })).toBeInTheDocument();
+    expect(tabs.getByRole("button", { name: "Client settings" })).toBeInTheDocument();
     expect(tabs.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "Create invitation" }));
     await waitFor(() => expect(calls.some((call) => call.method === "CreateInvitation")).toBe(true));
@@ -311,7 +311,7 @@ describe("real account workspace routing", () => {
     const account = create(AccountSchema, { accountId, name: "Customer", depth: 1, effectiveCapabilities: 31n });
     fetchRpc((method) => (method === "GetAccount" ? { account: toJson(AccountSchema, account) } : {}));
     mount(account, "team?invite=administrator", true);
-    expect(await screen.findByRole("button", { name: "Create invitation" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "Invite team member" })).toBeDisabled();
     expect(screen.queryByRole("dialog", { name: "Create invitation" })).not.toBeInTheDocument();
   });
   it("keeps readable parents in subclient breadcrumbs and returns to their workspace", async () => {

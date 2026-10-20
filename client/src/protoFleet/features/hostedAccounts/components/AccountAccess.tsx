@@ -21,7 +21,7 @@ import List from "@/shared/components/List";
 import Select from "@/shared/components/Select";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 
-const AccountAccess = () => {
+const AccountAccess = ({ title = "Access" }: { title?: string }) => {
   const { account, client, readOnly = false } = useRequiredAccountScope();
   const directory = useHostedAccounts();
   const [tokens, setTokens] = useState([""]),
@@ -61,7 +61,7 @@ const AccountAccess = () => {
     directory?.accounts.filter((a) => a.parentAccountId === account.accountId && can(a, 1n)) ?? [];
   return (
     <div className="flex flex-col gap-6">
-      <SettingsPageHeader title="Access" />
+      <SettingsPageHeader title={title} />
       <AccountDetails />
       {can(account, 8n) && account.depth > 0 ? (
         <section className="flex flex-col gap-4">

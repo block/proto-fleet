@@ -100,7 +100,7 @@ test.describe("Client workspace and read-only host preview", () => {
         await expect(page.getByRole("button", { name: "Add pool", exact: true })).toBeEnabled({ enabled: !preview });
         await expect(page.getByText("Stored pool profile", { exact: true })).toHaveCount(0);
         await workspace.navigate("Team", clientA, "team");
-        await expect(page.getByRole("button", { name: "Create invitation", exact: true })).toBeEnabled({
+        await expect(page.getByRole("button", { name: "Invite team member", exact: true })).toBeEnabled({
           enabled: !preview,
         });
         await workspace.navigate("Access", clientA, "access");
@@ -145,6 +145,70 @@ test.describe("Client workspace and read-only host preview", () => {
     });
   }
 
+  test("client rows open host management with visible team, settings and permission actions", async ({
+    page,
+    context,
+    isMobile,
+  }) => {
+    const mock = await mockClientWorkspace(context, true);
+    const workspace = new ClientWorkspacePage(page, isMobile);
+    await workspace.openClientManagement(clientA, "Customer A");
+    await expect(page.getByRole("link", { name: "Assign from Fleet", exact: true })).toBeVisible();
+    await expect
+      .poll(() =>
+        mock.calls.some(
+          (call) =>
+            call.method === "ListAccountAssets" && call.account === hostAccount && call.body.ownerAccountId === clientA,
+        ),
+      )
+      .toBe(true);
+    await expect(page.getByRole("link", { name: "Invite team member", exact: true })).toHaveCount(0);
+    await workspace.manageClientSection(clientA, "Team", "team");
+    await page.getByRole("button", { name: "Invite team member", exact: true }).click();
+    const invitation = page.getByRole("dialog", { name: "Create invitation", exact: true });
+    await expect(invitation.getByText("Invite someone to Customer A.", { exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(invitation).toHaveCount(0);
+    await workspace.manageClientSection(clientA, "Client settings", "settings");
+    await expect(page.getByRole("button", { name: "Rename account", exact: true })).toBeEnabled();
+    await workspace.manageClientSection(clientA, "Permissions", "permissions");
+    const permissions = page.getByRole("region", { name: "Client permissions", exact: true });
+    await expect(page.getByRole("button", { name: "Manage permissions", exact: true })).toHaveCount(0);
+    await expect(permissions.getByRole("checkbox", { name: "View account data", exact: true })).toBeDisabled();
+    await expect(permissions.getByRole("button", { name: "Save permissions", exact: true })).toHaveCount(0);
+    await permissions.getByRole("checkbox", { name: "Change pools", exact: true }).uncheck();
+    await expect.poll(() => mock.calls.filter((call) => call.method === "ConfigureAccount").length).toBe(1);
+    await expect(permissions.getByRole("checkbox", { name: "Change pools", exact: true })).toBeEnabled();
+    await permissions.getByRole("button", { name: "Suspend account", exact: true }).click();
+    const suspend = page.getByRole("dialog", { name: "Suspend Customer A?", exact: true });
+    await expect(suspend).toBeVisible();
+    expect(mock.calls.filter((call) => call.method === "ConfigureAccount")).toHaveLength(1);
+    await suspend.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(suspend).toHaveCount(0);
+    await permissions.getByRole("button", { name: "Suspend account", exact: true }).click();
+    await suspend.getByRole("button", { name: "Suspend account", exact: true }).click();
+    await permissions.getByRole("button", { name: "Resume account", exact: true }).click();
+    await page
+      .getByRole("dialog", { name: "Resume Customer A?", exact: true })
+      .getByRole("button", { name: "Resume account", exact: true })
+      .click();
+    await expect(permissions.getByRole("button", { name: "Suspend account", exact: true })).toBeVisible();
+    const updates = mock.calls.filter((call) => call.method === "ConfigureAccount");
+    expect(updates.map((call) => call.body.suspended ?? false)).toEqual([false, true, false]);
+    for (const call of updates) {
+      expect(call.account).toBe(hostAccount);
+      expect(call.body).toMatchObject({ accountId: hostAccount, childAccountId: clientA, capabilities: "27" });
+    }
+
+    await workspace.previewFromAccountSettings();
+    await expect(page.getByRole("dialog", { name: "Viewing as Customer A", exact: true })).toBeVisible();
+    await workspace.closePreview();
+    await expect(page).toHaveURL(new RegExp(`/accounts/${clientA}/manage/permissions$`));
+    await expect(permissions.getByRole("checkbox", { name: "Change pools", exact: true })).not.toBeChecked();
+    await expect(permissions.getByRole("checkbox", { name: "Change pools", exact: true })).toBeEnabled();
+    expect(mock.unexpected).toEqual([]);
+  });
+
   test("Close and Escape return to the same host view while nested dialogs dismiss independently", async ({
     page,
     context,
@@ -152,7 +216,7 @@ test.describe("Client workspace and read-only host preview", () => {
   }) => {
     const mock = await mockClientWorkspace(context, true);
     const workspace = new ClientWorkspacePage(page, isMobile);
-    const hostPath = `/accounts/${clientA}/manage/access?sort=kept#permissions`;
+    const hostPath = `/accounts/${clientA}/manage/settings?sort=kept#permissions`;
     await page.goto(hostPath);
     await expect(page.getByRole("button", { name: "Rename account", exact: true })).toBeEnabled();
     await workspace.previewFromAccountSettings();
