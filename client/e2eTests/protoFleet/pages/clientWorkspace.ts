@@ -17,6 +17,26 @@ export class ClientWorkspacePage {
     });
   }
 
+  currentReadings() {
+    return this.page.getByRole("region", { name: "Current readings", exact: true });
+  }
+
+  currentReading(label: string) {
+    return this.currentReadings()
+      .getByTestId("stats-item")
+      .filter({
+        has: this.page.getByRole("heading", { name: label, exact: true }),
+      });
+  }
+
+  timeRanges() {
+    return this.page.getByRole("group", { name: "Time range", exact: true });
+  }
+
+  timeRange(label: string) {
+    return this.timeRanges().getByRole("button", { name: label, exact: true });
+  }
+
   performanceReading(label: string) {
     return this.page
       .getByRole("region", { name: "Performance", exact: true })
@@ -73,6 +93,10 @@ export class ClientWorkspacePage {
 
   async selectAssetFilter(key: "model" | "site" | "container" | "assignment", id: string) {
     await this.selectFilter(key, id, "Fleet");
+  }
+
+  async clearAssetFilter(label: "Model" | "Site" | "Container" | "Assignment") {
+    await this.page.getByRole("button", { name: `Clear ${label} filter`, exact: true }).click();
   }
 
   private async selectFilter(key: string, id: string, heading: string) {

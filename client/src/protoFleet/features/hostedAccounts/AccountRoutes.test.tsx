@@ -1,9 +1,11 @@
 import { MemoryRouter, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import { create } from "@bufbuild/protobuf";
 
 import AccountRoutes from "./AccountRoutes";
 import { HostedAccountsContext } from "./HostedAccountsContext";
+import { AccountRole, AccountSchema } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { useFleetStore } from "@/protoFleet/store";
 
 vi.mock("./AccountDirectory", () => ({
@@ -43,7 +45,13 @@ it("keeps the host list mounted and restores its URL, filter and scroll after cl
   render(
     <MemoryRouter initialEntries={["/accounts?sort=descending#last-client"]}>
       <HostedAccountsContext.Provider
-        value={{ accounts: [], hostAccess: true, loading: false, error: null, refresh: vi.fn() }}
+        value={{
+          accounts: [create(AccountSchema, { accountId: "host", depth: 0, effectiveCapabilities: 16n })],
+          hostAccess: true,
+          loading: false,
+          error: null,
+          refresh: vi.fn(),
+        }}
       >
         <Routes>
           <Route path="/accounts/*" element={<AccountRoutes />} />
@@ -64,4 +72,34 @@ it("keeps the host list mounted and restores its URL, filter and scroll after cl
   expect(screen.getByRole("textbox", { name: "Host filter" })).toHaveValue("Acme");
   expect(screen.getByText("?sort=descending#last-client")).toBeInTheDocument();
   expect(list.closest("[inert]")).not.toBeInTheDocument();
+});
+
+it("does not overlay a member workspace merely because the member can read Fleet", () => {
+  useFleetStore.setState({ auth: { ...initialAuth, permissions: ["fleet:read"] } });
+  render(
+    <MemoryRouter initialEntries={["/accounts/client/overview"]}>
+      <HostedAccountsContext.Provider
+        value={{
+          accounts: [
+            create(AccountSchema, {
+              accountId: "client",
+              depth: 1,
+              role: AccountRole.ADMINISTRATOR,
+              effectiveCapabilities: 31n,
+            }),
+          ],
+          hostAccess: true,
+          loading: false,
+          error: null,
+          refresh: vi.fn(),
+        }}
+      >
+        <Routes>
+          <Route path="/accounts/*" element={<AccountRoutes />} />
+        </Routes>
+      </HostedAccountsContext.Provider>
+    </MemoryRouter>,
+  );
+  expect(screen.getByText("overview").closest("[inert]")).not.toBeInTheDocument();
+  expect(screen.queryByTestId("host-list")).not.toBeInTheDocument();
 });

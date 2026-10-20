@@ -24,7 +24,7 @@ type miningProjectionDB struct {
 }
 
 func (d *miningProjectionDB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	if err := d.DB.QueryRowContext(ctx, "EXPLAIN (ANALYZE, FORMAT JSON) "+query, args...).Scan(&d.plan); err != nil {
+	if err := d.DB.QueryRowContext(ctx, "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) "+query, args...).Scan(&d.plan); err != nil {
 		return nil, fmt.Errorf("explain mining projection: %w", err)
 	}
 	rows, err := d.DB.QueryContext(ctx, query, args...)

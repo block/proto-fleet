@@ -46,7 +46,8 @@ const AccountPage = ({
   const host = permissions.length > 0 || !!directory?.hostAccess;
   const navigate = useNavigate();
   const rootAccount = directory?.accounts.find((item) => item.accountId === accountId && item.depth === 0);
-  const preview = host && !rootAccount && !management;
+  const hostAdministration = directory?.accounts.some((item) => item.depth === 0 && can(item, 16n));
+  const preview = !!hostAdministration && !rootAccount && !management;
   const path = (id: string, page = "overview") =>
     management ? accountManagementPath(id, page) : accountPath(id, page);
   const [connection] = useState(() => createAccountConnection(accountId, { readOnly: preview }));

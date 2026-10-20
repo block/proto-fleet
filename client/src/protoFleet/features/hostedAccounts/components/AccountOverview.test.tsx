@@ -148,6 +148,12 @@ describe("shared account dashboard", () => {
     expect(calls[0].method).toBe("GetAccountDashboard");
     expect(calls[0].account).toBe(accountId);
     expect(calls[0].body.accountId).toBe(accountId);
+    expect(Date.parse(String(calls[0].body.endTime)) - Date.parse(String(calls[0].body.startTime))).toBe(
+      60 * 60 * 1000,
+    );
+    expect(
+      within(screen.getByRole("group", { name: "Time range" })).getByRole("button", { name: "1h" }),
+    ).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("link", { name: "View mining assets" })).toHaveAttribute(
       "href",
       `/accounts/${accountId}/assets`,
@@ -172,6 +178,44 @@ describe("shared account dashboard", () => {
     chooseFilter("site", "7");
     expect(screen.getByTestId("active-filter-site")).toHaveTextContent("Client site");
     expect(screen.queryByText("200.0 TH/s")).not.toBeInTheDocument();
+  });
+  it("keeps duration controls mounted and focused while duration and filters reload", async () => {
+    const { fetchMock } = mount();
+    await screen.findByText("200.0 TH/s");
+    const ranges = screen.getByRole("group", { name: "Time range" });
+    const day = within(ranges).getByRole("button", { name: "24h" });
+    fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
+    day.focus();
+    fireEvent.click(day);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("group", { name: "Time range" })).toBe(ranges);
+    expect(day).toHaveFocus();
+    expect(day).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText("200.0 TH/s")).not.toBeInTheDocument();
+    chooseFilter("site", "7");
+    expect(screen.getByRole("group", { name: "Time range" })).toBe(ranges);
+  });
+  it("lets a budget-rejected 24-hour request recover by selecting one hour", async () => {
+    const { fetchMock } = mount();
+    await screen.findByText("200.0 TH/s");
+    const ranges = screen.getByRole("group", { name: "Time range" });
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ code: "invalid_argument", message: "Choose a shorter time range or filter assets" }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    fireEvent.click(within(ranges).getByRole("button", { name: "24h" }));
+    await screen.findByText(/Choose a shorter time range/);
+    expect(screen.getByRole("group", { name: "Time range" })).toBe(ranges);
+    expect(screen.queryByText("200.0 TH/s")).not.toBeInTheDocument();
+    fireEvent.click(within(ranges).getByRole("button", { name: "1h" }));
+    expect(await screen.findByText("200.0 TH/s")).toBeInTheDocument();
+    expect(screen.queryByText(/Choose a shorter time range/)).not.toBeInTheDocument();
+    expect(within(ranges).getByRole("button", { name: "1h" })).toHaveAttribute("aria-pressed", "true");
   });
   it("cannot restore filter names from a late response after access is denied", async () => {
     const { fetchMock } = mount();
@@ -266,6 +310,7 @@ describe("shared account dashboard", () => {
     expect(screen.queryByText("200.0 TH/s")).not.toBeInTheDocument();
     expect(screen.queryByText("Client site")).not.toBeInTheDocument();
     expect(screen.queryByText("Subclient A")).not.toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Time range" })).not.toBeInTheDocument();
     await waitFor(() => expect(invalidate).toHaveBeenCalled());
   });
 });

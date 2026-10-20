@@ -18,6 +18,7 @@ export const useAccountQuery = <T>(
     revision: number;
     data: T | null;
     error: string | null;
+    errorCode: Code | null;
   } | null>(null);
   const refresh = useCallback(() => setRevision((r) => r + 1), []);
   const invalidate = useCallback(() => {
@@ -30,7 +31,7 @@ export const useAccountQuery = <T>(
     const generation = useFleetStore.getState().auth.sessionGeneration;
     load(controller.signal).then(
       (data) => {
-        if (!controller.signal.aborted) setResult({ load, revision, data, error: null });
+        if (!controller.signal.aborted) setResult({ load, revision, data, error: null, errorCode: null });
       },
       (error: unknown) => {
         if (!controller.signal.aborted) {
@@ -40,6 +41,7 @@ export const useAccountQuery = <T>(
             data:
               retainWhileRefreshing && isRetryableReadError(error) && previous?.load === load ? previous.data : null,
             error: getErrorMessage(error),
+            errorCode: ConnectError.from(error).code,
           }));
           if (ConnectError.from(error).code === Code.PermissionDenied) invalidateAccount?.();
           if (
@@ -62,6 +64,7 @@ export const useAccountQuery = <T>(
   return {
     data: current?.data ?? null,
     error: current?.error ?? null,
+    errorCode: current?.errorCode ?? null,
     loading: enabled && !current,
     refresh,
     invalidate,

@@ -1,3 +1,4 @@
+import { StrictMode } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,7 +42,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
-function mount(owner = true, entry = "/accounts", managedClient = client) {
+function mount(owner = true, entry = "/accounts", managedClient = client, strict = false) {
   const calls: { method: string; body: Record<string, unknown>; account: string | null }[] = [];
   const refresh = vi.fn();
   let created = false;
@@ -85,12 +86,13 @@ function mount(owner = true, entry = "/accounts", managedClient = client) {
       </HostedAccountsContext.Provider>
     </MemoryRouter>
   );
-  const view = render(page());
-  return { calls, refresh, rerenderOwner: (managed: boolean) => view.rerender(page(managed)) };
+  const wrappedPage = (managed = owner) => (strict ? <StrictMode>{page(managed)}</StrictMode> : page(managed));
+  const view = render(wrappedPage());
+  return { calls, refresh, rerenderOwner: (managed: boolean) => view.rerender(wrappedPage(managed)) };
 }
 describe("owner Clients directory", () => {
-  it("lists managed clients directly and creates a client using host authority", async () => {
-    const { calls, refresh } = mount();
+  it("creates a client using host authority after StrictMode effect replay", async () => {
+    const { calls, refresh } = mount(true, "/accounts", client, true);
     const user = userEvent.setup();
     await screen.findByRole("link", { name: "Existing client" });
     expect(screen.getByRole("columnheader", { name: "Client" })).toBeInTheDocument();

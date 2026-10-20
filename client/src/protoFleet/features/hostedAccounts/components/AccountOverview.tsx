@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { Code } from "@connectrpc/connect";
 import { accountDashboardData, reportingCoverage } from "../accountDashboardData";
 import { useRequiredAccountScope } from "../AccountScope";
 import { isRetryableReadError } from "../api";
@@ -26,7 +27,7 @@ import {
 const AccountOverview = () => {
   const { account, client } = useRequiredAccountScope();
   const temperatureUnit = useTemperatureUnit();
-  const [duration, setDuration] = useState<FleetDuration>("24h");
+  const [duration, setDuration] = useState<FleetDuration>("1h");
   const [ownerAccountId, setOwnerAccountId] = useState("");
   const [siteId, setSiteId] = useState("");
   const [filters, setFilters] = useState({
@@ -250,17 +251,19 @@ const AccountOverview = () => {
               unavailable.
             </p>
           ) : null}
-          <div className="-mx-10 phone:-mx-6">
-            <DashboardPerformance
-              duration={duration}
-              onDurationChange={setDuration}
-              metrics={history?.metrics}
-              totalAssets={Number(summary?.assetCount ?? 0n)}
-              accountReadings
-              tooltipNotes={history?.tooltipNotes}
-            />
-          </div>
         </>
+      ) : null}
+      {query.loading || query.data || query.errorCode === Code.InvalidArgument ? (
+        <div className="-mx-10 phone:-mx-6">
+          <DashboardPerformance
+            duration={duration}
+            onDurationChange={setDuration}
+            metrics={history?.metrics}
+            totalAssets={Number(summary?.assetCount ?? 0n)}
+            accountReadings
+            tooltipNotes={history?.tooltipNotes}
+          />
+        </div>
       ) : null}
     </div>
   );

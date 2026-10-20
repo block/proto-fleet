@@ -10,31 +10,26 @@ test.describe("Client workspace and read-only host preview", () => {
       page,
       context,
       isMobile,
-    }, testInfo) => {
+    }) => {
       const mock = await mockClientWorkspace(context, preview);
       const workspace = new ClientWorkspacePage(page, isMobile);
       await workspace.open(clientA);
       await expect(workspace.fleetSize().getByText("4 assets", { exact: true })).toBeVisible();
       await expect(page.getByText("Healthy", { exact: true })).toBeVisible();
       await expect(page.getByText("Performance", { exact: true })).toBeVisible();
-      const current = page.getByRole("region", { name: "Current readings", exact: true });
-      const power = current
-        .getByTestId("stats-item")
-        .filter({ has: page.getByRole("heading", { name: "Power", exact: true }) });
+      const current = workspace.currentReadings();
+      const power = workspace.currentReading("Power");
       await expect(power.getByText("9.0 kW", { exact: true })).toBeVisible();
       await expect(power.getByText("3 of 4 assets reporting", { exact: true })).toBeVisible();
-      const efficiency = current
-        .getByTestId("stats-item")
-        .filter({ has: page.getByRole("heading", { name: "Efficiency", exact: true }) });
+      const efficiency = workspace.currentReading("Efficiency");
       await expect(efficiency.getByText("—", { exact: true })).toBeVisible();
       await expect(current.getByText("52.0 °C", { exact: true })).toBeVisible();
       await expect(current.getByText("97.0%", { exact: true })).toBeVisible();
       await expect(workspace.performanceReading("Hashrate").getByText("400.0", { exact: true })).toBeVisible();
       await expect(workspace.performanceReading("Power").getByText("9.0", { exact: true })).toBeVisible();
       await expect(workspace.performanceReading("Efficiency").getByText("N/A", { exact: true })).toBeVisible();
-      const ranges = page.getByRole("group", { name: "Time range" });
-      for (const range of ["1h", "24h", "7d", "30d", "90d", "1y"])
-        await expect(ranges.getByRole("button", { name: range, exact: true })).toBeVisible();
+      for (const range of ["1h", "24h"]) await expect(workspace.timeRange(range)).toBeVisible();
+      for (const range of ["7d", "30d", "90d", "1y"]) await expect(workspace.timeRange(range)).toHaveCount(0);
       await expect(page.getByText("Viewing as Customer A", { exact: true })).toHaveCount(preview ? 1 : 0);
       await expect(page.getByText("Actions are unavailable in this read-only preview.", { exact: true })).toHaveCount(
         0,
@@ -43,15 +38,7 @@ test.describe("Client workspace and read-only host preview", () => {
         preview ? 1 : 0,
       );
       await expect(page.getByText("Read-only", { exact: true })).toHaveCount(preview ? 1 : 0);
-      await expect(workspace.fleetSize().getByText("4 assets", { exact: true }).locator("..")).toHaveCSS(
-        "opacity",
-        "1",
-      );
-      await page.screenshot({
-        path: `/tmp/issue236-${preview ? "preview" : "client"}-${testInfo.project.name}.png`,
-        fullPage: true,
-        animations: "disabled",
-      });
+      await expect(workspace.fleetSize()).toHaveCSS("opacity", "1");
       await workspace.expectNavigation(clientA);
 
       await test.step("Keep allocation, site and duration filters in the parent's workspace", async () => {
@@ -65,8 +52,8 @@ test.describe("Client workspace and read-only host preview", () => {
         await expect
           .poll(() => mock.calls.filter((call) => call.method === "GetAccountDashboard").slice(-1)[0]?.body.siteId)
           .toBe("7");
-        await ranges.getByRole("button", { name: "7d", exact: true }).click();
-        await expect(ranges.getByRole("button", { name: "7d", exact: true })).toHaveAttribute("aria-pressed", "true");
+        await workspace.timeRange("24h").click();
+        await expect(workspace.timeRange("24h")).toHaveAttribute("aria-pressed", "true");
         await expect(page).toHaveURL(new RegExp(`/accounts/${clientA}/overview$`));
       });
 
@@ -89,10 +76,10 @@ test.describe("Client workspace and read-only host preview", () => {
         await expect(page.getByTestId("active-filter-model")).toContainText("S21");
         await expect(page.getByTestId("active-filter-site")).toContainText("A allocated site");
         await expect(page.getByText("Customer A miner", { exact: true })).toBeVisible();
-        await page.getByRole("button", { name: "Clear Model filter", exact: true }).click();
+        await workspace.clearAssetFilter("Model");
         await workspace.selectAssetFilter("model", "S19");
         await expect(page.getByText("No matching assets", { exact: true })).toBeVisible();
-        await page.getByRole("button", { name: "Clear Model filter", exact: true }).click();
+        await workspace.clearAssetFilter("Model");
         await expect(page.getByText("Customer A miner", { exact: true })).toBeVisible();
         await workspace.navigate("Pools", clientA, "pools");
         await expect(page.getByText("Add and manage the pools for your account.", { exact: true })).toBeVisible();
@@ -124,9 +111,7 @@ test.describe("Client workspace and read-only host preview", () => {
         await expect(page.getByTestId("theme-button")).toHaveText("Dark");
         await expect(page.locator("body")).toHaveAttribute("data-theme", "dark");
         await workspace.navigate("Home", clientA, "overview");
-        await expect(
-          page.getByRole("region", { name: "Current readings", exact: true }).getByText("125.6 °F", { exact: true }),
-        ).toBeVisible();
+        await expect(workspace.currentReading("Temperature").getByText("125.6 °F", { exact: true })).toBeVisible();
         await expect(workspace.performanceReading("Temperature").getByText("125.6", { exact: true })).toBeVisible();
         await expect(workspace.performanceReading("Temperature")).toContainText("°F");
       });
@@ -328,7 +313,7 @@ test.describe("Client workspace and read-only host preview", () => {
     await page.evaluate(() => window.dispatchEvent(new Event("focus")));
     await expect(page.getByText(/Account access removed/)).toBeVisible();
     await expect(workspace.fleetSize().getByText("4 assets", { exact: true })).toHaveCount(0);
-    await expect(page.getByRole("group", { name: "Time range" })).toHaveCount(0);
+    await expect(workspace.timeRanges()).toHaveCount(0);
     expect(mock.unexpected).toEqual([]);
   });
 

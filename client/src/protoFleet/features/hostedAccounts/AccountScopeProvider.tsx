@@ -23,7 +23,9 @@ export const AccountScopeProvider = ({
         refreshAccount,
         invalidateAccount,
         client: connection.client,
-        signal: connection.signal,
+        get signal() {
+          return connection.signal;
+        },
       }}
     >
       {children}

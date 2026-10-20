@@ -322,11 +322,15 @@ readings use the same provenance checks before inventory sorting or aggregation.
 Charts use retained raw telemetry. Existing rollups lack the site or independent
 source-time provenance needed for this authorization check, so aggregate-only
 periods remain unavailable. Raw telemetry is retained for ten days;
-`GetAccountDashboard` rejects ranges longer than ten days and reports availability
+`GetAccountDashboard` rejects ranges longer than 24 hours and reports availability
 from the later of the tracking epoch and retention horizon. The account UI offers
-1h, 24h and 7d; host dashboard ranges remain unchanged. Module history scans
+1h (default) and 24h; host dashboard ranges remain unchanged. Raw requests are
+bounded to 300 weighted asset-days after allocation/site authorization: miners
+count once, modules eight times including contributor-window scan margins.
+Over-budget requests return InvalidArgument with guidance to shorten the range
+or narrow allocation/site filters. Module history scans
 collections with the source freshness and clock-skew margins using the
-module/collection-time index, then authorizes and buckets independent metric
+module/collection-time index and collection-first compressed ordering (1032), then authorizes and buckets independent metric
 source windows. A stale PSU source time cannot exclude fresh board readings.
 
 Power totals contain only measured equipment readings with reporting counts;

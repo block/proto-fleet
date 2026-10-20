@@ -19,7 +19,7 @@ describe("dashboard history ranges", () => {
     const onDurationChange = vi.fn();
     render(
       <DashboardPerformance
-        duration="24h"
+        duration="1h"
         onDurationChange={onDurationChange}
         metrics={[]}
         totalAssets={0}
@@ -27,9 +27,9 @@ describe("dashboard history ranges", () => {
       />,
     );
     const ranges = within(screen.getByRole("group", { name: "Time range" }));
-    expect(ranges.getAllByRole("button").map((button) => button.textContent)).toEqual(["1h", "24h", "7d"]);
-    await userEvent.click(ranges.getByRole("button", { name: "7d" }));
-    expect(onDurationChange).toHaveBeenCalledWith("7d");
+    expect(ranges.getAllByRole("button").map((button) => button.textContent)).toEqual(["1h", "24h"]);
+    await userEvent.click(ranges.getByRole("button", { name: "24h" }));
+    expect(onDurationChange).toHaveBeenCalledWith("24h");
   });
 
   it("preserves longer aggregate-backed ranges for the host dashboard", () => {

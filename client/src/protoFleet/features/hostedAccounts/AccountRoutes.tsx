@@ -3,22 +3,21 @@ import { type Location, matchPath, Route, Routes, useLocation, useNavigate } fro
 
 import AccountDirectory from "./AccountDirectory";
 import AccountWorkspace from "./AccountWorkspace";
+import { can } from "./capabilities";
 import ClientManagement from "./ClientManagement";
 import { useHostedAccounts } from "./HostedAccountsContext";
-import { usePermissions } from "@/protoFleet/store";
 
 const AccountRoutes = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const directory = useHostedAccounts();
-  const permissions = usePermissions();
-  const host = permissions.length > 0 || !!directory?.hostAccess;
+  const hostAdministration = directory?.accounts.some((account) => account.depth === 0 && can(account, 16n));
   const match = matchPath("/accounts/:accountId/*", location.pathname);
   const management = !!matchPath("/accounts/:accountId/manage/*", location.pathname);
   const root = directory?.accounts.some(
     (account) => account.accountId === match?.params.accountId && account.depth === 0,
   );
-  const preview = host && !directory?.loading && !!match && !management && !root;
+  const preview = hostAdministration && !directory?.loading && !!match && !management && !root;
   const [background, setBackground] = useState<Location>({
     pathname: "/accounts",
     search: "",

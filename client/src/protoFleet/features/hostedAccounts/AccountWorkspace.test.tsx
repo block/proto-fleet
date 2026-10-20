@@ -195,6 +195,21 @@ describe("real account workspace routing", () => {
     );
     expect(screen.queryByText("East")).not.toBeInTheDocument();
   });
+  it("retains account administrator actions when the member also has Fleet read access", async () => {
+    const account = create(AccountSchema, {
+      accountId,
+      name: "Customer",
+      depth: 1,
+      role: AccountRole.ADMINISTRATOR,
+      effectiveCapabilities: 31n,
+    });
+    useFleetStore.setState({ auth: { ...initialAuth, permissions: ["fleet:read"] } });
+    fetchRpc((method) => (method === "GetAccount" ? { account: toJson(AccountSchema, account) } : {}));
+    mount(account, "access", true);
+    expect(await screen.findByRole("button", { name: "Rename account" })).toBeEnabled();
+    expect(screen.queryByRole("dialog", { name: "Viewing as Customer" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create API key" })).toBeEnabled();
+  });
   it("contains read-only client navigation in a full-screen preview with a close action", async () => {
     const account = create(AccountSchema, {
       accountId,
@@ -205,9 +220,18 @@ describe("real account workspace routing", () => {
       capabilityCeiling: 31n,
     });
     useFleetStore.setState({ auth: { ...initialAuth, permissions: ["miner:read", "fleet:read"] } });
-    fetchRpc((method) => (method === "GetAccount" ? { account: toJson(AccountSchema, account) } : {}));
+    fetchRpc((method) =>
+      method === "GetAccount"
+        ? { account: toJson(AccountSchema, account) }
+        : method === "ListChildren"
+          ? { accounts: [toJson(AccountSchema, account)] }
+          : {},
+    );
     const user = userEvent.setup();
-    mount(account, "access", true);
+    mount(account, "access", true, [
+      account,
+      create(AccountSchema, { accountId: rootId, depth: 0, effectiveCapabilities: 16n }),
+    ]);
     await screen.findByRole("button", { name: "Rename account" });
     expect(screen.queryByRole("button", { name: "Switch account" })).not.toBeInTheDocument();
     const preview = screen.getByRole("dialog", { name: "Viewing as Customer" });
@@ -310,7 +334,10 @@ describe("real account workspace routing", () => {
   it("does not open a mutation dialog from an invitation deep link in preview", async () => {
     const account = create(AccountSchema, { accountId, name: "Customer", depth: 1, effectiveCapabilities: 31n });
     fetchRpc((method) => (method === "GetAccount" ? { account: toJson(AccountSchema, account) } : {}));
-    mount(account, "team?invite=administrator", true);
+    mount(account, "team?invite=administrator", true, [
+      account,
+      create(AccountSchema, { accountId: rootId, depth: 0, effectiveCapabilities: 16n }),
+    ]);
     expect(await screen.findByRole("button", { name: "Invite team member" })).toBeDisabled();
     expect(screen.queryByRole("dialog", { name: "Create invitation" })).not.toBeInTheDocument();
   });

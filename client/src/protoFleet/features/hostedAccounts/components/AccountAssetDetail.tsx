@@ -8,6 +8,7 @@ import { AccountAssetCell } from "./AccountAssetCell";
 import { assetColumnTitles } from "./accountAssetColumns";
 import { AccountState } from "./AccountState";
 import { MiningAssetKind } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import Breadcrumb from "@/shared/components/Breadcrumb";
 import Row from "@/shared/components/Row";
@@ -27,7 +28,7 @@ const AccountAssetDetail = () => {
       ),
     [account.accountId, client, kind, assetId],
   );
-  const query = useAccountQuery(load, valid, false, 15_000);
+  const query = useAccountQuery(load, valid, true, POLL_INTERVAL_MS);
   useEffect(() => {
     if (!valid) return;
     window.addEventListener("focus", query.refresh);

@@ -31,6 +31,50 @@ type dashboardKey struct {
 
 // Hosted charts use source-authorized raw samples, retained for ten days.
 const dashboardHistoryRetention = 10 * 24 * time.Hour
+const dashboardHistoryMaxRange = 24 * time.Hour
+
+// Bound raw work before scanning telemetry. Module observations expand into
+// independently authorized contributor windows and cost more than miner rows.
+// A dense compressed fixture measures 260 weighted asset-days below the 5s
+// transaction deadline; leave headroom for estate authorization and cold reads.
+const dashboardHistoryBudget = 300 * 24 * time.Hour
+const dashboardModuleWeight = 8
+
+func dashboardHistoryWork(intervals []dashboardInterval, start, end time.Time) time.Duration {
+	var work time.Duration
+	for _, interval := range intervals {
+		first, last := maxTime(start, interval.Start), end
+		if interval.End != nil {
+			last = minTime(last, *interval.End)
+		}
+		if !last.After(first) {
+			continue
+		}
+		duration := last.Sub(first)
+		if interval.Kind == int32(pb.MiningAssetKind_MINING_ASSET_KIND_MODULE) {
+			// The collection prefilter includes contributor freshness/clock-skew edges.
+			duration = (duration + 125*time.Second) * dashboardModuleWeight
+		}
+		work += duration
+		if work > dashboardHistoryBudget {
+			return work
+		}
+	}
+	return work
+}
+
+func minTime(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
+}
+func maxTime(a, b time.Time) time.Time {
+	if a.After(b) {
+		return a
+	}
+	return b
+}
 
 func (e miningEstate) dashboardOwner(owner *string) (int64, error) {
 	if owner == nil {
@@ -85,8 +129,8 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 	// SQL buckets and the in-memory expected-asset denominators.
 	start, end := request.StartTime.AsTime().Truncate(time.Microsecond), request.EndTime.AsTime().Truncate(time.Microsecond)
 	step := time.Duration(request.BucketSeconds) * time.Second
-	if !end.After(start) || end.Sub(start) > dashboardHistoryRetention || step < time.Minute || step > 24*time.Hour || end.Sub(start)/step > 1500 || request.SiteId != nil && *request.SiteId <= 0 {
-		return nil, fleeterror.NewInvalidArgumentError("dashboard range must be at most 10 days and 1500 buckets")
+	if !end.After(start) || end.Sub(start) > dashboardHistoryMaxRange || step < time.Minute || step > 24*time.Hour || end.Sub(start)/step > 1500 || request.SiteId != nil && *request.SiteId <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("dashboard range must be at most 24 hours and 1500 buckets")
 	}
 	ctx, cancel := context.WithTimeout(ctx, miningTransactionTimeout)
 	defer cancel()
@@ -119,21 +163,26 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 		sites := map[int64]*miningAccumulator{}
 		siteNames := map[int64]string{}
 		for _, row := range e.rows {
-			if !e.dashboardSite(row.SiteID) {
+			if !e.physicalRead(row) {
 				continue
 			}
 			if request.OwnerAccountId != nil && row.SubclientID != owner {
+				continue
+			}
+			asset := e.asset(row)
+			if request.SiteId == nil || row.SiteID == *request.SiteId {
+				totals.add(asset)
+			}
+			// Keep allocated capacity visible after policy narrows, with the same
+			// redaction as inventory. Site identity and history remain policy-bound.
+			if asset.OutsidePolicy {
 				continue
 			}
 			if sites[row.SiteID] == nil {
 				sites[row.SiteID] = newMiningAccumulator()
 				siteNames[row.SiteID] = row.SiteName
 			}
-			asset := e.asset(row)
 			sites[row.SiteID].add(asset)
-			if request.SiteId == nil || row.SiteID == *request.SiteId {
-				totals.add(asset)
-			}
 		}
 		response.Totals = totals.result()
 		periods, err := q.ListHostedAccountHistoryIntervals(ctx, sqlc.ListHostedAccountHistoryIntervalsParams{OrganizationID: orgID, AccountID: e.account.ID, StartTime: start, EndTime: end, HasOwnerFilter: request.OwnerAccountId != nil, OwnerID: owner})
@@ -174,6 +223,9 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 		sort.Slice(siteIDs, func(i, j int) bool { return siteIDs[i] < siteIDs[j] })
 		for _, id := range siteIDs {
 			response.Sites = append(response.Sites, &pb.AccountDashboardSite{SiteId: id, Name: siteNames[id], Summary: sites[id].result()})
+		}
+		if dashboardHistoryWork(intervals, start, end) > dashboardHistoryBudget {
+			return nil, fleeterror.NewInvalidArgumentError("This history request covers too many assets; choose a shorter time range or filter to fewer allocations or sites")
 		}
 		encoded, err := json.Marshal(intervals)
 		if err != nil {

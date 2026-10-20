@@ -46,6 +46,8 @@ WITH intervals AS MATERIALIZED (
   -- and bucket each metric using its full independent contributor window.
   AND m.collected_at>=sqlc.arg(start_time)::timestamptz-INTERVAL '5 seconds'
   AND m.collected_at<sqlc.arg(end_time)::timestamptz+INTERVAL '2 minutes'
+  AND m.collected_at>=i.started_at-INTERVAL '5 seconds'
+  AND (i.ended_at IS NULL OR m.collected_at<i.ended_at+INTERVAL '2 minutes')
  CROSS JOIN LATERAL (VALUES
   ('hashrate',m.hashrate_hs,(m.coverage#>>'{hashrate,oldest_at}')::timestamptz,(m.coverage#>>'{hashrate,newest_at}')::timestamptz),
   ('power',m.power_w,(m.coverage#>>'{power,oldest_at}')::timestamptz,(m.coverage#>>'{power,newest_at}')::timestamptz),

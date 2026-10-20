@@ -17,7 +17,7 @@ import { useTemperatureUnit } from "@/protoFleet/store";
 import DurationSelector, { type FleetDuration, fleetDurations } from "@/shared/components/DurationSelector";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 
-const accountDurations = ["1h", "24h", "7d"] as const;
+const accountDurations = ["1h", "24h"] as const;
 
 export type DashboardPerformanceProps = {
   duration: FleetDuration;

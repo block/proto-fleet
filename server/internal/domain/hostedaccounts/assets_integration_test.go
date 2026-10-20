@@ -464,6 +464,12 @@ func TestAccountMiningClientReportPreservesHostSiteAuthority(t *testing.T) {
 	_, err = f.db.ExecContext(t.Context(), `UPDATE device SET site_id=CASE WHEN id=$1 THEN $3::bigint ELSE $4::bigint END WHERE id IN ($1,$2)`, visible, private, allowed.ID, hidden.ID)
 	require.NoError(t, err)
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, visible, 0), selected(5, private, 0)))
+	end := time.Now().UTC().Truncate(time.Second)
+	start := end.Add(-time.Hour)
+	_, err = f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE client_id=$2`, start, client.ID)
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,site_id,hash_rate_hs,power_w,temp_c) SELECT $1,device_identifier,site_id,CASE WHEN id=$2 THEN 100e12 ELSE 900e12 END,3000,60 FROM device WHERE id IN ($2,$3)`, start.Add(30*time.Minute), visible, private)
+	require.NoError(t, err)
 	svc := authz.NewService(f.db, nil)
 	manager, err := svc.CreateCustomRole(t.Context(), f.host, f.org, "Account management", "", []string{authz.PermAccountManage})
 	require.NoError(t, err)
@@ -490,14 +496,32 @@ func TestAccountMiningClientReportPreservesHostSiteAuthority(t *testing.T) {
 				ids = append(ids, asset.Id)
 			}
 			require.ElementsMatch(t, reader.assets, ids)
+			dashboard, err := f.svc.Dashboard(t.Context(), reader.actor, f.org, dashboardRequest(client.AccountID, start, end, nil))
+			require.NoError(t, err)
+			require.EqualValues(t, len(reader.assets), dashboard.Totals.AssetCount)
+			require.Len(t, dashboard.Readings, 1)
+			history := dashboard.Readings[0].Summary
+			require.EqualValues(t, len(reader.assets), history.AssetCount)
+			require.EqualValues(t, len(reader.assets), history.HashrateReportingCount)
+			if reader.name == "host operator" {
+				require.Equal(t, 100e12, history.GetHashrateHs(), "host must not read the hidden site's measurements")
+			} else {
+				require.Equal(t, 1000e12, history.GetHashrateHs())
+			}
+			var dashboardSites []int64
+			for _, site := range dashboard.Sites {
+				dashboardSites = append(dashboardSites, site.SiteId)
+			}
 			var siteIDs []int64
 			for _, site := range rows.FilterOptions.Sites {
 				siteIDs = append(siteIDs, site.Id)
 			}
 			if reader.name == "host operator" {
 				require.Equal(t, []int64{allowed.ID}, siteIDs, "host physical authority must also bound filter options")
+				require.Equal(t, []int64{allowed.ID}, dashboardSites, "host physical authority must also bound dashboard sites")
 			} else {
 				require.ElementsMatch(t, []int64{allowed.ID, hidden.ID}, siteIDs)
+				require.ElementsMatch(t, []int64{allowed.ID, hidden.ID}, dashboardSites)
 			}
 		})
 	}

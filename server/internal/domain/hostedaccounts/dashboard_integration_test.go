@@ -182,17 +182,17 @@ func TestAccountDashboardTypedIDCollisionAndCompleteCoverage(t *testing.T) {
 	require.Equal(t, 20.0, summary.GetEfficiencyJTh())
 	require.EqualValues(t, 1, summary.ModuleCount)
 	require.Zero(t, summary.MinerCount)
-	// Raw history supports ten days; earlier unavailable buckets stay explicit.
-	request := dashboardRequest(client.AccountID, end.Add(-10*24*time.Hour), end, nil)
-	request.BucketSeconds = 86400
+	// Raw requests support one day; earlier unavailable buckets stay explicit.
+	request := dashboardRequest(client.AccountID, end.Add(-24*time.Hour), end, nil)
+	request.BucketSeconds = 3600
 	request.StartTime.Nanos = 321
 	request.EndTime.Nanos = 654
 	result, err = f.svc.Dashboard(t.Context(), f.user, f.org, request)
 	require.NoError(t, err)
-	require.Len(t, result.Readings, 10)
+	require.Len(t, result.Readings, 24)
 	require.Nil(t, result.Readings[0].Summary.HashrateHs)
 	require.Equal(t, 100e12, result.Readings[len(result.Readings)-1].Summary.GetHashrateHs(), "sub-microsecond request timestamps use the same bucket keys as PostgreSQL")
-	request.StartTime = timestamppb.New(end.Add(-10*24*time.Hour - time.Second))
+	request.StartTime = timestamppb.New(end.Add(-24*time.Hour - time.Second))
 	_, err = f.svc.Dashboard(t.Context(), f.user, f.org, request)
 	require.True(t, fleeterror.IsInvalidArgumentError(err), "longer ranges require source-authorized long-term storage")
 }
@@ -474,4 +474,41 @@ func TestAccountCurrentMetricSortUsesOnlyAuthorizedSources(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, fresh, page.Assets[0].Id, "previous-owner telemetry must not affect SQL ordering")
 	}
+}
+
+func TestAccountDashboardRetainsAllocatedCountsOutsideNarrowedPolicy(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	module, controller := f.miningModule(t)
+	var site int64
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO site(org_id,name,slug) VALUES($1,'Allocated site','allocated') RETURNING id`, f.org).Scan(&site))
+	_, err := f.db.ExecContext(t.Context(), `UPDATE device SET site_id=$1 WHERE id IN ($2,$3)`, site, miner, controller)
+	require.NoError(t, err)
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(5, miner, 0), selected(6, module, 0)))
+	end := time.Now().UTC().Truncate(time.Second)
+	start := end.Add(-time.Hour)
+	_, err = f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE client_id=$2`, start, client.ID)
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,site_id,hash_rate_hs,power_w) SELECT $1,device_identifier,site_id,100e12,3000 FROM device WHERE id=$2`, start.Add(30*time.Minute), miner)
+	require.NoError(t, err)
+	before, err := f.svc.Dashboard(t.Context(), f.user, f.org, dashboardRequest(client.AccountID, start, end, nil))
+	require.NoError(t, err)
+	require.EqualValues(t, 2, before.Totals.AssetCount)
+	require.Equal(t, 100e12, before.Readings[0].Summary.GetHashrateHs())
+	require.Len(t, before.Sites, 1)
+	require.NoError(t, f.svc.ConfigureSites(t.Context(), f.user, f.org, client.AccountID, true, nil))
+	after, err := f.svc.Dashboard(t.Context(), f.user, f.org, dashboardRequest(client.AccountID, start, end, nil))
+	require.NoError(t, err)
+	require.EqualValues(t, 2, after.Totals.AssetCount, "policy changes must not erase existing allocations")
+	require.EqualValues(t, 1, after.Totals.MinerCount)
+	require.EqualValues(t, 1, after.Totals.ModuleCount)
+	require.EqualValues(t, 2, after.Totals.OutsidePolicyCount)
+	require.EqualValues(t, 2, after.Totals.UnknownCount)
+	require.Nil(t, after.Totals.HashrateHs)
+	require.Nil(t, after.Totals.PowerW)
+	require.Empty(t, after.Sites, "outside-policy counts must not disclose site identity")
+	require.Len(t, after.Readings, 1)
+	require.Zero(t, after.Readings[0].Summary.AssetCount)
+	require.Nil(t, after.Readings[0].Summary.HashrateHs, "policy changes revoke historical readings")
 }

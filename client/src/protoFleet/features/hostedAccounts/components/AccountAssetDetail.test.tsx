@@ -4,12 +4,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import AccountWorkspace from "../AccountWorkspace";
 import { HostedAccountsContext } from "../HostedAccountsContext";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("account mining asset details", () => {
   it("requests a typed current detail in the selected workspace and clears it after recall", async () => {
     let recalled = false;
+    let deferDetail = false;
+    let finishDetail!: () => void;
+    const polling = vi.spyOn(window, "setInterval");
     const calls: { method: string; account: string | null; body: Record<string, unknown> }[] = [];
     vi.stubGlobal(
       "fetch",
@@ -22,6 +29,12 @@ describe("account mining asset details", () => {
             status: 404,
             headers: { "Content-Type": "application/json" },
           });
+        if (method === "GetAccountAssetDetail" && deferDetail) {
+          deferDetail = false;
+          await new Promise<void>((resolve) => {
+            finishDetail = resolve;
+          });
+        }
         const data =
           method === "GetAccount"
             ? { account: { accountId: "client", name: "Customer", depth: 1, effectiveCapabilities: "1" } }
@@ -58,6 +71,16 @@ describe("account mining asset details", () => {
     });
     for (const link of screen.getAllByRole("link", { name: "Mining assets" }))
       expect(link).toHaveAttribute("href", "/accounts/client/assets");
+    deferDetail = true;
+    const poll = polling.mock.calls.filter(([, interval]) => interval === POLL_INTERVAL_MS).slice(-1)[0]?.[0];
+    expect(poll).toBeTypeOf("function");
+    act(() => {
+      if (typeof poll === "function") poll();
+    });
+    await waitFor(() => expect(finishDetail).toBeTypeOf("function"));
+    expect(screen.getByText("Current allocated mining asset")).toBeInTheDocument();
+    expect(screen.getAllByText("Allocated module").length).toBeGreaterThan(0);
+    await act(async () => finishDetail());
     recalled = true;
     act(() => window.dispatchEvent(new Event("focus")));
     await screen.findByText(/Asset is no longer assigned/);
