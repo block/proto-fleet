@@ -182,17 +182,78 @@ func TestAccountDashboardTypedIDCollisionAndCompleteCoverage(t *testing.T) {
 	require.Equal(t, 20.0, summary.GetEfficiencyJTh())
 	require.EqualValues(t, 1, summary.ModuleCount)
 	require.Zero(t, summary.MinerCount)
-	// Full range support must survive raw history retention; unavailable early
-	// buckets are explicit rather than being rejected or inferred.
-	request := dashboardRequest(client.AccountID, end.Add(-365*24*time.Hour), end, nil)
+	// Raw history supports ten days; earlier unavailable buckets stay explicit.
+	request := dashboardRequest(client.AccountID, end.Add(-10*24*time.Hour), end, nil)
 	request.BucketSeconds = 86400
 	request.StartTime.Nanos = 321
 	request.EndTime.Nanos = 654
 	result, err = f.svc.Dashboard(t.Context(), f.user, f.org, request)
 	require.NoError(t, err)
-	require.Len(t, result.Readings, 365)
+	require.Len(t, result.Readings, 10)
 	require.Nil(t, result.Readings[0].Summary.HashrateHs)
 	require.Equal(t, 100e12, result.Readings[len(result.Readings)-1].Summary.GetHashrateHs(), "sub-microsecond request timestamps use the same bucket keys as PostgreSQL")
+	request.StartTime = timestamppb.New(end.Add(-10*24*time.Hour - time.Second))
+	_, err = f.svc.Dashboard(t.Context(), f.user, f.org, request)
+	require.True(t, fleeterror.IsInvalidArgumentError(err), "longer ranges require source-authorized long-term storage")
+}
+
+func TestAccountDashboardHistoryAvailabilityTracksRetention(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	end := time.Now().UTC().Truncate(time.Second)
+	oldEpoch := end.Add(-30 * 24 * time.Hour)
+	_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_history_epoch SET started_at=$1`, oldEpoch)
+	require.NoError(t, err)
+	result, err := f.svc.Dashboard(t.Context(), f.user, f.org, dashboardRequest(client.AccountID, end.Add(-time.Hour), end, nil))
+	require.NoError(t, err)
+	require.Equal(t, result.GeneratedAt.AsTime().Add(-10*24*time.Hour), result.HistoryAvailableFrom.AsTime())
+	newEpoch := end.Add(-time.Hour)
+	_, err = f.db.ExecContext(t.Context(), `UPDATE hosted_account_history_epoch SET started_at=$1`, newEpoch)
+	require.NoError(t, err)
+	result, err = f.svc.Dashboard(t.Context(), f.user, f.org, dashboardRequest(client.AccountID, end.Add(-time.Hour), end, nil))
+	require.NoError(t, err)
+	require.Equal(t, newEpoch, result.HistoryAvailableFrom.AsTime(), "the launch boundary still limits history when it is newer than retention")
+}
+
+func TestAccountModuleHistoryUsesCollectionScanWithIndependentSources(t *testing.T) {
+	f := setup(t)
+	client := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	module, _ := f.miningModule(t)
+	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, 1, selected(6, module, 0)))
+	end := time.Now().UTC().Truncate(time.Second).Add(-time.Minute)
+	start := end.Add(-3 * time.Minute)
+	_, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE client_id=$2`, start.Add(30*time.Second), client.ID)
+	require.NoError(t, err)
+	// A cached PSU pins the stored sample time before the chart even though
+	// independently dated board hashrate and temperature remain fresh.
+	stored := start.Add(-time.Hour)
+	insert := func(collected, hashOld, hashNew, tempAt time.Time, hash, temperature float64) {
+		t.Helper()
+		_, err := f.db.ExecContext(t.Context(), `INSERT INTO container_module_metrics(module_id,time,collected_at,hashrate_hs,power_w,temperature_c,coverage) VALUES($1,$2,$3,$7,NULL,$8,jsonb_build_object('hashrate',jsonb_build_object('oldest_at',$4::timestamptz,'newest_at',$5::timestamptz,'reporting',1,'expected',1,'topology_complete',true),'power',jsonb_build_object('oldest_at',$2::timestamptz,'newest_at',$2::timestamptz,'reporting',0,'expected',1,'topology_complete',true),'temperature',jsonb_build_object('oldest_at',$6::timestamptz,'newest_at',$6::timestamptz)))`, module, stored, collected, hashOld, hashNew, tempAt, hash, temperature)
+		require.NoError(t, err)
+	}
+	insert(start.Add(90*time.Second), start.Add(time.Minute), start.Add(time.Minute), start.Add(75*time.Second), 100e12, 55)
+	insert(end.Add(30*time.Second), end.Add(-30*time.Second), end.Add(-30*time.Second), end.Add(-20*time.Second), 200e12, 65)
+	insert(start.Add(10*time.Second), start.Add(-30*time.Second), start.Add(-30*time.Second), start.Add(-20*time.Second), 900e12, 900)
+	insert(start.Add(110*time.Second), start.Add(20*time.Second), start.Add(90*time.Second), end.Add(10*time.Second), 900e12, 900)
+	request := dashboardRequest(client.AccountID, start, end, nil)
+	request.BucketSeconds = 60
+	result, err := f.svc.Dashboard(t.Context(), f.user, f.org, request)
+	require.NoError(t, err)
+	require.Len(t, result.Readings, 3)
+	require.Nil(t, result.Readings[0].Summary.HashrateHs, "out-of-range and previous-owner sources remain excluded")
+	require.Nil(t, result.Readings[0].Summary.TemperatureC)
+	require.Equal(t, 100e12, result.Readings[1].Summary.GetHashrateHs(), "fresh sources survive an old stored PSU time; crossing ownership windows do not")
+	require.Equal(t, 55.0, result.Readings[1].Summary.GetTemperatureC())
+	require.Equal(t, 200e12, result.Readings[2].Summary.GetHashrateHs(), "late collection retains an in-range source")
+	require.Equal(t, 65.0, result.Readings[2].Summary.GetTemperatureC(), "out-of-range temperature sources do not enter the collection bucket")
+	for _, reading := range result.Readings {
+		require.Nil(t, reading.Summary.PowerW, "stale PSU sources remain unavailable")
+		require.Nil(t, reading.Summary.EfficiencyJTh)
+	}
+	var indexed bool
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE tablename='container_module_metrics' AND indexname='idx_container_module_metrics_module_collected_at' AND indexdef LIKE '%(module_id, collected_at DESC)%')`).Scan(&indexed))
+	require.True(t, indexed, "collection scans have an equipment/collection index")
 }
 
 func TestAccountCurrentReadingsRejectPreviousOwnerSamples(t *testing.T) {

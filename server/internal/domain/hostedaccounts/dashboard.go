@@ -29,6 +29,9 @@ type dashboardKey struct {
 	id   int64
 }
 
+// Hosted charts use source-authorized raw samples, retained for ten days.
+const dashboardHistoryRetention = 10 * 24 * time.Hour
+
 func (e miningEstate) dashboardOwner(owner *string) (int64, error) {
 	if owner == nil {
 		return 0, nil
@@ -82,8 +85,8 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 	// SQL buckets and the in-memory expected-asset denominators.
 	start, end := request.StartTime.AsTime().Truncate(time.Microsecond), request.EndTime.AsTime().Truncate(time.Microsecond)
 	step := time.Duration(request.BucketSeconds) * time.Second
-	if !end.After(start) || end.Sub(start) > 366*24*time.Hour || step < time.Minute || step > 24*time.Hour || end.Sub(start)/step > 1500 || request.SiteId != nil && *request.SiteId <= 0 {
-		return nil, fleeterror.NewInvalidArgumentError("dashboard range must be at most 366 days and 1500 buckets")
+	if !end.After(start) || end.Sub(start) > dashboardHistoryRetention || step < time.Minute || step > 24*time.Hour || end.Sub(start)/step > 1500 || request.SiteId != nil && *request.SiteId <= 0 {
+		return nil, fleeterror.NewInvalidArgumentError("dashboard range must be at most 10 days and 1500 buckets")
 	}
 	ctx, cancel := context.WithTimeout(ctx, miningTransactionTimeout)
 	defer cancel()
@@ -103,6 +106,10 @@ func (s *Service) Dashboard(ctx context.Context, actorID, orgID int64, request *
 		epoch, err := q.GetHostedAccountHistoryEpoch(ctx)
 		if err != nil {
 			return nil, err
+		}
+		retainedFrom := response.GeneratedAt.AsTime().Add(-dashboardHistoryRetention)
+		if epoch.Before(retainedFrom) {
+			epoch = retainedFrom
 		}
 		response.HistoryAvailableFrom = timestamppb.New(epoch)
 		for _, child := range e.children {

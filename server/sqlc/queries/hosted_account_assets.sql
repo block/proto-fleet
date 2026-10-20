@@ -43,7 +43,13 @@ SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  COALESCE(a.client_id,0)::bigint AS client_id,COALESCE(a.subclient_id,0)::bigint AS subclient_id,
  COALESCE(sc.account_id,c.account_id,'')::text AS owner_account_id,
  COALESCE(sc.name,c.name,'')::text AS owner_account_name,
- COALESCE(f.name,'')::text AS name,CASE WHEN g.state_allowed THEN CASE WHEN sqlc.arg(is_root)::boolean OR l.kind=6 OR f.state='offline' THEN COALESCE(f.state,'unknown') ELSE CASE status.status WHEN 'ACTIVE' THEN 'hashing' WHEN 'OFFLINE' THEN 'offline' WHEN 'MAINTENANCE' THEN 'sleeping' WHEN 'INACTIVE' THEN 'sleeping' WHEN 'ERROR' THEN 'attention' WHEN 'NEEDS_MINING_POOL' THEN 'attention' WHEN 'UPDATING' THEN 'attention' WHEN 'REBOOT_REQUIRED' THEN 'attention' ELSE 'unknown' END END ELSE 'unknown' END::text AS state,
+ COALESCE(f.name,'')::text AS name,CASE
+  WHEN g.state_allowed AND (sqlc.arg(is_root)::boolean OR l.kind=6 OR f.state='offline') THEN COALESCE(f.state,'unknown')
+  WHEN source.auth_attention_time IS NOT NULL THEN 'attention'
+  WHEN g.state_allowed AND status.status IN ('MAINTENANCE','INACTIVE') THEN 'sleeping'
+  WHEN source.error_attention_time IS NOT NULL THEN 'attention'
+  WHEN g.state_allowed THEN CASE status.status WHEN 'ACTIVE' THEN 'hashing' WHEN 'OFFLINE' THEN 'offline' WHEN 'ERROR' THEN 'attention' WHEN 'NEEDS_MINING_POOL' THEN 'attention' WHEN 'UPDATING' THEN 'attention' WHEN 'REBOOT_REQUIRED' THEN 'attention' ELSE 'unknown' END
+  ELSE 'unknown' END::text AS state,
  CASE WHEN l.kind=5 THEN COALESCE(dd.model,'') ELSE '' END::text AS model,
  COALESCE(CASE WHEN g.temperature_allowed THEN f.temperature_c END,0)::float8 AS temperature_c, (g.temperature_allowed AND f.temperature_c IS NOT NULL)::boolean AS has_temperature,
  COALESCE(CASE WHEN g.hash_allowed AND g.power_allowed THEN f.miner_efficiency_jth END,0)::float8 AS efficiency_j_th, COALESCE(g.hash_allowed AND g.power_allowed AND f.miner_efficiency_jth IS NOT NULL
@@ -60,7 +66,7 @@ SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  (f.id IS NOT NULL)::boolean AS available,
  COALESCE(CASE WHEN g.hash_allowed THEN f.hashrate_hs END,0)::float8 AS hashrate_hs,COALESCE(CASE WHEN g.power_allowed THEN f.power_w END,0)::float8 AS power_w,
  (g.hash_allowed AND f.hashrate_hs IS NOT NULL)::boolean AS has_hashrate,(g.power_allowed AND f.power_w IS NOT NULL)::boolean AS has_power,
- COALESCE(CASE WHEN sqlc.arg(is_root)::boolean THEN f.observed_at ELSE GREATEST(CASE WHEN g.hash_allowed THEN source.hash_new END,CASE WHEN g.power_allowed THEN source.power_new END,CASE WHEN g.temperature_allowed THEN source.temperature_new END,CASE WHEN g.state_allowed THEN source.state_time END) END,'0001-01-01T00:00:00Z'::timestamptz)::timestamptz AS observed_at,
+ COALESCE(CASE WHEN sqlc.arg(is_root)::boolean THEN f.observed_at ELSE GREATEST(CASE WHEN g.hash_allowed THEN source.hash_new END,CASE WHEN g.power_allowed THEN source.power_new END,CASE WHEN g.temperature_allowed THEN source.temperature_new END,CASE WHEN g.state_allowed THEN source.state_time END,source.auth_attention_time,source.error_attention_time) END,'0001-01-01T00:00:00Z'::timestamptz)::timestamptz AS observed_at,
  CASE WHEN sqlc.arg(is_root)::boolean THEN COALESCE(cm.coverage,'null'::jsonb) ELSE jsonb_strip_nulls(jsonb_build_object('hashrate',CASE WHEN g.hash_allowed THEN cm.coverage->'hashrate' END,'power',CASE WHEN g.power_allowed THEN cm.coverage->'power' END,'temperature',CASE WHEN g.temperature_allowed THEN cm.coverage->'temperature' END)) END::jsonb AS coverage,
  0::float8 AS sort_number, ''::text AS sort_text, true::boolean AS sort_null
 FROM leaves l
@@ -74,6 +80,7 @@ LEFT JOIN site s ON s.id=d.site_id AND s.org_id=l.org_id
 LEFT JOIN container_equipment_current_metrics cm ON l.kind=6 AND cm.kind=6 AND cm.id=l.id
 LEFT JOIN device_metrics sample ON l.kind=5 AND sample.device_identifier=d.device_identifier AND sample.time=f.observed_at
 LEFT JOIN device_status status ON l.kind=5 AND status.device_id=l.id
+LEFT JOIN device_pairing pairing ON l.kind=5 AND pairing.device_id=l.id
 LEFT JOIN container_module module ON l.kind=6 AND module.id=l.id
 LEFT JOIN container_module_latest_metrics latest ON l.kind=6 AND latest.module_id=l.id
 LEFT JOIN container_module_metrics module_sample ON l.kind=6 AND module_sample.module_id=l.id AND module_sample.time=latest.time AND module_sample.collected_at=latest.collected_at
@@ -85,6 +92,15 @@ CROSS JOIN LATERAL (
  CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{temperature,oldest_at}')::timestamptz END AS temperature_old,
  CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{temperature,newest_at}')::timestamptz END AS temperature_new,
  CASE WHEN l.kind=5 THEN status.status_timestamp ELSE module.state_observed_at END AS state_time,
+ CASE WHEN l.kind=5 AND pairing.pairing_status='AUTHENTICATION_NEEDED'
+  AND hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,d.site_id,d.device_identifier,pairing.updated_at,pairing.updated_at)
+  THEN pairing.updated_at END AS auth_attention_time,
+ -- A retained error must fit wholly within this owner's allocation/site.
+ (SELECT max(e.last_seen_at) FROM errors e
+  WHERE l.kind=5 AND e.device_id=l.id AND e.org_id=l.org_id
+   AND e.closed_at IS NULL AND e.severity IN (1,2,3,4)
+   AND e.site_id IS NOT DISTINCT FROM d.site_id
+   AND hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,e.site_id,d.device_identifier,e.first_seen_at,e.last_seen_at)) AS error_attention_time,
  CASE WHEN l.kind=5 THEN sample.site_id ELSE module_sample.site_id END AS sample_site,
  CASE WHEN l.kind=5 THEN sample.time IS NOT NULL ELSE module_sample.module_id IS NOT NULL END AS sample_present
 ) source
@@ -145,7 +161,13 @@ SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  COALESCE(a.client_id,0)::bigint AS client_id,COALESCE(a.subclient_id,0)::bigint AS subclient_id,
  COALESCE(sc.account_id,c.account_id,'')::text AS owner_account_id,
  COALESCE(sc.name,c.name,'')::text AS owner_account_name,
- COALESCE(f.name,'')::text AS name,CASE WHEN g.state_allowed THEN CASE WHEN sqlc.arg(is_root)::boolean OR l.kind=6 OR f.state='offline' THEN COALESCE(f.state,'unknown') ELSE CASE status.status WHEN 'ACTIVE' THEN 'hashing' WHEN 'OFFLINE' THEN 'offline' WHEN 'MAINTENANCE' THEN 'sleeping' WHEN 'INACTIVE' THEN 'sleeping' WHEN 'ERROR' THEN 'attention' WHEN 'NEEDS_MINING_POOL' THEN 'attention' WHEN 'UPDATING' THEN 'attention' WHEN 'REBOOT_REQUIRED' THEN 'attention' ELSE 'unknown' END END ELSE 'unknown' END::text AS state,
+ COALESCE(f.name,'')::text AS name,CASE
+  WHEN g.state_allowed AND (sqlc.arg(is_root)::boolean OR l.kind=6 OR f.state='offline') THEN COALESCE(f.state,'unknown')
+  WHEN source.auth_attention_time IS NOT NULL THEN 'attention'
+  WHEN g.state_allowed AND status.status IN ('MAINTENANCE','INACTIVE') THEN 'sleeping'
+  WHEN source.error_attention_time IS NOT NULL THEN 'attention'
+  WHEN g.state_allowed THEN CASE status.status WHEN 'ACTIVE' THEN 'hashing' WHEN 'OFFLINE' THEN 'offline' WHEN 'ERROR' THEN 'attention' WHEN 'NEEDS_MINING_POOL' THEN 'attention' WHEN 'UPDATING' THEN 'attention' WHEN 'REBOOT_REQUIRED' THEN 'attention' ELSE 'unknown' END
+  ELSE 'unknown' END::text AS state,
  CASE WHEN l.kind=5 THEN COALESCE(dd.model,'') ELSE '' END::text AS model,
  COALESCE(CASE WHEN g.temperature_allowed THEN f.temperature_c END,0)::float8 AS temperature_c, (g.temperature_allowed AND f.temperature_c IS NOT NULL)::boolean AS has_temperature,
  COALESCE(CASE WHEN g.hash_allowed AND g.power_allowed THEN f.miner_efficiency_jth END,0)::float8 AS efficiency_j_th, COALESCE(g.hash_allowed AND g.power_allowed AND f.miner_efficiency_jth IS NOT NULL
@@ -162,7 +184,7 @@ SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  (f.id IS NOT NULL)::boolean AS available,
  COALESCE(CASE WHEN g.hash_allowed THEN f.hashrate_hs END,0)::float8 AS hashrate_hs,COALESCE(CASE WHEN g.power_allowed THEN f.power_w END,0)::float8 AS power_w,
  (g.hash_allowed AND f.hashrate_hs IS NOT NULL)::boolean AS has_hashrate,(g.power_allowed AND f.power_w IS NOT NULL)::boolean AS has_power,
- COALESCE(CASE WHEN sqlc.arg(is_root)::boolean THEN f.observed_at ELSE GREATEST(CASE WHEN g.hash_allowed THEN source.hash_new END,CASE WHEN g.power_allowed THEN source.power_new END,CASE WHEN g.temperature_allowed THEN source.temperature_new END,CASE WHEN g.state_allowed THEN source.state_time END) END,'0001-01-01T00:00:00Z'::timestamptz)::timestamptz AS observed_at,
+ COALESCE(CASE WHEN sqlc.arg(is_root)::boolean THEN f.observed_at ELSE GREATEST(CASE WHEN g.hash_allowed THEN source.hash_new END,CASE WHEN g.power_allowed THEN source.power_new END,CASE WHEN g.temperature_allowed THEN source.temperature_new END,CASE WHEN g.state_allowed THEN source.state_time END,source.auth_attention_time,source.error_attention_time) END,'0001-01-01T00:00:00Z'::timestamptz)::timestamptz AS observed_at,
  CASE WHEN sqlc.arg(is_root)::boolean THEN COALESCE(cm.coverage,'null'::jsonb) ELSE jsonb_strip_nulls(jsonb_build_object('hashrate',CASE WHEN g.hash_allowed THEN cm.coverage->'hashrate' END,'power',CASE WHEN g.power_allowed THEN cm.coverage->'power' END,'temperature',CASE WHEN g.temperature_allowed THEN cm.coverage->'temperature' END)) END::jsonb AS coverage
 FROM leaves l
 LEFT JOIN allocations a ON a.organization_id=l.org_id AND a.kind=l.kind AND a.asset_id=l.id
@@ -175,6 +197,7 @@ LEFT JOIN site s ON s.id=d.site_id AND s.org_id=l.org_id
 LEFT JOIN container_equipment_current_metrics cm ON l.kind=6 AND cm.kind=6 AND cm.id=l.id
 LEFT JOIN device_metrics sample ON l.kind=5 AND sample.device_identifier=d.device_identifier AND sample.time=f.observed_at
 LEFT JOIN device_status status ON l.kind=5 AND status.device_id=l.id
+LEFT JOIN device_pairing pairing ON l.kind=5 AND pairing.device_id=l.id
 LEFT JOIN container_module module ON l.kind=6 AND module.id=l.id
 LEFT JOIN container_module_latest_metrics latest ON l.kind=6 AND latest.module_id=l.id
 LEFT JOIN container_module_metrics module_sample ON l.kind=6 AND module_sample.module_id=l.id AND module_sample.time=latest.time AND module_sample.collected_at=latest.collected_at
@@ -186,6 +209,15 @@ CROSS JOIN LATERAL (
  CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{temperature,oldest_at}')::timestamptz END AS temperature_old,
  CASE WHEN l.kind=5 THEN f.observed_at ELSE (cm.coverage#>>'{temperature,newest_at}')::timestamptz END AS temperature_new,
  CASE WHEN l.kind=5 THEN status.status_timestamp ELSE module.state_observed_at END AS state_time,
+ CASE WHEN l.kind=5 AND pairing.pairing_status='AUTHENTICATION_NEEDED'
+  AND hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,d.site_id,d.device_identifier,pairing.updated_at,pairing.updated_at)
+  THEN pairing.updated_at END AS auth_attention_time,
+ -- A retained error must fit wholly within this owner's allocation/site.
+ (SELECT max(e.last_seen_at) FROM errors e
+  WHERE l.kind=5 AND e.device_id=l.id AND e.org_id=l.org_id
+   AND e.closed_at IS NULL AND e.severity IN (1,2,3,4)
+   AND e.site_id IS NOT DISTINCT FROM d.site_id
+   AND hosted_account_source_authorized(l.org_id,l.kind,l.id,a.client_id,a.subclient_id,e.site_id,d.device_identifier,e.first_seen_at,e.last_seen_at)) AS error_attention_time,
  CASE WHEN l.kind=5 THEN sample.site_id ELSE module_sample.site_id END AS sample_site,
  CASE WHEN l.kind=5 THEN sample.time IS NOT NULL ELSE module_sample.module_id IS NOT NULL END AS sample_present
 ) source

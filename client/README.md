@@ -623,13 +623,16 @@ allocations remain in the parent’s inventory totals. Dashboard counts and site
 summaries cover the permitted allocated estate and exclude whole-site capacity
 and plant power.
 
-Overview reuses Dashboard health tiles and performance panels, with all Fleet
-time ranges, measured temperature and uptime, and server-scoped allocation/site
+Overview reuses Dashboard health tiles and performance panels, with 1h, 24h and
+7d ranges, measured temperature and uptime, and server-scoped allocation/site
 filters. Entire estate, Directly managed and named subclient filters retain the
 parent's navigation and permissions. Historical attribution uses the allocation
 and delegation in effect when each sample was recorded. Migration 1030 begins
 prospective interval tracking; earlier ownership is unknown and is never inferred
-from current assignments. Charts identify the coverage boundary and missing data.
+from current assignments. Account charts use raw samples retained for ten days;
+the account API rejects ranges longer than ten days. Charts identify the later
+of the tracking and retention boundaries and missing data. Host dashboard ranges
+continue to use the existing aggregate-backed history.
 Partial power is a measured subtotal with reporting coverage; incomplete efficiency
 remains unavailable. Missing buckets remain gaps rather than interpolated values.
 

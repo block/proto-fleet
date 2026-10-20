@@ -17,6 +17,8 @@ import { useTemperatureUnit } from "@/protoFleet/store";
 import DurationSelector, { type FleetDuration, fleetDurations } from "@/shared/components/DurationSelector";
 import { useStickyState } from "@/shared/hooks/useStickyState";
 
+const accountDurations = ["1h", "24h", "7d"] as const;
+
 export type DashboardPerformanceProps = {
   duration: FleetDuration;
   onDurationChange: (duration: FleetDuration) => void;
@@ -58,7 +60,11 @@ export default function DashboardPerformance({
       <div ref={refs.vertical.start} />
       <div className={`${bgClass} sticky top-0 z-2 px-6 pt-6 pb-6 laptop:px-10 laptop:pt-10`}>
         <SectionHeading heading="Performance">
-          <DurationSelector duration={duration} durations={fleetDurations} onSelect={onDurationChange} />
+          <DurationSelector
+            duration={duration}
+            durations={accountReadings ? accountDurations : fleetDurations}
+            onSelect={onDurationChange}
+          />
         </SectionHeading>
       </div>
       <div className="flex flex-col gap-4 px-6 pt-4 laptop:px-10">

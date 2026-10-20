@@ -52,9 +52,11 @@ WITH intervals AS MATERIALIZED (
  metric.name IN ('hashrate','power') AS efficiency_candidate
  FROM intervals i
  JOIN container_module_metrics m ON i.kind=6 AND m.module_id=i.asset_id AND COALESCE(m.site_id,0)=i.site_id
-  -- Collection may follow a cached source. Bound the scan, then authorize and
-  -- bucket each metric using its full independent contributor window.
-  AND m.time>=$2::timestamptz AND m.time<$3::timestamptz+INTERVAL '2 minutes'
+  -- The stored time may come from a stale PSU while board sources are fresh.
+  -- Bound collection using the source freshness/skew allowances, then authorize
+  -- and bucket each metric using its full independent contributor window.
+  AND m.collected_at>=$2::timestamptz-INTERVAL '5 seconds'
+  AND m.collected_at<$3::timestamptz+INTERVAL '2 minutes'
  CROSS JOIN LATERAL (VALUES
   ('hashrate',m.hashrate_hs,(m.coverage#>>'{hashrate,oldest_at}')::timestamptz,(m.coverage#>>'{hashrate,newest_at}')::timestamptz),
   ('power',m.power_w,(m.coverage#>>'{power,oldest_at}')::timestamptz,(m.coverage#>>'{power,newest_at}')::timestamptz),
