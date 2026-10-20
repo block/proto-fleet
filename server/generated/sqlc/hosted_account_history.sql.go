@@ -40,11 +40,11 @@ WITH intervals AS MATERIALIZED (
   AND m.time>=i.started_at AND (i.ended_at IS NULL OR m.time<i.ended_at)
   AND m.time>=$2::timestamptz AND m.time<$3::timestamptz
  UNION ALL
- SELECT i.kind,i.asset_id,metric.newest_at AS time,COALESCE(m.site_id,0)::bigint,
- CASE WHEN metric.name='hashrate' THEN metric.value END,
- CASE WHEN metric.name='power' THEN metric.value END,
- CASE WHEN metric.name='temperature' THEN metric.value END,
- CASE WHEN metric.name='temperature' THEN true ELSE COALESCE(
+ SELECT i.kind,i.asset_id,CASE WHEN source_window.has_source THEN metric.newest_at ELSE m.collected_at END AS time,COALESCE(m.site_id,0)::bigint,
+ CASE WHEN metric.name='hashrate' AND source_window.has_source THEN metric.value END,
+ CASE WHEN metric.name='power' AND source_window.has_source THEN metric.value END,
+ CASE WHEN metric.name='temperature' AND source_window.has_source THEN metric.value END,
+ CASE WHEN metric.name='temperature' THEN true ELSE source_window.has_source AND COALESCE(
   (m.coverage->metric.name->>'topology_complete')::boolean
   AND (m.coverage->metric.name->>'expected')::int>0
   AND (m.coverage->metric.name->>'reporting')::int=(m.coverage->metric.name->>'expected')::int
@@ -62,9 +62,20 @@ WITH intervals AS MATERIALIZED (
   ('power',m.power_w,(m.coverage#>>'{power,oldest_at}')::timestamptz,(m.coverage#>>'{power,newest_at}')::timestamptz),
   ('temperature',m.temperature_c,(m.coverage#>>'{temperature,oldest_at}')::timestamptz,(m.coverage#>>'{temperature,newest_at}')::timestamptz)
  ) metric(name,value,oldest_at,newest_at)
- WHERE metric.oldest_at IS NOT NULL AND metric.newest_at>=metric.oldest_at
+ CROSS JOIN LATERAL (
+  SELECT COALESCE(metric.oldest_at>'0001-01-01T00:00:00Z'::timestamptz
+   AND metric.newest_at>=metric.oldest_at,false) AS has_source
+ ) source_window
+ WHERE (source_window.has_source
   AND metric.oldest_at>=i.started_at AND (i.ended_at IS NULL OR metric.newest_at<i.ended_at)
-  AND metric.newest_at>=$2::timestamptz AND metric.newest_at<$3::timestamptz
+  AND metric.newest_at>=$2::timestamptz AND metric.newest_at<$3::timestamptz)
+ OR (
+  -- Missing sources carry only an incompleteness marker, never a value.
+  -- Authorize that absence at collection time without admitting earlier owners.
+  NOT source_window.has_source AND metric.name IN ('hashrate','power')
+  AND m.collected_at>=i.started_at AND (i.ended_at IS NULL OR m.collected_at<i.ended_at)
+  AND m.collected_at>=$2::timestamptz AND m.collected_at<$3::timestamptz
+ )
 
 ), asset_buckets AS (
 SELECT kind,asset_id,date_bin(make_interval(secs=>$4::int),time,$2::timestamptz)::timestamptz AS bucket,
