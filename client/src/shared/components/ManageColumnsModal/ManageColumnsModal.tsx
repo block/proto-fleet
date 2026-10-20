@@ -93,6 +93,8 @@ const ManageColumnsModal = <K extends string>({ columns, defaultColumns, titles,
       open
       onDismiss={onDismiss}
       title="Manage columns"
+      dialogLabel="Manage columns"
+      manageFocus
       description="Choose which data to display and rearrange columns to match your workflow."
       buttonSize={sizes.base}
       buttons={[

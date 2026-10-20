@@ -7,6 +7,7 @@ export type AccountScope = {
   account: Account;
   client: ReturnType<typeof createAccountClient>;
   signal: AbortSignal;
+  readOnly?: boolean;
   // A denied mutation may be a failed password confirmation; recheck before
   // replacing an authorized page. Denied private reads invalidate immediately.
   refreshAccount: () => void;

@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { useRequiredAccountScope } from "../AccountScope";
-import { accountPath, can, capabilities } from "../capabilities";
+import { accountManagementPath, accountPath, can, capabilities } from "../capabilities";
 import { useHostedAccounts } from "../HostedAccountsContext";
 import { useAccountQuery } from "../useAccountQuery";
 import AccountAssets from "./AccountAssets";
@@ -10,6 +10,7 @@ import { AccountState } from "./AccountState";
 import { ActionModal } from "./ActionModal";
 import { CapabilityFields } from "./CapabilityFields";
 import type { Account } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import Breadcrumb from "@/shared/components/Breadcrumb";
@@ -19,8 +20,10 @@ import Input from "@/shared/components/Input";
 import List from "@/shared/components/List";
 
 const AccountChildren = () => {
-  const { account, client } = useRequiredAccountScope();
+  const { account, client, readOnly = false } = useRequiredAccountScope();
   const directory = useHostedAccounts();
+  const childTeamPath = (id: string) =>
+    account.depth === 0 ? accountManagementPath(id, "team") : accountPath(id, "team");
   const navigate = useNavigate();
   const { pathname, state } = useLocation();
   const allowed = account.depth === 0 ? account.capabilityCeiling : account.effectiveCapabilities;
@@ -30,7 +33,7 @@ const AccountChildren = () => {
     (signal: AbortSignal) => client.listChildren({ accountId: account.accountId }, { signal }),
     [account.accountId, client],
   );
-  const query = useAccountQuery(load, true, true);
+  const query = useAccountQuery(load, true, true, POLL_INTERVAL_MS);
   const [params, setParams] = useSearchParams();
   const selectedChild = query.data?.accounts.find((child) => child.accountId === params.get("assets"));
   const assigning = params.get("action") === "assign";
@@ -73,8 +76,9 @@ const AccountChildren = () => {
               <Button
                 variant="secondary"
                 size={sizes.compact}
+                disabled={readOnly}
                 text="Invite team member"
-                to={`${accountPath(selectedChild.accountId, "team")}?invite=1`}
+                to={`${childTeamPath(selectedChild.accountId)}?invite=1`}
               />
             ) : null}
             {selectedChild && !assigning && can(account, 16n) ? (
@@ -84,6 +88,7 @@ const AccountChildren = () => {
                 <Button
                   variant="primary"
                   size={sizes.compact}
+                  disabled={readOnly}
                   text="Assign assets"
                   onClick={() => setParams({ assets: selectedChild.accountId, action: "assign" })}
                 />
@@ -121,6 +126,7 @@ const AccountChildren = () => {
           <Button
             variant="primary"
             size={sizes.compact}
+            disabled={readOnly}
             text={account.depth === 0 ? "Create client" : "Create subclient"}
             onClick={() => open("new")}
           />
@@ -207,13 +213,13 @@ const AccountChildren = () => {
                     actionHandler: (child: Account) => {
                       if (!child.suspended) setParams({ assets: child.accountId, action: "assign" });
                     },
-                    disabled: (child: Account) => child.suspended,
+                    disabled: (child: Account) => readOnly || child.suspended,
                   },
                 ]
               : []),
             { title: "View mining assets", actionHandler: (child: Account) => setParams({ assets: child.accountId }) },
             {
-              title: "Open workspace",
+              title: account.depth === 0 ? "View as client" : "Open workspace",
               actionHandler: (child: Account) => {
                 navigate(accountPath(child.accountId));
               },
@@ -221,10 +227,20 @@ const AccountChildren = () => {
             },
             {
               title: "Invite team member",
-              actionHandler: (child: Account) => navigate(`${accountPath(child.accountId, "team")}?invite=1`),
+              disabled: readOnly,
+              actionHandler: (child: Account) => navigate(`${childTeamPath(child.accountId)}?invite=1`),
               hidden: (child: Account) => !can(child, 8n),
             },
-            ...(canConfigure ? [{ title: "Manage permissions", actionHandler: open }] : []),
+            ...(account.depth === 0
+              ? [
+                  {
+                    title: "Client settings",
+                    actionHandler: (child: Account) => navigate(accountManagementPath(child.accountId, "settings")),
+                    hidden: (child: Account) => !can(child, 1n),
+                  },
+                ]
+              : []),
+            ...(canConfigure ? [{ title: "Manage permissions", disabled: readOnly, actionHandler: open }] : []),
           ]}
           noDataElement={
             <SettingsEmptyState
@@ -265,7 +281,7 @@ const AccountChildren = () => {
                 name: name.trim(),
                 capabilities: ceiling,
               });
-              if (result.account) navigate(`${accountPath(result.account.accountId, "team")}?invite=administrator`);
+              if (result.account) navigate(`${childTeamPath(result.account.accountId)}?invite=administrator`);
             } else
               await client.configureAccount({
                 accountId: account.accountId,

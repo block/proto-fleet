@@ -86,10 +86,10 @@ cannot distinguish that fabricated value from a real host boot through MDKv1.
 
 ## Fleet Node bootstrap rate limits
 
-| RPC | Requests per source IP per minute |
-| --- | ---: |
-| `Register` | 120 |
-| `BeginAuthHandshake` + `CompleteAuthHandshake` | 600 combined |
+| RPC                                            | Requests per source IP per minute |
+| ---------------------------------------------- | --------------------------------: |
+| `Register`                                     |                               120 |
+| `BeginAuthHandshake` + `CompleteAuthHandshake` |                      600 combined |
 
 The budgets allow 100 Nodes to enroll and authenticate behind one public IP.
 Successful and failed attempts count. Heartbeats, control streams, discovery
@@ -301,6 +301,33 @@ eligible hardware and destination policy. Recall can release retained unavailabl
 allocations. Assignment does not reserve/activate device-write fences, dispatch
 firmware changes or apply incoming pool profiles.
 
+`GetAccountDashboard` supplies the shared client/preview dashboard, with current
+scoped totals, allocated-site summaries and historical readings. Requests require
+an explicit selected account and a Fleet session. Allocation and site filters
+are resolved on the server; selecting a subclient is a reporting filter and does
+not resolve its private workspace authority. `GetAccountAssetDetail` independently
+requires a current, available allocation and live site access.
+
+Migration 1030 records half-open assignment/delegation intervals, including device
+site and identity changes. Existing assignments establish ownership only from the
+migration's recorded start; no earlier samples are backfilled from current owners.
+Raw miner/module samples join their typed identity and established intervals before
+aggregation, so buckets crossing reassignment exclude other accounts' samples.
+Recall leaves intervals intact. Current site permissions gate historical access;
+restoration exposes retained samples again. Rollback refuses to discard retained
+intervals. Module readings require each metric's full source-time window to fit an
+established interval; collection time does not establish ownership. Current
+readings use the same provenance checks before inventory sorting or aggregation.
+
+Charts use retained raw telemetry. Existing rollups lack the site or independent
+source-time provenance needed for this authorization check, so aggregate-only
+periods remain unavailable. Raw telemetry retention limits chart coverage.
+
+Power totals contain only measured equipment readings with reporting counts;
+controller plant power never substitutes for assigned-module power. Efficiency
+requires complete valid power and hashrate coverage across the selected assets,
+both for current totals and every historical bucket. Missing values remain absent.
+
 ### Rig Curtailment Configuration Delivery
 
 MQTT settings changes durably request configuration delivery to every fully
@@ -405,6 +432,7 @@ ERROR_QUERY_TEST_ERROR_SEED_FILE=./seed_errors.yaml fleetd
 ```
 
 **Docker Compose:** In `server/docker-compose.yaml`, uncomment the seed file lines:
+
 ```yaml
 environment:
   ERROR_QUERY_TEST_ERROR_SEED_FILE: "/app/testdata/seed_errors.yaml"
@@ -413,6 +441,7 @@ volumes:
 ```
 
 **Behavior:**
+
 - Devices listed in the seed file use **only** the errors defined in the file
 - Devices **not** in the seed file get randomly generated errors (30% probability per device)
 - To force a device to have no errors, include it with an empty errors list: `errors: []`
@@ -431,23 +460,23 @@ devices:
 
   - device_id: 2
     device_type: proto
-    errors: []  # Healthy device with no errors
+    errors: [] # Healthy device with no errors
 ```
 
 ### Available Options
 
-| Field | Description | Example |
-|-------|-------------|---------|
-| `canonical_error` | Error code (with or without `MINER_ERROR_` prefix) | `HASHBOARD_OVER_TEMPERATURE` |
-| `severity` | `critical`, `major`, `minor`, or `info` | `major` |
-| `cause_summary` | Human-readable cause description | `"PSU temperature exceeded threshold"` |
-| `recommended_action` | Suggested remediation | `"Check cooling system"` |
-| `impact` | Effect on operations | `"Reduced hashrate"` |
-| `component_id` | Format: `{device_id}_{type}_{index}` | `"1_psu_0"` |
-| `first_seen_ago` | Duration since first occurrence | `2h`, `7d`, `30m` |
-| `last_seen_ago` | Duration since last occurrence | `5m`, `1h` |
-| `closed` | Mark error as resolved | `true` |
-| `vendor_attributes` | Custom key-value metadata | `psu_temp_c: "87"` |
+| Field                | Description                                        | Example                                |
+| -------------------- | -------------------------------------------------- | -------------------------------------- |
+| `canonical_error`    | Error code (with or without `MINER_ERROR_` prefix) | `HASHBOARD_OVER_TEMPERATURE`           |
+| `severity`           | `critical`, `major`, `minor`, or `info`            | `major`                                |
+| `cause_summary`      | Human-readable cause description                   | `"PSU temperature exceeded threshold"` |
+| `recommended_action` | Suggested remediation                              | `"Check cooling system"`               |
+| `impact`             | Effect on operations                               | `"Reduced hashrate"`                   |
+| `component_id`       | Format: `{device_id}_{type}_{index}`               | `"1_psu_0"`                            |
+| `first_seen_ago`     | Duration since first occurrence                    | `2h`, `7d`, `30m`                      |
+| `last_seen_ago`      | Duration since last occurrence                     | `5m`, `1h`                             |
+| `closed`             | Mark error as resolved                             | `true`                                 |
+| `vendor_attributes`  | Custom key-value metadata                          | `psu_temp_c: "87"`                     |
 
 ### Batch ownership admission
 

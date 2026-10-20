@@ -9,6 +9,7 @@ export const useAccountQuery = <T>(
   load: (signal: AbortSignal) => Promise<T>,
   enabled = true,
   retainWhileRefreshing = false,
+  pollIntervalMs = 0,
 ) => {
   const invalidateAccount = useAccountScope()?.invalidateAccount;
   const [revision, setRevision] = useState(0);
@@ -51,6 +52,11 @@ export const useAccountQuery = <T>(
     );
     return () => controller.abort();
   }, [load, enabled, revision, invalidateAccount, retainWhileRefreshing]);
+  useEffect(() => {
+    if (!enabled || !pollIntervalMs) return;
+    const timer = window.setInterval(refresh, pollIntervalMs);
+    return () => window.clearInterval(timer);
+  }, [enabled, pollIntervalMs, refresh]);
   const current =
     enabled && result?.load === load && (result?.revision === revision || retainWhileRefreshing) ? result : null;
   return {

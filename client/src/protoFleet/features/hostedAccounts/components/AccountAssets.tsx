@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import clsx from "clsx";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import { useRequiredAccountScope } from "../AccountScope";
@@ -19,6 +20,7 @@ import {
 } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import ListPagination from "@/protoFleet/components/ListPagination";
 import ListSearchInput from "@/protoFleet/components/ListSearchInput";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import FleetListActionBar from "@/protoFleet/features/fleetManagement/components/ActionBar/FleetListActionBar";
 import {
   type MinerColumn,
@@ -35,10 +37,12 @@ import { Slider } from "@/shared/assets/icons";
 import { ActionBarSelectionControls } from "@/shared/components/ActionBar";
 import Button, { sizes } from "@/shared/components/Button";
 import List from "@/shared/components/List";
+import FilterChipsBar, { type FilterChipsBarFilter } from "@/shared/components/List/Filters/FilterChipsBar";
 import { formatListCountLabel } from "@/shared/components/List/listCountLabel";
 import type { ColConfig, SortDirection } from "@/shared/components/List/types";
 import ManageColumnsModal from "@/shared/components/ManageColumnsModal";
 import Select from "@/shared/components/Select";
+import TabStrip, { TabStripItem } from "@/shared/components/Tab/TabStrip";
 
 const ASSETS_PAGE_SIZE = MINERS_PAGE_SIZE;
 const sortableColumns = new Set<AssetColumn>(["name", "model", "hashrate", "efficiency", "powerUsage", "temperature"]);
@@ -58,7 +62,8 @@ const AccountAssets = ({
   initialNotice?: string;
 }) => {
   const assigning = mode === "assign";
-  const { account, client } = useRequiredAccountScope();
+  const { account, client, readOnly = false } = useRequiredAccountScope();
+  const fleetView = !child && !assigning && account.depth > 0;
   const username = useFleetStore((state) => state.auth.username);
   const columnPreferences = useAssetColumnPreferences(username, account.accountId);
   const [managingColumns, setManagingColumns] = useState(false);
@@ -68,6 +73,8 @@ const AccountAssets = ({
   });
   const [search, setSearch] = useState("");
   const [owner, setOwner] = useState("");
+  const [model, setModel] = useState("");
+  const [site, setSite] = useState({ id: "", name: "" });
   const [container, setContainer] = useState({ id: "", name: "" });
   const [pages, setPages] = useState([""]);
   const [selected, setSelected] = useState<string[]>([]);
@@ -89,12 +96,26 @@ const AccountAssets = ({
           },
           ownerAccountId: assigning ? account.accountId : child?.accountId || owner || undefined,
           containerId: container.id ? BigInt(container.id) : undefined,
+          model: model || undefined,
+          siteId: site.id ? BigInt(site.id) : undefined,
         },
         { signal },
       );
       return { inventory };
     },
-    [account.accountId, client, pageToken, search, owner, container.id, assigning, child?.accountId, sort],
+    [
+      account.accountId,
+      client,
+      pageToken,
+      search,
+      owner,
+      container.id,
+      model,
+      site.id,
+      assigning,
+      child?.accountId,
+      sort,
+    ],
   );
   const query = useAccountQuery(load, true, true);
   const { invalidate, refresh: revalidate } = query;
@@ -109,8 +130,12 @@ const AccountAssets = ({
     const refreshOnFocus = () => {
       if (!assignmentPending.current) revalidate();
     };
+    const timer = window.setInterval(refreshOnFocus, POLL_INTERVAL_MS);
     window.addEventListener("focus", refreshOnFocus);
-    return () => window.removeEventListener("focus", refreshOnFocus);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refreshOnFocus);
+    };
   }, [revalidate]);
   const rows = useMemo(
     () => (query.data?.inventory.assets ?? []).map((asset) => ({ ...asset, key: allocationKey(asset) })),
@@ -161,10 +186,43 @@ const AccountAssets = ({
       selectionHint = `Select assets assigned to one ${childLabel} to recall them together.`;
     }
   }
-  const containers = new Map(
-    rows.filter((row) => row.containerId > 0n).map((row) => [String(row.containerId), row.containerName]),
-  );
+  const filterOptions = query.data?.inventory.filterOptions;
+  const containers = new Map((filterOptions?.containers ?? []).map((option) => [String(option.id), option.name]));
   if (container.id) containers.set(container.id, container.name);
+  const sites = new Map((filterOptions?.sites ?? []).map((option) => [String(option.id), option.name]));
+  if (site.id) sites.set(site.id, site.name);
+  const models = new Set(filterOptions?.models ?? []);
+  if (model) models.add(model);
+  const assignmentOptions = [
+    { id: account.accountId, label: account.depth === 0 ? "Available to assign" : "Directly assigned" },
+    ...children.map((child) => ({ id: child.accountId, label: child.name })),
+    ...(owner && owner !== account.accountId && !children.some((child) => child.accountId === owner)
+      ? [{ id: owner, label: "Unavailable assignment" }]
+      : []),
+  ];
+  const inventoryFilters: FilterChipsBarFilter[] = [
+    ...(management && !child && !assigning
+      ? [{ key: "assignment", title: "Assigned to", options: assignmentOptions, selectedValues: owner ? [owner] : [] }]
+      : []),
+    {
+      key: "model",
+      title: "Model",
+      options: Array.from(models, (value) => ({ id: value, label: value })),
+      selectedValues: model ? [model] : [],
+    },
+    {
+      key: "site",
+      title: "Site",
+      options: Array.from(sites, ([id, label]) => ({ id, label })),
+      selectedValues: site.id ? [site.id] : [],
+    },
+    {
+      key: "container",
+      title: "Container",
+      options: Array.from(containers, ([id, label]) => ({ id, label })),
+      selectedValues: container.id ? [container.id] : [],
+    },
+  ];
   const resetSelection = () => {
     setPages([""]);
     setSelected([]);
@@ -201,6 +259,16 @@ const AccountAssets = ({
           ) : (
             asset.ownerAccountName || "—"
           )
+        ) : column === "name" && account.depth > 0 && asset.available && !asset.outsidePolicy ? (
+          <Button
+            variant="textOnly"
+            textColor="text-text-primary"
+            className="justify-start text-left font-normal"
+            textOnlyUnderlineOnHover={false}
+            to={`${accountPath(account.accountId, "assets")}/${asset.kind === MiningAssetKind.MODULE ? "module" : "miner"}/${asset.id}`}
+          >
+            <AccountAssetCell asset={asset} column={column} />
+          </Button>
         ) : (
           <AccountAssetCell asset={asset} column={column} />
         ),
@@ -209,22 +277,49 @@ const AccountAssets = ({
 
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      {!child ? (
-        <SettingsPageHeader title={assigning ? "Assign assets" : "Mining assets"} description={account.name} />
+      {fleetView ? (
+        <div className="flex flex-col gap-4">
+          <h1 className="text-heading-300 text-text-primary">Fleet</h1>
+          <TabStrip activeId="miners" onSelect={() => {}} ariaLabel="Fleet sections">
+            <TabStripItem id="miners" label="Miners" />
+          </TabStrip>
+        </div>
+      ) : !child ? (
+        <SettingsPageHeader title={assigning ? "Assign assets" : "Mining assets"} />
       ) : null}
       {assigning ? (
         <p className="text-200 text-text-primary-50">
           Choose assets held directly by {account.name} to assign to {child?.name ?? "a subclient"}.
         </p>
-      ) : !child ? (
+      ) : !child && !fleetView ? (
         <p className="text-200 text-text-primary-50">
           {account.depth < 2
             ? "Assets allocated to this account, including its subclients."
             : "Assets allocated to this account."}
         </p>
       ) : null}
-      <div className="flex flex-wrap items-center gap-3">
-        {management && !child && !assigning ? (
+      <div className={clsx("flex flex-wrap items-center gap-3", fleetView && "laptop:pt-4")}>
+        {fleetView ? (
+          <FilterChipsBar
+            filters={inventoryFilters}
+            onChange={(key, values) => {
+              resetSelection();
+              const value = values.slice(-1)[0] ?? "";
+              if (key === "assignment") setOwner(value);
+              if (key === "model") setModel(value);
+              if (key === "site") setSite({ id: value, name: sites.get(value) ?? "" });
+              if (key === "container") setContainer({ id: value, name: containers.get(value) ?? "" });
+            }}
+            onClearAll={() => {
+              resetSelection();
+              setOwner("");
+              setModel("");
+              setSite({ id: "", name: "" });
+              setContainer({ id: "", name: "" });
+            }}
+          />
+        ) : null}
+        {!fleetView && management && !child && !assigning ? (
           <Select
             id="account-assets-owner"
             label="Assignment"
@@ -241,7 +336,7 @@ const AccountAssets = ({
             }}
           />
         ) : null}
-        {containers.size ? (
+        {!fleetView && containers.size ? (
           <Select
             id="account-assets-container"
             label="Container"
@@ -261,6 +356,7 @@ const AccountAssets = ({
           <Button
             variant="secondary"
             size={sizes.compact}
+            disabled={readOnly}
             text="Manage subclient assets"
             to={`${accountPath(account.accountId, "children")}?assets=${encodeURIComponent(owner)}`}
           />
@@ -329,6 +425,7 @@ const AccountAssets = ({
                   <Button
                     variant="secondary"
                     className="bg-grayscale-white-10! text-grayscale-white-90!"
+                    disabled={readOnly}
                     text="Assign selected"
                     onClick={() =>
                       setReview({
@@ -343,6 +440,7 @@ const AccountAssets = ({
                   <Button
                     variant="secondary"
                     className="bg-grayscale-white-10! text-grayscale-white-90!"
+                    disabled={readOnly}
                     text="Recall selected"
                     onClick={() =>
                       setReview({ intent: AssetAssignmentIntent.RECALL, childId: recallChild, assets: selectedAssets })
@@ -367,6 +465,8 @@ const AccountAssets = ({
             customSetSelectedItems={setSelected}
             isRowSelectable={isAssetSelectable}
             stickyFirstColumn
+            tableClassName={fleetView ? "mb-4 inline-table w-max !min-w-fit !table-fixed" : undefined}
+            applyColumnWidthsToCells={fleetView}
             activeCols={activeColumns}
             colTitles={assetColumnTitles}
             colConfig={columnConfig}
@@ -378,19 +478,25 @@ const AccountAssets = ({
               setSort({ field, direction });
             }}
             total={rows.length}
-            itemName={{ singular: "asset on this page", plural: "assets on this page" }}
+            itemName={
+              fleetView
+                ? pages.length === 1 && !query.data.inventory.nextPageToken
+                  ? { singular: "mining asset", plural: "mining assets" }
+                  : { singular: "mining asset on this page", plural: "mining assets on this page" }
+                : { singular: "asset on this page", plural: "assets on this page" }
+            }
             noDataElement={
               <SettingsEmptyState
                 title={
-                  search || owner || container.id
+                  search || owner || container.id || model || site.id
                     ? "No matching assets"
                     : account.depth === 0
                       ? "No mining assets"
                       : "No assets assigned"
                 }
                 description={
-                  search || owner || container.id
-                    ? "Try another search or assignment filter."
+                  search || owner || container.id || model || site.id
+                    ? "Try another search or filter."
                     : account.depth === 0
                       ? "Paired miners and current container modules appear here."
                       : "Your parent account can assign miners or modules to this account."

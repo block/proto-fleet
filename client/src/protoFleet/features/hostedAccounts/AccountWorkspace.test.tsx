@@ -1,5 +1,5 @@
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { create, toJson } from "@bufbuild/protobuf";
 import userEvent from "@testing-library/user-event";
@@ -7,15 +7,18 @@ import AccountDirectory from "./AccountDirectory";
 import AccountWorkspace from "./AccountWorkspace";
 import { HostedAccountsContext } from "./HostedAccountsContext";
 import { AccountRole, AccountSchema } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { useFleetStore } from "@/protoFleet/store";
 
 const rootId = "99999999-9999-4999-8999-999999999999";
 const accountId = "11111111-1111-4111-8111-111111111111";
 const initialAuth = useFleetStore.getState().auth;
+const initialUI = useFleetStore.getState().ui;
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  useFleetStore.setState({ auth: initialAuth });
+  useFleetStore.setState({ auth: initialAuth, ui: initialUI });
 });
 function mount(
   account = create(AccountSchema, {
@@ -35,6 +38,7 @@ function mount(
       <HostedAccountsContext.Provider value={{ accounts, hostAccess, loading: false, error: null, refresh }}>
         <Routes>
           <Route path="/accounts/:accountId/:section?" element={<AccountWorkspace />} />
+          <Route path="/accounts/:accountId/manage/:section?" element={<AccountWorkspace management />} />
           <Route path="/accounts" element={<AccountDirectory />} />
         </Routes>
       </HostedAccountsContext.Provider>
@@ -68,16 +72,35 @@ describe("real account workspace routing", () => {
       const account = create(AccountSchema, { accountId, name: "Customer", depth, role, effectiveCapabilities: mask });
       fetchRpc((method) => (method === "GetAccount" ? { account: toJson(AccountSchema, account) } : { totals: {} }));
       mount(account, "");
-      const main = within(screen.getByRole("navigation", { name: "Main" }));
-      await waitFor(() => expect(main.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page"));
-      expect(main.getByRole("link", { name: "Mining assets" })).toBeInTheDocument();
-      expect(main.getByRole("link", { name: "Pools" })).toBeInTheDocument();
-      expect(main.getByRole("link", { name: "Access" })).toBeInTheDocument();
-      expect(main.getByRole("link", { name: "Settings" })).toHaveAttribute("href", `/accounts/${accountId}/settings`);
-      expect(!!main.queryByRole("link", { name: "Team" })).toBe(management);
-      expect(!!main.queryByRole("link", { name: "Subclients" })).toBe(children);
-      expect(main.queryByRole("link", { name: "Fleet" })).not.toBeInTheDocument();
+      const main = within(screen.getByTestId("navigation-menu"));
+      await waitFor(() => expect(main.getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page"));
+      expect(main.getByRole("link", { name: "Fleet" })).toHaveAttribute("href", `/accounts/${accountId}/assets`);
+      expect(main.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+      expect(main.queryByRole("link", { name: "Pools" })).not.toBeInTheDocument();
+      expect(main.queryByRole("link", { name: "Team" })).not.toBeInTheDocument();
+      expect(main.queryByRole("link", { name: "Subclients" })).not.toBeInTheDocument();
       await screen.findByText("No mining assets assigned");
+      await userEvent.setup().click(main.getByRole("link", { name: "Settings" }));
+      const settings = within(await screen.findByRole("navigation", { name: "Settings" }));
+      expect(settings.getByRole("link", { name: "Pools" })).toBeInTheDocument();
+      expect(settings.getByRole("link", { name: "Access" })).toBeInTheDocument();
+      expect(settings.getByRole("link", { name: "Preferences" })).toHaveAttribute(
+        "href",
+        `/accounts/${accountId}/preferences`,
+      );
+      expect(!!settings.queryByRole("link", { name: "Team" })).toBe(management);
+      expect(!!settings.queryByRole("link", { name: "Subclients" })).toBe(children);
+      expect(main.getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
+      const user = userEvent.setup();
+      await user.click(settings.getByRole("link", { name: "Preferences" }));
+      await user.click(await screen.findByRole("button", { name: "Celsius" }));
+      await user.click(screen.getByTestId("fahrenheit-option"));
+      await user.click(screen.getByRole("button", { name: "Done" }));
+      expect(screen.getByRole("button", { name: "Fahrenheit" })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "System" }));
+      await user.click(screen.getByTestId("theme-dark-option"));
+      await user.click(screen.getByRole("button", { name: "Done" }));
+      expect(screen.getByRole("button", { name: "Dark" })).toBeInTheDocument();
     },
   );
   it("opens host root administration by default without resolving a private customer", async () => {
@@ -93,6 +116,7 @@ describe("real account workspace routing", () => {
     expect(tabs.getByRole("button", { name: "Clients" })).toHaveAttribute("aria-current", "page");
     expect(tabs.queryByRole("button", { name: "Mining assets" })).not.toBeInTheDocument();
     expect(tabs.queryByRole("button", { name: "Overview" })).not.toBeInTheDocument();
+    expect(tabs.getByRole("button", { name: "Settings" })).toBeInTheDocument();
   });
   it("opens customer allocation inventory through host authority without private workspace access", async () => {
     const childId = "22222222-2222-4222-8222-222222222222";
@@ -151,8 +175,11 @@ describe("real account workspace routing", () => {
     });
     const user = userEvent.setup();
     mount(account, "assets");
-    await user.click(await screen.findByRole("button", { name: /Assignment/ }));
-    await user.click(await screen.findByRole("option", { name: "East" }));
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(new DOMRect(20, 20, 240, 40));
+    await user.click(await screen.findByRole("button", { name: "Add Filter" }));
+    await user.click(screen.getByTestId("nested-dropdown-filter-row-assignment"));
+    await user.click(screen.getByTestId(`filter-option-${childId}`));
+    fireEvent.mouseDown(screen.getByRole("heading", { name: "Fleet" }));
     await waitFor(() =>
       expect(calls.filter((call) => call.method === "ListAccountAssets").slice(-1)[0]?.body.ownerAccountId).toBe(
         childId,
@@ -160,7 +187,7 @@ describe("real account workspace routing", () => {
     );
     reduced = true;
     act(() => window.dispatchEvent(new Event("focus")));
-    await waitFor(() => expect(screen.queryByRole("button", { name: /Assignment/ })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Assigned to/ })).not.toBeInTheDocument());
     await waitFor(() =>
       expect(
         calls.filter((call) => call.method === "ListAccountAssets").slice(-1)[0]?.body.ownerAccountId,
@@ -168,7 +195,7 @@ describe("real account workspace routing", () => {
     );
     expect(screen.queryByText("East")).not.toBeInTheDocument();
   });
-  it("retains the host shell and opens account sections as tabs under Settings Admin", async () => {
+  it("contains read-only client navigation in a full-screen preview with a close action", async () => {
     const account = create(AccountSchema, {
       accountId,
       name: "Customer",
@@ -180,29 +207,36 @@ describe("real account workspace routing", () => {
     useFleetStore.setState({ auth: { ...initialAuth, permissions: ["miner:read", "fleet:read"] } });
     fetchRpc((method) => (method === "GetAccount" ? { account: toJson(AccountSchema, account) } : {}));
     const user = userEvent.setup();
-    mount(account, "settings", true);
+    mount(account, "access", true);
     await screen.findByRole("button", { name: "Rename account" });
     expect(screen.queryByRole("button", { name: "Switch account" })).not.toBeInTheDocument();
-    const breadcrumb = within(screen.getByRole("navigation", { name: "Breadcrumb" }));
-    expect(breadcrumb.getByText("Customer")).toBeInTheDocument();
-    expect(breadcrumb.getByRole("link", { name: "Clients" })).toHaveAttribute("href", "/accounts");
-    expect(within(screen.getByTestId("app-header")).queryByText("Customer")).not.toBeInTheDocument();
-    const main = screen.getByRole("navigation", { name: "Main" });
-    expect(within(main).getByRole("link", { name: "Fleet" })).toBeInTheDocument();
+    const preview = screen.getByRole("dialog", { name: "Viewing as Customer" });
+    expect(within(preview).getByText("Read-only", { exact: true })).toBeInTheDocument();
+    expect(within(preview).getByRole("button", { name: "Close client preview" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Exit to Clients" })).not.toBeInTheDocument();
+    expect(within(preview).queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rename account" })).toBeDisabled();
+    expect(screen.queryByText("Actions are unavailable in this read-only preview.")).not.toBeInTheDocument();
+    const main = screen.getByTestId("navigation-menu");
+    expect(within(main).getByRole("link", { name: "Fleet" })).toHaveAttribute("href", `/accounts/${accountId}/assets`);
     expect(within(main).queryByRole("link", { name: "Clients" })).not.toBeInTheDocument();
     expect(within(main).getByRole("link", { name: "Settings" })).toHaveAttribute("aria-current", "page");
-    const admin = screen.getByRole("navigation", { name: "Settings" });
-    expect(within(admin).getByText("Admin")).toBeInTheDocument();
-    expect(within(admin).getByRole("link", { name: "Clients" })).toHaveAttribute("aria-current", "page");
-    const tabs = screen.getByRole("navigation", { name: "Account sections" });
-    await user.click(within(tabs).getByRole("button", { name: "Pools" }));
-    await screen.findByRole("button", { name: "Change selection" });
+    expect(screen.getByText("Host administration")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Account sections" })).not.toBeInTheDocument();
+    const settings = within(screen.getByRole("navigation", { name: "Settings" }));
+    await user.click(settings.getByRole("link", { name: "Pools" }));
+    await screen.findByRole("button", { name: "Add pool" });
+    expect(within(screen.getByTestId("navigation-menu")).getByRole("link", { name: "Settings" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
     expect(
-      within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Fleet" }),
-    ).toBeInTheDocument();
-    expect(
-      within(screen.getByRole("navigation", { name: "Account sections" })).getByRole("button", { name: "Pools" }),
+      within(screen.getByRole("navigation", { name: "Settings" })).getByRole("link", { name: "Pools" }),
     ).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Add pool" })).toBeDisabled();
+    await user.keyboard("{Escape}");
+    await screen.findByRole("link", { name: "Customer" });
+    expect(screen.queryByRole("dialog", { name: "Viewing as Customer" })).not.toBeInTheDocument();
   });
   it.each([false, true])(
     "keeps account navigation available with the appropriate switcher (multiple accounts=%s)",
@@ -224,22 +258,24 @@ describe("real account workspace routing", () => {
         name: "Other client",
         effectiveCapabilities: 1n,
       });
-      mount(account, "settings", false, multipleAccounts ? [account, otherAccount] : [account]);
+      mount(account, "access", false, multipleAccounts ? [account, otherAccount] : [account]);
       await screen.findByRole("button", { name: "Rename account" });
       const menu = within(screen.getByRole("navigation", { name: "Main" })).getByRole("list");
       expect(within(menu).getByRole("link", { name: "Settings" })).toHaveAttribute(
         "href",
         `/accounts/${accountId}/settings`,
       );
-      expect(within(menu).queryByRole("link", { name: "Home" })).not.toBeInTheDocument();
-      expect(within(menu).getByRole("link", { name: "Overview" })).toHaveAttribute(
+      expect(within(menu).getByRole("link", { name: "Home" })).toHaveAttribute(
         "href",
         `/accounts/${accountId}/overview`,
       );
-      expect(within(menu).getByRole("link", { name: "Mining assets" })).toHaveAttribute(
+      expect(within(menu).getByRole("link", { name: "Fleet" })).toHaveAttribute(
         "href",
         `/accounts/${accountId}/assets`,
       );
+      expect(
+        within(screen.getByRole("navigation", { name: "Settings" })).getByRole("link", { name: "Access" }),
+      ).toHaveAttribute("href", `/accounts/${accountId}/access`);
       if (multipleAccounts) {
         await user.click(screen.getByRole("button", { name: "Switch account" }));
         const dialog = within(screen.getByRole("dialog", { name: "Switch account" }));
@@ -251,14 +287,33 @@ describe("real account workspace routing", () => {
           within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByText("Customer"),
         ).toBeInTheDocument();
         expect(within(screen.getByTestId("app-header")).queryByText("Customer")).not.toBeInTheDocument();
-        await user.click(
-          within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: "Accounts" }),
-        );
+        expect(screen.getByTestId("navigation-home-link")).toHaveAttribute("href", `/accounts/${accountId}/overview`);
+        await user.click(screen.getByRole("link", { name: "All accounts" }));
       }
       await screen.findByRole("link", { name: "Join an account" });
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     },
   );
+  it("keeps host team provisioning writable in Clients management", async () => {
+    const account = create(AccountSchema, { accountId, name: "Customer", depth: 1, effectiveCapabilities: 31n });
+    const calls = fetchRpc((method) => (method === "GetAccount" ? { account: toJson(AccountSchema, account) } : {}));
+    mount(account, "manage/team?invite=administrator", true);
+    const user = userEvent.setup();
+    const dialog = await screen.findByRole("dialog", { name: "Create invitation" });
+    expect(screen.queryByText("Viewing as Customer")).not.toBeInTheDocument();
+    const tabs = within(screen.getByRole("navigation", { name: "Account sections" }));
+    expect(tabs.getByRole("button", { name: "Access" })).toBeInTheDocument();
+    expect(tabs.queryByRole("button", { name: "Settings" })).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Create invitation" }));
+    await waitFor(() => expect(calls.some((call) => call.method === "CreateInvitation")).toBe(true));
+  });
+  it("does not open a mutation dialog from an invitation deep link in preview", async () => {
+    const account = create(AccountSchema, { accountId, name: "Customer", depth: 1, effectiveCapabilities: 31n });
+    fetchRpc((method) => (method === "GetAccount" ? { account: toJson(AccountSchema, account) } : {}));
+    mount(account, "team?invite=administrator", true);
+    expect(await screen.findByRole("button", { name: "Create invitation" })).toBeDisabled();
+    expect(screen.queryByRole("dialog", { name: "Create invitation" })).not.toBeInTheDocument();
+  });
   it("keeps readable parents in subclient breadcrumbs and returns to their workspace", async () => {
     const parent = create(AccountSchema, {
       accountId: rootId,
@@ -278,11 +333,11 @@ describe("real account workspace routing", () => {
         ? { account: toJson(AccountSchema, body.accountId === rootId ? parent : child) }
         : { totals: {} },
     );
-    mount(child, "overview", true, [parent, child]);
+    mount(child, "overview", false, [parent, child]);
     const user = userEvent.setup();
     await screen.findByText("No mining assets assigned");
     const breadcrumb = within(screen.getByRole("navigation", { name: "Breadcrumb" }));
-    expect(breadcrumb.getByRole("link", { name: "Clients" })).toHaveAttribute("href", "/accounts");
+    expect(breadcrumb.queryByRole("link", { name: "Clients" })).not.toBeInTheDocument();
     expect(breadcrumb.getByRole("link", { name: "Parent client" })).toHaveAttribute(
       "href",
       `/accounts/${rootId}/overview`,
@@ -368,6 +423,30 @@ describe("real account workspace routing", () => {
     act(() => window.dispatchEvent(new Event("focus")));
     await waitFor(() => expect(screen.queryByLabelText("Secret")).not.toBeInTheDocument());
   });
+  it("revalidates effective site permission and clears private state in an active tab", async () => {
+    const polling = vi.spyOn(window, "setInterval");
+    const account = create(AccountSchema, { accountId, name: "Customer", depth: 1, effectiveCapabilities: 31n });
+    let restricted = false;
+    fetchRpc((method) => {
+      if (method === "GetAccount") return { account: toJson(AccountSchema, account) };
+      if (method === "GetSitePolicy")
+        return { effectiveRestricted: restricted, effectiveSiteIds: restricted ? ["7"] : [] };
+      return method === "CreateAccountKey" ? { secret: "private-key" } : {};
+    });
+    mount(account, "access");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Create API key" }));
+    await user.type(screen.getByLabelText("Key name"), "Reporting");
+    await user.click(screen.getByRole("button", { name: "Create key" }));
+    expect(await screen.findByLabelText("Secret")).toHaveValue("private-key");
+    restricted = true;
+    const poll = polling.mock.calls.find(([, interval]) => interval === POLL_INTERVAL_MS)?.[0];
+    expect(poll).toBeTypeOf("function");
+    await act(async () => {
+      if (typeof poll === "function") poll();
+    });
+    await waitFor(() => expect(screen.queryByLabelText("Secret")).not.toBeInTheDocument());
+  });
   it("keeps a failed pool password confirmation open while rechecking live access", async () => {
     const account = create(AccountSchema, {
       accountId,
@@ -378,7 +457,11 @@ describe("real account workspace routing", () => {
       effectiveCapabilities: 31n,
       capabilityCeiling: 31n,
     });
-    const calls = fetchRpc((method) => (method === "GetAccount" ? { account: toJson(AccountSchema, account) } : {}));
+    const calls = fetchRpc((method) => {
+      if (method === "GetAccount") return { account: toJson(AccountSchema, account) };
+      if (method === "ListPoolConfigurations") return { configurations: [{ poolId: "test-pool", name: "Test pool" }] };
+      return {};
+    });
     const originalFetch = globalThis.fetch;
     vi.stubGlobal(
       "fetch",

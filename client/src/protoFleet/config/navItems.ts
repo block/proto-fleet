@@ -22,6 +22,8 @@ export interface NavItem {
   scopable?: boolean;
   // Directory entries need exact matching when their child workspaces have their own nav.
   exact?: boolean;
+  // Account workspaces supply their own capability-filtered Settings sections.
+  children?: SecondaryNavItem[];
 }
 
 export interface SecondaryNavItem {

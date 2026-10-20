@@ -135,6 +135,7 @@ export interface LineChartProps {
   aggregateKey: string;
   activeKeys?: string[];
   tooltipKeys?: string[];
+  tooltipNotes?: Record<number, string>;
   highestValue?: string | number;
   tickCount?: number;
   minTickInterval?: number;
@@ -158,6 +159,7 @@ const LineChart = ({
   colorMap,
   activeKeys,
   tooltipKeys,
+  tooltipNotes,
   highestValue,
   units,
   segmentsLabel = "Hashboards",
@@ -547,6 +549,7 @@ const LineChart = ({
       <ChartTooltip
         aggregateKey={aggregateKey}
         aggregateLabel="Summary"
+        notes={tooltipNotes}
         activeKeys={tooltipKeysToShow}
         chartData={tooltipChartData}
         chartWidth={chartBoundingRect.width}
@@ -563,6 +566,7 @@ const LineChart = ({
     ),
     [
       aggregateKey,
+      tooltipNotes,
       tooltipKeysToShow,
       tooltipChartData,
       chartBoundingRect.width,

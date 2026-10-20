@@ -208,7 +208,9 @@ func publicHostedInvitation(procedure string) bool {
 // account administration deliberately continues to allow omitted selection.
 func requiresSelectedAccount(procedure string) bool {
 	switch procedure {
-	case hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure,
+	case hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountAssetDetailProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure,
 		hostedv1connect.HostedAccountServiceListAccountAssetsProcedure,
 		hostedv1connect.HostedAccountServiceAssignAccountAssetsProcedure,
 		hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure,
@@ -244,7 +246,9 @@ func allowsSelectedAccount(procedure string) bool {
 	// explicit decision before they can be called from a customer workspace.
 	// Token-bound invitation acceptance precedes selection and is excluded.
 	switch procedure {
-	case hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure,
+	case hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountAssetDetailProcedure,
+		hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure,
 		hostedv1connect.HostedAccountServiceListAccountAssetsProcedure,
 		hostedv1connect.HostedAccountServiceAssignAccountAssetsProcedure,
 		hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure,

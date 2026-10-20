@@ -559,14 +559,28 @@ recurring lesson, and check both themes when updating their presentation.
 ### Hosted account workspaces
 
 Hosts manage clients through Settings → Admin → Clients. Fleet navigation has
-no client account switcher. Explicitly opened client workspaces show their name
-as plain header context. Client users with one accessible account also see its
+no client account switcher. **View as client** opens the client's navigation at
+`/accounts/:accountId/:section` inside a full-screen modal with a persistent
+**Viewing as [client]** header and **Read-only** label. Close or Escape returns to
+the host’s previous page with its URL, filters, and scroll position preserved.
+The preview uses the same Overview, inventory, details and tools as a client administrator, subject to live account and site authority.
+Mutation controls remain visible but disabled; the preview client also rejects
+mutation RPCs. The authenticated host identity and audit attribution stay intact.
+Client users with one accessible account see its
 name as plain text; users with multiple accounts retain an account picker for their
 workspaces at `/accounts/:accountId/:section`. Customers and subclients land on
-Overview, followed by Mining assets and Pools. Team, Access,
-Subclients and Settings use the API’s effective capabilities. `/accounts` lists
-accessible workspaces. Hosts retain Fleet navigation and manage Clients under
-Settings → Admin. The owner-facing `/accounts` page directly lists managed clients
+Home, with Fleet for their assigned mining assets and Settings for administration.
+Settings groups Pools under Fleet, Team, Access and Subclients under Admin,
+and Preferences under Account, using the API’s effective capabilities. Desktop shows a Settings sidebar; phones
+show the same sections in the expandable navigation drawer. Access includes
+account details, renaming, the current user’s permissions, ancestor grants and API
+keys; account status appears only when suspended. Settings opens the first available account
+section. Preferences reuses personal theme and temperature-unit settings, persisted
+in the browser. All client roles can change them; host previews change only the
+operator’s display preferences. Current readings, history charts and inventory
+respect the selected temperature unit. `/accounts` lists accessible workspaces.
+Host management retains Fleet navigation under Settings → Admin; `/accounts/:accountId/manage/:section` holds client team and access
+management. The owner-facing `/accounts` page directly lists managed clients
 and offers **Create client**, without a Join an account CTA. It uses host authority,
 not private membership in each client. Rows summarize assigned miners and modules
 (including subclient allocations), distinct containers represented by those
@@ -595,16 +609,37 @@ team, keys or settings. Private child workspace links still require explicit
 account authority. Viewers receive no child ownership labels or owner filters.
 
 Hashrate and mining equipment power show current available readings and separate
-reporting counts. Efficiency uses only assets reporting both measurements.
+reporting counts. Efficiency requires complete valid power and hashrate coverage
+for every selected asset, including complete module measurement coverage.
 Partial/unknown module coverage, unavailable assets and assets outside the current
 site policy are labeled. Allocation counts retain unavailable and outside-policy
 assets, with their physical details and readings withheld; suspended child
-allocations remain in the parent’s totals. Reports describe current assignments,
-not historical ownership or plant power.
+allocations remain in the parent’s inventory totals. Dashboard counts and site
+summaries cover the permitted allocated estate and exclude whole-site capacity
+and plant power.
+
+Overview reuses Dashboard health tiles and performance panels, with all Fleet
+time ranges, measured temperature and uptime, and server-scoped allocation/site
+filters. Entire estate, Directly managed and named subclient filters retain the
+parent's navigation and permissions. Historical attribution uses the allocation
+and delegation in effect when each sample was recorded. Migration 1030 begins
+prospective interval tracking; earlier ownership is unknown and is never inferred
+from current assignments. Charts identify the coverage boundary and missing data.
+Partial power is a measured subtotal with reporting coverage; incomplete efficiency
+remains unavailable. Missing buckets remain gaps rather than interpolated values.
+
+Recall preserves retained readings from permitted allocation periods in charts,
+but current miner/module details require a current allocation. Current site
+permission gates history: removing access hides it, and restoring access restores
+retained samples. History does not create a separate historical detail page.
 
 Mining assets shows only the selected account’s allocation, including its
 subclients. Its Name, Model, Status, Hashrate, Efficiency, Power, and Temp columns
 use Fleet's labels, widths, metric cells, and module coverage presentation.
+The Fleet Add Filter menu supports Model, Site, Container, and Assigned to.
+Choices cover the full authorized inventory across pages; server-side filtering
+combines criteria before pagination and excludes redacted physical metadata.
+Assigned to remains limited to viewers with assignment-management visibility.
 Column visibility and order are saved per login and parent account through the
 same Manage columns dialog as Fleet. Sorting applies across the inventory with
 missing readings last; cursors are bound to the account, user, filters, and sort.
@@ -638,8 +673,9 @@ organization permissions.
 
 These routes reuse the Fleet layout and shared components without mounting host
 fleet providers for account-only users. Page-owned RPC clients capture
-`X-Fleet-Account-ID` and abort when account or login changes. Permission changes
-reset report and selection state; selected-account reporting and assignment RPCs
+`X-Fleet-Account-ID` and abort when account or login changes. Preview and filter
+state remain local to each browser tab. Permission changes replace the scoped
+connection and clear report, selection and private form state; selected-account reporting and assignment RPCs
 currently require a Fleet session rather than an account API key.
 
 Host-created clients record host administration as an ancestor-access grant,
@@ -665,5 +701,5 @@ Ancestor grants can be created for the direct parent and updated for existing
 ancestors. Creating a subclient’s first grant to the hosting root needs ancestor
 metadata that the current API does not expose.
 
-Historical account telemetry, hashboard-level allocation, automatic allocation of
-new hardware, customer firmware commands and pool application remain unsupported.
+Hashboard-level allocation, automatic allocation of new hardware, customer firmware
+commands, pool application and downloadable reconciliation exports remain unsupported.

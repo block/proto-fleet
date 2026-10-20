@@ -79,6 +79,7 @@ function scope(mask = 31n) {
     listAccountKeys: vi.fn().mockResolvedValue({ keys: [], nextPageToken: "" }),
     listAncestorGrants: vi.fn().mockResolvedValue({ grants: [] }),
     createAccountKey: vi.fn().mockResolvedValue({ secret: "one-time-test-secret" }),
+    renameAccount: vi.fn().mockResolvedValue({}),
   };
   const value: AccountScope = {
     account: create(AccountSchema, {
@@ -115,23 +116,33 @@ const mount = (element: ReactNode, value: AccountScope) =>
   );
 
 describe("hosted account pages", () => {
+  it.each([
+    { page: <AccountPools />, controls: ["Add pool", "Change selection"] },
+    { page: <AccountAccess />, controls: ["Create API key", "Grant ancestor access"] },
+    { page: <AccountTeam />, controls: ["Create invitation"] },
+    { page: <AccountChildren />, controls: ["Create subclient"] },
+  ])("keeps administrator mutation controls visible and disabled in preview: $controls", async ({ page, controls }) => {
+    const { value } = scope();
+    mount(page, { ...value, readOnly: true });
+    for (const name of controls) expect(await screen.findByRole("button", { name })).toBeDisabled();
+  });
   it("renders the exact pinned revision and gives a Viewer no pool mutations", async () => {
     const { value, client } = scope(1n);
     mount(<AccountPools />, value);
     expect(await screen.findByRole("button", { name: "Original destination · revision 3" })).toBeInTheDocument();
     expect(screen.getByText("Stored pool profile")).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Saving a profile does not apply pool settings to miners or modules, including newly assigned assets.",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Pools", { exact: true })).toBeInTheDocument();
+    for (const title of ["Name", "URL", "Username"])
+      expect(screen.getByRole("columnheader", { name: title })).toBeInTheDocument();
+    expect(screen.getByText("stratum+tcp://new.example:3333")).toBeInTheDocument();
+    expect(screen.getByText("payout", { exact: true })).toBeInTheDocument();
     expect(screen.queryByText("Pools for newly assigned miners.")).not.toBeInTheDocument();
     expect(client.getPoolRevision).toHaveBeenCalledWith(
       { accountId, poolId, revisionId: oldRevisionId },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(screen.queryByRole("button", { name: "Change selection" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Create configuration" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add pool" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Row actions" })).not.toBeInTheDocument();
   });
   it("submits the selected immutable revision with the current login password", async () => {
@@ -327,6 +338,33 @@ describe("hosted account pages", () => {
     );
     expect(screen.queryByText("Reset Password")).not.toBeInTheDocument();
     expect(screen.queryByText("Deactivate")).not.toBeInTheDocument();
+  });
+  it("renames the account from Access and refreshes its displayed identity", async () => {
+    const user = userEvent.setup(),
+      { value, client } = scope();
+    mount(<AccountAccess />, value);
+    const details = screen.getByRole("region", { name: "Account details" });
+    expect(within(details).getByText("Client A")).toBeInTheDocument();
+    expect(within(details).queryByText("Active")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your permissions" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Ancestor access" })).toBeInTheDocument();
+    await user.click(within(details).getByRole("button", { name: "Rename account" }));
+    const dialog = screen.getByRole("dialog", { name: "Rename account" });
+    await user.clear(within(dialog).getByLabelText("Account name"));
+    await user.type(within(dialog).getByLabelText("Account name"), "Renamed client");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(client.renameAccount).toHaveBeenCalledWith({ accountId, name: "Renamed client" }));
+    expect(value.refreshAccount).toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+  it("shows suspension and the viewer's permissions without a rename control", async () => {
+    const { value } = scope(1n);
+    value.account.suspended = true;
+    mount(<AccountAccess />, value);
+    const details = screen.getByRole("region", { name: "Account details" });
+    expect(within(details).getByText("Suspended")).toBeInTheDocument();
+    expect(within(details).getByText("Viewer")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rename account" })).not.toBeInTheDocument();
   });
   it("creates an account-only key by default and discards its secret on dismiss", async () => {
     const user = userEvent.setup(),

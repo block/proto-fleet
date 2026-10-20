@@ -180,7 +180,7 @@ func TestSelectedAccountCannotControlHostCurtailment(t *testing.T) {
 }
 
 func TestMiningMethodsAreExplicitlySessionOnlyAndAccountScoped(t *testing.T) {
-	for _, method := range []string{"GetAccountMiningSummary", "ListAccountAssets", "AssignAccountAssets"} {
+	for _, method := range []string{"GetAccountDashboard", "GetAccountAssetDetail", "GetAccountMiningSummary", "ListAccountAssets", "AssignAccountAssets"} {
 		procedure := hostedAccountProcedurePrefix + method
 		require.True(t, requiresSelectedAccount(procedure))
 		require.True(t, allowsSelectedAccount(procedure))

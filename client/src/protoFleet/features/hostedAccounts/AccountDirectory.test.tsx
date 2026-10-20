@@ -81,6 +81,7 @@ function mount(owner = true, entry = "/accounts", managedClient = client) {
         <Routes>
           <Route path="/accounts" element={<AccountDirectory />} />
           <Route path="/accounts/:accountId/:section" element={<AccountWorkspace />} />
+          <Route path="/accounts/:accountId/manage/:section" element={<AccountWorkspace management />} />
         </Routes>
       </HostedAccountsContext.Provider>
     </MemoryRouter>
@@ -129,17 +130,17 @@ describe("owner Clients directory", () => {
     await user.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
-  it("opens a readable client in its workspace and returns through the breadcrumb", async () => {
+  it("opens a readable client in a preview and closes back to the directory", async () => {
     const { calls } = mount(true, "/accounts", create(AccountSchema, { ...client, effectiveCapabilities: 31n }));
     const user = userEvent.setup();
     const link = await screen.findByRole("link", { name: "Existing client" });
     expect(link).toHaveAttribute("href", `/accounts/${clientId}/overview`);
     await user.click(link);
     await screen.findByRole("link", { name: "View mining assets" });
-    const breadcrumb = within(screen.getByRole("navigation", { name: "Breadcrumb" }));
-    expect(breadcrumb.getByText("Existing client")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Viewing as Existing client" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Breadcrumb" })).not.toBeInTheDocument();
     expect(calls.some((call) => call.method === "ListAccountAssets")).toBe(false);
-    await user.click(breadcrumb.getByRole("link", { name: "Clients" }));
+    await user.click(screen.getByRole("button", { name: "Close client preview" }));
     await screen.findByRole("button", { name: "Create client" });
   });
   it("retains allocation-only inventory access without private workspace authority", async () => {

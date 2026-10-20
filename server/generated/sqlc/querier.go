@@ -825,6 +825,7 @@ type Querier interface {
 	GetHistoryResolution(ctx context.Context, arg GetHistoryResolutionParams) (int32, error)
 	GetHostedAccountAncestorGrant(ctx context.Context, arg GetHostedAccountAncestorGrantParams) (HostedAccountAncestorGrant, error)
 	GetHostedAccountAssetDevice(ctx context.Context, arg GetHostedAccountAssetDeviceParams) (int64, error)
+	GetHostedAccountHistoryEpoch(ctx context.Context) (time.Time, error)
 	GetHostedAccountInvitationByHash(ctx context.Context, tokenHash string) (GetHostedAccountInvitationByHashRow, error)
 	GetHostedAccountKeyAuthority(ctx context.Context, arg GetHostedAccountKeyAuthorityParams) (GetHostedAccountKeyAuthorityRow, error)
 	GetHostedAccountKeyOwner(ctx context.Context, arg GetHostedAccountKeyOwnerParams) (sql.NullInt64, error)
@@ -1420,7 +1421,16 @@ type Querier interface {
 	ListHashboardModules(ctx context.Context, deviceID int64) ([]ListHashboardModulesRow, error)
 	ListHostedAccountAncestorGrants(ctx context.Context, arg ListHostedAccountAncestorGrantsParams) ([]HostedAccountAncestorGrant, error)
 	ListHostedAccountAssetChildren(ctx context.Context, arg ListHostedAccountAssetChildrenParams) ([]ListHostedAccountAssetChildrenRow, error)
+	// Only physical metadata is projected, so telemetry values are not fetched.
+	// Use the same live inventory, allocation and physical-policy boundaries as the page.
+	ListHostedAccountAssetFilterOptions(ctx context.Context, arg ListHostedAccountAssetFilterOptionsParams) ([]ListHostedAccountAssetFilterOptionsRow, error)
 	ListHostedAccountChildren(ctx context.Context, arg ListHostedAccountChildrenParams) ([]HostedAccount, error)
+	// The bounded interval list is already authorized to the requested account.
+	// Raw samples are filtered by half-open ownership boundaries before aggregation.
+	// Reduce to the bounded chart shape before crossing the database boundary.
+	ListHostedAccountHistoricalReadings(ctx context.Context, arg ListHostedAccountHistoricalReadingsParams) ([]ListHostedAccountHistoricalReadingsRow, error)
+	ListHostedAccountHistoricalSites(ctx context.Context, arg ListHostedAccountHistoricalSitesParams) ([]ListHostedAccountHistoricalSitesRow, error)
+	ListHostedAccountHistoryIntervals(ctx context.Context, arg ListHostedAccountHistoryIntervalsParams) ([]ListHostedAccountHistoryIntervalsRow, error)
 	// Bound history first, then resolve each live inviter once in the same snapshot.
 	// Authority witnesses and durable-role checks match invitation acceptance.
 	ListHostedAccountInvitations(ctx context.Context, arg ListHostedAccountInvitationsParams) ([]ListHostedAccountInvitationsRow, error)

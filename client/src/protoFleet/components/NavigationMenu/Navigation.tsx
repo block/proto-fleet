@@ -59,16 +59,19 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail,
 
   const homeItem = useMemo(() => items.find((item) => item.label === "Home"), [items]);
   const accountNavigation = items.some((item) => item.path === "/accounts" || item.path?.startsWith("/accounts/"));
-  const homeTarget = homeItem?.path ? scopeLink(homeItem) : accountNavigation ? "/accounts" : undefined;
-  const settingsItem = useMemo(() => items.find((item) => item.path === "/settings"), [items]);
+  const accountHome = items.find((item) => /^\/accounts\/[^/]+\/overview$/.test(item.path));
+  const homeTarget = homeItem?.path
+    ? scopeLink(homeItem)
+    : (accountHome?.path ?? (accountNavigation ? "/accounts" : undefined));
+  const settingsItem = useMemo(() => items.find((item) => item.children?.length || item.path === "/settings"), [items]);
   const visibleSettingsItems = useMemo(
     () =>
-      secondaryNavItems
-        .filter((nav) => nav.parent === "/settings")
+      (settingsItem?.children ?? secondaryNavItems)
+        .filter((nav) => nav.parent === settingsItem?.path)
         .filter((nav) => isNavItemAllowedByPermissions(nav, permissions))
         .filter((nav) => !nav.requiredFeature || featureEnabled[nav.requiredFeature])
         .filter((nav) => !nav.requiresHostedAccounts || (directory?.hostAccess && directory.accounts.length > 0)),
-    [featureEnabled, permissions, directory],
+    [featureEnabled, permissions, directory, settingsItem],
   );
   const visibleSettingsGroups = useMemo(
     () =>
@@ -108,7 +111,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail,
       return _pathname === _path || _pathname.startsWith(`${_path}/`);
     }
 
-    if (item.path === "/settings" && isOnSettingsSubPage) return true;
+    if (item.path === settingsItem?.path && isOnSettingsSubPage) return true;
 
     const _pathname = stripLeadingSlash(item.scopable ? unscopedScopablePath(pathname) : pathname);
     const path = item.path;
@@ -122,7 +125,10 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail,
       id={rail?.navigationId}
       aria-label="Main"
       className={clsx(
-        "absolute top-0 left-0 z-30 flex h-dvh max-h-dvh min-h-0 w-60 flex-col justify-between overflow-hidden bg-surface-base text-text-primary-70",
+        "absolute top-0 left-0 z-30 flex min-h-0 w-60 flex-col justify-between overflow-hidden bg-surface-base text-text-primary-70",
+        isFloatingMenu
+          ? "h-full max-h-full"
+          : "h-[var(--navigation-height,100dvh)] max-h-[var(--navigation-height,100dvh)]",
         !isFloatingMenu && (isExpanded ? "tablet:w-50" : "tablet:w-16 desktop:w-50"),
         !isFloatingMenu && "desktop:border-r desktop:border-core-primary-10 desktop:hover:shadow-lg",
         isExpanded && "border-r border-core-primary-10 shadow-lg",
@@ -142,7 +148,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail,
           >
             <Link
               to={homeTarget}
-              aria-label={homeItem?.path ? "Home" : "Accounts"}
+              aria-label={homeItem?.path ? "Home" : accountHome ? "Workspace home" : "Accounts"}
               data-testid="navigation-home-link"
               onClick={handleNavigate}
               className="flex min-h-[44px] min-w-[44px] items-center px-2.5"
@@ -163,11 +169,7 @@ const Navigation = ({ items, className, closeMenu, isFloatingMenu = false, rail,
         >
           {visibleItems.map((item) => {
             // In the drawer, render Settings separately with expandable secondary navigation.
-            if (
-              isFloatingMenu &&
-              item.path === "/settings" &&
-              secondaryNavItems.some((nav) => nav.parent === item.path)
-            ) {
+            if (isFloatingMenu && item === settingsItem && visibleSettingsItems.length > 0) {
               return null;
             }
 

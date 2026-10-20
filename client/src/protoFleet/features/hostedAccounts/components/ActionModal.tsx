@@ -32,7 +32,7 @@ export const ActionModal = ({
   const [error, setError] = useState("");
   const scope = useAccountScope();
   const submit = async () => {
-    if (submitting.current) return;
+    if (submitting.current || scope?.readOnly) return;
     submitting.current = true;
     const generation = useFleetStore.getState().auth.sessionGeneration;
     setBusy(true);
@@ -61,7 +61,7 @@ export const ActionModal = ({
         void submit();
       },
       loading: busy,
-      disabled: !valid,
+      disabled: !valid || scope?.readOnly,
     },
   ];
   const content = (

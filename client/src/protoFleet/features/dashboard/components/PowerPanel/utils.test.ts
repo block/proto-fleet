@@ -4,6 +4,11 @@ import { MeasurementType } from "@/protoFleet/api/generated/telemetry/v1/telemet
 import { createMockMetric } from "@/protoFleet/features/dashboard/utils/createMockMetric";
 
 describe("transformPowerMetricsToChartData", () => {
+  it("keeps an unavailable bucket as a gap instead of zero", () => {
+    const metric = createMockMetric(MeasurementType.POWER, 3200, 1000);
+    metric.aggregatedValues = [];
+    expect(transformPowerMetricsToChartData([metric])[0].power).toBeNull();
+  });
   it("returns empty array for empty metrics", () => {
     expect(transformPowerMetricsToChartData([])).toEqual([]);
   });

@@ -1877,6 +1877,25 @@ type HostedAccountAsset struct {
 	UpdatedAt      time.Time
 }
 
+type HostedAccountAssetInterval struct {
+	ID               int64
+	OrganizationID   int64
+	Kind             int32
+	AssetID          int64
+	DeviceID         int64
+	SiteID           sql.NullInt64
+	DeviceIdentifier string
+	ClientID         int64
+	SubclientID      sql.NullInt64
+	StartedAt        time.Time
+	EndedAt          sql.NullTime
+}
+
+type HostedAccountHistoryEpoch struct {
+	Singleton bool
+	StartedAt time.Time
+}
+
 type HostedAccountInvitation struct {
 	InvitationID         string
 	OrganizationID       int64

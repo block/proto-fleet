@@ -30,7 +30,7 @@ type TeamEntry =
   { key: string; kind: "member"; member: Member } | { key: string; kind: "invitation"; invitation: Invitation };
 
 const AccountTeam = () => {
-  const { account, client } = useRequiredAccountScope();
+  const { account, client, readOnly = false } = useRequiredAccountScope();
   const [params, setParams] = useSearchParams();
   const invite = params.get("invite");
   const [tokens, setTokens] = useState([""]);
@@ -62,7 +62,7 @@ const AccountTeam = () => {
     kind: "invite" | "role" | "remove" | "revoke";
     member?: Member;
     invitation?: Invitation;
-  } | null>(() => (invite === "1" || invite === "administrator" ? { kind: "invite" } : null));
+  } | null>(() => (!readOnly && (invite === "1" || invite === "administrator") ? { kind: "invite" } : null));
   const [role, setRole] = useState(String(invite === "administrator" ? AccountRole.ADMINISTRATOR : AccountRole.VIEWER));
   const [expiry, setExpiry] = useState("86400");
   const [invitationCode, setInvitationCode] = useState<string | null>(null);
@@ -86,7 +86,13 @@ const AccountTeam = () => {
           <SettingsPageHeader title="Team" />
         </div>
         {query.data ? (
-          <Button variant="primary" size={sizes.compact} text="Create invitation" onClick={createInvite} />
+          <Button
+            disabled={readOnly}
+            variant="primary"
+            size={sizes.compact}
+            text="Create invitation"
+            onClick={createInvite}
+          />
         ) : null}
       </div>
       <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
@@ -132,6 +138,7 @@ const AccountTeam = () => {
             actions={[
               {
                 title: "Change role",
+                disabled: readOnly,
                 hidden: (entry) => entry.kind !== "member",
                 actionHandler: (entry) => {
                   if (entry.kind === "member") {
@@ -142,6 +149,7 @@ const AccountTeam = () => {
               },
               {
                 title: "Remove membership",
+                disabled: readOnly,
                 variant: "destructive",
                 hidden: (entry) => entry.kind !== "member",
                 actionHandler: (entry) => {
@@ -150,6 +158,7 @@ const AccountTeam = () => {
               },
               {
                 title: "Revoke invitation",
+                disabled: readOnly,
                 variant: "destructive",
                 hidden: (entry) => entry.kind !== "invitation" || invitationState(entry.invitation) !== "Pending",
                 actionHandler: (entry) => {

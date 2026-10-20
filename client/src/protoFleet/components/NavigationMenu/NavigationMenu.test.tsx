@@ -106,17 +106,63 @@ describe("Navigation Menu", () => {
     },
   );
 
-  it("keeps account Settings separate from the global Settings drawer and links the logo to Accounts", async () => {
+  it("shows only account Settings sections in the mobile drawer", async () => {
     mockUseWindowDimensions.mockReturnValue({ isPhone: true });
-    permissionsMock.current = ["role:read"];
+    permissionsMock.current = ["role:read", "user:read", "apikey:manage"];
+    const user = userEvent.setup();
     render(
-      <MemoryRouter>
-        <NavigationMenu items={[{ path: "/accounts/customer/settings", label: "Settings" }]} isVisible />
+      <MemoryRouter initialEntries={["/accounts/customer/access"]}>
+        <NavigationMenu
+          items={[
+            {
+              path: "/accounts/customer/settings",
+              label: "Settings",
+              children: [
+                {
+                  path: "/accounts/customer/pools",
+                  label: "Pools",
+                  parent: "/accounts/customer/settings",
+                  section: "Fleet",
+                },
+                {
+                  path: "/accounts/customer/access",
+                  label: "Access",
+                  parent: "/accounts/customer/settings",
+                  section: "Admin",
+                },
+              ],
+            },
+          ]}
+          isVisible
+        />
       </MemoryRouter>,
     );
-    await screen.findByRole("link", { name: "Settings" });
-    expect(screen.queryByRole("button", { name: "Settings menu toggle" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Settings menu toggle" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    const submenu = within(screen.getByTestId("secondary-nav"));
+    expect(submenu.getByRole("link", { name: "Access" })).toHaveAttribute("aria-current", "page");
+    expect(submenu.queryByRole("link", { name: "Security" })).not.toBeInTheDocument();
+    expect(submenu.queryByRole("link", { name: "Integrations" })).not.toBeInTheDocument();
+    await user.click(submenu.getByRole("link", { name: "Pools" }));
+    expect(await screen.findByRole("link", { name: "Pools" })).toHaveAttribute("href", "/accounts/customer/pools");
     expect(screen.getByRole("link", { name: "Accounts" })).toHaveAttribute("href", "/accounts");
+  });
+  it("keeps the logo inside an account workspace when its Overview is available", async () => {
+    mockUseWindowDimensions.mockReturnValue({ isPhone: true });
+    render(
+      <MemoryRouter>
+        <NavigationMenu
+          items={[
+            { path: "/accounts/customer/overview", label: "Overview" },
+            { path: "/accounts/customer/settings", label: "Settings" },
+          ]}
+          isVisible
+        />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByTestId("navigation-home-link")).toHaveAttribute("href", "/accounts/customer/overview");
   });
 
   it.each([
@@ -377,9 +423,9 @@ describe("Navigation Menu", () => {
     );
 
     expect(screen.getByRole("navigation", { name: "Main" })).toHaveClass(
-      "h-dvh",
+      "h-full",
       "min-h-0",
-      "max-h-dvh",
+      "max-h-full",
       "overflow-hidden",
     );
     expect(screen.getByRole("navigation", { name: "Main" })).not.toHaveClass("min-h-screen");

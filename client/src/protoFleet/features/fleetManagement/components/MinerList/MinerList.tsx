@@ -495,6 +495,7 @@ const ScopedMinerListBody = ({
           <div data-no-row-click>
             <Button
               variant="textOnly"
+              className="justify-start text-left"
               text={allocation.ownerAccountName}
               to={`/accounts?assets=${encodeURIComponent(allocation.ownerAccountId)}`}
             />

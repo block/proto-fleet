@@ -34,6 +34,12 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// HostedAccountServiceGetAccountDashboardProcedure is the fully-qualified name of the
+	// HostedAccountService's GetAccountDashboard RPC.
+	HostedAccountServiceGetAccountDashboardProcedure = "/hosted.v1.HostedAccountService/GetAccountDashboard"
+	// HostedAccountServiceGetAccountAssetDetailProcedure is the fully-qualified name of the
+	// HostedAccountService's GetAccountAssetDetail RPC.
+	HostedAccountServiceGetAccountAssetDetailProcedure = "/hosted.v1.HostedAccountService/GetAccountAssetDetail"
 	// HostedAccountServiceGetAccountMiningSummaryProcedure is the fully-qualified name of the
 	// HostedAccountService's GetAccountMiningSummary RPC.
 	HostedAccountServiceGetAccountMiningSummaryProcedure = "/hosted.v1.HostedAccountService/GetAccountMiningSummary"
@@ -137,6 +143,8 @@ const (
 
 // HostedAccountServiceClient is a client for the hosted.v1.HostedAccountService service.
 type HostedAccountServiceClient interface {
+	GetAccountDashboard(context.Context, *connect.Request[v1.GetAccountDashboardRequest]) (*connect.Response[v1.GetAccountDashboardResponse], error)
+	GetAccountAssetDetail(context.Context, *connect.Request[v1.GetAccountAssetDetailRequest]) (*connect.Response[v1.GetAccountAssetDetailResponse], error)
 	GetAccountMiningSummary(context.Context, *connect.Request[v1.GetAccountMiningSummaryRequest]) (*connect.Response[v1.GetAccountMiningSummaryResponse], error)
 	ListAccountAssets(context.Context, *connect.Request[v1.ListAccountAssetsRequest]) (*connect.Response[v1.ListAccountAssetsResponse], error)
 	AssignAccountAssets(context.Context, *connect.Request[v1.AssignAccountAssetsRequest]) (*connect.Response[v1.AssignAccountAssetsResponse], error)
@@ -182,6 +190,16 @@ type HostedAccountServiceClient interface {
 func NewHostedAccountServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) HostedAccountServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &hostedAccountServiceClient{
+		getAccountDashboard: connect.NewClient[v1.GetAccountDashboardRequest, v1.GetAccountDashboardResponse](
+			httpClient,
+			baseURL+HostedAccountServiceGetAccountDashboardProcedure,
+			opts...,
+		),
+		getAccountAssetDetail: connect.NewClient[v1.GetAccountAssetDetailRequest, v1.GetAccountAssetDetailResponse](
+			httpClient,
+			baseURL+HostedAccountServiceGetAccountAssetDetailProcedure,
+			opts...,
+		),
 		getAccountMiningSummary: connect.NewClient[v1.GetAccountMiningSummaryRequest, v1.GetAccountMiningSummaryResponse](
 			httpClient,
 			baseURL+HostedAccountServiceGetAccountMiningSummaryProcedure,
@@ -352,6 +370,8 @@ func NewHostedAccountServiceClient(httpClient connect.HTTPClient, baseURL string
 
 // hostedAccountServiceClient implements HostedAccountServiceClient.
 type hostedAccountServiceClient struct {
+	getAccountDashboard      *connect.Client[v1.GetAccountDashboardRequest, v1.GetAccountDashboardResponse]
+	getAccountAssetDetail    *connect.Client[v1.GetAccountAssetDetailRequest, v1.GetAccountAssetDetailResponse]
 	getAccountMiningSummary  *connect.Client[v1.GetAccountMiningSummaryRequest, v1.GetAccountMiningSummaryResponse]
 	listAccountAssets        *connect.Client[v1.ListAccountAssetsRequest, v1.ListAccountAssetsResponse]
 	assignAccountAssets      *connect.Client[v1.AssignAccountAssetsRequest, v1.AssignAccountAssetsResponse]
@@ -385,6 +405,16 @@ type hostedAccountServiceClient struct {
 	createAccountKey         *connect.Client[v1.CreateAccountKeyRequest, v1.CreateAccountKeyResponse]
 	listAccountKeys          *connect.Client[v1.ListAccountKeysRequest, v1.ListAccountKeysResponse]
 	revokeAccountKey         *connect.Client[v1.RevokeAccountKeyRequest, v1.RevokeAccountKeyResponse]
+}
+
+// GetAccountDashboard calls hosted.v1.HostedAccountService.GetAccountDashboard.
+func (c *hostedAccountServiceClient) GetAccountDashboard(ctx context.Context, req *connect.Request[v1.GetAccountDashboardRequest]) (*connect.Response[v1.GetAccountDashboardResponse], error) {
+	return c.getAccountDashboard.CallUnary(ctx, req)
+}
+
+// GetAccountAssetDetail calls hosted.v1.HostedAccountService.GetAccountAssetDetail.
+func (c *hostedAccountServiceClient) GetAccountAssetDetail(ctx context.Context, req *connect.Request[v1.GetAccountAssetDetailRequest]) (*connect.Response[v1.GetAccountAssetDetailResponse], error) {
+	return c.getAccountAssetDetail.CallUnary(ctx, req)
 }
 
 // GetAccountMiningSummary calls hosted.v1.HostedAccountService.GetAccountMiningSummary.
@@ -554,6 +584,8 @@ func (c *hostedAccountServiceClient) RevokeAccountKey(ctx context.Context, req *
 
 // HostedAccountServiceHandler is an implementation of the hosted.v1.HostedAccountService service.
 type HostedAccountServiceHandler interface {
+	GetAccountDashboard(context.Context, *connect.Request[v1.GetAccountDashboardRequest]) (*connect.Response[v1.GetAccountDashboardResponse], error)
+	GetAccountAssetDetail(context.Context, *connect.Request[v1.GetAccountAssetDetailRequest]) (*connect.Response[v1.GetAccountAssetDetailResponse], error)
 	GetAccountMiningSummary(context.Context, *connect.Request[v1.GetAccountMiningSummaryRequest]) (*connect.Response[v1.GetAccountMiningSummaryResponse], error)
 	ListAccountAssets(context.Context, *connect.Request[v1.ListAccountAssetsRequest]) (*connect.Response[v1.ListAccountAssetsResponse], error)
 	AssignAccountAssets(context.Context, *connect.Request[v1.AssignAccountAssetsRequest]) (*connect.Response[v1.AssignAccountAssetsResponse], error)
@@ -595,6 +627,16 @@ type HostedAccountServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	hostedAccountServiceGetAccountDashboardHandler := connect.NewUnaryHandler(
+		HostedAccountServiceGetAccountDashboardProcedure,
+		svc.GetAccountDashboard,
+		opts...,
+	)
+	hostedAccountServiceGetAccountAssetDetailHandler := connect.NewUnaryHandler(
+		HostedAccountServiceGetAccountAssetDetailProcedure,
+		svc.GetAccountAssetDetail,
+		opts...,
+	)
 	hostedAccountServiceGetAccountMiningSummaryHandler := connect.NewUnaryHandler(
 		HostedAccountServiceGetAccountMiningSummaryProcedure,
 		svc.GetAccountMiningSummary,
@@ -762,6 +804,10 @@ func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...con
 	)
 	return "/hosted.v1.HostedAccountService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case HostedAccountServiceGetAccountDashboardProcedure:
+			hostedAccountServiceGetAccountDashboardHandler.ServeHTTP(w, r)
+		case HostedAccountServiceGetAccountAssetDetailProcedure:
+			hostedAccountServiceGetAccountAssetDetailHandler.ServeHTTP(w, r)
 		case HostedAccountServiceGetAccountMiningSummaryProcedure:
 			hostedAccountServiceGetAccountMiningSummaryHandler.ServeHTTP(w, r)
 		case HostedAccountServiceListAccountAssetsProcedure:
@@ -836,6 +882,14 @@ func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...con
 
 // UnimplementedHostedAccountServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedHostedAccountServiceHandler struct{}
+
+func (UnimplementedHostedAccountServiceHandler) GetAccountDashboard(context.Context, *connect.Request[v1.GetAccountDashboardRequest]) (*connect.Response[v1.GetAccountDashboardResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.GetAccountDashboard is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) GetAccountAssetDetail(context.Context, *connect.Request[v1.GetAccountAssetDetailRequest]) (*connect.Response[v1.GetAccountAssetDetailResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.GetAccountAssetDetail is not implemented"))
+}
 
 func (UnimplementedHostedAccountServiceHandler) GetAccountMiningSummary(context.Context, *connect.Request[v1.GetAccountMiningSummaryRequest]) (*connect.Response[v1.GetAccountMiningSummaryResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.GetAccountMiningSummary is not implemented"))

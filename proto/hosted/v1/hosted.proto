@@ -10,6 +10,8 @@ import "google/protobuf/timestamp.proto";
 // HostedAccountService uses account authority independently of organization RBAC.
 // Every private account operation names its account; names are display labels.
 service HostedAccountService {
+  rpc GetAccountDashboard(GetAccountDashboardRequest) returns (GetAccountDashboardResponse);
+  rpc GetAccountAssetDetail(GetAccountAssetDetailRequest) returns (GetAccountAssetDetailResponse);
   rpc GetAccountMiningSummary(GetAccountMiningSummaryRequest) returns (GetAccountMiningSummaryResponse);
   rpc ListAccountAssets(ListAccountAssetsRequest) returns (ListAccountAssetsResponse);
   rpc AssignAccountAssets(AssignAccountAssetsRequest) returns (AssignAccountAssetsResponse);
@@ -412,7 +414,7 @@ message MiningSummary {
   int64 outside_policy_count = 5;
   optional double hashrate_hs = 6;
   optional double power_w = 7;
-  // Sum of power / sum of hashrate, using only leaves reporting both values.
+  // Sum of power / sum of hashrate; present only with complete valid coverage.
   optional double efficiency_j_th = 8;
   int64 hashrate_reporting_count = 9;
   int64 power_reporting_count = 10;
@@ -424,6 +426,10 @@ message MiningSummary {
   int64 offline_count = 16;
   int64 sleeping_count = 17;
   int64 unknown_count = 18;
+  optional double temperature_c = 19;
+  int64 temperature_reporting_count = 20;
+  optional double uptime_percent = 21;
+  int64 uptime_reporting_count = 22;
 }
 message AccountMiningBucket {
   string account_id = 1;
@@ -476,7 +482,7 @@ message ListAccountAssetsRequest {
   option (buf.validate.message).cel = {
     id: "asset_lookup_scope"
     message: "selected assets cannot be combined with pagination or filters"
-    expression: "size(this.selected_assets) == 0 || (this.page_size == 0 && this.page_token == '' && this.search == '' && !has(this.owner_account_id) && !has(this.container_id) && !has(this.sort))"
+    expression: "size(this.selected_assets) == 0 || (this.page_size == 0 && this.page_token == '' && this.search == '' && !has(this.owner_account_id) && !has(this.container_id) && !has(this.sort) && !has(this.model) && !has(this.site_id))"
   };
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
@@ -490,11 +496,22 @@ message ListAccountAssetsRequest {
   repeated MiningAssetReference selected_assets = 7 [(buf.validate.field).repeated.max_items = 500];
   // Name ascending by default. Metrics and model use the same sort fields as Fleet.
   common.v1.SortConfig sort = 8;
+  optional string model = 9 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  optional int64 site_id = 10 [(buf.validate.field).int64.gt = 0];
   option (buf.validate.message).cel = {
     id: "asset_sort_fields"
     message: "unsupported asset sort field"
     expression: "!has(this.sort) || int(this.sort.field) in [0, 1, 5, 6, 7, 8, 9]"
   };
+}
+message AccountAssetLocationOption {
+  int64 id = 1;
+  string name = 2;
+}
+message AccountAssetFilterOptions {
+  repeated string models = 1;
+  repeated AccountAssetLocationOption sites = 2;
+  repeated AccountAssetLocationOption containers = 3;
 }
 message ListAccountAssetsResponse {
   repeated AccountAsset assets = 1;
@@ -505,6 +522,9 @@ message ListAccountAssetsResponse {
   // Direct child management metadata only: summary is absent in this response.
   // This does not grant access to child-private settings, members or pools.
   repeated AccountMiningBucket children = 5;
+  // Options cover the full authorized inventory, independently of page and filters.
+  // Retired and physically redacted allocations contribute no options.
+  AccountAssetFilterOptions filter_options = 6;
 }
 message MiningAssetSelection {
   MiningAssetKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
@@ -520,3 +540,40 @@ message AssignAccountAssetsRequest {
   repeated MiningAssetSelection assets = 4 [(buf.validate.field).repeated = {min_items: 1, max_items: 500}];
 }
 message AssignAccountAssetsResponse {}
+
+// Reporting filters retain the selected account's authority and navigation.
+message GetAccountDashboardRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  // Absent: entire estate; account itself: directly managed; child: delegated.
+  optional string owner_account_id = 2 [(buf.validate.field).string.uuid = true];
+  optional int64 site_id = 3 [(buf.validate.field).int64.gt = 0];
+  google.protobuf.Timestamp start_time = 4 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end_time = 5 [(buf.validate.field).required = true];
+  int32 bucket_seconds = 6 [(buf.validate.field).int32 = {gte: 60, lte: 86400}];
+}
+message AccountDashboardReading {
+  google.protobuf.Timestamp time = 1;
+  MiningSummary summary = 2;
+}
+message AccountDashboardSite {
+  int64 site_id = 1;
+  string name = 2;
+  MiningSummary summary = 3;
+}
+message GetAccountDashboardResponse {
+  MiningSummary totals = 1;
+  repeated AccountDashboardReading readings = 2;
+  repeated AccountDashboardSite sites = 3;
+  repeated AccountMiningBucket children = 4;
+  google.protobuf.Timestamp generated_at = 5;
+  // Allocation intervals are recorded prospectively. Earlier ownership is unknown.
+  google.protobuf.Timestamp history_available_from = 6;
+}
+message GetAccountAssetDetailRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  MiningAssetReference asset = 2 [(buf.validate.field).required = true];
+}
+message GetAccountAssetDetailResponse {
+  // Current allocation and current site permission are required, even with history.
+  AccountAsset asset = 1;
+}

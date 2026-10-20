@@ -10,11 +10,17 @@ export const hostedAccountsClient = createClient(HostedAccountService, transport
 
 // A page owns its client. No global mutable account selection can retarget a
 // queued mutation, another browser tab, or a host fleet operation.
-export const createAccountClient = (accountId: string, lifetime: AbortSignal | (() => AbortSignal)) => {
+export const createAccountClient = (
+  accountId: string,
+  lifetime: AbortSignal | (() => AbortSignal),
+  { readOnly = false }: { readOnly?: boolean } = {},
+) => {
   const scope: Interceptor = (next) => (request) => {
     const signal = typeof lifetime === "function" ? lifetime() : lifetime;
     if (signal.aborted || request.signal.aborted)
       throw new ConnectError("Account workspace is no longer active", Code.Canceled);
+    if (readOnly && !/^(Get|List)/.test(request.method.name))
+      throw new ConnectError("Actions are unavailable in this read-only preview.", Code.PermissionDenied);
     request.header.set("X-Fleet-Account-ID", accountId);
     return next({
       ...request,
@@ -33,10 +39,10 @@ export const createAccountClient = (accountId: string, lifetime: AbortSignal | (
 
 // Effect replay can reopen the same mounted scope in StrictMode; a different
 // account or login always gets a different connection object.
-export const createAccountConnection = (accountId: string) => {
+export const createAccountConnection = (accountId: string, options: { readOnly?: boolean } = {}) => {
   let controller = new AbortController();
   return {
-    client: createAccountClient(accountId, () => controller.signal),
+    client: createAccountClient(accountId, () => controller.signal, options),
     get signal() {
       return controller.signal;
     },
