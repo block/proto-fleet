@@ -273,6 +273,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.consumeHostedAccountInvitationStmt, err = db.PrepareContext(ctx, consumeHostedAccountInvitation); err != nil {
 		return nil, fmt.Errorf("error preparing query ConsumeHostedAccountInvitation: %w", err)
 	}
+	if q.consumeHostedInvitationRateLimitStmt, err = db.PrepareContext(ctx, consumeHostedInvitationRateLimit); err != nil {
+		return nil, fmt.Errorf("error preparing query ConsumeHostedInvitationRateLimit: %w", err)
+	}
 	if q.consumeReservedInventoryPartStmt, err = db.PrepareContext(ctx, consumeReservedInventoryPart); err != nil {
 		return nil, fmt.Errorf("error preparing query ConsumeReservedInventoryPart: %w", err)
 	}
@@ -2070,6 +2073,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.pruneExpiredAlertMaintenanceWindowsStmt, err = db.PrepareContext(ctx, pruneExpiredAlertMaintenanceWindows); err != nil {
 		return nil, fmt.Errorf("error preparing query PruneExpiredAlertMaintenanceWindows: %w", err)
 	}
+	if q.pruneHostedInvitationRateLimitStmt, err = db.PrepareContext(ctx, pruneHostedInvitationRateLimit); err != nil {
+		return nil, fmt.Errorf("error preparing query PruneHostedInvitationRateLimit: %w", err)
+	}
 	if q.prunePermissionsOutsideKeysStmt, err = db.PrepareContext(ctx, prunePermissionsOutsideKeys); err != nil {
 		return nil, fmt.Errorf("error preparing query PrunePermissionsOutsideKeys: %w", err)
 	}
@@ -3112,6 +3118,11 @@ func (q *Queries) Close() error {
 	if q.consumeHostedAccountInvitationStmt != nil {
 		if cerr := q.consumeHostedAccountInvitationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing consumeHostedAccountInvitationStmt: %w", cerr)
+		}
+	}
+	if q.consumeHostedInvitationRateLimitStmt != nil {
+		if cerr := q.consumeHostedInvitationRateLimitStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing consumeHostedInvitationRateLimitStmt: %w", cerr)
 		}
 	}
 	if q.consumeReservedInventoryPartStmt != nil {
@@ -6109,6 +6120,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing pruneExpiredAlertMaintenanceWindowsStmt: %w", cerr)
 		}
 	}
+	if q.pruneHostedInvitationRateLimitStmt != nil {
+		if cerr := q.pruneHostedInvitationRateLimitStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing pruneHostedInvitationRateLimitStmt: %w", cerr)
+		}
+	}
 	if q.prunePermissionsOutsideKeysStmt != nil {
 		if cerr := q.prunePermissionsOutsideKeysStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing prunePermissionsOutsideKeysStmt: %w", cerr)
@@ -7271,6 +7287,7 @@ type Queries struct {
 	confirmEnrollmentStmt                                        *sql.Stmt
 	consumeFleetNodeAuthChallengeStmt                            *sql.Stmt
 	consumeHostedAccountInvitationStmt                           *sql.Stmt
+	consumeHostedInvitationRateLimitStmt                         *sql.Stmt
 	consumeReservedInventoryPartStmt                             *sql.Stmt
 	containerOwnsCommandBatchStmt                                *sql.Stmt
 	containsContainerIdentifiersStmt                             *sql.Stmt
@@ -7870,6 +7887,7 @@ type Queries struct {
 	prepareTelemetrySeedStmt                                     *sql.Stmt
 	preserveFirmwareRolloutRetryBaselinesStmt                    *sql.Stmt
 	pruneExpiredAlertMaintenanceWindowsStmt                      *sql.Stmt
+	pruneHostedInvitationRateLimitStmt                           *sql.Stmt
 	prunePermissionsOutsideKeysStmt                              *sql.Stmt
 	quarantineDeviceWriteFenceStmt                               *sql.Stmt
 	queryComponentKeysWithErrorsStmt                             *sql.Stmt
@@ -8167,6 +8185,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		confirmEnrollmentStmt:                                        q.confirmEnrollmentStmt,
 		consumeFleetNodeAuthChallengeStmt:                            q.consumeFleetNodeAuthChallengeStmt,
 		consumeHostedAccountInvitationStmt:                           q.consumeHostedAccountInvitationStmt,
+		consumeHostedInvitationRateLimitStmt:                         q.consumeHostedInvitationRateLimitStmt,
 		consumeReservedInventoryPartStmt:                             q.consumeReservedInventoryPartStmt,
 		containerOwnsCommandBatchStmt:                                q.containerOwnsCommandBatchStmt,
 		containsContainerIdentifiersStmt:                             q.containsContainerIdentifiersStmt,
@@ -8766,6 +8785,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		prepareTelemetrySeedStmt:                                     q.prepareTelemetrySeedStmt,
 		preserveFirmwareRolloutRetryBaselinesStmt:                    q.preserveFirmwareRolloutRetryBaselinesStmt,
 		pruneExpiredAlertMaintenanceWindowsStmt:                      q.pruneExpiredAlertMaintenanceWindowsStmt,
+		pruneHostedInvitationRateLimitStmt:                           q.pruneHostedInvitationRateLimitStmt,
 		prunePermissionsOutsideKeysStmt:                              q.prunePermissionsOutsideKeysStmt,
 		quarantineDeviceWriteFenceStmt:                               q.quarantineDeviceWriteFenceStmt,
 		queryComponentKeysWithErrorsStmt:                             q.queryComponentKeysWithErrorsStmt,

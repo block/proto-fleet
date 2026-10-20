@@ -1970,6 +1970,12 @@ type HostedAccountSite struct {
 	ParentControlled bool
 }
 
+type HostedInvitationRateLimit struct {
+	ClientHash      string
+	WindowStartedAt time.Time
+	Attempts        int32
+}
+
 type InfrastructureDevice struct {
 	ID           int64
 	OrgID        int64

@@ -244,7 +244,6 @@ const AccountTeam = () => {
                     options={[
                       { value: "3600", label: "1 hour" },
                       { value: "86400", label: "24 hours" },
-                      { value: "604800", label: "7 days" },
                     ]}
                   />
                   <p className="text-200 text-text-primary-50">You’ll receive a single-use invitation code to share.</p>

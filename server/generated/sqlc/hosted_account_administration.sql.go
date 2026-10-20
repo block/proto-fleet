@@ -122,7 +122,8 @@ func (q *Queries) CountHostedAccountsWithoutAdministrator(ctx context.Context, a
 const createHostedAccountInvitation = `-- name: CreateHostedAccountInvitation :one
 INSERT INTO hosted_account_invitation
     (invitation_id, organization_id, account_id, inviter_id, authority_fingerprint, token_hash, role, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING invitation_id, organization_id, account_id, inviter_id, authority_fingerprint, token_hash, role, expires_at, revoked_at, accepted_at, accepted_user_id, created_at
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (token_hash) DO NOTHING RETURNING invitation_id, organization_id, account_id, inviter_id, authority_fingerprint, token_hash, role, expires_at, revoked_at, accepted_at, accepted_user_id, created_at
 `
 
 type CreateHostedAccountInvitationParams struct {
