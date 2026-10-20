@@ -708,7 +708,8 @@ func (es *ExecutionService) workerProcessCommand(ctx context.Context, message qu
 
 func shouldRequeueRigConfig(commandType commandtype.Type, terminal bool, commandErr error) bool {
 	return commandType == commandtype.ApplyCurtailmentConfig && terminal && commandErr != nil &&
-		!fleeterror.IsUnimplementedError(commandErr) && !fleeterror.IsFailedPreconditionError(commandErr)
+		!fleeterror.IsUnimplementedError(commandErr) &&
+		(!fleeterror.IsFailedPreconditionError(commandErr) || errors.Is(commandErr, devicewrite.ErrStaleBinding))
 }
 
 // markQueueMessageStatus transitions the queue_message to its next state within an

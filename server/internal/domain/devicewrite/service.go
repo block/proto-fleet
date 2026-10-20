@@ -102,7 +102,7 @@ func (a *Attempt) Recheck(ctx context.Context) error {
 		return fmt.Errorf("check device write attempt: %w", err)
 	}
 	if !valid {
-		return blocked()
+		return fleeterror.NewFailedPreconditionErrorf("device write admission changed; resolve fresh state before dispatch: %w", ErrStaleBinding)
 	}
 	return nil
 }

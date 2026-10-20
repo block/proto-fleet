@@ -17,10 +17,15 @@ import (
 	commandmocks "github.com/block/proto-fleet/server/internal/domain/command/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	minerDomain "github.com/block/proto-fleet/server/internal/domain/miner"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
+	"github.com/block/proto-fleet/server/internal/domain/miner/interfaces"
 	minerIfaceMocks "github.com/block/proto-fleet/server/internal/domain/miner/interfaces/mocks"
+	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
+	"github.com/block/proto-fleet/server/internal/infrastructure/files"
 	"github.com/block/proto-fleet/server/internal/infrastructure/queue"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	sdkMocks "github.com/block/proto-fleet/server/sdk/v1/mocks"
 )
 
 func newRigConfigCommandFixture(t *testing.T) (*Service, *sql.DB, int64, string) {
@@ -275,6 +280,87 @@ func TestRigConfigTerminalFailureRequeuesOnlyFailedDevice(t *testing.T) {
 			require.NoError(t, conn.QueryRowContext(ctx, `SELECT status FROM queue_message WHERE device_id = $1`, otherID).Scan(&otherStatus))
 			assert.Equal(t, "FAILED", failedStatus)
 			assert.Equal(t, "PENDING", otherStatus)
+		})
+	}
+}
+
+func TestRigConfigBindingChangeRetriesWithFreshHandle(t *testing.T) {
+	for _, change := range []string{"endpoint", "site", "credentials"} {
+		t.Run(change, func(t *testing.T) {
+			t.Chdir(t.TempDir())
+			svc, conn, deviceID, identifier := newRigConfigCommandFixture(t)
+			ctx := manualSessionCtx(1)
+			q := sqlc.New(conn)
+			_, err := conn.ExecContext(ctx, `INSERT INTO curtailment_rig_config_reconciliation
+				(organization_id, requested_by, desired_generation, enqueued_generation) VALUES (1, 42, 1, 1)`)
+			require.NoError(t, err)
+			require.NoError(t, svc.ApplyCurtailmentConfigToDevices(ctx, sdk.CurtailmentConfig{}, []string{identifier}))
+			ctrl := gomock.NewController(t)
+			device := &struct {
+				*sdkMocks.MockDevice
+				*sdkMocks.MockDeviceCurtailmentConfigurator
+			}{sdkMocks.NewMockDevice(ctrl), sdkMocks.NewMockDeviceCurtailmentConfigurator(ctrl)}
+			writes := 0
+			device.MockDeviceCurtailmentConfigurator.EXPECT().ApplyCurtailmentConfig(gomock.Any(), sdk.CurtailmentConfig{}).
+				DoAndReturn(func(context.Context, sdk.CurtailmentConfig) error { writes++; return nil }).AnyTimes()
+			driver := sdkMocks.NewMockDriver(ctrl)
+			driver.EXPECT().NewDevice(gomock.Any(), identifier, gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: device}, nil).AnyTimes()
+			fileService, err := files.NewService(files.Config{})
+			require.NoError(t, err)
+			miners := minerDomain.NewMinerService(conn, sqlstores.NewSQLUserStore(conn), svc.encryptService, fileService,
+				&commandTestPluginManager{driver: driver, driverName: "proto"})
+			getter := commandmocks.NewMockCachedMinerGetter(ctrl)
+			resolved := 0
+			getter.EXPECT().GetMinerForCommand(gomock.Any(), deviceID).DoAndReturn(func(ctx context.Context, id int64) (interfaces.Miner, error) {
+				handle, err := miners.GetMinerForCommand(ctx, id)
+				require.NoError(t, err)
+				resolved++
+				if resolved == 1 {
+					switch change {
+					case "endpoint":
+						err = q.UpdateDeviceIPAssignment(ctx, sqlc.UpdateDeviceIPAssignmentParams{ID: deviceID, IpAddress: "192.0.2.44", Port: "443", UrlScheme: "https"})
+					case "site":
+						_, err = conn.ExecContext(ctx, `WITH new_site AS (INSERT INTO site (org_id, name, slug, timezone) VALUES (1, 'new-site', 'new-site', 'UTC') RETURNING id) UPDATE device SET site_id = new_site.id FROM new_site WHERE device.id = $1`, deviceID)
+					case "credentials":
+						username, encryptErr := svc.encryptService.Encrypt([]byte("new-user"))
+						require.NoError(t, encryptErr)
+						password, encryptErr := svc.encryptService.Encrypt([]byte("new-password"))
+						require.NoError(t, encryptErr)
+						err = q.UpsertMinerCredentials(ctx, sqlc.UpsertMinerCredentialsParams{DeviceID: deviceID, UsernameEnc: username, PasswordEnc: password})
+					}
+					require.NoError(t, err)
+				}
+				return handle, nil
+			}).Times(2)
+			svc.executionService.minerService = getter
+			processNext := func() {
+				message := queue.Message{OrgID: 1, DeviceID: deviceID, CommandType: commandtype.ApplyCurtailmentConfig}
+				require.NoError(t, conn.QueryRowContext(ctx, `UPDATE queue_message SET status = 'PROCESSING' WHERE device_id = $1 AND status = 'PENDING' RETURNING id, command_batch_log_uuid, payload`, deviceID).
+					Scan(&message.ID, &message.BatchLogUUID, &message.Payload))
+				svc.executionService.workerProcessCommand(ctx, message)
+			}
+			processNext()
+			require.Zero(t, writes, "stale binding must not dispatch")
+			var generation int64
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT desired_generation FROM curtailment_rig_config_reconciliation WHERE organization_id = 1`).Scan(&generation))
+			require.Equal(t, int64(2), generation, "binding change must preserve reconciliation")
+			_, err = conn.ExecContext(ctx, `UPDATE curtailment_rig_config_reconciliation SET retry_at = CURRENT_TIMESTAMP WHERE organization_id = 1`)
+			require.NoError(t, err)
+			claim, err := q.ClaimRigConfigReconciliation(ctx)
+			require.NoError(t, err)
+			targets, err := q.ListRigConfigReconciliationTargets(ctx, sqlc.ListRigConfigReconciliationTargetsParams{
+				OrganizationID: 1, EnqueuedGeneration: claim.EnqueuedGeneration, DesiredGeneration: claim.DesiredGeneration,
+				ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+			})
+			require.NoError(t, err)
+			require.Equal(t, []string{identifier}, targets)
+			require.NoError(t, svc.ApplyCurtailmentConfigToDevices(ctx, sdk.CurtailmentConfig{}, targets))
+			require.NoError(t, q.CompleteRigConfigReconciliation(ctx, sqlc.CompleteRigConfigReconciliationParams{OrganizationID: 1, EnqueuedGeneration: claim.DesiredGeneration}))
+			processNext()
+			require.Equal(t, 1, writes, "fresh handle must deliver exactly once")
+			var successes int
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT count(*) FROM queue_message WHERE status = 'SUCCESS'`).Scan(&successes))
+			require.Equal(t, 1, successes)
 		})
 	}
 }

@@ -2,6 +2,9 @@ package devicewrite
 
 import "errors"
 
+// ErrStaleBinding requires fresh device binding and admission before retrying.
+var ErrStaleBinding = errors.New("device binding or write admission changed")
+
 // NotDispatched marks explicit evidence that no outbound device operation began.
 // Preparation/admission refusals and documented pre-execution transport refusals
 // qualify; generic transport or acknowledgement errors do not.
