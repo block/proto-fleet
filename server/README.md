@@ -366,6 +366,12 @@ Plugins are external processes that communicate with the fleet service:
 
 Configuration is in `cmd/fleetd/config.go` with options for plugin directories, startup timeouts, and health check behavior.
 
+Shutdown cleans up plugins concurrently and returns as soon as their processes
+and client cleanup finish. The per-plugin grace period and shared shutdown
+context bound graceful shutdown; a pending process is force-killed when either
+expires, and only that plugin reports an interruption. Forced cleanup has an
+additional two-second bound to reap processes even after context cancellation.
+
 ### Data Layer
 
 - **PostgreSQL/TimescaleDB**: Primary data store with schema defined in `migrations/`. Migrations run automatically on startup.
