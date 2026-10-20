@@ -387,6 +387,11 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	for _, loaded := range m.plugins {
 		wg.Go(func() {
 			if err := m.shutdownPlugin(ctx, loaded); err != nil {
+				pid := 0
+				if loaded.process != nil {
+					pid = loaded.process.Pid
+				}
+				slog.Warn("Plugin shutdown failed", "name", loaded.Name, "pid", pid, "error", err)
 				errorsChan <- fmt.Errorf("plugin %s: %w", loaded.Name, err)
 			}
 		})
@@ -427,14 +432,6 @@ func (m *Manager) shutdownPlugin(ctx context.Context, loaded *LoadedPlugin) erro
 		return nil
 	case <-graceCtx.Done():
 	}
-	select {
-	case <-done:
-		if loaded.Client.Exited() {
-			return nil
-		}
-	default:
-	}
-
 	var shutdownErr error
 	if !loaded.Client.Exited() {
 		shutdownErr = fmt.Errorf("shutdown interrupted before process exit: %w", graceCtx.Err())
