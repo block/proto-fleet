@@ -321,9 +321,7 @@ type Querier interface {
 	ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error)
 	ConsumeFleetNodeAuthChallenge(ctx context.Context, arg ConsumeFleetNodeAuthChallengeParams) (FleetNodeAuthChallenge, error)
 	ConsumeHostedAccountInvitation(ctx context.Context, arg ConsumeHostedAccountInvitationParams) (int64, error)
-	// Run after taking the lock, in READ COMMITTED, so the count includes every
-	// issuance committed before admission. Count conservatively: even invitations
-	// whose inviter lost authority cost budget until expiry/revocation/acceptance.
+	// Each client has an independent one-minute window, shared across replicas.
 	ConsumeHostedInvitationRateLimit(ctx context.Context, arg ConsumeHostedInvitationRateLimitParams) (int64, error)
 	ConsumeReservedInventoryPart(ctx context.Context, arg ConsumeReservedInventoryPartParams) (int64, error)
 	ContainerOwnsCommandBatch(ctx context.Context, arg ContainerOwnsCommandBatchParams) (bool, error)
@@ -335,9 +333,6 @@ type Querier interface {
 	// it rather than block the admin on phantom assignments.
 	CountActiveAssignmentsForRole(ctx context.Context, roleID int64) (int64, error)
 	CountActiveCurtailmentEventsByInfrastructureDevices(ctx context.Context, arg CountActiveCurtailmentEventsByInfrastructureDevicesParams) (int64, error)
-	// Issuance runs this under the rate-limit lock, so the per-customer cap is
-	// race-free. A customer's subclients share its allowance.
-	CountActiveHostedCustomerInvitations(ctx context.Context, arg CountActiveHostedCustomerInvitationsParams) (int64, error)
 	CountActiveRepairTicketsAssignedToUser(ctx context.Context, arg CountActiveRepairTicketsAssignedToUserParams) (int64, error)
 	CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error)
 	// Site filter must stay byte-for-byte identical to ListActivityLogs so the
@@ -1770,9 +1765,6 @@ type Querier interface {
 	// Reports may overlap, while hierarchy, policy, membership and allocation
 	// mutations keep their exclusive organization admission lock.
 	LockHostedAccountOrganizationForShare(ctx context.Context, id int64) (int64, error)
-	// Issuance and admission both acquire this lock before inserting or looking up
-	// a digest. Admission bounds this short transaction with a two-second timeout.
-	LockHostedInvitationRateLimit(ctx context.Context) (bool, error)
 	// Canonical serialization point for device moves/deletes and response-profile
 	// references. Callers lock parent sites first, then device rows by ID.
 	LockInfrastructureDeviceForWrite(ctx context.Context, arg LockInfrastructureDeviceForWriteParams) (int64, error)
@@ -1890,6 +1882,8 @@ type Querier interface {
 	// Retention: reclaims the org's expired windows (ends_at <= now) that ended before the cutoff,
 	// plus any beyond the newest keep_newest (see maxRetainedExpiredWindowsPerOrg for the why).
 	PruneExpiredAlertMaintenanceWindows(ctx context.Context, arg PruneExpiredAlertMaintenanceWindowsParams) (int64, error)
+	// Reclaim idle clients in bounded batches without waiting on active requests.
+	PruneHostedInvitationRateLimit(ctx context.Context) error
 	// Used by SUPER_ADMIN full reconciliation: keep only the permissions
 	// whose key is in the supplied set. ADMIN/FIELD_TECH reconciliation
 	// never calls this — they are additive-only.

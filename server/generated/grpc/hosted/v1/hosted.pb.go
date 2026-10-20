@@ -2164,7 +2164,7 @@ func (x *CreateInvitationRequest) GetExpiresInSeconds() uint32 {
 type CreateInvitationResponse struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	Invitation *Invitation            `protobuf:"bytes,1,opt,name=invitation,proto3" json:"invitation,omitempty"`
-	// Eight-character bearer code, formatted XXXX-XXXX, shown once for manual
+	// Sixteen-character bearer code, formatted XXXX-XXXX-XXXX-XXXX, shown once for manual
 	// sharing. Never retained in activity logs.
 	Token         string `protobuf:"bytes,2,opt,name=token,proto3" json:"token,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -2305,7 +2305,7 @@ func (*RevokeInvitationResponse) Descriptor() ([]byte, []int) {
 
 type PreviewInvitationRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// The server normalizes codes (ASCII case, spaces, optional middle hyphen).
+	// The server normalizes codes (ASCII case, spaces, optional four-character group hyphens).
 	Token         string `protobuf:"bytes,1,opt,name=token,proto3" json:"token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

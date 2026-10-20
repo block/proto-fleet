@@ -226,7 +226,7 @@ message CreateInvitationRequest {
 }
 message CreateInvitationResponse {
   Invitation invitation = 1;
-  // Eight-character bearer code, formatted XXXX-XXXX, shown once for manual
+  // Sixteen-character bearer code, formatted XXXX-XXXX-XXXX-XXXX, shown once for manual
   // sharing. Never retained in activity logs.
   string token = 2;
 }
@@ -236,7 +236,7 @@ message RevokeInvitationRequest {
 }
 message RevokeInvitationResponse {}
 message PreviewInvitationRequest {
-  // The server normalizes codes (ASCII case, spaces, optional middle hyphen).
+  // The server normalizes codes (ASCII case, spaces, optional four-character group hyphens).
   string token = 1 [(buf.validate.field).string.max_bytes = 128];
 }
 message PreviewInvitationResponse {

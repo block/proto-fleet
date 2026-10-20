@@ -1971,13 +1971,9 @@ type HostedAccountSite struct {
 }
 
 type HostedInvitationRateLimit struct {
-	Singleton bool
-}
-
-type HostedInvitationRateLimitAttempt struct {
-	ID          int64
-	AttemptedAt time.Time
-	Exposure    int64
+	ClientHash      string
+	WindowStartedAt time.Time
+	Attempts        int32
 }
 
 type InfrastructureDevice struct {

@@ -986,18 +986,6 @@ func (q *retryingQuerier) CountActiveCurtailmentEventsByInfrastructureDevices(ct
 	return result, err
 }
 
-func (q *retryingQuerier) CountActiveHostedCustomerInvitations(ctx context.Context, arg CountActiveHostedCustomerInvitationsParams) (int64, error) {
-	var result int64
-	err := q.retrier.RetryQuery(ctx, "CountActiveHostedCustomerInvitations", func() error {
-		callResult, callErr := q.next.CountActiveHostedCustomerInvitations(ctx, arg)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) CountActiveRepairTicketsAssignedToUser(ctx context.Context, arg CountActiveRepairTicketsAssignedToUserParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "CountActiveRepairTicketsAssignedToUser", func() error {
@@ -7280,18 +7268,6 @@ func (q *retryingQuerier) LockHostedAccountOrganizationForShare(ctx context.Cont
 	return result, err
 }
 
-func (q *retryingQuerier) LockHostedInvitationRateLimit(ctx context.Context) (bool, error) {
-	var result bool
-	err := q.retrier.RetryQuery(ctx, "LockHostedInvitationRateLimit", func() error {
-		callResult, callErr := q.next.LockHostedInvitationRateLimit(ctx)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) LockInfrastructureDeviceForWrite(ctx context.Context, arg LockInfrastructureDeviceForWriteParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "LockInfrastructureDeviceForWrite", func() error {
@@ -7722,6 +7698,12 @@ func (q *retryingQuerier) PruneExpiredAlertMaintenanceWindows(ctx context.Contex
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) PruneHostedInvitationRateLimit(ctx context.Context) error {
+	return q.retrier.RetryQuery(ctx, "PruneHostedInvitationRateLimit", func() error {
+		return q.next.PruneHostedInvitationRateLimit(ctx)
+	})
 }
 
 func (q *retryingQuerier) PrunePermissionsOutsideKeys(ctx context.Context, arg PrunePermissionsOutsideKeysParams) error {

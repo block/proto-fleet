@@ -179,7 +179,8 @@ const InvitationDetails = ({ token, onChangeCode }: { token: string; onChangeCod
   );
 };
 
-const isInvitationCode = (value: string) => /^[A-HJ-NP-Z2-9]{4}-?[A-HJ-NP-Z2-9]{4}$/i.test(value.replaceAll(" ", ""));
+const isInvitationCode = (value: string) =>
+  /^(?:[A-HJ-NP-Z2-9]{4}-?){3}[A-HJ-NP-Z2-9]{4}$/i.test(value.replaceAll(" ", ""));
 const AccountInvitation = () => {
   const location = useLocation(),
     navigate = useNavigate();
@@ -207,7 +208,7 @@ const AccountInvitation = () => {
             <Header
               title="Join an account"
               titleSize="text-heading-300"
-              description="Enter your invitation code, such as K7MP-4X9R."
+              description="Enter your invitation code, such as K7MP-4X9R-6TWC-8NQF."
             />
             <Input
               id="invitation-code"

@@ -939,7 +939,7 @@ export type CreateInvitationResponse = Message<"hosted.v1.CreateInvitationRespon
   invitation?: Invitation | undefined;
 
   /**
-   * Eight-character bearer code, formatted XXXX-XXXX, shown once for manual
+   * Sixteen-character bearer code, formatted XXXX-XXXX-XXXX-XXXX, shown once for manual
    * sharing. Never retained in activity logs.
    *
    * @generated from field: string token = 2;
@@ -996,7 +996,7 @@ export const RevokeInvitationResponseSchema: GenMessage<RevokeInvitationResponse
  */
 export type PreviewInvitationRequest = Message<"hosted.v1.PreviewInvitationRequest"> & {
   /**
-   * The server normalizes codes (ASCII case, spaces, optional middle hyphen).
+   * The server normalizes codes (ASCII case, spaces, optional four-character group hyphens).
    *
    * @generated from field: string token = 1;
    */

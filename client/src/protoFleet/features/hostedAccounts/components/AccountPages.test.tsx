@@ -74,7 +74,7 @@ function scope(mask = 31n) {
       ],
     }),
     listInvitations: vi.fn().mockResolvedValue({ invitations: [], nextPageToken: "" }),
-    createInvitation: vi.fn().mockResolvedValue({ token: "K7MP-4X9R" }),
+    createInvitation: vi.fn().mockResolvedValue({ token: "K7MP-4X9R-6TWC-8NQF" }),
     revokeMember: vi.fn().mockResolvedValue({}),
     revokeInvitation: vi.fn().mockResolvedValue({}),
     listAccountKeys: vi.fn().mockResolvedValue({ keys: [], nextPageToken: "" }),
@@ -264,13 +264,13 @@ describe("hosted account pages", () => {
     await user.click(expiryOptions.getByRole("option", { name: "24 hours" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Create invitation" }));
     const secret = await screen.findByLabelText("Invitation code");
-    expect(secret).toHaveValue("K7MP-4X9R");
+    expect(secret).toHaveValue("K7MP-4X9R-6TWC-8NQF");
     vi.stubGlobal("isSecureContext", true);
     const copy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
     await user.click(screen.getByRole("button", { name: "Copy invitation code" }));
-    expect(copy).toHaveBeenLastCalledWith("K7MP-4X9R");
+    expect(copy).toHaveBeenLastCalledWith("K7MP-4X9R-6TWC-8NQF");
     await user.click(screen.getByRole("button", { name: "Copy link" }));
-    expect(copy).toHaveBeenLastCalledWith(`${window.location.origin}/account-invitation#token=K7MP-4X9R`);
+    expect(copy).toHaveBeenLastCalledWith(`${window.location.origin}/account-invitation#token=K7MP-4X9R-6TWC-8NQF`);
     expect(client.createInvitation).toHaveBeenCalledWith({
       accountId,
       role: AccountRole.VIEWER,
@@ -300,7 +300,10 @@ describe("hosted account pages", () => {
       expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
       await user.click(screen.getByRole("button", { name: "Copy link" }));
       await screen.findByRole("button", { name: "Link copied" });
-      expect(copied).toEqual(["K7MP-4X9R", `${window.location.origin}/account-invitation#token=K7MP-4X9R`]);
+      expect(copied).toEqual([
+        "K7MP-4X9R-6TWC-8NQF",
+        `${window.location.origin}/account-invitation#token=K7MP-4X9R-6TWC-8NQF`,
+      ]);
       expect(copy).toHaveBeenCalledWith("copy");
       expect(document.querySelector("textarea")).toBeNull();
     } finally {
@@ -323,7 +326,7 @@ describe("hosted account pages", () => {
       await screen.findByText("Couldn’t copy. Select and copy the value above.");
       await user.click(screen.getByRole("button", { name: "Copy link" }));
       await screen.findByText("Couldn’t copy the link. Share the code instead.");
-      expect(screen.getByLabelText("Invitation code")).toHaveValue("K7MP-4X9R");
+      expect(screen.getByLabelText("Invitation code")).toHaveValue("K7MP-4X9R-6TWC-8NQF");
       expect(document.querySelector("textarea")).toBeNull();
     } finally {
       if (descriptor) Object.defineProperty(document, "execCommand", descriptor);

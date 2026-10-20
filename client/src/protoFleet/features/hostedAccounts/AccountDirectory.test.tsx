@@ -63,7 +63,7 @@ function mount(owner = true, entry = "/accounts", managedClient = client, strict
             : method === "ListMembers"
               ? { members: [] }
               : method === "CreateInvitation"
-                ? { token: "K7MP-4X9R" }
+                ? { token: "K7MP-4X9R-6TWC-8NQF" }
                 : method === "ListAccountAssets"
                   ? {
                       assets: [],
@@ -122,7 +122,7 @@ describe("owner Clients directory", () => {
     });
     expect(refresh).toHaveBeenCalled();
     await user.click(within(invitation).getByRole("button", { name: "Create invitation" }));
-    expect(await screen.findByLabelText("Invitation code")).toHaveValue("K7MP-4X9R");
+    expect(await screen.findByLabelText("Invitation code")).toHaveValue("K7MP-4X9R-6TWC-8NQF");
     expect(calls).toContainEqual({
       method: "CreateInvitation",
       account: newClient.accountId,

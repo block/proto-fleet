@@ -41,15 +41,16 @@ var rpcClientSequence atomic.Uint32
 const rpcPassword = "customer-password123"
 
 type rpcFixture struct {
-	db       *sql.DB
-	accounts *domain.Service
-	keys     *apikey.Service
-	client   hostedv1connect.HostedAccountServiceClient
-	auth     authv1connect.AuthServiceClient
-	org      int64
-	host     int64
-	root     string
-	cookie   string
+	db          *sql.DB
+	accounts    *domain.Service
+	keys        *apikey.Service
+	client      hostedv1connect.HostedAccountServiceClient
+	auth        authv1connect.AuthServiceClient
+	org         int64
+	host        int64
+	root        string
+	cookie      string
+	peerAddress *atomic.Pointer[string]
 }
 
 // The RPC server uses the same identity, session, permission, validation, error
@@ -85,14 +86,16 @@ func newRPCFixture(t *testing.T) rpcFixture {
 	require.NoError(t, err)
 	// Each fixture represents an independent trusted peer; sharing the
 	// loopback address would spend another fixture's registration allowance.
-	peerAddress := fmt.Sprintf("192.0.2.%d:1234", rpcClientSequence.Add(1))
+	peerAddress := &atomic.Pointer[string]{}
+	initialPeer := fmt.Sprintf("192.0.2.%d:1234", rpcClientSequence.Add(1))
+	peerAddress.Store(&initialPeer)
 	wrapped := clientIP.Wrap(mux)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.RemoteAddr = peerAddress
+		r.RemoteAddr = *peerAddress.Load()
 		wrapped.ServeHTTP(w, r)
 	}))
 	t.Cleanup(server.Close)
-	f := rpcFixture{db: db, accounts: accounts, keys: keys, org: org,
+	f := rpcFixture{db: db, accounts: accounts, keys: keys, org: org, peerAddress: peerAddress,
 		client: hostedv1connect.NewHostedAccountServiceClient(server.Client(), server.URL),
 		auth:   authv1connect.NewAuthServiceClient(server.Client(), server.URL)}
 	f.host = f.addUser(t, "host-"+uuid.NewString(), true)
@@ -152,7 +155,7 @@ func (f rpcFixture) invite(t *testing.T, accountID string, role pb.AccountRole) 
 	t.Helper()
 	response, err := f.client.CreateInvitation(t.Context(), rpcRequest(&pb.CreateInvitationRequest{AccountId: accountID, Role: role}, f.cookie, accountID))
 	require.NoError(t, err)
-	require.Regexp(t, `^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$`, response.Msg.Token)
+	require.Regexp(t, `^(?:[A-HJ-NP-Z2-9]{4}-){3}[A-HJ-NP-Z2-9]{4}$`, response.Msg.Token)
 	return response.Msg
 }
 

@@ -46,8 +46,8 @@ type Registration struct {
 }
 
 // Public previews never queue for a process-local slot or consume the database
-// pool with unbounded concurrent snapshots. The durable guess budget separately
-// limits checks across all processes.
+// pool with unbounded concurrent snapshots. Public handlers also apply the
+// PostgreSQL client rate limit across all processes.
 var sharedInvitationPreviewSlots = make(chan struct{}, 16)
 
 type InvitationService struct {
@@ -97,13 +97,6 @@ func (s *InvitationService) Create(ctx context.Context, actorID, orgID int64, ac
 		}
 		fingerprint, err := authorityFingerprint(ctx, q, actorID, orgID, path)
 		if err != nil {
-			return IssuedInvitation{}, err
-		}
-		if err := lockInvitationRateLimit(ctx, q); err != nil {
-			return IssuedInvitation{}, err
-		}
-		// path[1] is the customer; depth-0 targets were rejected above.
-		if err := requireCustomerInvitationCapacity(ctx, q, orgID, path[1].ID); err != nil {
 			return IssuedInvitation{}, err
 		}
 		var row sqlc.HostedAccountInvitation
@@ -244,9 +237,6 @@ func (s *InvitationService) Preview(ctx context.Context, token string) (Invitati
 	}
 	hash, err := invitationHash(token)
 	if err != nil {
-		return InvitationPreview{}, err
-	}
-	if _, err := s.lookupInvitation(ctx, hash); err != nil {
 		return InvitationPreview{}, err
 	}
 	// Authority and lifecycle checks share one snapshot without taking the
@@ -393,7 +383,10 @@ func (s *InvitationService) withInvitation(ctx context.Context, token string, fn
 	if err != nil {
 		return err
 	}
-	initial, err := s.lookupInvitation(ctx, hash)
+	initial, err := s.accounts.queries.GetHostedAccountInvitationByHash(ctx, hash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return unavailableInvitation()
+	}
 	if err != nil {
 		return err
 	}
@@ -456,11 +449,11 @@ func validateInvitation(ctx context.Context, q sqlc.Querier, i sqlc.GetHostedAcc
 	return path, nil
 }
 
-// 32 symbols give eight independently uniform characters 40 bits of entropy.
+// 32 symbols give sixteen independently uniform characters 80 bits of entropy.
 const invitationAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 func newInvitationCode() (string, error) {
-	var secret [8]byte
+	var secret [16]byte
 	if _, err := rand.Read(secret[:]); err != nil {
 		return "", fmt.Errorf("generate invitation code: %w", err)
 	}
@@ -468,7 +461,7 @@ func newInvitationCode() (string, error) {
 		// 32 divides 256, so masking does not introduce modulo bias.
 		secret[i] = invitationAlphabet[secret[i]&31]
 	}
-	return string(secret[:4]) + "-" + string(secret[4:]), nil
+	return string(secret[:4]) + "-" + string(secret[4:8]) + "-" + string(secret[8:12]) + "-" + string(secret[12:]), nil
 }
 
 func invitationHash(token string) (string, error) {
@@ -478,13 +471,17 @@ func invitationHash(token string) (string, error) {
 	// Only ASCII spaces and ASCII case folding are permitted. Do not silently
 	// alias ambiguous symbols or Unicode lookalikes to valid code characters.
 	token = strings.ReplaceAll(token, " ", "")
-	if len(token) == 9 && token[4] == '-' {
-		token = token[:4] + token[5:]
+	groups := strings.Split(token, "-")
+	for _, group := range groups {
+		if len(group) == 0 || len(group)%4 != 0 {
+			return "", unavailableInvitation()
+		}
 	}
-	if len(token) != 8 {
+	token = strings.Join(groups, "")
+	if len(token) != 16 {
 		return "", unavailableInvitation()
 	}
-	var normalized [8]byte
+	var normalized [16]byte
 	for i := range token {
 		char := token[i]
 		if char >= 'a' && char <= 'z' {

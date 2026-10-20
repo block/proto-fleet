@@ -2,71 +2,44 @@ package hostedaccounts
 
 import (
 	"context"
-	"database/sql"
-	"errors"
+	"crypto/sha256"
+	"encoding/hex"
+	"net/netip"
 	"time"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
-const (
-	invitationAttemptLimit  = 1000
-	invitationExposureLimit = 100000
-	// Each check costs the deployment-wide active population. Keeping one
-	// customer's share at or below invitationExposureLimit/invitationAttemptLimit
-	// means a single customer cannot push the hourly budget below the attempt limit.
-	customerInvitationLimit = 50
-)
+const invitationClientAttemptLimit = 60
 
-func lockInvitationRateLimit(ctx context.Context, q sqlc.Querier) error {
-	_, err := q.LockHostedInvitationRateLimit(ctx)
-	return err
-}
-
-// requireCustomerInvitationCapacity must run after lockInvitationRateLimit.
-func requireCustomerInvitationCapacity(ctx context.Context, q sqlc.Querier, orgID, customerID int64) error {
-	active, err := q.CountActiveHostedCustomerInvitations(ctx, sqlc.CountActiveHostedCustomerInvitationsParams{OrganizationID: orgID, CustomerID: customerID})
+// CheckClientRateLimit admits one public preview or redemption request. The
+// handler supplies the trusted middleware address; internal service calls do
+// not spend additional requests for the same registration flow.
+func (s *InvitationService) CheckClientRateLimit(ctx context.Context, ipAddress string) error {
+	ip, err := netip.ParseAddr(ipAddress)
+	if err != nil || ip.Zone() != "" {
+		return fleeterror.NewFailedPreconditionError("invitation client address unavailable")
+	}
+	ip = ip.Unmap()
+	client := ip.String()
+	if ip.Is6() {
+		// One host must not reset its allowance by rotating IPv6 addresses.
+		client = netip.PrefixFrom(ip, 64).Masked().String()
+	}
+	sum := sha256.Sum256([]byte(client))
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	charged, err := s.accounts.queries.ConsumeHostedInvitationRateLimit(ctx, sqlc.ConsumeHostedInvitationRateLimitParams{
+		ClientHash: hex.EncodeToString(sum[:]), AttemptLimit: invitationClientAttemptLimit,
+	})
 	if err != nil {
 		return err
 	}
-	if active >= customerInvitationLimit {
-		return fleeterror.NewResourceExhaustedErrorf("this customer has %d pending invitations; revoke unused invitations or wait for them to expire", customerInvitationLimit)
+	if charged != 1 {
+		return fleeterror.NewResourceExhaustedErrorf("invitation requests temporarily limited; try again later")
 	}
-	return nil
-}
-
-// lookupInvitation commits the charge before reporting a missing digest. Failed
-// attempts, rejected redemptions and later transaction rollbacks never refund it.
-// Lookup occurs under the same lock as issuance: a newly issued code cannot be
-// guessed using a charge based on the earlier, smaller active population.
-func (s *InvitationService) lookupInvitation(ctx context.Context, hash string) (sqlc.GetHostedAccountInvitationByHashRow, error) {
-	initial, err := db.WithTransactionTimeout(ctx, s.accounts.conn, 2*time.Second, func(q sqlc.Querier) (sqlc.GetHostedAccountInvitationByHashRow, error) {
-		var empty sqlc.GetHostedAccountInvitationByHashRow
-		if err := lockInvitationRateLimit(ctx, q); err != nil {
-			return empty, err
-		}
-		charged, err := q.ConsumeHostedInvitationRateLimit(ctx, sqlc.ConsumeHostedInvitationRateLimitParams{
-			AttemptLimit: invitationAttemptLimit, ExposureLimit: invitationExposureLimit,
-		})
-		if err != nil {
-			return empty, err
-		}
-		if charged != 1 {
-			return empty, fleeterror.NewResourceExhaustedErrorf("invitation checks temporarily limited; try again later")
-		}
-		initial, err := q.GetHostedAccountInvitationByHash(ctx, hash)
-		if errors.Is(err, sql.ErrNoRows) {
-			return empty, nil
-		}
-		return initial, err
-	})
-	if err != nil {
-		return initial, err
-	}
-	if initial.InvitationID == "" {
-		return initial, unavailableInvitation()
-	}
-	return initial, nil
+	// Admission commits first. Cleanup cannot refund a request or hold its lock
+	// while acquiring another client's row.
+	return s.accounts.queries.PruneHostedInvitationRateLimit(ctx)
 }

@@ -291,9 +291,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.countActiveCurtailmentEventsByInfrastructureDevicesStmt, err = db.PrepareContext(ctx, countActiveCurtailmentEventsByInfrastructureDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveCurtailmentEventsByInfrastructureDevices: %w", err)
 	}
-	if q.countActiveHostedCustomerInvitationsStmt, err = db.PrepareContext(ctx, countActiveHostedCustomerInvitations); err != nil {
-		return nil, fmt.Errorf("error preparing query CountActiveHostedCustomerInvitations: %w", err)
-	}
 	if q.countActiveRepairTicketsAssignedToUserStmt, err = db.PrepareContext(ctx, countActiveRepairTicketsAssignedToUser); err != nil {
 		return nil, fmt.Errorf("error preparing query CountActiveRepairTicketsAssignedToUser: %w", err)
 	}
@@ -1950,9 +1947,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockHostedAccountOrganizationForShareStmt, err = db.PrepareContext(ctx, lockHostedAccountOrganizationForShare); err != nil {
 		return nil, fmt.Errorf("error preparing query LockHostedAccountOrganizationForShare: %w", err)
 	}
-	if q.lockHostedInvitationRateLimitStmt, err = db.PrepareContext(ctx, lockHostedInvitationRateLimit); err != nil {
-		return nil, fmt.Errorf("error preparing query LockHostedInvitationRateLimit: %w", err)
-	}
 	if q.lockInfrastructureDeviceForWriteStmt, err = db.PrepareContext(ctx, lockInfrastructureDeviceForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockInfrastructureDeviceForWrite: %w", err)
 	}
@@ -2078,6 +2072,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.pruneExpiredAlertMaintenanceWindowsStmt, err = db.PrepareContext(ctx, pruneExpiredAlertMaintenanceWindows); err != nil {
 		return nil, fmt.Errorf("error preparing query PruneExpiredAlertMaintenanceWindows: %w", err)
+	}
+	if q.pruneHostedInvitationRateLimitStmt, err = db.PrepareContext(ctx, pruneHostedInvitationRateLimit); err != nil {
+		return nil, fmt.Errorf("error preparing query PruneHostedInvitationRateLimit: %w", err)
 	}
 	if q.prunePermissionsOutsideKeysStmt, err = db.PrepareContext(ctx, prunePermissionsOutsideKeys); err != nil {
 		return nil, fmt.Errorf("error preparing query PrunePermissionsOutsideKeys: %w", err)
@@ -3151,11 +3148,6 @@ func (q *Queries) Close() error {
 	if q.countActiveCurtailmentEventsByInfrastructureDevicesStmt != nil {
 		if cerr := q.countActiveCurtailmentEventsByInfrastructureDevicesStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing countActiveCurtailmentEventsByInfrastructureDevicesStmt: %w", cerr)
-		}
-	}
-	if q.countActiveHostedCustomerInvitationsStmt != nil {
-		if cerr := q.countActiveHostedCustomerInvitationsStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing countActiveHostedCustomerInvitationsStmt: %w", cerr)
 		}
 	}
 	if q.countActiveRepairTicketsAssignedToUserStmt != nil {
@@ -5918,11 +5910,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockHostedAccountOrganizationForShareStmt: %w", cerr)
 		}
 	}
-	if q.lockHostedInvitationRateLimitStmt != nil {
-		if cerr := q.lockHostedInvitationRateLimitStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing lockHostedInvitationRateLimitStmt: %w", cerr)
-		}
-	}
 	if q.lockInfrastructureDeviceForWriteStmt != nil {
 		if cerr := q.lockInfrastructureDeviceForWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockInfrastructureDeviceForWriteStmt: %w", cerr)
@@ -6131,6 +6118,11 @@ func (q *Queries) Close() error {
 	if q.pruneExpiredAlertMaintenanceWindowsStmt != nil {
 		if cerr := q.pruneExpiredAlertMaintenanceWindowsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing pruneExpiredAlertMaintenanceWindowsStmt: %w", cerr)
+		}
+	}
+	if q.pruneHostedInvitationRateLimitStmt != nil {
+		if cerr := q.pruneHostedInvitationRateLimitStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing pruneHostedInvitationRateLimitStmt: %w", cerr)
 		}
 	}
 	if q.prunePermissionsOutsideKeysStmt != nil {
@@ -7301,7 +7293,6 @@ type Queries struct {
 	containsContainerIdentifiersStmt                             *sql.Stmt
 	countActiveAssignmentsForRoleStmt                            *sql.Stmt
 	countActiveCurtailmentEventsByInfrastructureDevicesStmt      *sql.Stmt
-	countActiveHostedCustomerInvitationsStmt                     *sql.Stmt
 	countActiveRepairTicketsAssignedToUserStmt                   *sql.Stmt
 	countActiveUnpairedDiscoveredDevicesStmt                     *sql.Stmt
 	countActivityLogsStmt                                        *sql.Stmt
@@ -7854,7 +7845,6 @@ type Queries struct {
 	lockHostedAccountAssetInventoryStmt                          *sql.Stmt
 	lockHostedAccountOrganizationStmt                            *sql.Stmt
 	lockHostedAccountOrganizationForShareStmt                    *sql.Stmt
-	lockHostedInvitationRateLimitStmt                            *sql.Stmt
 	lockInfrastructureDeviceForWriteStmt                         *sql.Stmt
 	lockInfrastructureDevicesBySiteForWriteStmt                  *sql.Stmt
 	lockInfrastructureDevicesForResponseProfileStmt              *sql.Stmt
@@ -7897,6 +7887,7 @@ type Queries struct {
 	prepareTelemetrySeedStmt                                     *sql.Stmt
 	preserveFirmwareRolloutRetryBaselinesStmt                    *sql.Stmt
 	pruneExpiredAlertMaintenanceWindowsStmt                      *sql.Stmt
+	pruneHostedInvitationRateLimitStmt                           *sql.Stmt
 	prunePermissionsOutsideKeysStmt                              *sql.Stmt
 	quarantineDeviceWriteFenceStmt                               *sql.Stmt
 	queryComponentKeysWithErrorsStmt                             *sql.Stmt
@@ -8200,7 +8191,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		containsContainerIdentifiersStmt:                             q.containsContainerIdentifiersStmt,
 		countActiveAssignmentsForRoleStmt:                            q.countActiveAssignmentsForRoleStmt,
 		countActiveCurtailmentEventsByInfrastructureDevicesStmt:      q.countActiveCurtailmentEventsByInfrastructureDevicesStmt,
-		countActiveHostedCustomerInvitationsStmt:                     q.countActiveHostedCustomerInvitationsStmt,
 		countActiveRepairTicketsAssignedToUserStmt:                   q.countActiveRepairTicketsAssignedToUserStmt,
 		countActiveUnpairedDiscoveredDevicesStmt:                     q.countActiveUnpairedDiscoveredDevicesStmt,
 		countActivityLogsStmt:                                        q.countActivityLogsStmt,
@@ -8753,7 +8743,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockHostedAccountAssetInventoryStmt:                          q.lockHostedAccountAssetInventoryStmt,
 		lockHostedAccountOrganizationStmt:                            q.lockHostedAccountOrganizationStmt,
 		lockHostedAccountOrganizationForShareStmt:                    q.lockHostedAccountOrganizationForShareStmt,
-		lockHostedInvitationRateLimitStmt:                            q.lockHostedInvitationRateLimitStmt,
 		lockInfrastructureDeviceForWriteStmt:                         q.lockInfrastructureDeviceForWriteStmt,
 		lockInfrastructureDevicesBySiteForWriteStmt:                  q.lockInfrastructureDevicesBySiteForWriteStmt,
 		lockInfrastructureDevicesForResponseProfileStmt:              q.lockInfrastructureDevicesForResponseProfileStmt,
@@ -8796,6 +8785,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		prepareTelemetrySeedStmt:                                     q.prepareTelemetrySeedStmt,
 		preserveFirmwareRolloutRetryBaselinesStmt:                    q.preserveFirmwareRolloutRetryBaselinesStmt,
 		pruneExpiredAlertMaintenanceWindowsStmt:                      q.pruneExpiredAlertMaintenanceWindowsStmt,
+		pruneHostedInvitationRateLimitStmt:                           q.pruneHostedInvitationRateLimitStmt,
 		prunePermissionsOutsideKeysStmt:                              q.prunePermissionsOutsideKeysStmt,
 		quarantineDeviceWriteFenceStmt:                               q.quarantineDeviceWriteFenceStmt,
 		queryComponentKeysWithErrorsStmt:                             q.queryComponentKeysWithErrorsStmt,

@@ -341,6 +341,9 @@ func (h *Handler) RevokeInvitation(ctx context.Context, req *connect.Request[pb.
 	return connect.NewResponse(&pb.RevokeInvitationResponse{}), nil
 }
 func (h *Handler) PreviewInvitation(ctx context.Context, req *connect.Request[pb.PreviewInvitationRequest]) (*connect.Response[pb.PreviewInvitationResponse], error) {
+	if err := h.checkInvitationClient(ctx); err != nil {
+		return nil, err
+	}
 	preview, err := h.invitations.Preview(ctx, req.Msg.Token)
 	if err != nil {
 		return nil, err
@@ -352,17 +355,28 @@ func (h *Handler) AcceptInvitation(ctx context.Context, req *connect.Request[pb.
 	if err != nil {
 		return nil, err
 	}
+	if err := h.checkInvitationClient(ctx); err != nil {
+		return nil, err
+	}
 	accountID, err := h.invitations.Accept(ctx, req.Msg.Token, info.UserID, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.AcceptInvitationResponse{AccountId: accountID}), nil
 }
-func (h *Handler) RegisterInvitedUser(ctx context.Context, req *connect.Request[pb.RegisterInvitedUserRequest]) (*connect.Response[pb.RegisterInvitedUserResponse], error) {
+func (h *Handler) checkInvitationClient(ctx context.Context) error {
 	ipAddress := middleware.ClientIP(ctx)
 	if ipAddress == "" {
-		return nil, fleeterror.NewFailedPreconditionError("registration client address unavailable")
+		return fleeterror.NewFailedPreconditionError("invitation client address unavailable")
 	}
+	return h.invitations.CheckClientRateLimit(ctx, ipAddress)
+}
+
+func (h *Handler) RegisterInvitedUser(ctx context.Context, req *connect.Request[pb.RegisterInvitedUserRequest]) (*connect.Response[pb.RegisterInvitedUserResponse], error) {
+	if err := h.checkInvitationClient(ctx); err != nil {
+		return nil, err
+	}
+	ipAddress := middleware.ClientIP(ctx)
 	registered, err := h.invitations.Register(ctx, req.Msg.Token, req.Msg.Username, req.Msg.Password, req.Header().Get("User-Agent"), ipAddress)
 	if err != nil {
 		return nil, err
