@@ -1633,14 +1633,11 @@ func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, minerInfo
 		case "installing", "downloaded":
 			slog.Debug("firmware install in progress", "device_id", deviceID, "state", status.State, "progress", status.Progress)
 
-		case "current":
-			if status.Error != nil && *status.Error != "" {
-				return true, false, fleeterror.NewInternalErrorf("firmware install failed on device %d: %s", deviceID, *status.Error)
+		case "current", "available":
+			if revertErr := firmwareInstallRevertedError(deviceID, status, time.Since(uploadCompletedAt)); revertErr != nil {
+				return true, false, revertErr
 			}
-			if time.Since(uploadCompletedAt) > firmwareInstallGraceWindow {
-				return true, false, fleeterror.NewInternalErrorf("firmware install reverted to 'current' on device %d (install may have failed silently)", deviceID)
-			}
-			slog.Debug("firmware install not started yet (grace window)", "device_id", deviceID)
+			slog.Debug("firmware install not started yet (grace window)", "device_id", deviceID, "state", status.State)
 
 		case "error":
 			errMsg := "unknown error"
@@ -1670,6 +1667,20 @@ func (es *ExecutionService) doPollFirmwareInstall(ctx context.Context, minerInfo
 			}
 		}
 	}
+}
+
+// firmwareInstallRevertedError reports a post-upload `current` or `available`
+// status as a failed install once the grace window has passed. Either status
+// can carry an earlier catalog-check or update failure in Error, so that text
+// only explains the revert and never fails the install on its own.
+func firmwareInstallRevertedError(deviceID int64, status *sdk.FirmwareUpdateStatus, sinceUpload time.Duration) error {
+	if sinceUpload <= firmwareInstallGraceWindow {
+		return nil
+	}
+	if status.Error != nil && *status.Error != "" {
+		return fleeterror.NewInternalErrorf("firmware install reverted to '%s' on device %d; rig reported update error: %s", status.State, deviceID, *status.Error)
+	}
+	return fleeterror.NewInternalErrorf("firmware install reverted to '%s' on device %d (install may have failed silently)", status.State, deviceID)
 }
 
 func (es *ExecutionService) reconcileRebootAfterFirmwareUpload(ctx context.Context, minerInfo interfaces.Miner, devID tmodels.DeviceIdentifier, uploadCompletedAt time.Time) bool {

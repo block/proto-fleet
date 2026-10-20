@@ -47,7 +47,8 @@ by default.
 
 Supported outcomes are `success`, `error`, and `attention`. Both failure
 outcomes expose the real API's `error` update state with a deterministic error
-message. This endpoint is not part of the real device API.
+message, which `message` repeats as its one-line summary. This endpoint is not
+part of the real device API.
 
 ## Usage
 
@@ -268,6 +269,8 @@ When implementing or updating endpoints, verify these common patterns from the O
 | **System status fields** | `{"onboarded", "password_set"}` | including `default_password_active` (removed in MDK-API 1.8.2) |
 | **SecureResponse** | `{"secure", "state": {sshd, nats-service, secureboot, certificate-validity}}` | bare `{"secure"}` (state added in MDK-API 1.8.2) |
 | **TimeSeriesRequest** | Validate `start_time` and `levels` are required (return 422) | Accept missing required fields |
+| **Logs `lines` query** | `lines=0` returns an empty result | treat `0` as the 100-entry default |
+| **Update status message** | when `error` is present, `message` is its one-line summary (at most 512 bytes) | generic `message` that hides the failure text |
 
 ### Cross-Reference with miner-firmware
 

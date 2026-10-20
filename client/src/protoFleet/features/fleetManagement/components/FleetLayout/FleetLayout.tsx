@@ -12,7 +12,7 @@ import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/compon
 import FleetCreateFlowProvider from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/FleetCreateFlowProvider";
 import FleetViewTabs from "@/protoFleet/features/fleetManagement/components/FleetViewTabs";
 import SiteMapCsvImportModal from "@/protoFleet/features/fleetManagement/components/SiteMapCsvImportModal";
-import { type FleetTabId } from "@/protoFleet/features/fleetManagement/views/savedViews";
+import { findActiveView, type FleetTabId } from "@/protoFleet/features/fleetManagement/views/savedViews";
 import useFleetViews from "@/protoFleet/features/fleetManagement/views/useFleetViews";
 import { type FilterSummaryContext } from "@/protoFleet/features/fleetManagement/views/viewSummary";
 import CompleteSetup from "@/protoFleet/features/onboarding/components/CompleteSetup/CompleteSetup";
@@ -119,6 +119,10 @@ const FleetLayout = () => {
   const sitesTabHidden = activeSite.kind === "site" && (validatedKnownSiteIds?.has(activeSite.id) ?? false);
 
   const currentTab = tabFromPath(location.pathname);
+  const activeSavedViewId = useMemo(
+    () => findActiveView(new URLSearchParams(location.search), viewsState.record, currentTab)?.id,
+    [location.search, viewsState.record, currentTab],
+  );
   const unscopedPath = useMemo(() => unscopedScopablePath(location.pathname), [location.pathname]);
   const onBareFleet = unscopedPath === "/fleet" || unscopedPath === "/fleet/";
   const rawPathScope = useMemo(() => activeSiteFromScopablePath(location.pathname), [location.pathname]);
@@ -263,6 +267,7 @@ const FleetLayout = () => {
       notifyMinersChanged,
       minersChangedAt,
       publishViewFilterContext,
+      activeSavedViewId,
     }),
     [
       sites,
@@ -274,6 +279,7 @@ const FleetLayout = () => {
       notifyMinersChanged,
       minersChangedAt,
       publishViewFilterContext,
+      activeSavedViewId,
     ],
   );
 

@@ -29,6 +29,12 @@ export interface FleetOutletContext {
    * knows about — defaults fill the rest.
    */
   publishViewFilterContext: (ctx: Partial<FilterSummaryContext>) => void;
+  /**
+   * Saved view the URL activates on the current tab, if any. URL state that
+   * a saved view supplies (e.g. `display`) is scoped to that view and must
+   * not overwrite the tab's stored preferences.
+   */
+  activeSavedViewId: string | undefined;
 }
 
 export const useFleetOutletContext = (): FleetOutletContext => useOutletContext<FleetOutletContext>();
