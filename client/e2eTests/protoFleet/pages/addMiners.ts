@@ -137,18 +137,20 @@ export class AddMinersPage extends BasePage {
   }
 
   async waitForNetworkScanToFinish(timeout = DEFAULT_TIMEOUT) {
-    await this.waitForFoundMinersList();
-
     await expect(async () => {
       const scanningButton = this.page.getByRole("button", { name: "Scanning", exact: true });
       const rescanNetworkButton = this.page.getByRole("button", { name: "Rescan network", exact: true });
       const foundMinersHeading = this.page.getByText(NETWORK_SCAN_SUMMARY);
+      const foundMinersList = this.getFoundMinersList();
       const continueButton = this.continueWithMinersButton();
 
       expect(await scanningButton.isVisible().catch(() => false)).toBe(false);
       expect(await foundMinersHeading.isVisible().catch(() => false)).toBe(true);
       const noDevices = await this.page.getByText("No devices found", { exact: true }).isVisible();
       expect(await continueButton.isVisible().catch(() => false)).toBe(!noDevices);
+      if (!noDevices) {
+        expect(await foundMinersList.isVisible().catch(() => false)).toBe(true);
+      }
 
       if (!this.isMobile) {
         expect(await rescanNetworkButton.isVisible().catch(() => false)).toBe(true);
