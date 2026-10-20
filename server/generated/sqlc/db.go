@@ -195,9 +195,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.cascadeRackDeviceSitesBulkStmt, err = db.PrepareContext(ctx, cascadeRackDeviceSitesBulk); err != nil {
 		return nil, fmt.Errorf("error preparing query CascadeRackDeviceSitesBulk: %w", err)
 	}
-	if q.chargeHostedInvitationGuessStmt, err = db.PrepareContext(ctx, chargeHostedInvitationGuess); err != nil {
-		return nil, fmt.Errorf("error preparing query ChargeHostedInvitationGuess: %w", err)
-	}
 	if q.checkDeviceWriteAttemptStmt, err = db.PrepareContext(ctx, checkDeviceWriteAttempt); err != nil {
 		return nil, fmt.Errorf("error preparing query CheckDeviceWriteAttempt: %w", err)
 	}
@@ -275,6 +272,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.consumeHostedAccountInvitationStmt, err = db.PrepareContext(ctx, consumeHostedAccountInvitation); err != nil {
 		return nil, fmt.Errorf("error preparing query ConsumeHostedAccountInvitation: %w", err)
+	}
+	if q.consumeHostedInvitationRateLimitStmt, err = db.PrepareContext(ctx, consumeHostedInvitationRateLimit); err != nil {
+		return nil, fmt.Errorf("error preparing query ConsumeHostedInvitationRateLimit: %w", err)
 	}
 	if q.consumeReservedInventoryPartStmt, err = db.PrepareContext(ctx, consumeReservedInventoryPart); err != nil {
 		return nil, fmt.Errorf("error preparing query ConsumeReservedInventoryPart: %w", err)
@@ -1947,8 +1947,8 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockHostedAccountOrganizationForShareStmt, err = db.PrepareContext(ctx, lockHostedAccountOrganizationForShare); err != nil {
 		return nil, fmt.Errorf("error preparing query LockHostedAccountOrganizationForShare: %w", err)
 	}
-	if q.lockHostedInvitationGuessBudgetStmt, err = db.PrepareContext(ctx, lockHostedInvitationGuessBudget); err != nil {
-		return nil, fmt.Errorf("error preparing query LockHostedInvitationGuessBudget: %w", err)
+	if q.lockHostedInvitationRateLimitStmt, err = db.PrepareContext(ctx, lockHostedInvitationRateLimit); err != nil {
+		return nil, fmt.Errorf("error preparing query LockHostedInvitationRateLimit: %w", err)
 	}
 	if q.lockInfrastructureDeviceForWriteStmt, err = db.PrepareContext(ctx, lockInfrastructureDeviceForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockInfrastructureDeviceForWrite: %w", err)
@@ -2075,9 +2075,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.pruneExpiredAlertMaintenanceWindowsStmt, err = db.PrepareContext(ctx, pruneExpiredAlertMaintenanceWindows); err != nil {
 		return nil, fmt.Errorf("error preparing query PruneExpiredAlertMaintenanceWindows: %w", err)
-	}
-	if q.pruneHostedInvitationGuessesStmt, err = db.PrepareContext(ctx, pruneHostedInvitationGuesses); err != nil {
-		return nil, fmt.Errorf("error preparing query PruneHostedInvitationGuesses: %w", err)
 	}
 	if q.prunePermissionsOutsideKeysStmt, err = db.PrepareContext(ctx, prunePermissionsOutsideKeys); err != nil {
 		return nil, fmt.Errorf("error preparing query PrunePermissionsOutsideKeys: %w", err)
@@ -2993,11 +2990,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing cascadeRackDeviceSitesBulkStmt: %w", cerr)
 		}
 	}
-	if q.chargeHostedInvitationGuessStmt != nil {
-		if cerr := q.chargeHostedInvitationGuessStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing chargeHostedInvitationGuessStmt: %w", cerr)
-		}
-	}
 	if q.checkDeviceWriteAttemptStmt != nil {
 		if cerr := q.checkDeviceWriteAttemptStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing checkDeviceWriteAttemptStmt: %w", cerr)
@@ -3126,6 +3118,11 @@ func (q *Queries) Close() error {
 	if q.consumeHostedAccountInvitationStmt != nil {
 		if cerr := q.consumeHostedAccountInvitationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing consumeHostedAccountInvitationStmt: %w", cerr)
+		}
+	}
+	if q.consumeHostedInvitationRateLimitStmt != nil {
+		if cerr := q.consumeHostedInvitationRateLimitStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing consumeHostedInvitationRateLimitStmt: %w", cerr)
 		}
 	}
 	if q.consumeReservedInventoryPartStmt != nil {
@@ -5913,9 +5910,9 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockHostedAccountOrganizationForShareStmt: %w", cerr)
 		}
 	}
-	if q.lockHostedInvitationGuessBudgetStmt != nil {
-		if cerr := q.lockHostedInvitationGuessBudgetStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing lockHostedInvitationGuessBudgetStmt: %w", cerr)
+	if q.lockHostedInvitationRateLimitStmt != nil {
+		if cerr := q.lockHostedInvitationRateLimitStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockHostedInvitationRateLimitStmt: %w", cerr)
 		}
 	}
 	if q.lockInfrastructureDeviceForWriteStmt != nil {
@@ -6126,11 +6123,6 @@ func (q *Queries) Close() error {
 	if q.pruneExpiredAlertMaintenanceWindowsStmt != nil {
 		if cerr := q.pruneExpiredAlertMaintenanceWindowsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing pruneExpiredAlertMaintenanceWindowsStmt: %w", cerr)
-		}
-	}
-	if q.pruneHostedInvitationGuessesStmt != nil {
-		if cerr := q.pruneHostedInvitationGuessesStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing pruneHostedInvitationGuessesStmt: %w", cerr)
 		}
 	}
 	if q.prunePermissionsOutsideKeysStmt != nil {
@@ -7269,7 +7261,6 @@ type Queries struct {
 	cascadeRackDeviceBuildingsBulkStmt                           *sql.Stmt
 	cascadeRackDeviceSitesStmt                                   *sql.Stmt
 	cascadeRackDeviceSitesBulkStmt                               *sql.Stmt
-	chargeHostedInvitationGuessStmt                              *sql.Stmt
 	checkDeviceWriteAttemptStmt                                  *sql.Stmt
 	checkFirmwareArtifactInUseStmt                               *sql.Stmt
 	claimAllPairedPolicyTargetsStmt                              *sql.Stmt
@@ -7296,6 +7287,7 @@ type Queries struct {
 	confirmEnrollmentStmt                                        *sql.Stmt
 	consumeFleetNodeAuthChallengeStmt                            *sql.Stmt
 	consumeHostedAccountInvitationStmt                           *sql.Stmt
+	consumeHostedInvitationRateLimitStmt                         *sql.Stmt
 	consumeReservedInventoryPartStmt                             *sql.Stmt
 	containerOwnsCommandBatchStmt                                *sql.Stmt
 	containsContainerIdentifiersStmt                             *sql.Stmt
@@ -7853,7 +7845,7 @@ type Queries struct {
 	lockHostedAccountAssetInventoryStmt                          *sql.Stmt
 	lockHostedAccountOrganizationStmt                            *sql.Stmt
 	lockHostedAccountOrganizationForShareStmt                    *sql.Stmt
-	lockHostedInvitationGuessBudgetStmt                          *sql.Stmt
+	lockHostedInvitationRateLimitStmt                            *sql.Stmt
 	lockInfrastructureDeviceForWriteStmt                         *sql.Stmt
 	lockInfrastructureDevicesBySiteForWriteStmt                  *sql.Stmt
 	lockInfrastructureDevicesForResponseProfileStmt              *sql.Stmt
@@ -7896,7 +7888,6 @@ type Queries struct {
 	prepareTelemetrySeedStmt                                     *sql.Stmt
 	preserveFirmwareRolloutRetryBaselinesStmt                    *sql.Stmt
 	pruneExpiredAlertMaintenanceWindowsStmt                      *sql.Stmt
-	pruneHostedInvitationGuessesStmt                             *sql.Stmt
 	prunePermissionsOutsideKeysStmt                              *sql.Stmt
 	quarantineDeviceWriteFenceStmt                               *sql.Stmt
 	queryComponentKeysWithErrorsStmt                             *sql.Stmt
@@ -8168,7 +8159,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		cascadeRackDeviceBuildingsBulkStmt:                           q.cascadeRackDeviceBuildingsBulkStmt,
 		cascadeRackDeviceSitesStmt:                                   q.cascadeRackDeviceSitesStmt,
 		cascadeRackDeviceSitesBulkStmt:                               q.cascadeRackDeviceSitesBulkStmt,
-		chargeHostedInvitationGuessStmt:                              q.chargeHostedInvitationGuessStmt,
 		checkDeviceWriteAttemptStmt:                                  q.checkDeviceWriteAttemptStmt,
 		checkFirmwareArtifactInUseStmt:                               q.checkFirmwareArtifactInUseStmt,
 		claimAllPairedPolicyTargetsStmt:                              q.claimAllPairedPolicyTargetsStmt,
@@ -8195,6 +8185,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		confirmEnrollmentStmt:                                        q.confirmEnrollmentStmt,
 		consumeFleetNodeAuthChallengeStmt:                            q.consumeFleetNodeAuthChallengeStmt,
 		consumeHostedAccountInvitationStmt:                           q.consumeHostedAccountInvitationStmt,
+		consumeHostedInvitationRateLimitStmt:                         q.consumeHostedInvitationRateLimitStmt,
 		consumeReservedInventoryPartStmt:                             q.consumeReservedInventoryPartStmt,
 		containerOwnsCommandBatchStmt:                                q.containerOwnsCommandBatchStmt,
 		containsContainerIdentifiersStmt:                             q.containsContainerIdentifiersStmt,
@@ -8752,7 +8743,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockHostedAccountAssetInventoryStmt:                          q.lockHostedAccountAssetInventoryStmt,
 		lockHostedAccountOrganizationStmt:                            q.lockHostedAccountOrganizationStmt,
 		lockHostedAccountOrganizationForShareStmt:                    q.lockHostedAccountOrganizationForShareStmt,
-		lockHostedInvitationGuessBudgetStmt:                          q.lockHostedInvitationGuessBudgetStmt,
+		lockHostedInvitationRateLimitStmt:                            q.lockHostedInvitationRateLimitStmt,
 		lockInfrastructureDeviceForWriteStmt:                         q.lockInfrastructureDeviceForWriteStmt,
 		lockInfrastructureDevicesBySiteForWriteStmt:                  q.lockInfrastructureDevicesBySiteForWriteStmt,
 		lockInfrastructureDevicesForResponseProfileStmt:              q.lockInfrastructureDevicesForResponseProfileStmt,
@@ -8795,7 +8786,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		prepareTelemetrySeedStmt:                                     q.prepareTelemetrySeedStmt,
 		preserveFirmwareRolloutRetryBaselinesStmt:                    q.preserveFirmwareRolloutRetryBaselinesStmt,
 		pruneExpiredAlertMaintenanceWindowsStmt:                      q.pruneExpiredAlertMaintenanceWindowsStmt,
-		pruneHostedInvitationGuessesStmt:                             q.pruneHostedInvitationGuessesStmt,
 		prunePermissionsOutsideKeysStmt:                              q.prunePermissionsOutsideKeysStmt,
 		quarantineDeviceWriteFenceStmt:                               q.quarantineDeviceWriteFenceStmt,
 		queryComponentKeysWithErrorsStmt:                             q.queryComponentKeysWithErrorsStmt,

@@ -1,0 +1,3 @@
+DROP INDEX idx_hosted_account_invitation_active_expiry;
+DROP TABLE hosted_invitation_rate_limit_attempt;
+DROP TABLE hosted_invitation_rate_limit;

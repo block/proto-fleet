@@ -99,7 +99,7 @@ func (s *InvitationService) Create(ctx context.Context, actorID, orgID int64, ac
 		if err != nil {
 			return IssuedInvitation{}, err
 		}
-		if err := lockInvitationGuessBudget(ctx, q); err != nil {
+		if err := lockInvitationRateLimit(ctx, q); err != nil {
 			return IssuedInvitation{}, err
 		}
 		var row sqlc.HostedAccountInvitation
@@ -242,7 +242,7 @@ func (s *InvitationService) Preview(ctx context.Context, token string) (Invitati
 	if err != nil {
 		return InvitationPreview{}, err
 	}
-	if _, err := s.admitInvitation(ctx, hash); err != nil {
+	if _, err := s.lookupInvitation(ctx, hash); err != nil {
 		return InvitationPreview{}, err
 	}
 	// Authority and lifecycle checks share one snapshot without taking the
@@ -389,7 +389,7 @@ func (s *InvitationService) withInvitation(ctx context.Context, token string, fn
 	if err != nil {
 		return err
 	}
-	initial, err := s.admitInvitation(ctx, hash)
+	initial, err := s.lookupInvitation(ctx, hash)
 	if err != nil {
 		return err
 	}

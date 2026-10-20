@@ -1,3 +1,0 @@
-DROP INDEX idx_hosted_account_invitation_active_expiry;
-DROP TABLE hosted_invitation_guess_attempt;
-DROP TABLE hosted_invitation_guess_budget;

@@ -244,10 +244,6 @@ type Querier interface {
 	// NULL target unassigns. IS DISTINCT FROM skips no-op rows. Returns
 	// the total affected row count across all racks.
 	CascadeRackDeviceSitesBulk(ctx context.Context, arg CascadeRackDeviceSitesBulkParams) (int64, error)
-	// Run after taking the lock, in READ COMMITTED, so the count includes every
-	// issuance committed before admission. Count conservatively: even invitations
-	// whose inviter lost authority cost budget until expiry/revocation/acceptance.
-	ChargeHostedInvitationGuess(ctx context.Context, arg ChargeHostedInvitationGuessParams) (int64, error)
 	CheckDeviceWriteAttempt(ctx context.Context, attemptID uuid.UUID) (bool, error)
 	// Uploaded artifacts are global. Assignments protect continuous enforcement,
 	// active rollouts protect in-progress targets, and queued commands protect
@@ -325,6 +321,10 @@ type Querier interface {
 	ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error)
 	ConsumeFleetNodeAuthChallenge(ctx context.Context, arg ConsumeFleetNodeAuthChallengeParams) (FleetNodeAuthChallenge, error)
 	ConsumeHostedAccountInvitation(ctx context.Context, arg ConsumeHostedAccountInvitationParams) (int64, error)
+	// Run after taking the lock, in READ COMMITTED, so the count includes every
+	// issuance committed before admission. Count conservatively: even invitations
+	// whose inviter lost authority cost budget until expiry/revocation/acceptance.
+	ConsumeHostedInvitationRateLimit(ctx context.Context, arg ConsumeHostedInvitationRateLimitParams) (int64, error)
 	ConsumeReservedInventoryPart(ctx context.Context, arg ConsumeReservedInventoryPartParams) (int64, error)
 	ContainerOwnsCommandBatch(ctx context.Context, arg ContainerOwnsCommandBatchParams) (bool, error)
 	ContainsContainerIdentifiers(ctx context.Context, arg ContainsContainerIdentifiersParams) (bool, error)
@@ -1769,7 +1769,7 @@ type Querier interface {
 	LockHostedAccountOrganizationForShare(ctx context.Context, id int64) (int64, error)
 	// Issuance and admission both acquire this lock before inserting or looking up
 	// a digest. Admission bounds this short transaction with a two-second timeout.
-	LockHostedInvitationGuessBudget(ctx context.Context) (bool, error)
+	LockHostedInvitationRateLimit(ctx context.Context) (bool, error)
 	// Canonical serialization point for device moves/deletes and response-profile
 	// references. Callers lock parent sites first, then device rows by ID.
 	LockInfrastructureDeviceForWrite(ctx context.Context, arg LockInfrastructureDeviceForWriteParams) (int64, error)
@@ -1887,7 +1887,6 @@ type Querier interface {
 	// Retention: reclaims the org's expired windows (ends_at <= now) that ended before the cutoff,
 	// plus any beyond the newest keep_newest (see maxRetainedExpiredWindowsPerOrg for the why).
 	PruneExpiredAlertMaintenanceWindows(ctx context.Context, arg PruneExpiredAlertMaintenanceWindowsParams) (int64, error)
-	PruneHostedInvitationGuesses(ctx context.Context) error
 	// Used by SUPER_ADMIN full reconciliation: keep only the permissions
 	// whose key is in the supplied set. ADMIN/FIELD_TECH reconciliation
 	// never calls this — they are additive-only.

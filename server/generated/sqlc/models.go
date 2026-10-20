@@ -1970,14 +1970,14 @@ type HostedAccountSite struct {
 	ParentControlled bool
 }
 
-type HostedInvitationGuessAttempt struct {
+type HostedInvitationRateLimit struct {
+	Singleton bool
+}
+
+type HostedInvitationRateLimitAttempt struct {
 	ID          int64
 	AttemptedAt time.Time
 	Exposure    int64
-}
-
-type HostedInvitationGuessBudget struct {
-	Singleton bool
 }
 
 type InfrastructureDevice struct {

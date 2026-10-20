@@ -293,8 +293,10 @@ The default and maximum lifetime are **24 hours**. The default accommodates
 manual sharing across time zones; the former seven-day option is removed to
 bound exposure. Issuers can select one hour for a shorter handoff.
 
-Migration 1034 adds a PostgreSQL admission budget shared by all organizations
-and every API replica using the database. In any rolling hour, preview,
+Migration 1034 adds a PostgreSQL rate limit shared by all organizations
+and every API replica using the database. The `hosted_invitation_rate_limit`
+row coordinates access to the bounded `hosted_invitation_rate_limit_attempt`
+ledger. In any rolling hour, preview,
 signed-in acceptance, and registration together may perform at most **1,000
 checks** and spend at most **100,000 exposure units**. Each check costs
 `max(1, active invitations)` units, counting all unexpired, unrevoked,
