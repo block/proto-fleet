@@ -38,6 +38,12 @@ jobs:
       - name: Validate HA deployment profile
         run: ./deployment-files/ha/tests/test-profile.sh
 
+      - name: Validate HA firewall traffic
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nftables iproute2
+          sudo bash deployment-files/ha/tests/test-firewall.sh
+
       - name: Validate non-interactive upgrade safety
         run: ./deployment-files/tests/test-run-fleet-upgrade.sh
 
