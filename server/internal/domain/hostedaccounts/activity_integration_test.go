@@ -43,6 +43,8 @@ func TestAccountActivityIsolationPaginationAndRevocation(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, next.Activities, 1)
 	require.Equal(t, "create_hosted_account", next.Activities[0].EventType)
+	require.Zero(t, next.TotalCount, "cursor pages skip summary aggregation")
+	require.Nil(t, next.FilterOptions)
 	request.AccountId = b.AccountID
 	_, err = f.svc.Activities(t.Context(), f.user, f.org, request)
 	require.Error(t, err, "sibling account cannot reuse a cursor")
@@ -100,5 +102,51 @@ func TestAccountActivityAllocationBoundariesAndSafeCommandCounts(t *testing.T) {
 	require.Empty(t, page.Activities, "current site policy also gates retained events")
 	for _, option := range page.FilterOptions.EventTypes {
 		require.NotEqual(t, "reboot.completed", option.EventType, "filter options share the same boundary")
+	}
+}
+
+func TestAccountActivityExcludesUnlistedEventsAndNonMinerCommands(t *testing.T) {
+	f := setup(t)
+	a := f.client(t, "Customer", f.user, hostedaccounts.AllCapabilities)
+	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	module, controller := f.miningModule(t)
+	assign := pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN
+	require.NoError(t, f.allocate(t, f.host, f.root, a.AccountID, assign, selected(5, miner, 0), selected(6, module, 0)))
+	start := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	moved, err := f.db.ExecContext(t.Context(), `UPDATE hosted_account_asset_interval SET started_at=$1 WHERE client_id=$2 AND (kind=5 OR device_id=$3)`, start, a.ID, controller)
+	require.NoError(t, err)
+	rows, err := moved.RowsAffected()
+	require.NoError(t, err)
+	require.EqualValues(t, 2, rows, "the module interval covers its controller device")
+	command := func(eventType string, device int64) {
+		t.Helper()
+		batch := uuid.NewString()
+		var batchID int64
+		at := start.Add(time.Minute)
+		require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO command_batch_log(uuid,type,created_by,organization_id,status,devices_count,created_at) VALUES($1,'reboot',$2,$3,'FINISHED',1,$4) RETURNING id`, batch, f.host, f.org, at).Scan(&batchID))
+		_, err := f.db.ExecContext(t.Context(), `INSERT INTO command_on_device_log(command_batch_log_id,device_id,org_id,status,updated_at) VALUES($1,$2,$3,'SUCCESS',$4)`, batchID, device, f.org, at)
+		require.NoError(t, err)
+		_, err = f.db.ExecContext(t.Context(), `INSERT INTO activity_log(event_id,organization_id,event_category,event_type,description,result,actor_type,created_at,batch_id) VALUES($1,$2,'device_command',$3,'private','success','user',$4,$5)`, uuid.New(), f.org, eventType, at, batch)
+		require.NoError(t, err)
+	}
+	command("reboot.completed", miner)
+	command("reboot.failed", miner)
+	command("reboot.completed", controller)
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO activity_log(event_id,organization_id,event_category,event_type,description,result,actor_type,metadata) VALUES($1,$2,'auth','delete_hosted_account','private','success','user',jsonb_build_object('account_id',$3::text))`, uuid.New(), f.org, a.AccountID)
+	require.NoError(t, err)
+	page, err := f.svc.Activities(t.Context(), f.user, f.org, &pb.ListAccountActivitiesRequest{AccountId: a.AccountID, PageSize: 100})
+	require.NoError(t, err)
+	commands := 0
+	for _, entry := range page.Activities {
+		require.NotEqual(t, "delete_hosted_account", entry.EventType, "only allowlisted account events are visible")
+		require.NotEqual(t, "reboot.failed", entry.EventType, "only allowlisted command outcomes are visible")
+		if entry.EventCategory == "device_command" {
+			commands++
+		}
+	}
+	require.Equal(t, 1, commands, "controller commands are excluded even when its module is allocated")
+	require.EqualValues(t, len(page.Activities), page.TotalCount)
+	for _, option := range page.FilterOptions.EventTypes {
+		require.NotContains(t, []string{"delete_hosted_account", "reboot.failed"}, option.EventType)
 	}
 }

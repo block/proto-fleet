@@ -25,9 +25,10 @@ type activityCursor struct {
 
 // Activities holds live account admission through the entire query. The SQL
 // projection is shared by rows, totals, filter options, search and CSV export;
-// raw organization audit records never cross this boundary.
+// raw organization audit records never cross this boundary. Totals and filter
+// options are returned on the first page only, matching ListActivities.
 func (s *Service) Activities(ctx context.Context, actorID, orgID int64, request *pb.ListAccountActivitiesRequest) (*pb.ListAccountActivitiesResponse, error) {
-	return s.readActivityPage(ctx, actorID, orgID, request, true)
+	return s.readActivityPage(ctx, actorID, orgID, request, request.GetPageToken() == "")
 }
 
 // ActivityExportPage resolves live access for each export chunk without

@@ -83,9 +83,9 @@ const AccountActivityFeed = ({
   }
   const page = denied || received?.restart ? null : (received ?? retained);
   useEffect(() => {
-    window.addEventListener("focus", query.refresh);
-    return () => window.removeEventListener("focus", query.refresh);
-  }, [query.refresh]);
+    window.addEventListener("focus", query.poll);
+    return () => window.removeEventListener("focus", query.poll);
+  }, [query.poll]);
   const options = page?.filterOptions;
   const entries = page?.activities ?? [];
   const exportCsv = async () => {
@@ -134,7 +134,11 @@ const AccountActivityFeed = ({
           />
         </div>
       )}
-      {query.error || exportError ? <AccountState error={query.error ?? exportError} retry={query.refresh} /> : null}
+      {query.error ? (
+        <AccountState error={query.error} retry={query.refresh} />
+      ) : exportError ? (
+        <AccountState error={exportError} retry={() => void exportCsv()} />
+      ) : null}
       {query.loading && entries.length === 0 ? (
         <div className="flex justify-center p-10">
           <ProgressCircular indeterminate />
