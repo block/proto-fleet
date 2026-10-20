@@ -15,6 +15,32 @@ test.describe("Add miners scan completion", () => {
     await expect(page.getByRole("button", { name: /Continue with \d+ miners?/ })).toHaveCount(0);
   });
 
+  test("requires the results panel before accepting a nonempty scan", async ({ page, addMinersPage, isMobile }) => {
+    await page.setContent(`
+      <div>1 miner found on your network</div>
+      <div id="results"></div>
+      <button>Continue with 1 miners</button>
+      <div ${isMobile ? "hidden" : ""}><button>Rescan network</button></div>
+    `);
+
+    await expect(addMinersPage.getFoundMinersList()).toHaveCount(0);
+    let missingPanelError: unknown;
+    try {
+      await addMinersPage.waitForNetworkScanToFinish(750);
+    } catch (error) {
+      missingPanelError = error;
+    }
+    expect(missingPanelError).toBeInstanceOf(Error);
+
+    await page.locator("#results").evaluate((results) => {
+      results.setAttribute("data-testid", "found-miners-list");
+      results.textContent = "Proto Rig";
+    });
+
+    await addMinersPage.waitForNetworkScanToFinish();
+    expect(await addMinersPage.getFoundMinersCount()).toBe(1);
+  });
+
   test("waits for discovery to finish before reading a late container and miner summary", async ({
     page,
     addMinersPage,

@@ -1,5 +1,5 @@
 import { MemoryRouter } from "react-router-dom";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import MinersPage from "./MinersWrapper";
@@ -380,6 +380,44 @@ describe("MinersWrapper", () => {
       expect(skeletonRows.length).toBeGreaterThan(0);
 
       resolveDiscover();
+    });
+
+    it("restores the results panel with skeleton rows when rescanning after an empty scan", async () => {
+      vi.mocked(useNetworkInfo).mockReturnValue({
+        data: create(NetworkInfoSchema, { subnet: "192.168.1.0/24" }),
+        pending: false,
+        error: undefined,
+        fetchData: vi.fn(),
+        updateNetworkInfo: vi.fn(),
+      });
+
+      let resolveRescan!: () => void;
+      mockDiscover.mockResolvedValueOnce(undefined).mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveRescan = resolve;
+          }),
+      );
+
+      renderMinersPage("onboarding");
+      fireEvent.click(screen.getByText("Get started"));
+      fireEvent.click(screen.getByTestId("section-scan-network").querySelector("button")!);
+
+      await waitFor(
+        () => {
+          expect(screen.getByText("No devices found")).toBeInTheDocument();
+          expect(screen.queryByTestId("found-miners-list")).not.toBeInTheDocument();
+        },
+        { timeout: 3000 },
+      );
+
+      fireEvent.click(screen.getByTestId("add-miners-rescan-network"));
+
+      expect(await screen.findByText("Finding devices on your network")).toBeInTheDocument();
+      expect(mockDiscover).toHaveBeenCalledTimes(2);
+      expect(within(screen.getByTestId("found-miners-list")).getAllByTestId("skeleton-row")).toHaveLength(3);
+
+      resolveRescan();
     });
 
     it("deduplicates duplicate discoveries in the add-miners UI count", async () => {
