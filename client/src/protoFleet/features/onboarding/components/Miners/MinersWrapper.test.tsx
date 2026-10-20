@@ -622,8 +622,13 @@ describe("MinersWrapper", () => {
       fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
 
       await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(3));
-      const skeleton = screen.getAllByTestId("skeleton-row")[0].parentElement?.parentElement;
-      await waitFor(() => expect(skeleton).toHaveStyle({ opacity: "0" }), { timeout: 3000 });
+      await waitFor(
+        () => {
+          expect(screen.getByText("No devices found")).toBeInTheDocument();
+          expect(screen.queryByTestId("found-miners-list")).not.toBeInTheDocument();
+        },
+        { timeout: 3000 },
+      );
     });
   });
 

@@ -3,6 +3,18 @@ import { expect, test } from "../fixtures/pageFixtures";
 test.describe("Add miners scan completion", () => {
   test.use({ storageState: { cookies: [], origins: [] } });
 
+  test("accepts a completed empty scan without a results panel", async ({ page, addMinersPage, isMobile }) => {
+    await page.setContent(`
+      <div>No devices found</div>
+      <div ${isMobile ? "hidden" : ""}><button>Rescan network</button></div>
+    `);
+
+    await expect(addMinersPage.getFoundMinersList()).toHaveCount(0);
+    await addMinersPage.waitForNetworkScanToFinish(1000);
+    expect(await addMinersPage.getFoundMinersCount()).toBe(0);
+    await expect(page.getByRole("button", { name: /Continue with \d+ miners?/ })).toHaveCount(0);
+  });
+
   test("waits for discovery to finish before reading a late container and miner summary", async ({
     page,
     addMinersPage,
@@ -112,7 +124,7 @@ test.describe("Proto Fleet - Add Miners Validation", () => {
 
       await test.step("Validate dialog is closed and discovery proceeds", async () => {
         await addMinersPage.validateValidationErrorDialogIsClosed();
-        await addMinersPage.waitForFoundMinersList();
+        await addMinersPage.waitForNetworkScanToFinish();
       });
     },
   );

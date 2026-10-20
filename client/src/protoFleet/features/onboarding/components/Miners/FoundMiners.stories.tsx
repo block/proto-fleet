@@ -38,6 +38,18 @@ const mixedMiners = [
   device("rig-1", "Proto Rig", "Proto", "192.168.1.10", [AuthenticationMethod.BASIC]),
 ];
 
+export const Empty = () => (
+  <div className="p-6">
+    <FoundMiners miners={[]} deselectedMiners={[]} className="max-w-3xl" />
+  </div>
+);
+
+export const ScanningEmpty = () => (
+  <div className="p-6">
+    <FoundMiners miners={[]} deselectedMiners={[]} isScanning className="max-w-3xl" />
+  </div>
+);
+
 export const MixedContainersAndRigs = () => (
   <div className="p-6">
     <FoundMiners miners={mixedMiners} deselectedMiners={[]} className="max-w-3xl" />
