@@ -1,7 +1,6 @@
 import { type CSSProperties, useState } from "react";
 import SiteCard from "./SiteCard";
 import { type SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
-import GalleryEmpty from "@/protoFleet/features/dashboard/components/GalleryEmpty";
 import SectionHeading from "@/protoFleet/features/dashboard/components/SectionHeading";
 import { ChevronDown } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -93,21 +92,17 @@ const SitesSection = ({ sites }: SitesSectionProps) => {
           style={trackStyle}
           data-testid="dashboard-sites-track"
         >
-          {sites === undefined ? (
-            Array.from({ length: visible }).map((_, i) => (
-              <SkeletonBar key={i} className="h-44 w-[var(--site-card-w)] shrink-0 rounded-xl" />
-            ))
-          ) : sites.length === 0 ? (
-            <GalleryEmpty label="No sites yet." />
-          ) : (
-            sites.map((site) => (
-              <SiteCard
-                key={(site.site?.id ?? 0n).toString()}
-                site={site}
-                className="w-[var(--site-card-w)] shrink-0"
-              />
-            ))
-          )}
+          {sites === undefined
+            ? Array.from({ length: visible }).map((_, i) => (
+                <SkeletonBar key={i} className="h-44 w-[var(--site-card-w)] shrink-0 rounded-xl" />
+              ))
+            : sites.map((site) => (
+                <SiteCard
+                  key={(site.site?.id ?? 0n).toString()}
+                  site={site}
+                  className="w-[var(--site-card-w)] shrink-0"
+                />
+              ))}
         </div>
       </div>
     </section>

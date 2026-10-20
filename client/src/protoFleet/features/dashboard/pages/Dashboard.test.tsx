@@ -120,6 +120,16 @@ const renderAllSitesDashboard = () =>
 describe("Dashboard site gallery states", () => {
   it("hides the Sites section without site:read", () => {
     permMock.current = (key) => key !== "site:read";
+    sitesCtx.current = { ...sitesCtx.current, sites: [site(7, "Austin")], sitesLoaded: true };
+
+    renderAllSitesDashboard();
+
+    expect(screen.queryByTestId("dashboard-sites-section")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "View sites" })).not.toBeInTheDocument();
+  });
+
+  it("hides the Sites section when the org has no sites", () => {
+    sitesCtx.current = { ...sitesCtx.current, sitesLoaded: true, siteCatalogAccessGranted: true };
 
     renderAllSitesDashboard();
 
@@ -133,12 +143,17 @@ describe("Dashboard site gallery states", () => {
     const { rerender } = renderAllSitesDashboard();
 
     expect(screen.queryByTestId("dashboard-sites-section")).not.toBeInTheDocument();
-    expect(screen.queryByText("No sites yet.")).not.toBeInTheDocument();
     expect(screen.getByText("Sites unavailable")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(sitesCtx.current.refetchSites).toHaveBeenCalledTimes(1);
 
-    sitesCtx.current = { ...sitesCtx.current, sitesError: null, sitesLoaded: true, siteCatalogAccessGranted: true };
+    sitesCtx.current = {
+      ...sitesCtx.current,
+      sites: [site(7, "Austin")],
+      sitesError: null,
+      sitesLoaded: true,
+      siteCatalogAccessGranted: true,
+    };
     rerender(
       <MemoryRouter initialEntries={["/dashboard"]}>
         <SiteScopeProvider value={{ kind: "all" }}>
@@ -147,7 +162,7 @@ describe("Dashboard site gallery states", () => {
       </MemoryRouter>,
     );
 
-    expect(screen.getByText("No sites yet.")).toBeInTheDocument();
+    expect(screen.getByTestId("dashboard-sites-section")).toHaveTextContent("Austin");
     expect(screen.queryByText("Sites unavailable")).not.toBeInTheDocument();
   });
 
@@ -163,7 +178,6 @@ describe("Dashboard site gallery states", () => {
     renderAllSitesDashboard();
 
     expect(screen.getByTestId("dashboard-sites-section")).toHaveTextContent("Austin");
-    expect(screen.queryByText("No sites yet.")).not.toBeInTheDocument();
   });
 });
 

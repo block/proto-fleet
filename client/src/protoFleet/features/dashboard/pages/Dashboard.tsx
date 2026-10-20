@@ -166,10 +166,8 @@ const Dashboard = () => {
 
           <MarketDataSection />
 
-          {/* Initial catalog failures use the heading picker's error and retry. */}
-          {activeSite.kind === "all" && canReadSites && !(sitesError != null && sites?.length === 0) ? (
-            <SitesSection sites={sites} />
-          ) : null}
+          {/* A failed first load also leaves `sites` empty; the heading picker owns that error and retry. */}
+          {activeSite.kind === "all" && canReadSites && sites?.length !== 0 ? <SitesSection sites={sites} /> : null}
 
           <DashboardPerformance
             duration={duration}
