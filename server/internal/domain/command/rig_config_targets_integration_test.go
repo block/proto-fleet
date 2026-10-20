@@ -11,6 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -285,7 +288,7 @@ func TestRigConfigTerminalFailureRequeuesOnlyFailedDevice(t *testing.T) {
 }
 
 func TestRigConfigBindingChangeRetriesWithFreshHandle(t *testing.T) {
-	for _, change := range []string{"endpoint", "site", "credentials"} {
+	for _, change := range []string{"endpoint", "site", "credentials", "backend generation"} {
 		t.Run(change, func(t *testing.T) {
 			t.Chdir(t.TempDir())
 			svc, conn, deviceID, identifier := newRigConfigCommandFixture(t)
@@ -300,9 +303,18 @@ func TestRigConfigBindingChangeRetriesWithFreshHandle(t *testing.T) {
 				*sdkMocks.MockDevice
 				*sdkMocks.MockDeviceCurtailmentConfigurator
 			}{sdkMocks.NewMockDevice(ctrl), sdkMocks.NewMockDeviceCurtailmentConfigurator(ctrl)}
-			writes := 0
+			writes, resolved := 0, 0
 			device.MockDeviceCurtailmentConfigurator.EXPECT().ApplyCurtailmentConfig(gomock.Any(), sdk.CurtailmentConfig{}).
-				DoAndReturn(func(context.Context, sdk.CurtailmentConfig) error { writes++; return nil }).AnyTimes()
+				DoAndReturn(func(context.Context, sdk.CurtailmentConfig) error {
+					if change == "backend generation" && resolved == 1 {
+						rejected, err := status.New(codes.FailedPrecondition, "SDK backend registration changed").WithDetails(
+							&errdetails.ErrorInfo{Reason: "SDK_BACKEND_GENERATION_MISMATCH", Domain: "protofleet.sdk"})
+						require.NoError(t, err)
+						return rejected.Err()
+					}
+					writes++
+					return nil
+				}).AnyTimes()
 			driver := sdkMocks.NewMockDriver(ctrl)
 			driver.EXPECT().NewDevice(gomock.Any(), identifier, gomock.Any(), gomock.Any()).Return(sdk.NewDeviceResult{Device: device}, nil).AnyTimes()
 			fileService, err := files.NewService(files.Config{})
@@ -310,7 +322,6 @@ func TestRigConfigBindingChangeRetriesWithFreshHandle(t *testing.T) {
 			miners := minerDomain.NewMinerService(conn, sqlstores.NewSQLUserStore(conn), svc.encryptService, fileService,
 				&commandTestPluginManager{driver: driver, driverName: "proto"})
 			getter := commandmocks.NewMockCachedMinerGetter(ctrl)
-			resolved := 0
 			getter.EXPECT().GetMinerForCommand(gomock.Any(), deviceID).DoAndReturn(func(ctx context.Context, id int64) (interfaces.Miner, error) {
 				handle, err := miners.GetMinerForCommand(ctx, id)
 				require.NoError(t, err)
