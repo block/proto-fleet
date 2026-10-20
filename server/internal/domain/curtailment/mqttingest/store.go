@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	sqlc "github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
@@ -293,9 +294,10 @@ func (s *sqlcStore) RequestRigConfigReconciliationForDevices(ctx context.Context
 		return nil
 	}
 	if err := s.queries.RequestRigConfigReconciliationForDevices(ctx, sqlc.RequestRigConfigReconciliationForDevicesParams{
-		OrganizationID:    orgID,
-		RequestedBy:       requestedBy,
-		DeviceIdentifiers: identifiers,
+		ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+		OrganizationID:       orgID,
+		RequestedBy:          requestedBy,
+		DeviceIdentifiers:    identifiers,
 	}); err != nil {
 		return fmt.Errorf("request rig config reconciliation: %w", err)
 	}
@@ -321,9 +323,10 @@ func (s *sqlcStore) ClaimRigConfigReconciliation(ctx context.Context) (RigConfig
 
 func (s *sqlcStore) ListRigConfigReconciliationTargets(ctx context.Context, orgID, enqueuedGeneration, desiredGeneration int64) ([]string, error) {
 	identifiers, err := s.queries.ListRigConfigReconciliationTargets(ctx, sqlc.ListRigConfigReconciliationTargetsParams{
-		OrganizationID:     orgID,
-		EnqueuedGeneration: enqueuedGeneration,
-		DesiredGeneration:  desiredGeneration,
+		ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+		OrganizationID:       orgID,
+		EnqueuedGeneration:   enqueuedGeneration,
+		DesiredGeneration:    desiredGeneration,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list rig config reconciliation targets: %w", err)
