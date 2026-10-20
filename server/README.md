@@ -308,7 +308,7 @@ are resolved on the server; selecting a subclient is a reporting filter and does
 not resolve its private workspace authority. `GetAccountAssetDetail` independently
 requires a current, available allocation and live site access.
 
-Migration 1030 records half-open assignment/delegation intervals, including device
+Migration 1031 records half-open assignment/delegation intervals, including device
 site and identity changes. Existing assignments establish ownership only from the
 migration's recorded start; no earlier samples are backfilled from current owners.
 Raw miner/module samples join their typed identity and established intervals before
@@ -330,7 +330,7 @@ count once, modules eight times including contributor-window scan margins.
 Over-budget requests return InvalidArgument with guidance to shorten the range
 or narrow allocation/site filters. Module history scans
 collections with the source freshness and clock-skew margins using the
-module/collection-time index and collection-first compressed ordering (1032), then authorizes and buckets independent metric
+module/collection-time index and collection-first compressed ordering (1033), then authorizes and buckets independent metric
 source windows. A stale PSU source time cannot exclude fresh board readings.
 
 Power totals contain only measured equipment readings with reporting counts;

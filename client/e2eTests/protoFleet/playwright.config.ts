@@ -7,6 +7,11 @@ const configDir = path.dirname(fileURLToPath(import.meta.url));
 const adminStorageState = path.join(configDir, "playwright", ".auth", "admin.json");
 const SETUP_FILE_GLOB = "**/[0-9][0-9]-*.spec.ts";
 const VISUAL_SPEC_GLOB = "**/onboardingVisual.spec.ts";
+const HELPER_SPEC_GLOBS = [
+  "**/toastHelpers.spec.ts",
+  "**/rackToastHelpers.spec.ts",
+  "**/firmwareRolloutHelpers.spec.ts",
+];
 const skipProjectDeps = process.env.PW_UI_NO_DEPS === "1";
 const visualOnly = process.env.PROTOFLEET_VISUAL_ONLY === "1";
 const visualBaseUrl = process.env.PROTOFLEET_VISUAL_BASE_URL?.trim();
@@ -83,6 +88,15 @@ export default defineConfig({
         },
       ]
     : [
+        ...(["desktop", "mobile"] as const).map((viewport) => ({
+          name: `helpers-${viewport}`,
+          testMatch: HELPER_SPEC_GLOBS,
+          use: {
+            viewport: viewport === "desktop" ? { width: 1600, height: 900 } : { width: 393, height: 852 },
+            isMobile: viewport === "mobile",
+            storageState: { cookies: [], origins: [] },
+          },
+        })),
         {
           name: "setup-desktop",
           testMatch: SETUP_FILE_GLOB,
@@ -102,7 +116,7 @@ export default defineConfig({
         {
           name: "desktop",
           testMatch: /.*\.spec\.ts$/,
-          testIgnore: [SETUP_FILE_GLOB, VISUAL_SPEC_GLOB],
+          testIgnore: [SETUP_FILE_GLOB, VISUAL_SPEC_GLOB, ...HELPER_SPEC_GLOBS],
           dependencies: skipProjectDeps ? [] : ["setup-desktop"],
           use: {
             viewport: { width: 1600, height: 900 },
@@ -114,7 +128,7 @@ export default defineConfig({
         {
           name: "mobile",
           testMatch: /.*\.spec\.ts$/,
-          testIgnore: [SETUP_FILE_GLOB, VISUAL_SPEC_GLOB],
+          testIgnore: [SETUP_FILE_GLOB, VISUAL_SPEC_GLOB, ...HELPER_SPEC_GLOBS],
           dependencies: skipProjectDeps ? [] : ["setup-mobile"],
           use: {
             viewport: { width: 393, height: 852 },

@@ -19,9 +19,9 @@ func TestAccountHistoryCompressionMigrationPreservesIndependentSources(t *testin
 	// bounded using collection time, even when a board metric is fresh.
 	_, err := f.db.ExecContext(t.Context(), `INSERT INTO container_module_metrics(module_id,time,collected_at,hashrate_hs,power_w,temperature_c,coverage) SELECT $1,$2::timestamptz-interval '6 days',sample,1e12,20,55,jsonb_build_object('hashrate',evidence,'power',evidence,'temperature',evidence) FROM generate_series($2::timestamptz-interval '2 days',$3::timestamptz-interval '15 seconds',interval '15 seconds') sample CROSS JOIN LATERAL (SELECT jsonb_build_object('oldest_at',sample,'newest_at',sample,'reporting',1,'expected',1,'topology_complete',true) evidence) source`, module, start, end)
 	require.NoError(t, err)
-	down, err := migrations.Current.ReadFile("current/001032_internal_hosted_history_compression.down.sql")
+	down, err := migrations.Current.ReadFile("current/001033_internal_hosted_history_compression.down.sql")
 	require.NoError(t, err)
-	up, err := migrations.Current.ReadFile("current/001032_internal_hosted_history_compression.up.sql")
+	up, err := migrations.Current.ReadFile("current/001033_internal_hosted_history_compression.up.sql")
 	require.NoError(t, err)
 	// Begin with the previous compressed layout, then exercise an actual upgrade
 	// of an already compressed chunk, not just the new hypertable default.

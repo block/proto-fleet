@@ -627,7 +627,7 @@ Overview reuses Dashboard health tiles and performance panels, with 1h (default)
 24h ranges, measured temperature and uptime, and server-scoped allocation/site
 filters. Entire estate, Directly managed and named subclient filters retain the
 parent's navigation and permissions. Historical attribution uses the allocation
-and delegation in effect when each sample was recorded. Migration 1030 begins
+and delegation in effect when each sample was recorded. Migration 1031 begins
 prospective interval tracking; earlier ownership is unknown and is never inferred
 from current assignments. Account charts use raw samples retained for ten days;
 the account API rejects ranges longer than 24 hours and bounds raw work by
