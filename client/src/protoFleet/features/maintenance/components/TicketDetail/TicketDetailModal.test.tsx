@@ -78,6 +78,8 @@ vi.mock("@/protoFleet/features/maintenance/hooks/useTicketDetail", () => ({
 const maintenanceOptions = {
   assignees: [] as { id: string; username: string }[],
   manageableSites: [{ id: "1", name: "Denver" }],
+  loading: false,
+  error: null as string | null,
 };
 const refreshOptions = vi.fn();
 vi.mock("@/protoFleet/features/maintenance/hooks/useMaintenanceOptions", () => ({
@@ -108,7 +110,13 @@ describe("TicketDetailModal", () => {
     ticket.rmaEta = null;
     ticket.partsUsed = [];
     ticket.updatedAtSnapshot = version;
+    ticket.assigneeUserId = null;
+    ticket.assigneeName = null;
+    ticket.siteId = "1";
+    maintenanceOptions.assignees = [];
     maintenanceOptions.manageableSites = [{ id: "1", name: "Denver" }];
+    maintenanceOptions.loading = false;
+    maintenanceOptions.error = null;
   });
 
   it("uses an accessible spinner for the initial ticket-detail load", () => {
@@ -135,6 +143,98 @@ describe("TicketDetailModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(refresh).toHaveBeenCalledOnce();
     expect(refreshOptions).toHaveBeenCalledOnce();
+  });
+
+  it("shows loading assignment options while preserving Unassign", async () => {
+    ticket.siteId = null;
+    ticket.assigneeUserId = "2";
+    maintenanceOptions.manageableSites = [];
+    maintenanceOptions.loading = true;
+
+    render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+
+    expect(screen.getByRole("status", { name: "Loading assignment options" })).toBeInTheDocument();
+    expect(screen.queryByText("No assignees available.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Unassign"));
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ clearAssignee: true, expectedUpdatedAt: version }));
+  });
+
+  it("shows an empty state when no assignees are available", () => {
+    render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+
+    expect(screen.getByText("No assignees available.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["Sites could not be loaded.", "Sites could not be loaded."],
+    ["", "Couldn't load maintenance options."],
+  ])("retries options error %j in the open editor and accepts recovered assignees", async (error, message) => {
+    maintenanceOptions.error = error;
+    const modal = (
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>
+    );
+    const { rerender } = render(modal);
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(message);
+    expect(screen.queryByText("No assignees available.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(refreshOptions).toHaveBeenCalledOnce();
+
+    maintenanceOptions.loading = true;
+    rerender(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("status", { name: "Loading assignment options" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+
+    maintenanceOptions.loading = false;
+    maintenanceOptions.error = null;
+    maintenanceOptions.assignees = [{ id: "3", username: "sam" }];
+    rerender(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByText("sam"));
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ assigneeUserId: 3n, expectedUpdatedAt: version }));
+  });
+
+  it("keeps existing assignees and Unassign available when an options refresh fails", async () => {
+    ticket.assigneeUserId = "2";
+    maintenanceOptions.error = "Options could not be refreshed.";
+    maintenanceOptions.assignees = [{ id: "3", username: "sam" }];
+    update.mockResolvedValueOnce(true).mockResolvedValueOnce(true);
+    render(
+      <MemoryRouter>
+        <TicketDetailModal ticketId="1" onDismiss={vi.fn()} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Options could not be refreshed.");
+    expect(screen.getByText("Unassign")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("sam"));
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ assigneeUserId: 3n, expectedUpdatedAt: version }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+    fireEvent.click(screen.getByText("Unassign"));
+    await waitFor(() => expect(update).toHaveBeenCalledWith({ clearAssignee: true, expectedUpdatedAt: version }));
   });
 
   it("renders server-backed detail and author-aware comments", () => {

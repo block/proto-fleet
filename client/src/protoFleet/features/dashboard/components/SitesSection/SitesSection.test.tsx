@@ -113,4 +113,19 @@ describe("SitesSection", () => {
     renderWithRouter(undefined);
     expect(screen.getAllByTestId("skeleton-bar")).toHaveLength(3);
   });
+
+  it("explains an empty site list after loading finishes", () => {
+    const { rerender } = renderWithRouter(undefined);
+
+    rerender(
+      <BrowserRouter>
+        <SitesSection sites={[]} />
+      </BrowserRouter>,
+    );
+
+    expect(screen.getByText("No sites yet.")).toBeInTheDocument();
+    expect(screen.queryByTestId("skeleton-bar")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("dashboard-sites-next")).not.toBeInTheDocument();
+    expect(screen.getByTestId("dashboard-sites-view-all")).toHaveAttribute("href", "/fleet/sites");
+  });
 });

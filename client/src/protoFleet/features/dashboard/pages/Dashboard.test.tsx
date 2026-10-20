@@ -1,5 +1,5 @@
 import { MemoryRouter } from "react-router-dom";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 
@@ -42,8 +42,7 @@ vi.mock("@/shared/hooks/useStickyState", () => ({
   useStickyState: () => ({ refs: { vertical: { start: { current: null }, end: { current: null } } } }),
 }));
 
-// Stub the heavy dashboard sections — this test only cares about scope
-// resolution + whether the (real) SitePicker mounts.
+// Keep the site picker and gallery real; stub unrelated dashboard data.
 vi.mock("@/protoFleet/features/onboarding/components/CompleteSetup", () => ({ CompleteSetup: () => null }));
 vi.mock("@/protoFleet/features/dashboard/components/FleetHealthSection", () => ({
   __esModule: true,
@@ -53,9 +52,8 @@ vi.mock("@/protoFleet/features/dashboard/components/FleetHealthMetrics", () => (
   __esModule: true,
   default: () => null,
 }));
-vi.mock("@/protoFleet/features/dashboard/components/SitesSection", () => ({ __esModule: true, default: () => null }));
+vi.mock("@/protoFleet/api/useSiteStats", () => ({ useSiteStats: () => ({ stats: undefined }) }));
 vi.mock("@/protoFleet/features/marketData/MarketDataSection", () => ({ default: () => null }));
-vi.mock("@/protoFleet/features/dashboard/components/SectionHeading", () => ({ __esModule: true, default: () => null }));
 vi.mock("@/protoFleet/features/dashboard/components/HashratePanel", () => ({ HashratePanel: () => null }));
 vi.mock("@/protoFleet/features/dashboard/components/UptimePanel", () => ({ UptimePanel: () => null }));
 vi.mock("@/protoFleet/features/dashboard/components/TemperaturePanel", () => ({ TemperaturePanel: () => null }));
@@ -96,8 +94,76 @@ const renderScopedDashboard = () =>
 beforeEach(() => {
   fleetCountsMock.mockClear();
   permMock.current = () => true;
+  sitesCtx.current = {
+    sites: [],
+    sitesError: null,
+    sitesLoaded: false,
+    sitesSettled: true,
+    sitesPermissionDenied: false,
+    siteCatalogAccessGranted: false,
+    refetchSites: vi.fn(),
+  };
   useFleetStore.setState((state) => {
     state.ui.activeSite = DEFAULT_ACTIVE_SITE;
+  });
+});
+
+const renderAllSitesDashboard = () =>
+  render(
+    <MemoryRouter initialEntries={["/dashboard"]}>
+      <SiteScopeProvider value={{ kind: "all" }}>
+        <Dashboard />
+      </SiteScopeProvider>
+    </MemoryRouter>,
+  );
+
+describe("Dashboard site gallery states", () => {
+  it("hides the Sites section without site:read", () => {
+    permMock.current = (key) => key !== "site:read";
+
+    renderAllSitesDashboard();
+
+    expect(screen.queryByTestId("dashboard-sites-section")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "View sites" })).not.toBeInTheDocument();
+  });
+
+  it.each(["network down", ""])("uses the existing error and retry on initial failure (%j)", (error) => {
+    sitesCtx.current.sitesError = error;
+
+    const { rerender } = renderAllSitesDashboard();
+
+    expect(screen.queryByTestId("dashboard-sites-section")).not.toBeInTheDocument();
+    expect(screen.queryByText("No sites yet.")).not.toBeInTheDocument();
+    expect(screen.getByText("Sites unavailable")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(sitesCtx.current.refetchSites).toHaveBeenCalledTimes(1);
+
+    sitesCtx.current = { ...sitesCtx.current, sitesError: null, sitesLoaded: true, siteCatalogAccessGranted: true };
+    rerender(
+      <MemoryRouter initialEntries={["/dashboard"]}>
+        <SiteScopeProvider value={{ kind: "all" }}>
+          <Dashboard />
+        </SiteScopeProvider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("No sites yet.")).toBeInTheDocument();
+    expect(screen.queryByText("Sites unavailable")).not.toBeInTheDocument();
+  });
+
+  it("keeps previously loaded sites visible during a transient refresh failure", () => {
+    sitesCtx.current = {
+      ...sitesCtx.current,
+      sites: [site(7, "Austin")],
+      sitesError: "network down",
+      sitesLoaded: true,
+      siteCatalogAccessGranted: true,
+    };
+
+    renderAllSitesDashboard();
+
+    expect(screen.getByTestId("dashboard-sites-section")).toHaveTextContent("Austin");
+    expect(screen.queryByText("No sites yet.")).not.toBeInTheDocument();
   });
 });
 

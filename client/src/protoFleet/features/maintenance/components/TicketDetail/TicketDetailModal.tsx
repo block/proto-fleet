@@ -221,6 +221,24 @@ const TicketDetailModal = ({
             <div className="rounded-xl bg-surface-elevated-base py-2 shadow-300">
               {editor === "assign" ? (
                 <>
+                  {options.loading ? (
+                    <div role="status" aria-label="Loading assignment options" className="flex justify-center py-2">
+                      <ProgressCircular indeterminate />
+                    </div>
+                  ) : options.error != null ? (
+                    <div className="flex flex-col items-start gap-2 px-4 py-2">
+                      <div role="alert">{options.error || "Couldn't load maintenance options."}</div>
+                      <Button
+                        text="Retry"
+                        variant={variants.secondary}
+                        size={buttonSizes.compact}
+                        disabled={submitting}
+                        onClick={() => void options.refresh()}
+                      />
+                    </div>
+                  ) : options.assignees.length === 0 ? (
+                    <div className="px-4 py-2 text-text-primary-70">No assignees available.</div>
+                  ) : null}
                   {ticket.assigneeUserId ? (
                     <div className="px-4">
                       <Row

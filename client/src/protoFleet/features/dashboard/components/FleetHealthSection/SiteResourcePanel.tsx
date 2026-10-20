@@ -10,6 +10,7 @@ import { useComponentErrors } from "@/protoFleet/api/useComponentErrors";
 import { useDeviceSets } from "@/protoFleet/api/useDeviceSets";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import BuildingCard from "@/protoFleet/features/buildings/components/BuildingCard";
+import GalleryEmpty from "@/protoFleet/features/dashboard/components/GalleryEmpty";
 import { RackCard } from "@/protoFleet/features/fleetManagement/components/RackCard";
 import { encodeFilterToURL } from "@/protoFleet/features/fleetManagement/utils/filterUrlParams";
 import { mapRackToCardProps } from "@/protoFleet/features/fleetManagement/utils/rackCardMapper";
@@ -263,12 +264,6 @@ const GallerySkeleton = ({ itemClassName }: { itemClassName: string }) => (
       <SkeletonBar key={i} className={`shrink-0 rounded-xl ${itemClassName}`} />
     ))}
   </>
-);
-
-const GalleryEmpty = ({ label }: { label: string }) => (
-  <div className="w-full rounded-xl border border-dashed border-border-5 p-6 text-center text-300 text-text-primary-70">
-    {label}
-  </div>
 );
 
 const GalleryError = ({ label, onRetry }: { label: string; onRetry: () => void }) => (

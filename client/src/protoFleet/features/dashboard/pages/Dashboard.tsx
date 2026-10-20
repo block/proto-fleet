@@ -166,8 +166,10 @@ const Dashboard = () => {
 
           <MarketDataSection />
 
-          {/* Sites Section — All Sites mode only */}
-          {activeSite.kind === "all" ? <SitesSection sites={sites} /> : null}
+          {/* Initial catalog failures use the heading picker's error and retry. */}
+          {activeSite.kind === "all" && canReadSites && !(sitesError != null && sites?.length === 0) ? (
+            <SitesSection sites={sites} />
+          ) : null}
 
           <DashboardPerformance
             duration={duration}

@@ -62,6 +62,9 @@ const InlineSelector = ({
     return current?.name;
   }, [currentId, items]);
 
+  const hasItems = items.length > 0;
+  if (!hasItems && showPopover) setShowPopover(false);
+
   return (
     <div ref={setTrigger} className="relative w-fit">
       <Button
@@ -69,13 +72,14 @@ const InlineSelector = ({
         className={`!p-0 font-medium ${headingClass.trigger}`}
         variant="textOnly"
         suffixIcon={currentIdName ? <ChevronUpDown /> : undefined}
-        aria-expanded={showPopover}
+        ariaExpanded={hasItems ? showPopover : false}
+        disabled={!hasItems}
         onClick={() => setShowPopover((prev) => !prev)}
       >
         {currentIdName || <SkeletonBar className={`w-25 ${headingClass.skeleton}`} />}
       </Button>
 
-      {showPopover ? (
+      {hasItems && showPopover ? (
         <Popover
           position="bottom right"
           xOffset={placement === "right" ? triggerRect.width + 8 : 0}
