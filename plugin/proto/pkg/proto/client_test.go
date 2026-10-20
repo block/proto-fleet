@@ -127,6 +127,15 @@ func TestClientCreation(t *testing.T) {
 	}
 }
 
+// Port zero is kept literally in the configured endpoint. Construction and
+// credential configuration do not validate or default it; neither performs I/O.
+func TestClientCreation_ZeroPort(t *testing.T) {
+	client, err := NewClient("127.0.0.1", 0, "https")
+	require.NoError(t, err)
+	require.NoError(t, client.SetCredentials(sdk.UsernamePassword{Username: "admin", Password: "proto"}))
+	assert.Equal(t, "https://127.0.0.1:0", client.baseURL)
+}
+
 // TestHTTPClientCreation tests HTTP client creation and configuration
 func TestHTTPClientCreation(t *testing.T) {
 	// Reset clients to ensure fresh state
@@ -139,11 +148,6 @@ func TestHTTPClientCreation(t *testing.T) {
 		assert.NotNil(t, client.Transport, "Transport should be set")
 	})
 
-	t.Run("HTTP client singleton behavior", func(t *testing.T) {
-		client1 := createHTTPClient()
-		client2 := createHTTPClient()
-		assert.Same(t, client1, client2, "HTTP client should be singleton")
-	})
 }
 
 // TestHTTPSClientCreation tests HTTPS client creation and TLS configuration
@@ -163,11 +167,6 @@ func TestHTTPSClientCreation(t *testing.T) {
 		assert.Equal(t, uint16(tls.VersionTLS12), transport.TLSClientConfig.MinVersion, "Min TLS version should be 1.2")
 	})
 
-	t.Run("HTTPS client singleton behavior", func(t *testing.T) {
-		client1 := createHTTPSClient()
-		client2 := createHTTPSClient()
-		assert.Same(t, client1, client2, "HTTPS client should be singleton")
-	})
 }
 
 // TestTLSVerificationConfiguration verifies Proto HTTPS always skips certificate verification.

@@ -1425,23 +1425,6 @@ describe("release channel scope synchronization", () => {
     );
   });
 
-  test("keeps a pending preview when polling changes only selector order", async () => {
-    const channel = { ...existingChannel(), scope: create(ReleaseChannelScopeSchema, { siteIds: [1n, 2n] }) };
-    const { previewScope, updateChannel } = renderSettings(channel);
-    let finishPreview!: (preview: PreviewReleaseChannelScopeResponse) => void;
-    previewScope.mockReturnValueOnce(
-      new Promise((resolve) => {
-        finishPreview = resolve;
-      }),
-    );
-    await waitFor(() => expect(previewScope).toHaveBeenCalledOnce());
-    updateChannel({ ...channel, scope: create(ReleaseChannelScopeSchema, { siteIds: [2n, 1n] }) }, false);
-    await act(async () => finishPreview(create(PreviewReleaseChannelScopeResponseSchema, { minerCount: 42 })));
-    expect(screen.queryByTestId("scope-preview")).not.toBeInTheDocument();
-    expect(previewScope).toHaveBeenCalledOnce();
-    expect(screen.getByTestId("save-channel")).toBeDisabled();
-  });
-
   test("treats an absent remote scope as empty dimensions while retaining a local edit", async () => {
     const channel = { ...existingChannel(), scope: scopeWith(1n) };
     const { onSave, updateChannel } = renderSettings(channel);

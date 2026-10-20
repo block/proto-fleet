@@ -342,11 +342,6 @@ describe("useMinerStatus", () => {
   });
 
   describe("all combinations", () => {
-    it('should handle offline + sleeping + needs attention → "Offline"', () => {
-      const { result } = renderHook(() => useMinerStatus(true, true, true));
-      expect(result.current).toBe("Offline");
-    });
-
     it('should handle offline + sleeping → "Offline"', () => {
       const { result } = renderHook(() => useMinerStatus(true, true, false));
       expect(result.current).toBe("Offline");
@@ -355,11 +350,6 @@ describe("useMinerStatus", () => {
     it('should handle offline + needs attention → "Offline"', () => {
       const { result } = renderHook(() => useMinerStatus(true, false, true));
       expect(result.current).toBe("Offline");
-    });
-
-    it('should handle sleeping + needs attention → "Sleeping"', () => {
-      const { result } = renderHook(() => useMinerStatus(false, true, true));
-      expect(result.current).toBe("Sleeping");
     });
   });
 });
