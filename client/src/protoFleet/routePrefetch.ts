@@ -14,6 +14,9 @@ import type { RouteImporter } from "@/shared/utils/prefetchRoutes";
 
 export { singleMinerRoutePrefetch };
 
+export const importAccountRoutes = () => import("@/protoFleet/features/hostedAccounts/AccountRoutes");
+export const importAccountInvitation = () => import("@/protoFleet/features/hostedAccounts/AccountInvitation");
+
 export const importDashboard = () => import("@/protoFleet/features/dashboard/pages/Dashboard");
 export const importMiners = () => import("./features/fleetManagement/components/Fleet");
 export const importActivityPage = () => import("@/protoFleet/features/activity/pages/ActivityPage");
@@ -45,6 +48,7 @@ export const importSettingsIntegrations = () => import("@/protoFleet/features/se
 export const importSettingsUpdates = () => import("@/protoFleet/features/settings/components/Updates");
 export const importSiteDetailPage = () => import("@/protoFleet/features/sites/pages/SiteDetailPage");
 export const importTankPage = () => import("@/protoFleet/features/containers/pages/TankPage");
+export const importModulePage = () => import("@/protoFleet/features/containers/pages/ModulePage");
 export const importContainerPage = () => import("@/protoFleet/features/containers/pages/ContainerPage");
 export const importBuildingPage = () => import("@/protoFleet/features/buildings/pages/BuildingPage");
 export const importFleetLayout = () => import("@/protoFleet/features/fleetManagement/components/FleetLayout");
@@ -57,11 +61,13 @@ export const importFleetInfraPage = () => import("@/protoFleet/features/fleetMan
 // Sidebar destinations + the default settings sub-route. App.tsx
 // triggers this at idle so the first nav click has no Suspense flash.
 export const globalRoutePrefetch: readonly RouteImporter[] = [
+  importAccountRoutes,
   importDashboard,
   importFleetLayout,
   importMiners,
   importRacksPage,
   importTankPage,
+  importModulePage,
   importFleetBuildingsPage,
   importFleetSitesPage,
   importFleetInfraPage,

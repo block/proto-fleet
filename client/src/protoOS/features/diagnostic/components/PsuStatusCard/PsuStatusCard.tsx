@@ -1,8 +1,5 @@
 import { useState } from "react";
 import { ProtoOSStatusModal as StatusModal } from "@/protoOS/components/StatusModal";
-import Card from "@/protoOS/features/diagnostic/components/Card";
-import CardHeader from "@/protoOS/features/diagnostic/components/CardHeader";
-import LabeledValue from "@/protoOS/features/diagnostic/components/LabeledValue";
 import { useMinerPsuById, useMinerStore } from "@/protoOS/store";
 import type { ComponentId } from "@/protoOS/store/contract";
 import { useErrorsByRef } from "@/protoOS/store/hooks/useMinerStatus";
@@ -10,6 +7,7 @@ import { getPsuId } from "@/protoOS/store/utils/entityIds";
 import { Alert, PsuIndicatorV2 as PsuIndicator } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import PowerValue from "@/shared/components/PowerValue";
+import PsuCard from "@/shared/components/PsuCard";
 import TemperatureValue from "@/shared/components/TemperatureValue";
 import VoltageValue from "@/shared/components/VoltageValue";
 
@@ -75,8 +73,8 @@ function PsuStatusCard({ slot, componentId, showComponentIcon = componentId === 
     : [inputVoltageStat, outputVoltageStat, inputPowerStat, outputPowerStat];
 
   return (
-    <Card>
-      <CardHeader
+    <>
+      <PsuCard
         title={name}
         statusIcon={
           hasErrors ? (
@@ -86,16 +84,13 @@ function PsuStatusCard({ slot, componentId, showComponentIcon = componentId === 
           ) : null
         }
         componentIcon={showComponentIcon ? <PsuIndicator position={position} /> : null}
-        onInfoIconClick={component ? () => setShowComponentStatusModal(true) : undefined}
+        onInfoClick={component ? () => setShowComponentStatusModal(true) : undefined}
+        metrics={[
+          ...electricalStats,
+          { label: "Avg temp", value: avgTemp === undefined ? "—" : <TemperatureValue value={avgTemp} /> },
+          { label: "High temp", value: maxTemp === undefined ? "—" : <TemperatureValue value={maxTemp} /> },
+        ]}
       />
-
-      <div className="grid grid-cols-2 gap-x-4 gap-y-3 @3xl:grid-cols-6">
-        {electricalStats.map((stat) => (
-          <LabeledValue key={stat.label} {...stat} />
-        ))}
-        <LabeledValue value={avgTemp === undefined ? "—" : <TemperatureValue value={avgTemp} />} label="Avg temp" />
-        <LabeledValue value={maxTemp === undefined ? "—" : <TemperatureValue value={maxTemp} />} label="High temp" />
-      </div>
       {showComponentStatusModal && component ? (
         <StatusModal
           open={showComponentStatusModal}
@@ -104,7 +99,7 @@ function PsuStatusCard({ slot, componentId, showComponentIcon = componentId === 
           showBackButton={false}
         />
       ) : null}
-    </Card>
+    </>
   );
 }
 

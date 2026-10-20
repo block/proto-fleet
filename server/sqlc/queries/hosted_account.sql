@@ -3,6 +3,18 @@
 -- Allow foreign-key KEY SHARE locks from concurrent organization role writes.
 SELECT id FROM organization WHERE id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE;
 
+-- name: LockHostedAccountOrganizationForShare :one
+-- Reports may overlap, while hierarchy, policy, membership and allocation
+-- mutations keep their exclusive organization admission lock.
+SELECT id FROM organization WHERE id = $1 AND deleted_at IS NULL FOR SHARE;
+
+-- name: LockActiveHostedAccountUserForShare :one
+SELECT u.* FROM "user" u
+JOIN user_organization uo ON uo.user_id = u.id
+WHERE u.id = $1 AND uo.organization_id = $2
+  AND u.deleted_at IS NULL AND uo.deleted_at IS NULL
+FOR SHARE OF u, uo;
+
 -- name: GetHostedAccountPath :many
 WITH RECURSIVE path AS (
     SELECT a.* FROM hosted_account a

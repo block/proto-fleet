@@ -147,28 +147,23 @@ Real-time aggregates include the latest raw tail while scheduled materialization
 catches up. The existing maximum API request span remains 366 days; older years
 can be queried in separate windows.
 
-Migration 1016 temporarily removes raw retention for these three tables and
-schedules `initialize_container_metric_summaries` one minute later. That job
-materializes available history before installing summary refresh/retention and
-restoring ten-day raw retention, then deletes itself. Failures retry without
-expiring the raw evidence. Monitor this job in `timescaledb_information.jobs` and
-`timescaledb_information.job_stats`; a persistent job or repeated failures needs
-investigation. Hourly refresh covers the last day every thirty minutes; daily
-refresh covers the last seven days every six hours. Both refresh windows stay
-inside raw retention so normal refreshes do not erase older summaries. This
-backfill uses Fleet's existing rows; it does not fetch firmware history or
-recover samples already deleted. Like existing parent summaries, scheduled refresh
-assumes live polling. Ingestion has no lower age fence: historical rows inserted
-after bootstrap outside the hourly one-day/daily seven-day refresh windows can
-expire without materialization. Any manual historical backfill must pause raw
-retention and explicitly refresh its affected ranges before resuming retention.
-Do not refill a source bucket whose raw data was already deleted: refreshing it
-would replace its existing summary with only the newly inserted subset. Historical
-catch-up requires a separate ingestion/materialization design; it is not enabled
-or made safe by this compaction change.
+Migration 1030 supersedes the one-time bootstrap jobs from 1016 and 1021 and
+replaces independent refresh/raw-retention policies with persistent recovery.
+Every hourly/daily tier has its own contiguous coverage checkpoint. Raw chunks
+expire only after every dependent tier has completed that interval; miner metric,
+miner status, and container tiers share the `device_metrics` gate. One staggered
+job per raw source rotates catch-up and recent refreshes, with smaller batches
+after interrupted attempts and gradual growth after fast successes. A shared write
+gate waits for in-flight writers before finalization; stale cached readings are
+skipped without rolling back live ingestion. Recent refreshes continue during catch-up at their
+30-minute/hourly and 6-hour/daily cadences. Measurement summaries still retain
+three months hourly and three years daily; status summaries keep their existing
+absence of a retention policy.
+See [telemetry summary recovery](telemetry-summary-recovery.md) for late-data
+assumptions, upgrade boundaries, monitoring, and recovery procedures.
 
-Migration 1021 adds hashboard hourly/daily aggregates and follows the same
-bootstrap sequence before changing board raw retention from thirty to ten days.
+Migration 1021 adds hashboard hourly/daily aggregates; 1030 takes over their
+initialization and gates the ten-day raw-retention target on durable coverage.
 Board groups include physical board ID, installation ID, and nullable topology
 version. Unknown legacy topology stays NULL and its measurements still summarize.
 Migration 1021 backfills the retained raw board table in its transaction; 1022
@@ -297,7 +292,9 @@ Reduce the configured batch size if runs hit the runtime limit. No version or
 installation deletion is included. Allocation authorization, subset rollups, and
 shared PSU attribution remain future work.
 
-Prefer disabling jobs or rolling back the application while keeping the schema.
+Prefer disabling jobs and fixing forward while preserving the schema and evidence.
+An application release must recognize the installed database checkpoint; see the
+[recovery rollback restrictions](telemetry-summary-recovery.md#upgrade-and-existing-gaps).
 Migration 1021 refuses downgrade with retained board summaries; 1022 refuses it
 once confirmation spans exist. Their checks lock evidence tables through the
 migration transaction. Stop application and scheduled writers before a coordinated
@@ -334,7 +331,9 @@ source timestamps, partial coverage, and old/new chart separation. A server
 with an older plugin cannot produce these new totals: tank/container values
 remain unavailable, rather than restoring fallback measurements.
 
-Prefer application rollback while retaining the schema and collected evidence.
-The down migration is destructive: it removes the new rollups, topology, and
-measurement columns. It is for a coordinated rollback after stopping new-format
-writers, not routine recovery. Historical ingestion is not enabled by this change.
+Prefer a compatible fix-forward release while retaining the schema and collected
+evidence. Older binaries reject database checkpoints outside their embedded
+migration history. The telemetry recovery migration refuses downgrade; a
+coordinated rollback requires the pre-deploy database snapshot and matching
+application release. See the [recovery runbook](telemetry-summary-recovery.md#upgrade-and-existing-gaps).
+Historical ingestion is not enabled by this change.

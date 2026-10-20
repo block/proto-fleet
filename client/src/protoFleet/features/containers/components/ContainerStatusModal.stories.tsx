@@ -12,7 +12,7 @@ const offFan: ContainerFan = { id: "f4", label: "Fan 4", on: false, speedPercent
  * view — same icon, layout, and metrics grid the miner modal drills into.
  */
 const meta: Meta<typeof ContainerStatusModal> = {
-  title: "Proto Containers/Overview/Fan Status",
+  title: "Proto Fleet/Containers/Fan Status",
   component: ContainerStatusModal,
   parameters: { layout: "centered" },
 };

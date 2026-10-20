@@ -2781,6 +2781,7 @@ DECLARE
     r RECORD;
     n integer := 0;
 BEGIN
+    -- Telemetry maintenance keeps its adaptive schedule and migration stagger.
     FOR r IN SELECT job_id FROM timescaledb_information.jobs
              WHERE proc_name IN ('policy_compression',
                                  'policy_refresh_continuous_aggregate',

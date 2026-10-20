@@ -34,6 +34,7 @@ const permMock = vi.hoisted(() => ({ current: (_key: string): boolean => true })
 vi.mock("@/protoFleet/store", () => ({
   useDuration: () => "24h",
   useSetDuration: () => vi.fn(),
+  useTemperatureUnit: () => "C",
   useHasPermission: (key: string) => permMock.current(key),
 }));
 

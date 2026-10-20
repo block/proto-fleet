@@ -8,7 +8,7 @@ import {
   InventoryItemSchema,
 } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 
-const meta = { title: "ProtoFleet/Containers/Collected metrics" } satisfies Meta;
+const meta = { title: "Proto Fleet/Containers/Collected metrics" } satisfies Meta;
 export default meta;
 type Story = StoryObj<typeof meta>;
 

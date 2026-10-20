@@ -4,7 +4,6 @@ import SubtankDetail from "../components/SubtankDetail";
 import TankPerformance from "../components/TankPerformance";
 import { useContainerOverview } from "../hooks/useContainerOverview";
 import MiningActionsMenu from "../MiningActionsMenu";
-import { ModuleHistoryDialog } from "../ModuleHistoryDialog";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
 import { scopedPath } from "@/protoFleet/routing/siteScope";
@@ -13,7 +12,7 @@ import Button, { variants } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 
 export default function TankPage() {
-  const { identifier = "", tankId = "", moduleId } = useParams();
+  const { identifier = "", tankId = "" } = useParams();
   const navigate = useNavigate();
   const { data, loading, error, notFound, retry } = useContainerOverview(identifier);
   const { sites } = useSitesContext();
@@ -43,7 +42,6 @@ export default function TankPage() {
 
   const { container } = data;
   const path = tankPath(identifier, tankId);
-  const module = view.modules.find((item) => item.ref?.id.toString() === moduleId);
   const containerPath = `/containers/${encodeURIComponent(identifier)}`;
   return (
     <>
@@ -67,7 +65,7 @@ export default function TankPage() {
         onSelectModule={(id) => navigate(`${path}/modules/${id}`)}
         onViewMiners={() => navigate(scopedPath(`/fleet/miners?tank=${tankId}`, target ?? { kind: "all" }))}
         notice={
-          view.stale || error || (moduleId && !module) ? (
+          view.stale || error ? (
             <div className="flex flex-col gap-2 text-200 text-text-primary-70">
               {view.stale ? <p role="status">Readings unavailable or stale.</p> : null}
               {error ? (
@@ -76,7 +74,6 @@ export default function TankPage() {
                   <Button variant={variants.secondary} text="Retry" onClick={retry} />
                 </>
               ) : null}
-              {moduleId && !module ? <p role="alert">Module not found in this tank.</p> : null}
             </div>
           ) : undefined
         }
@@ -89,14 +86,6 @@ export default function TankPage() {
           />
         }
       />
-      {module ? (
-        <ModuleHistoryDialog
-          key={`${identifier}:${tankId}:${moduleId}`}
-          item={module}
-          onRefresh={retry}
-          onDismiss={() => navigate(path)}
-        />
-      ) : null}
     </>
   );
 }

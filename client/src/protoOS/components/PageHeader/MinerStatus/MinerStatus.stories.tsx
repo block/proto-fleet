@@ -1,7 +1,7 @@
 import { ElementType } from "react";
 import { MemoryRouter } from "react-router-dom";
-import MinerStatusWidget from "./MinerStatusWidget";
 import { statuses } from "@/shared/components/StatusCircle/";
+import StatusPill from "@/shared/components/StatusPill";
 
 const sleeping = {
   circle: statuses.inactive,
@@ -113,13 +113,13 @@ const testStatuses = {
 
 type TestStatus = keyof typeof testStatuses;
 
-// For Storybook, we use the MinerStatusWidget directly to bypass store dependencies
+// For Storybook, we use the StatusPill directly to bypass store dependencies
 export const MinerStatus = ({ testStatus }: { testStatus: TestStatus }) => {
   const status = testStatuses[testStatus];
 
   return (
     <div className="mx-auto flex w-96 justify-end gap-2">
-      <MinerStatusWidget circle={status.circle} summary={status.summary} onClick={() => {}} />
+      <StatusPill circle={status.circle} summary={status.summary} onClick={() => {}} />
     </div>
   );
 };

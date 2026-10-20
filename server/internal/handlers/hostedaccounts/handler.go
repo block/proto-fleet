@@ -75,7 +75,7 @@ func (h *Handler) ListAccounts(ctx context.Context, _ *connect.Request[pb.ListAc
 	if err != nil {
 		return nil, err
 	}
-	response := &pb.ListAccountsResponse{HostAccess: len(permissions.Keys()) > 0}
+	response := &pb.ListAccountsResponse{HostAccess: permissions.HasAnyPermission()}
 	for _, row := range rows {
 		response.Accounts = append(response.Accounts, accountDTO(row))
 	}
@@ -120,7 +120,7 @@ func (h *Handler) CreateAccount(ctx context.Context, req *connect.Request[pb.Cre
 	if err != nil {
 		return nil, err
 	}
-	adminID := info.UserID
+	var adminID int64
 	if req.Msg.AdministratorUserId != nil {
 		user, err := h.users.GetUserByExternalID(ctx, req.Msg.GetAdministratorUserId())
 		if err != nil {
@@ -133,10 +133,8 @@ func (h *Handler) CreateAccount(ctx context.Context, req *connect.Request[pb.Cre
 		return nil, err
 	}
 	item := domain.AccountSummary{AccountID: created.AccountID, ParentAccountID: req.Msg.AccountId, Name: created.Name, Depth: created.Depth, Capabilities: domain.Capabilities(created.Capabilities), Revision: created.Revision}
-	if adminID == info.UserID {
-		item.EffectiveCapabilities = item.Capabilities
-		item.Role = domain.RoleAdministrator
-	}
+	item.EffectiveCapabilities = created.Access.Capabilities
+	item.Role = created.Access.Role
 	return connect.NewResponse(&pb.CreateAccountResponse{Account: accountDTO(item)}), nil
 }
 func (h *Handler) ConfigureAccount(ctx context.Context, req *connect.Request[pb.ConfigureAccountRequest]) (*connect.Response[pb.ConfigureAccountResponse], error) {
@@ -375,7 +373,14 @@ func (h *Handler) RegisterInvitedUser(ctx context.Context, req *connect.Request[
 }
 
 func accountDTO(a domain.AccountSummary) *pb.Account {
-	return &pb.Account{AccountId: a.AccountID, ParentAccountId: a.ParentAccountID, Name: a.Name, Depth: uint32(a.Depth), CapabilityCeiling: uint64(a.Capabilities), EffectiveCapabilities: uint64(a.EffectiveCapabilities), Role: roleDTO(a.Role), Suspended: a.Suspended, Revision: a.Revision} // #nosec G115 -- account depth is constrained to 0..2 and capability masks to 0..31.
+	item := &pb.Account{AccountId: a.AccountID, ParentAccountId: a.ParentAccountID, Name: a.Name, Depth: uint32(a.Depth), CapabilityCeiling: uint64(a.Capabilities), EffectiveCapabilities: uint64(a.EffectiveCapabilities), Role: roleDTO(a.Role), Suspended: a.Suspended, Revision: a.Revision} // #nosec G115 -- account depth is constrained to 0..2 and capability masks to 0..31.
+	if counts := a.ManagementSummary; counts != nil {
+		item.ManagementSummary = &pb.ClientManagementSummary{
+			MinerCount: counts.MinerCount, ModuleCount: counts.ModuleCount,
+			ContainerCount: counts.ContainerCount, LoginCount: counts.LoginCount,
+		}
+	}
+	return item
 }
 func roleDTO(role domain.Role) pb.AccountRole {
 	switch role {

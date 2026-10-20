@@ -7,10 +7,11 @@ import { usePreventScroll } from "@/shared/hooks/usePreventScroll";
 
 type FloatingNavigationProps = {
   items: NavItem[];
+  roleLabel?: string;
   closeMenu?: () => void;
 };
 
-const FloatingNavigation = ({ items, closeMenu }: FloatingNavigationProps) => {
+const FloatingNavigation = ({ items, closeMenu, roleLabel }: FloatingNavigationProps) => {
   const [isVisible, setIsVisible] = useState(true);
   const dialogRef = useRef<HTMLDivElement>(null);
   const { preventScroll } = usePreventScroll();
@@ -40,7 +41,7 @@ const FloatingNavigation = ({ items, closeMenu }: FloatingNavigationProps) => {
       role="dialog"
       aria-modal="true"
       aria-label="Navigation menu"
-      className="fixed inset-0 z-50 h-dvh"
+      className="fixed inset-0 z-50 h-[var(--navigation-height,100dvh)]"
       onKeyDown={(event) => {
         if (event.key !== "Tab") return;
         const controls = dialogRef.current?.querySelectorAll<HTMLElement>(
@@ -61,19 +62,25 @@ const FloatingNavigation = ({ items, closeMenu }: FloatingNavigationProps) => {
       <button
         aria-label="Close navigation menu"
         tabIndex={-1}
-        className={clsx("fixed top-0 left-0 z-20 h-dvh w-screen bg-border-20 hover:cursor-default", {
+        className={clsx("absolute inset-0 z-20 bg-border-20 hover:cursor-default", {
           "animate-[fade-in_.3s_ease-in-out]": isVisible,
           "animate-[fade-out_.31s_ease-in-out]": !isVisible,
         })}
         onClick={handleCloseMenu}
       />
       <div
-        className={clsx("relative z-30", {
+        className={clsx("relative z-30 h-full", {
           "animate-[slide-right-nav_.3s_ease-in-out]": isVisible,
           "animate-[slide-left-nav_.3s_ease-in-out]": !isVisible,
         })}
       >
-        <Navigation items={items} className="rounded-r-xl" closeMenu={handleCloseMenu} isFloatingMenu />
+        <Navigation
+          roleLabel={roleLabel}
+          items={items}
+          className="rounded-r-xl"
+          closeMenu={handleCloseMenu}
+          isFloatingMenu
+        />
       </div>
     </div>
   );

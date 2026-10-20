@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { buildContainerOverview } from "../buildContainerOverview";
 import { buildEquipmentOverview } from "../buildEquipmentOverview";
@@ -8,7 +7,7 @@ import ContainerPerformance from "../components/ContainerPerformance";
 import ContainerActionsMenu from "../ContainerActionsMenu";
 import { useContainerOverview } from "../hooks/useContainerOverview";
 import { equipmentState, useEquipmentCommand } from "../hooks/useEquipmentCommand";
-import { ModuleHistoryDialog } from "../ModuleHistoryDialog";
+import { modulePath } from "../moduleDetail";
 import { useSitesContext } from "@/protoFleet/api/SitesContext";
 import { entityScopeTarget, useSyncScopeToEntity } from "@/protoFleet/hooks/useSyncScopeToEntity";
 import { useTemperatureUnit } from "@/protoFleet/store";
@@ -21,7 +20,6 @@ export default function ContainerPage() {
   const { data, loading, error, notFound, retry } = useContainerOverview(identifier);
   const { sites } = useSitesContext();
   const unit = useTemperatureUnit();
-  const [selected, setSelected] = useState<{ container: string; module: string }>();
   const container = data?.container;
   const equipmentCommand = useEquipmentCommand(identifier, container, retry);
   const canWrite = container?.canControlEquipment === true;
@@ -47,10 +45,6 @@ export default function ContainerPage() {
     );
   const view = buildContainerOverview(data, unit, !!error);
   const equipment = buildEquipmentOverview(container, !!error, unit);
-  const module =
-    selected?.container === identifier
-      ? data.modules.find((item) => item.ref?.id.toString() === selected.module)
-      : undefined;
   return (
     <>
       <ContainerOverviewLayout
@@ -96,7 +90,11 @@ export default function ContainerPage() {
           ) : undefined
         }
         onSelectTank={(tankId) => navigate(tankPath(identifier, tankId))}
-        onSelectModule={(module) => setSelected({ container: identifier, module })}
+        onSelectModule={(id) => {
+          const item = data.modules.find((module) => String(module.ref?.id) === id);
+          const destination = item ? modulePath({ ...item, deviceIdentifier: identifier }) : undefined;
+          if (destination) navigate(destination);
+        }}
         plantControls={
           <div className="text-200 text-text-primary-70">
             {equipment.controlsNotice ? <p>{equipment.controlsNotice}</p> : null}
@@ -107,14 +105,6 @@ export default function ContainerPage() {
         }
         performance={<ContainerPerformance key={identifier} identifier={identifier} siteId={container.site?.id} />}
       />
-      {module ? (
-        <ModuleHistoryDialog
-          key={`${identifier}:${module.ref?.id}`}
-          item={module}
-          onRefresh={retry}
-          onDismiss={() => setSelected(undefined)}
-        />
-      ) : null}
     </>
   );
 }

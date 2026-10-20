@@ -4,6 +4,7 @@
 
 export const requiresAuth: Record<string, boolean> = {
   "/auth": false,
+  "/account-invitation": false,
   "/welcome": false,
   "/update-password": true, // Requires auth but is a special intermediate step
   "/fleet-down": false, // Error page doesn't require auth

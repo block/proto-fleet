@@ -117,7 +117,7 @@ func (s *InvitationService) Create(ctx context.Context, actorID, orgID int64, ac
 	})
 }
 
-// List reads a bounded page of the retained invitation history. Every page
+// List reads a bounded page of unaccepted invitations. Every page
 // rechecks current membership authority; the token grants no access itself.
 func (s *InvitationService) List(ctx context.Context, actorID, orgID int64, accountID string, pageSize int32, pageToken string) ([]Invitation, string, error) {
 	if pageSize < 0 || pageSize > 100 {

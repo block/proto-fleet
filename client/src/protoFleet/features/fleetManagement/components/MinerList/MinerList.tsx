@@ -36,8 +36,10 @@ import {
   NumericRangeFilterSchema,
   PairingStatus,
 } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
+import { MiningAssetKind } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { DeviceStatus } from "@/protoFleet/api/generated/telemetry/v1/telemetry_pb";
 import { useModuleHashboards } from "@/protoFleet/api/useModuleHashboards";
+import ListPagination from "@/protoFleet/components/ListPagination";
 import MinerSearchInput from "@/protoFleet/components/MinerSearchInput";
 import NoFilterResultsEmptyState from "@/protoFleet/components/NoFilterResultsEmptyState";
 import { useOpenMinerView } from "@/protoFleet/components/SingleMinerWrapper/useOpenMinerView";
@@ -48,7 +50,7 @@ import { AuthenticateMiners } from "@/protoFleet/features/auth/components/Authen
 import { HashboardCell } from "@/protoFleet/features/containers/HashboardCell";
 import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
 import MiningActionsMenu from "@/protoFleet/features/containers/MiningActionsMenu";
-import { ModuleHistoryDialog } from "@/protoFleet/features/containers/ModuleHistoryDialog";
+import { modulePath } from "@/protoFleet/features/containers/moduleDetail";
 import PoolSelectionPageWrapper from "@/protoFleet/features/fleetManagement/components/ActionBar/SettingsWidget/PoolSelectionPage";
 import MinerListActionBar from "@/protoFleet/features/fleetManagement/components/MinerList/MinerListActionBar";
 import type { BatchOperation } from "@/protoFleet/features/fleetManagement/hooks/useBatchOperations";
@@ -76,6 +78,11 @@ import {
 } from "@/protoFleet/features/fleetManagement/utils/telemetryFilterBounds";
 import { VIEW_URL_PARAM } from "@/protoFleet/features/fleetManagement/views/savedViews";
 import type { FilterLabelSource } from "@/protoFleet/features/fleetManagement/views/viewSummary";
+import {
+  allocationKey,
+  type AssetReference,
+  useFleetAccountInventory,
+} from "@/protoFleet/features/hostedAccounts/useFleetAccountInventory";
 import { useHasPermission, useUsername } from "@/protoFleet/store";
 
 import { ChevronDown, LogoAlt, Plus, Slider } from "@/shared/assets/icons";
@@ -376,7 +383,7 @@ const ScopedMinerListBody = ({
   }
   const sortableColumnsSet = useMemo(() => new Set(SORTABLE_COLUMNS), []);
 
-  const [openModule, setOpenModule] = useState<InventoryItem>();
+  const navigate = useNavigate();
   const location = useLocation();
   const [expansion, setExpansion] = useState<{ scope: string; ids: Set<string> }>({
     scope: location.key,
@@ -417,6 +424,27 @@ const ScopedMinerListBody = ({
       return row ? [{ kind: "miner", row, selectionKey: `miner:${row.deviceIdentifier}` }] : [];
     });
   }, [deviceItems, inventoryItems]);
+  const referencesBySelection = useMemo(
+    () =>
+      new Map<MiningSelectionKey, AssetReference>(
+        (inventoryItems ?? []).flatMap<[MiningSelectionKey, AssetReference]>((item) => {
+          if (item.ref?.kind === EntityKind.MODULE)
+            return [[`module:${item.ref.id}` as MiningSelectionKey, { kind: MiningAssetKind.MODULE, id: item.ref.id }]];
+          if (item.ref?.kind === EntityKind.MINER)
+            return [
+              [
+                `miner:${item.deviceIdentifier}` as MiningSelectionKey,
+                { kind: MiningAssetKind.MINER, id: item.ref.id },
+              ],
+            ];
+          return [];
+        }),
+      ),
+    [inventoryItems],
+  );
+  const fleetAssignments = useFleetAccountInventory([...referencesBySelection.values()], true);
+  const { byAsset: allocationsByAsset, loading: allocationsLoading } = fleetAssignments;
+  const allocationRootId = fleetAssignments.root?.accountId;
   const listColumns = useMemo<ColConfig<MiningListItem, MiningSelectionKey, MinerColumn>>(() => {
     const result: ColConfig<MiningListItem, MiningSelectionKey, MinerColumn> = {};
     for (const column of Object.keys(minerColConfig) as MinerColumn[]) {
@@ -455,8 +483,37 @@ const ScopedMinerListBody = ({
           ),
       };
     }
+    result.assignedAccount = {
+      width: "min-w-48",
+      component: (item) => {
+        const ref = referencesBySelection.get(item.selectionKey);
+        const allocation = ref ? allocationsByAsset.get(allocationKey(ref)) : undefined;
+        if (!allocation) return allocationsLoading ? "Loading…" : "Unavailable";
+        return allocation.ownerAccountId === allocationRootId ? (
+          "Unassigned"
+        ) : (
+          <div data-no-row-click>
+            <Button
+              variant="textOnly"
+              className="justify-start text-left"
+              text={allocation.ownerAccountName}
+              to={`/accounts?assets=${encodeURIComponent(allocation.ownerAccountId)}`}
+            />
+          </div>
+        );
+      },
+    };
     return result;
-  }, [minerColConfig, expanded, toggleModule, onRefetchMiners]);
+  }, [
+    minerColConfig,
+    expanded,
+    toggleModule,
+    onRefetchMiners,
+    referencesBySelection,
+    allocationsByAsset,
+    allocationsLoading,
+    allocationRootId,
+  ]);
   const currentPageSelectionKeys = listItems.map((item) => item.selectionKey);
   const selectAllOnPage =
     selectionMode !== "all" &&
@@ -570,7 +627,7 @@ const ScopedMinerListBody = ({
             };
           });
         }}
-        activeCols={activeCols}
+        activeCols={fleetAssignments.root ? [activeCols[0], "assignedAccount", ...activeCols.slice(1)] : activeCols}
         colTitles={minerColTitles}
         colConfig={listColumns}
         filters={filters}
@@ -646,6 +703,15 @@ const ScopedMinerListBody = ({
             <div className="flex w-full justify-center">
               <MinerListActionBar
                 selectedKeys={selectedItems}
+                assetReferences={selectedItems.flatMap((key) => {
+                  const ref = referencesBySelection.get(key);
+                  return ref ? [ref] : [];
+                })}
+                onAssigned={() => {
+                  fleetAssignments.refresh();
+                  onRefetchMiners?.();
+                  clearSelection();
+                }}
                 modules={listItems.flatMap((item) =>
                   item.kind === "module" && selectedItemKeys.has(item.selectionKey) ? [item.row] : [],
                 )}
@@ -698,7 +764,13 @@ const ScopedMinerListBody = ({
         currentSort={currentSort}
         onSort={onSort}
         getDefaultSortDirection={getDefaultSortDirection}
-        onRowClick={(item, index) => (item.kind === "miner" ? onRowClick(item.row, index) : setOpenModule(item.row))}
+        onRowClick={(item, index) => {
+          if (item.kind === "miner") onRowClick(item.row, index);
+          else {
+            const destination = modulePath(item.row);
+            if (destination) navigate(destination);
+          }
+        }}
         emptyStateRow={
           totalMiners === 0 || listItems.length === 0 ? (
             <NoFilterResultsEmptyState
@@ -711,49 +783,25 @@ const ScopedMinerListBody = ({
       />
 
       {shouldRenderPagination ? (
-        <div
+        <ListPagination
+          firstItemIndex={firstItemIndex}
+          lastItemIndex={lastItemIndex}
+          total={totalMiners}
+          itemName={inventoryItems ? "mining assets" : "miners"}
+          hasPreviousPage={hasPreviousPage}
+          hasNextPage={hasNextPage}
+          onPrevious={handlePrevPage}
+          onNext={handleNextPage}
           className={clsx(
-            "sticky left-0 flex flex-col items-center gap-4 pt-6",
-            // Under the page's w-max subtree this auto-width sticky bar would
-            // stretch to the table and center Prev/Next off-screen; pin it to
-            // the viewport like the rest of the page-scroll chrome.
+            "sticky left-0 pt-6",
+            // Pin the controls to the viewport when the table scrolls with the page.
             overflowContainer === false && PAGE_SCROLL_CHROME_WIDTH,
             {
               "pb-24": selectionMode !== "none",
               "pb-6": selectionMode === "none",
             },
           )}
-          data-testid="miners-pagination"
-        >
-          <span className="text-300 text-text-primary">
-            Showing {firstItemIndex}–{lastItemIndex} of {totalMiners} {inventoryItems ? "mining assets" : "miners"}
-          </span>
-          <div className="flex gap-3">
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              ariaLabel="Previous page"
-              prefixIcon={<ChevronDown className="rotate-90" />}
-              onClick={handlePrevPage}
-              disabled={!hasPreviousPage}
-            />
-            <Button
-              variant={variants.secondary}
-              size={sizes.compact}
-              ariaLabel="Next page"
-              prefixIcon={<ChevronDown className="rotate-270" />}
-              onClick={handleNextPage}
-              disabled={!hasNextPage}
-            />
-          </div>
-        </div>
-      ) : null}
-      {openModule ? (
-        <ModuleHistoryDialog
-          key={openModule.ref?.id.toString()}
-          item={openModule}
-          onRefresh={onRefetchMiners}
-          onDismiss={() => setOpenModule(undefined)}
+          testId="miners-pagination"
         />
       ) : null}
     </>

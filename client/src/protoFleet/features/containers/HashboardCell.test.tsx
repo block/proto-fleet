@@ -15,7 +15,7 @@ it.each(["empty", "unknown", "occupied"])("leaves issues blank for %s slots with
   expect(container).toBeEmptyDOMElement();
 });
 
-it("uses miner issue summaries and shows warning, stack, and health details on click", () => {
+it("uses miner issue summaries and shows warning and stack details without low-level diagnostics on click", () => {
   const slot = create(HashboardSlotSchema, {
     position: 2,
     occupancy: "occupied",
@@ -32,8 +32,8 @@ it("uses miner issue summaries and shows warning, stack, and health details on c
   fireEvent.click(screen.getByRole("button", { name: "Hashboard 2 - CT1-379e6466-0001 issues: Hashboard 2 failure" }));
   expect(screen.getByTestId("module-issues")).toHaveTextContent("Over temperature (stack 2)");
   expect(screen.getByTestId("module-issues")).toHaveTextContent("Warning");
-  expect(screen.getByTestId("module-issues")).toHaveTextContent("Hashrail: Not ready");
-  expect(screen.getByTestId("module-issues")).toHaveTextContent("Reference clocks: OK");
+  expect(screen.getByTestId("module-issues")).not.toHaveTextContent("Hashrail");
+  expect(screen.getByTestId("module-issues")).not.toHaveTextContent("Reference clocks");
 });
 
 it.each([
@@ -45,4 +45,16 @@ it.each([
   const slot = create(HashboardSlotSchema, { position: 1, occupancy: "occupied", board });
   render(<HashboardCell slot={slot} column={column} />);
   expect(screen.getByText(expected)).toBeInTheDocument();
+});
+
+it("presents isolated boards as needing attention in inventory", () => {
+  const slot = create(HashboardSlotSchema, {
+    position: 1,
+    occupancy: "occupied",
+    board: { state: "isolated" },
+  });
+  render(<HashboardCell slot={slot} column="status" />);
+  expect(screen.getByText("Needs attention")).toBeInTheDocument();
+  expect(screen.getByTestId("module-status-indicator")).toHaveAttribute("data-status", "error");
+  expect(screen.queryByText(/isolated/i)).not.toBeInTheDocument();
 });

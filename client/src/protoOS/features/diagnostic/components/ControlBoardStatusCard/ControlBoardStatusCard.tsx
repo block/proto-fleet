@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { ProtoOSStatusModal as StatusModal } from "@/protoOS/components/StatusModal";
 import Card from "@/protoOS/features/diagnostic/components/Card";
-import CardHeader from "@/protoOS/features/diagnostic/components/CardHeader";
-import LabeledValue from "@/protoOS/features/diagnostic/components/LabeledValue";
 import { useErrorsByComponent, useSystemInfo } from "@/protoOS/store";
 import { Alert } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
+import HardwareCardHeader from "@/shared/components/HardwareCardHeader";
+import LabeledValue from "@/shared/components/LabeledValue";
 import LatencyValue from "@/shared/components/LatencyValue";
 
 interface ControlBoardStatusCardProps {
@@ -40,7 +40,7 @@ function ControlBoardStatusCard({ title, latency, cpuCapacity, hasWarning }: Con
 
   return (
     <Card>
-      <CardHeader
+      <HardwareCardHeader
         title={name}
         statusIcon={hasErrors ? <Alert className="text-intent-critical-fill" width={iconSizes.small} /> : null}
         onInfoIconClick={() => setShowComponentStatusModal(true)}

@@ -68,6 +68,7 @@ function findNearestDisplayablePoint(
 }
 
 interface ChartTooltipProps {
+  notes?: Record<number, string>;
   aggregateLabel?: string;
   aggregateKey?: string;
   colorMap?: { [key: string]: string };
@@ -89,6 +90,7 @@ interface ChartTooltipProps {
 }
 
 const ChartTooltip = ({
+  notes,
   aggregateLabel,
   aggregateKey,
   colorMap,
@@ -174,6 +176,9 @@ const ChartTooltip = ({
       style={tooltipStyle}
     >
       <div className="px-6" style={{ width: tooltipWidth + "px" }}>
+        {notes?.[payload.datetime] ? (
+          <p className="mb-2 text-200 text-text-primary-70">{notes[payload.datetime]}</p>
+        ) : null}
         {shouldShowAggregate && aggregateKey ? (
           <div
             className={clsx("flex space-x-2", {

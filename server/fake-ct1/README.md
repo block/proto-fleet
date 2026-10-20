@@ -14,7 +14,9 @@ hardware** and **without** Frigate's heavy `task dev:full` stack (TimescaleDB +
 A full container is a **Tank → Module → Slot → Hashboard** tree:
 
 - **96 CU1 modules × 3 hashboards = 288 boards** (6 tanks × 16 modules × 3 slots)
-- Per-board hydro telemetry (hashrate, temperatures, voltage, power)
+- Per-board hydro telemetry (hashrate, temperatures, voltage, power). Container-map
+  health includes `maximumAsicTemperatureC` and its sample timestamp, derived from
+  the same simulated ASIC readings as the detail endpoint for Fleet’s ASIC high metric.
 - Shared PSU identity, power, voltage, and thermal health per module, reported by
   each board. Tank 2 module 11 reports a PSU thermal warning while in its error state.
 - **312 ASICs per board** with layout coordinates

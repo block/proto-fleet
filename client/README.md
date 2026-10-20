@@ -186,7 +186,7 @@ The page polls metadata and inventory every 15 seconds. Transient failures keep
 the topology visible with unavailable current readings and a retry; access
 denials or removal clear retained data. Navigation cancels outstanding loads.
 Tank cards open `/containers/:identifier/tanks/:tankId` using the stable Fleet
-tank ID. Module tiles open stored module history. Container performance uses Fleet's telemetry
+tank ID. Module tiles open the native Fleet module detail page. Container performance uses Fleet's telemetry
 API and existing performance charts, scoped to the controller and its site.
 Container-reported power remains distinct from summed module equipment power.
 
@@ -235,19 +235,53 @@ owning container and its current site, including during the aggregation query.
 The browser polls one bounded response and does no module aggregation. Tank
 charts use explicit TH/s, kW, J/TH, and Celsius units without legacy unit guessing.
 
-Module history currently has 30-day retention, so longer windows show available
-history with gaps for expired data. No historical membership reconstruction or
-long-term storage rollups are implied by the duration selector.
+History availability follows Fleet's retained raw samples and hourly/daily
+summaries. Longer windows can contain gaps where collection or retained summaries
+are unavailable.
 
-Module clicks open Fleet's existing history dialog at the shareable
-`/containers/:identifier/tanks/:tankId/modules/:moduleId` route. The richer
-module detail page is tracked separately in #162. Tank-scoped cooling/equipment
+Module clicks from Miners, container tiles, and tank tiles open the native Fleet
+page at `/containers/:identifier/tanks/:tankId/modules/:moduleId`. The page checks
+the stable module ID and both ancestors; removed, retired, replaced, and
+inaccessible modules are never substituted by position. It shows collected module
+KPIs, three hashboard slots, and existing scoped mining actions. The header
+status pill shares its presentation with ProtoOS and opens a modal with current
+board/PSU issue causes. Hashboard cards show an issue icon only when issues are
+reported; the info button opens board status details. Fleet and ProtoOS share the
+hashboard card layout. Fleet omits the ASIC preview and shows identity in the
+info modal. ASIC average uses the normalized temperature reading; ASIC high uses
+the optional `maximumAsicTemperatureC` already preserved in collected MDK health.
+Missing, non-finite, or stale temperatures render as a dash. No embedded ProtoOS view or live ASIC requests are used.
+
+Board cards distinguish empty, unknown, isolated, and stale evidence. Source
+freshness is checked independently for board state and measurements. Module
+refresh failures hide current readings and controls; access loss clears the page.
+Stored history remains available for stale controllers once Fleet access is
+resolved.
+
+The Other hardware section uses a shared PSU card in Fleet and ProtoOS, with input/output
+voltage and power plus average/high PSU temperature. Fleet reads existing collected
+`psuElectrical`, `psuThermal`, and `psuIdentity` payloads; no additional device polling is
+needed. The three boards report one module-owned PSU: Fleet picks the freshest electrical
+and temperature snapshots independently, accounting for source time and embedded sample
+age, and never sums duplicate PSU readings. Missing or expired metrics show a dash.
+The info button opens PSU-only collected issues and available manufacturer metadata;
+the issue indicator is non-interactive.
+
+Performance shows module history using the existing paginated Fleet history API. The page fetches all pages for a fixed time window, refreshes once per
+minute, and clears failed results. Requests are cancelled on navigation and
+bounded to 20 pages; an exceeded limit asks for a shorter range rather than
+showing partial history. Charts show 90-second sample averages for 1h/24h, hourly
+averages for 7d, and daily averages for longer windows, with explicit gaps and
+SI-to-display conversions. Interactive collected, stale, partial, and replaced
+states are under **Proto Fleet / Containers / Native module page** in Storybook.
+
+Tank-scoped cooling/equipment
 readings are not available in the current Fleet API; the page omits the empty
 cooling section. Tank rows, cards, and the native tank page expose scoped mining
 start/stop through the tank actions menu. List selection keeps tank IDs separate
 from rack IDs; bulk tank actions apply only to the selected tanks.
 
-Module rows in the Miners list and the module history dialog expose Start mining
+Module rows in the Miners list and the native module page expose Start mining
 and Stop mining. Module selections use stable Fleet module IDs and a separate
 Module actions menu; mixed miner/module selections keep their command paths
 separate. Confirmation names the selected modules. The server groups the exact
@@ -478,6 +512,36 @@ Reusable components in `src/shared/components/` include:
 
 All shared components have Storybook stories, support light/dark themes, and include TypeScript prop types.
 
+### Storybook organization
+
+Use these exact top-level names in story metadata `title` values. The sidebar
+shows them in this order, with groups sorted alphabetically within each root:
+
+| Root          | Content                                                         |
+| ------------- | --------------------------------------------------------------- |
+| `Foundation`  | Design tokens, typography, icons, and design guidance           |
+| `Shared`      | App-neutral components and interactions from `src/shared/`      |
+| `Proto Fleet` | Fleet-owned components and feature flows from `src/protoFleet/` |
+| `Proto OS`    | Device-owned components and feature flows from `src/protoOS/`   |
+
+Group app stories by the relevant existing feature, such as
+`Proto Fleet/Containers/Overview` or `Proto OS/Containers/Tanks`. A feature using
+shared primitives still belongs to its owning app. Avoid new catch-all roots
+such as `Components`, separate product roots for containers, or alternative app
+spellings. Keep stories beside their implementations; cross-app design guidance
+lives in `src/shared/stories/`. Story title changes also change generated story
+URLs, so update any links or automation that reference the old IDs.
+
+`Foundation/Design Drift` lives in
+[design-drift.stories.tsx](src/shared/stories/design-drift.stories.tsx). It collects
+common pitfalls and proposed improvements using shared primitives and tokens;
+its Fleet examples illustrate guidance useful to both apps. When adding or
+updating a specimen, show the pitfall and the preferred pattern, explain when
+the recommendation applies, and verify referenced source locations and component
+APIs. Identify historical examples as such once their source is fixed; do not
+present them as outstanding defects. Keep only examples that teach a distinct,
+recurring lesson, and check both themes when updating their presentation.
+
 ## Testing on Hardware
 
 1. Compile the UI: `npm run build`
@@ -491,3 +555,161 @@ All shared components have Storybook stories, support light/dark themes, and inc
 - [Vite](https://vitejs.dev/guide/)
 - [Tailwind CSS](https://tailwindcss.com/docs/utility-first)
 - [Recharts](https://release--63da8268a0da9970db6992aa.chromatic.com/?path=/docs/welcome--docs)
+
+### Hosted account workspaces
+
+Hosts manage clients through Settings → Admin → Clients. Fleet navigation has
+no client account switcher. **View as client** opens the client's navigation at
+`/accounts/:accountId/:section` inside a full-screen modal with a persistent
+**Viewing as [client]** header and **Read-only** label. Close or Escape returns to
+the host’s previous page with its URL, filters, and scroll position preserved.
+The preview uses the same Overview, inventory, details and tools as a client administrator, subject to live account and site authority.
+Mutation controls remain visible but disabled; the preview client also rejects
+mutation RPCs. The authenticated host identity and audit attribution stay intact.
+Client users with one accessible account see its
+name as plain text; users with multiple accounts retain an account picker for their
+workspaces at `/accounts/:accountId/:section`. Customers and subclients land on
+Home, with Fleet for their assigned mining assets and Settings for administration.
+Settings groups Pools under Fleet, Team, Access and Subclients under Admin,
+and Preferences under Account, using the API’s effective capabilities. Desktop shows a Settings sidebar; phones
+show the same sections in the expandable navigation drawer. Access includes
+account details, renaming, the current user’s permissions, ancestor grants and API
+keys; account status appears only when suspended. Settings opens the first available account
+section. Preferences reuses personal theme and temperature-unit settings, persisted
+in the browser. All client roles can change them; host previews change only the
+operator’s display preferences. Current readings, history charts and inventory
+respect the selected temperature unit. `/accounts` lists accessible workspaces.
+Host management retains Fleet navigation under Settings → Admin. Clicking a client
+name or row opens `/accounts/:accountId/manage/assets`, with Mining assets, Team,
+Client settings and Permissions tabs. Permission checkboxes save immediately, roll back failed updates, and lock while
+a request is pending. Suspension and resumption are separate confirmed actions. The Team tab contains **Invite team member**. Mining
+assets and permission limits use host authority; private team and account settings
+continue to require the client’s grants. **View as client** is an explicit preview
+action on the management page and in the list menu. The owner-facing `/accounts` page directly lists managed clients
+and offers **Create client**, without a Join an account CTA. It uses host authority,
+not private membership in each client. Rows summarize assigned miners and modules
+(including subclient allocations), distinct containers represented by those
+modules, and live direct client logins. Containers are placement groups, not
+additional assigned assets. Login counts exclude invitations, revoked memberships,
+deleted users, removed organization affiliations, ancestor grants, and subclient-only
+memberships. Membership-only users retain their account
+directory and invitation entry point. The root workspace opens Clients. Hosts allocate reporting capacity from Fleet;
+the root account has no separate Mining assets tab.
+
+| Persona                    | Primary experience                                                  |
+| -------------------------- | ------------------------------------------------------------------- |
+| Host operator              | Existing physical fleet operations in Fleet                         |
+| Host account administrator | Clients and reporting assignments in Settings → Admin → Clients     |
+| Account viewer             | Whole-account metrics and read-only mining assets                   |
+| Pool operator              | Account metrics, assets and existing pool configuration tools       |
+| Account administrator      | Direct/subclient comparison, team and permitted allocation controls |
+| Subclient                  | Its own assigned estate, without another delegation level           |
+
+Overview counts conventional miners and container modules as mining assets.
+Controllers are not additional miners. An account total includes resources
+allocated to its subclients; administrators with membership-management or
+delegation capability can compare the direct remainder and each subclient.
+This reporting privilege does not grant access to a child’s private pools,
+team, keys or settings. Private child workspace links still require explicit
+account authority. Viewers receive no child ownership labels or owner filters.
+
+Hashrate and mining equipment power show current available readings and separate
+reporting counts. Efficiency requires complete valid power and hashrate coverage
+for every selected asset, including complete module measurement coverage.
+Partial/unknown module coverage, unavailable assets and assets outside the current
+site policy are labeled. Allocation counts retain unavailable and outside-policy
+assets, with their physical details and readings withheld; suspended child
+allocations remain in the parent’s inventory totals. Dashboard counts and site
+summaries cover the permitted allocated estate and exclude whole-site capacity
+and plant power.
+
+Overview reuses Dashboard health tiles and performance panels, with 1h (default) and
+24h ranges, measured temperature and uptime, and server-scoped allocation/site
+filters. Entire estate, Directly managed and named subclient filters retain the
+parent's navigation and permissions. Historical attribution uses the allocation
+and delegation in effect when each sample was recorded. Migration 1031 begins
+prospective interval tracking; earlier ownership is unknown and is never inferred
+from current assignments. Account charts use raw samples retained for ten days;
+the account API rejects ranges longer than 24 hours and bounds raw work by
+authorized allocation duration (300 weighted asset-days; modules count eight times).
+For larger estates, shorten the range or narrow allocation/site filters. Charts identify the later
+of the tracking and retention boundaries and missing data. Host dashboard ranges
+continue to use the existing aggregate-backed history.
+Partial power is a measured subtotal with reporting coverage; incomplete efficiency
+remains unavailable. Missing buckets remain gaps rather than interpolated values.
+
+Recall preserves retained readings from permitted allocation periods in charts,
+but current miner/module details require a current allocation. Current site
+permission gates history: removing access hides it, and restoring access restores
+retained samples. History does not create a separate historical detail page.
+
+Mining assets shows only the selected account’s allocation, including its
+subclients. Its Name, Model, Status, Hashrate, Efficiency, Power, and Temp columns
+use Fleet's labels, widths, metric cells, and module coverage presentation.
+The Fleet Add Filter menu supports Model, Site, Container, and Assigned to.
+Choices cover the full authorized inventory across pages; server-side filtering
+combines criteria before pagination and excludes redacted physical metadata.
+Assigned to remains limited to viewers with assignment-management visibility.
+Column visibility and order are saved per login and parent account through the
+same Manage columns dialog as Fleet. Sorting applies across the inventory with
+missing readings last; cursors are bound to the account, user, filters, and sort.
+Both tables use 50-row pages and the same selection bar. Account selection stays
+limited to the visible page and exposes only assign/recall actions. Model names
+belong to miners; a module never inherits its controller's model or network details.
+Fresh temperature and reported efficiency follow the existing mining-asset view's
+freshness and site-policy redaction. It separates commercial reporting allocation from physical placement.
+Hosts select miners/modules in Fleet and choose **Assign to account**; Fleet’s
+**Assigned to** column opens the customer’s allocation inventory under the host’s
+authority. Clients and Subclients also open these focused inventories without
+requiring access to a child’s private workspace. A parent can recall from the
+receiving account’s inventory, including a suspended child’s retained allocations.
+An account’s own inventory is read-only; administrators can filter by subclient
+and open **Manage subclient assets** for parent-authorized recall. An account
+cannot surrender its own allocation using its own delegation grant.
+Customer administrators open **Assign assets** from Subclients and choose only
+resources held directly by their account. Host assignment and customer delegation
+use separate pickers from the inventory’s recall controls. Recall returns the selected
+allocation to its parent. Whole-customer recall also clears its subclient
+allocation. Fleet assignment resolves exact typed leaves with current allocation revisions in
+a bounded lookup; missing or ineligible leaves block the entire selection. It does
+not expand a global Fleet selection or silently assign a partial batch.
+Selection and confirmation are limited to the displayed page;
+filtering a container selects its displayed current modules, never its controller
+or future/replacement hardware. Stale assignments require a fresh selection and
+review. Retired/outside-policy child allocations can be recalled to clear them.
+Assignments do not apply pools, change payout destinations, activate customer
+firmware control or move equipment. Host operations continue under existing
+organization permissions.
+
+These routes reuse the Fleet layout and shared components without mounting host
+fleet providers for account-only users. Page-owned RPC clients capture
+`X-Fleet-Account-ID` and abort when account or login changes. Preview and filter
+state remain local to each browser tab. Permission changes replace the scoped
+connection and clear report, selection and private form state; selected-account reporting and assignment RPCs
+currently require a Fleet session rather than an account API key.
+
+Host-created clients record host administration as an ancestor-access grant,
+separate from the client's team. Creation does not add the host operator as a
+member or count host staff as client logins. Host operators with organization
+`account:manage` can open the client workspace and invite its first administrator;
+live role changes and client ceilings still constrain that access. An explicit
+initial administrator is an actual team member. Customer-created subclients keep
+the creating customer's initial administrator membership.
+
+Invitations show a portable code once for manual sharing. Recipients select
+**Join an account** on the login screen or account list, paste the code, then use
+an existing Fleet login or register a new one. Codes stay out of the URL and
+are not retained across reloads. Optional links use
+`/account-invitation#token=…` at the sender’s current Fleet address; recipients
+must be able to reach that address. The page removes the fragment before
+previewing the invitation. New API-key secrets are also shown once for manual copying. Saved pool passwords are
+never read back; a revision can retain them only for unchanged slot destinations
+and usernames. Incoming profiles pin an immutable revision and require the
+current login password when changed.
+
+Ancestor grants can be created for the direct parent and updated for existing
+ancestors. Creating a subclient’s first grant to the hosting root needs ancestor
+metadata that the current API does not expose.
+
+Hashboard-level allocation, automatic allocation of new hardware, customer firmware
+commands, pool application and downloadable reconciliation exports remain unsupported.

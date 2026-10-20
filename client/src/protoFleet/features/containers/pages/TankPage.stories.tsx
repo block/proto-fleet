@@ -2,10 +2,12 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { create, toJson } from "@bufbuild/protobuf";
 import type { Meta, StoryObj } from "@storybook/react";
 import { spyOn } from "storybook/test";
+import ModulePage from "./ModulePage";
 import TankPage from "./TankPage";
 import { GetContainerResponseSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import {
   EntityKind,
+  GetModuleHashboardsResponseSchema,
   GetTankHistoryResponseSchema,
   ListInventoryResponseSchema,
   ListModuleHistoryResponseSchema,
@@ -32,7 +34,7 @@ function TankPreview(_props: { state: "collected" | "stale" | "partial" | "empty
         <main className="min-h-screen bg-surface-base text-text-primary">
           <Routes>
             <Route path="/containers/:identifier/tanks/:tankId" element={<TankPage />} />
-            <Route path="/containers/:identifier/tanks/:tankId/modules/:moduleId" element={<TankPage />} />
+            <Route path="/containers/:identifier/tanks/:tankId/modules/:moduleId" element={<ModulePage />} />
             <Route path="*" element={<p className="p-8">Navigation destination</p>} />
           </Routes>
         </main>
@@ -169,6 +171,8 @@ const meta = {
           ),
         );
       }
+      if (request.url.endsWith("/GetModuleHashboards"))
+        return json(toJson(GetModuleHashboardsResponseSchema, create(GetModuleHashboardsResponseSchema)));
       if (request.url.endsWith("/ListModuleHistory")) {
         const body = await request.json();
         return json(

@@ -318,6 +318,7 @@ const listHostedAccountInvitations = `-- name: ListHostedAccountInvitations :man
 WITH RECURSIVE page AS MATERIALIZED (
  SELECT invitation.invitation_id, invitation.organization_id, invitation.account_id, invitation.inviter_id, invitation.authority_fingerprint, invitation.token_hash, invitation.role, invitation.expires_at, invitation.revoked_at, invitation.accepted_at, invitation.accepted_user_id, invitation.created_at FROM hosted_account_invitation invitation
  WHERE invitation.organization_id = $1 AND invitation.account_id = $2
+  AND invitation.accepted_at IS NULL
   AND ($3::timestamptz IS NULL
    OR (invitation.created_at, invitation.invitation_id) < ($3::timestamptz, $4::varchar))
  ORDER BY invitation.created_at DESC, invitation.invitation_id DESC LIMIT $5::int
@@ -395,7 +396,7 @@ type ListHostedAccountInvitationsRow struct {
 	Available    bool
 }
 
-// Bound history first, then resolve each live inviter once in the same snapshot.
+// Exclude accepted invitations before paging, then resolve each live inviter once in the same snapshot.
 // Authority witnesses and durable-role checks match invitation acceptance.
 func (q *Queries) ListHostedAccountInvitations(ctx context.Context, arg ListHostedAccountInvitationsParams) ([]ListHostedAccountInvitationsRow, error) {
 	rows, err := q.query(ctx, q.listHostedAccountInvitationsStmt, listHostedAccountInvitations,

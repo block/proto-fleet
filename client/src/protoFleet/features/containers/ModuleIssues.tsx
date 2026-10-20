@@ -4,8 +4,10 @@ import { Alert, Hashboard, Info, LightningAlt } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { variants } from "@/shared/components/Button";
 import Modal from "@/shared/components/Modal";
+import type { StatusCircleProps } from "@/shared/components/StatusCircle";
 import StatusModalIcon from "@/shared/components/StatusModal/StatusModalIcon";
 import StatusModalLayout from "@/shared/components/StatusModal/StatusModalLayout";
+import StatusPill from "@/shared/components/StatusPill";
 import { type GroupedStatusErrors, useMinerIssues } from "@/shared/hooks/useStatusSummary";
 
 const componentName = (issue: ModuleIssue) =>
@@ -35,10 +37,21 @@ export function ModuleIssues({
   item,
   hashboardPosition,
   children,
+  status,
+  statusKnown = false,
+  statusCircle = "inactive",
+  iconOnly = false,
+  renderTrigger,
 }: {
   item: Pick<InventoryItem, "name" | "moduleIssues">;
   hashboardPosition?: number;
   children?: ReactNode;
+  status?: string;
+  // Inventory state can be current even when no issue report or metric exists.
+  statusKnown?: boolean;
+  statusCircle?: StatusCircleProps["status"];
+  iconOnly?: boolean;
+  renderTrigger?: (open: () => void, hasIssues: boolean) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const evidence = item.moduleIssues;
@@ -85,27 +98,57 @@ export function ModuleIssues({
     grouped[componentType].push({ componentType, slot: componentType === "hashboard" ? hashboardPosition : undefined });
   }
   const { summary } = useMinerIssues(false, false, grouped);
-  if (!issues.length) return null;
+  const statusTitle = issues.length ? "Needs attention" : unavailable && !statusKnown ? "Status unknown" : status;
+  if (!issues.length && !status) return null;
   const icon =
-    new Set(issues.map((issue) => issue.component)).size > 1 ? <Alert width="w-4" /> : componentIcon(issues[0], "w-4");
+    new Set(issues.map((issue) => issue.component)).size > 1 ? (
+      <Alert width="w-4" />
+    ) : issues[0] ? (
+      componentIcon(issues[0], "w-4")
+    ) : (
+      <Info width="w-4" />
+    );
   return (
-    <div onClick={(event) => event.stopPropagation()}>
-      <button
-        type="button"
-        className="flex cursor-pointer items-center gap-2 hover:underline"
-        title={summary ?? undefined}
-        aria-label={`${item.name} issues: ${summary}`}
-        onClick={() => setOpen(true)}
-      >
-        {icon}
-        {summary}
-      </button>
+    <div className={renderTrigger ? "h-full" : undefined} onClick={(event) => event.stopPropagation()}>
+      {renderTrigger ? (
+        renderTrigger(() => setOpen(true), issues.length > 0)
+      ) : status ? (
+        <StatusPill
+          summary={statusTitle}
+          circle={issues.length ? "error" : unavailable && !statusKnown ? "inactive" : statusCircle}
+          ariaLabel={`${item.name} health: ${statusTitle}`}
+          onClick={() => setOpen(true)}
+        />
+      ) : (
+        <button
+          type="button"
+          className={
+            iconOnly
+              ? "flex size-8 cursor-pointer items-center justify-center rounded-full hover:bg-surface-10 focus-visible:outline-2 focus-visible:outline-core-accent-fill"
+              : "flex cursor-pointer items-center gap-2 hover:underline"
+          }
+          title={summary ?? undefined}
+          aria-haspopup="dialog"
+          aria-label={`${item.name} issues: ${summary}`}
+          onClick={() => setOpen(true)}
+        >
+          {iconOnly ? (
+            <Alert
+              width="w-4"
+              className={intent === "critical" ? "text-intent-critical-fill" : "text-intent-warning-fill"}
+            />
+          ) : (
+            icon
+          )}
+          {iconOnly ? null : summary}
+        </button>
+      )}
       {open ? (
         <Modal
           open
           testId="module-issues"
-          title={`${item.name} issues`}
-          dialogLabel={`${item.name} issues`}
+          title={`${item.name} ${status ? "status" : "issues"}`}
+          dialogLabel={`${item.name} ${status ? "status" : "issues"}`}
           manageFocus
           onDismiss={() => setOpen(false)}
           buttons={[{ text: "Done", variant: variants.primary, onClick: () => setOpen(false) }]}
@@ -116,8 +159,20 @@ export function ModuleIssues({
                 {intent === "info" ? <Info width={iconSizes.xLarge} /> : <Alert width={iconSizes.xLarge} />}
               </StatusModalIcon>
             }
-            title={issues.length > 1 ? "Multiple issues detected" : issueName(issues[0])}
-            subtitle={unavailable ? "Issue report is partial. Additional issues may be missing." : undefined}
+            title={
+              issues.length > 1
+                ? "Multiple issues detected"
+                : issues[0]
+                  ? issueName(issues[0])
+                  : (statusTitle ?? "Status unknown")
+            }
+            subtitle={
+              unavailable
+                ? "Issue report is partial. Additional issues may be missing."
+                : !issues.length
+                  ? "No active component errors reported."
+                  : undefined
+            }
             errors={issues.map((issue) => ({
               key: `${issue.component}:${issue.componentId}:${issue.cause}`,
               icon: componentIcon(issue),

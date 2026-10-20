@@ -106,7 +106,7 @@ const baseProps: SubtankDetailProps = {
 };
 
 const meta: Meta<typeof SubtankDetail> = {
-  title: "Proto Containers/Overview/Subtank Detail",
+  title: "Proto Fleet/Containers/Subtank Detail",
   component: SubtankDetail,
   parameters: {
     layout: "fullscreen",

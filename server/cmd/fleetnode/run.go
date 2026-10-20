@@ -20,6 +20,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/netscan"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
+	"github.com/block/proto-fleet/server/internal/releaseinfo"
 )
 
 const (
@@ -248,6 +249,8 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 	}
 
 	logger.Info("daemon started",
+		"version", version,
+		"release_repository", releaseinfo.Repository,
 		"fleet_node_id", st.FleetNodeID,
 		"server_url", st.ServerURL,
 		"heartbeat_interval", r.HeartbeatInterval.String(),

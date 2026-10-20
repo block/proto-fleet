@@ -43,7 +43,7 @@ const offTank: ContainerTank = {
  * body).
  */
 const meta: Meta<typeof ContainerStatusModal> = {
-  title: "Proto Containers/Overview/Tank Status",
+  title: "Proto Fleet/Containers/Tank Status",
   component: ContainerStatusModal,
   parameters: { layout: "centered" },
 };

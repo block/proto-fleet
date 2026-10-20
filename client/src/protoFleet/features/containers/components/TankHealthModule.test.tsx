@@ -68,7 +68,7 @@ describe("TankHealthModule", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Sleeping")).toBeInTheDocument();
     expect(screen.queryByText("Isolated")).not.toBeInTheDocument();
-    const isolated = screen.getByRole("button", { name: /Module 3.*isolated/ });
+    const isolated = screen.getByRole("button", { name: /Module 3.*Needs attention/ });
     expect(isolated.querySelector('[data-tank-status="attention"]')).toBeInTheDocument();
     expect(screen.getByText("Needs Attention").parentElement).toHaveTextContent("1 module");
 

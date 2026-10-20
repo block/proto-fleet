@@ -3,11 +3,18 @@ syntax = "proto3";
 package hosted.v1;
 
 import "buf/validate/validate.proto";
+import "common/v1/equipment_coverage.proto";
+import "common/v1/sort.proto";
 import "google/protobuf/timestamp.proto";
 
 // HostedAccountService uses account authority independently of organization RBAC.
 // Every private account operation names its account; names are display labels.
 service HostedAccountService {
+  rpc GetAccountDashboard(GetAccountDashboardRequest) returns (GetAccountDashboardResponse);
+  rpc GetAccountAssetDetail(GetAccountAssetDetailRequest) returns (GetAccountAssetDetailResponse);
+  rpc GetAccountMiningSummary(GetAccountMiningSummaryRequest) returns (GetAccountMiningSummaryResponse);
+  rpc ListAccountAssets(ListAccountAssetsRequest) returns (ListAccountAssetsResponse);
+  rpc AssignAccountAssets(AssignAccountAssetsRequest) returns (AssignAccountAssetsResponse);
   rpc ListAccounts(ListAccountsRequest) returns (ListAccountsResponse);
   rpc GetAccount(GetAccountRequest) returns (GetAccountResponse);
   rpc ListChildren(ListChildrenRequest) returns (ListChildrenResponse);
@@ -60,6 +67,20 @@ message Account {
   AccountRole role = 7;
   bool suspended = 8;
   int64 revision = 9;
+  // Present only for direct clients returned by the host's ListChildren.
+  ClientManagementSummary management_summary = 10;
+}
+
+// Commercial allocation and direct membership counts for host client management.
+// Includes retained assignments and allocations delegated to subclients.
+message ClientManagementSummary {
+  int64 miner_count = 1;
+  int64 module_count = 2;
+  // Distinct containers represented by assigned modules, not assigned controllers.
+  int64 container_count = 3;
+  // Live direct memberships with an active user and organization affiliation.
+  // Excludes invitations, ancestor grants, and subclient-only memberships.
+  int64 login_count = 4;
 }
 
 message SitePolicy {
@@ -117,7 +138,9 @@ message ListChildrenResponse { repeated Account accounts = 1; }
 message CreateAccountRequest {
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   string name = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
-  // Omission uses the current user; this endpoint does not enumerate users.
+  // Omission gives host operators separate host administration, without a team
+  // membership. Customer-created subclients use the creator as administrator.
+  // An explicitly selected user becomes the initial member; users are not enumerated.
   optional string administrator_user_id = 3 [(buf.validate.field).string.uuid = true];
   uint64 capabilities = 4 [(buf.validate.field).uint64 = {gte: 1, lte: 31}];
 }
@@ -182,8 +205,8 @@ message GetSitePolicyResponse {
   repeated int64 effective_site_ids = 3;
 }
 
-// Invitation history, including accepted, revoked and expired links, remains
-// accessible through pages; listing does not delete historical records.
+// Lists unaccepted invitations, including revoked and expired links.
+// Accepted invitations remain stored but are excluded before pagination.
 message ListInvitationsRequest {
   string account_id = 1 [(buf.validate.field).string.uuid = true];
   // Zero uses 25. At most 100 invitations are returned per page.
@@ -371,3 +394,186 @@ message SetIncomingPoolProfileRequest {
   string password = 3 [(buf.validate.field).string = {min_len: 1, max_bytes: 72}];
 }
 message SetIncomingPoolProfileResponse {}
+
+// Reporting allocations never change placement, equipment control or pool configuration.
+enum MiningAssetKind {
+  MINING_ASSET_KIND_UNSPECIFIED = 0;
+  MINING_ASSET_KIND_MINER = 5;
+  MINING_ASSET_KIND_MODULE = 6;
+}
+enum AssetAssignmentIntent {
+  ASSET_ASSIGNMENT_INTENT_UNSPECIFIED = 0;
+  ASSET_ASSIGNMENT_INTENT_ASSIGN = 1;
+  ASSET_ASSIGNMENT_INTENT_RECALL = 2;
+}
+message MiningSummary {
+  int64 asset_count = 1;
+  int64 miner_count = 2;
+  int64 module_count = 3;
+  int64 unavailable_count = 4;
+  int64 outside_policy_count = 5;
+  optional double hashrate_hs = 6;
+  optional double power_w = 7;
+  // Sum of power / sum of hashrate; present only with complete valid coverage.
+  optional double efficiency_j_th = 8;
+  int64 hashrate_reporting_count = 9;
+  int64 power_reporting_count = 10;
+  int64 paired_reporting_count = 11;
+  int64 partial_module_count = 12;
+  int64 unknown_module_count = 13;
+  int64 hashing_count = 14;
+  int64 attention_count = 15;
+  int64 offline_count = 16;
+  int64 sleeping_count = 17;
+  int64 unknown_count = 18;
+  optional double temperature_c = 19;
+  int64 temperature_reporting_count = 20;
+  optional double uptime_percent = 21;
+  int64 uptime_reporting_count = 22;
+}
+message AccountMiningBucket {
+  string account_id = 1;
+  string name = 2;
+  bool suspended = 3;
+  MiningSummary summary = 4;
+}
+message GetAccountMiningSummaryRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message GetAccountMiningSummaryResponse {
+  MiningSummary totals = 1;
+  // Direct and named child partitions require membership-management or delegation.
+  MiningSummary direct = 2;
+  repeated AccountMiningBucket children = 3;
+  bool can_manage_assignments = 4;
+  google.protobuf.Timestamp generated_at = 5;
+}
+message AccountAsset {
+  MiningAssetKind kind = 1;
+  int64 id = 2;
+  int64 revision = 3;
+  string name = 4;
+  int64 container_id = 5;
+  string container_name = 6;
+  int64 site_id = 7;
+  string site_name = 8;
+  // Owner labels require membership-management or delegation authority.
+  string owner_account_id = 9;
+  string owner_account_name = 10;
+  optional double hashrate_hs = 11;
+  optional double power_w = 12;
+  bool available = 13;
+  bool outside_policy = 14;
+  bool partial_coverage = 15;
+  bool unknown_coverage = 16;
+  string state = 17;
+  google.protobuf.Timestamp observed_at = 18;
+  // Model belongs to the miner itself; a controller model is never a module model.
+  string model = 19;
+  optional double temperature_c = 20;
+  optional double efficiency_j_th = 21;
+  common.v1.EquipmentCoverage coverage = 22;
+}
+message MiningAssetReference {
+  MiningAssetKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  int64 id = 2 [(buf.validate.field).int64.gt = 0];
+}
+message ListAccountAssetsRequest {
+  option (buf.validate.message).cel = {
+    id: "asset_lookup_scope"
+    message: "selected assets cannot be combined with pagination or filters"
+    expression: "size(this.selected_assets) == 0 || (this.page_size == 0 && this.page_token == '' && this.search == '' && !has(this.owner_account_id) && !has(this.container_id) && !has(this.sort) && !has(this.model) && !has(this.site_id))"
+  };
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  int32 page_size = 2 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  string page_token = 3 [(buf.validate.field).string.max_len = 8192];
+  string search = 4 [(buf.validate.field).string.max_len = 255];
+  // Active account means directly held; otherwise only a direct child is valid.
+  optional string owner_account_id = 5 [(buf.validate.field).string.uuid = true];
+  optional int64 container_id = 6 [(buf.validate.field).int64.gt = 0];
+  // Bounded exact lookup for Fleet selection; returns only authorized leaves.
+  // Missing leaves are omitted. Callers must reject incomplete selections.
+  repeated MiningAssetReference selected_assets = 7 [(buf.validate.field).repeated.max_items = 500];
+  // Name ascending by default. Metrics and model use the same sort fields as Fleet.
+  common.v1.SortConfig sort = 8;
+  optional string model = 9 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  optional int64 site_id = 10 [(buf.validate.field).int64.gt = 0];
+  option (buf.validate.message).cel = {
+    id: "asset_sort_fields"
+    message: "unsupported asset sort field"
+    expression: "!has(this.sort) || int(this.sort.field) in [0, 1, 5, 6, 7, 8, 9]"
+  };
+}
+message AccountAssetLocationOption {
+  int64 id = 1;
+  string name = 2;
+}
+message AccountAssetFilterOptions {
+  repeated string models = 1;
+  repeated AccountAssetLocationOption sites = 2;
+  repeated AccountAssetLocationOption containers = 3;
+}
+message ListAccountAssetsResponse {
+  repeated AccountAsset assets = 1;
+  string next_page_token = 2;
+  bool can_manage_assignments = 3;
+  // Live membership-management or delegation authority permits owner labels.
+  bool can_view_assignments = 4;
+  // Direct child management metadata only: summary is absent in this response.
+  // This does not grant access to child-private settings, members or pools.
+  repeated AccountMiningBucket children = 5;
+  // Options cover the full authorized inventory, independently of page and filters.
+  // Retired and physically redacted allocations contribute no options.
+  AccountAssetFilterOptions filter_options = 6;
+}
+message MiningAssetSelection {
+  MiningAssetKind kind = 1 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  int64 id = 2 [(buf.validate.field).int64.gt = 0];
+  // Zero denotes a leaf never allocated. Recall retains and increments revisions.
+  int64 expected_revision = 3 [(buf.validate.field).int64.gte = 0];
+}
+message AssignAccountAssetsRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  string child_account_id = 2 [(buf.validate.field).string.uuid = true];
+  AssetAssignmentIntent intent = 3 [(buf.validate.field).enum = {defined_only: true, not_in: [0]}];
+  // Exact reviewed leaves: a container is never expanded during mutation.
+  repeated MiningAssetSelection assets = 4 [(buf.validate.field).repeated = {min_items: 1, max_items: 500}];
+}
+message AssignAccountAssetsResponse {}
+
+// Reporting filters retain the selected account's authority and navigation.
+message GetAccountDashboardRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  // Absent: entire estate; account itself: directly managed; child: delegated.
+  optional string owner_account_id = 2 [(buf.validate.field).string.uuid = true];
+  optional int64 site_id = 3 [(buf.validate.field).int64.gt = 0];
+  google.protobuf.Timestamp start_time = 4 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp end_time = 5 [(buf.validate.field).required = true];
+  int32 bucket_seconds = 6 [(buf.validate.field).int32 = {gte: 60, lte: 86400}];
+}
+message AccountDashboardReading {
+  google.protobuf.Timestamp time = 1;
+  MiningSummary summary = 2;
+}
+message AccountDashboardSite {
+  int64 site_id = 1;
+  string name = 2;
+  MiningSummary summary = 3;
+}
+message GetAccountDashboardResponse {
+  MiningSummary totals = 1;
+  repeated AccountDashboardReading readings = 2;
+  repeated AccountDashboardSite sites = 3;
+  repeated AccountMiningBucket children = 4;
+  google.protobuf.Timestamp generated_at = 5;
+  // Allocation intervals are recorded prospectively. Earlier ownership is unknown.
+  google.protobuf.Timestamp history_available_from = 6;
+}
+message GetAccountAssetDetailRequest {
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  MiningAssetReference asset = 2 [(buf.validate.field).required = true];
+}
+message GetAccountAssetDetailResponse {
+  // Current allocation and current site permission are required, even with history.
+  AccountAsset asset = 1;
+}

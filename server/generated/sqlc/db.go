@@ -975,6 +975,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getHostedAccountAncestorGrantStmt, err = db.PrepareContext(ctx, getHostedAccountAncestorGrant); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHostedAccountAncestorGrant: %w", err)
 	}
+	if q.getHostedAccountAssetDeviceStmt, err = db.PrepareContext(ctx, getHostedAccountAssetDevice); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedAccountAssetDevice: %w", err)
+	}
+	if q.getHostedAccountHistoryEpochStmt, err = db.PrepareContext(ctx, getHostedAccountHistoryEpoch); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostedAccountHistoryEpoch: %w", err)
+	}
 	if q.getHostedAccountInvitationByHashStmt, err = db.PrepareContext(ctx, getHostedAccountInvitationByHash); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHostedAccountInvitationByHash: %w", err)
 	}
@@ -1263,6 +1269,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.haltFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, haltFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query HaltFirmwareRolloutDevices: %w", err)
 	}
+	if q.hasBlockedTelemetrySeedRecoveryStmt, err = db.PrepareContext(ctx, hasBlockedTelemetrySeedRecovery); err != nil {
+		return nil, fmt.Errorf("error preparing query HasBlockedTelemetrySeedRecovery: %w", err)
+	}
+	if q.hasDueTelemetrySeedRecoveryStmt, err = db.PrepareContext(ctx, hasDueTelemetrySeedRecovery); err != nil {
+		return nil, fmt.Errorf("error preparing query HasDueTelemetrySeedRecovery: %w", err)
+	}
 	if q.hasHostedAccountHostAuthorityStmt, err = db.PrepareContext(ctx, hasHostedAccountHostAuthority); err != nil {
 		return nil, fmt.Errorf("error preparing query HasHostedAccountHostAuthority: %w", err)
 	}
@@ -1515,6 +1527,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listEffectivePermissionsForUserStmt, err = db.PrepareContext(ctx, listEffectivePermissionsForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEffectivePermissionsForUser: %w", err)
 	}
+	if q.listEffectivePermissionsForUserForShareStmt, err = db.PrepareContext(ctx, listEffectivePermissionsForUserForShare); err != nil {
+		return nil, fmt.Errorf("error preparing query ListEffectivePermissionsForUserForShare: %w", err)
+	}
 	if q.listEffectivePermissionsForUserForUpdateStmt, err = db.PrepareContext(ctx, listEffectivePermissionsForUserForUpdate); err != nil {
 		return nil, fmt.Errorf("error preparing query ListEffectivePermissionsForUserForUpdate: %w", err)
 	}
@@ -1581,8 +1596,23 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listHostedAccountAncestorGrantsStmt, err = db.PrepareContext(ctx, listHostedAccountAncestorGrants); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountAncestorGrants: %w", err)
 	}
+	if q.listHostedAccountAssetChildrenStmt, err = db.PrepareContext(ctx, listHostedAccountAssetChildren); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedAccountAssetChildren: %w", err)
+	}
+	if q.listHostedAccountAssetFilterOptionsStmt, err = db.PrepareContext(ctx, listHostedAccountAssetFilterOptions); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedAccountAssetFilterOptions: %w", err)
+	}
 	if q.listHostedAccountChildrenStmt, err = db.PrepareContext(ctx, listHostedAccountChildren); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountChildren: %w", err)
+	}
+	if q.listHostedAccountHistoricalReadingsStmt, err = db.PrepareContext(ctx, listHostedAccountHistoricalReadings); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedAccountHistoricalReadings: %w", err)
+	}
+	if q.listHostedAccountHistoricalSitesStmt, err = db.PrepareContext(ctx, listHostedAccountHistoricalSites); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedAccountHistoricalSites: %w", err)
+	}
+	if q.listHostedAccountHistoryIntervalsStmt, err = db.PrepareContext(ctx, listHostedAccountHistoryIntervals); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedAccountHistoryIntervals: %w", err)
 	}
 	if q.listHostedAccountInvitationsStmt, err = db.PrepareContext(ctx, listHostedAccountInvitations); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountInvitations: %w", err)
@@ -1592,6 +1622,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listHostedAccountMembersStmt, err = db.PrepareContext(ctx, listHostedAccountMembers); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountMembers: %w", err)
+	}
+	if q.listHostedAccountMiningAssetPageStmt, err = db.PrepareContext(ctx, listHostedAccountMiningAssetPage); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedAccountMiningAssetPage: %w", err)
+	}
+	if q.listHostedAccountMiningAssetsStmt, err = db.PrepareContext(ctx, listHostedAccountMiningAssets); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostedAccountMiningAssets: %w", err)
 	}
 	if q.listHostedAccountPoolsStmt, err = db.PrepareContext(ctx, listHostedAccountPools); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountPools: %w", err)
@@ -1770,6 +1806,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockActiveHostedAccountUserStmt, err = db.PrepareContext(ctx, lockActiveHostedAccountUser); err != nil {
 		return nil, fmt.Errorf("error preparing query LockActiveHostedAccountUser: %w", err)
 	}
+	if q.lockActiveHostedAccountUserForShareStmt, err = db.PrepareContext(ctx, lockActiveHostedAccountUserForShare); err != nil {
+		return nil, fmt.Errorf("error preparing query LockActiveHostedAccountUserForShare: %w", err)
+	}
 	if q.lockActiveSuperAdminUsersStmt, err = db.PrepareContext(ctx, lockActiveSuperAdminUsers); err != nil {
 		return nil, fmt.Errorf("error preparing query LockActiveSuperAdminUsers: %w", err)
 	}
@@ -1896,8 +1935,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockHostedAccountAdministratorsStmt, err = db.PrepareContext(ctx, lockHostedAccountAdministrators); err != nil {
 		return nil, fmt.Errorf("error preparing query LockHostedAccountAdministrators: %w", err)
 	}
+	if q.lockHostedAccountAssetInventoryStmt, err = db.PrepareContext(ctx, lockHostedAccountAssetInventory); err != nil {
+		return nil, fmt.Errorf("error preparing query LockHostedAccountAssetInventory: %w", err)
+	}
 	if q.lockHostedAccountOrganizationStmt, err = db.PrepareContext(ctx, lockHostedAccountOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query LockHostedAccountOrganization: %w", err)
+	}
+	if q.lockHostedAccountOrganizationForShareStmt, err = db.PrepareContext(ctx, lockHostedAccountOrganizationForShare); err != nil {
+		return nil, fmt.Errorf("error preparing query LockHostedAccountOrganizationForShare: %w", err)
 	}
 	if q.lockInfrastructureDeviceForWriteStmt, err = db.PrepareContext(ctx, lockInfrastructureDeviceForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockInfrastructureDeviceForWrite: %w", err)
@@ -1968,6 +2013,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockSiteForWriteStmt, err = db.PrepareContext(ctx, lockSiteForWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockSiteForWrite: %w", err)
 	}
+	if q.lockTelemetrySeedMaintenanceStmt, err = db.PrepareContext(ctx, lockTelemetrySeedMaintenance); err != nil {
+		return nil, fmt.Errorf("error preparing query LockTelemetrySeedMaintenance: %w", err)
+	}
 	if q.markAbsentContainerTanksStmt, err = db.PrepareContext(ctx, markAbsentContainerTanks); err != nil {
 		return nil, fmt.Errorf("error preparing query MarkAbsentContainerTanks: %w", err)
 	}
@@ -2012,6 +2060,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.pauseFirmwareRolloutStmt, err = db.PrepareContext(ctx, pauseFirmwareRollout); err != nil {
 		return nil, fmt.Errorf("error preparing query PauseFirmwareRollout: %w", err)
+	}
+	if q.prepareTelemetrySeedStmt, err = db.PrepareContext(ctx, prepareTelemetrySeed); err != nil {
+		return nil, fmt.Errorf("error preparing query PrepareTelemetrySeed: %w", err)
 	}
 	if q.preserveFirmwareRolloutRetryBaselinesStmt, err = db.PrepareContext(ctx, preserveFirmwareRolloutRetryBaselines); err != nil {
 		return nil, fmt.Errorf("error preparing query PreserveFirmwareRolloutRetryBaselines: %w", err)
@@ -2078,6 +2129,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.recordFirmwareRolloutActionStmt, err = db.PrepareContext(ctx, recordFirmwareRolloutAction); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordFirmwareRolloutAction: %w", err)
+	}
+	if q.recoverTelemetrySeedBatchStmt, err = db.PrepareContext(ctx, recoverTelemetrySeedBatch); err != nil {
+		return nil, fmt.Errorf("error preparing query RecoverTelemetrySeedBatch: %w", err)
 	}
 	if q.refreshOpenErrorsLastSeenByDeviceStmt, err = db.PrepareContext(ctx, refreshOpenErrorsLastSeenByDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query RefreshOpenErrorsLastSeenByDevice: %w", err)
@@ -2234,6 +2288,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.setHostedAccountAncestorGrantStmt, err = db.PrepareContext(ctx, setHostedAccountAncestorGrant); err != nil {
 		return nil, fmt.Errorf("error preparing query SetHostedAccountAncestorGrant: %w", err)
+	}
+	if q.setHostedAccountAssetStmt, err = db.PrepareContext(ctx, setHostedAccountAsset); err != nil {
+		return nil, fmt.Errorf("error preparing query SetHostedAccountAsset: %w", err)
 	}
 	if q.setHostedAccountMembershipStmt, err = db.PrepareContext(ctx, setHostedAccountMembership); err != nil {
 		return nil, fmt.Errorf("error preparing query SetHostedAccountMembership: %w", err)
@@ -2402,6 +2459,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.undeleteRoleStmt, err = db.PrepareContext(ctx, undeleteRole); err != nil {
 		return nil, fmt.Errorf("error preparing query UndeleteRole: %w", err)
+	}
+	if q.unlockTelemetrySeedMaintenanceStmt, err = db.PrepareContext(ctx, unlockTelemetrySeedMaintenance); err != nil {
+		return nil, fmt.Errorf("error preparing query UnlockTelemetrySeedMaintenance: %w", err)
 	}
 	if q.unpairDeviceStmt, err = db.PrepareContext(ctx, unpairDevice); err != nil {
 		return nil, fmt.Errorf("error preparing query UnpairDevice: %w", err)
@@ -4224,6 +4284,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getHostedAccountAncestorGrantStmt: %w", cerr)
 		}
 	}
+	if q.getHostedAccountAssetDeviceStmt != nil {
+		if cerr := q.getHostedAccountAssetDeviceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedAccountAssetDeviceStmt: %w", cerr)
+		}
+	}
+	if q.getHostedAccountHistoryEpochStmt != nil {
+		if cerr := q.getHostedAccountHistoryEpochStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostedAccountHistoryEpochStmt: %w", cerr)
+		}
+	}
 	if q.getHostedAccountInvitationByHashStmt != nil {
 		if cerr := q.getHostedAccountInvitationByHashStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getHostedAccountInvitationByHashStmt: %w", cerr)
@@ -4704,6 +4774,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing haltFirmwareRolloutDevicesStmt: %w", cerr)
 		}
 	}
+	if q.hasBlockedTelemetrySeedRecoveryStmt != nil {
+		if cerr := q.hasBlockedTelemetrySeedRecoveryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasBlockedTelemetrySeedRecoveryStmt: %w", cerr)
+		}
+	}
+	if q.hasDueTelemetrySeedRecoveryStmt != nil {
+		if cerr := q.hasDueTelemetrySeedRecoveryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasDueTelemetrySeedRecoveryStmt: %w", cerr)
+		}
+	}
 	if q.hasHostedAccountHostAuthorityStmt != nil {
 		if cerr := q.hasHostedAccountHostAuthorityStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing hasHostedAccountHostAuthorityStmt: %w", cerr)
@@ -5124,6 +5204,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listEffectivePermissionsForUserStmt: %w", cerr)
 		}
 	}
+	if q.listEffectivePermissionsForUserForShareStmt != nil {
+		if cerr := q.listEffectivePermissionsForUserForShareStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listEffectivePermissionsForUserForShareStmt: %w", cerr)
+		}
+	}
 	if q.listEffectivePermissionsForUserForUpdateStmt != nil {
 		if cerr := q.listEffectivePermissionsForUserForUpdateStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listEffectivePermissionsForUserForUpdateStmt: %w", cerr)
@@ -5234,9 +5319,34 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listHostedAccountAncestorGrantsStmt: %w", cerr)
 		}
 	}
+	if q.listHostedAccountAssetChildrenStmt != nil {
+		if cerr := q.listHostedAccountAssetChildrenStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedAccountAssetChildrenStmt: %w", cerr)
+		}
+	}
+	if q.listHostedAccountAssetFilterOptionsStmt != nil {
+		if cerr := q.listHostedAccountAssetFilterOptionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedAccountAssetFilterOptionsStmt: %w", cerr)
+		}
+	}
 	if q.listHostedAccountChildrenStmt != nil {
 		if cerr := q.listHostedAccountChildrenStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listHostedAccountChildrenStmt: %w", cerr)
+		}
+	}
+	if q.listHostedAccountHistoricalReadingsStmt != nil {
+		if cerr := q.listHostedAccountHistoricalReadingsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedAccountHistoricalReadingsStmt: %w", cerr)
+		}
+	}
+	if q.listHostedAccountHistoricalSitesStmt != nil {
+		if cerr := q.listHostedAccountHistoricalSitesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedAccountHistoricalSitesStmt: %w", cerr)
+		}
+	}
+	if q.listHostedAccountHistoryIntervalsStmt != nil {
+		if cerr := q.listHostedAccountHistoryIntervalsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedAccountHistoryIntervalsStmt: %w", cerr)
 		}
 	}
 	if q.listHostedAccountInvitationsStmt != nil {
@@ -5252,6 +5362,16 @@ func (q *Queries) Close() error {
 	if q.listHostedAccountMembersStmt != nil {
 		if cerr := q.listHostedAccountMembersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listHostedAccountMembersStmt: %w", cerr)
+		}
+	}
+	if q.listHostedAccountMiningAssetPageStmt != nil {
+		if cerr := q.listHostedAccountMiningAssetPageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedAccountMiningAssetPageStmt: %w", cerr)
+		}
+	}
+	if q.listHostedAccountMiningAssetsStmt != nil {
+		if cerr := q.listHostedAccountMiningAssetsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostedAccountMiningAssetsStmt: %w", cerr)
 		}
 	}
 	if q.listHostedAccountPoolsStmt != nil {
@@ -5549,6 +5669,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockActiveHostedAccountUserStmt: %w", cerr)
 		}
 	}
+	if q.lockActiveHostedAccountUserForShareStmt != nil {
+		if cerr := q.lockActiveHostedAccountUserForShareStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockActiveHostedAccountUserForShareStmt: %w", cerr)
+		}
+	}
 	if q.lockActiveSuperAdminUsersStmt != nil {
 		if cerr := q.lockActiveSuperAdminUsersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockActiveSuperAdminUsersStmt: %w", cerr)
@@ -5759,9 +5884,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockHostedAccountAdministratorsStmt: %w", cerr)
 		}
 	}
+	if q.lockHostedAccountAssetInventoryStmt != nil {
+		if cerr := q.lockHostedAccountAssetInventoryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockHostedAccountAssetInventoryStmt: %w", cerr)
+		}
+	}
 	if q.lockHostedAccountOrganizationStmt != nil {
 		if cerr := q.lockHostedAccountOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockHostedAccountOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.lockHostedAccountOrganizationForShareStmt != nil {
+		if cerr := q.lockHostedAccountOrganizationForShareStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockHostedAccountOrganizationForShareStmt: %w", cerr)
 		}
 	}
 	if q.lockInfrastructureDeviceForWriteStmt != nil {
@@ -5879,6 +6014,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockSiteForWriteStmt: %w", cerr)
 		}
 	}
+	if q.lockTelemetrySeedMaintenanceStmt != nil {
+		if cerr := q.lockTelemetrySeedMaintenanceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockTelemetrySeedMaintenanceStmt: %w", cerr)
+		}
+	}
 	if q.markAbsentContainerTanksStmt != nil {
 		if cerr := q.markAbsentContainerTanksStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing markAbsentContainerTanksStmt: %w", cerr)
@@ -5952,6 +6092,11 @@ func (q *Queries) Close() error {
 	if q.pauseFirmwareRolloutStmt != nil {
 		if cerr := q.pauseFirmwareRolloutStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing pauseFirmwareRolloutStmt: %w", cerr)
+		}
+	}
+	if q.prepareTelemetrySeedStmt != nil {
+		if cerr := q.prepareTelemetrySeedStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing prepareTelemetrySeedStmt: %w", cerr)
 		}
 	}
 	if q.preserveFirmwareRolloutRetryBaselinesStmt != nil {
@@ -6062,6 +6207,11 @@ func (q *Queries) Close() error {
 	if q.recordFirmwareRolloutActionStmt != nil {
 		if cerr := q.recordFirmwareRolloutActionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing recordFirmwareRolloutActionStmt: %w", cerr)
+		}
+	}
+	if q.recoverTelemetrySeedBatchStmt != nil {
+		if cerr := q.recoverTelemetrySeedBatchStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing recoverTelemetrySeedBatchStmt: %w", cerr)
 		}
 	}
 	if q.refreshOpenErrorsLastSeenByDeviceStmt != nil {
@@ -6322,6 +6472,11 @@ func (q *Queries) Close() error {
 	if q.setHostedAccountAncestorGrantStmt != nil {
 		if cerr := q.setHostedAccountAncestorGrantStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setHostedAccountAncestorGrantStmt: %w", cerr)
+		}
+	}
+	if q.setHostedAccountAssetStmt != nil {
+		if cerr := q.setHostedAccountAssetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setHostedAccountAssetStmt: %w", cerr)
 		}
 	}
 	if q.setHostedAccountMembershipStmt != nil {
@@ -6602,6 +6757,11 @@ func (q *Queries) Close() error {
 	if q.undeleteRoleStmt != nil {
 		if cerr := q.undeleteRoleStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing undeleteRoleStmt: %w", cerr)
+		}
+	}
+	if q.unlockTelemetrySeedMaintenanceStmt != nil {
+		if cerr := q.unlockTelemetrySeedMaintenanceStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing unlockTelemetrySeedMaintenanceStmt: %w", cerr)
 		}
 	}
 	if q.unpairDeviceStmt != nil {
@@ -7345,6 +7505,8 @@ type Queries struct {
 	getHashboardObservationsStmt                                 *sql.Stmt
 	getHistoryResolutionStmt                                     *sql.Stmt
 	getHostedAccountAncestorGrantStmt                            *sql.Stmt
+	getHostedAccountAssetDeviceStmt                              *sql.Stmt
+	getHostedAccountHistoryEpochStmt                             *sql.Stmt
 	getHostedAccountInvitationByHashStmt                         *sql.Stmt
 	getHostedAccountKeyAuthorityStmt                             *sql.Stmt
 	getHostedAccountKeyOwnerStmt                                 *sql.Stmt
@@ -7441,6 +7603,8 @@ type Queries struct {
 	getUserRoleNameForUpdateStmt                                 *sql.Stmt
 	getUsersForOrganizationStmt                                  *sql.Stmt
 	haltFirmwareRolloutDevicesStmt                               *sql.Stmt
+	hasBlockedTelemetrySeedRecoveryStmt                          *sql.Stmt
+	hasDueTelemetrySeedRecoveryStmt                              *sql.Stmt
 	hasHostedAccountHostAuthorityStmt                            *sql.Stmt
 	hasPendingContainerControlStmt                               *sql.Stmt
 	hasPendingScopedMiningStmt                                   *sql.Stmt
@@ -7525,6 +7689,7 @@ type Queries struct {
 	listEarlierCurtailmentReservationDevicesStmt                 *sql.Stmt
 	listEarlierCurtailmentTopologyReservationScopesStmt          *sql.Stmt
 	listEffectivePermissionsForUserStmt                          *sql.Stmt
+	listEffectivePermissionsForUserForShareStmt                  *sql.Stmt
 	listEffectivePermissionsForUserForUpdateStmt                 *sql.Stmt
 	listEligibleConfirmationTargetsStmt                          *sql.Stmt
 	listEnabledCurtailmentAutomationRulesByMQTTSourceStmt        *sql.Stmt
@@ -7547,10 +7712,17 @@ type Queries struct {
 	listHashboardHistoryStmt                                     *sql.Stmt
 	listHashboardModulesStmt                                     *sql.Stmt
 	listHostedAccountAncestorGrantsStmt                          *sql.Stmt
+	listHostedAccountAssetChildrenStmt                           *sql.Stmt
+	listHostedAccountAssetFilterOptionsStmt                      *sql.Stmt
 	listHostedAccountChildrenStmt                                *sql.Stmt
+	listHostedAccountHistoricalReadingsStmt                      *sql.Stmt
+	listHostedAccountHistoricalSitesStmt                         *sql.Stmt
+	listHostedAccountHistoryIntervalsStmt                        *sql.Stmt
 	listHostedAccountInvitationsStmt                             *sql.Stmt
 	listHostedAccountKeysStmt                                    *sql.Stmt
 	listHostedAccountMembersStmt                                 *sql.Stmt
+	listHostedAccountMiningAssetPageStmt                         *sql.Stmt
+	listHostedAccountMiningAssetsStmt                            *sql.Stmt
 	listHostedAccountPoolsStmt                                   *sql.Stmt
 	listHostedAccountSitesStmt                                   *sql.Stmt
 	listHostedAccountSummariesStmt                               *sql.Stmt
@@ -7610,6 +7782,7 @@ type Queries struct {
 	listUnresolvedDeviceWriteAttemptsStmt                        *sql.Stmt
 	listUsersForOrganizationStmt                                 *sql.Stmt
 	lockActiveHostedAccountUserStmt                              *sql.Stmt
+	lockActiveHostedAccountUserForShareStmt                      *sql.Stmt
 	lockActiveSuperAdminUsersStmt                                *sql.Stmt
 	lockAlertMaintenanceWindowOrgForWriteStmt                    *sql.Stmt
 	lockAndCountOrgScopeSuperAdminsStmt                          *sql.Stmt
@@ -7652,7 +7825,9 @@ type Queries struct {
 	lockFleetNodePairingDeviceStmt                               *sql.Stmt
 	lockHashboardOrganizationStmt                                *sql.Stmt
 	lockHostedAccountAdministratorsStmt                          *sql.Stmt
+	lockHostedAccountAssetInventoryStmt                          *sql.Stmt
 	lockHostedAccountOrganizationStmt                            *sql.Stmt
+	lockHostedAccountOrganizationForShareStmt                    *sql.Stmt
 	lockInfrastructureDeviceForWriteStmt                         *sql.Stmt
 	lockInfrastructureDevicesBySiteForWriteStmt                  *sql.Stmt
 	lockInfrastructureDevicesForResponseProfileStmt              *sql.Stmt
@@ -7676,6 +7851,7 @@ type Queries struct {
 	lockRepairTicketCreateKeyStmt                                *sql.Stmt
 	lockSchedulePriorityStmt                                     *sql.Stmt
 	lockSiteForWriteStmt                                         *sql.Stmt
+	lockTelemetrySeedMaintenanceStmt                             *sql.Stmt
 	markAbsentContainerTanksStmt                                 *sql.Stmt
 	markCommandBatchFinishedStmt                                 *sql.Stmt
 	markCommandBatchFinishedWithStartedAtStmt                    *sql.Stmt
@@ -7691,6 +7867,7 @@ type Queries struct {
 	passwordUpdatedAtStmt                                        *sql.Stmt
 	pauseActiveScheduleStmt                                      *sql.Stmt
 	pauseFirmwareRolloutStmt                                     *sql.Stmt
+	prepareTelemetrySeedStmt                                     *sql.Stmt
 	preserveFirmwareRolloutRetryBaselinesStmt                    *sql.Stmt
 	pruneExpiredAlertMaintenanceWindowsStmt                      *sql.Stmt
 	prunePermissionsOutsideKeysStmt                              *sql.Stmt
@@ -7713,6 +7890,7 @@ type Queries struct {
 	recordDeviceWriteRecoveryStmt                                *sql.Stmt
 	recordFirmwareDeploymentStmt                                 *sql.Stmt
 	recordFirmwareRolloutActionStmt                              *sql.Stmt
+	recoverTelemetrySeedBatchStmt                                *sql.Stmt
 	refreshOpenErrorsLastSeenByDeviceStmt                        *sql.Stmt
 	reincludeFirmwareRolloutDevicesStmt                          *sql.Stmt
 	releaseDeviceWriteFenceToHostStmt                            *sql.Stmt
@@ -7765,6 +7943,7 @@ type Queries struct {
 	setFirmwareRolloutControllerWaitStmt                         *sql.Stmt
 	setFleetNodeEnrollmentStatusStmt                             *sql.Stmt
 	setHostedAccountAncestorGrantStmt                            *sql.Stmt
+	setHostedAccountAssetStmt                                    *sql.Stmt
 	setHostedAccountMembershipStmt                               *sql.Stmt
 	setHostedAccountPoolProfileStmt                              *sql.Stmt
 	setHostedAccountSitesRestrictedStmt                          *sql.Stmt
@@ -7821,6 +8000,7 @@ type Queries struct {
 	unassignRoleStmt                                             *sql.Stmt
 	undeleteOrganizationStmt                                     *sql.Stmt
 	undeleteRoleStmt                                             *sql.Stmt
+	unlockTelemetrySeedMaintenanceStmt                           *sql.Stmt
 	unpairDeviceStmt                                             *sql.Stmt
 	unpairDevicesForFleetNodeRevocationStmt                      *sql.Stmt
 	unverifyFirmwareRolloutDevicesStmt                           *sql.Stmt
@@ -8221,6 +8401,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getHashboardObservationsStmt:                                 q.getHashboardObservationsStmt,
 		getHistoryResolutionStmt:                                     q.getHistoryResolutionStmt,
 		getHostedAccountAncestorGrantStmt:                            q.getHostedAccountAncestorGrantStmt,
+		getHostedAccountAssetDeviceStmt:                              q.getHostedAccountAssetDeviceStmt,
+		getHostedAccountHistoryEpochStmt:                             q.getHostedAccountHistoryEpochStmt,
 		getHostedAccountInvitationByHashStmt:                         q.getHostedAccountInvitationByHashStmt,
 		getHostedAccountKeyAuthorityStmt:                             q.getHostedAccountKeyAuthorityStmt,
 		getHostedAccountKeyOwnerStmt:                                 q.getHostedAccountKeyOwnerStmt,
@@ -8317,6 +8499,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getUserRoleNameForUpdateStmt:                                 q.getUserRoleNameForUpdateStmt,
 		getUsersForOrganizationStmt:                                  q.getUsersForOrganizationStmt,
 		haltFirmwareRolloutDevicesStmt:                               q.haltFirmwareRolloutDevicesStmt,
+		hasBlockedTelemetrySeedRecoveryStmt:                          q.hasBlockedTelemetrySeedRecoveryStmt,
+		hasDueTelemetrySeedRecoveryStmt:                              q.hasDueTelemetrySeedRecoveryStmt,
 		hasHostedAccountHostAuthorityStmt:                            q.hasHostedAccountHostAuthorityStmt,
 		hasPendingContainerControlStmt:                               q.hasPendingContainerControlStmt,
 		hasPendingScopedMiningStmt:                                   q.hasPendingScopedMiningStmt,
@@ -8401,6 +8585,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listEarlierCurtailmentReservationDevicesStmt:                 q.listEarlierCurtailmentReservationDevicesStmt,
 		listEarlierCurtailmentTopologyReservationScopesStmt:          q.listEarlierCurtailmentTopologyReservationScopesStmt,
 		listEffectivePermissionsForUserStmt:                          q.listEffectivePermissionsForUserStmt,
+		listEffectivePermissionsForUserForShareStmt:                  q.listEffectivePermissionsForUserForShareStmt,
 		listEffectivePermissionsForUserForUpdateStmt:                 q.listEffectivePermissionsForUserForUpdateStmt,
 		listEligibleConfirmationTargetsStmt:                          q.listEligibleConfirmationTargetsStmt,
 		listEnabledCurtailmentAutomationRulesByMQTTSourceStmt:        q.listEnabledCurtailmentAutomationRulesByMQTTSourceStmt,
@@ -8423,10 +8608,17 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listHashboardHistoryStmt:                                     q.listHashboardHistoryStmt,
 		listHashboardModulesStmt:                                     q.listHashboardModulesStmt,
 		listHostedAccountAncestorGrantsStmt:                          q.listHostedAccountAncestorGrantsStmt,
+		listHostedAccountAssetChildrenStmt:                           q.listHostedAccountAssetChildrenStmt,
+		listHostedAccountAssetFilterOptionsStmt:                      q.listHostedAccountAssetFilterOptionsStmt,
 		listHostedAccountChildrenStmt:                                q.listHostedAccountChildrenStmt,
+		listHostedAccountHistoricalReadingsStmt:                      q.listHostedAccountHistoricalReadingsStmt,
+		listHostedAccountHistoricalSitesStmt:                         q.listHostedAccountHistoricalSitesStmt,
+		listHostedAccountHistoryIntervalsStmt:                        q.listHostedAccountHistoryIntervalsStmt,
 		listHostedAccountInvitationsStmt:                             q.listHostedAccountInvitationsStmt,
 		listHostedAccountKeysStmt:                                    q.listHostedAccountKeysStmt,
 		listHostedAccountMembersStmt:                                 q.listHostedAccountMembersStmt,
+		listHostedAccountMiningAssetPageStmt:                         q.listHostedAccountMiningAssetPageStmt,
+		listHostedAccountMiningAssetsStmt:                            q.listHostedAccountMiningAssetsStmt,
 		listHostedAccountPoolsStmt:                                   q.listHostedAccountPoolsStmt,
 		listHostedAccountSitesStmt:                                   q.listHostedAccountSitesStmt,
 		listHostedAccountSummariesStmt:                               q.listHostedAccountSummariesStmt,
@@ -8486,6 +8678,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listUnresolvedDeviceWriteAttemptsStmt:                        q.listUnresolvedDeviceWriteAttemptsStmt,
 		listUsersForOrganizationStmt:                                 q.listUsersForOrganizationStmt,
 		lockActiveHostedAccountUserStmt:                              q.lockActiveHostedAccountUserStmt,
+		lockActiveHostedAccountUserForShareStmt:                      q.lockActiveHostedAccountUserForShareStmt,
 		lockActiveSuperAdminUsersStmt:                                q.lockActiveSuperAdminUsersStmt,
 		lockAlertMaintenanceWindowOrgForWriteStmt:                    q.lockAlertMaintenanceWindowOrgForWriteStmt,
 		lockAndCountOrgScopeSuperAdminsStmt:                          q.lockAndCountOrgScopeSuperAdminsStmt,
@@ -8528,7 +8721,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockFleetNodePairingDeviceStmt:                               q.lockFleetNodePairingDeviceStmt,
 		lockHashboardOrganizationStmt:                                q.lockHashboardOrganizationStmt,
 		lockHostedAccountAdministratorsStmt:                          q.lockHostedAccountAdministratorsStmt,
+		lockHostedAccountAssetInventoryStmt:                          q.lockHostedAccountAssetInventoryStmt,
 		lockHostedAccountOrganizationStmt:                            q.lockHostedAccountOrganizationStmt,
+		lockHostedAccountOrganizationForShareStmt:                    q.lockHostedAccountOrganizationForShareStmt,
 		lockInfrastructureDeviceForWriteStmt:                         q.lockInfrastructureDeviceForWriteStmt,
 		lockInfrastructureDevicesBySiteForWriteStmt:                  q.lockInfrastructureDevicesBySiteForWriteStmt,
 		lockInfrastructureDevicesForResponseProfileStmt:              q.lockInfrastructureDevicesForResponseProfileStmt,
@@ -8552,6 +8747,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockRepairTicketCreateKeyStmt:                                q.lockRepairTicketCreateKeyStmt,
 		lockSchedulePriorityStmt:                                     q.lockSchedulePriorityStmt,
 		lockSiteForWriteStmt:                                         q.lockSiteForWriteStmt,
+		lockTelemetrySeedMaintenanceStmt:                             q.lockTelemetrySeedMaintenanceStmt,
 		markAbsentContainerTanksStmt:                                 q.markAbsentContainerTanksStmt,
 		markCommandBatchFinishedStmt:                                 q.markCommandBatchFinishedStmt,
 		markCommandBatchFinishedWithStartedAtStmt:                    q.markCommandBatchFinishedWithStartedAtStmt,
@@ -8567,6 +8763,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		passwordUpdatedAtStmt:                                        q.passwordUpdatedAtStmt,
 		pauseActiveScheduleStmt:                                      q.pauseActiveScheduleStmt,
 		pauseFirmwareRolloutStmt:                                     q.pauseFirmwareRolloutStmt,
+		prepareTelemetrySeedStmt:                                     q.prepareTelemetrySeedStmt,
 		preserveFirmwareRolloutRetryBaselinesStmt:                    q.preserveFirmwareRolloutRetryBaselinesStmt,
 		pruneExpiredAlertMaintenanceWindowsStmt:                      q.pruneExpiredAlertMaintenanceWindowsStmt,
 		prunePermissionsOutsideKeysStmt:                              q.prunePermissionsOutsideKeysStmt,
@@ -8589,6 +8786,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		recordDeviceWriteRecoveryStmt:                                q.recordDeviceWriteRecoveryStmt,
 		recordFirmwareDeploymentStmt:                                 q.recordFirmwareDeploymentStmt,
 		recordFirmwareRolloutActionStmt:                              q.recordFirmwareRolloutActionStmt,
+		recoverTelemetrySeedBatchStmt:                                q.recoverTelemetrySeedBatchStmt,
 		refreshOpenErrorsLastSeenByDeviceStmt:                        q.refreshOpenErrorsLastSeenByDeviceStmt,
 		reincludeFirmwareRolloutDevicesStmt:                          q.reincludeFirmwareRolloutDevicesStmt,
 		releaseDeviceWriteFenceToHostStmt:                            q.releaseDeviceWriteFenceToHostStmt,
@@ -8641,6 +8839,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setFirmwareRolloutControllerWaitStmt:                         q.setFirmwareRolloutControllerWaitStmt,
 		setFleetNodeEnrollmentStatusStmt:                             q.setFleetNodeEnrollmentStatusStmt,
 		setHostedAccountAncestorGrantStmt:                            q.setHostedAccountAncestorGrantStmt,
+		setHostedAccountAssetStmt:                                    q.setHostedAccountAssetStmt,
 		setHostedAccountMembershipStmt:                               q.setHostedAccountMembershipStmt,
 		setHostedAccountPoolProfileStmt:                              q.setHostedAccountPoolProfileStmt,
 		setHostedAccountSitesRestrictedStmt:                          q.setHostedAccountSitesRestrictedStmt,
@@ -8697,6 +8896,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		unassignRoleStmt:                                             q.unassignRoleStmt,
 		undeleteOrganizationStmt:                                     q.undeleteOrganizationStmt,
 		undeleteRoleStmt:                                             q.undeleteRoleStmt,
+		unlockTelemetrySeedMaintenanceStmt:                           q.unlockTelemetrySeedMaintenanceStmt,
 		unpairDeviceStmt:                                             q.unpairDeviceStmt,
 		unpairDevicesForFleetNodeRevocationStmt:                      q.unpairDevicesForFleetNodeRevocationStmt,
 		unverifyFirmwareRolloutDevicesStmt:                           q.unverifyFirmwareRolloutDevicesStmt,

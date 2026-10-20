@@ -5,6 +5,8 @@ import { createBrowserRouter, LoaderFunction, LoaderFunctionArgs, Navigate, Outl
 import App from "./components/App";
 import SingleMinerWrapper from "./components/SingleMinerWrapper";
 import {
+  importAccountInvitation,
+  importAccountRoutes,
   importActivityPage,
   importAuth,
   importBuildingPage,
@@ -21,6 +23,7 @@ import {
   importMaintenancePage,
   importMiners,
   importMinersPage,
+  importModulePage,
   importOnboardingSettingsPage,
   importRackOverviewPage,
   importRacksPage,
@@ -67,6 +70,9 @@ import { routerConfig as singleMinerRoutes } from "@/protoOS/router";
 // `routePrefetch.ts` so consumers can import the tiers without a cycle
 // through this file. Auth metadata for the router lives in `routeAuth.ts`.
 
+const AccountRoutes = lazy(importAccountRoutes);
+const AccountInvitation = lazy(importAccountInvitation);
+
 const Dashboard = lazy(importDashboard);
 const Miners = lazy(importMiners);
 const ActivityPage = lazy(importActivityPage);
@@ -98,6 +104,7 @@ const SettingsUpdates = lazy(importSettingsUpdates);
 const SiteDetailPage = lazy(importSiteDetailPage);
 const BuildingPage = lazy(importBuildingPage);
 const TankPage = lazy(importTankPage);
+const ModulePage = lazy(importModulePage);
 const ContainerPage = lazy(importContainerPage);
 const FleetLayout = lazy(importFleetLayout);
 const FleetBuildingsPage = lazy(importFleetBuildingsPage);
@@ -260,7 +267,7 @@ const router = createBrowserRouter([
   createRoute("/sites/:id", <SiteDetailPage />, { hideShellHeader: true }),
   createRoute("/buildings/:id", <BuildingPage />, { hideShellHeader: true }),
   createRoute("/containers/:identifier/tanks/:tankId", <TankPage />, { hideShellHeader: true }),
-  createRoute("/containers/:identifier/tanks/:tankId/modules/:moduleId", <TankPage />, { hideShellHeader: true }),
+  createRoute("/containers/:identifier/tanks/:tankId/modules/:moduleId", <ModulePage />, { hideShellHeader: true }),
   createRoute("/containers/:identifier", <ContainerPage />, { hideShellHeader: true }),
 
   createRoute("/maintenance", <MaintenancePage />),
@@ -279,6 +286,9 @@ const router = createBrowserRouter([
     ),
     children: singleMinerRoutes,
   },
+
+  createRoute("/accounts/*", <AccountRoutes />, { fullscreen: true }),
+  createRoute("/account-invitation", <AccountInvitation />, { fullscreen: true }),
 
   // Settings routes
   {

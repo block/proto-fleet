@@ -56,6 +56,11 @@ func (r Role) capabilities() Capabilities {
 
 type Account = sqlc.HostedAccount
 
+type CreatedAccount struct {
+	Account
+	Access Access
+}
+
 type Access struct {
 	AccountID    string
 	Role         Role
@@ -102,43 +107,61 @@ func resolve(ctx context.Context, q sqlc.Querier, userID, orgID int64, accountID
 	return Access{AccountID: row.AccountID, Role: role, Capabilities: capabilities}, nil
 }
 
-// CreateChild atomically creates a client/subclient and its initial administrator.
+// CreateChild atomically creates an account with an explicit initial member or
+// separate host administration. Zero adminID uses host access for host operators
+// and the creator as the initial member for customer-created subclients.
 // Names are display labels; identities and memberships are independent of names.
-func (s *Service) CreateChild(ctx context.Context, actorID, orgID int64, parentID, name string, adminID int64, capabilities Capabilities) (Account, error) {
+func (s *Service) CreateChild(ctx context.Context, actorID, orgID int64, parentID, name string, adminID int64, capabilities Capabilities) (CreatedAccount, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || utf8.RuneCountInString(name) > 255 {
-		return Account{}, fleeterror.NewInvalidArgumentError("account name must contain 1 to 255 characters")
+		return CreatedAccount{}, fleeterror.NewInvalidArgumentError("account name must contain 1 to 255 characters")
 	}
 	if err := validateCapabilities(capabilities); err != nil {
-		return Account{}, err
+		return CreatedAccount{}, err
 	}
-	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (Account, error) {
+	return db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) (CreatedAccount, error) {
+		administratorID := adminID
 		actor, err := lockActor(ctx, q, orgID, actorID)
 		if err != nil {
-			return Account{}, err
+			return CreatedAccount{}, err
 		}
 		path, err := loadPath(ctx, q, orgID, parentID)
 		if err != nil {
-			return Account{}, err
+			return CreatedAccount{}, err
 		}
 		ceiling, err := authorize(ctx, q, actorID, orgID, path, Delegate)
 		if err != nil {
-			return Account{}, err
+			return CreatedAccount{}, err
 		}
 		parent := path[len(path)-1]
 		if parent.Depth >= 2 {
-			return Account{}, fleeterror.NewFailedPreconditionError("account hierarchy is limited to host, client, and subclient")
+			return CreatedAccount{}, fleeterror.NewFailedPreconditionError("account hierarchy is limited to host, client, and subclient")
 		}
 		if capabilities&^ceiling != 0 {
-			return Account{}, fleeterror.NewForbiddenError("cannot delegate capabilities excluded by the parent")
+			return CreatedAccount{}, fleeterror.NewForbiddenError("cannot delegate capabilities excluded by the parent")
 		}
 		if parent.Depth > 0 {
 			if err := requireRoleGrant(ctx, q, actorID, orgID, parent.AccountID, RoleAdministrator); err != nil {
-				return Account{}, err
+				return CreatedAccount{}, err
 			}
 		}
-		if _, err := q.LockActiveHostedAccountUser(ctx, sqlc.LockActiveHostedAccountUserParams{ID: adminID, OrganizationID: orgID}); err != nil {
-			return Account{}, accessError(err)
+		if administratorID == 0 {
+			host, err := q.HasHostedAccountHostAuthority(ctx, sqlc.HasHostedAccountHostAuthorityParams{UserID: actorID, OrganizationID: orgID})
+			if err != nil {
+				return CreatedAccount{}, err
+			}
+			effective, err := authz.LoadEffectiveForUpdate(ctx, q, actorID, orgID)
+			if err != nil {
+				return CreatedAccount{}, err
+			}
+			if !host || !effective.Has(authz.PermAccountManage, authz.ResourceContext{}) {
+				administratorID = actorID
+			}
+		}
+		if administratorID != 0 {
+			if _, err := q.LockActiveHostedAccountUser(ctx, sqlc.LockActiveHostedAccountUserParams{ID: administratorID, OrganizationID: orgID}); err != nil {
+				return CreatedAccount{}, accessError(err)
+			}
 		}
 		account, err := q.CreateHostedAccount(ctx, sqlc.CreateHostedAccountParams{
 			AccountID: uuid.NewString(), OrganizationID: orgID,
@@ -146,15 +169,36 @@ func (s *Service) CreateChild(ctx context.Context, actorID, orgID int64, parentI
 			Name: name, Capabilities: int64(capabilities),
 		})
 		if err != nil {
-			return Account{}, fleeterror.NewInternalErrorf("create account: %w", err)
+			return CreatedAccount{}, fleeterror.NewInternalErrorf("create account: %w", err)
 		}
-		if err := q.SetHostedAccountMembership(ctx, sqlc.SetHostedAccountMembershipParams{OrganizationID: orgID, AccountID: account.ID, UserID: adminID, Role: string(RoleAdministrator)}); err != nil {
-			return Account{}, err
+		metadata := map[string]any{"capabilities": capabilities}
+		if administratorID == 0 {
+			// A recorded root grant keeps host management independent of team seats.
+			// Full source authority mirrors the durable administrator role; hierarchy
+			// ceilings still bound the effective access and role-grant checks above.
+			if err := q.SetHostedAccountAncestorGrant(ctx, sqlc.SetHostedAccountAncestorGrantParams{OrganizationID: orgID, AccountID: account.ID, AncestorID: path[0].ID, Capabilities: int64(AllCapabilities)}); err != nil {
+				return CreatedAccount{}, err
+			}
+			metadata["host_administration"] = true
+			metadata["ancestor_account_id"] = path[0].AccountID
+			metadata["ancestor_capabilities"] = AllCapabilities
+		} else {
+			if err := q.SetHostedAccountMembership(ctx, sqlc.SetHostedAccountMembershipParams{OrganizationID: orgID, AccountID: account.ID, UserID: administratorID, Role: string(RoleAdministrator)}); err != nil {
+				return CreatedAccount{}, err
+			}
+			metadata["administrator_user_id"] = administratorID
 		}
-		if err := audit(ctx, q, actor, account, "create_hosted_account", map[string]any{"administrator_user_id": adminID, "capabilities": capabilities}); err != nil {
-			return Account{}, err
+		if err := audit(ctx, q, actor, account, "create_hosted_account", metadata); err != nil {
+			return CreatedAccount{}, err
 		}
-		return account, nil
+		result := CreatedAccount{Account: account}
+		if adminID == 0 || adminID == actorID {
+			result.Access, err = resolve(ctx, q, actorID, orgID, account.AccountID)
+			if err != nil {
+				return CreatedAccount{}, err
+			}
+		}
+		return result, nil
 	})
 }
 
@@ -273,6 +317,18 @@ func lockActor(ctx context.Context, q sqlc.Querier, orgID, actorID int64) (sqlc.
 	return actor, nil
 }
 
+// Shared report admission preserves exclusion against administration and user
+// deactivation without making readers wait for other readers.
+func lockActorForRead(ctx context.Context, q sqlc.Querier, orgID, actorID int64) error {
+	if _, err := q.LockHostedAccountOrganizationForShare(ctx, orgID); err != nil {
+		return accessError(err)
+	}
+	if _, err := q.LockActiveHostedAccountUserForShare(ctx, sqlc.LockActiveHostedAccountUserForShareParams{ID: actorID, OrganizationID: orgID}); err != nil {
+		return accessError(err)
+	}
+	return nil
+}
+
 func loadPath(ctx context.Context, q sqlc.Querier, orgID int64, accountID string) ([]sqlc.HostedAccount, error) {
 	rows, err := q.GetHostedAccountPath(ctx, sqlc.GetHostedAccountPathParams{OrganizationID: orgID, AccountID: accountID})
 	if err != nil {
@@ -289,6 +345,14 @@ func loadPath(ctx context.Context, q sqlc.Querier, orgID int64, accountID string
 }
 
 func authorize(ctx context.Context, q sqlc.Querier, actorID, orgID int64, path []sqlc.HostedAccount, required Capabilities) (Capabilities, error) {
+	return authorizeWithPermissions(ctx, q, actorID, orgID, path, required, authz.LoadEffectiveForUpdate)
+}
+
+func authorizeForRead(ctx context.Context, q sqlc.Querier, actorID, orgID int64, path []sqlc.HostedAccount, required Capabilities) (Capabilities, error) {
+	return authorizeWithPermissions(ctx, q, actorID, orgID, path, required, authz.LoadEffectiveForShare)
+}
+
+func authorizeWithPermissions(ctx context.Context, q sqlc.Querier, actorID, orgID int64, path []sqlc.HostedAccount, required Capabilities, loadEffective func(context.Context, sqlc.Querier, int64, int64) (*authz.EffectivePermissions, error)) (Capabilities, error) {
 	ceiling := AllCapabilities
 	for _, account := range path {
 		if account.Suspended {
@@ -303,7 +367,7 @@ func authorize(ctx context.Context, q sqlc.Querier, actorID, orgID int64, path [
 		if err != nil {
 			return 0, err
 		}
-		effective, err := authz.LoadEffectiveForUpdate(ctx, q, actorID, orgID)
+		effective, err := loadEffective(ctx, q, actorID, orgID)
 		if err != nil {
 			return 0, err
 		}

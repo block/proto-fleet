@@ -16,6 +16,7 @@ describe("ModuleStatus", () => {
     render(<ModuleStatus state={state} />);
     expect(screen.getByText(label)).toBeInTheDocument();
     expect(screen.getByTestId("module-status-indicator")).toHaveAttribute("data-status", indicator);
+    expect(screen.queryByTitle(/isolated/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 });

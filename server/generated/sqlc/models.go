@@ -1864,6 +1864,38 @@ type HostedAccountAncestorGrant struct {
 	UpdatedAt      time.Time
 }
 
+type HostedAccountAsset struct {
+	OrganizationID int64
+	Kind           int32
+	AssetID        int64
+	DeviceID       int64
+	MinerID        sql.NullInt64
+	ModuleID       sql.NullInt64
+	ClientID       sql.NullInt64
+	SubclientID    sql.NullInt64
+	Revision       int64
+	UpdatedAt      time.Time
+}
+
+type HostedAccountAssetInterval struct {
+	ID               int64
+	OrganizationID   int64
+	Kind             int32
+	AssetID          int64
+	DeviceID         int64
+	SiteID           sql.NullInt64
+	DeviceIdentifier string
+	ClientID         int64
+	SubclientID      sql.NullInt64
+	StartedAt        time.Time
+	EndedAt          sql.NullTime
+}
+
+type HostedAccountHistoryEpoch struct {
+	Singleton bool
+	StartedAt time.Time
+}
+
 type HostedAccountInvitation struct {
 	InvitationID         string
 	OrganizationID       int64
@@ -2358,6 +2390,54 @@ type Site struct {
 	Timezone                     sql.NullString
 	Slug                         string
 	InfrastructureControlSubnets string
+}
+
+type TelemetrySummaryProgress struct {
+	AggregateName    string
+	SourceName       string
+	BucketWidth      int64
+	Lateness         int64
+	EndOffset        int64
+	CoverageStart    sql.NullTime
+	CompletedThrough sql.NullTime
+	LastSuccessAt    sql.NullTime
+	Attempts         int64
+	RecoveredBatches int64
+}
+
+type TelemetrySummarySource struct {
+	SourceName         string
+	RawFloor           sql.NullTime
+	DroppedThrough     sql.NullTime
+	RawRetention       int64
+	JobID              sql.NullInt32
+	NextRetentionAt    time.Time
+	LastAttemptAt      sql.NullTime
+	LastRetentionAt    sql.NullTime
+	RetentionError     sql.NullString
+	RetentionDeferrals int64
+}
+
+type TelemetrySummaryWork struct {
+	AggregateName        string
+	WorkKind             string
+	NextRunAt            time.Time
+	BatchBuckets         int32
+	ReplayUntil          sql.NullTime
+	Pending              bool
+	Failures             int64
+	MinimumBatchFailures int32
+	SuccessfulBatches    int32
+	Blocked              bool
+	LastStart            sql.NullTime
+	LastEnd              sql.NullTime
+	LastError            sql.NullString
+	LastSuccessAt        sql.NullTime
+}
+
+type TelemetrySummaryWriteGate struct {
+	SourceName    string
+	FrozenThrough sql.NullTime
 }
 
 type User struct {

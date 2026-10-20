@@ -1,9 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ProtoOSStatusModal as StatusModal } from "@/protoOS/components/StatusModal";
-import Card from "@/protoOS/features/diagnostic/components/Card";
-import CardHeader from "@/protoOS/features/diagnostic/components/CardHeader";
-import LabeledValue from "@/protoOS/features/diagnostic/components/LabeledValue";
 import { useHashboardLayout } from "@/protoOS/features/diagnostic/hashboardLayout";
 import {
   useAsicDataTransform,
@@ -15,11 +12,12 @@ import {
 import { useErrorsByRef } from "@/protoOS/store/hooks/useMinerStatus";
 import { efficiencyValue } from "@/protoOS/store/utils/efficiency";
 import { getHashboardId } from "@/protoOS/store/utils/entityIds";
-import { Alert, HashboardIndicatorV2 as HashboardIndicator } from "@/shared/assets/icons";
+import { Alert } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import AsicTablePreview from "@/shared/components/AsicTablePreview";
 import Button from "@/shared/components/Button";
 import EfficiencyValue from "@/shared/components/EfficiencyValue";
+import HashboardCard from "@/shared/components/HashboardCard";
 import HashRateValue from "@/shared/components/HashRateValue";
 import PowerValue from "@/shared/components/PowerValue";
 import TemperatureValue from "@/shared/components/TemperatureValue";
@@ -92,8 +90,8 @@ function HashboardStatusCard({ identifier, viewTo }: HashboardStatusCardProps) {
     : [...temperatures, powerStat, rateStat];
 
   return (
-    <Card>
-      <CardHeader
+    <>
+      <HashboardCard
         title={name}
         statusIcon={
           hasErrors ? (
@@ -102,27 +100,19 @@ function HashboardStatusCard({ identifier, viewTo }: HashboardStatusCardProps) {
             </span>
           ) : null
         }
-        componentIcon={
-          layout.card.showSlotIndicator ? (
-            <HashboardIndicator width="w-4" position={position} totalSlots={layout.card.totalSlots} />
-          ) : null
-        }
-        onInfoIconClick={component ? () => setShowComponentStatusModal(true) : undefined}
+        position={layout.card.showSlotIndicator ? position : undefined}
+        totalSlots={layout.card.totalSlots}
+        threeColumns={layout.card.showEfficiency}
+        metrics={stats}
+        onInfoClick={component ? () => setShowComponentStatusModal(true) : undefined}
         actions={
           <Button variant="secondary" size="compact" onClick={handleViewClick}>
             View
           </Button>
         }
-      />
-
-      <div className="flex flex-col gap-3">
-        <div className={`grid grid-cols-2 gap-x-4 gap-y-3 ${layout.card.showEfficiency ? "@xs:grid-cols-3" : ""}`}>
-          {stats.map((stat) => (
-            <LabeledValue key={stat.label} {...stat} />
-          ))}
-        </div>
+      >
         <AsicTablePreview asics={asicData} rowHeight={layout.card.previewRowHeight} />
-      </div>
+      </HashboardCard>
       {showComponentStatusModal && component ? (
         <StatusModal
           open={showComponentStatusModal}
@@ -131,7 +121,7 @@ function HashboardStatusCard({ identifier, viewTo }: HashboardStatusCardProps) {
           showBackButton={false}
         />
       ) : null}
-    </Card>
+    </>
   );
 }
 

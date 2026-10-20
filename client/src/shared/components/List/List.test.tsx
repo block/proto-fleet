@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import { createRef, ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createPortal } from "react-dom";
@@ -547,17 +547,12 @@ describe("List", () => {
     expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(0);
   });
 
-  it("renders action bar when items are selected and provides clearSelection callback", () => {
+  it.each(["one row", "all rows"] as const)("clears selection after selecting %s", (selection) => {
+    const onSelectionModeChange = vi.fn();
     const renderActionBar = vi.fn((_selectedItems: TestItemKey[], clearSelection: () => void) => (
-      <div>
-        <div>Action Bar</div>
-        <button onClick={clearSelection} data-testid="clear-selection-btn">
-          Clear
-        </button>
-      </div>
+      <button onClick={clearSelection}>Clear</button>
     ));
-
-    const { getByTestId } = render(
+    render(
       <List<TestItem, TestItemKey>
         activeCols={activeCols}
         colTitles={testColTitles}
@@ -566,31 +561,25 @@ describe("List", () => {
         itemKey="id"
         itemSelectable
         renderActionBar={renderActionBar}
+        onSelectionModeChange={onSelectionModeChange}
       />,
     );
-
-    const selectItemCheckboxes = getByTestId("list-body").querySelectorAll(
-      "input[type='checkbox']",
-      // eslint-disable-next-line
-    ) as NodeListOf<HTMLInputElement>;
-
-    // Select first item
-    fireEvent.click(selectItemCheckboxes[0]);
-
-    // Verify renderActionBar was called with selectedItems and clearSelection callback
-    expect(renderActionBar).toHaveBeenCalled();
-    const lastCall = renderActionBar.mock.calls[renderActionBar.mock.calls.length - 1];
-    expect(lastCall[0]).toEqual([testItems[0].id]); // selectedItems
-    expect(typeof lastCall[1]).toBe("function"); // clearSelection callback
-
-    expect(screen.getByText("Action Bar")).toBeInTheDocument();
-
-    // Click clear button
-    const clearButton = screen.getByTestId("clear-selection-btn");
-    fireEvent.click(clearButton);
-
-    // Verify all checkboxes are now unchecked
-    expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(0);
+    const header = screen.getByTestId("list-header").querySelector("input") as HTMLInputElement;
+    const rows = Array.from(screen.getByTestId("list-body").querySelectorAll("input"));
+    fireEvent.click(selection === "one row" ? rows[0] : header);
+    expect(renderActionBar).toHaveBeenLastCalledWith(
+      selection === "one row" ? [testItems[0].id] : testItems.map((item) => item.id),
+      expect.any(Function),
+      selection === "one row" ? "subset" : "all",
+      undefined,
+    );
+    expect(onSelectionModeChange).toHaveBeenLastCalledWith(selection === "one row" ? "subset" : "all");
+    expect(rows.filter((row) => row.checked)).toHaveLength(selection === "one row" ? 1 : testItems.length);
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    expect(header).not.toBeChecked();
+    rows.forEach((row) => expect(row).not.toBeChecked());
+    expect(onSelectionModeChange).toHaveBeenLastCalledWith("none");
+    expect(renderActionBar).toHaveBeenLastCalledWith([], expect.any(Function), "none", undefined);
   });
 
   it("renders an in-table empty state row while keeping the header visible", () => {
@@ -645,50 +634,6 @@ describe("List", () => {
     );
 
     expect(screen.queryByTestId("active-filter-valueRange")).not.toBeInTheDocument();
-  });
-
-  it("clearSelection callback deselects all items", async () => {
-    let clearSelectionCallback: (() => void) | null = null;
-
-    const renderActionBar = vi.fn((_selectedItems: TestItemKey[], clearSelection: () => void) => {
-      clearSelectionCallback = clearSelection;
-      return <div>Action Bar</div>;
-    });
-
-    const { getByTestId } = render(
-      <List<TestItem, TestItemKey>
-        activeCols={activeCols}
-        colTitles={testColTitles}
-        colConfig={testColConfig}
-        items={testItems}
-        itemKey="id"
-        itemSelectable
-        renderActionBar={renderActionBar}
-      />,
-    );
-
-    const selectAllCheckbox = getByTestId("list-header").querySelector("input[type='checkbox']") as HTMLInputElement;
-
-    const selectItemCheckboxes = getByTestId("list-body").querySelectorAll(
-      "input[type='checkbox']",
-      // eslint-disable-next-line
-    ) as NodeListOf<HTMLInputElement>;
-
-    // Select all items
-    fireEvent.click(selectAllCheckbox);
-    expect(selectAllCheckbox.checked).toBe(true);
-    expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(testItems.length);
-
-    // Call clearSelection callback
-    expect(clearSelectionCallback).not.toBeNull();
-    clearSelectionCallback!();
-
-    // Wait for React to update the DOM
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    // Verify all checkboxes are now unchecked
-    expect(selectAllCheckbox.checked).toBe(false);
-    expect(Array.from(selectItemCheckboxes).filter((c) => c.checked)).toHaveLength(0);
   });
 
   it("renders actions popover and triggers the correct action", async () => {
@@ -2059,31 +2004,11 @@ describe("List", () => {
       // Select All checkbox should now be checked
       expect(selectAllCheckbox.checked).toBe(true);
     });
-
-    it("calls onFilterChange when filterItem changes filtered results", () => {
-      const onFilterChange = vi.fn();
-
-      render(
-        <List<TestItem, TestItemKey>
-          activeCols={activeCols}
-          colTitles={testColTitles}
-          colConfig={testColConfig}
-          items={testItems}
-          itemKey="id"
-          itemSelectable
-          filterItem={() => true}
-          onFilterChange={onFilterChange}
-        />,
-      );
-
-      // onFilterChange is called when filters are applied through the UI
-      // The callback should be available and callable
-      expect(onFilterChange).toBeDefined();
-    });
   });
 
   describe("footerContent prop", () => {
-    it("renders footerContent at the bottom of the scroll container", () => {
+    it("places footer content after the table inside the scroll container", () => {
+      const scrollRef = createRef<HTMLDivElement>();
       render(
         <List<TestItem, TestItemKey>
           activeCols={activeCols}
@@ -2091,38 +2016,17 @@ describe("List", () => {
           colConfig={testColConfig}
           items={testItems}
           itemKey="id"
+          scrollRef={scrollRef}
           footerContent={<div data-testid="footer-content">Pagination Controls</div>}
         />,
       );
-
-      const footerContent = screen.getByTestId("footer-content");
-      expect(footerContent).toBeInTheDocument();
-      expect(footerContent.textContent).toBe("Pagination Controls");
-    });
-
-    it("renders footerContent after the table element", () => {
-      const { container } = render(
-        <List<TestItem, TestItemKey>
-          activeCols={activeCols}
-          colTitles={testColTitles}
-          colConfig={testColConfig}
-          items={testItems}
-          itemKey="id"
-          footerContent={<div data-testid="footer-content">Footer</div>}
-        />,
-      );
-
-      const table = container.querySelector("table");
-      const footerContent = screen.getByTestId("footer-content");
-
-      expect(table).toBeInTheDocument();
-      expect(footerContent).toBeInTheDocument();
-
-      const tableParent = table?.parentElement;
-      const footerParent = footerContent.parentElement;
-
-      expect(tableParent).toBeTruthy();
-      expect(footerParent).toBeTruthy();
+      const table = screen.getByRole("table");
+      const footer = screen.getByTestId("footer-content");
+      expect(footer).toHaveTextContent("Pagination Controls");
+      expect(scrollRef.current).toContainElement(table);
+      expect(scrollRef.current).toContainElement(footer);
+      expect(table).not.toContainElement(footer);
+      expect(table.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it("does not render footerContent when prop is not provided", () => {

@@ -4,14 +4,19 @@ import (
 	"testing"
 
 	"github.com/block/proto-fleet/server/internal/testutil"
+	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
 	"github.com/block/proto-fleet/server/migrations"
 	"github.com/stretchr/testify/require"
 )
 
 func TestContainerInventoryMigrationRoundTrip(t *testing.T) {
 	db := testutil.GetTestDB(t)
+	testutil.RestoreLegacySummaryBootstraps(t, db,
+		"001016_internal_ct1_metric_summaries",
+		"001021_internal_hashboard_metric_summaries")
 	// Later child inventory must be rolled back before its parent schema.
 	for _, name := range []string{
+		"001028_internal_hosted_account_assets.down.sql",
 		"001025_internal_container_site_scope.down.sql",
 		"001023_internal_hashboard_observation.down.sql",
 		"001022_internal_topology_compaction.down.sql",
@@ -25,6 +30,9 @@ func TestContainerInventoryMigrationRoundTrip(t *testing.T) {
 		require.NoError(t, err)
 		_, err = db.ExecContext(t.Context(), string(children))
 		require.NoError(t, err, name)
+		// Rollback can recreate retention policies; keep later DDL isolated
+		// from newly scheduled maintenance, just as initial dbtest setup does.
+		dbtest.PauseBackgroundJobs(t, db)
 	}
 	for _, direction := range []string{"down", "up"} {
 		script, err := migrations.Migrations.ReadFile("000153_container_inventory." + direction + ".sql")
@@ -39,6 +47,9 @@ func TestContainerInventoryMigrationRoundTrip(t *testing.T) {
 
 func TestHashboardMigrationRoundTrip(t *testing.T) {
 	db := testutil.GetTestDB(t)
+	testutil.RestoreLegacySummaryBootstraps(t, db,
+		"001016_internal_ct1_metric_summaries",
+		"001021_internal_hashboard_metric_summaries")
 	observations, err := migrations.Current.ReadFile("current/001023_internal_hashboard_observation.down.sql")
 	require.NoError(t, err)
 	_, err = db.ExecContext(t.Context(), string(observations))

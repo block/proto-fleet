@@ -11,13 +11,6 @@ import { SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_
 const mocks = vi.hoisted(() => ({ load: vi.fn<typeof useContainerOverview>(), sync: vi.fn() }));
 vi.mock("../hooks/useContainerOverview", () => ({ useContainerOverview: mocks.load }));
 vi.mock("../components/TankPerformance", () => ({ default: () => <section aria-label="Performance" /> }));
-vi.mock("../ModuleHistoryDialog", () => ({
-  ModuleHistoryDialog: ({ item, onDismiss }: { item: { name: string }; onDismiss: () => void }) => (
-    <div role="dialog" aria-label={item.name}>
-      <button onClick={onDismiss}>Close history</button>
-    </div>
-  ),
-}));
 vi.mock("@/protoFleet/hooks/useSyncScopeToEntity", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   useSyncScopeToEntity: mocks.sync,
@@ -44,7 +37,7 @@ function renderPage(path = "/containers/remote/tanks/81") {
       <Location />
       <Routes>
         <Route path="/containers/:identifier/tanks/:tankId" element={<TankPage />} />
-        <Route path="/containers/:identifier/tanks/:tankId/modules/:moduleId" element={<TankPage />} />
+        <Route path="/containers/:identifier/tanks/:tankId/modules/:moduleId" element={<p>Module destination</p>} />
         <Route path="*" element={<p>Destination</p>} />
       </Routes>
     </MemoryRouter>,
@@ -114,19 +107,11 @@ describe("native tank page", () => {
     expect(screen.getByTestId("location")).toHaveTextContent("/north/fleet/miners?tank=81");
   });
 
-  it("opens module history at a deep link and returns to the tank", () => {
+  it("opens native module detail at a deep link", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: /Tank 1 module 1.*View module/ }));
     expect(screen.getByTestId("location")).toHaveTextContent("/containers/remote/tanks/81/modules/91");
-    expect(screen.getByRole("dialog", { name: "Tank 1 module 1" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Close history" }));
-    expect(screen.getByTestId("location").textContent).toBe("/containers/remote/tanks/81");
-  });
-
-  it("rejects a module from another tank on a direct link", () => {
-    renderPage("/containers/remote/tanks/81/modules/92");
-    expect(screen.getByRole("alert")).toHaveTextContent("Module not found in this tank");
-    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByText("Module destination")).toBeInTheDocument();
   });
 
   it("does not render a colliding rack or tank belonging to another container", () => {

@@ -1,3 +1,10 @@
+import { matchRoutes } from "react-router-dom";
+
+// Invitation fragments are bearer secrets. Never copy them into a redirect's
+// query string, including when the lazy invitation page has not mounted yet.
+export const fleetDownReturnPath = ({ pathname, search, hash }: Pick<Location, "pathname" | "search" | "hash">) =>
+  matchRoutes([{ path: "/account-invitation" }], { pathname }) ? pathname : pathname + search + hash;
+
 /**
  * Redirects to the original page stored in the "from" query parameter,
  * or to the home page if no parameter exists.
