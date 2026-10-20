@@ -21,6 +21,8 @@ table inet proto_fleet_ha {
         tcp dport 4000 drop
 
         # The HA image runs fleetd directly; never expose the image's debug port.
+        # Port 40000 can also be an ephemeral source port for outbound connections.
+        tcp dport 40000 ct state established ct direction reply accept
         tcp dport 40000 drop
 
         tcp dport 2380 ip saddr @ha_nodes accept
