@@ -809,7 +809,7 @@ func pairingStatusValuesForSelector(filter *pb.DeviceFilter) []string {
 }
 
 // resolveIdentifiersToDeviceIDs converts post-filter identifiers for the queue.
-func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, identifiers []string) ([]int64, error) {
+func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, orgID int64, identifiers []string) ([]int64, error) {
 	if len(identifiers) == 0 {
 		return []int64{}, nil
 	}
@@ -817,7 +817,18 @@ func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, identifiers
 		return s.resolveDeviceIDsOverride(ctx, identifiers)
 	}
 	resolve := func(q sqlc.Querier) ([]int64, error) {
-		return q.GetDeviceIDsByDeviceIdentifiers(ctx, identifiers)
+		rows, err := q.GetOrgDeviceIDsWithIdentifiers(ctx, sqlc.GetOrgDeviceIDsWithIdentifiersParams{
+			DeviceIdentifiers: identifiers,
+			OrgID:             orgID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		ids := make([]int64, 0, len(rows))
+		for _, row := range rows {
+			ids = append(ids, row.ID)
+		}
+		return ids, nil
 	}
 	if q := db.GetTxQueries(ctx); q != nil {
 		return resolve(q)
@@ -825,7 +836,10 @@ func (s *Service) resolveIdentifiersToDeviceIDs(ctx context.Context, identifiers
 	return db.WithTransaction(ctx, s.conn, resolve)
 }
 
-func (s *Service) resolveIdentifiersToDevices(ctx context.Context, identifiers []string) ([]resolvedDevice, error) {
+// resolveIdentifiersToDevices resolves selector identifiers within orgID only.
+// Selectors carry caller-supplied identifiers, so another organization's
+// devices must resolve exactly like unknown identifiers.
+func (s *Service) resolveIdentifiersToDevices(ctx context.Context, orgID int64, identifiers []string) ([]resolvedDevice, error) {
 	if len(identifiers) == 0 {
 		return []resolvedDevice{}, nil
 	}
@@ -847,7 +861,10 @@ func (s *Service) resolveIdentifiersToDevices(ctx context.Context, identifiers [
 		return devices, nil
 	}
 	resolve := func(q sqlc.Querier) ([]resolvedDevice, error) {
-		rows, err := q.GetDeviceIDsWithIdentifiers(ctx, identifiers)
+		rows, err := q.GetOrgDeviceIDsWithIdentifiers(ctx, sqlc.GetOrgDeviceIDsWithIdentifiersParams{
+			DeviceIdentifiers: identifiers,
+			OrgID:             orgID,
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -1091,7 +1108,7 @@ func (s *Service) admitCommand(ctx context.Context, command *Command) (*CommandR
 	// first so a stale selector with zero live devices returns InvalidArgument
 	// regardless of how the kept/skipped partition fell.
 	if isExternalCommand(info) && len(skipped) > 0 {
-		deviceIDs, err := s.resolveIdentifiersToDeviceIDs(ctx, identifiers)
+		deviceIDs, err := s.resolveIdentifiersToDeviceIDs(ctx, info.OrganizationID, identifiers)
 		if err != nil {
 			return nil, fleeterror.NewInternalErrorf("error resolving identifiers to device IDs: %v", err)
 		}
@@ -1108,7 +1125,7 @@ func (s *Service) admitCommand(ctx context.Context, command *Command) (*CommandR
 		return nil, fleeterror.NewInvalidArgumentError("no devices matched selector")
 	}
 
-	resolvedDevices, err := s.resolveIdentifiersToDevices(ctx, kept)
+	resolvedDevices, err := s.resolveIdentifiersToDevices(ctx, info.OrganizationID, kept)
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error resolving identifiers to device IDs: %v", err)
 	}
@@ -1665,7 +1682,7 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 	}
 	sort.Strings(deviceIdentifiers)
 
-	deviceIDsByIdentifier, err := s.getDeviceIDsWithIdentifiers(ctx, deviceIdentifiers)
+	deviceIDsByIdentifier, err := s.getDeviceIDsWithIdentifiers(ctx, info.OrganizationID, deviceIdentifiers)
 	if err != nil {
 		return "", err
 	}
@@ -1720,9 +1737,12 @@ func (s *Service) ReapplyCurrentPoolsWithWorkerNames(
 	return commandBatchLogUUID, nil
 }
 
-func (s *Service) getDeviceIDsWithIdentifiers(ctx context.Context, deviceIdentifiers []string) (map[string]int64, error) {
-	rows, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]sqlc.GetDeviceIDsWithIdentifiersRow, error) {
-		return q.GetDeviceIDsWithIdentifiers(ctx, deviceIdentifiers)
+func (s *Service) getDeviceIDsWithIdentifiers(ctx context.Context, orgID int64, deviceIdentifiers []string) (map[string]int64, error) {
+	rows, err := db.WithTransaction(ctx, s.conn, func(q sqlc.Querier) ([]sqlc.GetOrgDeviceIDsWithIdentifiersRow, error) {
+		return q.GetOrgDeviceIDsWithIdentifiers(ctx, sqlc.GetOrgDeviceIDsWithIdentifiersParams{
+			DeviceIdentifiers: deviceIdentifiers,
+			OrgID:             orgID,
+		})
 	})
 	if err != nil {
 		return nil, fleeterror.NewInternalErrorf("error getting device IDs from device identifiers: %v", err)

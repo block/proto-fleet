@@ -805,36 +805,6 @@ func (q *Queries) GetDeviceIDByDeviceIdentifier(ctx context.Context, deviceIdent
 	return id, err
 }
 
-const getDeviceIDsByDeviceIdentifiers = `-- name: GetDeviceIDsByDeviceIdentifiers :many
-SELECT id
-FROM device
-WHERE device_identifier = ANY($1::text[])
-  AND deleted_at IS NULL
-`
-
-func (q *Queries) GetDeviceIDsByDeviceIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]int64, error) {
-	rows, err := q.query(ctx, q.getDeviceIDsByDeviceIdentifiersStmt, getDeviceIDsByDeviceIdentifiers, pq.Array(deviceIdentifiers))
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		items = append(items, id)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const getDeviceIDsWithIdentifiers = `-- name: GetDeviceIDsWithIdentifiers :many
 SELECT id, device_identifier
 FROM device
@@ -1793,6 +1763,49 @@ func (q *Queries) GetOfflineFleetNodeDevices(ctx context.Context) ([]GetOfflineF
 			&i.UsernameEnc,
 			&i.PasswordEnc,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getOrgDeviceIDsWithIdentifiers = `-- name: GetOrgDeviceIDsWithIdentifiers :many
+SELECT id, device_identifier
+FROM device
+WHERE device_identifier = ANY($1::text[])
+  AND org_id = $2
+  AND deleted_at IS NULL
+`
+
+type GetOrgDeviceIDsWithIdentifiersParams struct {
+	DeviceIdentifiers []string
+	OrgID             int64
+}
+
+type GetOrgDeviceIDsWithIdentifiersRow struct {
+	ID               int64
+	DeviceIdentifier string
+}
+
+// Resolves caller-supplied identifiers within one organization. Identifiers
+// owned by another organization are omitted exactly like unknown ones.
+func (q *Queries) GetOrgDeviceIDsWithIdentifiers(ctx context.Context, arg GetOrgDeviceIDsWithIdentifiersParams) ([]GetOrgDeviceIDsWithIdentifiersRow, error) {
+	rows, err := q.query(ctx, q.getOrgDeviceIDsWithIdentifiersStmt, getOrgDeviceIDsWithIdentifiers, pq.Array(arg.DeviceIdentifiers), arg.OrgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetOrgDeviceIDsWithIdentifiersRow
+	for rows.Next() {
+		var i GetOrgDeviceIDsWithIdentifiersRow
+		if err := rows.Scan(&i.ID, &i.DeviceIdentifier); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

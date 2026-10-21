@@ -28,6 +28,13 @@ func newTestProcessor(t *testing.T, now time.Time) (*Processor, *mocks.MockSched
 	targetStore := mocks.NewMockScheduleTargetStore(ctrl)
 	collectionStore := mocks.NewMockCollectionStore(ctrl)
 	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	// Org scoping of miner targets is covered against Postgres in targets.
+	deviceStore.EXPECT().
+		FilterDeviceIdentifiersByOrg(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, identifiers []string, _ int64) ([]string, error) {
+			return identifiers, nil
+		}).
+		AnyTimes()
 	cmdSvc := NewMockCommandDispatcher(ctrl)
 
 	p := NewProcessor(procStore, targetStore, collectionStore, deviceStore, cmdSvc, nil)

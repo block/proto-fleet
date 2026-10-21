@@ -24,8 +24,12 @@ func TestExpandDeduplicatesMinerRackAndGroupTargets(t *testing.T) {
 	collectionStore.EXPECT().
 		GetDeviceIdentifiersByDeviceSetID(gomock.Any(), int64(20), int64(1)).
 		Return([]string{"group-1", "shared"}, nil)
+	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	deviceStore.EXPECT().
+		FilterDeviceIdentifiersByOrg(gomock.Any(), []string{"miner-1", "miner-1"}, int64(1)).
+		Return([]string{"miner-1"}, nil)
 
-	got, err := Expand(context.Background(), collectionStore, nil, []*pb.ScheduleTarget{
+	got, err := Expand(context.Background(), collectionStore, deviceStore, []*pb.ScheduleTarget{
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK, TargetId: "10"},
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_GROUP, TargetId: "20"},
@@ -98,6 +102,9 @@ func TestExpandDeduplicatesAcrossAllTargetTypes(t *testing.T) {
 	deviceStore.EXPECT().
 		GetDeviceIdentifiersByOrgWithFilter(gomock.Any(), int64(1), gomock.Any()).
 		Return([]string{"shared", "site-only"}, nil)
+	deviceStore.EXPECT().
+		FilterDeviceIdentifiersByOrg(gomock.Any(), []string{"shared"}, int64(1)).
+		Return([]string{"shared"}, nil)
 
 	got, err := Expand(context.Background(), collectionStore, deviceStore, []*pb.ScheduleTarget{
 		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "shared"},
@@ -107,6 +114,37 @@ func TestExpandDeduplicatesAcrossAllTargetTypes(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"shared", "site-only"}, got)
+}
+
+func TestExpandDropsMinerTargetsOutsideOrg(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	deviceStore.EXPECT().
+		FilterDeviceIdentifiersByOrg(gomock.Any(), []string{"foreign", "owned"}, int64(1)).
+		Return([]string{"owned"}, nil)
+
+	got, err := Expand(context.Background(), nil, deviceStore, []*pb.ScheduleTarget{
+		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "foreign"},
+		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "owned"},
+	}, 1, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"owned"}, got)
+}
+
+func TestExpandWrapsMinerTargetResolutionErrors(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	deviceStore.EXPECT().
+		FilterDeviceIdentifiersByOrg(gomock.Any(), []string{"miner-1"}, int64(1)).
+		Return(nil, errors.New("db down"))
+
+	_, err := Expand(context.Background(), nil, deviceStore, []*pb.ScheduleTarget{
+		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
+	}, 1, nil)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to resolve miner targets")
 }
 
 func TestExpandCallsUnspecifiedHandler(t *testing.T) {
