@@ -34,6 +34,8 @@ describe("formatLabel", () => {
   });
 
   it("uses action-oriented labels for activity type filters", () => {
+    expect(formatActivityFilterLabel("create_hosted_account_pool")).toBe("Create pool configuration");
+    expect(formatActivityFilterLabel("account_assets_recalled")).toBe("Recall mining assets");
     expect(formatActivityFilterLabel("unpair_container")).toBe("Unpair container");
     expect(formatActivityFilterLabel("login")).toBe("Log in");
     expect(formatActivityFilterLabel("set_rack_slot")).toBe("Update rack position");

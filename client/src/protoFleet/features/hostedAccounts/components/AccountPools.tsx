@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 
 import { useRequiredAccountScope } from "../AccountScope";
+import { ACCOUNT_READ_TIMEOUT_MS } from "../api";
 import { can } from "../capabilities";
 import { useAccountQuery } from "../useAccountQuery";
 import { AccountState } from "./AccountState";
@@ -27,9 +28,9 @@ const AccountPools = () => {
       const [list, incoming] = await Promise.all([
         client.listPoolConfigurations(
           { accountId: account.accountId, pageSize: 25, pageToken: tokens[page] },
-          { signal },
+          { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal },
         ),
-        client.getIncomingPoolProfile({ accountId: account.accountId }, { signal }),
+        client.getIncomingPoolProfile({ accountId: account.accountId }, { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal }),
       ]);
       const profile = incoming.profile;
       const pinned =
@@ -37,7 +38,7 @@ const AccountPools = () => {
           ? (
               await client.getPoolRevision(
                 { accountId: account.accountId, poolId: profile.poolId, revisionId: profile.revisionId },
-                { signal },
+                { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal },
               )
             ).revision
           : undefined;

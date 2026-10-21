@@ -3,9 +3,10 @@ import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 
 import { AccountLayout } from "./AccountLayout";
 import { AccountScopeProvider } from "./AccountScopeProvider";
-import { createAccountConnection } from "./api";
+import { ACCOUNT_READ_TIMEOUT_MS, createAccountConnection } from "./api";
 import { accountManagementPath, accountPath, can, roleLabel } from "./capabilities";
 import AccountAccess from "./components/AccountAccess";
+import AccountActivity from "./components/AccountActivity";
 import AccountAssetDetail from "./components/AccountAssetDetail";
 import AccountAssets from "./components/AccountAssets";
 import AccountChildren from "./components/AccountChildren";
@@ -20,7 +21,7 @@ import { type NavItem, type SecondaryNavItem } from "@/protoFleet/config/navItem
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import Preferences from "@/protoFleet/features/settings/components/Preferences";
 import { useFleetStore, usePermissions } from "@/protoFleet/store";
-import { Fleet, Groups, Home, LightningAlt, Lock, Settings, Team } from "@/shared/assets/icons";
+import { Activity, Fleet, Groups, Home, LightningAlt, Lock, Settings, Team } from "@/shared/assets/icons";
 import Breadcrumb from "@/shared/components/Breadcrumb";
 import Button, { sizes } from "@/shared/components/Button";
 import ProgressCircular from "@/shared/components/ProgressCircular";
@@ -59,8 +60,8 @@ const AccountPage = ({
   const load = useCallback(
     async (signal: AbortSignal) => {
       const [result, policy] = await Promise.all([
-        connection.client.getAccount({ accountId }, { signal }),
-        connection.client.getSitePolicy({ accountId }, { signal }),
+        connection.client.getAccount({ accountId }, { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal }),
+        connection.client.getSitePolicy({ accountId }, { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal }),
       ]);
       return { ...result, policy };
     },
@@ -98,6 +99,9 @@ const AccountPage = ({
     ...(account && account.depth > 0 && can(account, 1n) ? [{ path: path(accountId), label: "Home", icon: Home }] : []),
     ...(account && account.depth > 0 && can(account, 1n)
       ? [{ path: path(accountId, "assets"), label: "Fleet", icon: Fleet }]
+      : []),
+    ...(account && account.depth > 0 && can(account, 1n)
+      ? [{ path: path(accountId, "activity"), label: "Activity", icon: Activity }]
       : []),
     ...(account && account.depth > 0 && can(account, 1n)
       ? [{ path: path(accountId, "pools"), label: "Pools", icon: LightningAlt }]
@@ -141,7 +145,9 @@ const AccountPage = ({
   const workspaceItems: NavItem[] =
     account?.depth !== 0 && !management
       ? [
-          ...navItems.filter((item) => [path(accountId), path(accountId, "assets")].includes(item.path)),
+          ...navItems.filter((item) =>
+            [path(accountId), path(accountId, "assets"), path(accountId, "activity")].includes(item.path),
+          ),
           ...(settingsPages.length
             ? [{ path: settingsPath, label: "Settings", icon: Settings, children: settingsPages }]
             : []),
@@ -151,6 +157,8 @@ const AccountPage = ({
   const accessible = !!section && navItems.some((item) => item.path === path(accountId, section));
   const renderSection = (authorityKey: string) => {
     switch (section) {
+      case "activity":
+        return <AccountActivity key={authorityKey} />;
       case "overview":
         return <AccountOverview key={authorityKey} />;
       case "assets":

@@ -274,7 +274,6 @@ describe("real account workspace routing", () => {
         effectiveCapabilities: 31n,
         capabilityCeiling: 31n,
       });
-      fetchRpc(() => ({ account: toJson(AccountSchema, account) }));
       const user = userEvent.setup();
       const otherAccount = create(AccountSchema, {
         accountId: "22222222-2222-4222-8222-222222222222",
@@ -282,6 +281,11 @@ describe("real account workspace routing", () => {
         name: "Other client",
         effectiveCapabilities: 1n,
       });
+      fetchRpc((method, body) =>
+        method === "GetAccount"
+          ? { account: toJson(AccountSchema, body.accountId === otherAccount.accountId ? otherAccount : account) }
+          : {},
+      );
       mount(account, "access", false, multipleAccounts ? [account, otherAccount] : [account]);
       await screen.findByRole("button", { name: "Rename account" });
       const menu = within(screen.getByRole("navigation", { name: "Main" })).getByRole("list");
@@ -300,22 +304,24 @@ describe("real account workspace routing", () => {
       expect(
         within(screen.getByRole("navigation", { name: "Settings" })).getByRole("link", { name: "Access" }),
       ).toHaveAttribute("href", `/accounts/${accountId}/access`);
+      expect(screen.queryByRole("link", { name: "All accounts" })).not.toBeInTheDocument();
       if (multipleAccounts) {
-        await user.click(screen.getByRole("button", { name: "Switch account" }));
+        const picker = screen.getByRole("button", { name: "Switch account" });
+        expect(picker).toHaveTextContent("Customer");
+        await user.click(picker);
         const dialog = within(screen.getByRole("dialog", { name: "Switch account" }));
-        expect(dialog.getByRole("radio", { name: /^Other client/ })).toBeInTheDocument();
-        await user.click(dialog.getByRole("link", { name: "All accounts" }));
-      } else {
-        expect(screen.queryByRole("button", { name: "Switch account" })).not.toBeInTheDocument();
-        expect(
-          within(screen.getByRole("navigation", { name: "Breadcrumb" })).getByText("Customer"),
-        ).toBeInTheDocument();
-        expect(within(screen.getByTestId("app-header")).queryByText("Customer")).not.toBeInTheDocument();
-        expect(screen.getByTestId("navigation-home-link")).toHaveAttribute("href", `/accounts/${accountId}/overview`);
-        await user.click(screen.getByRole("link", { name: "All accounts" }));
-      }
-      await screen.findByRole("link", { name: "Join an account" });
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+        expect(dialog.getByRole("radio", { name: /^Customer/ })).toBeChecked();
+        expect(dialog.getByRole("button", { name: "Join an account" })).toBeInTheDocument();
+        await user.click(dialog.getByRole("radio", { name: /^Other client/ }));
+      } else expect(screen.queryByRole("button", { name: "Switch account" })).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      expect(screen.getByRole("navigation", { name: "Main" })).toHaveTextContent("Fleet");
+      await waitFor(() =>
+        expect(screen.getByTestId("navigation-home-link")).toHaveAttribute(
+          "href",
+          `/accounts/${multipleAccounts ? otherAccount.accountId : accountId}/overview`,
+        ),
+      );
     },
   );
   it("keeps host team provisioning writable in Clients management", async () => {

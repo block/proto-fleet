@@ -3,7 +3,7 @@ import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { Code } from "@connectrpc/connect";
 import { accountDashboardData, reportingCoverage } from "../accountDashboardData";
 import { useRequiredAccountScope } from "../AccountScope";
-import { isRetryableReadError } from "../api";
+import { ACCOUNT_READ_TIMEOUT_MS, isRetryableReadError } from "../api";
 import { accountPath, can } from "../capabilities";
 import { useAccountQuery } from "../useAccountQuery";
 import { AccountState } from "./AccountState";
@@ -48,7 +48,7 @@ const AccountOverview = () => {
             endTime: timestampFromDate(end),
             bucketSeconds: getGranularityForDuration(duration),
           },
-          { signal },
+          { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal },
         );
         if (!signal.aborted) {
           setFilters({

@@ -6,6 +6,10 @@ import { HostedAccountService } from "@/protoFleet/api/generated/hosted/v1/hoste
 import { transport } from "@/protoFleet/api/transport";
 import { observabilityInterceptors } from "@/shared/observability";
 
+// Bound each read separately so slow multi-page loads can finish while stalled
+// requests release their polling slot. Streaming CSV exports have no deadline.
+export const ACCOUNT_READ_TIMEOUT_MS = 30_000;
+
 export const hostedAccountsClient = createClient(HostedAccountService, transport);
 
 // A page owns its client. No global mutable account selection can retarget a
@@ -19,7 +23,7 @@ export const createAccountClient = (
     const signal = typeof lifetime === "function" ? lifetime() : lifetime;
     if (signal.aborted || request.signal.aborted)
       throw new ConnectError("Account workspace is no longer active", Code.Canceled);
-    if (readOnly && !/^(Get|List)/.test(request.method.name))
+    if (readOnly && !/^(Get|List)/.test(request.method.name) && request.method.name !== "ExportAccountActivities")
       throw new ConnectError("Actions are unavailable in this read-only preview.", Code.PermissionDenied);
     request.header.set("X-Fleet-Account-ID", accountId);
     return next({

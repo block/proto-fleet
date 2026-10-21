@@ -513,6 +513,8 @@ var ProceduresPendingMigration = map[string]string{
 // operations also support explicit host account:manage; grants and site policy
 // have narrowly checked host recovery or direct-parent alternatives.
 var AccountProcedureCapabilities = map[string]hostedaccounts.Capabilities{
+	hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure:    hostedaccounts.View,
+	hostedv1connect.HostedAccountServiceExportAccountActivitiesProcedure:  hostedaccounts.View,
 	hostedv1connect.HostedAccountServiceGetAccountDashboardProcedure:      hostedaccounts.View,
 	hostedv1connect.HostedAccountServiceGetAccountAssetDetailProcedure:    hostedaccounts.View,
 	hostedv1connect.HostedAccountServiceGetAccountMiningSummaryProcedure:  hostedaccounts.View,

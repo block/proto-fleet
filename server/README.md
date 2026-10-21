@@ -385,6 +385,46 @@ controller plant power never substitutes for assigned-module power. Efficiency
 requires complete valid power and hashrate coverage across the selected assets,
 both for current totals and every historical bucket. Missing values remain absent.
 
+### Client activity
+
+`ListAccountActivities` and `ExportAccountActivities` require a selected account
+and a session with live account View access. The shared organization read lock
+holds admission and site policy through each query; every export page repeats
+admission. Organization activity APIs remain host-only.
+
+The client workspace and read-only host preview use the existing Activity filters,
+table and details. Rows, totals, options, search and CSV share one SQL projection:
+
+- Selected-account creation, rename, capability/site-policy changes, team
+  membership and invitation changes, ancestor grants, and account API-key changes.
+- Selected-account pool configuration creation, revision and archival, and
+  incoming-profile changes.
+- Assignment and recall, including host actions targeting the selected account.
+  A parent sees its own delegation actions; child-private account events require
+  opening that child's independently authorized workspace.
+- Conventional miner reboot, start/stop, power/cooling, pool, firmware and
+  curtailment command completions. Both command creation and outcome timestamps
+  must fit the same established half-open allocation interval. Parent estate
+  events include permitted delegated miners, once per miner. Current account site
+  policy and the previewing host's physical read authority also apply. Recall
+  preserves permitted events from the account's allocation periods; unknown,
+  pre-assignment and post-recall periods cannot be inferred from current owners.
+
+Only fixed descriptions/types, event IDs/times, results and authorized scope
+counts cross the boundary. Command metadata contains only recomputed
+`success_count` and `failure_count` for visible miners. Account metadata is empty;
+assignment counts are exposed as asset scope counts. Actor identities, audit
+free text, historical account names, network locations, credentials, pool slots,
+raw errors and organization batch IDs are omitted. There is no actor filter or
+organization batch-detail drill-down. Account assignment/recall is independently
+visible even when there is no retained miner interval.
+
+Organization alerts and controller/module command outcomes lack this account-safe
+evidence and are excluded. Module assignments/recalls remain visible. New event
+types require an explicit projection decision. Account/authority changes clear
+scoped rows and details and abort reads/downloads; denied reads withdraw rows,
+filters and open details so late responses cannot restore them.
+
 ### Rig Curtailment Configuration Delivery
 
 MQTT settings changes durably request configuration delivery to every fully

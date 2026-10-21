@@ -3,6 +3,7 @@ syntax = "proto3";
 package hosted.v1;
 
 import "buf/validate/validate.proto";
+import "activity/v1/activity.proto";
 import "common/v1/equipment_coverage.proto";
 import "common/v1/sort.proto";
 import "google/protobuf/timestamp.proto";
@@ -10,6 +11,8 @@ import "google/protobuf/timestamp.proto";
 // HostedAccountService uses account authority independently of organization RBAC.
 // Every private account operation names its account; names are display labels.
 service HostedAccountService {
+  rpc ListAccountActivities(ListAccountActivitiesRequest) returns (ListAccountActivitiesResponse);
+  rpc ExportAccountActivities(ExportAccountActivitiesRequest) returns (stream ExportAccountActivitiesResponse);
   rpc GetAccountDashboard(GetAccountDashboardRequest) returns (GetAccountDashboardResponse);
   rpc GetAccountAssetDetail(GetAccountAssetDetailRequest) returns (GetAccountAssetDetailResponse);
   rpc GetAccountMiningSummary(GetAccountMiningSummaryRequest) returns (GetAccountMiningSummaryResponse);
@@ -47,6 +50,41 @@ service HostedAccountService {
   rpc ListAccountKeys(ListAccountKeysRequest) returns (ListAccountKeysResponse);
   rpc RevokeAccountKey(RevokeAccountKeyRequest) returns (RevokeAccountKeyResponse);
 }
+
+// Client-safe audit history for this account, including miner command outcomes
+// during established allocation intervals. Child-private account changes and
+// organization alerts are excluded. Actors, raw errors and batch IDs are never
+// exposed. Filter options and counts use the same authorized projection as rows.
+message ListAccountActivitiesRequest {
+  option (buf.validate.message).cel = {
+    id: "account_activity.no_users"
+    message: "account activity does not expose user identities"
+    expression: "!has(this.filter) || this.filter.user_ids.size() == 0"
+  };
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  activity.v1.ActivityFilter filter = 2;
+  int32 page_size = 3 [(buf.validate.field).int32 = {gte: 1, lte: 100}];
+  string page_token = 4;
+}
+message ListAccountActivitiesResponse {
+  repeated activity.v1.ActivityEntry activities = 1;
+  string next_page_token = 2;
+  int32 total_count = 3;
+  activity.v1.ListActivityFilterOptionsResponse filter_options = 4;
+  // Opaque fingerprint of effective account and host physical read scope.
+  // Clients discard accumulated pages when this changes.
+  string authority_fingerprint = 5;
+}
+message ExportAccountActivitiesRequest {
+  option (buf.validate.message).cel = {
+    id: "account_activity_export.no_users"
+    message: "account activity does not expose user identities"
+    expression: "!has(this.filter) || this.filter.user_ids.size() == 0"
+  };
+  string account_id = 1 [(buf.validate.field).string.uuid = true];
+  activity.v1.ActivityFilter filter = 2;
+}
+message ExportAccountActivitiesResponse { bytes chunk = 1; }
 
 enum AccountRole {
   ACCOUNT_ROLE_UNSPECIFIED = 0;

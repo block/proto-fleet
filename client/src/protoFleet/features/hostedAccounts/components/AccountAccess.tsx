@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 
 import { useRequiredAccountScope } from "../AccountScope";
+import { ACCOUNT_READ_TIMEOUT_MS } from "../api";
 import { can, capabilities } from "../capabilities";
 import { useHostedAccounts } from "../HostedAccountsContext";
 import { useAccountQuery } from "../useAccountQuery";
@@ -28,11 +29,15 @@ const AccountAccess = ({ title = "Access" }: { title?: string }) => {
     [page, setPage] = useState(0);
   const loadKeys = useCallback(
     (signal: AbortSignal) =>
-      client.listAccountKeys({ accountId: account.accountId, pageSize: 25, pageToken: tokens[page] }, { signal }),
+      client.listAccountKeys(
+        { accountId: account.accountId, pageSize: 25, pageToken: tokens[page] },
+        { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal },
+      ),
     [account.accountId, client, tokens, page],
   );
   const loadGrants = useCallback(
-    (signal: AbortSignal) => client.listAncestorGrants({ accountId: account.accountId }, { signal }),
+    (signal: AbortSignal) =>
+      client.listAncestorGrants({ accountId: account.accountId }, { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal }),
     [account.accountId, client],
   );
   const keys = useAccountQuery(loadKeys, account.depth > 0);

@@ -33,6 +33,24 @@ describe("account query isolation", () => {
     });
     expect(result.current.data).toBe("private account B");
   });
+  it("does not let a background poll abort a load that is still running", async () => {
+    const slow = deferred<string>();
+    const signals: AbortSignal[] = [];
+    const load = vi.fn((signal: AbortSignal) => {
+      signals.push(signal);
+      return signals.length === 1 ? slow.promise : Promise.resolve("next poll");
+    });
+    const { result } = renderHook(() => useAccountQuery<string>(load, true, true));
+    act(() => result.current.poll());
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(signals[0]!.aborted).toBe(false);
+    await act(async () => {
+      slow.resolve("slow load");
+    });
+    expect(result.current.data).toBe("slow load");
+    act(() => result.current.poll());
+    await waitFor(() => expect(result.current.data).toBe("next poll"));
+  });
   it("retains same-account forms during background refresh but invalidation clears them", async () => {
     const next = deferred<string>();
     const load = vi.fn().mockResolvedValueOnce("account data").mockReturnValue(next.promise);

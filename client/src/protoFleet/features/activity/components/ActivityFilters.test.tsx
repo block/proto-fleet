@@ -30,22 +30,34 @@ const defaultProps = {
 };
 
 describe("ActivityFilters", () => {
-  it("spans search across the toolbar and aligns actions with filter controls", () => {
-    render(<ActivityFilters {...defaultProps} actions={<button type="button">Export CSV</button>} />);
+  it("expands list search beside the filters and clears it with Escape", async () => {
+    const onSearchChange = vi.fn();
+    render(
+      <ActivityFilters
+        {...defaultProps}
+        onSearchChange={onSearchChange}
+        actions={<button type="button">Export CSV</button>}
+      />,
+    );
 
-    expect(screen.getByTestId("activity-search-row")).toHaveClass("w-full", "min-w-0");
-    expect(screen.getByTestId("activity-toolbar-row")).toHaveClass("justify-between");
-
-    const exportButton = screen.getByRole("button", { name: "Export CSV" });
-    expect(exportButton).toBeInTheDocument();
-    expect(exportButton.parentElement).toHaveClass("ml-auto", "shrink-0");
+    expect(screen.queryByRole("textbox", { name: "Search activity" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Search activity" }));
+    const search = screen.getByRole("textbox", { name: "Search activity" });
+    expect(search).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Export CSV" })).toBeInTheDocument();
+    fireEvent.change(search, { target: { value: "created account" } });
+    expect(onSearchChange).not.toHaveBeenCalled();
+    await waitFor(() => expect(onSearchChange).toHaveBeenCalledWith("created account"));
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect(onSearchChange).toHaveBeenLastCalledWith("");
+    expect(screen.queryByRole("textbox", { name: "Search activity" })).not.toBeInTheDocument();
   });
 
   it("uses live fleet-style checkbox filters without an apply action", async () => {
     const onTypesChange = vi.fn();
     render(<ActivityFilters {...defaultProps} onTypesChange={onTypesChange} />);
 
-    expect(screen.getByLabelText("Search activity")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Search activity" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("filter-nested-add-filter"));
     expect(screen.queryByText("Apply")).not.toBeInTheDocument();

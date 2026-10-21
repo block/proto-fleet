@@ -41,6 +41,34 @@ test.describe("Client workspace and read-only host preview", () => {
       await expect(workspace.fleetSize()).toHaveCSS("opacity", "1");
       await workspace.expectNavigation(clientA);
 
+      await test.step("Read account activity with shared filtering, pagination and details", async () => {
+        await workspace.navigate("Activity", clientA, "activity");
+        await workspace.expectActivity();
+        await test.info().attach("Account Activity", {
+          body: await page.screenshot({ path: test.info().outputPath("account-activity.png") }),
+          contentType: "image/png",
+        });
+        await workspace.loadMoreActivity();
+        await workspace.openActivityDetails();
+        await workspace.searchActivity("Recalled");
+        await expect
+          .poll(() => mock.calls.filter((call) => call.method === "ListAccountActivities").slice(-1)[0]?.body.filter)
+          .toMatchObject({ searchText: "Recalled" });
+        await workspace.expectFilteredActivity();
+        const csv = await workspace.exportActivity();
+        expect(csv).toContain("Recalled mining assets");
+        expect(csv).not.toContain("Created pool configuration");
+        const activityCalls = mock.calls.filter((call) => call.method === "ListAccountActivities");
+        expect(activityCalls.some((call) => call.body.pageToken === "next")).toBe(true);
+        expect(activityCalls.every((call) => call.account === clientA && call.body.accountId === clientA)).toBe(true);
+        expect(
+          mock.calls.some((call) =>
+            ["ListActivities", "ListAlerts", "GetCommandBatchDeviceResults"].includes(call.method),
+          ),
+        ).toBe(false);
+        await workspace.navigate("Home", clientA, "overview");
+      });
+
       await test.step("Keep allocation, site and duration filters in the parent's workspace", async () => {
         await workspace.selectReportFilter("allocation", subclient);
         await expect
@@ -298,6 +326,116 @@ test.describe("Client workspace and read-only host preview", () => {
       await expect(workspace.fleetSize().getByText("2 assets", { exact: true })).toBeVisible();
       await expect(workspace.fleetSize().getByText("4 assets", { exact: true })).toHaveCount(0);
       await expect(page.getByText("A allocated site", { exact: true })).toHaveCount(0);
+      expect(mock.unexpected).toEqual([]);
+    } finally {
+      held.release();
+    }
+  });
+
+  test("pending Activity cannot restore the previous account after preview exit", async ({
+    context,
+    page,
+    isMobile,
+  }) => {
+    const mock = await mockClientWorkspace(context, true);
+    const workspace = new ClientWorkspacePage(page, isMobile);
+    await workspace.open(clientA);
+    await workspace.navigate("Activity", clientA, "activity");
+    await workspace.expectActivity();
+    const held = mock.pauseActivity(clientA);
+    try {
+      await workspace.requestMoreActivity();
+      await held.pending;
+      await workspace.closePreview();
+      await workspace.viewClientFromManagement("Customer B");
+      await workspace.navigate("Activity", clientB, "activity");
+      await workspace.expectRenamedActivity();
+      held.release();
+      await held.finished;
+      await workspace.expectRenamedActivity();
+      expect(mock.unexpected).toEqual([]);
+    } finally {
+      held.release();
+    }
+  });
+
+  test("narrowed Activity authority withdraws accumulated rows and open details", async ({
+    context,
+    page,
+    isMobile,
+  }) => {
+    const mock = await mockClientWorkspace(context, true);
+    mock.showMinerActivity();
+    const workspace = new ClientWorkspacePage(page, isMobile);
+    await workspace.open(clientA);
+    await workspace.navigate("Activity", clientA, "activity");
+    await workspace.expectMinerActivity(true);
+    await workspace.loadMoreActivity();
+    await workspace.openMinerActivityDetails();
+    mock.narrowActivityAuthority();
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await workspace.expectMinerActivity(false);
+    await workspace.expectMinerActivityDetailsCleared();
+    await expect(page.getByText("Recalled mining assets", { exact: true })).toBeVisible();
+    expect(mock.unexpected).toEqual([]);
+  });
+
+  test("changing Activity filters cancels the old export and allows a fresh download", async ({
+    context,
+    page,
+    isMobile,
+  }) => {
+    const mock = await mockClientWorkspace(context, false);
+    const workspace = new ClientWorkspacePage(page, isMobile);
+    await workspace.open(clientA);
+    await workspace.navigate("Activity", clientA, "activity");
+    await workspace.expectActivity();
+    const held = mock.pauseActivityExport(clientA);
+    const downloads: string[] = [];
+    page.on("download", (download) => downloads.push(download.suggestedFilename()));
+    const cancelled = page.waitForEvent("requestfailed", {
+      predicate: (request) => request.url().endsWith("/ExportAccountActivities"),
+    });
+    try {
+      await page.getByRole("button", { name: "Export activity CSV", exact: true }).click();
+      await held.pending;
+      await workspace.searchActivity("Recalled");
+      await workspace.expectFilteredActivity();
+      await cancelled;
+      held.release();
+      await held.finished;
+      const csv = await workspace.exportActivity();
+      expect(csv).toContain("Recalled mining assets");
+      expect(csv).not.toContain("Created pool configuration");
+      expect(downloads).toHaveLength(1);
+      expect(mock.unexpected).toEqual([]);
+    } finally {
+      held.release();
+    }
+  });
+
+  test("access removal clears Activity rows, filters and details despite a pending page", async ({
+    context,
+    page,
+    isMobile,
+  }) => {
+    const mock = await mockClientWorkspace(context, true);
+    const workspace = new ClientWorkspacePage(page, isMobile);
+    await workspace.open(clientA);
+    await workspace.navigate("Activity", clientA, "activity");
+    await workspace.expectActivity();
+    const held = mock.pauseActivity(clientA);
+    try {
+      await workspace.requestMoreActivity();
+      await held.pending;
+      await workspace.openPoolActivityDetails();
+      mock.denyAccount();
+      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+      await expect(page.getByText(/Account access removed/)).toBeVisible();
+      await workspace.expectActivityCleared();
+      held.release();
+      await held.finished;
+      await workspace.expectActivityCleared();
       expect(mock.unexpected).toEqual([]);
     } finally {
       held.release();

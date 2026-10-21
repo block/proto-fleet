@@ -64,7 +64,11 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
   let denied = false;
   let recalled = false;
   let noHistory = false;
-  let pause: { accountId: string; entered: () => void; release: Promise<void>; completed: () => void } | undefined;
+  let activityMiner = false;
+  let narrowActivity = false;
+  let pause:
+    | { method: string; accountId: string; entered: () => void; release: Promise<void>; completed: () => void }
+    | undefined;
   const username = preview ? "host-operator" : "customer-admin";
   await context.addInitScript(
     ({ username, preview }) => {
@@ -95,10 +99,12 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
     const url = new URL(request.url());
     if (url.pathname === "/api-proxy/api/v1/alerts/enabled") return fulfill(route, { enabled: false });
     const method = url.pathname.split("/").slice(-1)[0];
-    const body = (request.postDataJSON() ?? JSON.parse(url.searchParams.get("message") ?? "{}")) as Record<
-      string,
-      unknown
-    >;
+    const envelope = method === "ExportAccountActivities" ? request.postDataBuffer()! : null;
+    const body = (
+      envelope
+        ? JSON.parse(envelope.subarray(5, 5 + envelope.readUInt32BE(1)).toString("utf8"))
+        : (request.postDataJSON() ?? JSON.parse(url.searchParams.get("message") ?? "{}"))
+    ) as Record<string, unknown>;
     const id = String(body.accountId ?? clientA);
     calls.push({ method, body, account: request.headers()["x-fleet-account-id"], page: request.frame().page() });
     if (method === "GetFleetInitStatus") return fulfill(route, { status: { adminCreated: true } });
@@ -126,8 +132,107 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
       return fulfill(route, { account: accountFor(id) });
     }
     if (method === "GetSitePolicy") return fulfill(route, {});
+    if (["ListAccountActivities", "ExportAccountActivities"].includes(method)) {
+      if (denied)
+        return route.fulfill({
+          status: 403,
+          contentType: "application/json",
+          body: JSON.stringify({ code: "permission_denied", message: "Account access removed" }),
+        });
+      const pending = pause?.accountId === id && pause.method === method ? pause : undefined;
+      if (pending) {
+        pause = undefined;
+        pending.entered();
+        await pending.release;
+      }
+      try {
+        const filter = (body.filter ?? {}) as { searchText?: string; eventTypes?: string[]; scopeTypes?: string[] };
+        const entries = [
+          {
+            eventId: `${id}-pool`,
+            eventCategory: "pool",
+            eventType: "create_hosted_account_pool",
+            description: "Created pool configuration",
+            scopeType: "account",
+            scopeLabel: "Account",
+            scopeCount: 0,
+            result: "success",
+            createdAt: "2026-10-20T09:00:00Z",
+          },
+          {
+            eventId: `${id}-recall`,
+            eventCategory: "fleet_management",
+            eventType: "account_assets_recalled",
+            description: "Recalled mining assets",
+            scopeType: "asset",
+            scopeLabel: "",
+            scopeCount: 2,
+            result: "success",
+            createdAt: "2026-10-20T08:00:00Z",
+          },
+        ];
+        if (activityMiner)
+          entries[0] = {
+            ...entries[0],
+            eventCategory: "device_command",
+            eventType: "reboot.completed",
+            description: "Rebooted miners",
+            scopeType: "device",
+            scopeLabel: "",
+            scopeCount: 1,
+          };
+        if (narrowActivity) entries.splice(0, 1);
+        if (id === clientB)
+          entries.splice(0, entries.length, {
+            eventId: `${id}-rename`,
+            eventCategory: "auth",
+            eventType: "rename_hosted_account",
+            description: "Renamed account",
+            scopeType: "account",
+            scopeLabel: "Account",
+            scopeCount: 0,
+            result: "success",
+            createdAt: "2026-10-20T09:00:00Z",
+          });
+        const filtered = entries.filter(
+          (entry) =>
+            (!filter.searchText || entry.description.toLowerCase().includes(filter.searchText.toLowerCase())) &&
+            (!filter.eventTypes?.length || filter.eventTypes.includes(entry.eventType)) &&
+            (!filter.scopeTypes?.length || filter.scopeTypes.includes(entry.scopeType)),
+        );
+        if (method === "ExportAccountActivities") {
+          const envelope = (flags: number, message: unknown) => {
+            const payload = Buffer.from(JSON.stringify(message));
+            const header = Buffer.alloc(5);
+            header.writeUInt8(flags, 0);
+            header.writeUInt32BE(payload.length, 1);
+            return Buffer.concat([header, payload]);
+          };
+          const csv =
+            "Timestamp,Type,Description\n" +
+            filtered.map((entry) => `${entry.createdAt},${entry.eventType},${entry.description}`).join("\n");
+          return route.fulfill({
+            status: 200,
+            contentType: "application/connect+json",
+            body: Buffer.concat([envelope(0, { chunk: Buffer.from(csv).toString("base64") }), envelope(2, {})]),
+          });
+        }
+        return fulfill(route, {
+          activities: body.pageToken ? filtered.slice(1) : filtered.slice(0, 1),
+          totalCount: filtered.length,
+          authorityFingerprint: `${id}:${narrowActivity ? "narrow" : "full"}`,
+          nextPageToken: !body.pageToken && filtered.length > 1 ? "next" : "",
+          filterOptions: {
+            eventTypes: entries.map(({ eventType, eventCategory }) => ({ eventType, eventCategory })),
+            scopeTypes: ["account", "asset"],
+          },
+        });
+      } finally {
+        pending?.completed();
+      }
+    }
     if (method === "GetAccountDashboard") {
-      const pending = pause?.accountId === id ? pause : undefined;
+      const pending = pause?.accountId === id && pause.method === method ? pause : undefined;
       if (pending) {
         pause = undefined;
         pending.entered();
@@ -226,6 +331,27 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
       body: JSON.stringify({ code: "unimplemented", message: `Unexpected workspace RPC: ${method}` }),
     });
   });
+  function pauseRead(method: string, accountId: string) {
+    let release!: () => void;
+    let entered!: () => void;
+    let completed!: () => void;
+    const finished = new Promise<void>((resolve) => {
+      completed = resolve;
+    });
+    const pending = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    pause = {
+      accountId,
+      method,
+      entered,
+      completed,
+      release: new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    };
+    return { pending, release, finished };
+  }
   return {
     calls,
     unexpected,
@@ -236,28 +362,17 @@ export async function mockClientWorkspace(context: BrowserContext, preview: bool
     recallAsset: () => {
       recalled = true;
     },
+    showMinerActivity: () => {
+      activityMiner = true;
+    },
+    narrowActivityAuthority: () => {
+      narrowActivity = true;
+    },
     denyAccount: () => {
       denied = true;
     },
-    pauseDashboard(accountId: string) {
-      let release!: () => void;
-      let entered!: () => void;
-      let completed!: () => void;
-      const finished = new Promise<void>((resolve) => {
-        completed = resolve;
-      });
-      const pending = new Promise<void>((resolve) => {
-        entered = resolve;
-      });
-      pause = {
-        accountId,
-        entered,
-        completed,
-        release: new Promise<void>((resolve) => {
-          release = resolve;
-        }),
-      };
-      return { pending, release, finished };
-    },
+    pauseDashboard: (accountId: string) => pauseRead("GetAccountDashboard", accountId),
+    pauseActivity: (accountId: string) => pauseRead("ListAccountActivities", accountId),
+    pauseActivityExport: (accountId: string) => pauseRead("ExportAccountActivities", accountId),
   };
 }

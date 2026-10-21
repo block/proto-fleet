@@ -7,6 +7,8 @@ describe("formatScope", () => {
     expect(formatScope("container", "Site A", 2)).toBe("Site A (2 containers)");
     expect(formatScope(undefined, undefined, 1)).toBe("1 miner");
     expect(formatScope("miner", "Site A", 2)).toBe("Site A (2 miners)");
+    expect(formatScope("asset", undefined, 1)).toBe("1 asset");
+    expect(formatScope("asset", undefined, 2)).toBe("2 assets");
   });
 
   it("preserves labels and empty scopes", () => {

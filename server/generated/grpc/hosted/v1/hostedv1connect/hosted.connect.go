@@ -34,6 +34,12 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// HostedAccountServiceListAccountActivitiesProcedure is the fully-qualified name of the
+	// HostedAccountService's ListAccountActivities RPC.
+	HostedAccountServiceListAccountActivitiesProcedure = "/hosted.v1.HostedAccountService/ListAccountActivities"
+	// HostedAccountServiceExportAccountActivitiesProcedure is the fully-qualified name of the
+	// HostedAccountService's ExportAccountActivities RPC.
+	HostedAccountServiceExportAccountActivitiesProcedure = "/hosted.v1.HostedAccountService/ExportAccountActivities"
 	// HostedAccountServiceGetAccountDashboardProcedure is the fully-qualified name of the
 	// HostedAccountService's GetAccountDashboard RPC.
 	HostedAccountServiceGetAccountDashboardProcedure = "/hosted.v1.HostedAccountService/GetAccountDashboard"
@@ -143,6 +149,8 @@ const (
 
 // HostedAccountServiceClient is a client for the hosted.v1.HostedAccountService service.
 type HostedAccountServiceClient interface {
+	ListAccountActivities(context.Context, *connect.Request[v1.ListAccountActivitiesRequest]) (*connect.Response[v1.ListAccountActivitiesResponse], error)
+	ExportAccountActivities(context.Context, *connect.Request[v1.ExportAccountActivitiesRequest]) (*connect.ServerStreamForClient[v1.ExportAccountActivitiesResponse], error)
 	GetAccountDashboard(context.Context, *connect.Request[v1.GetAccountDashboardRequest]) (*connect.Response[v1.GetAccountDashboardResponse], error)
 	GetAccountAssetDetail(context.Context, *connect.Request[v1.GetAccountAssetDetailRequest]) (*connect.Response[v1.GetAccountAssetDetailResponse], error)
 	GetAccountMiningSummary(context.Context, *connect.Request[v1.GetAccountMiningSummaryRequest]) (*connect.Response[v1.GetAccountMiningSummaryResponse], error)
@@ -190,6 +198,16 @@ type HostedAccountServiceClient interface {
 func NewHostedAccountServiceClient(httpClient connect.HTTPClient, baseURL string, opts ...connect.ClientOption) HostedAccountServiceClient {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &hostedAccountServiceClient{
+		listAccountActivities: connect.NewClient[v1.ListAccountActivitiesRequest, v1.ListAccountActivitiesResponse](
+			httpClient,
+			baseURL+HostedAccountServiceListAccountActivitiesProcedure,
+			opts...,
+		),
+		exportAccountActivities: connect.NewClient[v1.ExportAccountActivitiesRequest, v1.ExportAccountActivitiesResponse](
+			httpClient,
+			baseURL+HostedAccountServiceExportAccountActivitiesProcedure,
+			opts...,
+		),
 		getAccountDashboard: connect.NewClient[v1.GetAccountDashboardRequest, v1.GetAccountDashboardResponse](
 			httpClient,
 			baseURL+HostedAccountServiceGetAccountDashboardProcedure,
@@ -370,6 +388,8 @@ func NewHostedAccountServiceClient(httpClient connect.HTTPClient, baseURL string
 
 // hostedAccountServiceClient implements HostedAccountServiceClient.
 type hostedAccountServiceClient struct {
+	listAccountActivities    *connect.Client[v1.ListAccountActivitiesRequest, v1.ListAccountActivitiesResponse]
+	exportAccountActivities  *connect.Client[v1.ExportAccountActivitiesRequest, v1.ExportAccountActivitiesResponse]
 	getAccountDashboard      *connect.Client[v1.GetAccountDashboardRequest, v1.GetAccountDashboardResponse]
 	getAccountAssetDetail    *connect.Client[v1.GetAccountAssetDetailRequest, v1.GetAccountAssetDetailResponse]
 	getAccountMiningSummary  *connect.Client[v1.GetAccountMiningSummaryRequest, v1.GetAccountMiningSummaryResponse]
@@ -405,6 +425,16 @@ type hostedAccountServiceClient struct {
 	createAccountKey         *connect.Client[v1.CreateAccountKeyRequest, v1.CreateAccountKeyResponse]
 	listAccountKeys          *connect.Client[v1.ListAccountKeysRequest, v1.ListAccountKeysResponse]
 	revokeAccountKey         *connect.Client[v1.RevokeAccountKeyRequest, v1.RevokeAccountKeyResponse]
+}
+
+// ListAccountActivities calls hosted.v1.HostedAccountService.ListAccountActivities.
+func (c *hostedAccountServiceClient) ListAccountActivities(ctx context.Context, req *connect.Request[v1.ListAccountActivitiesRequest]) (*connect.Response[v1.ListAccountActivitiesResponse], error) {
+	return c.listAccountActivities.CallUnary(ctx, req)
+}
+
+// ExportAccountActivities calls hosted.v1.HostedAccountService.ExportAccountActivities.
+func (c *hostedAccountServiceClient) ExportAccountActivities(ctx context.Context, req *connect.Request[v1.ExportAccountActivitiesRequest]) (*connect.ServerStreamForClient[v1.ExportAccountActivitiesResponse], error) {
+	return c.exportAccountActivities.CallServerStream(ctx, req)
 }
 
 // GetAccountDashboard calls hosted.v1.HostedAccountService.GetAccountDashboard.
@@ -584,6 +614,8 @@ func (c *hostedAccountServiceClient) RevokeAccountKey(ctx context.Context, req *
 
 // HostedAccountServiceHandler is an implementation of the hosted.v1.HostedAccountService service.
 type HostedAccountServiceHandler interface {
+	ListAccountActivities(context.Context, *connect.Request[v1.ListAccountActivitiesRequest]) (*connect.Response[v1.ListAccountActivitiesResponse], error)
+	ExportAccountActivities(context.Context, *connect.Request[v1.ExportAccountActivitiesRequest], *connect.ServerStream[v1.ExportAccountActivitiesResponse]) error
 	GetAccountDashboard(context.Context, *connect.Request[v1.GetAccountDashboardRequest]) (*connect.Response[v1.GetAccountDashboardResponse], error)
 	GetAccountAssetDetail(context.Context, *connect.Request[v1.GetAccountAssetDetailRequest]) (*connect.Response[v1.GetAccountAssetDetailResponse], error)
 	GetAccountMiningSummary(context.Context, *connect.Request[v1.GetAccountMiningSummaryRequest]) (*connect.Response[v1.GetAccountMiningSummaryResponse], error)
@@ -627,6 +659,16 @@ type HostedAccountServiceHandler interface {
 // By default, handlers support the Connect, gRPC, and gRPC-Web protocols with the binary Protobuf
 // and JSON codecs. They also support gzip compression.
 func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
+	hostedAccountServiceListAccountActivitiesHandler := connect.NewUnaryHandler(
+		HostedAccountServiceListAccountActivitiesProcedure,
+		svc.ListAccountActivities,
+		opts...,
+	)
+	hostedAccountServiceExportAccountActivitiesHandler := connect.NewServerStreamHandler(
+		HostedAccountServiceExportAccountActivitiesProcedure,
+		svc.ExportAccountActivities,
+		opts...,
+	)
 	hostedAccountServiceGetAccountDashboardHandler := connect.NewUnaryHandler(
 		HostedAccountServiceGetAccountDashboardProcedure,
 		svc.GetAccountDashboard,
@@ -804,6 +846,10 @@ func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...con
 	)
 	return "/hosted.v1.HostedAccountService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case HostedAccountServiceListAccountActivitiesProcedure:
+			hostedAccountServiceListAccountActivitiesHandler.ServeHTTP(w, r)
+		case HostedAccountServiceExportAccountActivitiesProcedure:
+			hostedAccountServiceExportAccountActivitiesHandler.ServeHTTP(w, r)
 		case HostedAccountServiceGetAccountDashboardProcedure:
 			hostedAccountServiceGetAccountDashboardHandler.ServeHTTP(w, r)
 		case HostedAccountServiceGetAccountAssetDetailProcedure:
@@ -882,6 +928,14 @@ func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...con
 
 // UnimplementedHostedAccountServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedHostedAccountServiceHandler struct{}
+
+func (UnimplementedHostedAccountServiceHandler) ListAccountActivities(context.Context, *connect.Request[v1.ListAccountActivitiesRequest]) (*connect.Response[v1.ListAccountActivitiesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ListAccountActivities is not implemented"))
+}
+
+func (UnimplementedHostedAccountServiceHandler) ExportAccountActivities(context.Context, *connect.Request[v1.ExportAccountActivitiesRequest], *connect.ServerStream[v1.ExportAccountActivitiesResponse]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.ExportAccountActivities is not implemented"))
+}
 
 func (UnimplementedHostedAccountServiceHandler) GetAccountDashboard(context.Context, *connect.Request[v1.GetAccountDashboardRequest]) (*connect.Response[v1.GetAccountDashboardResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.GetAccountDashboard is not implemented"))
