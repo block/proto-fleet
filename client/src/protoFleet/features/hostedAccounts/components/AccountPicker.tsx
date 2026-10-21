@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { accountPath, roleLabel } from "@/protoFleet/features/hostedAccounts/capabilities";
 import { useHostedAccounts } from "@/protoFleet/features/hostedAccounts/HostedAccountsContext";
 import { ChevronDown } from "@/shared/assets/icons";
-import Button from "@/shared/components/Button";
+import { variants } from "@/shared/components/Button";
 import Modal from "@/shared/components/Modal";
 import Radio from "@/shared/components/Radio";
 
@@ -13,40 +13,44 @@ const AccountPicker = () => {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  if (!directory || directory.loading || directory.error || !directory.accounts.length) return null;
+  if (!directory || directory.loading || directory.error || directory.accounts.length < 2) return null;
   const selected = directory.accounts.find(
     (a) => pathname === `/accounts/${a.accountId}` || pathname.startsWith(`/accounts/${a.accountId}/`),
   );
   if (directory.hostAccess) return null;
-  if (directory.accounts.length === 1)
-    return (
-      <Link className="ml-auto text-200 text-text-emphasis" to="/accounts">
-        All accounts
-      </Link>
-    );
   return (
     <>
-      <Button
-        variant="textOnly"
-        textColor="text-text-primary"
-        borderColor="border-border-primary"
-        text={selected?.name ?? "Accounts"}
-        suffixIcon={<ChevronDown width="w-3" />}
-        textOnlyUnderlineOnHover={false}
+      <button
+        type="button"
+        className="flex max-w-full min-w-0 items-center gap-1 rounded-md px-2 py-1 text-300 text-text-primary hover:bg-surface-base-hover focus-visible:underline"
         onClick={() => setOpen(true)}
-        ariaLabel="Switch account"
-        ariaHasPopup="dialog"
-        ariaExpanded={open}
-        testId="account-picker"
-      />
+        aria-label="Switch account"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        data-testid="account-picker"
+      >
+        <span className="min-w-0 truncate">{selected?.name ?? "Accounts"}</span>
+        <ChevronDown width="w-3" className="shrink-0 opacity-70" />
+      </button>
       <Modal
         open={open}
         title="Switch account"
         dialogLabel="Switch account"
         onDismiss={() => setOpen(false)}
         manageFocus
+        divider={false}
+        buttons={[
+          {
+            variant: variants.secondary,
+            text: "Join an account",
+            onClick: () => {
+              setOpen(false);
+              navigate("/account-invitation");
+            },
+          },
+        ]}
       >
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2" role="radiogroup" aria-label="Accounts">
           {directory.accounts.map((account) => (
             <label
               key={account.accountId}
@@ -70,13 +74,6 @@ const AccountPicker = () => {
             </label>
           ))}
         </div>
-        <Link
-          className="mt-4 inline-block text-text-primary hover:underline"
-          to="/accounts"
-          onClick={() => setOpen(false)}
-        >
-          All accounts
-        </Link>
       </Modal>
     </>
   );
