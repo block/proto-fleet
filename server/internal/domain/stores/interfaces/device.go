@@ -242,6 +242,7 @@ type DeviceStore interface {
 	GetKnownSubnets(ctx context.Context, orgID int64, maskBits int, isIPv4 bool) ([]string, error)
 	ListMinerStateSnapshots(ctx context.Context, orgID int64, cursor string, pageSize int32, filter *MinerFilter, sortConfig *SortConfig) ([]sqlc.ListMinerStateSnapshotsRow, string, int64, error)
 	AllDevicesBelongToOrg(ctx context.Context, deviceIdentifiers []string, orgID int64) (bool, error)
+	FilterDeviceIdentifiersByOrg(ctx context.Context, deviceIdentifiers []string, orgID int64) ([]string, error)
 	SoftDeleteDevices(ctx context.Context, deviceIdentifiers []string, orgID int64) (int64, error)
 	GetDeviceIdentifiersByOrgWithFilter(ctx context.Context, orgID int64, filter *MinerFilter) ([]string, error)
 	GetMinerStateCountsByCollections(ctx context.Context, orgID int64, collectionIDs []int64) (map[int64]MinerStateCounts, error)

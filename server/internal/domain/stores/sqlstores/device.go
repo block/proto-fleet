@@ -1521,6 +1521,35 @@ func (s *SQLDeviceStore) AllDevicesBelongToOrg(ctx context.Context, deviceIdenti
 	})
 }
 
+// FilterDeviceIdentifiersByOrg returns the provided identifiers that are live
+// devices in the org, in input order. Identifiers owned by another org are
+// omitted exactly like unknown ones.
+func (s *SQLDeviceStore) FilterDeviceIdentifiersByOrg(ctx context.Context, deviceIdentifiers []string, orgID int64) ([]string, error) {
+	if len(deviceIdentifiers) == 0 {
+		return []string{}, nil
+	}
+
+	rows, err := s.getQueries(ctx).GetOrgDeviceIDsWithIdentifiers(ctx, sqlc.GetOrgDeviceIDsWithIdentifiersParams{
+		DeviceIdentifiers: deviceIdentifiers,
+		OrgID:             orgID,
+	})
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("failed to filter device identifiers for org %d: %v", orgID, err)
+	}
+	owned := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		owned[row.DeviceIdentifier] = struct{}{}
+	}
+	filtered := make([]string, 0, len(rows))
+	for _, identifier := range deviceIdentifiers {
+		if _, ok := owned[identifier]; ok {
+			filtered = append(filtered, identifier)
+			delete(owned, identifier)
+		}
+	}
+	return filtered, nil
+}
+
 // SoftDeleteDevices verifies ownership and soft-deletes devices and their associated
 // discovered_device records in a single transaction to prevent TOCTOU races.
 // Returns a Forbidden error if any device does not belong to the specified org.

@@ -2870,18 +2870,6 @@ func (q *retryingQuerier) GetDeviceIDByIdentifier(ctx context.Context, arg GetDe
 	return result, err
 }
 
-func (q *retryingQuerier) GetDeviceIDsByDeviceIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]int64, error) {
-	var result []int64
-	err := q.retrier.RetryQuery(ctx, "GetDeviceIDsByDeviceIdentifiers", func() error {
-		callResult, callErr := q.next.GetDeviceIDsByDeviceIdentifiers(ctx, deviceIdentifiers)
-		if callErr == nil {
-			result = callResult
-		}
-		return callErr
-	})
-	return result, err
-}
-
 func (q *retryingQuerier) GetDeviceIDsWithIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]GetDeviceIDsWithIdentifiersRow, error) {
 	var result []GetDeviceIDsWithIdentifiersRow
 	err := q.retrier.RetryQuery(ctx, "GetDeviceIDsWithIdentifiers", func() error {
@@ -4026,6 +4014,18 @@ func (q *retryingQuerier) GetOpenErrorByDedupKey(ctx context.Context, arg GetOpe
 	var result Error
 	err := q.retrier.RetryQuery(ctx, "GetOpenErrorByDedupKey", func() error {
 		callResult, callErr := q.next.GetOpenErrorByDedupKey(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetOrgDeviceIDsWithIdentifiers(ctx context.Context, arg GetOrgDeviceIDsWithIdentifiersParams) ([]GetOrgDeviceIDsWithIdentifiersRow, error) {
+	var result []GetOrgDeviceIDsWithIdentifiersRow
+	err := q.retrier.RetryQuery(ctx, "GetOrgDeviceIDsWithIdentifiers", func() error {
+		callResult, callErr := q.next.GetOrgDeviceIDsWithIdentifiers(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

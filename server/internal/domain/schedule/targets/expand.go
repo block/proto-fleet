@@ -15,10 +15,12 @@ import (
 // logic. Pass nil to ignore unspecified targets silently.
 type UnspecifiedTargetHandler func(targetID string)
 
-// DeviceResolver is the slice of the device store Expand needs to turn a site
-// or building target into device identifiers. Satisfied by interfaces.DeviceStore.
+// DeviceResolver is the slice of the device store Expand needs to turn miner,
+// site, or building targets into device identifiers. Satisfied by
+// interfaces.DeviceStore.
 type DeviceResolver interface {
 	GetDeviceIdentifiersByOrgWithFilter(ctx context.Context, orgID int64, filter *stores.MinerFilter) ([]string, error)
+	FilterDeviceIdentifiersByOrg(ctx context.Context, deviceIdentifiers []string, orgID int64) ([]string, error)
 }
 
 // scheduleTargetPairingStatuses is the paired-like set site/building expansion
@@ -33,9 +35,9 @@ var scheduleTargetPairingStatuses = []fm.PairingStatus{
 }
 
 // Expand converts schedule targets into deduplicated device identifiers. Rack
-// and group targets resolve through the collection store; site and building
-// targets resolve through the device store at call time (dynamic — they
-// reflect whatever paired miners are at the site/building now, not a
+// and group targets resolve through the collection store; miner, site, and
+// building targets resolve through the device store at call time (dynamic —
+// they reflect whatever miners are in the org, site, or building now, not a
 // create-time snapshot). Output order follows target order, with duplicate
 // identifiers omitted.
 func Expand(
@@ -46,6 +48,11 @@ func Expand(
 	orgID int64,
 	onUnspecified UnspecifiedTargetHandler,
 ) ([]string, error) {
+	ownedMiners, err := resolveMinerTargets(ctx, deviceResolver, scheduleTargets, orgID)
+	if err != nil {
+		return nil, err
+	}
+
 	seen := make(map[string]struct{})
 	var identifiers []string
 
@@ -61,7 +68,9 @@ func Expand(
 	for _, target := range scheduleTargets {
 		switch target.TargetType {
 		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER:
-			addAll([]string{target.TargetId})
+			if _, ok := ownedMiners[target.TargetId]; ok {
+				addAll([]string{target.TargetId})
+			}
 
 		case pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK:
 			rackID, err := strconv.ParseInt(target.TargetId, 10, 64)
@@ -122,4 +131,27 @@ func Expand(
 	}
 
 	return identifiers, nil
+}
+
+// resolveMinerTargets returns the miner target identifiers that are devices in
+// orgID. Miner target IDs are stored as opaque caller-supplied strings.
+func resolveMinerTargets(ctx context.Context, deviceResolver DeviceResolver, scheduleTargets []*pb.ScheduleTarget, orgID int64) (map[string]struct{}, error) {
+	var minerIDs []string
+	for _, target := range scheduleTargets {
+		if target.TargetType == pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER {
+			minerIDs = append(minerIDs, target.TargetId)
+		}
+	}
+	if len(minerIDs) == 0 {
+		return nil, nil
+	}
+	owned, err := deviceResolver.FilterDeviceIdentifiersByOrg(ctx, minerIDs, orgID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve miner targets: %w", err)
+	}
+	ownedSet := make(map[string]struct{}, len(owned))
+	for _, identifier := range owned {
+		ownedSet[identifier] = struct{}{}
+	}
+	return ownedSet, nil
 }

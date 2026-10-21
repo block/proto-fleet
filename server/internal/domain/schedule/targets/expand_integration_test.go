@@ -69,3 +69,33 @@ func TestExpandSiteTargetsFollowContainerPlacement(t *testing.T) {
 	require.Equal(t, []string{miner.ID}, expand(source.ID))
 	require.Empty(t, expand(destination.ID))
 }
+
+func TestExpandMinerTargetsResolveOnlyWithinOrg(t *testing.T) {
+	cfg, err := testutil.GetTestConfig()
+	require.NoError(t, err)
+	database := testutil.NewDatabaseService(t, cfg)
+	ctx := t.Context()
+	orgID := database.CreateSuperAdminUser().OrganizationID
+	otherOrgID := database.CreateSuperAdminUser2().OrganizationID
+	owned := database.CreateDevice(orgID, "proto")
+	deleted := database.CreateDevice(orgID, "proto")
+	foreign := database.CreateDevice(otherOrgID, "proto")
+	_, err = database.DB.ExecContext(ctx, `UPDATE device SET deleted_at = now() WHERE id = $1`, deleted.DatabaseID)
+	require.NoError(t, err)
+
+	minerTarget := func(identifier string) *pb.ScheduleTarget {
+		return &pb.ScheduleTarget{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: identifier}
+	}
+	identifiers, err := Expand(ctx, nil, sqlstores.NewSQLDeviceStore(database.DB), []*pb.ScheduleTarget{
+		minerTarget(foreign.ID),
+		minerTarget(owned.ID),
+		minerTarget(deleted.ID),
+		minerTarget("unknown-miner"),
+	}, orgID, nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{owned.ID}, identifiers)
+
+	identifiers, err = Expand(ctx, nil, sqlstores.NewSQLDeviceStore(database.DB), []*pb.ScheduleTarget{minerTarget(foreign.ID)}, orgID, nil)
+	require.NoError(t, err)
+	require.Empty(t, identifiers)
+}

@@ -804,9 +804,6 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getDeviceIDByIdentifierStmt, err = db.PrepareContext(ctx, getDeviceIDByIdentifier); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIDByIdentifier: %w", err)
 	}
-	if q.getDeviceIDsByDeviceIdentifiersStmt, err = db.PrepareContext(ctx, getDeviceIDsByDeviceIdentifiers); err != nil {
-		return nil, fmt.Errorf("error preparing query GetDeviceIDsByDeviceIdentifiers: %w", err)
-	}
 	if q.getDeviceIDsWithIdentifiersStmt, err = db.PrepareContext(ctx, getDeviceIDsWithIdentifiers); err != nil {
 		return nil, fmt.Errorf("error preparing query GetDeviceIDsWithIdentifiers: %w", err)
 	}
@@ -1094,6 +1091,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getOpenErrorByDedupKeyStmt, err = db.PrepareContext(ctx, getOpenErrorByDedupKey); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOpenErrorByDedupKey: %w", err)
+	}
+	if q.getOrgDeviceIDsWithIdentifiersStmt, err = db.PrepareContext(ctx, getOrgDeviceIDsWithIdentifiers); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrgDeviceIDsWithIdentifiers: %w", err)
 	}
 	if q.getOrgDeviceMetricsHourlyAggregatesStmt, err = db.PrepareContext(ctx, getOrgDeviceMetricsHourlyAggregates); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrgDeviceMetricsHourlyAggregates: %w", err)
@@ -4008,11 +4008,6 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getDeviceIDByIdentifierStmt: %w", cerr)
 		}
 	}
-	if q.getDeviceIDsByDeviceIdentifiersStmt != nil {
-		if cerr := q.getDeviceIDsByDeviceIdentifiersStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing getDeviceIDsByDeviceIdentifiersStmt: %w", cerr)
-		}
-	}
 	if q.getDeviceIDsWithIdentifiersStmt != nil {
 		if cerr := q.getDeviceIDsWithIdentifiersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getDeviceIDsWithIdentifiersStmt: %w", cerr)
@@ -4491,6 +4486,11 @@ func (q *Queries) Close() error {
 	if q.getOpenErrorByDedupKeyStmt != nil {
 		if cerr := q.getOpenErrorByDedupKeyStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOpenErrorByDedupKeyStmt: %w", cerr)
+		}
+	}
+	if q.getOrgDeviceIDsWithIdentifiersStmt != nil {
+		if cerr := q.getOrgDeviceIDsWithIdentifiersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrgDeviceIDsWithIdentifiersStmt: %w", cerr)
 		}
 	}
 	if q.getOrgDeviceMetricsHourlyAggregatesStmt != nil {
@@ -7472,7 +7472,6 @@ type Queries struct {
 	getDeviceDeviceSetsByTypeStmt                                *sql.Stmt
 	getDeviceIDByDeviceIdentifierStmt                            *sql.Stmt
 	getDeviceIDByIdentifierStmt                                  *sql.Stmt
-	getDeviceIDsByDeviceIdentifiersStmt                          *sql.Stmt
 	getDeviceIDsWithIdentifiersStmt                              *sql.Stmt
 	getDeviceIdentifierByIDStmt                                  *sql.Stmt
 	getDeviceIdentifiersByDeviceSetIDStmt                        *sql.Stmt
@@ -7569,6 +7568,7 @@ type Queries struct {
 	getOfflineDevicesStmt                                        *sql.Stmt
 	getOfflineFleetNodeDevicesStmt                               *sql.Stmt
 	getOpenErrorByDedupKeyStmt                                   *sql.Stmt
+	getOrgDeviceIDsWithIdentifiersStmt                           *sql.Stmt
 	getOrgDeviceMetricsHourlyAggregatesStmt                      *sql.Stmt
 	getOrgDeviceMetricsRawBucketAggregatesStmt                   *sql.Stmt
 	getOrgDeviceStatusHourlyAggregatesStmt                       *sql.Stmt
@@ -8371,7 +8371,6 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getDeviceDeviceSetsByTypeStmt:                                q.getDeviceDeviceSetsByTypeStmt,
 		getDeviceIDByDeviceIdentifierStmt:                            q.getDeviceIDByDeviceIdentifierStmt,
 		getDeviceIDByIdentifierStmt:                                  q.getDeviceIDByIdentifierStmt,
-		getDeviceIDsByDeviceIdentifiersStmt:                          q.getDeviceIDsByDeviceIdentifiersStmt,
 		getDeviceIDsWithIdentifiersStmt:                              q.getDeviceIDsWithIdentifiersStmt,
 		getDeviceIdentifierByIDStmt:                                  q.getDeviceIdentifierByIDStmt,
 		getDeviceIdentifiersByDeviceSetIDStmt:                        q.getDeviceIdentifiersByDeviceSetIDStmt,
@@ -8468,6 +8467,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getOfflineDevicesStmt:                                        q.getOfflineDevicesStmt,
 		getOfflineFleetNodeDevicesStmt:                               q.getOfflineFleetNodeDevicesStmt,
 		getOpenErrorByDedupKeyStmt:                                   q.getOpenErrorByDedupKeyStmt,
+		getOrgDeviceIDsWithIdentifiersStmt:                           q.getOrgDeviceIDsWithIdentifiersStmt,
 		getOrgDeviceMetricsHourlyAggregatesStmt:                      q.getOrgDeviceMetricsHourlyAggregatesStmt,
 		getOrgDeviceMetricsRawBucketAggregatesStmt:                   q.getOrgDeviceMetricsRawBucketAggregatesStmt,
 		getOrgDeviceStatusHourlyAggregatesStmt:                       q.getOrgDeviceStatusHourlyAggregatesStmt,

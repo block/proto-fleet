@@ -95,6 +95,21 @@ func (mr *MockDeviceStoreMockRecorder) ApplyFleetNodeRecoveryAuthenticationNeede
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApplyFleetNodeRecoveryAuthenticationNeeded", reflect.TypeOf((*MockDeviceStore)(nil).ApplyFleetNodeRecoveryAuthenticationNeeded), ctx, target, ipAddress, port, urlScheme)
 }
 
+// FilterDeviceIdentifiersByOrg mocks base method.
+func (m *MockDeviceStore) FilterDeviceIdentifiersByOrg(ctx context.Context, deviceIdentifiers []string, orgID int64) ([]string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "FilterDeviceIdentifiersByOrg", ctx, deviceIdentifiers, orgID)
+	ret0, _ := ret[0].([]string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// FilterDeviceIdentifiersByOrg indicates an expected call of FilterDeviceIdentifiersByOrg.
+func (mr *MockDeviceStoreMockRecorder) FilterDeviceIdentifiersByOrg(ctx, deviceIdentifiers, orgID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FilterDeviceIdentifiersByOrg", reflect.TypeOf((*MockDeviceStore)(nil).FilterDeviceIdentifiersByOrg), ctx, deviceIdentifiers, orgID)
+}
+
 // GetAllPairedDeviceIdentifiers mocks base method.
 func (m *MockDeviceStore) GetAllPairedDeviceIdentifiers(ctx context.Context) ([]models1.DeviceIdentifier, error) {
 	m.ctrl.T.Helper()

@@ -346,10 +346,13 @@ WHERE d.device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
   AND d.org_id = $1
   AND d.deleted_at IS NULL;
 
--- name: GetDeviceIDsByDeviceIdentifiers :many
-SELECT id
+-- name: GetOrgDeviceIDsWithIdentifiers :many
+-- Resolves caller-supplied identifiers within one organization. Identifiers
+-- owned by another organization are omitted exactly like unknown ones.
+SELECT id, device_identifier
 FROM device
 WHERE device_identifier = ANY(sqlc.arg('device_identifiers')::text[])
+  AND org_id = sqlc.arg('org_id')
   AND deleted_at IS NULL;
 
 -- name: GetDeviceIDsWithIdentifiers :many

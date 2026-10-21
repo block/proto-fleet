@@ -723,7 +723,6 @@ type Querier interface {
 	GetDeviceIDByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (int64, error)
 	// Resolves device_identifier to internal device_id.
 	GetDeviceIDByIdentifier(ctx context.Context, arg GetDeviceIDByIdentifierParams) (int64, error)
-	GetDeviceIDsByDeviceIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]int64, error)
 	// Returns device IDs mapped to their identifiers for batch operations.
 	GetDeviceIDsWithIdentifiers(ctx context.Context, deviceIdentifiers []string) ([]GetDeviceIDsWithIdentifiersRow, error)
 	GetDeviceIdentifierByID(ctx context.Context, id int64) (string, error)
@@ -896,6 +895,9 @@ type Querier interface {
 	// Used to determine if an upsert should update an existing error or insert a new one.
 	// PostgreSQL uses IS NOT DISTINCT FROM for NULL-safe comparison (MySQL uses <=>)
 	GetOpenErrorByDedupKey(ctx context.Context, arg GetOpenErrorByDedupKeyParams) (Error, error)
+	// Resolves caller-supplied identifiers within one organization. Identifiers
+	// owned by another organization are omitted exactly like unknown ones.
+	GetOrgDeviceIDsWithIdentifiers(ctx context.Context, arg GetOrgDeviceIDsWithIdentifiersParams) ([]GetOrgDeviceIDsWithIdentifiersRow, error)
 	// Returns hourly aggregates for the current devices in an org.
 	// COALESCE handles NULL values from AVG() when all source values are NULL
 	GetOrgDeviceMetricsHourlyAggregates(ctx context.Context, arg GetOrgDeviceMetricsHourlyAggregatesParams) ([]DeviceMetricsHourly, error)
