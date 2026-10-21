@@ -21,7 +21,7 @@ import ActivityTable from "@/protoFleet/features/activity/components/ActivityTab
 import Button, { sizes } from "@/shared/components/Button";
 import Header from "@/shared/components/Header";
 import ProgressCircular from "@/shared/components/ProgressCircular";
-import { debounce, downloadBlob, getFileName } from "@/shared/utils/utility";
+import { downloadBlob, getFileName } from "@/shared/utils/utility";
 
 const PAGE_SIZE = 50;
 
@@ -180,19 +180,14 @@ const AccountActivityFeed = ({
 
 const AccountActivity = () => {
   const [search, setSearch] = useState("");
-  const [searchText, setSearchText] = useState("");
   const [types, setTypes] = useState<string[]>([]);
   const [scopes, setScopes] = useState<string[]>([]);
-  const updateSearch = useMemo(() => debounce(setSearchText, 300), []);
-  useEffect(() => () => updateSearch.cancel(), [updateSearch]);
   const filter = useMemo(
-    () => create(ActivityFilterSchema, { searchText, eventTypes: types, scopeTypes: scopes }),
-    [searchText, types, scopes],
+    () => create(ActivityFilterSchema, { searchText: search, eventTypes: types, scopeTypes: scopes }),
+    [search, types, scopes],
   );
   const clearFilters = () => {
-    updateSearch.cancel();
     setSearch("");
-    setSearchText("");
     setTypes([]);
     setScopes([]);
   };
@@ -206,13 +201,7 @@ const AccountActivity = () => {
         clearFilters={clearFilters}
         controls={{
           searchValue: search,
-          onSearchChange: (value) => {
-            setSearch(value);
-            if (!value) {
-              updateSearch.cancel();
-              setSearchText("");
-            } else updateSearch(value);
-          },
+          onSearchChange: setSearch,
           selectedTypes: types,
           selectedScopes: scopes,
           selectedUsers: [],
