@@ -1,7 +1,7 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 package_name := "proto-python-gen"
-version := "0.2.0"
+version := "0.2.1"
 package_root := justfile_directory()
 repo_root := package_root / "../.."
 
@@ -132,6 +132,25 @@ test: setup
     FAIL=1
   fi
   rm -rf "${PREFIX_OUTPUT}"
+
+  echo ""
+  echo "=== Verify: launcher through absolute, relative and chained symlinks ==="
+  LINK_ROOT="$(mktemp -d)"
+  trap 'rm -rf "${LINK_ROOT}"' EXIT
+  mkdir -p "${LINK_ROOT}/absolute links" "${LINK_ROOT}/relative links" "${LINK_ROOT}/chained links"
+  ln -s "{{package_root}}/bin/protoc-gen-python-grpc" "${LINK_ROOT}/absolute links/protoc-gen-python-grpc"
+  ln -s "../absolute links/protoc-gen-python-grpc" "${LINK_ROOT}/relative links/protoc-gen-python-grpc"
+  ln -s "../relative links/protoc-gen-python-grpc" "${LINK_ROOT}/chained links/protoc-gen-python-grpc"
+  for directory in "absolute links" "relative links" "chained links"; do
+    LINK_OUTPUT="${LINK_ROOT}/output"
+    rm -rf "${LINK_OUTPUT}"
+    sed "s|local: protoc-gen-python-grpc|local: ${LINK_ROOT}/${directory}/protoc-gen-python-grpc|" \
+      "{{package_root}}/tests/test_protos/buf.gen.yaml" > "${LINK_ROOT}/buf.gen.yaml"
+    buf generate --template "${LINK_ROOT}/buf.gen.yaml" \
+      -o "${LINK_OUTPUT}" "{{package_root}}/tests/test_protos"
+    diff -rq --exclude='__pycache__' "${TEST_OUTPUT}" "${LINK_OUTPUT}"
+    echo "  OK  ${directory} preserve generated output"
+  done
 
   echo ""
   if [[ ${FAIL} -eq 0 ]]; then
