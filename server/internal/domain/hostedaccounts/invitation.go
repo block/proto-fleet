@@ -14,16 +14,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
-	"github.com/block/proto-fleet/server/internal/domain/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgconn"
-	"golang.org/x/crypto/bcrypt"
 )
 
 // Invitation contains public lifecycle metadata, never its stored bearer hash.
@@ -45,35 +41,21 @@ type Registration struct {
 	Cookie    *http.Cookie
 }
 
-// Public previews never queue for a process-local slot or consume the database
-// pool with unbounded concurrent snapshots. Public handlers also apply the
-// PostgreSQL client rate limit across all processes.
-var sharedInvitationPreviewSlots = make(chan struct{}, 16)
-
 type InvitationService struct {
-	accounts     *Service
-	sessions     *session.Service
-	admission    *registrationAdmission
-	previewSlots chan struct{}
-	hashPassword func([]byte) ([]byte, error)
-	generateCode func() (string, error)
+	invitationCore
 }
 
 func NewInvitationService(accounts *Service, sessions *session.Service) *InvitationService {
-	return &InvitationService{accounts: accounts, sessions: sessions, admission: sharedRegistrationAdmission, previewSlots: sharedInvitationPreviewSlots, generateCode: newInvitationCode, hashPassword: func(password []byte) ([]byte, error) {
-		return bcrypt.GenerateFromPassword(password, bcrypt.DefaultCost)
-	}}
+	return &InvitationService{newInvitationCore(accounts, sessions)}
 }
 
 func (s *InvitationService) Create(ctx context.Context, actorID, orgID int64, accountID string, role Role, lifetime time.Duration) (IssuedInvitation, error) {
 	if role.capabilities() == 0 {
 		return IssuedInvitation{}, fleeterror.NewInvalidArgumentError("invalid account role")
 	}
-	if lifetime == 0 {
-		lifetime = 24 * time.Hour
-	}
-	if lifetime <= 0 || lifetime > 24*time.Hour {
-		return IssuedInvitation{}, fleeterror.NewInvalidArgumentError("invitation lifetime must be at most 24 hours")
+	lifetime, err := invitationLifetime(lifetime)
+	if err != nil {
+		return IssuedInvitation{}, err
 	}
 	return db.WithTransaction(ctx, s.accounts.conn, func(q sqlc.Querier) (IssuedInvitation, error) {
 		actor, err := lockActor(ctx, q, orgID, actorID)
@@ -100,31 +82,15 @@ func (s *InvitationService) Create(ctx context.Context, actorID, orgID int64, ac
 			return IssuedInvitation{}, err
 		}
 		var row sqlc.HostedAccountInvitation
-		var token string
-		for range 5 {
-			token, err = s.generateCode()
-			if err != nil {
-				return IssuedInvitation{}, fleeterror.NewInternalError("cannot create invitation")
-			}
-			hash, err := invitationHash(token)
-			if err != nil {
-				return IssuedInvitation{}, err
-			}
+		token, err := s.issueCode(ctx, q, func(hash string) (err error) {
 			row, err = q.CreateHostedAccountInvitation(ctx, sqlc.CreateHostedAccountInvitationParams{
 				InvitationID: uuid.NewString(), OrganizationID: orgID, AccountID: account.ID, InviterID: actorID,
 				AuthorityFingerprint: fingerprint, TokenHash: hash, Role: string(role), ExpiresAt: time.Now().Add(lifetime),
 			})
-			// ON CONFLICT DO NOTHING leaves the transaction usable for a retry.
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			}
-			if err != nil {
-				return IssuedInvitation{}, err
-			}
-			break
-		}
-		if row.InvitationID == "" {
-			return IssuedInvitation{}, fleeterror.NewInternalError("cannot create invitation")
+			return err
+		})
+		if err != nil {
+			return IssuedInvitation{}, err
 		}
 		if err = audit(ctx, q, actor, account, "create_hosted_account_invitation", map[string]any{"invitation_id": row.InvitationID, "role": role, "expires_at": row.ExpiresAt}); err != nil {
 			return IssuedInvitation{}, err
@@ -226,15 +192,11 @@ func (s *InvitationService) Revoke(ctx context.Context, actorID, orgID int64, ac
 }
 
 func (s *InvitationService) Preview(ctx context.Context, token string) (InvitationPreview, error) {
-	if err := ctx.Err(); err != nil {
-		return InvitationPreview{}, fmt.Errorf("invitation preview admission: %w", err)
+	release, err := s.admitPreview(ctx)
+	if err != nil {
+		return InvitationPreview{}, err
 	}
-	select {
-	case s.previewSlots <- struct{}{}:
-		defer func() { <-s.previewSlots }()
-	default:
-		return InvitationPreview{}, fleeterror.NewResourceExhaustedErrorf("invitation preview temporarily limited; try again later")
-	}
+	defer release()
 	hash, err := invitationHash(token)
 	if err != nil {
 		return InvitationPreview{}, err
@@ -277,66 +239,18 @@ func (s *InvitationService) Accept(ctx context.Context, token string, userID, or
 // Register creates identity, roleless affiliation, membership and session in the
 // same transaction. A rejected or replayed link creates none of these records.
 func (s *InvitationService) Register(ctx context.Context, token, username, password, userAgent, ipAddress string) (Registration, error) {
-	username = strings.TrimSpace(username)
-	if username == "" || !utf8.ValidString(username) || utf8.RuneCountInString(username) > 255 {
-		return Registration{}, fleeterror.NewInvalidArgumentError("username must contain 1 to 255 characters")
-	}
-	if err := auth.ValidatePassword(password); err != nil {
-		return Registration{}, fleeterror.NewInvalidArgumentError(err.Error())
-	}
-	if err := s.admission.checkClient(ctx, ipAddress); err != nil {
-		return Registration{}, err
-	}
-	// Reject unavailable links before password hashing. The consumption
-	// transaction below rechecks authority and availability after hashing.
-	if _, err := s.Preview(ctx, token); err != nil {
-		return Registration{}, err
-	}
-	// Availability is an optimization; the transaction still checks and the
-	// unique constraint remains authoritative for concurrent registrations.
-	_, err := s.accounts.queries.GetUserByUsername(ctx, username)
-	if err == nil {
-		return Registration{}, fleeterror.NewInvalidArgumentError("username unavailable")
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return Registration{}, err
-	}
-	tokenHash, err := invitationHash(token)
-	if err != nil {
-		return Registration{}, err
-	}
-	release, err := s.admission.acquireHash(ctx, tokenHash)
+	login, release, err := s.prepareRegistration(ctx, token, username, password, ipAddress, func(ctx context.Context, token string) error {
+		_, err := s.Preview(ctx, token)
+		return err
+	})
 	if err != nil {
 		return Registration{}, err
 	}
 	defer release()
-	if err := ctx.Err(); err != nil {
-		return Registration{}, fmt.Errorf("register invitation before hashing: %w", err)
-	}
-	passwordHash, err := s.hashPassword([]byte(password))
-	// Bcrypt cannot be interrupted. Keep the slot until it actually returns,
-	// then honor cancellation before creating any identity or session.
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		return Registration{}, fmt.Errorf("register invitation after hashing: %w", ctxErr)
-	}
-	if err != nil {
-		return Registration{}, fleeterror.NewInternalError("cannot create login")
-	}
 	var result Registration
 	err = s.withInvitation(ctx, token, func(q sqlc.Querier, i sqlc.GetHostedAccountInvitationByHashRow, path []Account, inviter sqlc.User) error {
-		_, err := q.GetUserByUsername(ctx, username)
-		if err == nil {
-			return fleeterror.NewInvalidArgumentError("username unavailable")
-		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return err
-		}
-		userID, err := q.CreateUser(ctx, sqlc.CreateUserParams{UserID: uuid.NewString(), Username: username, PasswordHash: string(passwordHash), CreatedAt: time.Now()})
+		userID, err := createInvitedLogin(ctx, q, login)
 		if err != nil {
-			var pgErr *pgconn.PgError
-			if errors.As(err, &pgErr) && pgErr.Code == db.PGUniqueViolation && pgErr.ConstraintName == "uq_user_username" {
-				return fleeterror.NewInvalidArgumentError("username unavailable")
-			}
 			return err
 		}
 		if err = q.AddHostedAccountUserAffiliation(ctx, sqlc.AddHostedAccountUserAffiliationParams{UserID: userID, OrganizationID: i.OrganizationID}); err != nil {
@@ -449,11 +363,14 @@ func validateInvitation(ctx context.Context, q sqlc.Querier, i sqlc.GetHostedAcc
 	return path, nil
 }
 
-// 32 symbols give sixteen independently uniform characters 80 bits of entropy.
+// 32 symbols give eight independently uniform characters 40 bits of entropy.
+// That margin relies on the deployment-wide lookup budget in CheckClientRateLimit.
 const invitationAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
+const invitationCodeLength = 8
+
 func newInvitationCode() (string, error) {
-	var secret [16]byte
+	var secret [invitationCodeLength]byte
 	if _, err := rand.Read(secret[:]); err != nil {
 		return "", fmt.Errorf("generate invitation code: %w", err)
 	}
@@ -461,7 +378,7 @@ func newInvitationCode() (string, error) {
 		// 32 divides 256, so masking does not introduce modulo bias.
 		secret[i] = invitationAlphabet[secret[i]&31]
 	}
-	return string(secret[:4]) + "-" + string(secret[4:8]) + "-" + string(secret[8:12]) + "-" + string(secret[12:]), nil
+	return string(secret[:4]) + "-" + string(secret[4:]), nil
 }
 
 func invitationHash(token string) (string, error) {
@@ -478,10 +395,10 @@ func invitationHash(token string) (string, error) {
 		}
 	}
 	token = strings.Join(groups, "")
-	if len(token) != 16 {
+	if len(token) != invitationCodeLength {
 		return "", unavailableInvitation()
 	}
-	var normalized [16]byte
+	var normalized [invitationCodeLength]byte
 	for i := range token {
 		char := token[i]
 		if char >= 'a' && char <= 'z' {

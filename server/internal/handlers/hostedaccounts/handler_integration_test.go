@@ -18,6 +18,8 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/auth/v1/authv1connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
+	invpb "github.com/block/proto-fleet/server/generated/grpc/invitation/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	domainauth "github.com/block/proto-fleet/server/internal/domain/auth"
@@ -28,6 +30,7 @@ import (
 	authhandler "github.com/block/proto-fleet/server/internal/handlers/auth"
 	hostedhandler "github.com/block/proto-fleet/server/internal/handlers/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
+	invitationhandler "github.com/block/proto-fleet/server/internal/handlers/invitation"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"github.com/block/proto-fleet/server/internal/infrastructure/encrypt"
 	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
@@ -45,6 +48,7 @@ type rpcFixture struct {
 	accounts    *domain.Service
 	keys        *apikey.Service
 	client      hostedv1connect.HostedAccountServiceClient
+	invitations invitationv1connect.InvitationServiceClient
 	auth        authv1connect.AuthServiceClient
 	org         int64
 	host        int64
@@ -80,7 +84,9 @@ func newRPCFixture(t *testing.T) rpcFixture {
 		validate.NewInterceptor(),
 	)
 	mux := http.NewServeMux()
-	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedhandler.NewHandler(accounts, domain.NewInvitationService(accounts, sessions), accountKeys, pools, users, permissions), options))
+	invitations := domain.NewInvitationService(accounts, sessions)
+	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedhandler.NewHandler(accounts, invitations, accountKeys, pools, users, permissions), options))
+	mux.Handle(invitationv1connect.NewInvitationServiceHandler(invitationhandler.NewHandler(invitations, domain.NewTeamInvitationService(accounts, sessions)), options))
 	mux.Handle(authv1connect.NewAuthServiceHandler(authhandler.NewHandler(authService), options))
 	clientIP, err := middleware.NewClientIPMiddleware("")
 	require.NoError(t, err)
@@ -96,8 +102,9 @@ func newRPCFixture(t *testing.T) rpcFixture {
 	}))
 	t.Cleanup(server.Close)
 	f := rpcFixture{db: db, accounts: accounts, keys: keys, org: org, peerAddress: peerAddress,
-		client: hostedv1connect.NewHostedAccountServiceClient(server.Client(), server.URL),
-		auth:   authv1connect.NewAuthServiceClient(server.Client(), server.URL)}
+		client:      hostedv1connect.NewHostedAccountServiceClient(server.Client(), server.URL),
+		invitations: invitationv1connect.NewInvitationServiceClient(server.Client(), server.URL),
+		auth:        authv1connect.NewAuthServiceClient(server.Client(), server.URL)}
 	f.host = f.addUser(t, "host-"+uuid.NewString(), true)
 	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT account_id FROM hosted_account WHERE organization_id=$1 AND depth=0`, org).Scan(&f.root))
 	var username string
@@ -155,13 +162,13 @@ func (f rpcFixture) invite(t *testing.T, accountID string, role pb.AccountRole) 
 	t.Helper()
 	response, err := f.client.CreateInvitation(t.Context(), rpcRequest(&pb.CreateInvitationRequest{AccountId: accountID, Role: role}, f.cookie, accountID))
 	require.NoError(t, err)
-	require.Regexp(t, `^(?:[A-HJ-NP-Z2-9]{4}-){3}[A-HJ-NP-Z2-9]{4}$`, response.Msg.Token)
+	require.Regexp(t, `^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$`, response.Msg.Token)
 	return response.Msg
 }
 
-func (f rpcFixture) register(t *testing.T, token, username string) *connect.Response[pb.RegisterInvitedUserResponse] {
+func (f rpcFixture) register(t *testing.T, token, username string) *connect.Response[invpb.RegisterInvitedUserResponse] {
 	t.Helper()
-	response, err := f.client.RegisterInvitedUser(t.Context(), connect.NewRequest(&pb.RegisterInvitedUserRequest{Token: token, Username: username, Password: rpcPassword}))
+	response, err := f.invitations.RegisterInvitedUser(t.Context(), connect.NewRequest(&invpb.RegisterInvitedUserRequest{Token: token, Username: username, Password: rpcPassword}))
 	require.NoError(t, err)
 	require.NotEmpty(t, response.Header().Get("Set-Cookie"))
 	return response
@@ -172,12 +179,12 @@ func TestHostedRPCInvitedRegistrationAndRolelessAuthentication(t *testing.T) {
 	account := f.account(t, "Customer team", f.host, domain.DefaultCapabilities)
 	issued := f.invite(t, account.AccountID, pb.AccountRole_ACCOUNT_ROLE_ADMINISTRATOR)
 	manualCode := " " + strings.ToLower(strings.ReplaceAll(issued.Token, "-", " ")) + " "
-	preview, err := f.client.PreviewInvitation(t.Context(), connect.NewRequest(&pb.PreviewInvitationRequest{Token: manualCode}))
+	preview, err := f.invitations.PreviewInvitation(t.Context(), connect.NewRequest(&invpb.PreviewInvitationRequest{Token: manualCode}))
 	require.NoError(t, err)
-	require.Equal(t, "Customer team", preview.Msg.AccountName)
-	require.Equal(t, pb.AccountRole_ACCOUNT_ROLE_ADMINISTRATOR, preview.Msg.Role)
+	require.Equal(t, "Customer team", preview.Msg.GetAccount().GetAccountName())
+	require.Equal(t, pb.AccountRole_ACCOUNT_ROLE_ADMINISTRATOR, preview.Msg.GetAccount().GetRole())
 	registered := f.register(t, manualCode, "username-without-email")
-	require.Equal(t, account.AccountID, registered.Msg.AccountId)
+	require.Equal(t, account.AccountID, registered.Msg.GetAccount().GetAccountId())
 	listed, err := f.client.ListAccounts(t.Context(), rpcRequest(&pb.ListAccountsRequest{}, registered.Header().Get("Set-Cookie"), ""))
 	require.NoError(t, err, "registration cookie must authenticate the real SQL session")
 	require.False(t, listed.Msg.HostAccess)
@@ -204,7 +211,7 @@ func TestHostedRPCInvitedRegistrationAndRolelessAuthentication(t *testing.T) {
 	require.True(t, joined)
 	_, err = f.auth.ListUsers(t.Context(), rpcRequest(&authpb.ListUsersRequest{}, cookie, ""))
 	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "customer membership grants no host directory permission")
-	_, err = f.client.RegisterInvitedUser(t.Context(), connect.NewRequest(&pb.RegisterInvitedUserRequest{Token: issued.Token, Username: "replayed-user", Password: rpcPassword}))
+	_, err = f.invitations.RegisterInvitedUser(t.Context(), connect.NewRequest(&invpb.RegisterInvitedUserRequest{Token: issued.Token, Username: "replayed-user", Password: rpcPassword}))
 	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	var replayed int
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT count(*) FROM "user" WHERE username='replayed-user'`).Scan(&replayed))
@@ -278,22 +285,22 @@ func TestHostedRPCExistingAcceptanceRequiresSessionAndPreservesIdentity(t *testi
 	userID := f.addUser(t, "existing-customer", false)
 	login := f.login(t, "existing-customer")
 	issued := f.invite(t, account.AccountID, pb.AccountRole_ACCOUNT_ROLE_VIEWER)
-	_, err := f.client.AcceptInvitation(t.Context(), connect.NewRequest(&pb.AcceptInvitationRequest{Token: issued.Token}))
+	_, err := f.invitations.AcceptInvitation(t.Context(), connect.NewRequest(&invpb.AcceptInvitationRequest{Token: issued.Token}))
 	require.Equal(t, connect.CodeUnauthenticated, connect.CodeOf(err))
 	key, _, err := f.keys.Create(t.Context(), f.host, f.org, "", "", "Host key", nil)
 	require.NoError(t, err)
-	keyRequest := connect.NewRequest(&pb.AcceptInvitationRequest{Token: issued.Token})
+	keyRequest := connect.NewRequest(&invpb.AcceptInvitationRequest{Token: issued.Token})
 	keyRequest.Header().Set("Authorization", "Bearer "+key)
-	_, err = f.client.AcceptInvitation(t.Context(), keyRequest)
+	_, err = f.invitations.AcceptInvitation(t.Context(), keyRequest)
 	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	listRequest := connect.NewRequest(&pb.ListAccountsRequest{})
 	listRequest.Header().Set("Authorization", "Bearer "+key)
 	_, err = f.client.ListAccounts(t.Context(), listRequest)
 	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err), "org API keys cannot access the dedicated customer service")
 	manualCode := strings.ToLower(strings.ReplaceAll(issued.Token, "-", ""))
-	accepted, err := f.client.AcceptInvitation(t.Context(), rpcRequest(&pb.AcceptInvitationRequest{Token: manualCode}, login.Header().Get("Set-Cookie"), ""))
+	accepted, err := f.invitations.AcceptInvitation(t.Context(), rpcRequest(&invpb.AcceptInvitationRequest{Token: manualCode}, login.Header().Get("Set-Cookie"), ""))
 	require.NoError(t, err)
-	require.Equal(t, account.AccountID, accepted.Msg.AccountId)
+	require.Equal(t, account.AccountID, accepted.Msg.GetAccount().GetAccountId())
 	var linked int64
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT accepted_user_id FROM hosted_account_invitation WHERE invitation_id=$1`, issued.Invitation.InvitationId).Scan(&linked))
 	require.Equal(t, userID, linked, "acceptance attaches the existing Fleet identity")
@@ -385,9 +392,9 @@ func TestHostedRPCBoundedManagerCannotPromoteOrInviteBroaderRoles(t *testing.T) 
 	require.Equal(t, connect.CodePermissionDenied, connect.CodeOf(err))
 	issued, err := f.client.CreateInvitation(t.Context(), rpcRequest(&pb.CreateInvitationRequest{AccountId: child.AccountID, Role: pb.AccountRole_ACCOUNT_ROLE_VIEWER}, cookie, child.AccountID))
 	require.NoError(t, err)
-	accepted, err := f.client.AcceptInvitation(t.Context(), rpcRequest(&pb.AcceptInvitationRequest{Token: issued.Msg.Token}, cookie, ""))
+	accepted, err := f.invitations.AcceptInvitation(t.Context(), rpcRequest(&invpb.AcceptInvitationRequest{Token: issued.Msg.Token}, cookie, ""))
 	require.NoError(t, err)
-	require.Equal(t, child.AccountID, accepted.Msg.AccountId)
+	require.Equal(t, child.AccountID, accepted.Msg.GetAccount().GetAccountId())
 	issued, err = f.client.CreateInvitation(t.Context(), rpcRequest(&pb.CreateInvitationRequest{AccountId: child.AccountID, Role: pb.AccountRole_ACCOUNT_ROLE_VIEWER}, cookie, child.AccountID))
 	require.NoError(t, err)
 	registered := f.register(t, issued.Msg.Token, "controlled-user-"+uuid.NewString())

@@ -914,10 +914,34 @@ func (q *retryingQuerier) ConsumeHostedAccountInvitation(ctx context.Context, ar
 	return result, err
 }
 
+func (q *retryingQuerier) ConsumeHostedInvitationDeploymentRateLimit(ctx context.Context, attemptLimit int32) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ConsumeHostedInvitationDeploymentRateLimit", func() error {
+		callResult, callErr := q.next.ConsumeHostedInvitationDeploymentRateLimit(ctx, attemptLimit)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ConsumeHostedInvitationRateLimit(ctx context.Context, arg ConsumeHostedInvitationRateLimitParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ConsumeHostedInvitationRateLimit", func() error {
 		callResult, callErr := q.next.ConsumeHostedInvitationRateLimit(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ConsumeOrganizationInvitation(ctx context.Context, arg ConsumeOrganizationInvitationParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ConsumeOrganizationInvitation", func() error {
+		callResult, callErr := q.next.ConsumeOrganizationInvitation(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -1550,6 +1574,18 @@ func (q *retryingQuerier) CreateOrganization(ctx context.Context, arg CreateOrga
 	return result, err
 }
 
+func (q *retryingQuerier) CreateOrganizationInvitation(ctx context.Context, arg CreateOrganizationInvitationParams) (OrganizationInvitation, error) {
+	var result OrganizationInvitation
+	err := q.retrier.RetryQuery(ctx, "CreateOrganizationInvitation", func() error {
+		callResult, callErr := q.next.CreateOrganizationInvitation(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CreatePendingEnrollment(ctx context.Context, arg CreatePendingEnrollmentParams) (PendingEnrollment, error) {
 	var result PendingEnrollment
 	err := q.retrier.RetryQuery(ctx, "CreatePendingEnrollment", func() error {
@@ -1872,6 +1908,18 @@ func (q *retryingQuerier) DeleteOrganization(ctx context.Context, id int64) erro
 	return q.retrier.RetryQuery(ctx, "DeleteOrganization", func() error {
 		return q.next.DeleteOrganization(ctx, id)
 	})
+}
+
+func (q *retryingQuerier) DeleteOrganizationInvitation(ctx context.Context, arg DeleteOrganizationInvitationParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "DeleteOrganizationInvitation", func() error {
+		callResult, callErr := q.next.DeleteOrganizationInvitation(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) DeletePairingsForFleetNode(ctx context.Context, arg DeletePairingsForFleetNodeParams) (int64, error) {
@@ -4130,6 +4178,18 @@ func (q *retryingQuerier) GetOrganizationByOrgID(ctx context.Context, orgID stri
 	return result, err
 }
 
+func (q *retryingQuerier) GetOrganizationInvitationByHash(ctx context.Context, tokenHash string) (GetOrganizationInvitationByHashRow, error) {
+	var result GetOrganizationInvitationByHashRow
+	err := q.retrier.RetryQuery(ctx, "GetOrganizationInvitationByHash", func() error {
+		callResult, callErr := q.next.GetOrganizationInvitationByHash(ctx, tokenHash)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetOrganizationsForUser(ctx context.Context, userID int64) ([]Organization, error) {
 	var result []Organization
 	err := q.retrier.RetryQuery(ctx, "GetOrganizationsForUser", func() error {
@@ -4586,6 +4646,18 @@ func (q *retryingQuerier) GetTankRollupWatermarks(ctx context.Context, deviceID 
 	return result, err
 }
 
+func (q *retryingQuerier) GetTeamInvitationAuthorityFingerprint(ctx context.Context, arg GetTeamInvitationAuthorityFingerprintParams) (string, error) {
+	var result string
+	err := q.retrier.RetryQuery(ctx, "GetTeamInvitationAuthorityFingerprint", func() error {
+		callResult, callErr := q.next.GetTeamInvitationAuthorityFingerprint(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "GetTotalDevicesPendingAuth", func() error {
@@ -4686,6 +4758,18 @@ func (q *retryingQuerier) GetUserByUsername(ctx context.Context, username string
 	var result User
 	err := q.retrier.RetryQuery(ctx, "GetUserByUsername", func() error {
 		callResult, callErr := q.next.GetUserByUsername(ctx, username)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetUserOrganizationRoleState(ctx context.Context, arg GetUserOrganizationRoleStateParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "GetUserOrganizationRoleState", func() error {
+		callResult, callErr := q.next.GetUserOrganizationRoleState(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -5022,6 +5106,18 @@ func (q *retryingQuerier) InventoryPartExistsBySiteAndName(ctx context.Context, 
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "InventoryPartExistsBySiteAndName", func() error {
 		callResult, callErr := q.next.InventoryPartExistsBySiteAndName(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) InvitationTokenHashInUse(ctx context.Context, tokenHash string) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "InvitationTokenHashInUse", func() error {
+		callResult, callErr := q.next.InvitationTokenHashInUse(ctx, tokenHash)
 		if callErr == nil {
 			result = callResult
 		}
@@ -6282,6 +6378,18 @@ func (q *retryingQuerier) ListNotificationHistory(ctx context.Context, arg ListN
 	var result []ListNotificationHistoryRow
 	err := q.retrier.RetryQuery(ctx, "ListNotificationHistory", func() error {
 		callResult, callErr := q.next.ListNotificationHistory(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListOrganizationInvitations(ctx context.Context, arg ListOrganizationInvitationsParams) ([]ListOrganizationInvitationsRow, error) {
+	var result []ListOrganizationInvitationsRow
+	err := q.retrier.RetryQuery(ctx, "ListOrganizationInvitations", func() error {
+		callResult, callErr := q.next.ListOrganizationInvitations(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -7634,6 +7742,18 @@ func (q *retryingQuerier) OfflineDevicesForFleetNodeRevocation(ctx context.Conte
 	return result, err
 }
 
+func (q *retryingQuerier) OrganizationInvitationExists(ctx context.Context, tokenHash string) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "OrganizationInvitationExists", func() error {
+		callResult, callErr := q.next.OrganizationInvitationExists(ctx, tokenHash)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "PairDeviceToFleetNode", func() error {
@@ -8340,6 +8460,18 @@ func (q *retryingQuerier) RevokeHostedAccountMembership(ctx context.Context, arg
 	return q.retrier.RetryQuery(ctx, "RevokeHostedAccountMembership", func() error {
 		return q.next.RevokeHostedAccountMembership(ctx, arg)
 	})
+}
+
+func (q *retryingQuerier) RevokeOrganizationInvitation(ctx context.Context, arg RevokeOrganizationInvitationParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "RevokeOrganizationInvitation", func() error {
+		callResult, callErr := q.next.RevokeOrganizationInvitation(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) RevokePermissionFromRole(ctx context.Context, arg RevokePermissionFromRoleParams) error {

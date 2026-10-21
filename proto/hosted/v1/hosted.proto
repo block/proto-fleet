@@ -10,6 +10,7 @@ import "google/protobuf/timestamp.proto";
 
 // HostedAccountService uses account authority independently of organization RBAC.
 // Every private account operation names its account; names are display labels.
+// invitation.v1.InvitationService redeems the invitation codes issued here.
 service HostedAccountService {
   rpc ListAccountActivities(ListAccountActivitiesRequest) returns (ListAccountActivitiesResponse);
   rpc ExportAccountActivities(ExportAccountActivitiesRequest) returns (stream ExportAccountActivitiesResponse);
@@ -35,9 +36,6 @@ service HostedAccountService {
   rpc ListInvitations(ListInvitationsRequest) returns (ListInvitationsResponse);
   rpc CreateInvitation(CreateInvitationRequest) returns (CreateInvitationResponse);
   rpc RevokeInvitation(RevokeInvitationRequest) returns (RevokeInvitationResponse);
-  rpc PreviewInvitation(PreviewInvitationRequest) returns (PreviewInvitationResponse);
-  rpc AcceptInvitation(AcceptInvitationRequest) returns (AcceptInvitationResponse);
-  rpc RegisterInvitedUser(RegisterInvitedUserRequest) returns (RegisterInvitedUserResponse);
   rpc CreatePoolConfiguration(CreatePoolConfigurationRequest) returns (CreatePoolConfigurationResponse);
   rpc RevisePoolConfiguration(RevisePoolConfigurationRequest) returns (RevisePoolConfigurationResponse);
   rpc GetPoolRevision(GetPoolRevisionRequest) returns (GetPoolRevisionResponse);
@@ -264,7 +262,7 @@ message CreateInvitationRequest {
 }
 message CreateInvitationResponse {
   Invitation invitation = 1;
-  // Sixteen-character bearer code, formatted XXXX-XXXX-XXXX-XXXX, shown once for manual
+  // Eight-character bearer code, formatted XXXX-XXXX, shown once for manual
   // sharing. Never retained in activity logs.
   string token = 2;
 }
@@ -273,25 +271,6 @@ message RevokeInvitationRequest {
   string invitation_id = 2 [(buf.validate.field).string.uuid = true];
 }
 message RevokeInvitationResponse {}
-message PreviewInvitationRequest {
-  // The server normalizes codes (ASCII case, spaces, optional four-character group hyphens).
-  string token = 1 [(buf.validate.field).string.max_bytes = 128];
-}
-message PreviewInvitationResponse {
-  string account_name = 1;
-  AccountRole role = 2;
-  google.protobuf.Timestamp expires_at = 3;
-}
-message AcceptInvitationRequest {
-  string token = 1 [(buf.validate.field).string.max_bytes = 128];
-}
-message AcceptInvitationResponse { string account_id = 1; }
-message RegisterInvitedUserRequest {
-  string token = 1 [(buf.validate.field).string.max_bytes = 128];
-  string username = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
-  string password = 3 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
-}
-message RegisterInvitedUserResponse { string account_id = 1; }
 
 // Account keys require X-Fleet-Account-ID on every request. Bounds grant no
 // membership or implicit ancestor access; issuer permissions are checked live.

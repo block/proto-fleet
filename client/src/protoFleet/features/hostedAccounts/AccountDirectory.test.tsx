@@ -63,7 +63,7 @@ function mount(owner = true, entry = "/accounts", managedClient = client, strict
             : method === "ListMembers"
               ? { members: [] }
               : method === "CreateInvitation"
-                ? { token: "K7MP-4X9R-6TWC-8NQF" }
+                ? { token: "K7MP-4X9R" }
                 : method === "ListAccountAssets"
                   ? {
                       assets: [],
@@ -102,7 +102,7 @@ describe("owner Clients directory", () => {
     expect(screen.getByText("Modules in 2 containers")).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "4" })).toBeInTheDocument();
     expect(screen.queryByText("Host organization")).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Join an account" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Use an invitation code" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Switch account" })).not.toBeInTheDocument();
     expect(
       within(screen.getByRole("navigation", { name: "Settings" })).getByRole("link", { name: "Clients" }),
@@ -122,7 +122,7 @@ describe("owner Clients directory", () => {
     });
     expect(refresh).toHaveBeenCalled();
     await user.click(within(invitation).getByRole("button", { name: "Create invitation" }));
-    expect(await screen.findByLabelText("Invitation code")).toHaveValue("K7MP-4X9R-6TWC-8NQF");
+    expect(await screen.findByLabelText("Invitation code")).toHaveValue("K7MP-4X9R");
     expect(calls).toContainEqual({
       method: "CreateInvitation",
       account: newClient.accountId,
@@ -251,7 +251,7 @@ describe("owner Clients directory", () => {
   );
   it("preserves the membership directory for users without host creation authority", async () => {
     const { calls } = mount(false);
-    expect(screen.getByRole("link", { name: "Join an account" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Use an invitation code" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Create client" })).not.toBeInTheDocument();
     expect(calls).toHaveLength(0);
   });

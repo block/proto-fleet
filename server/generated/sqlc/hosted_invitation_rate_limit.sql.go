@@ -9,6 +9,30 @@ import (
 	"context"
 )
 
+const consumeHostedInvitationDeploymentRateLimit = `-- name: ConsumeHostedInvitationDeploymentRateLimit :execrows
+INSERT INTO hosted_invitation_rate_limit (client_hash, window_started_at, attempts)
+VALUES ('deployment', statement_timestamp(), 1)
+ON CONFLICT (client_hash) DO UPDATE
+SET window_started_at = CASE
+        WHEN hosted_invitation_rate_limit.window_started_at <= statement_timestamp() - interval '1 hour'
+        THEN statement_timestamp() ELSE hosted_invitation_rate_limit.window_started_at END,
+    attempts = CASE
+        WHEN hosted_invitation_rate_limit.window_started_at <= statement_timestamp() - interval '1 hour'
+        THEN 1 ELSE hosted_invitation_rate_limit.attempts + 1 END
+WHERE hosted_invitation_rate_limit.window_started_at <= statement_timestamp() - interval '1 hour'
+    OR hosted_invitation_rate_limit.attempts < $1::integer
+`
+
+// One hourly window shared by every client and replica bounds total code
+// guesses. The key cannot collide with client keys, which are SHA-256 hex.
+func (q *Queries) ConsumeHostedInvitationDeploymentRateLimit(ctx context.Context, attemptLimit int32) (int64, error) {
+	result, err := q.exec(ctx, q.consumeHostedInvitationDeploymentRateLimitStmt, consumeHostedInvitationDeploymentRateLimit, attemptLimit)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const consumeHostedInvitationRateLimit = `-- name: ConsumeHostedInvitationRateLimit :execrows
 INSERT INTO hosted_invitation_rate_limit (client_hash, window_started_at, attempts)
 VALUES ($1, statement_timestamp(), 1)

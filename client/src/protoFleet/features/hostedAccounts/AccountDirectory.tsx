@@ -57,7 +57,7 @@ const AccountDirectory = () => {
       <div className="flex flex-col gap-6 p-10 phone:p-6">
         <div className="flex items-start justify-between gap-4 phone:flex-col">
           <SettingsPageHeader title="Accounts" />
-          <Button variant="secondary" text="Join an account" to="/account-invitation" />
+          <Button variant="secondary" text="Use an invitation code" to="/account-invitation" />
         </div>
         <AccountState loading={directory.loading} error={directory.error} retry={directory.refresh} />
         {!directory.loading && !directory.error ? (

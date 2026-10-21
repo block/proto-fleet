@@ -20,6 +20,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/marketdata/v1/marketdatav1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
@@ -123,6 +124,13 @@ var ProcedurePermissions = map[string]string{
 	authv1connect.AuthServiceResetUserPasswordProcedure: authz.PermUserManage,
 	authv1connect.AuthServiceUpdateUserRoleProcedure:    authz.PermUserManage,
 	authv1connect.AuthServiceListUsersProcedure:         authz.PermUserRead,
+
+	// Team invitations — user:manage at the handler; the domain layer applies
+	// the same role-hierarchy check at issuance and again at acceptance.
+	invitationv1connect.InvitationServiceCreateTeamInvitationProcedure: authz.PermUserManage,
+	invitationv1connect.InvitationServiceListTeamInvitationsProcedure:  authz.PermUserManage,
+	invitationv1connect.InvitationServiceRevokeTeamInvitationProcedure: authz.PermUserManage,
+	invitationv1connect.InvitationServiceDeleteTeamInvitationProcedure: authz.PermUserManage,
 
 	// Buildings CRUD — site:read for reads, site:manage for writes.
 	// ListBuildingRacks is a building-scoped read; AssignRacksToBuilding
@@ -547,5 +555,5 @@ var AccountProcedureCapabilities = map[string]hostedaccounts.Capabilities{
 	hostedv1connect.HostedAccountServiceListInvitationsProcedure:          hostedaccounts.ManageMembers,
 	hostedv1connect.HostedAccountServiceCreateInvitationProcedure:         hostedaccounts.ManageMembers,
 	hostedv1connect.HostedAccountServiceRevokeInvitationProcedure:         hostedaccounts.ManageMembers,
-	hostedv1connect.HostedAccountServiceAcceptInvitationProcedure:         0,
+	invitationv1connect.InvitationServiceAcceptInvitationProcedure:        0,
 }

@@ -1078,7 +1078,7 @@ func TestRequireCallerCanManageTarget(t *testing.T) {
 			caller := authz.NewEffectivePermissions(tc.caller)
 			target := authz.NewEffectivePermissions(tc.target)
 
-			err := requireCallerCanManageTarget(caller, target)
+			err := RequireCallerCanManageTarget(caller, target)
 			if tc.wantDenied {
 				require.Error(t, err)
 				var fleetErr fleeterror.FleetError

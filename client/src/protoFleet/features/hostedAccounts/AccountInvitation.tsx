@@ -3,16 +3,35 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
-import { ACCOUNT_READ_TIMEOUT_MS, hostedAccountsClient } from "./api";
+import { ACCOUNT_READ_TIMEOUT_MS } from "./api";
 import { accountPath, roleLabel } from "./capabilities";
 import { AccountState } from "./components/AccountState";
+import { InvitationCodeInput } from "./components/InvitationCodeInput";
+import { useHostedAccounts } from "./HostedAccountsContext";
+import {
+  emptyInvitationCode,
+  formatInvitationCode,
+  INVITATION_CODE_FORMAT,
+  INVITATION_CODE_LENGTH,
+  invitationCodeFrom,
+  isCompleteInvitationCode,
+  normalizeInvitationCode,
+} from "./invitationCode";
 import { useAccountQuery } from "./useAccountQuery";
+import { invitationClient } from "@/protoFleet/api/clients";
 import { AuthenticateRequestSchema } from "@/protoFleet/api/generated/auth/v1/auth_pb";
+import type {
+  AcceptInvitationResponse,
+  PreviewInvitationResponse,
+  RegisterInvitedUserResponse,
+} from "@/protoFleet/api/generated/invitation/v1/invitation_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useLogin } from "@/protoFleet/api/useLogin";
+import { useLogoutAction } from "@/protoFleet/api/useLogout";
 import Footer from "@/protoFleet/components/Footer";
 import LoginForm from "@/protoFleet/features/auth/components/LoginModal/LoginForm";
-import { useFleetStore } from "@/protoFleet/store";
+import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
+import { useFleetStore, useSetPermissions, useSetRole } from "@/protoFleet/store";
 import { Alert, LogoAlt } from "@/shared/assets/icons";
 import Button from "@/shared/components/Button";
 import Callout from "@/shared/components/Callout";
@@ -21,17 +40,43 @@ import Input from "@/shared/components/Input";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { TabStrip, TabStripItem } from "@/shared/components/Tab";
 
+type Destination = { kind: "account"; accountId: string } | { kind: "team" };
+
+const destinationOf = ({ target }: AcceptInvitationResponse | RegisterInvitedUserResponse): Destination => {
+  if (target.case === "account") return { kind: "account", accountId: target.value.accountId };
+  if (target.case === "team") return { kind: "team" };
+  throw new Error("Invitation result is missing its destination");
+};
+const destinationPath = (destination: Destination) =>
+  destination.kind === "account" ? accountPath(destination.accountId) : "/";
+
+const invitationHeader = ({ target }: PreviewInvitationResponse) => {
+  // Organization names are generated identifiers, so team previews name only the role.
+  if (target.case === "team")
+    return { title: "Join the fleet team", description: `You’re invited as ${formatRole(target.value.roleName)}.` };
+  if (target.case === "account")
+    return {
+      title: `Join ${target.value.accountName}`,
+      description: `You’re invited as a ${roleLabel(target.value.role)}.`,
+    };
+  return null;
+};
+
 const InvitationDetails = ({ token, onCancel }: { token: string; onCancel: () => void }) => {
   const navigate = useNavigate(),
-    login = useLogin();
+    login = useLogin(),
+    logout = useLogoutAction(null);
   const authenticated = useFleetStore((s) => s.auth.isAuthenticated);
   const username = useFleetStore((s) => s.auth.username);
+  const setRole = useSetRole();
+  const setPermissions = useSetPermissions();
+  const directory = useHostedAccounts();
   const [lifetime] = useState(() => ({ controller: new AbortController() }));
   useEffect(() => {
     if (lifetime.controller.signal.aborted) lifetime.controller = new AbortController();
     return () => lifetime.controller.abort();
   }, [lifetime]);
-  const [registeredAccountId, setRegisteredAccountId] = useState("");
+  const [registered, setRegistered] = useState<Destination | null>(null);
   const [needsPasswordChange, setNeedsPasswordChange] = useState(false);
   const [tab, setTab] = useState("new"),
     [newUsername, setNewUsername] = useState(""),
@@ -40,12 +85,17 @@ const InvitationDetails = ({ token, onCancel }: { token: string; onCancel: () =>
     [error, setError] = useState("");
   const load = useCallback(
     (signal: AbortSignal) =>
-      hostedAccountsClient.previewInvitation({ token }, { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal }),
+      invitationClient.previewInvitation({ token }, { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal }),
     [token],
   );
   const query = useAccountQuery(load);
+  const header = query.data ? invitationHeader(query.data) : null;
+  // Expired, revoked, accepted and unknown codes are indistinguishable by design.
+  const unusable = query.errorCode === Code.FailedPrecondition;
   const showingLogin = query.data && (!authenticated || needsPasswordChange) && tab === "existing";
-  const cancel = <Button variant="textOnly" text="Cancel" disabled={busy} onClick={onCancel} />;
+  const cancel = (
+    <Button variant="textOnly" text={unusable ? "Enter another code" : "Cancel"} disabled={busy} onClick={onCancel} />
+  );
   const accept = async () => {
     const generation = useFleetStore.getState().auth.sessionGeneration;
     const signal = lifetime.controller.signal;
@@ -53,10 +103,18 @@ const InvitationDetails = ({ token, onCancel }: { token: string; onCancel: () =>
     setBusy(true);
     setError("");
     try {
-      const result = registeredAccountId
-        ? { accountId: registeredAccountId }
-        : await hostedAccountsClient.acceptInvitation({ token }, { signal });
-      if (!signal.aborted) navigate(accountPath(result.accountId), { replace: true });
+      let destination = registered;
+      if (!destination) {
+        const response = await invitationClient.acceptInvitation({ token }, { signal });
+        if (signal.aborted) return;
+        destination = destinationOf(response);
+        if (response.target.case === "team" && response.target.value.userInfo) {
+          setRole(response.target.value.userInfo.role);
+          setPermissions(response.target.value.userInfo.permissions);
+          directory?.refresh();
+        }
+      }
+      if (!signal.aborted) navigate(destinationPath(destination), { replace: true });
     } catch (e) {
       if (!signal.aborted) {
         setError(getErrorMessage(e));
@@ -70,22 +128,33 @@ const InvitationDetails = ({ token, onCancel }: { token: string; onCancel: () =>
       if (!signal.aborted) setBusy(false);
     }
   };
+  // Signing out keeps the previewed invitation so another login can redeem it.
+  const switchLogin = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    await logout();
+    if (lifetime.controller.signal.aborted) return;
+    setTab("new");
+    setBusy(false);
+  };
   const register = async () => {
     const signal = lifetime.controller.signal;
     if (busy || signal.aborted) return;
     setBusy(true);
     setError("");
     try {
-      const result = await hostedAccountsClient.registerInvitedUser(
+      const result = await invitationClient.registerInvitedUser(
         { token, username: newUsername.trim(), password },
         { signal },
       );
       if (signal.aborted) return;
-      setRegisteredAccountId(result.accountId);
+      const destination = destinationOf(result);
+      setRegistered(destination);
       await login({
         signal,
         loginRequest: create(AuthenticateRequestSchema, { username: newUsername.trim(), password }),
-        onSuccess: () => navigate(accountPath(result.accountId), { replace: true }),
+        onSuccess: () => navigate(destinationPath(destination), { replace: true }),
         onError: (message) => {
           setError(message);
           setTab("existing");
@@ -100,14 +169,18 @@ const InvitationDetails = ({ token, onCancel }: { token: string; onCancel: () =>
   };
   return (
     <>
-      <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
-      {query.data ? (
+      {unusable ? (
+        <Header
+          title="This invitation can’t be used"
+          titleSize="text-heading-300"
+          description="It may have expired, been revoked, or already been used. Ask the sender for a new code."
+        />
+      ) : (
+        <AccountState loading={query.loading} error={query.error} retry={query.refresh} />
+      )}
+      {header ? (
         <>
-          <Header
-            title={`Join ${query.data.accountName}`}
-            titleSize="text-heading-300"
-            description={`You’re invited as a ${roleLabel(query.data.role)}.`}
-          />
+          <Header title={header.title} titleSize="text-heading-300" description={header.description} />
           {authenticated && !needsPasswordChange ? (
             <>
               <p className="text-300 text-text-primary-70">Join with your current login: {username}</p>
@@ -117,6 +190,14 @@ const InvitationDetails = ({ token, onCancel }: { token: string; onCancel: () =>
                 loading={busy}
                 onClick={() => {
                   void accept();
+                }}
+              />
+              <Button
+                variant="secondary"
+                text="Use a different login"
+                disabled={busy}
+                onClick={() => {
+                  void switchLogin();
                 }}
               />
             </>
@@ -183,15 +264,22 @@ const InvitationDetails = ({ token, onCancel }: { token: string; onCancel: () =>
   );
 };
 
-const isInvitationCode = (value: string) =>
-  /^(?:[A-HJ-NP-Z2-9]{4}-?){3}[A-HJ-NP-Z2-9]{4}$/i.test(value.replaceAll(" ", ""));
 const AccountInvitation = () => {
   const location = useLocation(),
     navigate = useNavigate();
   const [{ token, code }, setInvitation] = useState(() => {
     const initialCode = new URLSearchParams(location.hash.slice(1)).get("token") ?? "";
-    return isInvitationCode(initialCode) ? { token: initialCode, code: "" } : { token: "", code: initialCode };
+    const linkLength = normalizeInvitationCode(initialCode).length;
+    const linkCode = invitationCodeFrom(initialCode);
+    if (linkLength === INVITATION_CODE_LENGTH && isCompleteInvitationCode(linkCode))
+      return { token: formatInvitationCode(linkCode), code: emptyInvitationCode() };
+    // Never pre-fill a truncated prefix of an over-long link code.
+    return { token: "", code: linkLength <= INVITATION_CODE_LENGTH ? linkCode : emptyInvitationCode() };
   });
+  const submitCode = () => {
+    if (isCompleteInvitationCode(code))
+      setInvitation({ token: formatInvitationCode(code), code: emptyInvitationCode() });
+  };
   useEffect(() => {
     if (location.hash) navigate(location.pathname, { replace: true });
   }, [location.hash, location.pathname, navigate]);
@@ -205,31 +293,31 @@ const AccountInvitation = () => {
               <ProgressCircular indeterminate />
             </div>
           ) : (
-            <InvitationDetails key={token} token={token} onCancel={() => setInvitation({ token: "", code: "" })} />
+            <InvitationDetails
+              key={token}
+              token={token}
+              onCancel={() => setInvitation({ token: "", code: emptyInvitationCode() })}
+            />
           )
         ) : (
           <>
             <Header
-              title="Join an account"
+              title="Use an invitation code"
               titleSize="text-heading-300"
-              description="Enter your invitation code, such as K7MP-4X9R-6TWC-8NQF."
+              description={
+                <>
+                  Enter your invitation code in the format{" "}
+                  <span className="whitespace-nowrap">{INVITATION_CODE_FORMAT}</span>.
+                </>
+              }
             />
-            <Input
-              id="invitation-code"
-              label="Invitation code"
-              initValue={code}
+            <InvitationCodeInput
+              value={code}
               onChange={(code) => setInvitation((current) => ({ ...current, code }))}
-              maxLength={128}
-              autoComplete="off"
+              onSubmit={submitCode}
+              autoFocus
             />
-            <Button
-              variant="primary"
-              text="Continue"
-              disabled={!isInvitationCode(code)}
-              onClick={() => {
-                setInvitation({ token: code, code: "" });
-              }}
-            />
+            <Button variant="primary" text="Continue" disabled={!isCompleteInvitationCode(code)} onClick={submitCode} />
             <Button variant="textOnly" text="Cancel" to="/" />
           </>
         )}

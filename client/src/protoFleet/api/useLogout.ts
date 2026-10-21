@@ -8,8 +8,9 @@ import { pushToast, STATUSES as TOAST_STATUSES } from "@/shared/features/toaster
 /**
  * Hook for logging out the user.
  * Calls the server to invalidate the session, then clears client-side state.
+ * Pass `null` to stay on a public page, such as invitation redemption.
  */
-const useLogoutAction = () => {
+const useLogoutAction = (redirectTo: string | null = "/auth") => {
   const navigate = useNavigate();
 
   const logout = useCallback(async () => {
@@ -26,9 +27,9 @@ const useLogoutAction = () => {
     } finally {
       // Always clear client-side auth state
       useFleetStore.getState().auth.logout();
-      navigate("/auth");
+      if (redirectTo) navigate(redirectTo);
     }
-  }, [navigate]);
+  }, [navigate, redirectTo]);
 
   return logout;
 };

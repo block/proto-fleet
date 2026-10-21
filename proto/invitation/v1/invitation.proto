@@ -1,0 +1,139 @@
+syntax = "proto3";
+
+package invitation.v1;
+
+import "auth/v1/auth.proto";
+import "buf/validate/validate.proto";
+import "google/protobuf/timestamp.proto";
+import "hosted/v1/hosted.proto";
+
+// InvitationService issues host team invitations and redeems every invitation
+// code. Host team and customer account invitations share one code format and
+// namespace; HostedAccountService issues customer account invitations.
+service InvitationService {
+  // Team invitations grant an organization role on acceptance and require
+  // user:manage. The caller must be able to assign the selected role.
+  rpc CreateTeamInvitation(CreateTeamInvitationRequest) returns (CreateTeamInvitationResponse);
+  rpc ListTeamInvitations(ListTeamInvitationsRequest) returns (ListTeamInvitationsResponse);
+  rpc RevokeTeamInvitation(RevokeTeamInvitationRequest) returns (RevokeTeamInvitationResponse);
+  // Removes an expired or revoked invitation. The activity log keeps its history.
+  rpc DeleteTeamInvitation(DeleteTeamInvitationRequest) returns (DeleteTeamInvitationResponse);
+  // Public. Describes the invitation a code belongs to.
+  rpc PreviewInvitation(PreviewInvitationRequest) returns (PreviewInvitationResponse);
+  // Joins with the signed-in login. Requires session authentication.
+  rpc AcceptInvitation(AcceptInvitationRequest) returns (AcceptInvitationResponse);
+  // Public. Creates a login, accepts the invitation and starts a session.
+  rpc RegisterInvitedUser(RegisterInvitedUserRequest) returns (RegisterInvitedUserResponse);
+}
+
+enum TeamInvitationStatus {
+  TEAM_INVITATION_STATUS_UNSPECIFIED = 0;
+  TEAM_INVITATION_STATUS_PENDING = 1;
+  TEAM_INVITATION_STATUS_REVOKED = 2;
+  TEAM_INVITATION_STATUS_EXPIRED = 3;
+  // Unused and unexpired, but its inviter was removed or its role was changed
+  // or deleted after issuance, so it can no longer be accepted.
+  TEAM_INVITATION_STATUS_UNAVAILABLE = 4;
+}
+
+message TeamInvitation {
+  string invitation_id = 1;
+  string role_id = 2;
+  // Role name as stored; built-in roles use their seed identifier.
+  string role_name = 3;
+  TeamInvitationStatus status = 4;
+  string inviter_username = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp expires_at = 7;
+  google.protobuf.Timestamp revoked_at = 8;
+}
+
+message CreateTeamInvitationRequest {
+  // Organization role granted on acceptance. Super Admin cannot be invited.
+  string role_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 20}];
+  // Zero uses 24 hours. Invitations expire at most 24 hours after creation.
+  uint32 expires_in_seconds = 2 [(buf.validate.field).uint32.lte = 86400];
+}
+message CreateTeamInvitationResponse {
+  TeamInvitation invitation = 1;
+  // Eight-character bearer code, formatted XXXX-XXXX, shown once for manual
+  // sharing. Never retained in activity logs.
+  string token = 2;
+}
+
+// Lists unaccepted team invitations, newest first. Revoked and expired invitations
+// remain until deleted; accepted ones are recorded in the activity log instead.
+message ListTeamInvitationsRequest {
+  // Zero uses 25. At most 100 invitations are returned per page.
+  int32 page_size = 1 [(buf.validate.field).int32 = {gte: 0, lte: 100}];
+  // Opaque continuation token from the same organization.
+  string page_token = 2 [(buf.validate.field).string.max_len = 512];
+}
+message ListTeamInvitationsResponse {
+  repeated TeamInvitation invitations = 1 [(buf.validate.field).repeated.max_items = 100];
+  string next_page_token = 2;
+}
+
+message RevokeTeamInvitationRequest {
+  string invitation_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message RevokeTeamInvitationResponse {}
+
+message DeleteTeamInvitationRequest {
+  string invitation_id = 1 [(buf.validate.field).string.uuid = true];
+}
+message DeleteTeamInvitationResponse {}
+
+message PreviewInvitationRequest {
+  // The server normalizes codes (ASCII case, spaces, optional four-character group hyphens).
+  string token = 1 [(buf.validate.field).string.max_bytes = 128];
+}
+message AccountInvitationPreview {
+  string account_name = 1;
+  hosted.v1.AccountRole role = 2;
+}
+message TeamInvitationPreview {
+  string organization_name = 1;
+  // Role name as stored; built-in roles use their seed identifier.
+  string role_name = 2;
+}
+message PreviewInvitationResponse {
+  google.protobuf.Timestamp expires_at = 1;
+  oneof target {
+    option (buf.validate.oneof).required = true;
+    AccountInvitationPreview account = 2;
+    TeamInvitationPreview team = 3;
+  }
+}
+
+message JoinedAccount {
+  string account_id = 1;
+}
+// The caller's identity after joining the host team, including refreshed permissions.
+message JoinedTeam {
+  auth.v1.UserInfo user_info = 1;
+}
+
+message AcceptInvitationRequest {
+  string token = 1 [(buf.validate.field).string.max_bytes = 128];
+}
+message AcceptInvitationResponse {
+  oneof target {
+    option (buf.validate.oneof).required = true;
+    JoinedAccount account = 1;
+    JoinedTeam team = 2;
+  }
+}
+
+message RegisterInvitedUserRequest {
+  string token = 1 [(buf.validate.field).string.max_bytes = 128];
+  string username = 2 [(buf.validate.field).string = {min_len: 1, max_len: 255}];
+  string password = 3 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+}
+message RegisterInvitedUserResponse {
+  oneof target {
+    option (buf.validate.oneof).required = true;
+    JoinedAccount account = 1;
+    JoinedTeam team = 2;
+  }
+}

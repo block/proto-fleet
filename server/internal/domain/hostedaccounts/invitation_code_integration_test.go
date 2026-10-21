@@ -3,6 +3,7 @@ package hostedaccounts
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -24,12 +25,12 @@ func TestInvitationCodeCollisionsRetryWithoutReplacingExistingInvitation(t *test
 		if attempts == 1 {
 			return token, nil
 		}
-		return "K7MP-4X9R-6TWC-8NQF", nil
+		return "K7MP-4X9R", nil
 	}
 	issued, err := svc.Create(t.Context(), original.InviterID, original.OrganizationID, original.ExternalAccountID, RoleViewer, time.Hour)
 	require.NoError(t, err)
 	require.Equal(t, 2, attempts)
-	require.Equal(t, "K7MP-4X9R-6TWC-8NQF", issued.Token)
+	require.Equal(t, "K7MP-4X9R", issued.Token)
 	after, err := sqlc.New(conn).GetHostedAccountInvitationByHash(t.Context(), hash)
 	require.NoError(t, err)
 	require.Equal(t, original, after)
@@ -39,6 +40,35 @@ func TestInvitationCodeCollisionsRetryWithoutReplacingExistingInvitation(t *test
 	var count int
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_account_invitation`).Scan(&count))
 	require.Equal(t, 2, count)
+}
+
+func TestInvitationCodesAreUniqueAcrossAccountAndTeamInvitations(t *testing.T) {
+	svc, conn, accountCode := registrationFixture(t)
+	hash, err := invitationHash(accountCode)
+	require.NoError(t, err)
+	original, err := sqlc.New(conn).GetHostedAccountInvitationByHash(t.Context(), hash)
+	require.NoError(t, err)
+	var fieldTech int64
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT id FROM role WHERE organization_id=$1 AND builtin_key='FIELD_TECH'`, original.OrganizationID).Scan(&fieldTech))
+	teams := NewTeamInvitationService(svc.accounts, svc.sessions)
+	attempts := 0
+	teams.generateCode = func() (string, error) {
+		attempts++
+		if attempts == 1 {
+			return accountCode, nil
+		}
+		return "K7MP-4X9R", nil
+	}
+	issued, err := teams.Create(t.Context(), original.InviterID, original.OrganizationID, strconv.FormatInt(fieldTech, 10), time.Hour)
+	require.NoError(t, err)
+	require.Equal(t, 2, attempts, "a customer invitation's code is never reissued as a team code")
+	require.Equal(t, "K7MP-4X9R", issued.Token)
+	owns, err := teams.Owns(t.Context(), accountCode)
+	require.NoError(t, err)
+	require.False(t, owns)
+	svc.generateCode = func() (string, error) { return issued.Token, nil }
+	_, err = svc.Create(t.Context(), original.InviterID, original.OrganizationID, original.ExternalAccountID, RoleViewer, time.Hour)
+	require.Error(t, err, "nor is a team code reissued for a customer account")
 }
 
 func TestInvitationCodeNormalizationAcrossPreviewAndRedemption(t *testing.T) {

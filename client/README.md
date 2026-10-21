@@ -586,7 +586,7 @@ a request is pending. Suspension and resumption are separate confirmed actions. 
 assets and permission limits use host authority; private team and account settings
 continue to require the client’s grants. **View as client** is an explicit preview
 action on the management page and in the list menu. The owner-facing `/accounts` page directly lists managed clients
-and offers **Create client**, without a Join an account CTA. It uses host authority,
+and offers **Create client**, without a Use an invitation code CTA. It uses host authority,
 not private membership in each client. Rows summarize assigned miners and modules
 (including subclient allocations), distinct containers represented by those
 modules, and live direct client logins. Containers are placement groups, not
@@ -696,13 +696,17 @@ live role changes and client ceilings still constrain that access. An explicit
 initial administrator is an actual team member. Customer-created subclients keep
 the creating customer's initial administrator membership.
 
-Invitations show a sixteen-character code once for manual sharing, formatted as
-`K7MP-4X9R-6TWC-8NQF`. Entry accepts lowercase, ASCII spaces, and optional hyphens
-at each four-character boundary; the server
-normalizes the code. Recipients select
-**Join an account** on the login screen or account list, paste the code, then use
-an existing Fleet login or register a new one. Codes stay out of the URL and
-are not retained across reloads. Optional links use
+Client account and host team invitations show an eight-character code once for
+manual sharing, formatted as `K7MP-4X9R`. Code entry shows one box per character
+in the `XXXX-XXXX` layout: typing advances automatically,
+hyphens are implied, and pasting into a box fills the rest, ignoring case, spaces
+and hyphens. Characters outside the code alphabet are flagged. Recipients select
+**Use an invitation code** on the login screen or account list, paste the code,
+then use an existing Fleet login or register a new one. The preview names the
+client account or host team and the offered role. Codes stay out of the URL and
+are not retained across reloads. A signed-in recipient can accept with the
+current login or choose **Use a different login** to sign out first. Optional
+links use
 `/account-invitation#token=…` at the sender’s current Fleet address; recipients
 must be able to reach that address. The page removes the fragment before
 previewing the invitation. New API-key secrets are also shown once for manual copying. Saved pool passwords are

@@ -19,6 +19,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodeadmin/v1/fleetnodeadminv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sites/v1/sitesv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
@@ -284,6 +285,43 @@ func TestAuthInterceptor_AdminTerminateEventRejectsApiKeyAuth(t *testing.T) {
 	var fleetErr fleeterror.FleetError
 	require.ErrorAs(t, err, &fleetErr)
 	assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode)
+}
+
+// Team invitations mint login access: management and signed-in acceptance
+// reject API keys, and only the bearer-code redemption RPCs are public.
+func TestInvitationProceduresAreSessionOnlyAndRedacted(t *testing.T) {
+	t.Parallel()
+
+	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, nil, SessionOnlyProcedures, FleetNodeAuthenticatedProcedures)
+	for _, procedure := range []string{
+		invitationv1connect.InvitationServiceCreateTeamInvitationProcedure,
+		invitationv1connect.InvitationServiceListTeamInvitationsProcedure,
+		invitationv1connect.InvitationServiceRevokeTeamInvitationProcedure,
+		invitationv1connect.InvitationServiceDeleteTeamInvitationProcedure,
+		invitationv1connect.InvitationServiceAcceptInvitationProcedure,
+	} {
+		assert.Contains(t, SessionOnlyProcedures, procedure)
+		assert.NotContains(t, UnauthenticatedProcedures, procedure)
+		header := http.Header{}
+		header.Set("Authorization", "Bearer fleet_test_some_key")
+		_, err := interceptor.authenticate(context.Background(), procedure, header)
+		require.Error(t, err)
+		var fleetErr fleeterror.FleetError
+		require.ErrorAs(t, err, &fleetErr)
+		assert.Equal(t, connect.CodePermissionDenied, fleetErr.GRPCCode, procedure)
+	}
+	for _, procedure := range []string{
+		invitationv1connect.InvitationServicePreviewInvitationProcedure,
+		invitationv1connect.InvitationServiceRegisterInvitedUserProcedure,
+		invitationv1connect.InvitationServiceAcceptInvitationProcedure,
+	} {
+		assert.Contains(t, RedactedRequestProcedures, procedure, "requests carry the bearer code")
+		assert.True(t, SensitiveBodyProcedures[procedure], procedure)
+	}
+	assert.Contains(t, UnauthenticatedProcedures, invitationv1connect.InvitationServicePreviewInvitationProcedure)
+	assert.Contains(t, UnauthenticatedProcedures, invitationv1connect.InvitationServiceRegisterInvitedUserProcedure)
+	assert.Contains(t, RedactedResponseProcedures, invitationv1connect.InvitationServiceCreateTeamInvitationProcedure, "responses carry the bearer code")
+	assert.True(t, SensitiveBodyProcedures[invitationv1connect.InvitationServiceCreateTeamInvitationProcedure])
 }
 
 // UpdateUserRole mutates RBAC state and must reject API-key auth — a leaked

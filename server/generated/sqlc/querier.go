@@ -321,8 +321,12 @@ type Querier interface {
 	ConfirmEnrollment(ctx context.Context, arg ConfirmEnrollmentParams) (int64, error)
 	ConsumeFleetNodeAuthChallenge(ctx context.Context, arg ConsumeFleetNodeAuthChallengeParams) (FleetNodeAuthChallenge, error)
 	ConsumeHostedAccountInvitation(ctx context.Context, arg ConsumeHostedAccountInvitationParams) (int64, error)
+	// One hourly window shared by every client and replica bounds total code
+	// guesses. The key cannot collide with client keys, which are SHA-256 hex.
+	ConsumeHostedInvitationDeploymentRateLimit(ctx context.Context, attemptLimit int32) (int64, error)
 	// Each client has an independent one-minute window, shared across replicas.
 	ConsumeHostedInvitationRateLimit(ctx context.Context, arg ConsumeHostedInvitationRateLimitParams) (int64, error)
+	ConsumeOrganizationInvitation(ctx context.Context, arg ConsumeOrganizationInvitationParams) (int64, error)
 	ConsumeReservedInventoryPart(ctx context.Context, arg ConsumeReservedInventoryPartParams) (int64, error)
 	ContainerOwnsCommandBatch(ctx context.Context, arg ContainerOwnsCommandBatchParams) (bool, error)
 	ContainsContainerIdentifiers(ctx context.Context, arg ContainsContainerIdentifiersParams) (bool, error)
@@ -440,6 +444,7 @@ type Querier interface {
 	CreateInfrastructureDevice(ctx context.Context, arg CreateInfrastructureDeviceParams) (InfrastructureDevice, error)
 	CreateInventoryPart(ctx context.Context, arg CreateInventoryPartParams) (int64, error)
 	CreateOrganization(ctx context.Context, arg CreateOrganizationParams) (int64, error)
+	CreateOrganizationInvitation(ctx context.Context, arg CreateOrganizationInvitationParams) (OrganizationInvitation, error)
 	CreatePendingEnrollment(ctx context.Context, arg CreatePendingEnrollmentParams) (PendingEnrollment, error)
 	CreatePool(ctx context.Context, arg CreatePoolParams) (int64, error)
 	CreateQueueMessage(ctx context.Context, arg CreateQueueMessageParams) error
@@ -496,6 +501,9 @@ type Querier interface {
 	DeleteMinerCredentialsForDeviceIdentifiers(ctx context.Context, arg DeleteMinerCredentialsForDeviceIdentifiersParams) (int64, error)
 	DeleteMinerCredentialsForFleetNode(ctx context.Context, arg DeleteMinerCredentialsForFleetNodeParams) (int64, error)
 	DeleteOrganization(ctx context.Context, id int64) error
+	// Only dead invitations can be removed; accepted rows stay as the durable link
+	// to the joining login.
+	DeleteOrganizationInvitation(ctx context.Context, arg DeleteOrganizationInvitationParams) (int64, error)
 	// Revoke soft-deletes the fleet_node row, so ON DELETE CASCADE doesn't fire.
 	DeletePairingsForFleetNode(ctx context.Context, arg DeletePairingsForFleetNodeParams) (int64, error)
 	DeletePool(ctx context.Context, id int64) error
@@ -926,6 +934,7 @@ type Querier interface {
 	GetOrganizationByID(ctx context.Context, id int64) (Organization, error)
 	GetOrganizationByName(ctx context.Context, name string) (Organization, error)
 	GetOrganizationByOrgID(ctx context.Context, orgID string) (Organization, error)
+	GetOrganizationInvitationByHash(ctx context.Context, tokenHash string) (GetOrganizationInvitationByHashRow, error)
 	GetOrganizationsForUser(ctx context.Context, userID int64) ([]Organization, error)
 	// Finds an existing paired device by MAC address for a given organization.
 	// Explicit pairing excludes its own pending candidate to resolve the original miner.
@@ -1004,6 +1013,7 @@ type Querier interface {
 	GetSite(ctx context.Context, arg GetSiteParams) (Site, error)
 	GetSiteBySlug(ctx context.Context, arg GetSiteBySlugParams) (Site, error)
 	GetTankRollupWatermarks(ctx context.Context, deviceID int64) ([]GetTankRollupWatermarksRow, error)
+	GetTeamInvitationAuthorityFingerprint(ctx context.Context, arg GetTeamInvitationAuthorityFingerprintParams) (string, error)
 	GetTotalDevicesPendingAuth(ctx context.Context, orgID int64) (int64, error)
 	// Unified query that supports all filters including component error filtering
 	// Uses EXISTS for error checks (more efficient than LEFT JOIN + DISTINCT)
@@ -1021,6 +1031,9 @@ type Querier interface {
 	GetUserById(ctx context.Context, id int64) (User, error)
 	GetUserByIdForUpdate(ctx context.Context, id int64) (User, error)
 	GetUserByUsername(ctx context.Context, username string) (User, error)
+	// A user already holds team access when either the legacy role column or any
+	// live role assignment exists. Customer-only logins have neither.
+	GetUserOrganizationRoleState(ctx context.Context, arg GetUserOrganizationRoleStateParams) (bool, error)
 	GetUserRoleInOrganization(ctx context.Context, arg GetUserRoleInOrganizationParams) (Role, error)
 	GetUserRoleName(ctx context.Context, arg GetUserRoleNameParams) (string, error)
 	GetUserRoleNameForUpdate(ctx context.Context, arg GetUserRoleNameForUpdateParams) (string, error)
@@ -1107,6 +1120,9 @@ type Querier interface {
 	InsertReleaseChannelTargets(ctx context.Context, arg InsertReleaseChannelTargetsParams) error
 	InsertRepairTicketPart(ctx context.Context, arg InsertRepairTicketPartParams) error
 	InventoryPartExistsBySiteAndName(ctx context.Context, arg InventoryPartExistsBySiteAndNameParams) (bool, error)
+	// Team and customer account invitations share one code namespace, so public
+	// redemption resolves each code to exactly one invitation.
+	InvitationTokenHashInUse(ctx context.Context, tokenHash string) (bool, error)
 	IsBatchFinished(ctx context.Context, commandBatchLogUuid string) (bool, error)
 	IsContainerMetricSelector(ctx context.Context, identifier string) (bool, error)
 	IsDeletionUnpairIdentityCurrent(ctx context.Context, arg IsDeletionUnpairIdentityCurrentParams) (bool, error)
@@ -1492,6 +1508,10 @@ type Querier interface {
 	// Resolution rows remain stored so the notification_active trigger can close firing alerts,
 	// but the activity feed records only the alert firing event.
 	ListNotificationHistory(ctx context.Context, arg ListNotificationHistoryParams) ([]ListNotificationHistoryRow, error)
+	// Accepted invitations are excluded before paging; revoked and expired ones
+	// remain until deleted. Availability reflects lifecycle, the live inviter and
+	// unchanged authority; the service then applies the inviter's current hierarchy.
+	ListOrganizationInvitations(ctx context.Context, arg ListOrganizationInvitationsParams) ([]ListOrganizationInvitationsRow, error)
 	ListOrganizations(ctx context.Context) ([]Organization, error)
 	ListPartsBySite(ctx context.Context, arg ListPartsBySiteParams) ([]ListPartsBySiteRow, error)
 	ListPermissions(ctx context.Context) ([]Permission, error)
@@ -1869,6 +1889,7 @@ type Querier interface {
 	// retries and completed rollout history.
 	ObserveFirmwareRolloutReservationsOffline(ctx context.Context, channelID sql.NullInt64) error
 	OfflineDevicesForFleetNodeRevocation(ctx context.Context, arg OfflineDevicesForFleetNodeRevocationParams) (int64, error)
+	OrganizationInvitationExists(ctx context.Context, tokenHash string) (bool, error)
 	// The parent lock also protects absence of a route during dispatch. A scalar
 	// lookup keeps a missing parent an insert error rather than a successful no-op.
 	PairDeviceToFleetNode(ctx context.Context, arg PairDeviceToFleetNodeParams) (int64, error)
@@ -2093,6 +2114,7 @@ type Querier interface {
 	RevokeHostedAccountInvitation(ctx context.Context, arg RevokeHostedAccountInvitationParams) (int64, error)
 	RevokeHostedAccountKey(ctx context.Context, arg RevokeHostedAccountKeyParams) (int64, error)
 	RevokeHostedAccountMembership(ctx context.Context, arg RevokeHostedAccountMembershipParams) error
+	RevokeOrganizationInvitation(ctx context.Context, arg RevokeOrganizationInvitationParams) (int64, error)
 	RevokePermissionFromRole(ctx context.Context, arg RevokePermissionFromRoleParams) error
 	RevokeSession(ctx context.Context, arg RevokeSessionParams) error
 	SetCurtailmentAutomationActiveEvent(ctx context.Context, arg SetCurtailmentAutomationActiveEventParams) (int64, error)

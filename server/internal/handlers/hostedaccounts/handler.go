@@ -13,7 +13,6 @@ import (
 	domain "github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
-	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -175,7 +174,7 @@ func (h *Handler) ListMembers(ctx context.Context, req *connect.Request[pb.ListM
 	}
 	response := &pb.ListMembersResponse{}
 	for _, row := range rows {
-		response.Members = append(response.Members, &pb.Member{UserId: row.UserID, Username: row.Username, Role: roleDTO(row.Role), Revision: row.Revision, JoinedAt: timestamppb.New(row.JoinedAt)})
+		response.Members = append(response.Members, &pb.Member{UserId: row.UserID, Username: row.Username, Role: RoleDTO(row.Role), Revision: row.Revision, JoinedAt: timestamppb.New(row.JoinedAt)})
 	}
 	return connect.NewResponse(response), nil
 }
@@ -340,54 +339,9 @@ func (h *Handler) RevokeInvitation(ctx context.Context, req *connect.Request[pb.
 	}
 	return connect.NewResponse(&pb.RevokeInvitationResponse{}), nil
 }
-func (h *Handler) PreviewInvitation(ctx context.Context, req *connect.Request[pb.PreviewInvitationRequest]) (*connect.Response[pb.PreviewInvitationResponse], error) {
-	if err := h.checkInvitationClient(ctx); err != nil {
-		return nil, err
-	}
-	preview, err := h.invitations.Preview(ctx, req.Msg.Token)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&pb.PreviewInvitationResponse{AccountName: preview.AccountName, Role: roleDTO(preview.Role), ExpiresAt: timestamppb.New(preview.ExpiresAt)}), nil
-}
-func (h *Handler) AcceptInvitation(ctx context.Context, req *connect.Request[pb.AcceptInvitationRequest]) (*connect.Response[pb.AcceptInvitationResponse], error) {
-	info, err := sessionPrincipal(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if err := h.checkInvitationClient(ctx); err != nil {
-		return nil, err
-	}
-	accountID, err := h.invitations.Accept(ctx, req.Msg.Token, info.UserID, info.OrganizationID)
-	if err != nil {
-		return nil, err
-	}
-	return connect.NewResponse(&pb.AcceptInvitationResponse{AccountId: accountID}), nil
-}
-func (h *Handler) checkInvitationClient(ctx context.Context) error {
-	ipAddress := middleware.ClientIP(ctx)
-	if ipAddress == "" {
-		return fleeterror.NewFailedPreconditionError("invitation client address unavailable")
-	}
-	return h.invitations.CheckClientRateLimit(ctx, ipAddress)
-}
-
-func (h *Handler) RegisterInvitedUser(ctx context.Context, req *connect.Request[pb.RegisterInvitedUserRequest]) (*connect.Response[pb.RegisterInvitedUserResponse], error) {
-	if err := h.checkInvitationClient(ctx); err != nil {
-		return nil, err
-	}
-	ipAddress := middleware.ClientIP(ctx)
-	registered, err := h.invitations.Register(ctx, req.Msg.Token, req.Msg.Username, req.Msg.Password, req.Header().Get("User-Agent"), ipAddress)
-	if err != nil {
-		return nil, err
-	}
-	response := connect.NewResponse(&pb.RegisterInvitedUserResponse{AccountId: registered.AccountID})
-	response.Header().Set("Set-Cookie", registered.Cookie.String())
-	return response, nil
-}
 
 func accountDTO(a domain.AccountSummary) *pb.Account {
-	item := &pb.Account{AccountId: a.AccountID, ParentAccountId: a.ParentAccountID, Name: a.Name, Depth: uint32(a.Depth), CapabilityCeiling: uint64(a.Capabilities), EffectiveCapabilities: uint64(a.EffectiveCapabilities), Role: roleDTO(a.Role), Suspended: a.Suspended, Revision: a.Revision} // #nosec G115 -- account depth is constrained to 0..2 and capability masks to 0..31.
+	item := &pb.Account{AccountId: a.AccountID, ParentAccountId: a.ParentAccountID, Name: a.Name, Depth: uint32(a.Depth), CapabilityCeiling: uint64(a.Capabilities), EffectiveCapabilities: uint64(a.EffectiveCapabilities), Role: RoleDTO(a.Role), Suspended: a.Suspended, Revision: a.Revision} // #nosec G115 -- account depth is constrained to 0..2 and capability masks to 0..31.
 	if counts := a.ManagementSummary; counts != nil {
 		item.ManagementSummary = &pb.ClientManagementSummary{
 			MinerCount: counts.MinerCount, ModuleCount: counts.ModuleCount,
@@ -396,7 +350,7 @@ func accountDTO(a domain.AccountSummary) *pb.Account {
 	}
 	return item
 }
-func roleDTO(role domain.Role) pb.AccountRole {
+func RoleDTO(role domain.Role) pb.AccountRole {
 	switch role {
 	case domain.RoleViewer:
 		return pb.AccountRole_ACCOUNT_ROLE_VIEWER
@@ -423,7 +377,7 @@ func roleDomain(role pb.AccountRole) domain.Role {
 	}
 }
 func invitationDTO(i domain.Invitation) *pb.Invitation {
-	return &pb.Invitation{InvitationId: i.InvitationID, Role: roleDTO(domain.Role(i.Role)), ExpiresAt: timestamppb.New(i.ExpiresAt), RevokedAt: nullableTimestamp(i.RevokedAt), AcceptedAt: nullableTimestamp(i.AcceptedAt), CreatedAt: timestamppb.New(i.CreatedAt), Available: i.Available}
+	return &pb.Invitation{InvitationId: i.InvitationID, Role: RoleDTO(domain.Role(i.Role)), ExpiresAt: timestamppb.New(i.ExpiresAt), RevokedAt: nullableTimestamp(i.RevokedAt), AcceptedAt: nullableTimestamp(i.AcceptedAt), CreatedAt: timestamppb.New(i.CreatedAt), Available: i.Available}
 }
 func nullableTimestamp(t sql.NullTime) *timestamppb.Timestamp {
 	if !t.Valid {

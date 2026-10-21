@@ -8,6 +8,9 @@ import (
 	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/hosted/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
+	invpb "github.com/block/proto-fleet/server/generated/grpc/invitation/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
+	"github.com/block/proto-fleet/server/internal/domain/authz"
 	domain "github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -30,7 +33,7 @@ func TestHostedRPCInvitationSecretsStayOutOfLogsAndLaterResponses(t *testing.T) 
 	f := newRPCFixture(t)
 	account := f.account(t, "Customer", f.host, domain.DefaultCapabilities)
 	issued := f.invite(t, account.AccountID, pb.AccountRole_ACCOUNT_ROLE_VIEWER)
-	preview, err := f.client.PreviewInvitation(t.Context(), connect.NewRequest(&pb.PreviewInvitationRequest{Token: issued.Token}))
+	preview, err := f.invitations.PreviewInvitation(t.Context(), connect.NewRequest(&invpb.PreviewInvitationRequest{Token: issued.Token}))
 	require.NoError(t, err)
 	registered := f.register(t, issued.Token, "redaction-customer")
 	listed, err := f.client.ListInvitations(t.Context(), rpcRequest(&pb.ListInvitationsRequest{AccountId: account.AccountID}, f.cookie, account.AccountID))
@@ -50,11 +53,11 @@ func TestHostedRPCInvitationSecretsStayOutOfLogsAndLaterResponses(t *testing.T) 
 		require.NotContains(t, string(response.json), tokenHash, response.name)
 		require.NotContains(t, string(response.json), rpcPassword, response.name)
 	}
-	_, err = f.client.PreviewInvitation(t.Context(), connect.NewRequest(&pb.PreviewInvitationRequest{Token: issued.Token}))
+	_, err = f.invitations.PreviewInvitation(t.Context(), connect.NewRequest(&invpb.PreviewInvitationRequest{Token: issued.Token}))
 	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
 	logs := output.String()
 	require.Contains(t, logs, hostedv1connect.HostedAccountServiceCreateInvitationProcedure, "debug logging must actually be active")
-	require.Contains(t, logs, hostedv1connect.HostedAccountServiceRegisterInvitedUserProcedure)
+	require.Contains(t, logs, invitationv1connect.InvitationServiceRegisterInvitedUserProcedure)
 	require.Contains(t, logs, "incoming unary request failed", "failed invitation requests exercise the error log path")
 	require.NotContains(t, logs, issued.Token)
 	require.NotContains(t, logs, tokenHash)
@@ -63,6 +66,49 @@ func TestHostedRPCInvitationSecretsStayOutOfLogsAndLaterResponses(t *testing.T) 
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT COALESCE(string_agg(row_to_json(a)::text,E'\n'),'') FROM activity_log a WHERE organization_id=$1`, f.org).Scan(&activity))
 	require.Contains(t, activity, "create_hosted_account_invitation")
 	require.Contains(t, activity, "accept_hosted_account_invitation")
+	require.NotContains(t, activity, issued.Token)
+	require.NotContains(t, activity, tokenHash)
+	require.NotContains(t, activity, rpcPassword)
+}
+
+func TestTeamInvitationSecretsStayOutOfLogsAndLaterResponses(t *testing.T) {
+	// No parallel execution: the production request logger uses slog.Default.
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	f := newRPCFixture(t)
+	issued := f.teamInvite(t, f.cookie, f.builtinRoleID(t, authz.BuiltinKeyFieldTech))
+	preview, err := f.invitations.PreviewInvitation(t.Context(), connect.NewRequest(&invpb.PreviewInvitationRequest{Token: issued.Token}))
+	require.NoError(t, err)
+	listed, err := f.invitations.ListTeamInvitations(t.Context(), rpcRequest(&invpb.ListTeamInvitationsRequest{}, f.cookie, ""))
+	require.NoError(t, err)
+	registered := f.register(t, issued.Token, "redaction-team-member")
+	var tokenHash string
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT token_hash FROM organization_invitation WHERE invitation_id=$1`, issued.Invitation.InvitationId).Scan(&tokenHash))
+	for _, response := range []struct {
+		name string
+		json []byte
+	}{
+		{"preview", mustProtoJSON(t, preview.Msg)},
+		{"invitation list", mustProtoJSON(t, listed.Msg)},
+		{"registration", mustProtoJSON(t, registered.Msg)},
+	} {
+		require.NotContains(t, string(response.json), issued.Token, response.name)
+		require.NotContains(t, string(response.json), tokenHash, response.name)
+		require.NotContains(t, string(response.json), rpcPassword, response.name)
+	}
+	_, err = f.invitations.RegisterInvitedUser(t.Context(), connect.NewRequest(&invpb.RegisterInvitedUserRequest{Token: issued.Token, Username: "replayed-member", Password: rpcPassword}))
+	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+	logs := output.String()
+	require.Contains(t, logs, invitationv1connect.InvitationServiceCreateTeamInvitationProcedure, "debug logging must actually be active")
+	require.Contains(t, logs, "incoming unary request failed", "failed invitation requests exercise the error log path")
+	require.NotContains(t, logs, issued.Token)
+	require.NotContains(t, logs, tokenHash)
+	require.NotContains(t, logs, rpcPassword)
+	var activity string
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `SELECT COALESCE(string_agg(row_to_json(a)::text,E'\n'),'') FROM activity_log a WHERE organization_id=$1`, f.org).Scan(&activity))
+	require.Contains(t, activity, "accept_team_invitation")
 	require.NotContains(t, activity, issued.Token)
 	require.NotContains(t, activity, tokenHash)
 	require.NotContains(t, activity, rpcPassword)
