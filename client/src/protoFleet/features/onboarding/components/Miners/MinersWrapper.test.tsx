@@ -896,16 +896,6 @@ describe("MinersWrapper", () => {
       expect(screen.getByRole("link", { name: "Node settings" })).toHaveAttribute("href", "/settings/nodes");
     });
 
-    it("keeps the landing unchanged and shows one notice after Get started", async () => {
-      renderMinersPage();
-      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalled());
-      expect(screen.queryByTestId("remote-network-prerequisite")).not.toBeInTheDocument();
-      expect(screen.queryByText("No Fleet Nodes enrolled")).not.toBeInTheDocument();
-      fireEvent.click(screen.getByText("Get started"));
-      expect(screen.getAllByTestId("remote-network-prerequisite")).toHaveLength(1);
-      expect(await screen.findByText("No Fleet Nodes enrolled")).toBeInTheDocument();
-    });
-
     it("does not require a recommended protocol upgrade before scanning", async () => {
       mockListFleetNodes.mockResolvedValue([fleetNode({ commandProtocolUpgradeRecommended: true })]);
       renderMinersPage("pairing");

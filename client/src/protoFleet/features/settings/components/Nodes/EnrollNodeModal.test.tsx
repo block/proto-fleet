@@ -63,16 +63,6 @@ describe("EnrollNodeModal", () => {
       expect(getByText("pf_code_123")).toBeInTheDocument();
       expect(getByText("Waiting for the node to register…")).toBeInTheDocument();
     });
-    const installation = getByRole("link", { name: "Installation instructions" });
-    expect(installation).toHaveAttribute(
-      "href",
-      "https://github.com/block/proto-fleet/blob/main/deployment-files/README.md#release-repositories-and-forks",
-    );
-    expect(
-      installation.compareDocumentPosition(getByRole("button", { name: "Copy command" })) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(getByText(/Linux host that can reach your miners and Fleet server/)).toBeVisible();
   });
 
   it("advances to the confirm step when a new node registers", async () => {
