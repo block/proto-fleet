@@ -14,7 +14,8 @@ export const ShareInvitationModal = ({ token, onDismiss }: { token: string; onDi
       label="Invitation code"
       value={token}
       onDismiss={onDismiss}
-      description="Copy this code now; it won’t be shown again. The recipient enters it in Fleet under Join an account."
+      description="Send this code to the person you’re inviting. They can enter it in Fleet under Join an account."
+      helperText="Copy this code before closing. You won’t be able to view it again."
     >
       <p className="text-200 text-text-primary-50">
         The link works only if the recipient can reach {window.location.origin}.

@@ -10,6 +10,7 @@ export const SecretModal = ({
   label,
   value,
   description,
+  helperText,
   onDismiss,
   children,
 }: {
@@ -17,6 +18,7 @@ export const SecretModal = ({
   label: string;
   value: string;
   description: string;
+  helperText?: string;
   onDismiss: () => void;
   children?: ReactNode;
 }) => {
@@ -34,6 +36,7 @@ export const SecretModal = ({
       <div className="flex flex-col gap-4" data-dd-privacy="mask">
         <p>{description}</p>
         <Input id="hosted-one-time-secret" label={label} initValue={value} readOnly autoComplete="off" />
+        {helperText ? <p className="text-200 text-text-primary-70">{helperText}</p> : null}
         <Button
           variant="secondary"
           text={copied ? "Copied" : `Copy ${label.toLowerCase()}`}

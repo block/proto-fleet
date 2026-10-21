@@ -57,7 +57,12 @@ describe("invited login lifecycle", () => {
         </Routes>
       </MemoryRouter>,
     );
-    await user.type(await screen.findByLabelText("Proto Fleet username"), "old_user");
+    expect(await screen.findByRole("button", { name: "Create login" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByLabelText("Choose a password")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Cancel" })).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Existing login" }));
+    expect(screen.getAllByRole("button", { name: "Cancel" })).toHaveLength(1);
+    await user.type(screen.getByLabelText("Proto Fleet username"), "old_user");
     await user.type(screen.getByLabelText("Proto Fleet password"), "old-test-password");
     await user.click(screen.getByRole("button", { name: "Log in" }));
     await user.click(screen.getByRole("button", { name: "Create login" }));
@@ -214,7 +219,7 @@ describe("portable invitation codes", () => {
     await user.type(screen.getByLabelText("Invitation code"), token);
     await user.click(screen.getByRole("button", { name: "Continue" }));
     await screen.findByText(/Invitation expired/);
-    await user.click(screen.getByRole("button", { name: "Use another invitation code" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByLabelText("Invitation code")).toHaveValue("");
     expect(screen.queryByText(/Invitation expired/)).not.toBeInTheDocument();
     await user.type(screen.getByLabelText("Invitation code"), "T2CW-8V5N-K7MP-4X9R");
@@ -234,7 +239,7 @@ describe("portable invitation codes", () => {
     openCodeEntry();
     await user.type(screen.getByLabelText("Invitation code"), token);
     await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.click(screen.getByRole("button", { name: "Use another invitation code" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(signal.aborted).toBe(true);
     await act(async () => resolve(create(PreviewInvitationResponseSchema, { accountName: "Old customer" })));
     expect(screen.queryByText("Join Old customer")).not.toBeInTheDocument();

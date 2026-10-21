@@ -21,7 +21,7 @@ import Input from "@/shared/components/Input";
 import ProgressCircular from "@/shared/components/ProgressCircular";
 import { TabStrip, TabStripItem } from "@/shared/components/Tab";
 
-const InvitationDetails = ({ token, onChangeCode }: { token: string; onChangeCode: () => void }) => {
+const InvitationDetails = ({ token, onCancel }: { token: string; onCancel: () => void }) => {
   const navigate = useNavigate(),
     login = useLogin();
   const authenticated = useFleetStore((s) => s.auth.isAuthenticated);
@@ -33,7 +33,7 @@ const InvitationDetails = ({ token, onChangeCode }: { token: string; onChangeCod
   }, [lifetime]);
   const [registeredAccountId, setRegisteredAccountId] = useState("");
   const [needsPasswordChange, setNeedsPasswordChange] = useState(false);
-  const [tab, setTab] = useState("existing"),
+  const [tab, setTab] = useState("new"),
     [newUsername, setNewUsername] = useState(""),
     [password, setPassword] = useState(""),
     [busy, setBusy] = useState(false),
@@ -44,6 +44,8 @@ const InvitationDetails = ({ token, onChangeCode }: { token: string; onChangeCod
     [token],
   );
   const query = useAccountQuery(load);
+  const showingLogin = query.data && (!authenticated || needsPasswordChange) && tab === "existing";
+  const cancel = <Button variant="textOnly" text="Cancel" disabled={busy} onClick={onCancel} />;
   const accept = async () => {
     const generation = useFleetStore.getState().auth.sessionGeneration;
     const signal = lifetime.controller.signal;
@@ -127,11 +129,12 @@ const InvitationDetails = ({ token, onChangeCode }: { token: string; onChangeCod
                 }}
                 ariaLabel="Invitation login options"
               >
-                <TabStripItem id="existing" label="Existing login" />
                 <TabStripItem id="new" label="Create login" />
+                <TabStripItem id="existing" label="Existing login" />
               </TabStrip>
               {tab === "existing" ? (
                 <LoginForm
+                  secondaryAction={cancel}
                   onSuccess={(requiresPasswordChange) => {
                     setNeedsPasswordChange(requiresPasswordChange);
                     if (requiresPasswordChange) {
@@ -175,7 +178,7 @@ const InvitationDetails = ({ token, onChangeCode }: { token: string; onChangeCod
       ) : null}
       {needsPasswordChange ? <Button variant="secondary" text="Change password" to="/update-password" /> : null}
       {error ? <Callout title={error} intent="danger" prefixIcon={<Alert />} /> : null}
-      <Button variant="textOnly" text="Use another invitation code" disabled={busy} onClick={onChangeCode} />
+      {!showingLogin ? cancel : null}
     </>
   );
 };
@@ -202,7 +205,7 @@ const AccountInvitation = () => {
               <ProgressCircular indeterminate />
             </div>
           ) : (
-            <InvitationDetails key={token} token={token} onChangeCode={() => setInvitation({ token: "", code: "" })} />
+            <InvitationDetails key={token} token={token} onCancel={() => setInvitation({ token: "", code: "" })} />
           )
         ) : (
           <>
@@ -227,9 +230,9 @@ const AccountInvitation = () => {
                 setInvitation({ token: code, code: "" });
               }}
             />
+            <Button variant="textOnly" text="Cancel" to="/" />
           </>
         )}
-        <Button variant="textOnly" text="Back to Fleet" to="/" />
       </main>
       <Footer />
     </div>
