@@ -140,6 +140,7 @@ const Miners = ({
   const remoteNetworkPrerequisite =
     remoteDiscoveryReadiness && (activeStep === "findMiners" || guidance?.intent === "warning") ? (
       <Callout
+        className={activeStep === "findMiners" ? "mt-6" : undefined}
         intent={guidance?.intent ?? "information"}
         prefixIcon={guidance?.intent === "warning" ? <Alert /> : <Info />}
         title={guidance ? <span data-testid="remote-discovery-guidance">{guidance.message}</span> : "Remote networks"}
@@ -372,6 +373,20 @@ const Miners = ({
           </Header>
           {activeStep === "findMiners" ? (
             <div className="mx-auto w-full max-w-4xl px-6 pt-10">
+              <Header
+                title="Miners"
+                description={
+                  <>
+                    <p>
+                      Scan your network or provide miner IP addresses and hostnames to find miners to add to your fleet.
+                    </p>
+                    <p>Note that you can add more miners and adjust security settings after setup.</p>
+                  </>
+                }
+                titleSize="text-heading-300"
+                inline
+              />
+
               {remoteNetworkPrerequisite}
 
               <div className={clsx("my-6 grid grid-cols-1 gap-4", onForemanImport && "tablet:grid-cols-2")}>

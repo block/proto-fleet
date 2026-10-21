@@ -19,6 +19,12 @@ test.describe("Remote-network prerequisites", () => {
 
     await test.step("Show one concise notice above discovery options", async () => {
       await addMinersPage.startOnboarding();
+      await addMinersPage.validateTextIsVisible(
+        "Scan your network or provide miner IP addresses and hostnames to find miners to add to your fleet.",
+      );
+      await addMinersPage.validateTextIsVisible(
+        "Note that you can add more miners and adjust security settings after setup.",
+      );
       const prerequisite = addMinersPage.getRemoteNetworkPrerequisite();
       await expect(prerequisite).toHaveCount(1);
       await expect(prerequisite).toContainText("No Fleet Nodes enrolled");
