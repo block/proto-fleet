@@ -43,6 +43,7 @@ const RESOURCE_TO_GROUP: Record<string, string> = {
   apikey: "admin",
   user: "admin",
   role: "admin",
+  account: "admin",
 };
 
 const GROUP_LABELS: Record<string, string> = {

@@ -191,7 +191,7 @@ var catalog = []CatalogEntry{
 	{PermUserManage, "Create, deactivate, reset passwords, and reassign roles for users in the organization.", ResourceUser},
 
 	{PermRoleManage, "Create, edit, and delete custom roles, and view all roles and permissions. Built-in roles cannot be modified.", ResourceRole},
-	{PermAccountManage, "Create customer accounts and control delegation beneath the host account. Does not grant private customer views or pool overrides.", ResourceAccount},
+	{PermAccountManage, "Manage client accounts and delegation. Does not grant access to client data or pool overrides.", ResourceAccount},
 
 	{PermInstanceUpdate, "See available server updates, change the release channel, and apply server upgrades.", ResourceInstance},
 

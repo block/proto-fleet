@@ -30,6 +30,11 @@ const catalog = [
     description: "See available server updates, change the release channel, and apply server upgrades.",
     resource: "instance",
   },
+  {
+    key: "account:manage",
+    description: "Manage client accounts and delegation. Does not grant access to client data or pool overrides.",
+    resource: "account",
+  },
 ];
 
 const role: RoleItem = {
@@ -63,11 +68,10 @@ describe("CreateEditRoleModal", () => {
     });
   });
 
-  it("renders and preserves instance:update when saving an existing role", () => {
-    render(<CreateEditRoleModal open role={role} onDismiss={vi.fn()} onSuccess={vi.fn()} />);
+  it.each(catalog)("renders and preserves $key when saving an existing role", ({ key, description }) => {
+    render(<CreateEditRoleModal open role={{ ...role, permissions: [key] }} onDismiss={vi.fn()} onSuccess={vi.fn()} />);
 
-    expect(screen.getByText("Instance")).toBeInTheDocument();
-    expect(screen.getByTestId("role-permission-instance-update")).toHaveTextContent(catalog[0].description);
+    expect(screen.getByTestId(`role-permission-${key.replace(":", "-")}`)).toHaveTextContent(description);
 
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
@@ -76,7 +80,7 @@ describe("CreateEditRoleModal", () => {
         roleId: role.roleId,
         name: role.name,
         description: role.description,
-        permissions: ["instance:update"],
+        permissions: [key],
       }),
     );
   });

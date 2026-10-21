@@ -16,6 +16,24 @@ const catalog: CatalogEntry[] = [
 ];
 
 describe("buildPermissionGroups", () => {
+  it("groups account permissions without changing catalog entries or their order", () => {
+    const roleManage: CatalogEntry = {
+      key: "role:manage",
+      description: "Manage roles.",
+      resource: "role",
+    };
+    const accountManage: CatalogEntry = {
+      key: "account:manage",
+      description: "Manage client accounts and delegation. Does not grant access to client data or pool overrides.",
+      resource: "account",
+    };
+
+    const groups = buildPermissionGroups([...catalog, roleManage, accountManage]);
+    const administration = groups.find((group) => group.resource === "admin");
+
+    expect(administration?.entries).toEqual([roleManage, accountManage]);
+  });
+
   it("publishes instance permissions as a visible role-editor group", () => {
     const instanceUpdate: CatalogEntry = {
       key: "instance:update",
