@@ -33,11 +33,13 @@ COPY patroni.yml.tmpl /etc/patroni/patroni.yml.tmpl
 COPY scripts/patroni-entrypoint.sh /usr/local/bin/patroni-entrypoint
 COPY scripts/patroni-post-bootstrap.sh /usr/local/bin/patroni-post-bootstrap
 COPY scripts/render-patroni-config.py /usr/local/bin/render-patroni-config
+COPY scripts/start-patroni.py /usr/local/bin/start-patroni
 
 RUN chmod 0755 \
         /usr/local/bin/patroni-entrypoint \
         /usr/local/bin/patroni-post-bootstrap \
-        /usr/local/bin/render-patroni-config
+        /usr/local/bin/render-patroni-config \
+        /usr/local/bin/start-patroni
 
 USER postgres
 

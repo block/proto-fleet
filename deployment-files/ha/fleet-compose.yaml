@@ -7,6 +7,7 @@ services:
     # The 15s delay exceeds the 10s lease, giving the passive peer first chance after a restart.
     command: ["/bin/sh", "-c", "sleep 15; exec /app/fleetd"]
     environment:
+      LOG_JSON: "true"
       # External traffic reaches Fleet through local nginx and the shared VIP.
       HTTP_LISTEN_ADDRESS: "127.0.0.1:4000"
       # HA does not support the update checker or its UI; do not interpolate a parent value.

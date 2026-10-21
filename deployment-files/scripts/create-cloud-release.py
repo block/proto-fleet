@@ -21,6 +21,7 @@ DATABASE_FILES = (
     "deployment-files/ha/scripts/patroni-entrypoint.sh",
     "deployment-files/ha/scripts/patroni-post-bootstrap.sh",
     "deployment-files/ha/scripts/render-patroni-config.py",
+    "deployment-files/ha/scripts/start-patroni.py",
 )
 
 

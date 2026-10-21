@@ -34,7 +34,7 @@ render_fleet_profile() {
         AUTH_CLIENT_SECRET_KEY=test-auth-secret
         DB_USERNAME=fleet
         DB_PASSWORD=test-db-password
-        DB_DSN=postgresql://fleet:test@10.40.0.11:5432/fleet
+        DB_DSN=postgresql://fleet@10.40.0.11:5432/fleet
         ENCRYPT_SERVICE_MASTER_KEY=test-master-key
         GRAFANA_ADMIN_PASSWORD=test-grafana-admin-password
         GRAFANA_DB_PASSWORD=test-grafana-db-password
@@ -104,6 +104,7 @@ test_compose_uses_one_host_identity() {
     assert_not_contains "$rendered" "127.0.0.1"
     assert_contains "$rendered" "https://10.40.0.11:2379"
     assert_contains "$rendered" "https://10.40.0.11:2380"
+    assert_contains "$rendered" 'com.datadoghq.ad.logs: '\''[{"source":"postgresql","service":"proto-fleet-timescaledb-ha"}]'\'''
     assert_contains "$rendered" "auth-token=jwt"
     assert_contains "$rendered" "--peer-client-cert-auth=true"
     assert_contains "$rendered" "--auto-compaction-mode=periodic"
@@ -126,6 +127,8 @@ test_patroni_contract() {
     assert_contains "$template" 'hostssl fleet grafana_ha_ro ${HA_DB_A_IP}/32 scram-sha-256'
     assert_not_contains "$template" "0.0.0.0/0"
     assert_contains "$entrypoint" "render-patroni-config"
+    assert_contains "$entrypoint" 'exec gosu postgres start-patroni "${run_dir}/patroni.yml"'
+    assert_contains "$dockerfile" 'COPY scripts/start-patroni.py /usr/local/bin/start-patroni'
     assert_contains "$bootstrap" 'psql --dbname="$connection_url" --set=ON_ERROR_STOP=1'
     assert_contains "$bootstrap" 'CREATE ROLE grafana_ha_ro LOGIN PASSWORD'
     assert_not_contains "$bootstrap" 'GRANT SELECT ON ALL TABLES'
@@ -171,6 +174,7 @@ test_fleet_ha_contract() {
         fail "HA Fleet targets must not include the standalone database service"
     fi
     assert_contains "$rendered" "HTTP_LISTEN_ADDRESS: 127.0.0.1:4000"
+    assert_contains "$rendered" "LOG_JSON: \"true\""
     assert_contains "$rendered" "UPDATES_ENABLED: \"false\""
     assert_contains "$rendered" "FLEET_HA_ENABLED: \"true\""
     assert_contains "$rendered" "https://10.40.0.11:2379,https://10.40.0.12:2379,https://10.40.0.13:2379"
