@@ -52,7 +52,9 @@ setup:
   #!/usr/bin/env bash
   set -euo pipefail
   if [ ! -d ".venv" ]; then
-    python3 -m venv .venv
+    # Hermit's link farm is outside the interpreter's standard-library directory.
+    python_executable="$(python3 -c 'import os, sys; print(os.path.realpath(sys.executable))')"
+    "${python_executable}" -m venv .venv
     echo "✅ Created virtual environment at .venv"
   fi
   source "{{repo_root}}/scripts/pip-config.sh"
