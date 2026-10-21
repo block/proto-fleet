@@ -810,6 +810,28 @@ func TestResolvePairTargets(t *testing.T) {
 	}
 }
 
+func TestResolvePairTargets_ExcludesAnotherOrgsDiscoveries(t *testing.T) {
+	// Arrange
+	ctx := t.Context()
+	db, orgID, pairing, enrollment := setupPairingTest(t)
+	const otherOrgID = int64(2)
+	_, err := db.Exec(`INSERT INTO organization (id, org_id, name) VALUES ($1, 'other-org', 'Other Org')`, otherOrgID)
+	require.NoError(t, err)
+	node := createFleetNode(t, enrollment, orgID, "node-own")
+	otherNode := createFleetNode(t, enrollment, otherOrgID, "node-other")
+	upsertNodeDiscovered(t, pairing, otherOrgID, otherNode, "mac:other-org")
+
+	// Act
+	viaOwnNode, err := pairing.ResolvePairTargets(ctx, node, orgID, []string{"mac:other-org"}, false, nil)
+	require.NoError(t, err)
+	viaDiscoveringNode, err := pairing.ResolvePairTargets(ctx, otherNode, orgID, []string{"mac:other-org"}, false, nil)
+	require.NoError(t, err)
+
+	// Assert
+	assert.Empty(t, viaOwnNode)
+	assert.Empty(t, viaDiscoveringNode, "the caller's org scope must exclude discoveries even from the reporting node")
+}
+
 func TestResolvePairTargets_ExcludesPairedDeviceWithDivergedDiscoveryLinkage(t *testing.T) {
 	// Arrange: a PAIRED device whose original discovery row was soft-deleted and
 	// then re-discovered by a node under the same identifier. The device row links

@@ -3,6 +3,7 @@ package schedule
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -27,19 +28,39 @@ func newTestProcessor(t *testing.T, now time.Time) (*Processor, *mocks.MockSched
 	procStore := mocks.NewMockScheduleProcessorStore(ctrl)
 	targetStore := mocks.NewMockScheduleTargetStore(ctrl)
 	collectionStore := mocks.NewMockCollectionStore(ctrl)
-	deviceStore := mocks.NewMockDeviceStore(ctrl)
-	// Org scoping of miner targets is covered against Postgres in targets.
-	deviceStore.EXPECT().
-		FilterDeviceIdentifiersByOrg(gomock.Any(), gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, identifiers []string, _ int64) ([]string, error) {
-			return identifiers, nil
-		}).
-		AnyTimes()
+	// Miner targets resolve as owned unless a test narrows them with withOwnedMiners.
+	deviceStore := minerOwnershipStore(ctrl, func(string) bool { return true })
 	cmdSvc := NewMockCommandDispatcher(ctrl)
 
 	p := NewProcessor(procStore, targetStore, collectionStore, deviceStore, cmdSvc, nil)
 	p.now = func() time.Time { return now }
 	return p, procStore, targetStore, collectionStore, cmdSvc
+}
+
+func minerOwnershipStore(ctrl *gomock.Controller, owns func(string) bool) *mocks.MockDeviceStore {
+	deviceStore := mocks.NewMockDeviceStore(ctrl)
+	deviceStore.EXPECT().
+		FilterDeviceIdentifiersByOrg(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, identifiers []string, _ int64) ([]string, error) {
+			var kept []string
+			for _, identifier := range identifiers {
+				if owns(identifier) {
+					kept = append(kept, identifier)
+				}
+			}
+			return kept, nil
+		}).
+		AnyTimes()
+	return deviceStore
+}
+
+// withOwnedMiners resolves only the given miner targets, as if the others were
+// deleted, unknown, or owned by another organization.
+func withOwnedMiners(t *testing.T, p *Processor, owned ...string) {
+	t.Helper()
+	p.deviceStore = minerOwnershipStore(gomock.NewController(t), func(identifier string) bool {
+		return slices.Contains(owned, identifier)
+	})
 }
 
 type recordingActivityStore struct {
@@ -923,8 +944,9 @@ func TestExecuteSchedule_NonConflictZeroDispatchLogsExecution(t *testing.T) {
 	procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).Return(int64(1), nil)
 	procStore.EXPECT().GetScheduleByID(gomock.Any(), int64(1)).Return(&interfaces.ScheduleWithOrg{Schedule: sched, OrgID: 1}, nil)
 	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
-		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "stale-miner"},
+		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "miner-1"},
 	}, nil)
+	// The miner resolved at expansion but was gone by command admission.
 	cmdSvc.EXPECT().SetPowerTarget(gomock.Any(), gomock.Any(), revertPerformanceMode).Return(&commanddomain.CommandResult{}, nil)
 	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Nil(), statusCompleted).Return(nil)
 
@@ -932,6 +954,44 @@ func TestExecuteSchedule_NonConflictZeroDispatchLogsExecution(t *testing.T) {
 
 	assert.Equal(t, 0, countActivityType(activityStore, "schedule_conflict_skip"))
 	assert.Equal(t, 1, countActivityType(activityStore, "schedule_executed"))
+}
+
+func TestExecuteSchedule_UnresolvedTargetsSkipDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		target *pb.ScheduleTarget
+	}{
+		{name: "miner not owned or deleted", target: &pb.ScheduleTarget{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "deleted-miner"}},
+		{name: "rack with no devices", target: &pb.ScheduleTarget{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_RACK, TargetId: "100"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
+			p, procStore, targetStore, collectionStore, _ := newTestProcessor(t, now)
+			withOwnedMiners(t, p)
+			activityStore := withRecordingActivity(p)
+
+			sched := &pb.Schedule{
+				Id:           1,
+				Name:         "power",
+				Action:       pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET,
+				ScheduleType: pb.ScheduleType_SCHEDULE_TYPE_ONE_TIME,
+				StartDate:    "2026-04-01",
+				StartTime:    "10:00",
+				Timezone:     "UTC",
+				CreatedBy:    42,
+			}
+
+			procStore.EXPECT().SetScheduleRunning(gomock.Any(), int64(1)).Return(int64(1), nil)
+			procStore.EXPECT().GetScheduleByID(gomock.Any(), int64(1)).Return(&interfaces.ScheduleWithOrg{Schedule: sched, OrgID: 1}, nil)
+			targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{tc.target}, nil)
+			collectionStore.EXPECT().GetDeviceIdentifiersByDeviceSetID(gomock.Any(), int64(100), int64(1)).Return(nil, nil).AnyTimes()
+			procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Any(), gomock.Nil(), statusCompleted).Return(nil)
+
+			p.executeSchedule(context.Background(), 1)
+
+			assert.Equal(t, 0, countActivityType(activityStore, "schedule_executed"))
+		})
+	}
 }
 
 // --- updateAfterRun ---
@@ -1168,6 +1228,40 @@ func TestCheckEndOfWindow_RevertsExpiredWindow(t *testing.T) {
 	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Nil(), gomock.Not(gomock.Nil()), statusActive).Return(nil)
 
 	p.checkEndOfWindow(context.Background())
+}
+
+func TestCheckEndOfWindow_UnresolvedTargetsRevertWithoutDispatch(t *testing.T) {
+	now := time.Date(2026, 4, 1, 17, 30, 0, 0, time.UTC)
+	p, procStore, targetStore, _, _ := newTestProcessor(t, now)
+	withOwnedMiners(t, p)
+	activityStore := withRecordingActivity(p)
+
+	sched := &pb.Schedule{
+		Id:           1,
+		Name:         "power-sched",
+		Action:       pb.ScheduleAction_SCHEDULE_ACTION_SET_POWER_TARGET,
+		Status:       pb.ScheduleStatus_SCHEDULE_STATUS_RUNNING,
+		StartTime:    "09:00",
+		EndTime:      "17:00",
+		StartDate:    "2026-04-01",
+		Timezone:     "UTC",
+		LastRunAt:    timestamppb.New(time.Date(2026, 4, 1, 9, 0, 0, 0, time.UTC)),
+		CreatedBy:    42,
+		ScheduleType: pb.ScheduleType_SCHEDULE_TYPE_RECURRING,
+		Recurrence:   &pb.ScheduleRecurrence{Frequency: pb.RecurrenceFrequency_RECURRENCE_FREQUENCY_DAILY, Interval: 1},
+	}
+
+	procStore.EXPECT().GetActiveSchedules(gomock.Any()).Return([]interfaces.ScheduleWithOrg{
+		{Schedule: sched, OrgID: 1},
+	}, nil)
+	targetStore.EXPECT().GetScheduleTargets(gomock.Any(), int64(1), int64(1)).Return([]*pb.ScheduleTarget{
+		{TargetType: pb.ScheduleTargetType_SCHEDULE_TARGET_TYPE_MINER, TargetId: "deleted-miner"},
+	}, nil)
+	procStore.EXPECT().UpdateScheduleAfterRun(gomock.Any(), int64(1), gomock.Nil(), gomock.Not(gomock.Nil()), statusActive).Return(nil)
+
+	p.checkEndOfWindow(context.Background())
+
+	assert.Equal(t, 1, countActivityType(activityStore, "schedule_window_ended"))
 }
 
 func TestCheckEndOfWindow_OvernightWindowNotExpired(t *testing.T) {

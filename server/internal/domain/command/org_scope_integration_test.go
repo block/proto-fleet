@@ -60,6 +60,22 @@ func TestIncludeDevicesSelectorResolvesOnlyWithinSessionOrg(t *testing.T) {
 		require.Zero(t, *finalizers)
 	})
 
+	t.Run("manual selector whose foreign device a preflight filter skips is rejected as unknown", func(t *testing.T) {
+		svc, conn, _, finalizers := newTransactionalCommandFixture(t)
+		_, foreignIdentifier := insertOtherOrgDevice(t, conn)
+		// A running power-target schedule can name another org's identifier,
+		// so the conflict filter can skip it before devices are resolved.
+		svc.filters = []CommandFilter{newFakeFilter("test_skip", foreignIdentifier)}
+
+		result, err := svc.Reboot(manualSessionCtx(1), includeSelector(foreignIdentifier))
+
+		require.Nil(t, result)
+		require.True(t, fleeterror.IsInvalidArgumentError(err), "a skipped foreign device must look like an unknown one: %v", err)
+		require.ErrorContains(t, err, "no devices matched selector")
+		assertCommandDispatchRows(t, conn, 0)
+		require.Zero(t, *finalizers)
+	})
+
 	t.Run("scheduler selector naming only another org's device is a no-op", func(t *testing.T) {
 		svc, conn, _, finalizers := newTransactionalCommandFixture(t)
 		_, foreignIdentifier := insertOtherOrgDevice(t, conn)
