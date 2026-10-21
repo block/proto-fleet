@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import clsx from "clsx";
 import FoundMiners from "./FoundMiners";
 import FoundMinersModal from "./FoundMinersModal";
-import { type MinerDiscoveryMode, type RemoteDiscoveryGuidance } from "./types";
+import { type MinerDiscoveryMode, type RemoteDiscoveryReadiness } from "./types";
 import ValidationErrorDialog from "./ValidationErrorDialog";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import FullScreenModalHeaderActions from "@/protoFleet/components/FullScreenModalHeaderActions";
@@ -22,6 +22,32 @@ import Textarea from "@/shared/components/Textarea";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { CategorizedInvalidEntries, ManualDiscoveryTargets, parseManualTargets } from "@/shared/utils/ipParsing";
 
+const REMOTE_DISCOVERY_GUIDANCE: Record<
+  Exclude<RemoteDiscoveryReadiness, "none">,
+  { message: string; intent: "information" | "warning"; adminAction: string }
+> = {
+  noNodes: {
+    message: "No Fleet Nodes enrolled",
+    intent: "information",
+    adminAction: "Ask an administrator to set up a node.",
+  },
+  enrollmentIncomplete: {
+    message: "Complete Fleet Node enrollment",
+    intent: "information",
+    adminAction: "Ask an administrator to finish enrolling the node.",
+  },
+  partialCoverage: {
+    message: "Some Fleet Nodes can't scan. Results may be incomplete.",
+    intent: "warning",
+    adminAction: "Ask an administrator to check Fleet Nodes.",
+  },
+  checkFailed: {
+    message: "Couldn't check Fleet Nodes. Results may be incomplete.",
+    intent: "warning",
+    adminAction: "Ask an administrator to check Fleet Nodes.",
+  },
+};
+
 interface MinersProps {
   scanDiscoveryPending: boolean;
   manualDiscoveryPending: boolean;
@@ -35,7 +61,7 @@ interface MinersProps {
   onRescan: () => void;
   onForemanImport?: (apiKey: string, clientId: string) => void;
   foremanImportPending?: boolean;
-  remoteDiscoveryGuidance?: RemoteDiscoveryGuidance;
+  remoteDiscoveryReadiness?: RemoteDiscoveryReadiness;
   mode?: MinerDiscoveryMode;
   initialStep?: "findMiners" | "pairing";
   canAddMiners?: boolean;
@@ -61,7 +87,7 @@ const Miners = ({
   onRescan,
   onForemanImport,
   foremanImportPending = false,
-  remoteDiscoveryGuidance,
+  remoteDiscoveryReadiness,
   mode = "onboarding",
   initialStep = "findMiners",
   canAddMiners = true,
@@ -107,34 +133,27 @@ const Miners = ({
   const useCompactHeaderActions = isPhone;
   const canReadFleetNodes = useHasPermission("fleetnode:read");
   const canManageFleetNodes = useHasPermission("fleetnode:manage");
-  const nodeSetupAction = (
-    <>
-      {!canReadFleetNodes || !canManageFleetNodes ? <p>Ask an administrator to set up a node.</p> : null}
-      {canReadFleetNodes ? (
-        <Link to="/settings/nodes" className="underline">
-          Node settings
-        </Link>
-      ) : null}
-    </>
-  );
+  const guidance =
+    remoteDiscoveryReadiness && remoteDiscoveryReadiness !== "none"
+      ? REMOTE_DISCOVERY_GUIDANCE[remoteDiscoveryReadiness]
+      : undefined;
   const remoteNetworkPrerequisite =
-    remoteDiscoveryGuidance && (activeStep === "findMiners" || remoteDiscoveryGuidance.message) ? (
+    remoteDiscoveryReadiness && (activeStep === "findMiners" || guidance?.intent === "warning") ? (
       <Callout
-        intent={remoteDiscoveryGuidance.intent}
-        prefixIcon={remoteDiscoveryGuidance.intent === "warning" ? <Alert /> : <Info />}
-        title={
-          remoteDiscoveryGuidance.message ? (
-            <span data-testid="remote-discovery-guidance">{remoteDiscoveryGuidance.message}</span>
-          ) : (
-            "Remote networks"
-          )
-        }
+        intent={guidance?.intent ?? "information"}
+        prefixIcon={guidance?.intent === "warning" ? <Alert /> : <Info />}
+        title={guidance ? <span data-testid="remote-discovery-guidance">{guidance.message}</span> : "Remote networks"}
         subtitle={
           <>
             {activeStep === "findMiners" ? (
               <p>For networks Fleet can't reach, install and enroll a Fleet Node on the miners' network.</p>
             ) : null}
-            {nodeSetupAction}
+            {guidance && (!canReadFleetNodes || !canManageFleetNodes) ? <p>{guidance.adminAction}</p> : null}
+            {canReadFleetNodes ? (
+              <Link to="/settings/nodes" className="underline">
+                Node settings
+              </Link>
+            ) : null}
           </>
         }
         testId="remote-network-prerequisite"

@@ -13,6 +13,7 @@ test.describe("Remote-network prerequisites", () => {
 
     await test.step("Keep the landing unchanged", async () => {
       await addMinersPage.openOnboarding();
+      await expect(addMinersPage.getGetStartedButton()).toBeVisible();
       await expect(addMinersPage.getRemoteNetworkPrerequisite()).toHaveCount(0);
     });
 

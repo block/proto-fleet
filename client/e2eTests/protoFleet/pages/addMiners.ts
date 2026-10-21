@@ -16,8 +16,12 @@ export class AddMinersPage extends BasePage {
     await this.page.goto("/onboarding/miners");
   }
 
+  getGetStartedButton() {
+    return this.page.getByRole("button", { name: "Get started", exact: true });
+  }
+
   async startOnboarding() {
-    await this.page.getByRole("button", { name: "Get started", exact: true }).click();
+    await this.getGetStartedButton().click();
   }
 
   async openFleetNodeSettings() {

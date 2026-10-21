@@ -719,7 +719,7 @@ describe("MinersWrapper", () => {
       vi.mocked(useHasPermission).mockImplementation((permission) => permission !== "fleetnode:read");
       mockListFleetNodes.mockRejectedValue(new Error("request failed"));
       renderMinersPage("pairing");
-      await screen.findByTestId("remote-discovery-guidance");
+      expect(await screen.findByText("Ask an administrator to check Fleet Nodes.")).toBeVisible();
       expect(screen.queryByRole("link", { name: "Node settings" })).not.toBeInTheDocument();
     });
 
@@ -906,17 +906,77 @@ describe("MinersWrapper", () => {
       );
     });
 
-    it.each([true, false])(
-      "directs an operator without management permission to an administrator (read: %s)",
-      async (canRead) => {
-        vi.mocked(useHasPermission).mockImplementation((permission) =>
-          permission === "fleetnode:read" ? canRead : permission !== "fleetnode:manage",
-        );
+    it.each([
+      ["no", [], "Ask an administrator to set up a node."],
+      [
+        "pending",
+        [fleetNode({ enrollmentStatus: FleetNodeEnrollmentStatus.PENDING })],
+        "Ask an administrator to finish enrolling the node.",
+      ],
+      ["ineligible", [fleetNode({ controlStreamConnected: false })], "Ask an administrator to check Fleet Nodes."],
+    ])(
+      "directs an operator without management permission to an administrator for %s nodes",
+      async (_label, nodes, hint) => {
+        // Arrange
+        vi.mocked(useHasPermission).mockImplementation((permission) => permission !== "fleetnode:manage");
+        mockListFleetNodes.mockResolvedValue(nodes);
+
+        // Act
         renderMinersPage("pairing");
-        await waitFor(() => expect(screen.getByText(/Ask an administrator to set up a node/)).toBeVisible());
-        expect(screen.queryByRole("link", { name: "Node settings" }) !== null).toBe(canRead);
+
+        // Assert
+        expect(await screen.findByText(hint as string)).toBeVisible();
+        expect(screen.getByRole("link", { name: "Node settings" })).toHaveAttribute("href", "/settings/nodes");
       },
     );
+
+    it("does not send an operator to an administrator when every node is ready", async () => {
+      // Arrange
+      vi.mocked(useHasPermission).mockImplementation((permission) => permission !== "fleetnode:manage");
+      mockListFleetNodes.mockResolvedValue([fleetNode()]);
+
+      // Act
+      renderMinersPage("pairing");
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalled());
+
+      // Assert
+      await waitFor(() =>
+        expect(screen.getByText(/For networks Fleet can't reach, install and enroll a Fleet Node/)).toBeVisible(),
+      );
+      expect(screen.queryByText(/Ask an administrator/)).not.toBeInTheDocument();
+    });
+
+    it("omits the administrator hint for an operator who can manage nodes", async () => {
+      // Arrange
+      mockListFleetNodes.mockResolvedValue([]);
+
+      // Act
+      renderMinersPage("pairing");
+
+      // Assert
+      expect(await screen.findByText("No Fleet Nodes enrolled")).toBeVisible();
+      expect(screen.queryByText(/Ask an administrator/)).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Node settings" })).toHaveAttribute("href", "/settings/nodes");
+    });
+
+    it("keeps setup guidance off the results step", async () => {
+      // Arrange
+      mockListFleetNodes.mockResolvedValue([]);
+      mockDiscover.mockImplementation(async ({ onStreamData }) => {
+        onStreamData([createDiscoveredMiner("miner-1", "192.168.1.100")]);
+      });
+      renderMinersPage("pairing");
+      expect(await screen.findByText("No Fleet Nodes enrolled")).toBeVisible();
+
+      // Act
+      fireEvent.change(screen.getByTestId("ipAddresses"), { target: { value: "192.168.1.100" } });
+      fireEvent.click(screen.getByTestId("section-search-by-ip").querySelector("button")!);
+
+      // Assert
+      expect(await screen.findByText("1 miner found on your network")).toBeInTheDocument();
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(2));
+      expect(screen.queryByTestId("remote-network-prerequisite")).not.toBeInTheDocument();
+    });
 
     it("refreshes readiness on returning to the tab and stops listening after unmount", async () => {
       mockListFleetNodes.mockResolvedValueOnce([]).mockResolvedValue([fleetNode()]);
