@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/alecthomas/kong"
@@ -54,5 +54,8 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), tracerShutdownTimeout)
 	shutdownErr := shutdownTracer(shutdownCtx)
 	cancel()
-	kctx.FatalIfErrorf(errors.Join(runErr, shutdownErr))
+	if shutdownErr != nil {
+		slog.Error("Failed to shutdown tracer", "error", shutdownErr)
+	}
+	kctx.FatalIfErrorf(runErr)
 }
