@@ -8,6 +8,22 @@ const NETWORK_SCAN_SUMMARY =
   /^(?:(?:\d+ containers?(?: and \d+ miners?)?|\d+ miners?) found on your network|No devices found)$/;
 
 export class AddMinersPage extends BasePage {
+  getRemoteNetworkPrerequisite(): Locator {
+    return this.page.getByTestId("remote-network-prerequisite");
+  }
+
+  async openOnboarding() {
+    await this.page.goto("/onboarding/miners");
+  }
+
+  async startOnboarding() {
+    await this.page.getByRole("button", { name: "Get started", exact: true }).click();
+  }
+
+  async openFleetNodeSettings() {
+    await this.getRemoteNetworkPrerequisite().getByRole("link", { name: "View Fleet Node settings" }).click();
+  }
+
   getScanNetworkSection(): Locator {
     return this.page.getByTestId("section-scan-network");
   }

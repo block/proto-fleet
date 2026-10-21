@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { create } from "@bufbuild/protobuf";
 import Miners from "./Miners";
-import { MinerDiscoveryMode } from "./types";
+import { type MinerDiscoveryMode, type RemoteDiscoveryGuidance } from "./types";
 import { DeviceIdentifierListSchema } from "@/protoFleet/api/generated/common/v1/device_selector_pb";
 import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { DeviceSelectorSchema } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
@@ -74,7 +74,9 @@ const MinersPage = ({
   const [foundMiners, setFoundMiners] = useState<Device[]>([]);
   const [lastDiscoveryMode, setLastDiscoveryMode] = useState<string>(minerDiscoveryModes.scan);
   const [lastManualTargets, setLastManualTargets] = useState<ManualDiscoveryTargets | null>(null);
-  const [remoteDiscoveryWarning, setRemoteDiscoveryWarning] = useState<string>();
+  const [remoteDiscoveryGuidance, setRemoteDiscoveryGuidance] = useState<RemoteDiscoveryGuidance>({
+    intent: "information",
+  });
   const coverageRequestState = useRef({ latestId: 0 });
 
   const refreshRemoteDiscoveryCoverage = useCallback(() => {
@@ -90,18 +92,40 @@ const MinersPage = ({
             node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED &&
             (!node.controlStreamConnected || node.commandProtocolUpgradeRequired),
         );
-        setRemoteDiscoveryWarning(hasIneligibleNode ? PARTIAL_REMOTE_COVERAGE_WARNING : undefined);
+        const activeNodes = nodes.filter((node) => node.enrollmentStatus !== FleetNodeEnrollmentStatus.REVOKED);
+        if (hasIneligibleNode) {
+          setRemoteDiscoveryGuidance({ intent: "warning", message: PARTIAL_REMOTE_COVERAGE_WARNING });
+        } else if (activeNodes.length === 0) {
+          setRemoteDiscoveryGuidance({
+            intent: "information",
+            message: "No Fleet Nodes are set up for remote discovery.",
+          });
+        } else if (activeNodes.some((node) => node.enrollmentStatus !== FleetNodeEnrollmentStatus.CONFIRMED)) {
+          setRemoteDiscoveryGuidance({
+            intent: "information",
+            message: "Some Fleet Nodes need enrollment to be completed.",
+          });
+        } else {
+          setRemoteDiscoveryGuidance({ intent: "information" });
+        }
       })
       .catch(() => {
-        if (requestId === requestState.latestId) setRemoteDiscoveryWarning(UNKNOWN_REMOTE_COVERAGE_WARNING);
+        if (requestId === requestState.latestId) {
+          setRemoteDiscoveryGuidance({ intent: "warning", message: UNKNOWN_REMOTE_COVERAGE_WARNING });
+        }
       });
   }, [canPairMiners, listFleetNodes]);
 
   useEffect(() => {
     const requestState = coverageRequestState.current;
     refreshRemoteDiscoveryCoverage();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refreshRemoteDiscoveryCoverage();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       requestState.latestId++;
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [refreshRemoteDiscoveryCoverage]);
 
@@ -499,7 +523,7 @@ const MinersPage = ({
       onRescan={handleRescan}
       onForemanImport={handleForemanImport}
       foremanImportPending={foremanImportPending}
-      remoteDiscoveryWarning={canPairMiners ? remoteDiscoveryWarning : undefined}
+      remoteDiscoveryGuidance={canPairMiners ? remoteDiscoveryGuidance : undefined}
       mode={mode}
     />
   );

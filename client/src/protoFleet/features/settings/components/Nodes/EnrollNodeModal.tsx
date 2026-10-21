@@ -196,8 +196,17 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
     return (
       <Modal open={open} onDismiss={handleDismiss} title="Enroll a node" divider={false}>
         <div className="mb-6">
-          Nodes are hosts that run the <span className="font-mono">fleet-node</span> daemon and manage the miners on
-          their network.
+          First, install Fleet Node on a Linux host that can reach your miners and Fleet server. Download the release’s{" "}
+          <span className="font-mono">install-fleet-node.sh</span> from the appropriate release repository and run it
+          with an explicit version. Already installed? Continue below.{" "}
+          <a
+            href="https://github.com/block/proto-fleet/blob/main/deployment-files/README.md#release-repositories-and-forks"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline"
+          >
+            Fleet Node installation instructions
+          </a>
         </div>
 
         {errorMsg ? (
@@ -313,6 +322,10 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
       ]}
     >
       <CopyableValue value={apiKey} copyLabel="API key" />
+      <p className="mt-4 text-300 text-text-primary-70">
+        The enrollment helper starts the service after enrollment. Verify the node is connected in Nodes before
+        returning to Add miners.
+      </p>
     </Dialog>
   );
 };

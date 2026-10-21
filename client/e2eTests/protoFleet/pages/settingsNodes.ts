@@ -83,6 +83,24 @@ export class SettingsNodesPage extends BasePage {
     await expect(modal).toContainText("1. On the host you want to enroll, run:");
   }
 
+  async validateInstallationPrerequisite() {
+    const modal = this.page.getByTestId("modal");
+    const instructions = modal.getByRole("link", { name: "Fleet Node installation instructions" });
+    const command = modal.getByRole("button", { name: "Copy command" });
+    await expect(modal).toContainText("Linux host that can reach your miners and Fleet server");
+    await expect(modal).toContainText("run it with an explicit version");
+    await expect(instructions).toHaveAttribute(
+      "href",
+      "https://github.com/block/proto-fleet/blob/main/deployment-files/README.md#release-repositories-and-forks",
+    );
+    await expect(command).toBeVisible();
+    const instructionsBox = await instructions.boundingBox();
+    const commandBox = await command.boundingBox();
+    expect(instructionsBox).not.toBeNull();
+    expect(commandBox).not.toBeNull();
+    expect(instructionsBox!.y + instructionsBox!.height).toBeLessThan(commandBox!.y);
+  }
+
   async validateConfirmNodeModalOpened(nodeName: string) {
     const modal = this.page.getByTestId("modal");
     await expect(modal).toBeVisible();

@@ -14,3 +14,8 @@ export type MinerWithSelectedAndAction = MinerWithSelected & {
 };
 
 export type MinerDiscoveryMode = "onboarding" | "pairing";
+
+export type RemoteDiscoveryGuidance = {
+  message?: string;
+  intent: "information" | "warning";
+};

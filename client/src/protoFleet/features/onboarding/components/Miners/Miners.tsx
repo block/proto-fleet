@@ -3,13 +3,13 @@ import { Link } from "react-router-dom";
 import clsx from "clsx";
 import FoundMiners from "./FoundMiners";
 import FoundMinersModal from "./FoundMinersModal";
-import { MinerDiscoveryMode } from "./types";
+import { type MinerDiscoveryMode, type RemoteDiscoveryGuidance } from "./types";
 import ValidationErrorDialog from "./ValidationErrorDialog";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import FullScreenModalHeaderActions from "@/protoFleet/components/FullScreenModalHeaderActions";
 import NullState from "@/protoFleet/components/NullState";
 import { useHasPermission } from "@/protoFleet/store";
-import { Alert, Dismiss, LogoAlt } from "@/shared/assets/icons";
+import { Alert, Dismiss, Info, LogoAlt } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { type ButtonProps } from "@/shared/components/ButtonGroup";
 import Callout from "@/shared/components/Callout";
@@ -35,7 +35,7 @@ interface MinersProps {
   onRescan: () => void;
   onForemanImport?: (apiKey: string, clientId: string) => void;
   foremanImportPending?: boolean;
-  remoteDiscoveryWarning?: string;
+  remoteDiscoveryGuidance?: RemoteDiscoveryGuidance;
   mode?: MinerDiscoveryMode;
   initialStep?: "findMiners" | "pairing";
   canAddMiners?: boolean;
@@ -61,7 +61,7 @@ const Miners = ({
   onRescan,
   onForemanImport,
   foremanImportPending = false,
-  remoteDiscoveryWarning,
+  remoteDiscoveryGuidance,
   mode = "onboarding",
   initialStep = "findMiners",
   canAddMiners = true,
@@ -106,21 +106,34 @@ const Miners = ({
   const selectedDisplayMiners = displayMiners.filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier));
   const useCompactHeaderActions = isPhone;
   const canReadFleetNodes = useHasPermission("fleetnode:read");
-  const coverageWarning = remoteDiscoveryWarning ? (
+  const canManageFleetNodes = useHasPermission("fleetnode:manage");
+  const nodeSetupAction = (
+    <>
+      {!canReadFleetNodes || !canManageFleetNodes ? <p>Ask an administrator to complete Fleet Node setup.</p> : null}
+      {canReadFleetNodes ? (
+        <Link to="/settings/nodes" className="underline">
+          View Fleet Node settings
+        </Link>
+      ) : null}
+    </>
+  );
+  const coverageNotice = remoteDiscoveryGuidance?.message ? (
     <Callout
-      className={activeStep === "findMiners" ? "mt-6" : "mb-6"}
-      intent="warning"
-      prefixIcon={<Alert />}
-      title={remoteDiscoveryWarning}
-      subtitle={
-        canReadFleetNodes ? (
-          <Link to="/settings/nodes" className="underline">
-            View Fleet Node settings
-          </Link>
-        ) : undefined
-      }
-      testId="remote-discovery-warning"
+      intent={remoteDiscoveryGuidance.intent}
+      prefixIcon={remoteDiscoveryGuidance.intent === "warning" ? <Alert /> : <Info />}
+      title={remoteDiscoveryGuidance.message}
+      subtitle={nodeSetupAction}
+      testId="remote-discovery-guidance"
     />
+  ) : null;
+  const remoteNetworkPrerequisite = remoteDiscoveryGuidance ? (
+    <div className="flex flex-col gap-4 text-300" data-testid="remote-network-prerequisite">
+      <p>
+        For miners on a remote network, install and enroll a Fleet Node on a host that can reach them. Fleet can
+        discover directly on networks reachable from the server.
+      </p>
+      {coverageNotice ?? nodeSetupAction}
+    </div>
   ) : null;
 
   // Handle loading state with minimum display time
@@ -295,15 +308,18 @@ const Miners = ({
         loading
       />
 
-      {mode === "onboarding" ? (
+      {mode === "onboarding" && !showModal ? (
         <NullState
           icon={<LogoAlt width="w-5" />}
           title="Let's set up your fleet."
           description="Add miners to your fleet to get started."
           action={
-            <Button variant="primary" onClick={() => setShowModal(true)}>
-              Get started
-            </Button>
+            <div className="flex flex-col items-start gap-6">
+              {remoteNetworkPrerequisite}
+              <Button variant="primary" onClick={() => setShowModal(true)}>
+                Get started
+              </Button>
+            </div>
           }
         />
       ) : null}
@@ -349,7 +365,7 @@ const Miners = ({
                 inline
               />
 
-              {coverageWarning}
+              {remoteNetworkPrerequisite ? <div className="mt-6">{remoteNetworkPrerequisite}</div> : null}
 
               <div className={clsx("my-6 grid grid-cols-1 gap-4", onForemanImport && "tablet:grid-cols-2")}>
                 <div
@@ -440,7 +456,7 @@ const Miners = ({
           ) : null}
           {activeStep === "pairing" ? (
             <div className="mx-auto w-full max-w-4xl px-6 pt-10">
-              {coverageWarning}
+              {coverageNotice ? <div className="mb-6">{coverageNotice}</div> : null}
               {notice}
               <FoundMiners
                 miners={displayMiners}
