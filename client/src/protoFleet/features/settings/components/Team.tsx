@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import { useUserManagement } from "@/protoFleet/api/useUserManagement";
-import AddTeamMemberModal from "@/protoFleet/features/settings/components/AddTeamMemberModal";
 import DeactivateUserDialog from "@/protoFleet/features/settings/components/DeactivateUserDialog";
 import EditRoleModal from "@/protoFleet/features/settings/components/EditRoleModal";
+import InviteTeamMemberModal from "@/protoFleet/features/settings/components/InviteTeamMemberModal";
 import ResetPasswordModal from "@/protoFleet/features/settings/components/ResetPasswordModal";
 import Roles from "@/protoFleet/features/settings/components/Roles";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
+import TeamInvitations from "@/protoFleet/features/settings/components/TeamInvitations";
 import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
 import { useHasPermission, useRole, useUsername } from "@/protoFleet/store";
 import { Edit, Lock, Trash } from "@/shared/assets/icons";
@@ -29,7 +30,7 @@ type UserData = {
 };
 
 type UserColumns = "username" | "passwordUpdatedAt" | "lastLoginAt" | "role";
-type TeamTab = "members" | "roles";
+type TeamTab = "members" | "invitations" | "roles";
 type TeamTabItem = {
   key: TeamTab;
   title: string;
@@ -64,7 +65,8 @@ const Team = () => {
   const callerIsOwner = currentRole === "SUPER_ADMIN";
   const [users, setUsers] = useState<UserData[]>([]);
   const [isLoading, setIsLoading] = useState(canReadTeamMembers);
-  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [invitationsRevision, setInvitationsRevision] = useState(0);
   const [resetPasswordUser, setResetPasswordUser] = useState<UserData | null>(null);
   const [resetPasswordTemp, setResetPasswordTemp] = useState<string | null>(null);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
@@ -72,14 +74,17 @@ const Team = () => {
   const [isDeactivating, setIsDeactivating] = useState(false);
   const [editRoleUser, setEditRoleUser] = useState<UserData | null>(null);
   const [memberFilters, setMemberFilters] = useState<ActiveFilters>(defaultMemberFilters);
-  const requestedTab = searchParams.get("tab") === "roles" ? "roles" : "members";
+  const requestedTabParam = searchParams.get("tab");
+  const requestedTab: TeamTab =
+    requestedTabParam === "roles" || requestedTabParam === "invitations" ? requestedTabParam : "members";
   const availableTabs = useMemo(
     () =>
       [
         canReadTeamMembers ? ({ key: "members", title: "Members" } satisfies TeamTabItem) : null,
         canManageRoles ? ({ key: "roles", title: "Roles" } satisfies TeamTabItem) : null,
+        canAddTeamMembers ? ({ key: "invitations", title: "Invitations" } satisfies TeamTabItem) : null,
       ].filter((tab): tab is TeamTabItem => tab !== null),
-    [canManageRoles, canReadTeamMembers],
+    [canAddTeamMembers, canManageRoles, canReadTeamMembers],
   );
   const activeTab = useMemo<TeamTab>(() => {
     if (availableTabs.some((tab) => tab.key === requestedTab)) {
@@ -91,10 +96,10 @@ const Team = () => {
   const handleTabSelect = useCallback(
     (selectedKey: string) => {
       const nextParams = new URLSearchParams(searchParams);
-      if (selectedKey === "roles") {
-        nextParams.set("tab", "roles");
-      } else {
+      if (selectedKey === "members") {
         nextParams.delete("tab");
+      } else {
+        nextParams.set("tab", selectedKey);
       }
 
       setSearchParams(nextParams, { replace: true });
@@ -190,10 +195,21 @@ const Team = () => {
   );
   const hasActiveMemberFilters = (memberFilters.dropdownFilters.role?.length ?? 0) > 0;
 
-  const handleAddMemberSuccess = useCallback(() => {
-    fetchUsers();
-    setShowAddMemberModal(false);
-  }, [fetchUsers]);
+  // Invitations are newest-first, so the new pending code is at the top of
+  // the Invitations tab once the share dialog closes.
+  const handleInvitationCreated = useCallback(() => {
+    setInvitationsRevision((revision) => revision + 1);
+    handleTabSelect("invitations");
+  }, [handleTabSelect]);
+
+  const inviteButton = canAddTeamMembers ? (
+    <Button
+      variant={variants.primary}
+      size={sizes.compact}
+      text="Invite team member"
+      onClick={() => setShowInviteModal(true)}
+    />
+  ) : null;
 
   const handleResetPassword = useCallback((user: UserData) => {
     // Open confirmation modal (step 1)
@@ -304,7 +320,7 @@ const Team = () => {
     <div className="flex flex-col gap-6">
       <SettingsPageHeader
         title="Team"
-        description="Define what members can see and do. Assign roles when you add or edit a member."
+        description="Define what members can see and do. Assign roles when you invite or edit a member."
       />
       {availableTabs.length > 1 ? (
         <TabStrip activeId={activeTab} onSelect={handleTabSelect} ariaLabel="Team sections">
@@ -329,16 +345,7 @@ const Team = () => {
               filtersClassName={tabbedListFiltersClassName}
               filterItem={memberMatchesFilters}
               onFilterChange={setMemberFilters}
-              headerControls={
-                canAddTeamMembers ? (
-                  <Button
-                    variant={variants.primary}
-                    size={sizes.compact}
-                    text="Add team member"
-                    onClick={() => setShowAddMemberModal(true)}
-                  />
-                ) : null
-              }
+              headerControls={inviteButton}
               total={filteredMemberCount}
               totalUnfiltered={users.length}
               hasActiveFilters={hasActiveMemberFilters}
@@ -350,7 +357,7 @@ const Team = () => {
                   description={
                     hasActiveMemberFilters
                       ? "Try clearing one or more filters to see the rest of your members."
-                      : "Add your first member to start managing access."
+                      : "Invite your first member to start managing access."
                   }
                 />
               }
@@ -358,14 +365,20 @@ const Team = () => {
             />
           )}
         </>
+      ) : activeTab === "invitations" ? (
+        <TeamInvitations
+          refreshKey={invitationsRevision}
+          headerControls={inviteButton}
+          filtersClassName={tabbedListFiltersClassName}
+        />
       ) : (
         <Roles embedded filtersClassName={tabbedListFiltersClassName} />
       )}
 
-      <AddTeamMemberModal
-        open={showAddMemberModal}
-        onDismiss={() => setShowAddMemberModal(false)}
-        onSuccess={handleAddMemberSuccess}
+      <InviteTeamMemberModal
+        open={showInviteModal}
+        onDismiss={() => setShowInviteModal(false)}
+        onCreated={handleInvitationCreated}
       />
       <ResetPasswordModal
         open={!!resetPasswordUser}

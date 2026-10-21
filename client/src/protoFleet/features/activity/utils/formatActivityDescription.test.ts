@@ -26,6 +26,25 @@ describe("formatActivityDescription", () => {
     expect(formatActivityDescription(entry)).toBe("Couldn't log in");
   });
 
+  it("describes team invitations with readable role names and no code", () => {
+    const created = create(ActivityEntrySchema, {
+      eventType: "create_team_invitation",
+      description: "Team invitation created for FIELD_TECH",
+      metadata: { role_name: "FIELD_TECH", invitation_id: "11111111-1111-4111-8111-111111111111" },
+    });
+    const accepted = create(ActivityEntrySchema, {
+      eventType: "accept_team_invitation",
+      description: "tech joined the team as ADMIN",
+      metadata: { role_name: "ADMIN" },
+    });
+
+    expect(formatActivityDescription(created)).toBe("Created user invitation: Field Tech");
+    expect(formatActivityDescription(accepted)).toBe("Joined team: Admin");
+    expect(formatActivityDescription(create(ActivityEntrySchema, { eventType: "revoke_team_invitation" }))).toBe(
+      "Revoked user invitation",
+    );
+  });
+
   it("identifies break-glass resets and their target", () => {
     const entry = create(ActivityEntrySchema, {
       eventType: "cli_reset_password",

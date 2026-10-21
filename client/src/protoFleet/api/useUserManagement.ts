@@ -2,24 +2,12 @@ import { useCallback } from "react";
 
 import { authClient } from "@/protoFleet/api/clients";
 import type {
-  CreateUserRequest,
   DeactivateUserRequest,
   ResetUserPasswordRequest,
   UpdateUserRoleRequest,
 } from "@/protoFleet/api/generated/auth/v1/auth_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { useAuthErrors } from "@/protoFleet/store";
-
-interface CreateUserProps {
-  username: CreateUserRequest["username"];
-  // roleId is the role to assign on creation. Required — the server
-  // rejects an empty value with InvalidArgument. The role must belong
-  // to the caller's org and must not be SUPER_ADMIN.
-  roleId: CreateUserRequest["roleId"];
-  onSuccess?: (userId: string, username: string, tempPassword: string) => void;
-  onError?: (message: string) => void;
-  onFinally?: () => void;
-}
 
 interface ListUsersProps {
   onSuccess?: (
@@ -60,28 +48,6 @@ interface UpdateUserRoleProps {
 
 const useUserManagement = () => {
   const { handleAuthErrors } = useAuthErrors();
-
-  const createUser = useCallback(
-    async ({ username, roleId, onSuccess, onError, onFinally }: CreateUserProps) => {
-      await authClient
-        .createUser({ username, roleId })
-        .then((response) => {
-          onSuccess?.(response.userId, response.username, response.temporaryPassword);
-        })
-        .catch((err) => {
-          handleAuthErrors({
-            error: err,
-            onError: () => {
-              onError?.(getErrorMessage(err));
-            },
-          });
-        })
-        .finally(() => {
-          onFinally?.();
-        });
-    },
-    [handleAuthErrors],
-  );
 
   const listUsers = useCallback(
     async ({ onSuccess, onError, onFinally }: ListUsersProps) => {
@@ -186,7 +152,6 @@ const useUserManagement = () => {
   );
 
   return {
-    createUser,
     listUsers,
     resetUserPassword,
     deactivateUser,

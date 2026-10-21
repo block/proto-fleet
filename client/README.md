@@ -714,6 +714,20 @@ never read back; a revision can retain them only for unchanged slot destinations
 and usernames. Incoming profiles pin an immutable revision and require the
 current login password when changed.
 
+Host administrators with `user:manage` invite team members from Settings → Team →
+**Invite team member**, choosing an assignable organization role and a one- or
+24-hour expiry. Recipients choose their own username and password; nobody shares
+a temporary password. A signed-in client login can accept a team invitation
+without a password reset and receives the role's permissions immediately. Logins
+that already hold a team role cannot accept another; change their role on the
+Members tab instead. The **Invitations** tab lists pending, unavailable, revoked
+and expired invitations, newest first. Pending and unavailable ones can be
+revoked; revoked and expired ones can be deleted. Accepted invitations leave the
+list, and the activity log records issuance, revocation, deletion and
+acceptance. An invitation becomes permanently unavailable once its inviter's
+roles or the invited role's permissions change, even if the change is later
+reverted. Password resets remain on the Members tab.
+
 Ancestor grants can be created for the direct parent and updated for existing
 ancestors. Creating a subclient’s first grant to the hosting root needs ancestor
 metadata that the current API does not expose.

@@ -26,8 +26,19 @@ vi.mock("@/protoFleet/features/settings/components/Roles", () => ({
   default: () => <div data-testid="roles-panel">Roles panel</div>,
 }));
 
-vi.mock("@/protoFleet/features/settings/components/AddTeamMemberModal", () => ({
-  default: () => null,
+vi.mock("@/protoFleet/features/settings/components/InviteTeamMemberModal", () => ({
+  default: ({ open, onCreated }: { open: boolean; onCreated: () => void }) =>
+    open ? (
+      <button type="button" onClick={onCreated}>
+        Create mock invitation
+      </button>
+    ) : null,
+}));
+
+vi.mock("@/protoFleet/features/settings/components/TeamInvitations", () => ({
+  default: ({ refreshKey }: { refreshKey: number }) => (
+    <div data-testid="invitations-panel">{`Invitations panel ${refreshKey}`}</div>
+  ),
 }));
 
 vi.mock("@/protoFleet/features/settings/components/DeactivateUserDialog", () => ({
@@ -119,7 +130,7 @@ describe("Team", () => {
     expect(screen.queryByTestId("segmented-control")).not.toBeInTheDocument();
     expect(screen.getByTestId("team-tab-members")).toHaveAttribute("data-active", "true");
     expect(screen.getByTestId("member-filter-Role")).toBeInTheDocument();
-    expect(screen.getByTestId("members-toolbar")).toContainElement(screen.getByText("Add team member"));
+    expect(screen.getByTestId("members-toolbar")).toContainElement(screen.getByText("Invite team member"));
 
     fireEvent.click(screen.getByTestId("team-tab-roles-activate"));
 
@@ -142,5 +153,40 @@ describe("Team", () => {
 
     expect(screen.getByTestId("roles-panel")).toBeInTheDocument();
     expect(listUsersMock).not.toHaveBeenCalled();
+  });
+
+  it("shows invitations to user managers after roles and deep-links to them", () => {
+    renderTeam("/settings/team?tab=invitations");
+
+    expect(screen.getAllByTestId(/^team-tab-(members|roles|invitations)$/).map((tab) => tab.dataset.testid)).toEqual([
+      "team-tab-members",
+      "team-tab-roles",
+      "team-tab-invitations",
+    ]);
+
+    expect(screen.getByTestId("invitations-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("team-tab-invitations")).toHaveAttribute("data-active", "true");
+  });
+
+  it("opens the refreshed invitations list after creating an invitation", async () => {
+    renderTeam();
+    await waitFor(() => expect(screen.getByTestId("members-list").textContent).toBe("1 member"));
+
+    fireEvent.click(screen.getByText("Invite team member"));
+    fireEvent.click(screen.getByText("Create mock invitation"));
+
+    expect(await screen.findByTestId("invitations-panel")).toHaveTextContent("Invitations panel 1");
+    expect(screen.getByTestId("team-tab-invitations")).toHaveAttribute("data-active", "true");
+    expect(screen.getByTestId("location-probe")).toHaveTextContent("/settings/team?tab=invitations");
+  });
+
+  it("hides invitations without user:manage", async () => {
+    permissionsMock.current = ["user:read"];
+
+    renderTeam("/settings/team?tab=invitations");
+
+    await waitFor(() => expect(screen.getByTestId("members-list").textContent).toBe("1 member"));
+    expect(screen.queryByTestId("invitations-panel")).not.toBeInTheDocument();
+    expect(screen.queryByText("Invite team member")).not.toBeInTheDocument();
   });
 });
