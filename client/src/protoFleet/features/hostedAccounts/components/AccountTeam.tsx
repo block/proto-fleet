@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 import { useRequiredAccountScope } from "../AccountScope";
+import { ACCOUNT_READ_TIMEOUT_MS } from "../api";
 import { roleLabel, roleOptions } from "../capabilities";
 import { useAccountQuery } from "../useAccountQuery";
 import { AccountState } from "./AccountState";
@@ -36,8 +37,11 @@ const AccountTeam = () => {
   const load = useCallback(
     async (signal: AbortSignal) => {
       const [members, invitations] = await Promise.all([
-        client.listMembers({ accountId: account.accountId }, { signal }),
-        client.listInvitations({ accountId: account.accountId, pageSize: 25, pageToken: tokens[page] }, { signal }),
+        client.listMembers({ accountId: account.accountId }, { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal }),
+        client.listInvitations(
+          { accountId: account.accountId, pageSize: 25, pageToken: tokens[page] },
+          { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal },
+        ),
       ]);
       return { members: members.members, ...invitations };
     },

@@ -5,6 +5,7 @@ import { AccountLayout } from "./AccountLayout";
 import { useRequiredAccountScope } from "./AccountScope";
 import { AccountScopeProvider } from "./AccountScopeProvider";
 import AccountWorkspace from "./AccountWorkspace";
+import { ACCOUNT_READ_TIMEOUT_MS } from "./api";
 import { accountManagementPath, accountPath, can } from "./capabilities";
 import AccountAssets from "./components/AccountAssets";
 import { AccountState } from "./components/AccountState";
@@ -23,7 +24,8 @@ const ClientManagementContent = () => {
   const directory = useHostedAccounts();
   const navigate = useNavigate();
   const load = useCallback(
-    (signal: AbortSignal) => client.listChildren({ accountId: account.accountId }, { signal }),
+    (signal: AbortSignal) =>
+      client.listChildren({ accountId: account.accountId }, { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal }),
     [account.accountId, client],
   );
   const query = useAccountQuery(load, true, true, POLL_INTERVAL_MS);

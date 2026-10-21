@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
-import { hostedAccountsClient } from "./api";
+import { ACCOUNT_READ_TIMEOUT_MS, hostedAccountsClient } from "./api";
 import { accountPath, roleLabel } from "./capabilities";
 import { AccountState } from "./components/AccountState";
 import { useAccountQuery } from "./useAccountQuery";
@@ -39,7 +39,8 @@ const InvitationDetails = ({ token, onChangeCode }: { token: string; onChangeCod
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const load = useCallback(
-    (signal: AbortSignal) => hostedAccountsClient.previewInvitation({ token }, { signal }),
+    (signal: AbortSignal) =>
+      hostedAccountsClient.previewInvitation({ token }, { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal }),
     [token],
   );
   const query = useAccountQuery(load);

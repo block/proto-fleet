@@ -3,6 +3,7 @@ import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import { useRequiredAccountScope } from "../AccountScope";
+import { ACCOUNT_READ_TIMEOUT_MS } from "../api";
 import { useAccountQuery } from "../useAccountQuery";
 import { AccountState } from "./AccountState";
 import {
@@ -52,11 +53,14 @@ const AccountActivityFeed = ({
   const load = useCallback(
     async (signal: AbortSignal): Promise<ListAccountActivitiesResponse & { restart?: boolean }> => {
       const request = { accountId: account.accountId, filter, pageSize: PAGE_SIZE };
-      const first = await client.listAccountActivities(request, { signal });
+      const first = await client.listAccountActivities(request, { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal });
       const activities: ActivityEntry[] = [...first.activities];
       let nextPageToken = first.nextPageToken;
       for (let index = 1; index < pageCount && nextPageToken; index++) {
-        const page = await client.listAccountActivities({ ...request, pageToken: nextPageToken }, { signal });
+        const page = await client.listAccountActivities(
+          { ...request, pageToken: nextPageToken },
+          { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal },
+        );
         if (page.authorityFingerprint !== first.authorityFingerprint) return { ...page, activities: [], restart: true };
         activities.push(...page.activities);
         nextPageToken = page.nextPageToken;

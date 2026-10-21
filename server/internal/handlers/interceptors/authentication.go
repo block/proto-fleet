@@ -204,7 +204,7 @@ func publicHostedInvitation(procedure string) bool {
 		procedure == hostedv1connect.HostedAccountServiceRegisterInvitedUserProcedure
 }
 
-// Pool/profile operations belong to a selected customer workspace. Host
+// Account workspace operations belong to a selected customer workspace. Host
 // account administration deliberately continues to allow omitted selection.
 func requiresSelectedAccount(procedure string) bool {
 	switch procedure {

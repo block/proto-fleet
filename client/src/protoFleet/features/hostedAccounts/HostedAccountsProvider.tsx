@@ -1,7 +1,7 @@
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { Code, ConnectError } from "@connectrpc/connect";
 
-import { isRetryableReadError } from "./api";
+import { ACCOUNT_READ_TIMEOUT_MS, isRetryableReadError } from "./api";
 import { type Directory, HostedAccountsContext } from "./HostedAccountsContext";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
 import { hostedAccountsClient } from "@/protoFleet/features/hostedAccounts/api";
@@ -18,7 +18,7 @@ export const HostedAccountsProvider = ({ children }: { children: ReactNode }) =>
   useEffect(() => {
     if (!authenticated) return;
     const controller = new AbortController();
-    hostedAccountsClient.listAccounts({}, { signal: controller.signal }).then(
+    hostedAccountsClient.listAccounts({}, { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal: controller.signal }).then(
       (data) => {
         if (!controller.signal.aborted) setResult({ generation, data, error: null });
       },

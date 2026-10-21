@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo } from "react";
 
-import { createAccountConnection } from "./api";
+import { ACCOUNT_READ_TIMEOUT_MS, createAccountConnection } from "./api";
 import { can } from "./capabilities";
 import { useHostedAccounts } from "./HostedAccountsContext";
 import { useAccountQuery } from "./useAccountQuery";
@@ -37,7 +37,7 @@ export const useFleetAccountInventory = (assets: AssetReference[], refreshOnFocu
               return { kind: Number(kind) as MiningAssetKind, id: BigInt(id) };
             }),
         },
-        { signal },
+        { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal },
       ),
     [accountId, connection, keys],
   );

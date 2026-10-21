@@ -3,7 +3,7 @@ import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 
 import { AccountLayout } from "./AccountLayout";
 import { AccountScopeProvider } from "./AccountScopeProvider";
-import { createAccountConnection } from "./api";
+import { ACCOUNT_READ_TIMEOUT_MS, createAccountConnection } from "./api";
 import { accountManagementPath, accountPath, can, roleLabel } from "./capabilities";
 import AccountAccess from "./components/AccountAccess";
 import AccountActivity from "./components/AccountActivity";
@@ -60,8 +60,8 @@ const AccountPage = ({
   const load = useCallback(
     async (signal: AbortSignal) => {
       const [result, policy] = await Promise.all([
-        connection.client.getAccount({ accountId }, { signal }),
-        connection.client.getSitePolicy({ accountId }, { signal }),
+        connection.client.getAccount({ accountId }, { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal }),
+        connection.client.getSitePolicy({ accountId }, { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal }),
       ]);
       return { ...result, policy };
     },

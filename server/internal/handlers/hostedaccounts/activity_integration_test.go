@@ -26,6 +26,14 @@ func TestHostedActivityRPCScopeExportAndLiveAccess(t *testing.T) {
 	page, err := f.client.ListAccountActivities(t.Context(), rpcRequest(request, cookie, a.AccountID))
 	require.NoError(t, err)
 	require.NotEmpty(t, page.Msg.Activities)
+	request.Filter = &activitypb.ActivityFilter{SearchText: "created account"}
+	page, err = f.client.ListAccountActivities(t.Context(), rpcRequest(request, cookie, a.AccountID))
+	require.NoError(t, err)
+	require.Positive(t, page.Msg.TotalCount)
+	require.NotEmpty(t, page.Msg.Activities)
+	for _, entry := range page.Msg.Activities {
+		require.Equal(t, "create_hosted_account", entry.EventType)
+	}
 	request.Filter = &activitypb.ActivityFilter{SearchText: "Sibling secret"}
 	page, err = f.client.ListAccountActivities(t.Context(), rpcRequest(request, cookie, a.AccountID))
 	require.NoError(t, err)

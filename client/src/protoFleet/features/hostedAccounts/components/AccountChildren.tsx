@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { useRequiredAccountScope } from "../AccountScope";
+import { ACCOUNT_READ_TIMEOUT_MS } from "../api";
 import { accountManagementPath, accountPath, can, capabilities } from "../capabilities";
 import { useHostedAccounts } from "../HostedAccountsContext";
 import { useAccountQuery } from "../useAccountQuery";
@@ -30,7 +31,8 @@ const AccountChildren = () => {
   const required = 9n; // Viewing and membership administration keep recovery possible.
   const canConfigure = (allowed & required) === required;
   const load = useCallback(
-    (signal: AbortSignal) => client.listChildren({ accountId: account.accountId }, { signal }),
+    (signal: AbortSignal) =>
+      client.listChildren({ accountId: account.accountId }, { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal }),
     [account.accountId, client],
   );
   const query = useAccountQuery(load, true, true, POLL_INTERVAL_MS);

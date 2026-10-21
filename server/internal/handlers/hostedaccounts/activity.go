@@ -31,12 +31,18 @@ func (h *Handler) ExportAccountActivities(ctx context.Context, request *connect.
 	}
 	pageRequest := &pb.ListAccountActivitiesRequest{AccountId: request.Msg.AccountId, Filter: request.Msg.Filter, PageSize: 100}
 	first := true
+	var authorityFingerprint string
 	for {
 		// Reauthorize every chunk, including when a caller reuses a cursor after
 		// revocation. Nothing is streamed before the initial authorized read.
 		page, err := h.accounts.ActivityExportPage(ctx, info.UserID, info.OrganizationID, pageRequest)
 		if err != nil {
 			return err
+		}
+		if first {
+			authorityFingerprint = page.AuthorityFingerprint
+		} else if page.AuthorityFingerprint != authorityFingerprint {
+			return fleeterror.NewPlainError("account activity access changed during export; restart the download", connect.CodeAborted)
 		}
 		var chunk strings.Builder
 		writer := csv.NewWriter(&chunk)

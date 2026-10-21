@@ -3,6 +3,7 @@ import clsx from "clsx";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import { useRequiredAccountScope } from "../AccountScope";
+import { ACCOUNT_READ_TIMEOUT_MS } from "../api";
 import { accountPath, can } from "../capabilities";
 import { useAccountQuery } from "../useAccountQuery";
 import { defaultAssetColumns, useAssetColumnPreferences } from "../useAssetColumnPreferences";
@@ -99,7 +100,7 @@ const AccountAssets = ({
           model: model || undefined,
           siteId: site.id ? BigInt(site.id) : undefined,
         },
-        { signal },
+        { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal },
       );
       return { inventory };
     },

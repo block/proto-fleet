@@ -2,6 +2,7 @@ import { useCallback, useEffect } from "react";
 import { useParams } from "react-router-dom";
 
 import { useRequiredAccountScope } from "../AccountScope";
+import { ACCOUNT_READ_TIMEOUT_MS } from "../api";
 import { accountPath } from "../capabilities";
 import { useAccountQuery } from "../useAccountQuery";
 import { AccountAssetCell } from "./AccountAssetCell";
@@ -24,7 +25,7 @@ const AccountAssetDetail = () => {
           accountId: account.accountId,
           asset: { kind: kind === "module" ? MiningAssetKind.MODULE : MiningAssetKind.MINER, id: BigInt(assetId) },
         },
-        { signal },
+        { timeoutMs: ACCOUNT_READ_TIMEOUT_MS, signal },
       ),
     [account.accountId, client, kind, assetId],
   );
