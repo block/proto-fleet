@@ -313,10 +313,10 @@ test.describe("Proto Fleet - RBAC", () => {
     await test.step("Log in as the ingest-only member", async () => {
       await authPage.logout();
       await authPage.validateRedirectedToAuth();
-      await commonSteps.completeFirstLoginAsTeamMember({
+      await commonSteps.joinTeamWithInvitation({
+        invitationCode: ingestMember.invitationCode,
         username: ingestMember.username,
-        temporaryPassword: ingestMember.temporaryPassword,
-        newPassword: MEMBER_PASSWORD,
+        password: MEMBER_PASSWORD,
       });
     });
 

@@ -1,5 +1,5 @@
 import { expect } from "@playwright/test";
-import { DEFAULT_TIMEOUT } from "../config/test.config";
+import { DEFAULT_TIMEOUT, testConfig } from "../config/test.config";
 import { BasePage } from "./base";
 
 const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -37,15 +37,15 @@ export class SettingsTeamPage extends BasePage {
   }
 
   async validateIsAdmin() {
-    await expect(this.page.getByRole("button", { name: "Add team member" })).toBeVisible();
+    await expect(this.page.getByRole("button", { name: "Invite team member" })).toBeVisible();
   }
 
-  async validateAddTeamMemberHidden() {
-    await expect(this.page.getByRole("button", { name: "Add team member", exact: true })).toHaveCount(0);
+  async validateInviteTeamMemberHidden() {
+    await expect(this.page.getByRole("button", { name: "Invite team member", exact: true })).toHaveCount(0);
   }
 
-  async clickAddTeamMember() {
-    await this.clickButton("Add team member");
+  async clickInviteTeamMember() {
+    await this.clickButton("Invite team member");
   }
 
   async openMembersTab(timeoutMs: number = DEFAULT_TIMEOUT) {
@@ -54,7 +54,16 @@ export class SettingsTeamPage extends BasePage {
       await activateButton.click();
     }
 
-    await expect(this.page.getByRole("button", { name: "Add team member", exact: true })).toBeVisible({
+    await expect(this.getMemberRow(testConfig.users.admin.username)).toBeVisible({ timeout: timeoutMs });
+  }
+
+  async openInvitationsTab(timeoutMs: number = DEFAULT_TIMEOUT) {
+    const activateButton = this.page.getByTestId("team-tab-invitations-activate");
+    if (await activateButton.isVisible().catch(() => false)) {
+      await activateButton.click();
+    }
+
+    await expect(this.page.getByTestId("team-tab-invitations")).toHaveAttribute("data-active", "true", {
       timeout: timeoutMs,
     });
   }
@@ -70,10 +79,6 @@ export class SettingsTeamPage extends BasePage {
     });
   }
 
-  async inputMemberUsername(username: string) {
-    await this.page.locator(`//input[@id='username']`).fill(username);
-  }
-
   private async pickRoleFromOpenModal(roleLabel: string) {
     await this.page.getByTestId("modal").getByRole("button", { name: "Role" }).click();
     // The Select option's accessible name is "<label> <description>"
@@ -83,33 +88,88 @@ export class SettingsTeamPage extends BasePage {
     await this.page.getByRole("option").filter({ hasText: roleLabel }).click();
   }
 
-  async selectMemberRole(roleLabel: string) {
+  /** Creates an invitation for the role and returns its one-time code. */
+  async createInvitationAndGetCode(roleLabel: string) {
+    await this.clickInviteTeamMember();
     await this.pickRoleFromOpenModal(roleLabel);
-  }
+    await this.page.getByTestId("modal").getByRole("button", { name: "Create invitation", exact: true }).click();
 
-  async createTeamMemberAndGetTemporaryPassword(username: string, roleLabel: string) {
-    await this.clickAddTeamMember();
-    await this.inputMemberUsername(username);
-    await this.selectMemberRole(roleLabel);
-    await this.clickSaveTeamMember();
-    await this.validateMemberAdded();
-
-    const temporaryPassword = await this.getTemporaryPassword();
+    const codeInput = this.page.locator("#hosted-one-time-secret");
+    await expect(codeInput).toHaveValue(/^[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}$/);
+    const invitationCode = await codeInput.inputValue();
+    await expect(this.page.getByRole("button", { name: "Copy invitation code" })).toBeVisible();
     await this.clickDone();
-    await this.validateMemberVisible(username);
-    return temporaryPassword;
+    await expect(codeInput).toBeHidden();
+    return invitationCode;
   }
 
-  async clickSaveTeamMember() {
-    await this.clickButton("Save");
+  private getInvitationRows(roleLabel: string, status?: string) {
+    const rows = this.page
+      .getByTestId("list-body")
+      .locator("tr")
+      .filter({ has: this.page.getByTestId("role").getByText(roleLabel, { exact: true }) });
+    return status ? rows.filter({ has: this.page.getByTestId("status").getByText(status, { exact: true }) }) : rows;
   }
 
-  async validateMemberAdded() {
-    await expect(this.page.getByTestId("modal").getByText("Member added")).toBeVisible();
+  async countInvitations(roleLabel: string, status: string) {
+    return await this.getInvitationRows(roleLabel, status).count();
   }
 
-  async validateCopyPasswordButtonVisible() {
-    await expect(this.page.locator(`//button[@aria-label="Copy password"]`)).toBeVisible();
+  async validateInvitationCount(roleLabel: string, status: string, count: number) {
+    await expect(this.getInvitationRows(roleLabel, status)).toHaveCount(count);
+  }
+
+  async validateInvitationVisible(status: string, roleLabel: string) {
+    await expect(this.getInvitationRows(roleLabel, status)).not.toHaveCount(0);
+  }
+
+  async validateNoInvitationsForRole(roleLabel: string) {
+    await expect(this.getInvitationRows(roleLabel)).toHaveCount(0);
+  }
+
+  /** Callers scope invitations with a role unique to their test, so exactly one row matches. */
+  private async getOnlyInvitationRow(roleLabel: string, status: string) {
+    const row = this.getInvitationRows(roleLabel, status);
+    await expect(row).toHaveCount(1);
+    return row;
+  }
+
+  async revokeInvitation(roleLabel: string, status: "Pending" | "Unavailable" = "Pending") {
+    const row = await this.getOnlyInvitationRow(roleLabel, status);
+    await row.getByRole("button", { name: "Revoke", exact: true }).click();
+    await this.page.getByRole("dialog").getByRole("button", { name: "Revoke", exact: true }).click();
+    await expect(this.page.getByRole("dialog")).toBeHidden();
+  }
+
+  async deleteInvitation(roleLabel: string, status: "Revoked" | "Expired") {
+    const row = await this.getOnlyInvitationRow(roleLabel, status);
+    await row.getByRole("button", { name: "Delete", exact: true }).click();
+  }
+
+  /** Cleanup for a test-owned role that issued at most one invitation. */
+  async removeInvitationForRole(roleLabel: string) {
+    await this.openInvitationsTab();
+    await expect(this.page.getByText("Loading invitations...")).toBeHidden();
+    for (const status of ["Pending", "Unavailable"] as const) {
+      if ((await this.countInvitations(roleLabel, status)) > 0) {
+        await this.revokeInvitation(roleLabel, status);
+        await this.validateInvitationCount(roleLabel, "Revoked", 1);
+      }
+    }
+    for (const status of ["Revoked", "Expired"] as const) {
+      if ((await this.countInvitations(roleLabel, status)) > 0) {
+        await this.deleteInvitation(roleLabel, status);
+      }
+    }
+    await this.validateNoInvitationsForRole(roleLabel);
+  }
+
+  async deleteCustomRole(roleName: string) {
+    await this.openRolesTab();
+    await this.clickRoleActionsMenu(roleName);
+    await this.clickDeleteRoleAction();
+    await this.clickDeleteRoleConfirm();
+    await this.validateRoleNotVisible(roleName);
   }
 
   async clickDone() {

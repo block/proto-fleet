@@ -1,7 +1,8 @@
 import { testConfig } from "../config/test.config";
 import { test } from "../fixtures/pageFixtures";
 import { CommonSteps } from "../helpers/commonSteps";
-import { generateRandomUsername } from "../helpers/testDataHelper";
+import { joinTeamInFreshContext, MEMBER_PASSWORD } from "../helpers/rbacTestSetup";
+import { generateRandomText, generateRandomUsername } from "../helpers/testDataHelper";
 import { AuthPage } from "../pages/auth";
 import { MinersPage } from "../pages/miners";
 import { SettingsPage } from "../pages/settings";
@@ -60,56 +61,64 @@ test.describe("Proto Fleet - Team Accounts", () => {
     }
   });
 
-  test("Add team member", { tag: "@smoke" }, async ({ settingsPage, settingsTeamPage, commonSteps }) => {
+  test(
+    "Invite, revoke and delete a team invitation",
+    { tag: "@smoke" },
+    async ({ settingsPage, settingsTeamPage, commonSteps }) => {
+      // A role owned by this test keeps its invitation apart from other runs' rows.
+      const roleName = generateRandomText("invitation_role");
+
+      await test.step("Log in as admin", async () => {
+        await commonSteps.loginAsAdmin();
+      });
+
+      await test.step("Navigate to Team Settings and create a role for this test", async () => {
+        await settingsPage.navigateToTeamSettings();
+        await settingsTeamPage.validateTeamSettingsPageOpened();
+        await settingsTeamPage.openRolesTab();
+        await settingsTeamPage.createCustomRole(roleName, "Scopes the invitation smoke test.", ["pool:read"]);
+      });
+
+      try {
+        await test.step("Create an invitation and show its code once", async () => {
+          await settingsTeamPage.openInvitationsTab();
+          await settingsTeamPage.createInvitationAndGetCode(roleName);
+          await settingsTeamPage.validateInvitationCount(roleName, "Pending", 1);
+        });
+
+        await test.step("Revoke the pending invitation", async () => {
+          await settingsTeamPage.revokeInvitation(roleName);
+          await settingsTeamPage.validateInvitationCount(roleName, "Pending", 0);
+          await settingsTeamPage.validateInvitationCount(roleName, "Revoked", 1);
+        });
+
+        await test.step("Delete the revoked invitation", async () => {
+          await settingsTeamPage.deleteInvitation(roleName, "Revoked");
+          await settingsTeamPage.validateNoInvitationsForRole(roleName);
+        });
+      } finally {
+        await test.step("CLEANUP: Remove the test role and any invitation left for it", async () => {
+          await settingsTeamPage.removeInvitationForRole(roleName);
+          await settingsTeamPage.deleteCustomRole(roleName);
+        });
+      }
+    },
+  );
+
+  test("Edit team member role", async ({ browser, settingsPage, settingsTeamPage, commonSteps }) => {
+    const username = generateRandomUsername();
+
     await test.step("Log in as admin", async () => {
       await commonSteps.loginAsAdmin();
     });
 
-    await test.step("Navigate to Team Settings", async () => {
+    await test.step("Invite a Field Tech member to promote", async () => {
       await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
-    });
-
-    const username = generateRandomUsername();
-
-    await test.step("Add a new team member", async () => {
-      await settingsTeamPage.clickAddTeamMember();
-      await settingsTeamPage.inputMemberUsername(username);
-      await settingsTeamPage.selectMemberRole("Field Tech");
-      await settingsTeamPage.clickSaveTeamMember();
-    });
-
-    await test.step("Validate member was added", async () => {
-      await settingsTeamPage.validateMemberAdded();
-      await settingsTeamPage.validateCopyPasswordButtonVisible();
-      await settingsTeamPage.clickDone();
-    });
-
-    await test.step("Validate member appears in list with correct role and login status", async () => {
-      await settingsTeamPage.validateMemberRole(username, "Field Tech");
-      await settingsTeamPage.validateMemberLastLogin(username, "Never");
-    });
-  });
-
-  test("Edit team member role", async ({ settingsPage, settingsTeamPage, commonSteps }) => {
-    await test.step("Log in as admin", async () => {
-      await commonSteps.loginAsAdmin();
-    });
-
-    await test.step("Navigate to Team Settings", async () => {
-      await settingsPage.navigateToTeamSettings();
-      await settingsTeamPage.validateTeamSettingsPageOpened();
-    });
-
-    const username = generateRandomUsername();
-
-    await test.step("Create a Field Tech member to promote", async () => {
-      await settingsTeamPage.clickAddTeamMember();
-      await settingsTeamPage.inputMemberUsername(username);
-      await settingsTeamPage.selectMemberRole("Field Tech");
-      await settingsTeamPage.clickSaveTeamMember();
-      await settingsTeamPage.validateMemberAdded();
-      await settingsTeamPage.clickDone();
+      const invitationCode = await settingsTeamPage.createInvitationAndGetCode("Field Tech");
+      await joinTeamInFreshContext(browser, test.info(), { invitationCode, username });
+      await settingsTeamPage.reloadPage();
+      await settingsTeamPage.openMembersTab();
       await settingsTeamPage.validateMemberRole(username, "Field Tech");
     });
 
@@ -125,77 +134,59 @@ test.describe("Proto Fleet - Team Accounts", () => {
     });
   });
 
-  test("New member log in", { tag: "@smoke" }, async ({ authPage, settingsPage, settingsTeamPage, commonSteps }) => {
-    let username = generateRandomUsername();
-    let tempPassword: string;
+  test(
+    "New member joins with an invitation code",
+    { tag: "@smoke" },
+    async ({ authPage, settingsPage, settingsTeamPage, commonSteps }) => {
+      const username = generateRandomUsername();
+      let invitationCode: string;
 
-    await test.step("Log in as admin and navigate to team settings", async () => {
-      await commonSteps.loginAsAdmin();
-      await settingsPage.navigateToTeamSettings();
-      await settingsTeamPage.validateTeamSettingsPageOpened();
-    });
+      await test.step("Log in as admin and create a Field Tech invitation", async () => {
+        await commonSteps.loginAsAdmin();
+        await settingsPage.navigateToTeamSettings();
+        await settingsTeamPage.validateTeamSettingsPageOpened();
+        invitationCode = await settingsTeamPage.createInvitationAndGetCode("Field Tech");
+      });
 
-    await test.step("Add a new team member", async () => {
-      await settingsTeamPage.clickAddTeamMember();
-      await settingsTeamPage.inputMemberUsername(username);
-      await settingsTeamPage.selectMemberRole("Field Tech");
-      await settingsTeamPage.clickSaveTeamMember();
-      await settingsTeamPage.validateMemberAdded();
-      tempPassword = await settingsTeamPage.getTemporaryPassword();
-      await settingsTeamPage.clickDone();
-      await settingsTeamPage.validateMemberVisible(username);
-    });
+      await test.step("Log out as admin", async () => {
+        await authPage.logout();
+        await authPage.validateRedirectedToAuth();
+      });
 
-    await test.step("Log out as admin", async () => {
-      await authPage.logout();
-      await authPage.validateRedirectedToAuth();
-    });
+      await test.step("Enter the code from the login page", async () => {
+        await authPage.openInvitationEntry();
+        await authPage.enterInvitationCode(invitationCode.toLowerCase().replaceAll("-", " "));
+        await authPage.validateTeamInvitationRole("Field Tech");
+      });
 
-    await test.step("Log in as new member with temporary password", async () => {
-      await authPage.inputUsername(username);
-      await authPage.inputPassword(tempPassword);
-      await authPage.clickLogin();
-    });
+      await test.step("Create a login and join", async () => {
+        await authPage.registerInvitedLogin(username, MEMBER_PASSWORD);
+        await authPage.validateLoggedIn();
+      });
 
-    await test.step("Set new password", async () => {
-      await authPage.inputNewPassword("Password123!");
-      await authPage.inputConfirmPassword("Password123!");
-      await authPage.clickContinue();
-      await authPage.clickLoginButton();
-      await authPage.validateLoggedIn();
-    });
+      await test.step("Verify no admin rights", async () => {
+        // Field Tech doesn't hold user:read, so the Team submenu link is
+        // hidden in Settings → secondary nav (gated in navItems.ts).
+        await settingsPage.navigateToSettingsPage();
+        await settingsTeamPage.validateTeamSubmenuHidden();
+      });
+    },
+  );
 
-    await test.step("Verify no admin rights", async () => {
-      // Field Tech doesn't hold user:read, so the Team submenu link is
-      // hidden in Settings → secondary nav (gated in navItems.ts).
-      // Navigating directly to /team would still hit a server-rejected
-      // ListUsers; asserting the nav link absence is the canonical
-      // "no admin rights" check for this role.
-      await settingsPage.navigateToSettingsPage();
-      await settingsTeamPage.validateTeamSubmenuHidden();
-    });
-  });
-
-  test("New member password reset", async ({ authPage, settingsPage, settingsTeamPage, commonSteps }) => {
-    let username = generateRandomUsername();
-    let tempPassword1: string;
-    let tempPassword2: string;
+  test("New member password reset", async ({ authPage, browser, settingsPage, settingsTeamPage, commonSteps }) => {
+    const username = generateRandomUsername();
+    let temporaryPassword: string;
 
     await commonSteps.loginAsAdmin();
 
-    await test.step("Navigate to team settings", async () => {
+    await test.step("Invite a team member who joins with their own password", async () => {
       await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
-    });
-
-    await test.step("Add team member", async () => {
-      await settingsTeamPage.clickAddTeamMember();
-      await settingsTeamPage.inputMemberUsername(username);
-      await settingsTeamPage.selectMemberRole("Field Tech");
-      await settingsTeamPage.clickSaveTeamMember();
-      await settingsTeamPage.validateMemberAdded();
-      tempPassword1 = await settingsTeamPage.getTemporaryPassword();
-      await settingsTeamPage.clickDone();
+      const invitationCode = await settingsTeamPage.createInvitationAndGetCode("Field Tech");
+      await joinTeamInFreshContext(browser, test.info(), { invitationCode, username });
+      await settingsTeamPage.reloadPage();
+      await settingsTeamPage.openMembersTab();
+      await settingsTeamPage.validateMemberVisible(username);
     });
 
     await test.step("Reset member password", async () => {
@@ -203,7 +194,7 @@ test.describe("Proto Fleet - Team Accounts", () => {
       await settingsTeamPage.clickResetPassword();
       await settingsTeamPage.clickResetMemberPasswordConfirm();
       await settingsTeamPage.validatePasswordReset();
-      tempPassword2 = await settingsTeamPage.getTemporaryPassword();
+      temporaryPassword = await settingsTeamPage.getTemporaryPassword();
       await settingsTeamPage.clickDone();
     });
 
@@ -212,24 +203,24 @@ test.describe("Proto Fleet - Team Accounts", () => {
       await authPage.validateRedirectedToAuth();
     });
 
-    await test.step("Attempt login with initial (wrong) temp password", async () => {
+    await test.step("Attempt login with the member's original password", async () => {
       await authPage.inputUsername(username);
       await authPage.clickPasswordVisibilityToggle();
-      await authPage.inputPassword(tempPassword1);
+      await authPage.inputPassword(MEMBER_PASSWORD);
       await authPage.clickLogin();
       await authPage.validateInvalidCredentials();
     });
 
-    await test.step("Log in with new temp password", async () => {
+    await test.step("Log in with the temporary password", async () => {
       await authPage.inputUsername(username);
-      await authPage.inputPassword(tempPassword2);
+      await authPage.inputPassword(temporaryPassword);
       await authPage.clickLogin();
       await authPage.validateUpdatePasswordTitle();
     });
 
     await test.step("Set new password", async () => {
-      await authPage.inputNewPassword("Password123!");
-      await authPage.inputConfirmPassword("Password123!");
+      await authPage.inputNewPassword("Password456!");
+      await authPage.inputConfirmPassword("Password456!");
       await authPage.clickContinue();
       await authPage.validatePasswordSaved();
     });
@@ -245,25 +236,19 @@ test.describe("Proto Fleet - Team Accounts", () => {
     });
   });
 
-  test("Deactivate team member", async ({ authPage, settingsPage, settingsTeamPage, commonSteps }) => {
-    let username = generateRandomUsername();
-    let tempPassword: string;
+  test("Deactivate team member", async ({ authPage, browser, settingsPage, settingsTeamPage, commonSteps }) => {
+    const username = generateRandomUsername();
 
     await commonSteps.loginAsAdmin();
 
-    await test.step("Navigate to team settings", async () => {
+    await test.step("Invite a team member who joins", async () => {
       await settingsPage.navigateToTeamSettings();
       await settingsTeamPage.validateTeamSettingsPageOpened();
-    });
-
-    await test.step("Add team member", async () => {
-      await settingsTeamPage.clickAddTeamMember();
-      await settingsTeamPage.inputMemberUsername(username);
-      await settingsTeamPage.selectMemberRole("Field Tech");
-      await settingsTeamPage.clickSaveTeamMember();
-      await settingsTeamPage.validateMemberAdded();
-      tempPassword = await settingsTeamPage.getTemporaryPassword();
-      await settingsTeamPage.clickDone();
+      const invitationCode = await settingsTeamPage.createInvitationAndGetCode("Field Tech");
+      await joinTeamInFreshContext(browser, test.info(), { invitationCode, username });
+      await settingsTeamPage.reloadPage();
+      await settingsTeamPage.openMembersTab();
+      await settingsTeamPage.validateMemberVisible(username);
     });
 
     await test.step("Deactivate the newly added team member", async () => {
@@ -279,10 +264,10 @@ test.describe("Proto Fleet - Team Accounts", () => {
       await authPage.validateRedirectedToAuth();
     });
 
-    await test.step("Attempt login with temp password", async () => {
+    await test.step("Attempt login as the deactivated member", async () => {
       await authPage.inputUsername(username);
       await authPage.clickPasswordVisibilityToggle();
-      await authPage.inputPassword(tempPassword);
+      await authPage.inputPassword(MEMBER_PASSWORD);
       await authPage.clickLogin();
       await authPage.validateInvalidCredentials();
     });
