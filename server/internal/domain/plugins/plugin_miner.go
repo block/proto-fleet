@@ -593,7 +593,7 @@ func wrapPluginError(err error, format string, a ...any) error {
 	}
 	msg := fmt.Sprintf(format, a...)
 	if sdk.IsBackendGenerationRejected(err) {
-		return devicewrite.NotDispatched(fleeterror.NewFailedPreconditionErrorf("%s: SDK backend registration changed", msg))
+		return devicewrite.NotDispatched(fleeterror.NewFailedPreconditionErrorf("%s: SDK backend registration changed: %w", msg, devicewrite.ErrStaleBinding))
 	}
 	if st, ok := grpcstatus.FromError(err); ok {
 		switch st.Code() {

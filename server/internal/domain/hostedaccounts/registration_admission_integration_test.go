@@ -3,7 +3,6 @@ package hostedaccounts
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"sync/atomic"
@@ -106,7 +105,7 @@ func TestRegistrationInvalidInvitationsDoNotSpendHashBudget(t *testing.T) {
 	svc, conn, token := registrationFixture(t)
 	svc.hashPassword = func([]byte) ([]byte, error) { t.Fatal("invalid invitation reached hashing"); return nil, nil }
 	for i := range 4 {
-		guessed := base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf("%032d", i)))
+		guessed := "AAAA-AAA" + string(rune('A'+i))
 		_, err := svc.Register(t.Context(), guessed, "new-user", "password123", "browser", "192.0.2.4")
 		require.True(t, fleeterror.IsFailedPreconditionError(err))
 	}

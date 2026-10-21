@@ -232,7 +232,8 @@ export const toCanonicalSystemInfo = (wire: SystemInfoSysteminfo): SystemInfoDat
     firmwareUpdate: update
       ? {
           status:
-            update.status === "error"
+            // MDK v1 can report a failed catalog check or update while current.
+            update.status === "error" || (update.status === "current" && !!update.error)
               ? "failed"
               : update.status === "installed"
                 ? "rebootRequired"

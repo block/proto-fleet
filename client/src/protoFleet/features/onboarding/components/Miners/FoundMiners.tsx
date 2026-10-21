@@ -143,53 +143,55 @@ const FoundMiners = ({ miners, deselectedMiners, isScanning, showSkeleton, class
           }
         />
       </div>
-      <div className="rounded-3xl border-1 border-core-primary-5 p-6" data-testid="found-miners-list">
-        <div>
-          <CollapsibleSkeleton visible={skeletonVisible} showDivider={modelEntries.length > 0} />
-          {modelEntries.map((model, index) => (
-            <Fragment key={JSON.stringify([model.deviceClass, model.manufacturer, model.model])}>
-              {index === 0 ||
-              (modelEntries[index - 1].deviceClass === DeviceClass.CONTAINER) !==
-                (model.deviceClass === DeviceClass.CONTAINER) ? (
-                <h3 className="pt-3 text-emphasis-300">
-                  {model.deviceClass === DeviceClass.CONTAINER ? "Containers" : "Miners"}
-                </h3>
-              ) : null}
-              <Row divider={false} className="flex items-center justify-between" testId="miner-model-row">
-                <div className="flex gap-4">
-                  {isProtoRig(model.manufacturer) ? <LogoAlt width="w-[20px]" /> : <Fleet width="w-[20px]" />}
-                  <div>
-                    <div className="h-6 text-emphasis-300">
-                      {deviceGroupLabel(model.manufacturer, model.model, model.deviceClass)}
-                    </div>
-                    {model.deviceClass === DeviceClass.CONTAINER &&
-                    model.supportedAuthenticationMethods.length === 0 ? null : supportsAutoAuth(
-                        model.manufacturer,
-                        model.supportedAuthenticationMethods,
-                      ) ? (
-                      <div className="text-200 text-text-primary-70">
-                        Will try the default username/password when added
+      {skeletonVisible || modelEntries.length > 0 ? (
+        <div className="rounded-3xl border-1 border-core-primary-5 p-6" data-testid="found-miners-list">
+          <div>
+            <CollapsibleSkeleton visible={skeletonVisible} showDivider={modelEntries.length > 0} />
+            {modelEntries.map((model, index) => (
+              <Fragment key={JSON.stringify([model.deviceClass, model.manufacturer, model.model])}>
+                {index === 0 ||
+                (modelEntries[index - 1].deviceClass === DeviceClass.CONTAINER) !==
+                  (model.deviceClass === DeviceClass.CONTAINER) ? (
+                  <h3 className="pt-3 text-emphasis-300">
+                    {model.deviceClass === DeviceClass.CONTAINER ? "Containers" : "Miners"}
+                  </h3>
+                ) : null}
+                <Row divider={false} className="flex items-center justify-between" testId="miner-model-row">
+                  <div className="flex gap-4">
+                    {isProtoRig(model.manufacturer) ? <LogoAlt width="w-[20px]" /> : <Fleet width="w-[20px]" />}
+                    <div>
+                      <div className="h-6 text-emphasis-300">
+                        {deviceGroupLabel(model.manufacturer, model.model, model.deviceClass)}
                       </div>
-                    ) : (
-                      <div className="text-200 text-text-primary-70">You will need to log in after setup</div>
-                    )}
+                      {model.deviceClass === DeviceClass.CONTAINER &&
+                      model.supportedAuthenticationMethods.length === 0 ? null : supportsAutoAuth(
+                          model.manufacturer,
+                          model.supportedAuthenticationMethods,
+                        ) ? (
+                        <div className="text-200 text-text-primary-70">
+                          Will try the default username/password when added
+                        </div>
+                      ) : (
+                        <div className="text-200 text-text-primary-70">You will need to log in after setup</div>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                <div className="h-6 text-emphasis-300">
-                  {(() => {
-                    const selectedCount = model.miners.filter(
-                      (miner) => !deselectedMiners.includes(miner.deviceIdentifier),
-                    ).length;
-                    return `${selectedCount} ${entityNoun(model.deviceClass, selectedCount)}`;
-                  })()}
-                </div>
-              </Row>
-              {modelEntries.length > index + 1 ? <Divider /> : null}
-            </Fragment>
-          ))}
+                  <div className="h-6 text-emphasis-300">
+                    {(() => {
+                      const selectedCount = model.miners.filter(
+                        (miner) => !deselectedMiners.includes(miner.deviceIdentifier),
+                      ).length;
+                      return `${selectedCount} ${entityNoun(model.deviceClass, selectedCount)}`;
+                    })()}
+                  </div>
+                </Row>
+                {modelEntries.length > index + 1 ? <Divider /> : null}
+              </Fragment>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : null}
     </div>
   );
 };

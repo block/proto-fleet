@@ -914,6 +914,18 @@ func (q *retryingQuerier) ConsumeHostedAccountInvitation(ctx context.Context, ar
 	return result, err
 }
 
+func (q *retryingQuerier) ConsumeHostedInvitationRateLimit(ctx context.Context, arg ConsumeHostedInvitationRateLimitParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ConsumeHostedInvitationRateLimit", func() error {
+		callResult, callErr := q.next.ConsumeHostedInvitationRateLimit(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ConsumeReservedInventoryPart(ctx context.Context, arg ConsumeReservedInventoryPartParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "ConsumeReservedInventoryPart", func() error {
@@ -7686,6 +7698,12 @@ func (q *retryingQuerier) PruneExpiredAlertMaintenanceWindows(ctx context.Contex
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) PruneHostedInvitationRateLimit(ctx context.Context) error {
+	return q.retrier.RetryQuery(ctx, "PruneHostedInvitationRateLimit", func() error {
+		return q.next.PruneHostedInvitationRateLimit(ctx)
+	})
 }
 
 func (q *retryingQuerier) PrunePermissionsOutsideKeys(ctx context.Context, arg PrunePermissionsOutsideKeysParams) error {

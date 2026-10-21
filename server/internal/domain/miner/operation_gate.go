@@ -88,7 +88,7 @@ func (s *Service) remoteWriteGate(binding sqlc.GetFleetNodeTelemetryRouteByDevic
 }
 
 func changedOperationBinding() error {
-	return fleeterror.NewFailedPreconditionError("miner connection or identity changed; resolve a fresh handle before dispatch")
+	return fleeterror.NewFailedPreconditionErrorf("miner connection or identity changed; resolve a fresh handle before dispatch: %w", devicewrite.ErrStaleBinding)
 }
 
 func operationBindingReadError(ctx context.Context, err error) error {

@@ -166,8 +166,8 @@ const Dashboard = () => {
 
           <MarketDataSection />
 
-          {/* Sites Section — All Sites mode only */}
-          {activeSite.kind === "all" ? <SitesSection sites={sites} /> : null}
+          {/* A failed first load also leaves `sites` empty; the heading picker owns that error and retry. */}
+          {activeSite.kind === "all" && canReadSites && sites?.length !== 0 ? <SitesSection sites={sites} /> : null}
 
           <DashboardPerformance
             duration={duration}

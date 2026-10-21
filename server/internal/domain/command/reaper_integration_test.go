@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/command"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
@@ -355,7 +356,8 @@ func TestRigConfigTerminalFailureRequeueIsDeferredWithoutBeingLost(t *testing.T)
 	createActiveBatch("rig-config-current")
 	createActiveBatch("rig-config-retry")
 	require.NoError(t, queries.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
-		OrganizationID: user.OrganizationID, DeviceID: device.DatabaseID,
+		ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+		OrganizationID:       user.OrganizationID, DeviceID: device.DatabaseID,
 	}))
 	require.Equal(t, int64(2), desiredGeneration(), "terminal failure should persist while both batch slots are occupied")
 	makeRetryDue()
@@ -370,7 +372,8 @@ func TestRigConfigTerminalFailureRequeueIsDeferredWithoutBeingLost(t *testing.T)
 
 	createActiveBatch("rig-config-next-retry")
 	require.NoError(t, queries.RequeueRigConfigReconciliationAfterTerminalFailure(ctx, sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
-		OrganizationID: user.OrganizationID, DeviceID: device.DatabaseID,
+		ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+		OrganizationID:       user.OrganizationID, DeviceID: device.DatabaseID,
 	}))
 	require.NoError(t, queries.CompleteRigConfigReconciliation(ctx, sqlc.CompleteRigConfigReconciliationParams{
 		OrganizationID:     user.OrganizationID,

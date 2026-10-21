@@ -696,7 +696,10 @@ live role changes and client ceilings still constrain that access. An explicit
 initial administrator is an actual team member. Customer-created subclients keep
 the creating customer's initial administrator membership.
 
-Invitations show a portable code once for manual sharing. Recipients select
+Invitations show a sixteen-character code once for manual sharing, formatted as
+`K7MP-4X9R-6TWC-8NQF`. Entry accepts lowercase, ASCII spaces, and optional hyphens
+at each four-character boundary; the server
+normalizes the code. Recipients select
 **Join an account** on the login screen or account list, paste the code, then use
 an existing Fleet login or register a new one. Codes stay out of the URL and
 are not retained across reloads. Optional links use

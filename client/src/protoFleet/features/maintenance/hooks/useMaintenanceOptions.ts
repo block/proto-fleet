@@ -24,11 +24,10 @@ export const useLoadMaintenanceOptions = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const requestSequence = useRef(0);
-  const loaded = useRef(false);
 
   const load = useCallback(async () => {
     const sequence = ++requestSequence.current;
-    if (!loaded.current) setLoading(true);
+    setLoading(true);
 
     let nextAssignees: AssigneeOption[] | undefined;
     let nextSites: SiteOption[] | undefined;
@@ -79,7 +78,6 @@ export const useLoadMaintenanceOptions = () => {
     if (nextSites) setSites(nextSites);
     if (nextManageableSites) setManageableSites(nextManageableSites);
     setError(nextError);
-    loaded.current = true;
     setLoading(false);
   }, [canManage, listAssignees, listSites]);
 

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/testutil/dbtest"
 	"github.com/block/proto-fleet/server/migrations"
@@ -72,14 +73,16 @@ func (f *rigConfigStoreFixture) createRig(t *testing.T, manufacturer, status str
 func (f *rigConfigStoreFixture) request(t *testing.T, identifiers ...string) {
 	t.Helper()
 	require.NoError(t, f.queries.RequestRigConfigReconciliationForDevices(t.Context(), sqlc.RequestRigConfigReconciliationForDevicesParams{
-		OrganizationID: f.orgID, RequestedBy: f.userID, DeviceIdentifiers: identifiers,
+		ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+		OrganizationID:       f.orgID, RequestedBy: f.userID, DeviceIdentifiers: identifiers,
 	}))
 }
 
 func (f *rigConfigStoreFixture) targets(t *testing.T, generation int64) []string {
 	t.Helper()
 	identifiers, err := f.queries.ListRigConfigReconciliationTargets(t.Context(), sqlc.ListRigConfigReconciliationTargetsParams{
-		OrganizationID: f.orgID, DesiredGeneration: generation,
+		ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+		OrganizationID:       f.orgID, DesiredGeneration: generation,
 	})
 	require.NoError(t, err)
 	return identifiers
@@ -110,8 +113,11 @@ func TestRigConfigStore_TargetedRequestsCoalesceAndFilterEligibility(t *testing.
 	bitmain := f.createRig(t, "Bitmain", "PAIRED")
 	authNeeded := f.createRig(t, "Proto", "AUTHENTICATION_NEEDED")
 	defaultPassword := f.createRig(t, "Proto", "DEFAULT_PASSWORD")
+	container := f.createRig(t, "Proto", "PAIRED")
+	_, err := f.db.ExecContext(t.Context(), `UPDATE discovered_device SET device_class = $1 WHERE device_identifier = $2`, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, container.identifier)
+	require.NoError(t, err)
 	deleted := f.createRig(t, "Proto", "PAIRED")
-	_, err := f.db.ExecContext(t.Context(), "UPDATE device SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1", deleted.id)
+	_, err = f.db.ExecContext(t.Context(), "UPDATE device SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1", deleted.id)
 	require.NoError(t, err)
 	otherOrg, err := f.queries.CreateOrganization(t.Context(), sqlc.CreateOrganizationParams{OrgID: uuid.NewString(), Name: "other org"})
 	require.NoError(t, err)
@@ -119,7 +125,7 @@ func TestRigConfigStore_TargetedRequestsCoalesceAndFilterEligibility(t *testing.
 	foreign := otherFixture.createRig(t, "Proto", "PAIRED")
 
 	// Invalid-only or empty requests must not create even an empty generation.
-	f.request(t, bitmain.identifier, authNeeded.identifier, defaultPassword.identifier, deleted.identifier, foreign.identifier, "missing")
+	f.request(t, bitmain.identifier, authNeeded.identifier, defaultPassword.identifier, container.identifier, deleted.identifier, foreign.identifier, "missing")
 	f.request(t)
 	_, err = f.queries.ClaimRigConfigReconciliation(t.Context())
 	require.ErrorIs(t, err, sql.ErrNoRows)
@@ -132,8 +138,8 @@ func TestRigConfigStore_TargetedRequestsCoalesceAndFilterEligibility(t *testing.
 	require.True(t, f.isTargeted(t, claim.EnqueuedGeneration, claim.DesiredGeneration))
 	require.ElementsMatch(t, []string{first.identifier, second.identifier}, f.targets(t, claim.DesiredGeneration))
 
-	// A target that is unpaired between request and delivery must be omitted.
-	_, err = f.queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{DeviceID: second.id, PairingStatus: "UNPAIRED"})
+	// A target rediscovered as a container before delivery must be omitted.
+	_, err = f.db.ExecContext(t.Context(), `UPDATE discovered_device SET device_class = $1 WHERE device_identifier = $2`, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, second.identifier)
 	require.NoError(t, err)
 	require.Equal(t, []string{first.identifier}, f.targets(t, claim.DesiredGeneration))
 	f.complete(t, claim.DesiredGeneration)
@@ -183,7 +189,8 @@ func TestRigConfigStore_ConcurrentRequestSurvivesWaitingCompletion(t *testing.T)
 	require.NoError(t, err)
 	defer tx.Rollback() //nolint:errcheck // May already be committed.
 	require.NoError(t, f.queries.WithTx(tx).RequestRigConfigReconciliationForDevices(t.Context(), sqlc.RequestRigConfigReconciliationForDevicesParams{
-		OrganizationID: f.orgID, RequestedBy: f.userID, DeviceIdentifiers: []string{first.identifier, second.identifier},
+		ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+		OrganizationID:       f.orgID, RequestedBy: f.userID, DeviceIdentifiers: []string{first.identifier, second.identifier},
 	}))
 
 	completionConn, err := f.db.Conn(t.Context())
@@ -293,7 +300,8 @@ func TestRigConfigStore_ClaimScopeIsStableAcrossNewerSettingsRequests(t *testing
 	require.NoError(t, err)
 	require.True(t, f.isTargeted(t, current.EnqueuedGeneration, current.DesiredGeneration))
 	targets, err := f.queries.ListRigConfigReconciliationTargets(t.Context(), sqlc.ListRigConfigReconciliationTargetsParams{
-		OrganizationID: f.orgID, EnqueuedGeneration: current.EnqueuedGeneration, DesiredGeneration: current.DesiredGeneration,
+		ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+		OrganizationID:       f.orgID, EnqueuedGeneration: current.EnqueuedGeneration, DesiredGeneration: current.DesiredGeneration,
 	})
 	require.NoError(t, err)
 	require.Equal(t, []string{second.identifier}, targets)
@@ -378,7 +386,8 @@ func TestRigConfigStore_RetryAndTerminalFailureRetainOnlyFailedTargets(t *testin
 	f.complete(t, claim.DesiredGeneration)
 
 	require.NoError(t, f.queries.RequeueRigConfigReconciliationAfterTerminalFailure(t.Context(), sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
-		OrganizationID: f.orgID, DeviceID: second.id,
+		ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+		OrganizationID:       f.orgID, DeviceID: second.id,
 	}))
 	_, err = f.queries.ClaimRigConfigReconciliation(t.Context())
 	require.ErrorIs(t, err, sql.ErrNoRows, "terminal failures must back off")
@@ -390,12 +399,13 @@ func TestRigConfigStore_RetryAndTerminalFailureRetainOnlyFailedTargets(t *testin
 	require.Equal(t, []string{second.identifier}, f.targets(t, terminal.DesiredGeneration))
 	f.complete(t, terminal.DesiredGeneration)
 
-	_, err = f.queries.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{DeviceID: second.id, PairingStatus: "UNPAIRED"})
+	_, err = f.db.ExecContext(t.Context(), `UPDATE discovered_device SET device_class = $1 WHERE device_identifier = $2`, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, second.identifier)
 	require.NoError(t, err)
 	require.NoError(t, f.queries.RequeueRigConfigReconciliationAfterTerminalFailure(t.Context(), sqlc.RequeueRigConfigReconciliationAfterTerminalFailureParams{
-		OrganizationID: f.orgID, DeviceID: second.id,
+		ContainerDeviceClass: int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER),
+		OrganizationID:       f.orgID, DeviceID: second.id,
 	}))
 	var desiredGeneration int64
 	require.NoError(t, f.db.QueryRowContext(t.Context(), "SELECT desired_generation FROM curtailment_rig_config_reconciliation WHERE organization_id = $1", f.orgID).Scan(&desiredGeneration))
-	require.Equal(t, terminal.DesiredGeneration, desiredGeneration, "terminal failures after unpairing must not reopen work")
+	require.Equal(t, terminal.DesiredGeneration, desiredGeneration, "container failures must not reopen rig config work")
 }

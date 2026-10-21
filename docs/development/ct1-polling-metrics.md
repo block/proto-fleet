@@ -260,7 +260,7 @@ lock serializes reference checks and deletion with ingestion. Expected lock
 contention defers cleanup without incrementing the failure counter. Progress, span
 updates, and deletes commit atomically. A separate committed one-minute scheduling
 lease survives cancellation so a slow controller cannot monopolize subsequent
-runs. Migration 1034 changes the job from a fixed ten-second schedule to a
+runs. Migration 1035 changes the job from a fixed ten-second schedule to a
 one-second delay after each successful finish (`fixed_schedule=false`), with the
 same two-second maximum runtime and one cleanup worker. The configured one-minute
 `retry_period` is not a guaranteed job-level delay: TimescaleDB 2.30.2 caps ordinary
@@ -284,7 +284,7 @@ FROM timescaledb_information.jobs
 WHERE proc_name='compact_container_topology_job';
 ```
 
-Before upgrading an existing deployment through migration 1034, record the job's
+Before upgrading an existing deployment through migration 1035, record the job's
 configuration and scheduling state using the query above. **An already enabled
 job adopts the faster cadence as soon as the migration runs.** Disable cleanup
 and pause scheduling before migrating, then verify any active run has finished:
@@ -317,7 +317,7 @@ SELECT alter_job(job_id, config=>config || '{"enabled":true,"batch_size":25}'::j
 FROM timescaledb_information.jobs WHERE proc_name='compact_container_topology_job';
 ```
 
-Enablement is a separate rollout step after applying migration 1034 and validating
+Enablement is a separate rollout step after applying migration 1035 and validating
 the deployment's database capacity. The migration preserves both `config.enabled`
 and `scheduled`, including existing opt-outs; it does not enable cleanup. Record
 the deployment, migration version, job ID, enablement time, observation rate, and
@@ -478,7 +478,7 @@ Observe beyond the one-hour idle cycle before judging steady-state lag. Investig
 increasing lag, controllers repeatedly deferred, failed jobs, or ingestion latency
 regressions. Disable cleanup if it harms ingestion; preserve progress and diagnose
 worker availability, locks and query runtime before re-enabling. Rolling back
-migration 1034 restores the fixed ten-second schedule without deleting progress or
+migration 1035 restores the fixed ten-second schedule without deleting progress or
 changing enablement, but also restores the known capacity limit.
 
 Prefer disabling jobs and fixing forward while preserving the schema and evidence.

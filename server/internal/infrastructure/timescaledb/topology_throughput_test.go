@@ -45,7 +45,7 @@ func TestTopologyThroughputMigrationPreservesJobAndProgress(t *testing.T) {
 				seconds   int
 				fixed     bool
 			}{{"down", 10, true}, {"up", 1, false}} {
-				migration, err := os.ReadFile("../../../migrations/current/001034_internal_topology_cleanup_throughput." + step.direction + ".sql")
+				migration, err := os.ReadFile("../../../migrations/current/001035_internal_topology_cleanup_throughput." + step.direction + ".sql")
 				require.NoError(t, err)
 				_, err = r.db.ExecContext(t.Context(), string(migration))
 				require.NoError(t, err)

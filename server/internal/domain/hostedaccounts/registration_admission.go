@@ -12,7 +12,8 @@ import (
 )
 
 // Registration budgets are process-local and shared by all invitation services.
-// Replicas each have these budgets; this is not a distributed rate limit. Small
+// Replicas each have these CPU budgets; public handlers separately apply the
+// PostgreSQL client rate limit across preview and redemption paths. Small
 // per-link/client allowances permit corrections while bounding reused links,
 // rotating links, and aggregate bcrypt work. Requests never queue for a slot.
 var sharedRegistrationAdmission = newRegistrationAdmission(registrationLimits{

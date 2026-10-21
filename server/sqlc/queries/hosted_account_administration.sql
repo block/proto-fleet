@@ -54,7 +54,8 @@ INSERT INTO user_organization (user_id, organization_id, role_id) VALUES ($1, $2
 -- name: CreateHostedAccountInvitation :one
 INSERT INTO hosted_account_invitation
     (invitation_id, organization_id, account_id, inviter_id, authority_fingerprint, token_hash, role, expires_at)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *;
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+ON CONFLICT (token_hash) DO NOTHING RETURNING *;
 
 -- name: GetHostedAccountInvitationByHash :one
 SELECT i.*, a.account_id AS external_account_id, a.name AS account_name

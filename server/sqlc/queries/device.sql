@@ -47,6 +47,7 @@ WHERE d.org_id = sqlc.arg('org_id')
   AND d.deleted_at IS NULL
   AND dp.pairing_status = 'PAIRED'
   AND dd.manufacturer = 'Proto'
+  AND dd.device_class <> sqlc.arg('container_device_class')::integer
 ORDER BY d.id
 FOR SHARE OF d, dd, dp;
 

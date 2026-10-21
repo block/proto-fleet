@@ -474,21 +474,28 @@ WHERE target.organization_id = $1
   AND target.requested_generation <= $3
   AND d.deleted_at IS NULL
   AND dd.manufacturer = 'Proto'
+  AND dd.device_class <> $4::integer
   AND dp.pairing_status = 'PAIRED'
 ORDER BY d.device_identifier
 `
 
 type ListRigConfigReconciliationTargetsParams struct {
-	OrganizationID     int64
-	EnqueuedGeneration int64
-	DesiredGeneration  int64
+	OrganizationID       int64
+	EnqueuedGeneration   int64
+	DesiredGeneration    int64
+	ContainerDeviceClass int32
 }
 
 // Run after claiming in a separate statement: its fresh snapshot includes
 // targets committed by a concurrent requester before the claim obtained its
 // organization lock. Targets refreshed after the claim remain for the next pass.
 func (q *Queries) ListRigConfigReconciliationTargets(ctx context.Context, arg ListRigConfigReconciliationTargetsParams) ([]string, error) {
-	rows, err := q.query(ctx, q.listRigConfigReconciliationTargetsStmt, listRigConfigReconciliationTargets, arg.OrganizationID, arg.EnqueuedGeneration, arg.DesiredGeneration)
+	rows, err := q.query(ctx, q.listRigConfigReconciliationTargetsStmt, listRigConfigReconciliationTargets,
+		arg.OrganizationID,
+		arg.EnqueuedGeneration,
+		arg.DesiredGeneration,
+		arg.ContainerDeviceClass,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -548,13 +555,14 @@ WITH eligible AS MATERIALIZED (
       AND d.device_identifier = ANY($2::text[])
       AND d.deleted_at IS NULL
       AND dd.manufacturer = 'Proto'
+      AND dd.device_class <> $3::integer
       AND dp.pairing_status = 'PAIRED'
 ), requested AS (
     INSERT INTO curtailment_rig_config_reconciliation (
         organization_id,
         requested_by
     )
-    SELECT DISTINCT org_id, $3::bigint
+    SELECT DISTINCT org_id, $4::bigint
     FROM eligible
     ON CONFLICT (organization_id) DO UPDATE
     SET requested_by = EXCLUDED.requested_by,
@@ -577,15 +585,21 @@ SET requested_generation = EXCLUDED.requested_generation
 `
 
 type RequestRigConfigReconciliationForDevicesParams struct {
-	OrganizationID    int64
-	DeviceIdentifiers []string
-	RequestedBy       int64
+	OrganizationID       int64
+	DeviceIdentifiers    []string
+	ContainerDeviceClass int32
+	RequestedBy          int64
 }
 
 // Lock/update the organization before writing targets. Completion and terminal
 // retry follow the same lock order so concurrent requests cannot lose targets.
 func (q *Queries) RequestRigConfigReconciliationForDevices(ctx context.Context, arg RequestRigConfigReconciliationForDevicesParams) error {
-	_, err := q.exec(ctx, q.requestRigConfigReconciliationForDevicesStmt, requestRigConfigReconciliationForDevices, arg.OrganizationID, pq.Array(arg.DeviceIdentifiers), arg.RequestedBy)
+	_, err := q.exec(ctx, q.requestRigConfigReconciliationForDevicesStmt, requestRigConfigReconciliationForDevices,
+		arg.OrganizationID,
+		pq.Array(arg.DeviceIdentifiers),
+		arg.ContainerDeviceClass,
+		arg.RequestedBy,
+	)
 	return err
 }
 
@@ -599,6 +613,7 @@ WITH eligible AS MATERIALIZED (
       AND d.id = $2
       AND d.deleted_at IS NULL
       AND dd.manufacturer = 'Proto'
+      AND dd.device_class <> $3::integer
       AND dp.pairing_status = 'PAIRED'
 ), requested AS (
 UPDATE curtailment_rig_config_reconciliation reconciliation
@@ -622,14 +637,15 @@ SET requested_generation = EXCLUDED.requested_generation
 `
 
 type RequeueRigConfigReconciliationAfterTerminalFailureParams struct {
-	OrganizationID int64
-	DeviceID       int64
+	OrganizationID       int64
+	DeviceID             int64
+	ContainerDeviceClass int32
 }
 
 // The command queue has bounded per-message retries. Retain only the failed
 // eligible device for another attempt; successful devices need no new command.
 func (q *Queries) RequeueRigConfigReconciliationAfterTerminalFailure(ctx context.Context, arg RequeueRigConfigReconciliationAfterTerminalFailureParams) error {
-	_, err := q.exec(ctx, q.requeueRigConfigReconciliationAfterTerminalFailureStmt, requeueRigConfigReconciliationAfterTerminalFailure, arg.OrganizationID, arg.DeviceID)
+	_, err := q.exec(ctx, q.requeueRigConfigReconciliationAfterTerminalFailureStmt, requeueRigConfigReconciliationAfterTerminalFailure, arg.OrganizationID, arg.DeviceID, arg.ContainerDeviceClass)
 	return err
 }
 

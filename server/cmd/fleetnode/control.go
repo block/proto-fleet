@@ -767,14 +767,12 @@ func newPluginComponents(parent context.Context, pluginsDir string, fleetNodeID 
 	if deviceHandles == nil {
 		return nil, nil, nil, func() {}, errors.New("device handle pool is required")
 	}
-	// Manager.Shutdown waits the full grace period even when a plugin already
-	// exited, so keep it tight; a stuck plugin still gets killed.
 	manager := plugins.NewManager(&plugins.Config{
 		Enabled:                    true,
 		PluginsDir:                 pluginsDir,
 		MaxStartupTimeSeconds:      30,
 		ShutdownTimeoutSeconds:     10,
-		ShutdownGracePeriodSeconds: 2,
+		ShutdownGracePeriodSeconds: 5,
 		LogLevel:                   "info",
 	})
 	ctx, cancel := context.WithTimeout(parent, 60*time.Second)

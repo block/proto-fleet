@@ -29,6 +29,7 @@ import BuildingModals from "@/protoFleet/features/buildings/components/BuildingM
 import { useBuildingModals } from "@/protoFleet/features/buildings/hooks/useBuildingModals";
 import ContainerCard from "@/protoFleet/features/containers/ContainerCard";
 import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
+import { usePersistDisplayDeepLink } from "@/protoFleet/features/fleetManagement/hooks/usePersistDisplayDeepLink";
 import {
   FILTER_URL_PARAM_KEYS,
   fleetListTelemetryRangesFromURL,
@@ -113,6 +114,8 @@ const FleetBuildingsPage = () => {
     return raw === "grid" || raw === "list" ? raw : undefined;
   })();
   const buildingsViewMode = canViewBuildingStats ? (urlBuildingsViewMode ?? storedBuildingsViewMode) : "list";
+  // Persist the requested mode even when permissions force the list view.
+  usePersistDisplayDeepLink(urlBuildingsViewMode, setStoredBuildingsViewMode);
 
   const setBuildingsViewMode = useCallback(
     (mode: "grid" | "list") => {

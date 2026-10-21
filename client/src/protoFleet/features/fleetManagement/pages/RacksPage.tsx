@@ -49,6 +49,7 @@ import RackSettingsModal, {
 } from "@/protoFleet/features/fleetManagement/components/RackSettingsModal";
 import { useCreateRack } from "@/protoFleet/features/fleetManagement/hooks/useCreateRack";
 import { useCreateRacks } from "@/protoFleet/features/fleetManagement/hooks/useCreateRacks";
+import { usePersistDisplayDeepLink } from "@/protoFleet/features/fleetManagement/hooks/usePersistDisplayDeepLink";
 import { BUILDING_URL_PARAM } from "@/protoFleet/features/fleetManagement/utils/buildingFilterUrl";
 import {
   combinedInventoryOptions,
@@ -385,6 +386,7 @@ const RacksPage = () => {
     return raw === "grid" || raw === "list" ? raw : undefined;
   })();
   const racksViewMode = urlRacksViewMode ?? storedRacksViewMode;
+  usePersistDisplayDeepLink(urlRacksViewMode, setStoredRacksViewMode);
 
   const setRacksViewMode = useCallback(
     (mode: "grid" | "list") => {

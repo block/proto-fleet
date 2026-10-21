@@ -277,6 +277,53 @@ The codebase follows a domain-driven design with clear separation of concerns:
 - **Authentication**: Token-based auth with separate token types for clients (users) and miners (devices).
 - **Hosted Accounts**: Account hierarchy and fixed customer memberships, separate from organization RBAC, with scoped administration, invitations, pool revisions and reporting allocations. Live authority applies ancestor ceilings, site restrictions and suspension; allocation changes and audit commit together. Session-only mining reports aggregate the account’s allocated estate, including subclients, without granting child-private account access. See [the client workspace contract](../client/README.md#hosted-account-workspaces) for persona and reporting boundaries.
 
+### Hosted account invitation codes
+
+Invitation creation returns sixteen cryptographically random characters as
+`K7MP-4X9R-6TWC-8NQF`. The 32-symbol alphabet `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`
+excludes `I`, `O`, `0`, and `1` and provides **80 bits of entropy**. The server
+accepts ASCII lowercase, ASCII spaces, and optional hyphens at each four-character
+group boundary. It hashes the canonical sixteen uppercase characters with
+SHA-256; only the digest is stored. Digest conflicts retry generation up to five
+times without replacing an existing invitation. Codes remain single-use,
+revocable, and subject to live inviter authority. Logs, audit records, and later
+list responses omit the secret. Optional links carry the same code using the
+fragment-only transport described in the client guide.
+
+The default and maximum lifetime are **24 hours**. Issuers can select one hour
+for a shorter handoff. Earlier token formats are not accepted; this feature has
+not been deployed.
+
+Migration 1034 adds a PostgreSQL **per-client rate limit**, shared across every
+API replica using the database. Public preview, signed-in acceptance, and
+registration together allow **60 requests per client per one-minute window**.
+The window starts with the client's first admitted request and resets when a
+request arrives at least one minute later. Invalid codes and rejected redemption
+requests count; registration is charged once at the public handler, before its
+internal preview and consumption steps. Throttled requests return
+`ResourceExhausted`. Per-process preview concurrency and registration CPU limits
+remain additional resource protections.
+
+Client identity comes only from the trusted client-IP middleware. IPv4-mapped
+addresses are normalized, and IPv6 addresses share a /64 allowance to prevent
+trivial address rotation. Recipients behind the same public address share an
+allowance. The table stores a SHA-256 client-address digest, window start, and
+request count. Idle rows older than an hour are pruned in batches of at most 100
+per admitted request, without waiting on locked rows. Admission has a two-second
+timeout and database failures fail closed.
+
+Each client updates only its own counter; there is no deployment-wide request
+allowance, active-invitation population scan, or shared issuance/admission lock.
+One exhausted client does not prevent another client from previewing or redeeming
+a valid code. The stronger secret supplies the guessing margin: for example,
+one billion uniformly random guesses against at most 10,000 active invitations
+have success probability at most `10^13 / 2^80`, about `8.3e-12`. This is an
+illustration under those assumptions, not an enforced deployment-wide guessing
+bound. Per-client throttling limits abuse; it does not identify people or stop a
+distributed denial-of-service attack. See [OWASP token guidance](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html)
+for random, expiring, single-use credentials and [RFC 8628 §5.1](https://www.rfc-editor.org/rfc/rfc8628.html#section-5.1)
+for the relationship between code entropy, lifetime, and guessing limits.
+
 ### Hosted mining reporting and allocation
 
 `hosted_account_asset` stores an exclusive typed mining leaf: conventional miner
@@ -365,6 +412,12 @@ Plugins are external processes that communicate with the fleet service:
 - **Priority**: Plugin-based discoverers and pairers take priority over internal implementations
 
 Configuration is in `cmd/fleetd/config.go` with options for plugin directories, startup timeouts, and health check behavior.
+
+Shutdown cleans up plugins concurrently and returns as soon as their processes
+and client cleanup finish. The per-plugin grace period and shared shutdown
+context bound graceful shutdown; a pending process is force-killed when either
+expires, and only that plugin reports an interruption. Forced cleanup has an
+additional two-second bound to reap processes even after context cancellation.
 
 ### Data Layer
 
