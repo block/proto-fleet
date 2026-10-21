@@ -25,8 +25,8 @@ import { ManualDiscoveryTargets } from "@/shared/utils/ipParsing";
 
 // Show a toast if pairing takes longer than this threshold
 const LONG_PAIRING_THRESHOLD_MS = 3000;
-const PARTIAL_REMOTE_COVERAGE_WARNING = "Some Fleet Nodes cannot scan. Discovery may be incomplete.";
-const UNKNOWN_REMOTE_COVERAGE_WARNING = "Could not check Fleet Nodes. Discovery may be incomplete.";
+const PARTIAL_REMOTE_COVERAGE_WARNING = "Some Fleet Nodes can't scan. Results may be incomplete.";
+const UNKNOWN_REMOTE_COVERAGE_WARNING = "Couldn't check Fleet Nodes. Results may be incomplete.";
 
 type MinersPageProps = {
   /**
@@ -98,12 +98,12 @@ const MinersPage = ({
         } else if (activeNodes.length === 0) {
           setRemoteDiscoveryGuidance({
             intent: "information",
-            message: "No Fleet Nodes are set up for remote discovery.",
+            message: "No Fleet Nodes enrolled",
           });
         } else if (activeNodes.some((node) => node.enrollmentStatus !== FleetNodeEnrollmentStatus.CONFIRMED)) {
           setRemoteDiscoveryGuidance({
             intent: "information",
-            message: "Some Fleet Nodes need enrollment to be completed.",
+            message: "Complete Fleet Node enrollment",
           });
         } else {
           setRemoteDiscoveryGuidance({ intent: "information" });

@@ -11,19 +11,18 @@ test.describe("Remote-network prerequisites", () => {
   }) => {
     const mock = await mockRemoteNetworkSetup(context);
 
-    await test.step("Show prerequisites on the empty-fleet landing", async () => {
+    await test.step("Keep the landing unchanged", async () => {
       await addMinersPage.openOnboarding();
-      const prerequisite = addMinersPage.getRemoteNetworkPrerequisite();
-      await expect(prerequisite).toContainText("For miners on a remote network, install and enroll a Fleet Node");
-      await expect(prerequisite).toContainText("Fleet can discover directly on networks reachable from the server.");
-      await expect(prerequisite).toContainText("No Fleet Nodes are set up for remote discovery.");
-      await expect(prerequisite).toBeVisible();
+      await expect(addMinersPage.getRemoteNetworkPrerequisite()).toHaveCount(0);
     });
 
-    await test.step("Keep one prerequisite explanation above discovery options", async () => {
+    await test.step("Show one concise notice above discovery options", async () => {
       await addMinersPage.startOnboarding();
-      await expect(addMinersPage.getRemoteNetworkPrerequisite()).toHaveCount(1);
-      await expect(addMinersPage.getRemoteNetworkPrerequisite()).toBeVisible();
+      const prerequisite = addMinersPage.getRemoteNetworkPrerequisite();
+      await expect(prerequisite).toHaveCount(1);
+      await expect(prerequisite).toContainText("No Fleet Nodes enrolled");
+      await expect(prerequisite).toContainText("For networks Fleet can't reach, install and enroll a Fleet Node");
+      await expect(prerequisite).toBeVisible();
       await expect(addMinersPage.getScanNetworkSection().getByRole("button", { name: "Find miners" })).toBeEnabled();
       await expect(addMinersPage.getSearchByIpSection()).toBeVisible();
     });

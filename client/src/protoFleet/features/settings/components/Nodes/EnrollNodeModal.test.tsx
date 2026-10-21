@@ -63,7 +63,7 @@ describe("EnrollNodeModal", () => {
       expect(getByText("pf_code_123")).toBeInTheDocument();
       expect(getByText("Waiting for the node to register…")).toBeInTheDocument();
     });
-    const installation = getByRole("link", { name: "Fleet Node installation instructions" });
+    const installation = getByRole("link", { name: "Installation instructions" });
     expect(installation).toHaveAttribute(
       "href",
       "https://github.com/block/proto-fleet/blob/main/deployment-files/README.md#release-repositories-and-forks",
@@ -128,8 +128,8 @@ describe("EnrollNodeModal", () => {
       expect(getByText("fleet_test_api_key")).toBeInTheDocument();
     });
 
-    expect(getByText(/starts the service after enrollment/)).toBeVisible();
-    expect(getByText(/Verify the node is connected in Nodes before returning to Add miners/)).toBeVisible();
+    expect(getByText(/The service starts after enrollment/)).toBeVisible();
+    expect(getByText(/Check that the node is connected in Nodes before adding miners/)).toBeVisible();
 
     fireEvent.click(getByText("Done"));
 

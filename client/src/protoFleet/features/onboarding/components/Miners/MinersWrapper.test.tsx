@@ -691,7 +691,7 @@ describe("MinersWrapper", () => {
       expect(screen.queryByText("hidden-node-name")).not.toBeInTheDocument();
       expect(screen.queryByText("hidden-fingerprint")).not.toBeInTheDocument();
       await waitFor(() =>
-        expect(screen.getByText(/For miners on a remote network, install and enroll a Fleet Node/)).toBeVisible(),
+        expect(screen.getByText(/For networks Fleet can't reach, install and enroll a Fleet Node/)).toBeVisible(),
       );
     });
 
@@ -703,7 +703,7 @@ describe("MinersWrapper", () => {
 
       renderMinersPage("pairing");
 
-      expect(await screen.findByText("Some Fleet Nodes cannot scan. Discovery may be incomplete.")).toBeInTheDocument();
+      expect(await screen.findByText("Some Fleet Nodes can't scan. Results may be incomplete.")).toBeInTheDocument();
       expect(screen.queryByText("hidden-node-name")).not.toBeInTheDocument();
     });
 
@@ -712,7 +712,7 @@ describe("MinersWrapper", () => {
 
       renderMinersPage("pairing");
 
-      expect(await screen.findByText("Some Fleet Nodes cannot scan. Discovery may be incomplete.")).toBeInTheDocument();
+      expect(await screen.findByText("Some Fleet Nodes can't scan. Results may be incomplete.")).toBeInTheDocument();
     });
 
     it("hides the settings link without Fleet Node read permission", async () => {
@@ -720,7 +720,7 @@ describe("MinersWrapper", () => {
       mockListFleetNodes.mockRejectedValue(new Error("request failed"));
       renderMinersPage("pairing");
       await screen.findByTestId("remote-discovery-guidance");
-      expect(screen.queryByRole("link", { name: "View Fleet Node settings" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Node settings" })).not.toBeInTheDocument();
     });
 
     it("warns and links to settings when remote coverage cannot be checked", async () => {
@@ -728,8 +728,8 @@ describe("MinersWrapper", () => {
 
       renderMinersPage("pairing");
 
-      expect(await screen.findByText("Could not check Fleet Nodes. Discovery may be incomplete.")).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "View Fleet Node settings" })).toHaveAttribute("href", "/settings/nodes");
+      expect(await screen.findByText("Couldn't check Fleet Nodes. Results may be incomplete.")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Node settings" })).toHaveAttribute("href", "/settings/nodes");
     });
 
     it("refreshes disconnected and reconnected coverage before manual discovery and rescan", async () => {
@@ -751,7 +751,7 @@ describe("MinersWrapper", () => {
 
       // Assert: the refreshed disconnected state is visible alongside results.
       expect(await screen.findByText("1 miner found on your network")).toBeInTheDocument();
-      expect(await screen.findByText("Some Fleet Nodes cannot scan. Discovery may be incomplete.")).toBeInTheDocument();
+      expect(await screen.findByText("Some Fleet Nodes can't scan. Results may be incomplete.")).toBeInTheDocument();
 
       await waitFor(() => expect(screen.getByTestId("add-miners-rescan-network")).toBeEnabled());
       fireEvent.click(screen.getByTestId("add-miners-rescan-network"));
@@ -787,7 +787,7 @@ describe("MinersWrapper", () => {
       await act(async () => resolveCoverage([fleetNode(), fleetNode({ controlStreamConnected: false })]));
 
       // Assert: delayed warnings are visible without leaving scanning or results.
-      const warning = "Some Fleet Nodes cannot scan. Discovery may be incomplete.";
+      const warning = "Some Fleet Nodes can't scan. Results may be incomplete.";
       expect(screen.getByText("Scanning… 1 miner found on your network")).toBeInTheDocument();
       await waitFor(() => expect(screen.getByText(warning)).toBeVisible());
       await act(async () => finishScan());
@@ -839,7 +839,7 @@ describe("MinersWrapper", () => {
 
       // Assert
       expect(mockDiscover).toHaveBeenCalledTimes(1);
-      expect(await screen.findByText("Could not check Fleet Nodes. Discovery may be incomplete.")).toBeInTheDocument();
+      expect(await screen.findByText("Couldn't check Fleet Nodes. Results may be incomplete.")).toBeInTheDocument();
     });
 
     it.each(["success", "failure"])("ignores a stale initial coverage %s after a newer scan check", async (outcome) => {
@@ -866,30 +866,26 @@ describe("MinersWrapper", () => {
       });
 
       // Assert: neither an older success nor failure overwrites the latest check.
-      expect(await screen.findByText("Some Fleet Nodes cannot scan. Discovery may be incomplete.")).toBeInTheDocument();
+      expect(await screen.findByText("Some Fleet Nodes can't scan. Results may be incomplete.")).toBeInTheDocument();
     });
 
     it.each([
-      ["empty", [], "No Fleet Nodes are set up for remote discovery."],
-      [
-        "revoked only",
-        [fleetNode({ enrollmentStatus: FleetNodeEnrollmentStatus.REVOKED })],
-        "No Fleet Nodes are set up for remote discovery.",
-      ],
+      ["empty", [], "No Fleet Nodes enrolled"],
+      ["revoked only", [fleetNode({ enrollmentStatus: FleetNodeEnrollmentStatus.REVOKED })], "No Fleet Nodes enrolled"],
       [
         "pending",
         [fleetNode({ enrollmentStatus: FleetNodeEnrollmentStatus.PENDING })],
-        "Some Fleet Nodes need enrollment to be completed.",
+        "Complete Fleet Node enrollment",
       ],
       [
         "awaiting confirmation",
         [fleetNode({ enrollmentStatus: FleetNodeEnrollmentStatus.AWAITING_CONFIRMATION })],
-        "Some Fleet Nodes need enrollment to be completed.",
+        "Complete Fleet Node enrollment",
       ],
       [
         "ready and pending",
         [fleetNode(), fleetNode({ enrollmentStatus: FleetNodeEnrollmentStatus.PENDING })],
-        "Some Fleet Nodes need enrollment to be completed.",
+        "Complete Fleet Node enrollment",
       ],
     ])("explains the next setup step for %s nodes", async (_label, nodes, message) => {
       mockListFleetNodes.mockResolvedValue(nodes);
@@ -897,15 +893,17 @@ describe("MinersWrapper", () => {
       renderMinersPage("pairing");
 
       expect(await screen.findByText(message as string)).toBeVisible();
-      expect(screen.getByRole("link", { name: "View Fleet Node settings" })).toHaveAttribute("href", "/settings/nodes");
+      expect(screen.getByRole("link", { name: "Node settings" })).toHaveAttribute("href", "/settings/nodes");
     });
 
-    it("shows guidance on the onboarding landing without duplicating it in the overlay", async () => {
+    it("keeps the landing unchanged and shows one notice after Get started", async () => {
       renderMinersPage();
-      expect(await screen.findByText("No Fleet Nodes are set up for remote discovery.")).toBeVisible();
+      await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalled());
+      expect(screen.queryByTestId("remote-network-prerequisite")).not.toBeInTheDocument();
+      expect(screen.queryByText("No Fleet Nodes enrolled")).not.toBeInTheDocument();
       fireEvent.click(screen.getByText("Get started"));
-      expect(screen.getAllByText(/For miners on a remote network, install and enroll a Fleet Node/)).toHaveLength(1);
-      expect(screen.getAllByText("No Fleet Nodes are set up for remote discovery.")).toHaveLength(1);
+      expect(screen.getAllByTestId("remote-network-prerequisite")).toHaveLength(1);
+      expect(await screen.findByText("No Fleet Nodes enrolled")).toBeInTheDocument();
     });
 
     it("does not require a recommended protocol upgrade before scanning", async () => {
@@ -914,7 +912,7 @@ describe("MinersWrapper", () => {
       await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalled());
       expect(screen.queryByTestId("remote-discovery-guidance")).not.toBeInTheDocument();
       await waitFor(() =>
-        expect(screen.getByText(/For miners on a remote network, install and enroll a Fleet Node/)).toBeVisible(),
+        expect(screen.getByText(/For networks Fleet can't reach, install and enroll a Fleet Node/)).toBeVisible(),
       );
     });
 
@@ -925,17 +923,15 @@ describe("MinersWrapper", () => {
           permission === "fleetnode:read" ? canRead : permission !== "fleetnode:manage",
         );
         renderMinersPage("pairing");
-        await waitFor(() =>
-          expect(screen.getByText(/Ask an administrator to complete Fleet Node setup/)).toBeVisible(),
-        );
-        expect(screen.queryByRole("link", { name: "View Fleet Node settings" }) !== null).toBe(canRead);
+        await waitFor(() => expect(screen.getByText(/Ask an administrator to set up a node/)).toBeVisible());
+        expect(screen.queryByRole("link", { name: "Node settings" }) !== null).toBe(canRead);
       },
     );
 
     it("refreshes readiness on returning to the tab and stops listening after unmount", async () => {
       mockListFleetNodes.mockResolvedValueOnce([]).mockResolvedValue([fleetNode()]);
       const view = renderMinersPage("pairing");
-      expect(await screen.findByText("No Fleet Nodes are set up for remote discovery.")).toBeVisible();
+      expect(await screen.findByText("No Fleet Nodes enrolled")).toBeVisible();
       const visibility = vi.spyOn(document, "visibilityState", "get");
       try {
         visibility.mockReturnValue("hidden");
@@ -943,9 +939,7 @@ describe("MinersWrapper", () => {
         expect(mockListFleetNodes).toHaveBeenCalledTimes(1);
         visibility.mockReturnValue("visible");
         fireEvent(document, new Event("visibilitychange"));
-        await waitFor(() =>
-          expect(screen.queryByText("No Fleet Nodes are set up for remote discovery.")).not.toBeInTheDocument(),
-        );
+        await waitFor(() => expect(screen.queryByText("No Fleet Nodes enrolled")).not.toBeInTheDocument());
         expect(mockListFleetNodes).toHaveBeenCalledTimes(2);
         view.unmount();
         fireEvent(document, new Event("visibilitychange"));
