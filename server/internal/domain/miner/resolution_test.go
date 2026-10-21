@@ -11,6 +11,7 @@ import (
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/poolconfig"
 	"github.com/block/proto-fleet/server/internal/domain/miner"
@@ -58,6 +59,28 @@ func createTestFleetNode(t *testing.T, db sqlc.DBTX, name string, identityPubkey
 		[]byte("01234567890123456789012345678901"),
 	).Scan(&fleetNodeID))
 	return fleetNodeID
+}
+
+func TestMinerService_UnavailableNodeAssignmentDoesNotFallBackToDirect(t *testing.T) {
+	conn, crypto, files := setupTestDB(t)
+	identifier := "unavailable-node-route"
+	deviceID := createTestDevice(t, conn, identifier)
+	createTestMinerCredentials(t, conn, crypto, deviceID)
+	nodeID := createTestFleetNode(t, conn, "revoked-owner", []byte("revoked-owner"))
+	_, err := conn.ExecContext(t.Context(), "INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,1)", nodeID, deviceID)
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), "UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1", nodeID)
+	require.NoError(t, err)
+	for _, routingEnabled := range []bool{false, true} {
+		service := miner.NewMinerService(conn, sqlstores.NewSQLUserStore(conn), crypto, files, &fakePluginManager{driverName: "antminer"})
+		if routingEnabled {
+			service.WithCommandSender(&fakeCommandSender{})
+		}
+		handle, err := service.GetMinerFromDeviceIdentifier(t.Context(), models.DeviceIdentifier(identifier))
+		require.Error(t, err)
+		require.True(t, fleeterror.IsUnavailableError(err), "a retained remote assignment cannot become a direct connection (routing enabled: %v)", routingEnabled)
+		require.Nil(t, handle)
+	}
 }
 
 // TestMinerService_ResolvesFleetNodePairedDeviceToRemoteMiner verifies that a device

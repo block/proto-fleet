@@ -175,6 +175,8 @@ func (s *SQLFleetNodeEnrollmentStore) ListFleetNodesForOrganization(ctx context.
 	out := make([]enrollment.FleetNodeListing, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, enrollment.FleetNodeListing{
+			StandbyOwnerNodeID:      nullInt64ToPtr(r.StandbyOwnerNodeID),
+			StandbyOwnerName:        r.StandbyOwnerName,
 			FleetNode:               *rowToFleetNode(r.ID, r.OrgID, r.Name, r.IdentityPubkey, nil, r.EnrollmentStatus, r.LastSeenAt, r.CreatedAt, r.UpdatedAt),
 			IPAddresses:             r.IpAddresses,
 			Version:                 r.Version,
@@ -260,15 +262,16 @@ func (s *SQLFleetNodeEnrollmentStore) DeleteMinerCredentialsForFleetNode(ctx con
 
 func rowToPending(row sqlc.PendingEnrollment) *enrollment.PendingEnrollment {
 	return &enrollment.PendingEnrollment{
-		ID:          row.ID,
-		CodeHash:    row.CodeHash,
-		OrgID:       row.OrgID,
-		CreatedBy:   row.CreatedBy,
-		FleetNodeID: nullInt64ToPtr(row.FleetNodeID),
-		Status:      enrollment.Status(row.Status),
-		ExpiresAt:   row.ExpiresAt,
-		ConsumedAt:  nullTimeToPtr(row.ConsumedAt),
-		CreatedAt:   row.CreatedAt,
+		StandbyOwnerNodeID: nullInt64ToPtr(row.StandbyOwnerNodeID),
+		ID:                 row.ID,
+		CodeHash:           row.CodeHash,
+		OrgID:              row.OrgID,
+		CreatedBy:          row.CreatedBy,
+		FleetNodeID:        nullInt64ToPtr(row.FleetNodeID),
+		Status:             enrollment.Status(row.Status),
+		ExpiresAt:          row.ExpiresAt,
+		ConsumedAt:         nullTimeToPtr(row.ConsumedAt),
+		CreatedAt:          row.CreatedAt,
 	}
 }
 

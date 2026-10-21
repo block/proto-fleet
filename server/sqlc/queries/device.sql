@@ -337,7 +337,7 @@ FROM device d
 LEFT JOIN fleet_node_device fnd
     ON fnd.device_id = d.id
    AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node_live fn
+LEFT JOIN fleet_node_effective_live fn
     ON fn.id = fnd.fleet_node_id
    AND fn.org_id = fnd.org_id
    AND fn.deleted_at IS NULL
@@ -392,7 +392,7 @@ SELECT d.device_identifier
 FROM device d
 JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
 JOIN device_pairing dp ON dp.device_id = fnd.device_id
-JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+JOIN fleet_node_effective_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 WHERE d.deleted_at IS NULL
   AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
   AND fn.deleted_at IS NULL
@@ -456,7 +456,7 @@ JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_effective_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL
@@ -643,7 +643,7 @@ JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_effective_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL
@@ -760,7 +760,7 @@ JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
 JOIN device_pairing dp ON dp.device_id = d.id
 JOIN device_status ds ON ds.device_id = d.id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
-JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+JOIN fleet_node_effective_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN miner_credentials mc ON mc.device_id = d.id
 WHERE d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
@@ -1021,7 +1021,7 @@ LEFT JOIN device d ON dd.id = d.discovered_device_id
 LEFT JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_effective_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL
@@ -1135,7 +1135,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_effective_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL
@@ -1166,7 +1166,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 JOIN discovered_device dd ON d.discovered_device_id = dd.id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_effective_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL
@@ -1392,7 +1392,7 @@ JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_effective_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL

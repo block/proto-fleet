@@ -6,9 +6,10 @@ import { FleetNodeSummarySchema } from "./generated/fleetnodeadmin/v1/fleetnodea
 import { useFleetNodes } from "./useFleetNodes";
 
 const listFleetNodes = vi.hoisted(() => vi.fn());
+const createEnrollmentCode = vi.hoisted(() => vi.fn());
 
 vi.mock("@/protoFleet/api/clients", () => ({
-  fleetNodeAdminClient: { listFleetNodes },
+  fleetNodeAdminClient: { listFleetNodes, createEnrollmentCode },
 }));
 vi.mock("@/protoFleet/store", () => ({
   useAuthErrors: () => ({ handleAuthErrors: vi.fn() }),
@@ -20,6 +21,12 @@ it("maps reported metadata and protobuf defaults into node items", async () => {
     fleetNodes: [
       create(FleetNodeSummarySchema, {
         fleetNodeId: 7n,
+        standbyEnrollmentEligible: true,
+        standbyForNodeId: 3n,
+        standbyForNodeName: "primary",
+        haRole: "preparing",
+        haStatusReason: "Waiting for credentials",
+        haOwnerNodeId: 3n,
         ipAddresses: ["192.168.1.7", "fd00::7"],
         version: "v0.5.1-test",
         enrolledBy: "operator@example.com",
@@ -33,6 +40,12 @@ it("maps reported metadata and protobuf defaults into node items", async () => {
   expect(await result.current.listFleetNodes()).toMatchObject([
     {
       fleetNodeId: "7",
+      standbyEnrollmentEligible: true,
+      standbyForNodeId: "3",
+      standbyForNodeName: "primary",
+      haRole: "preparing",
+      haStatusReason: "Waiting for credentials",
+      haOwnerNodeId: "3",
       ipAddresses: ["192.168.1.7", "fd00::7"],
       version: "v0.5.1-test",
       enrolledBy: "operator@example.com",
@@ -40,4 +53,13 @@ it("maps reported metadata and protobuf defaults into node items", async () => {
     },
     { fleetNodeId: "8", ipAddresses: [], version: "", enrolledBy: "", createdAt: null },
   ]);
+});
+
+it("sends an empty standalone request and the exact standby intent", async () => {
+  createEnrollmentCode.mockResolvedValue({ code: "code", pendingEnrollmentId: 11n });
+  const { result } = renderHook(() => useFleetNodes());
+  await result.current.createEnrollmentCode();
+  expect(createEnrollmentCode).toHaveBeenLastCalledWith({});
+  await result.current.createEnrollmentCode("7");
+  expect(createEnrollmentCode).toHaveBeenLastCalledWith({ standbyForNodeId: 7n });
 });

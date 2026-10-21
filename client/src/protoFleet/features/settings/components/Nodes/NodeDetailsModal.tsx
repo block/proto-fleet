@@ -47,12 +47,22 @@ const NodeDetailsModal = ({ node, canFindMiners, onDismiss, onFindMiners }: Node
         <DetailField label="Status">
           <NodeStatusBadge node={node} />
         </DetailField>
+        {node.haStatusReason ? <DetailField label="HA status">{node.haStatusReason}</DetailField> : null}
+        {node.standbyForNodeId ? (
+          <DetailField label={node.haRole ? "Device set" : "Enrolled as standby for"}>
+            {node.standbyForNodeName || node.standbyForNodeId}
+          </DetailField>
+        ) : null}
         <DetailField label="Last heartbeat">
           <span title={node.lastSeenAt?.toLocaleString()}>
             {node.lastSeenAt ? getRelativeTimeFromEpoch(node.lastSeenAt.getTime()) : "Never"}
           </span>
         </DetailField>
-        <DetailField label="Paired miners">{node.pairedDeviceCount}</DetailField>
+        {!node.haOwnerNodeId || node.haOwnerNodeId === node.fleetNodeId ? (
+          <DetailField label="Paired miners">{node.pairedDeviceCount}</DetailField>
+        ) : (
+          <DetailField label="Paired miners">Shared with this device set</DetailField>
+        )}
         <DetailField label="IP addresses">
           {node.ipAddresses.length
             ? node.ipAddresses.map((ip) => (
@@ -85,7 +95,11 @@ const NodeDetailsModal = ({ node, canFindMiners, onDismiss, onFindMiners }: Node
             variant={variants.primary}
             size={sizes.compact}
             text="Find miners"
-            disabled={!node.controlStreamConnected || node.commandProtocolUpgradeRequired}
+            disabled={
+              !node.controlStreamConnected ||
+              node.commandProtocolUpgradeRequired ||
+              (!!node.haRole && node.haRole !== "active")
+            }
             onClick={onFindMiners}
             className="phone:w-full"
           />

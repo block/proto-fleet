@@ -28,6 +28,48 @@ describe("RevokeNodeDialog", () => {
     expect(screen.queryByText(/ASIC-RS/)).not.toBeInTheDocument();
   });
 
+  it.each(["active", "standby"])("preserves shared pairings when revoking an HA %s with other members", (haRole) => {
+    render(
+      <RevokeNodeDialog
+        open
+        nodeName="node-01"
+        affectedDevices={[{ manufacturer: "Proto", model: "Rig" }]}
+        isLoadingImpact={false}
+        impactError=""
+        onConfirm={vi.fn()}
+        onDismiss={vi.fn()}
+        isSubmitting={false}
+        haRole={haRole}
+        isHaMember
+        hasOtherMembers
+      />,
+    );
+    expect(screen.getByText(/pairings and stored miner credentials are retained/)).toBeInTheDocument();
+    expect(screen.queryByText(/will lose connection/)).not.toBeInTheDocument();
+    if (haRole === "active") expect(screen.getByText(/lease expires/)).toBeInTheDocument();
+  });
+
+  it("explains cleanup when the final HA member is removed", () => {
+    render(
+      <RevokeNodeDialog
+        open
+        nodeName="last-node"
+        affectedDevices={[{ manufacturer: "Proto", model: "Rig" }]}
+        isLoadingImpact={false}
+        impactError=""
+        onConfirm={vi.fn()}
+        onDismiss={vi.fn()}
+        isSubmitting={false}
+        haRole="standby"
+        isHaMember
+        hasOtherMembers={false}
+      />,
+    );
+    expect(screen.getByText(/This is the final member/)).toBeInTheDocument();
+    expect(screen.getByText(/Its miner pairings and stored miner credentials are removed/)).toBeInTheDocument();
+    expect(screen.getByText("1 paired Proto Rig miner will lose connection.")).toBeInTheDocument();
+  });
+
   it("requires a successful impact preview before revocation", () => {
     const onConfirm = vi.fn();
     const props = {

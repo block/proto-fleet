@@ -1,5 +1,5 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EnrollNodeModal from "./EnrollNodeModal";
 import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
@@ -25,6 +25,13 @@ const awaitingNode: FleetNodeItem = {
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: false,
   pairedDeviceCount: 0,
+  standbyEnrollmentEligible: false,
+  standbyEnrollmentUnavailableReason: "",
+  standbyForNodeId: null,
+  standbyForNodeName: "",
+  haRole: "",
+  haStatusReason: "",
+  haOwnerNodeId: null,
   ipAddresses: [],
   version: "",
   enrolledBy: "",
@@ -32,7 +39,20 @@ const awaitingNode: FleetNodeItem = {
   lastSeenAt: null,
 };
 
+afterEach(() => vi.restoreAllMocks());
+
 beforeEach(() => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+    x: 100,
+    y: 100,
+    top: 100,
+    left: 100,
+    right: 400,
+    bottom: 148,
+    width: 300,
+    height: 48,
+    toJSON: () => ({}),
+  });
   vi.mocked(useFleetNodes).mockReturnValue({
     listFleetNodes: mockListFleetNodes,
     createEnrollmentCode: mockCreateEnrollmentCode,
@@ -48,13 +68,65 @@ beforeEach(() => {
 });
 
 describe("EnrollNodeModal", () => {
-  it("mints a code on open and shows the enroll command", async () => {
+  it("requires a server-eligible target before minting a standby code", async () => {
+    mockListFleetNodes.mockResolvedValue([
+      {
+        ...awaitingNode,
+        fleetNodeId: "1",
+        name: "active-node",
+        enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
+        standbyEnrollmentEligible: true,
+        haRole: "active",
+      },
+      {
+        ...awaitingNode,
+        fleetNodeId: "2",
+        name: "unavailable-node",
+        enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
+        standbyEnrollmentEligible: false,
+      },
+    ]);
+    mockCreateEnrollmentCode.mockResolvedValue({ code: "standby-code", pendingEnrollmentId: "12", expiresAt: null });
+    const { getByRole, getByText, queryByRole } = render(
+      <EnrollNodeModal open onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />,
+    );
+    fireEvent.click(getByRole("checkbox", { name: "Enroll as a standby" }));
+    expect(getByRole("button", { name: "Continue" })).toBeDisabled();
+    await waitFor(() => expect(getByRole("button", { name: "Standby for" })).toBeEnabled());
+    fireEvent.click(getByRole("button", { name: "Standby for" }));
+    await waitFor(() => expect(getByRole("option", { name: "active-node" })).toBeInTheDocument());
+    expect(queryByRole("option", { name: "unavailable-node" })).not.toBeInTheDocument();
+    fireEvent.click(getByRole("option", { name: "active-node" }));
+    fireEvent.click(getByRole("button", { name: "Continue" }));
+    await waitFor(() => expect(mockCreateEnrollmentCode).toHaveBeenCalledWith("1"));
+    expect(getByText("standby-code")).toBeInTheDocument();
+  });
+
+  it("retains the standby relationship when resuming confirmation", () => {
+    const { getByText, queryByRole } = render(
+      <EnrollNodeModal
+        open
+        resumeNode={{ ...awaitingNode, standbyForNodeId: "1", standbyForNodeName: "active-node" }}
+        onDismiss={mockOnDismiss}
+        onUpdated={mockOnUpdated}
+      />,
+    );
+    expect(getByText("Standby for active-node")).toBeInTheDocument();
+    expect(queryByRole("checkbox")).not.toBeInTheDocument();
+    expect(mockCreateEnrollmentCode).not.toHaveBeenCalled();
+  });
+
+  it("waits for Continue before minting a standalone code and showing the enroll command", async () => {
     mockListFleetNodes.mockResolvedValue([]);
     mockCreateEnrollmentCode.mockResolvedValue({ code: "pf_code_123", pendingEnrollmentId: "11", expiresAt: null });
 
     const { getByRole, getByText } = render(
       <EnrollNodeModal open onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />,
     );
+
+    expect(mockCreateEnrollmentCode).not.toHaveBeenCalled();
+    expect(getByRole("checkbox", { name: "Enroll as a standby" })).not.toBeChecked();
+    fireEvent.click(getByRole("button", { name: "Continue" }));
 
     await waitFor(() => {
       const command = getByRole("button", { name: "Copy command" }).parentElement;
@@ -74,6 +146,7 @@ describe("EnrollNodeModal", () => {
     mockCreateEnrollmentCode.mockResolvedValue({ code: "pf_code_123", pendingEnrollmentId: "11", expiresAt: null });
 
     const { getByText } = render(<EnrollNodeModal open onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />);
+    fireEvent.click(getByText("Continue"));
 
     await waitFor(() => {
       expect(getByText("Confirm the node")).toBeInTheDocument();
@@ -91,6 +164,7 @@ describe("EnrollNodeModal", () => {
       <EnrollNodeModal open onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />,
     );
 
+    fireEvent.click(getByText("Continue"));
     await waitFor(() => {
       expect(mockListFleetNodes).toHaveBeenCalled();
     });
@@ -178,12 +252,14 @@ describe("EnrollNodeModal", () => {
     const { getByText, queryByText, rerender } = render(
       <EnrollNodeModal open onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />,
     );
+    fireEvent.click(getByText("Continue"));
     await waitFor(() => {
       expect(mockCreateEnrollmentCode).toHaveBeenCalled();
     });
 
     rerender(<EnrollNodeModal open={false} onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />);
     rerender(<EnrollNodeModal open onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />);
+    fireEvent.click(getByText("Continue"));
     await act(async () => {
       resolveCode?.({ code: "pf_stale_code", pendingEnrollmentId: "11", expiresAt: null });
     });

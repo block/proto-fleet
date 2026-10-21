@@ -1025,10 +1025,11 @@ func protoNodeEncryptedPayloadToDTO(payload *gatewaypb.NodeEncryptedPayload) *dt
 		return nil
 	}
 	return &dto.NodeEncryptedPayload{
-		Algorithm:       payload.GetAlgorithm(),
-		EphemeralPubkey: append([]byte(nil), payload.GetEphemeralPubkey()...),
-		Nonce:           append([]byte(nil), payload.GetNonce()...),
-		Ciphertext:      append([]byte(nil), payload.GetCiphertext()...),
+		RecipientPublicKey: append([]byte(nil), payload.GetRecipientPublicKey()...),
+		Algorithm:          payload.GetAlgorithm(),
+		EphemeralPubkey:    append([]byte(nil), payload.GetEphemeralPubkey()...),
+		Nonce:              append([]byte(nil), payload.GetNonce()...),
+		Ciphertext:         append([]byte(nil), payload.GetCiphertext()...),
 	}
 }
 

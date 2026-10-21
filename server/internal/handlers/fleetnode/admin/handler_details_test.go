@@ -1,6 +1,7 @@
 package admin_test
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"testing"
@@ -16,8 +17,40 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/ha"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 )
+
+func TestListFleetNodes_HARelationshipAndCountsSurviveFailover(t *testing.T) {
+	h := newPairingHarness(t)
+	ownerID := h.createFleetNode(t, "stable-device-owner")
+	standbyID := h.createFleetNode(t, "replacement-active")
+	deviceID := h.insertDevice(t)
+	_, err := h.db.Exec(`INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,$3)`, ownerID, deviceID, h.orgID)
+	require.NoError(t, err)
+	_, err = h.db.Exec(`INSERT INTO fleet_node_ha_group(owner_node_id,org_id,credential_key_fingerprint,active_node_id,lease_epoch,lease_expires_at,acknowledged) VALUES($1,$2,$3,$4,2,clock_timestamp()+interval '30 seconds',true)`, ownerID, h.orgID, bytes.Repeat([]byte{7}, 32), standbyID)
+	require.NoError(t, err)
+	_, err = h.db.Exec(`INSERT INTO fleet_node_ha_member(node_id,org_id,owner_node_id,ready,status_reason) VALUES($1,$3,$1,true,''),($2,$3,$1,true,'')`, ownerID, standbyID, h.orgID)
+	require.NoError(t, err)
+	stream := h.registry.Register(standbyID)
+	defer stream.Unregister()
+	h.registry.SetHAConnection(standbyID, h.orgID, &gatewaypb.ControlHello{HaCapable: true, InstanceId: "replacement", CredentialKeyFingerprint: bytes.Repeat([]byte{7}, 32)}, "replacement-session")
+	h.handler.WithHA(ha.NewService(h.db, h.registry))
+	resp, err := h.handler.ListFleetNodes(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodesRequest{}))
+	require.NoError(t, err)
+	byID := make(map[int64]*pb.FleetNodeSummary)
+	for _, node := range resp.Msg.FleetNodes {
+		byID[node.GetFleetNodeId()] = node
+	}
+	require.EqualValues(t, 1, byID[ownerID].GetPairedDeviceCount())
+	require.Zero(t, byID[standbyID].GetPairedDeviceCount())
+	require.Equal(t, "active", byID[standbyID].GetHaRole())
+	require.Equal(t, ownerID, byID[standbyID].GetStandbyForNodeId())
+	require.Equal(t, "stable-device-owner", byID[standbyID].GetStandbyForNodeName())
+	// Both normal enrollments have already completed: this association must
+	// come from persisted membership, not an awaiting-confirmation join.
+	require.Nil(t, byID[standbyID].PendingEnrollmentId)
+}
 
 func TestListFleetNodes_HostMetadataAndEnrollment(t *testing.T) {
 	// Arrange

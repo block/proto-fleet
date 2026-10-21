@@ -74,10 +74,11 @@ func Encrypt(publicKey []byte, deviceIdentifier string, config *gatewaypb.Mining
 		return nil, fmt.Errorf("encrypted pool config is %d bytes; maximum is %d", len(ciphertext), maxCiphertext)
 	}
 	return &gatewaypb.NodeEncryptedPayload{
-		Algorithm:       Algorithm,
-		EphemeralPubkey: append([]byte(nil), ephemeral.PublicKey().Bytes()...),
-		Nonce:           nonce,
-		Ciphertext:      ciphertext,
+		RecipientPublicKey: append([]byte(nil), publicKey...),
+		Algorithm:          Algorithm,
+		EphemeralPubkey:    append([]byte(nil), ephemeral.PublicKey().Bytes()...),
+		Nonce:              nonce,
+		Ciphertext:         ciphertext,
 	}, nil
 }
 

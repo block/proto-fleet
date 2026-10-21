@@ -23,6 +23,13 @@ export interface FleetNodeItem {
   commandProtocolUpgradeRecommended: boolean;
   controlStreamConnected: boolean;
   pairedDeviceCount: number;
+  standbyEnrollmentEligible: boolean;
+  standbyEnrollmentUnavailableReason: string;
+  standbyForNodeId: string | null;
+  standbyForNodeName: string;
+  haRole: string;
+  haStatusReason: string;
+  haOwnerNodeId: string | null;
   ipAddresses: string[];
   version: string;
   enrolledBy: string;
@@ -53,6 +60,13 @@ function toFleetNodeItem(summary: FleetNodeSummary): FleetNodeItem {
     commandProtocolUpgradeRecommended: summary.commandProtocolUpgradeRecommended,
     controlStreamConnected: summary.controlStreamConnected,
     pairedDeviceCount: Number(summary.pairedDeviceCount),
+    standbyEnrollmentEligible: summary.standbyEnrollmentEligible,
+    standbyEnrollmentUnavailableReason: summary.standbyEnrollmentUnavailableReason,
+    standbyForNodeId: summary.standbyForNodeId?.toString() ?? null,
+    standbyForNodeName: summary.standbyForNodeName,
+    haRole: summary.haRole,
+    haStatusReason: summary.haStatusReason,
+    haOwnerNodeId: summary.haOwnerNodeId?.toString() ?? null,
     createdAt: toDate(summary.createdAt),
     lastSeenAt: toDate(summary.lastSeenAt),
   };
@@ -72,19 +86,24 @@ const useFleetNodes = () => {
   }, [handleAuthErrors]);
 
   // Plaintext code is one-time only.
-  const createEnrollmentCode = useCallback(async (): Promise<EnrollmentCode> => {
-    try {
-      const response = await fleetNodeAdminClient.createEnrollmentCode({});
-      return {
-        code: response.code,
-        pendingEnrollmentId: response.pendingEnrollmentId.toString(),
-        expiresAt: toDate(response.expiresAt),
-      };
-    } catch (err) {
-      handleAuthErrors({ error: err });
-      throw toError(err, "Failed to create an enrollment code.");
-    }
-  }, [handleAuthErrors]);
+  const createEnrollmentCode = useCallback(
+    async (standbyForNodeId?: string): Promise<EnrollmentCode> => {
+      try {
+        const response = await fleetNodeAdminClient.createEnrollmentCode(
+          standbyForNodeId ? { standbyForNodeId: BigInt(standbyForNodeId) } : {},
+        );
+        return {
+          code: response.code,
+          pendingEnrollmentId: response.pendingEnrollmentId.toString(),
+          expiresAt: toDate(response.expiresAt),
+        };
+      } catch (err) {
+        handleAuthErrors({ error: err });
+        throw toError(err, "Failed to create an enrollment code.");
+      }
+    },
+    [handleAuthErrors],
+  );
 
   // Returns one-time api_key plaintext.
   const confirmFleetNode = useCallback(

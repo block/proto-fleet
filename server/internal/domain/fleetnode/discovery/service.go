@@ -49,8 +49,16 @@ type nodeRegistry interface {
 
 // Service runs discovery commands against connected fleet nodes.
 type Service struct {
-	registry   nodeRegistry
-	enrollment nodeLister
+	ownerResolver func(context.Context, int64, int64) (int64, error)
+	registry      nodeRegistry
+	enrollment    nodeLister
+}
+
+// WithOwnerResolver keeps authenticated physical membership out of discovery's
+// stable device ownership and excludes non-active members from fan-out.
+func (s *Service) WithOwnerResolver(resolve func(context.Context, int64, int64) (int64, error)) *Service {
+	s.ownerResolver = resolve
+	return s
 }
 
 func NewService(registry nodeRegistry, enrollmentSvc nodeLister) *Service {
@@ -72,9 +80,20 @@ func (s *Service) EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, er
 	}
 	connected := s.registry.ConnectedFleetNodeIDs()
 	out := make([]int64, 0, len(connected))
+	seen := make(map[int64]bool)
 	for _, nodeID := range connected {
 		if _, ok := confirmed[nodeID]; ok && !s.registry.CommandProtocolUpgradeRequired(nodeID) {
-			out = append(out, nodeID)
+			ownerID := nodeID
+			if s.ownerResolver != nil {
+				ownerID, err = s.ownerResolver(ctx, nodeID, orgID)
+				if err != nil {
+					continue
+				}
+			}
+			if !seen[ownerID] {
+				out = append(out, ownerID)
+				seen[ownerID] = true
+			}
 		}
 	}
 	return out, nil

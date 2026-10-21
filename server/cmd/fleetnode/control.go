@@ -240,8 +240,26 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		}
 	}()
 
+	instanceID, err := r.processInstanceID()
+	if err != nil {
+		return fmt.Errorf("create process incarnation: %w", err)
+	}
+	key := r.credentials.keySnapshot()
+	if len(key) == 0 {
+		r.stateMu.Lock()
+		key, _ = hex.DecodeString(st.CredentialKeyHex)
+		r.stateMu.Unlock()
+	}
+	var fingerprint []byte
+	if len(key) == credentialKeySize {
+		sum := sha256.Sum256(key)
+		fingerprint = sum[:]
+	}
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
 		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6,
+		HaCapable:                 true,
+		InstanceId:                instanceID,
+		CredentialKeyFingerprint:  fingerprint,
 	}}}); err != nil {
 		if ctx.Err() != nil {
 			return nil
@@ -278,6 +296,27 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	// Serialize all sends on the bidi: the worker's completion ack and the
 	// receive loop's busy ack would otherwise race on stream.Send.
 	sender := &lockedAcker{inner: stream}
+	authority := newHAAuthority(st.FleetNodeID, instanceID, first.GetAccepted().GetControlSessionId())
+	defer authority.close()
+	if authority.sessionID != "" {
+		go func() {
+			ticker := time.NewTicker(haRenewInterval)
+			defer ticker.Stop()
+			for {
+				request := authority.request(time.Now())
+				if err := sender.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_HaLease{HaLease: request}}); err != nil {
+					cancelSession()
+					_ = stream.CloseResponse()
+					return
+				}
+				select {
+				case <-sessionCtx.Done():
+					return
+				case <-ticker.C:
+				}
+			}
+		}()
+	}
 	defer func() {
 		cancelSession()
 		sender.Close()
@@ -308,14 +347,29 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 			}
 			return fmt.Errorf("recv: %w", err)
 		}
+		if lease := msg.GetHaLease(); lease != nil {
+			authority.apply(lease, time.Now())
+			continue
+		}
 		cmd := msg.GetCommand()
 		if cmd == nil {
+			continue
+		}
+		if cmd.GetCommandId() == "" || len(cmd.GetCommandId()) > 128 {
 			continue
 		}
 		// Decode the envelope once here so we can pick a lane and handleCommand
 		// need not re-parse the payload. A malformed payload is not report-bearing:
 		// it takes the pool lane and handleCommand acks it BAD_REQUEST.
 		env, parseErr := decodeAgentCommand(cmd.GetPayload())
+		if parseErr == nil && env.GetHaKeyTransfer() != nil {
+			r.handleHAKeyTransfer(sender, cmd, env.GetHaKeyTransfer(), authority, logger)
+			continue
+		}
+		if !authority.allowed(cmd, time.Now()) {
+			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_HA_NOT_AUTHORIZED, "command not dispatched: no matching live HA authority", logger)
+			continue
+		}
 		admissionClass, commandKind := fleetnodecontrol.AdmissionForCommand(env)
 		releaseSlot, rejectReason, acquired := r.tryAcquireControlCommandSlotDetailed(admissionClass)
 		if acquired {
@@ -350,7 +404,17 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 					}
 					logger.Debug("control command completed", attrs...)
 				}()
-				r.handleCommand(commandCtx, client, workerAcker, c, e, pErr, logger)
+				// Check inside the worker immediately before dispatch, even if the
+				// receive loop accepted it while a grant was still live.
+				workerCtx, endWorker, authorized := authority.start(commandCtx, c, time.Now())
+				if !authorized {
+					r.sendAck(workerAcker, c.GetCommandId(), pb.AckCode_ACK_CODE_HA_NOT_AUTHORIZED, "command not dispatched: no matching live HA authority", logger)
+					return
+				}
+				defer endWorker()
+				workerCtx = context.WithValue(workerCtx, haDeviceWorkKey{}, &r.haDeviceWork)
+				workerCtx = context.WithValue(workerCtx, haOwnerNodeIDKey{}, c.GetHaOwnerNodeId())
+				r.handleCommand(workerCtx, client, &haCommandAcker{ctx: workerCtx, inner: workerAcker}, c, e, pErr, logger)
 			}(cmd, env, parseErr, releaseSlot, admissionClass, commandKind)
 		} else {
 			sharedActive, deferrableActive, exclusiveActive := r.controlSlotOccupancy()
@@ -676,8 +740,10 @@ func fanOutEndpointWork[E, T any](ctx context.Context, endpoints iter.Seq[E], co
 			return out, true
 		}
 		wg.Add(1)
+		endWork := retainHADeviceWork(ctx)
 		go func(e E) {
 			defer wg.Done()
+			defer endWork()
 			defer func() { <-sem }()
 			probeCtx, cancel := context.WithTimeout(ctx, perProbeTimeout)
 			defer cancel()
@@ -824,7 +890,7 @@ func (p *pluginDiscoverer) Probe(ctx context.Context, ipAddress, port string) (*
 	if dev == nil {
 		return nil, nil
 	}
-	return reportFromDiscovered(dev, ipAddress, port, p.fleetNodeID), nil
+	return reportFromDiscovered(dev, ipAddress, port, discoveryOwnerNodeID(ctx, p.fleetNodeID)), nil
 }
 
 func (p *pluginDiscoverer) ProbeRecovery(ctx context.Context, ipAddress, port string) (stableidentity.Identity, string, string, error) {

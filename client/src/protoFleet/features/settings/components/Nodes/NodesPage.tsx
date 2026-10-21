@@ -230,7 +230,17 @@ const NodesPage = () => {
   const colConfig: ColConfig<FleetNodeItem, string, NodeColumns> = useMemo(
     () => ({
       name: {
-        component: (node: FleetNodeItem) => <span className="text-emphasis-300">{node.name}</span>,
+        component: (node: FleetNodeItem) => (
+          <div>
+            <span className="text-emphasis-300">{node.name}</span>
+            {node.standbyForNodeId ? (
+              <div className="text-200 text-text-primary-50">
+                {node.haRole ? "Device set: " : "Standby for "}
+                {node.standbyForNodeName || node.standbyForNodeId}
+              </div>
+            ) : null}
+          </div>
+        ),
         width: "w-48",
       },
       ipAddresses: {
@@ -254,7 +264,9 @@ const NodesPage = () => {
         width: "w-56",
       },
       miners: {
-        component: (node: FleetNodeItem) => <span>{node.pairedDeviceCount}</span>,
+        component: (node: FleetNodeItem) => (
+          <span>{node.haOwnerNodeId && node.haOwnerNodeId !== node.fleetNodeId ? "—" : node.pairedDeviceCount}</span>
+        ),
         width: "w-32",
       },
       lastSeen: {
@@ -348,6 +360,17 @@ const NodesPage = () => {
         open={!!revokeNodeData}
         nodeName={revokeNodeData?.name ?? ""}
         affectedDevices={revokeDevices}
+        haRole={revokeNodeData?.haRole}
+        isHaMember={Boolean(revokeNodeData?.haOwnerNodeId)}
+        hasOtherMembers={Boolean(
+          revokeNodeData?.haOwnerNodeId &&
+          nodes.some(
+            (node) =>
+              node.fleetNodeId !== revokeNodeData.fleetNodeId &&
+              node.haOwnerNodeId === revokeNodeData.haOwnerNodeId &&
+              node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED,
+          ),
+        )}
         isLoadingImpact={revokeImpactLoading}
         impactError={revokeImpactError}
         onConfirm={handleRevokeConfirm}

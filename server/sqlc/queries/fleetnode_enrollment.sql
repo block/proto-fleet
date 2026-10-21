@@ -1,10 +1,10 @@
 -- name: CreatePendingEnrollment :one
 INSERT INTO pending_enrollment (code_hash, org_id, created_by, status, expires_at)
 VALUES ($1, $2, $3, 'PENDING', $4)
-RETURNING id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by;
+RETURNING id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by, standby_owner_node_id;
 
 -- name: GetPendingEnrollmentByCodeHash :one
-SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by
+SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by, standby_owner_node_id
 FROM pending_enrollment
 WHERE code_hash = $1;
 
@@ -12,13 +12,13 @@ WHERE code_hash = $1;
 -- Filter to the active status: a fleet_node_id can have terminal rows
 -- (CONFIRMED/CANCELLED/EXPIRED) alongside the live AWAITING_CONFIRMATION,
 -- so an unfiltered :one would return an arbitrary row.
-SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by
+SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by, standby_owner_node_id
 FROM pending_enrollment
 WHERE fleet_node_id = $1 AND org_id = $2 AND status = 'AWAITING_CONFIRMATION';
 
 -- name: GetCancelledEnrollmentByFleetNode :one
 -- Supports retrying teardown after authentication revocation has committed.
-SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by
+SELECT id, code_hash, org_id, created_by, fleet_node_id, status, expires_at, consumed_at, created_at, confirmed_by, standby_owner_node_id
 FROM pending_enrollment
 WHERE id = $1 AND fleet_node_id = $2 AND org_id = $3 AND status = 'CANCELLED';
 
@@ -60,11 +60,13 @@ SELECT a.id, a.org_id, a.name, a.identity_pubkey,
        pe.id AS pending_enrollment_id,
        COALESCE(h.ip_addresses, '{}'::text[])::text[] AS ip_addresses,
        COALESCE(h.version, '')::text AS version,
-       COALESCE(u.username, '')::text AS enrolled_by
+       COALESCE(u.username, '')::text AS enrolled_by,
+       pe.standby_owner_node_id, COALESCE(standby_owner.name,'')::text AS standby_owner_name
 FROM fleet_node a
 LEFT JOIN pending_enrollment pe
   ON pe.fleet_node_id = a.id
  AND pe.status = 'AWAITING_CONFIRMATION'
+LEFT JOIN fleet_node standby_owner ON standby_owner.id=pe.standby_owner_node_id AND standby_owner.org_id=a.org_id
 LEFT JOIN fleet_node_heartbeat h ON h.fleet_node_id = a.id AND h.org_id = a.org_id
 LEFT JOIN LATERAL (
     SELECT confirmed_by FROM pending_enrollment

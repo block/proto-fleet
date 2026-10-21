@@ -17,6 +17,13 @@ const meta = {
       commandProtocolUpgradeRecommended: false,
       controlStreamConnected: true,
       pairedDeviceCount: 128,
+      standbyEnrollmentEligible: false,
+      standbyEnrollmentUnavailableReason: "",
+      standbyForNodeId: null,
+      standbyForNodeName: "",
+      haRole: "",
+      haStatusReason: "",
+      haOwnerNodeId: null,
       createdAt: new Date("2026-10-01T12:00:00Z"),
       lastSeenAt: new Date(),
       ipAddresses: ["192.168.1.7", "fd00:1234:5678:9012:abcd:1234:5678:9012"],
@@ -41,6 +48,33 @@ export const Unavailable: Story = {
       enrolledBy: "",
       lastSeenAt: null,
       controlStreamConnected: false,
+    },
+  },
+};
+
+export const Active: Story = {
+  args: { node: { ...meta.args.node, haRole: "active", haOwnerNodeId: "7" } },
+};
+export const Standby: Story = {
+  args: {
+    node: {
+      ...meta.args.node,
+      haRole: "standby",
+      haOwnerNodeId: "3",
+      standbyForNodeId: "3",
+      standbyForNodeName: "node-00",
+    },
+  },
+};
+export const PreparingStandby: Story = {
+  args: {
+    node: {
+      ...meta.args.node,
+      haRole: "preparing",
+      haOwnerNodeId: "3",
+      standbyForNodeId: "3",
+      standbyForNodeName: "node-00",
+      haStatusReason: "Waiting for credential transfer",
     },
   },
 };

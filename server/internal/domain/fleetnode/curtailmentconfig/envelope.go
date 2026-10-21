@@ -75,10 +75,11 @@ func Encrypt(publicKey []byte, deviceIdentifier string, config sdk.CurtailmentCo
 		return nil, fmt.Errorf("encrypted curtailment config is %d bytes; maximum is %d", len(ciphertext), maxCiphertext)
 	}
 	return &gatewaypb.NodeEncryptedPayload{
-		Algorithm:       Algorithm,
-		EphemeralPubkey: append([]byte(nil), ephemeral.PublicKey().Bytes()...),
-		Nonce:           nonce,
-		Ciphertext:      ciphertext,
+		RecipientPublicKey: append([]byte(nil), publicKey...),
+		Algorithm:          Algorithm,
+		EphemeralPubkey:    append([]byte(nil), ephemeral.PublicKey().Bytes()...),
+		Nonce:              nonce,
+		Ciphertext:         ciphertext,
 	}, nil
 }
 

@@ -27,6 +27,12 @@ func (h *Handler) ListFleetNodeDiscoveredDevices(ctx context.Context, req *conne
 	}
 	var nodeFilter *int64
 	if id := req.Msg.GetFleetNodeId(); id > 0 {
+		if h.ha != nil {
+			id, err = h.ha.CanonicalOwner(ctx, id, info.OrganizationID)
+			if err != nil {
+				return nil, err
+			}
+		}
 		nodeFilter = &id
 	}
 	var cursor *int64
@@ -84,11 +90,17 @@ func (h *Handler) PairDiscoveredDevicesOnFleetNode(ctx context.Context, req *con
 		return fleeterror.NewInvalidArgumentError("fleet_node_id is required")
 	}
 
+	if h.ha != nil {
+		fleetNodeID, err = h.ha.DispatchOwner(ctx, fleetNodeID, info.OrganizationID)
+		if err != nil {
+			return err
+		}
+	}
 	node, err := h.enrollment.GetFleetNodeByID(ctx, fleetNodeID, info.OrganizationID)
 	if err != nil {
 		return err
 	}
-	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
+	if h.ha == nil && node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
 		return fleeterror.NewFailedPreconditionError("fleet node is not CONFIRMED")
 	}
 

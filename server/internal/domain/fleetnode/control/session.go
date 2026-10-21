@@ -19,6 +19,7 @@ import (
 // Events delivers batches + the terminal ack; Done closes if the connection dies
 // first. Caller must Close when done, freeing the command.
 type Session struct {
+	leaseCancel context.CancelFunc
 	r           *Registry
 	fleetNodeID int64
 	cmd         *inflightCommand
@@ -30,6 +31,9 @@ func (s *Session) Done() <-chan struct{}       { return s.cmd.done }
 // Close frees the command and signals Done. Idempotent and identity-guarded so a
 // stale Close can't drop a newer command that reused this command_id.
 func (s *Session) Close() {
+	if s.leaseCancel != nil {
+		s.leaseCancel()
+	}
 	s.r.removeCmd(s.fleetNodeID, s.cmd)
 }
 
@@ -50,11 +54,18 @@ func (r *Registry) Send(ctx context.Context, fleetNodeID int64, minimumCommandPr
 		}
 		pair = cloned
 	}
+	route, bound, err := r.resolveCommand(ctx, fleetNodeID, cmd)
+	if err != nil {
+		return nil, err
+	}
+	cmd = bound
+	fleetNodeID = route.PhysicalNodeID
 	maxReports := maxReportsPerCommand
 	if pair != nil {
 		maxReports = len(pair.Targets)
 	}
 	c := &inflightCommand{
+		expectedSession: route.ControlSessionID, expectedInstance: route.InstanceID, expiresAt: route.ExpiresAt,
 		id:         cmd.GetCommandId(),
 		kind:       kind,
 		scope:      scope,
@@ -72,6 +83,17 @@ func (r *Registry) Send(ctx context.Context, fleetNodeID int64, minimumCommandPr
 	}
 
 	session := &Session{r: r, fleetNodeID: fleetNodeID, cmd: c}
+	if !route.ExpiresAt.IsZero() {
+		var leaseCtx context.Context
+		leaseCtx, session.leaseCancel = r.leaseContext(ctx, route)
+		go func() {
+			select {
+			case <-leaseCtx.Done():
+				r.removeCmd(fleetNodeID, c)
+			case <-c.done:
+			}
+		}()
+	}
 	if err := r.enqueue(ctx, outgoing, connDone, cmd); err != nil {
 		session.Close()
 		return nil, err

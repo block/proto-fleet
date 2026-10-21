@@ -14,6 +14,13 @@ const baseNode: FleetNodeItem = {
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: false,
   pairedDeviceCount: 0,
+  standbyEnrollmentEligible: false,
+  standbyEnrollmentUnavailableReason: "",
+  standbyForNodeId: null,
+  standbyForNodeName: "",
+  haRole: "",
+  haStatusReason: "",
+  haOwnerNodeId: null,
   ipAddresses: [],
   version: "",
   enrolledBy: "",
@@ -99,6 +106,14 @@ describe("NodeStatusBadge", () => {
 
     expect(getByText(label)).toBeInTheDocument();
   });
+
+  it.each(["active", "standby", "preparing", "unavailable", "failed"])(
+    "shows the %s role supplied by the server",
+    (haRole) => {
+      const { getByText } = render(<NodeStatusBadge node={{ ...baseNode, haRole }} />);
+      expect(getByText(haRole[0].toUpperCase() + haRole.slice(1))).toBeInTheDocument();
+    },
+  );
 
   it("shows Awaiting confirmation for a registered node", () => {
     const { getByText } = render(

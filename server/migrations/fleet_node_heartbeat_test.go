@@ -134,7 +134,23 @@ func TestFleetMiningAssetUsesLiveHeartbeatAcrossMigration(t *testing.T) {
 
 func applyFleetNodeDetailsMigration(t *testing.T, conn *sql.DB, direction string) {
 	t.Helper()
+	// Newer HA views depend on heartbeat storage. Roll them back first, then
+	// restore them after upgrading so current queries see the current schema.
+	if direction == "down" {
+		applyFleetNodeHAMigration(t, conn, direction)
+	}
 	migration, err := migrations.Current.ReadFile("current/001026_internal_fleet_node_details." + direction + ".sql")
+	require.NoError(t, err)
+	_, err = conn.ExecContext(t.Context(), string(migration))
+	require.NoError(t, err)
+	if direction == "up" {
+		applyFleetNodeHAMigration(t, conn, direction)
+	}
+}
+
+func applyFleetNodeHAMigration(t *testing.T, conn *sql.DB, direction string) {
+	t.Helper()
+	migration, err := migrations.Current.ReadFile("current/001036_internal_fleet_node_standby_ha." + direction + ".sql")
 	require.NoError(t, err)
 	_, err = conn.ExecContext(t.Context(), string(migration))
 	require.NoError(t, err)

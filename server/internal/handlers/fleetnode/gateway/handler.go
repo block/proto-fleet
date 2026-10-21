@@ -25,8 +25,10 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/ha"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
+	"github.com/google/uuid"
 )
 
 const (
@@ -55,6 +57,7 @@ type Handler struct {
 	auth       authService
 	pairing    *pairing.Service
 	registry   *control.Registry
+	ha         *ha.Service
 	files      *files.Service
 	// Keep the persisted session rotation and in-memory fence in the same order.
 	sessionRotationMu sync.Mutex
@@ -70,6 +73,8 @@ var _ fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler = &Handler{}
 func NewHandler(enrollment *enrollment.Service, auth *auth.Service, pairing *pairing.Service, registry *control.Registry, filesService *files.Service) *Handler {
 	return &Handler{enrollment: enrollment, auth: auth, pairing: pairing, registry: registry, files: filesService}
 }
+
+func (h *Handler) WithHA(service *ha.Service) *Handler { h.ha = service; return h }
 
 func CommandArtifactUploadReadLimitOption() connect.HandlerOption {
 	return connect.WithConditionalHandlerOptions(func(spec connect.Spec) []connect.HandlerOption {
@@ -554,7 +559,14 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 			FirmwareVersion:  d.GetFirmwareVersion(),
 		})
 	}
-	accepted, ownershipRejected, err := h.pairing.UpsertDiscoveredDevices(ctx, subject.FleetNodeID, subject.OrgID, reports)
+	ownerID := subject.FleetNodeID
+	if h.ha != nil {
+		ownerID, err = h.ha.EffectiveOwner(ctx, subject.FleetNodeID, subject.OrgID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	accepted, ownershipRejected, err := h.pairing.UpsertDiscoveredDevices(ctx, ownerID, subject.OrgID, reports)
 	if err != nil {
 		return nil, err
 	}
@@ -606,10 +618,22 @@ func (h *Handler) ReportPairedDevices(ctx context.Context, req *connect.Request[
 		}
 	}
 
+	ownerID := subject.FleetNodeID
+	if h.ha != nil {
+		ownerID, err = h.ha.EffectiveOwner(ctx, subject.FleetNodeID, subject.OrgID)
+		if err != nil {
+			retryTargets := make([]string, 0, len(kept))
+			for _, result := range kept {
+				retryTargets = append(retryTargets, result.GetDeviceIdentifier())
+			}
+			h.registry.ReinstatePairTargets(subject.FleetNodeID, commandID, retryTargets)
+			return nil, err
+		}
+	}
 	persisted := make([]*pb.FleetNodePairResult, 0, len(kept))
 	var persistFailed []string
 	for _, r := range kept {
-		status, err := h.pairing.PersistFleetNodePairResult(ctx, subject.FleetNodeID, meta.OrgID, r, meta.AssignedBy, meta.Snapshots[r.GetDeviceIdentifier()])
+		status, err := h.pairing.PersistFleetNodePairResult(ctx, ownerID, meta.OrgID, r, meta.AssignedBy, meta.Snapshots[r.GetDeviceIdentifier()])
 		if err != nil {
 			// Per-device isolation: one persist failure must not drop the others
 			// (already paired on the node). A failed result isn't forwarded as paired;
@@ -747,8 +771,21 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		return fleeterror.NewUnauthenticatedError("fleet node session was replaced or revoked")
 	}
 	defer regHandle.Unregister()
+	controlSessionID := uuid.NewString()
+	if h.ha != nil {
+		if err := h.ha.ConnectStream(ctx, subject.FleetNodeID, subject.OrgID, hello, controlSessionID, regHandle); err != nil {
+			return err
+		}
+		defer func() {
+			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			if err := h.ha.Disconnect(cleanup, subject.FleetNodeID, subject.OrgID, controlSessionID); err != nil {
+				slog.Warn("fleet node HA connection cleanup failed", "err", err)
+			}
+		}()
+	}
 
-	if err := sendControlStreamAccepted(ctx, stream.Send); err != nil {
+	if err := sendControlStreamAccepted(ctx, stream.Send, controlSessionID); err != nil {
 		return err
 	}
 	liveness := time.NewTicker(ControlStreamLivenessInterval)
@@ -780,7 +817,7 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 			// exit so connect-go closes the stream.
 			return controlStreamExitError(ctx, nil)
 		case <-liveness.C:
-			if err := sendControlStreamAccepted(ctx, stream.Send); err != nil {
+			if err := sendControlStreamAccepted(ctx, stream.Send, controlSessionID); err != nil {
 				return err
 			}
 		case cmd := <-regHandle.Outgoing:
@@ -793,6 +830,22 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 					return controlStreamExitError(ctx, nil)
 				}
 				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("control stream recv: %v", r.err))
+			}
+			if lease := r.msg.GetHaLease(); lease != nil {
+				if h.ha == nil {
+					return fleeterror.NewFailedPreconditionError("HA leases unavailable")
+				}
+				if err := protovalidate.Validate(lease); err != nil {
+					return fleeterror.NewInvalidArgumentError("invalid HA lease request")
+				}
+				response, err := h.ha.Lease(ctx, subject.FleetNodeID, subject.OrgID, hello.GetInstanceId(), controlSessionID, lease)
+				if err != nil {
+					return err
+				}
+				if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_HaLease{HaLease: response}}); err != nil {
+					return fmt.Errorf("send HA lease response: %w", err)
+				}
+				continue
 			}
 			if ack := r.msg.GetAck(); ack != nil {
 				// Trust boundary for node input: drop a malformed/oversized ack rather than
@@ -816,9 +869,13 @@ func controlStreamExitError(ctx context.Context, fallback error) error {
 	return fallback
 }
 
-func sendControlStreamAccepted(ctx context.Context, send func(*pb.ControlStreamResponse) error) error {
+func sendControlStreamAccepted(ctx context.Context, send func(*pb.ControlStreamResponse) error, sessionIDs ...string) error {
+	sessionID := ""
+	if len(sessionIDs) > 0 {
+		sessionID = sessionIDs[0]
+	}
 	if err := send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{
-		Accepted: &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().UTC())},
+		Accepted: &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().UTC()), ControlSessionId: sessionID},
 	}}); err != nil {
 		return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("send accepted: %v", err))
 	}

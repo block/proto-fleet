@@ -126,13 +126,84 @@ Stop with `SIGINT`, `SIGTERM`, or `SIGHUP` (terminal close). On shutdown the age
 
 ## Enrollment flow
 
-1. Operator mints an enrollment code in the UI and shares it.
+1. Operator opens **Enroll node** in the UI, chooses standalone enrollment or **Enroll as a standby**, and continues to generate the enrollment code.
 2. `fleetnode enroll --server-url=...` prompts for the code, registers, prints a fingerprint.
 3. Operator verifies the fingerprint in the UI and clicks confirm; the UI displays the `api_key`.
 4. Agent prompts for the `api_key`, completes the handshake, persists session.
 5. `fleetnode run` keeps the session refreshed and the control stream open.
 
 If anything is interrupted between Register and Complete, `fleetnode refresh` resumes from the persisted state.
+
+## Standby enrollment and high availability
+
+Install Fleet Nodes normally on separate machines that can reach Fleet Server and
+the same miners. In **Settings → Nodes → Enroll node**, select **Enroll as a
+standby**, choose the existing active node in **Standby for**, and complete the
+usual enrollment and identity confirmation. Use the same enrollment helper on
+the new machine; no HA flags, key files, or manual key transfer are required.
+Repeat this flow to add more standbys to the same device set.
+
+Fleet offers confirmed, connected nodes running a compatible HA-capable version.
+For an existing HA device set, choose its current active member. The enrollment
+keeps the same device set if leadership changes before confirmation. A missing or
+revoked source with no eligible replacement requires a fresh enrollment selection.
+Closing the modal or refreshing does not discard confirmed preparation work.
+
+The first standby establishes internal shared ownership. Existing encrypted miner
+credentials and device assignments remain unchanged. A ready member encrypts its
+miner-credential key to the new node's registered encryption public key. Fleet
+relays only the encrypted envelope. Each member retains its own enrollment
+identity, API key, sessions, and encryption keypair. Only unused, newly enrolled
+standbys can import the shared credential key.
+
+The existing Nodes page shows **Active**, **Standby · Ready**, **Preparing
+standby**, **Standby unavailable**, or **Standby setup failed**, with the failure
+reason and device-set relationship in details. Heartbeat and control-connection
+status are separate from readiness. Shared devices count once for their logical
+owner; standbys do not receive independent copies. Redundancy exists only when a
+standby is ready. Temporary preparation failures retry with bounded backoff.
+For a permanent failure, revoke that node and enroll a replacement.
+
+Fleet Server grants one active member a 30-second lease over ControlStream.
+Nodes request renewal every five seconds and stop admitting commands five seconds
+before their conservative local expiry. Heartbeats alone do not renew leadership.
+The server acknowledges authority before routing and selects ready replacements
+by membership creation order, then node ID. The acceptance target is new command
+usability within 60 seconds of losing the active member, with fresh telemetry in
+the following polling interval. Automatic takeover requires Fleet Server and its
+database to remain available. A recovered member remains standby; there is no
+automatic failback.
+
+An enqueued command interrupted by connection or lease loss fails with an unknown
+physical outcome and is not replayed on the replacement. New ordinary commands
+can proceed without an extra HA recovery block. Existing uncertain-attempt
+evidence, allocation safeguards, and recovery fences remain in force. An
+already-started backend operation may finish after takeover and overlap a new
+operation; inspect the device's state before repeating an uncertain write.
+Desired-state controllers retain their existing reconciliation policies.
+Only the miner-credential key is provisioned; plugin-local process state is not
+copied. Include curtail-on-one-member and resume-on-another in device qualification,
+checking the restored frequency, power, and mining state for each supported driver.
+
+Use **Revoke** to remove members. Removing a standby preserves the shared device
+set. Removing the active member permits a ready standby to take over after its
+outstanding lease expires. Removing the final member uses normal device unpairing
+and cleanup safeguards. The original owner may remain as internal metadata after
+its physical node is revoked. Revocation denies authentication but cannot erase
+the shared miner-credential key from a machine. To remediate a compromised shared
+key, revoke all members, rotate affected miner credentials, then enroll fresh
+nodes and pair the devices again. Do not reuse compromised node state. Existing
+write-recovery safeguards still apply during cleanup; revocation alone does not
+remediate exposed secrets.
+
+Deploy the compatible Fleet Server before upgrading nodes. Existing nodes remain
+standalone until standby enrollment is selected. Do not downgrade Fleet Server
+or group members to a version without HA support while internal HA groups remain
+configured. Revoke all group members through Fleet and complete normal cleanup
+before such a downgrade; take a database backup before changing versions.
+Qualify failover, interrupted writes, and revocation in staging with at least
+three machines before production use. In-process integration tests do not qualify
+host power loss or the real device network.
 
 ## Security model
 

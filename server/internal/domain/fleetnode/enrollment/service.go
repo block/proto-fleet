@@ -14,6 +14,7 @@ import (
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
 	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/ha"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/passwordupdate"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
@@ -92,6 +93,7 @@ type Store interface {
 }
 
 type Service struct {
+	ha          *ha.Service
 	store       Store
 	apiKeySvc   *apikey.Service
 	transactor  stores.Transactor
@@ -122,7 +124,29 @@ func (s *Service) WithControlStreamInvalidator(invalidate func(int64)) {
 	s.invalidateControlStream = invalidate
 }
 
+func (s *Service) WithHA(service *ha.Service) { s.ha = service }
+
 func (s *Service) CreateCodeWithEnrollmentID(ctx context.Context, userID, orgID int64, ttl time.Duration) (string, int64, time.Time, error) {
+	return s.CreateCodeForStandby(ctx, userID, orgID, ttl, nil)
+}
+
+func (s *Service) CreateCodeForStandby(ctx context.Context, userID, orgID int64, ttl time.Duration, standbyForNodeID *int64) (string, int64, time.Time, error) {
+	var ownerID int64
+	if standbyForNodeID != nil {
+		if s.ha == nil {
+			return "", 0, time.Time{}, fleeterror.NewFailedPreconditionError("standby enrollment unavailable")
+		}
+		var reason string
+		var err error
+		ownerID, reason, err = s.ha.Eligible(ctx, *standbyForNodeID, orgID)
+		if err != nil {
+			return "", 0, time.Time{}, err
+		}
+		if reason != "" {
+			return "", 0, time.Time{}, fleeterror.NewFailedPreconditionError(reason)
+		}
+	}
+
 	if ttl <= 0 {
 		ttl = defaultCodeTTL
 	}
@@ -132,7 +156,18 @@ func (s *Service) CreateCodeWithEnrollmentID(ctx context.Context, userID, orgID 
 	}
 	plaintext := base64.RawURLEncoding.EncodeToString(codeBytes)
 	expiresAt := time.Now().UTC().Add(ttl)
-	pendingEnrollment, err := s.store.CreatePendingEnrollment(ctx, hashCode(plaintext), orgID, userID, expiresAt)
+	var pendingEnrollment *PendingEnrollment
+	err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		var err error
+		pendingEnrollment, err = s.store.CreatePendingEnrollment(ctx, hashCode(plaintext), orgID, userID, expiresAt)
+		if err != nil {
+			return err
+		}
+		if ownerID != 0 {
+			return s.ha.SetEnrollmentIntent(ctx, pendingEnrollment.ID, orgID, ownerID)
+		}
+		return nil
+	})
 	if err != nil {
 		return "", 0, time.Time{}, logInternal("create pending enrollment", clientErrCreateCode, err)
 	}
@@ -213,9 +248,10 @@ func (s *Service) ConfirmExpected(ctx context.Context, agentID, orgID, pendingEn
 // issue the api_key. The plaintext api_key is returned exactly once.
 func (s *Service) confirm(ctx context.Context, agentID, orgID, pendingEnrollmentID, confirmedBy int64) (string, time.Time, error) {
 	var (
-		plaintext string
-		expires   time.Time
-		agentName string
+		plaintext      string
+		expires        time.Time
+		agentName      string
+		standbyOwnerID *int64
 	)
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Lock the fleet node row first so Confirm and RevokeFleetNode always acquire
@@ -262,6 +298,15 @@ func (s *Service) confirm(ctx context.Context, agentID, orgID, pendingEnrollment
 		if statusRows == 0 {
 			return fleeterror.NewFailedPreconditionError("fleet node state changed; refresh and retry")
 		}
+		if pe.StandbyOwnerNodeID != nil {
+			standbyOwnerID = pe.StandbyOwnerNodeID
+			if s.ha == nil {
+				return fleeterror.NewFailedPreconditionError("standby enrollment unavailable")
+			}
+			if err := s.ha.Confirm(ctx, agentID, orgID, *pe.StandbyOwnerNodeID); err != nil {
+				return err
+			}
+		}
 		key, apiKey, err := s.apiKeySvc.CreateFleetNode(ctx, agentID, orgID, fleetNodeApiKeyLabel, nil)
 		if err != nil {
 			return err
@@ -275,7 +320,11 @@ func (s *Service) confirm(ctx context.Context, agentID, orgID, pendingEnrollment
 	}); err != nil {
 		return "", time.Time{}, err
 	}
-	s.logActivity(ctx, "confirm_fleet_node", fmt.Sprintf("Confirmed fleet node '%s' (id=%d)", agentName, agentID))
+	description := fmt.Sprintf("Confirmed fleet node '%s' (id=%d)", agentName, agentID)
+	if standbyOwnerID != nil {
+		description += fmt.Sprintf(" as standby for HA owner %d", *standbyOwnerID)
+	}
+	s.logActivity(ctx, "confirm_fleet_node", description)
 	return plaintext, expires, nil
 }
 
@@ -304,6 +353,8 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 		return fleeterror.NewFailedPreconditionError("fleet node revocation requires its own transactions")
 	}
 	var agentName string
+	var cleanupOwnerID = agentID
+	var retainHA bool
 	var devices []RevokedDevice
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// This transaction only denies authentication; it never waits for a device
@@ -353,8 +404,21 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 		if _, err := s.apiKeySvc.RevokeForFleetNode(ctx, agentID, orgID); err != nil {
 			return err
 		}
+		if s.ha != nil {
+			cleanupOwnerID, retainHA, err = s.ha.Revoke(ctx, agentID, orgID)
+			if err != nil {
+				return err
+			}
+		}
+		if retainHA {
+			agentName = agent.Name
+			if agentID != cleanupOwnerID {
+				_, err = s.store.SoftDeleteFleetNode(ctx, agentID, orgID, now)
+			}
+			return err
+		}
 		var listErr error
-		devices, listErr = s.store.ListDevicesForFleetNodeRevocation(ctx, agentID, orgID)
+		devices, listErr = s.store.ListDevicesForFleetNodeRevocation(ctx, cleanupOwnerID, orgID)
 		if listErr != nil {
 			return logInternal("list fleet node devices", clientErrRevokeFleetNode, listErr)
 		}
@@ -366,6 +430,10 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 	}
 	if s.invalidateControlStream != nil {
 		s.invalidateControlStream(agentID)
+	}
+	if retainHA {
+		s.logActivity(ctx, "revoke_fleet_node", fmt.Sprintf("Revoked fleet node '%s' (id=%d); HA owner %d retained", agentName, agentID, cleanupOwnerID))
+		return nil
 	}
 	if s.removeTelemetry != nil {
 		// Revocation has committed, so a canceled request must not leave these
@@ -391,23 +459,28 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Device/route locks precede the final node update. No node row lock is
 		// held while waiting for an admitted, possibly context-ignoring call.
-		if err := s.store.LockDevicesForFleetNodeRevocation(ctx, agentID, orgID); err != nil {
+		if err := s.store.LockDevicesForFleetNodeRevocation(ctx, cleanupOwnerID, orgID); err != nil {
 			return logInternal("lock fleet node devices for cleanup", clientErrRevokeFleetNode, err)
 		}
-		if _, err := s.store.UnpairDevicesForFleetNodeRevocation(ctx, agentID, orgID); err != nil {
+		if _, err := s.store.UnpairDevicesForFleetNodeRevocation(ctx, cleanupOwnerID, orgID); err != nil {
 			return logInternal("unpair fleet node devices", clientErrRevokeFleetNode, err)
 		}
-		if _, err := s.store.OfflineDevicesForFleetNodeRevocation(ctx, agentID, orgID); err != nil {
+		if _, err := s.store.OfflineDevicesForFleetNodeRevocation(ctx, cleanupOwnerID, orgID); err != nil {
 			return logInternal("offline fleet node devices", clientErrRevokeFleetNode, err)
 		}
-		if _, err := s.store.DeleteMinerCredentialsForFleetNode(ctx, agentID, orgID); err != nil {
+		if _, err := s.store.DeleteMinerCredentialsForFleetNode(ctx, cleanupOwnerID, orgID); err != nil {
 			return logInternal("delete miner credentials for fleet node", clientErrRevokeFleetNode, err)
 		}
-		if _, err := s.store.DeletePairingsForFleetNode(ctx, agentID, orgID); err != nil {
+		if _, err := s.store.DeletePairingsForFleetNode(ctx, cleanupOwnerID, orgID); err != nil {
 			return logInternal("delete pairings for fleet node", clientErrRevokeFleetNode, err)
 		}
-		if _, err := s.store.SoftDeleteFleetNode(ctx, agentID, orgID, time.Now().UTC()); err != nil {
+		if _, err := s.store.SoftDeleteFleetNode(ctx, cleanupOwnerID, orgID, time.Now().UTC()); err != nil {
 			return logInternal("soft delete fleet node", clientErrRevokeFleetNode, err)
+		}
+		if cleanupOwnerID != agentID {
+			if _, err := s.store.SoftDeleteFleetNode(ctx, agentID, orgID, time.Now().UTC()); err != nil {
+				return err
+			}
 		}
 		return nil
 	}); err != nil {

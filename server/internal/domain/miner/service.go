@@ -56,7 +56,7 @@ type Service struct {
 	pluginManager  PluginManager
 
 	// commandSender, when set, routes commands for fleet-node-paired devices over the
-	// ControlStream; nil disables routing (every device resolves to a direct PluginMiner).
+	// ControlStream; nil makes remotely assigned devices unavailable.
 	commandSender remotenode.CommandSender
 	// nodeLimiter paces commands per fleet node so a large batch can't oversubscribe
 	// a node. Shared across all remote-node miners (keyed by fleet_node id).
@@ -303,15 +303,28 @@ func (s *Service) encryptTransientCredentials(credentials sdk.UsernamePassword) 
 }
 
 // tryFleetNodeMiner returns a remote-node Miner if the device is paired to an active
-// fleet node. ok=false (nil error) means not fleet-node paired (or routing disabled),
-// so the caller dials directly.
+// fleet node. A retained assignment without a live route must never dial directly.
 func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceIdentifier) (interfaces.Miner, bool, error) {
 	if s.commandSender == nil {
+		assigned, err := s.GetQueries(ctx).HasFleetNodeAssignmentByDeviceIdentifier(ctx, string(deviceID))
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to resolve fleet node assignment: %w", err)
+		}
+		if assigned {
+			return nil, false, fleeterror.NewUnavailableErrorf("fleet node command routing is unavailable")
+		}
 		return nil, false, nil
 	}
 	telemetryRoute, err := s.GetQueries(ctx).GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx, string(deviceID))
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			assigned, assignmentErr := s.GetQueries(ctx).HasFleetNodeAssignmentByDeviceIdentifier(ctx, string(deviceID))
+			if assignmentErr != nil {
+				return nil, false, fmt.Errorf("failed to resolve fleet node assignment: %w", assignmentErr)
+			}
+			if assigned {
+				return nil, false, fleeterror.NewUnavailableErrorf("fleet node has no available route")
+			}
 			return nil, false, nil
 		}
 		return nil, false, fmt.Errorf("failed to resolve fleet node telemetry route: %w", err)

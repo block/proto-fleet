@@ -32,7 +32,10 @@ enum FleetNodeEnrollmentStatus {
     FLEET_NODE_ENROLLMENT_STATUS_REVOKED                = 4;
 }
 
-message CreateEnrollmentCodeRequest {}
+message CreateEnrollmentCodeRequest {
+    // Enroll an unused node as a standby for this node's stable device owner.
+    optional int64 standby_for_node_id = 1 [(buf.validate.field).int64.gt = 0];
+}
 
 message CreateEnrollmentCodeResponse {
     // Plaintext code. Returned exactly once and never re-fetchable.
@@ -75,6 +78,15 @@ message FleetNodeSummary {
     string version = 14;
     // Username of the operator who confirmed enrollment, empty for older records.
     string enrolled_by = 15;
+    // Server-derived eligibility for the standby enrollment selector.
+    bool standby_enrollment_eligible = 16;
+    string standby_enrollment_unavailable_reason = 17;
+    optional int64 standby_for_node_id = 18;
+    string standby_for_node_name = 19;
+    // Empty for standalone nodes; active, standby, preparing, unavailable, failed.
+    string ha_role = 20;
+    string ha_status_reason = 21;
+    optional int64 ha_owner_node_id = 22;
 }
 
 message ConfirmFleetNodeRequest {

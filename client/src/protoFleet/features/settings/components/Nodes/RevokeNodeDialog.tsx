@@ -12,6 +12,9 @@ interface RevokeNodeDialogProps {
   onConfirm: () => void;
   onDismiss: () => void;
   isSubmitting: boolean;
+  haRole?: string;
+  isHaMember?: boolean;
+  hasOtherMembers?: boolean;
 }
 
 const RevokeNodeDialog = ({
@@ -23,6 +26,9 @@ const RevokeNodeDialog = ({
   onConfirm,
   onDismiss,
   isSubmitting,
+  haRole,
+  isHaMember = false,
+  hasOtherMembers = false,
 }: RevokeNodeDialogProps) => {
   const countsByHardware = new Map<string, { label: string; count: number }>();
   for (const device of affectedDevices) {
@@ -36,6 +42,8 @@ const RevokeNodeDialog = ({
   const groupedHardware = [...countsByHardware].sort(([, first], [, second]) =>
     first.label.localeCompare(second.label),
   );
+
+  const retainsPairings = isHaMember && hasOtherMembers;
 
   return (
     <Dialog
@@ -64,9 +72,23 @@ const RevokeNodeDialog = ({
       ]}
     >
       <div className="text-300 text-text-primary-70">
-        Are you sure you want to revoke "{nodeName}"? The node immediately loses access to Fleet, and its miner pairings
-        and stored miner credentials are removed. Its miners keep running, but another node will need to discover and
-        pair them again. This action cannot be undone.
+        Are you sure you want to revoke "{nodeName}"? The node immediately loses access to Fleet.
+        {retainsPairings ? (
+          <>
+            {" "}
+            Its shared miner pairings and stored miner credentials are retained while another member remains.
+            {haRole === "active"
+              ? " Any ready standby can take over after the active lease expires."
+              : " This removes this node's standby protection."}
+          </>
+        ) : (
+          <>
+            {" "}
+            {isHaMember ? "This is the final member. " : ""}Its miner pairings and stored miner credentials are removed.
+            Its miners keep running, but another node will need to discover and pair them again.
+          </>
+        )}{" "}
+        This action cannot be undone.
       </div>
       {isLoadingImpact ? <div className="mt-3 text-300">Loading affected miners…</div> : null}
       {impactError ? (
@@ -74,7 +96,7 @@ const RevokeNodeDialog = ({
           {impactError}
         </div>
       ) : null}
-      {!isLoadingImpact && !impactError ? (
+      {!isLoadingImpact && !impactError && !retainsPairings ? (
         groupedHardware.length > 0 ? (
           <ul className="mt-3 max-h-32 list-disc overflow-y-auto pl-5 text-300">
             {groupedHardware.map(([key, { label, count }]) => {

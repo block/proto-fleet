@@ -28,6 +28,13 @@ const node: FleetNodeItem = {
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: true,
   pairedDeviceCount: 12,
+  standbyEnrollmentEligible: false,
+  standbyEnrollmentUnavailableReason: "",
+  standbyForNodeId: null,
+  standbyForNodeName: "",
+  haRole: "",
+  haStatusReason: "",
+  haOwnerNodeId: null,
   createdAt: new Date("2026-07-09T12:00:00Z"),
   lastSeenAt: new Date(),
   ipAddresses: ["192.168.1.7", "fd00::7"],
@@ -73,6 +80,24 @@ describe("NodeDetailsModal", () => {
       expect(screen.getByRole("button", { name: "Find miners" })).toBeDisabled();
     },
   );
+
+  it("shows standby relationship without duplicating shared miner counts or enabling discovery", () => {
+    show({
+      haRole: "standby",
+      haOwnerNodeId: "1",
+      standbyForNodeId: "1",
+      standbyForNodeName: "primary",
+      pairedDeviceCount: 12,
+    });
+    expect(screen.getByText("primary")).toBeInTheDocument();
+    expect(screen.queryByText("12")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Find miners" })).toBeDisabled();
+  });
+
+  it("shows the server-provided HA status reason", async () => {
+    show({ haRole: "unavailable", haOwnerNodeId: "1", haStatusReason: "Waiting for credential transfer" });
+    await waitFor(() => expect(screen.getByText("Waiting for credential transfer")).toBeVisible());
+  });
 
   it("copies the node id and confirms with a toast", async () => {
     show();

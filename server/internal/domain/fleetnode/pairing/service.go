@@ -71,6 +71,7 @@ type TelemetryScheduler interface {
 }
 
 type Service struct {
+	haOwnerResolver func(context.Context, int64, int64) error
 	store           Store
 	enrollmentStore enrollment.AgentStore
 	transactor      stores.Transactor
@@ -84,6 +85,11 @@ type Service struct {
 
 	invalidateMiner    func(context.Context, int64)
 	rigConfigReapplier func(context.Context, int64, int64, []string)
+}
+
+func (s *Service) WithHAOwnerResolver(resolve func(context.Context, int64, int64) error) *Service {
+	s.haOwnerResolver = resolve
+	return s
 }
 
 func NewService(store Store, enrollmentStore enrollment.AgentStore, transactor stores.Transactor) *Service {
@@ -192,7 +198,7 @@ func (s *Service) lockFleetNodeForPairing(ctx context.Context, fleetNodeID, orgI
 		}
 		return logInternal("lock fleet node", clientErrLookupFleetNodeForPairing, lockErr)
 	}
-	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
+	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed && (s.haOwnerResolver == nil || s.haOwnerResolver(ctx, fleetNodeID, orgID) != nil) {
 		return fleeterror.NewFailedPreconditionError("fleet node is not confirmed; cannot pair until enrollment completes")
 	}
 	return nil
@@ -206,7 +212,7 @@ func (s *Service) lockFleetNodeIdentityForPairing(ctx context.Context, fleetNode
 		}
 		return logInternal("lock fleet node identity", clientErrLookupFleetNodeForPairing, err)
 	}
-	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
+	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed && (s.haOwnerResolver == nil || s.haOwnerResolver(ctx, fleetNodeID, orgID) != nil) {
 		return fleeterror.NewFailedPreconditionError("fleet node is not confirmed; cannot pair until enrollment completes")
 	}
 	return nil

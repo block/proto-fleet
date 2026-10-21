@@ -523,7 +523,7 @@ JOIN discovered_device dd ON d.discovered_device_id = dd.id
 JOIN device_pairing     dp ON d.id = dp.device_id
 LEFT JOIN device_status ds ON d.id = ds.device_id
 LEFT JOIN fleet_node_device fnd ON fnd.device_id = d.id AND fnd.org_id = d.org_id
-LEFT JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+LEFT JOIN fleet_node_effective_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN LATERAL (
     SELECT CASE
         WHEN fn.id IS NOT NULL

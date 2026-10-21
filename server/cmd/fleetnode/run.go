@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"connectrpc.com/connect"
@@ -56,6 +57,13 @@ type RunCmd struct {
 	pairMu  sync.Mutex `kong:"-"` // serializes pair commands; held until every pair worker exits (see handlePairCommand).
 
 	controlSessionCancel context.CancelCauseFunc `kong:"-"`
+	haDeviceWork         atomic.Int64            `kong:"-"`
+	haInstanceOnce       sync.Once               `kong:"-"`
+	haInstanceID         string                  `kong:"-"`
+	haInstanceErr        error                   `kong:"-"`
+	credentials          *credentialCodec        `kong:"-"`
+	haStatePath          string                  `kong:"-"`
+	haState              *bootstrap.State        `kong:"-"`
 
 	scannerOnce                sync.Once      `kong:"-"`
 	deviceHandlesOnce          sync.Once      `kong:"-"`
@@ -206,6 +214,8 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 	if err := bootstrap.ValidateServerURL(st.ServerURL, st.AllowInsecureTransport); err != nil {
 		return operatorActionRequired(err)
 	}
+	r.haStatePath = path
+	r.haState = st
 	r.firmwareTempRoot = filepath.Join(c.StateDir, firmwareArtifactTempDirName)
 	if err := prepareFirmwareArtifactTempRoot(r.firmwareTempRoot); err != nil {
 		return operatorActionRequired(fmt.Errorf("prepare firmware temp dir: %w", err))
@@ -221,6 +231,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		if credentialErr != nil {
 			return operatorActionRequired(fmt.Errorf("prepare credential key: %w", credentialErr))
 		}
+		r.credentials = credentials
 		cleanup, bootstrapErr := r.startPluginComponents(ctx, resolvedPluginsDir, st.FleetNodeID, credentials)
 		if bootstrapErr != nil {
 			return fmt.Errorf("bootstrap plugins: %w", bootstrapErr)
@@ -365,7 +376,9 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *bootstrap.State, path s
 	logger.Info("refreshing session", "fleet_node_id", st.FleetNodeID, "session_expires_at", st.SessionExpiresAt.Format(time.RFC3339))
 	// Handshake on a shallow copy so the 2-RPC call doesn't hold stateMu and
 	// stall the control loop's token reads.
+	r.stateMu.Lock()
 	next := *st
+	r.stateMu.Unlock()
 	if err := bootstrap.Refresh(ctx, &next); err != nil {
 		if errors.Is(err, bootstrap.ErrBeginAuthRejected) || connect.CodeOf(err) != connect.CodeUnauthenticated {
 			return err
@@ -382,12 +395,13 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *bootstrap.State, path s
 	// tokenSource goroutine that the control loop will add later.
 	snapshot := *st
 	cancelControlSession := r.controlSessionCancel
+	saveErr := bootstrap.SaveState(path, &snapshot)
 	r.stateMu.Unlock()
 	if cancelControlSession != nil {
 		cancelControlSession(errControlSessionRotated)
 	}
-	if err := bootstrap.SaveState(path, &snapshot); err != nil {
-		return fmt.Errorf("save state after refresh: %w", err)
+	if saveErr != nil {
+		return fmt.Errorf("save state after refresh: %w", saveErr)
 	}
 	logger.Info("session refreshed", "fleet_node_id", st.FleetNodeID, "session_expires_at", st.SessionExpiresAt.Format(time.RFC3339))
 	return nil

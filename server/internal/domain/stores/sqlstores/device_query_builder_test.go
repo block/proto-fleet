@@ -26,7 +26,7 @@ func TestBuildDeviceIdentifiersByOrgWithFilterQuerySQL_NumericRanges_UsesTelemet
 	assert.True(t, strings.HasPrefix(query, "WITH latest_metrics AS"), "numeric filters should prepend the telemetry CTE")
 	assert.Contains(t, query, minerTelemetryInnerJoin)
 	assert.Contains(t, query, "latest_metrics.hash_rate_hs / 1e12 >=")
-	assert.Contains(t, query, "LEFT JOIN fleet_node_live assigned_fleet_node")
+	assert.Contains(t, query, "LEFT JOIN fleet_node_effective_live assigned_fleet_node")
 	assert.Contains(t, query, "effective_status.status IS NULL OR effective_status.status != 'OFFLINE'")
 	require.Len(t, args, 3)
 	assert.EqualValues(t, 1, args[0])
@@ -84,7 +84,7 @@ func TestBuildDeviceIdentifiersByOrgWithFilterQuerySQL_JoinsFleetNodeForEffectiv
 		statusValues: []string{"OFFLINE"},
 	})
 
-	assert.Contains(t, query, "LEFT JOIN fleet_node_live assigned_fleet_node")
+	assert.Contains(t, query, "LEFT JOIN fleet_node_effective_live assigned_fleet_node")
 	assert.Contains(t, query, "THEN 'OFFLINE'")
 }
 

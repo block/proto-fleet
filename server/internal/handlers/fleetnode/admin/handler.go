@@ -15,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/ha"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
 )
@@ -26,6 +27,7 @@ type Handler struct {
 	pairing    *pairing.Service
 	discovery  *discovery.Service
 	registry   *control.Registry
+	ha         *ha.Service
 }
 
 var _ fleetnodeadminv1connect.FleetNodeAdminServiceHandler = &Handler{}
@@ -34,12 +36,14 @@ func NewHandler(enrollment *enrollment.Service, pairing *pairing.Service, discov
 	return &Handler{enrollment: enrollment, pairing: pairing, discovery: discoverySvc, registry: registry}
 }
 
-func (h *Handler) CreateEnrollmentCode(ctx context.Context, _ *connect.Request[pb.CreateEnrollmentCodeRequest]) (*connect.Response[pb.CreateEnrollmentCodeResponse], error) {
+func (h *Handler) WithHA(service *ha.Service) *Handler { h.ha = service; return h }
+
+func (h *Handler) CreateEnrollmentCode(ctx context.Context, req *connect.Request[pb.CreateEnrollmentCodeRequest]) (*connect.Response[pb.CreateEnrollmentCodeResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermFleetnodeManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	code, pendingEnrollmentID, expiresAt, err := h.enrollment.CreateCodeWithEnrollmentID(ctx, info.UserID, info.OrganizationID, 0)
+	code, pendingEnrollmentID, expiresAt, err := h.enrollment.CreateCodeForStandby(ctx, info.UserID, info.OrganizationID, 0, req.Msg.StandbyForNodeId)
 	if err != nil {
 		return nil, err
 	}
@@ -73,6 +77,10 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 		connected[fleetNodeID] = struct{}{}
 	}
 	resp := &pb.ListFleetNodesResponse{FleetNodes: make([]*pb.FleetNodeSummary, 0, len(fleetNodes))}
+	ownerNames := make(map[int64]string, len(fleetNodes))
+	for _, node := range fleetNodes {
+		ownerNames[node.ID] = node.Name
+	}
 	for _, n := range fleetNodes {
 		_, controlStreamConnected := connected[n.ID]
 		summary := &pb.FleetNodeSummary{
@@ -81,9 +89,35 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 			CommandProtocolUpgradeRecommended: h.registry.CommandProtocolUpgradeRecommended(n.ID),
 			ControlStreamConnected:            controlStreamConnected,
 		}
+		if h.ha != nil && includeAdministrativeDetails {
+			_, reason, haErr := h.ha.Eligible(ctx, n.ID, info.OrganizationID)
+			if haErr != nil {
+				return nil, haErr
+			}
+			summary.StandbyEnrollmentEligible = reason == ""
+			summary.StandbyEnrollmentUnavailableReason = reason
+			summary.StandbyForNodeId = n.StandbyOwnerNodeID
+			summary.StandbyForNodeName = n.StandbyOwnerName
+			membership, haErr := h.ha.Summary(ctx, n.ID, info.OrganizationID)
+			if haErr != nil {
+				return nil, haErr
+			}
+			summary.HaRole = membership.Role
+			summary.HaStatusReason = membership.Reason
+			if membership.OwnerNodeID != 0 {
+				summary.HaOwnerNodeId = &membership.OwnerNodeID
+				if n.ID != membership.OwnerNodeID {
+					summary.StandbyForNodeId = &membership.OwnerNodeID
+					summary.StandbyForNodeName = ownerNames[membership.OwnerNodeID]
+				}
+			}
+		}
 		if includeAdministrativeDetails {
 			summary.FleetNodeId = n.ID
 			summary.PairedDeviceCount = pairedCounts[n.ID]
+			if summary.HaOwnerNodeId != nil && n.ID != summary.GetHaOwnerNodeId() {
+				summary.PairedDeviceCount = 0
+			}
 			summary.Name = n.Name
 			summary.IpAddresses = n.IPAddresses
 			summary.Version = n.Version
@@ -142,7 +176,14 @@ func (h *Handler) PairDeviceToFleetNode(ctx context.Context, req *connect.Reques
 		return nil, err
 	}
 	assignedBy := info.UserID
-	if err := h.pairing.PairDevice(ctx, req.Msg.GetFleetNodeId(), req.Msg.GetDeviceId(), info.OrganizationID, &assignedBy); err != nil {
+	fleetNodeID := req.Msg.GetFleetNodeId()
+	if h.ha != nil {
+		fleetNodeID, err = h.ha.DispatchOwner(ctx, fleetNodeID, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := h.pairing.PairDevice(ctx, fleetNodeID, req.Msg.GetDeviceId(), info.OrganizationID, &assignedBy); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.PairDeviceToFleetNodeResponse{}), nil
@@ -166,6 +207,12 @@ func (h *Handler) ListFleetNodeDevices(ctx context.Context, req *connect.Request
 	}
 	var pairs []pairing.FleetNodeDevice
 	if fleetNodeID := req.Msg.GetFleetNodeId(); fleetNodeID > 0 {
+		if h.ha != nil {
+			fleetNodeID, err = h.ha.CanonicalOwner(ctx, fleetNodeID, info.OrganizationID)
+			if err != nil {
+				return nil, err
+			}
+		}
 		pairs, err = h.pairing.ListDevicesForFleetNode(ctx, fleetNodeID, info.OrganizationID)
 	} else {
 		pairs, err = h.pairing.ListPairs(ctx, info.OrganizationID)
@@ -209,11 +256,21 @@ func (h *Handler) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[
 		return fleeterror.NewInvalidArgumentError("request is required")
 	}
 
+	if h.ha != nil {
+		fleetNodeID, err = h.ha.DispatchOwner(ctx, fleetNodeID, info.OrganizationID)
+		if err != nil {
+			return err
+		}
+	}
 	node, err := h.enrollment.GetFleetNodeByID(ctx, fleetNodeID, info.OrganizationID)
 	if err != nil {
 		return err
 	}
-	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
+	if h.ha != nil {
+		if _, err := h.ha.Resolve(ctx, fleetNodeID, info.OrganizationID); err != nil {
+			return err
+		}
+	} else if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
 		return fleeterror.NewFailedPreconditionError("fleet node is not CONFIRMED")
 	}
 

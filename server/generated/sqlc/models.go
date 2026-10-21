@@ -1685,6 +1685,76 @@ type FleetNodeDevice struct {
 	AssignedBy  sql.NullInt64
 }
 
+type FleetNodeEffectiveLive struct {
+	ID               int64
+	OrgID            int64
+	Name             string
+	IdentityPubkey   []byte
+	EncryptionPubkey []byte
+	EnrollmentStatus interface{}
+	LastSeenAt       interface{}
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
+	DeletedAt        sql.NullTime
+}
+
+type FleetNodeEffectiveRoute struct {
+	OwnerNodeID      int64
+	OrgID            int64
+	PhysicalNodeID   interface{}
+	LeaseEpoch       int64
+	InstanceID       string
+	ControlSessionID string
+	EncryptionPubkey []byte
+	LastSeenAt       interface{}
+	LeaseExpiresAt   sql.NullTime
+	Acknowledged     bool
+}
+
+type FleetNodeHaConnection struct {
+	NodeID                   int64
+	OrgID                    int64
+	HaCapable                bool
+	InstanceID               string
+	ControlSessionID         string
+	CredentialKeyFingerprint []byte
+	SeenAt                   time.Time
+}
+
+type FleetNodeHaGroup struct {
+	OwnerNodeID              int64
+	OrgID                    int64
+	CredentialKeyFingerprint []byte
+	ActiveNodeID             int64
+	InstanceID               string
+	ControlSessionID         string
+	LeaseEpoch               int64
+	LeaseExpiresAt           time.Time
+	Acknowledged             bool
+}
+
+type FleetNodeHaMember struct {
+	NodeID       int64
+	OrgID        int64
+	OwnerNodeID  int64
+	Ready        bool
+	StatusReason string
+	JoinedAt     time.Time
+	RevokedAt    sql.NullTime
+}
+
+type FleetNodeHaTransfer struct {
+	RecipientNodeID int64
+	OperationID     string
+	OwnerNodeID     int64
+	SourceNodeID    int64
+	ExpiresAt       time.Time
+	Attempts        int32
+	NextAttemptAt   time.Time
+	Failed          bool
+	EncryptedKey    []byte
+}
+
 type FleetNodeHeartbeat struct {
 	FleetNodeID int64
 	OrgID       int64
@@ -2223,16 +2293,17 @@ type OrganizationInvitation struct {
 }
 
 type PendingEnrollment struct {
-	ID          int64
-	CodeHash    string
-	OrgID       int64
-	CreatedBy   int64
-	FleetNodeID sql.NullInt64
-	Status      string
-	ExpiresAt   time.Time
-	ConsumedAt  sql.NullTime
-	CreatedAt   time.Time
-	ConfirmedBy sql.NullInt64
+	ID                 int64
+	CodeHash           string
+	OrgID              int64
+	CreatedBy          int64
+	FleetNodeID        sql.NullInt64
+	Status             string
+	ExpiresAt          time.Time
+	ConsumedAt         sql.NullTime
+	CreatedAt          time.Time
+	ConfirmedBy        sql.NullInt64
+	StandbyOwnerNodeID sql.NullInt64
 }
 
 type Permission struct {

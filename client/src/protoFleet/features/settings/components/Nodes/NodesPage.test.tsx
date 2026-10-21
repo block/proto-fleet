@@ -162,6 +162,13 @@ const confirmedNode: FleetNodeItem = {
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: true,
   pairedDeviceCount: 0,
+  standbyEnrollmentEligible: false,
+  standbyEnrollmentUnavailableReason: "",
+  standbyForNodeId: null,
+  standbyForNodeName: "",
+  haRole: "",
+  haStatusReason: "",
+  haOwnerNodeId: null,
   ipAddresses: [],
   version: "",
   enrolledBy: "",
@@ -209,6 +216,27 @@ describe("NodesPage", () => {
     expect(screen.queryByRole("button", { name: "Set up a node" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Confirm enrollment" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
+  });
+
+  it("shows a standby relationship while counting shared miners only on the stable owner row", async () => {
+    listFleetNodesMock.mockResolvedValue([
+      { ...confirmedNode, haRole: "standby", haOwnerNodeId: "7", pairedDeviceCount: 25 },
+      {
+        ...confirmedNode,
+        fleetNodeId: "8",
+        name: "standby-node",
+        haRole: "active",
+        haOwnerNodeId: "7",
+        standbyForNodeId: "7",
+        standbyForNodeName: "node-01",
+        pairedDeviceCount: 25,
+      },
+    ]);
+    renderNodesPage();
+    expect(await screen.findByText("standby-node")).toBeInTheDocument();
+    // The active physical replacement still uses the original logical owner.
+    expect(screen.getByText("Device set: node-01")).toBeInTheDocument();
+    expect(screen.getAllByText("25")).toHaveLength(1);
   });
 
   it.each([

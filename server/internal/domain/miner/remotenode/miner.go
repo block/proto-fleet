@@ -372,6 +372,9 @@ func (m *Miner) controlCommandForMiner(commandID string, mc *gatewaypb.MinerComm
 }
 
 func mapSendCommandError(err error) error {
+	if control.IsCommandInterrupted(err) {
+		return err
+	}
 	notEnqueued := control.IsCommandNotEnqueued(err)
 	if errors.Is(err, control.ErrNoActiveStream) {
 		// Retryable, not permanent (Unavailable is not in the queue's permanent-fail
@@ -424,6 +427,12 @@ func ackToError(ack *gatewaypb.ControlAck) error {
 	}
 	if code == gatewaypb.AckCode_ACK_CODE_UNIMPLEMENTED || code == gatewaypb.AckCode_ACK_CODE_AGENT_INCAPABLE {
 		return fleeterror.NewUnimplementedErrorf("command not supported: %s", reason)
+	}
+	if code == gatewaypb.AckCode_ACK_CODE_HA_NOT_AUTHORIZED {
+		return devicewrite.NotDispatched(fleeterror.NewUnavailableErrorf("fleet node HA route changed before dispatch"))
+	}
+	if code == gatewaypb.AckCode_ACK_CODE_COMMAND_INTERRUPTED {
+		return control.CommandInterrupted(fleeterror.NewUnavailableErrorf("fleet node lost execution authority: %s", reason))
 	}
 	if code == gatewaypb.AckCode_ACK_CODE_BUSY {
 		// Retryable, not permanent: ResourceExhausted stays out of the permanent-fail
@@ -502,10 +511,11 @@ func dtoNodeEncryptedPayloadToProto(payload *dto.NodeEncryptedPayload) *gatewayp
 		return nil
 	}
 	return &gatewaypb.NodeEncryptedPayload{
-		Algorithm:       payload.Algorithm,
-		EphemeralPubkey: append([]byte(nil), payload.EphemeralPubkey...),
-		Nonce:           append([]byte(nil), payload.Nonce...),
-		Ciphertext:      append([]byte(nil), payload.Ciphertext...),
+		RecipientPublicKey: append([]byte(nil), payload.RecipientPublicKey...),
+		Algorithm:          payload.Algorithm,
+		EphemeralPubkey:    append([]byte(nil), payload.EphemeralPubkey...),
+		Nonce:              append([]byte(nil), payload.Nonce...),
+		Ciphertext:         append([]byte(nil), payload.Ciphertext...),
 	}
 }
 

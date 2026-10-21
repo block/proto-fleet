@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"sync"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
@@ -23,6 +24,7 @@ const (
 )
 
 type credentialCodec struct {
+	mu  sync.RWMutex
 	key []byte
 }
 
@@ -64,6 +66,8 @@ func (c *credentialCodec) Seal(bundle sdk.SecretBundle) (*gatewaypb.EncryptedCre
 		return nil, nil
 	}
 
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	switch kind := bundle.Kind.(type) {
 	case nil:
 		return nil, nil
@@ -96,6 +100,11 @@ func (c *credentialCodec) Open(encrypted *gatewaypb.EncryptedCredentials) (sdk.S
 	if encrypted == nil || (len(encrypted.GetUsername()) == 0 && len(encrypted.GetPassword()) == 0) {
 		return sdk.SecretBundle{}, nil
 	}
+	if c == nil {
+		return sdk.SecretBundle{}, credentialAuthError(fmt.Errorf("credential key is not configured"))
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	username, err := c.openValue("username", encrypted.GetUsername())
 	if err != nil {
 		return sdk.SecretBundle{}, err
@@ -176,4 +185,18 @@ func credentialAuthError(err error) error {
 
 func credentialAAD(label string) []byte {
 	return []byte(credentialBlobAAD + "/" + credentialPayloadVersion + "/" + label)
+}
+
+func (c *credentialCodec) keySnapshot() []byte {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return append([]byte(nil), c.key...)
+}
+func (c *credentialCodec) replaceKey(key []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.key = append([]byte(nil), key...)
 }

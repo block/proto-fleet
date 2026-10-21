@@ -1667,7 +1667,7 @@ LEFT JOIN device_status ON device.id = device_status.device_id`)
 		sb.WriteString(`
 LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = device.id
     AND fleet_node_assignment.org_id = device.org_id
-LEFT JOIN fleet_node_live assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
+LEFT JOIN fleet_node_effective_live assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
     AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
 LEFT JOIN LATERAL (SELECT ` + effectiveDeviceStatusExpr + ` AS status) effective_status ON TRUE`)
 	}
@@ -1751,7 +1751,7 @@ JOIN device_pairing dp ON d.id = dp.device_id
 LEFT JOIN device_status ON d.id = device_status.device_id
 LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = d.id
     AND fleet_node_assignment.org_id = d.org_id
-LEFT JOIN fleet_node_live assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
+LEFT JOIN fleet_node_effective_live assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
     AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
 LEFT JOIN LATERAL (SELECT `+effectiveDeviceStatusExpr+` AS status) effective_status ON TRUE
 -- Open actionable errors (severity 1-4; excludes UNSPECIFIED=0)

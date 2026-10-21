@@ -349,6 +349,10 @@ func (m *RemoteFleetNodeMiner) errorFromAck(ack *gatewaypb.ControlAck) error {
 		return fleeterror.NewUnimplementedError(msg)
 	case gatewaypb.AckCode_ACK_CODE_BAD_REQUEST:
 		return fleeterror.NewInvalidArgumentError(msg)
+	case gatewaypb.AckCode_ACK_CODE_HA_NOT_AUTHORIZED:
+		return fleeterror.NewUnavailableErrorf("fleet node authority changed: %s", msg)
+	case gatewaypb.AckCode_ACK_CODE_COMMAND_INTERRUPTED:
+		return control.CommandInterrupted(fleeterror.NewUnavailableErrorf("fleet node lost execution authority: %s", msg))
 	case gatewaypb.AckCode_ACK_CODE_BUSY:
 		return fleeterror.NewPlainError(
 			fmt.Sprintf("fleet node busy; retry shortly: %s", msg),

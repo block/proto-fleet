@@ -124,7 +124,9 @@ func supervisedTelemetryFetch(ctx context.Context, fetcher telemetryFetcher, req
 	fetchCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	outcomeCh := make(chan telemetryFetchOutcome, 1)
+	endWork := retainHADeviceWork(ctx)
 	go func() {
+		defer endWork()
 		result, err := fetcher.Fetch(fetchCtx, req)
 		outcomeCh <- telemetryFetchOutcome{result: result, err: err}
 	}()

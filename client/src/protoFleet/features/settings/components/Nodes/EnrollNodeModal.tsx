@@ -7,9 +7,11 @@ import { Alert, Copy, Success } from "@/shared/assets/icons";
 import Button, { variants } from "@/shared/components/Button";
 import { groupVariants } from "@/shared/components/ButtonGroup";
 import Callout from "@/shared/components/Callout";
+import Checkbox from "@/shared/components/Checkbox";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
 import Modal from "@/shared/components/Modal";
 import ProgressCircular from "@/shared/components/ProgressCircular";
+import Select from "@/shared/components/Select";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { formatTimestamp } from "@/shared/utils/formatTimestamp";
 import { copyToClipboard } from "@/shared/utils/utility";
@@ -24,7 +26,7 @@ interface EnrollNodeModalProps {
   onUpdated: () => void;
 }
 
-type Step = "code" | "confirm" | "apiKey";
+type Step = "options" | "code" | "confirm" | "apiKey";
 
 const CopyableValue = ({ value, copyLabel }: { value: string; copyLabel: string }) => {
   const handleCopy = useCallback(() => {
@@ -49,7 +51,12 @@ const CopyableValue = ({ value, copyLabel }: { value: string; copyLabel: string 
 
 const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: EnrollNodeModalProps) => {
   const { listFleetNodes, createEnrollmentCode, confirmFleetNode, revokeFleetNode } = useFleetNodes();
-  const [step, setStep] = useState<Step>(open && resumeNode ? "confirm" : "code");
+  const [step, setStep] = useState<Step>(open && resumeNode ? "confirm" : "options");
+  const [enrollAsStandby, setEnrollAsStandby] = useState(false);
+  const [standbyForNodeId, setStandbyForNodeId] = useState("");
+  const [eligibleTargets, setEligibleTargets] = useState<FleetNodeItem[]>([]);
+  const [unavailableReasons, setUnavailableReasons] = useState<string[]>([]);
+  const [targetsLoading, setTargetsLoading] = useState(true);
   const [enrollmentCode, setEnrollmentCode] = useState<EnrollmentCode | null>(null);
   const [foundNode, setFoundNode] = useState<FleetNodeItem | null>(open && resumeNode ? resumeNode : null);
   const [apiKey, setApiKey] = useState("");
@@ -67,19 +74,55 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
   }, []);
 
   useEffect(() => {
-    if (!open || resumeNode || codeRequestedRef.current) return;
+    if (!open || resumeNode) return;
+    let cancelled = false;
+    void listFleetNodes()
+      .then((nodes) => {
+        if (!cancelled) {
+          setEligibleTargets(nodes.filter((node) => node.standbyEnrollmentEligible));
+          setUnavailableReasons([
+            ...new Set(
+              nodes
+                .filter((node) => !node.standbyEnrollmentEligible)
+                .map((node) => node.standbyEnrollmentUnavailableReason)
+                .filter(Boolean),
+            ),
+          ]);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) setErrorMsg(error instanceof Error ? error.message : "Failed to load standby targets.");
+      })
+      .finally(() => {
+        if (!cancelled) setTargetsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, resumeNode, listFleetNodes]);
+
+  const handleContinue = () => {
+    if (
+      codeRequestedRef.current ||
+      (enrollAsStandby && !eligibleTargets.some((node) => node.fleetNodeId === standbyForNodeId))
+    )
+      return;
     codeRequestedRef.current = true;
+    setErrorMsg("");
+    setStep("code");
     void (async () => {
       try {
-        const created = await createEnrollmentCode();
+        const created = enrollAsStandby ? await createEnrollmentCode(standbyForNodeId) : await createEnrollmentCode();
         if (!isMountedRef.current) return;
         setEnrollmentCode(created);
       } catch (error) {
         if (!isMountedRef.current) return;
+        codeRequestedRef.current = false;
+        setStep("options");
         setErrorMsg(error instanceof Error ? error.message : "Failed to create an enrollment code.");
       }
     })();
-  }, [open, resumeNode, createEnrollmentCode]);
+  };
 
   useEffect(() => {
     if (!open || step !== "code" || !enrollmentCode) return;
@@ -192,6 +235,50 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
   const fleetNodeEnrollCommand = buildFleetNodeEnrollCommand(window.location);
   const includesInsecureTransportFlag = shouldAppendInsecureTransportFlag(window.location);
 
+  if (step === "options") {
+    return (
+      <Modal
+        open={open}
+        onDismiss={handleDismiss}
+        title="Enroll a node"
+        divider={false}
+        buttons={[
+          {
+            text: "Continue",
+            onClick: handleContinue,
+            variant: variants.primary,
+            disabled: enrollAsStandby && !eligibleTargets.some((node) => node.fleetNodeId === standbyForNodeId),
+            dismissModalOnClick: false,
+          },
+        ]}
+      >
+        <div className="flex flex-col gap-4">
+          {errorMsg ? <Callout intent="danger" prefixIcon={<Alert />} title={errorMsg} /> : null}
+          <label className="flex items-center gap-3 text-300">
+            <Checkbox
+              checked={enrollAsStandby}
+              onChange={(event) => setEnrollAsStandby(event.target.checked)}
+              ariaLabel="Enroll as a standby"
+            />
+            Enroll as a standby
+          </label>
+          {enrollAsStandby ? (
+            <Select
+              id="standby-for-node"
+              label="Standby for"
+              options={eligibleTargets.map((node) => ({ value: node.fleetNodeId, label: node.name }))}
+              value={standbyForNodeId}
+              onChange={setStandbyForNodeId}
+              disabled={targetsLoading}
+              placeholder={targetsLoading ? "Loading nodes…" : "Select a node"}
+              emptyMessage={`No nodes are eligible for standby enrollment.${unavailableReasons.length ? ` ${unavailableReasons.join(". ")}` : ""}`}
+            />
+          ) : null}
+        </div>
+      </Modal>
+    );
+  }
+
   if (step === "code") {
     return (
       <Modal open={open} onDismiss={handleDismiss} title="Set up a node" divider={false}>
@@ -274,6 +361,9 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
         {errorMsg ? <Callout className="mb-6" intent="danger" prefixIcon={<Alert />} title={errorMsg} /> : null}
 
         <div className="mb-6">A node registered and is awaiting confirmation.</div>
+        {foundNode?.standbyForNodeId ? (
+          <div className="mb-6 text-300">Standby for {foundNode.standbyForNodeName || foundNode.standbyForNodeId}</div>
+        ) : null}
 
         <div className="mb-6 flex flex-col gap-4">
           <div>

@@ -34,8 +34,10 @@ command that reused its command_id.
 package control
 
 import (
+	"context"
 	"errors"
 	"sync"
+	"time"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
@@ -175,6 +177,9 @@ type artifactExpectation struct {
 // connection is the server's view of one agent ControlStream. It can hold many
 // concurrent in-flight commands keyed by command_id. Fields guarded by Registry.mu.
 type connection struct {
+	haHello                   *gatewaypb.ControlHello
+	haSessionID               string
+	orgID                     int64
 	outgoing                  chan *gatewaypb.ControlCommand // commands to the ControlStream handler (buffered, never closed)
 	done                      chan struct{}                  // closed once on evict/Unregister; wakes the handler and blocked senders
 	cmds                      map[string]*inflightCommand    // in-flight commands by command_id
@@ -185,7 +190,10 @@ type connection struct {
 // channel determines its shape: report-bearing commands carry `events` (plus
 // scope/reported); ack-only commands carry `ack`.
 type inflightCommand struct {
-	id string
+	expectedSession  string
+	expectedInstance string
+	expiresAt        time.Time
+	id               string
 
 	// report-bearing (events != nil): discovery/pairing batches + terminal ack.
 	kind       ReportKind        // which gateway report RPC may admit reports for this command
@@ -211,6 +219,8 @@ type inflightCommand struct {
 func (c *inflightCommand) reportBearing() bool { return c.events != nil }
 
 type Registry struct {
+	haResolve                func(context.Context, int64) (RouteBinding, error)
+	haOwners                 map[int64]bool
 	mu                       sync.Mutex
 	conns                    map[int64]*connection
 	sessionFences            map[int64]sessionFence
@@ -315,6 +325,9 @@ func (r *Registry) addCmd(fleetNodeID int64, minimumCommandProtocolVersion gatew
 	conn, ok := r.conns[fleetNodeID]
 	if !ok {
 		return nil, nil, ErrNoActiveStream
+	}
+	if (c.expectedSession != "" && c.expectedSession != conn.haSessionID) || (c.expectedInstance != "" && c.expectedInstance != conn.haHello.GetInstanceId()) || (!c.expiresAt.IsZero() && !time.Now().Before(c.expiresAt)) {
+		return nil, nil, fleeterror.NewUnavailableErrorf("fleet node route changed before enqueue")
 	}
 	if conn.maxCommandProtocolVersion < minimumCommandProtocolVersion {
 		return nil, nil, fleeterror.NewFailedPreconditionErrorf(

@@ -37,7 +37,19 @@ func (r *Registry) SendCommandWithArtifactResults(ctx context.Context, fleetNode
 	ctx, span := startCommandDispatchSpan(ctx, fleetNodeID, "", cmd)
 	defer func() { finishCommandDispatchSpan(span, resultErr) }()
 
+	route, bound, routeErr := r.resolveCommand(ctx, fleetNodeID, cmd)
+	if routeErr != nil {
+		return nil, nil, commandNotEnqueued(routeErr)
+	}
+	cmd = bound
+	fleetNodeID = route.PhysicalNodeID
+	if !route.ExpiresAt.IsZero() {
+		var cancel context.CancelFunc
+		ctx, cancel = r.leaseContext(ctx, route)
+		defer cancel()
+	}
 	c := &inflightCommand{
+		expectedSession: route.ControlSessionID, expectedInstance: route.InstanceID, expiresAt: route.ExpiresAt,
 		id:        cmd.GetCommandId(),
 		ack:       make(chan *gatewaypb.ControlAck, 1), // never closed
 		artifacts: cloneArtifactExpectations(artifacts),
@@ -57,24 +69,26 @@ func (r *Registry) SendCommandWithArtifactResults(ctx context.Context, fleetNode
 		return nil, nil, commandNotEnqueued(err)
 	}
 
+	var waitErr error
 	select {
 	case ack := <-c.ack:
 		recordCommandAck(span, ack)
 		refs, resultErr := r.completedUploadRefs(ack, c)
 		return ack, refs, resultErr
 	case <-c.done:
-		// teardown raced the ack; drain a late ack before giving up so select
-		// randomness can't drop a terminal result that landed with the teardown.
-		select {
-		case ack := <-c.ack:
-			recordCommandAck(span, ack)
-			refs, resultErr := r.completedUploadRefs(ack, c)
-			return ack, refs, resultErr
-		default:
-			return nil, nil, ErrNoActiveStream
-		}
+		waitErr = ErrNoActiveStream
 	case <-ctx.Done():
-		return nil, nil, fleeterror.NewInternalErrorf("await ack: %w", ctx.Err())
+		waitErr = fleeterror.NewInternalErrorf("await ack: %w", ctx.Err())
+	}
+	// Disconnect and lease cancellation can race an already accepted result.
+	// Preserve that terminal result before completing the interruption.
+	select {
+	case ack := <-c.ack:
+		recordCommandAck(span, ack)
+		refs, resultErr := r.completedUploadRefs(ack, c)
+		return ack, refs, resultErr
+	default:
+		return nil, nil, r.interrupted(route, waitErr)
 	}
 }
 

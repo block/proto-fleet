@@ -1,6 +1,7 @@
 package gateway_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -30,6 +31,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/ha"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
@@ -425,4 +427,46 @@ func (a agentSubjectInjector) WrapStreamingHandler(next connect.StreamingHandler
 	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
 		return next(authn.SetInfo(ctx, a.subject), conn)
 	}
+}
+
+// The standalone scope is consumed by the node authority before ordinary V1
+// work: a granted epoch-zero response is deliberately invalid on the node.
+func TestControlStreamHAStandaloneScopeAndCommand(t *testing.T) {
+	h := newControlHarness(t)
+	h.handler.WithHA(ha.NewService(h.db, h.registry))
+	client := startControlServer(t, h)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	stream := client.ControlStream(ctx)
+	defer func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() }()
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, HaCapable: true, InstanceId: "process", CredentialKeyFingerprint: bytes.Repeat([]byte{1}, 32)}}}))
+	accepted, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotEmpty(t, accepted.GetAccepted().GetControlSessionId())
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_HaLease{HaLease: &pb.HALeaseRequest{RequestId: "first"}}}))
+	reply, err := stream.Receive()
+	require.NoError(t, err)
+	lease := reply.GetHaLease()
+	require.NotNil(t, lease)
+	require.Equal(t, "first", lease.GetRequestId())
+	require.Zero(t, lease.GetOwnerNodeId())
+	require.Zero(t, lease.GetLeaseEpoch())
+	require.False(t, lease.GetGranted())
+	require.False(t, lease.GetPreparing())
+	require.Equal(t, h.fleetNodeID, lease.GetActiveNodeId())
+	require.Equal(t, int64(1), lease.GetOrgId())
+	require.Equal(t, "process", lease.GetInstanceId())
+	require.Equal(t, accepted.GetAccepted().GetControlSessionId(), lease.GetControlSessionId())
+	result := make(chan error, 1)
+	go func() {
+		_, err := h.registry.SendCommand(ctx, h.fleetNodeID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "ordinary"})
+		result <- err
+	}()
+	command, err := stream.Receive()
+	require.NoError(t, err)
+	require.Equal(t, "ordinary", command.GetCommand().GetCommandId())
+	require.Zero(t, command.GetCommand().GetHaOwnerNodeId())
+	require.Zero(t, command.GetCommand().GetHaLeaseEpoch())
+	require.NoError(t, stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: &pb.ControlAck{CommandId: "ordinary", Succeeded: true, Code: pb.AckCode_ACK_CODE_OK}}}))
+	require.NoError(t, <-result)
 }

@@ -1290,6 +1290,48 @@ func TestFleetNodeOutageDerivesOfflineStatusAndRecovers(t *testing.T) {
 	require.False(t, rows[0].FleetNodeUnavailable)
 	require.True(t, rows[0].DeviceStatus.Valid)
 	require.Equal(t, sqlc.DeviceStatusEnumACTIVE, rows[0].DeviceStatus.DeviceStatusEnum)
+
+	// A replacement's heartbeat and lease now determine the same device's
+	// availability, even after its original physical owner is revoked.
+	var standbyID int64
+	require.NoError(t, conn.QueryRow(`INSERT INTO fleet_node(org_id,name,identity_pubkey,encryption_pubkey,enrollment_status)
+	 VALUES(1,'replacement-node',$1,$2,'CONFIRMED') RETURNING id`, []byte("replacement-node-key"), make([]byte, 32)).Scan(&standbyID))
+	_, err = queries.UpdateFleetNodeLastSeenAt(ctx, sqlc.UpdateFleetNodeLastSeenAtParams{ID: standbyID, OrgID: 1, LastSeenAt: time.Now()})
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO fleet_node_ha_group(owner_node_id,org_id,credential_key_fingerprint,active_node_id,lease_epoch,lease_expires_at,acknowledged)
+	 VALUES($1,1,decode(repeat('07',32),'hex'),$2,2,clock_timestamp()+interval '30 seconds',true)`, fleetNodeID, standbyID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`INSERT INTO fleet_node_ha_member(node_id,org_id,owner_node_id,ready,status_reason,revoked_at)
+	 VALUES($1,1,$1,false,'revoked',clock_timestamp()),($2,1,$1,true,'',NULL)`, fleetNodeID, standbyID)
+	require.NoError(t, err)
+	_, err = conn.Exec(`UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1`, fleetNodeID)
+	require.NoError(t, err)
+	assertHAAvailability := func(unavailable bool, assetState string) {
+		t.Helper()
+		rows, _, total, err := store.ListMinerStateSnapshots(ctx, 1, "", 50, &interfaces.MinerFilter{DeviceIdentifiers: []string{"node-owned-active"}}, nil)
+		require.NoError(t, err)
+		require.EqualValues(t, 1, total)
+		require.Len(t, rows, 1)
+		require.Equal(t, unavailable, rows[0].FleetNodeUnavailable)
+		var state string
+		require.NoError(t, conn.QueryRow(`SELECT state FROM fleet_mining_asset WHERE kind=5 AND id=9201`).Scan(&state))
+		require.Equal(t, assetState, state)
+		var assignedOwner int64
+		require.NoError(t, conn.QueryRow(`SELECT fleet_node_id FROM fleet_node_device WHERE device_id=9201`).Scan(&assignedOwner))
+		require.Equal(t, fleetNodeID, assignedOwner, "takeover must preserve the stable assignment")
+		slots, err := collectionStore.GetRackSlotStatuses(ctx, 1, []int64{rack.Id})
+		require.NoError(t, err)
+		require.Len(t, slots[rack.Id], 1)
+		expectedSlotStatus := collectionpb.SlotDeviceStatus_SLOT_DEVICE_STATUS_HEALTHY
+		if unavailable {
+			expectedSlotStatus = collectionpb.SlotDeviceStatus_SLOT_DEVICE_STATUS_OFFLINE
+		}
+		require.Equal(t, expectedSlotStatus, slots[rack.Id][0].Status)
+	}
+	assertHAAvailability(false, "hashing")
+	_, err = conn.Exec(`UPDATE fleet_node_ha_group SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE owner_node_id=$1`, fleetNodeID)
+	require.NoError(t, err)
+	assertHAAvailability(true, "offline")
 }
 
 // TestCountMinersByState_AuthNeededNullStatus verifies auth-needed miners with

@@ -23,13 +23,36 @@ const DISPLAY_STATUS_CONFIG: Record<NodeDisplayStatus, { label: string; dotClass
   revoked: { label: "Revoked", dotClass: "bg-intent-critical-fill" },
 };
 
+const HA_ROLE_LABELS: Record<string, string> = {
+  active: "Active",
+  standby: "Standby",
+  preparing: "Preparing",
+  unavailable: "Unavailable",
+  failed: "Failed",
+};
+
 const NodeStatusBadge = ({ node }: { node: FleetNodeItem }) => {
   const status = getNodeDisplayStatus(node);
   const config = DISPLAY_STATUS_CONFIG[status];
+  const dotClass =
+    node.haRole === "failed" || config.dotClass === "bg-intent-critical-fill"
+      ? "bg-intent-critical-fill"
+      : node.haRole === "preparing" || node.haRole === "unavailable"
+        ? "bg-intent-warning-fill"
+        : config.dotClass;
   return (
-    <span title={config.description} className="inline-flex items-center gap-2 text-300 text-text-primary-50">
-      <span className={clsx("h-2 w-2 rounded-full", config.dotClass)} />
-      {config.label}
+    <span
+      title={node.haStatusReason || config.description}
+      className="inline-flex flex-wrap items-center gap-2 text-300 text-text-primary-50"
+    >
+      {HA_ROLE_LABELS[node.haRole] ? (
+        <>
+          <span>{HA_ROLE_LABELS[node.haRole]}</span>
+          <span aria-hidden="true">·</span>
+        </>
+      ) : null}
+      <span className={clsx("h-2 w-2 rounded-full", dotClass)} />
+      <span>{config.label}</span>
       {config.description ? <span className="sr-only">{config.description}</span> : null}
     </span>
   );
