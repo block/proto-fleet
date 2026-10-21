@@ -34,6 +34,7 @@ command that reused its command_id.
 package control
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"sync"
@@ -190,10 +191,10 @@ type connection struct {
 // channel determines its shape: report-bearing commands carry `events` (plus
 // scope/reported); ack-only commands carry `ack`.
 type inflightCommand struct {
-	expectedSession  string
-	expectedInstance string
-	expiresAt        time.Time
-	id               string
+	route        RouteBinding
+	authority    *haAuthority
+	provisioning bool
+	id           string
 
 	// report-bearing (events != nil): discovery/pairing batches + terminal ack.
 	kind       ReportKind        // which gateway report RPC may admit reports for this command
@@ -220,7 +221,8 @@ func (c *inflightCommand) reportBearing() bool { return c.events != nil }
 
 type Registry struct {
 	haResolve                func(context.Context, int64) (RouteBinding, error)
-	haOwners                 map[int64]bool
+	haRoutes                 map[int64]*haAuthority
+	haActivations            map[int64]bool
 	mu                       sync.Mutex
 	conns                    map[int64]*connection
 	sessionFences            map[int64]sessionFence
@@ -236,6 +238,8 @@ type sessionFence struct {
 func NewRegistry() *Registry {
 	return &Registry{
 		conns:                    make(map[int64]*connection),
+		haRoutes:                 make(map[int64]*haAuthority),
+		haActivations:            make(map[int64]bool),
 		sessionFences:            make(map[int64]sessionFence),
 		commandArtifactUploads:   make(map[int64]int),
 		commandArtifactDownloads: make(map[int64]int),
@@ -311,7 +315,11 @@ func (r *Registry) inflightFor(fleetNodeID int64, commandID string) *inflightCom
 	if conn == nil {
 		return nil
 	}
-	return conn.cmds[commandID] // nil if absent
+	cmd := conn.cmds[commandID]
+	if cmd != nil && cmd.authority != nil && (cmd.authority.ctx.Err() != nil || !time.Now().Before(cmd.authority.route.ExpiresAt)) {
+		return nil
+	}
+	return cmd
 }
 
 // addCmd registers c under its command_id, returning ErrNoActiveStream if the node
@@ -326,8 +334,18 @@ func (r *Registry) addCmd(fleetNodeID int64, minimumCommandProtocolVersion gatew
 	if !ok {
 		return nil, nil, ErrNoActiveStream
 	}
-	if (c.expectedSession != "" && c.expectedSession != conn.haSessionID) || (c.expectedInstance != "" && c.expectedInstance != conn.haHello.GetInstanceId()) || (!c.expiresAt.IsZero() && !time.Now().Before(c.expiresAt)) {
+	if _, activating := r.haActivations[c.route.OwnerNodeID]; activating && !c.provisioning {
+		return nil, nil, fleeterror.NewUnavailableErrorf("fleet node HA activation is draining commands")
+	}
+	if (c.route.ControlSessionID != "" && c.route.ControlSessionID != conn.haSessionID) || (c.route.InstanceID != "" && c.route.InstanceID != conn.haHello.GetInstanceId()) {
 		return nil, nil, fleeterror.NewUnavailableErrorf("fleet node route changed before enqueue")
+	}
+	if c.route.Epoch > 0 {
+		authority := r.haRoutes[c.route.OwnerNodeID]
+		if authority == nil || authority.ctx.Err() != nil || !sameAuthority(authority.route, c.route) || !bytes.Equal(authority.route.EncryptionPublicKey, c.route.EncryptionPublicKey) || !time.Now().Before(authority.route.ExpiresAt) {
+			return nil, nil, fleeterror.NewUnavailableErrorf("fleet node HA authority changed before enqueue")
+		}
+		c.authority = authority
 	}
 	if conn.maxCommandProtocolVersion < minimumCommandProtocolVersion {
 		return nil, nil, fleeterror.NewFailedPreconditionErrorf(

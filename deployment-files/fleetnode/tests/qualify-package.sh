@@ -13,6 +13,8 @@ INSTALLER_DIR=""
 DOWNLOAD_URL="file://$PACKAGE_DIR"
 CLEANUP_ALLOWED=0
 WORK_DIR=""
+GATEWAY_DIR=""
+GATEWAY_PID=""
 
 case "$(uname -m)" in
   x86_64|amd64) ARCH=amd64 ;;
@@ -43,6 +45,11 @@ cleanup() {
   if [[ "$CLEANUP_ALLOWED" == "1" ]]; then
     run_installer uninstall >/dev/null 2>&1 || true
   fi
+  if [[ -n "$GATEWAY_PID" ]]; then
+    kill "$GATEWAY_PID" 2>/dev/null || true
+    wait "$GATEWAY_PID" 2>/dev/null || true
+  fi
+  [[ -z "$GATEWAY_DIR" ]] || rm -rf "$GATEWAY_DIR"
   [[ -z "$WORK_DIR" ]] || rm -rf "$WORK_DIR"
   [[ -z "$INSTALLER_DIR" ]] || rm -rf "$INSTALLER_DIR"
   exit "$status"
@@ -69,8 +76,22 @@ sudo systemctl is-enabled --quiet fleet-node.service && fail "fresh install enab
 sudo systemctl is-active --quiet fleet-node.service && fail "enrollment helper help started the service"
 sudo systemctl is-enabled --quiet fleet-node.service && fail "enrollment helper help enabled the service"
 
-sudo tee /var/lib/fleetnode/state.yaml >/dev/null <<'EOF'
-server_url: http://127.0.0.1:1
+# Startup now waits for an accepted configuration before loading plugins. Keep
+# the real plugin startup and failed-upgrade rollback checks below meaningful.
+GATEWAY_DIR=$(mktemp -d)
+(cd "$SCRIPT_DIR/../../../server" && go build -o "$GATEWAY_DIR/gateway" ./devtools/fleetnode-qualification-gateway)
+"$GATEWAY_DIR/gateway" >"$GATEWAY_DIR/url" 2>"$GATEWAY_DIR/log" &
+GATEWAY_PID=$!
+for _ in {1..50}; do
+  [[ -s "$GATEWAY_DIR/url" ]] && break
+  kill -0 "$GATEWAY_PID" 2>/dev/null || { cat "$GATEWAY_DIR/log" >&2; fail "qualification gateway exited"; }
+  sleep 0.1
+done
+[[ -s "$GATEWAY_DIR/url" ]] || fail "qualification gateway did not start"
+GATEWAY_URL=$(head -n 1 "$GATEWAY_DIR/url")
+
+sudo tee /var/lib/fleetnode/state.yaml >/dev/null <<EOF
+server_url: $GATEWAY_URL
 allow_insecure_transport: true
 fleet_node_id: 1
 identity_fingerprint: qualification
@@ -86,7 +107,7 @@ EOF
 sudo chown fleetnode:fleetnode /var/lib/fleetnode/state.yaml
 sudo chmod 0600 /var/lib/fleetnode/state.yaml
 
-sudo fleetnode-enroll --server-url=http://127.0.0.1:1 --allow-insecure-transport
+sudo fleetnode-enroll --server-url="$GATEWAY_URL" --allow-insecure-transport
 sudo systemctl is-active --quiet fleet-node.service || fail "installed service did not report ready"
 
 original_plugin_hash=$(sha256sum /opt/fleetnode/plugins/antminer-plugin | awk '{print $1}')
@@ -118,5 +139,8 @@ sudo test -f /var/lib/fleetnode/state.yaml || fail "uninstall removed state"
 getent passwd fleetnode >/dev/null || fail "uninstall removed the service account"
 
 rm -rf "$INSTALLER_DIR"
+kill "$GATEWAY_PID"
+wait "$GATEWAY_PID" 2>/dev/null || true
+rm -rf "$GATEWAY_DIR"
 trap - EXIT
 echo "Fleet Node package qualification passed"

@@ -55,7 +55,6 @@ WHERE m.retired_at IS NULL AND t.present AND d.deleted_at IS NULL AND dd.deleted
 
 DROP VIEW fleet_node_effective_live;
 DROP VIEW fleet_node_effective_route;
-DROP TABLE fleet_node_ha_transfer;
 DROP TABLE fleet_node_ha_member;
 DROP TABLE fleet_node_ha_group;
 DROP TABLE fleet_node_ha_connection;

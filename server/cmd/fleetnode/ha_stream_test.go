@@ -32,7 +32,7 @@ func (f *haStreamGateway) ControlStream(_ context.Context, stream *connect.BidiS
 	}
 	hello := first.GetHello()
 	f.hello <- hello
-	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ControlSessionId: "ha-session"}}}); err != nil {
+	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ControlSessionId: "ha-session", HaOwnerNodeId: 7, OrgId: 1, CredentialKeyFingerprint: hello.GetCredentialKeyFingerprint()}}}); err != nil {
 		return fmt.Errorf("HA test stream: %w", err)
 	}
 	request, err := stream.Receive()
@@ -101,7 +101,7 @@ func (f *haInterruptedStreamGateway) ControlStream(_ context.Context, stream *co
 		return fmt.Errorf("receive interruption hello: %w", err)
 	}
 	hello := first.GetHello()
-	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ControlSessionId: "ha-session"}}}); err != nil {
+	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ControlSessionId: "ha-session", HaOwnerNodeId: 7, OrgId: 1, CredentialKeyFingerprint: hello.GetCredentialKeyFingerprint()}}}); err != nil {
 		return fmt.Errorf("send interruption acceptance: %w", err)
 	}
 	request, err := stream.Receive()

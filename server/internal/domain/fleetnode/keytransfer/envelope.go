@@ -40,14 +40,6 @@ func (m Metadata) Validate(now time.Time) error {
 	return nil
 }
 
-// Digest is stable across ciphertext retries and binds persisted idempotency to
-// the complete authenticated operation rather than just its caller-chosen ID.
-func (m Metadata) Digest() []byte {
-	serialized := m.serialized()
-	sum := sha256.Sum256(serialized)
-	return sum[:]
-}
-
 func Encrypt(m Metadata, key []byte, now time.Time) (*pb.NodeEncryptedPayload, error) {
 	if err := m.Validate(now); err != nil {
 		return nil, err

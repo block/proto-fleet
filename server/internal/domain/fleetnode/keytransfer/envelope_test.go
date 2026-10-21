@@ -32,7 +32,7 @@ func TestTransferBindsEveryContextField(t *testing.T) {
 	require.Equal(t, key, opened)
 	changes := map[string]func(*Metadata){
 		"org": func(m *Metadata) { m.OrgID++ }, "owner": func(m *Metadata) { m.OwnerNodeID++ },
-		"source": func(m *Metadata) { m.SourceNodeID++ }, "recipient": func(m *Metadata) { m.RecipientNodeID++ },
+		"source": func(m *Metadata) { m.SourceNodeID = 4 }, "recipient": func(m *Metadata) { m.RecipientNodeID++ },
 		"operation": func(m *Metadata) { m.OperationID = "other" }, "expiry": func(m *Metadata) { m.ExpiresAt++ },
 		"pubkey":      func(m *Metadata) { m.RecipientPublicKey = bytes.Repeat([]byte{1}, 32) },
 		"fingerprint": func(m *Metadata) { m.Fingerprint = bytes.Repeat([]byte{2}, 32) },
@@ -43,6 +43,9 @@ func TestTransferBindsEveryContextField(t *testing.T) {
 			change(&altered)
 			_, err := Decrypt(recipient.Bytes(), sealed, altered, now)
 			require.Error(t, err)
+			if name == "source" {
+				require.ErrorContains(t, err, "authenticate transferred key")
+			}
 		})
 	}
 	_, err = Decrypt(recipient.Bytes(), sealed, meta, now.Add(2*time.Minute))

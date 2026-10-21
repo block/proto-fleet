@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -163,12 +164,29 @@ func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *b
 		if err == nil {
 			return nil
 		}
+		if errors.Is(err, errRestartInitialization) {
+			credentials, reloadErr := ensureCredentialCodec(r.haStatePath, st)
+			if reloadErr != nil {
+				return fmt.Errorf("reload installed credential key: %w", reloadErr)
+			}
+			r.credentials = credentials
+			backoff = controlReconnectInitial
+			continue
+		}
+		if errors.Is(err, errRuntimeInitialization) {
+			return err
+		}
 		if errors.Is(err, bootstrap.ErrBeginAuthRejected) || connect.CodeOf(err) == connect.CodeNotFound {
 			return operatorActionRequired(err)
 		}
 		if connect.CodeOf(err) == connect.CodeUnimplemented {
 			// Old server: drop to heartbeat-only instead of looping forever.
 			loopLogger.Info("control stream unimplemented by server; running heartbeat-only", "err", err)
+			if !r.runtimeStarted && r.notifyReady != nil {
+				if err := r.notifyReady(); err != nil {
+					return fmt.Errorf("notify heartbeat-only readiness: %w", err)
+				}
+			}
 			return nil
 		}
 		sleep, nextBackoff := controlReconnectDelay(err, time.Since(started), backoff, rng)
@@ -218,6 +236,9 @@ func isNotActiveControlError(err error) bool {
 	}
 	return false
 }
+
+var errRestartInitialization = errors.New("credential key installed; restart initialization")
+var errRuntimeInitialization = errors.New("initialize device runtime")
 
 func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, client gatewayClient, st *bootstrap.State) error {
 	r.initControlConcurrency()
@@ -282,6 +303,25 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	if first.GetAccepted() == nil {
 		return fmt.Errorf("first server message was not Accepted")
 	}
+	accepted := first.GetAccepted()
+	if (accepted.GetHaOwnerNodeId() > 0 || accepted.GetPreparing()) && (accepted.GetHaOwnerNodeId() <= 0 || accepted.GetOrgId() <= 0 || accepted.GetControlSessionId() == "" || len(accepted.GetCredentialKeyFingerprint()) != credentialKeySize) {
+		return fmt.Errorf("%w: incomplete HA assignment", errRuntimeInitialization)
+	}
+	if !accepted.GetPreparing() && len(accepted.GetCredentialKeyFingerprint()) > 0 && !bytes.Equal(accepted.GetCredentialKeyFingerprint(), fingerprint) {
+		return fmt.Errorf("accepted credential key does not match installed key")
+	}
+	if accepted.GetPreparing() {
+		if r.runtimeStarted {
+			return fmt.Errorf("%w: preparation requires an unused node", errRuntimeInitialization)
+		}
+	} else if !r.runtimeStarted {
+		if r.initializeRuntime != nil {
+			if err := r.initializeRuntime(ctx); err != nil {
+				return fmt.Errorf("%w: %w", errRuntimeInitialization, err)
+			}
+		}
+		r.runtimeStarted = true
+	}
 	logger.Info("control stream opened",
 		"shared_command_limit", commandPoolSize,
 		"deferrable_read_limit", deferrableReadCommandPoolSize,
@@ -296,9 +336,10 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	// Serialize all sends on the bidi: the worker's completion ack and the
 	// receive loop's busy ack would otherwise race on stream.Send.
 	sender := &lockedAcker{inner: stream}
-	authority := newHAAuthority(st.FleetNodeID, instanceID, first.GetAccepted().GetControlSessionId())
+	authority := newHAAuthority(st.FleetNodeID, instanceID, accepted.GetControlSessionId())
+	authority.accept(accepted)
 	defer authority.close()
-	if authority.sessionID != "" {
+	if accepted.GetHaOwnerNodeId() > 0 && !accepted.GetPreparing() {
 		go func() {
 			ticker := time.NewTicker(haRenewInterval)
 			defer ticker.Stop()
@@ -363,7 +404,9 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		// it takes the pool lane and handleCommand acks it BAD_REQUEST.
 		env, parseErr := decodeAgentCommand(cmd.GetPayload())
 		if parseErr == nil && env.GetHaKeyTransfer() != nil {
-			r.handleHAKeyTransfer(sender, cmd, env.GetHaKeyTransfer(), authority, logger)
+			if r.handleHAKeyTransfer(sender, cmd, env.GetHaKeyTransfer(), authority, logger) {
+				return errRestartInitialization
+			}
 			continue
 		}
 		if !authority.allowed(cmd, time.Now()) {
@@ -412,7 +455,6 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 					return
 				}
 				defer endWorker()
-				workerCtx = context.WithValue(workerCtx, haDeviceWorkKey{}, &r.haDeviceWork)
 				workerCtx = context.WithValue(workerCtx, haOwnerNodeIDKey{}, c.GetHaOwnerNodeId())
 				r.handleCommand(workerCtx, client, &haCommandAcker{ctx: workerCtx, inner: workerAcker}, c, e, pErr, logger)
 			}(cmd, env, parseErr, releaseSlot, admissionClass, commandKind)
@@ -740,10 +782,8 @@ func fanOutEndpointWork[E, T any](ctx context.Context, endpoints iter.Seq[E], co
 			return out, true
 		}
 		wg.Add(1)
-		endWork := retainHADeviceWork(ctx)
 		go func(e E) {
 			defer wg.Done()
-			defer endWork()
 			defer func() { <-sem }()
 			probeCtx, cancel := context.WithTimeout(ctx, perProbeTimeout)
 			defer cancel()

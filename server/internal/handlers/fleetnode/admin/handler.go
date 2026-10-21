@@ -72,6 +72,13 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 			return nil, err
 		}
 	}
+	var haSummaries map[int64]ha.NodeSummary
+	if h.ha != nil && includeAdministrativeDetails {
+		haSummaries, err = h.ha.ListSummaries(ctx, info.OrganizationID)
+		if err != nil {
+			return nil, err
+		}
+	}
 	connected := make(map[int64]struct{})
 	for _, fleetNodeID := range h.registry.ConnectedFleetNodeIDs() {
 		connected[fleetNodeID] = struct{}{}
@@ -90,18 +97,11 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 			ControlStreamConnected:            controlStreamConnected,
 		}
 		if h.ha != nil && includeAdministrativeDetails {
-			_, reason, haErr := h.ha.Eligible(ctx, n.ID, info.OrganizationID)
-			if haErr != nil {
-				return nil, haErr
-			}
-			summary.StandbyEnrollmentEligible = reason == ""
-			summary.StandbyEnrollmentUnavailableReason = reason
+			membership := haSummaries[n.ID]
+			summary.StandbyEnrollmentEligible = membership.Eligible
+			summary.StandbyEnrollmentUnavailableReason = membership.EligibilityReason
 			summary.StandbyForNodeId = n.StandbyOwnerNodeID
 			summary.StandbyForNodeName = n.StandbyOwnerName
-			membership, haErr := h.ha.Summary(ctx, n.ID, info.OrganizationID)
-			if haErr != nil {
-				return nil, haErr
-			}
 			summary.HaRole = membership.Role
 			summary.HaStatusReason = membership.Reason
 			if membership.OwnerNodeID != 0 {

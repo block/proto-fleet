@@ -14,25 +14,26 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func (r *RunCmd) handleHAKeyTransfer(sender acker, command *pb.ControlCommand, transfer *pb.HAKeyTransfer, authority *haAuthority, logger *slog.Logger) {
+func (r *RunCmd) handleHAKeyTransfer(sender acker, command *pb.ControlCommand, transfer *pb.HAKeyTransfer, authority *haAuthority, logger *slog.Logger) bool {
 	if command.GetCommandId() == "" || len(command.GetCommandId()) > 128 {
-		return
+		return false
 	}
 	if err := protovalidate.Validate(command); err != nil {
 		r.sendAck(sender, command.GetCommandId(), pb.AckCode_ACK_CODE_BAD_REQUEST, "invalid key transfer command", logger)
-		return
+		return false
 	}
 	result, err := r.executeHAKeyTransfer(command, transfer, authority, time.Now())
 	if err != nil {
 		r.sendAck(sender, command.GetCommandId(), pb.AckCode_ACK_CODE_HA_NOT_AUTHORIZED, err.Error(), logger)
-		return
+		return false
 	}
 	payload, err := proto.Marshal(result)
 	if err != nil {
 		r.sendAck(sender, command.GetCommandId(), pb.AckCode_ACK_CODE_INTERNAL, "encode key transfer result", logger)
-		return
+		return false
 	}
 	r.sendAckWithPayload(sender, command.GetCommandId(), pb.AckCode_ACK_CODE_OK, "", payload, logger)
+	return transfer.GetEncryptedKey() != nil
 }
 
 func (r *RunCmd) executeHAKeyTransfer(command *pb.ControlCommand, transfer *pb.HAKeyTransfer, authority *haAuthority, now time.Time) (*pb.HAKeyTransferResult, error) {
@@ -40,7 +41,7 @@ func (r *RunCmd) executeHAKeyTransfer(command *pb.ControlCommand, transfer *pb.H
 		return nil, fmt.Errorf("invalid key transfer metadata")
 	}
 	scope, ok := authority.transferScope(now)
-	if !ok || command.GetIntendedInstanceId() != authority.instanceID || command.GetControlSessionId() != authority.sessionID || transfer.GetOrgId() != scope.GetOrgId() {
+	if !ok || command.GetIntendedInstanceId() != authority.instanceID || command.GetControlSessionId() != authority.sessionID || transfer.GetOrgId() != scope.GetOrgId() || (len(authority.assignment.GetCredentialKeyFingerprint()) > 0 && !bytes.Equal(transfer.GetCredentialKeyFingerprint(), authority.assignment.GetCredentialKeyFingerprint())) {
 		return nil, fmt.Errorf("key transfer is outside this control session")
 	}
 	if r.credentials == nil || r.haState == nil || r.haStatePath == "" {
@@ -70,16 +71,9 @@ func (r *RunCmd) executeHAKeyTransfer(command *pb.ControlCommand, transfer *pb.H
 	if !scope.GetPreparing() || transfer.GetRecipientNodeId() != authority.nodeID {
 		return nil, fmt.Errorf("credential import requires the preparing recipient")
 	}
-	shared, _, exclusive := r.controlSlotOccupancy()
-	if shared != 0 || exclusive != 0 || r.haDeviceWork.Load() != 0 || (r.deviceHandles != nil && len(r.deviceHandles.slots) != 0) {
-		return nil, fmt.Errorf("credential import requires an idle node")
+	if r.runtimeStarted {
+		return nil, fmt.Errorf("credential import requires startup preparation")
 	}
-	// Pair supervisors may return while a context-ignoring plugin is still
-	// working. Its process-wide guard stays held until every pair worker exits.
-	if !r.pairMu.TryLock() {
-		return nil, fmt.Errorf("credential import requires completed pairing work")
-	}
-	defer r.pairMu.Unlock()
 	r.stateMu.Lock()
 	defer r.stateMu.Unlock()
 	publicKey, err := hex.DecodeString(r.haState.EncryptionPublicKeyHex)
@@ -94,26 +88,16 @@ func (r *RunCmd) executeHAKeyTransfer(command *pb.ControlCommand, transfer *pb.H
 	if err != nil {
 		return nil, err
 	}
-	digest := metadata.Digest()
-	if r.haState.HAKeyTransferOperationID == metadata.OperationID {
-		if !bytes.Equal(r.haState.HAKeyTransferMetadata, digest) || r.haState.CredentialKeyHex != hex.EncodeToString(key) {
-			return nil, fmt.Errorf("key transfer operation was already used with different metadata")
-		}
-		// An earlier successful disk write may have been followed by lost ACK.
-		r.credentials.replaceKey(key)
-		return &pb.HAKeyTransferResult{CredentialKeyFingerprint: append([]byte(nil), metadata.Fingerprint...)}, nil
+	if r.haState.HACredentialOwnerNodeID != 0 && (r.haState.HACredentialOwnerNodeID != owner || r.haState.CredentialKeyHex != hex.EncodeToString(key)) {
+		return nil, fmt.Errorf("credential key was already installed for another owner or key")
 	}
 	next := *r.haState
 	next.CredentialKeyHex = hex.EncodeToString(key)
-	next.HAKeyTransferOperationID = metadata.OperationID
-	next.HAKeyTransferMetadata = digest
+	next.HACredentialOwnerNodeID = owner
 	if err := bootstrap.SaveState(r.haStatePath, &next); err != nil {
 		return nil, fmt.Errorf("persist transferred credential key: %w", err)
 	}
 	r.haState.CredentialKeyHex = next.CredentialKeyHex
-	r.haState.HAKeyTransferOperationID = next.HAKeyTransferOperationID
-	r.haState.HAKeyTransferMetadata = next.HAKeyTransferMetadata
-	// Existing pairing, commands, and telemetry all hold this codec pointer.
-	r.credentials.replaceKey(key)
+	r.haState.HACredentialOwnerNodeID = next.HACredentialOwnerNodeID
 	return &pb.HAKeyTransferResult{CredentialKeyFingerprint: append([]byte(nil), metadata.Fingerprint...)}, nil
 }

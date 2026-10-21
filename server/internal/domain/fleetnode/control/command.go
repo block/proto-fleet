@@ -43,17 +43,14 @@ func (r *Registry) SendCommandWithArtifactResults(ctx context.Context, fleetNode
 	}
 	cmd = bound
 	fleetNodeID = route.PhysicalNodeID
-	if !route.ExpiresAt.IsZero() {
-		var cancel context.CancelFunc
-		ctx, cancel = r.leaseContext(ctx, route)
-		defer cancel()
-	}
+	provisioning, _ := ctx.Value(provisioningContextKey{}).(bool)
 	c := &inflightCommand{
-		expectedSession: route.ControlSessionID, expectedInstance: route.InstanceID, expiresAt: route.ExpiresAt,
-		id:        cmd.GetCommandId(),
-		ack:       make(chan *gatewaypb.ControlAck, 1), // never closed
-		artifacts: cloneArtifactExpectations(artifacts),
-		done:      make(chan struct{}),
+		provisioning: provisioning,
+		route:        route,
+		id:           cmd.GetCommandId(),
+		ack:          make(chan *gatewaypb.ControlAck, 1), // never closed
+		artifacts:    cloneArtifactExpectations(artifacts),
+		done:         make(chan struct{}),
 	}
 	outgoing, connDone, err := r.addCmd(fleetNodeID, minimumCommandProtocolVersion, c)
 	if err != nil {
@@ -65,7 +62,7 @@ func (r *Registry) SendCommandWithArtifactResults(ctx context.Context, fleetNode
 	// Always free the slot: on ack, disconnect, or ctx expiry.
 	defer r.removeCmd(fleetNodeID, c)
 
-	if err := r.enqueue(ctx, outgoing, connDone, cmd); err != nil {
+	if err := r.enqueue(ctx, outgoing, connDone, cmd, c); err != nil {
 		return nil, nil, commandNotEnqueued(err)
 	}
 

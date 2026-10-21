@@ -17,7 +17,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func TestHAKeyTransferPersistsAndReloadsSharedCodec(t *testing.T) {
+func TestHAKeyTransferPersistsForStartupWithoutReplacingLiveCodec(t *testing.T) {
 	now := time.Now()
 	recipient, err := ecdh.X25519().GenerateKey(rand.Reader)
 	require.NoError(t, err)
@@ -47,15 +47,17 @@ func TestHAKeyTransferPersistsAndReloadsSharedCodec(t *testing.T) {
 	require.Equal(t, hex.EncodeToString(key), persisted.CredentialKeyHex)
 	require.Equal(t, "independent identity", persisted.IdentityPrivateKeyHex)
 	require.Equal(t, state.EncryptionPrivateKeyHex, persisted.EncryptionPrivateKeyHex)
-	require.Equal(t, "op", persisted.HAKeyTransferOperationID)
-	// A caller retaining the original codec pointer immediately uses the shared key.
+
+	// Only restarted initialization may use the installed key; existing codecs stay immutable.
 	encrypted, err := source.credentials.Seal(sdk.SecretBundle{Kind: sdk.UsernamePassword{Username: "u", Password: "p"}})
 	require.NoError(t, err)
 	_, err = codec.Open(encrypted)
-	require.NoError(t, err)
+	require.Error(t, err)
 	_, err = node.executeHAKeyTransfer(command, imported, preparing, now)
 	require.NoError(t, err)
 	reloadedCodec, err := ensureCredentialCodec(path, persisted)
+	require.NoError(t, err)
+	_, err = reloadedCodec.Open(encrypted)
 	require.NoError(t, err)
 	restarted := &RunCmd{credentials: reloadedCodec, haState: persisted, haStatePath: path}
 	_, err = restarted.executeHAKeyTransfer(command, imported, preparing, now)
@@ -66,34 +68,26 @@ func TestHAKeyTransferPersistsAndReloadsSharedCodec(t *testing.T) {
 	require.NoError(t, err)
 	changedExpiry.EncryptedKey = changedExport.GetEncryptedKey()
 	_, err = node.executeHAKeyTransfer(command, changedExpiry, preparing, now)
-	require.ErrorContains(t, err, "different metadata")
+	require.NoError(t, err, "retrying the same installed key does not need an operation journal")
+	replacementKey := bytes.Repeat([]byte{5}, credentialKeySize)
+	replacementFingerprint := sha256.Sum256(replacementKey)
+	source.credentials = &credentialCodec{key: replacementKey}
+	replacement := proto.CloneOf(transfer)
+	replacement.OperationId = "replace-installed-key"
+	replacement.CredentialKeyFingerprint = replacementFingerprint[:]
+	replacementExport, err := source.executeHAKeyTransfer(command, replacement, sourceAuthority, now)
+	require.NoError(t, err)
+	replacement.EncryptedKey = replacementExport.GetEncryptedKey()
+	_, err = node.executeHAKeyTransfer(command, replacement, preparing, now)
+	require.ErrorContains(t, err, "already installed")
 	changed := proto.CloneOf(imported)
 	changed.SourceNodeId = 9
 	_, err = node.executeHAKeyTransfer(command, changed, preparing, now)
 	require.Error(t, err)
-	for _, busy := range []string{"ordinary", "probe", "pair", "handle"} {
-		t.Run(busy, func(t *testing.T) {
-			node.initControlConcurrency()
-			switch busy {
-			case "ordinary":
-				node.controlCommandSlots <- struct{}{}
-				defer func() { <-node.controlCommandSlots }()
-			case "probe":
-				node.haDeviceWork.Add(1)
-				defer node.haDeviceWork.Add(-1)
-			case "pair":
-				node.pairMu.Lock()
-				defer node.pairMu.Unlock()
-			case "handle":
-				node.deviceHandles = newDeviceHandlePool(t.Context(), 1)
-				defer node.deviceHandles.shutdown()
-				node.deviceHandles.slots <- struct{}{}
-				defer func() { node.deviceHandles = nil }()
-			}
-			_, err := node.executeHAKeyTransfer(command, imported, preparing, now)
-			require.Error(t, err)
-		})
-	}
+	node.runtimeStarted = true
+	_, err = node.executeHAKeyTransfer(command, imported, preparing, now)
+	require.ErrorContains(t, err, "startup preparation")
+	node.runtimeStarted = false
 	active := testHAAuthority(t, now, 3, 2, false)
 	_, err = node.executeHAKeyTransfer(command, imported, active, now)
 	require.Error(t, err)

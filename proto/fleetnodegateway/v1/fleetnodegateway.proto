@@ -315,6 +315,12 @@ message ControlHello {
 message ControlAccepted {
     google.protobuf.Timestamp server_time = 1;
     string control_session_id = 2;
+    // Zero keeps standalone nodes outside the HA lease protocol. Preparing
+    // members install the expected key before starting their device runtime.
+    int64 ha_owner_node_id = 3;
+    bool preparing = 4;
+    int64 org_id = 5;
+    bytes credential_key_fingerprint = 6;
 }
 
 // TraceContext carries W3C trace propagation fields for one server-issued

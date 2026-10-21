@@ -74,7 +74,7 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
   }, []);
 
   useEffect(() => {
-    if (!open || resumeNode) return;
+    if (!open || resumeNode || step !== "options") return;
     let cancelled = false;
     void listFleetNodes()
       .then((nodes) => {
@@ -99,7 +99,7 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
     return () => {
       cancelled = true;
     };
-  }, [open, resumeNode, listFleetNodes]);
+  }, [open, resumeNode, step, listFleetNodes]);
 
   const handleContinue = () => {
     if (
@@ -118,6 +118,7 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
       } catch (error) {
         if (!isMountedRef.current) return;
         codeRequestedRef.current = false;
+        setTargetsLoading(true);
         setStep("options");
         setErrorMsg(error instanceof Error ? error.message : "Failed to create an enrollment code.");
       }

@@ -1707,7 +1707,7 @@ type FleetNodeEffectiveRoute struct {
 	ControlSessionID string
 	EncryptionPubkey []byte
 	LastSeenAt       interface{}
-	LeaseExpiresAt   sql.NullTime
+	LeaseExpiresAt   interface{}
 	Acknowledged     bool
 }
 
@@ -1725,6 +1725,7 @@ type FleetNodeHaGroup struct {
 	OwnerNodeID              int64
 	OrgID                    int64
 	CredentialKeyFingerprint []byte
+	Enabled                  bool
 	ActiveNodeID             int64
 	InstanceID               string
 	ControlSessionID         string
@@ -1741,18 +1742,6 @@ type FleetNodeHaMember struct {
 	StatusReason string
 	JoinedAt     time.Time
 	RevokedAt    sql.NullTime
-}
-
-type FleetNodeHaTransfer struct {
-	RecipientNodeID int64
-	OperationID     string
-	OwnerNodeID     int64
-	SourceNodeID    int64
-	ExpiresAt       time.Time
-	Attempts        int32
-	NextAttemptAt   time.Time
-	Failed          bool
-	EncryptedKey    []byte
 }
 
 type FleetNodeHeartbeat struct {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -49,12 +50,15 @@ func setup(t *testing.T, count int) *harness {
 	}
 	return h
 }
-func (h *harness) connect(t *testing.T, index int, instance, session string) {
+func (h *harness) connect(t *testing.T, index int, instance, session string) *control.Stream {
 	t.Helper()
 	handle := h.registry.Register(h.nodes[index])
 	t.Cleanup(handle.Unregister)
-	require.NoError(t, h.svc.Connect(t.Context(), h.nodes[index], 1, &pb.ControlHello{HaCapable: true, InstanceId: instance, CredentialKeyFingerprint: h.fingerprint}, session))
+	require.NoError(t, h.svc.ConnectStream(t.Context(), h.nodes[index], 1, &pb.ControlHello{HaCapable: true, InstanceId: instance, CredentialKeyFingerprint: h.fingerprint}, session, handle))
+	return handle
 }
+
+// Lease tests start from a prepared, enabled group; activation is exercised separately.
 func (h *harness) group(t *testing.T) {
 	t.Helper()
 	tx := sqlstores.NewSQLTransactor(h.db)
@@ -63,6 +67,8 @@ func (h *harness) group(t *testing.T) {
 		require.NoError(t, sqlc.New(h.db).CreateFleetNodeHAMember(t.Context(), sqlc.CreateFleetNodeHAMemberParams{NodeID: nodeID, OrgID: 1, OwnerNodeID: h.nodes[0], Ready: true, StatusReason: ""}))
 	}
 	_, err := h.db.Exec(`UPDATE fleet_node_ha_member SET ready=true,status_reason=''`)
+	require.NoError(t, err)
+	_, err = h.db.Exec(`UPDATE fleet_node_ha_group SET enabled=true`)
 	require.NoError(t, err)
 }
 func (h *harness) lease(t *testing.T, index int, instance, session string, ack int64) *pb.HALeaseResponse {
@@ -79,17 +85,17 @@ func TestLeaseAcknowledgementExclusiveElectionAndNoFailback(t *testing.T) {
 	}
 	h.group(t)
 	initialOwner, err := h.svc.EffectiveOwner(t.Context(), h.nodes[0], 1)
-	require.NoError(t, err, "admitted source reports must survive group creation")
-	require.Equal(t, h.nodes[0], initialOwner)
+	require.Error(t, err, "enabled HA requires an acknowledged lease for reports")
+	require.Zero(t, initialOwner)
 	_, err = h.svc.EffectiveOwner(t.Context(), h.nodes[1], 1)
-	require.Error(t, err, "standbys cannot borrow the source's adoption allowance")
+	require.Error(t, err, "a passive standby cannot attribute reports")
 	first := h.lease(t, 0, "p0", "s0", 0)
 	require.True(t, first.GetGranted())
 	require.Equal(t, int64(1), first.GetLeaseEpoch())
 	_, err = h.svc.Resolve(t.Context(), h.nodes[0], 1)
 	require.Error(t, err, "grant is not routable before acknowledgement")
 	_, err = h.svc.EffectiveOwner(t.Context(), h.nodes[0], 1)
-	require.NoError(t, err, "already-admitted reports may finish before the first acknowledgement")
+	require.Error(t, err, "there is no pre-adoption report exception")
 	h.lease(t, 0, "p0", "s0", first.GetLeaseEpoch())
 	route, err := h.svc.Resolve(t.Context(), h.nodes[0], 1)
 	require.NoError(t, err)
@@ -156,53 +162,176 @@ func TestRestartCannotInheritLeaseAndHeartbeatCannotRenew(t *testing.T) {
 	require.Error(t, err, "new process must acknowledge new epoch")
 }
 
-func TestCredentialPreparationOnlyReadyAfterInstalledFingerprintMatches(t *testing.T) {
+func TestCredentialInstallWaitsForNewHelloBeforeActivatingHA(t *testing.T) {
 	h := setup(t, 2)
 	source := h.registry.Register(h.nodes[0])
 	defer source.Unregister()
-	require.NoError(t, h.svc.Connect(t.Context(), h.nodes[0], 1, &pb.ControlHello{HaCapable: true, InstanceId: "source", CredentialKeyFingerprint: h.fingerprint}, "source-session"))
+	require.NoError(t, h.svc.ConnectStream(t.Context(), h.nodes[0], 1, &pb.ControlHello{HaCapable: true, InstanceId: "source", CredentialKeyFingerprint: h.fingerprint}, "source-session", source))
 	require.NoError(t, sqlstores.NewSQLTransactor(h.db).RunInTx(t.Context(), func(ctx context.Context) error { return h.svc.Confirm(ctx, h.nodes[1], 1, h.nodes[0]) }))
+	accepted := &pb.ControlAccepted{}
+	require.NoError(t, h.svc.Configure(t.Context(), h.nodes[0], 1, accepted))
+	require.Zero(t, accepted.GetHaOwnerNodeId(), "the original keeps standalone authority while preparation is pending")
 	recipient := h.registry.Register(h.nodes[1])
 	defer recipient.Unregister()
-	done := make(chan struct{})
-	defer close(done)
-	// Export and import are separate physical commands. The server stores only
-	// the envelope bytes; recipient acknowledgement proves installed-key identity.
+	require.NoError(t, h.svc.ConnectStream(t.Context(), h.nodes[1], 1, &pb.ControlHello{HaCapable: true, InstanceId: "recipient", CredentialKeyFingerprint: bytes.Repeat([]byte{4}, 32)}, "recipient-session", recipient))
+	accepted = &pb.ControlAccepted{}
+	require.NoError(t, h.svc.Configure(t.Context(), h.nodes[1], 1, accepted))
+	require.True(t, accepted.GetPreparing())
+	require.Equal(t, h.nodes[0], accepted.GetHaOwnerNodeId())
+	require.Equal(t, h.fingerprint, accepted.GetCredentialKeyFingerprint())
+	exported := make(chan *pb.HAKeyTransfer, 1)
+	imported := make(chan *pb.HAKeyTransfer, 1)
 	go func() {
 		select {
 		case cmd := <-source.Outgoing:
+			env := new(pb.AgentCommand)
+			_ = proto.Unmarshal(cmd.GetPayload(), env)
+			exported <- env.GetHaKeyTransfer()
 			payload, _ := proto.Marshal(&pb.HAKeyTransferResult{EncryptedKey: &pb.NodeEncryptedPayload{Algorithm: "x25519-hkdf-sha256-aes-256-gcm-v1", EphemeralPubkey: bytes.Repeat([]byte{1}, 32), Nonce: bytes.Repeat([]byte{2}, 12), Ciphertext: bytes.Repeat([]byte{3}, 48)}, CredentialKeyFingerprint: h.fingerprint})
 			source.PublishAck(&pb.ControlAck{CommandId: cmd.GetCommandId(), Code: pb.AckCode_ACK_CODE_OK, Succeeded: true, Payload: payload})
-		case <-done:
+		case <-t.Context().Done():
 		}
 	}()
 	go func() {
 		select {
 		case cmd := <-recipient.Outgoing:
-			payload, _ := proto.Marshal(&pb.HAKeyTransferResult{CredentialKeyFingerprint: bytes.Repeat([]byte{9}, 32)})
+			env := new(pb.AgentCommand)
+			_ = proto.Unmarshal(cmd.GetPayload(), env)
+			imported <- env.GetHaKeyTransfer()
+			payload, _ := proto.Marshal(&pb.HAKeyTransferResult{CredentialKeyFingerprint: h.fingerprint})
 			recipient.PublishAck(&pb.ControlAck{CommandId: cmd.GetCommandId(), Code: pb.AckCode_ACK_CODE_OK, Succeeded: true, Payload: payload})
-		case <-done:
+		case <-t.Context().Done():
 		}
 	}()
-	require.NoError(t, h.svc.Connect(t.Context(), h.nodes[1], 1, &pb.ControlHello{HaCapable: true, InstanceId: "recipient", CredentialKeyFingerprint: bytes.Repeat([]byte{4}, 32)}, "recipient-session"))
-	h.lease(t, 1, "recipient", "recipient-session", 0)
+	h.svc.StartPreparation(t.Context(), h.nodes[1], 1)
+	var export, install *pb.HAKeyTransfer
+	select {
+	case export = <-exported:
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not export")
+	}
+	select {
+	case install = <-imported:
+	case <-time.After(2 * time.Second):
+		t.Fatal("recipient did not receive sealed key")
+	}
+	require.Equal(t, export.GetOperationId(), install.GetOperationId())
+	require.Equal(t, h.nodes[0], install.GetSourceNodeId())
+	require.Equal(t, h.nodes[1], install.GetRecipientNodeId())
+	require.NotNil(t, install.GetEncryptedKey())
+	var ready, enabled bool
+	require.NoError(t, h.db.QueryRow(`SELECT m.ready,g.enabled FROM fleet_node_ha_member m JOIN fleet_node_ha_group g ON g.owner_node_id=m.owner_node_id WHERE m.node_id=$1`, h.nodes[1]).Scan(&ready, &enabled))
+	require.False(t, ready, "an install acknowledgement cannot update the live process fingerprint")
+	require.False(t, enabled)
+	route, err := h.svc.Resolve(t.Context(), h.nodes[0], 1)
+	require.NoError(t, err)
+	require.Zero(t, route.Epoch)
+	// Hold an admitted standalone operation while the ready standby tries to
+	// activate. Canceling that stream's preparation must resume ordinary dispatch.
+	longResult := make(chan error, 1)
+	go func() {
+		_, err := h.registry.SendCommand(t.Context(), h.nodes[0], pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "held-operation"})
+		longResult <- err
+	}()
+	var held *pb.ControlCommand
+	select {
+	case held = <-source.Outgoing:
+	case <-time.After(time.Second):
+		t.Fatal("standalone operation was not admitted")
+	}
+	go func() {
+		for {
+			select {
+			case cmd := <-source.Outgoing:
+				source.PublishAck(&pb.ControlAck{CommandId: cmd.GetCommandId(), Code: pb.AckCode_ACK_CODE_OK, Succeeded: true})
+			case <-source.Done:
+				return
+			case <-t.Context().Done():
+				return
+			}
+		}
+	}()
+	probe := func() error {
+		ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+		defer cancel()
+		_, err := h.registry.SendCommand(ctx, h.nodes[0], pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "dispatch-probe"})
+		return err
+	}
+	h.connect(t, 1, "recipient-restarted", "recipient-new-session")
+	preparing, cancelPreparation := context.WithCancel(t.Context())
+	h.svc.StartPreparation(preparing, h.nodes[1], 1)
 	require.Eventually(t, func() bool {
-		var attempts int
-		_ = h.db.QueryRow(`SELECT attempts FROM fleet_node_ha_transfer WHERE recipient_node_id=$1`, h.nodes[1]).Scan(&attempts)
-		return attempts > 0
+		err := probe()
+		return err != nil && strings.Contains(err.Error(), "activation is draining")
 	}, time.Second, 10*time.Millisecond)
+	require.Never(t, func() bool { return probe() == nil }, 21*time.Second, 50*time.Millisecond, "a long drain must outlive the bounded credential-transfer attempt")
+	cancelPreparation()
+	require.Eventually(t, func() bool { return probe() == nil }, time.Second, 10*time.Millisecond, "canceling preparation must reopen standalone dispatch")
+	require.NoError(t, h.db.QueryRow(`SELECT enabled FROM fleet_node_ha_group WHERE owner_node_id=$1`, h.nodes[0]).Scan(&enabled))
+	require.False(t, enabled)
+	source.PublishAck(&pb.ControlAck{CommandId: held.GetCommandId(), Code: pb.AckCode_ACK_CODE_OK, Succeeded: true})
+	require.NoError(t, <-longResult)
+	h.svc.StartPreparation(t.Context(), h.nodes[1], 1)
 	require.Eventually(t, func() bool {
-		var encrypted []byte
-		_ = h.db.QueryRow(`SELECT encrypted_key FROM fleet_node_ha_transfer WHERE recipient_node_id=$1`, h.nodes[1]).Scan(&encrypted)
-		return len(encrypted) > 0
-	}, time.Second, 10*time.Millisecond)
-	var ready bool
-	require.NoError(t, h.db.QueryRow(`SELECT ready FROM fleet_node_ha_member WHERE node_id=$1`, h.nodes[1]).Scan(&ready))
-	require.False(t, ready)
+		var enabled bool
+		err := h.db.QueryRow(`SELECT enabled FROM fleet_node_ha_group WHERE owner_node_id=$1`, h.nodes[0]).Scan(&enabled)
+		return err == nil && enabled
+	}, 2*time.Second, 10*time.Millisecond)
+	select {
+	case <-source.Done:
+	case <-time.After(time.Second):
+		t.Fatal("original was not reconnected into HA scope")
+	}
+	require.NoError(t, h.svc.Disconnect(t.Context(), h.nodes[0], 1, "source-session"))
+	standbyFirst := h.lease(t, 1, "recipient-restarted", "recipient-new-session", 0)
+	require.False(t, standbyFirst.GetGranted(), "first activation reserves the initial grant for the reconnecting source")
+	require.Zero(t, standbyFirst.GetLeaseEpoch(), "the reconnect reservation grants no authority")
+	h.connect(t, 0, "source", "source-new-session")
+	accepted = &pb.ControlAccepted{}
+	require.NoError(t, h.svc.Configure(t.Context(), h.nodes[0], 1, accepted))
+	require.Equal(t, h.nodes[0], accepted.GetHaOwnerNodeId())
+	first := h.lease(t, 0, "source", "source-new-session", 0)
+	require.True(t, first.GetGranted())
+	h.lease(t, 0, "source", "source-new-session", first.GetLeaseEpoch())
+	_, err = h.svc.Resolve(t.Context(), h.nodes[0], 1)
+	require.NoError(t, err)
+}
+
+func TestReadyStandbyActivatesWhenSourceDisconnectsBeforeFirstGrant(t *testing.T) {
+	h := setup(t, 2)
+	source := h.connect(t, 0, "source", "source-session")
+	require.NoError(t, sqlstores.NewSQLTransactor(h.db).RunInTx(t.Context(), func(ctx context.Context) error { return h.svc.Confirm(ctx, h.nodes[1], 1, h.nodes[0]) }))
+	source.Unregister()
+	require.NoError(t, h.svc.Disconnect(t.Context(), h.nodes[0], 1, "source-session"))
+	h.connect(t, 1, "recipient", "recipient-session")
+	h.svc.StartPreparation(t.Context(), h.nodes[1], 1)
 	require.Eventually(t, func() bool {
-		summary, err := h.svc.Summary(t.Context(), h.nodes[1], 1)
-		return err == nil && summary.Role == "failed"
-	}, time.Second, 10*time.Millisecond)
+		var enabled bool
+		err := h.db.QueryRow(`SELECT enabled FROM fleet_node_ha_group WHERE owner_node_id=$1`, h.nodes[0]).Scan(&enabled)
+		return err == nil && enabled
+	}, 2*time.Second, 10*time.Millisecond, "disconnected source work is already torn down")
+	reservation := h.lease(t, 1, "recipient", "recipient-session", 0)
+	require.False(t, reservation.GetGranted())
+	_, err := h.db.Exec(`UPDATE fleet_node_ha_group SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE owner_node_id=$1`, h.nodes[0])
+	require.NoError(t, err)
+	grant := h.lease(t, 1, "recipient", "recipient-session", 0)
+	require.True(t, grant.GetGranted())
+	h.lease(t, 1, "recipient", "recipient-session", grant.GetLeaseEpoch())
+	route, err := h.svc.Resolve(t.Context(), h.nodes[0], 1)
+	require.NoError(t, err)
+	require.Equal(t, h.nodes[1], route.PhysicalNodeID)
+}
+
+func TestInstalledFingerprintConflictCannotBecomeAReadyConnection(t *testing.T) {
+	h := setup(t, 2)
+	h.connect(t, 0, "source", "source-session")
+	h.group(t)
+	stream := h.registry.Register(h.nodes[1])
+	defer stream.Unregister()
+	err := h.svc.ConnectStream(t.Context(), h.nodes[1], 1, &pb.ControlHello{HaCapable: true, InstanceId: "wrong-key", CredentialKeyFingerprint: bytes.Repeat([]byte{9}, 32)}, "wrong-key-session", stream)
+	require.ErrorContains(t, err, "credential key conflicts")
+	_, _, connected := h.registry.HAConnection(h.nodes[1])
+	require.False(t, connected)
 }
 
 func TestStandaloneLeaseUsesNodeAuthorityStandaloneScope(t *testing.T) {
@@ -249,48 +378,6 @@ func TestRevocationRetainsOriginalLeaseExpiryBeforePromotion(t *testing.T) {
 	_, err = h.db.Exec(`UPDATE fleet_node_ha_group SET lease_expires_at=clock_timestamp()-interval '1 second'`)
 	require.NoError(t, err)
 	require.True(t, h.lease(t, 1, "standby", "standby-session", 0).GetGranted())
-}
-
-func TestTransferRetryBackoffAndOperationRotation(t *testing.T) {
-	h := setup(t, 3)
-	h.connect(t, 0, "source", "source-session")
-	h.group(t)
-	q := sqlc.New(h.db)
-	create := func(operation string, source int64) {
-		require.NoError(t, q.CreateFleetNodeHATransfer(t.Context(), sqlc.CreateFleetNodeHATransferParams{RecipientNodeID: h.nodes[1], OwnerNodeID: h.nodes[0], OperationID: operation, SourceNodeID: source}))
-	}
-	create("original-operation", h.nodes[0])
-	first, err := q.ClaimFleetNodeHATransfer(t.Context(), h.nodes[1])
-	require.NoError(t, err)
-	require.Equal(t, int32(1), first.Attempts)
-	_, err = q.ClaimFleetNodeHATransfer(t.Context(), h.nodes[1])
-	require.ErrorIs(t, err, sql.ErrNoRows, "immediate retries are throttled persistently")
-	_, err = h.db.Exec(`UPDATE fleet_node_ha_transfer SET attempts=6,next_attempt_at=clock_timestamp()-interval '1 second'`)
-	require.NoError(t, err)
-	retried, err := q.ClaimFleetNodeHATransfer(t.Context(), h.nodes[1])
-	require.NoError(t, err)
-	require.Equal(t, int32(7), retried.Attempts)
-	require.WithinDuration(t, time.Now().Add(30*time.Second), retried.NextAttemptAt, time.Second)
-	create("new-source-operation", h.nodes[2])
-	changed, err := q.GetFleetNodeHATransfer(t.Context(), h.nodes[1])
-	require.NoError(t, err)
-	require.Equal(t, "new-source-operation", changed.OperationID)
-	_, err = q.SetFleetNodeHATransferCiphertext(t.Context(), sqlc.SetFleetNodeHATransferCiphertextParams{RecipientNodeID: h.nodes[1], OperationID: changed.OperationID, EncryptedKey: []byte("sealed-envelope")})
-	require.NoError(t, err)
-	create("must-not-replace-ciphertext", h.nodes[0])
-	retained, err := q.GetFleetNodeHATransfer(t.Context(), h.nodes[1])
-	require.NoError(t, err)
-	require.Equal(t, changed.OperationID, retained.OperationID)
-	require.Equal(t, []byte("sealed-envelope"), retained.EncryptedKey)
-	_, err = h.db.Exec(`UPDATE fleet_node_ha_transfer SET expires_at=clock_timestamp()-interval '1 second'`)
-	require.NoError(t, err)
-	create("renewed-operation", h.nodes[0])
-	renewed, err := q.GetFleetNodeHATransfer(t.Context(), h.nodes[1])
-	require.NoError(t, err)
-	require.Equal(t, "renewed-operation", renewed.OperationID)
-	require.Empty(t, renewed.EncryptedKey)
-	require.Zero(t, renewed.Attempts)
-	require.WithinDuration(t, time.Now().Add(5*time.Minute), renewed.ExpiresAt, time.Second)
 }
 
 func TestOlderBlockedConnectCannotOverwriteNewerRegistration(t *testing.T) {
@@ -362,4 +449,142 @@ func TestLeadershipAuditsAndCacheInvalidationOncePerAcknowledgedEpoch(t *testing
 	require.True(t, next.GetGranted())
 	h.lease(t, 1, "standby", "standby-session", next.GetLeaseEpoch())
 	require.Equal(t, 2, invalidations)
+}
+
+func TestRetryStartsFreshTransferWithAnotherReadySource(t *testing.T) {
+	h := setup(t, 3)
+	source := h.connect(t, 0, "source", "source-session")
+	require.NoError(t, sqlstores.NewSQLTransactor(h.db).RunInTx(t.Context(), func(ctx context.Context) error { return h.svc.Confirm(ctx, h.nodes[1], 1, h.nodes[0]) }))
+	replacement := h.connect(t, 2, "replacement", "replacement-session")
+	require.NoError(t, sqlc.New(h.db).CreateFleetNodeHAMember(t.Context(), sqlc.CreateFleetNodeHAMemberParams{NodeID: h.nodes[2], OrgID: 1, OwnerNodeID: h.nodes[0], Ready: true, StatusReason: ""}))
+	recipient := h.registry.Register(h.nodes[1])
+	defer recipient.Unregister()
+	require.NoError(t, h.svc.ConnectStream(t.Context(), h.nodes[1], 1, &pb.ControlHello{HaCapable: true, InstanceId: "recipient", CredentialKeyFingerprint: bytes.Repeat([]byte{4}, 32)}, "recipient-session", recipient))
+	h.svc.StartPreparation(t.Context(), h.nodes[1], 1)
+	var first *pb.ControlCommand
+	select {
+	case first = <-source.Outgoing:
+	case <-time.After(2 * time.Second):
+		t.Fatal("initial source was not selected")
+	}
+	firstEnv := new(pb.AgentCommand)
+	require.NoError(t, proto.Unmarshal(first.GetPayload(), firstEnv))
+	source.PublishAck(&pb.ControlAck{CommandId: first.GetCommandId(), Code: pb.AckCode_ACK_CODE_INTERNAL, ErrorMessage: "try another source"})
+	source.Unregister()
+	require.NoError(t, h.svc.Disconnect(t.Context(), h.nodes[0], 1, "source-session"))
+	select {
+	case <-replacement.Outgoing:
+		t.Fatal("failed transfer retried without backoff")
+	case <-time.After(200 * time.Millisecond):
+	}
+	var next *pb.ControlCommand
+	select {
+	case next = <-replacement.Outgoing:
+	case <-time.After(3 * time.Second):
+		t.Fatal("retry did not select another ready source")
+	}
+	nextEnv := new(pb.AgentCommand)
+	require.NoError(t, proto.Unmarshal(next.GetPayload(), nextEnv))
+	require.NotEqual(t, firstEnv.GetHaKeyTransfer().GetOperationId(), nextEnv.GetHaKeyTransfer().GetOperationId())
+	require.Equal(t, h.nodes[2], nextEnv.GetHaKeyTransfer().GetSourceNodeId())
+	require.Equal(t, h.nodes[1], nextEnv.GetHaKeyTransfer().GetRecipientNodeId())
+	require.Nil(t, nextEnv.GetHaKeyTransfer().GetEncryptedKey(), "a retry always asks the source for a new sealed envelope")
+	payload, err := proto.Marshal(&pb.HAKeyTransferResult{EncryptedKey: &pb.NodeEncryptedPayload{Algorithm: "x25519-hkdf-sha256-aes-256-gcm-v1", EphemeralPubkey: bytes.Repeat([]byte{1}, 32), Nonce: bytes.Repeat([]byte{2}, 12), Ciphertext: bytes.Repeat([]byte{3}, 48)}, CredentialKeyFingerprint: h.fingerprint})
+	require.NoError(t, err)
+	replacement.PublishAck(&pb.ControlAck{CommandId: next.GetCommandId(), Code: pb.AckCode_ACK_CODE_OK, Succeeded: true, Payload: payload})
+	select {
+	case cmd := <-recipient.Outgoing:
+		env := new(pb.AgentCommand)
+		require.NoError(t, proto.Unmarshal(cmd.GetPayload(), env))
+		require.Equal(t, nextEnv.GetHaKeyTransfer().GetOperationId(), env.GetHaKeyTransfer().GetOperationId())
+		require.Equal(t, h.nodes[2], env.GetHaKeyTransfer().GetSourceNodeId())
+		payload, err := proto.Marshal(&pb.HAKeyTransferResult{CredentialKeyFingerprint: h.fingerprint})
+		require.NoError(t, err)
+		recipient.PublishAck(&pb.ControlAck{CommandId: cmd.GetCommandId(), Code: pb.AckCode_ACK_CODE_OK, Succeeded: true, Payload: payload})
+	case <-time.After(time.Second):
+		t.Fatal("fresh sealed envelope did not reach recipient")
+	}
+}
+
+func TestBulkSummaryUsesTheAcknowledgedConnectionTuple(t *testing.T) {
+	h := setup(t, 2)
+	h.connect(t, 0, "owner", "owner-session")
+	h.connect(t, 1, "standby", "standby-session")
+	h.group(t)
+	first := h.lease(t, 0, "owner", "owner-session", 0)
+	summaries, err := h.svc.ListSummaries(t.Context(), 1)
+	require.NoError(t, err)
+	require.NotEqual(t, "active", summaries[h.nodes[0]].Role)
+	require.False(t, summaries[h.nodes[0]].Eligible)
+	h.lease(t, 0, "owner", "owner-session", first.GetLeaseEpoch())
+	summaries, err = h.svc.ListSummaries(t.Context(), 1)
+	require.NoError(t, err)
+	require.Equal(t, "active", summaries[h.nodes[0]].Role)
+	require.True(t, summaries[h.nodes[0]].Eligible)
+	require.Equal(t, "standby", summaries[h.nodes[1]].Role)
+	require.False(t, summaries[h.nodes[1]].Eligible)
+	h.connect(t, 0, "restarted", "new-session")
+	summaries, err = h.svc.ListSummaries(t.Context(), 1)
+	require.NoError(t, err)
+	require.NotEqual(t, "active", summaries[h.nodes[0]].Role)
+	require.False(t, summaries[h.nodes[0]].Eligible)
+	summaries, err = h.svc.ListSummaries(t.Context(), 2)
+	require.NoError(t, err)
+	require.Empty(t, summaries)
+}
+
+func TestConfirmationWaitsForSourceRevocationLock(t *testing.T) {
+	h := setup(t, 2)
+	h.connect(t, 0, "source", "source-session")
+	revoke, err := h.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer func() { _ = revoke.Rollback() }()
+	_, err = sqlc.New(revoke).LockFleetNodeByID(t.Context(), sqlc.LockFleetNodeByIDParams{ID: h.nodes[0], OrgID: 1})
+	require.NoError(t, err)
+	result := make(chan error, 1)
+	go func() {
+		result <- sqlstores.NewSQLTransactor(h.db).RunInTx(t.Context(), func(ctx context.Context) error { return h.svc.Confirm(ctx, h.nodes[1], 1, h.nodes[0]) })
+	}()
+	require.Eventually(t, func() bool {
+		var blocked int
+		err := h.db.QueryRow(`SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%FOR NO KEY UPDATE OF fn%'`).Scan(&blocked)
+		return err == nil && blocked > 0
+	}, 2*time.Second, 10*time.Millisecond)
+	_, err = sqlc.New(revoke).SetFleetNodeEnrollmentStatus(t.Context(), sqlc.SetFleetNodeEnrollmentStatusParams{ID: h.nodes[0], OrgID: 1, EnrollmentStatus: "REVOKED"})
+	require.NoError(t, err)
+	require.NoError(t, revoke.Commit())
+	require.ErrorContains(t, <-result, "standby source is revoked")
+	var count int
+	require.NoError(t, h.db.QueryRow(`SELECT count(*) FROM fleet_node_ha_group`).Scan(&count))
+	require.Zero(t, count)
+}
+
+func TestSourceFingerprintMismatchPersistsFailedPreparation(t *testing.T) {
+	h := setup(t, 2)
+	source := h.connect(t, 0, "source", "source-session")
+	require.NoError(t, sqlstores.NewSQLTransactor(h.db).RunInTx(t.Context(), func(ctx context.Context) error { return h.svc.Confirm(ctx, h.nodes[1], 1, h.nodes[0]) }))
+	recipient := h.registry.Register(h.nodes[1])
+	defer recipient.Unregister()
+	require.NoError(t, h.svc.ConnectStream(t.Context(), h.nodes[1], 1, &pb.ControlHello{HaCapable: true, InstanceId: "recipient", CredentialKeyFingerprint: bytes.Repeat([]byte{4}, 32)}, "recipient-session", recipient))
+	h.svc.StartPreparation(t.Context(), h.nodes[1], 1)
+	select {
+	case cmd := <-source.Outgoing:
+		payload, err := proto.Marshal(&pb.HAKeyTransferResult{CredentialKeyFingerprint: bytes.Repeat([]byte{9}, 32), EncryptedKey: &pb.NodeEncryptedPayload{Algorithm: "x25519-hkdf-sha256-aes-256-gcm-v1", EphemeralPubkey: bytes.Repeat([]byte{1}, 32), Nonce: bytes.Repeat([]byte{2}, 12), Ciphertext: bytes.Repeat([]byte{3}, 48)}})
+		require.NoError(t, err)
+		source.PublishAck(&pb.ControlAck{CommandId: cmd.GetCommandId(), Code: pb.AckCode_ACK_CODE_OK, Succeeded: true, Payload: payload})
+	case <-time.After(2 * time.Second):
+		t.Fatal("source was not asked to prepare")
+	}
+	require.Eventually(t, func() bool {
+		summaries, err := h.svc.ListSummaries(t.Context(), 1)
+		return err == nil && summaries[h.nodes[1]].Role == "failed"
+	}, time.Second, 10*time.Millisecond)
+	select {
+	case <-recipient.Outgoing:
+		t.Fatal("mismatched source result was sent to recipient")
+	default:
+	}
+	route, err := h.svc.Resolve(t.Context(), h.nodes[0], 1)
+	require.NoError(t, err)
+	require.Zero(t, route.Epoch)
 }

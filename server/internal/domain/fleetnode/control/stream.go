@@ -52,6 +52,7 @@ func (r *Registry) RegisterAuthenticated(
 
 func (r *Registry) registerLocked(fleetNodeID int64, maxCommandProtocolVersion gatewaypb.CommandProtocolVersion) *Stream {
 	if old, exists := r.conns[fleetNodeID]; exists {
+		r.invalidateConnectionRoutesLocked(fleetNodeID)
 		teardown(old)
 	}
 	conn := &connection{
@@ -94,6 +95,7 @@ func (r *Registry) disconnectLocked(fleetNodeID int64) {
 	if !ok {
 		return
 	}
+	r.invalidateConnectionRoutesLocked(fleetNodeID)
 	teardown(conn)
 	delete(r.conns, fleetNodeID)
 }
@@ -107,6 +109,7 @@ func (s *Stream) Unregister() {
 	if !ok || conn != s.conn {
 		return
 	}
+	s.r.invalidateConnectionRoutesLocked(s.fleetNodeID)
 	teardown(conn)
 	delete(s.r.conns, s.fleetNodeID)
 }
@@ -409,9 +412,10 @@ func artifactExpectationMatches(exp, want ArtifactExpectation) bool {
 // PairPersistMeta is the operator context the gateway needs to persist a pair
 // result authoritatively, returned by AdmitAndScopePairResults.
 type PairPersistMeta struct {
-	OrgID      int64
-	AssignedBy *int64
-	Snapshots  map[string]*pairingpb.FleetNodePairTarget
+	OwnerNodeID int64
+	OrgID       int64
+	AssignedBy  *int64
+	Snapshots   map[string]*pairingpb.FleetNodePairTarget
 }
 
 // AdmitAndScopePairResults is the single atomic gate for the gateway's
@@ -447,7 +451,12 @@ func (r *Registry) AdmitAndScopePairResults(fleetNodeID int64, commandID string,
 		kept = append(kept, res)
 	}
 	cmd.reported += len(kept)
-	return kept, PairPersistMeta{OrgID: cmd.pair.OrgID, AssignedBy: cmd.pair.AssignedBy, Snapshots: snapshots}, nil
+	return kept, PairPersistMeta{
+		OwnerNodeID: cmd.route.OwnerNodeID,
+		OrgID:       cmd.pair.OrgID,
+		AssignedBy:  cmd.pair.AssignedBy,
+		Snapshots:   snapshots,
+	}, nil
 }
 
 // ReinstatePairTargets returns identifiers to the in-flight pair command's target
@@ -471,18 +480,18 @@ func (r *Registry) ReinstatePairTargets(fleetNodeID int64, commandID string, ide
 	}
 }
 
-// ReportScopeFor returns the scan-scope matcher for the in-flight report-bearing
-// command, or (nil, false) if commandID isn't one. ok=true with a nil matcher means
+// ReportScopeFor returns the stable owner and scan scope captured by the
+// in-flight report command. ok=true with a nil matcher means
 // the command is in flight but unconstrained. Callers filter reported devices
 // through the matcher so a node can't report outside the requested scope.
-func (r *Registry) ReportScopeFor(fleetNodeID int64, commandID string) (ReportScope, bool) {
+func (r *Registry) ReportScopeFor(fleetNodeID int64, commandID string) (int64, ReportScope, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cmd := r.inflightFor(fleetNodeID, commandID)
 	if cmd == nil || !cmd.reportBearing() {
-		return nil, false
+		return 0, nil, false
 	}
-	return cmd.scope, true
+	return cmd.route.OwnerNodeID, cmd.scope, true
 }
 
 // deliverEvent routes a batch/ack event to an in-flight report-bearing command under

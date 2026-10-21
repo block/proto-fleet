@@ -351,11 +351,7 @@ func start(config *Config) (result error) {
 	fleetNodeHASvc.WithAudit(activitySvc, transactor)
 	fleetNodeEnrollmentSvc.WithHA(fleetNodeHASvc)
 	fleetNodeControlRegistry.SetHARouteResolver(func(ctx context.Context, ownerID int64) (control.RouteBinding, error) {
-		route, err := fleetNodeHASvc.Resolve(ctx, ownerID, 0)
-		if err != nil {
-			return control.RouteBinding{}, err
-		}
-		return control.RouteBinding{OwnerNodeID: route.OwnerNodeID, PhysicalNodeID: route.PhysicalNodeID, Epoch: route.Epoch, InstanceID: route.InstanceID, ControlSessionID: route.ControlSessionID, EncryptionPublicKey: route.EncryptionPublicKey, Preparing: route.Preparing, ExpiresAt: route.ExpiresAt}, nil
+		return fleetNodeHASvc.Resolve(ctx, ownerID, 0)
 	})
 	fleetNodeEnrollmentSvc.WithControlStreamInvalidator(fleetNodeControlRegistry.RevokeSession)
 	fleetNodeDiscoverySvc := fleetnodediscovery.NewService(fleetNodeControlRegistry, fleetNodeEnrollmentSvc)
@@ -549,7 +545,7 @@ func start(config *Config) (result error) {
 			return
 		}
 		for _, device := range devices {
-			minerService.InvalidateMinerByID(ctx, device.ID)
+			minerService.InvalidateMiner(device.Identifier)
 		}
 	})
 	fleetNodeEnrollmentSvc.WithTelemetryRemover(telemetryService.RemoveUnpairedDevices)

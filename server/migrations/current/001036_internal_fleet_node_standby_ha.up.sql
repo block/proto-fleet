@@ -17,6 +17,7 @@ CREATE TABLE fleet_node_ha_group (
     owner_node_id bigint PRIMARY KEY,
     org_id bigint NOT NULL,
     credential_key_fingerprint bytea NOT NULL CHECK (octet_length(credential_key_fingerprint)=32),
+    enabled boolean NOT NULL DEFAULT false,
     active_node_id bigint NOT NULL DEFAULT 0,
     instance_id text NOT NULL DEFAULT '',
     control_session_id text NOT NULL DEFAULT '',
@@ -38,33 +39,26 @@ CREATE TABLE fleet_node_ha_member (
     CONSTRAINT fk_fleet_node_ha_member_group FOREIGN KEY(owner_node_id,org_id) REFERENCES fleet_node_ha_group(owner_node_id,org_id)
 );
 CREATE INDEX idx_fleet_node_ha_member_owner ON fleet_node_ha_member(owner_node_id,org_id,joined_at,node_id);
-CREATE TABLE fleet_node_ha_transfer (
-    recipient_node_id bigint PRIMARY KEY REFERENCES fleet_node_ha_member(node_id),
-    operation_id text NOT NULL UNIQUE,
-    owner_node_id bigint NOT NULL REFERENCES fleet_node_ha_group(owner_node_id),
-    source_node_id bigint NOT NULL REFERENCES fleet_node_ha_member(node_id),
-    expires_at timestamptz NOT NULL,
-    attempts integer NOT NULL DEFAULT 0,
-    next_attempt_at timestamptz NOT NULL DEFAULT '1970-01-01 00:00:00+00',
-    failed boolean NOT NULL DEFAULT false,
-    encrypted_key bytea NOT NULL DEFAULT ''::bytea
-);
 
 -- Stable device ownership survives revocation of the original physical node.
 -- A grouped row reports liveness only for an acknowledged, unexpired lease.
 CREATE VIEW fleet_node_effective_route AS
 SELECT fn.id AS owner_node_id, fn.org_id,
-       CASE WHEN g.owner_node_id IS NULL THEN fn.id ELSE g.active_node_id END AS physical_node_id,
-       COALESCE(g.lease_epoch,0)::bigint AS lease_epoch,
-       COALESCE(g.instance_id,'')::text AS instance_id,
-       COALESCE(g.control_session_id,'')::text AS control_session_id,
+       CASE WHEN (g.owner_node_id IS NULL OR NOT g.enabled) THEN fn.id ELSE g.active_node_id END AS physical_node_id,
+       CASE WHEN g.enabled THEN g.lease_epoch ELSE 0 END::bigint AS lease_epoch,
+       CASE WHEN g.enabled THEN g.instance_id ELSE '' END::text AS instance_id,
+       CASE WHEN g.enabled THEN g.control_session_id ELSE '' END::text AS control_session_id,
        physical.encryption_pubkey,
-       CASE WHEN g.owner_node_id IS NULL OR (g.acknowledged AND g.lease_expires_at>clock_timestamp() AND physical.enrollment_status='CONFIRMED' AND physical.deleted_at IS NULL) THEN h.last_seen_at ELSE NULL END AS last_seen_at,
-       g.lease_expires_at,
-       COALESCE(g.acknowledged,true)::boolean AS acknowledged
+       CASE WHEN g.owner_node_id IS NULL OR NOT g.enabled OR (g.acknowledged AND g.lease_expires_at>clock_timestamp() AND c.node_id IS NOT NULL AND physical.enrollment_status='CONFIRMED' AND physical.deleted_at IS NULL) THEN h.last_seen_at ELSE NULL END AS last_seen_at,
+       CASE WHEN g.enabled THEN g.lease_expires_at ELSE NULL END AS lease_expires_at,
+       CASE WHEN g.enabled THEN (g.acknowledged AND c.node_id IS NOT NULL) ELSE true END::boolean AS acknowledged
 FROM fleet_node fn
 LEFT JOIN fleet_node_ha_group g ON g.owner_node_id=fn.id AND g.org_id=fn.org_id
-LEFT JOIN fleet_node physical ON physical.id=CASE WHEN g.owner_node_id IS NULL THEN fn.id ELSE g.active_node_id END AND physical.org_id=fn.org_id
+LEFT JOIN fleet_node physical ON physical.id=CASE WHEN (g.owner_node_id IS NULL OR NOT g.enabled) THEN fn.id ELSE g.active_node_id END AND physical.org_id=fn.org_id
+LEFT JOIN fleet_node_ha_connection c ON c.node_id=physical.id AND c.org_id=physical.org_id
+ AND c.instance_id=g.instance_id AND c.control_session_id=g.control_session_id
+ AND c.credential_key_fingerprint=g.credential_key_fingerprint AND c.ha_capable
+ AND c.seen_at>clock_timestamp()-interval '10 seconds'
 LEFT JOIN fleet_node_heartbeat h ON h.fleet_node_id=physical.id AND h.org_id=physical.org_id
 WHERE fn.deleted_at IS NULL AND (fn.enrollment_status='CONFIRMED' OR g.owner_node_id IS NOT NULL)
  AND NOT EXISTS (SELECT 1 FROM fleet_node_ha_member m WHERE m.node_id=fn.id AND m.owner_node_id<>fn.id);
@@ -77,7 +71,7 @@ SELECT fn.id,fn.org_id,fn.name,fn.identity_pubkey,
   WHERE m.owner_node_id=fn.id AND m.org_id=fn.org_id AND m.revoked_at IS NULL
    AND physical.enrollment_status='CONFIRMED' AND physical.deleted_at IS NULL
  ) THEN 'CONFIRMED'::varchar(32) ELSE fn.enrollment_status END AS enrollment_status,
- CASE WHEN g.owner_node_id IS NOT NULL THEN COALESCE(route.last_seen_at,'1970-01-01 00:00:00+00'::timestamptz) ELSE h.last_seen_at END AS last_seen_at,
+ CASE WHEN g.enabled THEN COALESCE(route.last_seen_at,'1970-01-01 00:00:00+00'::timestamptz) ELSE h.last_seen_at END AS last_seen_at,
  fn.created_at,fn.updated_at,fn.deleted_at
 FROM fleet_node fn
 LEFT JOIN fleet_node_ha_group g ON g.owner_node_id=fn.id AND g.org_id=fn.org_id

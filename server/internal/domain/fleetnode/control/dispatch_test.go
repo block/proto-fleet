@@ -103,6 +103,35 @@ func TestRunCommand_PartialAckReachesCallback(t *testing.T) {
 	}
 }
 
+func TestHAPairCompletionSurvivesOperatorCancellation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		registry := NewRegistry()
+		stream := registry.Register(20)
+		defer stream.Unregister()
+		stream.SetHAConnection(1, &gatewaypb.ControlHello{HaCapable: true, InstanceId: "process"}, "session")
+		route := RouteBinding{OwnerNodeID: 10, PhysicalNodeID: 20, Epoch: 1, InstanceID: "process", ControlSessionID: "session", ExpiresAt: time.Now().Add(time.Minute)}
+		registry.SetHARoute(route)
+		registry.SetHARouteResolver(func(context.Context, int64) (RouteBinding, error) { return route, nil })
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan error, 1)
+		go func() {
+			done <- RunCommandToCompletion(ctx, registry, 10, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1,
+				&gatewaypb.ControlCommand{CommandId: "pair"}, nil, ReportKindPair,
+				&PairMeta{OrgID: 1, Targets: map[string]struct{}{"miner": {}}}, 12*time.Second, "pair", func(CommandEvent) (bool, error) { return false, nil })
+		}()
+		<-stream.Outgoing
+		cancel()
+		synctest.Wait()
+		kept, meta, err := registry.AdmitAndScopePairResults(20, "pair", []*gatewaypb.FleetNodePairResult{{DeviceIdentifier: "miner"}})
+		require.NoError(t, err, "accepted pairing reports must remain admissible after operator cancellation")
+		require.Len(t, kept, 1)
+		require.Equal(t, int64(1), meta.OrgID)
+		require.Equal(t, int64(10), meta.OwnerNodeID)
+		stream.PublishAck(&gatewaypb.ControlAck{CommandId: "pair", Code: gatewaypb.AckCode_ACK_CODE_OK, Succeeded: true})
+		require.NoError(t, <-done)
+	})
+}
+
 func TestRunCommandToCompletionPreservesTimeoutBudget(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		registry := NewRegistry()

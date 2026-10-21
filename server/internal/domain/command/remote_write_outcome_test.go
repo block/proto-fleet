@@ -37,17 +37,21 @@ func TestQueuedHAInterruptionDoesNotReplayOrBlockNewHostWrite(t *testing.T) {
 			registry := control.NewRegistry()
 			stream := registry.Register(20)
 			defer stream.Unregister()
-			registry.SetHAConnection(20, 1, &gatewaypb.ControlHello{HaCapable: true, InstanceId: "old-process"}, "old-session")
+			stream.SetHAConnection(1, &gatewaypb.ControlHello{HaCapable: true, InstanceId: "old-process"}, "old-session")
 			var active atomic.Int64
 			active.Store(20)
-			registry.SetHARouteResolver(func(context.Context, int64) (control.RouteBinding, error) {
+			resolve := func(context.Context, int64) (control.RouteBinding, error) {
 				member := active.Load()
 				instance, session, epoch := "old-process", "old-session", int64(1)
 				if member == 21 {
 					instance, session, epoch = "new-process", "new-session", 2
 				}
 				return control.RouteBinding{OwnerNodeID: 7, PhysicalNodeID: member, Epoch: epoch, InstanceID: instance, ControlSessionID: session, ExpiresAt: time.Now().Add(time.Minute)}, nil
-			})
+			}
+			registry.SetHARouteResolver(resolve)
+			initialRoute, err := resolve(t.Context(), 7)
+			require.NoError(t, err)
+			registry.SetHARoute(initialRoute)
 			miner, err := remotenode.New(remotenode.Config{WriteGate: func(ctx context.Context, _ commandtype.Type, call func(context.Context) error) error {
 				return devicewrite.NewService(conn).RunHost(ctx, 1, deviceID, first.WriteEpoch, call)
 			}, Sender: registry, FleetNodeID: 7, OrgID: 1, DeviceIdentifier: identifier, DriverName: "proto", IPAddress: "192.0.2.10", Port: "443", URLScheme: "https"})
@@ -82,8 +86,11 @@ func TestQueuedHAInterruptionDoesNotReplayOrBlockNewHostWrite(t *testing.T) {
 			require.Empty(t, remaining, "interrupted work must not replay")
 			current := registry.Register(21)
 			defer current.Unregister()
-			registry.SetHAConnection(21, 1, &gatewaypb.ControlHello{HaCapable: true, InstanceId: "new-process"}, "new-session")
+			current.SetHAConnection(1, &gatewaypb.ControlHello{HaCapable: true, InstanceId: "new-process"}, "new-session")
 			active.Store(21)
+			nextRoute, err := resolve(t.Context(), 7)
+			require.NoError(t, err)
+			registry.SetHARoute(nextRoute)
 			batch := id.GenerateID()
 			var userID int64
 			require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT id FROM \"user\" LIMIT 1").Scan(&userID))

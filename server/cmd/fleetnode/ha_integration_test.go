@@ -41,7 +41,7 @@ func (f haIntegrationTelemetry) Fetch(_ context.Context, _ *telemetrypb.FleetNod
 }
 
 // This crosses the actual database coordinator, gateway, bidirectional stream,
-// node command decoder, cryptographic transfer, durable state, and live codec.
+// node command decoder, cryptographic transfer, durable key installation, and startup reconnect.
 // Only authentication and the final device telemetry fetch are test seams.
 func TestHAIntegrationRealStreamsProvisionAndPromote(t *testing.T) {
 	if testing.Short() {
@@ -57,7 +57,7 @@ func TestHAIntegrationRealStreamsProvisionAndPromote(t *testing.T) {
 		if err != nil {
 			return control.RouteBinding{}, err
 		}
-		return control.RouteBinding{OwnerNodeID: route.OwnerNodeID, PhysicalNodeID: route.PhysicalNodeID, Epoch: route.Epoch, InstanceID: route.InstanceID, ControlSessionID: route.ControlSessionID, EncryptionPublicKey: route.EncryptionPublicKey, Preparing: route.Preparing, ExpiresAt: route.ExpiresAt}, nil
+		return route, nil
 	})
 	_, gatewayHandler := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(gateway.NewHandler(nil, nil, nil, registry, nil).WithHA(service))
 	// Authentication itself has its own integration tests. Supply each real
@@ -160,13 +160,13 @@ func TestHAIntegrationRealStreamsProvisionAndPromote(t *testing.T) {
 		require.Equal(t, hex.EncodeToString(nodes[0].codec.keySnapshot()), persisted.CredentialKeyHex)
 		require.Equal(t, originalIdentity[index], persisted.IdentityPrivateKeyHex)
 		require.Equal(t, originalEncryption[index], persisted.EncryptionPrivateKeyHex)
-		require.NotEmpty(t, persisted.HAKeyTransferOperationID)
-		opened, err := nodes[index].codec.Open(sourceCredentials)
+		require.Equal(t, ownerID, persisted.HACredentialOwnerNodeID)
+		reloaded, err := ensureCredentialCodec(nodes[index].path, persisted)
+		require.NoError(t, err)
+		opened, err := reloaded.Open(sourceCredentials)
 		require.NoError(t, err)
 		require.Equal(t, sdk.UsernamePassword{Username: "miner-user", Password: "persisted-password"}, opened.Kind)
-		var ciphertext []byte
-		require.NoError(t, database.QueryRow(`SELECT encrypted_key FROM fleet_node_ha_transfer WHERE recipient_node_id=$1`, nodes[index].state.FleetNodeID).Scan(&ciphertext))
-		require.NotEmpty(t, ciphertext, "server must persist source-sealed ciphertext before import acknowledgement")
+
 	}
 	confirm(1)
 	start(1)

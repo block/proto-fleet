@@ -116,8 +116,16 @@ describe("EnrollNodeModal", () => {
     expect(mockCreateEnrollmentCode).not.toHaveBeenCalled();
   });
 
-  it("waits for Continue before minting a standalone code and showing the enroll command", async () => {
-    mockListFleetNodes.mockResolvedValue([]);
+  it("keeps the standalone code visible when an earlier target lookup fails", async () => {
+    let rejectTargets: (error: Error) => void = () => {};
+    mockListFleetNodes
+      .mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            rejectTargets = reject;
+          }),
+      )
+      .mockResolvedValue([]);
     mockCreateEnrollmentCode.mockResolvedValue({ code: "pf_code_123", pendingEnrollmentId: "11", expiresAt: null });
 
     const { getByRole, getByText } = render(
@@ -135,6 +143,11 @@ describe("EnrollNodeModal", () => {
       expect(getByText("pf_code_123")).toBeInTheDocument();
       expect(getByText("Waiting for the node to register…")).toBeInTheDocument();
     });
+    await act(async () => {
+      rejectTargets(new Error("Target lookup failed"));
+    });
+    expect(getByText("pf_code_123")).toBeInTheDocument();
+    expect(getByRole("button", { name: "Copy command" })).toBeInTheDocument();
     const instructions = getByRole("link", { name: "Installation instructions" });
     expect(instructions).toHaveAttribute("href", "https://docs.proto.xyz/fleet/fleet-node");
     expect(instructions).toHaveAttribute("target", "_blank");

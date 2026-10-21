@@ -537,9 +537,12 @@ func TestRunLocked_PluginBootstrapFailureRemainsRetryable(t *testing.T) {
 	pluginsDir := t.TempDir()
 	badPlugin := filepath.Join(pluginsDir, "bad-plugin")
 	require.NoError(t, os.WriteFile(badPlugin, []byte("#!/usr/bin/env bash\nexit 1\n"), 0o755))
+	client := newControlClient(t, &controlFakeGateway{})
 	cmd := &RunCmd{
+		now:               time.Now,
+		HeartbeatInterval: defaultHeartbeatInterval,
 		clientFactory: func(_ string, _ func() string) (gatewayClient, error) {
-			return &stubGatewayClient{}, nil
+			return client, nil
 		},
 	}
 

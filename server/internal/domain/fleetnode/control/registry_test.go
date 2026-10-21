@@ -496,7 +496,7 @@ func TestRegistry_CanceledContextDoesNotEnqueue(t *testing.T) {
 		t.Fatalf("canceled command %q was enqueued", cmd.GetCommandId())
 	default:
 	}
-	_, ok := r.ReportScopeFor(1, "canceled")
+	_, _, ok := r.ReportScopeFor(1, "canceled")
 	assert.False(t, ok)
 }
 
@@ -514,7 +514,7 @@ func TestRegistry_AckRoutesByKind(t *testing.T) {
 
 	// Assert: an ack-only command is not a report channel; the report path rejects it.
 	assert.ErrorIs(t, r.AdmitReport(1, "mk", 1, ReportKindDiscovery), errNoInFlightCommand)
-	_, ok := r.ReportScopeFor(1, "mk")
+	_, _, ok := r.ReportScopeFor(1, "mk")
 	assert.False(t, ok)
 
 	// Act + Assert: its ack is delivered to the SendCommand waiter, not dropped.

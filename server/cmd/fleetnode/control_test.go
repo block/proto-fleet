@@ -546,7 +546,8 @@ func TestControlLoop_PermanentErrorPropagates(t *testing.T) {
 
 func TestControlLoop_UnimplementedFallsBackToHeartbeatOnly(t *testing.T) {
 	// Arrange
-	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
+	notified := false
+	cmd := &RunCmd{discoverer: &stubDiscoverer{}, notifyReady: func() error { notified = true; return nil }}
 	state := &bootstrap.State{FleetNodeID: 12}
 
 	fake := &controlFakeGateway{}
@@ -561,6 +562,11 @@ func TestControlLoop_UnimplementedFallsBackToHeartbeatOnly(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
+	require.True(t, notified, "heartbeat-only fallback must satisfy systemd startup readiness")
+	require.False(t, cmd.runtimeStarted, "an old server cannot authorize device-runtime startup")
+	notifyErr := errors.New("readiness notification failed")
+	cmd.notifyReady = func() error { return notifyErr }
+	require.ErrorIs(t, cmd.runControlLoop(ctx, client, state, discardLogger(t)), notifyErr)
 }
 
 func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
@@ -667,6 +673,7 @@ func (s *stubDiscoverer) DefaultDiscoveryPorts(_ context.Context) []string {
 }
 
 type controlFakeBehavior struct {
+	accepted           *pb.ControlAccepted
 	closeAfterAccepted bool
 	acceptedLiveness   int
 	// closeOnSignal lets tests force a server-side stream close at a precise
@@ -691,6 +698,7 @@ type controlFakeGateway struct {
 	pending                      []pendingCommand
 	hellos                       int32
 	helloCommandProtocolVersions []pb.CommandProtocolVersion
+	leaseRequests                int
 	acks                         []*pb.ControlAck
 	reports                      []*pb.ReportDiscoveredDevicesRequest
 	pairReports                  []*pb.ReportPairedDevicesRequest
@@ -792,7 +800,13 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 	f.mu.Unlock()
 	atomic.AddInt32(&f.hellos, 1)
 
-	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ServerTime: timestamppb.Now()}}}); err != nil {
+	f.mu.Lock()
+	accepted := f.behavior.accepted
+	f.mu.Unlock()
+	if accepted == nil {
+		accepted = &pb.ControlAccepted{ServerTime: timestamppb.Now()}
+	}
+	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: accepted}}); err != nil {
 		return fmt.Errorf("send accepted: %w", err)
 	}
 
@@ -850,6 +864,11 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 					return nil
 				}
 				return r.err
+			}
+			if r.msg.GetHaLease() != nil {
+				f.mu.Lock()
+				f.leaseRequests++
+				f.mu.Unlock()
 			}
 			if ack := r.msg.GetAck(); ack != nil {
 				f.mu.Lock()

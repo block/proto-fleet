@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -33,6 +32,7 @@ type haAuthority struct {
 	sequence, applied, workerSequence uint64
 	pending                           map[string]haPendingRequest
 	current                           *pb.HALeaseResponse
+	assignment                        *pb.ControlAccepted
 	deadline                          time.Time
 	timer                             *time.Timer
 	workers                           map[uint64]context.CancelCauseFunc
@@ -41,6 +41,13 @@ type haAuthority struct {
 
 func newHAAuthority(nodeID int64, instanceID, sessionID string) *haAuthority {
 	return &haAuthority{nodeID: nodeID, instanceID: instanceID, sessionID: sessionID, pending: make(map[string]haPendingRequest), workers: make(map[uint64]context.CancelCauseFunc)}
+}
+
+// Accepted supplies assignment scope without conferring a timed HA grant.
+// Standalone sessions retain this scope for key export without lease traffic.
+func (a *haAuthority) accept(accepted *pb.ControlAccepted) {
+	a.assignment = accepted
+	a.current = &pb.HALeaseResponse{OwnerNodeId: accepted.GetHaOwnerNodeId(), OrgId: accepted.GetOrgId(), Preparing: accepted.GetPreparing()}
 }
 func (r *RunCmd) processInstanceID() (string, error) {
 	r.haInstanceOnce.Do(func() {
@@ -84,6 +91,9 @@ func (a *haAuthority) apply(response *pb.HALeaseResponse, now time.Time) bool {
 		return false
 	}
 	delete(a.pending, response.GetRequestId())
+	if a.assignment != nil && (a.assignment.GetHaOwnerNodeId() == 0 || a.assignment.GetPreparing() || response.GetOwnerNodeId() != a.assignment.GetHaOwnerNodeId() || response.GetOrgId() != a.assignment.GetOrgId() || response.GetPreparing()) {
+		return false
+	}
 	if response.GetLeaseDurationMs() <= haSafetyMargin.Milliseconds() {
 		return false
 	}
@@ -101,13 +111,7 @@ func (a *haAuthority) apply(response *pb.HALeaseResponse, now time.Time) bool {
 		return false
 	}
 	if a.current != nil && (a.current.GetOwnerNodeId() != response.GetOwnerNodeId() || a.current.GetLeaseEpoch() != response.GetLeaseEpoch() || a.current.GetGranted() != response.GetGranted() || a.current.GetPreparing() != response.GetPreparing()) {
-		// The first group grant continues authority on the same physical source.
-		// Existing standalone work remains valid; newly arriving commands must use
-		// the new owner/epoch tuple checked by allowedLocked.
-		samePhysicalSource := a.current.GetOwnerNodeId() == 0 && !a.current.GetPreparing() && a.current.GetOrgId() == response.GetOrgId() && response.GetOwnerNodeId() == a.nodeID && response.GetActiveNodeId() == a.nodeID && response.GetGranted() && !response.GetPreparing()
-		if !samePhysicalSource {
-			a.cancelWorkersLocked()
-		}
+		a.cancelWorkersLocked()
 	}
 	a.current = response
 	a.deadline = deadline
@@ -126,7 +130,7 @@ func (a *haAuthority) apply(response *pb.HALeaseResponse, now time.Time) bool {
 	return true
 }
 func (a *haAuthority) expireLocked(now time.Time) {
-	if a.current != nil && !now.Before(a.deadline) {
+	if a.current != nil && !a.deadline.IsZero() && !now.Before(a.deadline) {
 		a.current = nil
 		a.cancelWorkersLocked()
 	}
@@ -156,9 +160,6 @@ func (a *haAuthority) allowedLocked(command *pb.ControlCommand, now time.Time) b
 	a.expireLocked(now)
 	if a.closed {
 		return false
-	}
-	if a.sessionID == "" {
-		return command.GetHaOwnerNodeId() == 0 && command.GetHaLeaseEpoch() == 0
 	}
 	if a.current == nil || a.current.GetPreparing() {
 		return false
@@ -190,8 +191,6 @@ func (a *haAuthority) transferScope(now time.Time) (*pb.HALeaseResponse, bool) {
 	return a.current, true
 }
 
-type haDeviceWorkKey struct{}
-
 type haOwnerNodeIDKey struct{}
 
 func discoveryOwnerNodeID(ctx context.Context, physicalNodeID int64) int64 {
@@ -199,17 +198,6 @@ func discoveryOwnerNodeID(ctx context.Context, physicalNodeID int64) int64 {
 		return ownerID
 	}
 	return physicalNodeID
-}
-
-// A command supervisor may return before a plugin goroutine does. Provisioning
-// retains this count for the actual work lifetime, across stream reconnects.
-func retainHADeviceWork(ctx context.Context) func() {
-	tracker, _ := ctx.Value(haDeviceWorkKey{}).(*atomic.Int64)
-	if tracker == nil {
-		return func() {}
-	}
-	tracker.Add(1)
-	return func() { tracker.Add(-1) }
 }
 
 // Every completion after dispatch passes through this adapter. Losing local

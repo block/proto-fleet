@@ -29,16 +29,6 @@ func (r *Registry) SetHARouteResolver(resolve func(context.Context, int64) (Rout
 	r.haResolve = resolve
 }
 
-func (r *Registry) SetHAConnection(nodeID, orgID int64, hello *pb.ControlHello, sessionID string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if conn := r.conns[nodeID]; conn != nil {
-		conn.haHello = proto.CloneOf(hello)
-		conn.haSessionID = sessionID
-		conn.orgID = orgID
-	}
-}
-
 func (r *Registry) HAConnection(nodeID int64) (*pb.ControlHello, string, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -90,6 +80,13 @@ func (r *Registry) resolveCommand(ctx context.Context, ownerID int64, command *p
 	if !route.ExpiresAt.IsZero() && !time.Now().Before(route.ExpiresAt) {
 		return route, nil, fleeterror.NewUnavailableErrorf("fleet node HA grant expired")
 	}
+	if route.Epoch > 0 {
+		acknowledged, ok := r.HARoute(route.OwnerNodeID)
+		if !ok || !sameAuthority(route, acknowledged) || !bytes.Equal(route.EncryptionPublicKey, acknowledged.EncryptionPublicKey) {
+			return route, nil, fleeterror.NewUnavailableErrorf("fleet node HA authority changed")
+		}
+		route = acknowledged
+	}
 	cmd := proto.CloneOf(command)
 	cmd.IntendedInstanceId = route.InstanceID
 	cmd.ControlSessionId = route.ControlSessionID
@@ -118,7 +115,11 @@ func (r *Registry) resolveCommand(ctx context.Context, ownerID int64, command *p
 			case m.GetApplyCurtailmentConfig() != nil:
 				encrypted = m.GetApplyCurtailmentConfig().GetEncryptedConfig()
 			}
-			if encrypted != nil && !bytes.Equal(encrypted.GetRecipientPublicKey(), route.EncryptionPublicKey) {
+			// Persisted commands issued before recipient markers were introduced
+			// were encrypted for their original logical owner. They may execute only
+			// on that physical node, never on a promoted standby.
+			originalRecipient := encrypted != nil && len(encrypted.GetRecipientPublicKey()) == 0 && route.PhysicalNodeID == route.OwnerNodeID
+			if encrypted != nil && !originalRecipient && !bytes.Equal(encrypted.GetRecipientPublicKey(), route.EncryptionPublicKey) {
 				return route, nil, fleeterror.NewFailedPreconditionError("encrypted command recipient changed; submit the command again")
 			}
 		}
@@ -143,69 +144,159 @@ func CommandInterrupted(err error) error {
 	return &commandInterruptedError{err: err}
 }
 
-// AdoptHAOwner also covers commands enqueued while this owner was standalone.
-// Retain this fact after disconnect so those commands cannot become retryable
-// merely because their original route snapshot predates standby confirmation.
-func (r *Registry) AdoptHAOwner(ownerID int64) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.haOwners == nil {
-		r.haOwners = make(map[int64]bool)
-	}
-	r.haOwners[ownerID] = true
-}
-
 func (r *Registry) interrupted(route RouteBinding, err error) error {
-	r.mu.Lock()
-	adopted := r.haOwners[route.OwnerNodeID]
-	r.mu.Unlock()
-	if route.Epoch > 0 || adopted {
+	if route.Epoch > 0 {
 		return CommandInterrupted(err)
 	}
 	return err
 }
 
-// A long command may outlive many renewals. Observe the same incarnation and
-// epoch at expiry rather than treating its initial grant as a command timeout.
-func (r *Registry) leaseContext(parent context.Context, route RouteBinding) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithCancel(parent)
-	go func() {
-		for {
-			timer := time.NewTimer(max(time.Until(route.ExpiresAt), time.Millisecond))
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-			}
-			r.mu.Lock()
-			resolve := r.haResolve
-			r.mu.Unlock()
-			if resolve == nil {
-				cancel()
-				return
-			}
-			next, err := resolve(ctx, route.OwnerNodeID)
-			if err != nil || next.PhysicalNodeID != route.PhysicalNodeID || next.Epoch != route.Epoch || next.InstanceID != route.InstanceID || next.ControlSessionID != route.ControlSessionID || !time.Now().Before(next.ExpiresAt) {
-				cancel()
-				return
-			}
-			route = next
-		}
-	}()
-	return ctx, cancel
+// haAuthority is the acknowledged database grant projected into this process.
+// One context and expiry timer serve every command in its logical owner epoch.
+type haAuthority struct {
+	route       RouteBinding
+	ctx         context.Context //nolint:containedctx // Shared lifetime for commands in one acknowledged lease epoch.
+	cancel      context.CancelFunc
+	timer       *time.Timer
+	invalidated bool
 }
 
-// HARegistration captures the current connection identity before asynchronous
-// setup. Production handlers already have this handle from RegisterAuthenticated.
-func (r *Registry) HARegistration(nodeID int64) *Stream {
+func sameAuthority(a, b RouteBinding) bool {
+	return a.OwnerNodeID == b.OwnerNodeID && a.PhysicalNodeID == b.PhysicalNodeID && a.Epoch == b.Epoch && a.InstanceID == b.InstanceID && a.ControlSessionID == b.ControlSessionID
+}
+
+// SetHARoute publishes an acknowledged, committed grant. A later renewal can
+// replace a locally expired projection; its old commands remain terminal.
+// Explicitly invalidated authority requires a newer database epoch.
+func (r *Registry) SetHARoute(route RouteBinding) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	conn := r.conns[nodeID]
-	if conn == nil {
-		return nil
+	conn := r.conns[route.PhysicalNodeID]
+	if route.Epoch <= 0 || !time.Now().Before(route.ExpiresAt) || conn == nil || conn.haSessionID != route.ControlSessionID || conn.haHello.GetInstanceId() != route.InstanceID {
+		return
 	}
-	return &Stream{r: r, fleetNodeID: nodeID, conn: conn, Outgoing: conn.outgoing, Done: conn.done}
+	old := r.haRoutes[route.OwnerNodeID]
+	if old != nil {
+		if route.Epoch < old.route.Epoch {
+			return
+		}
+		if sameAuthority(old.route, route) {
+			if old.invalidated || !bytes.Equal(old.route.EncryptionPublicKey, route.EncryptionPublicKey) {
+				return
+			}
+			if old.ctx.Err() == nil && time.Now().Before(old.route.ExpiresAt) {
+				if route.ExpiresAt.After(old.route.ExpiresAt) {
+					old.route.ExpiresAt = route.ExpiresAt
+					old.timer.Reset(time.Until(route.ExpiresAt))
+				}
+				return
+			}
+			r.cancelAuthorityLocked(old)
+			if !route.ExpiresAt.After(old.route.ExpiresAt) {
+				return
+			}
+		} else {
+			if route.Epoch == old.route.Epoch {
+				return
+			}
+			r.invalidateAuthorityLocked(old)
+		}
+	}
+	route.EncryptionPublicKey = bytes.Clone(route.EncryptionPublicKey)
+	ctx, cancel := context.WithCancel(context.Background())
+	authority := &haAuthority{route: route, ctx: ctx, cancel: cancel}
+	r.haRoutes[route.OwnerNodeID] = authority
+	authority.timer = time.AfterFunc(time.Until(route.ExpiresAt), func() {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		// A timer callback already waiting for mu may race a committed renewal.
+		if r.haRoutes[route.OwnerNodeID] == authority && !time.Now().Before(authority.route.ExpiresAt) {
+			r.cancelAuthorityLocked(authority)
+		}
+	})
+	delete(r.haActivations, route.OwnerNodeID)
+}
+
+// HARoute returns the current acknowledged authority, never a database snapshot
+// that has expired or belongs to a disconnected control session.
+func (r *Registry) HARoute(ownerID int64) (RouteBinding, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	authority := r.haRoutes[ownerID]
+	if authority == nil || authority.ctx.Err() != nil {
+		return RouteBinding{}, false
+	}
+	if !time.Now().Before(authority.route.ExpiresAt) {
+		r.cancelAuthorityLocked(authority)
+		return RouteBinding{}, false
+	}
+	route := authority.route
+	route.EncryptionPublicKey = bytes.Clone(route.EncryptionPublicKey)
+	return route, true
+}
+
+func (r *Registry) InvalidateHARoute(ownerID int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if authority := r.haRoutes[ownerID]; authority != nil {
+		r.invalidateAuthorityLocked(authority)
+	}
+}
+
+func (r *Registry) invalidateAuthorityLocked(authority *haAuthority) {
+	authority.invalidated = true
+	r.cancelAuthorityLocked(authority)
+}
+
+func (r *Registry) cancelAuthorityLocked(authority *haAuthority) {
+	authority.cancel()
+	if authority.timer != nil {
+		authority.timer.Stop()
+	}
+	for _, conn := range r.conns {
+		for id, cmd := range conn.cmds {
+			if cmd.authority == authority {
+				delete(conn.cmds, id)
+				close(cmd.done)
+			}
+		}
+	}
+}
+
+func (r *Registry) invalidateConnectionRoutesLocked(nodeID int64) {
+	for _, authority := range r.haRoutes {
+		if authority.route.PhysicalNodeID == nodeID {
+			r.invalidateAuthorityLocked(authority)
+		}
+	}
+}
+
+// BeginHAActivation prevents new standalone work before the database enables HA.
+// The source's accepted work must drain or be torn down by its disconnect.
+func (r *Registry) BeginHAActivation(ownerID int64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.haActivations[ownerID] = true
+	source := r.conns[ownerID]
+	return source == nil || len(source.cmds) == 0
+}
+
+func (r *Registry) AbortHAActivation(ownerID int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.haActivations, ownerID)
+}
+
+// FinishHAActivation forces the drained source to reconnect with HA enabled.
+// Dispatch stays gated until the first acknowledged grant is published.
+func (r *Registry) FinishHAActivation(ownerID int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, activating := r.haActivations[ownerID]; activating {
+		// A replacement may have received its standalone configuration while the
+		// enabling transaction was pending. The gate kept it idle too.
+		r.disconnectLocked(ownerID)
+	}
 }
 
 func (s *Stream) IsCurrent() bool {
@@ -221,21 +312,11 @@ func (s *Stream) SetHAConnection(orgID int64, hello *pb.ControlHello, sessionID 
 	if s.r.conns[s.fleetNodeID] != s.conn {
 		return false
 	}
+	if s.conn.haHello != nil && (s.conn.haSessionID != sessionID || s.conn.haHello.GetInstanceId() != hello.GetInstanceId()) {
+		s.r.invalidateConnectionRoutesLocked(s.fleetNodeID)
+	}
 	s.conn.haHello = proto.CloneOf(hello)
 	s.conn.haSessionID = sessionID
 	s.conn.orgID = orgID
-	return true
-}
-
-// UpdateHAFingerprint preserves the registration and Hello if an import's
-// asynchronous acknowledgement races a reconnect.
-func (r *Registry) UpdateHAFingerprint(nodeID int64, sessionID string, fingerprint []byte) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	conn := r.conns[nodeID]
-	if conn == nil || conn.haSessionID != sessionID || conn.haHello == nil {
-		return false
-	}
-	conn.haHello.CredentialKeyFingerprint = bytes.Clone(fingerprint)
 	return true
 }

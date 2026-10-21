@@ -17,12 +17,13 @@ UPDATE fleet_node_ha_group g SET
  lease_epoch=CASE WHEN g.active_node_id=$1 AND g.instance_id=$2 AND g.control_session_id=$3 AND g.lease_expires_at>clock_timestamp() THEN g.lease_epoch ELSE g.lease_epoch+1 END,
  acknowledged=CASE WHEN g.active_node_id=$1 AND g.instance_id=$2 AND g.control_session_id=$3 AND g.lease_expires_at>clock_timestamp() THEN (g.acknowledged OR $4=g.lease_epoch) ELSE false END,
  lease_expires_at=clock_timestamp()+interval '30 seconds'
-WHERE g.owner_node_id=$5 AND g.org_id=$6
+WHERE g.owner_node_id=$5 AND g.org_id=$6 AND g.enabled
  AND EXISTS (SELECT 1 FROM fleet_node_ha_member m JOIN fleet_node fn ON fn.id=m.node_id AND fn.org_id=m.org_id JOIN fleet_node_ha_connection c ON c.node_id=m.node_id AND c.org_id=m.org_id
  WHERE m.node_id=$1 AND m.owner_node_id=g.owner_node_id AND m.ready AND m.revoked_at IS NULL AND fn.enrollment_status='CONFIRMED' AND fn.deleted_at IS NULL AND c.instance_id=$2 AND c.control_session_id=$3 AND c.ha_capable AND c.credential_key_fingerprint=g.credential_key_fingerprint)
  AND ((g.active_node_id=$1 AND g.instance_id=$2 AND g.control_session_id=$3 AND g.lease_expires_at>clock_timestamp())
+ OR (g.lease_epoch=0 AND $1=g.owner_node_id AND g.lease_expires_at>clock_timestamp())
  OR (g.lease_expires_at<=clock_timestamp() AND $1=(SELECT m.node_id FROM fleet_node_ha_member m JOIN fleet_node fn ON fn.id=m.node_id AND fn.org_id=m.org_id JOIN fleet_node_ha_connection c ON c.node_id=m.node_id AND c.org_id=m.org_id WHERE m.owner_node_id=g.owner_node_id AND m.org_id=g.org_id AND m.ready AND m.revoked_at IS NULL AND fn.enrollment_status='CONFIRMED' AND fn.deleted_at IS NULL AND c.ha_capable AND c.credential_key_fingerprint=g.credential_key_fingerprint AND c.seen_at>clock_timestamp()-interval '10 seconds' ORDER BY m.joined_at,m.node_id LIMIT 1)))
-RETURNING g.owner_node_id, g.org_id, g.credential_key_fingerprint, g.active_node_id, g.instance_id, g.control_session_id, g.lease_epoch, g.lease_expires_at, g.acknowledged
+RETURNING g.owner_node_id, g.org_id, g.credential_key_fingerprint, g.enabled, g.active_node_id, g.instance_id, g.control_session_id, g.lease_epoch, g.lease_expires_at, g.acknowledged
 `
 
 type AcquireOrRenewFleetNodeHALeaseParams struct {
@@ -48,6 +49,7 @@ func (q *Queries) AcquireOrRenewFleetNodeHALease(ctx context.Context, arg Acquir
 		&i.OwnerNodeID,
 		&i.OrgID,
 		&i.CredentialKeyFingerprint,
+		&i.Enabled,
 		&i.ActiveNodeID,
 		&i.InstanceID,
 		&i.ControlSessionID,
@@ -58,53 +60,23 @@ func (q *Queries) AcquireOrRenewFleetNodeHALease(ctx context.Context, arg Acquir
 	return i, err
 }
 
-const claimFleetNodeHATransfer = `-- name: ClaimFleetNodeHATransfer :one
-UPDATE fleet_node_ha_transfer SET attempts=attempts+1,
-next_attempt_at=clock_timestamp()+interval '1 second'*LEAST(30,power(2,LEAST(attempts,5)))
-WHERE recipient_node_id=$1 AND expires_at>clock_timestamp() AND next_attempt_at<=clock_timestamp() AND NOT failed RETURNING recipient_node_id, operation_id, owner_node_id, source_node_id, expires_at, attempts, next_attempt_at, failed, encrypted_key
-`
-
-func (q *Queries) ClaimFleetNodeHATransfer(ctx context.Context, recipientNodeID int64) (FleetNodeHaTransfer, error) {
-	row := q.queryRow(ctx, q.claimFleetNodeHATransferStmt, claimFleetNodeHATransfer, recipientNodeID)
-	var i FleetNodeHaTransfer
-	err := row.Scan(
-		&i.RecipientNodeID,
-		&i.OperationID,
-		&i.OwnerNodeID,
-		&i.SourceNodeID,
-		&i.ExpiresAt,
-		&i.Attempts,
-		&i.NextAttemptAt,
-		&i.Failed,
-		&i.EncryptedKey,
-	)
-	return i, err
-}
-
-const completeFleetNodeHATransfer = `-- name: CompleteFleetNodeHATransfer :execrows
+const confirmFleetNodeHAMemberFingerprint = `-- name: ConfirmFleetNodeHAMemberFingerprint :execrows
 UPDATE fleet_node_ha_member m SET ready=true,status_reason=''
-FROM fleet_node_ha_transfer t, fleet_node_ha_connection c, fleet_node_ha_group g, fleet_node fn
+FROM fleet_node_ha_group g, fleet_node_ha_connection c, fleet_node fn
 WHERE m.node_id=$1 AND m.org_id=$2 AND m.revoked_at IS NULL AND NOT m.ready
- AND t.recipient_node_id=m.node_id AND t.operation_id=$3 AND t.expires_at>clock_timestamp()
- AND c.node_id=m.node_id AND c.org_id=m.org_id AND c.control_session_id=$4
+ AND c.node_id=m.node_id AND c.org_id=m.org_id AND c.control_session_id=$3
  AND g.owner_node_id=m.owner_node_id AND g.org_id=m.org_id AND c.credential_key_fingerprint=g.credential_key_fingerprint
  AND fn.id=m.node_id AND fn.org_id=m.org_id AND fn.enrollment_status='CONFIRMED' AND fn.deleted_at IS NULL
 `
 
-type CompleteFleetNodeHATransferParams struct {
+type ConfirmFleetNodeHAMemberFingerprintParams struct {
 	NodeID           int64
 	OrgID            int64
-	OperationID      string
 	ControlSessionID string
 }
 
-func (q *Queries) CompleteFleetNodeHATransfer(ctx context.Context, arg CompleteFleetNodeHATransferParams) (int64, error) {
-	result, err := q.exec(ctx, q.completeFleetNodeHATransferStmt, completeFleetNodeHATransfer,
-		arg.NodeID,
-		arg.OrgID,
-		arg.OperationID,
-		arg.ControlSessionID,
-	)
+func (q *Queries) ConfirmFleetNodeHAMemberFingerprint(ctx context.Context, arg ConfirmFleetNodeHAMemberFingerprintParams) (int64, error) {
+	result, err := q.exec(ctx, q.confirmFleetNodeHAMemberFingerprintStmt, confirmFleetNodeHAMemberFingerprint, arg.NodeID, arg.OrgID, arg.ControlSessionID)
 	if err != nil {
 		return 0, err
 	}
@@ -151,32 +123,6 @@ func (q *Queries) CreateFleetNodeHAMember(ctx context.Context, arg CreateFleetNo
 	return err
 }
 
-const createFleetNodeHATransfer = `-- name: CreateFleetNodeHATransfer :exec
-INSERT INTO fleet_node_ha_transfer(recipient_node_id,operation_id,owner_node_id,source_node_id,expires_at)
-VALUES($1,$2,$3,$4,clock_timestamp()+interval '5 minutes')
-ON CONFLICT(recipient_node_id) DO UPDATE SET operation_id=EXCLUDED.operation_id,source_node_id=EXCLUDED.source_node_id,
-expires_at=EXCLUDED.expires_at,attempts=0,encrypted_key=''::bytea,next_attempt_at=clock_timestamp()
-WHERE NOT fleet_node_ha_transfer.failed AND (fleet_node_ha_transfer.expires_at<=clock_timestamp()
- OR (octet_length(fleet_node_ha_transfer.encrypted_key)=0 AND fleet_node_ha_transfer.source_node_id<>EXCLUDED.source_node_id))
-`
-
-type CreateFleetNodeHATransferParams struct {
-	RecipientNodeID int64
-	OperationID     string
-	OwnerNodeID     int64
-	SourceNodeID    int64
-}
-
-func (q *Queries) CreateFleetNodeHATransfer(ctx context.Context, arg CreateFleetNodeHATransferParams) error {
-	_, err := q.exec(ctx, q.createFleetNodeHATransferStmt, createFleetNodeHATransfer,
-		arg.RecipientNodeID,
-		arg.OperationID,
-		arg.OwnerNodeID,
-		arg.SourceNodeID,
-	)
-	return err
-}
-
 const deleteFleetNodeHAConnection = `-- name: DeleteFleetNodeHAConnection :exec
 DELETE FROM fleet_node_ha_connection WHERE node_id=$1 AND org_id=$2 AND control_session_id=$3
 `
@@ -190,6 +136,30 @@ type DeleteFleetNodeHAConnectionParams struct {
 func (q *Queries) DeleteFleetNodeHAConnection(ctx context.Context, arg DeleteFleetNodeHAConnectionParams) error {
 	_, err := q.exec(ctx, q.deleteFleetNodeHAConnectionStmt, deleteFleetNodeHAConnection, arg.NodeID, arg.OrgID, arg.ControlSessionID)
 	return err
+}
+
+const enableFleetNodeHAGroup = `-- name: EnableFleetNodeHAGroup :execrows
+UPDATE fleet_node_ha_group g SET enabled=true,active_node_id=g.owner_node_id,
+ lease_expires_at=clock_timestamp()+interval '30 seconds'
+WHERE g.owner_node_id=$1 AND g.org_id=$2 AND NOT g.enabled
+ AND EXISTS (SELECT 1 FROM fleet_node_ha_member m JOIN fleet_node fn ON fn.id=m.node_id AND fn.org_id=m.org_id
+ WHERE m.owner_node_id=g.owner_node_id AND m.org_id=g.org_id AND m.node_id<>g.owner_node_id
+ AND m.ready AND m.revoked_at IS NULL AND fn.enrollment_status='CONFIRMED' AND fn.deleted_at IS NULL)
+`
+
+type EnableFleetNodeHAGroupParams struct {
+	OwnerNodeID int64
+	OrgID       int64
+}
+
+// Reserve the first grant for the drained source while it reconnects. Epoch 0
+// and the empty incarnation/session never authorize commands or reports.
+func (q *Queries) EnableFleetNodeHAGroup(ctx context.Context, arg EnableFleetNodeHAGroupParams) (int64, error) {
+	result, err := q.exec(ctx, q.enableFleetNodeHAGroupStmt, enableFleetNodeHAGroup, arg.OwnerNodeID, arg.OrgID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const expireFleetNodeHALease = `-- name: ExpireFleetNodeHALease :exec
@@ -207,46 +177,8 @@ func (q *Queries) ExpireFleetNodeHALease(ctx context.Context, arg ExpireFleetNod
 	return err
 }
 
-const failFleetNodeHATransfer = `-- name: FailFleetNodeHATransfer :exec
-UPDATE fleet_node_ha_transfer SET failed=true WHERE recipient_node_id=$1 AND operation_id=$2
-`
-
-type FailFleetNodeHATransferParams struct {
-	RecipientNodeID int64
-	OperationID     string
-}
-
-func (q *Queries) FailFleetNodeHATransfer(ctx context.Context, arg FailFleetNodeHATransferParams) error {
-	_, err := q.exec(ctx, q.failFleetNodeHATransferStmt, failFleetNodeHATransfer, arg.RecipientNodeID, arg.OperationID)
-	return err
-}
-
-const getFleetNodeHAConnection = `-- name: GetFleetNodeHAConnection :one
-SELECT node_id, org_id, ha_capable, instance_id, control_session_id, credential_key_fingerprint, seen_at FROM fleet_node_ha_connection WHERE node_id=$1 AND org_id=$2
-`
-
-type GetFleetNodeHAConnectionParams struct {
-	NodeID int64
-	OrgID  int64
-}
-
-func (q *Queries) GetFleetNodeHAConnection(ctx context.Context, arg GetFleetNodeHAConnectionParams) (FleetNodeHaConnection, error) {
-	row := q.queryRow(ctx, q.getFleetNodeHAConnectionStmt, getFleetNodeHAConnection, arg.NodeID, arg.OrgID)
-	var i FleetNodeHaConnection
-	err := row.Scan(
-		&i.NodeID,
-		&i.OrgID,
-		&i.HaCapable,
-		&i.InstanceID,
-		&i.ControlSessionID,
-		&i.CredentialKeyFingerprint,
-		&i.SeenAt,
-	)
-	return i, err
-}
-
 const getFleetNodeHAGroup = `-- name: GetFleetNodeHAGroup :one
-SELECT owner_node_id, org_id, credential_key_fingerprint, active_node_id, instance_id, control_session_id, lease_epoch, lease_expires_at, acknowledged FROM fleet_node_ha_group WHERE owner_node_id=$1 AND (org_id=$2 OR $2=0)
+SELECT owner_node_id, org_id, credential_key_fingerprint, enabled, active_node_id, instance_id, control_session_id, lease_epoch, lease_expires_at, acknowledged FROM fleet_node_ha_group WHERE owner_node_id=$1 AND (org_id=$2 OR $2=0)
 `
 
 type GetFleetNodeHAGroupParams struct {
@@ -261,6 +193,7 @@ func (q *Queries) GetFleetNodeHAGroup(ctx context.Context, arg GetFleetNodeHAGro
 		&i.OwnerNodeID,
 		&i.OrgID,
 		&i.CredentialKeyFingerprint,
+		&i.Enabled,
 		&i.ActiveNodeID,
 		&i.InstanceID,
 		&i.ControlSessionID,
@@ -295,23 +228,63 @@ func (q *Queries) GetFleetNodeHAMember(ctx context.Context, arg GetFleetNodeHAMe
 	return i, err
 }
 
-const getFleetNodeHATransfer = `-- name: GetFleetNodeHATransfer :one
-SELECT recipient_node_id, operation_id, owner_node_id, source_node_id, expires_at, attempts, next_attempt_at, failed, encrypted_key FROM fleet_node_ha_transfer WHERE recipient_node_id=$1
+const getFleetNodeHARoute = `-- name: GetFleetNodeHARoute :one
+SELECT fn.id AS owner_node_id, fn.org_id, fn.enrollment_status,
+ COALESCE(m.owner_node_id,fn.id)::bigint AS member_owner_node_id,
+ COALESCE(g.enabled,false)::boolean AS enabled,
+ CASE WHEN g.enabled THEN g.active_node_id ELSE fn.id END::bigint AS physical_node_id,
+ COALESCE(g.lease_epoch,0)::bigint AS lease_epoch,
+ COALESCE(g.instance_id,'')::text AS instance_id,
+ COALESCE(g.control_session_id,'')::text AS control_session_id,
+ COALESCE(g.lease_expires_at,'1970-01-01 00:00:00+00'::timestamptz)::timestamptz AS lease_expires_at,
+ COALESCE(g.acknowledged,false)::boolean AS acknowledged,
+ COALESCE(physical.encryption_pubkey,fn.encryption_pubkey)::bytea AS encryption_pubkey,
+ COALESCE(physical.enrollment_status,'')::text AS physical_enrollment_status
+FROM fleet_node fn
+LEFT JOIN fleet_node_ha_member m ON m.node_id=fn.id AND m.org_id=fn.org_id
+LEFT JOIN fleet_node_ha_group g ON g.owner_node_id=fn.id AND g.org_id=fn.org_id
+LEFT JOIN fleet_node physical ON physical.id=CASE WHEN g.enabled THEN g.active_node_id ELSE fn.id END AND physical.org_id=fn.org_id AND physical.deleted_at IS NULL
+WHERE fn.id=$1 AND (fn.org_id=$2 OR $2=0) AND fn.deleted_at IS NULL
 `
 
-func (q *Queries) GetFleetNodeHATransfer(ctx context.Context, recipientNodeID int64) (FleetNodeHaTransfer, error) {
-	row := q.queryRow(ctx, q.getFleetNodeHATransferStmt, getFleetNodeHATransfer, recipientNodeID)
-	var i FleetNodeHaTransfer
+type GetFleetNodeHARouteParams struct {
+	ID    int64
+	OrgID int64
+}
+
+type GetFleetNodeHARouteRow struct {
+	OwnerNodeID              int64
+	OrgID                    int64
+	EnrollmentStatus         string
+	MemberOwnerNodeID        int64
+	Enabled                  bool
+	PhysicalNodeID           int64
+	LeaseEpoch               int64
+	InstanceID               string
+	ControlSessionID         string
+	LeaseExpiresAt           time.Time
+	Acknowledged             bool
+	EncryptionPubkey         []byte
+	PhysicalEnrollmentStatus string
+}
+
+func (q *Queries) GetFleetNodeHARoute(ctx context.Context, arg GetFleetNodeHARouteParams) (GetFleetNodeHARouteRow, error) {
+	row := q.queryRow(ctx, q.getFleetNodeHARouteStmt, getFleetNodeHARoute, arg.ID, arg.OrgID)
+	var i GetFleetNodeHARouteRow
 	err := row.Scan(
-		&i.RecipientNodeID,
-		&i.OperationID,
 		&i.OwnerNodeID,
-		&i.SourceNodeID,
-		&i.ExpiresAt,
-		&i.Attempts,
-		&i.NextAttemptAt,
-		&i.Failed,
-		&i.EncryptedKey,
+		&i.OrgID,
+		&i.EnrollmentStatus,
+		&i.MemberOwnerNodeID,
+		&i.Enabled,
+		&i.PhysicalNodeID,
+		&i.LeaseEpoch,
+		&i.InstanceID,
+		&i.ControlSessionID,
+		&i.LeaseExpiresAt,
+		&i.Acknowledged,
+		&i.EncryptionPubkey,
+		&i.PhysicalEnrollmentStatus,
 	)
 	return i, err
 }
@@ -387,8 +360,82 @@ func (q *Queries) ListFleetNodeHAMembers(ctx context.Context, arg ListFleetNodeH
 	return items, nil
 }
 
+const listFleetNodeHAState = `-- name: ListFleetNodeHAState :many
+SELECT fn.id AS node_id, fn.enrollment_status,
+ COALESCE(m.owner_node_id,0)::bigint AS owner_node_id,
+ COALESCE(m.ready,false)::boolean AS ready,
+ COALESCE(m.status_reason,'')::text AS status_reason,m.revoked_at,
+ COALESCE(g.enabled,false)::boolean AS enabled,
+ COALESCE(g.active_node_id,0)::bigint AS active_node_id,
+ COALESCE(g.lease_epoch,0)::bigint AS lease_epoch,
+ COALESCE(g.instance_id,'')::text AS instance_id,
+ COALESCE(g.control_session_id,'')::text AS control_session_id,
+ COALESCE(g.lease_expires_at,'1970-01-01 00:00:00+00'::timestamptz)::timestamptz AS lease_expires_at,
+ COALESCE(g.acknowledged,false)::boolean AS acknowledged,
+ COALESCE(g.credential_key_fingerprint,''::bytea)::bytea AS credential_key_fingerprint
+FROM fleet_node fn
+LEFT JOIN fleet_node_ha_member m ON m.node_id=fn.id AND m.org_id=fn.org_id
+LEFT JOIN fleet_node_ha_group g ON g.owner_node_id=m.owner_node_id AND g.org_id=m.org_id
+WHERE fn.org_id=$1 AND fn.deleted_at IS NULL
+`
+
+type ListFleetNodeHAStateRow struct {
+	NodeID                   int64
+	EnrollmentStatus         string
+	OwnerNodeID              int64
+	Ready                    bool
+	StatusReason             string
+	RevokedAt                sql.NullTime
+	Enabled                  bool
+	ActiveNodeID             int64
+	LeaseEpoch               int64
+	InstanceID               string
+	ControlSessionID         string
+	LeaseExpiresAt           time.Time
+	Acknowledged             bool
+	CredentialKeyFingerprint []byte
+}
+
+func (q *Queries) ListFleetNodeHAState(ctx context.Context, orgID int64) ([]ListFleetNodeHAStateRow, error) {
+	rows, err := q.query(ctx, q.listFleetNodeHAStateStmt, listFleetNodeHAState, orgID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFleetNodeHAStateRow
+	for rows.Next() {
+		var i ListFleetNodeHAStateRow
+		if err := rows.Scan(
+			&i.NodeID,
+			&i.EnrollmentStatus,
+			&i.OwnerNodeID,
+			&i.Ready,
+			&i.StatusReason,
+			&i.RevokedAt,
+			&i.Enabled,
+			&i.ActiveNodeID,
+			&i.LeaseEpoch,
+			&i.InstanceID,
+			&i.ControlSessionID,
+			&i.LeaseExpiresAt,
+			&i.Acknowledged,
+			&i.CredentialKeyFingerprint,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockFleetNodeHAGroup = `-- name: LockFleetNodeHAGroup :one
-SELECT owner_node_id, org_id, credential_key_fingerprint, active_node_id, instance_id, control_session_id, lease_epoch, lease_expires_at, acknowledged FROM fleet_node_ha_group WHERE owner_node_id=$1 AND org_id=$2 FOR UPDATE
+SELECT owner_node_id, org_id, credential_key_fingerprint, enabled, active_node_id, instance_id, control_session_id, lease_epoch, lease_expires_at, acknowledged FROM fleet_node_ha_group WHERE owner_node_id=$1 AND org_id=$2 FOR UPDATE
 `
 
 type LockFleetNodeHAGroupParams struct {
@@ -403,6 +450,7 @@ func (q *Queries) LockFleetNodeHAGroup(ctx context.Context, arg LockFleetNodeHAG
 		&i.OwnerNodeID,
 		&i.OrgID,
 		&i.CredentialKeyFingerprint,
+		&i.Enabled,
 		&i.ActiveNodeID,
 		&i.InstanceID,
 		&i.ControlSessionID,
@@ -411,25 +459,6 @@ func (q *Queries) LockFleetNodeHAGroup(ctx context.Context, arg LockFleetNodeHAG
 		&i.Acknowledged,
 	)
 	return i, err
-}
-
-const resetFleetNodeHAMemberOnFingerprintMismatch = `-- name: ResetFleetNodeHAMemberOnFingerprintMismatch :exec
-UPDATE fleet_node_ha_member m SET ready=false,status_reason=CASE WHEN EXISTS (SELECT 1 FROM fleet_node_ha_transfer t WHERE t.recipient_node_id=m.node_id AND t.failed) THEN m.status_reason ELSE 'preparing credential key' END
-FROM fleet_node_ha_group g, fleet_node_ha_connection c
-WHERE m.node_id=$1 AND m.org_id=$2 AND m.revoked_at IS NULL
- AND g.owner_node_id=m.owner_node_id AND g.org_id=m.org_id
- AND c.node_id=m.node_id AND c.org_id=m.org_id
- AND c.credential_key_fingerprint<>g.credential_key_fingerprint
-`
-
-type ResetFleetNodeHAMemberOnFingerprintMismatchParams struct {
-	NodeID int64
-	OrgID  int64
-}
-
-func (q *Queries) ResetFleetNodeHAMemberOnFingerprintMismatch(ctx context.Context, arg ResetFleetNodeHAMemberOnFingerprintMismatchParams) error {
-	_, err := q.exec(ctx, q.resetFleetNodeHAMemberOnFingerprintMismatchStmt, resetFleetNodeHAMemberOnFingerprintMismatch, arg.NodeID, arg.OrgID)
-	return err
 }
 
 const revokeFleetNodeHAMember = `-- name: RevokeFleetNodeHAMember :exec
@@ -465,32 +494,8 @@ func (q *Queries) SetEnrollmentStandbyOwner(ctx context.Context, arg SetEnrollme
 	return result.RowsAffected()
 }
 
-const setFleetNodeHAConnectionFingerprint = `-- name: SetFleetNodeHAConnectionFingerprint :execrows
-UPDATE fleet_node_ha_connection SET credential_key_fingerprint=$1 WHERE node_id=$2 AND org_id=$3 AND control_session_id=$4
-`
-
-type SetFleetNodeHAConnectionFingerprintParams struct {
-	CredentialKeyFingerprint []byte
-	NodeID                   int64
-	OrgID                    int64
-	ControlSessionID         string
-}
-
-func (q *Queries) SetFleetNodeHAConnectionFingerprint(ctx context.Context, arg SetFleetNodeHAConnectionFingerprintParams) (int64, error) {
-	result, err := q.exec(ctx, q.setFleetNodeHAConnectionFingerprintStmt, setFleetNodeHAConnectionFingerprint,
-		arg.CredentialKeyFingerprint,
-		arg.NodeID,
-		arg.OrgID,
-		arg.ControlSessionID,
-	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const setFleetNodeHAMemberFailure = `-- name: SetFleetNodeHAMemberFailure :exec
-UPDATE fleet_node_ha_member SET status_reason=$1 WHERE node_id=$2 AND org_id=$3 AND revoked_at IS NULL
+UPDATE fleet_node_ha_member SET status_reason=$1 WHERE node_id=$2 AND org_id=$3 AND revoked_at IS NULL AND NOT ready
 `
 
 type SetFleetNodeHAMemberFailureParams struct {
@@ -502,42 +507,6 @@ type SetFleetNodeHAMemberFailureParams struct {
 func (q *Queries) SetFleetNodeHAMemberFailure(ctx context.Context, arg SetFleetNodeHAMemberFailureParams) error {
 	_, err := q.exec(ctx, q.setFleetNodeHAMemberFailureStmt, setFleetNodeHAMemberFailure, arg.StatusReason, arg.NodeID, arg.OrgID)
 	return err
-}
-
-const setFleetNodeHAMemberReady = `-- name: SetFleetNodeHAMemberReady :execrows
-UPDATE fleet_node_ha_member SET ready=true,status_reason=''
-WHERE node_id=$1 AND org_id=$2 AND revoked_at IS NULL
-`
-
-type SetFleetNodeHAMemberReadyParams struct {
-	NodeID int64
-	OrgID  int64
-}
-
-func (q *Queries) SetFleetNodeHAMemberReady(ctx context.Context, arg SetFleetNodeHAMemberReadyParams) (int64, error) {
-	result, err := q.exec(ctx, q.setFleetNodeHAMemberReadyStmt, setFleetNodeHAMemberReady, arg.NodeID, arg.OrgID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
-const setFleetNodeHATransferCiphertext = `-- name: SetFleetNodeHATransferCiphertext :execrows
-UPDATE fleet_node_ha_transfer SET encrypted_key=$1 WHERE recipient_node_id=$2 AND operation_id=$3 AND expires_at>clock_timestamp()
-`
-
-type SetFleetNodeHATransferCiphertextParams struct {
-	EncryptedKey    []byte
-	RecipientNodeID int64
-	OperationID     string
-}
-
-func (q *Queries) SetFleetNodeHATransferCiphertext(ctx context.Context, arg SetFleetNodeHATransferCiphertextParams) (int64, error) {
-	result, err := q.exec(ctx, q.setFleetNodeHATransferCiphertextStmt, setFleetNodeHATransferCiphertext, arg.EncryptedKey, arg.RecipientNodeID, arg.OperationID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
 }
 
 const touchFleetNodeHAConnection = `-- name: TouchFleetNodeHAConnection :execrows

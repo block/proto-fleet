@@ -32,9 +32,10 @@ func TestHALeaseUsesRequestSendTimeAndFencesWorkerStart(t *testing.T) {
 
 func TestHALeaseRejectsUncorrelatedAndWrongSessionGrants(t *testing.T) {
 	now := time.Now()
-	for _, wrong := range []string{"request", "instance", "session", "expired"} {
+	for _, wrong := range []string{"request", "instance", "session", "expired", "owner", "org"} {
 		t.Run(wrong, func(t *testing.T) {
 			a := newHAAuthority(7, "i", "s")
+			a.accept(&pb.ControlAccepted{HaOwnerNodeId: 7, OrgId: 1})
 			defer a.close()
 			request := a.request(now)
 			resp := &pb.HALeaseResponse{RequestId: request.GetRequestId(), OwnerNodeId: 7, ActiveNodeId: 7, LeaseEpoch: 1, LeaseDurationMs: 30000, Granted: true, InstanceId: "i", ControlSessionId: "s", OrgId: 1}
@@ -46,6 +47,10 @@ func TestHALeaseRejectsUncorrelatedAndWrongSessionGrants(t *testing.T) {
 				resp.InstanceId = "old-process"
 			case "session":
 				resp.ControlSessionId = "old-session"
+			case "owner":
+				resp.OwnerNodeId = 8
+			case "org":
+				resp.OrgId = 2
 			case "expired":
 				at = now.Add(26 * time.Second)
 			}
@@ -76,21 +81,18 @@ func TestHAPreparingAndStandbyCancelExistingWork(t *testing.T) {
 	require.Zero(t, a.acknowledgedEpoch())
 }
 
-func TestHAOldServerAndStandaloneRemainUsable(t *testing.T) {
+func TestHAStandaloneHasUntimedAuthorityAndTransferScope(t *testing.T) {
 	now := time.Now()
-	old := newHAAuthority(7, "i", "")
-	defer old.close()
-	_, done, ok := old.start(context.Background(), &pb.ControlCommand{}, now)
+	a := newHAAuthority(7, "i", "s")
+	defer a.close()
+	a.accept(&pb.ControlAccepted{OrgId: 1})
+	require.True(t, a.allowed(&pb.ControlCommand{}, now.Add(time.Hour)))
+	require.False(t, a.allowed(&pb.ControlCommand{HaOwnerNodeId: 7, HaLeaseEpoch: 1}, now))
+	scope, ok := a.transferScope(now.Add(time.Hour))
 	require.True(t, ok)
-	done()
-	modern := newHAAuthority(7, "i", "s")
-	defer modern.close()
-	require.False(t, modern.allowed(&pb.ControlCommand{}, now))
-	request := modern.request(now)
-	require.True(t, modern.apply(&pb.HALeaseResponse{RequestId: request.GetRequestId(), OwnerNodeId: 0, ActiveNodeId: 7, Granted: false, Preparing: false, InstanceId: "i", ControlSessionId: "s", OrgId: 1, LeaseDurationMs: 30000}, now))
-	require.True(t, modern.allowed(&pb.ControlCommand{}, now))
-	require.False(t, modern.allowed(&pb.ControlCommand{HaOwnerNodeId: 7, HaLeaseEpoch: 1}, now))
-	require.False(t, modern.allowed(&pb.ControlCommand{}, now.Add(26*time.Second)))
+	require.EqualValues(t, 1, scope.GetOrgId())
+	require.Zero(t, scope.GetOwnerNodeId())
+	require.Zero(t, a.acknowledgedEpoch())
 }
 
 func TestHAOutOfOrderResponsesAndIncarnations(t *testing.T) {
@@ -104,6 +106,8 @@ func TestHAOutOfOrderResponsesAndIncarnations(t *testing.T) {
 	require.True(t, authority.apply(reply(second.GetRequestId(), 4), now))
 	require.False(t, authority.apply(reply(first.GetRequestId(), 3), now))
 	require.EqualValues(t, 4, authority.request(now).GetAcknowledgedEpoch())
+	lower := authority.request(now)
+	require.False(t, authority.apply(reply(lower.GetRequestId(), 3), now), "newer replies cannot roll back a lease epoch")
 	replacement := newHAAuthority(7, "i-new", "s-new")
 	defer replacement.close()
 	require.False(t, replacement.allowed(&pb.ControlCommand{HaOwnerNodeId: 7, HaLeaseEpoch: 4, IntendedInstanceId: "i", ControlSessionId: "s"}, now))
@@ -129,42 +133,6 @@ func TestHADiscoveryIdentifiersRetainLogicalOwnerAfterPromotion(t *testing.T) {
 		require.Equal(t, original.GetDeviceIdentifier(), promoted.GetDeviceIdentifier())
 	}
 	require.EqualValues(t, 9, discoveryOwnerNodeID(t.Context(), 9))
-}
-
-func TestHATelemetryImportRemainsBusyUntilAbandonedFetcherExits(t *testing.T) {
-	oldGrace := telemetrySupervisorGrace
-	telemetrySupervisorGrace = time.Millisecond
-	defer func() { telemetrySupervisorGrace = oldGrace }()
-	fetcher := &stuckTelemetryFetcher{started: make(chan struct{}), release: make(chan struct{}), abandoned: make(chan string, 1)}
-	released := false
-	defer func() {
-		if !released {
-			close(fetcher.release)
-		}
-	}()
-	node := &RunCmd{}
-	ctx := context.WithValue(t.Context(), haDeviceWorkKey{}, &node.haDeviceWork)
-	_, err := supervisedTelemetryFetch(ctx, fetcher, validTelemetryRequest(), time.Millisecond, discardLogger(t))
-	require.Error(t, err)
-	require.EqualValues(t, 1, node.haDeviceWork.Load(), "abandoned telemetry is still device work after its command supervisor returns")
-	close(fetcher.release)
-	released = true
-	require.Eventually(t, func() bool { return node.haDeviceWork.Load() == 0 }, time.Second, time.Millisecond)
-}
-
-func TestHAStandaloneWorkerSurvivesGroupCreationOnSamePhysicalNode(t *testing.T) {
-	now := time.Now()
-	authority := newHAAuthority(7, "i", "s")
-	defer authority.close()
-	request := authority.request(now)
-	require.True(t, authority.apply(&pb.HALeaseResponse{RequestId: request.GetRequestId(), OwnerNodeId: 0, ActiveNodeId: 7, InstanceId: "i", ControlSessionId: "s", OrgId: 1, LeaseDurationMs: 30000}, now))
-	ctx, done, ok := authority.start(t.Context(), &pb.ControlCommand{}, now)
-	require.True(t, ok)
-	defer done()
-	request = authority.request(now.Add(time.Second))
-	require.True(t, authority.apply(&pb.HALeaseResponse{RequestId: request.GetRequestId(), OwnerNodeId: 7, ActiveNodeId: 7, Granted: true, LeaseEpoch: 1, InstanceId: "i", ControlSessionId: "s", OrgId: 1, LeaseDurationMs: 30000}, now.Add(time.Second)))
-	require.NoError(t, ctx.Err(), "forming a group must preserve work on the same physical owner")
-	require.False(t, authority.allowed(&pb.ControlCommand{}, now.Add(time.Second)), "new unscoped commands still require the new lease tuple")
 }
 
 func TestHACompletionPreservesAcceptedResultAndOrdinaryTimeout(t *testing.T) {

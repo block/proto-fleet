@@ -36,7 +36,7 @@ func TestStandbyIntentStaysWithCanonicalOwnerAcrossRevocationAndPromotion(t *tes
 	fp := bytes.Repeat([]byte{7}, 32)
 	ownerStream := registry.Register(owner.ID)
 	defer ownerStream.Unregister()
-	require.NoError(t, coordinator.Connect(t.Context(), owner.ID, orgID, &pb.ControlHello{HaCapable: true, InstanceId: "owner-process", CredentialKeyFingerprint: fp}, "owner-session"))
+	require.NoError(t, coordinator.ConnectStream(t.Context(), owner.ID, orgID, &pb.ControlHello{HaCapable: true, InstanceId: "owner-process", CredentialKeyFingerprint: fp}, "owner-session", ownerStream))
 	// Both intents are minted before a group exists. Neither may later retarget
 	// the physical standby that becomes active.
 	codeA, idA, _, err := enroll.CreateCodeForStandby(t.Context(), userID, orgID, time.Hour, &owner.ID)
@@ -46,17 +46,17 @@ func TestStandbyIntentStaysWithCanonicalOwnerAcrossRevocationAndPromotion(t *tes
 	standby, _ := register(codeA, "standby")
 	_, _, err = enroll.ConfirmExpected(t.Context(), standby.ID, orgID, idA, userID)
 	require.NoError(t, err)
+	// The installed key is proved by this new Hello. Activation is exercised
+	// independently; enable the group here to isolate enrollment and revocation.
+	standbyStream := registry.Register(standby.ID)
+	defer standbyStream.Unregister()
+	require.NoError(t, coordinator.ConnectStream(t.Context(), standby.ID, orgID, &pb.ControlHello{HaCapable: true, InstanceId: "standby-process", CredentialKeyFingerprint: fp}, "standby-session", standbyStream))
+	_, err = conn.Exec(`UPDATE fleet_node_ha_group SET enabled=true WHERE owner_node_id=$1`, owner.ID)
+	require.NoError(t, err)
 	first, err := coordinator.Lease(t.Context(), owner.ID, orgID, "owner-process", "owner-session", &pb.HALeaseRequest{RequestId: "grant"})
 	require.NoError(t, err)
 	_, err = coordinator.Lease(t.Context(), owner.ID, orgID, "owner-process", "owner-session", &pb.HALeaseRequest{RequestId: "ack", AcknowledgedEpoch: first.GetLeaseEpoch()})
 	require.NoError(t, err)
-	// Credential transfer itself is exercised independently; mark its verified
-	// result here to isolate enrollment and revocation behavior.
-	_, err = conn.Exec(`UPDATE fleet_node_ha_member SET ready=true,status_reason='' WHERE node_id=$1`, standby.ID)
-	require.NoError(t, err)
-	standbyStream := registry.Register(standby.ID)
-	defer standbyStream.Unregister()
-	require.NoError(t, coordinator.Connect(t.Context(), standby.ID, orgID, &pb.ControlHello{HaCapable: true, InstanceId: "standby-process", CredentialKeyFingerprint: fp}, "standby-session"))
 	deviceID := insertFleetNodeDevice(t, conn, orgID, owner.ID)
 	_, err = conn.Exec(`INSERT INTO miner_credentials(device_id,username_enc,password_enc) VALUES($1,$2,$3)`, deviceID, "sealed-user", "sealed-password")
 	require.NoError(t, err)
@@ -115,7 +115,7 @@ func TestStandbyEnrollmentRejectsCrossOrganizationAndLegacySource(t *testing.T) 
 	require.NoError(t, err)
 	stream := registry.Register(node.ID)
 	defer stream.Unregister()
-	require.NoError(t, coordinator.Connect(t.Context(), node.ID, orgID, &pb.ControlHello{}, "legacy-session"))
+	require.NoError(t, coordinator.ConnectStream(t.Context(), node.ID, orgID, &pb.ControlHello{}, "legacy-session", stream))
 	_, _, _, err = enroll.CreateCodeForStandby(t.Context(), userID, orgID, time.Hour, &node.ID)
 	require.ErrorContains(t, err, "upgrade required")
 	_, _, _, err = enroll.CreateCodeForStandby(t.Context(), userID, orgID+1, time.Hour, &node.ID)

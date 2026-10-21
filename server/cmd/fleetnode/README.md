@@ -156,6 +156,22 @@ relays only the encrypted envelope. Each member retains its own enrollment
 identity, API key, sessions, and encryption keypair. Only unused, newly enrolled
 standbys can import the shared credential key.
 
+Preparing standbys run only their authenticated provisioning connection and
+heartbeats. They install the key atomically, reconnect with its fingerprint,
+and then initialize the device runtime. Preparation retries from the beginning;
+Fleet stores readiness and errors, rather than a durable transfer job. If setup
+is interrupted, a ready source may need to reconnect before preparation resumes.
+
+After the first standby is ready, Fleet pauses new commands to the original
+node and lets accepted server-tracked commands complete or reach their normal
+terminal timeout. It then reconnects that node into the HA lease protocol. A source disconnect
+tears down its server-tracked work and allows activation to continue. This
+one-time activation can briefly interrupt command availability; an in-progress long command delays activation. A backend operation
+that outlives its terminal timeout can still overlap later work, as during
+failover. Standalone nodes do not request HA leases. Device-runtime startup waits
+for Fleet Server to accept the node configuration; systemd readiness follows
+configuration acceptance and plugin initialization.
+
 The existing Nodes page shows **Active**, **Standby · Ready**, **Preparing
 standby**, **Standby unavailable**, or **Standby setup failed**, with the failure
 reason and device-set relationship in details. Heartbeat and control-connection
@@ -167,7 +183,7 @@ For a permanent failure, revoke that node and enroll a replacement.
 Fleet Server grants one active member a 30-second lease over ControlStream.
 Nodes request renewal every five seconds and stop admitting commands five seconds
 before their conservative local expiry. Heartbeats alone do not renew leadership.
-The server acknowledges authority before routing and selects ready replacements
+The node acknowledges authority before the server routes commands and selects ready replacements
 by membership creation order, then node ID. The acceptance target is new command
 usability within 60 seconds of losing the active member, with fresh telemetry in
 the following polling interval. Automatic takeover requires Fleet Server and its
@@ -212,7 +228,7 @@ host power loss or the real device network.
 - **Lock contention.** PID is written under the lock so contention reports are actionable.
 - **Plugins.** The directory must be owned by root or the running uid and must not be group- or world-writable; the agent refuses to load otherwise. The Windows build performs an existence-only check — production Windows installs must place the binary under an Administrator-only directory (e.g., `%ProgramFiles%\fleetnode\`) so the `plugins\` subdirectory inherits a safe ACL.
 - **Scan targets.** Server-supplied targets use the shared `netscan` grammar, private-address policy, and per-command limits. Leading dashes, whitespace, and shell metacharacters are rejected.
-- **Server compatibility.** The control stream depends on RFC-0001 phase 2 server handlers; older servers return `Unimplemented` and the agent reconnects with backoff without crashing.
+- **Server compatibility.** The control stream depends on RFC-0001 phase 2 server handlers; older servers that return `Unimplemented` leave the agent in heartbeat-only mode until it restarts against a compatible server.
 
 ## Development
 

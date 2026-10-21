@@ -522,7 +522,10 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 	// node can't report (or claim) devices it was never asked to scan. A nil
 	// scope is unconstrained; ok is false only if the command was torn down
 	// between AdmitReport and here (then nothing is in scope).
-	scope, ok := h.registry.ReportScopeFor(subject.FleetNodeID, commandID)
+	ownerID, scope, ok := h.registry.ReportScopeFor(subject.FleetNodeID, commandID)
+	if !ok {
+		return nil, fleeterror.NewFailedPreconditionError("discovery command is no longer in flight")
+	}
 	inScope := make([]*pb.DiscoveredDeviceReport, 0, len(in))
 	var outOfScope int64
 	for _, d := range in {
@@ -558,13 +561,6 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 			Manufacturer:     d.GetManufacturer(),
 			FirmwareVersion:  d.GetFirmwareVersion(),
 		})
-	}
-	ownerID := subject.FleetNodeID
-	if h.ha != nil {
-		ownerID, err = h.ha.EffectiveOwner(ctx, subject.FleetNodeID, subject.OrgID)
-		if err != nil {
-			return nil, err
-		}
 	}
 	accepted, ownershipRejected, err := h.pairing.UpsertDiscoveredDevices(ctx, ownerID, subject.OrgID, reports)
 	if err != nil {
@@ -618,22 +614,10 @@ func (h *Handler) ReportPairedDevices(ctx context.Context, req *connect.Request[
 		}
 	}
 
-	ownerID := subject.FleetNodeID
-	if h.ha != nil {
-		ownerID, err = h.ha.EffectiveOwner(ctx, subject.FleetNodeID, subject.OrgID)
-		if err != nil {
-			retryTargets := make([]string, 0, len(kept))
-			for _, result := range kept {
-				retryTargets = append(retryTargets, result.GetDeviceIdentifier())
-			}
-			h.registry.ReinstatePairTargets(subject.FleetNodeID, commandID, retryTargets)
-			return nil, err
-		}
-	}
 	persisted := make([]*pb.FleetNodePairResult, 0, len(kept))
 	var persistFailed []string
 	for _, r := range kept {
-		status, err := h.pairing.PersistFleetNodePairResult(ctx, ownerID, meta.OrgID, r, meta.AssignedBy, meta.Snapshots[r.GetDeviceIdentifier()])
+		status, err := h.pairing.PersistFleetNodePairResult(ctx, meta.OwnerNodeID, meta.OrgID, r, meta.AssignedBy, meta.Snapshots[r.GetDeviceIdentifier()])
 		if err != nil {
 			// Per-device isolation: one persist failure must not drop the others
 			// (already paired on the node). A failed result isn't forwarded as paired;
@@ -785,7 +769,22 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		}()
 	}
 
-	if err := sendControlStreamAccepted(ctx, stream.Send, controlSessionID); err != nil {
+	sendAccepted := func() error {
+		accepted := &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().UTC()), ControlSessionId: controlSessionID, OrgId: subject.OrgID}
+		if h.ha != nil {
+			if err := h.ha.Configure(ctx, subject.FleetNodeID, subject.OrgID, accepted); err != nil {
+				return err
+			}
+		}
+		if err := sendControlStreamAccepted(ctx, stream.Send, accepted); err != nil {
+			return err
+		}
+		if h.ha != nil {
+			h.ha.StartPreparation(ctx, subject.FleetNodeID, subject.OrgID)
+		}
+		return nil
+	}
+	if err := sendAccepted(); err != nil {
 		return err
 	}
 	liveness := time.NewTicker(ControlStreamLivenessInterval)
@@ -817,7 +816,7 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 			// exit so connect-go closes the stream.
 			return controlStreamExitError(ctx, nil)
 		case <-liveness.C:
-			if err := sendControlStreamAccepted(ctx, stream.Send, controlSessionID); err != nil {
+			if err := sendAccepted(); err != nil {
 				return err
 			}
 		case cmd := <-regHandle.Outgoing:
@@ -869,13 +868,9 @@ func controlStreamExitError(ctx context.Context, fallback error) error {
 	return fallback
 }
 
-func sendControlStreamAccepted(ctx context.Context, send func(*pb.ControlStreamResponse) error, sessionIDs ...string) error {
-	sessionID := ""
-	if len(sessionIDs) > 0 {
-		sessionID = sessionIDs[0]
-	}
+func sendControlStreamAccepted(ctx context.Context, send func(*pb.ControlStreamResponse) error, accepted *pb.ControlAccepted) error {
 	if err := send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{
-		Accepted: &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().UTC()), ControlSessionId: sessionID},
+		Accepted: accepted,
 	}}); err != nil {
 		return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("send accepted: %v", err))
 	}
