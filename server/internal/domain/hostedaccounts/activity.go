@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"time"
 
 	activitypb "github.com/block/proto-fleet/server/generated/grpc/activity/v1"
@@ -58,7 +59,7 @@ func (s *Service) readActivityPage(ctx context.Context, actorID, orgID int64, re
 	params := sqlc.GetHostedAccountActivityPageParams{
 		OrganizationID: sql.NullInt64{Int64: orgID, Valid: true}, AccountUuid: request.AccountId,
 		Categories: nonNilStrings(filter.EventCategories), EventTypes: nonNilStrings(filter.EventTypes),
-		ScopeTypes: nonNilStrings(filter.ScopeTypes), SearchText: filter.SearchText,
+		ScopeTypes: nonNilStrings(filter.ScopeTypes), SearchText: strings.TrimSpace(filter.SearchText),
 		SiteIds: filter.SiteIds, IncludeUnassigned: filter.IncludeUnassigned, PageSize: request.PageSize,
 		CursorID: cursor.ID, CursorTime: sql.NullTime{Time: cursor.Time, Valid: request.PageToken != ""},
 		IncludeSummary: includeSummary,

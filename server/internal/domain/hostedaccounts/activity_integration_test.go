@@ -161,6 +161,7 @@ func TestAccountActivityFiltersAgreeAcrossSummaryCursorAndExport(t *testing.T) {
 		{"type", &activitypb.ActivityFilter{EventTypes: []string{"create_hosted_account"}}, 1},
 		{"scope", &activitypb.ActivityFilter{ScopeTypes: []string{"asset"}}, 1},
 		{"search", &activitypb.ActivityFilter{SearchText: "rebooted miners"}, 2},
+		{"search ignores surrounding spaces", &activitypb.ActivityFilter{SearchText: " Rebooted miners  "}, 2},
 		{"time range", &activitypb.ActivityFilter{StartTime: timestamppb.New(first), EndTime: timestamppb.New(first)}, 1},
 		{"excluded", &activitypb.ActivityFilter{EventCategories: []string{"pool"}}, 0},
 	} {

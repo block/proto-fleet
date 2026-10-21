@@ -42,6 +42,9 @@ const AccountActivityFeed = ({
   const [activeFilter, setActiveFilter] = useState(filter);
   const [authority, setAuthority] = useState("");
   const [retained, setRetained] = useState<ListAccountActivitiesResponse | null>(null);
+  // Options come from the unfiltered projection, so they stay valid across
+  // filter changes and keep the chip bar mounted while the next page loads.
+  const [options, setOptions] = useState<ListAccountActivitiesResponse["filterOptions"]>();
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const lifetime = useRef<AbortController | null>(null);
@@ -82,15 +85,16 @@ const AccountActivityFeed = ({
   if (received && authority !== received.authorityFingerprint) {
     setAuthority(received.authorityFingerprint);
     setRetained(null);
+    setOptions(received.filterOptions);
     setExportError(null);
     setExporting(false);
   }
   const page = denied || received?.restart ? null : (received ?? retained);
+  if (page?.filterOptions && page.filterOptions !== options) setOptions(page.filterOptions);
   useEffect(() => {
     window.addEventListener("focus", query.poll);
     return () => window.removeEventListener("focus", query.poll);
   }, [query.poll]);
-  const options = page?.filterOptions;
   const entries = page?.activities ?? [];
   const exportCsv = async () => {
     if (exporting) return;

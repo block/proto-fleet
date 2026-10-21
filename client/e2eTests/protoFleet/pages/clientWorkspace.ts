@@ -134,6 +134,7 @@ export class ClientWorkspacePage {
     await expect(this.page.getByText("Created pool configuration", { exact: true })).toHaveCount(0);
     await expect(this.page.getByRole("button", { name: "Export activity CSV", exact: true })).toHaveCount(0);
     await expect(this.page.getByRole("textbox", { name: "Search activity", exact: true })).toHaveCount(0);
+    await expect(this.page.getByRole("button", { name: "Search activity", exact: true })).toHaveCount(0);
   }
 
   async expectMinerActivity(visible: boolean) {
@@ -166,7 +167,12 @@ export class ClientWorkspacePage {
   }
 
   async searchActivity(text: string) {
-    await this.page.getByRole("textbox", { name: "Search activity", exact: true }).fill(text);
+    // An empty search collapses behind a toggle button with the same name.
+    const input = this.page.getByRole("textbox", { name: "Search activity", exact: true });
+    const toggle = this.page.getByRole("button", { name: "Search activity", exact: true });
+    await expect(input.or(toggle)).toBeVisible();
+    if (await toggle.isVisible()) await toggle.click();
+    await input.fill(text);
   }
 
   async exportActivity() {

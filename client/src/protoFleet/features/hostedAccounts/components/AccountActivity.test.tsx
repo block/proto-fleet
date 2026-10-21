@@ -6,7 +6,10 @@ import { Code, ConnectError } from "@connectrpc/connect";
 import { type AccountScope, AccountScopeContext } from "../AccountScope";
 import { ACCOUNT_READ_TIMEOUT_MS, createAccountClient } from "../api";
 import AccountActivity from "./AccountActivity";
-import { ActivityEntrySchema } from "@/protoFleet/api/generated/activity/v1/activity_pb";
+import {
+  ActivityEntrySchema,
+  ListActivityFilterOptionsResponseSchema,
+} from "@/protoFleet/api/generated/activity/v1/activity_pb";
 import { AccountSchema, ListAccountActivitiesResponseSchema } from "@/protoFleet/api/generated/hosted/v1/hosted_pb";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import * as utility from "@/shared/utils/utility";
@@ -75,6 +78,25 @@ describe("account activity", () => {
     const calls = listAccountActivities.mock.calls;
     const restarted = calls[calls.length - 1]![0];
     expect(restarted.pageToken).toBeUndefined();
+  });
+
+  it("keeps filter chips mounted while a filtered page loads", async () => {
+    const listAccountActivities = vi.fn(async (request: { filter?: { eventTypes: string[] } }) => {
+      if (request.filter?.eventTypes.length) return new Promise<never>(() => {});
+      const response = page("broad", ["Only event"]);
+      response.filterOptions = create(ListActivityFilterOptionsResponseSchema, {
+        eventTypes: [{ eventType: "rename_hosted_account", eventCategory: "auth" }],
+      });
+      return response;
+    });
+    mount({ listAccountActivities } as unknown as Partial<AccountScope["client"]>);
+    await screen.findByText("Only event");
+    fireEvent.click(screen.getByTestId("filter-nested-add-filter"));
+    fireEvent.click(screen.getByTestId("nested-dropdown-filter-row-type"));
+    fireEvent.click(await screen.findByTestId("filter-option-rename_hosted_account"));
+    await waitFor(() => expect(listAccountActivities).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText("Only event")).not.toBeInTheDocument();
+    expect(screen.getByTestId("filter-option-rename_hosted_account")).toBeInTheDocument();
   });
 
   it("retries a failed export from the export error banner", async () => {
