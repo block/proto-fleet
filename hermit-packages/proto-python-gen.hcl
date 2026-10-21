@@ -13,3 +13,7 @@ on "unpack" {
 version "0.2.0" {
   source = "file://${HERMIT_ENV}/packages/proto-python-gen/proto-python-gen-${version}.tar.gz"
 }
+
+version "0.2.1" {
+  source = "file://${HERMIT_ENV}/packages/proto-python-gen/proto-python-gen-${version}.tar.gz"
+}

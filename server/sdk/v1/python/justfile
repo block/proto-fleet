@@ -52,7 +52,8 @@ setup:
   #!/usr/bin/env bash
   set -euo pipefail
   if [ ! -d ".venv" ]; then
-    python3 -m venv .venv
+    PYTHON="$(python3 -c 'import os, sys; print(os.path.realpath(sys.executable))')"
+    "${PYTHON}" -m venv .venv
     echo "✅ Created virtual environment at .venv"
   fi
   source "{{repo_root}}/scripts/pip-config.sh"

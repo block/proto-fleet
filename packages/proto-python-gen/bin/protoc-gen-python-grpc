@@ -21,7 +21,16 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
 fi
 
 # Plugin code lives next to this script (in hermit cache or repo checkout).
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve Hermit's link-farm symlink before looking for the companion module.
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [[ -L "${SCRIPT_PATH}" ]]; do
+  SCRIPT_DIR="$(cd -P "$(dirname "${SCRIPT_PATH}")" && pwd)"
+  SCRIPT_PATH="$(readlink "${SCRIPT_PATH}")"
+  if [[ "${SCRIPT_PATH}" != /* ]]; then
+    SCRIPT_PATH="${SCRIPT_DIR}/${SCRIPT_PATH}"
+  fi
+done
+SCRIPT_DIR="$(cd -P "$(dirname "${SCRIPT_PATH}")" && pwd)"
 PKG_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Venv with grpcio-tools lives in the repo, not in hermit's package cache.

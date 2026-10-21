@@ -1,7 +1,7 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 package_name := "proto-python-gen"
-version := "0.2.0"
+version := "0.2.1"
 package_root := justfile_directory()
 repo_root := package_root / "../.."
 
