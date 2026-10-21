@@ -88,10 +88,7 @@ export class SettingsNodesPage extends BasePage {
     const instructions = modal.getByRole("link", { name: "Installation instructions" });
     const command = modal.getByRole("button", { name: "Copy command" });
     await expect(modal).toContainText("Linux host that can reach your miners and Fleet server");
-    await expect(instructions).toHaveAttribute(
-      "href",
-      "https://github.com/block/proto-fleet/blob/main/deployment-files/README.md#release-repositories-and-forks",
-    );
+    await expect(instructions).toHaveAttribute("href", "https://docs.proto.xyz/fleet/fleet-node");
     await expect(command).toBeVisible();
     const instructionsBox = await instructions.boundingBox();
     const commandBox = await command.boundingBox();

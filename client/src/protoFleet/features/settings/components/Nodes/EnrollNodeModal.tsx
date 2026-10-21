@@ -198,7 +198,7 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
         <div className="mb-6">
           Install Fleet Node on a Linux host that can reach your miners and Fleet server.{" "}
           <a
-            href="https://github.com/block/proto-fleet/blob/main/deployment-files/README.md#release-repositories-and-forks"
+            href="https://docs.proto.xyz/fleet/fleet-node"
             target="_blank"
             rel="noopener noreferrer"
             className="underline"
