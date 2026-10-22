@@ -63,6 +63,10 @@ describe("EnrollNodeModal", () => {
       expect(getByText("pf_code_123")).toBeInTheDocument();
       expect(getByText("Waiting for the node to register…")).toBeInTheDocument();
     });
+    const instructions = getByRole("link", { name: "Installation instructions" });
+    expect(instructions).toHaveAttribute("href", "https://docs.proto.xyz/fleet/fleet-node");
+    expect(instructions).toHaveAttribute("target", "_blank");
+    expect(instructions).toHaveAttribute("rel", "noopener noreferrer");
   });
 
   it("advances to the confirm step when a new node registers", async () => {
@@ -117,6 +121,9 @@ describe("EnrollNodeModal", () => {
       expect(getByText("Node confirmed")).toBeInTheDocument();
       expect(getByText("fleet_test_api_key")).toBeInTheDocument();
     });
+
+    expect(getByText(/The service starts after enrollment/)).toBeVisible();
+    expect(getByText(/Check that the node is connected in Nodes before adding miners/)).toBeVisible();
 
     fireEvent.click(getByText("Done"));
 

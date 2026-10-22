@@ -14,3 +14,5 @@ export type MinerWithSelectedAndAction = MinerWithSelected & {
 };
 
 export type MinerDiscoveryMode = "onboarding" | "pairing";
+
+export type RemoteDiscoveryReadiness = "none" | "noNodes" | "enrollmentIncomplete" | "partialCoverage" | "checkFailed";

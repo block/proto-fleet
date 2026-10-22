@@ -194,10 +194,17 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
 
   if (step === "code") {
     return (
-      <Modal open={open} onDismiss={handleDismiss} title="Enroll a node" divider={false}>
+      <Modal open={open} onDismiss={handleDismiss} title="Set up a node" divider={false}>
         <div className="mb-6">
-          Nodes are hosts that run the <span className="font-mono">fleet-node</span> daemon and manage the miners on
-          their network.
+          Install Fleet Node on a Linux machine that can reach your miners and this Fleet server.{" "}
+          <a
+            href="https://docs.proto.xyz/fleet/fleet-node"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline"
+          >
+            Installation instructions
+          </a>
         </div>
 
         {errorMsg ? (
@@ -205,7 +212,7 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
         ) : enrollmentCode ? (
           <div className="flex flex-col gap-4">
             <div>
-              <div className="mb-2">1. On the host you want to enroll, run:</div>
+              <div className="mb-2">1. Run this command on the machine:</div>
               <CopyableValue value={fleetNodeEnrollCommand} copyLabel="Command" />
               {includesInsecureTransportFlag ? (
                 <Callout
@@ -218,7 +225,7 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
               ) : null}
             </div>
             <div>
-              <div className="mb-2">2. Paste this one-time enrollment code when prompted:</div>
+              <div className="mb-2">2. Enter this enrollment code when prompted:</div>
               <CopyableValue value={enrollmentCode.code} copyLabel="Enrollment code" />
               {enrollmentCode.expiresAt ? (
                 <div className="mt-2 text-200 text-text-primary-50">
@@ -284,8 +291,8 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
         <Callout
           intent="warning"
           prefixIcon={<Alert />}
-          title="Check this is really your host"
-          subtitle="The CLI printed the same fingerprint after registering. Only confirm if it matches — a different fingerprint means another host used your enrollment code."
+          title="Check this is really your machine"
+          subtitle="The CLI printed the same fingerprint after registering. Only confirm if it matches — a different fingerprint means another machine used your enrollment code."
         />
       </Modal>
     );
@@ -296,7 +303,7 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
     <Dialog
       open={open}
       title="Node confirmed"
-      subtitle={`Paste this API key into the fleet-node prompt on ${foundNode?.name ?? "the host"} to finish enrollment. It won't be shown again.`}
+      subtitle={`Enter this API key on ${foundNode?.name ?? "the machine"} to finish enrollment. It won't be shown again.`}
       subtitleSize="text-300"
       icon={
         <DialogIcon intent="success">
@@ -313,6 +320,9 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
       ]}
     >
       <CopyableValue value={apiKey} copyLabel="API key" />
+      <p className="mt-4 text-300 text-text-primary-70">
+        The service starts after enrollment. Check that the node is connected in Nodes before adding miners.
+      </p>
     </Dialog>
   );
 };

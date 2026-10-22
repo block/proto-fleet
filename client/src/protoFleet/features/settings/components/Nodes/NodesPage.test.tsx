@@ -206,7 +206,7 @@ describe("NodesPage", () => {
     renderNodesPage();
 
     expect(await screen.findByText("node-01")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Enroll node" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Set up a node" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Confirm enrollment" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
   });
@@ -237,7 +237,7 @@ describe("NodesPage", () => {
     renderNodesPage();
 
     expect(await screen.findByText("node-pending")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Enroll node" }));
+    fireEvent.click(screen.getByRole("button", { name: "Set up a node" }));
     expect(screen.getByTestId("enroll-node-modal")).toHaveTextContent("New enrollment");
 
     fireEvent.click(screen.getByRole("button", { name: "Confirm enrollment" }));

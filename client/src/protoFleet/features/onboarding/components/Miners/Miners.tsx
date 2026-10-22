@@ -3,13 +3,13 @@ import { Link } from "react-router-dom";
 import clsx from "clsx";
 import FoundMiners from "./FoundMiners";
 import FoundMinersModal from "./FoundMinersModal";
-import { MinerDiscoveryMode } from "./types";
+import { type MinerDiscoveryMode, type RemoteDiscoveryReadiness } from "./types";
 import ValidationErrorDialog from "./ValidationErrorDialog";
 import { Device } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import FullScreenModalHeaderActions from "@/protoFleet/components/FullScreenModalHeaderActions";
 import NullState from "@/protoFleet/components/NullState";
 import { useHasPermission } from "@/protoFleet/store";
-import { Alert, Dismiss, LogoAlt } from "@/shared/assets/icons";
+import { Alert, Dismiss, Info, LogoAlt } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import { type ButtonProps } from "@/shared/components/ButtonGroup";
 import Callout from "@/shared/components/Callout";
@@ -21,6 +21,32 @@ import PageOverlay from "@/shared/components/PageOverlay";
 import Textarea from "@/shared/components/Textarea";
 import { useWindowDimensions } from "@/shared/hooks/useWindowDimensions";
 import { CategorizedInvalidEntries, ManualDiscoveryTargets, parseManualTargets } from "@/shared/utils/ipParsing";
+
+const REMOTE_DISCOVERY_GUIDANCE: Record<
+  Exclude<RemoteDiscoveryReadiness, "none">,
+  { message: string; intent: "information" | "warning"; adminAction: string }
+> = {
+  noNodes: {
+    message: "No Fleet Nodes set up",
+    intent: "information",
+    adminAction: "Ask an administrator to set up a node.",
+  },
+  enrollmentIncomplete: {
+    message: "Complete Fleet Node enrollment",
+    intent: "information",
+    adminAction: "Ask an administrator to finish enrolling the node.",
+  },
+  partialCoverage: {
+    message: "Some Fleet Nodes can't scan. Results may be incomplete.",
+    intent: "warning",
+    adminAction: "Ask an administrator to check Fleet Nodes.",
+  },
+  checkFailed: {
+    message: "Couldn't check Fleet Nodes. Results may be incomplete.",
+    intent: "warning",
+    adminAction: "Ask an administrator to check Fleet Nodes.",
+  },
+};
 
 interface MinersProps {
   scanDiscoveryPending: boolean;
@@ -35,7 +61,7 @@ interface MinersProps {
   onRescan: () => void;
   onForemanImport?: (apiKey: string, clientId: string) => void;
   foremanImportPending?: boolean;
-  remoteDiscoveryWarning?: string;
+  remoteDiscoveryReadiness?: RemoteDiscoveryReadiness;
   mode?: MinerDiscoveryMode;
   initialStep?: "findMiners" | "pairing";
   canAddMiners?: boolean;
@@ -61,7 +87,7 @@ const Miners = ({
   onRescan,
   onForemanImport,
   foremanImportPending = false,
-  remoteDiscoveryWarning,
+  remoteDiscoveryReadiness,
   mode = "onboarding",
   initialStep = "findMiners",
   canAddMiners = true,
@@ -106,22 +132,37 @@ const Miners = ({
   const selectedDisplayMiners = displayMiners.filter((miner) => !deselectedMiners.includes(miner.deviceIdentifier));
   const useCompactHeaderActions = isPhone;
   const canReadFleetNodes = useHasPermission("fleetnode:read");
-  const coverageWarning = remoteDiscoveryWarning ? (
-    <Callout
-      className={activeStep === "findMiners" ? "mt-6" : "mb-6"}
-      intent="warning"
-      prefixIcon={<Alert />}
-      title={remoteDiscoveryWarning}
-      subtitle={
-        canReadFleetNodes ? (
-          <Link to="/settings/nodes" className="underline">
-            View Fleet Node settings
-          </Link>
-        ) : undefined
-      }
-      testId="remote-discovery-warning"
-    />
-  ) : null;
+  const canManageFleetNodes = useHasPermission("fleetnode:manage");
+  const guidance =
+    remoteDiscoveryReadiness && remoteDiscoveryReadiness !== "none"
+      ? REMOTE_DISCOVERY_GUIDANCE[remoteDiscoveryReadiness]
+      : undefined;
+  const remoteNetworkPrerequisite =
+    remoteDiscoveryReadiness && (activeStep === "findMiners" || guidance?.intent === "warning") ? (
+      <Callout
+        className={activeStep === "findMiners" ? "mt-6" : undefined}
+        intent={guidance?.intent ?? "information"}
+        prefixIcon={guidance?.intent === "warning" ? <Alert /> : <Info />}
+        title={guidance ? <span data-testid="remote-discovery-guidance">{guidance.message}</span> : "Remote networks"}
+        subtitle={
+          <>
+            {activeStep === "findMiners" ? (
+              <p>
+                To find miners on a network Fleet can't reach directly, install and enroll Fleet Node on a Linux machine
+                connected to that network.
+              </p>
+            ) : null}
+            {guidance && (!canReadFleetNodes || !canManageFleetNodes) ? <p>{guidance.adminAction}</p> : null}
+            {canReadFleetNodes ? (
+              <Link to="/settings/nodes" className="underline">
+                Manage Nodes
+              </Link>
+            ) : null}
+          </>
+        }
+        testId="remote-network-prerequisite"
+      />
+    ) : null;
 
   // Handle loading state with minimum display time
   useEffect(() => {
@@ -349,7 +390,7 @@ const Miners = ({
                 inline
               />
 
-              {coverageWarning}
+              {remoteNetworkPrerequisite}
 
               <div className={clsx("my-6 grid grid-cols-1 gap-4", onForemanImport && "tablet:grid-cols-2")}>
                 <div
@@ -360,7 +401,7 @@ const Miners = ({
                     inline
                     title="Scan your network"
                     titleSize="text-heading-200"
-                    description="Scan your network to find miners to add to your fleet or provide miner IP addresses and hostnames to find miners to add to your fleet."
+                    description="Find miners on networks reachable by Fleet or your Fleet Nodes."
                   />
                   <div>
                     <Button
@@ -388,7 +429,7 @@ const Miners = ({
                       inline
                       title="Import from Foreman"
                       titleSize="text-heading-200"
-                      description="Connect your Foreman account to import your existing miners, including pool configuration and group assignments."
+                      description="Import miners, pool settings, and groups from Foreman."
                     />
                     <div>
                       <Button variant={variants.primary} size={sizes.base} onClick={() => setShowForemanModal(true)}>
@@ -404,7 +445,7 @@ const Miners = ({
                   inline
                   title="Enter network info manually"
                   titleSize="text-heading-200"
-                  description="Add your IP addresses and/or hostnames, IP ranges, or subnets. Separate entries with commas or line breaks. Examples: 10.32.1.100, 192.168.1.0/24, 10.32.1.100 - 10.32.1.150"
+                  description="Enter IP addresses, hostnames, IP ranges, or subnets, separated by commas or line breaks."
                 />
                 <div>
                   <div className="space-y-4">
@@ -413,7 +454,7 @@ const Miners = ({
                       initValue={textareaValue}
                       id="ipAddresses"
                       testId="ipAddresses"
-                      label="IP Addresses"
+                      label="IP addresses"
                       error={ipListError}
                     />
                   </div>
@@ -440,7 +481,7 @@ const Miners = ({
           ) : null}
           {activeStep === "pairing" ? (
             <div className="mx-auto w-full max-w-4xl px-6 pt-10">
-              {coverageWarning}
+              {remoteNetworkPrerequisite ? <div className="mb-6">{remoteNetworkPrerequisite}</div> : null}
               {notice}
               <FoundMiners
                 miners={displayMiners}
