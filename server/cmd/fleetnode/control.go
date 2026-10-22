@@ -324,7 +324,10 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 				defer r.controlWorkers.Done()
 				started := time.Now()
 				workerAcker := &observedAcker{inner: sender}
+				commandCtx, commandSpan := startFleetNodeCommandSpan(sessionCtx, st.FleetNodeID, c, kind, class)
+				defer commandSpan.End()
 				defer func() {
+					recordFleetNodeCommandResult(commandSpan, workerAcker.ack, workerAcker.sendErr)
 					release()
 					sharedActive, deferrableActive, exclusiveActive := r.controlSlotOccupancy()
 					attrs := []any{
@@ -345,7 +348,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 					}
 					logger.Debug("control command completed", attrs...)
 				}()
-				r.handleCommand(sessionCtx, client, workerAcker, c, e, pErr, logger)
+				r.handleCommand(commandCtx, client, workerAcker, c, e, pErr, logger)
 			}(cmd, env, parseErr, releaseSlot, admissionClass, commandKind)
 		} else {
 			sharedActive, deferrableActive, exclusiveActive := r.controlSlotOccupancy()
@@ -358,7 +361,11 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 				"deferrable_read_active", deferrableActive,
 				"exclusive_active", exclusiveActive,
 			)
-			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent at concurrency limit; retry shortly", logger)
+			_, commandSpan := startFleetNodeCommandSpan(sessionCtx, st.FleetNodeID, cmd, commandKind, admissionClass)
+			workerAcker := &observedAcker{inner: sender}
+			r.sendAck(workerAcker, cmd.GetCommandId(), pb.AckCode_ACK_CODE_BUSY, "agent at concurrency limit; retry shortly", logger)
+			recordFleetNodeCommandResult(commandSpan, workerAcker.ack, workerAcker.sendErr)
+			commandSpan.End()
 		}
 	}
 }
