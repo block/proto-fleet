@@ -53,16 +53,28 @@ type recordingRunner struct {
 }
 
 type haRecordingRunner struct {
-	mu        sync.Mutex
-	commands  []recordedCommand
-	fail      map[string]error
-	blockStop bool
+	mu           sync.Mutex
+	commands     []recordedCommand
+	fail         map[string]error
+	blockStop    bool
+	capabilities []string
 }
 
 func (r *haRecordingRunner) Run(ctx context.Context, dir string, output io.Writer, name string, args ...string) error {
 	r.mu.Lock()
 	r.commands = append(r.commands, recordedCommand{Dir: dir, Name: name, Args: append([]string(nil), args...)})
 	blockStop := r.blockStop && len(args) > 0 && args[0] == "app-stop"
+	if len(args) == 2 && args[0] == "update" && args[1] == "--capabilities" {
+		capabilities := r.capabilities
+		if capabilities == nil {
+			capabilities = []string{updaterapi.CapabilityPreparedUpdateV1}
+		}
+		r.mu.Unlock()
+		if err := json.NewEncoder(output).Encode(map[string][]string{"capabilities": capabilities}); err != nil {
+			return fmt.Errorf("write capabilities: %w", err)
+		}
+		return nil
+	}
 	if len(args) == 1 && args[0] == "--version" {
 		r.mu.Unlock()
 		if _, err := fmt.Fprintln(output, "v1.1.0"); err != nil {

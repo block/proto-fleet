@@ -993,7 +993,7 @@ func (m *Manager) Status() updaterapi.StatusResponse {
 	m.mu.RLock()
 	if m.operation == nil {
 		m.mu.RUnlock()
-		return updaterapi.StatusResponse{ReleaseRepository: m.repository}
+		return updaterapi.StatusResponse{ReleaseRepository: m.repository, Capabilities: m.capabilities()}
 	}
 	snapshot := *m.operation
 	m.mu.RUnlock()
@@ -1003,7 +1003,7 @@ func (m *Manager) Status() updaterapi.StatusResponse {
 		// a state mutation. The proof is re-evaluated after daemon restarts.
 		snapshot.Acknowledged = true
 	}
-	return updaterapi.StatusResponse{Operation: &snapshot, ReleaseRepository: m.repository}
+	return updaterapi.StatusResponse{Operation: &snapshot, ReleaseRepository: m.repository, Capabilities: m.capabilities()}
 }
 
 // failureWasRemediated auto-dismisses a failed operation once the
@@ -1117,7 +1117,7 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 	if m.cfg.NewID == nil {
 		return updaterapi.Operation{}, fmt.Errorf("generate updater operation id: generator is not configured")
 	}
-	return m.trigger(targetVersion, m.cfg.NewID(), false, false)
+	return m.trigger(targetVersion, m.cfg.NewID(), false, false, false, false)
 }
 
 // TriggerWithID accepts a caller-generated UUID so a client that loses the
@@ -1125,22 +1125,26 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 // guessing by target or time. Reusing the ID for the same target is
 // idempotent; reusing it for another target is rejected.
 func (m *Manager) TriggerWithID(targetVersion, operationID string) (updaterapi.Operation, error) {
-	return m.triggerWithID(targetVersion, operationID, false)
+	return m.triggerWithID(targetVersion, operationID, false, false, false)
 }
 
 func (m *Manager) TriggerCompleteWithID(targetVersion, operationID string) (updaterapi.Operation, error) {
-	return m.triggerWithID(targetVersion, operationID, true)
+	return m.triggerWithID(targetVersion, operationID, true, false, false)
 }
 
-func (m *Manager) triggerWithID(targetVersion, operationID string, complete bool) (updaterapi.Operation, error) {
+func (m *Manager) TriggerPreparedWithID(targetVersion, operationID string, prepareOnly, prepared, complete bool) (updaterapi.Operation, error) {
+	return m.triggerWithID(targetVersion, operationID, complete, prepareOnly, prepared)
+}
+
+func (m *Manager) triggerWithID(targetVersion, operationID string, complete, prepareOnly, prepared bool) (updaterapi.Operation, error) {
 	parsedID, err := uuid.Parse(operationID)
 	if err != nil || parsedID == uuid.Nil || parsedID.String() != operationID {
 		return updaterapi.Operation{}, newTriggerError(errTriggerInvalid, "operation id must be a canonical UUID")
 	}
-	return m.trigger(targetVersion, operationID, true, complete)
+	return m.trigger(targetVersion, operationID, true, complete, prepareOnly, prepared)
 }
 
-func (m *Manager) trigger(targetVersion, operationID string, idempotent, complete bool) (updaterapi.Operation, error) {
+func (m *Manager) trigger(targetVersion, operationID string, idempotent, complete, prepareOnly, prepared bool) (updaterapi.Operation, error) {
 	if operationID == "" {
 		return updaterapi.Operation{}, fmt.Errorf("generate updater operation id: empty value")
 	}
@@ -1149,6 +1153,12 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 			errTriggerInvalid,
 			"target version must be a valid semantic release tag",
 		)
+	}
+	if prepareOnly && (prepared || complete) {
+		return updaterapi.Operation{}, newTriggerError(errTriggerInvalid, "prepare-only cannot be combined with prepared or complete")
+	}
+	if (prepareOnly || prepared) && m.cfg.DeploymentMode != DeploymentModeHA {
+		return updaterapi.Operation{}, newTriggerError(errTriggerPrecondition, "prepared updates require HA deployment mode")
 	}
 	if complete && m.cfg.DeploymentMode != DeploymentModeHA {
 		return updaterapi.Operation{}, newTriggerError(errTriggerPrecondition, "completion updates require HA deployment mode")
@@ -1161,7 +1171,7 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 	if idempotent && m.operation != nil && m.operation.ID == operationID {
 		existing := *m.operation
 		m.mu.RUnlock()
-		if existing.TargetVersion != targetVersion || existing.Complete != complete {
+		if existing.TargetVersion != targetVersion || existing.Complete != complete || existing.PrepareOnly != prepareOnly || existing.Prepared != prepared {
 			return updaterapi.Operation{}, newTriggerError(
 				errTriggerInvalid,
 				"operation id is already associated with another update",
@@ -1198,7 +1208,7 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if idempotent && m.operation != nil && m.operation.ID == operationID {
-		if m.operation.TargetVersion != targetVersion || m.operation.Complete != complete {
+		if m.operation.TargetVersion != targetVersion || m.operation.Complete != complete || m.operation.PrepareOnly != prepareOnly || m.operation.Prepared != prepared {
 			return updaterapi.Operation{}, newTriggerError(
 				errTriggerInvalid,
 				"operation id is already associated with another update",
@@ -1270,6 +1280,8 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 		ID:            operationID,
 		TargetVersion: targetVersion,
 		Complete:      complete,
+		PrepareOnly:   prepareOnly,
+		Prepared:      prepared,
 		Phase:         updaterapi.PhaseQueued,
 		Message:       "Upgrade queued",
 		StartedAt:     now,
@@ -1289,7 +1301,7 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 	go func() {
 		defer m.operationWG.Done()
 		defer m.finishOperation()
-		m.run(operationCtx, operationCopy.ID, operationCopy.StartedAt, targetVersion, complete)
+		m.run(operationCtx, operationCopy.ID, operationCopy.StartedAt, targetVersion, complete, prepareOnly, prepared)
 	}()
 	return operationCopy, nil
 }
@@ -1305,7 +1317,7 @@ func (m *Manager) finishOperation() {
 	m.cancelOperation = nil
 }
 
-func (m *Manager) run(ctx context.Context, operationID string, startedAt time.Time, targetVersion string, complete bool) {
+func (m *Manager) run(ctx context.Context, operationID string, startedAt time.Time, targetVersion string, complete, prepareOnly, prepared bool) {
 	logName := operationLogFilename(operationID, startedAt)
 	logPath := filepath.Join(m.cfg.StateDir, "logs", logName)
 	logFile, err := m.logRoot.OpenFile(logName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
@@ -1342,149 +1354,214 @@ func (m *Manager) run(ctx context.Context, operationID string, startedAt time.Ti
 		return
 	}
 	_, _ = fmt.Fprintf(logFile, "[%s] starting upgrade to %s\n", m.cfg.Now().UTC().Format(time.RFC3339), targetVersion)
-	archiveName := fmt.Sprintf("proto-fleet-%s-%s.tar.gz", targetVersion, m.cfg.GOARCH)
-	archiveURL := strings.TrimSuffix(m.cfg.DownloadBaseURL, "/") + "/" + targetVersion + "/" + archiveName
-	artifactBase := operationArtifactBase(operationID)
-	archivePath := filepath.Join(m.cfg.StateDir, artifactBase+".tar.gz")
-	checksumPath := filepath.Join(m.cfg.StateDir, artifactBase+".sha256")
-	defer os.Remove(archivePath)
-	defer os.Remove(checksumPath)
-
-	if err := m.advance(operationID, updaterapi.PhaseDownloading, "Downloading release bundle"); err != nil {
-		m.fail(operationID, fmt.Errorf("persist download phase: %w", err), recovery)
-		return
-	}
-	if err := m.obtainReleaseFile(ctx, targetVersion, archiveName, archiveURL, archivePath, maxDownloadBytes); err != nil {
-		m.fail(operationID, fmt.Errorf("download release bundle: %w", err), recovery)
-		return
-	}
-	if err := m.obtainReleaseFile(ctx, targetVersion, archiveName+".sha256", archiveURL+".sha256", checksumPath, maxChecksumBytes); err != nil {
-		m.fail(operationID, fmt.Errorf("download release checksum: %w", err), recovery)
-		return
-	}
-
-	if err := m.advance(operationID, updaterapi.PhaseVerifying, "Verifying release checksum"); err != nil {
-		m.fail(operationID, fmt.Errorf("persist verification phase: %w", err), recovery)
-		return
-	}
-	// GitHub Releases, or the operator controlling ReleaseDir, supplies the
-	// trusted bytes. This sidecar detects transfer/storage corruption; it is
-	// not an independent publisher signature. Repository and version metadata
-	// are still verified below, regardless of delivery mode.
-	if err := verifyChecksum(ctx, archivePath, checksumPath, archiveName); err != nil {
-		m.fail(operationID, err, recovery)
-		return
-	}
-
-	stageRoot := filepath.Join(m.cfg.InstallRoot, artifactBase)
-	if err := os.Mkdir(stageRoot, 0o700); err != nil {
-		m.fail(operationID, fmt.Errorf("create staging directory: %w", err), recovery)
-		return
-	}
-	defer os.RemoveAll(stageRoot)
-
-	if err := m.advance(operationID, updaterapi.PhaseStaging, "Staging release and preserving configuration"); err != nil {
-		m.fail(operationID, fmt.Errorf("persist staging phase: %w", err), recovery)
-		return
-	}
-	var preparedUpdater *os.File
-	updaterCopied := false
-	if m.cfg.SelfUpdatePath != "" {
-		preparedUpdaterPath := filepath.Join(m.cfg.StateDir, artifactBase+".updater")
-		preparedUpdater, err = os.OpenFile(preparedUpdaterPath, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
-		if err != nil {
-			m.fail(operationID, fmt.Errorf("create protected updater copy: %w", err), recovery)
-			return
-		}
-		defer os.Remove(preparedUpdaterPath)
-		defer func() {
-			if preparedUpdater != nil {
-				_ = preparedUpdater.Close()
-			}
-		}()
-	}
-	if err := extractArchiveWithUpdaterCopy(
-		ctx,
-		archivePath,
-		stageRoot,
-		preparedUpdater,
-		&updaterCopied,
-	); err != nil {
-		m.fail(operationID, fmt.Errorf("extract release bundle: %w", err), recovery)
-		return
-	}
-	if preparedUpdater != nil {
-		if !updaterCopied {
-			m.fail(operationID, fmt.Errorf("release bundle is missing required updater binary"), recovery)
-			return
-		}
-		if err := preparedUpdater.Chmod(0o700); err != nil {
-			m.fail(operationID, fmt.Errorf("secure protected updater copy: %w", err), recovery)
-			return
-		}
-		if err := preparedUpdater.Sync(); err != nil {
-			m.fail(operationID, fmt.Errorf("sync protected updater copy: %w", err), recovery)
-			return
-		}
-		if _, err := preparedUpdater.Seek(0, io.SeekStart); err != nil {
-			m.fail(operationID, fmt.Errorf("rewind protected updater copy: %w", err), recovery)
-			return
-		}
-	}
-	stageDeployment := filepath.Join(stageRoot, "deployment")
 	currentDeployment := filepath.Join(m.cfg.InstallRoot, "deployment")
-	if err := validateStagedRelease(stageDeployment, targetVersion); err != nil {
-		m.fail(operationID, err, recovery)
-		return
-	}
-	if err := checkDeploymentRepository(stageDeployment, m.repository); err != nil {
-		m.fail(operationID, err, recovery)
-		return
-	}
+	stageRoot := filepath.Join(m.cfg.InstallRoot, operationArtifactBase(operationID))
+	stageDeployment := filepath.Join(stageRoot, "deployment")
 	previousVersion := ""
-	if m.cfg.DeploymentMode == DeploymentModeHA {
+	var preparedUpdater *os.File
+	defer func() {
+		if preparedUpdater != nil {
+			_ = preparedUpdater.Close()
+		}
+	}()
+	if prepared {
+		stageRoot = filepath.Join(m.cfg.InstallRoot, preparedDirectoryName)
+		stageDeployment = filepath.Join(stageRoot, "deployment")
+		if err := m.validatePreparedRelease(ctx, targetVersion, true); err != nil {
+			m.fail(operationID, err, "")
+			return
+		}
 		previousVersion, err = readInstalledVersion(filepath.Join(currentDeployment, "version.txt"))
 		if err != nil {
-			m.fail(operationID, fmt.Errorf("read current HA application version: %w", err), recovery)
+			m.fail(operationID, err, "")
 			return
 		}
-	}
-	if err := preserveDeploymentState(ctx, currentDeployment, stageDeployment); err != nil {
-		m.fail(operationID, fmt.Errorf("preserve deployment configuration: %w", err), recovery)
-		return
-	}
-	if err := m.advance(operationID, updaterapi.PhasePreflight, "Building and validating the new stack while Fleet stays online"); err != nil {
-		m.fail(operationID, fmt.Errorf("persist preflight phase: %w", err), recovery)
-		return
-	}
-	if err := m.runPreflight(ctx, stageDeployment, commandOutput); err != nil {
-		if ctx.Err() == nil {
-			m.removeFailedPreflightImages(ctx, stageDeployment, commandOutput, logFile, targetVersion)
+		if m.cfg.SelfUpdatePath != "" {
+			preparedUpdater, err = os.Open(filepath.Join(stageRoot, preparedUpdaterFilename))
+			if err != nil {
+				m.fail(operationID, fmt.Errorf("open prepared updater: %w", err), "")
+				return
+			}
 		}
-		m.fail(operationID, fmt.Errorf("upgrade preflight failed: %w", err), recovery)
-		return
-	}
-	// Preflight runs as the root updater and creates the proof consumed by
-	// --skip-build. Restore the deployment owner after preflight so that proof,
-	// along with any other generated state, remains usable by the supported
-	// non-root deployment owner during manual recovery.
-	if err := m.cfg.preserveDeploymentOwnership(ctx, currentDeployment, stageDeployment); err != nil {
-		m.fail(operationID, fmt.Errorf("preserve deployment ownership: %w", err), recovery)
-		return
-	}
-	if err := m.advance(operationID, updaterapi.PhasePreflight, "Persisting the staged release before activation"); err != nil {
-		m.fail(operationID, fmt.Errorf("persist staged-release durability phase: %w", err), recovery)
-		return
-	}
-	syncCtx, cancelSync := context.WithTimeout(ctx, m.cfg.ActivationTimeout)
-	syncErr := m.cfg.syncStagedDeployment(syncCtx, stageDeployment)
-	if syncErr == nil {
-		syncErr = syncCtx.Err()
-	}
-	cancelSync()
-	if syncErr != nil {
-		m.fail(operationID, fmt.Errorf("persist staged deployment before activation: %w", syncErr), recovery)
-		return
+		if err := m.runHACommand(ctx, m.cfg.PreflightTimeout, stageDeployment, commandOutput, "schema-check"); err != nil {
+			m.fail(operationID, err, "")
+			return
+		}
+		if err := m.runHACommand(ctx, m.cfg.PreflightTimeout, stageDeployment, commandOutput, "check-images"); err != nil {
+			m.fail(operationID, err, "")
+			return
+		}
+	} else {
+		sourceDigest := ""
+		if prepareOnly {
+			sourceDigest, err = m.preparedSourceDigest(ctx)
+			if err != nil {
+				m.fail(operationID, err, "")
+				return
+			}
+		}
+		archiveName := fmt.Sprintf("proto-fleet-%s-%s.tar.gz", targetVersion, m.cfg.GOARCH)
+		archiveURL := strings.TrimSuffix(m.cfg.DownloadBaseURL, "/") + "/" + targetVersion + "/" + archiveName
+		artifactBase := operationArtifactBase(operationID)
+		archivePath := filepath.Join(m.cfg.StateDir, artifactBase+".tar.gz")
+		checksumPath := filepath.Join(m.cfg.StateDir, artifactBase+".sha256")
+		defer os.Remove(archivePath)
+		defer os.Remove(checksumPath)
+
+		if err := m.advance(operationID, updaterapi.PhaseDownloading, "Downloading release bundle"); err != nil {
+			m.fail(operationID, fmt.Errorf("persist download phase: %w", err), recovery)
+			return
+		}
+		if err := m.obtainReleaseFile(ctx, targetVersion, archiveName, archiveURL, archivePath, maxDownloadBytes); err != nil {
+			m.fail(operationID, fmt.Errorf("download release bundle: %w", err), recovery)
+			return
+		}
+		if err := m.obtainReleaseFile(ctx, targetVersion, archiveName+".sha256", archiveURL+".sha256", checksumPath, maxChecksumBytes); err != nil {
+			m.fail(operationID, fmt.Errorf("download release checksum: %w", err), recovery)
+			return
+		}
+
+		if err := m.advance(operationID, updaterapi.PhaseVerifying, "Verifying release checksum"); err != nil {
+			m.fail(operationID, fmt.Errorf("persist verification phase: %w", err), recovery)
+			return
+		}
+		// GitHub Releases, or the operator controlling ReleaseDir, supplies the
+		// trusted bytes. This sidecar detects transfer/storage corruption; it is
+		// not an independent publisher signature. Repository and version metadata
+		// are still verified below, regardless of delivery mode.
+		if err := verifyChecksum(ctx, archivePath, checksumPath, archiveName); err != nil {
+			m.fail(operationID, err, recovery)
+			return
+		}
+
+		if err := os.Mkdir(stageRoot, 0o700); err != nil {
+			m.fail(operationID, fmt.Errorf("create staging directory: %w", err), recovery)
+			return
+		}
+		defer os.RemoveAll(stageRoot)
+
+		if err := m.advance(operationID, updaterapi.PhaseStaging, "Staging release and preserving configuration"); err != nil {
+			m.fail(operationID, fmt.Errorf("persist staging phase: %w", err), recovery)
+			return
+		}
+		updaterCopied := false
+		if m.cfg.SelfUpdatePath != "" {
+			preparedUpdaterPath := filepath.Join(m.cfg.StateDir, artifactBase+".updater")
+			preparedUpdater, err = os.OpenFile(preparedUpdaterPath, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
+			if err != nil {
+				m.fail(operationID, fmt.Errorf("create protected updater copy: %w", err), recovery)
+				return
+			}
+			defer os.Remove(preparedUpdaterPath)
+			defer func() {
+				if preparedUpdater != nil {
+					_ = preparedUpdater.Close()
+				}
+			}()
+		}
+		if err := extractArchiveWithUpdaterCopy(
+			ctx,
+			archivePath,
+			stageRoot,
+			preparedUpdater,
+			&updaterCopied,
+		); err != nil {
+			m.fail(operationID, fmt.Errorf("extract release bundle: %w", err), recovery)
+			return
+		}
+		if preparedUpdater != nil {
+			if !updaterCopied {
+				m.fail(operationID, fmt.Errorf("release bundle is missing required updater binary"), recovery)
+				return
+			}
+			if err := preparedUpdater.Chmod(0o700); err != nil {
+				m.fail(operationID, fmt.Errorf("secure protected updater copy: %w", err), recovery)
+				return
+			}
+			if err := preparedUpdater.Sync(); err != nil {
+				m.fail(operationID, fmt.Errorf("sync protected updater copy: %w", err), recovery)
+				return
+			}
+			if _, err := preparedUpdater.Seek(0, io.SeekStart); err != nil {
+				m.fail(operationID, fmt.Errorf("rewind protected updater copy: %w", err), recovery)
+				return
+			}
+		}
+		if err := validateStagedRelease(stageDeployment, targetVersion); err != nil {
+			m.fail(operationID, err, recovery)
+			return
+		}
+		if err := checkDeploymentRepository(stageDeployment, m.repository); err != nil {
+			m.fail(operationID, err, recovery)
+			return
+		}
+		if m.cfg.DeploymentMode == DeploymentModeHA {
+			previousVersion, err = readInstalledVersion(filepath.Join(currentDeployment, "version.txt"))
+			if err != nil {
+				m.fail(operationID, fmt.Errorf("read current HA application version: %w", err), recovery)
+				return
+			}
+		}
+		if prepareOnly {
+			if err := m.validatePreparedCapability(ctx, stageDeployment); err != nil {
+				m.fail(operationID, err, "")
+				return
+			}
+			if preparedUpdater != nil {
+				if err := m.validateUpdaterCandidate(ctx, preparedUpdater.Name(), targetVersion); err != nil {
+					m.fail(operationID, err, "")
+					return
+				}
+			}
+		}
+		if err := preserveDeploymentState(ctx, currentDeployment, stageDeployment); err != nil {
+			m.fail(operationID, fmt.Errorf("preserve deployment configuration: %w", err), recovery)
+			return
+		}
+		if err := m.advance(operationID, updaterapi.PhasePreflight, "Building and validating the new stack while Fleet stays online"); err != nil {
+			m.fail(operationID, fmt.Errorf("persist preflight phase: %w", err), recovery)
+			return
+		}
+		if err := m.runPreflight(ctx, stageDeployment, commandOutput); err != nil {
+			if ctx.Err() == nil {
+				m.removeFailedPreflightImages(ctx, stageDeployment, commandOutput, logFile, targetVersion)
+			}
+			m.fail(operationID, fmt.Errorf("upgrade preflight failed: %w", err), recovery)
+			return
+		}
+		// Preflight runs as the root updater and creates the proof consumed by
+		// --skip-build. Restore the deployment owner after preflight so that proof,
+		// along with any other generated state, remains usable by the supported
+		// non-root deployment owner during manual recovery.
+		if err := m.cfg.preserveDeploymentOwnership(ctx, currentDeployment, stageDeployment); err != nil {
+			m.fail(operationID, fmt.Errorf("preserve deployment ownership: %w", err), recovery)
+			return
+		}
+		if err := m.advance(operationID, updaterapi.PhasePreflight, "Persisting the staged release before activation"); err != nil {
+			m.fail(operationID, fmt.Errorf("persist staged-release durability phase: %w", err), recovery)
+			return
+		}
+		syncCtx, cancelSync := context.WithTimeout(ctx, m.cfg.ActivationTimeout)
+		syncErr := m.cfg.syncStagedDeployment(syncCtx, stageDeployment)
+		if syncErr == nil {
+			syncErr = syncCtx.Err()
+		}
+		cancelSync()
+		if syncErr != nil {
+			m.fail(operationID, fmt.Errorf("persist staged deployment before activation: %w", syncErr), recovery)
+			return
+		}
+
+		if prepareOnly {
+			if err := m.publishPreparedRelease(ctx, stageRoot, targetVersion, sourceDigest, preparedUpdater); err != nil {
+				m.fail(operationID, err, "")
+				return
+			}
+			if err := m.succeed(operationID, "Release prepared; Fleet remains online", false); err != nil {
+				m.fail(operationID, err, "")
+			}
+			return
+		}
 	}
 
 	requiredRole := "passive"
@@ -1499,9 +1576,18 @@ func (m *Manager) run(ctx context.Context, operationID string, startedAt time.Ti
 			return
 		}
 	}
+	if prepared {
+		if err := m.validatePreparedRelease(ctx, targetVersion, false); err != nil {
+			m.fail(operationID, err, "")
+			return
+		}
+	}
 	if err := m.beginActivation(operationID, "Restarting the local Fleet application"); err != nil {
 		m.fail(operationID, fmt.Errorf("persist activation phase: %w", err), recovery)
 		return
+	}
+	if prepared {
+		defer os.RemoveAll(stageRoot)
 	}
 	activationCtx, cancelActivation := context.WithTimeout(ctx, m.cfg.ActivationTimeout)
 	defer cancelActivation()

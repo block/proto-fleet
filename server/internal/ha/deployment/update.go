@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,6 +27,19 @@ func requirePassiveStatus(ctx context.Context, envPath string) (StatusReport, er
 		return StatusReport{}, errors.New("HA application update requires a healthy control path")
 	}
 	return report, nil
+}
+
+// ValidateUpdatePreparation permits either serving role because preparation
+// cannot stop or replace the application.
+func ValidateUpdatePreparation(ctx context.Context, envPath string) error {
+	report, err := Status(ctx, envPath)
+	if err != nil {
+		return err
+	}
+	if report.Runtime.Observation != ha.ObservationCurrent || (report.Runtime.Role != ha.RoleActive && report.Runtime.Role != ha.RolePassive) || !rollingUpdateControlReady(report.Control) {
+		return errors.New("HA update preparation requires a healthy active or passive node with a healthy control path")
+	}
+	return nil
 }
 
 // ValidatePassiveUpdate proves that the active peer runs either the local or
@@ -176,6 +190,31 @@ func prepareApplicationUpdate(ctx context.Context, root string, profile fleetApp
 	return recordActiveInstall(ctx, deps)
 }
 
+// CheckApplicationImages confirms the prepared images are still loaded. It never
+// pulls or loads images on the activation path.
+func CheckApplicationImages(ctx context.Context, root string) error {
+	profile, err := loadUpdateCompatibleProfile(installedFleetEnvironment)
+	if err != nil {
+		return err
+	}
+	return checkApplicationImages(ctx, root, profile, readComposeOutput, defaultInstallDependencies().run)
+}
+
+func checkApplicationImages(ctx context.Context, root string, profile fleetApplicationProfile, composeOutput func(context.Context, []string) ([]byte, error), run func(context.Context, string, ...string) ([]byte, error)) error {
+	output, err := composeOutput(ctx, fleetApplicationComposeArgsAtProfile(root, installedFleetEnvironment, profile, "config", "--images"))
+	if err != nil {
+		return err
+	}
+	images := strings.Fields(string(output))
+	if len(images) == 0 {
+		return errors.New("prepared application has no resolved images")
+	}
+	if output, err := run(ctx, "docker", append([]string{"--host", localDockerHost, "image", "inspect"}, images...)...); err != nil {
+		return fmt.Errorf("prepared application images are no longer available; prepare the release again: %s", commandError(output, err))
+	}
+	return nil
+}
+
 // CheckApplicationSchema admits a staged release before a rolling update stops Fleet.
 // Maintenance staging remains separate so it can precede offline reconciliation.
 func CheckApplicationSchema(ctx context.Context, root string) error {
@@ -239,6 +278,9 @@ func updatedPassivePeerReady(status fleetHostStatus, targetVersion string) bool 
 
 // StartApplication starts the target release and proves it serves its observed HA role.
 func StartApplication(ctx context.Context, root, targetVersion string, requirePassive, requireFailoverReady bool) error {
+	if err := clearControlledStartToken(controlledStartToken); err != nil {
+		return err
+	}
 	profile, err := loadUpdateCompatibleProfile(installedFleetEnvironment)
 	if err != nil {
 		return err
@@ -273,7 +315,18 @@ func StartApplication(ctx context.Context, root, targetVersion string, requirePa
 	if statusErr != nil && !errors.Is(statusErr, syscall.ECONNREFUSED) {
 		return fmt.Errorf("verify local HA application is stopped: %w", statusErr)
 	}
-	if err := startFleetApplication(ctx, root, "-d", "--no-deps", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "60"); err != nil {
+	skipCooldown := false
+	if requirePassive && errors.Is(statusErr, syscall.ECONNREFUSED) {
+		peerAddress := config.DatabaseAIP
+		if config.NodeIP == config.DatabaseAIP {
+			peerAddress = config.DatabaseBIP
+		}
+		peer := probeFleetHost(ctx, tlsConfig, config.hostCertificateIdentity(peerAddress), peerAddress)
+		skipCooldown = peer.reachable && peer.active && peer.version != ""
+	}
+	if err := controlledPassiveStart(ctx, controlledStartToken, skipCooldown, func() error {
+		return startFleetApplication(ctx, root, "-d", "--no-deps", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "60")
+	}); err != nil {
 		return fmt.Errorf("start HA application: %w", err)
 	}
 	for {

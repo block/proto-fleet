@@ -634,3 +634,34 @@ func TestHandleAcknowledge(t *testing.T) {
 		assert.Equal(t, http.StatusMethodNotAllowed, recorder.Code)
 	})
 }
+
+type updaterHandlerTransport struct{ handler http.Handler }
+
+func (transport updaterHandlerTransport) RoundTrip(request *http.Request) (*http.Response, error) {
+	recorder := httptest.NewRecorder()
+	transport.handler.ServeHTTP(recorder, request)
+	return recorder.Result(), nil
+}
+
+func TestPreparedUpdateAPIReusesDurablePreparation(t *testing.T) {
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	releases := releaseServer(t, "v1.1.0", "amd64", releaseBundle(t, "v1.1.0"), "")
+	runner := &haRecordingRunner{}
+	manager := newTestManagerWithConfig(t, installRoot, releases, runner, func(cfg *Config) { cfg.DeploymentMode = DeploymentModeHA })
+	client := updaterapi.NewClientWithHTTP(&http.Client{Transport: updaterHandlerTransport{handler: NewServer(manager).http.Handler}})
+	status, err := client.Status(t.Context())
+	require.NoError(t, err)
+	require.Contains(t, status.Capabilities, updaterapi.CapabilityPreparedUpdateV1)
+	prepared, err := client.Prepare(t.Context(), "11111111-1111-4111-8111-111111111111", "v1.1.0")
+	require.NoError(t, err)
+	require.True(t, prepared.PrepareOnly)
+	require.Equal(t, updaterapi.PhaseSucceeded, waitPreparedOperation(t, manager).Phase)
+	require.Equal(t, "v1.0.0", mustInstalledVersion(t, installRoot))
+	releases.Close()
+	activated, err := client.TriggerPrepared(t.Context(), "22222222-2222-4222-8222-222222222222", "v1.1.0", false)
+	require.NoError(t, err)
+	require.True(t, activated.Prepared)
+	require.Equal(t, updaterapi.PhaseSucceeded, waitPreparedOperation(t, manager).Phase)
+	require.Equal(t, "v1.1.0", mustInstalledVersion(t, installRoot))
+}

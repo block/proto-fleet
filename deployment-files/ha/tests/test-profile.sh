@@ -182,7 +182,9 @@ test_fleet_ha_contract() {
     assert_contains "$rendered" "FLEET_HA_ENDPOINT_INTERFACE: eth0"
     assert_contains "$rendered" "FLEET_ALERTS_ENABLED: \"true\""
     assert_contains "$rendered" "FLEET_PUBLIC_URL: https://10.40.0.100"
-    assert_contains "$rendered" "sleep 15; exec /app/fleetd"
+    assert_contains "${HA_DIR}/fleet-compose.yaml" "else sleep 15; fi; exec /app/fleetd"
+    assert_contains "$rendered" "sleep 15"
+    assert_contains "$rendered" "target: /run/proto-fleet-controlled-start"
     [[ "$(grep -c 'restart: on-failure' "$rendered")" -eq 3 ]] ||
         fail "Fleet services must restart process failures without bypassing the systemd start gate"
     assert_contains "$rendered" "cap_drop:"

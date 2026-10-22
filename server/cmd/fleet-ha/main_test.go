@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -354,4 +355,40 @@ func TestCompleteUpdateRequiresActiveAndUsesCompletionRequest(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, activeChecked)
 	require.True(t, client.complete)
+}
+
+func (f *fakeUpdaterClient) Prepare(ctx context.Context, id, version string) (updaterapi.Operation, error) {
+	operation, err := f.Trigger(ctx, id, version)
+	operation.PrepareOnly = true
+	return operation, err
+}
+func (f *fakeUpdaterClient) TriggerPrepared(ctx context.Context, id, version string, complete bool) (updaterapi.Operation, error) {
+	operation, err := f.Trigger(ctx, id, version)
+	operation.Prepared = true
+	operation.Complete = complete
+	return operation, err
+}
+
+func TestPreparedUpdateFlagsParse(t *testing.T) {
+	for _, args := range [][]string{
+		{"update", "--capabilities"},
+		{"update", "v1.2.3", "--prepare-only"},
+		{"update", "v1.2.3", "--prepared"},
+		{"update", "v1.2.3", "--prepared", "--complete"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var parsed cli
+			parser, err := kong.New(&parsed, kong.Vars{"default_node_env": defaultNodeEnv, "default_firewall_template": defaultFirewallTemplate})
+			require.NoError(t, err)
+			_, err = parser.Parse(args)
+			require.NoError(t, err)
+			require.Equal(t, args[1] == "--capabilities", parsed.Update.Capabilities)
+			if len(args) > 2 {
+				require.Equal(t, "v1.2.3", parsed.Update.Version)
+			}
+			require.Equal(t, slices.Contains(args, "--prepare-only"), parsed.Update.PrepareOnly)
+			require.Equal(t, slices.Contains(args, "--prepared"), parsed.Update.Prepared)
+			require.Equal(t, slices.Contains(args, "--complete"), parsed.Update.Complete)
+		})
+	}
 }
