@@ -448,6 +448,7 @@ func TestControlStreamHAStandaloneScopeAndCommand(t *testing.T) {
 	require.NoError(t, err)
 	lease := reply.GetHaLease()
 	require.NotNil(t, lease)
+	require.Equal(t, int64(30000), lease.GetLeaseDurationMs())
 	require.Equal(t, "first", lease.GetRequestId())
 	require.Zero(t, lease.GetOwnerNodeId())
 	require.Zero(t, lease.GetLeaseEpoch())

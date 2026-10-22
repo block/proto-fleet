@@ -108,7 +108,7 @@ func (f *haInterruptedStreamGateway) ControlStream(_ context.Context, stream *co
 	if err != nil {
 		return fmt.Errorf("receive interruption lease request: %w", err)
 	}
-	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_HaLease{HaLease: &pb.HALeaseResponse{RequestId: request.GetHaLease().GetRequestId(), OwnerNodeId: 7, ActiveNodeId: 7, LeaseEpoch: 1, Granted: true, InstanceId: hello.GetInstanceId(), ControlSessionId: "ha-session", OrgId: 1, LeaseDurationMs: 11000}}}); err != nil {
+	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_HaLease{HaLease: &pb.HALeaseResponse{RequestId: request.GetHaLease().GetRequestId(), OwnerNodeId: 7, ActiveNodeId: 7, LeaseEpoch: 1, Granted: true, InstanceId: hello.GetInstanceId(), ControlSessionId: "ha-session", OrgId: 1, LeaseDurationMs: 5200}}}); err != nil {
 		return fmt.Errorf("send interruption lease: %w", err)
 	}
 	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Command{Command: &pb.ControlCommand{CommandId: "interrupted", Payload: f.payload, HaOwnerNodeId: 7, HaLeaseEpoch: 1, IntendedInstanceId: hello.GetInstanceId(), ControlSessionId: "ha-session"}}}); err != nil {

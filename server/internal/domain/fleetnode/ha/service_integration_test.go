@@ -304,21 +304,6 @@ func TestInstalledFingerprintConflictCannotBecomeAReadyConnection(t *testing.T) 
 	require.False(t, connected)
 }
 
-func TestStandaloneLeaseUsesNodeAuthorityStandaloneScope(t *testing.T) {
-	h := setup(t, 1)
-	h.connect(t, 0, "standalone", "session")
-	response := h.lease(t, 0, "standalone", "session", 0)
-	require.Zero(t, response.GetOwnerNodeId())
-	require.Zero(t, response.GetLeaseEpoch())
-	require.False(t, response.GetGranted())
-	require.False(t, response.GetPreparing())
-	require.Equal(t, h.nodes[0], response.GetActiveNodeId())
-	require.Equal(t, int64(1), response.GetOrgId())
-	require.Equal(t, "standalone", response.GetInstanceId())
-	require.Equal(t, "session", response.GetControlSessionId())
-	require.Equal(t, int64(30000), response.GetLeaseDurationMs())
-}
-
 func TestRevocationRetainsOriginalLeaseExpiryBeforePromotion(t *testing.T) {
 	h := setup(t, 2)
 	h.connect(t, 0, "active", "active-session")
