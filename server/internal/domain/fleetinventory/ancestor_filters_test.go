@@ -111,7 +111,7 @@ func TestContainerAncestorsComposeWithSiteAndTankScopes(t *testing.T) {
 			now := time.Now().UTC().Truncate(time.Microsecond)
 			tanks := []sdk.ContainerTank{}
 			for position := int32(1); position <= 2; position++ {
-				tanks = append(tanks, sdk.ContainerTank{Position: position, Modules: []sdk.ContainerModule{{Position: 1, State: sdk.ModuleHashing, ObservedAt: now}, {Position: 2, State: sdk.ModuleHashing, ObservedAt: now}}})
+				tanks = append(tanks, sdk.ContainerTank{Position: position, Modules: []sdk.ContainerModule{{Position: 1, State: sdk.MinerStatusActive, ObservedAt: now}, {Position: 2, State: sdk.MinerStatusActive, ObservedAt: now}}})
 			}
 			require.NoError(t, metrics.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: identifier, Timestamp: now, Container: &sdk.ContainerSnapshot{ObservedAt: now, TopologyComplete: true, Tanks: tanks}}))
 		}

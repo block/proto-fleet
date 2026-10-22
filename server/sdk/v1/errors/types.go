@@ -92,6 +92,21 @@ const (
 	HashboardWarnCRCHigh MinerError = pb.MinerError_HASHBOARD_WARN_CRC_HIGH
 	ThermalMarginLow     MinerError = pb.MinerError_THERMAL_MARGIN_LOW
 
+	ASICOvervoltage                 MinerError = pb.MinerError_ASIC_OVERVOLTAGE
+	ASICUndervoltage                MinerError = pb.MinerError_ASIC_UNDERVOLTAGE
+	ASICEnumerationFailed           MinerError = pb.MinerError_ASIC_ENUMERATION_FAILED
+	ASICECCError                    MinerError = pb.MinerError_ASIC_ECC_ERROR
+	ASICTemperatureImbalance        MinerError = pb.MinerError_ASIC_TEMPERATURE_IMBALANCE
+	HashboardStartupFailed          MinerError = pb.MinerError_HASHBOARD_STARTUP_FAILED
+	HashboardNoStackRunning         MinerError = pb.MinerError_HASHBOARD_NO_STACK_RUNNING
+	HashboardStackEnumerationFailed MinerError = pb.MinerError_HASHBOARD_STACK_ENUMERATION_FAILED
+	BoardBusbarVoltageDrop          MinerError = pb.MinerError_BOARD_BUSBAR_VOLTAGE_DROP
+	BoardPowerRailFault             MinerError = pb.MinerError_BOARD_POWER_RAIL_FAULT
+	ReferenceClockFault             MinerError = pb.MinerError_REFERENCE_CLOCK_FAULT
+	DiagnosticStorageFault          MinerError = pb.MinerError_DIAGNOSTIC_STORAGE_FAULT
+	FirmwareRuntimeError            MinerError = pb.MinerError_FIRMWARE_RUNTIME_ERROR
+	ASICThermalThrottling           MinerError = pb.MinerError_ASIC_THERMAL_THROTTLING
+
 	// Catch-alls
 	VendorErrorUnmapped MinerError = pb.MinerError_VENDOR_ERROR_UNMAPPED
 )

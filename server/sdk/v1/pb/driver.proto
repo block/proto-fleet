@@ -679,8 +679,26 @@ enum MinerError {
   HASHBOARD_WARN_CRC_HIGH                  = 8001;
   THERMAL_MARGIN_LOW                       = 8002;
 
+
+  // Additional board diagnostics shared by MDKv2 and future drivers.
+  ASIC_OVERVOLTAGE = 3008;
+  ASIC_UNDERVOLTAGE = 3009;
+  ASIC_ENUMERATION_FAILED = 3010;
+  ASIC_ECC_ERROR = 3011;
+  ASIC_TEMPERATURE_IMBALANCE = 3012;
+  HASHBOARD_STARTUP_FAILED = 3013;
+  HASHBOARD_NO_STACK_RUNNING = 3014;
+  HASHBOARD_STACK_ENUMERATION_FAILED = 3015;
+  BOARD_BUSBAR_VOLTAGE_DROP = 3505;
+  BOARD_POWER_RAIL_FAULT = 3506;
+  REFERENCE_CLOCK_FAULT = 3016;
+  DIAGNOSTIC_STORAGE_FAULT = 5004;
+  FIRMWARE_RUNTIME_ERROR = 5005;
+  ASIC_THERMAL_THROTTLING = 8003;
+
   // 9000–9999: Catch-alls
   VENDOR_ERROR_UNMAPPED                    = 9000;
+
 }
 
 // Severity represents the criticality level of an error
@@ -829,7 +847,8 @@ message ContainerModule {
   repeated ContainerHashboard hashboards = 7;
   int32 position = 1;
   string reported_id = 2;
-  // unknown, hashing, attention, offline, sleeping, isolated.
+  // unknown, active, inactive, offline, maintenance, error, needs_mining_pool,
+  // updating, reboot_required.
   string state = 3;
   google.protobuf.Timestamp observed_at = 4;
   ContainerModuleMetrics metrics = 5;
@@ -940,7 +959,8 @@ message ContainerModuleIssue {
  string component = 1;
  string component_id = 2;
  string cause = 3;
- string severity = 4;
+ string severity = 4; // fault, warning, or observation
+ MinerError canonical_error = 6;
  google.protobuf.Timestamp observed_at = 5;
 }
 

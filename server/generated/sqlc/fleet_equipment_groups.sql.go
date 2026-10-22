@@ -158,10 +158,10 @@ SELECT COALESCE((SELECT jsonb_agg(to_jsonb(p) || jsonb_build_object(
  LEFT JOIN device parent_d ON p.facility_kind=2 AND parent_d.id=p.facility_id AND parent_d.org_id=p.org_id
  LEFT JOIN site ON site.id=p.site_id AND site.org_id=p.org_id AND site.deleted_at IS NULL
  LEFT JOIN LATERAL (
-   SELECT count(*) FILTER (WHERE a.state='hashing')::int AS hashing_count,
-          count(*) FILTER (WHERE a.state='sleeping')::int AS sleeping_count,
+   SELECT count(*) FILTER (WHERE a.state='active')::int AS hashing_count,
+          count(*) FILTER (WHERE a.state IN ('inactive','maintenance'))::int AS sleeping_count,
           count(*) FILTER (WHERE a.state='offline')::int AS offline_count,
-          count(*) FILTER (WHERE a.state IN ('attention','isolated'))::int AS broken_count
+          count(*) FILTER (WHERE a.state IN ('error','needs_mining_pool','updating','reboot_required'))::int AS broken_count
    FROM fleet_mining_asset a WHERE a.org_id=p.org_id AND a.group_kind=p.kind AND a.group_id=p.id
  ) health ON p.telemetry_allowed
  LEFT JOIN LATERAL (

@@ -29,19 +29,19 @@ func TestContainerSiteStatsMatchesInventoryStateGroups(t *testing.T) {
 	require.NoError(t, err)
 	var tankID int64
 	require.NoError(t, conn.QueryRowContext(ctx, `INSERT INTO container_tank(device_id,position,first_seen_at,last_seen_at) VALUES($1,1,now(),now()) RETURNING id`, controller.DatabaseID).Scan(&tankID))
-	for i, state := range []string{"hashing", "sleeping", "offline", "attention", "isolated", "unknown"} {
-		_, err = conn.ExecContext(ctx, `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) VALUES($1,$2,now(),now(),$3,now())`, tankID, i+1, state)
+	for i, state := range []string{"active", "inactive", "maintenance", "offline", "error", "needs_mining_pool", "updating", "reboot_required", "unknown"} {
+		_, err = conn.ExecContext(ctx, `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at,observation_site_id) VALUES($1,$2,now(),now(),$3,now(),$4)`, tankID, i+1, state, site.ID)
 		require.NoError(t, err)
 	}
 	// A stale hashing observation is unknown, not an offline module.
-	_, err = conn.ExecContext(ctx, `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) VALUES($1,7,now(),now(),'hashing',now()-interval '1 hour')`, tankID)
+	_, err = conn.ExecContext(ctx, `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) VALUES($1,10,now(),now(),'active',now()-interval '1 hour')`, tankID)
 	require.NoError(t, err)
 	rows, err := q.ListContainerSiteStats(ctx, sqlc.ListContainerSiteStatsParams{OrgID: org, SiteIds: []int64{site.ID}})
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
-	require.EqualValues(t, 7, rows[0].ModuleCount)
+	require.EqualValues(t, 10, rows[0].ModuleCount)
 	require.EqualValues(t, 1, rows[0].HashingCount)
-	require.EqualValues(t, 1, rows[0].SleepingCount)
+	require.EqualValues(t, 2, rows[0].SleepingCount)
 	require.EqualValues(t, 1, rows[0].OfflineCount)
-	require.EqualValues(t, 2, rows[0].BrokenCount, "isolated modules need attention")
+	require.EqualValues(t, 4, rows[0].BrokenCount)
 }

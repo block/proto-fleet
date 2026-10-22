@@ -63,7 +63,7 @@ const ModuleBar = ({ state, number }: Pick<ModuleTileProps, "state" | "number">)
       {attention ? <span aria-hidden className="absolute inset-y-0 left-1/3 w-1/3 bg-core-accent-fill" /> : null}
       {state === "sleeping" || state === "isolated" ? (
         <span aria-hidden className="absolute inset-0 flex items-center justify-center">
-          <ModuleStatus state={state} indicatorOnly />
+          <ModuleStatus state={state === "sleeping" ? "inactive" : "error"} indicatorOnly />
         </span>
       ) : null}
     </>
@@ -177,7 +177,14 @@ const ModuleTileInner = ({
 };
 
 const ModuleTile = ({ state, label, onAction, onView, number }: ModuleTileProps) => {
-  const statusLabel = state === "isolated" ? getModuleStatusPresentation(state).label : state;
+  const statusLabel =
+    state === "isolated"
+      ? getModuleStatusPresentation(
+          (
+            { healthy: "active", sleeping: "inactive", attention: "error", isolated: "error" } as Record<string, string>
+          )[state] ?? state,
+        ).label
+      : state;
   if (onView)
     return (
       <button

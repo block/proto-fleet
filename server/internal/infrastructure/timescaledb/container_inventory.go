@@ -18,7 +18,7 @@ type inventoryModule struct {
 	Position          int32                      `json:"position"`
 	ReportedID        string                     `json:"reported_id"`
 	IdentityConfirmed bool                       `json:"identity_confirmed"`
-	State             sdk.ModuleState            `json:"state"`
+	State             string                     `json:"state"`
 	ObservedAt        *time.Time                 `json:"observed_at"`
 	Issues            *sdk.ContainerModuleIssues `json:"issues"`
 	IssuesObservedAt  *time.Time                 `json:"issues_observed_at"`
@@ -78,11 +78,8 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 			}
 			seenModules[module.Position] = true
 			state := module.State
-			if state == "" {
-				state = sdk.ModuleUnknown
-			}
 			switch state {
-			case sdk.ModuleUnknown, sdk.ModuleHashing, sdk.ModuleAttention, sdk.ModuleOffline, sdk.ModuleSleeping, sdk.ModuleIsolated:
+			case sdk.MinerStatusUnknown, sdk.MinerStatusActive, sdk.MinerStatusError, sdk.MinerStatusOffline, sdk.MinerStatusInactive, sdk.MinerStatusMaintenance, sdk.MinerStatusUpdating, sdk.MinerStatusNeedsMiningPool, sdk.MinerStatusRebootRequired:
 			default:
 				return fmt.Errorf("invalid module state %q", state)
 			}
@@ -125,7 +122,7 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 				module.ReportedID = ""
 				module.IdentityConfirmed = false
 			}
-			modules = append(modules, inventoryModule{tank.Position, module.Position, reportedID, module.IdentityConfirmed && reportedID != "", state, observed, module.Issues, issueTime})
+			modules = append(modules, inventoryModule{tank.Position, module.Position, reportedID, module.IdentityConfirmed && reportedID != "", state.String(), observed, module.Issues, issueTime})
 			if m := module.Metrics; m != nil && !m.ObservedAt.IsZero() && !m.ObservedAt.After(snapshot.ObservedAt.Add(5*time.Second)) {
 				samples = append(samples, moduleSample{TankPosition: tank.Position, Position: module.Position, ReportedID: reportedID, Time: m.ObservedAt, HashrateHS: m.HashrateHS, PowerW: m.PowerW, TemperatureC: m.TemperatureC, EfficiencyJH: m.EfficiencyJH, Coverage: m.Rollup})
 			}
@@ -161,6 +158,9 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 			}
 		}
 		if err := q.ReconcileContainerModules(ctx, sqlc.ReconcileContainerModulesParams{DeviceID: id, ObservedAt: snapshot.ObservedAt, Modules: moduleJSON}); err != nil {
+			return err
+		}
+		if err := q.InsertModuleDiagnosticObservations(ctx, sqlc.InsertModuleDiagnosticObservationsParams{DeviceID: id, CollectedAt: snapshot.ObservedAt}); err != nil {
 			return err
 		}
 		if snapshot.Metrics != nil {

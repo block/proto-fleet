@@ -114,7 +114,7 @@ func hashboardObservation(slot Slot, position int32, now time.Time) sdk.Containe
 		if slot.Hashboard != nil {
 			return unavailable(sdk.HashboardInvalidObservation)
 		}
-		return sdk.ContainerHashboard{Position: position, Occupancy: "empty", State: sdk.ModuleUnknown}
+		return sdk.ContainerHashboard{Position: position, Occupancy: "empty", State: sdk.MinerStatusUnknown}
 	}
 	if slot.Hashboard == nil {
 		return unavailable("")
@@ -127,8 +127,8 @@ func hashboardObservation(slot Slot, position int32, now time.Time) sdk.Containe
 	if v.MACAddress == "" && v.Serial == "" {
 		return unavailable(sdk.HashboardMissingIdentity)
 	}
-	v.MiningState, v.State = b.MiningState, boardState(*b, now)
-	v.StateObservedAt = moduleObservedAt([]Board{*b}, v.State, now)
+	v.MiningState = b.MiningState
+	v.State, v.StateObservedAt = boardStateObservation(*b, now)
 	if b.Source != "HASHBOARD_SOURCE_REMOTE" && (b.raw == nil || len(b.raw["isolated"]) > 0 && string(b.raw["isolated"]) != "null") {
 		v.Isolated = &b.Isolated
 	}

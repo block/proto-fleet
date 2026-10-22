@@ -77,7 +77,7 @@ func TestContainerSiteAssignmentPermissionsPlacementAndReads(t *testing.T) {
 	scoped := handlerstest.CtxWithAssignments(t, org, handlerstest.SiteAssignment(first.ID, authz.PermSiteManage), handlerstest.SiteAssignment(second.ID, authz.PermSiteManage))
 	require.NoError(t, move(scoped, &second.ID, controller.ID))
 	require.Equal(t, second.ID, currentSite().Int64)
-	_, err = conn.ExecContext(t.Context(), `UPDATE container_module SET state='hashing',state_observed_at=now() WHERE id=$1`, moduleID)
+	_, err = conn.ExecContext(t.Context(), `UPDATE container_module SET state='active',state_observed_at=now(),observation_site_id=$2 WHERE id=$1`, moduleID, second.ID)
 	require.NoError(t, err)
 	_, err = conn.ExecContext(t.Context(), `INSERT INTO container_module_latest_metrics(module_id,time,collected_at,hashrate_hs,power_w,temperature_c,efficiency_jh) VALUES($1,now(),now(),300e12,6000,65,2e-11)`, moduleID)
 	require.NoError(t, err)

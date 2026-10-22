@@ -28,8 +28,6 @@ type AdvanceContainerInventoryParams struct {
 	DeviceIdentifier string
 }
 
-// Serializes reconciliation for each controller. A delayed response cannot
-// change placement, retire inventory, or overwrite a newer status observation.
 func (q *Queries) AdvanceContainerInventory(ctx context.Context, arg AdvanceContainerInventoryParams) (int64, error) {
 	row := q.queryRow(ctx, q.advanceContainerInventoryStmt, advanceContainerInventory, arg.ObservedAt, arg.DeviceIdentifier)
 	var device_id int64
@@ -38,6 +36,7 @@ func (q *Queries) AdvanceContainerInventory(ctx context.Context, arg AdvanceCont
 }
 
 const insertContainerModuleMetrics = `-- name: InsertContainerModuleMetrics :exec
+
 WITH inserted AS (
   INSERT INTO container_module_metrics (module_id, time, collected_at, hashrate_hs, power_w, temperature_c, efficiency_jh, coverage,site_id,topology_version_id)
   SELECT m.id, x.time, $1::timestamptz, x.hashrate_hs, x.power_w, x.temperature_c, x.efficiency_jh, x.coverage,d.site_id,o.version_id
@@ -86,6 +85,57 @@ func (q *Queries) InsertContainerModuleMetrics(ctx context.Context, arg InsertCo
 	return err
 }
 
+const insertModuleDiagnosticObservations = `-- name: InsertModuleDiagnosticObservations :exec
+WITH eligible AS (
+ SELECT m.id,
+  CASE WHEN m.attribution_since IS NULL THEN m.issues
+       WHEN sources.times='{}'::jsonb AND items.values='[]'::jsonb THEN NULL
+       ELSE m.issues || jsonb_build_object(
+        'source_times',sources.times,'items',items.values,
+        'observed_at',LEAST(sources.oldest,items.oldest),
+        'complete',COALESCE((m.issues->>'complete')::boolean,FALSE)
+          AND sources.times=COALESCE(m.issues->'source_times','{}'::jsonb)
+          AND items.values=COALESCE(NULLIF(m.issues->'items','null'::jsonb),'[]'::jsonb)
+          AND (m.issues->>'observed_at')::timestamptz>=m.attribution_since)
+  END AS issues
+ FROM container_module m JOIN container_tank t ON t.id=m.tank_id
+ CROSS JOIN LATERAL (
+  SELECT COALESCE(jsonb_object_agg(key,value),'{}'::jsonb) AS times,min(value::timestamptz) AS oldest
+  FROM jsonb_each_text(m.issues->'source_times')
+  WHERE value::timestamptz>=m.attribution_since
+ ) sources
+ CROSS JOIN LATERAL (
+  SELECT COALESCE(jsonb_agg(item ORDER BY ordinal),'[]'::jsonb) AS values,
+   min((item->>'observed_at')::timestamptz) AS oldest
+  FROM jsonb_array_elements(NULLIF(m.issues->'items','null'::jsonb)) WITH ORDINALITY AS issue(item,ordinal)
+  WHERE (item->>'observed_at')::timestamptz>=m.attribution_since
+   AND COALESCE((m.issues->'source_times'->>(concat_ws(':',item->>'component',NULLIF(item->>'component_id',''))))::timestamptz>=m.attribution_since,TRUE)
+ ) items
+ WHERE t.device_id=$1 AND m.retired_at IS NULL AND m.last_seen_at=$2
+), attributed AS (
+ UPDATE container_module m SET
+ state=CASE WHEN m.attribution_since IS NULL OR m.state_observed_at>=m.attribution_since THEN m.state ELSE 'unknown' END,
+ state_observed_at=CASE WHEN m.attribution_since IS NULL OR m.state_observed_at>=m.attribution_since THEN m.state_observed_at ELSE NULL END,
+ issues=eligible.issues,
+ issues_observed_at=GREATEST(m.issues_observed_at,(eligible.issues->>'observed_at')::timestamptz)
+ FROM eligible WHERE m.id=eligible.id
+ RETURNING m.id, m.tank_id, m.position, m.reported_id, m.first_seen_at, m.last_seen_at, m.retired_at, m.state, m.state_observed_at, m.issues, m.issues_observed_at, m.issues_source_times, m.identity_confirmed, m.observation_site_id, m.attribution_since
+)
+INSERT INTO container_module_diagnostic_observation(module_id,collected_at,site_id,attribution_since,state,state_observed_at,issues)
+SELECT id,last_seen_at,observation_site_id,attribution_since,state,state_observed_at,issues FROM attributed
+ON CONFLICT DO NOTHING
+`
+
+type InsertModuleDiagnosticObservationsParams struct {
+	DeviceID    int64
+	CollectedAt time.Time
+}
+
+func (q *Queries) InsertModuleDiagnosticObservations(ctx context.Context, arg InsertModuleDiagnosticObservationsParams) error {
+	_, err := q.exec(ctx, q.insertModuleDiagnosticObservationsStmt, insertModuleDiagnosticObservations, arg.DeviceID, arg.CollectedAt)
+	return err
+}
+
 const markAbsentContainerTanks = `-- name: MarkAbsentContainerTanks :exec
 UPDATE container_tank t SET present = FALSE
 WHERE t.device_id = $1 AND NOT EXISTS (
@@ -104,19 +154,23 @@ func (q *Queries) MarkAbsentContainerTanks(ctx context.Context, arg MarkAbsentCo
 }
 
 const reconcileContainerModules = `-- name: ReconcileContainerModules :exec
-INSERT INTO container_module (tank_id, position, reported_id, identity_confirmed, first_seen_at, last_seen_at, state, state_observed_at, issues, issues_observed_at, issues_source_times)
+INSERT INTO container_module (tank_id, position, reported_id, identity_confirmed, first_seen_at, last_seen_at, state, state_observed_at, issues, issues_observed_at, issues_source_times, observation_site_id)
 SELECT t.id, x.position,
        COALESCE(x.reported_id, ''),
        COALESCE(x.identity_confirmed, FALSE) AND COALESCE(x.reported_id, '') <> '',
-       $1, $1, x.state, x.observed_at, x.issues, x.issues_observed_at, COALESCE(x.issues->'source_times', '{}'::jsonb)
-FROM jsonb_to_recordset($2::jsonb) AS x(tank_position int, position int, reported_id text, identity_confirmed boolean, state text, observed_at timestamptz, issues jsonb, issues_observed_at timestamptz)
-JOIN container_tank t ON t.device_id = $3 AND t.position = x.tank_position
+       $1, $1, x.state, x.observed_at, x.issues, x.issues_observed_at, COALESCE(x.issues->'source_times', '{}'::jsonb), (SELECT device.site_id FROM device WHERE device.id=$2)
+FROM jsonb_to_recordset($3::jsonb) AS x(tank_position int, position int, reported_id text, identity_confirmed boolean, state text, observed_at timestamptz, issues jsonb, issues_observed_at timestamptz)
+JOIN container_tank t ON t.device_id = $2 AND t.position = x.tank_position
 ON CONFLICT (tank_id, position) WHERE retired_at IS NULL DO UPDATE
 SET reported_id = CASE WHEN EXCLUDED.reported_id <> '' THEN EXCLUDED.reported_id ELSE container_module.reported_id END,
     identity_confirmed = EXCLUDED.identity_confirmed,
     last_seen_at = EXCLUDED.last_seen_at,
-    state = CASE WHEN EXCLUDED.state_observed_at IS NULL OR container_module.state_observed_at IS NULL OR EXCLUDED.state_observed_at >= container_module.state_observed_at THEN EXCLUDED.state ELSE container_module.state END,
-    state_observed_at = GREATEST(container_module.state_observed_at, EXCLUDED.state_observed_at),
+    observation_site_id = EXCLUDED.observation_site_id,
+    attribution_since = CASE WHEN container_module.observation_site_id IS DISTINCT FROM EXCLUDED.observation_site_id THEN EXCLUDED.last_seen_at ELSE container_module.attribution_since END,
+    -- AdvanceContainerInventory admits strictly newer collection snapshots.
+    -- Source time explains freshness; it does not order consolidated statuses.
+    state = EXCLUDED.state,
+    state_observed_at = EXCLUDED.state_observed_at,
     -- Rejected payloads must not consume source timestamps needed by a corrected report.
     (issues, issues_observed_at, issues_source_times) = (
       SELECT CASE
@@ -153,12 +207,12 @@ SET reported_id = CASE WHEN EXCLUDED.reported_id <> '' THEN EXCLUDED.reported_id
 
 type ReconcileContainerModulesParams struct {
 	ObservedAt time.Time
-	Modules    json.RawMessage
 	DeviceID   int64
+	Modules    json.RawMessage
 }
 
 func (q *Queries) ReconcileContainerModules(ctx context.Context, arg ReconcileContainerModulesParams) error {
-	_, err := q.exec(ctx, q.reconcileContainerModulesStmt, reconcileContainerModules, arg.ObservedAt, arg.Modules, arg.DeviceID)
+	_, err := q.exec(ctx, q.reconcileContainerModulesStmt, reconcileContainerModules, arg.ObservedAt, arg.DeviceID, arg.Modules)
 	return err
 }
 
@@ -182,6 +236,7 @@ func (q *Queries) ReconcileContainerTanks(ctx context.Context, arg ReconcileCont
 }
 
 const retireContainerModules = `-- name: RetireContainerModules :exec
+
 UPDATE container_module m SET retired_at = $1
 FROM container_tank t
 WHERE m.tank_id = t.id AND t.device_id = $2 AND m.retired_at IS NULL

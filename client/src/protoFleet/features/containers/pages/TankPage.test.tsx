@@ -68,7 +68,7 @@ beforeEach(() => {
           ref: { kind: EntityKind.MODULE, id: 91n },
           name: "Tank 1 module 1",
           position: 1,
-          state: "isolated",
+          state: "maintenance",
           ancestors: [
             { kind: EntityKind.CONTAINER, id: 7n },
             { kind: EntityKind.TANK, id: 81n },
@@ -97,7 +97,7 @@ describe("native tank page", () => {
     expect(screen.getByRole("link", { name: "Buildings" })).toHaveAttribute("href", "/north/fleet/buildings");
     expect(screen.getByRole("link", { name: "CT1 North" })).toHaveAttribute("href", "/containers/remote");
     expect(mocks.sync).toHaveBeenCalledWith({ kind: "site", id: "2", slug: "north" });
-    expect(screen.getByTestId("tank-module")).toHaveAttribute("data-module-state", "isolated");
+    expect(screen.getByTestId("tank-module")).toHaveAttribute("data-module-state", "sleeping");
     expect(screen.queryByRole("heading", { name: "Cooling and equipment" })).not.toBeInTheDocument();
     expect(screen.queryByText("North · CT1 North")).not.toBeInTheDocument();
     expect(screen.queryByText(/modules reported/)).not.toBeInTheDocument();

@@ -56,7 +56,7 @@ beforeEach(() => {
           position: 1,
           deviceIdentifier: "ct1",
           ancestors: [...ancestors, { kind: EntityKind.TANK, id: 81n }],
-          state: "attention",
+          state: "error",
           observedAt: timestampNow(),
           hashrateThs: 600,
           powerKw: 18,
@@ -91,7 +91,7 @@ beforeEach(() => {
                 moduleId: 91n,
                 position: 1,
                 serial: "HB-ONE",
-                state: "hashing",
+                state: "active",
                 observedAt: timestampNow(),
                 stateObservedAt: timestampNow(),
                 hashrateHs: 200e12,
@@ -168,12 +168,12 @@ it("keeps collected history available for stale controllers but hides current re
   expect(screen.getByRole("region", { name: "Performance" })).toHaveTextContent("module 91 history");
 });
 
-it("opens status details when no issues are reported", () => {
+it("uses the Hashing status label when complete diagnostics report no issues", () => {
   const module = mocks.load("ct1").data!.modules[0];
-  module.state = "hashing";
+  module.state = "active";
   module.moduleIssues!.items = [];
   render(<Page />);
-  fireEvent.click(screen.getByRole("button", { name: /health: All components operational/ }));
+  fireEvent.click(screen.getByRole("button", { name: /health: Hashing/ }));
   expect(screen.getByRole("dialog")).toHaveTextContent("No active component errors reported.");
 });
 it("opens unknown status details when issue evidence is unavailable", () => {
@@ -187,12 +187,12 @@ it("opens unknown status details when issue evidence is unavailable", () => {
 it.each([false, true])("presents isolation through Fleet health status (stale: %s)", (stale) => {
   const data = mocks.load("ct1").data!;
   data.container.stale = stale;
-  data.modules[0].state = "isolated";
+  data.modules[0].state = "inactive";
   data.modules[0].moduleIssues!.items = [];
   render(<Page />);
-  const title = stale ? "Status unknown" : "Needs attention";
+  const title = stale ? "Status unknown" : "Sleeping";
   const status = screen.getByRole("button", { name: `CT1 North T1 M1 health: ${title}` });
-  expect(status.querySelector(stale ? ".bg-core-primary-50" : ".bg-intent-critical-fill")).toBeInTheDocument();
+  expect(status.querySelector(stale ? ".bg-core-primary-50" : ".bg-intent-info-fill")).toBeInTheDocument();
   fireEvent.click(status);
   expect(screen.getByRole("dialog")).toHaveTextContent(title);
   expect(screen.queryByText(/isolated/i)).not.toBeInTheDocument();

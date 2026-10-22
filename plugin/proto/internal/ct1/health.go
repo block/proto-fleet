@@ -11,6 +11,7 @@ import (
 	"time"
 
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
+	sdkerrors "github.com/block/proto-fleet/server/sdk/v1/errors"
 )
 
 // Frigate health is sampled independently of RPC responses. A successful poll
@@ -80,63 +81,95 @@ type MapResponse struct {
 	ContainerMap *ContainerMap `json:"containerMap"`
 }
 
-func boardState(b Board, now time.Time) sdk.ModuleState {
-	// Mining state is a current controller observation even when health is absent.
-	if b.MiningState == miningStateError {
-		return sdk.ModuleAttention
+// Consolidate observations into the same status enum used by ordinary miners.
+// Warnings remain errors with severity; they do not stop an active board.
+func boardState(b Board, now time.Time) sdk.MinerStatus {
+	state, _ := boardStateObservation(b, now)
+	return state
+}
+
+// Keep classification and the evidence that establishes it together. A board
+// fault in the health sample is newer than a thermal fault aged within it.
+func boardStateObservation(b Board, now time.Time) (sdk.MinerStatus, time.Time) {
+	switch b.MiningState {
+	case miningStateError:
+		return sdk.MinerStatusError, now
+	case "MINING_STATE_DISCONNECTED":
+		return sdk.MinerStatusOffline, now
+	case "MINING_STATE_FLASHING":
+		return sdk.MinerStatusUpdating, now
+	}
+	state := miningStatus(b.MiningState)
+	observed := now
+	if state == sdk.MinerStatusUnknown {
+		observed = time.Time{}
 	}
 	fresh := b.Health != nil && !b.Health.Timestamp.IsZero() && now.Sub(b.Health.Timestamp) < healthMaxAge && b.Health.Timestamp.Sub(now) <= clockSkewAllowance
 	if fresh {
+		healthAt := b.Health.Timestamp
+		if healthAt.After(now) {
+			healthAt = now
+		}
+		for _, issue := range b.Health.Errors {
+			if _, severity := canonicalIssue(issue.Cause, false); severity == sdkerrors.SeverityCritical {
+				return sdk.MinerStatusError, healthAt
+			}
+		}
 		if b.MiningState == miningStateMining && ((b.Health.HashrailOK != nil && !*b.Health.HashrailOK) || (b.Health.RefclksOK != nil && !*b.Health.RefclksOK)) {
-			return sdk.ModuleAttention
+			return sdk.MinerStatusError, healthAt
 		}
-		if len(b.Health.Errors) > 0 || len(b.Health.Warnings) > 0 {
-			return sdk.ModuleAttention
+		if p := b.Health.PSUThermal; p != nil && p.ThermalStateValid && p.OverTemperatureFault {
+			at := b.Health.Timestamp
+			if p.ThermalStateAgeMs != nil {
+				if !nonnegative(p.ThermalStateAgeMs) || *p.ThermalStateAgeMs >= float64(healthMaxAge.Milliseconds()) {
+					return state, observed
+				}
+				at = at.Add(-time.Duration(*p.ThermalStateAgeMs * float64(time.Millisecond)))
+			}
+			if now.Sub(at) < healthMaxAge {
+				if at.After(now) {
+					at = now
+				}
+				return sdk.MinerStatusError, at
+			}
 		}
-		p := b.Health.PSUThermal
-		if p != nil && p.ThermalStateValid && (p.ThermalStateAgeMs == nil || (*p.ThermalStateAgeMs >= 0 && *p.ThermalStateAgeMs <= float64(healthMaxAge.Milliseconds()))) && (p.OverTemperatureFault || p.OverTemperatureWarning) {
-			return sdk.ModuleAttention
-		}
 	}
-	if b.MiningState == "MINING_STATE_DISCONNECTED" {
-		return sdk.ModuleOffline
-	}
-	if !fresh {
-		return sdk.ModuleUnknown
-	}
-	if b.Isolated && b.Source != "HASHBOARD_SOURCE_REMOTE" {
-		return sdk.ModuleIsolated
-	}
-	switch b.MiningState {
+	return state, observed
+}
+
+func miningStatus(state string) sdk.MinerStatus {
+	switch state {
 	case miningStateMining:
-		return sdk.ModuleHashing
-	case miningStateIdle, "MINING_STATE_READY":
-		return sdk.ModuleSleeping
+		return sdk.MinerStatusActive
+	case miningStateIdle, "MINING_STATE_READY", "MINING_STATE_IDENTIFYING", "MINING_STATE_CONFIGURING", "MINING_STATE_INIT", "MINING_STATE_STARTUP":
+		return sdk.MinerStatusInactive
 	default:
-		return sdk.ModuleUnknown
+		return sdk.MinerStatusUnknown
 	}
 }
 
-func moduleState(boards []Board, now time.Time) sdk.ModuleState {
-	counts := map[sdk.ModuleState]int{}
-	for _, b := range boards {
-		counts[boardState(b, now)]++
+func moduleState(boards []Board, now time.Time) sdk.MinerStatus {
+	counts := map[sdk.MinerStatus]int{}
+	for _, board := range boards {
+		counts[boardState(board, now)]++
 	}
-	if counts[sdk.ModuleAttention] > 0 {
-		return sdk.ModuleAttention
+	if counts[sdk.MinerStatusError] > 0 {
+		return sdk.MinerStatusError
 	}
-	if counts[sdk.ModuleOffline] > 0 {
-		return sdk.ModuleOffline
+	if counts[sdk.MinerStatusUpdating] > 0 {
+		return sdk.MinerStatusUpdating
 	}
-	if len(boards) != boardsPerModule || counts[sdk.ModuleUnknown] > 0 {
-		return sdk.ModuleUnknown
+	if len(boards) != boardsPerModule || counts[sdk.MinerStatusUnknown] > 0 {
+		return sdk.MinerStatusUnknown
 	}
-	for _, state := range []sdk.ModuleState{sdk.ModuleHashing, sdk.ModuleSleeping, sdk.ModuleIsolated} {
-		if counts[state] == len(boards) {
-			return state
-		}
+	// Partial production remains active, with board observations explaining it.
+	if counts[sdk.MinerStatusActive] > 0 {
+		return sdk.MinerStatusActive
 	}
-	return sdk.ModuleAttention
+	if counts[sdk.MinerStatusInactive] > 0 {
+		return sdk.MinerStatusInactive
+	}
+	return sdk.MinerStatusOffline
 }
 
 // snapshot rejects ambiguous topology rather than changing the card's denominator
@@ -242,7 +275,7 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 			state := moduleState(boards, now)
 			identityConflict := reportedID != "" && !identities.uniqueModule(tank.ID, m.ID, reportedID)
 			if identityConflict {
-				state = sdk.ModuleUnknown
+				state = sdk.MinerStatusUnknown
 				reportedID = ""
 				out.TopologyComplete = false
 				for i := range hashboards {
@@ -267,41 +300,21 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 	return result, nil
 }
 
-// Preserve the age of the evidence supporting this classification. A fault
-// needs one current witness; hashing/sleeping/isolation require every board.
-func moduleObservedAt(boards []Board, state sdk.ModuleState, now time.Time) time.Time {
-	if state == sdk.ModuleUnknown {
+// Any current error witness establishes the module error. Keep the newest
+// sufficient evidence so an older independent fault cannot expire it early.
+func moduleObservedAt(boards []Board, state sdk.MinerStatus, now time.Time) time.Time {
+	if state == sdk.MinerStatusUnknown {
 		return time.Time{}
 	}
-	oldest := now
-	var witness time.Time
-	for _, board := range boards {
-		stateOfBoard := boardState(board, now)
-		observed := now
-		if board.MiningState != miningStateError && stateOfBoard != sdk.ModuleOffline {
-			if board.Health == nil {
-				continue
-			}
-			observed = board.Health.Timestamp
-			if p := board.Health.PSUThermal; p != nil && p.ThermalStateValid && p.ThermalStateAgeMs != nil && *p.ThermalStateAgeMs >= 0 && *p.ThermalStateAgeMs <= float64(healthMaxAge.Milliseconds()) && (p.OverTemperatureFault || p.OverTemperatureWarning) {
-				thermalObserved := now.Add(-time.Duration(*p.ThermalStateAgeMs * float64(time.Millisecond)))
-				if thermalObserved.Before(observed) {
-					observed = thermalObserved
-				}
-			}
-		}
-		if observed.After(now) {
-			observed = now
-		}
-		if observed.Before(oldest) {
-			oldest = observed
-		}
-		if stateOfBoard == state && (state == sdk.ModuleAttention || state == sdk.ModuleOffline) && observed.After(witness) {
-			witness = observed
+	if state != sdk.MinerStatusError {
+		return now
+	}
+	var observed time.Time
+	for _, b := range boards {
+		boardState, at := boardStateObservation(b, now)
+		if boardState == sdk.MinerStatusError && at.After(observed) {
+			observed = at
 		}
 	}
-	if !witness.IsZero() {
-		return witness
-	}
-	return oldest
+	return observed
 }

@@ -1,8 +1,6 @@
--- A bounded batch returns only readable current modules. Child slots never
--- enter fleet_mining_asset or affect its counts, sorting, selection or exports.
 -- name: GetModuleHashboards :one
 WITH modules AS (
- SELECT m.id, d.site_id FROM container_module m JOIN container_tank t ON t.id=m.tank_id
+ SELECT m.id, m.issues, d.site_id FROM container_module m JOIN container_tank t ON t.id=m.tank_id
  JOIN container_scope d ON d.id=t.device_id JOIN discovered_device dd ON dd.id=d.discovered_device_id
  WHERE m.id=ANY(sqlc.arg('module_ids')::bigint[]) AND d.org_id=sqlc.arg('org_id')
  AND m.retired_at IS NULL AND t.present AND d.deleted_at IS NULL AND dd.deleted_at IS NULL
@@ -20,6 +18,10 @@ WITH modules AS (
  'metadata',i.metadata,
  'state',CASE WHEN s.state_observed_at > now()-INTERVAL '2 minutes' AND s.state_observed_at <= now()+INTERVAL '5 seconds'
  AND (s.state_observed_at >= i.installed_at OR NOT EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id))) THEN s.state ELSE 'unknown' END,
+ 'issues',COALESCE((SELECT jsonb_agg(issue) FROM jsonb_array_elements(NULLIF(m.issues->'items','null'::jsonb)) issue WHERE issue->>'component'='hashboard' AND issue->>'component_id'=i.metadata->>'macAddress'
+ AND (issue->>'observed_at')::timestamptz > now()-INTERVAL '2 minutes' AND (issue->>'observed_at')::timestamptz <= now()+INTERVAL '5 seconds'
+ AND ((issue->>'observed_at')::timestamptz>=i.installed_at OR NOT EXISTS(SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id)))
+ AND NOT EXISTS(SELECT 1 FROM hashboard_observation o WHERE o.hashboard_id=i.hashboard_id AND o.attribution_since>(issue->>'observed_at')::timestamptz)),'[]'::jsonb),
  'state_observed_at',s.state_observed_at,'mining_state',s.mining_state,'isolated',s.isolated,
  'observed_at',mm.time,'collected_at',mm.collected_at,'hashrate_hs',mm.hashrate_hs,'temperature_c',mm.temperature_c,'power_w',mm.power_w,'efficiency_jh',mm.efficiency_jh,
  'hashrail_ok',mm.hashrail_ok,'refclks_ok',mm.refclks_ok,'health',CASE WHEN mm.state_observed_at >= i.installed_at OR NOT EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id)) THEN mm.health ELSE NULL END) END AS board
@@ -36,6 +38,7 @@ SELECT COALESCE(jsonb_agg(to_jsonb(result) ORDER BY module_id),'[]'::jsonb)::jso
 
 -- Source-time history retains collection bounds separately. Keep installation
 -- and topology groups separate even when they share a bucket.
+
 -- name: ListHashboardHistory :many
 WITH settings AS (
  SELECT seconds,
@@ -80,6 +83,7 @@ ORDER BY mm.time, mm.collected_at LIMIT sqlc.arg('page_limit')::int;
 
 -- Access is based on any readable installation, including closed placements.
 -- It is independent of the requested sample range and current hardware location.
+
 -- name: CanReadHashboardHistory :one
 SELECT EXISTS (
  SELECT 1 FROM hashboard h JOIN hashboard_installation i ON i.hashboard_id=h.id

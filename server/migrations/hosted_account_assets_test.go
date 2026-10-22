@@ -99,7 +99,7 @@ func TestAccountAssetChainTriggerRejectsBrokenOwnership(t *testing.T) {
 	_, err = database.DB.ExecContext(ctx, `INSERT INTO container_inventory(device_id,org_id,observed_at) VALUES($1,$2,now())`, controller, org)
 	require.NoError(t, err)
 	require.NoError(t, database.DB.QueryRowContext(ctx, `INSERT INTO container_tank(device_id,position,first_seen_at,last_seen_at) VALUES($1,1,now(),now()) RETURNING id`, controller).Scan(&tank))
-	require.NoError(t, database.DB.QueryRowContext(ctx, `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) VALUES($1,1,now(),now(),'hashing',now()) RETURNING id`, tank).Scan(&module))
+	require.NoError(t, database.DB.QueryRowContext(ctx, `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) VALUES($1,1,now(),now(),'active',now()) RETURNING id`, tank).Scan(&module))
 	for _, broken := range []struct {
 		name    string
 		insert  string

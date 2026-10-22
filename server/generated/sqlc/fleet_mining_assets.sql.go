@@ -203,14 +203,14 @@ WITH assets AS (
 )
 SELECT COALESCE((SELECT jsonb_agg(to_jsonb(p) || jsonb_build_object(
  'coverage', CASE WHEN p.telemetry_allowed THEN cm.coverage END,
- 'module_issues',CASE WHEN p.telemetry_allowed THEN module.issues END,
+ 'module_issues',CASE WHEN p.telemetry_allowed AND module.observation_site_id IS NOT DISTINCT FROM p.site_id THEN module.issues END,
  'module_issues_last_seen_at',module.last_seen_at,
  'site_name',COALESCE(site.name,''), 'facility_name',COALESCE(parent_b.name,parent_d.custom_name,'Container '||parent_d.serial_number,''),
  'group_name',COALESCE(parent_s.label,'Tank '||parent_t.position,''),
- 'hashing_count',CASE WHEN p.telemetry_allowed AND p.state='hashing' THEN 1 ELSE 0 END,
- 'sleeping_count',CASE WHEN p.telemetry_allowed AND p.state='sleeping' THEN 1 ELSE 0 END,
+ 'hashing_count',CASE WHEN p.telemetry_allowed AND p.state='active' THEN 1 ELSE 0 END,
+ 'sleeping_count',CASE WHEN p.telemetry_allowed AND p.state IN ('inactive','maintenance') THEN 1 ELSE 0 END,
  'offline_count',CASE WHEN p.telemetry_allowed AND p.state='offline' THEN 1 ELSE 0 END,
- 'broken_count',CASE WHEN p.telemetry_allowed AND p.state IN ('attention','isolated') THEN 1 ELSE 0 END,
+ 'broken_count',CASE WHEN p.telemetry_allowed AND p.state IN ('error','needs_mining_pool','updating','reboot_required') THEN 1 ELSE 0 END,
  'psu_issues',issues.psu_issues,'fan_issues',issues.fan_issues,'hashboard_issues',issues.hashboard_issues,'control_issues',issues.control_issues
  ) ORDER BY p.ordinal)
  FROM page p

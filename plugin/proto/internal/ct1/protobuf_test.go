@@ -28,7 +28,7 @@ func TestProtoMapUsesPhysicalSlots(t *testing.T) {
 	result, err := snapshot(mapResponse(input), now)
 	require.NoError(t, err)
 	m := result.Tanks[0].Modules[0]
-	require.Equal(t, sdk.ModuleHashing, m.State)
+	require.Equal(t, sdk.MinerStatusActive, m.State)
 	require.Equal(t, 300e12, *m.Metrics.HashrateHS)
 	require.Equal(t, 9000.0, *m.Metrics.PowerW)
 	for i, b := range m.Hashboards {

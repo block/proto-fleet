@@ -39,7 +39,7 @@ func TestModuleIssuesInventoryLifecycle(t *testing.T) {
 		}
 		return out
 	}
-	snapshot := &sdk.ContainerSnapshot{ObservedAt: base, TopologyComplete: true, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, ReportedID: "original", State: sdk.ModuleAttention, ObservedAt: base, Issues: evidence(base, "PSU_OVER_TEMPERATURE_FAULT")}, {Position: 2, ReportedID: "other", State: sdk.ModuleHashing, ObservedAt: base, Issues: evidence(base)}}}}}
+	snapshot := &sdk.ContainerSnapshot{ObservedAt: base, TopologyComplete: true, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, ReportedID: "original", State: sdk.MinerStatusError, ObservedAt: base, Issues: evidence(base, "PSU_OVER_TEMPERATURE_FAULT")}, {Position: 2, ReportedID: "other", State: sdk.MinerStatusActive, ObservedAt: base, Issues: evidence(base)}}}}}
 	module := &snapshot.Tanks[0].Modules[0]
 	write := func() {
 		t.Helper()

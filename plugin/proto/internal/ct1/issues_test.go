@@ -77,9 +77,7 @@ func TestModuleIssues(t *testing.T) {
 		b := boards()
 		b[0].MiningState = miningStateIdle
 		got := moduleIssues(b, now, false)
-		require.Len(t, got.Items, 1)
-		require.Equal(t, "observation", got.Items[0].Severity)
-		require.Equal(t, "MIXED_BOARD_STATES", got.Items[0].Cause)
+		require.Empty(t, got.Items, "mixed operation is explained by board state observations, not a fabricated error")
 	})
 	t.Run("stale missing and conflicting identity", func(t *testing.T) {
 		b := boards()
@@ -169,6 +167,36 @@ func TestModuleIssues(t *testing.T) {
 	})
 }
 
+func TestModuleIssuesNormalizeBoardMACIdentifiers(t *testing.T) {
+	const canonicalMAC = "aa:bb:cc:dd:ee:01"
+	for _, mac := range []string{canonicalMAC, "AA:BB:CC:DD:EE:01", "AA-BB-CC-DD-EE-01", "aabb.ccdd.ee01", " AA:BB:CC:DD:EE:01 "} {
+		t.Run(mac, func(t *testing.T) {
+			now := time.Now().UTC()
+			board := Board{MACAddress: mac, MiningState: miningStateMining, Health: &Health{
+				Timestamp:  now,
+				Errors:     []Issue{{Cause: "HASHBOARD_ERROR_CAUSE_BOARD_OVER_CURRENT"}},
+				Warnings:   []Issue{{Cause: "ASIC_THERMAL_THROTTLING"}},
+				HashrailOK: new(false), RefclksOK: new(false),
+				PSUThermal: &PSUThermal{ThermalStateValid: true, OverTemperatureFault: true},
+			}}
+			issues := moduleIssues([]Board{board}, now, false)
+			require.Equal(t, map[string]time.Time{"hashboard:" + canonicalMAC: now, "psu": now}, issues.SourceTimes)
+			inventory := hashboardObservation(Slot{Occupied: true, Hashboard: &board}, 1, now)
+			require.Equal(t, canonicalMAC, inventory.MACAddress)
+			require.Len(t, issues.Items, 5)
+			for _, issue := range issues.Items {
+				if issue.Component == "hashboard" {
+					require.Equal(t, inventory.MACAddress, issue.ComponentID, "stored issues must match the inventory selector")
+				} else {
+					require.Equal(t, "psu", issue.Component)
+					require.Equal(t, "psu", issue.ComponentID)
+				}
+			}
+			require.Equal(t, mac, board.MACAddress, "preserve the original firmware payload")
+		})
+	}
+}
+
 func TestSnapshotSharesIssueBudgetAcrossModules(t *testing.T) {
 	now := time.Now().UTC()
 	wire := MapResponse{ContainerMap: &ContainerMap{Tanks: []Tank{{ID: 1}}}}
@@ -194,22 +222,25 @@ func TestSnapshotSharesIssueBudgetAcrossModules(t *testing.T) {
 		if module.Issues != nil && !module.Issues.Complete {
 			require.Empty(t, module.Issues.SourceTimes)
 		}
-		require.Equal(t, sdk.ModuleAttention, module.State)
+		require.Equal(t, sdk.MinerStatusActive, module.State)
 	}
-	// Measure the module issue budget independently of raw hashboard payloads.
-	// SDK hashboard JSON embeds objects; protobuf carries those objects as bytes,
-	// so the SDK snapshot itself is no longer interchangeable with protobuf JSON.
-	issueSnapshot := *got
-	issueSnapshot.Tanks = append([]sdk.ContainerTank(nil), got.Tanks...)
-	for i := range issueSnapshot.Tanks {
-		issueSnapshot.Tanks[i].Modules = append([]sdk.ContainerModule(nil), got.Tanks[i].Modules...)
-		for j := range issueSnapshot.Tanks[i].Modules {
-			issueSnapshot.Tanks[i].Modules[j].Hashboards = nil
+	// Size the actual wire issue envelope; SDK numeric status enums and raw
+	// diagnostic JSON are deliberately different from protobuf JSON.
+	container := &pb.ContainerSnapshot{}
+	for _, tank := range got.Tanks {
+		wireTank := &pb.ContainerTank{Position: tank.Position}
+		for _, module := range tank.Modules {
+			if module.Issues == nil {
+				wireTank.Modules = append(wireTank.Modules, &pb.ContainerModule{Position: module.Position, State: module.State.String()})
+				continue
+			}
+			encoded, err := json.Marshal(module.Issues)
+			require.NoError(t, err)
+			issues := &pb.ContainerModuleIssues{}
+			require.NoError(t, protojson.Unmarshal(encoded, issues))
+			wireTank.Modules = append(wireTank.Modules, &pb.ContainerModule{Position: module.Position, State: module.State.String(), Issues: issues})
 		}
+		container.Tanks = append(container.Tanks, wireTank)
 	}
-	encoded, err := json.Marshal(&issueSnapshot)
-	require.NoError(t, err)
-	var container pb.ContainerSnapshot
-	require.NoError(t, protojson.Unmarshal(encoded, &container))
-	require.Less(t, proto.Size(&pb.DeviceMetrics{Container: &container}), 2<<20, "issue evidence leaves room below the plugin RPC receive limit")
+	require.Less(t, proto.Size(&pb.DeviceMetrics{Container: container}), 2<<20, "issue evidence leaves room below the plugin RPC receive limit")
 }

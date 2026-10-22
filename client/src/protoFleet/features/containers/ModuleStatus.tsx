@@ -6,7 +6,7 @@ import StatusCircle from "@/shared/components/StatusCircle";
 export function ModuleStatus({ state, indicatorOnly = false }: { state: string; indicatorOnly?: boolean }) {
   const status = getModuleStatusPresentation(state);
   return (
-    <span className="flex items-center gap-2" title={indicatorOnly ? status.label : undefined}>
+    <span className="flex items-center gap-2" title={indicatorOnly ? status.label : status.title}>
       <StatusCircle
         status={status.indicator}
         variant="simple"

@@ -943,7 +943,7 @@ WITH latest_metrics AS (
         device_metrics.temp_c,
         device_metrics.power_w,
         device_metrics.efficiency_jh
-    FROM device_metrics
+    FROM device_metrics AS device_metrics
     INNER JOIN device d2 ON device_metrics.device_identifier = d2.device_identifier
         AND d2.deleted_at IS NULL
         AND d2.org_id = sqlc.arg('org_id')

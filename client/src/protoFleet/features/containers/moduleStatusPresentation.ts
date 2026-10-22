@@ -2,18 +2,24 @@ import { statuses } from "@/shared/components/StatusCircle";
 import type { StatusCircleStatus } from "@/shared/components/StatusCircle/constants";
 import type { MinerStatus } from "@/shared/hooks/useStatusSummary";
 
-type StatusPresentation = { label: MinerStatus | "Unknown"; indicator: StatusCircleStatus };
+type StatusPresentation = {
+  label: MinerStatus | "Unknown" | "Updating firmware";
+  indicator: StatusCircleStatus;
+  title?: string;
+};
 
 const unknown: StatusPresentation = { label: "Unknown", indicator: statuses.inactive };
 const moduleStatuses: ReadonlyMap<string, StatusPresentation> = new Map([
-  ["hashing", { label: "Hashing", indicator: statuses.normal }],
+  ["active", { label: "Hashing", indicator: statuses.normal }],
   ["offline", { label: "Offline", indicator: statuses.inactive }],
-  ["sleeping", { label: "Sleeping", indicator: statuses.sleeping }],
-  ["attention", { label: "Needs attention", indicator: statuses.error }],
-  ["isolated", { label: "Needs attention", indicator: statuses.error }],
+  ["inactive", { label: "Sleeping", indicator: statuses.sleeping }],
+  ["error", { label: "Needs attention", indicator: statuses.error }],
+  ["updating", { label: "Updating firmware", indicator: statuses.pending }],
+  ["needs_mining_pool", { label: "Needs attention", indicator: statuses.error }],
+  ["reboot_required", { label: "Needs attention", indicator: statuses.error }],
+  ["maintenance", { label: "Sleeping", indicator: statuses.sleeping, title: "Module is in maintenance" }],
 ]);
 
-// Fleet presents isolation as attention while retaining the collected state.
 export function getModuleStatusPresentation(state: string): StatusPresentation {
   return moduleStatuses.get(state) ?? unknown;
 }

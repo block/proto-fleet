@@ -34,7 +34,7 @@ function fixture(): ContainerOverviewData {
       create(InventoryItemSchema, {
         ref: { kind: EntityKind.MODULE, id: BigInt(position) },
         position,
-        state: "hashing",
+        state: "active",
         ancestors: [
           { kind: EntityKind.CONTAINER, id: 7n },
           { kind: EntityKind.TANK, id: 81n },

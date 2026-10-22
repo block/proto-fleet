@@ -58,11 +58,11 @@ LEFT JOIN LATERAL (
     SELECT jsonb_agg(to_jsonb(tank) ORDER BY tank.position) AS tanks
     FROM (
         SELECT t.position,
-               count(*) FILTER (WHERE a.state = 'hashing') AS hashing_count,
-               count(*) FILTER (WHERE a.state = 'attention') AS attention_count,
+               count(*) FILTER (WHERE a.state = 'active') AS hashing_count,
+               count(*) FILTER (WHERE a.state IN ('error','needs_mining_pool','updating','reboot_required')) AS attention_count,
                count(*) FILTER (WHERE a.state = 'offline') AS offline_count,
-               count(*) FILTER (WHERE a.state = 'sleeping') AS sleeping_count,
-               count(*) FILTER (WHERE a.state = 'isolated') AS isolated_count,
+               count(*) FILTER (WHERE a.state IN ('inactive','maintenance')) AS sleeping_count,
+               0::bigint AS isolated_count,
                count(*) FILTER (WHERE a.state = 'unknown') AS unknown_count
         FROM container_tank t
         LEFT JOIN fleet_mining_asset a ON a.kind = 6 AND a.group_kind = 4 AND a.group_id = t.id

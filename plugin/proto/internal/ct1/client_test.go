@@ -65,7 +65,7 @@ func TestCollectBulkMapCountsModulesOnce(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, metrics.Container.Tanks, 1)
 	require.Len(t, metrics.Container.Tanks[0].Modules, 1)
-	require.Equal(t, sdk.ModuleAttention, metrics.Container.Tanks[0].Modules[0].State)
+	require.Equal(t, sdk.MinerStatusError, metrics.Container.Tanks[0].Modules[0].State)
 	require.Equal(t, 300e12, metrics.HashrateHS.Value)
 	require.Equal(t, 3500.0, metrics.PowerW.Value)
 	require.Equal(t, 1.1, *metrics.Container.Plant.PUE)

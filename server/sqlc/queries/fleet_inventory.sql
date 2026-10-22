@@ -42,7 +42,11 @@ WITH resolution AS (
 SELECT mm.time,mm.collected_at,mm.hashrate_hs,mm.power_w,mm.temperature_c,mm.efficiency_jh,mm.coverage
 FROM container_module_metrics mm JOIN readable r ON r.resolution_seconds=0 AND r.measurement_type=2
  AND r.module_id=mm.module_id AND r.bucket=mm.time AND r.collected_at=mm.collected_at
-WHERE NOT sqlc.arg('has_cursor')::boolean OR (mm.time,mm.collected_at)>(sqlc.arg('after_time')::timestamptz,sqlc.arg('after_collected_at')::timestamptz)
+-- Bound the raw lookup directly so TimescaleDB can prune unrelated chunks
+-- instead of revisiting old history for each readable sample.
+WHERE mm.module_id=sqlc.arg('module_id')
+ AND mm.time>=sqlc.arg('start_time')::timestamptz AND mm.time<sqlc.arg('end_time')::timestamptz
+ AND (NOT sqlc.arg('has_cursor')::boolean OR (mm.time,mm.collected_at)>(sqlc.arg('after_time')::timestamptz,sqlc.arg('after_collected_at')::timestamptz))
 UNION ALL
 SELECT time,collected_at,hashrate_hs,power_w,temperature_c,efficiency_jh,coverage FROM summaries
 CROSS JOIN resolution WHERE resolution.seconds>0 AND (NOT sqlc.arg('has_cursor')::boolean OR (time,collected_at)>(sqlc.arg('after_time')::timestamptz,sqlc.arg('after_collected_at')::timestamptz))

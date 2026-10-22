@@ -373,7 +373,7 @@ func TestAccountCurrentModuleRejectsCachedAndCrossingSources(t *testing.T) {
 	_, err := f.db.ExecContext(t.Context(), `UPDATE container_module SET state_observed_at=clock_timestamp() WHERE id=$1`, module)
 	require.NoError(t, err)
 	asset = detail()
-	require.Equal(t, "hashing", asset.State, "new authorized module state becomes visible")
+	require.Equal(t, "active", asset.State, "new authorized module state becomes visible")
 	require.NotNil(t, asset.ObservedAt)
 	require.NotNil(t, asset.Coverage.Hashrate.NewestAt)
 	_, err = f.db.ExecContext(t.Context(), `DELETE FROM container_module_metrics WHERE module_id=$1`, module)

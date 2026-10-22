@@ -18,7 +18,7 @@ func TestClientManagementSummaryAllocationAndLoginCounts(t *testing.T) {
 	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
 	module, _ := f.miningModule(t)
 	var sameContainerModule int64
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) SELECT tank_id,2,now(),now(),'hashing',now() FROM container_module WHERE id=$1 RETURNING id`, module).Scan(&sameContainerModule))
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) SELECT tank_id,2,now(),now(),'active',now() FROM container_module WHERE id=$1 RETURNING id`, module).Scan(&sameContainerModule))
 	otherContainerModule, _ := f.miningModule(t)
 	assign := pb.AssetAssignmentIntent_ASSET_ASSIGNMENT_INTENT_ASSIGN
 	require.NoError(t, f.allocate(t, f.host, f.root, client.AccountID, assign, selected(5, miner, 0), selected(6, module, 0), selected(6, sameContainerModule, 0), selected(6, otherContainerModule, 0)))

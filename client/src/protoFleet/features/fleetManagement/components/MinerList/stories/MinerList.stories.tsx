@@ -8,6 +8,7 @@ import { expect, spyOn, userEvent, within } from "storybook/test";
 
 import MinerListComponent from "../MinerList";
 import { fleetInventoryClient } from "@/protoFleet/api/clients";
+import { MinerError } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import type { ErrorMessage } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import {
   EntityKind,
@@ -241,7 +242,7 @@ export const MinersAndModules: Story = {
         name: "Container 1 T1 M1",
         facilityName: "Container 1",
         groupName: "Tank 1",
-        state: "hashing",
+        state: "active",
         hashrateThs: 300,
         powerKw: 3.6,
         efficiencyJth: 12,
@@ -274,7 +275,7 @@ export const ExpandedHashboards: Story = {
       item.ref?.kind === EntityKind.MODULE && item.ref.id === 1n
         ? create(InventoryItemSchema, {
             ...item,
-            state: "attention",
+            state: "error",
             hashrateThs: 190,
             minTemperatureC: 35,
             maxTemperatureC: 73,
@@ -285,7 +286,8 @@ export const ExpandedHashboards: Story = {
                 {
                   component: "hashboard",
                   componentId: "aa:bb:cc:00:00:02",
-                  cause: "HASHRAIL_FAULT",
+                  cause: "HASHRAIL_NOT_OK",
+                  canonicalError: MinerError.BOARD_POWER_RAIL_FAULT,
                   severity: "fault",
                   observedAt: timestampFromDate(new Date()),
                 },
@@ -311,7 +313,7 @@ export const ExpandedHashboards: Story = {
                       moduleId,
                       position: 1,
                       serial: "CT1-HB-001",
-                      state: "hashing",
+                      state: "active",
                       hashrateHs: 100e12,
                       temperatureC: 62,
                       hashrailOk: true,
@@ -328,12 +330,22 @@ export const ExpandedHashboards: Story = {
                       position: 2,
                       serial: "CT1-HB-002",
                       observedAt: timestampFromDate(new Date()),
-                      state: "attention",
+                      state: "error",
                       hashrateHs: 90e12,
                       temperatureC: 73,
                       hashrailOk: false,
                       refclksOk: true,
-                      health: { errors: [{ cause: "HASHRAIL_FAULT" }], warnings: [] },
+                      issues: [
+                        {
+                          component: "hashboard",
+                          componentId: "aa:bb:cc:00:00:02",
+                          cause: "HASHRAIL_NOT_OK",
+                          canonicalError: MinerError.BOARD_POWER_RAIL_FAULT,
+                          severity: "fault",
+                          observedAt: timestampFromDate(new Date()),
+                        },
+                      ],
+                      health: { errors: [{ cause: "HASHRAIL_NOT_OK" }], warnings: [] },
                     },
                   },
                   {
@@ -344,7 +356,7 @@ export const ExpandedHashboards: Story = {
                       moduleId,
                       position: 3,
                       serial: "CT1-HB-003",
-                      state: "isolated",
+                      state: "inactive",
                       isolated: true,
                       hashrateHs: 0,
                       temperatureC: 35,

@@ -111,6 +111,20 @@ class MinerError(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     HASHRATE_BELOW_TARGET: _ClassVar[MinerError]
     HASHBOARD_WARN_CRC_HIGH: _ClassVar[MinerError]
     THERMAL_MARGIN_LOW: _ClassVar[MinerError]
+    ASIC_OVERVOLTAGE: _ClassVar[MinerError]
+    ASIC_UNDERVOLTAGE: _ClassVar[MinerError]
+    ASIC_ENUMERATION_FAILED: _ClassVar[MinerError]
+    ASIC_ECC_ERROR: _ClassVar[MinerError]
+    ASIC_TEMPERATURE_IMBALANCE: _ClassVar[MinerError]
+    HASHBOARD_STARTUP_FAILED: _ClassVar[MinerError]
+    HASHBOARD_NO_STACK_RUNNING: _ClassVar[MinerError]
+    HASHBOARD_STACK_ENUMERATION_FAILED: _ClassVar[MinerError]
+    BOARD_BUSBAR_VOLTAGE_DROP: _ClassVar[MinerError]
+    BOARD_POWER_RAIL_FAULT: _ClassVar[MinerError]
+    REFERENCE_CLOCK_FAULT: _ClassVar[MinerError]
+    DIAGNOSTIC_STORAGE_FAULT: _ClassVar[MinerError]
+    FIRMWARE_RUNTIME_ERROR: _ClassVar[MinerError]
+    ASIC_THERMAL_THROTTLING: _ClassVar[MinerError]
     VENDOR_ERROR_UNMAPPED: _ClassVar[MinerError]
 
 class Severity(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
@@ -208,6 +222,20 @@ IO_MODULE_FAILURE: MinerError
 HASHRATE_BELOW_TARGET: MinerError
 HASHBOARD_WARN_CRC_HIGH: MinerError
 THERMAL_MARGIN_LOW: MinerError
+ASIC_OVERVOLTAGE: MinerError
+ASIC_UNDERVOLTAGE: MinerError
+ASIC_ENUMERATION_FAILED: MinerError
+ASIC_ECC_ERROR: MinerError
+ASIC_TEMPERATURE_IMBALANCE: MinerError
+HASHBOARD_STARTUP_FAILED: MinerError
+HASHBOARD_NO_STACK_RUNNING: MinerError
+HASHBOARD_STACK_ENUMERATION_FAILED: MinerError
+BOARD_BUSBAR_VOLTAGE_DROP: MinerError
+BOARD_POWER_RAIL_FAULT: MinerError
+REFERENCE_CLOCK_FAULT: MinerError
+DIAGNOSTIC_STORAGE_FAULT: MinerError
+FIRMWARE_RUNTIME_ERROR: MinerError
+ASIC_THERMAL_THROTTLING: MinerError
 VENDOR_ERROR_UNMAPPED: MinerError
 SEVERITY_UNSPECIFIED: Severity
 SEVERITY_CRITICAL: Severity
@@ -1154,18 +1182,20 @@ class ContainerModuleIssues(_message.Message):
     def __init__(self, source_times: _Optional[_Mapping[str, _timestamp_pb2.Timestamp]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., complete: bool = ..., items: _Optional[_Iterable[_Union[ContainerModuleIssue, _Mapping]]] = ...) -> None: ...
 
 class ContainerModuleIssue(_message.Message):
-    __slots__ = ("component", "component_id", "cause", "severity", "observed_at")
+    __slots__ = ("component", "component_id", "cause", "severity", "canonical_error", "observed_at")
     COMPONENT_FIELD_NUMBER: _ClassVar[int]
     COMPONENT_ID_FIELD_NUMBER: _ClassVar[int]
     CAUSE_FIELD_NUMBER: _ClassVar[int]
     SEVERITY_FIELD_NUMBER: _ClassVar[int]
+    CANONICAL_ERROR_FIELD_NUMBER: _ClassVar[int]
     OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
     component: str
     component_id: str
     cause: str
     severity: str
+    canonical_error: MinerError
     observed_at: _timestamp_pb2.Timestamp
-    def __init__(self, component: _Optional[str] = ..., component_id: _Optional[str] = ..., cause: _Optional[str] = ..., severity: _Optional[str] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+    def __init__(self, component: _Optional[str] = ..., component_id: _Optional[str] = ..., cause: _Optional[str] = ..., severity: _Optional[str] = ..., canonical_error: _Optional[_Union[MinerError, str]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
 
 class SetTankMiningRequest(_message.Message):
     __slots__ = ("ref", "positions", "mining")

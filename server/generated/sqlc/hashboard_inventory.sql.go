@@ -16,6 +16,7 @@ import (
 )
 
 const canReadHashboardHistory = `-- name: CanReadHashboardHistory :one
+
 SELECT EXISTS (
  SELECT 1 FROM hashboard h JOIN hashboard_installation i ON i.hashboard_id=h.id
  WHERE h.id=$1 AND h.org_id=$2
@@ -43,7 +44,7 @@ func (q *Queries) CanReadHashboardHistory(ctx context.Context, arg CanReadHashbo
 
 const getModuleHashboards = `-- name: GetModuleHashboards :one
 WITH modules AS (
- SELECT m.id, d.site_id FROM container_module m JOIN container_tank t ON t.id=m.tank_id
+ SELECT m.id, m.issues, d.site_id FROM container_module m JOIN container_tank t ON t.id=m.tank_id
  JOIN container_scope d ON d.id=t.device_id JOIN discovered_device dd ON dd.id=d.discovered_device_id
  WHERE m.id=ANY($1::bigint[]) AND d.org_id=$2
  AND m.retired_at IS NULL AND t.present AND d.deleted_at IS NULL AND dd.deleted_at IS NULL
@@ -61,6 +62,10 @@ WITH modules AS (
  'metadata',i.metadata,
  'state',CASE WHEN s.state_observed_at > now()-INTERVAL '2 minutes' AND s.state_observed_at <= now()+INTERVAL '5 seconds'
  AND (s.state_observed_at >= i.installed_at OR NOT EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id))) THEN s.state ELSE 'unknown' END,
+ 'issues',COALESCE((SELECT jsonb_agg(issue) FROM jsonb_array_elements(NULLIF(m.issues->'items','null'::jsonb)) issue WHERE issue->>'component'='hashboard' AND issue->>'component_id'=i.metadata->>'macAddress'
+ AND (issue->>'observed_at')::timestamptz > now()-INTERVAL '2 minutes' AND (issue->>'observed_at')::timestamptz <= now()+INTERVAL '5 seconds'
+ AND ((issue->>'observed_at')::timestamptz>=i.installed_at OR NOT EXISTS(SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id)))
+ AND NOT EXISTS(SELECT 1 FROM hashboard_observation o WHERE o.hashboard_id=i.hashboard_id AND o.attribution_since>(issue->>'observed_at')::timestamptz)),'[]'::jsonb),
  'state_observed_at',s.state_observed_at,'mining_state',s.mining_state,'isolated',s.isolated,
  'observed_at',mm.time,'collected_at',mm.collected_at,'hashrate_hs',mm.hashrate_hs,'temperature_c',mm.temperature_c,'power_w',mm.power_w,'efficiency_jh',mm.efficiency_jh,
  'hashrail_ok',mm.hashrail_ok,'refclks_ok',mm.refclks_ok,'health',CASE WHEN mm.state_observed_at >= i.installed_at OR NOT EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id)) THEN mm.health ELSE NULL END) END AS board
@@ -82,8 +87,6 @@ type GetModuleHashboardsParams struct {
 	Authority json.RawMessage
 }
 
-// A bounded batch returns only readable current modules. Child slots never
-// enter fleet_mining_asset or affect its counts, sorting, selection or exports.
 func (q *Queries) GetModuleHashboards(ctx context.Context, arg GetModuleHashboardsParams) (json.RawMessage, error) {
 	row := q.queryRow(ctx, q.getModuleHashboardsStmt, getModuleHashboards, pq.Array(arg.ModuleIds), arg.OrgID, arg.Authority)
 	var modules json.RawMessage
@@ -92,6 +95,7 @@ func (q *Queries) GetModuleHashboards(ctx context.Context, arg GetModuleHashboar
 }
 
 const listHashboardHistory = `-- name: ListHashboardHistory :many
+
 WITH settings AS (
  SELECT seconds,
   CASE WHEN seconds=0 THEN $7::timestamptz

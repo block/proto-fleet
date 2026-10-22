@@ -5048,6 +5048,12 @@ func (q *retryingQuerier) InsertError(ctx context.Context, arg InsertErrorParams
 	return result, err
 }
 
+func (q *retryingQuerier) InsertHashboardDiagnosticObservations(ctx context.Context, arg InsertHashboardDiagnosticObservationsParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertHashboardDiagnosticObservations", func() error {
+		return q.next.InsertHashboardDiagnosticObservations(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) InsertHashboardMetrics(ctx context.Context, arg InsertHashboardMetricsParams) error {
 	return q.retrier.RetryQuery(ctx, "InsertHashboardMetrics", func() error {
 		return q.next.InsertHashboardMetrics(ctx, arg)
@@ -5069,6 +5075,12 @@ func (q *retryingQuerier) InsertMQTTSourceConfig(ctx context.Context, arg Insert
 func (q *retryingQuerier) InsertMinerStateSnapshot(ctx context.Context, argTime time.Time) error {
 	return q.retrier.RetryQuery(ctx, "InsertMinerStateSnapshot", func() error {
 		return q.next.InsertMinerStateSnapshot(ctx, argTime)
+	})
+}
+
+func (q *retryingQuerier) InsertModuleDiagnosticObservations(ctx context.Context, arg InsertModuleDiagnosticObservationsParams) error {
+	return q.retrier.RetryQuery(ctx, "InsertModuleDiagnosticObservations", func() error {
+		return q.next.InsertModuleDiagnosticObservations(ctx, arg)
 	})
 }
 

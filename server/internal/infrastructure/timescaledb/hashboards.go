@@ -29,6 +29,19 @@ type hashboardObservation struct {
 	StateTime *time.Time `json:"state_observed_at"`
 }
 
+// Database JSON uses the same textual status values as ordinary miners.
+func (v hashboardObservation) MarshalJSON() ([]byte, error) {
+	type observation hashboardObservation
+	data, err := json.Marshal(struct {
+		observation
+		State string `json:"state"`
+	}{observation: observation(v), State: v.State.String()})
+	if err != nil {
+		return nil, fmt.Errorf("encode board observation: %w", err)
+	}
+	return data, nil
+}
+
 // Runs under the telemetry transaction and org lock. All database operations
 // are batched, independent of the number of boards in the controller map.
 func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64, snapshot *sdk.ContainerSnapshot) error {
@@ -325,6 +338,9 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 	if err := q.InsertHashboardMetrics(ctx, sqlc.InsertHashboardMetricsParams{CollectedAt: snapshot.ObservedAt, Boards: data}); err != nil {
 		return err
 	}
+	if err := q.InsertHashboardDiagnosticObservations(ctx, sqlc.InsertHashboardDiagnosticObservationsParams{CollectedAt: snapshot.ObservedAt, Boards: data}); err != nil {
+		return err
+	}
 	if err := q.WithdrawHashboardReadings(ctx, sqlc.WithdrawHashboardReadingsParams{CollectedAt: snapshot.ObservedAt, Boards: data}); err != nil {
 		return err
 	}
@@ -372,7 +388,7 @@ func applyHashboardAttributionBoundary(v *hashboardObservation, boundary time.Ti
 		v.HealthJSON = nil
 	}
 	if v.StateObservedAt.Before(boundary) {
-		v.State = sdk.ModuleUnknown
+		v.State = sdk.MinerStatusUnknown
 		v.StateObservedAt = time.Time{}
 		v.StateTime = nil
 		v.MiningState = ""
@@ -438,9 +454,7 @@ func validateHashboard(b *sdk.ContainerHashboard, collected time.Time) error {
 		}
 	}
 	switch b.State {
-	case "":
-		b.State = sdk.ModuleUnknown
-	case sdk.ModuleUnknown, sdk.ModuleHashing, sdk.ModuleSleeping, sdk.ModuleAttention, sdk.ModuleOffline, sdk.ModuleIsolated:
+	case sdk.MinerStatusUnknown, sdk.MinerStatusActive, sdk.MinerStatusInactive, sdk.MinerStatusError, sdk.MinerStatusOffline, sdk.MinerStatusMaintenance, sdk.MinerStatusUpdating, sdk.MinerStatusNeedsMiningPool, sdk.MinerStatusRebootRequired:
 	default:
 		return fmt.Errorf("invalid hashboard state")
 	}
@@ -467,7 +481,7 @@ func validateHashboard(b *sdk.ContainerHashboard, collected time.Time) error {
 		}
 	}
 	if b.StateObservedAt.IsZero() || collected.Sub(b.StateObservedAt) >= 2*time.Minute || b.StateObservedAt.After(collected.Add(5*time.Second)) {
-		b.State = sdk.ModuleUnknown
+		b.State = sdk.MinerStatusUnknown
 	}
 	// Future source times must not pin the latest-value watermark.
 	if b.ObservedAt.After(collected.Add(5 * time.Second)) {

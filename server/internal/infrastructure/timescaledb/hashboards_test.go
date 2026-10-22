@@ -24,7 +24,7 @@ func TestHashboardMovesAndReplacementsKeepHardwareIdentity(t *testing.T) {
 	require.NoError(t, err)
 	now := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
 	board := func(mac string) sdk.ContainerHashboard {
-		return sdk.ContainerHashboard{Position: 1, Occupancy: "occupied", MACAddress: mac, State: sdk.ModuleHashing, MiningState: "MINING_STATE_MINING", ObservedAt: now, StateObservedAt: now, HashrateHS: new(100e12), MetadataJSON: json.RawMessage(`{"firmwareVersion":"1.2.3"}`)}
+		return sdk.ContainerHashboard{Position: 1, Occupancy: "occupied", MACAddress: mac, State: sdk.MinerStatusActive, MiningState: "MINING_STATE_MINING", ObservedAt: now, StateObservedAt: now, HashrateHS: new(100e12), MetadataJSON: json.RawMessage(`{"firmwareVersion":"1.2.3"}`)}
 	}
 	moduleIdentity := "module-a"
 	poll := func(at time.Time, first, second sdk.ContainerHashboard) error {
@@ -40,7 +40,7 @@ func TestHashboardMovesAndReplacementsKeepHardwareIdentity(t *testing.T) {
 		}
 		return tx.Commit()
 	}
-	empty := sdk.ContainerHashboard{Position: 1, Occupancy: "empty", State: sdk.ModuleUnknown}
+	empty := sdk.ContainerHashboard{Position: 1, Occupancy: "empty", State: sdk.MinerStatusUnknown}
 	require.NoError(t, poll(now, board("a"), empty))
 	var id int64
 	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT hashboard_id FROM hashboard_identity WHERE kind='mac' AND value='a'").Scan(&id))
@@ -67,7 +67,7 @@ func TestHashboardMovesAndReplacementsKeepHardwareIdentity(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT count(*) FROM hashboard_installation WHERE hashboard_id=$1", id).Scan(&count))
 	require.Equal(t, 4, count)
 	// Neither an unknown slot nor an identical retry removes the installation.
-	unknown := sdk.ContainerHashboard{Position: 1, Occupancy: "unknown", State: sdk.ModuleUnknown}
+	unknown := sdk.ContainerHashboard{Position: 1, Occupancy: "unknown", State: sdk.MinerStatusUnknown}
 	require.NoError(t, poll(now.Add(5*time.Second), unknown, empty))
 	require.NoError(t, poll(now.Add(5*time.Second), unknown, empty))
 	require.NoError(t, db.QueryRowContext(t.Context(), "SELECT count(*) FROM hashboard_installation WHERE hashboard_id=$1 AND removed_at IS NULL", id).Scan(&count))
@@ -88,7 +88,7 @@ func TestHashboardSourceOrderingAndHistoricalSiteScope(t *testing.T) {
 	_, err = db.ExecContext(ctx, "UPDATE device SET site_id=$1 WHERE id=$2", siteA, device.DatabaseID)
 	require.NoError(t, err)
 	base := time.Now().UTC().Add(-30 * time.Second).Truncate(time.Microsecond)
-	poll := func(offset time.Duration, source time.Time, state sdk.ModuleState, stateTime ...time.Time) {
+	poll := func(offset time.Duration, source time.Time, state sdk.MinerStatus, stateTime ...time.Time) {
 		b := sdk.ContainerHashboard{Position: 1, Occupancy: "occupied", MACAddress: "aa", Serial: "serial-a", ObservedAt: source, State: state, StateObservedAt: source, MiningState: "MINING_STATE_MINING", HashrateHS: new(200e12), HealthJSON: json.RawMessage(`{"hashrate":200}`)}
 		if len(stateTime) > 0 {
 			b.StateObservedAt = stateTime[0]
@@ -100,7 +100,7 @@ func TestHashboardSourceOrderingAndHistoricalSiteScope(t *testing.T) {
 		require.NoError(t, storeContainerInventory(ctx, sqlc.New(tx), device.ID, s))
 		require.NoError(t, tx.Commit())
 	}
-	poll(0, base.Add(-10*time.Second), sdk.ModuleHashing)
+	poll(0, base.Add(-10*time.Second), sdk.MinerStatusActive)
 	var moduleID, boardID int64
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT id FROM container_module").Scan(&moduleID))
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT id FROM hashboard").Scan(&boardID))
@@ -112,24 +112,25 @@ func TestHashboardSourceOrderingAndHistoricalSiteScope(t *testing.T) {
 		return response.Modules[0].Slots[0].Board
 	}
 	require.NotNil(t, read(siteA).HashrateHs)
-	poll(time.Second, time.Time{}, sdk.ModuleUnknown)
+	poll(time.Second, time.Time{}, sdk.MinerStatusUnknown)
 	require.Nil(t, read(siteA).HashrateHs)
-	poll(2*time.Second, base.Add(-2*time.Second), sdk.ModuleHashing)
+	poll(2*time.Second, base.Add(-2*time.Second), sdk.MinerStatusActive)
 	require.NotNil(t, read(siteA).HashrateHs, "missing health must not advance the source watermark")
-	poll(3*time.Second, base.Add(time.Second), sdk.ModuleAttention)
-	poll(4*time.Second, base.Add(-time.Second), sdk.ModuleHashing)
-	require.Equal(t, "attention", read(siteA).State, "old health cannot regress state")
+	poll(3*time.Second, base.Add(time.Second), sdk.MinerStatusError)
+	poll(4*time.Second, base.Add(-time.Second), sdk.MinerStatusActive, base.Add(4*time.Second))
+	require.Equal(t, "active", read(siteA).State, "current operation is independent of old health")
+	require.Equal(t, base.Add(4*time.Second), read(siteA).StateObservedAt.AsTime())
 	require.Equal(t, base.Add(3*time.Second), read(siteA).CollectedAt.AsTime(), "current collected_at belongs to its health sample")
 	_, err = db.ExecContext(ctx, "UPDATE device SET site_id=$1 WHERE id=$2", siteB, device.DatabaseID)
 	require.NoError(t, err)
-	poll(5*time.Second, base.Add(time.Second), sdk.ModuleHashing)
+	poll(5*time.Second, base.Add(time.Second), sdk.MinerStatusActive)
 	require.Nil(t, read(siteB).HashrateHs, "cached health from previous site is unavailable")
 	require.Equal(t, "unknown", read(siteB).State, "prior site's fault classification is not current evidence")
 	request := &pb.ListHashboardHistoryRequest{HashboardId: boardID, StartTime: timestamppb.New(base.Add(-time.Minute)), EndTime: timestamppb.New(base.Add(time.Minute))}
 	history, err := reader.HashboardHistory(ctx, user.OrganizationID, request, []fleetinventory.Scope{{Sites: []int64{siteB}}})
 	require.NoError(t, err)
 	require.Empty(t, history.Samples, "previous site health must not leak")
-	poll(6*time.Second, base.Add(6*time.Second), sdk.ModuleAttention, base.Add(time.Second))
+	poll(6*time.Second, base.Add(6*time.Second), sdk.MinerStatusError, base.Add(time.Second))
 	require.NotNil(t, read(siteB).HashrateHs)
 	require.Nil(t, read(siteB).Health)
 	history, err = reader.HashboardHistory(ctx, user.OrganizationID, request, []fleetinventory.Scope{{Sites: []int64{siteB}}})
@@ -145,24 +146,24 @@ func TestHashboardSourceOrderingAndHistoricalSiteScope(t *testing.T) {
 	require.Equal(t, "unknown", storedState)
 	require.False(t, storedTime.Valid)
 	// Previously stored rows must also be protected at read time.
-	_, err = db.ExecContext(ctx, "UPDATE hashboard_metrics SET state='attention',state_observed_at=$1,health='{\"thermalState\":\"old fault\"}' WHERE hashboard_id=$2 AND time=$3", base.Add(time.Second), boardID, base.Add(6*time.Second))
+	_, err = db.ExecContext(ctx, "UPDATE hashboard_metrics SET state='error',state_observed_at=$1,health='{\"thermalState\":\"old fault\"}' WHERE hashboard_id=$2 AND time=$3", base.Add(time.Second), boardID, base.Add(6*time.Second))
 	require.NoError(t, err)
 	history, err = reader.HashboardHistory(ctx, user.OrganizationID, request, []fleetinventory.Scope{{Sites: []int64{siteB}}})
 	require.NoError(t, err)
 	require.Equal(t, "unknown", history.Samples[0].State)
 	require.Nil(t, history.Samples[0].StateObservedAt)
 	require.Nil(t, history.Samples[0].Health)
-	poll(7*time.Second, base.Add(7*time.Second), sdk.ModuleAttention)
+	poll(7*time.Second, base.Add(7*time.Second), sdk.MinerStatusError)
 	history, err = reader.HashboardHistory(ctx, user.OrganizationID, request, []fleetinventory.Scope{{Sites: []int64{siteB}}})
 	require.NoError(t, err)
 	require.Len(t, history.Samples, 2)
-	require.Equal(t, "attention", history.Samples[1].State)
+	require.Equal(t, "error", history.Samples[1].State)
 	require.Equal(t, base.Add(7*time.Second), history.Samples[1].StateObservedAt.AsTime())
 	// Initial discovery still retains asynchronous state in the original site.
 	oldHistory, err := reader.HashboardHistory(ctx, user.OrganizationID, request, []fleetinventory.Scope{{Sites: []int64{siteA}}})
 	require.NoError(t, err)
 	require.NotEmpty(t, oldHistory.Samples)
-	require.Equal(t, "hashing", oldHistory.Samples[0].State)
+	require.Equal(t, "active", oldHistory.Samples[0].State)
 	unreadable, err := reader.Hashboards(ctx, user.OrganizationID, &pb.GetModuleHashboardsRequest{ModuleIds: []int64{moduleID}}, []fleetinventory.Scope{{Sites: []int64{siteA}}})
 	require.NoError(t, err)
 	require.Empty(t, unreadable.Modules)
@@ -182,7 +183,7 @@ func TestHashboardAliasesAndControllerMoves(t *testing.T) {
 	require.NoError(t, err)
 	base := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
 	poll := func(identifier string, offset time.Duration, mac, serial string) error {
-		board := sdk.ContainerHashboard{Position: 1, Occupancy: "occupied", MACAddress: mac, Serial: serial, State: sdk.ModuleUnknown}
+		board := sdk.ContainerHashboard{Position: 1, Occupancy: "occupied", MACAddress: mac, Serial: serial, State: sdk.MinerStatusUnknown}
 		if mac == "" && serial == "" {
 			board.Occupancy = "empty"
 		}

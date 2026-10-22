@@ -32,7 +32,7 @@ func TestUnlocatedFirstPlacementExcludesPriorSiteDiagnostics(t *testing.T) {
 		} else {
 			b = &s.UnlocatedHashboards[0]
 		}
-		b.State = sdk.ModuleAttention
+		b.State = sdk.MinerStatusError
 		b.StateObservedAt = r.base.Add(state)
 		b.MiningState = "MINING_STATE_MINING"
 		b.Isolated = new(true)
@@ -101,11 +101,11 @@ func TestUnlocatedFirstPlacementExcludesPriorSiteDiagnostics(t *testing.T) {
 	poll(4*time.Second, 0, 4*time.Second, true)
 	require.Nil(t, read().HashrateHs)
 	require.Nil(t, read().Health)
-	require.Equal(t, "attention", read().State)
+	require.Equal(t, "error", read().State)
 	require.Len(t, history(), 1)
 	poll(5*time.Second, 5*time.Second, 5*time.Second, true)
 	require.NotNil(t, read().HashrateHs)
 	require.NotNil(t, read().Health)
-	require.Equal(t, "attention", read().State)
+	require.Equal(t, "error", read().State)
 	require.Len(t, history(), 2)
 }

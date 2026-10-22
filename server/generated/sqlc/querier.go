@@ -40,8 +40,6 @@ type Querier interface {
 	AdminTerminateCurtailmentEvent(ctx context.Context, arg AdminTerminateCurtailmentEventParams) (CurtailmentEvent, error)
 	// The parent upsert serializes replacement of its controls and setpoints.
 	AdvanceContainerControls(ctx context.Context, arg AdvanceContainerControlsParams) (int64, error)
-	// Serializes reconciliation for each controller. A delayed response cannot
-	// change placement, retire inventory, or overwrite a newer status observation.
 	AdvanceContainerInventory(ctx context.Context, arg AdvanceContainerInventoryParams) (int64, error)
 	AdvanceDeletedDeviceWriteFences(ctx context.Context, arg AdvanceDeletedDeviceWriteFencesParams) ([]AdvanceDeletedDeviceWriteFencesRow, error)
 	// Stage transitions of an active rollout, attributed to an actor when one
@@ -893,8 +891,6 @@ type Querier interface {
 	// DISTINCT ON keeps one state per device per bucket so summed counts always
 	// equal a real fleet size regardless of snapshot alignment within the bucket.
 	GetMinerStateSnapshots(ctx context.Context, arg GetMinerStateSnapshotsParams) ([]GetMinerStateSnapshotsRow, error)
-	// A bounded batch returns only readable current modules. Child slots never
-	// enter fleet_mining_asset or affect its counts, sorting, selection or exports.
 	GetModuleHashboards(ctx context.Context, arg GetModuleHashboardsParams) (json.RawMessage, error)
 	GetModuleRollupWatermarks(ctx context.Context, deviceID int64) ([]GetModuleRollupWatermarksRow, error)
 	GetOfflineDevices(ctx context.Context, limit int32) ([]GetOfflineDevicesRow, error)
@@ -1103,6 +1099,7 @@ type Querier interface {
 	// VALUES form raised. Caller wraps generically (fleeterror.New
 	// InternalErrorf), so the surface is unchanged for present callers.
 	InsertError(ctx context.Context, arg InsertErrorParams) (int64, error)
+	InsertHashboardDiagnosticObservations(ctx context.Context, arg InsertHashboardDiagnosticObservationsParams) error
 	InsertHashboardMetrics(ctx context.Context, arg InsertHashboardMetricsParams) error
 	InsertMQTTSourceConfig(ctx context.Context, arg InsertMQTTSourceConfigParams) (InsertMQTTSourceConfigRow, error)
 	// CASE bucket order must match CountMinersByState (device.sql) — the chart
@@ -1113,6 +1110,7 @@ type Querier interface {
 	// contribute to any chart bucket — matching CountMinersByState, which also
 	// excludes non-ACTIVE/non-bucketed statuses from every count.
 	InsertMinerStateSnapshot(ctx context.Context, argTime time.Time) error
+	InsertModuleDiagnosticObservations(ctx context.Context, arg InsertModuleDiagnosticObservationsParams) error
 	InsertNotificationHistory(ctx context.Context, arg InsertNotificationHistoryParams) error
 	// Batch insert for the notification_metric_sample hypertable populated by
 	// the in-process metrics provider on every flush.
@@ -1237,6 +1235,8 @@ type Querier interface {
 	ListCompletedTickets(ctx context.Context, arg ListCompletedTicketsParams) ([]ListCompletedTicketsRow, error)
 	// Raw reads retain the original nullable fields; older/longer windows return
 	// source-bucket averages, with authorization before combining topology versions.
+	// Bound the raw lookup directly so TimescaleDB can prune unrelated chunks
+	// instead of revisiting old history for each readable sample.
 	ListContainerModuleHistory(ctx context.Context, arg ListContainerModuleHistoryParams) ([]ListContainerModuleHistoryRow, error)
 	// Membership lists need identity and topology counts, never telemetry.
 	ListContainerPlacements(ctx context.Context, orgID int64) ([]ListContainerPlacementsRow, error)
@@ -1781,7 +1781,6 @@ type Querier interface {
 	// reconciliation. Call after locking the Fleet Node and before checking the
 	// device's current cloud-pairing state.
 	LockFleetNodePairingDevice(ctx context.Context, arg LockFleetNodePairingDeviceParams) ([]int64, error)
-	// Serialize cross-controller identity/placement reconciliation within an org.
 	LockHashboardOrganization(ctx context.Context, identifier string) (int64, error)
 	LockHostedAccountAdministrators(ctx context.Context, arg LockHostedAccountAdministratorsParams) ([]int64, error)
 	LockHostedAccountAssetInventory(ctx context.Context, deviceIds []int64) error

@@ -1362,6 +1362,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.insertErrorStmt, err = db.PrepareContext(ctx, insertError); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertError: %w", err)
 	}
+	if q.insertHashboardDiagnosticObservationsStmt, err = db.PrepareContext(ctx, insertHashboardDiagnosticObservations); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertHashboardDiagnosticObservations: %w", err)
+	}
 	if q.insertHashboardMetricsStmt, err = db.PrepareContext(ctx, insertHashboardMetrics); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertHashboardMetrics: %w", err)
 	}
@@ -1370,6 +1373,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.insertMinerStateSnapshotStmt, err = db.PrepareContext(ctx, insertMinerStateSnapshot); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertMinerStateSnapshot: %w", err)
+	}
+	if q.insertModuleDiagnosticObservationsStmt, err = db.PrepareContext(ctx, insertModuleDiagnosticObservations); err != nil {
+		return nil, fmt.Errorf("error preparing query InsertModuleDiagnosticObservations: %w", err)
 	}
 	if q.insertNotificationHistoryStmt, err = db.PrepareContext(ctx, insertNotificationHistory); err != nil {
 		return nil, fmt.Errorf("error preparing query InsertNotificationHistory: %w", err)
@@ -4974,6 +4980,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing insertErrorStmt: %w", cerr)
 		}
 	}
+	if q.insertHashboardDiagnosticObservationsStmt != nil {
+		if cerr := q.insertHashboardDiagnosticObservationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertHashboardDiagnosticObservationsStmt: %w", cerr)
+		}
+	}
 	if q.insertHashboardMetricsStmt != nil {
 		if cerr := q.insertHashboardMetricsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertHashboardMetricsStmt: %w", cerr)
@@ -4987,6 +4998,11 @@ func (q *Queries) Close() error {
 	if q.insertMinerStateSnapshotStmt != nil {
 		if cerr := q.insertMinerStateSnapshotStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing insertMinerStateSnapshotStmt: %w", cerr)
+		}
+	}
+	if q.insertModuleDiagnosticObservationsStmt != nil {
+		if cerr := q.insertModuleDiagnosticObservationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing insertModuleDiagnosticObservationsStmt: %w", cerr)
 		}
 	}
 	if q.insertNotificationHistoryStmt != nil {
@@ -7754,9 +7770,11 @@ type Queries struct {
 	insertDeviceStmt                                             *sql.Stmt
 	insertDeviceMetricsStmt                                      *sql.Stmt
 	insertErrorStmt                                              *sql.Stmt
+	insertHashboardDiagnosticObservationsStmt                    *sql.Stmt
 	insertHashboardMetricsStmt                                   *sql.Stmt
 	insertMQTTSourceConfigStmt                                   *sql.Stmt
 	insertMinerStateSnapshotStmt                                 *sql.Stmt
+	insertModuleDiagnosticObservationsStmt                       *sql.Stmt
 	insertNotificationHistoryStmt                                *sql.Stmt
 	insertNotificationMetricSamplesStmt                          *sql.Stmt
 	insertReleaseChannelMinerTargetsStmt                         *sql.Stmt
@@ -8665,9 +8683,11 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertDeviceStmt:                                             q.insertDeviceStmt,
 		insertDeviceMetricsStmt:                                      q.insertDeviceMetricsStmt,
 		insertErrorStmt:                                              q.insertErrorStmt,
+		insertHashboardDiagnosticObservationsStmt:                    q.insertHashboardDiagnosticObservationsStmt,
 		insertHashboardMetricsStmt:                                   q.insertHashboardMetricsStmt,
 		insertMQTTSourceConfigStmt:                                   q.insertMQTTSourceConfigStmt,
 		insertMinerStateSnapshotStmt:                                 q.insertMinerStateSnapshotStmt,
+		insertModuleDiagnosticObservationsStmt:                       q.insertModuleDiagnosticObservationsStmt,
 		insertNotificationHistoryStmt:                                q.insertNotificationHistoryStmt,
 		insertNotificationMetricSamplesStmt:                          q.insertNotificationMetricSamplesStmt,
 		insertReleaseChannelMinerTargetsStmt:                         q.insertReleaseChannelMinerTargetsStmt,

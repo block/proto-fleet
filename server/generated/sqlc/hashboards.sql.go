@@ -35,6 +35,7 @@ func (q *Queries) CloseHashboardInstallations(ctx context.Context, arg CloseHash
 }
 
 const ensureHashboards = `-- name: EnsureHashboards :many
+
 WITH input AS MATERIALIZED (
  SELECT COALESCE(value->>'mac_address','')::text AS mac_address, COALESCE(value->>'serial','')::text AS serial, COALESCE(NULLIF((value->>'board_id')::bigint, 0), nextval('hashboard_id_seq'))::bigint AS id
  FROM jsonb_array_elements($1::jsonb)
@@ -257,6 +258,31 @@ func (q *Queries) GetHashboardObservations(ctx context.Context, arg GetHashboard
 	return items, nil
 }
 
+const insertHashboardDiagnosticObservations = `-- name: InsertHashboardDiagnosticObservations :exec
+INSERT INTO hashboard_diagnostic_observation(hashboard_id,installation_id,collected_at,observed_at,state,state_observed_at,mining_state,isolated,hashrail_ok,refclks_ok,health,issues)
+SELECT x.board_id,i.id,$1::timestamptz,x.time,x.state,x.state_observed_at,COALESCE(x.mining_state,''),x.isolated,x.hashrail_ok,x.refclks_ok,x.health,
+ COALESCE((SELECT jsonb_agg(issue) FROM container_module_diagnostic_observation o CROSS JOIN LATERAL jsonb_array_elements(NULLIF(o.issues->'items','null'::jsonb)) issue
+ WHERE o.module_id=i.module_id AND o.collected_at=$1::timestamptz AND o.site_id IS NOT DISTINCT FROM i.site_id
+ AND issue->>'component'='hashboard' AND issue->>'component_id'=x.mac_address
+ AND ((issue->>'observed_at')::timestamptz>=i.installed_at OR NOT EXISTS(SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id)))
+ AND NOT EXISTS(SELECT 1 FROM hashboard_observation owner WHERE owner.hashboard_id=i.hashboard_id AND owner.attribution_since>(issue->>'observed_at')::timestamptz)),'[]'::jsonb)
+FROM jsonb_to_recordset($2::jsonb) AS x(board_id bigint,module_id bigint,position int,mac_address text,time timestamptz,state text,state_observed_at timestamptz,mining_state text,isolated boolean,hashrail_ok boolean,refclks_ok boolean,health jsonb)
+JOIN hashboard_installation i ON i.hashboard_id=x.board_id AND i.module_id=x.module_id AND i.position=x.position AND i.removed_at IS NULL
+WHERE i.last_seen_at=$1::timestamptz
+ AND (x.time IS NOT NULL OR x.state_observed_at IS NOT NULL)
+ON CONFLICT DO NOTHING
+`
+
+type InsertHashboardDiagnosticObservationsParams struct {
+	CollectedAt time.Time
+	Boards      json.RawMessage
+}
+
+func (q *Queries) InsertHashboardDiagnosticObservations(ctx context.Context, arg InsertHashboardDiagnosticObservationsParams) error {
+	_, err := q.exec(ctx, q.insertHashboardDiagnosticObservationsStmt, insertHashboardDiagnosticObservations, arg.CollectedAt, arg.Boards)
+	return err
+}
+
 const insertHashboardMetrics = `-- name: InsertHashboardMetrics :exec
 WITH inserted AS (
  INSERT INTO hashboard_metrics(hashboard_id, installation_id, time, collected_at, state, state_observed_at, mining_state, isolated, hashrate_hs, power_w, efficiency_jh, temperature_c, hashrail_ok, refclks_ok, health)
@@ -338,7 +364,6 @@ WHERE d.device_identifier = $1 AND d.deleted_at IS NULL
 FOR NO KEY UPDATE OF o
 `
 
-// Serialize cross-controller identity/placement reconciliation within an org.
 func (q *Queries) LockHashboardOrganization(ctx context.Context, identifier string) (int64, error) {
 	row := q.queryRow(ctx, q.lockHashboardOrganizationStmt, lockHashboardOrganization, identifier)
 	var id int64
@@ -347,6 +372,7 @@ func (q *Queries) LockHashboardOrganization(ctx context.Context, identifier stri
 }
 
 const releaseHashboardObservations = `-- name: ReleaseHashboardObservations :exec
+
 UPDATE hashboard_observation SET released_at=$1::timestamptz,
  last_seen_at=$1::timestamptz
 WHERE device_id=$2 AND last_seen_at<$1::timestamptz
@@ -386,6 +412,7 @@ func (q *Queries) UpsertHashboardInstallations(ctx context.Context, arg UpsertHa
 }
 
 const upsertHashboardObservations = `-- name: UpsertHashboardObservations :exec
+
 INSERT INTO hashboard_observation(hashboard_id, device_id, site_id, last_seen_at, source_at)
 SELECT x.board_id, $1, x.site_id, $2::timestamptz, x.source_at
 FROM jsonb_to_recordset($3::jsonb) AS x(board_id bigint, site_id bigint, source_at timestamptz, occupancy text)
@@ -419,8 +446,8 @@ SELECT x.module_id, NULLIF(x.board_id,0), x.position, x.occupancy, $1::timestamp
 FROM jsonb_to_recordset($2::jsonb) AS x(module_id bigint, board_id bigint, position int, occupancy text, time timestamptz, state text, state_observed_at timestamptz, mining_state text, isolated boolean, unavailable_reason text)
 ON CONFLICT (module_id, position) DO UPDATE SET hashboard_id=EXCLUDED.hashboard_id, occupancy=EXCLUDED.occupancy, observed_at=EXCLUDED.observed_at,
  health_observed_at=CASE WHEN hashboard_slot.hashboard_id=EXCLUDED.hashboard_id AND EXCLUDED.health_observed_at IS NOT NULL THEN GREATEST(hashboard_slot.health_observed_at,EXCLUDED.health_observed_at) ELSE EXCLUDED.health_observed_at END,
- state=CASE WHEN hashboard_slot.hashboard_id=EXCLUDED.hashboard_id AND EXCLUDED.state <> 'unknown' AND hashboard_slot.state_observed_at > EXCLUDED.state_observed_at THEN hashboard_slot.state ELSE EXCLUDED.state END,
- state_observed_at=CASE WHEN hashboard_slot.hashboard_id=EXCLUDED.hashboard_id AND EXCLUDED.state <> 'unknown' THEN GREATEST(hashboard_slot.state_observed_at,EXCLUDED.state_observed_at) ELSE EXCLUDED.state_observed_at END,
+ -- Classification follows accepted collection order; source time governs freshness and attribution.
+ state=EXCLUDED.state, state_observed_at=EXCLUDED.state_observed_at,
  mining_state=EXCLUDED.mining_state, isolated=EXCLUDED.isolated, unavailable_reason=EXCLUDED.unavailable_reason
 WHERE hashboard_slot.observed_at < EXCLUDED.observed_at
 `

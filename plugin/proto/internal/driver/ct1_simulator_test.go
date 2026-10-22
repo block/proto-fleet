@@ -100,9 +100,9 @@ func TestCT1Simulator(t *testing.T) {
 		require.NoError(t, err)
 		for _, tank := range observed.Container.Tanks {
 			for _, module := range tank.Modules {
-				expected := sdk.ModuleHashing
+				expected := sdk.MinerStatusActive
 				if tank.Position == 1 && !mining {
-					expected = sdk.ModuleSleeping
+					expected = sdk.MinerStatusInactive
 				}
 				require.Equal(t, expected, module.State, "tank %d", tank.Position)
 			}
@@ -170,7 +170,7 @@ func TestCT1SimulatorUnlocatedInventory(t *testing.T) {
 				require.Positive(t, tank.Position)
 				for _, module := range tank.Modules {
 					require.Positive(t, module.Position)
-					require.Equal(t, sdk.ModuleHashing, module.State)
+					require.Equal(t, sdk.MinerStatusActive, module.State)
 					for _, board := range module.Hashboards {
 						require.NotNil(t, board.HashrateHS)
 						boards++

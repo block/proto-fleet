@@ -121,7 +121,7 @@ func TestTankHistory(t *testing.T) {
 	})
 
 	t.Run("current tank totals use saved readings independently of module metrics", func(t *testing.T) {
-		_, err := db.ExecContext(ctx, `UPDATE container_module SET state='hashing',state_observed_at=now(),last_seen_at=now() WHERE tank_id=$1`, tankID)
+		_, err := db.ExecContext(ctx, `UPDATE container_module SET state='active',state_observed_at=now(),last_seen_at=now() WHERE tank_id=$1`, tankID)
 		require.NoError(t, err)
 		_, err = db.ExecContext(ctx, `INSERT INTO container_module_latest_metrics (module_id,time,collected_at,hashrate_hs,power_w,temperature_c) VALUES ($1,now(),now(),100e12,NULL,60),($2,now(),now(),200e12,4000,NULL),($3,now(),now(),999e12,99999,99)`, first, second, retired)
 		require.NoError(t, err)

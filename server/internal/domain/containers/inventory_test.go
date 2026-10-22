@@ -41,8 +41,8 @@ func TestInventoryRetainsPartialTopologyAndModuleHistory(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	hashrate, power := 300e12, 3600.0
 	snapshot := &sdk.ContainerSnapshot{ObservedAt: now, TopologyComplete: true, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{
-		{Position: 1, ReportedID: "one", State: sdk.ModuleHashing, ObservedAt: now, Metrics: &sdk.ContainerModuleMetrics{ObservedAt: now, HashrateHS: &hashrate, PowerW: &power}},
-		{Position: 2, ReportedID: "two", State: sdk.ModuleSleeping, ObservedAt: now},
+		{Position: 1, ReportedID: "one", State: sdk.MinerStatusActive, ObservedAt: now, Metrics: &sdk.ContainerModuleMetrics{ObservedAt: now, HashrateHS: &hashrate, PowerW: &power}},
+		{Position: 2, ReportedID: "two", State: sdk.MinerStatusInactive, ObservedAt: now},
 	}}}}
 	write := func() {
 		t.Helper()
@@ -395,7 +395,7 @@ func TestInventoryRetainsPartialTopologyAndModuleHistory(t *testing.T) {
 	snapshot.Tanks[0].Modules[0].Metrics.ObservedAt = now.Add(-time.Minute)
 	snapshot.Tanks[0].Modules[0].Metrics.PowerW = nil
 	snapshot.Tanks[0].Modules[0].ObservedAt = now.Add(-time.Minute)
-	snapshot.Tanks[0].Modules[0].State = sdk.ModuleOffline
+	snapshot.Tanks[0].Modules[0].State = sdk.MinerStatusOffline
 	write()
 	require.Equal(t, 3, count("SELECT count(*) FROM container_module_metrics"))
 	var latestPower float64
@@ -403,11 +403,11 @@ func TestInventoryRetainsPartialTopologyAndModuleHistory(t *testing.T) {
 	require.Equal(t, power, latestPower)
 	var currentState string
 	require.NoError(t, db.QueryRowContext(ctx, "SELECT state FROM container_module WHERE id = $1", moduleID).Scan(&currentState))
-	require.Equal(t, string(sdk.ModuleHashing), currentState, "older state evidence must not replace newer state")
+	require.Equal(t, sdk.MinerStatusOffline.String(), currentState, "newer accepted collection determines status independently of source time")
 	card, err = cardReader.Get(ctx, org, d.DeviceIdentifier, func(*int64) (bool, error) { return true, nil })
 	require.NoError(t, err)
-	require.EqualValues(t, 1, card.Tanks[0].HashingCount, "cards must use reconciled state rather than the latest raw observation")
-	require.Zero(t, card.Tanks[0].OfflineCount)
+	require.Zero(t, card.Tanks[0].HashingCount)
+	require.EqualValues(t, 1, card.Tanks[0].OfflineCount)
 
 	// Only a newer complete inventory retires absent members.
 	snapshot.TopologyComplete = true
@@ -417,7 +417,7 @@ func TestInventoryRetainsPartialTopologyAndModuleHistory(t *testing.T) {
 	require.Equal(t, 1, count("SELECT count(*) FROM container_module WHERE retired_at IS NULL"))
 	card, err = cardReader.Get(ctx, org, d.DeviceIdentifier, func(*int64) (bool, error) { return true, nil })
 	require.NoError(t, err)
-	require.EqualValues(t, 1, card.Tanks[0].HashingCount)
+	require.EqualValues(t, 1, card.Tanks[0].OfflineCount)
 	require.Zero(t, card.Tanks[0].SleepingCount, "retired modules must not count toward card health")
 
 	// A known hardware replacement in the same selector gets a new Fleet ID.
@@ -448,12 +448,12 @@ func TestInventoryRetainsPartialTopologyAndModuleHistory(t *testing.T) {
 	snapshot.Tanks[0].Modules[0].ReportedID = "one"
 	write()
 	require.Equal(t, 1, count("SELECT count(*) FROM container_module WHERE retired_at IS NULL AND reported_id = 'replacement'"))
-	t.Run("missing evidence cannot revive old state or metrics", func(t *testing.T) {
+	t.Run("stale evidence cannot revive current state or cleared metrics", func(t *testing.T) {
 		// Use microsecond steps above the last accepted poll without future skew.
 		snapshot.ObservedAt = now.Add(4*time.Second + time.Microsecond)
 		module := &snapshot.Tanks[0].Modules[0]
 		module.ReportedID = "replacement"
-		module.State = sdk.ModuleHashing
+		module.State = sdk.MinerStatusActive
 		module.ObservedAt = now
 		module.Metrics = &sdk.ContainerModuleMetrics{ObservedAt: now, HashrateHS: &hashrate, PowerW: &power}
 		write()
@@ -472,23 +472,24 @@ func TestInventoryRetainsPartialTopologyAndModuleHistory(t *testing.T) {
 		require.Equal(t, hashrate/1e12, *retained.Items[0].HashrateThs)
 		require.Equal(t, power/1000, *retained.Items[0].PowerKw)
 		snapshot.ObservedAt = snapshot.ObservedAt.Add(time.Microsecond)
-		module.State = sdk.ModuleUnknown
+		module.State = sdk.MinerStatusUnknown
 		module.ObservedAt = time.Time{}
 		module.Metrics = &sdk.ContainerModuleMetrics{ObservedAt: snapshot.ObservedAt}
 		write()
 		snapshot.ObservedAt = snapshot.ObservedAt.Add(time.Microsecond)
-		module.State = sdk.ModuleHashing
-		module.ObservedAt = now.Add(-time.Minute)
+		module.State = sdk.MinerStatusActive
+		module.ObservedAt = now.Add(-3 * time.Minute)
 		module.Metrics = &sdk.ContainerModuleMetrics{ObservedAt: now.Add(-time.Minute), HashrateHS: &hashrate, PowerW: &power}
 		write()
 		var state string
 		var evidence time.Time
 		require.NoError(t, db.QueryRowContext(ctx, "SELECT state,state_observed_at FROM container_module WHERE reported_id='replacement'").Scan(&state, &evidence))
-		require.Equal(t, string(sdk.ModuleUnknown), state)
-		require.Equal(t, now, evidence.UTC())
+		require.Equal(t, sdk.MinerStatusActive.String(), state, "accepted snapshot orders the consolidated status")
+		require.Equal(t, now.Add(-3*time.Minute), evidence.UTC(), "original source time still controls freshness")
 		result, err := reader.List(ctx, org, &inventorypb.ListInventoryRequest{View: inventorypb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, Kinds: []inventorypb.EntityKind{inventorypb.EntityKind_ENTITY_KIND_MODULE}}, scopes)
 		require.NoError(t, err)
 		require.Len(t, result.Items, 1)
+		require.Equal(t, "unknown", result.Items[0].State)
 		require.Zero(t, result.Items[0].HashrateReportingCount)
 		require.Zero(t, result.Items[0].PowerReportingCount)
 		require.Nil(t, result.Items[0].HashrateThs)
@@ -519,7 +520,7 @@ func TestMissingModuleIdentityOnlyClearsAcceptedEmptyObservations(t *testing.T) 
 			metrics.PowerW = &power
 			metrics.TemperatureC = &temp
 		}
-		snapshot := &sdk.ContainerSnapshot{ObservedAt: collected, TopologyComplete: true, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, ReportedID: identity, IdentityConfirmed: true, State: sdk.ModuleHashing, ObservedAt: collected, Metrics: metrics}}}}}
+		snapshot := &sdk.ContainerSnapshot{ObservedAt: collected, TopologyComplete: true, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, ReportedID: identity, IdentityConfirmed: true, State: sdk.MinerStatusActive, ObservedAt: collected, Metrics: metrics}}}}}
 		if withRollups {
 			snapshot.Metrics = &sdk.ContainerRollup{}
 		}

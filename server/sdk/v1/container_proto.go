@@ -33,7 +33,7 @@ func containerSnapshotToProto(s *ContainerSnapshot) *pb.ContainerSnapshot {
 	for _, tank := range s.Tanks {
 		t := &pb.ContainerTank{Position: tank.Position, Metrics: rollupToProto(tank.Metrics), TopologyComplete: tank.TopologyComplete}
 		for _, m := range tank.Modules {
-			module := &pb.ContainerModule{Position: m.Position, ReportedId: m.ReportedID, IdentityConfirmed: m.IdentityConfirmed, State: string(m.State), ObservedAt: timestamppb.New(m.ObservedAt)}
+			module := &pb.ContainerModule{Position: m.Position, ReportedId: m.ReportedID, IdentityConfirmed: m.IdentityConfirmed, State: m.State.String(), ObservedAt: timestamppb.New(m.ObservedAt)}
 			if v := m.Issues; v != nil {
 				module.Issues = &pb.ContainerModuleIssues{ObservedAt: timestamppb.New(v.ObservedAt), Complete: v.Complete}
 				if v.SourceTimes != nil {
@@ -43,7 +43,7 @@ func containerSnapshotToProto(s *ContainerSnapshot) *pb.ContainerSnapshot {
 					}
 				}
 				for _, issue := range v.Items {
-					module.Issues.Items = append(module.Issues.Items, &pb.ContainerModuleIssue{Component: issue.Component, ComponentId: issue.ComponentID, Cause: issue.Cause, Severity: issue.Severity, ObservedAt: timestamppb.New(issue.ObservedAt)})
+					module.Issues.Items = append(module.Issues.Items, &pb.ContainerModuleIssue{Component: issue.Component, ComponentId: issue.ComponentID, Cause: issue.Cause, Severity: issue.Severity, CanonicalError: issue.CanonicalError, ObservedAt: timestamppb.New(issue.ObservedAt)})
 				}
 			}
 			for _, b := range m.Hashboards {
@@ -93,7 +93,7 @@ func containerSnapshotFromProto(s *pb.ContainerSnapshot) *ContainerSnapshot {
 	for _, tank := range s.Tanks {
 		t := ContainerTank{Position: tank.Position, Metrics: rollupFromProto(tank.Metrics), TopologyComplete: tank.TopologyComplete, Modules: []ContainerModule{}}
 		for _, m := range tank.Modules {
-			module := ContainerModule{Position: m.Position, ReportedID: m.ReportedId, IdentityConfirmed: m.IdentityConfirmed, State: ModuleState(m.State), ObservedAt: m.ObservedAt.AsTime()}
+			module := ContainerModule{Position: m.Position, ReportedID: m.ReportedId, IdentityConfirmed: m.IdentityConfirmed, State: parseContainerStatus(m.State), ObservedAt: m.ObservedAt.AsTime()}
 			if v := m.Issues; v != nil {
 				module.Issues = &ContainerModuleIssues{ObservedAt: v.ObservedAt.AsTime(), Complete: v.Complete}
 				if len(v.SourceTimes) > 0 {
@@ -104,7 +104,7 @@ func containerSnapshotFromProto(s *pb.ContainerSnapshot) *ContainerSnapshot {
 				}
 				for _, issue := range v.Items {
 					if issue != nil {
-						module.Issues.Items = append(module.Issues.Items, ContainerModuleIssue{Component: issue.Component, ComponentID: issue.ComponentId, Cause: issue.Cause, Severity: issue.Severity, ObservedAt: issue.ObservedAt.AsTime()})
+						module.Issues.Items = append(module.Issues.Items, ContainerModuleIssue{Component: issue.Component, ComponentID: issue.ComponentId, Cause: issue.Cause, Severity: issue.Severity, CanonicalError: issue.CanonicalError, ObservedAt: issue.ObservedAt.AsTime()})
 					}
 				}
 			}
@@ -170,7 +170,7 @@ func hashboardToProto(b ContainerHashboard) *pb.ContainerHashboard {
 	for _, c := range b.IdentityClaims {
 		claims = append(claims, &pb.HashboardIdentityClaim{MacAddress: c.MACAddress, Serial: c.Serial})
 	}
-	return &pb.ContainerHashboard{IdentityClaims: claims, UnavailableReason: b.UnavailableReason, Position: b.Position, Occupancy: b.Occupancy, MacAddress: b.MACAddress, Serial: b.Serial, State: string(b.State), MiningState: b.MiningState, Isolated: b.Isolated, ObservedAt: timestamppb.New(b.ObservedAt), StateObservedAt: timestamppb.New(b.StateObservedAt), PowerW: b.PowerW, EfficiencyJh: b.EfficiencyJH, Feed: feedToProto(b.Feed), HashrateHs: b.HashrateHS, TemperatureC: b.TemperatureC, HashrailOk: b.HashrailOK, RefclksOk: b.RefclksOK, MetadataJson: b.MetadataJSON, HealthJson: b.HealthJSON}
+	return &pb.ContainerHashboard{IdentityClaims: claims, UnavailableReason: b.UnavailableReason, Position: b.Position, Occupancy: b.Occupancy, MacAddress: b.MACAddress, Serial: b.Serial, State: b.State.String(), MiningState: b.MiningState, Isolated: b.Isolated, ObservedAt: timestamppb.New(b.ObservedAt), StateObservedAt: timestamppb.New(b.StateObservedAt), PowerW: b.PowerW, EfficiencyJh: b.EfficiencyJH, Feed: feedToProto(b.Feed), HashrateHs: b.HashrateHS, TemperatureC: b.TemperatureC, HashrailOk: b.HashrailOK, RefclksOk: b.RefclksOK, MetadataJson: b.MetadataJSON, HealthJson: b.HealthJSON}
 }
 
 func hashboardFromProto(b *pb.ContainerHashboard) ContainerHashboard {
@@ -180,5 +180,17 @@ func hashboardFromProto(b *pb.ContainerHashboard) ContainerHashboard {
 			claims = append(claims, HashboardIdentityClaim{MACAddress: c.MacAddress, Serial: c.Serial})
 		}
 	}
-	return ContainerHashboard{IdentityClaims: claims, UnavailableReason: b.UnavailableReason, Position: b.Position, Occupancy: b.Occupancy, MACAddress: b.MacAddress, Serial: b.Serial, State: ModuleState(b.State), MiningState: b.MiningState, Isolated: b.Isolated, ObservedAt: b.ObservedAt.AsTime(), StateObservedAt: b.StateObservedAt.AsTime(), PowerW: b.PowerW, EfficiencyJH: b.EfficiencyJh, Feed: feedFromProto(b.Feed), HashrateHS: b.HashrateHs, TemperatureC: b.TemperatureC, HashrailOK: b.HashrailOk, RefclksOK: b.RefclksOk, MetadataJSON: b.MetadataJson, HealthJSON: b.HealthJson}
+	return ContainerHashboard{IdentityClaims: claims, UnavailableReason: b.UnavailableReason, Position: b.Position, Occupancy: b.Occupancy, MACAddress: b.MacAddress, Serial: b.Serial, State: parseContainerStatus(b.State), MiningState: b.MiningState, Isolated: b.Isolated, ObservedAt: b.ObservedAt.AsTime(), StateObservedAt: b.StateObservedAt.AsTime(), PowerW: b.PowerW, EfficiencyJH: b.EfficiencyJh, Feed: feedFromProto(b.Feed), HashrateHS: b.HashrateHs, TemperatureC: b.TemperatureC, HashrailOK: b.HashrailOk, RefclksOK: b.RefclksOk, MetadataJSON: b.MetadataJson, HealthJSON: b.HealthJson}
+}
+
+// Invalid wire values survive as invalid enums for ingestion validation.
+func parseContainerStatus(value string) MinerStatus {
+	if value == "" {
+		return MinerStatusUnknown
+	}
+	status, err := MinerStatusUnknown.Parse(value)
+	if err != nil {
+		return MinerStatus(-1)
+	}
+	return status
 }

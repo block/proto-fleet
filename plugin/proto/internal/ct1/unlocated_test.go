@@ -65,8 +65,8 @@ func TestCollectUnlocatedInventory(t *testing.T) {
 				require.True(t, tank.TopologyComplete)
 			}
 			module := got.Container.Tanks[0].Modules[0]
-			require.Equal(t, sdk.ModuleHashing, module.State)
-			require.Equal(t, now, module.ObservedAt)
+			require.Equal(t, sdk.MinerStatusActive, module.State)
+			require.Equal(t, got.Container.ObservedAt, module.ObservedAt)
 			require.Equal(t, "mapped", module.ReportedID)
 			require.Equal(t, 60e12, *module.Metrics.HashrateHS)
 			require.Equal(t, 60e12+6*999e12, got.HashrateHS.Value, "container includes mapped and unlocated boards once")

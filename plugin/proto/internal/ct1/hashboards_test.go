@@ -52,7 +52,7 @@ func TestHashboardObservationsPreserveSlotsAndEvidence(t *testing.T) {
 	require.False(t, *boards[0].Isolated)
 	require.Equal(t, 100e12, *boards[0].HashrateHS)
 	require.Equal(t, now.Add(-time.Second), boards[0].ObservedAt)
-	require.Equal(t, "attention", string(boards[0].State))
+	require.Equal(t, "error", boards[0].State.String())
 	require.Contains(t, string(boards[0].HealthJSON), `"9007199254740993"`)
 	require.Contains(t, string(boards[0].MetadataJSON), `"firmwareVersion":"1.2.3"`)
 	require.NotContains(t, string(boards[0].MetadataJSON), `"health"`)
@@ -67,7 +67,7 @@ func TestHashboardFreshnessAndRemoteIsolation(t *testing.T) {
 		got := hashboardObservations([]Slot{{Occupied: true, Hashboard: &b}}, now)
 		require.Nil(t, got[0].HashrateHS)
 		require.Nil(t, got[0].HashrailOK)
-		require.Equal(t, "unknown", string(got[0].State))
+		require.Equal(t, "active", got[0].State.String())
 	}
 	var b Board
 	require.NoError(t, json.Unmarshal([]byte(`{"macAddress":"a","source":"HASHBOARD_SOURCE_REMOTE","isolated":false}`), &b))
@@ -79,7 +79,7 @@ func TestHashboardFreshnessAndRemoteIsolation(t *testing.T) {
 	b.Health = &Health{Timestamp: now, Hashrate: new(100.0)}
 	got = hashboardObservations([]Slot{{Occupied: true, Hashboard: &b}}, now)
 	require.Nil(t, got[0].Isolated)
-	require.Equal(t, "hashing", string(got[0].State))
+	require.Equal(t, "active", got[0].State.String())
 	got = hashboardObservations([]Slot{{Occupied: true}}, now)
 	require.Equal(t, "unknown", got[0].Occupancy)
 }

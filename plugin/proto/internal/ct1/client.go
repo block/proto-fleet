@@ -157,7 +157,7 @@ func (c *Client) Collect(ctx context.Context, id string) (sdk.DeviceMetrics, err
 	}
 	for _, tank := range topology.Tanks {
 		for _, m := range tank.Modules {
-			if m.State != sdk.ModuleHashing && m.State != sdk.ModuleSleeping && m.State != sdk.ModuleIsolated {
+			if m.State != sdk.MinerStatusActive && m.State != sdk.MinerStatusInactive && m.State != sdk.MinerStatusMaintenance {
 				result.Health = sdk.HealthWarning
 			}
 		}

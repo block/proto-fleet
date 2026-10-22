@@ -92,8 +92,9 @@ func boardFromProto(v *mdk.Hashboard) *Board {
 		return b
 	}
 	if h := v.Health; h != nil {
-		b.Health = &Health{Timestamp: sourceTime(h.Timestamp), AverageAsicTemperatureC: h.AverageAsicTemperatureC,
-			HashrailOK: &h.HashrailOk, RefclksOK: &h.RefclksOk}
+		b.Health = &Health{Timestamp: sourceTime(h.Timestamp), AverageAsicTemperatureC: h.AverageAsicTemperatureC, Errors: []Issue{}, Warnings: []Issue{}}
+		// Deprecated non-optional rail/clock booleans cannot prove an explicit false.
+		// Preserve the raw payload, but do not manufacture faults from defaults.
 		// The board scalar has no presence bit. Positive values prove a reading;
 		// ambiguous default zero remains unavailable until upstream supplies validity.
 		if h.Power != 0 {
@@ -107,6 +108,9 @@ func boardFromProto(v *mdk.Hashboard) *Board {
 		}
 		for _, e := range h.Errors {
 			b.Health.Errors = append(b.Health.Errors, Issue{Cause: e.GetCause().String()})
+		}
+		if throttle := h.AsicThermalThrottle; throttle != nil && len(throttle.QuarantinedAsicIds) > 0 {
+			b.Health.Warnings = append(b.Health.Warnings, Issue{Cause: "HASHBOARD_ERROR_CAUSE_ASIC_THERMAL_THROTTLING"})
 		}
 		for _, e := range h.Warnings {
 			b.Health.Warnings = append(b.Health.Warnings, Issue{Cause: e.GetCause().String()})

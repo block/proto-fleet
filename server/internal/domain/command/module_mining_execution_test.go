@@ -26,7 +26,7 @@ func (c *executionModuleController) SetModuleMining(_ context.Context, r sdk.Mod
 func TestModuleMiningExecutionRejectsReplacedRetiredMovedAndStaleIdentities(t *testing.T) {
 	svc, conn, deviceID, _, tank := setupTankMiningExecution(t)
 	var moduleID int64
-	require.NoError(t, conn.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,reported_id,identity_confirmed,first_seen_at,last_seen_at,state) VALUES($1,2,'module-a',true,now(),now(),'hashing') RETURNING id`, tank.TankIDs[0]).Scan(&moduleID))
+	require.NoError(t, conn.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,reported_id,identity_confirmed,first_seen_at,last_seen_at,state) VALUES($1,2,'module-a',true,now(),now(),'active') RETURNING id`, tank.TankIDs[0]).Scan(&moduleID))
 	payload := scopedMiningPayload{TankMiningRequest: sdk.TankMiningRequest{Mining: new(false)}, OrgID: tank.OrgID, ModuleIDs: []int64{moduleID}, Modules: []sdk.ModuleMiningTarget{{Tank: 1, Module: 2, ReportedID: "module-a"}}}
 	controller := &executionModuleController{}
 	_, err := conn.ExecContext(t.Context(), `UPDATE container_module SET identity_confirmed=false WHERE id=$1`, moduleID)

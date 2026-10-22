@@ -3,18 +3,8 @@ package sdk
 import (
 	"encoding/json"
 	"time"
-)
 
-// ModuleState describes a whole module, not a count of its faulty boards.
-type ModuleState string
-
-const (
-	ModuleUnknown   ModuleState = "unknown"
-	ModuleHashing   ModuleState = "hashing"
-	ModuleAttention ModuleState = "attention"
-	ModuleOffline   ModuleState = "offline"
-	ModuleSleeping  ModuleState = "sleeping"
-	ModuleIsolated  ModuleState = "isolated"
+	sdkerrors "github.com/block/proto-fleet/server/sdk/v1/errors"
 )
 
 // ContainerSnapshot is the latest observed topology and module health. Positions
@@ -56,11 +46,12 @@ type ContainerModuleIssues struct {
 	Items       []ContainerModuleIssue `json:"items"`
 }
 type ContainerModuleIssue struct {
-	Component   string    `json:"component"`    // hashboard, psu, or module
-	ComponentID string    `json:"component_id"` // board MAC, or module-owned psu
-	Cause       string    `json:"cause"`
-	Severity    string    `json:"severity"` // fault, warning, or observation
-	ObservedAt  time.Time `json:"observed_at"`
+	Component      string               `json:"component"`    // hashboard, psu, or module
+	ComponentID    string               `json:"component_id"` // board MAC, or module-owned psu
+	Cause          string               `json:"cause"`
+	Severity       string               `json:"severity"`
+	CanonicalError sdkerrors.MinerError `json:"canonical_error"`
+	ObservedAt     time.Time            `json:"observed_at"`
 }
 
 type ContainerModule struct {
@@ -72,7 +63,7 @@ type ContainerModule struct {
 	// IdentityConfirmed permits controls; partial identity evidence may still
 	// identify measurements without confirming every board in the module.
 	IdentityConfirmed bool        `json:"identity_confirmed"`
-	State             ModuleState `json:"state"`
+	State             MinerStatus `json:"state"`
 	// ObservedAt is the source evidence time, not the collection time.
 	ObservedAt time.Time `json:"observed_at"`
 }
@@ -93,7 +84,7 @@ type ContainerHashboard struct {
 	Occupancy         string                   `json:"occupancy"`
 	MACAddress        string                   `json:"mac_address,omitempty"`
 	Serial            string                   `json:"serial,omitempty"`
-	State             ModuleState              `json:"state"`
+	State             MinerStatus              `json:"state"`
 	MiningState       string                   `json:"mining_state,omitempty"`
 	Isolated          *bool                    `json:"isolated,omitempty"`
 	ObservedAt        time.Time                `json:"observed_at"`
@@ -182,5 +173,5 @@ const (
 
 // UnavailableHashboard clears untrusted identity and readings without claiming removal.
 func UnavailableHashboard(position int32, reason string) ContainerHashboard {
-	return ContainerHashboard{Position: position, Occupancy: "unknown", State: ModuleUnknown, UnavailableReason: reason}
+	return ContainerHashboard{Position: position, Occupancy: "unknown", State: MinerStatusUnknown, UnavailableReason: reason}
 }

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromMs } from "@bufbuild/protobuf/wkt";
@@ -20,7 +20,7 @@ it("expires board measurements separately from state and keeps installed hardwar
       hashboardId: 11n,
       installationId: 21n,
       serial: "HB-ONE",
-      state: "hashing",
+      state: "active",
       observedAt: timestampFromMs(now - 120_000),
       stateObservedAt: timestampFromMs(now),
       hashrateHs: 200e12,
@@ -52,10 +52,18 @@ it("shows a non-interactive issue icon and opens board details through info", ()
     observedAt: timestampFromMs(now),
     board: {
       serial: "HB-TWO",
-      state: "hashing",
+      state: "active",
       observedAt: timestampFromMs(now),
       stateObservedAt: timestampFromMs(now),
       health: { warnings: [{ cause: "HASHBOARD_ERROR_CAUSE_BOARD_OVER_TEMPERATURE" }] },
+      issues: [
+        {
+          component: "hashboard",
+          cause: "HASHBOARD_ERROR_CAUSE_BOARD_OVER_TEMPERATURE",
+          severity: "warning",
+          observedAt: timestampFromMs(now),
+        },
+      ],
     },
   });
   const { rerender } = render(<ModuleHashboardCard slot={slot} now={now} />);
@@ -70,21 +78,43 @@ it("shows a non-interactive issue icon and opens board details through info", ()
   expect(screen.getByRole("dialog", { name: "Board 2 status" })).toHaveTextContent("Over temperature");
   fireEvent.click(screen.getByRole("button", { name: "Done" }));
   slot.board!.health = { errors: [], warnings: [] };
+  slot.board!.issues = [];
   rerender(<ModuleHashboardCard slot={slot} now={now} />);
   expect(screen.queryByRole("button", { name: /issues$/ })).not.toBeInTheDocument();
 });
 
-it("opens details for an attention state without reported causes", () => {
+it.each([
+  [undefined, 0],
+  [{ errors: [], warnings: [] }, 0],
+  [undefined, 120_000],
+])("keeps a current error visible without diagnostic causes (%j, %s)", (health, sampleAge) => {
   const now = Date.now();
   const slot = create(HashboardSlotSchema, {
     position: 1,
     occupancy: "occupied",
     observedAt: timestampFromMs(now),
-    board: { state: "attention", stateObservedAt: timestampFromMs(now), observedAt: timestampFromMs(now) },
+    board: {
+      state: "error",
+      stateObservedAt: timestampFromMs(now),
+      observedAt: timestampFromMs(now - sampleAge),
+      health,
+    },
   });
-  render(<ModuleHashboardCard slot={slot} now={now} />);
+  const { rerender } = render(<ModuleHashboardCard slot={slot} now={now} />);
+  expect(screen.getByRole("img", { name: "Board 1 needs attention" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Board 1 info" }));
-  expect(screen.getByRole("dialog")).toHaveTextContent("Fault reported; details unavailable");
+  expect(screen.getByRole("dialog")).toHaveTextContent("Needs attention");
+  expect(screen.getByRole("dialog")).toHaveTextContent("Detailed error information is unavailable.");
+  expect(screen.getByRole("dialog")).not.toHaveTextContent("No active component errors reported.");
+  fireEvent.click(screen.getByRole("button", { name: "Done" }));
+  slot.board!.stateObservedAt = timestampFromMs(now - 120_000);
+  rerender(<ModuleHashboardCard slot={slot} now={now} />);
+  expect(screen.queryByRole("img", { name: "Board 1 needs attention" })).not.toBeInTheDocument();
+  slot.board!.stateObservedAt = timestampFromMs(now);
+  slot.board!.state = "active";
+  slot.board!.miningState = "MINING_STATE_ERROR";
+  rerender(<ModuleHashboardCard slot={slot} now={now} />);
+  expect(screen.queryByRole("img", { name: "Board 1 needs attention" })).not.toBeInTheDocument();
 });
 
 it.each([false, true])("presents isolated board details as attention unless state is stale (%s)", (stale) => {
@@ -94,7 +124,8 @@ it.each([false, true])("presents isolated board details as attention unless stat
     occupancy: "occupied",
     observedAt: timestampFromMs(now),
     board: {
-      state: "isolated",
+      state: "inactive",
+      isolated: true,
       stateObservedAt: timestampFromMs(now - (stale ? 120_000 : 0)),
       observedAt: timestampFromMs(now),
       health: { errors: [], warnings: [] },
@@ -102,7 +133,7 @@ it.each([false, true])("presents isolated board details as attention unless stat
   });
   render(<ModuleHashboardCard slot={slot} now={now} />);
   fireEvent.click(screen.getByRole("button", { name: "Board 1 info" }));
-  expect(screen.getByRole("dialog")).toHaveTextContent(stale ? "Status unknown" : "Needs attention");
+  expect(screen.getByRole("dialog")).toHaveTextContent(stale ? "Status unknown" : "Sleeping");
   expect(screen.getByRole("dialog")).not.toHaveTextContent(/isolated|Fault reported/i);
 });
 
@@ -115,7 +146,7 @@ it("uses the same five metrics as ProtoOS and keeps identity in the info modal",
     board: {
       serial: "BOARD-SERIAL",
       macAddress: "aa:bb:cc:dd:ee:ff",
-      state: "hashing",
+      state: "active",
       observedAt: timestampFromMs(now),
       stateObservedAt: timestampFromMs(now),
       hashrateHs: 200e12,
@@ -239,110 +270,70 @@ it("expires the ASIC maximum as time passes while board readings remain current"
   expect(screen.getByText("ASIC high").parentElement).toHaveTextContent("—");
 });
 
-it.each([
-  ["mining error", { miningState: "MINING_STATE_ERROR" }, {}, "Fault reported; details unavailable"],
-  ["hashrail fault", { hashrailOk: false }, {}, "Fault reported; details unavailable"],
-  ["clock fault", { refclksOk: false }, {}, "Fault reported; details unavailable"],
-  ["board error", {}, { errors: [{ cause: "HASHBOARD_ERROR_CAUSE_ASIC_ENUMERATION" }] }, "Asic enumeration"],
-  ["board warning", {}, { warnings: [{ cause: "HASHBOARD_ERROR_CAUSE_BOARD_OVER_TEMPERATURE" }] }, "Over temperature"],
-  ["unreported board errors", {}, { errors: null }, "Fault reported; details unavailable"],
-])("preserves a %s alongside a PSU warning", (_, boardFields, healthFields, expected) => {
-  const now = Date.now();
-  const slot = create(HashboardSlotSchema, {
-    position: 1,
-    occupancy: "occupied",
-    observedAt: timestampFromMs(now),
-    board: {
-      state: "attention",
-      miningState: "MINING_STATE_MINING",
+it.each(["MINING_STATE_ERROR", "MINING_STATE_MINING"])(
+  "renders canonical causes without diagnosing raw state (%s)",
+  (miningState) => {
+    const now = Date.now();
+    const slot = create(HashboardSlotSchema, {
+      position: 1,
+      occupancy: "occupied",
       observedAt: timestampFromMs(now),
-      stateObservedAt: timestampFromMs(now),
-      hashrailOk: true,
-      refclksOk: true,
-      ...boardFields,
-      health: {
-        errors: [],
-        warnings: [],
-        psuThermal: {
-          thermalStateValid: true,
-          thermalStateAgeMs: 0,
-          overTemperatureWarning: true,
-        },
-        ...healthFields,
+      board: {
+        state: "error",
+        miningState,
+        observedAt: timestampFromMs(now),
+        stateObservedAt: timestampFromMs(now),
+        health: { errors: [], warnings: [], psuThermal: { thermalStateValid: false } },
+        issues: [
+          {
+            component: "hashboard",
+            cause: "HASHBOARD_ERROR_CAUSE_ASIC_ENUMERATION",
+            severity: "fault",
+            observedAt: timestampFromMs(now),
+          },
+        ],
       },
-    },
-  });
-  render(<ModuleHashboardCard slot={slot} now={now} />);
-  expect(screen.getByRole("img", { name: "Board 1 needs attention" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Board 1 info" }));
-  expect(screen.getByRole("dialog")).toHaveTextContent(expected);
-});
+    });
+    const { rerender } = render(<ModuleHashboardCard slot={slot} now={now} />);
+    expect(screen.getByRole("img", { name: "Board 1 needs attention" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Board 1 info" }));
+    expect(screen.getByRole("dialog")).toHaveTextContent("Asic enumeration");
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    rerender(<ModuleHashboardCard slot={slot} now={now + 120_000} />);
+    expect(screen.queryByRole("img", { name: "Board 1 needs attention" })).not.toBeInTheDocument();
+  },
+);
 
-it.each([
-  ["expired", { thermalStateAgeMs: 120_000 }, true],
-  ["invalid", { thermalStateValid: false }, true],
-  ["negative age", { thermalStateAgeMs: -1 }, true],
-  ["malformed age", { thermalStateAgeMs: "0" }, true],
-  ["no warning", { overTemperatureWarning: false }, true],
-  ["omitted age", { thermalStateValid: true, overTemperatureWarning: true }, false],
-])("only suppresses a board fallback with valid PSU evidence (%s)", (name, thermal, hasFault) => {
-  const now = Date.now();
-  const slot = create(HashboardSlotSchema, {
-    position: 1,
-    occupancy: "occupied",
-    observedAt: timestampFromMs(now),
-    board: {
-      state: "attention",
-      miningState: "MINING_STATE_MINING",
-      observedAt: timestampFromMs(now),
-      stateObservedAt: timestampFromMs(now),
-      health: {
-        errors: [],
-        warnings: [],
-        psuThermal:
-          name === "omitted age"
-            ? thermal
-            : {
-                thermalStateValid: true,
-                thermalStateAgeMs: 0,
-                overTemperatureWarning: true,
-                ...thermal,
-              },
-      },
-    },
-  });
-  render(<ModuleHashboardCard slot={slot} now={now} />);
-  fireEvent.click(screen.getByRole("button", { name: "Board 1 info" }));
-  if (hasFault) expect(screen.getByRole("dialog")).toHaveTextContent("Fault reported; details unavailable");
-  else expect(screen.getByRole("dialog")).not.toHaveTextContent("Fault reported; details unavailable");
-});
-
-it("stops using expired PSU evidence even while the board health remains current", () => {
-  const now = Date.now();
-  const slot = create(HashboardSlotSchema, {
-    position: 1,
-    occupancy: "occupied",
-    observedAt: timestampFromMs(now),
-    board: {
-      state: "attention",
-      miningState: "MINING_STATE_MINING",
-      observedAt: timestampFromMs(now),
-      stateObservedAt: timestampFromMs(now),
-      health: {
-        errors: [],
-        warnings: [],
-        psuThermal: {
-          thermalStateValid: true,
-          thermalStateAgeMs: 60_000,
-          overTemperatureWarning: true,
+it.each(["ASIC_ENUMERATION", "ASIC_ECC"])(
+  "retains fresh %s issues independently of unknown state and readings",
+  (cause) => {
+    vi.useFakeTimers();
+    try {
+      const now = Date.now();
+      const slot = create(HashboardSlotSchema, {
+        position: 1,
+        occupancy: "occupied",
+        observedAt: timestampFromMs(now),
+        board: {
+          state: "unknown",
+          observedAt: timestampFromMs(now),
+          issues: [{ component: "hashboard", cause, severity: "fault", observedAt: timestampFromMs(now) }],
         },
-      },
-    },
-  });
-  const { rerender } = render(<ModuleHashboardCard slot={slot} now={now} />);
-  expect(screen.queryByRole("img", { name: "Board 1 needs attention" })).not.toBeInTheDocument();
-  rerender(<ModuleHashboardCard slot={slot} now={now + 60_000} />);
-  expect(screen.getByRole("img", { name: "Board 1 needs attention" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Board 1 info" }));
-  expect(screen.getByRole("dialog")).toHaveTextContent("Fault reported; details unavailable");
-});
+      });
+      const { rerender } = render(<ModuleHashboardCard slot={slot} now={now} />);
+      expect(screen.getByRole("img", { name: "Board 1 needs attention" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Board 1 info" }));
+      expect(screen.getByRole("dialog")).toHaveTextContent(cause === "ASIC_ECC" ? "Asic ecc" : "Asic enumeration");
+      fireEvent.click(screen.getByRole("button", { name: "Done" }));
+      // Metric availability and stale operating evidence cannot hide a fresh cause.
+      slot.board!.observedAt = undefined;
+      slot.board!.stateObservedAt = timestampFromMs(now - 120_000);
+      rerender(<ModuleHashboardCard slot={slot} now={now} />);
+      expect(screen.getByRole("img", { name: "Board 1 needs attention" })).toBeInTheDocument();
+      act(() => vi.advanceTimersByTime(120_000));
+      expect(screen.queryByRole("img", { name: "Board 1 needs attention" })).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);

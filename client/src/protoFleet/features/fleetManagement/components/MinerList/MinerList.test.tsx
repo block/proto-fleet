@@ -623,6 +623,14 @@ describe("MinerList", () => {
                   serial,
                   state: "hashing",
                   health: { errors: [{ cause: "BOARD_FAULT" }] },
+                  issues: [
+                    {
+                      component: "hashboard",
+                      cause: "BOARD_FAULT",
+                      severity: "fault",
+                      observedAt: timestampFromDate(new Date()),
+                    },
+                  ],
                   observedAt: timestampFromDate(new Date()),
                 },
               },

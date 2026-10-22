@@ -27,7 +27,7 @@ function fixture(): ContainerOverviewData {
         ref: { kind: EntityKind.MODULE, id: BigInt(100 + position) },
         name: `Module ${position}`,
         position,
-        state: position === 1 ? "hashing" : "attention",
+        state: position === 1 ? "active" : "error",
         ancestors: [
           { kind: EntityKind.CONTAINER, id: 7n },
           { kind: EntityKind.TANK, id: 81n },
@@ -106,7 +106,7 @@ describe("collected container presentation", () => {
       create(InventoryItemSchema, {
         name: "Module 3",
         position: 3,
-        state: "hashing",
+        state: "active",
         ancestors: [{ kind: EntityKind.TANK, id: 81n }],
       }),
     );
@@ -129,7 +129,7 @@ describe("collected container presentation", () => {
         ref: { kind: EntityKind.MODULE, id: BigInt(100 + position) },
         name: `Module ${position}`,
         position,
-        state: "hashing",
+        state: "active",
         ancestors: [{ kind: EntityKind.TANK, id: 81n }],
       }),
     );

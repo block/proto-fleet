@@ -8,7 +8,7 @@ import { InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v
 const item = (complete = true) =>
   create(InventoryItemSchema, {
     name: "CT1 T1 M1",
-    state: "attention",
+    state: "error",
     moduleIssues: { observedAt: timestampFromDate(new Date()), complete, items: [] },
   });
 

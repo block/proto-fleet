@@ -81,7 +81,7 @@ func TestContainerPersistenceAndMinerSeparation(t *testing.T) {
 	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
 	require.NoError(t, err)
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	snapshot := &sdk.ContainerSnapshot{ObservedAt: now, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, State: sdk.ModuleAttention, ObservedAt: now}, {Position: 2, State: sdk.ModuleHashing, ObservedAt: now}}}}}
+	snapshot := &sdk.ContainerSnapshot{ObservedAt: now, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, State: sdk.MinerStatusError, ObservedAt: now}, {Position: 2, State: sdk.MinerStatusActive, ObservedAt: now}}}}}
 	pue := 1.05
 	snapshot.Plant = &sdk.ContainerPlant{ObservedAt: now, PUE: &pue}
 	snapshot.Metrics = &sdk.ContainerRollup{PowerW: new(9000.0), PowerSource: "facility", Power: sdk.MetricCoverage{Reporting: 1, Expected: 1, TopologyComplete: true, OldestAt: now, NewestAt: now}, SourceTimes: map[string]time.Time{"facility": now}}
@@ -93,7 +93,7 @@ func TestContainerPersistenceAndMinerSeparation(t *testing.T) {
 	// An older successful response must not overwrite more recent health.
 	snapshot.ObservedAt = now.Add(-time.Minute)
 	snapshot.UnlocatedHashboards = nil // An older map cannot clear the current location warning.
-	snapshot.Tanks[0].Modules[0].State = sdk.ModuleHashing
+	snapshot.Tanks[0].Modules[0].State = sdk.MinerStatusActive
 	require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: device.DeviceIdentifier, Timestamp: snapshot.ObservedAt, Container: snapshot}))
 	rows, err = service.List(ctx, orgID, nil, false, allow)
 	require.NoError(t, err)
@@ -105,20 +105,29 @@ func TestContainerPersistenceAndMinerSeparation(t *testing.T) {
 	require.EqualValues(t, 6, rows[0].GetUnlocatedHashboards())
 
 	t.Run("card counts use current inventory states", func(t *testing.T) {
-		for _, state := range []sdk.ModuleState{sdk.ModuleHashing, sdk.ModuleAttention, sdk.ModuleOffline, sdk.ModuleSleeping, sdk.ModuleIsolated, sdk.ModuleUnknown} {
-			t.Run(string(state), func(t *testing.T) {
-				_, err := db.ExecContext(ctx, "UPDATE container_module SET state=$1 WHERE position=2", state)
+		for _, state := range []sdk.MinerStatus{sdk.MinerStatusActive, sdk.MinerStatusError, sdk.MinerStatusOffline, sdk.MinerStatusInactive, sdk.MinerStatusMaintenance, sdk.MinerStatusNeedsMiningPool, sdk.MinerStatusUpdating, sdk.MinerStatusRebootRequired, sdk.MinerStatusUnknown} {
+			t.Run(state.String(), func(t *testing.T) {
+				_, err := db.ExecContext(ctx, "UPDATE container_module SET state=$1 WHERE position=2", state.String())
 				require.NoError(t, err)
 				card, err := service.Get(ctx, orgID, "ct1", allow)
 				require.NoError(t, err)
 				health := card.Tanks[0]
-				counts := map[sdk.ModuleState]int32{
-					sdk.ModuleHashing: health.HashingCount, sdk.ModuleAttention: health.AttentionCount - 1,
-					sdk.ModuleOffline: health.OfflineCount, sdk.ModuleSleeping: health.SleepingCount,
-					sdk.ModuleIsolated: health.IsolatedCount, sdk.ModuleUnknown: health.UnknownCount,
+				counts := map[sdk.MinerStatus]int32{
+					sdk.MinerStatusActive: health.HashingCount, sdk.MinerStatusError: health.AttentionCount - 1,
+					sdk.MinerStatusOffline: health.OfflineCount, sdk.MinerStatusInactive: health.SleepingCount,
+					sdk.MinerStatusUnknown: health.UnknownCount,
+				}
+				require.Zero(t, health.IsolatedCount)
+				bucket := state
+				switch state {
+				case sdk.MinerStatusUnknown, sdk.MinerStatusActive, sdk.MinerStatusOffline, sdk.MinerStatusInactive, sdk.MinerStatusError:
+				case sdk.MinerStatusMaintenance:
+					bucket = sdk.MinerStatusInactive
+				case sdk.MinerStatusNeedsMiningPool, sdk.MinerStatusUpdating, sdk.MinerStatusRebootRequired:
+					bucket = sdk.MinerStatusError
 				}
 				for key, count := range counts {
-					if key == state {
+					if key == bucket {
 						require.EqualValues(t, 1, count)
 					} else {
 						require.Zero(t, count)
@@ -126,7 +135,7 @@ func TestContainerPersistenceAndMinerSeparation(t *testing.T) {
 				}
 			})
 		}
-		_, err := db.ExecContext(ctx, "UPDATE container_module SET state='hashing' WHERE position=2")
+		_, err := db.ExecContext(ctx, "UPDATE container_module SET state='active' WHERE position=2")
 		require.NoError(t, err)
 	})
 	t.Run("module freshness matches inventory", func(t *testing.T) {

@@ -73,18 +73,18 @@ func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool
 			at = now
 		}
 		key := component + ":" + id + ":" + cause
+		code, _ := canonicalIssue(cause, severity == "warning")
 		old, exists := issues[key]
 		if !exists && (len(issues) >= maxModuleIssues || !budget.retain(len(component)+len(id)+len(cause)+128)) {
 			truncated = true
 			return
 		}
 		if !exists || at.After(old.ObservedAt) || (at.Equal(old.ObservedAt) && severity == "fault") {
-			issues[key] = sdk.ContainerModuleIssue{Component: component, ComponentID: id, Cause: cause, Severity: severity, ObservedAt: at}
+			issues[key] = sdk.ContainerModuleIssue{Component: component, ComponentID: id, Cause: cause, Severity: severity, CanonicalError: code, ObservedAt: at}
 		}
 	}
 	var psu *PSUThermal
 	var psuAt time.Time
-	states := map[string]bool{}
 	for _, b := range boards {
 		h := b.Health
 		if h != nil && !h.Timestamp.IsZero() && (out.ObservedAt.IsZero() || h.Timestamp.Before(out.ObservedAt)) {
@@ -98,11 +98,12 @@ func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool
 		if sourceAt.After(now) {
 			sourceAt = now
 		}
+		// Use the inventory selector for both faults and clear-reading watermarks.
+		b.MACAddress = normalizedBoardMAC(b.MACAddress)
 		addSource("hashboard", b.MACAddress, sourceAt)
 		if h.Errors == nil || h.Warnings == nil {
 			out.Complete = false
 		}
-		states[b.MiningState] = true
 		for _, group := range []struct {
 			items    []Issue
 			severity string
@@ -159,9 +160,6 @@ func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool
 			add("psu", "psu", "PSU_OVER_TEMPERATURE", "warning", psuAt)
 		}
 	}
-	if out.Complete && !truncated && len(states) > 1 {
-		add("module", "module", "MIXED_BOARD_STATES", "observation", out.ObservedAt)
-	}
 	if psu == nil {
 		out.Complete = false
 	}
@@ -174,10 +172,10 @@ func moduleIssuesWithBudget(boards []Board, now time.Time, identityConflict bool
 	for _, issue := range issues {
 		out.Items = append(out.Items, issue)
 	}
+	rank := map[string]int{"fault": 0, "warning": 1, "observation": 2}
 	sort.Slice(out.Items, func(i, j int) bool {
 		a, b := out.Items[i], out.Items[j]
-		rank := map[string]int{"fault": 0, "warning": 1, "observation": 2}
-		if rank[a.Severity] != rank[b.Severity] {
+		if a.Severity != b.Severity {
 			return rank[a.Severity] < rank[b.Severity]
 		}
 		return a.Component+":"+a.ComponentID+":"+a.Cause < b.Component+":"+b.ComponentID+":"+b.Cause

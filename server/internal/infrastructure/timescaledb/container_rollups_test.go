@@ -243,8 +243,8 @@ func (r *containerRollupRig) snapshot(offset time.Duration, moved bool, hashA, h
 		return &sdk.ContainerRollup{PowerW: new(watts), PowerSource: source, Power: sdk.MetricCoverage{Reporting: 1, Expected: 1, TopologyComplete: true, OldestAt: at, NewestAt: at}, SourceTimes: map[string]time.Time{source: at}}
 	}
 	boards := []sdk.ContainerHashboard{
-		{Position: 1, Occupancy: "occupied", Serial: "board-a", State: sdk.ModuleHashing, ObservedAt: at, StateObservedAt: at, HashrateHS: new(hashA), TemperatureC: new(50.0), PowerW: new(1000.0), EfficiencyJH: new(1000 / hashA)},
-		{Position: 1, Occupancy: "occupied", Serial: "board-b", State: sdk.ModuleHashing, ObservedAt: at, StateObservedAt: at, HashrateHS: new(hashB), TemperatureC: new(70.0), PowerW: new(2000.0), EfficiencyJH: new(2000 / hashB)},
+		{Position: 1, Occupancy: "occupied", Serial: "board-a", State: sdk.MinerStatusActive, ObservedAt: at, StateObservedAt: at, HashrateHS: new(hashA), TemperatureC: new(50.0), PowerW: new(1000.0), EfficiencyJH: new(1000 / hashA)},
+		{Position: 1, Occupancy: "occupied", Serial: "board-b", State: sdk.MinerStatusActive, ObservedAt: at, StateObservedAt: at, HashrateHS: new(hashB), TemperatureC: new(70.0), PowerW: new(2000.0), EfficiencyJH: new(2000 / hashB)},
 	}
 	if moved {
 		boards[0], boards[1] = boards[1], boards[0]
@@ -253,9 +253,9 @@ func (r *containerRollupRig) snapshot(offset time.Duration, moved bool, hashA, h
 	for i, board := range boards {
 		position := int32(i + 1) //nolint:gosec // fixture contains two tanks
 		snapshot.Tanks = append(snapshot.Tanks, sdk.ContainerTank{Position: position, TopologyComplete: true, Metrics: power(1500+float64(i)*1000, fmt.Sprintf("pdu-%d", position)), Modules: []sdk.ContainerModule{{
-			Position: 1, ReportedID: fmt.Sprintf("module-%d", position), State: sdk.ModuleHashing, ObservedAt: at,
+			Position: 1, ReportedID: fmt.Sprintf("module-%d", position), State: sdk.MinerStatusActive, ObservedAt: at,
 			Metrics:    &sdk.ContainerModuleMetrics{ObservedAt: at, PowerW: new(1200.0), Rollup: power(1200, "module_psu")},
-			Hashboards: []sdk.ContainerHashboard{board, {Position: 2, Occupancy: "empty", State: sdk.ModuleUnknown}, {Position: 3, Occupancy: "empty", State: sdk.ModuleUnknown}},
+			Hashboards: []sdk.ContainerHashboard{board, {Position: 2, Occupancy: "empty", State: sdk.MinerStatusUnknown}, {Position: 3, Occupancy: "empty", State: sdk.MinerStatusUnknown}},
 		}}})
 	}
 	sdk.CalculateContainerRollups(snapshot)

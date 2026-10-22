@@ -39,7 +39,7 @@ func TestModuleMiningRequiresCurrentlyConfirmedIdentity(t *testing.T) {
 			observe := func(identity string, confirmed bool) {
 				t.Helper()
 				observed = observed.Add(time.Millisecond)
-				snapshot := &sdk.ContainerSnapshot{ObservedAt: observed, TopologyComplete: false, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 2, ReportedID: identity, IdentityConfirmed: confirmed, State: sdk.ModuleHashing, ObservedAt: observed, Metrics: &sdk.ContainerModuleMetrics{ObservedAt: observed, HashrateHS: new(300e12), PowerW: new(3600.0), TemperatureC: new(60.0)}}}}}}
+				snapshot := &sdk.ContainerSnapshot{ObservedAt: observed, TopologyComplete: false, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 2, ReportedID: identity, IdentityConfirmed: confirmed, State: sdk.MinerStatusActive, ObservedAt: observed, Metrics: &sdk.ContainerModuleMetrics{ObservedAt: observed, HashrateHS: new(300e12), PowerW: new(3600.0), TemperatureC: new(60.0)}}}}}}
 				require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: identifier, Timestamp: observed, Container: snapshot}))
 			}
 			observe("module-a", true)
@@ -54,7 +54,7 @@ func TestModuleMiningRequiresCurrentlyConfirmedIdentity(t *testing.T) {
 				require.NoError(t, conn.QueryRowContext(ctx, `SELECT id,reported_id,identity_confirmed,state FROM container_module WHERE tank_id=$1 AND position=2 AND retired_at IS NULL`, tanks[0]).Scan(&currentID, &historicalIdentity, &currentConfirmed, &state))
 				require.Equal(t, moduleID, currentID)
 				require.Equal(t, "module-a", historicalIdentity)
-				require.Equal(t, "hashing", state)
+				require.Equal(t, "active", state)
 				require.Equal(t, confirmed, currentConfirmed)
 				options, err := svc.GetModuleMiningOptions(ctx, ids, allow)
 				require.NoError(t, err)
@@ -182,7 +182,7 @@ func TestModuleMiningAvailabilityReasonPrecedence(t *testing.T) {
 func seedCommandModule(t *testing.T, conn *sql.DB, tank int64, position int, identity string) int64 {
 	t.Helper()
 	var id int64
-	require.NoError(t, conn.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,reported_id,identity_confirmed,first_seen_at,last_seen_at,state) VALUES($1,$2,$3,true,now(),now(),'hashing') RETURNING id`, tank, position, identity).Scan(&id))
+	require.NoError(t, conn.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,reported_id,identity_confirmed,first_seen_at,last_seen_at,state) VALUES($1,$2,$3,true,now(),now(),'active') RETURNING id`, tank, position, identity).Scan(&id))
 	return id
 }
 

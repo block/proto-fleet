@@ -1,8 +1,8 @@
--- Serialize cross-controller identity/placement reconciliation within an org.
 -- name: LockHashboardOrganization :one
 SELECT o.id FROM organization o JOIN device d ON d.org_id = o.id
 WHERE d.device_identifier = sqlc.arg('identifier') AND d.deleted_at IS NULL
 FOR NO KEY UPDATE OF o;
+
 
 -- name: FindHashboardIdentities :many
 SELECT i.kind, i.value, i.hashboard_id, h.last_seen_at FROM hashboard_identity i JOIN hashboard h ON h.id=i.hashboard_id
@@ -13,6 +13,7 @@ WHERE i.org_id = sqlc.arg('org_id') AND i.hashboard_id IN (
 );
 
 -- The caller rejects aliases that resolve to different existing hardware.
+
 -- name: EnsureHashboards :many
 WITH input AS MATERIALIZED (
  SELECT COALESCE(value->>'mac_address','')::text AS mac_address, COALESCE(value->>'serial','')::text AS serial, COALESCE(NULLIF((value->>'board_id')::bigint, 0), nextval('hashboard_id_seq'))::bigint AS id
@@ -31,6 +32,7 @@ WITH input AS MATERIALIZED (
 )
 SELECT x.id::bigint AS id, x.mac_address::text AS mac_address, x.serial::text AS serial FROM input x JOIN boards b ON b.id=x.id;
 
+
 -- name: GetHashboardInstallations :many
 SELECT i.*, t.device_id, h.last_seen_at AS board_last_seen_at,
  EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id
@@ -40,10 +42,12 @@ JOIN container_module m ON m.id=i.module_id JOIN container_tank t ON t.id=m.tank
 WHERE h.org_id=sqlc.arg('org_id') AND i.removed_at IS NULL
 AND (t.device_id=sqlc.arg('device_id') OR i.hashboard_id=ANY(sqlc.arg('board_ids')::bigint[]));
 
+
 -- name: ListHashboardModules :many
 SELECT m.id, m.position, m.retired_at, t.position AS tank_position, d.site_id
 FROM container_module m JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id
 WHERE t.device_id=sqlc.arg('device_id');
+
 
 -- name: CloseHashboardInstallations :exec
 WITH closed AS (
@@ -54,16 +58,18 @@ WITH closed AS (
 UPDATE hashboard SET last_seen_at=GREATEST(last_seen_at,sqlc.arg('observed_at')::timestamptz)
 WHERE id IN (SELECT hashboard_id FROM closed);
 
+
 -- name: UpsertHashboardSlots :exec
 INSERT INTO hashboard_slot(module_id, hashboard_id, position, occupancy, observed_at, health_observed_at, state, state_observed_at, mining_state, isolated, unavailable_reason)
 SELECT x.module_id, NULLIF(x.board_id,0), x.position, x.occupancy, sqlc.arg('observed_at')::timestamptz, x.time, x.state, x.state_observed_at, COALESCE(x.mining_state,''), x.isolated, COALESCE(x.unavailable_reason,'')
 FROM jsonb_to_recordset(sqlc.arg('slots')::jsonb) AS x(module_id bigint, board_id bigint, position int, occupancy text, time timestamptz, state text, state_observed_at timestamptz, mining_state text, isolated boolean, unavailable_reason text)
 ON CONFLICT (module_id, position) DO UPDATE SET hashboard_id=EXCLUDED.hashboard_id, occupancy=EXCLUDED.occupancy, observed_at=EXCLUDED.observed_at,
  health_observed_at=CASE WHEN hashboard_slot.hashboard_id=EXCLUDED.hashboard_id AND EXCLUDED.health_observed_at IS NOT NULL THEN GREATEST(hashboard_slot.health_observed_at,EXCLUDED.health_observed_at) ELSE EXCLUDED.health_observed_at END,
- state=CASE WHEN hashboard_slot.hashboard_id=EXCLUDED.hashboard_id AND EXCLUDED.state <> 'unknown' AND hashboard_slot.state_observed_at > EXCLUDED.state_observed_at THEN hashboard_slot.state ELSE EXCLUDED.state END,
- state_observed_at=CASE WHEN hashboard_slot.hashboard_id=EXCLUDED.hashboard_id AND EXCLUDED.state <> 'unknown' THEN GREATEST(hashboard_slot.state_observed_at,EXCLUDED.state_observed_at) ELSE EXCLUDED.state_observed_at END,
+ -- Classification follows accepted collection order; source time governs freshness and attribution.
+ state=EXCLUDED.state, state_observed_at=EXCLUDED.state_observed_at,
  mining_state=EXCLUDED.mining_state, isolated=EXCLUDED.isolated, unavailable_reason=EXCLUDED.unavailable_reason
 WHERE hashboard_slot.observed_at < EXCLUDED.observed_at;
+
 
 -- name: UpsertHashboardInstallations :exec
 INSERT INTO hashboard_installation(hashboard_id, module_id, position, site_id, installed_at, last_seen_at, metadata)
@@ -72,6 +78,7 @@ FROM jsonb_to_recordset(sqlc.arg('boards')::jsonb) AS x(board_id bigint, module_
 ON CONFLICT (hashboard_id) WHERE removed_at IS NULL DO UPDATE SET last_seen_at=EXCLUDED.last_seen_at, metadata=EXCLUDED.metadata
 WHERE hashboard_installation.module_id=EXCLUDED.module_id AND hashboard_installation.position=EXCLUDED.position
   AND hashboard_installation.last_seen_at < EXCLUDED.last_seen_at;
+
 
 -- name: InsertHashboardMetrics :exec
 WITH inserted AS (
@@ -94,14 +101,17 @@ ON CONFLICT (hashboard_id) DO UPDATE SET installation_id=EXCLUDED.installation_i
 WHERE (hashboard_latest_metrics.time, hashboard_latest_metrics.collected_at) < (EXCLUDED.time, EXCLUDED.collected_at)
  OR (hashboard_latest_metrics.installation_id <> EXCLUDED.installation_id AND hashboard_latest_metrics.collected_at < EXCLUDED.collected_at);
 
+
 -- name: GetHashboardControllerSite :one
 SELECT site_id FROM device WHERE id=sqlc.arg('device_id');
+
 
 -- name: GetHashboardObservations :many
 SELECT o.* FROM hashboard_observation o JOIN hashboard h ON h.id=o.hashboard_id
 WHERE h.org_id=sqlc.arg('org_id') AND o.hashboard_id=ANY(sqlc.arg('board_ids')::bigint[]);
 
 -- The org lock serializes these accepted claims, including boards with no installation.
+
 -- name: UpsertHashboardObservations :exec
 INSERT INTO hashboard_observation(hashboard_id, device_id, site_id, last_seen_at, source_at)
 SELECT x.board_id, sqlc.arg('device_id'), x.site_id, sqlc.arg('observed_at')::timestamptz, x.source_at
@@ -119,8 +129,23 @@ WHERE hashboard_observation.last_seen_at<=EXCLUDED.last_seen_at;
 
 -- Explicit removal permits a prompt transfer, but cannot release a board still
 -- reported elsewhere in this same poll (including unlocated inventory).
+
 -- name: ReleaseHashboardObservations :exec
 UPDATE hashboard_observation SET released_at=sqlc.arg('observed_at')::timestamptz,
  last_seen_at=sqlc.arg('observed_at')::timestamptz
 WHERE device_id=sqlc.arg('device_id') AND last_seen_at<sqlc.arg('observed_at')::timestamptz
  AND hashboard_id IN (SELECT hashboard_id FROM hashboard_installation WHERE id=ANY(sqlc.arg('installation_ids')::bigint[]));
+
+-- name: InsertHashboardDiagnosticObservations :exec
+INSERT INTO hashboard_diagnostic_observation(hashboard_id,installation_id,collected_at,observed_at,state,state_observed_at,mining_state,isolated,hashrail_ok,refclks_ok,health,issues)
+SELECT x.board_id,i.id,sqlc.arg('collected_at')::timestamptz,x.time,x.state,x.state_observed_at,COALESCE(x.mining_state,''),x.isolated,x.hashrail_ok,x.refclks_ok,x.health,
+ COALESCE((SELECT jsonb_agg(issue) FROM container_module_diagnostic_observation o CROSS JOIN LATERAL jsonb_array_elements(NULLIF(o.issues->'items','null'::jsonb)) issue
+ WHERE o.module_id=i.module_id AND o.collected_at=sqlc.arg('collected_at')::timestamptz AND o.site_id IS NOT DISTINCT FROM i.site_id
+ AND issue->>'component'='hashboard' AND issue->>'component_id'=x.mac_address
+ AND ((issue->>'observed_at')::timestamptz>=i.installed_at OR NOT EXISTS(SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id AND (prior.installed_at,prior.id)<(i.installed_at,i.id)))
+ AND NOT EXISTS(SELECT 1 FROM hashboard_observation owner WHERE owner.hashboard_id=i.hashboard_id AND owner.attribution_since>(issue->>'observed_at')::timestamptz)),'[]'::jsonb)
+FROM jsonb_to_recordset(sqlc.arg('boards')::jsonb) AS x(board_id bigint,module_id bigint,position int,mac_address text,time timestamptz,state text,state_observed_at timestamptz,mining_state text,isolated boolean,hashrail_ok boolean,refclks_ok boolean,health jsonb)
+JOIN hashboard_installation i ON i.hashboard_id=x.board_id AND i.module_id=x.module_id AND i.position=x.position AND i.removed_at IS NULL
+WHERE i.last_seen_at=sqlc.arg('collected_at')::timestamptz
+ AND (x.time IS NOT NULL OR x.state_observed_at IS NOT NULL)
+ON CONFLICT DO NOTHING;

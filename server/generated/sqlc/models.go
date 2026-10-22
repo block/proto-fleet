@@ -636,6 +636,18 @@ type ContainerModule struct {
 	IssuesObservedAt  sql.NullTime
 	IssuesSourceTimes json.RawMessage
 	IdentityConfirmed bool
+	ObservationSiteID sql.NullInt64
+	AttributionSince  sql.NullTime
+}
+
+type ContainerModuleDiagnosticObservation struct {
+	ModuleID         int64
+	CollectedAt      time.Time
+	SiteID           sql.NullInt64
+	AttributionSince sql.NullTime
+	State            string
+	StateObservedAt  sql.NullTime
+	Issues           pqtype.NullRawMessage
 }
 
 type ContainerModuleLatestMetric struct {
@@ -1675,6 +1687,21 @@ type Hashboard struct {
 	OrgID       int64
 	FirstSeenAt time.Time
 	LastSeenAt  time.Time
+}
+
+type HashboardDiagnosticObservation struct {
+	HashboardID     int64
+	InstallationID  int64
+	CollectedAt     time.Time
+	ObservedAt      sql.NullTime
+	State           string
+	StateObservedAt sql.NullTime
+	MiningState     string
+	Isolated        sql.NullBool
+	HashrailOk      sql.NullBool
+	RefclksOk       sql.NullBool
+	Health          pqtype.NullRawMessage
+	Issues          json.RawMessage
 }
 
 type HashboardIdentity struct {

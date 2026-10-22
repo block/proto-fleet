@@ -64,7 +64,7 @@ func (f fixture) miningModule(t *testing.T) (int64, int64) {
 	require.NoError(t, err)
 	var tank, module int64
 	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_tank(device_id,position,first_seen_at,last_seen_at) VALUES($1,1,now(),now()) RETURNING id`, controller).Scan(&tank))
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) VALUES($1,1,now(),now(),'hashing',now()) RETURNING id`, tank).Scan(&module))
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) VALUES($1,1,now(),now(),'active',now()) RETURNING id`, tank).Scan(&module))
 	_, err = f.db.ExecContext(t.Context(), `INSERT INTO container_module_latest_metrics(module_id,time,collected_at,hashrate_hs,power_w,coverage) VALUES($1,now(),now(),100e12,2000,jsonb_build_object('hashrate',jsonb_build_object('reporting',1,'expected',2,'topology_complete',true,'oldest_at',now()),'power',jsonb_build_object('reporting',1,'expected',2,'topology_complete',true,'oldest_at',now())))`, module)
 	require.NoError(t, err)
 	return module, controller
@@ -143,7 +143,7 @@ func TestAccountMiningMixedLeavesAllocationCoverageAndRecall(t *testing.T) {
 	require.Zero(t, retired.ContainerId)
 	require.Nil(t, retired.HashrateHs)
 	var replacement int64
-	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) SELECT tank_id,position,now(),now(),'hashing',now() FROM container_module WHERE id=$1 RETURNING id`, module).Scan(&replacement))
+	require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) SELECT tank_id,position,now(),now(),'active',now() FROM container_module WHERE id=$1 RETURNING id`, module).Scan(&replacement))
 	rootPage, err := f.svc.ListAssets(t.Context(), f.host, f.org, &pb.ListAccountAssetsRequest{AccountId: f.root, OwnerAccountId: &f.root})
 	require.NoError(t, err)
 	require.Len(t, rootPage.Assets, 1)
@@ -409,7 +409,7 @@ func TestAccountMiningRootMixedSiteAuthority(t *testing.T) {
 			second := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
 			_, err = f.db.ExecContext(t.Context(), `UPDATE device SET site_id=CASE WHEN id=$1 THEN $3::bigint ELSE $4::bigint END WHERE id IN ($1,$2)`, first, second, allowed.ID, hidden.ID)
 			require.NoError(t, err)
-			_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,hash_rate_hs,power_w) SELECT now(),device_identifier,CASE WHEN id=$1 THEN 200e12 ELSE 900e12 END,6000 FROM device WHERE id IN ($1,$2)`, first, second)
+			_, err = f.db.ExecContext(t.Context(), `INSERT INTO device_metrics(time,device_identifier,site_id,hash_rate_hs,power_w) SELECT now(),device_identifier,site_id,CASE WHEN id=$1 THEN 200e12 ELSE 900e12 END,6000 FROM device WHERE id IN ($1,$2)`, first, second)
 			require.NoError(t, err)
 			svc := authz.NewService(f.db, nil)
 			manager, err := svc.CreateCustomRole(t.Context(), f.host, f.org, "Account management", "", []string{authz.PermAccountManage})
@@ -643,7 +643,7 @@ func TestAccountMiningMaximumMixedBatchAssignRecallAndStaleRevision(t *testing.T
 	assets = append(assets, selected(pb.MiningAssetKind_MINING_ASSET_KIND_MODULE, module, 0))
 	for position := 2; position <= 250; position++ {
 		var id int64
-		require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) SELECT tank_id,$2,now(),now(),'hashing',now() FROM container_module WHERE id=$1 RETURNING id`, module, position).Scan(&id))
+		require.NoError(t, f.db.QueryRowContext(t.Context(), `INSERT INTO container_module(tank_id,position,first_seen_at,last_seen_at,state,state_observed_at) SELECT tank_id,$2,now(),now(),'active',now() FROM container_module WHERE id=$1 RETURNING id`, module, position).Scan(&id))
 		assets = append(assets, selected(pb.MiningAssetKind_MINING_ASSET_KIND_MODULE, id, 0))
 	}
 	require.Len(t, assets, 500)

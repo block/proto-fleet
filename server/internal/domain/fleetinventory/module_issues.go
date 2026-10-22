@@ -3,6 +3,8 @@ package fleetinventory
 import (
 	"time"
 
+	errorpb "github.com/block/proto-fleet/server/generated/grpc/errors/v1"
+
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetinventory/v1"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -29,7 +31,7 @@ func projectModuleIssues(evidence *sdk.ContainerModuleIssues, lastSeen *time.Tim
 			out.Complete = false
 			continue
 		}
-		out.Items = append(out.Items, &pb.ModuleIssue{Component: issue.Component, ComponentId: issue.ComponentID, Cause: issue.Cause, Severity: issue.Severity, ObservedAt: timestamppb.New(issue.ObservedAt)})
+		out.Items = append(out.Items, &pb.ModuleIssue{Component: issue.Component, ComponentId: issue.ComponentID, Cause: issue.Cause, Severity: issue.Severity, CanonicalError: errorpb.MinerError(issue.CanonicalError), ObservedAt: timestamppb.New(issue.ObservedAt)})
 	}
 	return out
 }

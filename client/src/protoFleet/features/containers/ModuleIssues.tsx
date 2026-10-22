@@ -80,11 +80,13 @@ export function ModuleIssues({
     return at !== undefined && !expiredTimes.includes(at);
   });
   const unavailable = stale || !evidence || !evidence.complete || sourceMs === undefined;
-  const intent = issues.some((issue) => issue.severity === "fault")
-    ? "critical"
-    : issues.some((issue) => issue.severity === "warning")
-      ? "warning"
-      : "info";
+  const knownError = statusKnown && statusCircle === "error";
+  const intent =
+    knownError || issues.some((issue) => issue.severity === "fault")
+      ? "critical"
+      : issues.some((issue) => issue.severity === "warning")
+        ? "warning"
+        : "info";
   const grouped: GroupedStatusErrors = { hashboard: [], psu: [], fan: [], controlBoard: [], other: [] };
   for (const issue of issues) {
     const componentType =
@@ -111,7 +113,7 @@ export function ModuleIssues({
   return (
     <div className={renderTrigger ? "h-full" : undefined} onClick={(event) => event.stopPropagation()}>
       {renderTrigger ? (
-        renderTrigger(() => setOpen(true), issues.length > 0)
+        renderTrigger(() => setOpen(true), issues.length > 0 || knownError)
       ) : status ? (
         <StatusPill
           summary={statusTitle}
@@ -167,11 +169,13 @@ export function ModuleIssues({
                   : (statusTitle ?? "Status unknown")
             }
             subtitle={
-              unavailable
-                ? "Issue report is partial. Additional issues may be missing."
-                : !issues.length
-                  ? "No active component errors reported."
-                  : undefined
+              knownError && !issues.length
+                ? "Detailed error information is unavailable."
+                : unavailable
+                  ? "Issue report is partial. Additional issues may be missing."
+                  : !issues.length
+                    ? "No active component errors reported."
+                    : undefined
             }
             errors={issues.map((issue) => ({
               key: `${issue.component}:${issue.componentId}:${issue.cause}`,

@@ -4,11 +4,14 @@ import { ModuleStatus } from "./ModuleStatus";
 
 describe("ModuleStatus", () => {
   it.each([
-    ["hashing", "Hashing", "normal"],
+    ["active", "Hashing", "normal"],
     ["offline", "Offline", "inactive"],
-    ["sleeping", "Sleeping", "sleeping"],
-    ["attention", "Needs attention", "error"],
-    ["isolated", "Needs attention", "error"],
+    ["inactive", "Sleeping", "sleeping"],
+    ["error", "Needs attention", "error"],
+    ["maintenance", "Sleeping", "sleeping"],
+    ["updating", "Updating firmware", "pending"],
+    ["needs_mining_pool", "Needs attention", "error"],
+    ["reboot_required", "Needs attention", "error"],
     ["unknown", "Unknown", "inactive"],
     ["", "Unknown", "inactive"],
     ["future-controller-state", "Unknown", "inactive"],

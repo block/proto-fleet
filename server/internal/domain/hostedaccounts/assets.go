@@ -258,13 +258,13 @@ func (a *miningAccumulator) add(asset *pb.AccountAsset) {
 		s.UnknownModuleCount++
 	}
 	switch asset.State {
-	case "hashing":
+	case "active":
 		s.HashingCount++
-	case "attention":
+	case "error", "updating", "needs_mining_pool", "reboot_required":
 		s.AttentionCount++
 	case "offline":
 		s.OfflineCount++
-	case "sleeping", "isolated":
+	case "inactive", "maintenance":
 		s.SleepingCount++
 	default:
 		s.UnknownCount++

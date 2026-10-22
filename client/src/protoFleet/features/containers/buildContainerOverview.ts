@@ -11,11 +11,14 @@ import {
 } from "@/shared/utils/telemetryFormat";
 
 const states: Record<string, TankModuleState> = {
-  hashing: "healthy",
-  attention: "attention",
+  active: "healthy",
+  error: "attention",
   offline: "offline",
-  sleeping: "sleeping",
-  isolated: "isolated",
+  inactive: "sleeping",
+  maintenance: "sleeping",
+  updating: "attention",
+  needs_mining_pool: "attention",
+  reboot_required: "attention",
 };
 
 const hasRef = <T extends { ref?: EntityRef }>(item: T): item is T & { ref: EntityRef } => item.ref !== undefined;
@@ -49,7 +52,7 @@ export function buildContainerOverview(data: ContainerOverviewData, unit: "C" | 
       label: "Modules hashing",
       value:
         !stale && allStatesKnown
-          ? `${modules.filter((module) => module.state === "hashing").length}/${modules.length}`
+          ? `${modules.filter((module) => module.state === "active").length}/${modules.length}`
           : "—",
       preformatted: true,
     },
@@ -90,7 +93,7 @@ export function buildContainerOverview(data: ContainerOverviewData, unit: "C" | 
         ],
         stats: [
           !stale && complete
-            ? `${children.filter((module) => module.state === "hashing").length}/${children.length} modules hashing`
+            ? `${children.filter((module) => module.state === "active").length}/${children.length} modules hashing`
             : `${tank.assetCount} modules · readings incomplete`,
           !stale && tank.minTemperatureC !== undefined && tank.maxTemperatureC !== undefined
             ? formatTempRange(tank.minTemperatureC, tank.maxTemperatureC, unit)

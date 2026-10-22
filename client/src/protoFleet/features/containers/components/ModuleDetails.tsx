@@ -84,13 +84,7 @@ export default function ModuleDetails({
             item={statusUnavailable ? { ...module, moduleIssues: undefined } : module}
             statusKnown={!statusUnavailable}
             statusCircle={statusUnavailable ? "inactive" : status.indicator}
-            status={
-              statusUnavailable
-                ? "Status unknown"
-                : module.state === "hashing" && module.moduleIssues?.complete
-                  ? "All components operational"
-                  : status.label
-            }
+            status={statusUnavailable ? "Status unknown" : status.label}
           />
           <MiningActionsMenu
             unavailable={statusUnavailable}

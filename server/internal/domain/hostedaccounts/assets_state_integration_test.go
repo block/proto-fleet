@@ -15,14 +15,18 @@ func TestAccountMinerAttentionUsesAllocatedObservations(t *testing.T) {
 		name, status, pairing, want                                    string
 		priorPairing, priorStatus, hasError, priorError, crossingError bool
 	}{
-		{name: "current authentication failure", status: "ACTIVE", pairing: "AUTHENTICATION_NEEDED", want: "attention"},
-		{name: "authentication overrides sleeping", status: "INACTIVE", pairing: "AUTHENTICATION_NEEDED", want: "attention"},
-		{name: "old authentication failure remains private", status: "ACTIVE", pairing: "AUTHENTICATION_NEEDED", priorPairing: true, want: "hashing"},
-		{name: "authentication has its own observation time", status: "ACTIVE", pairing: "AUTHENTICATION_NEEDED", priorStatus: true, want: "attention"},
-		{name: "current open error", status: "ACTIVE", hasError: true, want: "attention"},
-		{name: "sleeping outranks hardware error", status: "INACTIVE", hasError: true, want: "sleeping"},
-		{name: "old open error remains private", status: "ACTIVE", hasError: true, priorError: true, want: "hashing"},
-		{name: "crossing error window remains private", status: "ACTIVE", hasError: true, crossingError: true, want: "hashing"},
+		{name: "current authentication failure", status: "ACTIVE", pairing: "AUTHENTICATION_NEEDED", want: "error"},
+		{name: "authentication overrides sleeping", status: "INACTIVE", pairing: "AUTHENTICATION_NEEDED", want: "error"},
+		{name: "old authentication failure remains private", status: "ACTIVE", pairing: "AUTHENTICATION_NEEDED", priorPairing: true, want: "active"},
+		{name: "authentication has its own observation time", status: "ACTIVE", pairing: "AUTHENTICATION_NEEDED", priorStatus: true, want: "error"},
+		{name: "current open error", status: "ACTIVE", hasError: true, want: "error"},
+		{name: "maintenance remains canonical", status: "MAINTENANCE", hasError: true, want: "maintenance"},
+		{name: "updating remains canonical", status: "UPDATING", want: "updating"},
+		{name: "pool requirement remains canonical", status: "NEEDS_MINING_POOL", want: "needs_mining_pool"},
+		{name: "reboot requirement remains canonical", status: "REBOOT_REQUIRED", want: "reboot_required"},
+		{name: "sleeping outranks hardware error", status: "INACTIVE", hasError: true, want: "inactive"},
+		{name: "old open error remains private", status: "ACTIVE", hasError: true, priorError: true, want: "active"},
+		{name: "crossing error window remains private", status: "ACTIVE", hasError: true, crossingError: true, want: "active"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			f := setup(t)
@@ -69,9 +73,37 @@ func TestAccountMinerAttentionUsesAllocatedObservations(t *testing.T) {
 				require.Equal(t, test.want, page.Assets[0].State, "paginated query")
 				summary, err := f.svc.MiningSummary(t.Context(), actor, f.org, client.AccountID)
 				require.NoError(t, err)
-				if test.want == "attention" {
+				if test.want == "error" {
 					require.EqualValues(t, 1, summary.Totals.AttentionCount)
 				}
+			}
+		})
+	}
+}
+
+// Root and customer projections must use the same canonical vocabulary and
+// retain the ordinary-miner open-error precedence used by fleet health counts.
+func TestRootMiningStatePreservesErrorPrecedence(t *testing.T) {
+	f := setup(t)
+	miner := f.miningDevice(t, commonpb.DeviceClass_DEVICE_CLASS_RIG)
+	_, err := f.db.ExecContext(t.Context(), `INSERT INTO device_status(device_id,status,status_timestamp) VALUES($1,'ACTIVE',now())`, miner)
+	require.NoError(t, err)
+	_, err = f.db.ExecContext(t.Context(), `INSERT INTO errors(error_id,org_id,device_id,miner_error,severity,summary,first_seen_at,last_seen_at) VALUES('root-fault',$1,$2,1,1,'Hardware failure',now(),now())`, f.org, miner)
+	require.NoError(t, err)
+	for _, state := range []string{"ACTIVE", "INACTIVE", "MAINTENANCE", "OFFLINE"} {
+		t.Run(state, func(t *testing.T) {
+			_, err := f.db.ExecContext(t.Context(), `UPDATE device_status SET status=$1 WHERE device_id=$2`, state, miner)
+			require.NoError(t, err)
+			summary, err := f.svc.MiningSummary(t.Context(), f.host, f.org, f.root)
+			require.NoError(t, err)
+			require.Zero(t, summary.Totals.HashingCount)
+			switch state {
+			case "ACTIVE":
+				require.EqualValues(t, 1, summary.Totals.AttentionCount)
+			case "INACTIVE", "MAINTENANCE":
+				require.EqualValues(t, 1, summary.Totals.SleepingCount)
+			case "OFFLINE":
+				require.EqualValues(t, 1, summary.Totals.OfflineCount)
 			}
 		})
 	}

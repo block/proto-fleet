@@ -33,7 +33,7 @@ function fixture(): ContainerOverviewData {
         ref: { kind: EntityKind.MODULE, id: BigInt(100 + position) },
         position,
         name: `Module ${position}`,
-        state: position === 1 ? "hashing" : "sleeping",
+        state: position === 1 ? "active" : "inactive",
         ancestors: [
           { kind: EntityKind.CONTAINER, id: 7n },
           { kind: EntityKind.TANK, id: 81n },

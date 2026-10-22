@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -40,6 +41,8 @@ type ipRange struct {
 	End   string `json:"end"`
 }
 
+var supportedStates = []string{"active", "inactive", "offline", "error", "maintenance", "updating", "needs_mining_pool", "reboot_required", "unknown"}
+
 func (s *Service) specialFilters(ctx context.Context, orgID int64, req *pb.ListInventoryRequest) ([]byte, error) {
 	f := specialFilter{NoFacility: req.IncludeNoFacility, NoGroup: req.IncludeNoGroup, BuildingIDs: req.BuildingIds, NoBuilding: req.IncludeNoBuilding, NoRack: req.IncludeNoRack, Zones: req.ZoneKeys, States: req.States}
 	invalid := fleeterror.NewInvalidArgumentError("filters are invalid for this inventory view")
@@ -49,7 +52,7 @@ func (s *Service) specialFilters(ctx context.Context, orgID int64, req *pb.ListI
 	if req.Sort == pb.InventorySort_INVENTORY_SORT_ZONE && req.View != pb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS {
 		return nil, invalid
 	}
-	if len(f.BuildingIDs) > 1024 || len(f.Zones) > 1024 || len(req.ErrorComponentTypes) > 16 || len(f.States) > 7 {
+	if len(f.BuildingIDs) > 1024 || len(f.Zones) > 1024 || len(req.ErrorComponentTypes) > 16 || len(f.States) > len(supportedStates) {
 		return nil, invalid
 	}
 	if req.View == pb.InventoryView_INVENTORY_VIEW_FACILITIES && (len(f.BuildingIDs) > 0 || f.NoBuilding || len(f.Zones) > 0) {
@@ -75,9 +78,7 @@ func (s *Service) specialFilters(ctx context.Context, orgID int64, req *pb.ListI
 		f.Issues = append(f.Issues, int32(c))
 	}
 	for _, state := range f.States {
-		switch state {
-		case "hashing", "sleeping", "offline", "attention", "isolated", "unknown":
-		default:
+		if !slices.Contains(supportedStates, state) {
 			return nil, invalid
 		}
 	}

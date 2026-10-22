@@ -1,7 +1,5 @@
 import type { ReactNode } from "react";
 import { create } from "@bufbuild/protobuf";
-import { timestampFromMs } from "@bufbuild/protobuf/wkt";
-import { isCurrentObservation } from "./moduleDetail";
 import { ModuleIssues } from "./ModuleIssues";
 import { ModuleStatus } from "./ModuleStatus";
 import { getModuleStatusPresentation } from "./moduleStatusPresentation";
@@ -23,40 +21,12 @@ const unavailableReasons: Record<string, string> = {
   older_observation: "Newer board observation exists",
 };
 
-// CT1 folds shared PSU thermal issues into each board's aggregate attention state.
-// Only suppress the unknown-fault fallback when no board-local cause is reported.
-function hasOnlyPsuAttention(board: HashboardReading, now: number | undefined) {
-  const health = board.health;
-  if (now === undefined || !health || !isCurrentObservation(board.observedAt, now)) return false;
-  if (
-    !Array.isArray(health.errors) ||
-    health.errors.length ||
-    !Array.isArray(health.warnings) ||
-    health.warnings.length
-  )
-    return false;
-  if (board.miningState === "MINING_STATE_ERROR") return false;
-  if (board.miningState === "MINING_STATE_MINING" && (board.hashrailOk === false || board.refclksOk === false))
-    return false;
-  const thermal = health.psuThermal;
-  if (!thermal || typeof thermal !== "object" || Array.isArray(thermal) || thermal.thermalStateValid !== true)
-    return false;
-  if (thermal.overTemperatureWarning !== true && thermal.overTemperatureFault !== true) return false;
-  // An omitted age is permitted by the CT1 collector; otherwise include the
-  // embedded sample age so a fresh board response cannot revive old PSU data.
-  const age = thermal.thermalStateAgeMs ?? 0;
-  if (typeof age !== "number" || !Number.isFinite(age) || age < 0) return false;
-  const sourceMs = Number(board.observedAt!.seconds) * 1000 + board.observedAt!.nanos / 1e6 - age;
-  return isCurrentObservation(timestampFromMs(sourceMs), now);
-}
-
 export function HashboardIssues({
   board,
   position,
   name,
   iconOnly = false,
   renderTrigger,
-  now,
 }: {
   board: HashboardReading;
   position: number;
@@ -65,35 +35,17 @@ export function HashboardIssues({
   now?: number;
   renderTrigger?: (open: () => void, hasIssues: boolean) => ReactNode;
 }) {
-  const items = (["errors", "warnings"] as const).flatMap((kind) => {
-    const values = board.health?.[kind];
-    if (!Array.isArray(values)) return [];
-    return values.flatMap((issue) => {
-      if (!issue || typeof issue !== "object" || !("cause" in issue) || typeof issue.cause !== "string") return [];
-      const stack =
-        "stack" in issue && (typeof issue.stack === "number" || typeof issue.stack === "string")
-          ? ` (stack ${issue.stack})`
-          : "";
-      return [
-        {
-          component: "hashboard",
-          componentId: board.macAddress,
-          cause: `${issue.cause}${stack}`,
-          severity: kind === "errors" ? "fault" : "warning",
-          observedAt: board.observedAt,
-        },
-      ];
-    });
+  const items = board.issues.map((issue) => {
+    // Classification comes from Fleet; raw diagnostics retain vendor stack detail.
+    const raw = [board.health?.errors, board.health?.warnings].flatMap((value) => (Array.isArray(value) ? value : []));
+    const match = raw.find(
+      (value) => value && typeof value === "object" && "cause" in value && value.cause === issue.cause,
+    );
+    const stack = match && typeof match === "object" && "stack" in match ? match.stack : undefined;
+    return typeof stack === "number" || typeof stack === "string"
+      ? { ...issue, cause: `${issue.cause} (stack ${stack})` }
+      : issue;
   });
-  if ((iconOnly || renderTrigger) && !items.length && board.state === "attention" && !hasOnlyPsuAttention(board, now)) {
-    items.push({
-      component: "hashboard",
-      componentId: board.macAddress,
-      cause: "Fault reported; details unavailable",
-      severity: "fault",
-      observedAt: board.stateObservedAt,
-    });
-  }
   const evidence = create(ModuleIssuesSchema, {
     observedAt: board.observedAt,
     complete: board.health !== undefined,
@@ -104,6 +56,8 @@ export function HashboardIssues({
     <ModuleIssues
       item={{ name, moduleIssues: evidence }}
       hashboardPosition={position}
+      statusKnown={status.label !== "Unknown"}
+      statusCircle={status.indicator}
       iconOnly={iconOnly}
       renderTrigger={renderTrigger}
       status={renderTrigger ? (status.label === "Unknown" ? "Status unknown" : status.label) : undefined}
@@ -145,6 +99,12 @@ export function HashboardCell({ slot, column }: { slot: HashboardSlot; column: s
                 {unavailableReasons[slot.unavailableReason] ?? "Board data rejected"}
               </span>
             ) : null}
+          </span>
+        );
+      if (board.isolated)
+        return (
+          <span className="flex gap-2">
+            <ModuleStatus state={board.state} /> · Isolated
           </span>
         );
       return <ModuleStatus state={board.state} />;

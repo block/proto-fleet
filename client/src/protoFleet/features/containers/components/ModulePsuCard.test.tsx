@@ -122,7 +122,7 @@ it("clears PSU readings and identity when container data is unavailable", () => 
 });
 
 it.each(["warning", "fault"])(
-  "keeps a PSU-only %s in PSU and module details without inventing board faults",
+  "keeps PSU-only %s causes in PSU details while displaying canonical board status",
   (severity) => {
     const props = fixture();
     props.module.name = "Module 1";
@@ -131,7 +131,7 @@ it.each(["warning", "fault"])(
     props.module.moduleIssues!.items[0].cause = "PSU_OVER_TEMPERATURE";
     for (const slot of props.slots) {
       Object.assign(slot.board!, {
-        state: "attention",
+        state: severity === "fault" ? "error" : "active",
         stateObservedAt: timestampFromMs(props.now),
         miningState: "MINING_STATE_MINING",
         hashrailOk: true,
@@ -158,7 +158,9 @@ it.each(["warning", "fault"])(
       </>,
     );
     for (const position of [1, 2, 3]) {
-      expect(screen.queryByRole("img", { name: `Board ${position} needs attention` })).not.toBeInTheDocument();
+      const indicator = screen.queryByRole("img", { name: `Board ${position} needs attention` });
+      if (severity === "fault") expect(indicator).toBeInTheDocument();
+      else expect(indicator).not.toBeInTheDocument();
       fireEvent.click(screen.getByRole("button", { name: `Board ${position} info` }));
       expect(screen.getByRole("dialog")).not.toHaveTextContent(/Fault reported|Hashboard.*failure/);
       fireEvent.click(screen.getByRole("button", { name: "Done" }));

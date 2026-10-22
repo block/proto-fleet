@@ -52,7 +52,7 @@ func newHashboardReviewRig(t *testing.T) *hashboardReviewRig {
 	return r
 }
 func reviewBoard(mac, serial string) sdk.ContainerHashboard {
-	return sdk.ContainerHashboard{Position: 1, Occupancy: "occupied", MACAddress: mac, Serial: serial, State: sdk.ModuleHashing, HashrateHS: new(100e12), HealthJSON: json.RawMessage(`{"hashrate":100}`)}
+	return sdk.ContainerHashboard{Position: 1, Occupancy: "occupied", MACAddress: mac, Serial: serial, State: sdk.MinerStatusActive, HashrateHS: new(100e12), HealthJSON: json.RawMessage(`{"hashrate":100}`)}
 }
 func (r *hashboardReviewRig) poll(t *testing.T, offset time.Duration, boards ...sdk.ContainerHashboard) {
 	t.Helper()
@@ -61,7 +61,7 @@ func (r *hashboardReviewRig) poll(t *testing.T, offset time.Duration, boards ...
 	tank := sdk.ContainerTank{Position: 1}
 	for i, b := range boards {
 		b.ObservedAt, b.StateObservedAt = at, at
-		tank.Modules = append(tank.Modules, sdk.ContainerModule{Position: int32(i + 1), State: sdk.ModuleHashing, ObservedAt: at, Metrics: &sdk.ContainerModuleMetrics{ObservedAt: at, HashrateHS: new(100e12)}, Hashboards: []sdk.ContainerHashboard{b}}) //nolint:gosec // fixture has two modules
+		tank.Modules = append(tank.Modules, sdk.ContainerModule{Position: int32(i + 1), State: sdk.MinerStatusActive, ObservedAt: at, Metrics: &sdk.ContainerModuleMetrics{ObservedAt: at, HashrateHS: new(100e12)}, Hashboards: []sdk.ContainerHashboard{b}}) //nolint:gosec // fixture has two modules
 	}
 	snapshot.Tanks = []sdk.ContainerTank{tank}
 	require.NoError(t, r.store.StoreDeviceMetrics(t.Context(), modelsV2.DeviceMetrics{DeviceIdentifier: r.deviceID, Timestamp: at, Health: modelsV2.HealthHealthyActive, Container: snapshot, HashrateHS: &modelsV2.MetricValue{Value: 200e12}}))
@@ -241,7 +241,7 @@ func TestInvalidHashboardDoesNotDiscardHealthyModules(t *testing.T) {
 		mutate func(*sdk.ContainerHashboard)
 	}{
 		{"missing identity", func(b *sdk.ContainerHashboard) { b.MACAddress = ""; b.Serial = "" }},
-		{"invalid state", func(b *sdk.ContainerHashboard) { b.State = "invalid" }},
+		{"invalid state", func(b *sdk.ContainerHashboard) { b.State = sdk.MinerStatus(999) }},
 		{"invalid diagnostics", func(b *sdk.ContainerHashboard) { b.HealthJSON = json.RawMessage(`[]`) }},
 		{"invalid position", func(b *sdk.ContainerHashboard) { b.Position = 4 }},
 		{"empty with identity", func(b *sdk.ContainerHashboard) { b.Occupancy = "empty" }},

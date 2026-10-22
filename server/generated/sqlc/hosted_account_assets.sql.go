@@ -184,10 +184,10 @@ SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  COALESCE(sc.name,c.name,'')::text AS owner_account_name,
  COALESCE(f.name,'')::text AS name,CASE
   WHEN g.state_allowed AND ($10::boolean OR l.kind=6 OR f.state='offline') THEN COALESCE(f.state,'unknown')
-  WHEN source.auth_attention_time IS NOT NULL THEN 'attention'
-  WHEN g.state_allowed AND status.status IN ('MAINTENANCE','INACTIVE') THEN 'sleeping'
-  WHEN source.error_attention_time IS NOT NULL THEN 'attention'
-  WHEN g.state_allowed THEN CASE status.status WHEN 'ACTIVE' THEN 'hashing' WHEN 'OFFLINE' THEN 'offline' WHEN 'ERROR' THEN 'attention' WHEN 'NEEDS_MINING_POOL' THEN 'attention' WHEN 'UPDATING' THEN 'attention' WHEN 'REBOOT_REQUIRED' THEN 'attention' ELSE 'unknown' END
+  WHEN source.auth_attention_time IS NOT NULL THEN 'error'
+  WHEN g.state_allowed AND status.status IN ('MAINTENANCE','INACTIVE') THEN lower(status.status::text)
+  WHEN source.error_attention_time IS NOT NULL THEN 'error'
+  WHEN g.state_allowed THEN COALESCE(lower(status.status::text),'unknown')
   ELSE 'unknown' END::text AS state,
  CASE WHEN l.kind=5 THEN COALESCE(dd.model,'') ELSE '' END::text AS model,
  COALESCE(CASE WHEN g.temperature_allowed THEN f.temperature_c END,0)::float8 AS temperature_c, (g.temperature_allowed AND f.temperature_c IS NOT NULL)::boolean AS has_temperature,
@@ -482,10 +482,10 @@ SELECT l.kind,l.id,l.device_id,COALESCE(a.revision,0)::bigint AS revision,
  COALESCE(sc.name,c.name,'')::text AS owner_account_name,
  COALESCE(f.name,'')::text AS name,CASE
   WHEN g.state_allowed AND ($1::boolean OR l.kind=6 OR f.state='offline') THEN COALESCE(f.state,'unknown')
-  WHEN source.auth_attention_time IS NOT NULL THEN 'attention'
-  WHEN g.state_allowed AND status.status IN ('MAINTENANCE','INACTIVE') THEN 'sleeping'
-  WHEN source.error_attention_time IS NOT NULL THEN 'attention'
-  WHEN g.state_allowed THEN CASE status.status WHEN 'ACTIVE' THEN 'hashing' WHEN 'OFFLINE' THEN 'offline' WHEN 'ERROR' THEN 'attention' WHEN 'NEEDS_MINING_POOL' THEN 'attention' WHEN 'UPDATING' THEN 'attention' WHEN 'REBOOT_REQUIRED' THEN 'attention' ELSE 'unknown' END
+  WHEN source.auth_attention_time IS NOT NULL THEN 'error'
+  WHEN g.state_allowed AND status.status IN ('MAINTENANCE','INACTIVE') THEN lower(status.status::text)
+  WHEN source.error_attention_time IS NOT NULL THEN 'error'
+  WHEN g.state_allowed THEN COALESCE(lower(status.status::text),'unknown')
   ELSE 'unknown' END::text AS state,
  CASE WHEN l.kind=5 THEN COALESCE(dd.model,'') ELSE '' END::text AS model,
  COALESCE(CASE WHEN g.temperature_allowed THEN f.temperature_c END,0)::float8 AS temperature_c, (g.temperature_allowed AND f.temperature_c IS NOT NULL)::boolean AS has_temperature,

@@ -5,12 +5,12 @@ import "buf/validate/validate.proto";
 import "common/v1/fleet_list_stats.proto";
 import "common/v1/equipment_coverage.proto";
 import "common/v1/zone.proto";
-import "errors/v1/errors.proto";
 import "fleetmanagement/v1/fleetmanagement.proto";
 import "buildings/v1/buildings.proto";
 import "device_set/v1/device_set.proto";
 import "containers/v1/containers.proto";
 import "google/protobuf/timestamp.proto";
+import "errors/v1/errors.proto";
 import "telemetry/v1/telemetry.proto";
 import "google/protobuf/struct.proto";
 
@@ -174,6 +174,7 @@ message ListInventoryResponse {
   repeated string firmware_versions = 6;
 }
 
+// Numeric metric history only; diagnostic polls are retained separately on the backend.
 message ListModuleHistoryRequest {
   int64 module_id = 1 [(buf.validate.field).int64.gt = 0];
   google.protobuf.Timestamp start_time = 2 [(buf.validate.field).required = true];
@@ -212,7 +213,8 @@ message ModuleIssue {
  string component = 1;
  string component_id = 2;
  string cause = 3;
- string severity = 4;
+ string severity = 4; // fault, warning, or observation
+ errors.v1.MinerError canonical_error = 6;
  google.protobuf.Timestamp observed_at = 5;
 }
 
@@ -264,6 +266,8 @@ message HashboardSlot {
 // Durable board identity and the installation under which it was observed.
 // The server derives state and suppresses stale current measurements.
 message HashboardReading {
+ // Current canonical issues; diagnostic observations are not part of numeric history.
+ repeated ModuleIssue issues = 25;
  optional double power_w = 19;
  optional double efficiency_jh = 20;
   int64 hashboard_id = 1;
@@ -304,6 +308,7 @@ message HashboardReading {
 
 // Unknown boards and boards with no readable historical installation return
 // NotFound. A readable board without samples in this interval returns an empty page.
+// Numeric metric history only; diagnostic polls do not add history entries.
 message ListHashboardHistoryRequest {
   int64 hashboard_id = 1 [(buf.validate.field).int64.gt = 0];
   google.protobuf.Timestamp start_time = 2 [(buf.validate.field).required = true];

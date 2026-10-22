@@ -81,7 +81,7 @@ func TestContainerLifecycle(t *testing.T) {
 	require.Equal(t, 65.0, metrics.TempC.Value)
 	require.Equal(t, 25.0, *metrics.Container.Plant.InletTemperatureC)
 	require.Nil(t, metrics.EfficiencyJH, "the partial container map cannot establish full coverage")
-	require.Equal(t, sdk.ModuleUnknown, metrics.Container.Tanks[0].Modules[0].State)
+	require.Equal(t, sdk.MinerStatusUnknown, metrics.Container.Tanks[0].Modules[0].State)
 	web, ok, err := result.Device.TryGetWebViewURL(t.Context())
 	require.NoError(t, err)
 	require.True(t, ok)

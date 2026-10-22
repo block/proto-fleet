@@ -43,6 +43,8 @@ export default function ModuleHashboardCard({ slot, now }: { slot: HashboardSlot
         efficiencyJh: current ? board.efficiencyJh : undefined,
         temperatureC: current ? board.temperatureC : undefined,
         health: current && stateCurrent ? board.health : undefined,
+        // Issues carry independent source timestamps; ModuleIssues expires each cause.
+        issues: board.issues,
       }
     : create(HashboardReadingSchema, { state: "unknown" });
   // The plugin preserves this optional MDK field in the collected health payload.

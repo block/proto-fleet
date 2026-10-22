@@ -3,6 +3,7 @@ import { expect, it } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { HashboardCell } from "./HashboardCell";
+import { MinerError } from "@/protoFleet/api/generated/errors/v1/errors_pb";
 import { HashboardSlotSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 
 it.each(["empty", "unknown", "occupied"])("leaves issues blank for %s slots without causes", (occupancy) => {
@@ -23,6 +24,16 @@ it("uses miner issue summaries and shows warning and stack details without low-l
       serial: "CT1-379e6466-0001",
       macAddress: "aa:bb",
       observedAt: timestampFromDate(new Date()),
+      issues: [
+        {
+          component: "hashboard",
+          componentId: "aa:bb",
+          cause: "HASHBOARD_ERROR_CAUSE_BOARD_OVER_TEMPERATURE",
+          severity: "warning",
+          canonicalError: MinerError.HASHBOARD_OVER_TEMPERATURE,
+          observedAt: timestampFromDate(new Date()),
+        },
+      ],
       hashrailOk: false,
       refclksOk: true,
       health: { warnings: [{ cause: "HASHBOARD_ERROR_CAUSE_BOARD_OVER_TEMPERATURE", stack: 2 }] },
@@ -47,14 +58,14 @@ it.each([
   expect(screen.getByText(expected)).toBeInTheDocument();
 });
 
-it("presents isolated boards as needing attention in inventory", () => {
+it("keeps isolation separate from the canonical operating state", () => {
   const slot = create(HashboardSlotSchema, {
     position: 1,
     occupancy: "occupied",
-    board: { state: "isolated" },
+    board: { state: "active", isolated: true },
   });
   render(<HashboardCell slot={slot} column="status" />);
-  expect(screen.getByText("Needs attention")).toBeInTheDocument();
-  expect(screen.getByTestId("module-status-indicator")).toHaveAttribute("data-status", "error");
-  expect(screen.queryByText(/isolated/i)).not.toBeInTheDocument();
+  expect(screen.getByText("Hashing")).toBeInTheDocument();
+  expect(screen.getByTestId("module-status-indicator")).toHaveAttribute("data-status", "normal");
+  expect(screen.getByText(/isolated/i)).toBeInTheDocument();
 });
