@@ -53,9 +53,11 @@ func invitationLifetime(lifetime time.Duration) (time.Duration, error) {
 	return lifetime, nil
 }
 
-// issueCode stores a fresh code unused by either invitation table. insert
-// returns sql.ErrNoRows when ON CONFLICT DO NOTHING skipped its row, which
-// leaves the transaction usable for another attempt.
+// issueCode stores a fresh code unused by either invitation table. Each
+// candidate is reserved before the check, so a concurrent issuer of the same
+// code waits and then sees this one's row. insert returns sql.ErrNoRows when
+// ON CONFLICT DO NOTHING skipped its row, which leaves the transaction usable
+// for another attempt.
 func (c *invitationCore) issueCode(ctx context.Context, q sqlc.Querier, insert func(hash string) error) (string, error) {
 	for range 5 {
 		token, err := c.generateCode()
@@ -64,6 +66,9 @@ func (c *invitationCore) issueCode(ctx context.Context, q sqlc.Querier, insert f
 		}
 		hash, err := invitationHash(token)
 		if err != nil {
+			return "", err
+		}
+		if err := q.LockInvitationTokenHash(ctx, hash); err != nil {
 			return "", err
 		}
 		inUse, err := q.InvitationTokenHashInUse(ctx, hash)

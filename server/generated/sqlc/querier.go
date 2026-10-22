@@ -1809,6 +1809,9 @@ type Querier interface {
 	// Inventory creation takes share locks in a deterministic order so a
 	// concurrent soft deletion cannot update deleted_at between validation and insert.
 	LockInventorySites(ctx context.Context, arg LockInventorySitesParams) ([]int64, error)
+	// Organization locks do not serialize issuers in different organizations, so
+	// each candidate code is reserved until the issuing transaction ends.
+	LockInvitationTokenHash(ctx context.Context, tokenHash string) error
 	LockMaintenanceBuildingForTicket(ctx context.Context, arg LockMaintenanceBuildingForTicketParams) (int64, error)
 	LockMaintenanceMinerForTicket(ctx context.Context, arg LockMaintenanceMinerForTicketParams) (int64, error)
 	// Match rack placement writers' dsr → ds table order.

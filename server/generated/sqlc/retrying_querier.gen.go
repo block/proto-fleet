@@ -7448,6 +7448,12 @@ func (q *retryingQuerier) LockInventorySites(ctx context.Context, arg LockInvent
 	return result, err
 }
 
+func (q *retryingQuerier) LockInvitationTokenHash(ctx context.Context, tokenHash string) error {
+	return q.retrier.RetryQuery(ctx, "LockInvitationTokenHash", func() error {
+		return q.next.LockInvitationTokenHash(ctx, tokenHash)
+	})
+}
+
 func (q *retryingQuerier) LockMaintenanceBuildingForTicket(ctx context.Context, arg LockMaintenanceBuildingForTicketParams) (int64, error) {
 	var result int64
 	err := q.retrier.RetryQuery(ctx, "LockMaintenanceBuildingForTicket", func() error {

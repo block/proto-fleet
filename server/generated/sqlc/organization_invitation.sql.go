@@ -276,6 +276,17 @@ func (q *Queries) ListOrganizationInvitations(ctx context.Context, arg ListOrgan
 	return items, nil
 }
 
+const lockInvitationTokenHash = `-- name: LockInvitationTokenHash :exec
+SELECT pg_advisory_xact_lock(hashtextextended('invitation_code:' || $1::text, 0))
+`
+
+// Organization locks do not serialize issuers in different organizations, so
+// each candidate code is reserved until the issuing transaction ends.
+func (q *Queries) LockInvitationTokenHash(ctx context.Context, tokenHash string) error {
+	_, err := q.exec(ctx, q.lockInvitationTokenHashStmt, lockInvitationTokenHash, tokenHash)
+	return err
+}
+
 const organizationInvitationExists = `-- name: OrganizationInvitationExists :one
 SELECT EXISTS (SELECT 1 FROM organization_invitation WHERE token_hash = $1)::boolean AS found
 `

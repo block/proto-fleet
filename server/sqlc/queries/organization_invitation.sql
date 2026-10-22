@@ -4,6 +4,11 @@ INSERT INTO organization_invitation
 VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (token_hash) DO NOTHING RETURNING *;
 
+-- name: LockInvitationTokenHash :exec
+-- Organization locks do not serialize issuers in different organizations, so
+-- each candidate code is reserved until the issuing transaction ends.
+SELECT pg_advisory_xact_lock(hashtextextended('invitation_code:' || sqlc.arg('token_hash')::text, 0));
+
 -- name: InvitationTokenHashInUse :one
 -- Team and customer account invitations share one code namespace, so public
 -- redemption resolves each code to exactly one invitation.

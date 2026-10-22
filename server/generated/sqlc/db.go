@@ -1992,6 +1992,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockInventorySitesStmt, err = db.PrepareContext(ctx, lockInventorySites); err != nil {
 		return nil, fmt.Errorf("error preparing query LockInventorySites: %w", err)
 	}
+	if q.lockInvitationTokenHashStmt, err = db.PrepareContext(ctx, lockInvitationTokenHash); err != nil {
+		return nil, fmt.Errorf("error preparing query LockInvitationTokenHash: %w", err)
+	}
 	if q.lockMaintenanceBuildingForTicketStmt, err = db.PrepareContext(ctx, lockMaintenanceBuildingForTicket); err != nil {
 		return nil, fmt.Errorf("error preparing query LockMaintenanceBuildingForTicket: %w", err)
 	}
@@ -6021,6 +6024,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockInventorySitesStmt: %w", cerr)
 		}
 	}
+	if q.lockInvitationTokenHashStmt != nil {
+		if cerr := q.lockInvitationTokenHashStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockInvitationTokenHashStmt: %w", cerr)
+		}
+	}
 	if q.lockMaintenanceBuildingForTicketStmt != nil {
 		if cerr := q.lockMaintenanceBuildingForTicketStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockMaintenanceBuildingForTicketStmt: %w", cerr)
@@ -7956,6 +7964,7 @@ type Queries struct {
 	lockInfrastructureDevicesForResponseProfileStmt              *sql.Stmt
 	lockInfrastructureRackForPlacementStmt                       *sql.Stmt
 	lockInventorySitesStmt                                       *sql.Stmt
+	lockInvitationTokenHashStmt                                  *sql.Stmt
 	lockMaintenanceBuildingForTicketStmt                         *sql.Stmt
 	lockMaintenanceMinerForTicketStmt                            *sql.Stmt
 	lockMaintenanceRackForTicketStmt                             *sql.Stmt
@@ -8866,6 +8875,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockInfrastructureDevicesForResponseProfileStmt:              q.lockInfrastructureDevicesForResponseProfileStmt,
 		lockInfrastructureRackForPlacementStmt:                       q.lockInfrastructureRackForPlacementStmt,
 		lockInventorySitesStmt:                                       q.lockInventorySitesStmt,
+		lockInvitationTokenHashStmt:                                  q.lockInvitationTokenHashStmt,
 		lockMaintenanceBuildingForTicketStmt:                         q.lockMaintenanceBuildingForTicketStmt,
 		lockMaintenanceMinerForTicketStmt:                            q.lockMaintenanceMinerForTicketStmt,
 		lockMaintenanceRackForTicketStmt:                             q.lockMaintenanceRackForTicketStmt,

@@ -281,9 +281,11 @@ The codebase follows a domain-driven design with clear separation of concerns:
 
 Customer account invitations (`HostedAccountService`) and host team invitations
 (`invitation.v1.InvitationService`) share one code format and namespace: issuance
+reserves each candidate digest with a transaction-scoped advisory lock, then
 checks both `hosted_account_invitation` and `organization_invitation` before
-storing a digest. `InvitationService` previews and redeems codes of either kind
-through one public surface. Invitation creation returns eight cryptographically
+storing it, so issuers in different organizations cannot commit the same code.
+`InvitationService` previews and redeems codes of either kind through one public
+surface. Invitation creation returns eight cryptographically
 random characters as `K7MP-4X9R`. The 32-symbol alphabet
 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` excludes `I`, `O`, `0`, and `1` and provides
 **40 bits of entropy** (about 1.1 trillion codes). The server accepts ASCII
