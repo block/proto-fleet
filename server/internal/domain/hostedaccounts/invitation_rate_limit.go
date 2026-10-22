@@ -51,6 +51,10 @@ func (s *InvitationService) CheckClientRateLimit(ctx context.Context, ipAddress 
 	if charged != 1 {
 		return fleeterror.NewResourceExhaustedErrorf("invitation requests temporarily limited; try again later")
 	}
+	// Anonymous callers with ten or more client allowances can exhaust this
+	// shared ceiling and pause all redemption until the hour resets. That
+	// availability cost is the accepted price of eight-character codes; see
+	// "Invitation codes" in server/README.md.
 	charged, err = s.accounts.queries.ConsumeHostedInvitationDeploymentRateLimit(ctx, invitationDeploymentAttemptLimit)
 	if err != nil {
 		return err
