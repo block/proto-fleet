@@ -24,7 +24,7 @@ const Auth = () => {
         <div className="flex w-full max-w-100 flex-col gap-6 p-6 phone:h-full">
           <LoginForm
             onSuccess={handleLoginSuccess}
-            secondaryAction={<Button variant="textOnly" text="Join an account" to="/account-invitation" />}
+            secondaryAction={<Button variant="textOnly" text="Use an invitation code" to="/account-invitation" />}
           />
         </div>
       </div>

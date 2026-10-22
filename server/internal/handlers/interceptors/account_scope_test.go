@@ -9,6 +9,7 @@ import (
 	"connectrpc.com/authn"
 	"connectrpc.com/connect"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
+	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/hostedaccounts"
 	"github.com/block/proto-fleet/server/internal/domain/session"
@@ -121,9 +122,10 @@ func TestSelectedAccountRejectsOtherAuthAndUnknownHostedMethods(t *testing.T) {
 		"/auth.v1.AuthService/UpdateUsername",
 		"/auth.v1.AuthService/Authenticate",
 		"/auth.v1.AuthService/ResetUserPassword",
-		hostedAccountProcedurePrefix + "PreviewInvitation",
-		hostedAccountProcedurePrefix + "RegisterInvitedUser",
-		hostedAccountProcedurePrefix + "AcceptInvitation",
+		invitationv1connect.InvitationServicePreviewInvitationProcedure,
+		invitationv1connect.InvitationServiceRegisterInvitedUserProcedure,
+		invitationv1connect.InvitationServiceAcceptInvitationProcedure,
+		invitationv1connect.InvitationServiceCreateTeamInvitationProcedure,
 		hostedAccountProcedurePrefix + "FutureMethod",
 	} {
 		t.Run(procedure, func(t *testing.T) {
@@ -150,14 +152,16 @@ func TestHostedAdministrationRejectsOrganizationAPIKeys(t *testing.T) {
 
 func TestInvitationOnboardingRemainsUnscoped(t *testing.T) {
 	interceptor := NewAuthInterceptor(nil, nil, nil, nil, nil, nil, UnauthenticatedProcedures, SessionOnlyProcedures, nil)
-	for _, procedure := range []string{hostedAccountProcedurePrefix + "PreviewInvitation", hostedAccountProcedurePrefix + "RegisterInvitedUser"} {
+	for _, procedure := range []string{invitationv1connect.InvitationServicePreviewInvitationProcedure, invitationv1connect.InvitationServiceRegisterInvitedUserProcedure} {
 		ctx, err := interceptor.authenticate(t.Context(), procedure, http.Header{})
 		require.NoError(t, err)
 		_, selected := hostedaccounts.RequestAccountID(ctx)
 		require.False(t, selected)
 	}
-	_, err := interceptor.authenticate(t.Context(), hostedAccountProcedurePrefix+"AcceptInvitation", http.Header{})
-	require.True(t, fleeterror.IsAuthenticationError(err))
+	for _, procedure := range []string{invitationv1connect.InvitationServiceAcceptInvitationProcedure, invitationv1connect.InvitationServiceCreateTeamInvitationProcedure} {
+		_, err := interceptor.authenticate(t.Context(), procedure, http.Header{})
+		require.True(t, fleeterror.IsAuthenticationError(err))
+	}
 }
 
 func TestSelectedAccountCannotControlHostCurtailment(t *testing.T) {

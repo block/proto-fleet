@@ -612,7 +612,7 @@ func (s *Service) authorizeCallerForUser(ctx context.Context, callerUserID, orgI
 	if err != nil {
 		return stores.User{}, fleeterror.NewInternalErrorf("error loading caller permissions: %w", err)
 	}
-	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
+	if err := RequireCallerCanManageTarget(callerEff, targetEff); err != nil {
 		return stores.User{}, err
 	}
 	return target, nil
@@ -636,7 +636,7 @@ func (s *Service) authorizeOrganizationUserInTx(ctx context.Context, callerUserI
 	if err != nil {
 		return fleeterror.NewInternalErrorf("error loading caller permissions: %w", err)
 	}
-	return requireCallerCanManageTarget(callerEff, targetEff)
+	return RequireCallerCanManageTarget(callerEff, targetEff)
 }
 
 // resolveCreateUserRole picks the role a freshly created user will be
@@ -687,18 +687,18 @@ func (s *Service) resolveCreateUserRole(ctx context.Context, callerUserID, orgID
 	if err != nil {
 		return stores.Role{}, fleeterror.NewInternalErrorf("error loading caller permissions: %w", err)
 	}
-	if err := requireCallerCanManageTarget(callerEff, targetEff); err != nil {
+	if err := RequireCallerCanManageTarget(callerEff, targetEff); err != nil {
 		return stores.Role{}, err
 	}
 	return role, nil
 }
 
-// requireCallerCanManageTarget enforces the user-management hierarchy:
+// RequireCallerCanManageTarget enforces the user-management hierarchy:
 // callers with org-scope role:manage need only subsume the target;
 // everyone else must strictly dominate it. Without the strict-dominate
 // requirement, ADMIN (equal perms to a fresh ADMIN account) could mint
 // new ADMINs via CreateUser and walk off with the temp password.
-func requireCallerCanManageTarget(callerEff, targetEff *authz.EffectivePermissions) error {
+func RequireCallerCanManageTarget(callerEff, targetEff *authz.EffectivePermissions) error {
 	if callerEff.Has(authz.PermRoleManage, authz.ResourceContext{}) {
 		if !targetEff.IsSubsumedBy(callerEff) {
 			return fleeterror.NewForbiddenError("insufficient permissions to manage this user")
@@ -1146,10 +1146,10 @@ func (s *Service) UpdateUserRole(ctx context.Context, req *authv1.UpdateUserRole
 		if err != nil {
 			return fleeterror.NewInternalErrorf("error loading caller permissions: %w", err)
 		}
-		if err := requireCallerCanManageTarget(callerEff, targetCurrentEff); err != nil {
+		if err := RequireCallerCanManageTarget(callerEff, targetCurrentEff); err != nil {
 			return err
 		}
-		if err := requireCallerCanManageTarget(callerEff, targetNewEff); err != nil {
+		if err := RequireCallerCanManageTarget(callerEff, targetNewEff); err != nil {
 			return err
 		}
 

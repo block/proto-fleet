@@ -22,6 +22,7 @@ import { ForemanImportService } from "@/protoFleet/api/generated/foremanimport/v
 import { InfrastructureService } from "@/protoFleet/api/generated/infrastructure/v1/infrastructure_pb";
 import { InstanceUpdateService } from "@/protoFleet/api/generated/instance/v1/updates_pb";
 import { InventoryService } from "@/protoFleet/api/generated/inventory/v1/inventory_pb";
+import { InvitationService } from "@/protoFleet/api/generated/invitation/v1/invitation_pb";
 import { MaintenanceService } from "@/protoFleet/api/generated/maintenance/v1/maintenance_pb";
 import { MarketDataService } from "@/protoFleet/api/generated/marketdata/v1/marketdata_pb";
 import { MinerCommandService } from "@/protoFleet/api/generated/minercommand/v1/command_pb";
@@ -65,6 +66,7 @@ const alertMaintenanceWindowClient = createClient(AlertMaintenanceWindowService,
 const alertHistoryClient = createClient(AlertHistoryService, transport);
 const instanceUpdateClient = createClient(InstanceUpdateService, transport);
 const inventoryClient = createClient(InventoryService, transport);
+const invitationClient = createClient(InvitationService, transport);
 const maintenanceClient = createClient(MaintenanceService, transport);
 const marketDataClient = createClient(MarketDataService, transport);
 const rolloutClient = createClient(RolloutService, transport);
@@ -89,6 +91,7 @@ export {
   fleetNodeAdminClient,
   infrastructureClient,
   inventoryClient,
+  invitationClient,
   maintenanceClient,
   marketDataClient,
   onboardingClient,

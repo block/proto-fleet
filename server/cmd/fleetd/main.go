@@ -60,6 +60,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/inventory/v1/inventoryv1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/marketdata/v1/marketdatav1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
@@ -138,6 +139,7 @@ import (
 	infrastructureHandler "github.com/block/proto-fleet/server/internal/handlers/infrastructure"
 	"github.com/block/proto-fleet/server/internal/handlers/interceptors"
 	inventoryHandler "github.com/block/proto-fleet/server/internal/handlers/inventory"
+	invitationHandler "github.com/block/proto-fleet/server/internal/handlers/invitation"
 	maintenanceHandler "github.com/block/proto-fleet/server/internal/handlers/maintenance"
 	marketdataHandler "github.com/block/proto-fleet/server/internal/handlers/marketdata"
 	"github.com/block/proto-fleet/server/internal/handlers/middleware"
@@ -208,6 +210,7 @@ func normalizeFleetdArgs(args []string) []string {
 var reflectEnabledServices = []string{
 	marketdatav1connect.MarketDataServiceName,
 	hostedv1connect.HostedAccountServiceName,
+	invitationv1connect.InvitationServiceName,
 	pairingv1connect.PairingServiceName,
 	telemetryv1connect.TelemetryServiceName,
 	fleetnodegatewayv1connect.FleetNodeGatewayServiceName,
@@ -356,6 +359,7 @@ func start(config *Config) (result error) {
 	authSvc := authDomain.NewService(userStore, userStore, transactor, tokenSvc, sessionSvc, encryptSvc, activitySvc, permissionResolver)
 	hostedaccountsSvc := hostedaccountsDomain.NewService(conn)
 	hostedInvitationsSvc := hostedaccountsDomain.NewInvitationService(hostedaccountsSvc, sessionSvc)
+	teamInvitationsSvc := hostedaccountsDomain.NewTeamInvitationService(hostedaccountsSvc, sessionSvc)
 	hostedKeysSvc := hostedaccountsDomain.NewKeyService(hostedaccountsSvc, apiKeySvc)
 	hostedPoolsSvc := hostedaccountsDomain.NewPoolService(hostedaccountsSvc, encryptSvc, hostedKeysSvc, authSvc)
 
@@ -889,6 +893,7 @@ func start(config *Config) (result error) {
 
 	mux.Handle(authv1connect.NewAuthServiceHandler(auth.NewHandler(authSvc), li))
 	mux.Handle(hostedv1connect.NewHostedAccountServiceHandler(hostedaccountsHandler.NewHandler(hostedaccountsSvc, hostedInvitationsSvc, hostedKeysSvc, hostedPoolsSvc, userStore, permissionResolver), li))
+	mux.Handle(invitationv1connect.NewInvitationServiceHandler(invitationHandler.NewHandler(hostedInvitationsSvc, teamInvitationsSvc), li))
 	mux.Handle(onboardingv1connect.NewOnboardingServiceHandler(onboarding.NewHandler(authSvc, onboardingSvc), li))
 	mux.Handle(pairingv1connect.NewPairingServiceHandler(pairing.NewHandler(pairingSvc, fleetNodeDiscoverySvc, fleetNodePairingSvc), li))
 	mux.Handle(networkinfov1connect.NewNetworkInfoServiceHandler(networkinfo.NewHandler(pairingSvc), li))

@@ -2108,6 +2108,20 @@ type Organization struct {
 	DeletedAt sql.NullTime
 }
 
+type OrganizationInvitation struct {
+	InvitationID         string
+	OrganizationID       int64
+	InviterID            int64
+	RoleID               int64
+	AuthorityFingerprint string
+	TokenHash            string
+	ExpiresAt            time.Time
+	RevokedAt            sql.NullTime
+	AcceptedAt           sql.NullTime
+	AcceptedUserID       sql.NullInt64
+	CreatedAt            time.Time
+}
+
 type PendingEnrollment struct {
 	ID          int64
 	CodeHash    string
@@ -2319,15 +2333,16 @@ type RepairTicketPart struct {
 }
 
 type Role struct {
-	ID             int64
-	Name           string
-	Description    sql.NullString
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	DeletedAt      sql.NullTime
-	IsBuiltin      bool
-	BuiltinKey     sql.NullString
-	OrganizationID sql.NullInt64
+	ID                 int64
+	Name               string
+	Description        sql.NullString
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	DeletedAt          sql.NullTime
+	IsBuiltin          bool
+	BuiltinKey         sql.NullString
+	OrganizationID     sql.NullInt64
+	PermissionRevision int64
 }
 
 type RolePermission struct {

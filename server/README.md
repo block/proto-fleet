@@ -277,13 +277,20 @@ The codebase follows a domain-driven design with clear separation of concerns:
 - **Authentication**: Token-based auth with separate token types for clients (users) and miners (devices).
 - **Hosted Accounts**: Account hierarchy and fixed customer memberships, separate from organization RBAC, with scoped administration, invitations, pool revisions and reporting allocations. Live authority applies ancestor ceilings, site restrictions and suspension; allocation changes and audit commit together. Session-only mining reports aggregate the account’s allocated estate, including subclients, without granting child-private account access. See [the client workspace contract](../client/README.md#hosted-account-workspaces) for persona and reporting boundaries.
 
-### Hosted account invitation codes
+### Invitation codes
 
-Invitation creation returns sixteen cryptographically random characters as
-`K7MP-4X9R-6TWC-8NQF`. The 32-symbol alphabet `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`
-excludes `I`, `O`, `0`, and `1` and provides **80 bits of entropy**. The server
-accepts ASCII lowercase, ASCII spaces, and optional hyphens at each four-character
-group boundary. It hashes the canonical sixteen uppercase characters with
+Customer account invitations (`HostedAccountService`) and host team invitations
+(`invitation.v1.InvitationService`) share one code format and namespace: issuance
+reserves each candidate digest with a transaction-scoped advisory lock, then
+checks both `hosted_account_invitation` and `organization_invitation` before
+storing it, so issuers in different organizations cannot commit the same code.
+`InvitationService` previews and redeems codes of either kind through one public
+surface. Invitation creation returns eight cryptographically
+random characters as `K7MP-4X9R`. The 32-symbol alphabet
+`ABCDEFGHJKLMNPQRSTUVWXYZ23456789` excludes `I`, `O`, `0`, and `1` and provides
+**40 bits of entropy** (about 1.1 trillion codes). The server accepts ASCII
+lowercase, ASCII spaces, and an optional hyphen at the four-character group
+boundary. It hashes the canonical eight uppercase characters with
 SHA-256; only the digest is stored. Digest conflicts retry generation up to five
 times without replacing an existing invitation. Codes remain single-use,
 revocable, and subject to live inviter authority. Logs, audit records, and later
@@ -291,14 +298,52 @@ list responses omit the secret. Optional links carry the same code using the
 fragment-only transport described in the client guide.
 
 The default and maximum lifetime are **24 hours**. Issuers can select one hour
-for a shorter handoff. Earlier token formats are not accepted; this feature has
-not been deployed.
+for a shorter handoff.
+
+The stored digest is unsalted, so read access to the database, a replica or a
+backup allows an offline search of the 40-bit code space. Such access is outside
+this threat model because it is already a database breach; respond by revoking
+outstanding invitations along with the rest of the incident response.
+
+Releases `v0.5.1-internal.1` through `v0.5.1-internal.5` served customer
+invitation preview and redemption from `HostedAccountService` with 16-character
+codes. Those RPCs are removed in favor of `invitation.v1.InvitationService`, and
+earlier code formats are not accepted, so hosts upgrading from those releases
+must reissue outstanding customer invitations.
+
+Team invitations grant an organization role. Issuance requires `user:manage` and
+the same role hierarchy as direct role assignment; Super Admin cannot be invited.
+Each invitation stores an **authority fingerprint** from the SQL function
+`team_invitation_authority_fingerprint` (migration 1036). It covers the invited
+role's `permission_revision` and the inviter's live role assignments, including
+each assigned role's revision. A trigger increments `role.permission_revision`
+on every `role_permission` write, so revisions only grow. Issuance, preview,
+acceptance and listing all compare against that one function. Any later change
+to either side invalidates the code **permanently**: role changes replace
+assignment rows, and a reverted permission edit, including one that empties a
+role again, still leaves a higher revision. Re-promoting an inviter or reverting
+a role edit therefore never revives a code. Preview and acceptance also recheck
+the inviter's live hierarchy and reject a deleted role. Startup reconciliation
+writes no `role_permission` row for permissions a role already has, so restarts
+keep codes valid, but a release that adds permissions to a built-in role invalidates
+outstanding invitations for that role, and for inviters who hold it; release
+notes for such releases must say so. Acceptance runs under the organization lock
+shared with membership and role writes. A signed-in login in the same organization without a team role keeps its
+password and customer memberships and gains the role; logins that already hold
+a team role are rejected rather than reassigned. Registration creates the login,
+role assignment, consumed invitation and session in one transaction. Listing
+omits accepted invitations, which remain stored as the link to the joining login.
+Revoked and expired invitations can be deleted permanently; pending codes must be
+revoked first. Issuance, revocation, deletion and acceptance write `auth`
+activity records without the code.
 
 Migration 1034 adds a PostgreSQL **per-client rate limit**, shared across every
 API replica using the database. Public preview, signed-in acceptance, and
-registration together allow **60 requests per client per one-minute window**.
-The window starts with the client's first admitted request and resets when a
-request arrives at least one minute later. Invalid codes and rejected redemption
+registration together allow **60 requests per client per one-minute window**
+and **100 per one-hour window**, shared by both invitation kinds.
+Each window starts with the client's first admitted request and resets when a
+request arrives after it ends. One statement updates both client counters, and
+a request the minute window rejects does not count against the hour. Invalid codes and rejected redemption
 requests count; registration is charged once at the public handler, before its
 internal preview and consumption steps. Throttled requests return
 `ResourceExhausted`. Per-process preview concurrency and registration CPU limits
@@ -312,15 +357,27 @@ request count. Idle rows older than an hour are pruned in batches of at most 100
 per admitted request, without waiting on locked rows. Admission has a two-second
 timeout and database failures fail closed.
 
-Each client updates only its own counter; there is no deployment-wide request
-allowance, active-invitation population scan, or shared issuance/admission lock.
-One exhausted client does not prevent another client from previewing or redeeming
-a valid code. The stronger secret supplies the guessing margin: for example,
-one billion uniformly random guesses against at most 10,000 active invitations
-have success probability at most `10^13 / 2^80`, about `8.3e-12`. This is an
-illustration under those assumptions, not an enforced deployment-wide guessing
-bound. Per-client throttling limits abuse; it does not identify people or stop a
-distributed denial-of-service attack. See [OWASP token guidance](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html)
+Every admitted request then spends one unit of a **deployment-wide allowance of
+1,000 requests per hour**, stored in the same table under a fixed key and shared
+by every replica. A client's own limit is checked first, so a throttled client
+never spends the shared allowance. This ceiling, not client throttling, supplies
+the guessing margin for eight-character codes: a code lives at most 24 hours, so
+it faces at most 24,000 guesses however many addresses an attacker controls.
+Against `A` simultaneously active invitations, the chance that any guess in a day
+succeeds is at most `24,000 × A / 2^40`, about `2.2e-6` for 100 active
+invitations and `2.2e-4` for 10,000. Without the ceiling, one IPv6 /48 (65,536
+client allowances) could make 5.7 billion guesses a day and would reach one of
+100 active invitations with probability near 40%.
+
+The shared allowance is a deliberate trade-off. One client can spend at most 100
+units of it per hour, so exhausting it takes at least ten distinct client
+allowances (IPv4 addresses or IPv6 /64s). An attacker with that many addresses
+can still block every preview and redemption until the hour resets. Existing
+sessions, issued codes and all other Fleet operations are unaffected, and
+recipients can retry later. Each request updates the shared counter in its
+own short statement, so admission briefly serializes on that row. Per-client
+throttling limits abuse; neither limit identifies people or stops a distributed
+denial-of-service attack. See [OWASP token guidance](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html)
 for random, expiring, single-use credentials and [RFC 8628 §5.1](https://www.rfc-editor.org/rfc/rfc8628.html#section-5.1)
 for the relationship between code entropy, lifetime, and guessing limits.
 

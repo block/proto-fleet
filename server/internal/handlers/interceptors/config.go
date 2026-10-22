@@ -13,6 +13,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/hosted/v1/hostedv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/infrastructure/v1/infrastructurev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
+	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
@@ -27,9 +28,9 @@ var RedactedRequestProcedures = []string{
 	hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure,
 	hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure,
 	hostedv1connect.HostedAccountServiceSetIncomingPoolProfileProcedure,
-	hostedv1connect.HostedAccountServicePreviewInvitationProcedure,
-	hostedv1connect.HostedAccountServiceRegisterInvitedUserProcedure,
-	hostedv1connect.HostedAccountServiceAcceptInvitationProcedure,
+	invitationv1connect.InvitationServicePreviewInvitationProcedure,
+	invitationv1connect.InvitationServiceRegisterInvitedUserProcedure,
+	invitationv1connect.InvitationServiceAcceptInvitationProcedure,
 	authv1connect.AuthServiceAuthenticateProcedure,
 	authv1connect.AuthServiceUpdatePasswordProcedure,
 	authv1connect.AuthServiceVerifyCredentialsProcedure,
@@ -63,6 +64,7 @@ var RedactedRequestProcedures = []string{
 var RedactedResponseProcedures = []string{
 	hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure,
 	hostedv1connect.HostedAccountServiceCreateInvitationProcedure,
+	invitationv1connect.InvitationServiceCreateTeamInvitationProcedure,
 	apikeyv1connect.ApiKeyServiceCreateApiKeyProcedure,
 	authv1connect.AuthServiceCreateUserProcedure,
 	authv1connect.AuthServiceResetUserPasswordProcedure,
@@ -113,7 +115,12 @@ var SessionOnlyProcedures = []string{
 	hostedv1connect.HostedAccountServiceListInvitationsProcedure,
 	hostedv1connect.HostedAccountServiceCreateInvitationProcedure,
 	hostedv1connect.HostedAccountServiceRevokeInvitationProcedure,
-	hostedv1connect.HostedAccountServiceAcceptInvitationProcedure,
+	// Team invitations mint login access; acceptance binds the signed-in login.
+	invitationv1connect.InvitationServiceCreateTeamInvitationProcedure,
+	invitationv1connect.InvitationServiceListTeamInvitationsProcedure,
+	invitationv1connect.InvitationServiceRevokeTeamInvitationProcedure,
+	invitationv1connect.InvitationServiceDeleteTeamInvitationProcedure,
+	invitationv1connect.InvitationServiceAcceptInvitationProcedure,
 	// API key lifecycle — prevents self-replication from a leaked key
 	apikeyv1connect.ApiKeyServiceCreateApiKeyProcedure,
 	apikeyv1connect.ApiKeyServiceListApiKeysProcedure,
@@ -216,8 +223,8 @@ var SessionOnlyProcedures = []string{
 
 var UnauthenticatedProcedures = []string{
 	// The bearer invitation token is validated by the dedicated handler.
-	hostedv1connect.HostedAccountServicePreviewInvitationProcedure,
-	hostedv1connect.HostedAccountServiceRegisterInvitedUserProcedure,
+	invitationv1connect.InvitationServicePreviewInvitationProcedure,
+	invitationv1connect.InvitationServiceRegisterInvitedUserProcedure,
 	"/health",
 	"/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo",
 	authv1connect.AuthServiceAuthenticateProcedure,
@@ -262,10 +269,11 @@ var SensitiveBodyProcedures = map[string]bool{
 	hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure: true,
 	hostedv1connect.HostedAccountServiceSetIncomingPoolProfileProcedure:  true,
 	hostedv1connect.HostedAccountServiceCreateAccountKeyProcedure:        true,
-	hostedv1connect.HostedAccountServicePreviewInvitationProcedure:       true,
-	hostedv1connect.HostedAccountServiceRegisterInvitedUserProcedure:     true,
-	hostedv1connect.HostedAccountServiceAcceptInvitationProcedure:        true,
 	hostedv1connect.HostedAccountServiceCreateInvitationProcedure:        true,
+	invitationv1connect.InvitationServicePreviewInvitationProcedure:      true,
+	invitationv1connect.InvitationServiceRegisterInvitedUserProcedure:    true,
+	invitationv1connect.InvitationServiceAcceptInvitationProcedure:       true,
+	invitationv1connect.InvitationServiceCreateTeamInvitationProcedure:   true,
 	// Fleet topology (device IPs, site/rack placement) must not land in
 	// debug logs on every bridge poll.
 	fleetmanagementv1connect.FleetManagementServiceListMinerStateSnapshotsProcedure:   true,

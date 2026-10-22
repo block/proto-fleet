@@ -42,7 +42,7 @@ const AccountPicker = () => {
         buttons={[
           {
             variant: variants.secondary,
-            text: "Join an account",
+            text: "Use an invitation code",
             onClick: () => {
               setOpen(false);
               navigate("/account-invitation");

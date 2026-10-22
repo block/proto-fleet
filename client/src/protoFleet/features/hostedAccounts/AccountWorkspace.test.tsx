@@ -311,7 +311,7 @@ describe("real account workspace routing", () => {
         await user.click(picker);
         const dialog = within(screen.getByRole("dialog", { name: "Switch account" }));
         expect(dialog.getByRole("radio", { name: /^Customer/ })).toBeChecked();
-        expect(dialog.getByRole("button", { name: "Join an account" })).toBeInTheDocument();
+        expect(dialog.getByRole("button", { name: "Use an invitation code" })).toBeInTheDocument();
         await user.click(dialog.getByRole("radio", { name: /^Other client/ }));
       } else expect(screen.queryByRole("button", { name: "Switch account" })).not.toBeInTheDocument();
       await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());

@@ -106,15 +106,6 @@ const (
 	// HostedAccountServiceRevokeInvitationProcedure is the fully-qualified name of the
 	// HostedAccountService's RevokeInvitation RPC.
 	HostedAccountServiceRevokeInvitationProcedure = "/hosted.v1.HostedAccountService/RevokeInvitation"
-	// HostedAccountServicePreviewInvitationProcedure is the fully-qualified name of the
-	// HostedAccountService's PreviewInvitation RPC.
-	HostedAccountServicePreviewInvitationProcedure = "/hosted.v1.HostedAccountService/PreviewInvitation"
-	// HostedAccountServiceAcceptInvitationProcedure is the fully-qualified name of the
-	// HostedAccountService's AcceptInvitation RPC.
-	HostedAccountServiceAcceptInvitationProcedure = "/hosted.v1.HostedAccountService/AcceptInvitation"
-	// HostedAccountServiceRegisterInvitedUserProcedure is the fully-qualified name of the
-	// HostedAccountService's RegisterInvitedUser RPC.
-	HostedAccountServiceRegisterInvitedUserProcedure = "/hosted.v1.HostedAccountService/RegisterInvitedUser"
 	// HostedAccountServiceCreatePoolConfigurationProcedure is the fully-qualified name of the
 	// HostedAccountService's CreatePoolConfiguration RPC.
 	HostedAccountServiceCreatePoolConfigurationProcedure = "/hosted.v1.HostedAccountService/CreatePoolConfiguration"
@@ -173,9 +164,6 @@ type HostedAccountServiceClient interface {
 	ListInvitations(context.Context, *connect.Request[v1.ListInvitationsRequest]) (*connect.Response[v1.ListInvitationsResponse], error)
 	CreateInvitation(context.Context, *connect.Request[v1.CreateInvitationRequest]) (*connect.Response[v1.CreateInvitationResponse], error)
 	RevokeInvitation(context.Context, *connect.Request[v1.RevokeInvitationRequest]) (*connect.Response[v1.RevokeInvitationResponse], error)
-	PreviewInvitation(context.Context, *connect.Request[v1.PreviewInvitationRequest]) (*connect.Response[v1.PreviewInvitationResponse], error)
-	AcceptInvitation(context.Context, *connect.Request[v1.AcceptInvitationRequest]) (*connect.Response[v1.AcceptInvitationResponse], error)
-	RegisterInvitedUser(context.Context, *connect.Request[v1.RegisterInvitedUserRequest]) (*connect.Response[v1.RegisterInvitedUserResponse], error)
 	CreatePoolConfiguration(context.Context, *connect.Request[v1.CreatePoolConfigurationRequest]) (*connect.Response[v1.CreatePoolConfigurationResponse], error)
 	RevisePoolConfiguration(context.Context, *connect.Request[v1.RevisePoolConfigurationRequest]) (*connect.Response[v1.RevisePoolConfigurationResponse], error)
 	GetPoolRevision(context.Context, *connect.Request[v1.GetPoolRevisionRequest]) (*connect.Response[v1.GetPoolRevisionResponse], error)
@@ -318,21 +306,6 @@ func NewHostedAccountServiceClient(httpClient connect.HTTPClient, baseURL string
 			baseURL+HostedAccountServiceRevokeInvitationProcedure,
 			opts...,
 		),
-		previewInvitation: connect.NewClient[v1.PreviewInvitationRequest, v1.PreviewInvitationResponse](
-			httpClient,
-			baseURL+HostedAccountServicePreviewInvitationProcedure,
-			opts...,
-		),
-		acceptInvitation: connect.NewClient[v1.AcceptInvitationRequest, v1.AcceptInvitationResponse](
-			httpClient,
-			baseURL+HostedAccountServiceAcceptInvitationProcedure,
-			opts...,
-		),
-		registerInvitedUser: connect.NewClient[v1.RegisterInvitedUserRequest, v1.RegisterInvitedUserResponse](
-			httpClient,
-			baseURL+HostedAccountServiceRegisterInvitedUserProcedure,
-			opts...,
-		),
 		createPoolConfiguration: connect.NewClient[v1.CreatePoolConfigurationRequest, v1.CreatePoolConfigurationResponse](
 			httpClient,
 			baseURL+HostedAccountServiceCreatePoolConfigurationProcedure,
@@ -412,9 +385,6 @@ type hostedAccountServiceClient struct {
 	listInvitations          *connect.Client[v1.ListInvitationsRequest, v1.ListInvitationsResponse]
 	createInvitation         *connect.Client[v1.CreateInvitationRequest, v1.CreateInvitationResponse]
 	revokeInvitation         *connect.Client[v1.RevokeInvitationRequest, v1.RevokeInvitationResponse]
-	previewInvitation        *connect.Client[v1.PreviewInvitationRequest, v1.PreviewInvitationResponse]
-	acceptInvitation         *connect.Client[v1.AcceptInvitationRequest, v1.AcceptInvitationResponse]
-	registerInvitedUser      *connect.Client[v1.RegisterInvitedUserRequest, v1.RegisterInvitedUserResponse]
 	createPoolConfiguration  *connect.Client[v1.CreatePoolConfigurationRequest, v1.CreatePoolConfigurationResponse]
 	revisePoolConfiguration  *connect.Client[v1.RevisePoolConfigurationRequest, v1.RevisePoolConfigurationResponse]
 	getPoolRevision          *connect.Client[v1.GetPoolRevisionRequest, v1.GetPoolRevisionResponse]
@@ -547,21 +517,6 @@ func (c *hostedAccountServiceClient) RevokeInvitation(ctx context.Context, req *
 	return c.revokeInvitation.CallUnary(ctx, req)
 }
 
-// PreviewInvitation calls hosted.v1.HostedAccountService.PreviewInvitation.
-func (c *hostedAccountServiceClient) PreviewInvitation(ctx context.Context, req *connect.Request[v1.PreviewInvitationRequest]) (*connect.Response[v1.PreviewInvitationResponse], error) {
-	return c.previewInvitation.CallUnary(ctx, req)
-}
-
-// AcceptInvitation calls hosted.v1.HostedAccountService.AcceptInvitation.
-func (c *hostedAccountServiceClient) AcceptInvitation(ctx context.Context, req *connect.Request[v1.AcceptInvitationRequest]) (*connect.Response[v1.AcceptInvitationResponse], error) {
-	return c.acceptInvitation.CallUnary(ctx, req)
-}
-
-// RegisterInvitedUser calls hosted.v1.HostedAccountService.RegisterInvitedUser.
-func (c *hostedAccountServiceClient) RegisterInvitedUser(ctx context.Context, req *connect.Request[v1.RegisterInvitedUserRequest]) (*connect.Response[v1.RegisterInvitedUserResponse], error) {
-	return c.registerInvitedUser.CallUnary(ctx, req)
-}
-
 // CreatePoolConfiguration calls hosted.v1.HostedAccountService.CreatePoolConfiguration.
 func (c *hostedAccountServiceClient) CreatePoolConfiguration(ctx context.Context, req *connect.Request[v1.CreatePoolConfigurationRequest]) (*connect.Response[v1.CreatePoolConfigurationResponse], error) {
 	return c.createPoolConfiguration.CallUnary(ctx, req)
@@ -638,9 +593,6 @@ type HostedAccountServiceHandler interface {
 	ListInvitations(context.Context, *connect.Request[v1.ListInvitationsRequest]) (*connect.Response[v1.ListInvitationsResponse], error)
 	CreateInvitation(context.Context, *connect.Request[v1.CreateInvitationRequest]) (*connect.Response[v1.CreateInvitationResponse], error)
 	RevokeInvitation(context.Context, *connect.Request[v1.RevokeInvitationRequest]) (*connect.Response[v1.RevokeInvitationResponse], error)
-	PreviewInvitation(context.Context, *connect.Request[v1.PreviewInvitationRequest]) (*connect.Response[v1.PreviewInvitationResponse], error)
-	AcceptInvitation(context.Context, *connect.Request[v1.AcceptInvitationRequest]) (*connect.Response[v1.AcceptInvitationResponse], error)
-	RegisterInvitedUser(context.Context, *connect.Request[v1.RegisterInvitedUserRequest]) (*connect.Response[v1.RegisterInvitedUserResponse], error)
 	CreatePoolConfiguration(context.Context, *connect.Request[v1.CreatePoolConfigurationRequest]) (*connect.Response[v1.CreatePoolConfigurationResponse], error)
 	RevisePoolConfiguration(context.Context, *connect.Request[v1.RevisePoolConfigurationRequest]) (*connect.Response[v1.RevisePoolConfigurationResponse], error)
 	GetPoolRevision(context.Context, *connect.Request[v1.GetPoolRevisionRequest]) (*connect.Response[v1.GetPoolRevisionResponse], error)
@@ -779,21 +731,6 @@ func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...con
 		svc.RevokeInvitation,
 		opts...,
 	)
-	hostedAccountServicePreviewInvitationHandler := connect.NewUnaryHandler(
-		HostedAccountServicePreviewInvitationProcedure,
-		svc.PreviewInvitation,
-		opts...,
-	)
-	hostedAccountServiceAcceptInvitationHandler := connect.NewUnaryHandler(
-		HostedAccountServiceAcceptInvitationProcedure,
-		svc.AcceptInvitation,
-		opts...,
-	)
-	hostedAccountServiceRegisterInvitedUserHandler := connect.NewUnaryHandler(
-		HostedAccountServiceRegisterInvitedUserProcedure,
-		svc.RegisterInvitedUser,
-		opts...,
-	)
 	hostedAccountServiceCreatePoolConfigurationHandler := connect.NewUnaryHandler(
 		HostedAccountServiceCreatePoolConfigurationProcedure,
 		svc.CreatePoolConfiguration,
@@ -894,12 +831,6 @@ func NewHostedAccountServiceHandler(svc HostedAccountServiceHandler, opts ...con
 			hostedAccountServiceCreateInvitationHandler.ServeHTTP(w, r)
 		case HostedAccountServiceRevokeInvitationProcedure:
 			hostedAccountServiceRevokeInvitationHandler.ServeHTTP(w, r)
-		case HostedAccountServicePreviewInvitationProcedure:
-			hostedAccountServicePreviewInvitationHandler.ServeHTTP(w, r)
-		case HostedAccountServiceAcceptInvitationProcedure:
-			hostedAccountServiceAcceptInvitationHandler.ServeHTTP(w, r)
-		case HostedAccountServiceRegisterInvitedUserProcedure:
-			hostedAccountServiceRegisterInvitedUserHandler.ServeHTTP(w, r)
 		case HostedAccountServiceCreatePoolConfigurationProcedure:
 			hostedAccountServiceCreatePoolConfigurationHandler.ServeHTTP(w, r)
 		case HostedAccountServiceRevisePoolConfigurationProcedure:
@@ -1023,18 +954,6 @@ func (UnimplementedHostedAccountServiceHandler) CreateInvitation(context.Context
 
 func (UnimplementedHostedAccountServiceHandler) RevokeInvitation(context.Context, *connect.Request[v1.RevokeInvitationRequest]) (*connect.Response[v1.RevokeInvitationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.RevokeInvitation is not implemented"))
-}
-
-func (UnimplementedHostedAccountServiceHandler) PreviewInvitation(context.Context, *connect.Request[v1.PreviewInvitationRequest]) (*connect.Response[v1.PreviewInvitationResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.PreviewInvitation is not implemented"))
-}
-
-func (UnimplementedHostedAccountServiceHandler) AcceptInvitation(context.Context, *connect.Request[v1.AcceptInvitationRequest]) (*connect.Response[v1.AcceptInvitationResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.AcceptInvitation is not implemented"))
-}
-
-func (UnimplementedHostedAccountServiceHandler) RegisterInvitedUser(context.Context, *connect.Request[v1.RegisterInvitedUserRequest]) (*connect.Response[v1.RegisterInvitedUserResponse], error) {
-	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("hosted.v1.HostedAccountService.RegisterInvitedUser is not implemented"))
 }
 
 func (UnimplementedHostedAccountServiceHandler) CreatePoolConfiguration(context.Context, *connect.Request[v1.CreatePoolConfigurationRequest]) (*connect.Response[v1.CreatePoolConfigurationResponse], error) {

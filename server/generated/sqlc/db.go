@@ -273,8 +273,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.consumeHostedAccountInvitationStmt, err = db.PrepareContext(ctx, consumeHostedAccountInvitation); err != nil {
 		return nil, fmt.Errorf("error preparing query ConsumeHostedAccountInvitation: %w", err)
 	}
+	if q.consumeHostedInvitationDeploymentRateLimitStmt, err = db.PrepareContext(ctx, consumeHostedInvitationDeploymentRateLimit); err != nil {
+		return nil, fmt.Errorf("error preparing query ConsumeHostedInvitationDeploymentRateLimit: %w", err)
+	}
 	if q.consumeHostedInvitationRateLimitStmt, err = db.PrepareContext(ctx, consumeHostedInvitationRateLimit); err != nil {
 		return nil, fmt.Errorf("error preparing query ConsumeHostedInvitationRateLimit: %w", err)
+	}
+	if q.consumeOrganizationInvitationStmt, err = db.PrepareContext(ctx, consumeOrganizationInvitation); err != nil {
+		return nil, fmt.Errorf("error preparing query ConsumeOrganizationInvitation: %w", err)
 	}
 	if q.consumeReservedInventoryPartStmt, err = db.PrepareContext(ctx, consumeReservedInventoryPart); err != nil {
 		return nil, fmt.Errorf("error preparing query ConsumeReservedInventoryPart: %w", err)
@@ -441,6 +447,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createOrganizationStmt, err = db.PrepareContext(ctx, createOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateOrganization: %w", err)
 	}
+	if q.createOrganizationInvitationStmt, err = db.PrepareContext(ctx, createOrganizationInvitation); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateOrganizationInvitation: %w", err)
+	}
 	if q.createPendingEnrollmentStmt, err = db.PrepareContext(ctx, createPendingEnrollment); err != nil {
 		return nil, fmt.Errorf("error preparing query CreatePendingEnrollment: %w", err)
 	}
@@ -542,6 +551,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.deleteOrganizationStmt, err = db.PrepareContext(ctx, deleteOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteOrganization: %w", err)
+	}
+	if q.deleteOrganizationInvitationStmt, err = db.PrepareContext(ctx, deleteOrganizationInvitation); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteOrganizationInvitation: %w", err)
 	}
 	if q.deletePairingsForFleetNodeStmt, err = db.PrepareContext(ctx, deletePairingsForFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query DeletePairingsForFleetNode: %w", err)
@@ -1119,6 +1131,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getOrganizationByOrgIDStmt, err = db.PrepareContext(ctx, getOrganizationByOrgID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationByOrgID: %w", err)
 	}
+	if q.getOrganizationInvitationByHashStmt, err = db.PrepareContext(ctx, getOrganizationInvitationByHash); err != nil {
+		return nil, fmt.Errorf("error preparing query GetOrganizationInvitationByHash: %w", err)
+	}
 	if q.getOrganizationsForUserStmt, err = db.PrepareContext(ctx, getOrganizationsForUser); err != nil {
 		return nil, fmt.Errorf("error preparing query GetOrganizationsForUser: %w", err)
 	}
@@ -1233,6 +1248,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getTankRollupWatermarksStmt, err = db.PrepareContext(ctx, getTankRollupWatermarks); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTankRollupWatermarks: %w", err)
 	}
+	if q.getTeamInvitationAuthorityFingerprintStmt, err = db.PrepareContext(ctx, getTeamInvitationAuthorityFingerprint); err != nil {
+		return nil, fmt.Errorf("error preparing query GetTeamInvitationAuthorityFingerprint: %w", err)
+	}
 	if q.getTotalDevicesPendingAuthStmt, err = db.PrepareContext(ctx, getTotalDevicesPendingAuth); err != nil {
 		return nil, fmt.Errorf("error preparing query GetTotalDevicesPendingAuth: %w", err)
 	}
@@ -1259,6 +1277,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getUserByUsernameStmt, err = db.PrepareContext(ctx, getUserByUsername); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserByUsername: %w", err)
+	}
+	if q.getUserOrganizationRoleStateStmt, err = db.PrepareContext(ctx, getUserOrganizationRoleState); err != nil {
+		return nil, fmt.Errorf("error preparing query GetUserOrganizationRoleState: %w", err)
 	}
 	if q.getUserRoleInOrganizationStmt, err = db.PrepareContext(ctx, getUserRoleInOrganization); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserRoleInOrganization: %w", err)
@@ -1367,6 +1388,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.inventoryPartExistsBySiteAndNameStmt, err = db.PrepareContext(ctx, inventoryPartExistsBySiteAndName); err != nil {
 		return nil, fmt.Errorf("error preparing query InventoryPartExistsBySiteAndName: %w", err)
+	}
+	if q.invitationTokenHashInUseStmt, err = db.PrepareContext(ctx, invitationTokenHashInUse); err != nil {
+		return nil, fmt.Errorf("error preparing query InvitationTokenHashInUse: %w", err)
 	}
 	if q.isBatchFinishedStmt, err = db.PrepareContext(ctx, isBatchFinished); err != nil {
 		return nil, fmt.Errorf("error preparing query IsBatchFinished: %w", err)
@@ -1683,6 +1707,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listNotificationHistoryStmt, err = db.PrepareContext(ctx, listNotificationHistory); err != nil {
 		return nil, fmt.Errorf("error preparing query ListNotificationHistory: %w", err)
 	}
+	if q.listOrganizationInvitationsStmt, err = db.PrepareContext(ctx, listOrganizationInvitations); err != nil {
+		return nil, fmt.Errorf("error preparing query ListOrganizationInvitations: %w", err)
+	}
 	if q.listOrganizationsStmt, err = db.PrepareContext(ctx, listOrganizations); err != nil {
 		return nil, fmt.Errorf("error preparing query ListOrganizations: %w", err)
 	}
@@ -1965,6 +1992,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockInventorySitesStmt, err = db.PrepareContext(ctx, lockInventorySites); err != nil {
 		return nil, fmt.Errorf("error preparing query LockInventorySites: %w", err)
 	}
+	if q.lockInvitationTokenHashStmt, err = db.PrepareContext(ctx, lockInvitationTokenHash); err != nil {
+		return nil, fmt.Errorf("error preparing query LockInvitationTokenHash: %w", err)
+	}
 	if q.lockMaintenanceBuildingForTicketStmt, err = db.PrepareContext(ctx, lockMaintenanceBuildingForTicket); err != nil {
 		return nil, fmt.Errorf("error preparing query LockMaintenanceBuildingForTicket: %w", err)
 	}
@@ -2054,6 +2084,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.offlineDevicesForFleetNodeRevocationStmt, err = db.PrepareContext(ctx, offlineDevicesForFleetNodeRevocation); err != nil {
 		return nil, fmt.Errorf("error preparing query OfflineDevicesForFleetNodeRevocation: %w", err)
+	}
+	if q.organizationInvitationExistsStmt, err = db.PrepareContext(ctx, organizationInvitationExists); err != nil {
+		return nil, fmt.Errorf("error preparing query OrganizationInvitationExists: %w", err)
 	}
 	if q.pairDeviceToFleetNodeStmt, err = db.PrepareContext(ctx, pairDeviceToFleetNode); err != nil {
 		return nil, fmt.Errorf("error preparing query PairDeviceToFleetNode: %w", err)
@@ -2267,6 +2300,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.revokeHostedAccountMembershipStmt, err = db.PrepareContext(ctx, revokeHostedAccountMembership); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeHostedAccountMembership: %w", err)
+	}
+	if q.revokeOrganizationInvitationStmt, err = db.PrepareContext(ctx, revokeOrganizationInvitation); err != nil {
+		return nil, fmt.Errorf("error preparing query RevokeOrganizationInvitation: %w", err)
 	}
 	if q.revokePermissionFromRoleStmt, err = db.PrepareContext(ctx, revokePermissionFromRole); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokePermissionFromRole: %w", err)
@@ -3123,9 +3159,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing consumeHostedAccountInvitationStmt: %w", cerr)
 		}
 	}
+	if q.consumeHostedInvitationDeploymentRateLimitStmt != nil {
+		if cerr := q.consumeHostedInvitationDeploymentRateLimitStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing consumeHostedInvitationDeploymentRateLimitStmt: %w", cerr)
+		}
+	}
 	if q.consumeHostedInvitationRateLimitStmt != nil {
 		if cerr := q.consumeHostedInvitationRateLimitStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing consumeHostedInvitationRateLimitStmt: %w", cerr)
+		}
+	}
+	if q.consumeOrganizationInvitationStmt != nil {
+		if cerr := q.consumeOrganizationInvitationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing consumeOrganizationInvitationStmt: %w", cerr)
 		}
 	}
 	if q.consumeReservedInventoryPartStmt != nil {
@@ -3403,6 +3449,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createOrganizationStmt: %w", cerr)
 		}
 	}
+	if q.createOrganizationInvitationStmt != nil {
+		if cerr := q.createOrganizationInvitationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createOrganizationInvitationStmt: %w", cerr)
+		}
+	}
 	if q.createPendingEnrollmentStmt != nil {
 		if cerr := q.createPendingEnrollmentStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createPendingEnrollmentStmt: %w", cerr)
@@ -3571,6 +3622,11 @@ func (q *Queries) Close() error {
 	if q.deleteOrganizationStmt != nil {
 		if cerr := q.deleteOrganizationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteOrganizationStmt: %w", cerr)
+		}
+	}
+	if q.deleteOrganizationInvitationStmt != nil {
+		if cerr := q.deleteOrganizationInvitationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteOrganizationInvitationStmt: %w", cerr)
 		}
 	}
 	if q.deletePairingsForFleetNodeStmt != nil {
@@ -4533,6 +4589,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getOrganizationByOrgIDStmt: %w", cerr)
 		}
 	}
+	if q.getOrganizationInvitationByHashStmt != nil {
+		if cerr := q.getOrganizationInvitationByHashStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getOrganizationInvitationByHashStmt: %w", cerr)
+		}
+	}
 	if q.getOrganizationsForUserStmt != nil {
 		if cerr := q.getOrganizationsForUserStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getOrganizationsForUserStmt: %w", cerr)
@@ -4723,6 +4784,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getTankRollupWatermarksStmt: %w", cerr)
 		}
 	}
+	if q.getTeamInvitationAuthorityFingerprintStmt != nil {
+		if cerr := q.getTeamInvitationAuthorityFingerprintStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getTeamInvitationAuthorityFingerprintStmt: %w", cerr)
+		}
+	}
 	if q.getTotalDevicesPendingAuthStmt != nil {
 		if cerr := q.getTotalDevicesPendingAuthStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getTotalDevicesPendingAuthStmt: %w", cerr)
@@ -4766,6 +4832,11 @@ func (q *Queries) Close() error {
 	if q.getUserByUsernameStmt != nil {
 		if cerr := q.getUserByUsernameStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getUserByUsernameStmt: %w", cerr)
+		}
+	}
+	if q.getUserOrganizationRoleStateStmt != nil {
+		if cerr := q.getUserOrganizationRoleStateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getUserOrganizationRoleStateStmt: %w", cerr)
 		}
 	}
 	if q.getUserRoleInOrganizationStmt != nil {
@@ -4946,6 +5017,11 @@ func (q *Queries) Close() error {
 	if q.inventoryPartExistsBySiteAndNameStmt != nil {
 		if cerr := q.inventoryPartExistsBySiteAndNameStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing inventoryPartExistsBySiteAndNameStmt: %w", cerr)
+		}
+	}
+	if q.invitationTokenHashInUseStmt != nil {
+		if cerr := q.invitationTokenHashInUseStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing invitationTokenHashInUseStmt: %w", cerr)
 		}
 	}
 	if q.isBatchFinishedStmt != nil {
@@ -5473,6 +5549,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listNotificationHistoryStmt: %w", cerr)
 		}
 	}
+	if q.listOrganizationInvitationsStmt != nil {
+		if cerr := q.listOrganizationInvitationsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listOrganizationInvitationsStmt: %w", cerr)
+		}
+	}
 	if q.listOrganizationsStmt != nil {
 		if cerr := q.listOrganizationsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listOrganizationsStmt: %w", cerr)
@@ -5943,6 +6024,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockInventorySitesStmt: %w", cerr)
 		}
 	}
+	if q.lockInvitationTokenHashStmt != nil {
+		if cerr := q.lockInvitationTokenHashStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockInvitationTokenHashStmt: %w", cerr)
+		}
+	}
 	if q.lockMaintenanceBuildingForTicketStmt != nil {
 		if cerr := q.lockMaintenanceBuildingForTicketStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockMaintenanceBuildingForTicketStmt: %w", cerr)
@@ -6091,6 +6177,11 @@ func (q *Queries) Close() error {
 	if q.offlineDevicesForFleetNodeRevocationStmt != nil {
 		if cerr := q.offlineDevicesForFleetNodeRevocationStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing offlineDevicesForFleetNodeRevocationStmt: %w", cerr)
+		}
+	}
+	if q.organizationInvitationExistsStmt != nil {
+		if cerr := q.organizationInvitationExistsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing organizationInvitationExistsStmt: %w", cerr)
 		}
 	}
 	if q.pairDeviceToFleetNodeStmt != nil {
@@ -6446,6 +6537,11 @@ func (q *Queries) Close() error {
 	if q.revokeHostedAccountMembershipStmt != nil {
 		if cerr := q.revokeHostedAccountMembershipStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing revokeHostedAccountMembershipStmt: %w", cerr)
+		}
+	}
+	if q.revokeOrganizationInvitationStmt != nil {
+		if cerr := q.revokeOrganizationInvitationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing revokeOrganizationInvitationStmt: %w", cerr)
 		}
 	}
 	if q.revokePermissionFromRoleStmt != nil {
@@ -7295,7 +7391,9 @@ type Queries struct {
 	confirmEnrollmentStmt                                        *sql.Stmt
 	consumeFleetNodeAuthChallengeStmt                            *sql.Stmt
 	consumeHostedAccountInvitationStmt                           *sql.Stmt
+	consumeHostedInvitationDeploymentRateLimitStmt               *sql.Stmt
 	consumeHostedInvitationRateLimitStmt                         *sql.Stmt
+	consumeOrganizationInvitationStmt                            *sql.Stmt
 	consumeReservedInventoryPartStmt                             *sql.Stmt
 	containerOwnsCommandBatchStmt                                *sql.Stmt
 	containsContainerIdentifiersStmt                             *sql.Stmt
@@ -7351,6 +7449,7 @@ type Queries struct {
 	createInfrastructureDeviceStmt                               *sql.Stmt
 	createInventoryPartStmt                                      *sql.Stmt
 	createOrganizationStmt                                       *sql.Stmt
+	createOrganizationInvitationStmt                             *sql.Stmt
 	createPendingEnrollmentStmt                                  *sql.Stmt
 	createPoolStmt                                               *sql.Stmt
 	createQueueMessageStmt                                       *sql.Stmt
@@ -7385,6 +7484,7 @@ type Queries struct {
 	deleteMinerCredentialsForDeviceIdentifiersStmt               *sql.Stmt
 	deleteMinerCredentialsForFleetNodeStmt                       *sql.Stmt
 	deleteOrganizationStmt                                       *sql.Stmt
+	deleteOrganizationInvitationStmt                             *sql.Stmt
 	deletePairingsForFleetNodeStmt                               *sql.Stmt
 	deletePoolStmt                                               *sql.Stmt
 	deleteReleaseChannelStmt                                     *sql.Stmt
@@ -7577,6 +7677,7 @@ type Queries struct {
 	getOrganizationByIDStmt                                      *sql.Stmt
 	getOrganizationByNameStmt                                    *sql.Stmt
 	getOrganizationByOrgIDStmt                                   *sql.Stmt
+	getOrganizationInvitationByHashStmt                          *sql.Stmt
 	getOrganizationsForUserStmt                                  *sql.Stmt
 	getPairedDeviceByMACAddressStmt                              *sql.Stmt
 	getPairedDeviceBySerialNumberStmt                            *sql.Stmt
@@ -7615,6 +7716,7 @@ type Queries struct {
 	getSiteStmt                                                  *sql.Stmt
 	getSiteBySlugStmt                                            *sql.Stmt
 	getTankRollupWatermarksStmt                                  *sql.Stmt
+	getTeamInvitationAuthorityFingerprintStmt                    *sql.Stmt
 	getTotalDevicesPendingAuthStmt                               *sql.Stmt
 	getTotalMinerStateSnapshotsStmt                              *sql.Stmt
 	getTotalPairedDevicesStmt                                    *sql.Stmt
@@ -7624,6 +7726,7 @@ type Queries struct {
 	getUserByIdStmt                                              *sql.Stmt
 	getUserByIdForUpdateStmt                                     *sql.Stmt
 	getUserByUsernameStmt                                        *sql.Stmt
+	getUserOrganizationRoleStateStmt                             *sql.Stmt
 	getUserRoleInOrganizationStmt                                *sql.Stmt
 	getUserRoleNameStmt                                          *sql.Stmt
 	getUserRoleNameForUpdateStmt                                 *sql.Stmt
@@ -7660,6 +7763,7 @@ type Queries struct {
 	insertReleaseChannelTargetsStmt                              *sql.Stmt
 	insertRepairTicketPartStmt                                   *sql.Stmt
 	inventoryPartExistsBySiteAndNameStmt                         *sql.Stmt
+	invitationTokenHashInUseStmt                                 *sql.Stmt
 	isBatchFinishedStmt                                          *sql.Stmt
 	isContainerMetricSelectorStmt                                *sql.Stmt
 	isDeletionUnpairIdentityCurrentStmt                          *sql.Stmt
@@ -7765,6 +7869,7 @@ type Queries struct {
 	listModuleCommandTargetsStmt                                 *sql.Stmt
 	listNonTerminalCurtailmentEventsStmt                         *sql.Stmt
 	listNotificationHistoryStmt                                  *sql.Stmt
+	listOrganizationInvitationsStmt                              *sql.Stmt
 	listOrganizationsStmt                                        *sql.Stmt
 	listPartsBySiteStmt                                          *sql.Stmt
 	listPermissionsStmt                                          *sql.Stmt
@@ -7859,6 +7964,7 @@ type Queries struct {
 	lockInfrastructureDevicesForResponseProfileStmt              *sql.Stmt
 	lockInfrastructureRackForPlacementStmt                       *sql.Stmt
 	lockInventorySitesStmt                                       *sql.Stmt
+	lockInvitationTokenHashStmt                                  *sql.Stmt
 	lockMaintenanceBuildingForTicketStmt                         *sql.Stmt
 	lockMaintenanceMinerForTicketStmt                            *sql.Stmt
 	lockMaintenanceRackForTicketStmt                             *sql.Stmt
@@ -7889,6 +7995,7 @@ type Queries struct {
 	nextRepairTicketNumberStmt                                   *sql.Stmt
 	observeFirmwareRolloutReservationsOfflineStmt                *sql.Stmt
 	offlineDevicesForFleetNodeRevocationStmt                     *sql.Stmt
+	organizationInvitationExistsStmt                             *sql.Stmt
 	pairDeviceToFleetNodeStmt                                    *sql.Stmt
 	passwordUpdatedAtStmt                                        *sql.Stmt
 	pauseActiveScheduleStmt                                      *sql.Stmt
@@ -7960,6 +8067,7 @@ type Queries struct {
 	revokeHostedAccountInvitationStmt                            *sql.Stmt
 	revokeHostedAccountKeyStmt                                   *sql.Stmt
 	revokeHostedAccountMembershipStmt                            *sql.Stmt
+	revokeOrganizationInvitationStmt                             *sql.Stmt
 	revokePermissionFromRoleStmt                                 *sql.Stmt
 	revokeSessionStmt                                            *sql.Stmt
 	setCurtailmentAutomationActiveEventStmt                      *sql.Stmt
@@ -8194,7 +8302,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		confirmEnrollmentStmt:                                        q.confirmEnrollmentStmt,
 		consumeFleetNodeAuthChallengeStmt:                            q.consumeFleetNodeAuthChallengeStmt,
 		consumeHostedAccountInvitationStmt:                           q.consumeHostedAccountInvitationStmt,
+		consumeHostedInvitationDeploymentRateLimitStmt:               q.consumeHostedInvitationDeploymentRateLimitStmt,
 		consumeHostedInvitationRateLimitStmt:                         q.consumeHostedInvitationRateLimitStmt,
+		consumeOrganizationInvitationStmt:                            q.consumeOrganizationInvitationStmt,
 		consumeReservedInventoryPartStmt:                             q.consumeReservedInventoryPartStmt,
 		containerOwnsCommandBatchStmt:                                q.containerOwnsCommandBatchStmt,
 		containsContainerIdentifiersStmt:                             q.containsContainerIdentifiersStmt,
@@ -8250,6 +8360,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		createInfrastructureDeviceStmt:                               q.createInfrastructureDeviceStmt,
 		createInventoryPartStmt:                                      q.createInventoryPartStmt,
 		createOrganizationStmt:                                       q.createOrganizationStmt,
+		createOrganizationInvitationStmt:                             q.createOrganizationInvitationStmt,
 		createPendingEnrollmentStmt:                                  q.createPendingEnrollmentStmt,
 		createPoolStmt:                                               q.createPoolStmt,
 		createQueueMessageStmt:                                       q.createQueueMessageStmt,
@@ -8284,6 +8395,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteMinerCredentialsForDeviceIdentifiersStmt:               q.deleteMinerCredentialsForDeviceIdentifiersStmt,
 		deleteMinerCredentialsForFleetNodeStmt:                       q.deleteMinerCredentialsForFleetNodeStmt,
 		deleteOrganizationStmt:                                       q.deleteOrganizationStmt,
+		deleteOrganizationInvitationStmt:                             q.deleteOrganizationInvitationStmt,
 		deletePairingsForFleetNodeStmt:                               q.deletePairingsForFleetNodeStmt,
 		deletePoolStmt:                                               q.deletePoolStmt,
 		deleteReleaseChannelStmt:                                     q.deleteReleaseChannelStmt,
@@ -8476,6 +8588,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getOrganizationByIDStmt:                                      q.getOrganizationByIDStmt,
 		getOrganizationByNameStmt:                                    q.getOrganizationByNameStmt,
 		getOrganizationByOrgIDStmt:                                   q.getOrganizationByOrgIDStmt,
+		getOrganizationInvitationByHashStmt:                          q.getOrganizationInvitationByHashStmt,
 		getOrganizationsForUserStmt:                                  q.getOrganizationsForUserStmt,
 		getPairedDeviceByMACAddressStmt:                              q.getPairedDeviceByMACAddressStmt,
 		getPairedDeviceBySerialNumberStmt:                            q.getPairedDeviceBySerialNumberStmt,
@@ -8514,6 +8627,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getSiteStmt:                                                  q.getSiteStmt,
 		getSiteBySlugStmt:                                            q.getSiteBySlugStmt,
 		getTankRollupWatermarksStmt:                                  q.getTankRollupWatermarksStmt,
+		getTeamInvitationAuthorityFingerprintStmt:                    q.getTeamInvitationAuthorityFingerprintStmt,
 		getTotalDevicesPendingAuthStmt:                               q.getTotalDevicesPendingAuthStmt,
 		getTotalMinerStateSnapshotsStmt:                              q.getTotalMinerStateSnapshotsStmt,
 		getTotalPairedDevicesStmt:                                    q.getTotalPairedDevicesStmt,
@@ -8523,6 +8637,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getUserByIdStmt:                                              q.getUserByIdStmt,
 		getUserByIdForUpdateStmt:                                     q.getUserByIdForUpdateStmt,
 		getUserByUsernameStmt:                                        q.getUserByUsernameStmt,
+		getUserOrganizationRoleStateStmt:                             q.getUserOrganizationRoleStateStmt,
 		getUserRoleInOrganizationStmt:                                q.getUserRoleInOrganizationStmt,
 		getUserRoleNameStmt:                                          q.getUserRoleNameStmt,
 		getUserRoleNameForUpdateStmt:                                 q.getUserRoleNameForUpdateStmt,
@@ -8559,6 +8674,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		insertReleaseChannelTargetsStmt:                              q.insertReleaseChannelTargetsStmt,
 		insertRepairTicketPartStmt:                                   q.insertRepairTicketPartStmt,
 		inventoryPartExistsBySiteAndNameStmt:                         q.inventoryPartExistsBySiteAndNameStmt,
+		invitationTokenHashInUseStmt:                                 q.invitationTokenHashInUseStmt,
 		isBatchFinishedStmt:                                          q.isBatchFinishedStmt,
 		isContainerMetricSelectorStmt:                                q.isContainerMetricSelectorStmt,
 		isDeletionUnpairIdentityCurrentStmt:                          q.isDeletionUnpairIdentityCurrentStmt,
@@ -8664,6 +8780,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listModuleCommandTargetsStmt:                                 q.listModuleCommandTargetsStmt,
 		listNonTerminalCurtailmentEventsStmt:                         q.listNonTerminalCurtailmentEventsStmt,
 		listNotificationHistoryStmt:                                  q.listNotificationHistoryStmt,
+		listOrganizationInvitationsStmt:                              q.listOrganizationInvitationsStmt,
 		listOrganizationsStmt:                                        q.listOrganizationsStmt,
 		listPartsBySiteStmt:                                          q.listPartsBySiteStmt,
 		listPermissionsStmt:                                          q.listPermissionsStmt,
@@ -8758,6 +8875,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockInfrastructureDevicesForResponseProfileStmt:              q.lockInfrastructureDevicesForResponseProfileStmt,
 		lockInfrastructureRackForPlacementStmt:                       q.lockInfrastructureRackForPlacementStmt,
 		lockInventorySitesStmt:                                       q.lockInventorySitesStmt,
+		lockInvitationTokenHashStmt:                                  q.lockInvitationTokenHashStmt,
 		lockMaintenanceBuildingForTicketStmt:                         q.lockMaintenanceBuildingForTicketStmt,
 		lockMaintenanceMinerForTicketStmt:                            q.lockMaintenanceMinerForTicketStmt,
 		lockMaintenanceRackForTicketStmt:                             q.lockMaintenanceRackForTicketStmt,
@@ -8788,6 +8906,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		nextRepairTicketNumberStmt:                                   q.nextRepairTicketNumberStmt,
 		observeFirmwareRolloutReservationsOfflineStmt:                q.observeFirmwareRolloutReservationsOfflineStmt,
 		offlineDevicesForFleetNodeRevocationStmt:                     q.offlineDevicesForFleetNodeRevocationStmt,
+		organizationInvitationExistsStmt:                             q.organizationInvitationExistsStmt,
 		pairDeviceToFleetNodeStmt:                                    q.pairDeviceToFleetNodeStmt,
 		passwordUpdatedAtStmt:                                        q.passwordUpdatedAtStmt,
 		pauseActiveScheduleStmt:                                      q.pauseActiveScheduleStmt,
@@ -8859,6 +8978,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		revokeHostedAccountInvitationStmt:                            q.revokeHostedAccountInvitationStmt,
 		revokeHostedAccountKeyStmt:                                   q.revokeHostedAccountKeyStmt,
 		revokeHostedAccountMembershipStmt:                            q.revokeHostedAccountMembershipStmt,
+		revokeOrganizationInvitationStmt:                             q.revokeOrganizationInvitationStmt,
 		revokePermissionFromRoleStmt:                                 q.revokePermissionFromRoleStmt,
 		revokeSessionStmt:                                            q.revokeSessionStmt,
 		setCurtailmentAutomationActiveEventStmt:                      q.setCurtailmentAutomationActiveEventStmt,

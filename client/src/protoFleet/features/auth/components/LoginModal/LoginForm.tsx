@@ -20,9 +20,11 @@ interface LoginFormProps {
   onDismiss?: () => void;
   secondaryAction?: ReactNode;
   onSuccess: (requiresPasswordChange: boolean) => void;
+  /** Renders only the credentials and actions, for pages that supply their own logo and heading. */
+  embedded?: boolean;
 }
 
-const LoginForm = ({ onDismiss, onSuccess, secondaryAction }: LoginFormProps) => {
+const LoginForm = ({ onDismiss, onSuccess, secondaryAction, embedded = false }: LoginFormProps) => {
   const [values, setValues] = useState<Values>(deepClone(initValues));
   const [errors, setErrors] = useState<Values>(deepClone(initValues));
   const [apiError, setApiError] = useState<string | null>(null);
@@ -75,13 +77,18 @@ const LoginForm = ({ onDismiss, onSuccess, secondaryAction }: LoginFormProps) =>
   useKeyDown({ key: "Enter", onKeyDown: handleEnter });
 
   return (
-    <div data-testid="login-form" className="flex flex-col gap-10 phone:h-full phone:justify-between">
-      <Logo width="w-[86px]" />
+    <div
+      data-testid="login-form"
+      className={clsx("flex flex-col", embedded ? "gap-4" : "gap-10 phone:h-full phone:justify-between")}
+    >
+      {embedded ? null : <Logo width="w-[86px]" />}
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-2">
-            <div className="text-heading-300 text-text-primary">Log in</div>
-          </div>
+          {embedded ? null : (
+            <div className="flex flex-col gap-2">
+              <div className="text-heading-300 text-text-primary">Log in</div>
+            </div>
+          )}
 
           <div className="flex flex-col gap-4">
             <div
@@ -139,10 +146,12 @@ const LoginForm = ({ onDismiss, onSuccess, secondaryAction }: LoginFormProps) =>
         />
         {secondaryAction}
       </div>
-      <div className="flex flex-col gap-2">
-        <div className="text-300 text-text-primary-70">Powerful mining tools. Built for decentralization.</div>
-        <div className="text-300 text-text-primary-50">&copy; {new Date().getFullYear()} Block, Inc.</div>
-      </div>
+      {embedded ? null : (
+        <div className="flex flex-col gap-2">
+          <div className="text-300 text-text-primary-70">Powerful mining tools. Built for decentralization.</div>
+          <div className="text-300 text-text-primary-50">&copy; {new Date().getFullYear()} Block, Inc.</div>
+        </div>
+      )}
     </div>
   );
 };

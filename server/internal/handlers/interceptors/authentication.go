@@ -160,7 +160,7 @@ func (i *AuthInterceptor) authenticate(ctx context.Context, procedure string, re
 	}
 	// Only explicitly classified account operations accept bounded machine keys.
 	// Exemption lists cannot widen account or interactive credential access.
-	if strings.HasPrefix(procedure, hostedAccountProcedurePrefix) && !publicHostedInvitation(procedure) {
+	if strings.HasPrefix(procedure, hostedAccountProcedurePrefix) {
 		authed, err := i.authenticateRequest(ctx, requestHeader, !allowsAccountKey(procedure))
 		if err != nil {
 			return ctx, err
@@ -198,11 +198,6 @@ func (i *AuthInterceptor) AuthenticateRequest(ctx context.Context, requestHeader
 }
 
 const hostedAccountProcedurePrefix = "/hosted.v1.HostedAccountService/"
-
-func publicHostedInvitation(procedure string) bool {
-	return procedure == hostedv1connect.HostedAccountServicePreviewInvitationProcedure ||
-		procedure == hostedv1connect.HostedAccountServiceRegisterInvitedUserProcedure
-}
 
 // Account workspace operations belong to a selected customer workspace. Host
 // account administration deliberately continues to allow omitted selection.
@@ -246,7 +241,7 @@ func allowsAccountKey(procedure string) bool {
 func allowsSelectedAccount(procedure string) bool {
 	// This is intentionally an exact list: new services or methods need an
 	// explicit decision before they can be called from a customer workspace.
-	// Token-bound invitation acceptance precedes selection and is excluded.
+	// Invitation redemption precedes selection and is excluded.
 	switch procedure {
 	case hostedv1connect.HostedAccountServiceListAccountActivitiesProcedure,
 		hostedv1connect.HostedAccountServiceExportAccountActivitiesProcedure,
