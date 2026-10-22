@@ -625,7 +625,11 @@ func TestHARuntimeReleasesOnlyAfterCleanPlannedStop(t *testing.T) {
 			}
 			if test.wantRelease {
 				require.Len(t, owner.released, 1)
-				require.Equal(t, owner.Snapshot().Token, (<-owner.released).Token)
+				require.Equal(t, Ownership{
+					DCSClusterID: "cluster-a",
+					Token:        Token{WriterGeneration: 41, LeaseEpoch: 7},
+					HolderID:     uuid.MustParse("00000000-0000-0000-0000-000000000001"),
+				}, <-owner.released)
 			} else {
 				require.Empty(t, owner.released)
 			}
@@ -675,4 +679,104 @@ func TestHARuntimeJoinsRenewalsBeforeRelease(t *testing.T) {
 	close(allowRenewalExit)
 	require.NoError(t, <-result)
 	require.Len(t, owner.released, 1)
+}
+
+func TestHARuntimeDoesNotReleaseWhenHealthFailureRacesPlannedStop(t *testing.T) {
+	// Arrange
+	owner := newRuntimeTestOwner()
+	group := newRuntimeTestGroup()
+	runCtx, cancelRun := context.WithCancelCause(t.Context())
+	activeCtx, cancelActive := context.WithCancelCause(runCtx)
+	defer cancelActive(context.Canceled)
+	owner.activations <- runtimeTestActivation{ctx: activeCtx}
+	var checks atomic.Int32
+	healthy := func() bool {
+		if checks.Add(1) == 1 {
+			return true
+		}
+		// The planned signal arrives while the health check is failing.
+		cancelRun(ErrPlannedStop)
+		return false
+	}
+	runtime := newRuntime(owner, group, healthy, runtimeTestConfig())
+
+	// Act
+	err := runtime.Run(runCtx)
+
+	// Assert
+	require.NoError(t, err)
+	requireReceive(t, group.stoppedCh)
+	require.Empty(t, owner.released)
+}
+
+func TestHARuntimeDoesNotReleaseWhenCoordinatorJoinTimesOut(t *testing.T) {
+	// Arrange
+	owner := newRuntimeTestOwner()
+	renewalBlocked := make(chan struct{})
+	t.Cleanup(func() { close(renewalBlocked) })
+	owner.runExitWait = renewalBlocked
+	group := newRuntimeTestGroup()
+	config := runtimeTestConfig()
+	config.CleanupTimeout = 20 * time.Millisecond
+	runtime := newRuntime(owner, group, alwaysHealthy, config)
+	runCtx, cancelRun := context.WithCancelCause(t.Context())
+	activeCtx, cancelActive := context.WithCancelCause(runCtx)
+	defer cancelActive(context.Canceled)
+	owner.activations <- runtimeTestActivation{ctx: activeCtx}
+	result := make(chan error, 1)
+	go func() { result <- runtime.Run(runCtx) }()
+	requireReceiveContext(t, group.startedCh)
+	require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
+
+	// Act
+	cancelRun(ErrPlannedStop)
+
+	// Assert
+	require.ErrorIs(t, <-result, context.DeadlineExceeded)
+	require.Empty(t, owner.released)
+}
+
+func TestHARuntimePlannedDrainSuppressesEndpointAbort(t *testing.T) {
+	for _, plannedDrain := range []bool{true, false} {
+		t.Run(fmt.Sprintf("planned drain=%t", plannedDrain), func(t *testing.T) {
+			// Arrange
+			owner := newRuntimeTestOwner()
+			group := newRuntimeTestGroup()
+			var endpointUp atomic.Bool
+			endpointUp.Store(true)
+			config := runtimeTestConfig()
+			config.EndpointHealthy = endpointUp.Load
+			runtime := newRuntime(owner, group, alwaysHealthy, config)
+			runCtx, cancelRun := context.WithCancelCause(t.Context())
+			defer cancelRun(context.Canceled)
+			activeCtx, cancelActive := context.WithCancelCause(runCtx)
+			defer cancelActive(context.Canceled)
+			owner.activations <- runtimeTestActivation{ctx: activeCtx}
+			result := make(chan error, 1)
+			go func() { result <- runtime.Run(runCtx) }()
+			requireReceiveContext(t, group.startedCh)
+			require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
+			// Let the endpoint monitor observe a healthy sample first.
+			time.Sleep(20 * time.Millisecond)
+
+			// Act
+			if plannedDrain {
+				runtime.BeginPlannedDrain()
+			}
+			endpointUp.Store(false)
+
+			// Assert
+			if !plannedDrain {
+				requireReceiveContext(t, group.abortedCh)
+				require.ErrorIs(t, <-result, ErrRuntimeAborted)
+				require.Empty(t, owner.released)
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+			require.True(t, runtime.Active(), "endpoint failure during a planned drain must not abort")
+			cancelRun(ErrPlannedStop)
+			require.NoError(t, <-result)
+			require.Len(t, owner.released, 1)
+		})
+	}
 }

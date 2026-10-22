@@ -579,6 +579,7 @@ type fakeLeaseStore struct {
 	renewErr     error
 	acquireDelay time.Duration
 	acquires     int
+	releaseErr   error
 }
 
 func (f *fakeLeaseStore) Acquire(
@@ -654,7 +655,7 @@ func (f *fakeLeaseStore) Release(_ context.Context, _ Ownership) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, "release")
-	return nil
+	return f.releaseErr
 }
 
 func TestCoordinatorRetainsPlannedStopCauseOnActiveLifetime(t *testing.T) {
@@ -671,4 +672,38 @@ func TestCoordinatorRetainsPlannedStopCauseOnActiveLifetime(t *testing.T) {
 	require.ErrorIs(t, <-result, context.Canceled)
 	require.ErrorIs(t, context.Cause(activeCtx), ErrPlannedStop)
 	require.Equal(t, StatePassive, coordinator.Snapshot().State)
+}
+
+func TestCoordinatorReleaseRequiresCurrentHolder(t *testing.T) {
+	// Arrange
+	store := &fakeLeaseStore{}
+	coordinator, err := NewCoordinator(
+		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Minute)},
+		store, coordinatorTestConfig())
+	require.NoError(t, err)
+
+	// Act
+	err = coordinator.Release(t.Context(), Ownership{HolderID: uuid.New()})
+
+	// Assert
+	require.ErrorIs(t, err, ErrOwnershipLost)
+	require.NotContains(t, store.callSequence(), "release")
+}
+
+func TestCoordinatorReleaseWrapsStoreError(t *testing.T) {
+	// Arrange
+	storeErr := errors.New("database unavailable")
+	store := &fakeLeaseStore{releaseErr: storeErr}
+	coordinator, err := NewCoordinator(
+		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Minute)},
+		store, coordinatorTestConfig())
+	require.NoError(t, err)
+
+	// Act
+	err = coordinator.Release(t.Context(), Ownership{HolderID: coordinator.HolderID()})
+
+	// Assert
+	require.ErrorIs(t, err, storeErr)
+	require.ErrorContains(t, err, "release Fleet ownership term")
+	require.Equal(t, []string{"release"}, store.callSequence())
 }

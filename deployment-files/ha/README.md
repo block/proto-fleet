@@ -426,7 +426,7 @@ Failed or incomplete cleanup, ownership loss, and crashes keep the normal
 lease-expiry path. Active application updates stop the API first, retaining nginx while Fleet
 attempts its clean drain. Docker forces an incomplete API stop after three
 seconds. Compose then tears down the remaining application containers with a
-one-second grace, sharing the existing five-second stop-command bound. The
+one-second grace. Each of the two commands has its own five-second bound. The
 update still verifies that the peer serves the public endpoint.
 
 ## etcd capacity

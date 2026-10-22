@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
@@ -54,6 +55,9 @@ type Runtime struct {
 	healthCheck func() bool
 	config      RuntimeConfig
 	gate        *Gate
+	// A planned HTTP drain rejects every request, including endpoint probes. The
+	// lease is still held, so a failed probe must not abort and forfeit release.
+	plannedDrain atomic.Bool
 }
 
 func NewRuntime(
@@ -113,6 +117,11 @@ func withRuntimeDefaults(config RuntimeConfig) RuntimeConfig {
 
 func (r *Runtime) Active() bool {
 	return r.gate.Active()
+}
+
+// BeginPlannedDrain is called before a signal-driven HTTP drain closes admission.
+func (r *Runtime) BeginPlannedDrain() {
+	r.plannedDrain.Store(true)
 }
 
 func (r *Runtime) Admit(ctx context.Context) (context.Context, func(), error) {
@@ -207,7 +216,6 @@ func (r *Runtime) runHA(ctx context.Context) error {
 		}
 		// Cancellation has stopped admission and renewal. Join the coordinator so
 		// an in-flight renewal cannot extend the term after voluntary release.
-		cancelCoordinator()
 		releaseCtx, cancelRelease := context.WithTimeout(context.Background(), r.config.CleanupTimeout)
 		defer cancelRelease()
 		select {
@@ -260,6 +268,9 @@ func (r *Runtime) waitWhileHealthy(parent, activeCtx context.Context) error {
 		case <-ticker.C:
 			if !r.healthCheck() {
 				return errCriticalRuntimeUnhealthy
+			}
+			if r.plannedDrain.Load() {
+				continue
 			}
 			if err := endpoint.check(time.Now()); err != nil {
 				return err

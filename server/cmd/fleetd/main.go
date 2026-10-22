@@ -163,6 +163,10 @@ import (
 
 const shutdownTimeout = 10 * time.Second
 
+// Matches the updater's API stop grace; a timed-out drain still blocks HA
+// lease release.
+const pendingUnpairsStopTimeout = 3 * time.Second
+
 // version is overwritten at release build time via -ldflags "-X main.version=<tag>".
 var version = "dev"
 
@@ -790,8 +794,12 @@ func start(config *Config) (result error) {
 		releaseCheckerJob = releaseChecker
 	}
 	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
-		plugins:                   stopOnlyLifecycle{stop: pluginService.Shutdown},
-		pendingUnpairs:            stopOnlyLifecycle{stop: fleetMgmtSvc.WaitForPendingUnpairs},
+		plugins: stopOnlyLifecycle{
+			stop:     pluginService.Shutdown,
+			timeout:  time.Duration(config.Plugins.ShutdownTimeoutSeconds) * time.Second,
+			detached: true,
+		},
+		pendingUnpairs:            stopOnlyLifecycle{stop: fleetMgmtSvc.WaitForPendingUnpairs, timeout: pendingUnpairsStopTimeout},
 		identityStateCleanup:      identityStateCleanup,
 		commandArtifactCleanup:    commandArtifactCleanup,
 		diagnosticsErrorCloser:    diagnosticsService,

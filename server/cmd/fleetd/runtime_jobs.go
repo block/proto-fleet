@@ -113,10 +113,28 @@ func (l *backgroundLoop) Stop(ctx context.Context) error {
 
 // stopOnlyLifecycle includes already-created resources and request-spawned work
 // in the runtime's ordered cleanup proof before voluntary HA lease release.
-type stopOnlyLifecycle struct{ stop func(context.Context) error }
+// A timeout keeps one participant from starving later ones of the shared group
+// budget; detached participants keep their own budget even after earlier
+// participants have used the group's.
+type stopOnlyLifecycle struct {
+	stop     func(context.Context) error
+	timeout  time.Duration
+	detached bool
+}
 
-func (l stopOnlyLifecycle) Start(context.Context) error    { return nil }
-func (l stopOnlyLifecycle) Stop(ctx context.Context) error { return l.stop(ctx) }
+func (l stopOnlyLifecycle) Start(context.Context) error { return nil }
+
+func (l stopOnlyLifecycle) Stop(ctx context.Context) error {
+	if l.detached {
+		ctx = context.WithoutCancel(ctx)
+	}
+	if l.timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, l.timeout)
+		defer cancel()
+	}
+	return l.stop(ctx)
+}
 
 type runtimeJobGroupStopper interface {
 	Stop(ctx context.Context) error
@@ -124,6 +142,7 @@ type runtimeJobGroupStopper interface {
 
 type fleetRuntimeRunner interface {
 	Run(ctx context.Context) error
+	BeginPlannedDrain()
 }
 
 // httpRequestDrain rejects new requests once shutdown begins and tracks handler
@@ -256,6 +275,7 @@ func serveFleetRuntimeWithContext(
 	var serverStopped, runtimeStopped bool
 	select {
 	case <-ctx.Done():
+		runtime.BeginPlannedDrain()
 	case runtimeErr = <-runtimeResult:
 		runtimeStopped = true
 		if runtimeErr == nil {

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -55,7 +56,14 @@ type scriptedRuntimeJobGroupStopper struct {
 }
 
 type scriptedFleetRuntime struct {
-	run func(context.Context) error
+	run        func(context.Context) error
+	beginDrain func()
+}
+
+func (r scriptedFleetRuntime) BeginPlannedDrain() {
+	if r.beginDrain != nil {
+		r.beginDrain()
+	}
 }
 
 func (r scriptedFleetRuntime) Run(ctx context.Context) error {
@@ -679,7 +687,11 @@ func TestServeFleetRuntimeReleasesHALeaseOnlyAfterCleanDrain(t *testing.T) {
 			if clean {
 				require.NoError(t, runErr)
 				require.Len(t, store.released, 1)
-				require.Equal(t, ha.Token{WriterGeneration: 41, LeaseEpoch: 7}, (<-store.released).Token)
+				require.Equal(t, ha.Ownership{
+					DCSClusterID: "cluster-a",
+					Token:        ha.Token{WriterGeneration: 41, LeaseEpoch: 7},
+					HolderID:     coordinator.HolderID(),
+				}, <-store.released)
 			} else {
 				require.ErrorIs(t, runErr, context.DeadlineExceeded)
 				require.Empty(t, store.released)
@@ -733,6 +745,113 @@ func TestRuntimeJobsDrainUnpairsBeforeTheirPluginDependency(t *testing.T) {
 				require.ErrorIs(t, err, stopErr)
 			}
 			require.Equal(t, []string{"unpairs", "telemetry", "plugins"}, stopped)
+		})
+	}
+}
+
+func TestServeFleetRuntimeServeFailureIsNotPlannedStop(t *testing.T) {
+	// Arrange
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	server := &http.Server{Handler: http.NotFoundHandler(), ReadHeaderTimeout: time.Second}
+	runtimeStarted := make(chan struct{})
+	stopCause := make(chan error, 1)
+	var plannedDrain atomic.Bool
+	runtime := scriptedFleetRuntime{
+		run: func(ctx context.Context) error {
+			close(runtimeStarted)
+			<-ctx.Done()
+			stopCause <- context.Cause(ctx)
+			return nil
+		},
+		beginDrain: func() { plannedDrain.Store(true) },
+	}
+	result := make(chan error, 1)
+	go func() {
+		result <- serveFleetRuntimeWithContext(t.Context(), server, listener, runtime, time.Second, nil)
+	}()
+	requireReceive(t, runtimeStarted)
+
+	// Act
+	require.NoError(t, listener.Close())
+
+	// Assert
+	require.ErrorContains(t, <-result, "serve HTTP")
+	cause := <-stopCause
+	require.ErrorIs(t, cause, context.Canceled)
+	require.NotErrorIs(t, cause, ha.ErrPlannedStop)
+	require.False(t, plannedDrain.Load(), "a serve failure is not a planned drain")
+}
+
+func TestServeFleetRuntimeBeginsPlannedDrainBeforeStoppingRuntime(t *testing.T) {
+	// Arrange
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	server := &http.Server{Handler: http.NotFoundHandler(), ReadHeaderTimeout: time.Second}
+	runtimeStarted := make(chan struct{})
+	var plannedDrain atomic.Bool
+	runtime := scriptedFleetRuntime{
+		run: func(ctx context.Context) error {
+			close(runtimeStarted)
+			<-ctx.Done()
+			if !plannedDrain.Load() {
+				return errors.New("runtime stopped before the planned drain began")
+			}
+			return nil
+		},
+		beginDrain: func() { plannedDrain.Store(true) },
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	result := make(chan error, 1)
+	go func() { result <- serveFleetRuntimeWithContext(ctx, server, listener, runtime, time.Second, nil) }()
+	requireReceive(t, runtimeStarted)
+
+	// Act
+	cancel()
+
+	// Assert
+	require.NoError(t, <-result)
+	require.True(t, plannedDrain.Load())
+}
+
+func TestStopOnlyLifecycleBudgets(t *testing.T) {
+	expired, cancel := context.WithCancel(t.Context())
+	cancel()
+	for _, test := range []struct {
+		name         string
+		parent       context.Context //nolint:containedctx // Table input for the group's stop context.
+		lifecycle    stopOnlyLifecycle
+		wantCanceled bool
+		wantDeadline bool
+	}{
+		{name: "timeout bounds the participant", parent: t.Context(), lifecycle: stopOnlyLifecycle{timeout: time.Minute}, wantDeadline: true},
+		{name: "attached participant keeps group cancellation", parent: expired, lifecycle: stopOnlyLifecycle{timeout: time.Minute}, wantCanceled: true, wantDeadline: true},
+		{name: "detached participant keeps its own budget", parent: expired, lifecycle: stopOnlyLifecycle{timeout: time.Minute, detached: true}, wantDeadline: true},
+		{name: "no timeout uses the group context", parent: t.Context(), lifecycle: stopOnlyLifecycle{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			// Arrange
+			var deadline time.Time
+			var hasDeadline bool
+			lifecycle := test.lifecycle
+			lifecycle.stop = func(ctx context.Context) error {
+				deadline, hasDeadline = ctx.Deadline()
+				return ctx.Err()
+			}
+
+			// Act
+			err := lifecycle.Stop(test.parent)
+
+			// Assert
+			if test.wantCanceled {
+				require.ErrorIs(t, err, context.Canceled)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, test.wantDeadline, hasDeadline)
+			if test.wantDeadline {
+				require.InDelta(t, time.Minute.Seconds(), time.Until(deadline).Seconds(), 5)
+			}
 		})
 	}
 }
