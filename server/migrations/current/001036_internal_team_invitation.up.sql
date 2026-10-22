@@ -55,4 +55,5 @@ CREATE TABLE organization_invitation (
 );
 
 CREATE INDEX idx_organization_invitation_org_created
-    ON organization_invitation (organization_id, created_at DESC, invitation_id DESC);
+    ON organization_invitation (organization_id, created_at DESC, invitation_id DESC)
+    WHERE accepted_at IS NULL;

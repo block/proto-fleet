@@ -144,6 +144,7 @@ func (s *TeamInvitationService) List(ctx context.Context, orgID int64, pageSize 
 		rows = rows[:pageSize]
 	}
 	type grant struct{ inviterID, roleID int64 }
+	grantCache := newTeamGrantCache(s.accounts.queries, orgID)
 	grantable := map[grant]bool{}
 	for index := range rows {
 		if !rows[index].Available {
@@ -152,7 +153,7 @@ func (s *TeamInvitationService) List(ctx context.Context, orgID int64, pageSize 
 		key := grant{rows[index].InviterID, rows[index].RoleID}
 		allowed, checked := grantable[key]
 		if !checked {
-			if allowed, err = s.inviterCanGrant(ctx, orgID, key.inviterID, key.roleID); err != nil {
+			if allowed, err = grantCache.canGrant(ctx, key.inviterID, key.roleID); err != nil {
 				return nil, "", err
 			}
 			grantable[key] = allowed
@@ -167,16 +168,63 @@ func (s *TeamInvitationService) List(ctx context.Context, orgID int64, pageSize 
 	return rows, base64.RawURLEncoding.EncodeToString([]byte(payload)), nil
 }
 
-func (s *TeamInvitationService) inviterCanGrant(ctx context.Context, orgID, inviterID, roleID int64) (bool, error) {
-	eff, err := authz.LoadEffectiveTx(ctx, s.accounts.queries, inviterID, orgID)
-	if err != nil {
-		return false, fleeterror.NewInternalErrorf("load inviter permissions: %w", err)
+type teamGrantCache struct {
+	q        sqlc.Querier
+	orgID    int64
+	inviters map[int64]*authz.EffectivePermissions
+	roles    map[int64]*authz.EffectivePermissions
+}
+
+func newTeamGrantCache(q sqlc.Querier, orgID int64) *teamGrantCache {
+	return &teamGrantCache{
+		q:        q,
+		orgID:    orgID,
+		inviters: make(map[int64]*authz.EffectivePermissions),
+		roles:    make(map[int64]*authz.EffectivePermissions),
 	}
-	err = requireTeamRoleGrant(ctx, s.accounts.queries, eff, roleID)
+}
+
+func (c *teamGrantCache) canGrant(ctx context.Context, inviterID, roleID int64) (bool, error) {
+	eff, err := c.inviterPermissions(ctx, inviterID)
+	if err != nil {
+		return false, err
+	}
+	target, err := c.rolePermissions(ctx, roleID)
+	if err != nil {
+		return false, err
+	}
+	err = requireTeamRoleGrantWithTarget(eff, target)
 	if fleeterror.IsForbiddenError(err) {
 		return false, nil
 	}
 	return err == nil, err
+}
+
+func (c *teamGrantCache) inviterPermissions(ctx context.Context, inviterID int64) (*authz.EffectivePermissions, error) {
+	if eff, ok := c.inviters[inviterID]; ok {
+		return eff, nil
+	}
+	eff, err := authz.LoadEffectiveTx(ctx, c.q, inviterID, c.orgID)
+	if err != nil {
+		return nil, fleeterror.NewInternalErrorf("load inviter permissions: %w", err)
+	}
+	c.inviters[inviterID] = eff
+	return eff, nil
+}
+
+func (c *teamGrantCache) rolePermissions(ctx context.Context, roleID int64) (*authz.EffectivePermissions, error) {
+	if eff, ok := c.roles[roleID]; ok {
+		return eff, nil
+	}
+	keys, err := c.q.ListRolePermissionKeys(ctx, roleID)
+	if err != nil {
+		return nil, err
+	}
+	eff := authz.NewEffectivePermissions([]authz.Assignment{{
+		ScopeType: authz.ScopeOrg, Permissions: keys,
+	}})
+	c.roles[roleID] = eff
+	return eff, nil
 }
 
 func teamInvitationPageCursor(token string, orgID int64) (sql.NullTime, string, error) {
@@ -398,6 +446,9 @@ func (s *TeamInvitationService) withTeamInvitation(ctx context.Context, token st
 			return err
 		}
 		i, err := q.GetOrganizationInvitationByHash(ctx, hash)
+		if errors.Is(err, sql.ErrNoRows) {
+			return unavailableInvitation()
+		}
 		if err != nil {
 			return err
 		}
@@ -477,9 +528,16 @@ func requireTeamRoleGrant(ctx context.Context, q sqlc.Querier, inviterEff *authz
 	if err != nil {
 		return err
 	}
-	return auth.RequireCallerCanManageTarget(inviterEff, authz.NewEffectivePermissions([]authz.Assignment{{
+	return requireTeamRoleGrantWithTarget(inviterEff, authz.NewEffectivePermissions([]authz.Assignment{{
 		ScopeType: authz.ScopeOrg, Permissions: keys,
 	}}))
+}
+
+func requireTeamRoleGrantWithTarget(inviterEff, targetEff *authz.EffectivePermissions) error {
+	if !inviterEff.Has(authz.PermUserManage, authz.ResourceContext{}) {
+		return fleeterror.NewForbiddenError("insufficient permissions to invite team members")
+	}
+	return auth.RequireCallerCanManageTarget(inviterEff, targetEff)
 }
 
 func acceptTeamInvitation(ctx context.Context, q sqlc.Querier, i sqlc.GetOrganizationInvitationByHashRow, role sqlc.Role, inviter, member sqlc.User, registered bool) error {
