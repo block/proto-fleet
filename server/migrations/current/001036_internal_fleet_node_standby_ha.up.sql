@@ -49,7 +49,7 @@ SELECT fn.id AS owner_node_id, fn.org_id,
        CASE WHEN g.enabled THEN g.instance_id ELSE '' END::text AS instance_id,
        CASE WHEN g.enabled THEN g.control_session_id ELSE '' END::text AS control_session_id,
        physical.encryption_pubkey,
-       CASE WHEN g.owner_node_id IS NULL OR NOT g.enabled OR (g.acknowledged AND g.lease_expires_at>clock_timestamp() AND c.node_id IS NOT NULL AND physical.enrollment_status='CONFIRMED' AND physical.deleted_at IS NULL) THEN h.last_seen_at ELSE NULL END AS last_seen_at,
+       CASE WHEN physical.enrollment_status='CONFIRMED' AND physical.deleted_at IS NULL AND (g.owner_node_id IS NULL OR NOT g.enabled OR (g.acknowledged AND g.lease_expires_at>clock_timestamp() AND c.node_id IS NOT NULL)) THEN h.last_seen_at ELSE NULL END AS last_seen_at,
        CASE WHEN g.enabled THEN g.lease_expires_at ELSE NULL END AS lease_expires_at,
        CASE WHEN g.enabled THEN (g.acknowledged AND c.node_id IS NOT NULL) ELSE true END::boolean AS acknowledged
 FROM fleet_node fn
@@ -71,7 +71,7 @@ SELECT fn.id,fn.org_id,fn.name,fn.identity_pubkey,
   WHERE m.owner_node_id=fn.id AND m.org_id=fn.org_id AND m.revoked_at IS NULL
    AND physical.enrollment_status='CONFIRMED' AND physical.deleted_at IS NULL
  ) THEN 'CONFIRMED'::varchar(32) ELSE fn.enrollment_status END AS enrollment_status,
- CASE WHEN g.enabled THEN COALESCE(route.last_seen_at,'1970-01-01 00:00:00+00'::timestamptz) ELSE h.last_seen_at END AS last_seen_at,
+ CASE WHEN g.owner_node_id IS NOT NULL THEN COALESCE(route.last_seen_at,'1970-01-01 00:00:00+00'::timestamptz) ELSE h.last_seen_at END AS last_seen_at,
  fn.created_at,fn.updated_at,fn.deleted_at
 FROM fleet_node fn
 LEFT JOIN fleet_node_ha_group g ON g.owner_node_id=fn.id AND g.org_id=fn.org_id
