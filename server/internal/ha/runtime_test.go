@@ -761,7 +761,7 @@ func TestHARuntimePlannedDrainSuppressesEndpointAbort(t *testing.T) {
 
 			// Act
 			if plannedDrain {
-				runtime.BeginPlannedDrain()
+				runtime.BeginPlannedDrain(time.Now().Add(time.Second))
 			}
 			endpointUp.Store(false)
 
@@ -779,4 +779,55 @@ func TestHARuntimePlannedDrainSuppressesEndpointAbort(t *testing.T) {
 			require.Len(t, owner.released, 1)
 		})
 	}
+}
+
+func TestHARuntimePlannedDrainDeadlineStopsRenewalBeforeBlockedAbort(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		owner := newRuntimeTestOwner()
+		group := newRuntimeTestGroup()
+		allowAbort := make(chan struct{})
+		group.abortWait = allowAbort
+		config := runtimeTestConfig()
+		config.HealthCheckInterval = 100 * time.Millisecond
+		runtime := newRuntime(owner, group, alwaysHealthy, config)
+		runCtx, cancelRun := context.WithCancelCause(context.Background())
+		defer cancelRun(context.Canceled)
+		owner.activations <- runtimeTestActivation{ctx: runCtx}
+		result := make(chan error, 1)
+		go func() { result <- runtime.Run(runCtx) }()
+		requireReceiveContext(t, group.startedCh)
+		synctest.Wait()
+
+		runtime.BeginPlannedDrain(time.Now().Add(time.Second))
+		runtime.BeginPlannedDrain(time.Now().Add(time.Hour)) // A repeated signal cannot extend the budget.
+		time.Sleep(900 * time.Millisecond)
+		synctest.Wait()
+		require.True(t, runtime.Active())
+		select {
+		case <-owner.stopped:
+			t.Fatal("renewal stopped before the HTTP drain deadline")
+		default:
+		}
+
+		time.Sleep(100 * time.Millisecond)
+		synctest.Wait()
+		requireReceive(t, owner.stopped)
+		requireReceiveContext(t, group.abortedCh)
+		require.False(t, runtime.Active())
+		require.Empty(t, owner.released)
+		select {
+		case err := <-result:
+			t.Fatalf("abort must remain blocked after renewal stops: %v", err)
+		default:
+		}
+
+		// Even a later completed HTTP drain cannot turn this abort into release.
+		cancelRun(ErrPlannedStop)
+		close(allowAbort)
+		synctest.Wait()
+		err := <-result
+		require.ErrorIs(t, err, ErrRuntimeAborted)
+		require.ErrorIs(t, err, errPlannedDrainTimedOut)
+		require.Empty(t, owner.released)
+	})
 }

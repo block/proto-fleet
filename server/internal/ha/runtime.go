@@ -26,6 +26,7 @@ var ErrPlannedStop = errors.New("planned Fleet runtime stop")
 
 var errCriticalRuntimeUnhealthy = errors.New("critical Fleet runtime is unhealthy")
 var errEndpointUnavailable = errors.New("active Fleet endpoint is unavailable")
+var errPlannedDrainTimedOut = errors.New("planned Fleet HTTP drain exceeded its deadline")
 
 type RuntimeConfig struct {
 	HealthCheckInterval time.Duration
@@ -55,9 +56,10 @@ type Runtime struct {
 	healthCheck func() bool
 	config      RuntimeConfig
 	gate        *Gate
-	// A planned HTTP drain rejects every request, including endpoint probes. The
-	// lease is still held, so a failed probe must not abort and forfeit release.
-	plannedDrain atomic.Bool
+	// Rejecting HTTP admission also rejects endpoint probes. Suppress those
+	// probes only through the HTTP drain deadline; stuck handlers must not
+	// keep ownership renewal alive indefinitely.
+	plannedDrainDeadline atomic.Pointer[time.Time]
 }
 
 func NewRuntime(
@@ -120,8 +122,9 @@ func (r *Runtime) Active() bool {
 }
 
 // BeginPlannedDrain is called before a signal-driven HTTP drain closes admission.
-func (r *Runtime) BeginPlannedDrain() {
-	r.plannedDrain.Store(true)
+// Repeated calls cannot extend the original drain budget.
+func (r *Runtime) BeginPlannedDrain(deadline time.Time) {
+	r.plannedDrainDeadline.CompareAndSwap(nil, &deadline)
 }
 
 func (r *Runtime) Admit(ctx context.Context) (context.Context, func(), error) {
@@ -266,10 +269,14 @@ func (r *Runtime) waitWhileHealthy(parent, activeCtx context.Context) error {
 		case <-activeCtx.Done():
 			return fmt.Errorf("active lifetime ended: %w", context.Cause(activeCtx))
 		case <-ticker.C:
+			deadline := r.plannedDrainDeadline.Load()
+			if deadline != nil && !time.Now().Before(*deadline) {
+				return errPlannedDrainTimedOut
+			}
 			if !r.healthCheck() {
 				return errCriticalRuntimeUnhealthy
 			}
-			if r.plannedDrain.Load() {
+			if deadline != nil {
 				continue
 			}
 			if err := endpoint.check(time.Now()); err != nil {

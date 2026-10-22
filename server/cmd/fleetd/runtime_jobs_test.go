@@ -60,7 +60,7 @@ type scriptedFleetRuntime struct {
 	beginDrain func()
 }
 
-func (r scriptedFleetRuntime) BeginPlannedDrain() {
+func (r scriptedFleetRuntime) BeginPlannedDrain(time.Time) {
 	if r.beginDrain != nil {
 		r.beginDrain()
 	}
@@ -633,6 +633,8 @@ func TestServeFleetRuntimeReleasesHALeaseOnlyAfterCleanDrain(t *testing.T) {
 			requestStarted := make(chan struct{})
 			requestCancelled := make(chan struct{})
 			allowHandlerExit := make(chan struct{})
+			exitHandler := sync.OnceFunc(func() { close(allowHandlerExit) })
+			t.Cleanup(exitHandler)
 			handlerDrained := make(chan struct{})
 			jobsStopped := make(chan struct{})
 			store := &shutdownLeaseStore{requestsDrained: handlerDrained, jobsStopped: jobsStopped, released: make(chan ha.Ownership, 1)}
@@ -680,9 +682,18 @@ func TestServeFleetRuntimeReleasesHALeaseOnlyAfterCleanDrain(t *testing.T) {
 			if !clean {
 				// Forced socket closure proves the HTTP shutdown budget was exceeded.
 				requireReceive(t, requestDone)
+				require.Eventually(t, func() bool { return coordinator.Snapshot().State == ha.StatePassive }, time.Second, time.Millisecond,
+					"a stuck handler must not keep renewing the lease after the HTTP drain deadline")
+				requireReceive(t, jobsStopped)
+				require.False(t, runtime.Active())
+				select {
+				case <-handlerDrained:
+					t.Fatal("handler must remain blocked while renewal stops")
+				default:
+				}
 			}
 			require.Empty(t, store.released)
-			close(allowHandlerExit)
+			exitHandler()
 			runErr := <-result
 			if clean {
 				require.NoError(t, runErr)

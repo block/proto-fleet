@@ -142,7 +142,7 @@ type runtimeJobGroupStopper interface {
 
 type fleetRuntimeRunner interface {
 	Run(ctx context.Context) error
-	BeginPlannedDrain()
+	BeginPlannedDrain(deadline time.Time)
 }
 
 // httpRequestDrain rejects new requests once shutdown begins and tracks handler
@@ -273,9 +273,10 @@ func serveFleetRuntimeWithContext(
 
 	var serverErr, runtimeErr error
 	var serverStopped, runtimeStopped bool
+	plannedDrain := false
 	select {
 	case <-ctx.Done():
-		runtime.BeginPlannedDrain()
+		plannedDrain = true
 	case runtimeErr = <-runtimeResult:
 		runtimeStopped = true
 		if runtimeErr == nil {
@@ -285,11 +286,15 @@ func serveFleetRuntimeWithContext(
 		serverStopped = true
 	}
 
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout)
+	if plannedDrain {
+		deadline, _ := shutdownCtx.Deadline()
+		runtime.BeginPlannedDrain(deadline)
+	}
 	// Closing admission before cancellation prevents keep-alive and h2c requests
 	// from starting work after the drain has begun.
 	drain.stop()
 	cancelRequests()
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout)
 	shutdownErr := server.Shutdown(shutdownCtx)
 	shutdownCancel()
 	if shutdownErr != nil {

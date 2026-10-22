@@ -422,6 +422,9 @@ A planned Fleet stop closes HTTP admission and drains requests before stopping
 runtime jobs. After a clean drain and renewal shutdown, Fleet expires only its
 exact live lease; the stored epoch remains and the peer can acquire immediately.
 The drain includes pending background unpairs and confirmed plugin process exit.
+Endpoint-probe suppression lasts only through the HTTP shutdown deadline. If a
+handler remains blocked, Fleet stops lease renewal and takes the fatal-abort path;
+voluntary release still requires completed cleanup.
 Failed or incomplete cleanup, ownership loss, and crashes keep the normal
 lease-expiry path. Active application updates stop the API first, retaining nginx while Fleet
 attempts its clean drain. Docker forces an incomplete API stop after three
