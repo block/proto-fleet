@@ -205,11 +205,29 @@ func teamInvitationPageCursor(token string, orgID int64) (sql.NullTime, string, 
 	return sql.NullTime{Time: createdAt, Valid: true}, parts[3], nil
 }
 
+// lockTeamManager locks the organization and actor, then reloads the actor's
+// permissions under row locks. A role change that commits while the request
+// waits is therefore honored, not the authority checked before the wait.
+func lockTeamManager(ctx context.Context, q sqlc.Querier, orgID, actorID int64) (sqlc.User, error) {
+	actor, err := lockActor(ctx, q, orgID, actorID)
+	if err != nil {
+		return sqlc.User{}, err
+	}
+	eff, err := authz.LoadEffectiveForUpdate(ctx, q, actorID, orgID)
+	if err != nil {
+		return sqlc.User{}, fleeterror.NewInternalErrorf("load manager permissions: %w", err)
+	}
+	if !eff.Has(authz.PermUserManage, authz.ResourceContext{}) {
+		return sqlc.User{}, fleeterror.NewForbiddenError("insufficient permissions to manage team invitations")
+	}
+	return actor, nil
+}
+
 // Revoke withdraws an unused invitation. Revocation only removes pending
 // access, so any user:manage holder may revoke regardless of role parity.
 func (s *TeamInvitationService) Revoke(ctx context.Context, actorID, orgID int64, invitationID string) error {
 	return db.WithTransactionNoResult(ctx, s.accounts.conn, func(q sqlc.Querier) error {
-		actor, err := lockActor(ctx, q, orgID, actorID)
+		actor, err := lockTeamManager(ctx, q, orgID, actorID)
 		if err != nil {
 			return err
 		}
@@ -228,7 +246,7 @@ func (s *TeamInvitationService) Revoke(ctx context.Context, actorID, orgID int64
 // must be revoked first, so deletion never withdraws access by itself.
 func (s *TeamInvitationService) Delete(ctx context.Context, actorID, orgID int64, invitationID string) error {
 	return db.WithTransactionNoResult(ctx, s.accounts.conn, func(q sqlc.Querier) error {
-		actor, err := lockActor(ctx, q, orgID, actorID)
+		actor, err := lockTeamManager(ctx, q, orgID, actorID)
 		if err != nil {
 			return err
 		}
