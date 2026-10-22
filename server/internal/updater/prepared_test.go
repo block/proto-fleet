@@ -167,3 +167,59 @@ func TestPreparedHAUpdatePublishesOnlyDurableUnchangedConfiguration(t *testing.T
 		})
 	}
 }
+
+func TestPreparedHACompletionUsesPreparedStateAndRecoversFailedTakeover(t *testing.T) {
+	for _, failedTakeover := range []bool{false, true} {
+		t.Run(map[bool]string{false: "completed", true: "takeover failed"}[failedTakeover], func(t *testing.T) {
+			installRoot := t.TempDir()
+			writeCurrentDeployment(t, installRoot, "v1.0.0")
+			server := releaseServer(t, "v1.1.0", "amd64", releaseBundle(t, "v1.1.0"), "")
+			runner := &haRecordingRunner{}
+			manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) { cfg.DeploymentMode = DeploymentModeHA })
+			_, err := manager.TriggerPreparedWithID("v1.1.0", "11111111-1111-4111-8111-111111111111", true, false, false)
+			require.NoError(t, err)
+			require.Equal(t, updaterapi.PhaseSucceeded, waitPreparedOperation(t, manager).Phase)
+			server.Close()
+			if failedTakeover {
+				runner.mu.Lock()
+				runner.fail = map[string]error{"wait-takeover": os.ErrDeadlineExceeded}
+				runner.mu.Unlock()
+			}
+			_, err = manager.TriggerPreparedWithID("v1.1.0", "22222222-2222-4222-8222-222222222222", false, true, true)
+			require.NoError(t, err)
+			result := waitPreparedOperation(t, manager)
+			require.True(t, result.Prepared)
+			require.True(t, result.Complete)
+			commands := runner.Commands()
+			preflights := 0
+			var activation [][]string
+			for _, command := range commands {
+				if command.Args[0] == "update-preflight" {
+					preflights++
+				}
+				switch command.Args[0] {
+				case "require-active", "app-stop", "wait-takeover", "app-start":
+					activation = append(activation, command.Args)
+				}
+			}
+			require.Equal(t, 1, preflights)
+			wantStart := []string{"app-start", "v1.1.0", "complete"}
+			if failedTakeover {
+				require.Equal(t, updaterapi.PhaseFailed, result.Phase)
+				require.Contains(t, result.Error, "previous release restarted")
+				require.Empty(t, result.RecoveryCommand)
+				require.Equal(t, "v1.0.0", mustInstalledVersion(t, installRoot))
+				wantStart = []string{"app-start", "v1.0.0", "any"}
+			} else {
+				require.Equal(t, updaterapi.PhaseSucceeded, result.Phase, result.Error)
+				require.Equal(t, "v1.1.0", mustInstalledVersion(t, installRoot))
+			}
+			require.Equal(t, [][]string{
+				{"require-active", "/etc/proto-fleet/ha/node.env", "v1.1.0"},
+				{"app-stop", "active"},
+				{"wait-takeover", "v1.1.0"},
+				wantStart,
+			}, activation)
+		})
+	}
+}

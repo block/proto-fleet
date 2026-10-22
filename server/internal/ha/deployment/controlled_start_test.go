@@ -3,10 +3,12 @@ package deployment
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -84,4 +86,45 @@ func TestControlledPassiveStartWaitsForAsynchronousContainerConsumption(t *testi
 	})
 	require.NoError(t, err)
 	require.NoError(t, <-consumed, "the entrypoint must consume the token before cleanup")
+}
+
+func TestApplicationCooldownRequiresStoppedPassiveAndActivePeer(t *testing.T) {
+	active := fleetHostStatus{reachable: true, active: true, version: "v1.0.0"}
+	for _, tc := range []struct {
+		name      string
+		passive   bool
+		statusErr error
+		peer      fleetHostStatus
+		wantToken bool
+		wantProbe bool
+	}{
+		{name: "controlled passive", passive: true, statusErr: fmt.Errorf("status: %w", syscall.ECONNREFUSED), peer: active, wantToken: true, wantProbe: true},
+		{name: "ordinary recovery", statusErr: syscall.ECONNREFUSED, peer: active},
+		{name: "running local", passive: true, peer: active},
+		{name: "uncertain local", passive: true, statusErr: os.ErrPermission, peer: active},
+		{name: "unreachable peer", passive: true, statusErr: syscall.ECONNREFUSED, peer: fleetHostStatus{active: true, version: "v1.0.0"}, wantProbe: true},
+		{name: "passive peer", passive: true, statusErr: syscall.ECONNREFUSED, peer: fleetHostStatus{reachable: true, passive: true, version: "v1.0.0"}, wantProbe: true},
+		{name: "unversioned peer", passive: true, statusErr: syscall.ECONNREFUSED, peer: fleetHostStatus{reachable: true, active: true}, wantProbe: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "passive")
+			probed, started := false, false
+			err := startApplicationWithCooldown(t.Context(), path, tc.passive, tc.statusErr, func() fleetHostStatus {
+				probed = true
+				return tc.peer
+			}, func() error {
+				started = true
+				_, err := os.Stat(path)
+				if tc.wantToken {
+					require.NoError(t, err)
+					return os.Remove(path)
+				}
+				require.ErrorIs(t, err, os.ErrNotExist)
+				return nil
+			})
+			require.NoError(t, err)
+			require.True(t, started)
+			require.Equal(t, tc.wantProbe, probed)
+		})
+	}
 }

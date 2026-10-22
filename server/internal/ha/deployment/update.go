@@ -315,16 +315,13 @@ func StartApplication(ctx context.Context, root, targetVersion string, requirePa
 	if statusErr != nil && !errors.Is(statusErr, syscall.ECONNREFUSED) {
 		return fmt.Errorf("verify local HA application is stopped: %w", statusErr)
 	}
-	skipCooldown := false
-	if requirePassive && errors.Is(statusErr, syscall.ECONNREFUSED) {
+	if err := startApplicationWithCooldown(ctx, controlledStartToken, requirePassive, statusErr, func() fleetHostStatus {
 		peerAddress := config.DatabaseAIP
 		if config.NodeIP == config.DatabaseAIP {
 			peerAddress = config.DatabaseBIP
 		}
-		peer := probeFleetHost(ctx, tlsConfig, config.hostCertificateIdentity(peerAddress), peerAddress)
-		skipCooldown = peer.reachable && peer.active && peer.version != ""
-	}
-	if err := controlledPassiveStart(ctx, controlledStartToken, skipCooldown, func() error {
+		return probeFleetHost(ctx, tlsConfig, config.hostCertificateIdentity(peerAddress), peerAddress)
+	}, func() error {
 		return startFleetApplication(ctx, root, "-d", "--no-deps", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "60")
 	}); err != nil {
 		return fmt.Errorf("start HA application: %w", err)

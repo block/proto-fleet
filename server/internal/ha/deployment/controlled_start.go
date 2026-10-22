@@ -20,6 +20,18 @@ func clearControlledStartToken(path string) error {
 	return nil
 }
 
+// Only a stopped local application in passive mode may skip the cooldown, and
+// only after observing a serving peer. Recovery and already-running applications
+// keep the ordinary restart behavior without probing the peer.
+func startApplicationWithCooldown(ctx context.Context, tokenPath string, requirePassive bool, localStatusErr error, observePeer func() fleetHostStatus, start func() error) error {
+	skipCooldown := false
+	if requirePassive && errors.Is(localStatusErr, syscall.ECONNREFUSED) {
+		peer := observePeer()
+		skipCooldown = peer.reachable && peer.active && peer.version != ""
+	}
+	return controlledPassiveStart(ctx, tokenPath, skipCooldown, start)
+}
+
 // The container consumes this token before exec. Its on-failure restart uses
 // the same command with no token, so every later crash keeps the lease cooldown.
 // Failed Compose starts and the normal systemd entrypoint also clear the token.
