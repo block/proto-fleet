@@ -61,6 +61,8 @@ const TeamInvitations = ({ refreshKey, headerControls, filtersClassName }: TeamI
   const [nextPageToken, setNextPageToken] = useState("");
   const [revoking, setRevoking] = useState<TeamInvitation | null>(null);
   const [isRevoking, setIsRevoking] = useState(false);
+  const pendingDeletes = useRef(new Set<string>());
+  const [deletingInvitationIds, setDeletingInvitationIds] = useState<Set<string>>(() => new Set());
 
   // A new invitation is always newest, so creation returns to the first page.
   const [prevRefreshKey, setPrevRefreshKey] = useState(refreshKey);
@@ -72,29 +74,37 @@ const TeamInvitations = ({ refreshKey, headerControls, filtersClassName }: TeamI
 
   // Only the latest request may update the page; earlier responses are stale.
   const latestRequest = useRef(0);
-  const fetchInvitations = useCallback(() => {
-    const request = ++latestRequest.current;
-    setIsLoading(true);
-    listTeamInvitations({
-      pageToken: pageTokens[page],
-      onSuccess: (rows, next) => {
-        if (request !== latestRequest.current) return;
-        setInvitations(rows);
-        setNextPageToken(next);
-      },
-      onError: (error) => {
-        if (request !== latestRequest.current) return;
-        pushToast({ message: error || "Failed to load invitations", status: STATUSES.error });
-      },
-      onFinally: () => {
-        if (request === latestRequest.current) setIsLoading(false);
-      },
-    });
-  }, [listTeamInvitations, page, pageTokens]);
+  const fetchInvitations = useCallback(
+    (signal?: AbortSignal) => {
+      const request = ++latestRequest.current;
+      setIsLoading(true);
+      listTeamInvitations({
+        pageToken: pageTokens[page],
+        signal,
+        onSuccess: (rows, next) => {
+          if (signal?.aborted || request !== latestRequest.current) return;
+          setInvitations(rows);
+          setNextPageToken(next);
+        },
+        onError: (error) => {
+          if (signal?.aborted || request !== latestRequest.current) return;
+          pushToast({ message: error || "Failed to load invitations", status: STATUSES.error });
+        },
+        onFinally: () => {
+          if (!signal?.aborted && request === latestRequest.current) setIsLoading(false);
+        },
+      });
+    },
+    [listTeamInvitations, page, pageTokens],
+  );
 
   useEffect(() => {
+    const controller = new AbortController();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on mount and page changes; setState inside async fetch is the external-sync pattern
-    fetchInvitations();
+    fetchInvitations(controller.signal);
+    return () => {
+      controller.abort();
+    };
   }, [fetchInvitations, refreshKey]);
 
   const handleRevokeConfirm = useCallback(() => {
@@ -119,6 +129,9 @@ const TeamInvitations = ({ refreshKey, headerControls, filtersClassName }: TeamI
   // Dead invitations grant nothing, so removing one needs no confirmation.
   const handleDelete = useCallback(
     (invitation: TeamInvitation) => {
+      if (pendingDeletes.current.has(invitation.invitationId)) return;
+      pendingDeletes.current.add(invitation.invitationId);
+      setDeletingInvitationIds(new Set(pendingDeletes.current));
       deleteTeamInvitation({
         invitationId: invitation.invitationId,
         onSuccess: () => {
@@ -127,6 +140,10 @@ const TeamInvitations = ({ refreshKey, headerControls, filtersClassName }: TeamI
         },
         onError: (error) => {
           pushToast({ message: error || "Failed to delete invitation", status: STATUSES.error });
+        },
+        onFinally: () => {
+          pendingDeletes.current.delete(invitation.invitationId);
+          setDeletingInvitationIds(new Set(pendingDeletes.current));
         },
       });
     },
@@ -162,10 +179,11 @@ const TeamInvitations = ({ refreshKey, headerControls, filtersClassName }: TeamI
         icon: <Trash />,
         variant: "destructive" as const,
         actionHandler: handleDelete,
+        disabled: (invitation: TeamInvitation) => deletingInvitationIds.has(invitation.invitationId),
         hidden: (invitation: TeamInvitation) => !deletable(invitation),
       },
     ],
-    [handleDelete],
+    [deletingInvitationIds, handleDelete],
   );
 
   return (

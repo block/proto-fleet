@@ -5,6 +5,7 @@ import TeamInvitations from "./TeamInvitations";
 import { TeamInvitationSchema, TeamInvitationStatus } from "@/protoFleet/api/generated/invitation/v1/invitation_pb";
 import { useTeamInvitations } from "@/protoFleet/api/useTeamInvitations";
 import { PopoverProvider } from "@/shared/components/Popover";
+import { pushToast } from "@/shared/features/toaster";
 
 vi.mock("@/protoFleet/api/useTeamInvitations");
 vi.mock("@/shared/features/toaster");
@@ -105,6 +106,23 @@ describe("TeamInvitations", () => {
     await waitFor(() => expect(mockList).toHaveBeenCalledTimes(2));
   });
 
+  it("disables delete while a delete request is pending", async () => {
+    render(
+      <PopoverProvider>
+        <TeamInvitations refreshKey={0} />
+      </PopoverProvider>,
+    );
+    await screen.findByText("Pending");
+
+    const deleteAction = screen.getAllByRole("button", { name: "Delete" })[0];
+    fireEvent.click(deleteAction);
+
+    expect(mockDelete).toHaveBeenCalledTimes(1);
+    expect(deleteAction).toBeDisabled();
+    fireEvent.click(deleteAction);
+    expect(mockDelete).toHaveBeenCalledTimes(1);
+  });
+
   it("offers revocation, not deletion, for an unavailable invitation", async () => {
     mockList.mockImplementation(({ onSuccess, onFinally }) => {
       onSuccess?.([invitation("unavailable", TeamInvitationStatus.UNAVAILABLE)], "");
@@ -124,7 +142,9 @@ describe("TeamInvitations", () => {
   describe("pagination", () => {
     type ListRequest = {
       pageToken: string;
+      signal?: AbortSignal;
       onSuccess?: (rows: ReturnType<typeof invitation>[], next: string) => void;
+      onError?: (message: string) => void;
       onFinally?: () => void;
     };
     let requests: ListRequest[];
@@ -176,6 +196,20 @@ describe("TeamInvitations", () => {
       expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
       expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
       expect(requests).toHaveLength(3);
+    });
+
+    it("ignores stale errors after unmounting the list", async () => {
+      const { unmount } = render(<TeamInvitations refreshKey={0} />);
+      await waitFor(() => expect(requests).toHaveLength(1));
+
+      unmount();
+      act(() => {
+        requests[0].onError?.("late failure");
+        requests[0].onFinally?.();
+      });
+
+      expect(requests[0].signal?.aborted).toBe(true);
+      expect(pushToast).not.toHaveBeenCalled();
     });
   });
 });

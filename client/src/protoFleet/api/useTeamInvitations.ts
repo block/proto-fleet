@@ -8,6 +8,7 @@ import type {
   TeamInvitation,
 } from "@/protoFleet/api/generated/invitation/v1/invitation_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
+import { isAbortError } from "@/protoFleet/api/requestErrors";
 import { useAuthErrors } from "@/protoFleet/store";
 
 interface CreateTeamInvitationProps {
@@ -21,6 +22,7 @@ interface CreateTeamInvitationProps {
 
 interface ListTeamInvitationsProps {
   pageToken?: string;
+  signal?: AbortSignal;
   onSuccess?: (invitations: TeamInvitation[], nextPageToken: string) => void;
   onError?: (message: string) => void;
   onFinally?: () => void;
@@ -72,13 +74,15 @@ const useTeamInvitations = () => {
   );
 
   const listTeamInvitations = useCallback(
-    async ({ pageToken = "", onSuccess, onError, onFinally }: ListTeamInvitationsProps) => {
+    async ({ pageToken = "", signal, onSuccess, onError, onFinally }: ListTeamInvitationsProps) => {
       await invitationClient
-        .listTeamInvitations({ pageSize: TEAM_INVITATION_PAGE_SIZE, pageToken })
+        .listTeamInvitations({ pageSize: TEAM_INVITATION_PAGE_SIZE, pageToken }, signal ? { signal } : undefined)
         .then((response) => {
           onSuccess?.(response.invitations, response.nextPageToken);
         })
-        .catch((err) => reportError(err, onError))
+        .catch((err) => {
+          if (!isAbortError(err, signal)) reportError(err, onError);
+        })
         .finally(() => {
           onFinally?.();
         });
