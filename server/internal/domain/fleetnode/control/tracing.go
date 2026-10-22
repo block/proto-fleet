@@ -12,8 +12,12 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 )
 
-const commandTracerName = "github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+const (
+	commandTracerName       = "github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	maxCommandTraceStateLen = 512 // Match TraceContext.tracestate's protobuf validation limit.
+)
 
+//nolint:spancheck // Span ownership is returned to the caller, which ends it after the command completes.
 func startCommandDispatchSpan(ctx context.Context, fleetNodeID int64, commandKind string, cmd *gatewaypb.ControlCommand) (context.Context, trace.Span) {
 	attrs := []attribute.KeyValue{
 		attribute.Int64("fleet.node.id", fleetNodeID),
@@ -29,16 +33,25 @@ func startCommandDispatchSpan(ctx context.Context, fleetNodeID int64, commandKin
 		trace.WithAttributes(attrs...),
 	)
 
+	cmd.TraceContext = traceContextForCommand(ctx)
+	return ctx, span
+}
+
+func traceContextForCommand(ctx context.Context) *gatewaypb.TraceContext {
 	carrier := propagation.MapCarrier{}
 	propagation.TraceContext{}.Inject(ctx, carrier)
-	cmd.TraceContext = nil
-	if traceparent := carrier.Get("traceparent"); traceparent != "" {
-		cmd.TraceContext = &gatewaypb.TraceContext{
-			Traceparent: traceparent,
-			Tracestate:  carrier.Get("tracestate"),
-		}
+	traceparent := carrier.Get("traceparent")
+	if traceparent == "" {
+		return nil
 	}
-	return ctx, span
+	tracestate := carrier.Get("tracestate")
+	if len(tracestate) > maxCommandTraceStateLen {
+		tracestate = ""
+	}
+	return &gatewaypb.TraceContext{
+		Traceparent: traceparent,
+		Tracestate:  tracestate,
+	}
 }
 
 func recordCommandAck(span trace.Span, ack *gatewaypb.ControlAck) {
