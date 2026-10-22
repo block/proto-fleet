@@ -320,6 +320,23 @@ export class SettingsTeamPage extends BasePage {
     await this.clickButton("Save changes");
   }
 
+  async selectAccountManagementAtBottom() {
+    const permission = this.getRolePermissionRow("account:manage");
+    await permission.scrollIntoViewIfNeeded();
+    await permission.getByRole("checkbox").check();
+    const scrollArea = this.page.getByTestId("modal");
+    await expect.poll(() => scrollArea.evaluate((element) => element.scrollTop)).toBeGreaterThan(500);
+  }
+
+  async validateRoleSaveDenied() {
+    const toast = this.page.getByTestId("toast");
+    await expect(toast).toHaveText("You don't have permission to save these changes.");
+    await expect(toast).toBeInViewport({ ratio: 1 });
+    await expect(this.getRolePermissionRow("account:manage").getByRole("checkbox")).toBeChecked();
+    await expect(this.page.getByRole("button", { name: "Save changes", exact: true })).toBeEnabled();
+    await expect(this.page.getByTestId("toast").filter({ hasText: "updated" })).toHaveCount(0);
+  }
+
   async clickDeleteRoleConfirm() {
     await this.clickButton("Delete role");
   }
