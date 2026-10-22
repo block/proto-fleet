@@ -49,15 +49,15 @@ export class SettingsNodesPage extends BasePage {
   }
 
   async validateEnrollNodeVisible() {
-    await expect(this.page.getByRole("button", { name: "Enroll node", exact: true })).toBeVisible();
+    await expect(this.page.getByRole("button", { name: "Set up a node", exact: true })).toBeVisible();
   }
 
   async validateEnrollNodeHidden() {
-    await expect(this.page.getByRole("button", { name: "Enroll node", exact: true })).toHaveCount(0);
+    await expect(this.page.getByRole("button", { name: "Set up a node", exact: true })).toHaveCount(0);
   }
 
   async clickEnrollNode() {
-    await this.clickButton("Enroll node");
+    await this.clickButton("Set up a node");
   }
 
   async clickNodeActionsMenu(nodeName: string) {
@@ -79,15 +79,15 @@ export class SettingsNodesPage extends BasePage {
   async validateEnrollNodeModalOpened() {
     const modal = this.page.getByTestId("modal");
     await expect(modal).toBeVisible();
-    await expect(modal).toContainText("Enroll a node");
-    await expect(modal).toContainText("1. Run this command on the host:");
+    await expect(modal).toContainText("Set up a node");
+    await expect(modal).toContainText("1. Run this command on the machine:");
   }
 
   async validateInstallationPrerequisite() {
     const modal = this.page.getByTestId("modal");
     const instructions = modal.getByRole("link", { name: "Installation instructions" });
     const command = modal.getByRole("button", { name: "Copy command" });
-    await expect(modal).toContainText("Linux host that can reach your miners and Fleet server");
+    await expect(modal).toContainText("Linux machine that can reach your miners and this Fleet server");
     await expect(instructions).toHaveAttribute("href", "https://docs.proto.xyz/fleet/fleet-node");
     await expect(command).toBeVisible();
     const instructionsBox = await instructions.boundingBox();

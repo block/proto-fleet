@@ -194,9 +194,9 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
 
   if (step === "code") {
     return (
-      <Modal open={open} onDismiss={handleDismiss} title="Enroll a node" divider={false}>
+      <Modal open={open} onDismiss={handleDismiss} title="Set up a node" divider={false}>
         <div className="mb-6">
-          Install Fleet Node on a Linux host that can reach your miners and Fleet server.{" "}
+          Install Fleet Node on a Linux machine that can reach your miners and this Fleet server.{" "}
           <a
             href="https://docs.proto.xyz/fleet/fleet-node"
             target="_blank"
@@ -212,7 +212,7 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
         ) : enrollmentCode ? (
           <div className="flex flex-col gap-4">
             <div>
-              <div className="mb-2">1. Run this command on the host:</div>
+              <div className="mb-2">1. Run this command on the machine:</div>
               <CopyableValue value={fleetNodeEnrollCommand} copyLabel="Command" />
               {includesInsecureTransportFlag ? (
                 <Callout
@@ -291,8 +291,8 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
         <Callout
           intent="warning"
           prefixIcon={<Alert />}
-          title="Check this is really your host"
-          subtitle="The CLI printed the same fingerprint after registering. Only confirm if it matches — a different fingerprint means another host used your enrollment code."
+          title="Check this is really your machine"
+          subtitle="The CLI printed the same fingerprint after registering. Only confirm if it matches — a different fingerprint means another machine used your enrollment code."
         />
       </Modal>
     );
@@ -303,7 +303,7 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
     <Dialog
       open={open}
       title="Node confirmed"
-      subtitle={`Enter this API key on ${foundNode?.name ?? "the host"} to finish enrollment. It won't be shown again.`}
+      subtitle={`Enter this API key on ${foundNode?.name ?? "the machine"} to finish enrollment. It won't be shown again.`}
       subtitleSize="text-300"
       icon={
         <DialogIcon intent="success">

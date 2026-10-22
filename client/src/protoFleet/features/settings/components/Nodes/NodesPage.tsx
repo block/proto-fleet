@@ -283,7 +283,7 @@ const NodesPage = () => {
           <Button
             variant={variants.primary}
             size={sizes.compact}
-            text="Enroll node"
+            text="Set up a node"
             onClick={() => setShowEnrollModal(true)}
             className="shrink-0 phone:w-full"
           />

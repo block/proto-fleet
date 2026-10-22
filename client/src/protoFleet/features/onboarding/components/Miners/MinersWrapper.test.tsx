@@ -691,7 +691,9 @@ describe("MinersWrapper", () => {
       expect(screen.queryByText("hidden-node-name")).not.toBeInTheDocument();
       expect(screen.queryByText("hidden-fingerprint")).not.toBeInTheDocument();
       await waitFor(() =>
-        expect(screen.getByText(/For networks Fleet can't reach, install and enroll a Fleet Node/)).toBeVisible(),
+        expect(
+          screen.getByText(/To find miners on a network Fleet can't reach directly, install and enroll Fleet Node/),
+        ).toBeVisible(),
       );
     });
 
@@ -720,7 +722,7 @@ describe("MinersWrapper", () => {
       mockListFleetNodes.mockRejectedValue(new Error("request failed"));
       renderMinersPage("pairing");
       expect(await screen.findByText("Ask an administrator to check Fleet Nodes.")).toBeVisible();
-      expect(screen.queryByRole("link", { name: "Node settings" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "Manage Nodes" })).not.toBeInTheDocument();
     });
 
     it("warns and links to settings when remote coverage cannot be checked", async () => {
@@ -729,7 +731,7 @@ describe("MinersWrapper", () => {
       renderMinersPage("pairing");
 
       expect(await screen.findByText("Couldn't check Fleet Nodes. Results may be incomplete.")).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Node settings" })).toHaveAttribute("href", "/settings/nodes");
+      expect(screen.getByRole("link", { name: "Manage Nodes" })).toHaveAttribute("href", "/settings/nodes");
     });
 
     it("refreshes disconnected and reconnected coverage before manual discovery and rescan", async () => {
@@ -870,8 +872,8 @@ describe("MinersWrapper", () => {
     });
 
     it.each([
-      ["empty", [], "No Fleet Nodes enrolled"],
-      ["revoked only", [fleetNode({ enrollmentStatus: FleetNodeEnrollmentStatus.REVOKED })], "No Fleet Nodes enrolled"],
+      ["empty", [], "No Fleet Nodes set up"],
+      ["revoked only", [fleetNode({ enrollmentStatus: FleetNodeEnrollmentStatus.REVOKED })], "No Fleet Nodes set up"],
       [
         "pending",
         [fleetNode({ enrollmentStatus: FleetNodeEnrollmentStatus.PENDING })],
@@ -893,7 +895,7 @@ describe("MinersWrapper", () => {
       renderMinersPage("pairing");
 
       expect(await screen.findByText(message as string)).toBeVisible();
-      expect(screen.getByRole("link", { name: "Node settings" })).toHaveAttribute("href", "/settings/nodes");
+      expect(screen.getByRole("link", { name: "Manage Nodes" })).toHaveAttribute("href", "/settings/nodes");
     });
 
     it("does not require a recommended protocol upgrade before scanning", async () => {
@@ -902,7 +904,9 @@ describe("MinersWrapper", () => {
       await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalled());
       expect(screen.queryByTestId("remote-discovery-guidance")).not.toBeInTheDocument();
       await waitFor(() =>
-        expect(screen.getByText(/For networks Fleet can't reach, install and enroll a Fleet Node/)).toBeVisible(),
+        expect(
+          screen.getByText(/To find miners on a network Fleet can't reach directly, install and enroll Fleet Node/),
+        ).toBeVisible(),
       );
     });
 
@@ -926,7 +930,7 @@ describe("MinersWrapper", () => {
 
         // Assert
         expect(await screen.findByText(hint as string)).toBeVisible();
-        expect(screen.getByRole("link", { name: "Node settings" })).toHaveAttribute("href", "/settings/nodes");
+        expect(screen.getByRole("link", { name: "Manage Nodes" })).toHaveAttribute("href", "/settings/nodes");
       },
     );
 
@@ -941,7 +945,9 @@ describe("MinersWrapper", () => {
 
       // Assert
       await waitFor(() =>
-        expect(screen.getByText(/For networks Fleet can't reach, install and enroll a Fleet Node/)).toBeVisible(),
+        expect(
+          screen.getByText(/To find miners on a network Fleet can't reach directly, install and enroll Fleet Node/),
+        ).toBeVisible(),
       );
       expect(screen.queryByText(/Ask an administrator/)).not.toBeInTheDocument();
     });
@@ -954,9 +960,9 @@ describe("MinersWrapper", () => {
       renderMinersPage("pairing");
 
       // Assert
-      expect(await screen.findByText("No Fleet Nodes enrolled")).toBeVisible();
+      expect(await screen.findByText("No Fleet Nodes set up")).toBeVisible();
       expect(screen.queryByText(/Ask an administrator/)).not.toBeInTheDocument();
-      expect(screen.getByRole("link", { name: "Node settings" })).toHaveAttribute("href", "/settings/nodes");
+      expect(screen.getByRole("link", { name: "Manage Nodes" })).toHaveAttribute("href", "/settings/nodes");
     });
 
     it("keeps setup guidance off the results step", async () => {
@@ -966,7 +972,7 @@ describe("MinersWrapper", () => {
         onStreamData([createDiscoveredMiner("miner-1", "192.168.1.100")]);
       });
       renderMinersPage("pairing");
-      expect(await screen.findByText("No Fleet Nodes enrolled")).toBeVisible();
+      expect(await screen.findByText("No Fleet Nodes set up")).toBeVisible();
 
       // Act
       fireEvent.change(screen.getByTestId("ipAddresses"), { target: { value: "192.168.1.100" } });
@@ -981,7 +987,7 @@ describe("MinersWrapper", () => {
     it("refreshes readiness on returning to the tab and stops listening after unmount", async () => {
       mockListFleetNodes.mockResolvedValueOnce([]).mockResolvedValue([fleetNode()]);
       const view = renderMinersPage("pairing");
-      expect(await screen.findByText("No Fleet Nodes enrolled")).toBeVisible();
+      expect(await screen.findByText("No Fleet Nodes set up")).toBeVisible();
       const visibility = vi.spyOn(document, "visibilityState", "get");
       try {
         visibility.mockReturnValue("hidden");
@@ -989,7 +995,7 @@ describe("MinersWrapper", () => {
         expect(mockListFleetNodes).toHaveBeenCalledTimes(1);
         visibility.mockReturnValue("visible");
         fireEvent(document, new Event("visibilitychange"));
-        await waitFor(() => expect(screen.queryByText("No Fleet Nodes enrolled")).not.toBeInTheDocument());
+        await waitFor(() => expect(screen.queryByText("No Fleet Nodes set up")).not.toBeInTheDocument());
         expect(mockListFleetNodes).toHaveBeenCalledTimes(2);
         view.unmount();
         fireEvent(document, new Event("visibilitychange"));

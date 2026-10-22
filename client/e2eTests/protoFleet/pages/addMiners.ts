@@ -25,7 +25,7 @@ export class AddMinersPage extends BasePage {
   }
 
   async openFleetNodeSettings() {
-    await this.getRemoteNetworkPrerequisite().getByRole("link", { name: "Node settings" }).click();
+    await this.getRemoteNetworkPrerequisite().getByRole("link", { name: "Manage Nodes" }).click();
   }
 
   getScanNetworkSection(): Locator {

@@ -27,8 +27,10 @@ test.describe("Remote-network prerequisites", () => {
       );
       const prerequisite = addMinersPage.getRemoteNetworkPrerequisite();
       await expect(prerequisite).toHaveCount(1);
-      await expect(prerequisite).toContainText("No Fleet Nodes enrolled");
-      await expect(prerequisite).toContainText("For networks Fleet can't reach, install and enroll a Fleet Node");
+      await expect(prerequisite).toContainText("No Fleet Nodes set up");
+      await expect(prerequisite).toContainText(
+        "To find miners on a network Fleet can't reach directly, install and enroll Fleet Node",
+      );
       await expect(prerequisite).toBeVisible();
       await expect(addMinersPage.getScanNetworkSection().getByRole("button", { name: "Find miners" })).toBeEnabled();
       await expect(addMinersPage.getSearchByIpSection()).toBeVisible();

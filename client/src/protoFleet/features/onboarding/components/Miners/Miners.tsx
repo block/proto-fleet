@@ -27,7 +27,7 @@ const REMOTE_DISCOVERY_GUIDANCE: Record<
   { message: string; intent: "information" | "warning"; adminAction: string }
 > = {
   noNodes: {
-    message: "No Fleet Nodes enrolled",
+    message: "No Fleet Nodes set up",
     intent: "information",
     adminAction: "Ask an administrator to set up a node.",
   },
@@ -147,12 +147,15 @@ const Miners = ({
         subtitle={
           <>
             {activeStep === "findMiners" ? (
-              <p>For networks Fleet can't reach, install and enroll a Fleet Node on the miners' network.</p>
+              <p>
+                To find miners on a network Fleet can't reach directly, install and enroll Fleet Node on a Linux machine
+                connected to that network.
+              </p>
             ) : null}
             {guidance && (!canReadFleetNodes || !canManageFleetNodes) ? <p>{guidance.adminAction}</p> : null}
             {canReadFleetNodes ? (
               <Link to="/settings/nodes" className="underline">
-                Node settings
+                Manage Nodes
               </Link>
             ) : null}
           </>
