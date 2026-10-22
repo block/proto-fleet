@@ -152,6 +152,7 @@ const NodesPage = () => {
 
   const detailsNode = nodes.find((node) => node.fleetNodeId === detailsNodeId) ?? null;
   const findingNode = nodes.find((node) => node.fleetNodeId === findingNodeId) ?? null;
+  const pairingStateKey = findingNode?.haOwnerNodeId ?? findingNode?.fleetNodeId ?? "";
 
   const dismissRevoke = useCallback(() => {
     revokeImpactRequestRef.current++;
@@ -346,13 +347,13 @@ const NodesPage = () => {
           key={findingNode.fleetNodeId}
           node={findingNode}
           canPair={Boolean(canPairMiners)}
-          blockedPairingIdentifiers={blockedPairingByNode[findingNode.fleetNodeId] ?? []}
-          settledPairingRevision={finderRevisionByNode[findingNode.fleetNodeId] ?? 0}
+          blockedPairingIdentifiers={blockedPairingByNode[pairingStateKey] ?? []}
+          settledPairingRevision={finderRevisionByNode[pairingStateKey] ?? 0}
           onDismiss={() => setFindingNodeId(null)}
           onUpdated={handleNodesUpdated}
-          onPairingStarted={(identifiers) => rememberPairing(findingNode.fleetNodeId, identifiers)}
-          onPairingCompleted={(identifiers) => forgetPairing(findingNode.fleetNodeId, identifiers)}
-          onPairingSettledAfterDismiss={() => refreshReopenedFinder(findingNode.fleetNodeId)}
+          onPairingStarted={(identifiers) => rememberPairing(pairingStateKey, identifiers)}
+          onPairingCompleted={(identifiers) => forgetPairing(pairingStateKey, identifiers)}
+          onPairingSettledAfterDismiss={() => refreshReopenedFinder(pairingStateKey)}
           scanOnNode={scanOnNode}
         />
       ) : null}

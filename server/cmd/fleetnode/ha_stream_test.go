@@ -6,14 +6,14 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"connectrpc.com/connect"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1/fleetnodegatewayv1connect"
-	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
-	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
+	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/require"
@@ -125,30 +125,95 @@ func (f *haInterruptedStreamGateway) ControlStream(_ context.Context, stream *co
 		}
 	}
 }
-func TestHAStreamSafetyMarginCancellationIsTerminalInterruption(t *testing.T) {
+func TestHAStreamSafetyMarginRetiresSessionAndWorkers(t *testing.T) {
 	fake := &haInterruptedStreamGateway{payload: telemetryCmd(t, validTelemetryRequest()), ack: make(chan *pb.ControlAck, 1)}
 	mux := http.NewServeMux()
 	path, handler := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fake)
 	mux.Handle(path, handler)
 	server := testutil.NewH2CServer(t, mux)
 	client := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(testutil.NewH2CClient(), server.URL, connect.WithGRPC())
-	node := &RunCmd{credentials: &credentialCodec{key: bytes.Repeat([]byte{5}, 32)}, telemetry: waitingTelemetryFetcher{}}
+	finished := make(chan error, 1)
+	node := &RunCmd{credentials: &credentialCodec{key: bytes.Repeat([]byte{5}, 32)}, telemetry: haCancellationTelemetry{finished: finished}}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	require.Error(t, node.runControlSession(ctx, discardLogger(t), client, &bootstrap.State{FleetNodeID: 7}))
-	ack := <-fake.ack
-	require.Equal(t, pb.AckCode_ACK_CODE_COMMAND_INTERRUPTED, ack.GetCode(), "a backend cancellation after dispatch must not produce a retryable generic failure")
-	require.False(t, ack.GetSucceeded())
-	require.Empty(t, ack.GetPayload())
-	// Pass the actual wire acknowledgement through the production remote-miner
-	// adapter. Queue consumers use this typed marker to avoid replaying a write.
-	remote, err := remotenode.New(remotenode.Config{Sender: haReceivedAckSender{ack: ack}, FleetNodeID: 7, DeviceIdentifier: "miner", DriverName: "antminer", IPAddress: "10.0.0.1", Port: "4028", URLScheme: "http"})
-	require.NoError(t, err)
-	require.True(t, control.IsCommandInterrupted(remote.StopMining(t.Context())))
+	require.NoError(t, ctx.Err(), "expiry must retire the transport before parent cancellation")
+	select {
+	case cause := <-finished:
+		require.ErrorIs(t, cause, errHAAuthorityLost)
+	case <-time.After(time.Second):
+		t.Fatal("authority expiry did not cancel the dispatched worker")
+	}
+	// Teardown may prevent delivery; any completion that won the race must
+	// still carry the terminal interruption marker.
+	node.waitForControlWorkers(discardLogger(t))
+	select {
+	case ack := <-fake.ack:
+		require.Equal(t, pb.AckCode_ACK_CODE_COMMAND_INTERRUPTED, ack.GetCode())
+	default:
+	}
 }
 
-type haReceivedAckSender struct{ ack *pb.ControlAck }
+type haCancellationTelemetry struct{ finished chan<- error }
 
-func (s haReceivedAckSender) SendCommand(context.Context, int64, pb.CommandProtocolVersion, *pb.ControlCommand) (*pb.ControlAck, error) {
-	return s.ack, nil
+func (f haCancellationTelemetry) Fetch(ctx context.Context, _ *telemetrypb.FleetNodeTelemetryRequest) (*telemetrypb.FleetNodeTelemetryResult, error) {
+	<-ctx.Done()
+	f.finished <- context.Cause(ctx)
+	return nil, fmt.Errorf("telemetry canceled: %w", ctx.Err())
+}
+
+type haLostResponsesGateway struct {
+	fleetnodegatewayv1connect.UnimplementedFleetNodeGatewayServiceHandler
+	grant    bool
+	requests atomic.Int32
+}
+
+func (f *haLostResponsesGateway) ControlStream(_ context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {
+	first, err := stream.Receive()
+	if err != nil {
+		return fmt.Errorf("receive lost-response hello: %w", err)
+	}
+	hello := first.GetHello()
+	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ControlSessionId: "lost-session", HaOwnerNodeId: 7, OrgId: 1, CredentialKeyFingerprint: hello.GetCredentialKeyFingerprint()}}}); err != nil {
+		return fmt.Errorf("send lost-response acceptance: %w", err)
+	}
+	for {
+		request, err := stream.Receive()
+		if err != nil {
+			return fmt.Errorf("receive lost-response lease request: %w", err)
+		}
+		f.requests.Add(1)
+		if f.grant {
+			f.grant = false
+			if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_HaLease{HaLease: &pb.HALeaseResponse{RequestId: request.GetHaLease().GetRequestId(), OwnerNodeId: 7, ActiveNodeId: 7, LeaseEpoch: 1, Granted: true, InstanceId: hello.GetInstanceId(), ControlSessionId: "lost-session", OrgId: 1, LeaseDurationMs: 5200}}}); err != nil {
+				return fmt.Errorf("send initial lease: %w", err)
+			}
+		}
+		// Continue receiving upstream traffic while dropping all later responses.
+	}
+}
+
+func TestHAStreamClosesWhenLeaseResponsesStop(t *testing.T) {
+	for _, grant := range []bool{true, false} {
+		t.Run(fmt.Sprintf("initial-grant-%t", grant), func(t *testing.T) {
+			fake := &haLostResponsesGateway{grant: grant}
+			mux := http.NewServeMux()
+			path, handler := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(fake)
+			mux.Handle(path, handler)
+			server := testutil.NewH2CServer(t, mux)
+			client := fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(testutil.NewH2CClient(), server.URL, connect.WithGRPC())
+			node := &RunCmd{credentials: &credentialCodec{key: bytes.Repeat([]byte{5}, 32)}}
+			timeout := haMaxLease - haSafetyMargin + 2*time.Second
+			if grant {
+				timeout = time.Second
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), timeout)
+			defer cancel()
+			require.Error(t, node.runControlSession(ctx, discardLogger(t), client, &bootstrap.State{FleetNodeID: 7}), "local expiry must retire this session")
+			require.NoError(t, ctx.Err(), "expiry must close a live transport before its parent is canceled")
+			if !grant {
+				require.GreaterOrEqual(t, fake.requests.Load(), int32(2), "upstream renewals must continue while downstream lease responses are dropped")
+			}
+		})
+	}
 }

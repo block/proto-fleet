@@ -1,13 +1,17 @@
 package control
 
 import (
+	"context"
+	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 // Agent/ControlStream side of a Registry entry (fleetnode/gateway handler):
@@ -409,13 +413,67 @@ func artifactExpectationMatches(exp, want ArtifactExpectation) bool {
 	return true
 }
 
-// PairPersistMeta is the operator context the gateway needs to persist a pair
-// result authoritatively, returned by AdmitAndScopePairResults.
+// PairPersistMeta retains the operator context and admitted physical authority
+// the gateway needs to persist a pair result authoritatively.
 type PairPersistMeta struct {
-	OwnerNodeID int64
-	OrgID       int64
-	AssignedBy  *int64
-	Snapshots   map[string]*pairingpb.FleetNodePairTarget
+	RouteBinding
+	OrgID      int64
+	AssignedBy *int64
+	Snapshots  map[string]*pairingpb.FleetNodePairTarget
+
+	registry  *Registry
+	authority *haAuthority
+}
+
+// PersistenceContext keeps admitted writes bounded by their original physical
+// authority, independently of the operator's command session. Renewal extends
+// that same authority; replacing or expiring it cancels pending transactions.
+func (m PairPersistMeta) PersistenceContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancel(ctx)
+	if m.authority == nil {
+		return ctx, cancel
+	}
+	stop := context.AfterFunc(m.authority.ctx, cancel)
+	if m.authority.ctx.Err() != nil {
+		cancel()
+	}
+	return ctx, func() { stop(); cancel() }
+}
+
+// ValidateAuthority rechecks the admitted physical tuple after device-lock
+// waits. The resolver uses the caller's transaction without holding Registry.mu.
+func (m PairPersistMeta) ValidateAuthority(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("pairing persistence context: %w", err)
+	}
+	if m.Epoch == 0 {
+		return nil
+	}
+	if m.registry == nil || m.authority == nil {
+		return fleeterror.NewFailedPreconditionError("pairing report has no admitted HA authority")
+	}
+	m.registry.mu.Lock()
+	current := m.registry.haRoutes[m.OwnerNodeID]
+	valid := current == m.authority && current.ctx.Err() == nil && sameAuthority(current.route, m.RouteBinding) && time.Now().Before(current.route.ExpiresAt)
+	resolve := m.registry.haResolve
+	m.registry.mu.Unlock()
+	if !valid || resolve == nil {
+		return fleeterror.NewFailedPreconditionError("pairing report HA authority expired or changed")
+	}
+	route, err := resolve(ctx, m.OwnerNodeID)
+	if err != nil {
+		return err
+	}
+	if !sameAuthority(route, m.RouteBinding) {
+		return fleeterror.NewFailedPreconditionError("pairing report HA authority changed")
+	}
+	if err := m.authority.ctx.Err(); err != nil {
+		return fmt.Errorf("pairing persistence authority: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("pairing persistence context: %w", err)
+	}
+	return nil
 }
 
 // AdmitAndScopePairResults is the single atomic gate for the gateway's
@@ -452,10 +510,12 @@ func (r *Registry) AdmitAndScopePairResults(fleetNodeID int64, commandID string,
 	}
 	cmd.reported += len(kept)
 	return kept, PairPersistMeta{
-		OwnerNodeID: cmd.route.OwnerNodeID,
-		OrgID:       cmd.pair.OrgID,
-		AssignedBy:  cmd.pair.AssignedBy,
-		Snapshots:   snapshots,
+		RouteBinding: cmd.route,
+		OrgID:        cmd.pair.OrgID,
+		AssignedBy:   cmd.pair.AssignedBy,
+		Snapshots:    snapshots,
+		registry:     r,
+		authority:    cmd.authority,
 	}, nil
 }
 

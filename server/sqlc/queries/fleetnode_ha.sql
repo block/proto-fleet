@@ -38,17 +38,19 @@ WHERE m.owner_node_id=$1 AND m.org_id=$2 AND m.revoked_at IS NULL
 ORDER BY m.joined_at,m.node_id;
 
 -- name: AcquireOrRenewFleetNodeHALease :one
+-- Only acknowledgement of current authority renews it. An expired connection
+-- tuple must reconnect before becoming a candidate again.
 UPDATE fleet_node_ha_group g SET
  active_node_id=sqlc.arg('node_id'), instance_id=sqlc.arg('instance_id'),control_session_id=sqlc.arg('control_session_id'),
  lease_epoch=CASE WHEN g.active_node_id=sqlc.arg('node_id') AND g.instance_id=sqlc.arg('instance_id') AND g.control_session_id=sqlc.arg('control_session_id') AND g.lease_expires_at>clock_timestamp() THEN g.lease_epoch ELSE g.lease_epoch+1 END,
  acknowledged=CASE WHEN g.active_node_id=sqlc.arg('node_id') AND g.instance_id=sqlc.arg('instance_id') AND g.control_session_id=sqlc.arg('control_session_id') AND g.lease_expires_at>clock_timestamp() THEN (g.acknowledged OR sqlc.arg('acknowledged_epoch')=g.lease_epoch) ELSE false END,
- lease_expires_at=clock_timestamp()+interval '30 seconds'
+ lease_expires_at=CASE WHEN g.active_node_id=sqlc.arg('node_id') AND g.instance_id=sqlc.arg('instance_id') AND g.control_session_id=sqlc.arg('control_session_id') AND g.lease_expires_at>clock_timestamp() AND sqlc.arg('acknowledged_epoch')<>g.lease_epoch THEN g.lease_expires_at ELSE clock_timestamp()+interval '30 seconds' END
 WHERE g.owner_node_id=sqlc.arg('owner_node_id') AND g.org_id=sqlc.arg('org_id') AND g.enabled
  AND EXISTS (SELECT 1 FROM fleet_node_ha_member m JOIN fleet_node fn ON fn.id=m.node_id AND fn.org_id=m.org_id JOIN fleet_node_ha_connection c ON c.node_id=m.node_id AND c.org_id=m.org_id
  WHERE m.node_id=sqlc.arg('node_id') AND m.owner_node_id=g.owner_node_id AND m.ready AND m.revoked_at IS NULL AND fn.enrollment_status='CONFIRMED' AND fn.deleted_at IS NULL AND c.instance_id=sqlc.arg('instance_id') AND c.control_session_id=sqlc.arg('control_session_id') AND c.ha_capable AND c.credential_key_fingerprint=g.credential_key_fingerprint)
  AND ((g.active_node_id=sqlc.arg('node_id') AND g.instance_id=sqlc.arg('instance_id') AND g.control_session_id=sqlc.arg('control_session_id') AND g.lease_expires_at>clock_timestamp())
  OR (g.lease_epoch=0 AND sqlc.arg('node_id')=g.owner_node_id AND g.lease_expires_at>clock_timestamp())
- OR (g.lease_expires_at<=clock_timestamp() AND sqlc.arg('node_id')=(SELECT m.node_id FROM fleet_node_ha_member m JOIN fleet_node fn ON fn.id=m.node_id AND fn.org_id=m.org_id JOIN fleet_node_ha_connection c ON c.node_id=m.node_id AND c.org_id=m.org_id WHERE m.owner_node_id=g.owner_node_id AND m.org_id=g.org_id AND m.ready AND m.revoked_at IS NULL AND fn.enrollment_status='CONFIRMED' AND fn.deleted_at IS NULL AND c.ha_capable AND c.credential_key_fingerprint=g.credential_key_fingerprint AND c.seen_at>clock_timestamp()-interval '10 seconds' ORDER BY m.joined_at,m.node_id LIMIT 1)))
+ OR (g.lease_expires_at<=clock_timestamp() AND sqlc.arg('node_id')=(SELECT m.node_id FROM fleet_node_ha_member m JOIN fleet_node fn ON fn.id=m.node_id AND fn.org_id=m.org_id JOIN fleet_node_ha_connection c ON c.node_id=m.node_id AND c.org_id=m.org_id WHERE m.owner_node_id=g.owner_node_id AND m.org_id=g.org_id AND m.ready AND m.revoked_at IS NULL AND fn.enrollment_status='CONFIRMED' AND fn.deleted_at IS NULL AND c.ha_capable AND c.credential_key_fingerprint=g.credential_key_fingerprint AND c.seen_at>clock_timestamp()-interval '10 seconds' AND NOT (m.node_id=g.active_node_id AND c.instance_id=g.instance_id AND c.control_session_id=g.control_session_id) ORDER BY m.joined_at,m.node_id LIMIT 1)))
 RETURNING g.*;
 
 -- name: RevokeFleetNodeHAMember :exec

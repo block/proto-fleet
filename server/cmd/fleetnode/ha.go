@@ -37,17 +37,24 @@ type haAuthority struct {
 	timer                             *time.Timer
 	workers                           map[uint64]context.CancelCauseFunc
 	closed                            bool
+	expired                           chan struct{}
 }
 
 func newHAAuthority(nodeID int64, instanceID, sessionID string) *haAuthority {
-	return &haAuthority{nodeID: nodeID, instanceID: instanceID, sessionID: sessionID, pending: make(map[string]haPendingRequest), workers: make(map[uint64]context.CancelCauseFunc)}
+	return &haAuthority{nodeID: nodeID, instanceID: instanceID, sessionID: sessionID, pending: make(map[string]haPendingRequest), workers: make(map[uint64]context.CancelCauseFunc), expired: make(chan struct{})}
 }
 
 // Accepted supplies assignment scope without conferring a timed HA grant.
 // Standalone sessions retain this scope for key export without lease traffic.
 func (a *haAuthority) accept(accepted *pb.ControlAccepted) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	a.assignment = accepted
 	a.current = &pb.HALeaseResponse{OwnerNodeId: accepted.GetHaOwnerNodeId(), OrgId: accepted.GetOrgId(), Preparing: accepted.GetPreparing()}
+	if accepted.GetHaOwnerNodeId() > 0 && !accepted.GetPreparing() {
+		now := time.Now()
+		a.setDeadlineLocked(now.Add(haMaxLease-haSafetyMargin), now)
+	}
 }
 func (r *RunCmd) processInstanceID() (string, error) {
 	r.haInstanceOnce.Do(func() {
@@ -61,6 +68,9 @@ func (a *haAuthority) request(now time.Time) *pb.HALeaseRequest {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.expireLocked(now)
+	if a.closed {
+		return nil
+	}
 	a.sequence++
 	id := fmt.Sprintf("%s-%d", a.instanceID, a.sequence)
 	// Keep correlation bounded if a server stops responding indefinitely.
@@ -86,6 +96,7 @@ func (a *haAuthority) acknowledgedEpochLocked() int64 {
 func (a *haAuthority) apply(response *pb.HALeaseResponse, now time.Time) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.expireLocked(now)
 	pending, ok := a.pending[response.GetRequestId()]
 	if !ok || a.closed || pending.sequence <= a.applied || response.GetInstanceId() != a.instanceID || response.GetControlSessionId() != a.sessionID || response.GetOrgId() <= 0 {
 		return false
@@ -110,12 +121,21 @@ func (a *haAuthority) apply(response *pb.HALeaseResponse, now time.Time) bool {
 	if response.GetGranted() && (response.GetPreparing() || response.GetOwnerNodeId() <= 0 || response.GetActiveNodeId() != a.nodeID || response.GetLeaseEpoch() <= 0) {
 		return false
 	}
+	selfHeldDenial := !response.GetGranted() && !response.GetPreparing() && response.GetActiveNodeId() == a.nodeID
+	if selfHeldDenial {
+		return false
+	}
 	if a.current != nil && (a.current.GetOwnerNodeId() != response.GetOwnerNodeId() || a.current.GetLeaseEpoch() != response.GetLeaseEpoch() || a.current.GetGranted() != response.GetGranted() || a.current.GetPreparing() != response.GetPreparing()) {
 		a.cancelWorkersLocked()
 	}
 	a.current = response
-	a.deadline = deadline
 	a.applied = pending.sequence
+	a.setDeadlineLocked(deadline, now)
+	return true
+}
+
+func (a *haAuthority) setDeadlineLocked(deadline, now time.Time) {
+	a.deadline = deadline
 	if a.timer != nil {
 		a.timer.Stop()
 	}
@@ -123,16 +143,16 @@ func (a *haAuthority) apply(response *pb.HALeaseResponse, now time.Time) bool {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 		if a.deadline.Equal(deadline) {
-			a.cancelWorkersLocked()
-			a.current = nil
+			a.expireLocked(deadline)
 		}
 	})
-	return true
 }
 func (a *haAuthority) expireLocked(now time.Time) {
-	if a.current != nil && !a.deadline.IsZero() && !now.Before(a.deadline) {
+	if !a.closed && !a.deadline.IsZero() && !now.Before(a.deadline) {
+		a.closed = true
 		a.current = nil
 		a.cancelWorkersLocked()
+		close(a.expired)
 	}
 }
 func (a *haAuthority) cancelWorkersLocked() {

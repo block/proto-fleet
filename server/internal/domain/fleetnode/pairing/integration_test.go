@@ -455,13 +455,13 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 	identifier := "mac:p-revoke-shared"
 	upsertNodeDiscovered(t, pairing, orgID, nodeID, identifier)
 	assignedBy := int64(1)
-	status, err := pairing.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy, pairingSnapshot(t, db, orgID, identifier))
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, nodeID, orgID, &assignedBy, identifier), pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED))
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusPaired, status)
 	siblingNodeID := createFleetNode(t, enrollment, orgID, "unaffected-node")
 	siblingIdentifier := "mac:p-revoke-sibling"
 	upsertNodeDiscovered(t, pairing, orgID, siblingNodeID, siblingIdentifier)
-	siblingStatus, err := pairing.PersistFleetNodePairResult(ctx, siblingNodeID, orgID, pairResult(siblingIdentifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy, pairingSnapshot(t, db, orgID, siblingIdentifier))
+	siblingStatus, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, siblingNodeID, orgID, &assignedBy, siblingIdentifier), pairResult(siblingIdentifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED))
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusPaired, siblingStatus)
 	var ddID int64
@@ -533,7 +533,7 @@ func TestRevokeClearsPairings_PreservesAttribution(t *testing.T) {
 	}}))
 	require.NoError(t, db.QueryRow(`SELECT status FROM device_status WHERE device_id = $1`, devID).Scan(&deviceStatus))
 	assert.Equal(t, "OFFLINE", deviceStatus)
-	status, err = pairing.PersistFleetNodePairResult(ctx, replacementID, orgID, pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy, pairingSnapshot(t, db, orgID, identifier))
+	status, err = pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, replacementID, orgID, &assignedBy, identifier), pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED))
 	require.NoError(t, err)
 	assert.Equal(t, fleetnodepairing.StatusPaired, status)
 	assert.Equal(t, "PAIRED", devicePairingStatus(t, db, orgID, identifier))
@@ -554,7 +554,7 @@ func TestRevocationBlocksTelemetryStartedBeforeCommit(t *testing.T) {
 	identifier := "mac:p-revoke-racing-status"
 	upsertNodeDiscovered(t, pairing, orgID, nodeID, identifier)
 	assignedBy := int64(1)
-	status, err := pairing.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy, pairingSnapshot(t, db, orgID, identifier))
+	status, err := pairing.PersistFleetNodePairResult(ctx, pairPersistMeta(t, db, nodeID, orgID, &assignedBy, identifier), pairResult(identifier, gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED))
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusPaired, status)
 	deviceID := deviceIDByIdentifier(t, db, orgID, identifier)

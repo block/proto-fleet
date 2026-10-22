@@ -179,10 +179,15 @@ status are separate from readiness. Shared devices count once for their logical
 owner; standbys do not receive independent copies. Redundancy exists only when a
 standby is ready. Temporary preparation failures retry with bounded backoff.
 For a permanent failure, revoke that node and enroll a replacement.
+If every credential source is revoked before setup completes, Fleet reports a
+setup failure and retains shared data until the remaining members are revoked.
+An already-installed key can still be confirmed by a new control connection.
 
 Fleet Server grants one active member a 30-second lease over ControlStream.
 Nodes request renewal every five seconds and stop admitting commands five seconds
 before their conservative local expiry. Heartbeats alone do not renew leadership.
+Renewal requires acknowledging the current grant. Missing responses expire local
+authority and reconnect the control stream; a stalled session cannot renew forever.
 The node acknowledges authority before the server routes commands and selects ready replacements
 by membership creation order, then node ID. The acceptance target is new command
 usability within 60 seconds of losing the active member, with fresh telemetry in

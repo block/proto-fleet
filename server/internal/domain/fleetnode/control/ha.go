@@ -144,8 +144,11 @@ func CommandInterrupted(err error) error {
 	return &commandInterruptedError{err: err}
 }
 
-func (r *Registry) interrupted(route RouteBinding, err error) error {
-	if route.Epoch > 0 {
+func (r *Registry) interrupted(cmd *inflightCommand, err error) error {
+	r.mu.Lock()
+	terminal := cmd.route.Epoch > 0 || cmd.terminalOnInterruption
+	r.mu.Unlock()
+	if terminal {
 		return CommandInterrupted(err)
 	}
 	return err
@@ -278,6 +281,13 @@ func (r *Registry) BeginHAActivation(ownerID int64) bool {
 	defer r.mu.Unlock()
 	r.haActivations[ownerID] = true
 	source := r.conns[ownerID]
+	if source != nil {
+		for _, cmd := range source.cmds {
+			if !cmd.provisioning {
+				cmd.terminalOnInterruption = true
+			}
+		}
+	}
 	return source == nil || len(source.cmds) == 0
 }
 

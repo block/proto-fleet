@@ -339,12 +339,24 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	authority := newHAAuthority(st.FleetNodeID, instanceID, accepted.GetControlSessionId())
 	authority.accept(accepted)
 	defer authority.close()
+	go func() {
+		select {
+		case <-authority.expired:
+			cancelSession()
+			_ = stream.CloseRequest()
+			_ = stream.CloseResponse()
+		case <-sessionCtx.Done():
+		}
+	}()
 	if accepted.GetHaOwnerNodeId() > 0 && !accepted.GetPreparing() {
 		go func() {
 			ticker := time.NewTicker(haRenewInterval)
 			defer ticker.Stop()
 			for {
 				request := authority.request(time.Now())
+				if request == nil {
+					return
+				}
 				if err := sender.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_HaLease{HaLease: request}}); err != nil {
 					cancelSession()
 					_ = stream.CloseResponse()

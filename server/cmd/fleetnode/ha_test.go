@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
+	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -168,6 +171,9 @@ func TestHACompletionPreservesAcceptedResultAndOrdinaryTimeout(t *testing.T) {
 	interrupted := captured.sent[len(captured.sent)-1].GetAck()
 	require.Equal(t, pb.AckCode_ACK_CODE_COMMAND_INTERRUPTED, interrupted.GetCode())
 	require.Empty(t, interrupted.GetPayload())
+	remote, err := remotenode.New(remotenode.Config{Sender: haReceivedAckSender{ack: interrupted}, FleetNodeID: 7, DeviceIdentifier: "miner", DriverName: "antminer", IPAddress: "10.0.0.1", Port: "4028", URLScheme: "http"})
+	require.NoError(t, err)
+	require.True(t, control.IsCommandInterrupted(remote.StopMining(t.Context())))
 
 	timeoutCtx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
 	defer cancel()
@@ -176,4 +182,34 @@ func TestHACompletionPreservesAcceptedResultAndOrdinaryTimeout(t *testing.T) {
 	timeoutAck := &pb.ControlAck{CommandId: "timeout", Code: pb.AckCode_ACK_CODE_INTERNAL, ErrorMessage: context.DeadlineExceeded.Error()}
 	require.NoError(t, timeoutAcker.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: timeoutAck}}))
 	require.Same(t, timeoutAck, timeoutCapture.sent[0].GetAck(), "ordinary command timeouts must keep their existing classification")
+}
+
+type haReceivedAckSender struct{ ack *pb.ControlAck }
+
+func (s haReceivedAckSender) SendCommand(context.Context, int64, pb.CommandProtocolVersion, *pb.ControlCommand) (*pb.ControlAck, error) {
+	return s.ack, nil
+}
+
+func TestHASelfHeldDenialDoesNotRefreshOrDiscardAuthority(t *testing.T) {
+	for _, granted := range []bool{false, true} {
+		t.Run(fmt.Sprintf("received-grant-%t", granted), func(t *testing.T) {
+			now := time.Now()
+			a := newHAAuthority(7, "i", "s")
+			defer a.close()
+			a.accept(&pb.ControlAccepted{HaOwnerNodeId: 7, OrgId: 1})
+			first := a.request(now)
+			// A second request leaves before the delayed initial grant arrives.
+			second := a.request(now.Add(5 * time.Second))
+			response := &pb.HALeaseResponse{RequestId: first.GetRequestId(), OwnerNodeId: 7, ActiveNodeId: 7, LeaseEpoch: 1, LeaseDurationMs: 30000, Granted: true, InstanceId: "i", ControlSessionId: "s", OrgId: 1}
+			if granted {
+				require.True(t, a.apply(response, now.Add(6*time.Second)))
+			}
+			deadline := a.deadline
+			denial := &pb.HALeaseResponse{RequestId: second.GetRequestId(), OwnerNodeId: 7, ActiveNodeId: 7, LeaseEpoch: 1, LeaseDurationMs: 30000, InstanceId: "i", ControlSessionId: "s", OrgId: 1}
+			a.apply(denial, now.Add(7*time.Second))
+			require.Equal(t, deadline, a.deadline, "denial of self-held authority cannot restart its timeout")
+			require.Equal(t, granted, a.current.GetGranted(), "a stale zero-ack denial cannot discard an adopted grant")
+			require.Nil(t, a.request(deadline), "self-held denial must still force a fresh control session at original expiry")
+		})
+	}
 }

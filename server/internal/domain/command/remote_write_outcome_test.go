@@ -30,19 +30,26 @@ type writeOutcomeSender struct {
 }
 
 func TestQueuedHAInterruptionDoesNotReplayOrBlockNewHostWrite(t *testing.T) {
-	for _, interruption := range []string{"disconnect", "node_ack"} {
+	for _, interruption := range []string{"disconnect", "node_ack", "first_activation"} {
 		t.Run(interruption, func(t *testing.T) {
 			service, conn, _, deviceID, identifier := setupPasswordCommandDevice(t, "proto", false)
 			first, messages := enqueueFenceTestCommand(t, conn, deviceID, commandtype.StopMining, nil)
 			registry := control.NewRegistry()
-			stream := registry.Register(20)
+			initialMember := int64(20)
+			if interruption == "first_activation" {
+				initialMember = 7
+			}
+			stream := registry.Register(initialMember)
 			defer stream.Unregister()
 			stream.SetHAConnection(1, &gatewaypb.ControlHello{HaCapable: true, InstanceId: "old-process"}, "old-session")
 			var active atomic.Int64
-			active.Store(20)
+			active.Store(initialMember)
 			resolve := func(context.Context, int64) (control.RouteBinding, error) {
 				member := active.Load()
 				instance, session, epoch := "old-process", "old-session", int64(1)
+				if member == 7 {
+					epoch = 0
+				}
 				if member == 21 {
 					instance, session, epoch = "new-process", "new-session", 2
 				}
@@ -67,6 +74,9 @@ func TestQueuedHAInterruptionDoesNotReplayOrBlockNewHostWrite(t *testing.T) {
 			case dispatched = <-stream.Outgoing:
 			case <-time.After(5 * time.Second):
 				t.Fatal("write was not dispatched")
+			}
+			if interruption == "first_activation" {
+				require.False(t, registry.BeginHAActivation(7))
 			}
 			if interruption == "node_ack" {
 				stream.PublishAck(&gatewaypb.ControlAck{CommandId: dispatched.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_COMMAND_INTERRUPTED, ErrorMessage: "execution authority expired"})

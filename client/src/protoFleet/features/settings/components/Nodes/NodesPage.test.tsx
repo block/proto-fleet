@@ -14,6 +14,7 @@ import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import type { ColConfig, ColTitles, ListAction, ListActionValue } from "@/shared/components/List/types";
 
 const permissionsMock = vi.hoisted(() => ({ current: [] as string[] }));
+const pollMock = vi.hoisted(() => ({ fetchData: undefined as (() => Promise<void> | void) | undefined }));
 const listFleetNodesMock = vi.hoisted(() => vi.fn());
 const revokeFleetNodeMock = vi.hoisted(() => vi.fn());
 const listFleetNodeDevicesMock = vi.hoisted(() => vi.fn());
@@ -42,6 +43,7 @@ vi.mock("@/shared/hooks/usePoll", async () => {
   const React = await vi.importActual<typeof import("react")>("react");
   return {
     usePoll: ({ enabled, fetchData }: { enabled?: boolean; fetchData: () => Promise<void> | void }) => {
+      pollMock.fetchData = fetchData;
       React.useEffect(() => {
         if (enabled !== false) {
           void fetchData();
@@ -361,7 +363,7 @@ describe("NodesPage", () => {
     expect(signal.aborted).toBe(true);
   });
 
-  it("keeps the reopened finder intact when an earlier pairing settles", async () => {
+  it.each([false, true])("preserves reopened pairing state (HA promotion: %s)", async (promote) => {
     permissionsMock.current = ["fleetnode:read", "fleetnode:manage", "miner:pair"];
     listFleetNodeDiscoveredDevicesMock.mockResolvedValue({
       devices: [
@@ -381,6 +383,10 @@ describe("NodesPage", () => {
                 deviceIdentifier: "miner-2",
                 pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
               }),
+              create(DevicePairingResultSchema, {
+                deviceIdentifier: "miner-3",
+                pairingStatus: PairingStatus.FAILED,
+              }),
             ]);
             reject(new Error("Pair result stream disconnected"));
           };
@@ -393,18 +399,33 @@ describe("NodesPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Find miners" }));
     fireEvent.click(await screen.findByRole("button", { name: "Continue with 3 miners" }));
     await waitFor(() => expect(pairDiscoveredDevicesOnFleetNodeMock).toHaveBeenCalledTimes(1));
+    expect(pairDiscoveredDevicesOnFleetNodeMock.mock.calls[0][0]).toBe("7");
 
     fireEvent.click(screen.getByRole("button", { name: "Close add miners" }));
-    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
+    if (promote) {
+      listFleetNodesMock.mockResolvedValue([
+        { ...confirmedNode, controlStreamConnected: false, haOwnerNodeId: "7", haRole: "standby" },
+        { ...confirmedNode, fleetNodeId: "8", name: "standby-node", haOwnerNodeId: "7", haRole: "active" },
+      ]);
+      await act(async () => pollMock.fetchData?.());
+    }
+    fireEvent.click(screen.getByRole("button", { name: promote ? "View standby-node" : "View node-01" }));
     fireEvent.click(screen.getByRole("button", { name: "Find miners" }));
     expect(screen.getByText("Add miners")).toBeInTheDocument();
     expect(await screen.findByText(/3 miners have an unknown pairing result/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Continue with/ })).not.toBeInTheDocument();
+    const physicalNodeId = promote ? "8" : "7";
+    await waitFor(() => expect(listFleetNodeDiscoveredDevicesMock).toHaveBeenLastCalledWith(physicalNodeId, 0n));
+    expect(discoverOnFleetNodeMock.mock.calls[discoverOnFleetNodeMock.mock.calls.length - 1]?.[0]).toBe(physicalNodeId);
+    const discoveryLoads = listFleetNodeDiscoveredDevicesMock.mock.calls.length;
 
     await act(async () => finishFirstPairing?.());
 
     expect(screen.getByText("Add miners")).toBeInTheDocument();
     expect(await screen.findByText(/2 miners have an unknown pairing result/)).toBeInTheDocument();
-    await waitFor(() => expect(listFleetNodeDiscoveredDevicesMock).toHaveBeenCalled());
+    expect(await screen.findByRole("button", { name: "Continue with 1 miners" })).toBeEnabled();
+    await waitFor(() => expect(listFleetNodeDiscoveredDevicesMock.mock.calls.length).toBeGreaterThan(discoveryLoads));
+    expect(listFleetNodeDiscoveredDevicesMock).toHaveBeenLastCalledWith(physicalNodeId, 0n);
   });
 
   it("loads the affected miners before allowing revocation", async () => {

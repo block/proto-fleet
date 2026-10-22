@@ -12,6 +12,7 @@ import (
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	discovery "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -30,6 +31,16 @@ func pairingSnapshot(t *testing.T, db *sql.DB, orgID int64, identifier string) *
 		IpAddress: d.IpAddress, Port: d.Port, UrlScheme: d.UrlScheme,
 		RpcPort: d.RpcPort, RpcTls: d.RpcTls, Endpoints: d.Endpoints,
 		DeviceClass: d.DeviceClass, Manufacturer: d.Manufacturer,
+	}
+}
+
+func pairPersistMeta(t *testing.T, db *sql.DB, nodeID, orgID int64, assignedBy *int64, identifier string) control.PairPersistMeta {
+	t.Helper()
+	return control.PairPersistMeta{
+		RouteBinding: control.RouteBinding{OwnerNodeID: nodeID, PhysicalNodeID: nodeID},
+		OrgID:        orgID,
+		AssignedBy:   assignedBy,
+		Snapshots:    map[string]*pairingpb.FleetNodePairTarget{identifier: pairingSnapshot(t, db, orgID, identifier)},
 	}
 }
 
@@ -68,11 +79,14 @@ func TestPairResultRejectsDiscoveryChangesAfterDispatch(t *testing.T) {
 			defer cancel()
 			completed := make(chan error, 1)
 			go func() {
-				_, err := svc.PersistFleetNodePairResult(ctx, node, org, &gatewaypb.FleetNodePairResult{
+				result := &gatewaypb.FleetNodePairResult{
 					DeviceIdentifier: a.DeviceIdentifier, Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED,
 					SerialNumber: "controller-b", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
 					EncryptedCredentials: &gatewaypb.EncryptedCredentials{Username: []byte("stale-user"), Password: []byte("stale-password")},
-				}, nil, targets[0])
+				}
+				meta := pairPersistMeta(t, db, node, org, nil, a.DeviceIdentifier)
+				meta.Snapshots[a.DeviceIdentifier] = targets[0]
+				_, err := svc.PersistFleetNodePairResult(ctx, meta, result)
 				completed <- err
 			}()
 			select {
@@ -122,7 +136,10 @@ func TestPairResultRequiresDispatchSnapshot(t *testing.T) {
 	db, org, svc, enrollment := setupPairingTest(t)
 	node := createFleetNode(t, enrollment, org, "missing-snapshot-node")
 	upsertNodeDiscovered(t, svc, org, node, "missing-snapshot")
-	_, err := svc.PersistFleetNodePairResult(t.Context(), node, org, pairResult("missing-snapshot", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), nil, nil)
+	_, err := svc.PersistFleetNodePairResult(t.Context(), control.PairPersistMeta{
+		RouteBinding: control.RouteBinding{OwnerNodeID: node, PhysicalNodeID: node},
+		OrgID:        org,
+	}, pairResult("missing-snapshot", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED))
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "a missing snapshot must stop persistence, got %v", err)
 	var devices int
 	require.NoError(t, db.QueryRow(`SELECT count(*) FROM device WHERE org_id=$1 AND device_identifier=$2`, org, "missing-snapshot").Scan(&devices))

@@ -395,6 +395,11 @@ func (s *Service) lease(ctx context.Context, nodeID, orgID int64, instanceID, se
 	if err != nil {
 		return nil, err
 	}
+	if previous.LeaseEpoch > 0 && group.LeaseEpoch != previous.LeaseEpoch {
+		if err := q.DeleteFleetNodeHAConnection(ctx, sqlc.DeleteFleetNodeHAConnectionParams{NodeID: previous.ActiveNodeID, OrgID: orgID, ControlSessionID: previous.ControlSessionID}); err != nil {
+			return nil, err
+		}
+	}
 	if group.Acknowledged && (!previous.Acknowledged || previous.LeaseEpoch != group.LeaseEpoch) {
 		key := fmt.Sprintf("fleet_node.ha.leadership/%d/%d", group.OwnerNodeID, group.LeaseEpoch)
 		if err := s.audit(ctx, orgID, group.OwnerNodeID, nodeID, group.LeaseEpoch, "fleet_node.ha.leadership", key, fmt.Sprintf("Fleet Node HA owner %d active on physical node %d (epoch %d)", group.OwnerNodeID, nodeID, group.LeaseEpoch)); err != nil {
@@ -419,7 +424,9 @@ func (s *Service) lease(ctx context.Context, nodeID, orgID int64, instanceID, se
 		route := control.RouteBinding{OwnerNodeID: member.OwnerNodeID, PhysicalNodeID: nodeID, Epoch: group.LeaseEpoch, InstanceID: instanceID, ControlSessionID: sessionID, EncryptionPublicKey: node.EncryptionPubkey, ExpiresAt: group.LeaseExpiresAt}
 		db.AfterCommit(ctx, func() { s.registry.SetHARoute(route) })
 	}
-	resp.Granted = true
+	sameConnection := previous.ActiveNodeID == nodeID && previous.InstanceID == instanceID && previous.ControlSessionID == sessionID
+	acknowledgedCurrentEpoch := req.GetAcknowledgedEpoch() == previous.LeaseEpoch
+	resp.Granted = !sameConnection || acknowledgedCurrentEpoch
 	resp.ActiveNodeId = group.ActiveNodeID
 	resp.LeaseEpoch = group.LeaseEpoch
 	return resp, nil
@@ -471,7 +478,23 @@ func (s *Service) Revoke(ctx context.Context, nodeID, orgID int64) (ownerID int6
 		}
 	})
 	members, err := q.ListFleetNodeHAMembers(ctx, sqlc.ListFleetNodeHAMembersParams{OwnerNodeID: member.OwnerNodeID, OrgID: orgID})
-	return member.OwnerNodeID, len(members) > 0, err
+	if err != nil {
+		return 0, false, err
+	}
+	for _, remaining := range members {
+		if remaining.Ready && remaining.EnrollmentStatus == confirmedEnrollmentStatus {
+			return member.OwnerNodeID, true, nil
+		}
+	}
+	for _, remaining := range members {
+		if strings.HasPrefix(remaining.StatusReason, "failed: ") {
+			continue
+		}
+		if err := q.SetFleetNodeHAMemberFailure(ctx, sqlc.SetFleetNodeHAMemberFailureParams{NodeID: remaining.NodeID, OrgID: orgID, StatusReason: "failed: no credential source remains; revoke remaining standby nodes and enroll again"}); err != nil {
+			return 0, false, err
+		}
+	}
+	return member.OwnerNodeID, len(members) > 0, nil
 }
 
 type preparation struct {

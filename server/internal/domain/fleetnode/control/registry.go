@@ -191,10 +191,11 @@ type connection struct {
 // channel determines its shape: report-bearing commands carry `events` (plus
 // scope/reported); ack-only commands carry `ack`.
 type inflightCommand struct {
-	route        RouteBinding
-	authority    *haAuthority
-	provisioning bool
-	id           string
+	route                  RouteBinding
+	authority              *haAuthority
+	provisioning           bool
+	terminalOnInterruption bool
+	id                     string
 
 	// report-bearing (events != nil): discovery/pairing batches + terminal ack.
 	kind       ReportKind        // which gateway report RPC may admit reports for this command

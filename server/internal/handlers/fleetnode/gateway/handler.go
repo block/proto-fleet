@@ -617,7 +617,7 @@ func (h *Handler) ReportPairedDevices(ctx context.Context, req *connect.Request[
 	persisted := make([]*pb.FleetNodePairResult, 0, len(kept))
 	var persistFailed []string
 	for _, r := range kept {
-		status, err := h.pairing.PersistFleetNodePairResult(ctx, meta.OwnerNodeID, meta.OrgID, r, meta.AssignedBy, meta.Snapshots[r.GetDeviceIdentifier()])
+		status, err := h.pairing.PersistFleetNodePairResult(ctx, meta, r)
 		if err != nil {
 			// Per-device isolation: one persist failure must not drop the others
 			// (already paired on the node). A failed result isn't forwarded as paired;

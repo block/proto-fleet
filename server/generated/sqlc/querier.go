@@ -15,6 +15,8 @@ import (
 
 type Querier interface {
 	AcquireFleetRuntimeLease(ctx context.Context, arg AcquireFleetRuntimeLeaseParams) (AcquireFleetRuntimeLeaseRow, error)
+	// Only acknowledgement of current authority renews it. An expired connection
+	// tuple must reconnect before becoming a candidate again.
 	AcquireOrRenewFleetNodeHALease(ctx context.Context, arg AcquireOrRenewFleetNodeHALeaseParams) (FleetNodeHaGroup, error)
 	// Permission catalog queries. The catalog is reconciled at startup
 	// against domain/authz/catalog.go via domain/authz/reconcile.go.

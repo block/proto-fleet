@@ -588,3 +588,60 @@ func TestSourceFingerprintMismatchPersistsFailedPreparation(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, route.Epoch)
 }
+
+// Model one-way response loss: upstream lease requests still arrive, but the
+// process cannot acknowledge an initial grant (or has expired its last grant).
+func TestLeaseMissingAcknowledgementsCannotPreventStandbyPromotion(t *testing.T) {
+	for _, adopted := range []bool{false, true} {
+		t.Run(fmt.Sprintf("previously-acknowledged-%t", adopted), func(t *testing.T) {
+			h := setup(t, 2)
+			h.connect(t, 0, "owner", "owner-session")
+			h.connect(t, 1, "standby", "standby-session")
+			h.group(t)
+			first := h.lease(t, 0, "owner", "owner-session", 0)
+			require.True(t, first.GetGranted())
+			if adopted {
+				h.lease(t, 0, "owner", "owner-session", first.GetLeaseEpoch())
+			}
+			// Advance close to the actual persisted expiry without a 30-second test.
+			_, err := h.db.Exec(`UPDATE fleet_node_ha_group SET lease_expires_at=clock_timestamp()+interval '250 milliseconds'`)
+			require.NoError(t, err)
+			var before, after time.Time
+			require.NoError(t, h.db.QueryRow(`SELECT lease_expires_at FROM fleet_node_ha_group`).Scan(&before))
+			for range 3 {
+				retry := h.lease(t, 0, "owner", "owner-session", 0)
+				require.False(t, retry.GetGranted(), "a missing acknowledgement cannot advertise a fresh grant")
+			}
+			require.NoError(t, h.db.QueryRow(`SELECT lease_expires_at FROM fleet_node_ha_group`).Scan(&after))
+			require.Equal(t, before, after, "forwarded requests cannot renew unacknowledged authority")
+			require.False(t, h.lease(t, 1, "standby", "standby-session", 0).GetGranted(), "retain the outstanding old expiry")
+			time.Sleep(time.Until(before) + 20*time.Millisecond)
+			require.False(t, h.lease(t, 0, "owner", "owner-session", 0).GetGranted(), "an expired tuple cannot reacquire itself")
+			next := h.lease(t, 1, "standby", "standby-session", 0)
+			require.True(t, next.GetGranted(), "the oldest healthy standby wins after actual expiry")
+			require.Greater(t, next.GetLeaseEpoch(), first.GetLeaseEpoch())
+			h.lease(t, 1, "standby", "standby-session", next.GetLeaseEpoch())
+			route, err := h.svc.Resolve(t.Context(), h.nodes[0], 1)
+			require.NoError(t, err)
+			require.Equal(t, h.nodes[1], route.PhysicalNodeID)
+			_, err = h.svc.Lease(t.Context(), h.nodes[0], 1, "owner", "owner-session", &pb.HALeaseRequest{RequestId: "retired"})
+			require.Error(t, err, "a promoted-away expired tuple must reconnect before further requests")
+		})
+	}
+}
+
+func TestLeaseLiveAcknowledgementExtendsAuthority(t *testing.T) {
+	h := setup(t, 2)
+	h.connect(t, 0, "owner", "owner-session")
+	h.group(t)
+	first := h.lease(t, 0, "owner", "owner-session", 0)
+	_, err := h.db.Exec(`UPDATE fleet_node_ha_group SET lease_expires_at=clock_timestamp()+interval '10 seconds'`)
+	require.NoError(t, err)
+	var before, after time.Time
+	require.NoError(t, h.db.QueryRow(`SELECT lease_expires_at FROM fleet_node_ha_group`).Scan(&before))
+	renewed := h.lease(t, 0, "owner", "owner-session", first.GetLeaseEpoch())
+	require.True(t, renewed.GetGranted())
+	require.NoError(t, h.db.QueryRow(`SELECT lease_expires_at FROM fleet_node_ha_group`).Scan(&after))
+	require.Greater(t, after.Sub(before), 15*time.Second)
+	require.Equal(t, first.GetLeaseEpoch(), renewed.GetLeaseEpoch())
+}

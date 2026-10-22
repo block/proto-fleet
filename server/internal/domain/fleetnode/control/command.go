@@ -85,7 +85,7 @@ func (r *Registry) SendCommandWithArtifactResults(ctx context.Context, fleetNode
 		refs, resultErr := r.completedUploadRefs(ack, c)
 		return ack, refs, resultErr
 	default:
-		return nil, nil, r.interrupted(route, waitErr)
+		return nil, nil, r.interrupted(c, waitErr)
 	}
 }
 
