@@ -108,7 +108,7 @@ func (f *haInterruptedStreamGateway) ControlStream(_ context.Context, stream *co
 	if err != nil {
 		return fmt.Errorf("receive interruption lease request: %w", err)
 	}
-	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_HaLease{HaLease: &pb.HALeaseResponse{RequestId: request.GetHaLease().GetRequestId(), OwnerNodeId: 7, ActiveNodeId: 7, LeaseEpoch: 1, Granted: true, InstanceId: hello.GetInstanceId(), ControlSessionId: "ha-session", OrgId: 1, LeaseDurationMs: 5200}}}); err != nil {
+	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_HaLease{HaLease: &pb.HALeaseResponse{RequestId: request.GetHaLease().GetRequestId(), OwnerNodeId: 7, ActiveNodeId: 7, LeaseEpoch: 1, Granted: true, InstanceId: hello.GetInstanceId(), ControlSessionId: "ha-session", OrgId: 1, LeaseDurationMs: 11000}}}); err != nil {
 		return fmt.Errorf("send interruption lease: %w", err)
 	}
 	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Command{Command: &pb.ControlCommand{CommandId: "interrupted", Payload: f.payload, HaOwnerNodeId: 7, HaLeaseEpoch: 1, IntendedInstanceId: hello.GetInstanceId(), ControlSessionId: "ha-session"}}}); err != nil {
@@ -185,7 +185,7 @@ func (f *haLostResponsesGateway) ControlStream(_ context.Context, stream *connec
 		f.requests.Add(1)
 		if f.grant {
 			f.grant = false
-			if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_HaLease{HaLease: &pb.HALeaseResponse{RequestId: request.GetHaLease().GetRequestId(), OwnerNodeId: 7, ActiveNodeId: 7, LeaseEpoch: 1, Granted: true, InstanceId: hello.GetInstanceId(), ControlSessionId: "lost-session", OrgId: 1, LeaseDurationMs: 5200}}}); err != nil {
+			if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_HaLease{HaLease: &pb.HALeaseResponse{RequestId: request.GetHaLease().GetRequestId(), OwnerNodeId: 7, ActiveNodeId: 7, LeaseEpoch: 1, Granted: true, InstanceId: hello.GetInstanceId(), ControlSessionId: "lost-session", OrgId: 1, LeaseDurationMs: 11000}}}); err != nil {
 				return fmt.Errorf("send initial lease: %w", err)
 			}
 		}
@@ -205,15 +205,17 @@ func TestHAStreamClosesWhenLeaseResponsesStop(t *testing.T) {
 			node := &RunCmd{credentials: &credentialCodec{key: bytes.Repeat([]byte{5}, 32)}}
 			timeout := haMaxLease - haSafetyMargin + 2*time.Second
 			if grant {
-				timeout = time.Second
+				timeout = 8 * time.Second
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), timeout)
 			defer cancel()
 			require.Error(t, node.runControlSession(ctx, discardLogger(t), client, &bootstrap.State{FleetNodeID: 7}), "local expiry must retire this session")
 			require.NoError(t, ctx.Err(), "expiry must close a live transport before its parent is canceled")
-			if !grant {
-				require.GreaterOrEqual(t, fake.requests.Load(), int32(2), "upstream renewals must continue while downstream lease responses are dropped")
+			expectedRequests := int32(1)
+			if grant {
+				expectedRequests = 2
 			}
+			require.Equal(t, expectedRequests, fake.requests.Load(), "a missing response must not trigger another outstanding request")
 		})
 	}
 }

@@ -446,19 +446,22 @@ func (m PairPersistMeta) ValidateAuthority(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("pairing persistence context: %w", err)
 	}
-	if m.Epoch == 0 {
-		return nil
-	}
-	if m.registry == nil || m.authority == nil {
+	if m.registry == nil {
+		if m.Epoch == 0 {
+			return nil
+		}
 		return fleeterror.NewFailedPreconditionError("pairing report has no admitted HA authority")
 	}
 	m.registry.mu.Lock()
 	current := m.registry.haRoutes[m.OwnerNodeID]
-	valid := current == m.authority && current.ctx.Err() == nil && sameAuthority(current.route, m.RouteBinding) && time.Now().Before(current.route.ExpiresAt)
+	valid := m.Epoch == 0 || (m.authority != nil && current == m.authority && current.ctx.Err() == nil && sameAuthority(current.route, m.RouteBinding) && time.Now().Before(current.route.ExpiresAt))
 	resolve := m.registry.haResolve
 	m.registry.mu.Unlock()
-	if !valid || resolve == nil {
+	if !valid || (resolve == nil && m.Epoch > 0) {
 		return fleeterror.NewFailedPreconditionError("pairing report HA authority expired or changed")
+	}
+	if resolve == nil {
+		return nil
 	}
 	route, err := resolve(ctx, m.OwnerNodeID)
 	if err != nil {
@@ -467,8 +470,10 @@ func (m PairPersistMeta) ValidateAuthority(ctx context.Context) error {
 	if !sameAuthority(route, m.RouteBinding) {
 		return fleeterror.NewFailedPreconditionError("pairing report HA authority changed")
 	}
-	if err := m.authority.ctx.Err(); err != nil {
-		return fmt.Errorf("pairing persistence authority: %w", err)
+	if m.authority != nil {
+		if err := m.authority.ctx.Err(); err != nil {
+			return fmt.Errorf("pairing persistence authority: %w", err)
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("pairing persistence context: %w", err)

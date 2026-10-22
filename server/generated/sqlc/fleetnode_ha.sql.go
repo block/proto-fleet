@@ -154,7 +154,7 @@ type EnableFleetNodeHAGroupParams struct {
 	OrgID       int64
 }
 
-// Reserve the first grant for the drained source while it reconnects. Epoch 0
+// Reserve the first grant for the original source while it reconnects. Epoch 0
 // and the empty incarnation/session never authorize commands or reports.
 func (q *Queries) EnableFleetNodeHAGroup(ctx context.Context, arg EnableFleetNodeHAGroupParams) (int64, error) {
 	result, err := q.exec(ctx, q.enableFleetNodeHAGroupStmt, enableFleetNodeHAGroup, arg.OwnerNodeID, arg.OrgID)

@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -226,57 +225,28 @@ func TestCredentialInstallWaitsForNewHelloBeforeActivatingHA(t *testing.T) {
 	route, err := h.svc.Resolve(t.Context(), h.nodes[0], 1)
 	require.NoError(t, err)
 	require.Zero(t, route.Epoch)
-	// Hold an admitted standalone operation while the ready standby tries to
-	// activate. Canceling that stream's preparation must resume ordinary dispatch.
+	// First activation interrupts admitted standalone work instead of waiting for
+	// its acknowledgement. The physical outcome is unknown and must not replay.
 	longResult := make(chan error, 1)
 	go func() {
 		_, err := h.registry.SendCommand(t.Context(), h.nodes[0], pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "held-operation"})
 		longResult <- err
 	}()
-	var held *pb.ControlCommand
 	select {
-	case held = <-source.Outgoing:
+	case <-source.Outgoing:
 	case <-time.After(time.Second):
 		t.Fatal("standalone operation was not admitted")
 	}
-	go func() {
-		for {
-			select {
-			case cmd := <-source.Outgoing:
-				source.PublishAck(&pb.ControlAck{CommandId: cmd.GetCommandId(), Code: pb.AckCode_ACK_CODE_OK, Succeeded: true})
-			case <-source.Done:
-				return
-			case <-t.Context().Done():
-				return
-			}
-		}
-	}()
-	probe := func() error {
-		ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-		defer cancel()
-		_, err := h.registry.SendCommand(ctx, h.nodes[0], pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "dispatch-probe"})
-		return err
-	}
 	h.connect(t, 1, "recipient-restarted", "recipient-new-session")
-	preparing, cancelPreparation := context.WithCancel(t.Context())
-	h.svc.StartPreparation(preparing, h.nodes[1], 1)
-	require.Eventually(t, func() bool {
-		err := probe()
-		return err != nil && strings.Contains(err.Error(), "activation is draining")
-	}, time.Second, 10*time.Millisecond)
-	require.Never(t, func() bool { return probe() == nil }, 21*time.Second, 50*time.Millisecond, "a long drain must outlive the bounded credential-transfer attempt")
-	cancelPreparation()
-	require.Eventually(t, func() bool { return probe() == nil }, time.Second, 10*time.Millisecond, "canceling preparation must reopen standalone dispatch")
-	require.NoError(t, h.db.QueryRow(`SELECT enabled FROM fleet_node_ha_group WHERE owner_node_id=$1`, h.nodes[0]).Scan(&enabled))
-	require.False(t, enabled)
-	source.PublishAck(&pb.ControlAck{CommandId: held.GetCommandId(), Code: pb.AckCode_ACK_CODE_OK, Succeeded: true})
-	require.NoError(t, <-longResult)
 	h.svc.StartPreparation(t.Context(), h.nodes[1], 1)
-	require.Eventually(t, func() bool {
-		var enabled bool
-		err := h.db.QueryRow(`SELECT enabled FROM fleet_node_ha_group WHERE owner_node_id=$1`, h.nodes[0]).Scan(&enabled)
-		return err == nil && enabled
-	}, 2*time.Second, 10*time.Millisecond)
+	select {
+	case err := <-longResult:
+		require.True(t, control.IsCommandInterrupted(err), "first activation must make the unacknowledged command terminal")
+	case <-time.After(2 * time.Second):
+		t.Fatal("first activation waited for the held operation")
+	}
+	require.NoError(t, h.db.QueryRow(`SELECT enabled FROM fleet_node_ha_group WHERE owner_node_id=$1`, h.nodes[0]).Scan(&enabled))
+	require.True(t, enabled)
 	select {
 	case <-source.Done:
 	case <-time.After(time.Second):

@@ -40,7 +40,7 @@ type Service struct {
 	registry             *control.Registry
 	mu                   sync.Mutex
 	preparing            map[int64]*preparation
-	activating           map[int64]bool
+	activationMu         sync.Mutex
 	connectMu            sync.Mutex
 	connecting           map[int64]*connectionGate
 	activity             *activity.Service
@@ -49,7 +49,7 @@ type Service struct {
 }
 
 func NewService(conn *sql.DB, registry *control.Registry) *Service {
-	return &Service{conn: conn, queries: db.NewFailoverResettingQuerier(db.NewRetryDB(conn)), registry: registry, preparing: make(map[int64]*preparation), activating: make(map[int64]bool), connecting: make(map[int64]*connectionGate)}
+	return &Service{conn: conn, queries: db.NewFailoverResettingQuerier(db.NewRetryDB(conn)), registry: registry, preparing: make(map[int64]*preparation), connecting: make(map[int64]*connectionGate)}
 }
 
 func (s *Service) q(ctx context.Context) sqlc.Querier {
@@ -552,9 +552,6 @@ func (s *Service) StartPreparation(ctx context.Context, nodeID, orgID int64) {
 }
 
 func (s *Service) prepare(ctx context.Context, nodeID, orgID int64, sessionID string) (bool, error) {
-	// Transfer retries are bounded; draining retains its gate until the stream
-	// ends or existing commands reach their normal terminal completion.
-	activationCtx := ctx
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 	q := s.q(ctx)
@@ -580,7 +577,7 @@ func (s *Service) prepare(ctx context.Context, nodeID, orgID int64, sessionID st
 		if nodeID == member.OwnerNodeID {
 			return true, nil
 		}
-		enabled, err := s.activate(activationCtx, member.OwnerNodeID, orgID)
+		enabled, err := s.activate(ctx, member.OwnerNodeID, orgID)
 		return enabled, err
 	}
 	if strings.HasPrefix(member.StatusReason, "failed: ") {
@@ -629,54 +626,26 @@ func (s *Service) prepare(ctx context.Context, nodeID, orgID int64, sessionID st
 	return false, nil
 }
 
-// Pause new standalone dispatch, drain previously admitted commands, then make
-// HA durable and reconnect the original source into its new authority scope.
 func (s *Service) activate(ctx context.Context, ownerID, orgID int64) (bool, error) {
-	// One worker owns the dispatch pause, including cancellation cleanup. Another
-	// ready standby must not resume dispatch while this worker commits activation.
-	s.mu.Lock()
-	if s.activating[ownerID] {
-		s.mu.Unlock()
-		return false, nil
-	}
-	s.activating[ownerID] = true
-	s.mu.Unlock()
+	s.activationMu.Lock()
+	defer s.activationMu.Unlock()
 	committed := false
 	paused := false
 	defer func() {
 		if paused && !committed {
 			s.registry.AbortHAActivation(ownerID)
 		}
-		s.mu.Lock()
-		delete(s.activating, ownerID)
-		s.mu.Unlock()
 	}()
-	group, err := s.q(ctx).GetFleetNodeHAGroup(ctx, sqlc.GetFleetNodeHAGroupParams{OwnerNodeID: ownerID, OrgID: orgID})
-	if err != nil {
-		return false, err
-	}
-	if group.Enabled {
-		return true, nil
-	}
-	paused = true
-	for !s.registry.BeginHAActivation(ownerID) {
-		timer := time.NewTimer(50 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return false, fmt.Errorf("wait for HA activation drain: %w", ctx.Err())
-		case <-timer.C:
-		}
-	}
-	err = s.runInTx(ctx, func(ctx context.Context) error {
+	err := s.runInTx(ctx, func(ctx context.Context) error {
 		group, err := s.q(ctx).LockFleetNodeHAGroup(ctx, sqlc.LockFleetNodeHAGroupParams{OwnerNodeID: ownerID, OrgID: orgID})
 		if err != nil {
 			return err
 		}
 		if group.Enabled {
-			db.AfterCommit(ctx, func() { s.registry.AbortHAActivation(ownerID) })
 			return nil
 		}
+		s.registry.BeginHAActivation(ownerID)
+		paused = true
 		rows, err := s.q(ctx).EnableFleetNodeHAGroup(ctx, sqlc.EnableFleetNodeHAGroupParams{OwnerNodeID: ownerID, OrgID: orgID})
 		if err != nil {
 			return err

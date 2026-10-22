@@ -336,7 +336,7 @@ func (r *Registry) addCmd(fleetNodeID int64, minimumCommandProtocolVersion gatew
 		return nil, nil, ErrNoActiveStream
 	}
 	if _, activating := r.haActivations[c.route.OwnerNodeID]; activating && !c.provisioning {
-		return nil, nil, fleeterror.NewUnavailableErrorf("fleet node HA activation is draining commands")
+		return nil, nil, fleeterror.NewUnavailableErrorf("fleet node HA activation is pending")
 	}
 	if (c.route.ControlSessionID != "" && c.route.ControlSessionID != conn.haSessionID) || (c.route.InstanceID != "" && c.route.InstanceID != conn.haHello.GetInstanceId()) {
 		return nil, nil, fleeterror.NewUnavailableErrorf("fleet node route changed before enqueue")

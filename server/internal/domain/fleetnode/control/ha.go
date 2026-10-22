@@ -275,8 +275,8 @@ func (r *Registry) invalidateConnectionRoutesLocked(nodeID int64) {
 }
 
 // BeginHAActivation prevents new standalone work before the database enables HA.
-// The source's accepted work must drain or be torn down by its disconnect.
-func (r *Registry) BeginHAActivation(ownerID int64) bool {
+// Already admitted ordinary commands become terminal if the stream disconnects.
+func (r *Registry) BeginHAActivation(ownerID int64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.haActivations[ownerID] = true
@@ -288,7 +288,6 @@ func (r *Registry) BeginHAActivation(ownerID int64) bool {
 			}
 		}
 	}
-	return source == nil || len(source.cmds) == 0
 }
 
 func (r *Registry) AbortHAActivation(ownerID int64) {
@@ -297,7 +296,7 @@ func (r *Registry) AbortHAActivation(ownerID int64) {
 	delete(r.haActivations, ownerID)
 }
 
-// FinishHAActivation forces the drained source to reconnect with HA enabled.
+// FinishHAActivation interrupts the source and forces a reconnect with HA enabled.
 // Dispatch stays gated until the first acknowledged grant is published.
 func (r *Registry) FinishHAActivation(ownerID int64) {
 	r.mu.Lock()

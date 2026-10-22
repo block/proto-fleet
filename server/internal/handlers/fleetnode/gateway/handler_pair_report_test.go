@@ -258,6 +258,7 @@ func TestReportPairedDevices_PendingPromotedPairRevalidatesAuthority(t *testing.
 		{name: "revoke_reporting_member"},
 		{name: "durable_lease_expired"},
 		{name: "durable_session_replaced"},
+		{name: "first_activation"},
 		{name: "revoke_original_owner", accepted: 1},
 		{name: "renew_while_waiting", accepted: 1},
 	} {
@@ -275,11 +276,18 @@ func TestReportPairedDevices_PendingPromotedPairRevalidatesAuthority(t *testing.
 			_, err = h.db.Exec(`INSERT INTO fleet_node_ha_member(node_id,org_id,owner_node_id,ready,status_reason)
 		VALUES($1,1,$1,true,''),($2,1,$1,true,'')`, ownerID, physicalID)
 			require.NoError(t, err)
+			if tc.name == "first_activation" {
+				physicalID = ownerID
+				_, err = h.db.Exec(`UPDATE fleet_node_ha_group SET enabled=false,active_node_id=$1,instance_id='',control_session_id='',lease_epoch=0,acknowledged=false WHERE owner_node_id=$1`, ownerID)
+				require.NoError(t, err)
+			}
 			haService := ha.NewService(h.db, h.registry)
 			stream := h.registry.Register(physicalID)
 			defer stream.Unregister()
 			require.NoError(t, haService.ConnectStream(ctx, physicalID, 1, &pb.ControlHello{HaCapable: true, InstanceId: "promoted-instance", CredentialKeyFingerprint: fingerprint}, "promoted-session", stream))
-			h.registry.SetHARoute(control.RouteBinding{OwnerNodeID: ownerID, PhysicalNodeID: physicalID, Epoch: 2, InstanceID: "promoted-instance", ControlSessionID: "promoted-session", EncryptionPublicKey: make([]byte, 32), ExpiresAt: time.Now().Add(time.Minute)})
+			if tc.name != "first_activation" {
+				h.registry.SetHARoute(control.RouteBinding{OwnerNodeID: ownerID, PhysicalNodeID: physicalID, Epoch: 2, InstanceID: "promoted-instance", ControlSessionID: "promoted-session", EncryptionPublicKey: make([]byte, 32), ExpiresAt: time.Now().Add(time.Minute)})
+			}
 			h.registry.SetHARouteResolver(func(ctx context.Context, ownerID int64) (control.RouteBinding, error) {
 				return haService.Resolve(ctx, ownerID, 1)
 			})
@@ -340,6 +348,10 @@ func TestReportPairedDevices_PendingPromotedPairRevalidatesAuthority(t *testing.
 			changeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
 			switch tc.name {
+			case "first_activation":
+				h.registry.BeginHAActivation(ownerID)
+				_, err = h.db.ExecContext(changeCtx, `UPDATE fleet_node_ha_group SET enabled=true,lease_expires_at=clock_timestamp()+interval '30 seconds' WHERE owner_node_id=$1`, ownerID)
+				h.registry.FinishHAActivation(ownerID)
 			case "revoke_reporting_member":
 				err = enrollmentService.RevokeFleetNode(changeCtx, physicalID, 1)
 			case "revoke_original_owner":

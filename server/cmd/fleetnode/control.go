@@ -23,6 +23,7 @@ import (
 
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -336,7 +337,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	// Serialize all sends on the bidi: the worker's completion ack and the
 	// receive loop's busy ack would otherwise race on stream.Send.
 	sender := &lockedAcker{inner: stream}
-	authority := newHAAuthority(st.FleetNodeID, instanceID, accepted.GetControlSessionId())
+	authority := newHAAuthority(sessionCtx, st.FleetNodeID, instanceID, accepted.GetControlSessionId())
 	authority.accept(accepted)
 	defer authority.close()
 	go func() {
@@ -354,13 +355,12 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 			defer ticker.Stop()
 			for {
 				request := authority.request(time.Now())
-				if request == nil {
-					return
-				}
-				if err := sender.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_HaLease{HaLease: request}}); err != nil {
-					cancelSession()
-					_ = stream.CloseResponse()
-					return
+				if request != nil {
+					if err := sender.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_HaLease{HaLease: request}}); err != nil {
+						cancelSession()
+						_ = stream.CloseResponse()
+						return
+					}
 				}
 				select {
 				case <-sessionCtx.Done():
@@ -435,7 +435,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 				defer r.controlWorkers.Done()
 				started := time.Now()
 				workerAcker := &observedAcker{inner: sender}
-				commandCtx, commandSpan := startFleetNodeCommandSpan(sessionCtx, st.FleetNodeID, c, kind, class)
+				_, commandSpan := startFleetNodeCommandSpan(sessionCtx, st.FleetNodeID, c, kind, class)
 				defer commandSpan.End()
 				defer func() {
 					recordFleetNodeCommandResult(commandSpan, workerAcker.ack, workerAcker.sendErr)
@@ -461,12 +461,12 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 				}()
 				// Check inside the worker immediately before dispatch, even if the
 				// receive loop accepted it while a grant was still live.
-				workerCtx, endWorker, authorized := authority.start(commandCtx, c, time.Now())
+				workerCtx, authorized := authority.start(c, time.Now())
 				if !authorized {
 					r.sendAck(workerAcker, c.GetCommandId(), pb.AckCode_ACK_CODE_HA_NOT_AUTHORIZED, "command not dispatched: no matching live HA authority", logger)
 					return
 				}
-				defer endWorker()
+				workerCtx = trace.ContextWithSpan(workerCtx, commandSpan)
 				workerCtx = context.WithValue(workerCtx, haOwnerNodeIDKey{}, c.GetHaOwnerNodeId())
 				r.handleCommand(workerCtx, client, &haCommandAcker{ctx: workerCtx, inner: workerAcker}, c, e, pErr, logger)
 			}(cmd, env, parseErr, releaseSlot, admissionClass, commandKind)

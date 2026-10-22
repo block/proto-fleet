@@ -75,7 +75,7 @@ WHERE m.node_id=sqlc.arg('node_id') AND m.org_id=sqlc.arg('org_id') AND m.revoke
 UPDATE fleet_node_ha_member SET status_reason=sqlc.arg('status_reason') WHERE node_id=sqlc.arg('node_id') AND org_id=sqlc.arg('org_id') AND revoked_at IS NULL AND NOT ready;
 
 -- name: EnableFleetNodeHAGroup :execrows
--- Reserve the first grant for the drained source while it reconnects. Epoch 0
+-- Reserve the first grant for the original source while it reconnects. Epoch 0
 -- and the empty incarnation/session never authorize commands or reports.
 UPDATE fleet_node_ha_group g SET enabled=true,active_node_id=g.owner_node_id,
  lease_expires_at=clock_timestamp()+interval '30 seconds'

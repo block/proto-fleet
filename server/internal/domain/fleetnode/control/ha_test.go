@@ -154,34 +154,48 @@ func TestHAAuthorityChangeStopsOldCommandsAndRejectsStaleSnapshots(t *testing.T)
 	require.False(t, ok, "explicit invalidation cannot be undone by the same snapshot")
 }
 
-func TestHAActivationDrainsAcceptedStandaloneWorkBeforeReconnect(t *testing.T) {
+func TestHAActivationFencesAndInterruptsAcceptedStandaloneWork(t *testing.T) {
 	r := NewRegistry()
 	stream := r.Register(10)
 	defer stream.Unregister()
+	require.True(t, stream.SetHAConnection(1, &pb.ControlHello{HaCapable: true, InstanceId: "source"}, "source-session"))
 	session, err := r.Send(t.Context(), 10, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "accepted"}, nil, ReportKindPair, &PairMeta{OrgID: 1, Targets: map[string]struct{}{"miner": {}}})
 	require.NoError(t, err)
 	<-stream.Outgoing
-	require.False(t, r.BeginHAActivation(10))
+	r.BeginHAActivation(10)
 	_, err = r.Send(t.Context(), 10, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "new"}, nil, ReportKindDiscovery, nil)
 	require.Error(t, err)
 	kept, meta, err := r.AdmitAndScopePairResults(10, "accepted", []*pb.FleetNodePairResult{{DeviceIdentifier: "miner"}})
 	require.NoError(t, err)
 	require.Len(t, kept, 1)
 	require.Equal(t, int64(10), meta.OwnerNodeID)
-	require.False(t, r.BeginHAActivation(10))
-	session.Close()
-	require.True(t, r.BeginHAActivation(10))
+	require.True(t, session.cmd.terminalOnInterruption, "admitted epoch-zero work must become terminal before a reconnect can interrupt it")
+	provisioned := make(chan error, 1)
+	go func() {
+		_, err := r.SendProvisioningCommand(t.Context(), 10, &pb.AgentCommand{Command: &pb.AgentCommand_HaKeyTransfer{HaKeyTransfer: &pb.HAKeyTransfer{OperationId: "other-standby"}}})
+		provisioned <- err
+	}()
+	provisioning := <-stream.Outgoing
+	stream.PublishAck(&pb.ControlAck{CommandId: provisioning.GetCommandId(), Code: pb.AckCode_ACK_CODE_OK, Succeeded: true})
+	require.NoError(t, <-provisioned, "the activation fence must still admit credential provisioning")
 	raced := r.Register(10)
 	defer raced.Unregister()
 	r.FinishHAActivation(10)
 	<-stream.Done
 	<-raced.Done
+	<-session.Done()
+	require.True(t, IsCommandInterrupted(r.interrupted(session.cmd, ErrNoActiveStream)))
 	replacement := r.Register(10)
 	defer replacement.Unregister()
 	_, err = r.Send(t.Context(), 10, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "unacknowledged"}, nil, ReportKindDiscovery, nil)
 	require.Error(t, err, "activation remains gated until an acknowledged grant is published")
-	r.AbortHAActivation(10)
-	accepted, err := r.Send(t.Context(), 10, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "aborted"}, nil, ReportKindDiscovery, nil)
+	require.True(t, replacement.SetHAConnection(1, &pb.ControlHello{HaCapable: true, InstanceId: "ha-process"}, "ha-session"))
+	route := RouteBinding{OwnerNodeID: 10, PhysicalNodeID: 10, Epoch: 1, InstanceID: "ha-process", ControlSessionID: "ha-session", ExpiresAt: time.Now().Add(time.Minute)}
+	r.SetHARoute(route)
+	r.SetHARouteResolver(func(context.Context, int64) (RouteBinding, error) { return route, nil })
+	// A delayed activation callback must not disconnect the acknowledged route.
+	r.FinishHAActivation(10)
+	accepted, err := r.Send(t.Context(), 10, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "acknowledged"}, nil, ReportKindDiscovery, nil)
 	require.NoError(t, err)
 	accepted.Close()
 }

@@ -94,7 +94,7 @@ func TestHAKeyTransferPersistsForStartupWithoutReplacingLiveCodec(t *testing.T) 
 }
 func testHAAuthority(t *testing.T, now time.Time, nodeID, ownerID int64, preparing bool) *haAuthority {
 	t.Helper()
-	authority := newHAAuthority(nodeID, "i", "s")
+	authority := newHAAuthority(t.Context(), nodeID, "i", "s")
 	t.Cleanup(authority.close)
 	request := authority.request(now)
 	require.True(t, authority.apply(&pb.HALeaseResponse{RequestId: request.GetRequestId(), OwnerNodeId: ownerID, Preparing: preparing, InstanceId: "i", ControlSessionId: "s", OrgId: 1, LeaseDurationMs: 30000}, now))

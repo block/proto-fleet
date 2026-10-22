@@ -162,12 +162,10 @@ and then initialize the device runtime. Preparation retries from the beginning;
 Fleet stores readiness and errors, rather than a durable transfer job. If setup
 is interrupted, a ready source may need to reconnect before preparation resumes.
 
-After the first standby is ready, Fleet pauses new commands to the original
-node and lets accepted server-tracked commands complete or reach their normal
-terminal timeout. It then reconnects that node into the HA lease protocol. A source disconnect
-tears down its server-tracked work and allows activation to continue. This
-one-time activation can briefly interrupt command availability; an in-progress long command delays activation. A backend operation
-that outlives its terminal timeout can still overlap later work, as during
+After the first standby is ready, Fleet briefly gates new commands and reconnects
+the original node into the HA lease protocol. Running commands can fail with an
+unknown physical outcome and are not replayed. Activation does not wait for them
+to finish; an already-started backend operation can overlap later work, as during
 failover. Standalone nodes do not request HA leases. Device-runtime startup waits
 for Fleet Server to accept the node configuration; systemd readiness follows
 configuration acceptance and plugin initialization.
@@ -184,7 +182,8 @@ setup failure and retains shared data until the remaining members are revoked.
 An already-installed key can still be confirmed by a new control connection.
 
 Fleet Server grants one active member a 30-second lease over ControlStream.
-Nodes request renewal every five seconds and stop admitting commands five seconds
+Nodes request renewal every five seconds, with at most one request awaiting a
+response, and stop admitting commands five seconds
 before their conservative local expiry. Heartbeats alone do not renew leadership.
 Renewal requires acknowledging the current grant. Missing responses expire local
 authority and reconnect the control stream; a stalled session cannot renew forever.

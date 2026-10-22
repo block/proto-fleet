@@ -563,6 +563,9 @@ type Querier interface {
 	EndpointDiscoveryHasPairing(ctx context.Context, arg EndpointDiscoveryHasPairingParams) (bool, error)
 	// A keyless fallback must not create another row for a known group's peer.
 	EndpointDiscoveryHasSavedGroupAtSocket(ctx context.Context, arg EndpointDiscoveryHasSavedGroupAtSocketParams) (bool, error)
+	// Reserve the first grant for the original source while it reconnects. Epoch 0
+	// and the empty incarnation/session never authorize commands or reports.
+	EnableFleetNodeHAGroup(ctx context.Context, arg EnableFleetNodeHAGroupParams) (int64, error)
 	// Idempotent backfill (INSERT ... DO NOTHING + fallback SELECT). Both
 	// branches require organization.deleted_at IS NULL.
 	EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (EnsureCurtailmentOrgConfigRow, error)

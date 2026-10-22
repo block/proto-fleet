@@ -76,10 +76,12 @@ func TestQueuedHAInterruptionDoesNotReplayOrBlockNewHostWrite(t *testing.T) {
 				t.Fatal("write was not dispatched")
 			}
 			if interruption == "first_activation" {
-				require.False(t, registry.BeginHAActivation(7))
+				registry.BeginHAActivation(7)
 			}
 			if interruption == "node_ack" {
 				stream.PublishAck(&gatewaypb.ControlAck{CommandId: dispatched.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_COMMAND_INTERRUPTED, ErrorMessage: "execution authority expired"})
+			} else if interruption == "first_activation" {
+				registry.FinishHAActivation(7)
 			} else {
 				stream.Unregister()
 			}

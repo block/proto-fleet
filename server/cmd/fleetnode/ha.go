@@ -19,29 +19,31 @@ const haSafetyMargin = 5 * time.Second
 var errHAAuthorityLost = errors.New("HA control authority lost after command dispatch")
 
 type haPendingRequest struct {
-	sent     time.Time
-	sequence uint64
+	id   string
+	sent time.Time
 }
 
 // haAuthority is deliberately process/session local: a disk snapshot never
 // carries authority into a new incarnation or control connection.
 type haAuthority struct {
-	mu                                sync.Mutex
-	nodeID                            int64
-	instanceID, sessionID             string
-	sequence, applied, workerSequence uint64
-	pending                           map[string]haPendingRequest
-	current                           *pb.HALeaseResponse
-	assignment                        *pb.ControlAccepted
-	deadline                          time.Time
-	timer                             *time.Timer
-	workers                           map[uint64]context.CancelCauseFunc
-	closed                            bool
-	expired                           chan struct{}
+	mu                    sync.Mutex
+	nodeID                int64
+	instanceID, sessionID string
+	sequence              uint64
+	pending               *haPendingRequest
+	current               *pb.HALeaseResponse
+	assignment            *pb.ControlAccepted
+	deadline              time.Time
+	timer                 *time.Timer
+	parent, work          context.Context //nolint:containedctx // Session parent and shared authority-epoch lifetime.
+	cancel                context.CancelCauseFunc
+	closed                bool
+	expired               chan struct{}
 }
 
-func newHAAuthority(nodeID int64, instanceID, sessionID string) *haAuthority {
-	return &haAuthority{nodeID: nodeID, instanceID: instanceID, sessionID: sessionID, pending: make(map[string]haPendingRequest), workers: make(map[uint64]context.CancelCauseFunc), expired: make(chan struct{})}
+func newHAAuthority(parent context.Context, nodeID int64, instanceID, sessionID string) *haAuthority {
+	work, cancel := context.WithCancelCause(parent)
+	return &haAuthority{nodeID: nodeID, instanceID: instanceID, sessionID: sessionID, parent: parent, work: work, cancel: cancel, expired: make(chan struct{})}
 }
 
 // Accepted supplies assignment scope without conferring a timed HA grant.
@@ -68,18 +70,12 @@ func (a *haAuthority) request(now time.Time) *pb.HALeaseRequest {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.expireLocked(now)
-	if a.closed {
+	if a.closed || a.pending != nil {
 		return nil
 	}
 	a.sequence++
 	id := fmt.Sprintf("%s-%d", a.instanceID, a.sequence)
-	// Keep correlation bounded if a server stops responding indefinitely.
-	for key, request := range a.pending {
-		if now.Sub(request.sent) >= haMaxLease {
-			delete(a.pending, key)
-		}
-	}
-	a.pending[id] = haPendingRequest{sent: now, sequence: a.sequence}
+	a.pending = &haPendingRequest{id: id, sent: now}
 	return &pb.HALeaseRequest{RequestId: id, AcknowledgedEpoch: a.acknowledgedEpochLocked()}
 }
 func (a *haAuthority) acknowledgedEpoch() int64 {
@@ -97,11 +93,11 @@ func (a *haAuthority) apply(response *pb.HALeaseResponse, now time.Time) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.expireLocked(now)
-	pending, ok := a.pending[response.GetRequestId()]
-	if !ok || a.closed || pending.sequence <= a.applied || response.GetInstanceId() != a.instanceID || response.GetControlSessionId() != a.sessionID || response.GetOrgId() <= 0 {
+	pending := a.pending
+	if pending == nil || response.GetRequestId() != pending.id || a.closed || response.GetInstanceId() != a.instanceID || response.GetControlSessionId() != a.sessionID || response.GetOrgId() <= 0 {
 		return false
 	}
-	delete(a.pending, response.GetRequestId())
+	a.pending = nil
 	if a.assignment != nil && (a.assignment.GetHaOwnerNodeId() == 0 || a.assignment.GetPreparing() || response.GetOwnerNodeId() != a.assignment.GetHaOwnerNodeId() || response.GetOrgId() != a.assignment.GetOrgId() || response.GetPreparing()) {
 		return false
 	}
@@ -126,10 +122,10 @@ func (a *haAuthority) apply(response *pb.HALeaseResponse, now time.Time) bool {
 		return false
 	}
 	if a.current != nil && (a.current.GetOwnerNodeId() != response.GetOwnerNodeId() || a.current.GetLeaseEpoch() != response.GetLeaseEpoch() || a.current.GetGranted() != response.GetGranted() || a.current.GetPreparing() != response.GetPreparing()) {
-		a.cancelWorkersLocked()
+		a.cancel(errHAAuthorityLost)
+		a.work, a.cancel = context.WithCancelCause(a.parent)
 	}
 	a.current = response
-	a.applied = pending.sequence
 	a.setDeadlineLocked(deadline, now)
 	return true
 }
@@ -151,13 +147,8 @@ func (a *haAuthority) expireLocked(now time.Time) {
 	if !a.closed && !a.deadline.IsZero() && !now.Before(a.deadline) {
 		a.closed = true
 		a.current = nil
-		a.cancelWorkersLocked()
+		a.cancel(errHAAuthorityLost)
 		close(a.expired)
-	}
-}
-func (a *haAuthority) cancelWorkersLocked() {
-	for _, cancel := range a.workers {
-		cancel(errHAAuthorityLost)
 	}
 }
 func (a *haAuthority) close() {
@@ -168,7 +159,7 @@ func (a *haAuthority) close() {
 	if a.timer != nil {
 		a.timer.Stop()
 	}
-	a.cancelWorkersLocked()
+	a.cancel(errHAAuthorityLost)
 }
 func (a *haAuthority) allowed(command *pb.ControlCommand, now time.Time) bool {
 	a.mu.Lock()
@@ -189,17 +180,13 @@ func (a *haAuthority) allowedLocked(command *pb.ControlCommand, now time.Time) b
 	}
 	return a.current.GetGranted() && command.GetHaOwnerNodeId() == a.current.GetOwnerNodeId() && command.GetHaLeaseEpoch() == a.current.GetLeaseEpoch() && command.GetIntendedInstanceId() == a.instanceID && command.GetControlSessionId() == a.sessionID
 }
-func (a *haAuthority) start(parent context.Context, command *pb.ControlCommand, now time.Time) (context.Context, func(), bool) {
+func (a *haAuthority) start(command *pb.ControlCommand, now time.Time) (context.Context, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if !a.allowedLocked(command, now) {
-		return nil, func() {}, false
+		return nil, false
 	}
-	ctx, cancel := context.WithCancelCause(parent)
-	a.workerSequence++
-	id := a.workerSequence
-	a.workers[id] = cancel
-	return ctx, func() { cancel(context.Canceled); a.mu.Lock(); delete(a.workers, id); a.mu.Unlock() }, true
+	return a.work, true
 }
 func (a *haAuthority) transferScope(now time.Time) (*pb.HALeaseResponse, bool) {
 	a.mu.Lock()

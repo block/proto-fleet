@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -18,16 +17,15 @@ import (
 
 func TestHALeaseUsesRequestSendTimeAndFencesWorkerStart(t *testing.T) {
 	now := time.Now()
-	authority := newHAAuthority(7, "incarnation", "session")
+	authority := newHAAuthority(t.Context(), 7, "incarnation", "session")
 	req := authority.request(now)
 	response := &pb.HALeaseResponse{RequestId: req.GetRequestId(), OwnerNodeId: 7, ActiveNodeId: 7, LeaseEpoch: 3, LeaseDurationMs: 30000, Granted: true, InstanceId: "incarnation", ControlSessionId: "session", OrgId: 1}
 	require.True(t, authority.apply(response, now.Add(time.Second)))
 	cmd := &pb.ControlCommand{HaOwnerNodeId: 7, HaLeaseEpoch: 3, IntendedInstanceId: "incarnation", ControlSessionId: "session"}
-	ctx, done, ok := authority.start(context.Background(), cmd, now.Add(2*time.Second))
+	ctx, ok := authority.start(cmd, now.Add(2*time.Second))
 	require.True(t, ok)
-	defer done()
 	// Receiving late must not grant 25 seconds from receipt.
-	_, _, ok = authority.start(context.Background(), cmd, now.Add(26*time.Second))
+	_, ok = authority.start(cmd, now.Add(26*time.Second))
 	require.False(t, ok)
 	require.Error(t, ctx.Err())
 	authority.close()
@@ -37,7 +35,7 @@ func TestHALeaseRejectsUncorrelatedAndWrongSessionGrants(t *testing.T) {
 	now := time.Now()
 	for _, wrong := range []string{"request", "instance", "session", "expired", "owner", "org"} {
 		t.Run(wrong, func(t *testing.T) {
-			a := newHAAuthority(7, "i", "s")
+			a := newHAAuthority(t.Context(), 7, "i", "s")
 			a.accept(&pb.ControlAccepted{HaOwnerNodeId: 7, OrgId: 1})
 			defer a.close()
 			request := a.request(now)
@@ -58,7 +56,7 @@ func TestHALeaseRejectsUncorrelatedAndWrongSessionGrants(t *testing.T) {
 				at = now.Add(26 * time.Second)
 			}
 			require.False(t, a.apply(resp, at))
-			_, _, ok := a.start(context.Background(), &pb.ControlCommand{HaOwnerNodeId: 7, HaLeaseEpoch: 1, IntendedInstanceId: "i", ControlSessionId: "s"}, at)
+			_, ok := a.start(&pb.ControlCommand{HaOwnerNodeId: 7, HaLeaseEpoch: 1, IntendedInstanceId: "i", ControlSessionId: "s"}, at)
 			require.False(t, ok)
 		})
 	}
@@ -66,7 +64,7 @@ func TestHALeaseRejectsUncorrelatedAndWrongSessionGrants(t *testing.T) {
 
 func TestHAPreparingAndStandbyCancelExistingWork(t *testing.T) {
 	now := time.Now()
-	a := newHAAuthority(7, "i", "s")
+	a := newHAAuthority(t.Context(), 7, "i", "s")
 	defer a.close()
 	grant := func(preparing, granted bool, epoch int64) {
 		request := a.request(now)
@@ -74,19 +72,23 @@ func TestHAPreparingAndStandbyCancelExistingWork(t *testing.T) {
 	}
 	grant(false, true, 1)
 	cmd := &pb.ControlCommand{HaOwnerNodeId: 7, HaLeaseEpoch: 1, IntendedInstanceId: "i", ControlSessionId: "s"}
-	ctx, done, ok := a.start(context.Background(), cmd, now)
+	ctx, ok := a.start(cmd, now)
 	require.True(t, ok)
-	defer done()
+	other, ok := a.start(cmd, now)
+	require.True(t, ok)
+	grant(false, true, 1)
+	require.NoError(t, ctx.Err(), "renewal preserves running work")
 	grant(true, false, 2)
 	require.Error(t, ctx.Err())
-	_, _, ok = a.start(context.Background(), cmd, now)
+	require.Error(t, other.Err())
+	_, ok = a.start(cmd, now)
 	require.False(t, ok)
 	require.Zero(t, a.acknowledgedEpoch())
 }
 
 func TestHAStandaloneHasUntimedAuthorityAndTransferScope(t *testing.T) {
 	now := time.Now()
-	a := newHAAuthority(7, "i", "s")
+	a := newHAAuthority(t.Context(), 7, "i", "s")
 	defer a.close()
 	a.accept(&pb.ControlAccepted{OrgId: 1})
 	require.True(t, a.allowed(&pb.ControlCommand{}, now.Add(time.Hour)))
@@ -98,20 +100,21 @@ func TestHAStandaloneHasUntimedAuthorityAndTransferScope(t *testing.T) {
 	require.Zero(t, a.acknowledgedEpoch())
 }
 
-func TestHAOutOfOrderResponsesAndIncarnations(t *testing.T) {
+func TestHASingleOutstandingRequestAndIncarnations(t *testing.T) {
 	now := time.Now()
-	authority := newHAAuthority(7, "i", "s")
+	authority := newHAAuthority(t.Context(), 7, "i", "s")
 	defer authority.close()
-	first, second := authority.request(now), authority.request(now)
+	first := authority.request(now)
+	require.Nil(t, authority.request(now.Add(time.Second)), "only one lease exchange may be outstanding")
 	reply := func(id string, epoch int64) *pb.HALeaseResponse {
 		return &pb.HALeaseResponse{RequestId: id, OwnerNodeId: 7, ActiveNodeId: 7, LeaseEpoch: epoch, Granted: true, InstanceId: "i", ControlSessionId: "s", OrgId: 1, LeaseDurationMs: 30000}
 	}
-	require.True(t, authority.apply(reply(second.GetRequestId(), 4), now))
+	require.True(t, authority.apply(reply(first.GetRequestId(), 4), now))
 	require.False(t, authority.apply(reply(first.GetRequestId(), 3), now))
-	require.EqualValues(t, 4, authority.request(now).GetAcknowledgedEpoch())
 	lower := authority.request(now)
+	require.EqualValues(t, 4, lower.GetAcknowledgedEpoch())
 	require.False(t, authority.apply(reply(lower.GetRequestId(), 3), now), "newer replies cannot roll back a lease epoch")
-	replacement := newHAAuthority(7, "i-new", "s-new")
+	replacement := newHAAuthority(t.Context(), 7, "i-new", "s-new")
 	defer replacement.close()
 	require.False(t, replacement.allowed(&pb.ControlCommand{HaOwnerNodeId: 7, HaLeaseEpoch: 4, IntendedInstanceId: "i", ControlSessionId: "s"}, now))
 	process := &RunCmd{}
@@ -140,18 +143,26 @@ func TestHADiscoveryIdentifiersRetainLogicalOwnerAfterPromotion(t *testing.T) {
 
 func TestHACompletionPreservesAcceptedResultAndOrdinaryTimeout(t *testing.T) {
 	now := time.Now()
-	authority := newHAAuthority(7, "i", "s")
+	authority := newHAAuthority(t.Context(), 7, "i", "s")
 	defer authority.close()
 	request := authority.request(now)
 	require.True(t, authority.apply(&pb.HALeaseResponse{RequestId: request.GetRequestId(), OwnerNodeId: 7, ActiveNodeId: 7, Granted: true, LeaseEpoch: 1, InstanceId: "i", ControlSessionId: "s", OrgId: 1, LeaseDurationMs: 30000}, now))
 	command := &pb.ControlCommand{HaOwnerNodeId: 7, HaLeaseEpoch: 1, IntendedInstanceId: "i", ControlSessionId: "s"}
-	ctx, end, ok := authority.start(t.Context(), command, now)
+	ctx, ok := authority.start(command, now)
 	require.True(t, ok)
-	defer end()
 	captured := &capturingAcker{}
 	completed := &haCommandAcker{ctx: ctx, inner: captured}
 	original := &pb.ControlAck{CommandId: "completed", Succeeded: true, Code: pb.AckCode_ACK_CODE_OK, Payload: []byte("known result")}
 	require.NoError(t, completed.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: original}}))
+	timeoutCtx, cancel := context.WithDeadline(ctx, time.Now().Add(-time.Second))
+	defer cancel()
+	timeoutCapture := &capturingAcker{}
+	timeoutAcker := &haCommandAcker{ctx: timeoutCtx, inner: timeoutCapture}
+	timeoutAck := &pb.ControlAck{CommandId: "timeout", Code: pb.AckCode_ACK_CODE_INTERNAL, ErrorMessage: context.DeadlineExceeded.Error()}
+	require.NoError(t, timeoutAcker.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: timeoutAck}}))
+	require.Same(t, timeoutAck, timeoutCapture.sent[0].GetAck(), "ordinary command timeouts must keep their existing classification")
+	require.NoError(t, ctx.Err(), "one command timeout must not cancel shared authority")
+
 	require.False(t, authority.allowed(command, now.Add(26*time.Second)))
 	require.ErrorIs(t, context.Cause(ctx), errHAAuthorityLost)
 	require.Len(t, captured.sent, 1)
@@ -175,41 +186,10 @@ func TestHACompletionPreservesAcceptedResultAndOrdinaryTimeout(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, control.IsCommandInterrupted(remote.StopMining(t.Context())))
 
-	timeoutCtx, cancel := context.WithDeadline(t.Context(), time.Now().Add(-time.Second))
-	defer cancel()
-	timeoutCapture := &capturingAcker{}
-	timeoutAcker := &haCommandAcker{ctx: timeoutCtx, inner: timeoutCapture}
-	timeoutAck := &pb.ControlAck{CommandId: "timeout", Code: pb.AckCode_ACK_CODE_INTERNAL, ErrorMessage: context.DeadlineExceeded.Error()}
-	require.NoError(t, timeoutAcker.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ack{Ack: timeoutAck}}))
-	require.Same(t, timeoutAck, timeoutCapture.sent[0].GetAck(), "ordinary command timeouts must keep their existing classification")
 }
 
 type haReceivedAckSender struct{ ack *pb.ControlAck }
 
 func (s haReceivedAckSender) SendCommand(context.Context, int64, pb.CommandProtocolVersion, *pb.ControlCommand) (*pb.ControlAck, error) {
 	return s.ack, nil
-}
-
-func TestHASelfHeldDenialDoesNotRefreshOrDiscardAuthority(t *testing.T) {
-	for _, granted := range []bool{false, true} {
-		t.Run(fmt.Sprintf("received-grant-%t", granted), func(t *testing.T) {
-			now := time.Now()
-			a := newHAAuthority(7, "i", "s")
-			defer a.close()
-			a.accept(&pb.ControlAccepted{HaOwnerNodeId: 7, OrgId: 1})
-			first := a.request(now)
-			// A second request leaves before the delayed initial grant arrives.
-			second := a.request(now.Add(5 * time.Second))
-			response := &pb.HALeaseResponse{RequestId: first.GetRequestId(), OwnerNodeId: 7, ActiveNodeId: 7, LeaseEpoch: 1, LeaseDurationMs: 30000, Granted: true, InstanceId: "i", ControlSessionId: "s", OrgId: 1}
-			if granted {
-				require.True(t, a.apply(response, now.Add(6*time.Second)))
-			}
-			deadline := a.deadline
-			denial := &pb.HALeaseResponse{RequestId: second.GetRequestId(), OwnerNodeId: 7, ActiveNodeId: 7, LeaseEpoch: 1, LeaseDurationMs: 30000, InstanceId: "i", ControlSessionId: "s", OrgId: 1}
-			a.apply(denial, now.Add(7*time.Second))
-			require.Equal(t, deadline, a.deadline, "denial of self-held authority cannot restart its timeout")
-			require.Equal(t, granted, a.current.GetGranted(), "a stale zero-ack denial cannot discard an adopted grant")
-			require.Nil(t, a.request(deadline), "self-held denial must still force a fresh control session at original expiry")
-		})
-	}
 }
