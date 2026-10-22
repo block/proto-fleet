@@ -34,27 +34,46 @@ func (q *Queries) ConsumeHostedInvitationDeploymentRateLimit(ctx context.Context
 }
 
 const consumeHostedInvitationRateLimit = `-- name: ConsumeHostedInvitationRateLimit :execrows
+WITH minute AS (
+    INSERT INTO hosted_invitation_rate_limit (client_hash, window_started_at, attempts)
+    VALUES ($1, statement_timestamp(), 1)
+    ON CONFLICT (client_hash) DO UPDATE
+    SET window_started_at = CASE
+            WHEN hosted_invitation_rate_limit.window_started_at <= statement_timestamp() - interval '1 minute'
+            THEN statement_timestamp() ELSE hosted_invitation_rate_limit.window_started_at END,
+        attempts = CASE
+            WHEN hosted_invitation_rate_limit.window_started_at <= statement_timestamp() - interval '1 minute'
+            THEN 1 ELSE hosted_invitation_rate_limit.attempts + 1 END
+    WHERE hosted_invitation_rate_limit.window_started_at <= statement_timestamp() - interval '1 minute'
+        OR hosted_invitation_rate_limit.attempts < $3::integer
+    RETURNING 1
+)
 INSERT INTO hosted_invitation_rate_limit (client_hash, window_started_at, attempts)
-VALUES ($1, statement_timestamp(), 1)
+SELECT 'hourly:' || $1::text, statement_timestamp(), 1
+FROM minute
 ON CONFLICT (client_hash) DO UPDATE
 SET window_started_at = CASE
-        WHEN hosted_invitation_rate_limit.window_started_at <= statement_timestamp() - interval '1 minute'
+        WHEN hosted_invitation_rate_limit.window_started_at <= statement_timestamp() - interval '1 hour'
         THEN statement_timestamp() ELSE hosted_invitation_rate_limit.window_started_at END,
     attempts = CASE
-        WHEN hosted_invitation_rate_limit.window_started_at <= statement_timestamp() - interval '1 minute'
+        WHEN hosted_invitation_rate_limit.window_started_at <= statement_timestamp() - interval '1 hour'
         THEN 1 ELSE hosted_invitation_rate_limit.attempts + 1 END
-WHERE hosted_invitation_rate_limit.window_started_at <= statement_timestamp() - interval '1 minute'
+WHERE hosted_invitation_rate_limit.window_started_at <= statement_timestamp() - interval '1 hour'
     OR hosted_invitation_rate_limit.attempts < $2::integer
 `
 
 type ConsumeHostedInvitationRateLimitParams struct {
-	ClientHash   string
-	AttemptLimit int32
+	ClientHash  string
+	HourlyLimit int32
+	MinuteLimit int32
 }
 
-// Each client has an independent one-minute window, shared across replicas.
+// Each client has independent one-minute and one-hour windows, shared across
+// replicas, so no single client can spend the whole deployment allowance. A
+// request the minute window rejects never reaches the hourly row. The hourly
+// key's prefix keeps it apart from minute keys, which are SHA-256 hex.
 func (q *Queries) ConsumeHostedInvitationRateLimit(ctx context.Context, arg ConsumeHostedInvitationRateLimitParams) (int64, error) {
-	result, err := q.exec(ctx, q.consumeHostedInvitationRateLimitStmt, consumeHostedInvitationRateLimit, arg.ClientHash, arg.AttemptLimit)
+	result, err := q.exec(ctx, q.consumeHostedInvitationRateLimitStmt, consumeHostedInvitationRateLimit, arg.ClientHash, arg.HourlyLimit, arg.MinuteLimit)
 	if err != nil {
 		return 0, err
 	}

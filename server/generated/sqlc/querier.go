@@ -324,7 +324,10 @@ type Querier interface {
 	// One hourly window shared by every client and replica bounds total code
 	// guesses. The key cannot collide with client keys, which are SHA-256 hex.
 	ConsumeHostedInvitationDeploymentRateLimit(ctx context.Context, attemptLimit int32) (int64, error)
-	// Each client has an independent one-minute window, shared across replicas.
+	// Each client has independent one-minute and one-hour windows, shared across
+	// replicas, so no single client can spend the whole deployment allowance. A
+	// request the minute window rejects never reaches the hourly row. The hourly
+	// key's prefix keeps it apart from minute keys, which are SHA-256 hex.
 	ConsumeHostedInvitationRateLimit(ctx context.Context, arg ConsumeHostedInvitationRateLimitParams) (int64, error)
 	ConsumeOrganizationInvitation(ctx context.Context, arg ConsumeOrganizationInvitationParams) (int64, error)
 	ConsumeReservedInventoryPart(ctx context.Context, arg ConsumeReservedInventoryPartParams) (int64, error)

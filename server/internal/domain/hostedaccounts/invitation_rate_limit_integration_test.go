@@ -9,6 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// minuteRows selects per-client minute counters, excluding the hourly and
+// deployment counters stored in the same table.
+const minuteRows = `client_hash <> 'deployment' AND client_hash NOT LIKE 'hourly:%'`
+
 func TestInvitationRateLimitIsolatesClientsAndSurvivesServiceReplacement(t *testing.T) {
 	svc, conn, token := registrationFixture(t)
 	// Many outstanding invitations must not reduce anyone's request allowance.
@@ -58,7 +62,7 @@ func TestInvitationRateLimitSerializesConcurrentReplicas(t *testing.T) {
 	}
 	require.Equal(t, 5, admitted, "replicas cannot multiply one client's allowance")
 	var attempts int
-	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT attempts FROM hosted_invitation_rate_limit WHERE client_hash <> 'deployment'`).Scan(&attempts))
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT attempts FROM hosted_invitation_rate_limit WHERE `+minuteRows).Scan(&attempts))
 	require.Equal(t, 60, attempts)
 }
 
@@ -69,13 +73,13 @@ func TestInvitationRateLimitResetsWindowAndPrunesIdleClients(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, svc.CheckClientRateLimit(t.Context(), "192.0.2.1"))
 	var attempts int
-	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT attempts FROM hosted_invitation_rate_limit WHERE client_hash <> 'deployment'`).Scan(&attempts))
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT attempts FROM hosted_invitation_rate_limit WHERE `+minuteRows).Scan(&attempts))
 	require.Equal(t, 1, attempts)
 	_, err = conn.ExecContext(t.Context(), `INSERT INTO hosted_invitation_rate_limit (client_hash,window_started_at,attempts) VALUES ('idle',statement_timestamp()-interval '1 hour',60)`)
 	require.NoError(t, err)
 	require.NoError(t, svc.CheckClientRateLimit(t.Context(), "192.0.2.2"))
 	var count int
-	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_invitation_rate_limit WHERE client_hash <> 'deployment'`).Scan(&count))
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_invitation_rate_limit WHERE `+minuteRows).Scan(&count))
 	require.Equal(t, 2, count, "only the two recent clients remain")
 }
 
@@ -101,7 +105,7 @@ func TestInvitationRateLimitBoundsLockWaitWithoutBlockingOtherClients(t *testing
 	tx, err := conn.BeginTx(t.Context(), nil)
 	require.NoError(t, err)
 	defer func() { _ = tx.Rollback() }()
-	_, err = tx.ExecContext(t.Context(), `SELECT client_hash FROM hosted_invitation_rate_limit WHERE client_hash <> 'deployment' FOR UPDATE`)
+	_, err = tx.ExecContext(t.Context(), `SELECT client_hash FROM hosted_invitation_rate_limit WHERE `+minuteRows+` FOR UPDATE`)
 	require.NoError(t, err)
 	started := time.Now()
 	err = svc.CheckClientRateLimit(t.Context(), "192.0.2.1")
@@ -110,7 +114,7 @@ func TestInvitationRateLimitBoundsLockWaitWithoutBlockingOtherClients(t *testing
 	require.NoError(t, svc.CheckClientRateLimit(t.Context(), "192.0.2.2"), "another client never waits for the locked client")
 	require.NoError(t, tx.Rollback())
 	var attempts int
-	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT sum(attempts) FROM hosted_invitation_rate_limit WHERE client_hash <> 'deployment'`).Scan(&attempts))
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT sum(attempts) FROM hosted_invitation_rate_limit WHERE `+minuteRows).Scan(&attempts))
 	require.Equal(t, 2, attempts, "a timed-out update records no request")
 }
 
@@ -144,11 +148,11 @@ func TestInvitationRateLimitSkipsLockedIdleClientsDuringCleanup(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, svc.CheckClientRateLimit(t.Context(), "192.0.2.1"), "a locked idle counter must not block another client's admission or cleanup")
 	var count int
-	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_invitation_rate_limit WHERE client_hash <> 'deployment'`).Scan(&count))
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_invitation_rate_limit WHERE `+minuteRows).Scan(&count))
 	require.Equal(t, 2, count, "the locked idle row is skipped")
 	require.NoError(t, tx.Rollback())
 	require.NoError(t, svc.CheckClientRateLimit(t.Context(), "192.0.2.1"))
-	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_invitation_rate_limit WHERE client_hash <> 'deployment'`).Scan(&count))
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT count(*) FROM hosted_invitation_rate_limit WHERE `+minuteRows).Scan(&count))
 	require.Equal(t, 1, count, "cleanup reclaims the idle row once it is unlocked")
 }
 
@@ -177,7 +181,7 @@ ON CONFLICT (client_hash) DO UPDATE SET window_started_at=EXCLUDED.window_starte
 func TestInvitationThrottledClientsDoNotSpendTheDeploymentAllowance(t *testing.T) {
 	svc, conn, _ := registrationFixture(t)
 	require.NoError(t, svc.CheckClientRateLimit(t.Context(), "192.0.2.1"))
-	_, err := conn.ExecContext(t.Context(), `UPDATE hosted_invitation_rate_limit SET attempts=$1 WHERE client_hash <> 'deployment'`, invitationClientAttemptLimit)
+	_, err := conn.ExecContext(t.Context(), `UPDATE hosted_invitation_rate_limit SET attempts=$1 WHERE `+minuteRows, invitationClientAttemptLimit)
 	require.NoError(t, err)
 	for range 5 {
 		require.True(t, fleeterror.IsResourceExhaustedError(svc.CheckClientRateLimit(t.Context(), "192.0.2.1")))
@@ -185,4 +189,24 @@ func TestInvitationThrottledClientsDoNotSpendTheDeploymentAllowance(t *testing.T
 	var attempts int
 	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT attempts FROM hosted_invitation_rate_limit WHERE client_hash='deployment'`).Scan(&attempts))
 	require.Equal(t, 1, attempts)
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT attempts FROM hosted_invitation_rate_limit WHERE client_hash LIKE 'hourly:%'`).Scan(&attempts))
+	require.Equal(t, 1, attempts, "requests the minute window rejects do not spend the hourly allowance")
+}
+
+func TestInvitationHourlyClientLimitKeepsOneClientFromDrainingTheDeployment(t *testing.T) {
+	require.GreaterOrEqual(t, invitationDeploymentAttemptLimit/invitationClientHourlyAttemptLimit, 10,
+		"draining the deployment allowance must take at least ten clients")
+	svc, conn, _ := registrationFixture(t)
+	require.NoError(t, svc.CheckClientRateLimit(t.Context(), "192.0.2.1"))
+	_, err := conn.ExecContext(t.Context(), `UPDATE hosted_invitation_rate_limit SET attempts=$1 WHERE client_hash LIKE 'hourly:%'`, invitationClientHourlyAttemptLimit)
+	require.NoError(t, err)
+	require.True(t, fleeterror.IsResourceExhaustedError(svc.CheckClientRateLimit(t.Context(), "192.0.2.1")),
+		"a client that spent its hourly share is throttled although its minute window has room")
+	var deployment int
+	require.NoError(t, conn.QueryRowContext(t.Context(), `SELECT attempts FROM hosted_invitation_rate_limit WHERE client_hash='deployment'`).Scan(&deployment))
+	require.Equal(t, 1, deployment, "the throttled request does not spend the deployment allowance")
+	require.NoError(t, svc.CheckClientRateLimit(t.Context(), "192.0.2.2"), "another client keeps its own allowance")
+	_, err = conn.ExecContext(t.Context(), `UPDATE hosted_invitation_rate_limit SET window_started_at=statement_timestamp()-interval '1 hour' WHERE client_hash LIKE 'hourly:%'`)
+	require.NoError(t, err)
+	require.NoError(t, svc.CheckClientRateLimit(t.Context(), "192.0.2.1"), "the hourly allowance resets after an hour")
 }

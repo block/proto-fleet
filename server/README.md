@@ -336,10 +336,11 @@ activity records without the code.
 
 Migration 1034 adds a PostgreSQL **per-client rate limit**, shared across every
 API replica using the database. Public preview, signed-in acceptance, and
-registration together allow **60 requests per client per one-minute window**,
-shared by both invitation kinds.
-The window starts with the client's first admitted request and resets when a
-request arrives at least one minute later. Invalid codes and rejected redemption
+registration together allow **60 requests per client per one-minute window**
+and **100 per one-hour window**, shared by both invitation kinds.
+Each window starts with the client's first admitted request and resets when a
+request arrives after it ends. One statement updates both client counters, and
+a request the minute window rejects does not count against the hour. Invalid codes and rejected redemption
 requests count; registration is charged once at the public handler, before its
 internal preview and consumption steps. Throttled requests return
 `ResourceExhausted`. Per-process preview concurrency and registration CPU limits
@@ -365,11 +366,12 @@ invitations and `2.2e-4` for 10,000. Without the ceiling, one IPv6 /48 (65,536
 client allowances) could make 5.7 billion guesses a day and would reach one of
 100 active invitations with probability near 40%.
 
-The shared allowance is a deliberate trade-off. Anyone who can reach the public
-endpoints can exhaust it, which blocks every preview and redemption until the
-hour resets; a single client at the per-client limit needs about 17 minutes.
-Existing sessions, issued codes and all other Fleet operations are unaffected,
-and recipients can retry later. Each request updates the shared counter in its
+The shared allowance is a deliberate trade-off. One client can spend at most 100
+units of it per hour, so exhausting it takes at least ten distinct client
+allowances (IPv4 addresses or IPv6 /64s). An attacker with that many addresses
+can still block every preview and redemption until the hour resets. Existing
+sessions, issued codes and all other Fleet operations are unaffected, and
+recipients can retry later. Each request updates the shared counter in its
 own short statement, so admission briefly serializes on that row. Per-client
 throttling limits abuse; neither limit identifies people or stops a distributed
 denial-of-service attack. See [OWASP token guidance](https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html)
