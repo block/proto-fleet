@@ -28,18 +28,29 @@ type runtimeTestActivation struct {
 type runtimeTestOwner struct {
 	activations chan runtimeTestActivation
 	stopped     chan struct{}
+	released    chan Ownership
+	releaseErr  error
+	runExitWait <-chan struct{}
+	runErr      error
 }
 
 func newRuntimeTestOwner() *runtimeTestOwner {
 	return &runtimeTestOwner{
 		activations: make(chan runtimeTestActivation, 1),
 		stopped:     make(chan struct{}),
+		released:    make(chan Ownership, 1),
 	}
 }
 
 func (o *runtimeTestOwner) Run(ctx context.Context) error {
 	<-ctx.Done()
+	if o.runExitWait != nil {
+		<-o.runExitWait
+	}
 	close(o.stopped)
+	if o.runErr != nil {
+		return o.runErr
+	}
 	return fmt.Errorf("runtime test owner stopped: %w", ctx.Err())
 }
 
@@ -52,7 +63,21 @@ func (o *runtimeTestOwner) WaitForActive(ctx context.Context) (context.Context, 
 	}
 }
 
-func (o *runtimeTestOwner) Snapshot() Snapshot { return Snapshot{} }
+func (o *runtimeTestOwner) Snapshot() Snapshot {
+	return Snapshot{State: StateActive, DCSClusterID: "cluster-a", Token: Token{WriterGeneration: 41, LeaseEpoch: 7}, HolderID: uuid.MustParse("00000000-0000-0000-0000-000000000001")}
+}
+
+func (o *runtimeTestOwner) Release(ctx context.Context, active Ownership) error {
+	select {
+	case <-o.stopped:
+	default:
+		return errors.New("release raced renewal shutdown")
+	}
+	o.released <- active
+	return o.releaseErr
+}
+
+func (missedActivationOwner) Release(context.Context, Ownership) error { return nil }
 
 type missedActivationOwner struct{}
 
@@ -533,4 +558,121 @@ func requireReceiveContext(t *testing.T, ch <-chan context.Context) context.Cont
 		t.Fatal("timed out waiting for context")
 		return nil
 	}
+}
+
+func TestHARuntimeReleasesOnlyAfterCleanPlannedStop(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		cause          error
+		stopErr        error
+		ownershipLost  bool
+		coordinatorErr error
+		releaseErr     error
+		wantRelease    bool
+	}{
+		{name: "clean", cause: ErrPlannedStop, wantRelease: true},
+		{name: "ordinary cancellation", cause: context.Canceled},
+		{name: "failed cleanup", cause: ErrPlannedStop, stopErr: errors.New("stop failed")},
+		{name: "ownership already lost", cause: ErrPlannedStop, ownershipLost: true},
+		{name: "observed ownership loss raced signal", cause: ErrPlannedStop, coordinatorErr: ErrOwnershipLost},
+		{name: "release failed", cause: ErrPlannedStop, releaseErr: errors.New("database unavailable"), wantRelease: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			owner := newRuntimeTestOwner()
+			owner.releaseErr = test.releaseErr
+			owner.runErr = test.coordinatorErr
+			group := newRuntimeTestGroup()
+			group.stopErr = test.stopErr
+			runtime := newRuntime(owner, group, alwaysHealthy, runtimeTestConfig())
+			runCtx, cancelRun := context.WithCancelCause(t.Context())
+			activeCtx, cancelActive := context.WithCancelCause(runCtx)
+			defer cancelActive(context.Canceled)
+			owner.activations <- runtimeTestActivation{ctx: activeCtx}
+			result := make(chan error, 1)
+			go func() { result <- runtime.Run(runCtx) }()
+			requireReceiveContext(t, group.startedCh)
+			require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
+			requestCtx, release, err := runtime.Admit(t.Context())
+			require.NoError(t, err)
+			if test.ownershipLost {
+				cancelActive(ErrOwnershipLost)
+			}
+			cancelRun(test.cause)
+			if test.ownershipLost {
+				select {
+				case <-group.stoppedCh:
+				case <-group.abortedCh:
+				case <-time.After(eventuallyTimeout):
+					t.Fatal("ownership loss did not stop runtime work")
+				}
+			} else {
+				requireReceive(t, group.stoppedCh)
+			}
+			require.Eventually(t, func() bool { return requestCtx.Err() != nil }, eventuallyTimeout, eventuallyInterval)
+			require.False(t, runtime.Active())
+			// Job cleanup alone is insufficient while an admitted request still owns work.
+			require.Empty(t, owner.released)
+			release()
+			runErr := <-result
+			if test.stopErr != nil {
+				require.ErrorIs(t, runErr, test.stopErr)
+			}
+			if test.releaseErr != nil {
+				require.ErrorIs(t, runErr, test.releaseErr)
+			}
+			if test.coordinatorErr != nil {
+				require.ErrorIs(t, runErr, test.coordinatorErr)
+			}
+			if test.wantRelease {
+				require.Len(t, owner.released, 1)
+				require.Equal(t, owner.Snapshot().Token, (<-owner.released).Token)
+			} else {
+				require.Empty(t, owner.released)
+			}
+		})
+	}
+}
+
+func TestHARuntimeDoesNotReleaseWhenAdmissionDrainTimesOut(t *testing.T) {
+	owner := newRuntimeTestOwner()
+	group := newRuntimeTestGroup()
+	config := runtimeTestConfig()
+	config.CleanupTimeout = 10 * time.Millisecond
+	runtime := newRuntime(owner, group, alwaysHealthy, config)
+	runCtx, cancelRun := context.WithCancelCause(t.Context())
+	activeCtx, cancelActive := context.WithCancelCause(runCtx)
+	defer cancelActive(context.Canceled)
+	owner.activations <- runtimeTestActivation{ctx: activeCtx}
+	result := make(chan error, 1)
+	go func() { result <- runtime.Run(runCtx) }()
+	requireReceiveContext(t, group.startedCh)
+	require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
+	_, release, err := runtime.Admit(t.Context())
+	require.NoError(t, err)
+	defer release()
+	cancelRun(ErrPlannedStop)
+	require.ErrorIs(t, <-result, context.DeadlineExceeded)
+	require.Empty(t, owner.released)
+}
+
+func TestHARuntimeJoinsRenewalsBeforeRelease(t *testing.T) {
+	owner := newRuntimeTestOwner()
+	allowRenewalExit := make(chan struct{})
+	owner.runExitWait = allowRenewalExit
+	group := newRuntimeTestGroup()
+	runtime := newRuntime(owner, group, alwaysHealthy, runtimeTestConfig())
+	runCtx, cancelRun := context.WithCancelCause(t.Context())
+	activeCtx, cancelActive := context.WithCancelCause(runCtx)
+	defer cancelActive(context.Canceled)
+	owner.activations <- runtimeTestActivation{ctx: activeCtx}
+	result := make(chan error, 1)
+	go func() { result <- runtime.Run(runCtx) }()
+	requireReceiveContext(t, group.startedCh)
+	require.Eventually(t, runtime.Active, eventuallyTimeout, eventuallyInterval)
+	cancelRun(ErrPlannedStop)
+	requireReceive(t, group.stoppedCh)
+	require.Empty(t, owner.released)
+	close(allowRenewalExit)
+	require.NoError(t, <-result)
+	require.Len(t, owner.released, 1)
 }

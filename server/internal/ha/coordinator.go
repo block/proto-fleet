@@ -171,7 +171,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 	for {
 		activated, _ := c.tryAcquire(ctx)
 		if ctx.Err() != nil {
-			c.deactivate(ctx.Err())
+			c.deactivate(context.Cause(ctx))
 			return fmt.Errorf("HA coordinator stopped: %w", ctx.Err())
 		}
 		if activated {
@@ -185,7 +185,7 @@ func (c *Coordinator) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			c.deactivate(ctx.Err())
+			c.deactivate(context.Cause(ctx))
 			return fmt.Errorf("HA coordinator stopped: %w", ctx.Err())
 		case <-timer.C:
 		}
@@ -198,7 +198,7 @@ func (c *Coordinator) renewUntilStopped(ctx, activeCtx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			c.deactivate(ctx.Err())
+			c.deactivate(context.Cause(ctx))
 			return fmt.Errorf("HA coordinator stopped: %w", ctx.Err())
 		case <-activeCtx.Done():
 			cause := context.Cause(activeCtx)
@@ -519,4 +519,16 @@ func (c *Coordinator) deactivateLocked(cause error) {
 func (c *Coordinator) signalStateChangedLocked() {
 	close(c.stateChanged)
 	c.stateChanged = make(chan struct{})
+}
+
+// Release is called only after Run has stopped renewing and the owned runtime
+// and admitted requests have drained. The store still requires the exact term.
+func (c *Coordinator) Release(ctx context.Context, active Ownership) error {
+	if active.HolderID != c.HolderID() {
+		return ErrOwnershipLost
+	}
+	if err := c.store.Release(ctx, active); err != nil {
+		return fmt.Errorf("release Fleet ownership term: %w", err)
+	}
+	return nil
 }

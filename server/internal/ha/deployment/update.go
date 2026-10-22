@@ -211,23 +211,40 @@ func StopApplication(ctx context.Context, root string, expectedRole ha.RuntimeRo
 	if err != nil {
 		return fmt.Errorf("refuse to stop HA application after %s role changed: %w", expectedRole, err)
 	}
+	return stopApplicationContainers(ctx, root, installedFleetEnvironment, haGrafanaVolumeOwnershipMarker, expectedRole, RunCompose)
+}
+
+func stopApplicationContainers(ctx context.Context, root, environmentPath, ownershipMarker string, expectedRole ha.RuntimeRole, runCompose func(context.Context, []string) error) error {
 	// The crash-only design intentionally has no maintenance lease. If the role
 	// changes after this final proof, normal update recovery restarts Fleet.
 	composeCtx := ctx
 	var flags []string
 	if expectedRole == ha.RoleActive {
 		flags = []string{"--timeout", "1"}
-		// Bound only the serving node's interruption. A passive stop is not on the
-		// availability path and can use Compose's normal shutdown behavior.
+		// Share one existing interruption budget across the API drain and teardown.
+		// A passive stop can retain Compose's normal shutdown behavior.
 		stopCtx, cancel := context.WithTimeout(ctx, ha.UpdateActiveStopTimeout)
 		defer cancel()
 		composeCtx = stopCtx
 	}
-	args, err := fleetApplicationDownArgsAt(root, installedFleetEnvironment, haGrafanaVolumeOwnershipMarker, flags...)
+	args, err := fleetApplicationDownArgsAt(root, environmentPath, ownershipMarker, flags...)
 	if err != nil {
 		return fmt.Errorf("load HA application profile: %w", err)
 	}
-	if err := RunCompose(composeCtx, args); err != nil {
+	if expectedRole == ha.RoleActive {
+		// Compose down stops nginx before its fleet-api dependency. Stop only the
+		// API first so endpoint monitoring cannot abort an otherwise clean stop
+		// just because its proxy was removed. Docker kills incomplete drains after
+		// three seconds, retaining normal expiry-based takeover.
+		stopArgs, err := fleetComposeArgsForInstalledProfileAt(root, environmentPath, ownershipMarker, "stop", "--timeout", "3", "fleet-api")
+		if err != nil {
+			return fmt.Errorf("load HA application stop profile: %w", err)
+		}
+		if err := runCompose(composeCtx, stopArgs); err != nil {
+			return fmt.Errorf("stop active Fleet runtime: %w", err)
+		}
+	}
+	if err := runCompose(composeCtx, args); err != nil {
 		return fmt.Errorf("stop HA application: %w", err)
 	}
 	return nil

@@ -152,3 +152,16 @@ RETURNING
     fleet_runtime_lease.holder_id,
     fleet_runtime_lease.expires_at,
     lease_context.database_time::TIMESTAMPTZ AS database_time;
+
+-- name: ReleaseFleetRuntimeLease :execrows
+-- A cleanly stopped owner may expire only its exact live term. Keep the row and
+-- fencing history so the next acquisition must advance the epoch.
+UPDATE fleet_runtime_lease
+SET expires_at = clock_timestamp()
+WHERE
+    lease_name = 'fleet-active'
+    AND dcs_cluster_id = sqlc.arg('dcs_cluster_id')
+    AND highest_writer_generation = sqlc.arg('writer_generation')
+    AND lease_epoch = sqlc.arg('lease_epoch')
+    AND holder_id = sqlc.arg('holder_id')
+    AND expires_at > clock_timestamp();

@@ -19,6 +19,7 @@ import (
 
 	"github.com/block/proto-fleet/server/internal/ha"
 	"github.com/block/proto-fleet/server/internal/runtimejobs"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -68,6 +69,8 @@ func (s *scriptedRuntimeJobGroupStopper) Stop(ctx context.Context) error {
 
 func TestNewRuntimeJobs(t *testing.T) {
 	all := runtimeJobLifecycles{
+		plugins:                   noopLifecycle{},
+		pendingUnpairs:            noopLifecycle{},
 		identityStateCleanup:      noopLifecycle{},
 		commandArtifactCleanup:    noopLifecycle{},
 		diagnosticsErrorCloser:    noopLifecycle{},
@@ -89,6 +92,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 	jobs, err := newRuntimeJobs(all)
 	require.NoError(t, err)
 	require.Equal(t, []string{
+		"plugins",
 		"identity-state-cleanup",
 		"command-artifact-cleanup",
 		"diagnostics-error-closer",
@@ -105,6 +109,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"system-monitoring",
 		"ha-readiness",
 		"release-checker",
+		"pending-unpairs",
 	}, jobNames(jobs))
 
 	all.curtailmentAlertMetrics = nil
@@ -114,6 +119,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 	jobs, err = newRuntimeJobs(all)
 	require.NoError(t, err)
 	require.Equal(t, []string{
+		"plugins",
 		"identity-state-cleanup",
 		"command-artifact-cleanup",
 		"diagnostics-error-closer",
@@ -126,12 +132,13 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"curtailment-mqtt-subscriber",
 		"curtailment-rig-config",
 		"chunked-upload-cleanup",
+		"pending-unpairs",
 	}, jobNames(jobs))
 }
 
 func TestNewRuntimeJobsRejectsMissingRequiredLifecycle(t *testing.T) {
 	_, err := newRuntimeJobs(runtimeJobLifecycles{})
-	require.ErrorContains(t, err, `create runtime job "identity-state-cleanup"`)
+	require.ErrorContains(t, err, `create runtime job "plugins"`)
 }
 
 func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing.T) {
@@ -162,6 +169,8 @@ func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing
 	}}
 
 	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
+		plugins:                   noopLifecycle{},
+		pendingUnpairs:            noopLifecycle{},
 		identityStateCleanup:      noopLifecycle{},
 		commandArtifactCleanup:    noopLifecycle{},
 		diagnosticsErrorCloser:    noopLifecycle{},
@@ -424,6 +433,9 @@ func TestServeFleetRuntimeDrainsCancelledRequestsBeforeStoppingRuntime(t *testin
 				default:
 					cleanupBeforeStop <- false
 				}
+				if !errors.Is(context.Cause(ctx), ha.ErrPlannedStop) {
+					return fmt.Errorf("clean drain stop cause: %w", context.Cause(ctx))
+				}
 				close(runtimeStopped)
 				return nil
 			}}
@@ -481,6 +493,9 @@ func TestServeFleetRuntimeWaitsForHandlerAfterShutdownTimeout(t *testing.T) {
 	runtimeStopped := make(chan struct{})
 	runtime := scriptedFleetRuntime{run: func(ctx context.Context) error {
 		<-ctx.Done()
+		if errors.Is(context.Cause(ctx), ha.ErrPlannedStop) {
+			return errors.New("HTTP timeout marked as planned stop")
+		}
 		close(runtimeStopped)
 		return nil
 	}}
@@ -521,6 +536,9 @@ func TestServeFleetRuntimeSignalShutdown(t *testing.T) {
 		runtime := scriptedFleetRuntime{run: func(ctx context.Context) error {
 			_, _ = fmt.Fprintln(os.Stdout, "ready for shutdown signal")
 			<-ctx.Done()
+			if !errors.Is(context.Cause(ctx), ha.ErrPlannedStop) {
+				return fmt.Errorf("signal stop cause: %w", context.Cause(ctx))
+			}
 			return nil
 		}}
 		require.NoError(t, serveFleetRuntime(server, listener, runtime, time.Second, nil))
@@ -560,5 +578,161 @@ func requireReceive(t *testing.T, ch <-chan struct{}) {
 	case <-ch:
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for background loop")
+	}
+}
+
+// shutdownLeaseStore checks the boundary between the HTTP drain, runtime jobs,
+// and ownership coordinator; SQL ownership matching is covered by HA DB tests.
+type shutdownLeaseStore struct {
+	requestsDrained <-chan struct{}
+	jobsStopped     <-chan struct{}
+	released        chan ha.Ownership
+}
+
+func (s *shutdownLeaseStore) Acquire(_ context.Context, observed ha.WriterObservation, holder uuid.UUID, duration time.Duration) (ha.Ownership, error) {
+	now := time.Now()
+	return ha.Ownership{DCSClusterID: observed.DCSClusterID, Token: ha.Token{WriterGeneration: observed.WriterGeneration, LeaseEpoch: 7}, HolderID: holder, DatabaseTime: now, ExpiresAt: now.Add(duration)}, nil
+}
+
+func (s *shutdownLeaseStore) Renew(_ context.Context, _ ha.WriterObservation, active ha.Ownership, duration time.Duration) (ha.Ownership, error) {
+	active.DatabaseTime = time.Now()
+	active.ExpiresAt = active.DatabaseTime.Add(duration)
+	return active, nil
+}
+
+func (s *shutdownLeaseStore) Release(_ context.Context, active ha.Ownership) error {
+	for _, drained := range []<-chan struct{}{s.requestsDrained, s.jobsStopped} {
+		select {
+		case <-drained:
+		default:
+			return errors.New("lease released before request/job completion")
+		}
+	}
+	s.released <- active
+	return nil
+}
+
+type shutdownWriterObserver struct{}
+
+func (shutdownWriterObserver) ObserveAndRun(ctx context.Context, action func(context.Context, ha.WriterObservation) error) (ha.WriterObservation, error) {
+	observed := ha.WriterObservation{DCSClusterID: "cluster-a", WriterGeneration: 41, DCSProofDeadline: time.Now().Add(time.Minute)}
+	return observed, action(ctx, observed)
+}
+
+func TestServeFleetRuntimeReleasesHALeaseOnlyAfterCleanDrain(t *testing.T) {
+	for _, clean := range []bool{true, false} {
+		t.Run(fmt.Sprintf("clean=%t", clean), func(t *testing.T) {
+			requestStarted := make(chan struct{})
+			requestCancelled := make(chan struct{})
+			allowHandlerExit := make(chan struct{})
+			handlerDrained := make(chan struct{})
+			jobsStopped := make(chan struct{})
+			store := &shutdownLeaseStore{requestsDrained: handlerDrained, jobsStopped: jobsStopped, released: make(chan ha.Ownership, 1)}
+			coordinator, err := ha.NewCoordinator(shutdownWriterObserver{}, store, ha.CoordinatorConfig{LeaseDuration: time.Minute, RenewInterval: 30 * time.Second, RetryInterval: time.Second})
+			require.NoError(t, err)
+			job, err := runtimejobs.NewJob("shutdown-test", funcLifecycle{stop: func(context.Context) error { close(jobsStopped); return nil }})
+			require.NoError(t, err)
+			group, err := runtimejobs.NewGroup([]runtimejobs.Job{job})
+			require.NoError(t, err)
+			runtime, err := ha.NewRuntime(coordinator, group, func() bool { return true })
+			require.NoError(t, err)
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			server := &http.Server{ReadHeaderTimeout: time.Second, Handler: http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				close(requestStarted)
+				<-r.Context().Done()
+				close(requestCancelled)
+				<-allowHandlerExit
+				close(handlerDrained)
+			})}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			result := make(chan error, 1)
+			shutdownBudget := time.Second
+			if !clean {
+				shutdownBudget = 10 * time.Millisecond
+			}
+			go func() {
+				result <- serveFleetRuntimeWithContext(ctx, server, listener, runtime, shutdownBudget, nil)
+			}()
+			require.Eventually(t, runtime.Active, time.Second, time.Millisecond)
+			client := &http.Client{Timeout: time.Second}
+			t.Cleanup(client.CloseIdleConnections)
+			requestDone := make(chan struct{})
+			go func() {
+				defer close(requestDone)
+				response, err := client.Get("http://" + listener.Addr().String()) //nolint:noctx // Client has a deadline.
+				if err == nil {
+					_ = response.Body.Close()
+				}
+			}()
+			requireReceive(t, requestStarted)
+			cancel()
+			requireReceive(t, requestCancelled)
+			if !clean {
+				// Forced socket closure proves the HTTP shutdown budget was exceeded.
+				requireReceive(t, requestDone)
+			}
+			require.Empty(t, store.released)
+			close(allowHandlerExit)
+			runErr := <-result
+			if clean {
+				require.NoError(t, runErr)
+				require.Len(t, store.released, 1)
+				require.Equal(t, ha.Token{WriterGeneration: 41, LeaseEpoch: 7}, (<-store.released).Token)
+			} else {
+				require.ErrorIs(t, runErr, context.DeadlineExceeded)
+				require.Empty(t, store.released)
+			}
+			requireReceive(t, requestDone)
+		})
+	}
+}
+
+func TestRuntimeJobsDrainUnpairsBeforeTheirPluginDependency(t *testing.T) {
+	for _, failedParticipant := range []string{"", "unpairs", "plugins"} {
+		t.Run(failedParticipant, func(t *testing.T) {
+			var stopped []string
+			stopErr := errors.New("cleanup incomplete")
+			jobs, err := newRuntimeJobs(runtimeJobLifecycles{
+				plugins: stopOnlyLifecycle{stop: func(context.Context) error {
+					stopped = append(stopped, "plugins")
+					if failedParticipant == "plugins" {
+						return stopErr
+					}
+					return nil
+				}},
+				pendingUnpairs: stopOnlyLifecycle{stop: func(context.Context) error {
+					stopped = append(stopped, "unpairs")
+					if failedParticipant == "unpairs" {
+						return stopErr
+					}
+					return nil
+				}},
+				identityStateCleanup:      noopLifecycle{},
+				commandArtifactCleanup:    noopLifecycle{},
+				diagnosticsErrorCloser:    noopLifecycle{},
+				telemetry:                 funcLifecycle{stop: func(context.Context) error { stopped = append(stopped, "telemetry"); return nil }},
+				ipScanner:                 noopLifecycle{},
+				commandExecution:          noopLifecycle{},
+				scheduleProcessor:         noopLifecycle{},
+				rolloutEnforcement:        noopLifecycle{},
+				curtailmentReconciler:     noopLifecycle{},
+				curtailmentMQTTSubscriber: noopLifecycle{},
+				curtailmentRigConfig:      noopLifecycle{},
+				chunkedUploadCleanup:      noopLifecycle{},
+			})
+			require.NoError(t, err)
+			group, err := runtimejobs.NewGroup(jobs)
+			require.NoError(t, err)
+			require.NoError(t, group.Start(t.Context()))
+			err = group.Stop(t.Context())
+			if failedParticipant == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, stopErr)
+			}
+			require.Equal(t, []string{"unpairs", "telemetry", "plugins"}, stopped)
+		})
 	}
 }

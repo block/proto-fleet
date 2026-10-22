@@ -111,6 +111,13 @@ func (l *backgroundLoop) Stop(ctx context.Context) error {
 	}
 }
 
+// stopOnlyLifecycle includes already-created resources and request-spawned work
+// in the runtime's ordered cleanup proof before voluntary HA lease release.
+type stopOnlyLifecycle struct{ stop func(context.Context) error }
+
+func (l stopOnlyLifecycle) Start(context.Context) error    { return nil }
+func (l stopOnlyLifecycle) Stop(ctx context.Context) error { return l.stop(ctx) }
+
 type runtimeJobGroupStopper interface {
 	Stop(ctx context.Context) error
 }
@@ -225,8 +232,8 @@ func serveFleetRuntimeWithContext(
 	timeout time.Duration,
 	drain *httpRequestDrain,
 ) error {
-	runtimeCtx, cancelRuntime := context.WithCancel(context.Background())
-	defer cancelRuntime()
+	runtimeCtx, cancelRuntime := context.WithCancelCause(context.Background())
+	defer cancelRuntime(context.Canceled)
 	requestCtx, cancelRequests := context.WithCancel(context.Background())
 	defer cancelRequests()
 	server.BaseContext = func(net.Listener) context.Context { return requestCtx }
@@ -275,12 +282,19 @@ func serveFleetRuntimeWithContext(
 	// A handler that ignores cancellation must keep its dependencies and binding
 	// locks until it actually returns; a timeout cannot establish completion.
 	drain.active.Wait()
-	cancelRuntime()
-	if !runtimeStopped {
-		runtimeErr = <-runtimeResult
-	}
 	if !serverStopped {
 		serverErr = <-serverResult
+	}
+	// Only signal-driven shutdown with a completed HTTP drain may voluntarily
+	// release HA ownership. Serve failures and uncertain cleanup retain the TTL.
+	stopCause := context.Canceled
+	if ctx.Err() != nil && shutdownErr == nil && !runtimeStopped &&
+		(serverErr == nil || errors.Is(serverErr, http.ErrServerClosed)) {
+		stopCause = ha.ErrPlannedStop
+	}
+	cancelRuntime(stopCause)
+	if !runtimeStopped {
+		runtimeErr = <-runtimeResult
 	}
 
 	var result error
@@ -329,6 +343,8 @@ func stopRuntimeJobGroup(group runtimeJobGroupStopper, commandExecution runtimej
 }
 
 type runtimeJobLifecycles struct {
+	plugins                   runtimejobs.Lifecycle
+	pendingUnpairs            runtimejobs.Lifecycle
 	identityStateCleanup      runtimejobs.Lifecycle
 	commandArtifactCleanup    runtimejobs.Lifecycle
 	diagnosticsErrorCloser    runtimejobs.Lifecycle
@@ -366,6 +382,7 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 		name      string
 		lifecycle runtimejobs.Lifecycle
 	}{
+		{name: "plugins", lifecycle: lifecycles.plugins},
 		{name: "identity-state-cleanup", lifecycle: lifecycles.identityStateCleanup},
 		{name: "command-artifact-cleanup", lifecycle: lifecycles.commandArtifactCleanup},
 		{name: "diagnostics-error-closer", lifecycle: lifecycles.diagnosticsErrorCloser},
@@ -407,5 +424,10 @@ func newRuntimeJobs(lifecycles runtimeJobLifecycles) ([]runtimejobs.Job, error) 
 		}
 	}
 
+	// Stop background unpairs before their telemetry/plugin dependencies. All
+	// HTTP handlers have drained before a planned stop reaches this participant.
+	if err := add("pending-unpairs", lifecycles.pendingUnpairs); err != nil {
+		return nil, err
+	}
 	return jobs, nil
 }

@@ -649,3 +649,26 @@ func (f *fakeLeaseStore) callSequence() []string {
 	defer f.mu.Unlock()
 	return append([]string(nil), f.calls...)
 }
+
+func (f *fakeLeaseStore) Release(_ context.Context, _ Ownership) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "release")
+	return nil
+}
+
+func TestCoordinatorRetainsPlannedStopCauseOnActiveLifetime(t *testing.T) {
+	coordinator, err := NewCoordinator(
+		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Minute)},
+		&fakeLeaseStore{}, coordinatorTestConfig())
+	require.NoError(t, err)
+	runCtx, cancelRun := context.WithCancelCause(t.Context())
+	result := make(chan error, 1)
+	go func() { result <- coordinator.Run(runCtx) }()
+	activeCtx, _, err := coordinator.WaitForActive(t.Context())
+	require.NoError(t, err)
+	cancelRun(ErrPlannedStop)
+	require.ErrorIs(t, <-result, context.Canceled)
+	require.ErrorIs(t, context.Cause(activeCtx), ErrPlannedStop)
+	require.Equal(t, StatePassive, coordinator.Snapshot().State)
+}

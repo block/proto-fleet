@@ -20,6 +20,9 @@ const (
 // cleanup attempt for the active runtime job group.
 var ErrRuntimeAborted = errors.New("HA Fleet runtime aborted")
 
+// ErrPlannedStop identifies a signal-driven stop after HTTP requests drained cleanly.
+var ErrPlannedStop = errors.New("planned Fleet runtime stop")
+
 var errCriticalRuntimeUnhealthy = errors.New("critical Fleet runtime is unhealthy")
 var errEndpointUnavailable = errors.New("active Fleet endpoint is unavailable")
 
@@ -34,6 +37,7 @@ type runtimeOwner interface {
 	Run(ctx context.Context) error
 	WaitForActive(ctx context.Context) (context.Context, Token, error)
 	Snapshot() Snapshot
+	Release(ctx context.Context, active Ownership) error
 }
 
 type runtimeGroup interface {
@@ -183,6 +187,9 @@ func (r *Runtime) runHA(ctx context.Context) error {
 		return nil
 	}
 
+	snapshot := r.owner.Snapshot()
+	activeOwnership := Ownership{DCSClusterID: snapshot.DCSClusterID, Token: snapshot.Token, HolderID: snapshot.HolderID}
+
 	if err := r.group.Start(activeCtx); err != nil {
 		return fmt.Errorf("start active Fleet runtime: %w", err)
 	}
@@ -194,7 +201,29 @@ func (r *Runtime) runHA(ctx context.Context) error {
 	activeErr := r.waitWhileHealthy(ctx, activeCtx)
 	admissionDrained := r.gate.deactivate()
 	if ctx.Err() != nil {
-		return r.stopGroupAndDrainAdmissions(admissionDrained)
+		stopErr := r.stopGroupAndDrainAdmissions(admissionDrained)
+		if stopErr != nil || !errors.Is(activeErr, ErrPlannedStop) || !errors.Is(context.Cause(ctx), ErrPlannedStop) || !errors.Is(context.Cause(activeCtx), ErrPlannedStop) {
+			return stopErr
+		}
+		// Cancellation has stopped admission and renewal. Join the coordinator so
+		// an in-flight renewal cannot extend the term after voluntary release.
+		cancelCoordinator()
+		releaseCtx, cancelRelease := context.WithTimeout(context.Background(), r.config.CleanupTimeout)
+		defer cancelRelease()
+		select {
+		case coordinatorErr := <-coordinatorResult:
+			// A signal may race an already-observed ownership failure. Joining must
+			// establish an ordinary stop, rather than hide that failure behind cancellation.
+			if coordinatorErr != nil && !errors.Is(coordinatorErr, context.Canceled) && !errors.Is(coordinatorErr, ErrPlannedStop) {
+				return fmt.Errorf("stop Fleet ownership renewal: %w", coordinatorErr)
+			}
+		case <-releaseCtx.Done():
+			return fmt.Errorf("stop Fleet ownership renewal: %w", releaseCtx.Err())
+		}
+		if err := r.owner.Release(releaseCtx, activeOwnership); err != nil {
+			return fmt.Errorf("release stopped Fleet ownership: %w", err)
+		}
+		return nil
 	}
 	// Stop lease renewal before cleanup so a blocked abort cannot delay takeover.
 	cancelCoordinator()
@@ -225,7 +254,7 @@ func (r *Runtime) waitWhileHealthy(parent, activeCtx context.Context) error {
 	for {
 		select {
 		case <-parent.Done():
-			return fmt.Errorf("Fleet runtime stopped: %w", parent.Err())
+			return fmt.Errorf("Fleet runtime stopped: %w", context.Cause(parent))
 		case <-activeCtx.Done():
 			return fmt.Errorf("active lifetime ended: %w", context.Cause(activeCtx))
 		case <-ticker.C:

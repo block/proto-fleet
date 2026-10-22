@@ -566,7 +566,6 @@ func start(config *Config) (result error) {
 	// the fleetmanagement resolver; wire it now that fleetMgmtSvc exists (it
 	// depends on commandSvc, so this can't be passed to NewService).
 	commandSvc.SetDeviceIdentifierResolver(fleetMgmtSvc)
-	defer fleetMgmtSvc.WaitForPendingUnpairs(shutdownTimeout)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools, activitySvc)
 	scheduleStore := sqlstores.NewSQLScheduleStore(conn)
@@ -791,6 +790,8 @@ func start(config *Config) (result error) {
 		releaseCheckerJob = releaseChecker
 	}
 	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
+		plugins:                   stopOnlyLifecycle{stop: pluginService.Shutdown},
+		pendingUnpairs:            stopOnlyLifecycle{stop: fleetMgmtSvc.WaitForPendingUnpairs},
 		identityStateCleanup:      identityStateCleanup,
 		commandArtifactCleanup:    commandArtifactCleanup,
 		diagnosticsErrorCloser:    diagnosticsService,

@@ -232,6 +232,40 @@ func (q *Queries) GetHAProfileDatabaseIdentity(ctx context.Context) (GetHAProfil
 	return i, err
 }
 
+const releaseFleetRuntimeLease = `-- name: ReleaseFleetRuntimeLease :execrows
+UPDATE fleet_runtime_lease
+SET expires_at = clock_timestamp()
+WHERE
+    lease_name = 'fleet-active'
+    AND dcs_cluster_id = $1
+    AND highest_writer_generation = $2
+    AND lease_epoch = $3
+    AND holder_id = $4
+    AND expires_at > clock_timestamp()
+`
+
+type ReleaseFleetRuntimeLeaseParams struct {
+	DcsClusterID     string
+	WriterGeneration int64
+	LeaseEpoch       int64
+	HolderID         uuid.UUID
+}
+
+// A cleanly stopped owner may expire only its exact live term. Keep the row and
+// fencing history so the next acquisition must advance the epoch.
+func (q *Queries) ReleaseFleetRuntimeLease(ctx context.Context, arg ReleaseFleetRuntimeLeaseParams) (int64, error) {
+	result, err := q.exec(ctx, q.releaseFleetRuntimeLeaseStmt, releaseFleetRuntimeLease,
+		arg.DcsClusterID,
+		arg.WriterGeneration,
+		arg.LeaseEpoch,
+		arg.HolderID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const renewFleetRuntimeLease = `-- name: RenewFleetRuntimeLease :one
 WITH lease_context AS (
     -- Capture database time once, and fail closed unless this is the expected writer.
