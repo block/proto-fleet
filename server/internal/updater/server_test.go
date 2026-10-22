@@ -644,6 +644,7 @@ func (transport updaterHandlerTransport) RoundTrip(request *http.Request) (*http
 }
 
 func TestPreparedUpdateAPIReusesDurablePreparation(t *testing.T) {
+	// Arrange
 	installRoot := t.TempDir()
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
 	releases := releaseServer(t, "v1.1.0", "amd64", releaseBundle(t, "v1.1.0"), "")
@@ -653,13 +654,23 @@ func TestPreparedUpdateAPIReusesDurablePreparation(t *testing.T) {
 	status, err := client.Status(t.Context())
 	require.NoError(t, err)
 	require.Contains(t, status.Capabilities, updaterapi.CapabilityPreparedUpdateV1)
+
+	// Act
 	prepared, err := client.Prepare(t.Context(), "11111111-1111-4111-8111-111111111111", "v1.1.0")
+
+	// Assert
 	require.NoError(t, err)
 	require.True(t, prepared.PrepareOnly)
 	require.Equal(t, updaterapi.PhaseSucceeded, waitPreparedOperation(t, manager).Phase)
 	require.Equal(t, "v1.0.0", mustInstalledVersion(t, installRoot))
+
+	// Arrange
 	releases.Close()
+
+	// Act
 	activated, err := client.TriggerPrepared(t.Context(), "22222222-2222-4222-8222-222222222222", "v1.1.0", false)
+
+	// Assert
 	require.NoError(t, err)
 	require.True(t, activated.Prepared)
 	require.Equal(t, updaterapi.PhaseSucceeded, waitPreparedOperation(t, manager).Phase)

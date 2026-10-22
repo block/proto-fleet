@@ -108,6 +108,7 @@ func TestPreparedClientChecksOperationModeIdentity(t *testing.T) {
 	for _, mode := range []string{"prepare", "prepared", "complete"} {
 		for _, dropMode := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/drop-mode=%t", mode, dropMode), func(t *testing.T) {
+				// Arrange
 				client := NewClientWithHTTP(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 					var body TriggerRequest
 					require.NoError(t, json.NewDecoder(request.Body).Decode(&body))
@@ -123,12 +124,16 @@ func TestPreparedClientChecksOperationModeIdentity(t *testing.T) {
 					require.NoError(t, err)
 					return &http.Response{StatusCode: http.StatusAccepted, Body: io.NopCloser(strings.NewReader(string(encoded))), Header: make(http.Header), Request: request}, nil
 				})})
+
+				// Act
 				var err error
 				if mode == "prepare" {
 					_, err = client.Prepare(t.Context(), "operation", "v1.2.3")
 				} else {
 					_, err = client.TriggerPrepared(t.Context(), "operation", "v1.2.3", mode == "complete")
 				}
+
+				// Assert
 				if dropMode {
 					var protocolErr *ProtocolError
 					require.ErrorAs(t, err, &protocolErr)

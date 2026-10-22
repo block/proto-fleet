@@ -12,6 +12,7 @@ import (
 )
 
 func TestPreparedHAUpdateSurvivesRestartWithoutRepeatingPreparation(t *testing.T) {
+	// Arrange
 	installRoot := t.TempDir()
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
 	server := releaseServer(t, "v1.1.0", "amd64", releaseBundle(t, "v1.1.0"), "")
@@ -19,21 +20,31 @@ func TestPreparedHAUpdateSurvivesRestartWithoutRepeatingPreparation(t *testing.T
 	installedUpdater := filepath.Join(t.TempDir(), "proto-fleet-updater")
 	require.NoError(t, os.WriteFile(installedUpdater, []byte("old updater"), 0755))
 	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) { cfg.DeploymentMode = DeploymentModeHA; cfg.SelfUpdatePath = installedUpdater })
+
+	// Act
 	_, err := manager.TriggerPreparedWithID("v1.1.0", "11111111-1111-4111-8111-111111111111", true, false, false)
 	require.NoError(t, err)
 	result := waitPreparedOperation(t, manager)
+
+	// Assert
 	require.Equal(t, updaterapi.PhaseSucceeded, result.Phase, result.Error)
 	require.Equal(t, "v1.0.0", mustInstalledVersion(t, installRoot))
 	require.Len(t, runner.Commands(), 4)
 	require.Equal(t, "old updater", mustReadFile(t, installedUpdater))
+
+	// Arrange
 	require.NoError(t, manager.Close())
 	server.Close() // Activation must not fetch the release again.
 	restarted, err := NewManager(manager.cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, restarted.Close()) })
+
+	// Act
 	_, err = restarted.TriggerPreparedWithID("v1.1.0", "22222222-2222-4222-8222-222222222222", false, true, false)
 	require.NoError(t, err)
 	result = waitPreparedOperation(t, restarted)
+
+	// Assert
 	require.Equal(t, updaterapi.PhaseSucceeded, result.Phase, result.Error)
 	require.Equal(t, "v1.1.0", mustInstalledVersion(t, installRoot))
 	require.Equal(t, "updater", mustReadFile(t, installedUpdater))
@@ -47,8 +58,18 @@ func TestPreparedHAUpdateSurvivesRestartWithoutRepeatingPreparation(t *testing.T
 }
 
 func TestPreparedHAUpdateRefusesMissingStaleOrTamperedPreparation(t *testing.T) {
-	for _, mutation := range []string{"missing", "source", "staged", "target"} {
+	for _, tc := range []struct {
+		mutation string
+		wantErr  string
+	}{
+		{mutation: "missing", wantErr: "prepared release is unavailable"},
+		{mutation: "source", wantErr: "source configuration is stale"},
+		{mutation: "staged", wantErr: "content changed"},
+		{mutation: "target", wantErr: "does not match requested target and repository"},
+	} {
+		mutation := tc.mutation
 		t.Run(mutation, func(t *testing.T) {
+			// Arrange
 			installRoot := t.TempDir()
 			writeCurrentDeployment(t, installRoot, "v1.0.0")
 			server := releaseServer(t, "v1.1.0", "amd64", releaseBundle(t, "v1.1.0"), "")
@@ -70,9 +91,15 @@ func TestPreparedHAUpdateRefusesMissingStaleOrTamperedPreparation(t *testing.T) 
 			if mutation == "target" {
 				target = "v1.2.0"
 			}
+
+			// Act
 			_, err := manager.TriggerPreparedWithID(target, "22222222-2222-4222-8222-222222222222", false, true, false)
 			require.NoError(t, err)
-			require.Equal(t, updaterapi.PhaseFailed, waitPreparedOperation(t, manager).Phase)
+			result := waitPreparedOperation(t, manager)
+
+			// Assert
+			require.Equal(t, updaterapi.PhaseFailed, result.Phase)
+			require.Contains(t, result.Error, tc.wantErr)
 			require.Equal(t, "v1.0.0", mustInstalledVersion(t, installRoot))
 			for _, command := range runner.Commands() {
 				require.NotEqual(t, "app-stop", command.Args[0])
@@ -89,14 +116,19 @@ func mustInstalledVersion(t *testing.T, root string) string {
 }
 
 func TestPreparedHAUpdateRejectsTargetWithoutProtocolBeforeStopping(t *testing.T) {
+	// Arrange
 	installRoot := t.TempDir()
 	writeCurrentDeployment(t, installRoot, "v1.0.0")
 	server := releaseServer(t, "v1.1.0", "amd64", releaseBundle(t, "v1.1.0"), "")
 	runner := &haRecordingRunner{capabilities: []string{}}
 	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) { cfg.DeploymentMode = DeploymentModeHA })
+
+	// Act
 	_, err := manager.TriggerPreparedWithID("v1.1.0", "11111111-1111-4111-8111-111111111111", true, false, false)
 	require.NoError(t, err)
 	result := waitPreparedOperation(t, manager)
+
+	// Assert
 	require.Equal(t, updaterapi.PhaseFailed, result.Phase)
 	require.Contains(t, result.Error, "does not support prepared-update-v1")
 	require.Equal(t, "v1.0.0", mustInstalledVersion(t, installRoot))
@@ -106,6 +138,7 @@ func TestPreparedHAUpdateRejectsTargetWithoutProtocolBeforeStopping(t *testing.T
 func TestPreparedHAUpdateRequiresFreshSchemaImagesAndRole(t *testing.T) {
 	for _, failure := range []string{"schema-check", "check-images", "require-passive"} {
 		t.Run(failure, func(t *testing.T) {
+			// Arrange
 			installRoot := t.TempDir()
 			writeCurrentDeployment(t, installRoot, "v1.0.0")
 			server := releaseServer(t, "v1.1.0", "amd64", releaseBundle(t, "v1.1.0"), "")
@@ -117,9 +150,14 @@ func TestPreparedHAUpdateRequiresFreshSchemaImagesAndRole(t *testing.T) {
 			runner.mu.Lock()
 			runner.fail = map[string]error{failure: os.ErrNotExist}
 			runner.mu.Unlock()
+
+			// Act
 			_, err = manager.TriggerPreparedWithID("v1.1.0", "22222222-2222-4222-8222-222222222222", false, true, false)
 			require.NoError(t, err)
-			require.Equal(t, updaterapi.PhaseFailed, waitPreparedOperation(t, manager).Phase)
+			phase := waitPreparedOperation(t, manager).Phase
+
+			// Assert
+			require.Equal(t, updaterapi.PhaseFailed, phase)
 			require.Equal(t, "v1.0.0", mustInstalledVersion(t, installRoot))
 			for _, command := range runner.Commands() {
 				require.NotEqual(t, "app-stop", command.Args[0])
@@ -138,6 +176,7 @@ func waitPreparedOperation(t *testing.T, manager *Manager) updaterapi.Operation 
 func TestPreparedHAUpdatePublishesOnlyDurableUnchangedConfiguration(t *testing.T) {
 	for _, failure := range []string{"durability", "configuration"} {
 		t.Run(failure, func(t *testing.T) {
+			// Arrange
 			installRoot := t.TempDir()
 			writeCurrentDeployment(t, installRoot, "v1.0.0")
 			server := releaseServer(t, "v1.1.0", "amd64", releaseBundle(t, "v1.1.0"), "")
@@ -155,9 +194,14 @@ func TestPreparedHAUpdatePublishesOnlyDurableUnchangedConfiguration(t *testing.T
 					return syncStagedDeployment(ctx, stage)
 				}
 			})
+
+			// Act
 			_, err := manager.TriggerPreparedWithID("v1.1.0", "11111111-1111-4111-8111-111111111111", true, false, false)
 			require.NoError(t, err)
-			require.Equal(t, updaterapi.PhaseFailed, waitPreparedOperation(t, manager).Phase)
+			phase := waitPreparedOperation(t, manager).Phase
+
+			// Assert
+			require.Equal(t, updaterapi.PhaseFailed, phase)
 			_, err = os.Stat(filepath.Join(installRoot, preparedDirectoryName))
 			require.ErrorIs(t, err, os.ErrNotExist)
 			require.Equal(t, "v1.0.0", mustInstalledVersion(t, installRoot))
@@ -171,6 +215,7 @@ func TestPreparedHAUpdatePublishesOnlyDurableUnchangedConfiguration(t *testing.T
 func TestPreparedHACompletionUsesPreparedStateAndRecoversFailedTakeover(t *testing.T) {
 	for _, failedTakeover := range []bool{false, true} {
 		t.Run(map[bool]string{false: "completed", true: "takeover failed"}[failedTakeover], func(t *testing.T) {
+			// Arrange
 			installRoot := t.TempDir()
 			writeCurrentDeployment(t, installRoot, "v1.0.0")
 			server := releaseServer(t, "v1.1.0", "amd64", releaseBundle(t, "v1.1.0"), "")
@@ -185,9 +230,13 @@ func TestPreparedHACompletionUsesPreparedStateAndRecoversFailedTakeover(t *testi
 				runner.fail = map[string]error{"wait-takeover": os.ErrDeadlineExceeded}
 				runner.mu.Unlock()
 			}
+
+			// Act
 			_, err = manager.TriggerPreparedWithID("v1.1.0", "22222222-2222-4222-8222-222222222222", false, true, true)
 			require.NoError(t, err)
 			result := waitPreparedOperation(t, manager)
+
+			// Assert
 			require.True(t, result.Prepared)
 			require.True(t, result.Complete)
 			commands := runner.Commands()
@@ -222,4 +271,63 @@ func TestPreparedHACompletionUsesPreparedStateAndRecoversFailedTakeover(t *testi
 			}, activation)
 		})
 	}
+}
+
+func TestPreparedHAActivationRetryReusesPreparationAfterFailedTakeover(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	server := releaseServer(t, "v1.1.0", "amd64", releaseBundle(t, "v1.1.0"), "")
+	runner := &haRecordingRunner{}
+	manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) { cfg.DeploymentMode = DeploymentModeHA })
+	_, err := manager.TriggerPreparedWithID("v1.1.0", "11111111-1111-4111-8111-111111111111", true, false, false)
+	require.NoError(t, err)
+	require.Equal(t, updaterapi.PhaseSucceeded, waitPreparedOperation(t, manager).Phase)
+	server.Close() // A retry must not download the release again.
+	runner.mu.Lock()
+	runner.fail = map[string]error{"wait-takeover": os.ErrDeadlineExceeded}
+	runner.mu.Unlock()
+	_, err = manager.TriggerPreparedWithID("v1.1.0", "22222222-2222-4222-8222-222222222222", false, true, true)
+	require.NoError(t, err)
+	failed := waitPreparedOperation(t, manager)
+	require.Equal(t, updaterapi.PhaseFailed, failed.Phase)
+	require.Contains(t, failed.Error, "previous release restarted")
+	require.DirExists(t, filepath.Join(installRoot, preparedDirectoryName))
+
+	// Act
+	_, err = manager.TriggerPreparedWithID("v1.1.0", "33333333-3333-4333-8333-333333333333", false, true, true)
+	require.NoError(t, err)
+	retried := waitPreparedOperation(t, manager)
+
+	// Assert
+	require.Equal(t, updaterapi.PhaseSucceeded, retried.Phase, retried.Error)
+	require.Equal(t, "v1.1.0", mustInstalledVersion(t, installRoot))
+	require.NoDirExists(t, filepath.Join(installRoot, preparedDirectoryName))
+	preflights := 0
+	for _, command := range runner.Commands() {
+		if command.Args[0] == "update-preflight" {
+			preflights++
+		}
+	}
+	require.Equal(t, 1, preflights)
+}
+
+func TestHAUpdateRemovesAbandonedPreparedRelease(t *testing.T) {
+	// Arrange
+	installRoot := t.TempDir()
+	writeCurrentDeployment(t, installRoot, "v1.0.0")
+	preparedRoot := filepath.Join(installRoot, preparedDirectoryName)
+	require.NoError(t, os.Mkdir(preparedRoot, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(preparedRoot, "stale"), []byte("stale"), 0o600))
+	server := releaseServer(t, "v1.1.0", "amd64", releaseBundle(t, "v1.1.0"), "")
+	manager := newTestManagerWithConfig(t, installRoot, server, &haRecordingRunner{}, func(cfg *Config) { cfg.DeploymentMode = DeploymentModeHA })
+
+	// Act
+	_, err := manager.TriggerWithID("v1.1.0", "11111111-1111-4111-8111-111111111111")
+	require.NoError(t, err)
+	result := waitPreparedOperation(t, manager)
+
+	// Assert
+	require.Equal(t, updaterapi.PhaseSucceeded, result.Phase, result.Error)
+	require.NoDirExists(t, preparedRoot)
 }

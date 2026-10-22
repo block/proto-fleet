@@ -11,7 +11,10 @@ import (
 func TestPreparedImagesAreInspectedWithoutPullOrLoad(t *testing.T) {
 	for _, missing := range []bool{false, true} {
 		t.Run(map[bool]string{false: "available", true: "pruned"}[missing], func(t *testing.T) {
+			// Arrange
 			calls := 0
+
+			// Act
 			err := checkApplicationImages(t.Context(), "/release", nil, func(_ context.Context, args []string) ([]byte, error) {
 				require.Contains(t, args, "--images")
 				require.Contains(t, args, "fleet-api")
@@ -25,6 +28,8 @@ func TestPreparedImagesAreInspectedWithoutPullOrLoad(t *testing.T) {
 				}
 				return []byte("[]"), nil
 			})
+
+			// Assert
 			require.Equal(t, 1, calls)
 			if missing {
 				require.ErrorContains(t, err, "no longer available")

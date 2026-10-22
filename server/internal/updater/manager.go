@@ -1117,7 +1117,7 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 	if m.cfg.NewID == nil {
 		return updaterapi.Operation{}, fmt.Errorf("generate updater operation id: generator is not configured")
 	}
-	return m.trigger(targetVersion, m.cfg.NewID(), false, false, false, false)
+	return m.trigger(targetVersion, m.cfg.NewID(), false, updateModeStandard)
 }
 
 // TriggerWithID accepts a caller-generated UUID so a client that loses the
@@ -1125,26 +1125,31 @@ func (m *Manager) Trigger(targetVersion string) (updaterapi.Operation, error) {
 // guessing by target or time. Reusing the ID for the same target is
 // idempotent; reusing it for another target is rejected.
 func (m *Manager) TriggerWithID(targetVersion, operationID string) (updaterapi.Operation, error) {
-	return m.triggerWithID(targetVersion, operationID, false, false, false)
+	return m.triggerWithID(targetVersion, operationID, updateModeStandard)
 }
 
 func (m *Manager) TriggerCompleteWithID(targetVersion, operationID string) (updaterapi.Operation, error) {
-	return m.triggerWithID(targetVersion, operationID, true, false, false)
+	return m.triggerWithID(targetVersion, operationID, updateModeComplete)
 }
 
 func (m *Manager) TriggerPreparedWithID(targetVersion, operationID string, prepareOnly, prepared, complete bool) (updaterapi.Operation, error) {
-	return m.triggerWithID(targetVersion, operationID, complete, prepareOnly, prepared)
+	mode, err := newUpdateMode(prepareOnly, prepared, complete)
+	if err != nil {
+		return updaterapi.Operation{}, err
+	}
+	return m.triggerWithID(targetVersion, operationID, mode)
 }
 
-func (m *Manager) triggerWithID(targetVersion, operationID string, complete, prepareOnly, prepared bool) (updaterapi.Operation, error) {
+func (m *Manager) triggerWithID(targetVersion, operationID string, mode updateMode) (updaterapi.Operation, error) {
 	parsedID, err := uuid.Parse(operationID)
 	if err != nil || parsedID == uuid.Nil || parsedID.String() != operationID {
 		return updaterapi.Operation{}, newTriggerError(errTriggerInvalid, "operation id must be a canonical UUID")
 	}
-	return m.trigger(targetVersion, operationID, true, complete, prepareOnly, prepared)
+	return m.trigger(targetVersion, operationID, true, mode)
 }
 
-func (m *Manager) trigger(targetVersion, operationID string, idempotent, complete, prepareOnly, prepared bool) (updaterapi.Operation, error) {
+func (m *Manager) trigger(targetVersion, operationID string, idempotent bool, mode updateMode) (updaterapi.Operation, error) {
+	complete, prepareOnly, prepared := mode.complete(), mode.prepareOnly(), mode.prepared()
 	if operationID == "" {
 		return updaterapi.Operation{}, fmt.Errorf("generate updater operation id: empty value")
 	}
@@ -1153,9 +1158,6 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 			errTriggerInvalid,
 			"target version must be a valid semantic release tag",
 		)
-	}
-	if prepareOnly && (prepared || complete) {
-		return updaterapi.Operation{}, newTriggerError(errTriggerInvalid, "prepare-only cannot be combined with prepared or complete")
 	}
 	if (prepareOnly || prepared) && m.cfg.DeploymentMode != DeploymentModeHA {
 		return updaterapi.Operation{}, newTriggerError(errTriggerPrecondition, "prepared updates require HA deployment mode")
@@ -1301,9 +1303,48 @@ func (m *Manager) trigger(targetVersion, operationID string, idempotent, complet
 	go func() {
 		defer m.operationWG.Done()
 		defer m.finishOperation()
-		m.run(operationCtx, operationCopy.ID, operationCopy.StartedAt, targetVersion, complete, prepareOnly, prepared)
+		m.run(operationCtx, operationCopy.ID, operationCopy.StartedAt, targetVersion, mode)
 	}()
 	return operationCopy, nil
+}
+
+// updateMode makes the invalid prepare-only combinations unrepresentable
+// after the API edge maps the request flags once.
+type updateMode int
+
+const (
+	updateModeStandard updateMode = iota
+	updateModeComplete
+	updateModePrepareOnly
+	updateModePrepared
+	updateModePreparedComplete
+)
+
+func newUpdateMode(prepareOnly, prepared, complete bool) (updateMode, error) {
+	switch {
+	case prepareOnly && (prepared || complete):
+		return 0, newTriggerError(errTriggerInvalid, "prepare-only cannot be combined with prepared or complete")
+	case prepareOnly:
+		return updateModePrepareOnly, nil
+	case prepared && complete:
+		return updateModePreparedComplete, nil
+	case prepared:
+		return updateModePrepared, nil
+	case complete:
+		return updateModeComplete, nil
+	default:
+		return updateModeStandard, nil
+	}
+}
+
+func (m updateMode) complete() bool {
+	return m == updateModeComplete || m == updateModePreparedComplete
+}
+
+func (m updateMode) prepareOnly() bool { return m == updateModePrepareOnly }
+
+func (m updateMode) prepared() bool {
+	return m == updateModePrepared || m == updateModePreparedComplete
 }
 
 func isCanonicalRelease(version string) bool {
@@ -1317,7 +1358,8 @@ func (m *Manager) finishOperation() {
 	m.cancelOperation = nil
 }
 
-func (m *Manager) run(ctx context.Context, operationID string, startedAt time.Time, targetVersion string, complete, prepareOnly, prepared bool) {
+func (m *Manager) run(ctx context.Context, operationID string, startedAt time.Time, targetVersion string, mode updateMode) {
+	complete, prepareOnly, prepared := mode.complete(), mode.prepareOnly(), mode.prepared()
 	logName := operationLogFilename(operationID, startedAt)
 	logPath := filepath.Join(m.cfg.StateDir, "logs", logName)
 	logFile, err := m.logRoot.OpenFile(logName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
@@ -1453,11 +1495,6 @@ func (m *Manager) run(ctx context.Context, operationID string, startedAt time.Ti
 				return
 			}
 			defer os.Remove(preparedUpdaterPath)
-			defer func() {
-				if preparedUpdater != nil {
-					_ = preparedUpdater.Close()
-				}
-			}()
 		}
 		if err := extractArchiveWithUpdaterCopy(
 			ctx,
@@ -1508,7 +1545,18 @@ func (m *Manager) run(ctx context.Context, operationID string, startedAt time.Ti
 				return
 			}
 			if preparedUpdater != nil {
-				if err := m.validateUpdaterCandidate(ctx, preparedUpdater.Name(), targetVersion); err != nil {
+				// execve fails with ETXTBSY while any writer holds the file open.
+				updaterPath := preparedUpdater.Name()
+				if err := preparedUpdater.Close(); err != nil {
+					m.fail(operationID, fmt.Errorf("close prepared updater writer: %w", err), "")
+					return
+				}
+				preparedUpdater, err = os.Open(updaterPath)
+				if err != nil {
+					m.fail(operationID, fmt.Errorf("reopen prepared updater: %w", err), "")
+					return
+				}
+				if err := m.validateUpdaterCandidate(ctx, updaterPath, targetVersion); err != nil {
 					m.fail(operationID, err, "")
 					return
 				}
@@ -1585,9 +1633,6 @@ func (m *Manager) run(ctx context.Context, operationID string, startedAt time.Ti
 	if err := m.beginActivation(operationID, "Restarting the local Fleet application"); err != nil {
 		m.fail(operationID, fmt.Errorf("persist activation phase: %w", err), recovery)
 		return
-	}
-	if prepared {
-		defer os.RemoveAll(stageRoot)
 	}
 	activationCtx, cancelActivation := context.WithTimeout(ctx, m.cfg.ActivationTimeout)
 	defer cancelActivation()
@@ -1699,6 +1744,12 @@ func (m *Manager) run(ctx context.Context, operationID string, startedAt time.Ti
 		} else {
 			selfUpdateSucceeded = true
 		}
+	}
+
+	// A failed prepared activation keeps the directory for retry; the digest
+	// check rejects it if activation already consumed the staged tree.
+	if err := os.RemoveAll(filepath.Join(m.cfg.InstallRoot, preparedDirectoryName)); err != nil {
+		_, _ = fmt.Fprintf(logFile, "[%s] warning: Fleet is healthy, but the prepared release directory was not removed: %v\n", m.cfg.Now().UTC().Format(time.RFC3339), err)
 	}
 
 	if err := m.succeed(operationID, successMessage, selfUpdateSucceeded); err != nil {

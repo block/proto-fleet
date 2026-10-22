@@ -18,10 +18,12 @@ import (
 )
 
 type fakeUpdaterClient struct {
-	triggered  bool
-	complete   bool
-	triggerErr error
-	operation  updaterapi.Operation
+	triggered   bool
+	complete    bool
+	prepareOnly bool
+	prepared    bool
+	triggerErr  error
+	operation   updaterapi.Operation
 }
 
 func TestExternalCommandsParseWithoutInteractiveInput(t *testing.T) {
@@ -358,11 +360,14 @@ func TestCompleteUpdateRequiresActiveAndUsesCompletionRequest(t *testing.T) {
 }
 
 func (f *fakeUpdaterClient) Prepare(ctx context.Context, id, version string) (updaterapi.Operation, error) {
+	f.prepareOnly = true
 	operation, err := f.Trigger(ctx, id, version)
 	operation.PrepareOnly = true
 	return operation, err
 }
 func (f *fakeUpdaterClient) TriggerPrepared(ctx context.Context, id, version string, complete bool) (updaterapi.Operation, error) {
+	f.prepared = true
+	f.complete = complete
 	operation, err := f.Trigger(ctx, id, version)
 	operation.Prepared = true
 	operation.Complete = complete
@@ -377,10 +382,15 @@ func TestPreparedUpdateFlagsParse(t *testing.T) {
 		{"update", "v1.2.3", "--prepared", "--complete"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			// Arrange
 			var parsed cli
 			parser, err := kong.New(&parsed, kong.Vars{"default_node_env": defaultNodeEnv, "default_firewall_template": defaultFirewallTemplate})
 			require.NoError(t, err)
+
+			// Act
 			_, err = parser.Parse(args)
+
+			// Assert
 			require.NoError(t, err)
 			require.Equal(t, args[1] == "--capabilities", parsed.Update.Capabilities)
 			if len(args) > 2 {
@@ -389,6 +399,78 @@ func TestPreparedUpdateFlagsParse(t *testing.T) {
 			require.Equal(t, slices.Contains(args, "--prepare-only"), parsed.Update.PrepareOnly)
 			require.Equal(t, slices.Contains(args, "--prepared"), parsed.Update.Prepared)
 			require.Equal(t, slices.Contains(args, "--complete"), parsed.Update.Complete)
+		})
+	}
+}
+
+func TestUpdateCapabilitiesOutput(t *testing.T) {
+	// Arrange
+	var output bytes.Buffer
+
+	// Act
+	err := writeUpdateCapabilities(&output)
+
+	// Assert
+	require.NoError(t, err)
+	require.JSONEq(t, `{"capabilities":["prepared-update-v1"]}`, output.String())
+	require.True(t, strings.HasSuffix(output.String(), "\n"))
+}
+
+func TestUpdateCommandRejectsInvalidFlagCombinations(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		command updateCmd
+		wantErr string
+	}{
+		{name: "capabilities with version", command: updateCmd{Capabilities: true, Version: "v1.2.3"}, wantErr: "--capabilities cannot be combined"},
+		{name: "capabilities with complete", command: updateCmd{Capabilities: true, Complete: true}, wantErr: "--capabilities cannot be combined"},
+		{name: "capabilities with prepare-only", command: updateCmd{Capabilities: true, PrepareOnly: true}, wantErr: "--capabilities cannot be combined"},
+		{name: "capabilities with prepared", command: updateCmd{Capabilities: true, Prepared: true}, wantErr: "--capabilities cannot be combined"},
+		{name: "missing version", command: updateCmd{}, wantErr: "target application version is required"},
+		{name: "prepare-only with prepared", command: updateCmd{Version: "v1.2.3", PrepareOnly: true, Prepared: true}, wantErr: "--prepare-only cannot be combined"},
+		{name: "prepare-only with complete", command: updateCmd{Version: "v1.2.3", PrepareOnly: true, Complete: true}, wantErr: "--prepare-only cannot be combined"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			command := tc.command
+
+			// Act
+			err := command.Run(t.Context())
+
+			// Assert
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestRunUpdateModeDispatchesToRequestedUpdaterOperation(t *testing.T) {
+	for _, tc := range []struct {
+		name                            string
+		complete, prepareOnly, prepared bool
+		wantComplete                    bool
+	}{
+		{name: "prepare only", prepareOnly: true},
+		{name: "prepared", prepared: true},
+		{name: "prepared complete", prepared: true, complete: true, wantComplete: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			client := &fakeUpdaterClient{}
+			var preflightComplete bool
+
+			// Act
+			err := runUpdateMode(t.Context(), "v1.2.3", tc.complete, tc.prepareOnly, tc.prepared, &bytes.Buffer{},
+				func(_ context.Context, _, _ string, complete bool) error {
+					preflightComplete = complete
+					return nil
+				}, client)
+
+			// Assert
+			require.NoError(t, err)
+			require.Equal(t, tc.prepareOnly, client.prepareOnly)
+			require.Equal(t, tc.prepared, client.prepared)
+			require.Equal(t, tc.wantComplete, client.complete)
+			require.Equal(t, tc.complete, preflightComplete)
 		})
 	}
 }

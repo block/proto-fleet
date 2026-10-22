@@ -57,10 +57,7 @@ func ValidatePassiveUpdate(ctx context.Context, envPath, targetVersion string) e
 	if err != nil {
 		return err
 	}
-	peerAddress := config.DatabaseAIP
-	if config.NodeIP == config.DatabaseAIP {
-		peerAddress = config.DatabaseBIP
-	}
+	peerAddress := config.peerAddress()
 	peer := probeFleetHost(ctx, tlsConfig, config.hostCertificateIdentity(peerAddress), peerAddress)
 	if !peer.reachable || !peer.active || (peer.version != report.Runtime.Version && peer.version != targetVersion) {
 		return fmt.Errorf("HA application update requires the active peer to run %s or %s", report.Runtime.Version, targetVersion)
@@ -114,10 +111,7 @@ func requireUpdatedPeer(ctx context.Context, envPath, targetVersion string) erro
 	if err != nil {
 		return err
 	}
-	peerAddress := config.DatabaseAIP
-	if config.NodeIP == config.DatabaseAIP {
-		peerAddress = config.DatabaseBIP
-	}
+	peerAddress := config.peerAddress()
 	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
 	if err != nil {
 		return err
@@ -316,10 +310,7 @@ func StartApplication(ctx context.Context, root, targetVersion string, requirePa
 		return fmt.Errorf("verify local HA application is stopped: %w", statusErr)
 	}
 	if err := startApplicationWithCooldown(ctx, controlledStartToken, requirePassive, statusErr, func() fleetHostStatus {
-		peerAddress := config.DatabaseAIP
-		if config.NodeIP == config.DatabaseAIP {
-			peerAddress = config.DatabaseBIP
-		}
+		peerAddress := config.peerAddress()
 		return probeFleetHost(ctx, tlsConfig, config.hostCertificateIdentity(peerAddress), peerAddress)
 	}, func() error {
 		return startFleetApplication(ctx, root, "-d", "--no-deps", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "60")

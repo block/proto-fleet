@@ -13,6 +13,8 @@ import (
 // This token coordinates a one-shot startup; it is not a credential.
 const controlledStartToken = "/run/proto-fleet-ha/controlled-start/passive" // #nosec G101 -- one-shot startup coordination path, not a credential.
 
+var controlledStartAckTimeout = 5 * time.Second
+
 func clearControlledStartToken(path string) error {
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("clear controlled passive start: %w", err)
@@ -69,8 +71,11 @@ func controlledPassiveStart(ctx context.Context, tokenPath string, skipCooldown 
 	return waitForControlledStart(ctx, tokenPath)
 }
 
+// A container that is already running or restart-sleeping is not re-executed by
+// `docker compose up`, so it never consumes the token. Treat an unacknowledged
+// token as a start that kept the ordinary cooldown, not as a failed start.
 func waitForControlledStart(ctx context.Context, tokenPath string) error {
-	ackCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ackCtx, cancel := context.WithTimeout(ctx, controlledStartAckTimeout)
 	defer cancel()
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
@@ -84,7 +89,10 @@ func waitForControlledStart(ctx context.Context, tokenPath string) error {
 		}
 		select {
 		case <-ackCtx.Done():
-			return fmt.Errorf("container did not consume controlled passive start token: %w", ackCtx.Err())
+			if ctx.Err() == nil {
+				return nil
+			}
+			return fmt.Errorf("wait for controlled passive start acknowledgement: %w", ctx.Err())
 		case <-ticker.C:
 		}
 	}

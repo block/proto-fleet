@@ -1,6 +1,7 @@
 package deployment
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 )
 
 func TestControlledPassiveStartConsumesTokenOnlyOnce(t *testing.T) {
+	// Arrange
 	// Execute the actual Compose entrypoint with lightweight sleep/fleetd stubs;
 	// the second invocation models Docker's on-failure restart of the same command.
 	model, err := os.ReadFile("../../../../deployment-files/ha/fleet-compose.yaml")
@@ -42,22 +44,33 @@ func TestControlledPassiveStartConsumesTokenOnlyOnce(t *testing.T) {
 		cmd.Env = append(os.Environ(), "PATH="+root+":"+os.Getenv("PATH"))
 		return cmd.Run()
 	}
+
+	// Act
 	require.NoError(t, controlledPassiveStart(t.Context(), token, true, start))
 	contents, err := os.ReadFile(calls)
 	require.NoError(t, err)
+
+	// Assert
 	require.Equal(t, "fleetd\n", string(contents))
+
+	// Act
 	require.NoError(t, start())
 	contents, err = os.ReadFile(calls)
 	require.NoError(t, err)
+
+	// Assert
 	require.Equal(t, "fleetd\nsleep\nfleetd\n", string(contents))
 }
 
 func TestControlledPassiveStartClearsTokenOnFailedOrNormalStart(t *testing.T) {
 	for _, skip := range []bool{false, true} {
 		t.Run(map[bool]string{false: "normal", true: "controlled"}[skip], func(t *testing.T) {
+			// Arrange
 			path := filepath.Join(t.TempDir(), "passive")
 			require.NoError(t, os.WriteFile(path, []byte("stale"), 0600))
 			startErr := errors.New("Compose failed before starting the container")
+
+			// Act
 			err := controlledPassiveStart(t.Context(), path, skip, func() error {
 				_, err := os.Stat(path)
 				if skip {
@@ -67,6 +80,8 @@ func TestControlledPassiveStartClearsTokenOnFailedOrNormalStart(t *testing.T) {
 				}
 				return startErr
 			})
+
+			// Assert
 			require.ErrorIs(t, err, startErr)
 			_, err = os.Stat(path)
 			require.ErrorIs(t, err, os.ErrNotExist)
@@ -75,8 +90,11 @@ func TestControlledPassiveStartClearsTokenOnFailedOrNormalStart(t *testing.T) {
 }
 
 func TestControlledPassiveStartWaitsForAsynchronousContainerConsumption(t *testing.T) {
+	// Arrange
 	path := filepath.Join(t.TempDir(), "passive")
 	consumed := make(chan error, 1)
+
+	// Act
 	err := controlledPassiveStart(t.Context(), path, true, func() error {
 		go func() {
 			time.Sleep(30 * time.Millisecond)
@@ -84,11 +102,14 @@ func TestControlledPassiveStartWaitsForAsynchronousContainerConsumption(t *testi
 		}()
 		return nil // Docker can report running before scheduling the entrypoint.
 	})
+
+	// Assert
 	require.NoError(t, err)
 	require.NoError(t, <-consumed, "the entrypoint must consume the token before cleanup")
 }
 
 func TestApplicationCooldownRequiresStoppedPassiveAndActivePeer(t *testing.T) {
+	// Arrange
 	active := fleetHostStatus{reachable: true, active: true, version: "v1.0.0"}
 	for _, tc := range []struct {
 		name      string
@@ -107,8 +128,11 @@ func TestApplicationCooldownRequiresStoppedPassiveAndActivePeer(t *testing.T) {
 		{name: "unversioned peer", passive: true, statusErr: syscall.ECONNREFUSED, peer: fleetHostStatus{reachable: true, active: true}, wantProbe: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
 			path := filepath.Join(t.TempDir(), "passive")
 			probed, started := false, false
+
+			// Act
 			err := startApplicationWithCooldown(t.Context(), path, tc.passive, tc.statusErr, func() fleetHostStatus {
 				probed = true
 				return tc.peer
@@ -122,9 +146,70 @@ func TestApplicationCooldownRequiresStoppedPassiveAndActivePeer(t *testing.T) {
 				require.ErrorIs(t, err, os.ErrNotExist)
 				return nil
 			})
+
+			// Assert
 			require.NoError(t, err)
 			require.True(t, started)
 			require.Equal(t, tc.wantProbe, probed)
 		})
 	}
+}
+
+func TestControlledPassiveStartRejectsUntrustedTokenDirectory(t *testing.T) {
+	// Arrange
+	directory := filepath.Join(t.TempDir(), "controlled-start")
+	require.NoError(t, os.Mkdir(directory, 0700))
+	require.NoError(t, os.Chmod(directory, 0777)) // #nosec G302 -- deliberately untrusted directory under test.
+	path := filepath.Join(directory, "passive")
+	started := false
+
+	// Act
+	err := controlledPassiveStart(t.Context(), path, true, func() error {
+		started = true
+		return nil
+	})
+
+	// Assert
+	require.ErrorContains(t, err, "must be trusted")
+	require.False(t, started)
+	_, statErr := os.Stat(path)
+	require.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+func TestControlledPassiveStartIgnoresUnconsumedTokenAfterAckTimeout(t *testing.T) {
+	// Arrange
+	previous := controlledStartAckTimeout
+	controlledStartAckTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { controlledStartAckTimeout = previous })
+	path := filepath.Join(t.TempDir(), "passive")
+	started := false
+
+	// Act
+	err := controlledPassiveStart(t.Context(), path, true, func() error {
+		started = true
+		return nil // An already-running container is not re-executed, so nothing consumes the token.
+	})
+
+	// Assert
+	require.NoError(t, err)
+	require.True(t, started)
+	_, statErr := os.Stat(path)
+	require.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+func TestControlledPassiveStartReportsCancelledWaitForAcknowledgement(t *testing.T) {
+	// Arrange
+	path := filepath.Join(t.TempDir(), "passive")
+	ctx, cancel := context.WithCancel(t.Context())
+
+	// Act
+	err := controlledPassiveStart(ctx, path, true, func() error {
+		cancel()
+		return nil
+	})
+
+	// Assert
+	require.ErrorIs(t, err, context.Canceled)
+	_, statErr := os.Stat(path)
+	require.ErrorIs(t, statErr, os.ErrNotExist)
 }

@@ -477,6 +477,81 @@ func TestManagerHACompletionWaitsForUpdatedPeerBeforeSwap(t *testing.T) {
 	require.ErrorContains(t, err, "operation id is already associated with another update")
 }
 
+func TestManagerTriggerRejectsInvalidPreparedModes(t *testing.T) {
+	tests := []struct {
+		name        string
+		mode        DeploymentMode
+		prepareOnly bool
+		prepared    bool
+		complete    bool
+		wantKind    error
+		wantMessage string
+	}{
+		{name: "prepare-only with prepared", mode: DeploymentModeHA, prepareOnly: true, prepared: true, wantKind: errTriggerInvalid, wantMessage: "prepare-only cannot be combined"},
+		{name: "prepare-only with complete", mode: DeploymentModeHA, prepareOnly: true, complete: true, wantKind: errTriggerInvalid, wantMessage: "prepare-only cannot be combined"},
+		{name: "prepare-only outside HA", prepareOnly: true, wantKind: errTriggerPrecondition, wantMessage: "prepared updates require HA deployment mode"},
+		{name: "prepared outside HA", prepared: true, wantKind: errTriggerPrecondition, wantMessage: "prepared updates require HA deployment mode"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			installRoot := t.TempDir()
+			writeCurrentDeployment(t, installRoot, "v1.0.0")
+			server := releaseServer(t, "v1.1.0", "amd64", releaseBundle(t, "v1.1.0"), "")
+			runner := &haRecordingRunner{}
+			manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+				if tc.mode != "" {
+					cfg.DeploymentMode = tc.mode
+				}
+			})
+
+			// Act
+			_, err := manager.TriggerPreparedWithID("v1.1.0", "11111111-1111-4111-8111-111111111111", tc.prepareOnly, tc.prepared, tc.complete)
+
+			// Assert
+			require.ErrorIs(t, err, tc.wantKind)
+			assert.ErrorContains(t, err, tc.wantMessage)
+			assert.Empty(t, runner.Commands())
+		})
+	}
+}
+
+func TestManagerTriggerRejectsOperationIDReusedWithFlippedModes(t *testing.T) {
+	tests := []struct {
+		name     string
+		prepared bool
+		complete bool
+	}{
+		{name: "prepare-only resent as prepared", prepared: true},
+		{name: "prepare-only resent as ordinary"},
+		{name: "prepare-only resent as complete", complete: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			installRoot := t.TempDir()
+			writeCurrentDeployment(t, installRoot, "v1.0.0")
+			server := releaseServer(t, "v1.1.0", "amd64", releaseBundle(t, "v1.1.0"), "")
+			runner := &haRecordingRunner{}
+			manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+				cfg.DeploymentMode = DeploymentModeHA
+			})
+			const operationID = "11111111-1111-4111-8111-111111111111"
+			_, err := manager.TriggerPreparedWithID("v1.1.0", operationID, true, false, false)
+			require.NoError(t, err)
+			waitForTerminal(t, manager)
+			manager.operationWG.Wait()
+
+			// Act
+			_, err = manager.TriggerPreparedWithID("v1.1.0", operationID, false, tc.prepared, tc.complete)
+
+			// Assert
+			require.ErrorIs(t, err, errTriggerInvalid)
+			assert.ErrorContains(t, err, "operation id is already associated with another update")
+		})
+	}
+}
+
 func TestManagerHACompletionRestartsOldReleaseWhenTakeoverFails(t *testing.T) {
 	// Arrange
 	installRoot := t.TempDir()

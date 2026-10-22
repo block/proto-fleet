@@ -221,15 +221,19 @@ type updateCmd struct {
 	Complete     bool   `help:"complete the update through failover from the active host"`
 }
 
+func writeUpdateCapabilities(output io.Writer) error {
+	if err := json.NewEncoder(output).Encode(map[string][]string{"capabilities": {updaterapi.CapabilityPreparedUpdateV1}}); err != nil {
+		return fmt.Errorf("write update capabilities: %w", err)
+	}
+	return nil
+}
+
 func (c *updateCmd) Run(ctx context.Context) error {
 	if c.Capabilities {
 		if c.Version != "" || c.Complete || c.PrepareOnly || c.Prepared {
 			return errors.New("--capabilities cannot be combined with an update")
 		}
-		if err := json.NewEncoder(os.Stdout).Encode(map[string][]string{"capabilities": {updaterapi.CapabilityPreparedUpdateV1}}); err != nil {
-			return fmt.Errorf("write update capabilities: %w", err)
-		}
-		return nil
+		return writeUpdateCapabilities(os.Stdout)
 	}
 	if c.Version == "" {
 		return errors.New("target application version is required")
