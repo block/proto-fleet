@@ -240,6 +240,25 @@ func TestTeamInvitationInvalidatedWhenRoleChanges(t *testing.T) {
 	require.Equal(t, invpb.TeamInvitationStatus_TEAM_INVITATION_STATUS_UNAVAILABLE, f.teamInvitationStatus(t, deleted.Invitation.InvitationId).Status)
 }
 
+func TestTeamInvitationStaysInvalidWhenAnEmptyRoleIsRestored(t *testing.T) {
+	f := newRPCFixture(t)
+	roles := authz.NewService(f.db, nil)
+	role, err := roles.CreateCustomRole(t.Context(), f.host, f.org, "Visitors", "", nil)
+	require.NoError(t, err)
+	issued := f.teamInvite(t, f.cookie, role.ID)
+	_, err = f.invitations.PreviewInvitation(t.Context(), rpcRequest(&invpb.PreviewInvitationRequest{Token: issued.Token}, "", ""))
+	require.NoError(t, err, "a role without permissions can be invited")
+	_, err = roles.UpdateCustomRole(t.Context(), f.host, f.org, role.ID, "Visitors", "", []string{authz.PermFleetRead})
+	require.NoError(t, err)
+	_, err = roles.UpdateCustomRole(t.Context(), f.host, f.org, role.ID, "Visitors", "", nil)
+	require.NoError(t, err)
+	_, err = f.invitations.PreviewInvitation(t.Context(), rpcRequest(&invpb.PreviewInvitationRequest{Token: issued.Token}, "", ""))
+	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err), "emptying the role again does not revive the code")
+	require.Equal(t, invpb.TeamInvitationStatus_TEAM_INVITATION_STATUS_UNAVAILABLE, f.teamInvitationStatus(t, issued.Invitation.InvitationId).Status)
+	_, err = f.invitations.RegisterInvitedUser(t.Context(), rpcRequest(&invpb.RegisterInvitedUserRequest{Token: issued.Token, Username: "revived-visitor", Password: rpcPassword}, "", ""))
+	require.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+}
+
 func TestTeamInvitationRevocation(t *testing.T) {
 	f := newRPCFixture(t)
 	issued := f.teamInvite(t, f.cookie, f.builtinRoleID(t, authz.BuiltinKeyFieldTech))

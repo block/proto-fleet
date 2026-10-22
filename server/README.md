@@ -315,16 +315,17 @@ Team invitations grant an organization role. Issuance requires `user:manage` and
 the same role hierarchy as direct role assignment; Super Admin cannot be invited.
 Each invitation stores an **authority fingerprint** from the SQL function
 `team_invitation_authority_fingerprint` (migration 1036). It covers the invited
-role's permissions and the inviter's live role assignments, including each
-assigned role's permissions. Issuance, preview, acceptance and listing all
-compare against that one function. Any later change to either side invalidates
-the code **permanently**: role changes replace assignment rows, and
-`role_permission` rows are only inserted or deleted, so a removed and restored
-permission returns with a new row version (`xmin`). Re-promoting an inviter or
-reverting a role edit therefore never revives a code. Preview and acceptance also
-recheck the inviter's live hierarchy and reject a deleted role. Startup
-reconciliation leaves existing `role_permission` rows untouched, so restarts keep
-codes valid, but a release that adds permissions to a built-in role invalidates
+role's `permission_revision` and the inviter's live role assignments, including
+each assigned role's revision. A trigger increments `role.permission_revision`
+on every `role_permission` write, so revisions only grow. Issuance, preview,
+acceptance and listing all compare against that one function. Any later change
+to either side invalidates the code **permanently**: role changes replace
+assignment rows, and a reverted permission edit, including one that empties a
+role again, still leaves a higher revision. Re-promoting an inviter or reverting
+a role edit therefore never revives a code. Preview and acceptance also recheck
+the inviter's live hierarchy and reject a deleted role. Startup reconciliation
+writes no `role_permission` row for permissions a role already has, so restarts
+keep codes valid, but a release that adds permissions to a built-in role invalidates
 outstanding invitations for that role, and for inviters who hold it; release
 notes for such releases must say so. Acceptance runs under the organization lock
 shared with membership and role writes. A signed-in login in the same organization without a team role keeps its

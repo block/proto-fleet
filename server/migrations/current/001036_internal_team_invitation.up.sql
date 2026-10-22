@@ -1,32 +1,46 @@
 -- requires-shared: 1000
 -- Host team invitations grant an organization role on acceptance.
 --
--- The authority fingerprint witnesses the invited role's permissions and the
--- inviter's live role assignments, including each assigned role's permissions.
+-- role.permission_revision counts every write to a role's permission rows, so
+-- it only grows, even when an edit restores an earlier or empty permission set.
+-- Startup reconciliation inserts with ON CONFLICT DO NOTHING, which writes no
+-- row for permissions a role already has and leaves the revision unchanged.
+ALTER TABLE role ADD COLUMN permission_revision BIGINT NOT NULL DEFAULT 1
+    CHECK (permission_revision > 0);
+
+CREATE FUNCTION bump_role_permission_revision() RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP <> 'INSERT' THEN
+        UPDATE role SET permission_revision = permission_revision + 1 WHERE id = OLD.role_id;
+    END IF;
+    IF TG_OP <> 'DELETE' THEN
+        UPDATE role SET permission_revision = permission_revision + 1 WHERE id = NEW.role_id;
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER role_permission_revision AFTER INSERT OR UPDATE OR DELETE ON role_permission
+    FOR EACH ROW EXECUTE FUNCTION bump_role_permission_revision();
+
+-- The authority fingerprint witnesses the invited role's permission revision
+-- and the inviter's live role assignments with each assigned role's revision.
 -- Any change to either invalidates an invitation permanently: role changes
--- replace assignment rows, and role_permission rows are only ever inserted or
--- deleted, so a removed and restored permission returns with a new xmin.
--- Startup reconciliation updates built-in role rows but leaves existing
--- role_permission rows untouched, so restarts do not invalidate invitations.
+-- replace assignment rows, and revisions never repeat.
 CREATE FUNCTION team_invitation_authority_fingerprint(
     target_role_id BIGINT, inviter_user_id BIGINT, target_organization_id BIGINT
 ) RETURNS text LANGUAGE sql STABLE AS $$
     SELECT encode(sha256(convert_to(
         'role:' || target_role_id::text || ':' || COALESCE((
-            SELECT string_agg(rp.permission_id::text || '@' || rp.xmin::text, ',' ORDER BY rp.permission_id)
-            FROM role_permission rp
-            WHERE rp.role_id = target_role_id
+            SELECT r.permission_revision::text FROM role r WHERE r.id = target_role_id
         ), '')
         || '|inviter:' || COALESCE((
             SELECT string_agg(
                 ur.id::text || ':' || ur.role_id::text || ':' || ur.scope_type || ':' || COALESCE(ur.scope_id::text, '') || ':'
-                    || COALESCE((
-                        SELECT string_agg(irp.permission_id::text || '@' || irp.xmin::text, ',' ORDER BY irp.permission_id)
-                        FROM role_permission irp
-                        WHERE irp.role_id = ur.role_id
-                    ), ''),
+                    || ir.permission_revision::text,
                 ';' ORDER BY ur.id)
             FROM user_organization_role ur
+            JOIN role ir ON ir.id = ur.role_id
             WHERE ur.user_id = inviter_user_id AND ur.organization_id = target_organization_id
                 AND ur.deleted_at IS NULL
         ), ''),
