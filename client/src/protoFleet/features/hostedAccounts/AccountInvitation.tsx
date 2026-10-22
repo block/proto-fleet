@@ -215,6 +215,7 @@ const InvitationDetails = ({ token, onCancel }: { token: string; onCancel: () =>
               </TabStrip>
               {tab === "existing" ? (
                 <LoginForm
+                  embedded
                   secondaryAction={cancel}
                   onSuccess={(requiresPasswordChange) => {
                     setNeedsPasswordChange(requiresPasswordChange);

@@ -329,6 +329,17 @@ describe("team invitations", () => {
     expect(screen.getByRole("button", { name: "Create login" })).toHaveAttribute("aria-current", "page");
   });
 
+  it("shows only credentials on the existing-login tab", async () => {
+    vi.spyOn(invitationClient, "previewInvitation").mockResolvedValue(teamPreview);
+    const user = userEvent.setup();
+    renderTeamInvitation();
+    await user.click(await screen.findByRole("button", { name: "Existing login" }));
+    expect(screen.getByLabelText("Proto Fleet username")).toBeInTheDocument();
+    expect(screen.getByText("Join the fleet team")).toBeInTheDocument();
+    expect(screen.getAllByText("Log in")).toHaveLength(1);
+    expect(screen.queryByText("Powerful mining tools. Built for decentralization.")).not.toBeInTheDocument();
+  });
+
   it("explains unusable codes and returns to code entry", async () => {
     vi.spyOn(invitationClient, "previewInvitation").mockRejectedValue(
       new ConnectError("invitation unavailable", Code.FailedPrecondition),
