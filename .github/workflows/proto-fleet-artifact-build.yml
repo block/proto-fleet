@@ -111,7 +111,7 @@ jobs:
           RELEASE_REPOSITORY: ${{ needs.metadata.outputs.release_repository }}
         run: bash deployment-files/scripts/package-release-installers.sh "$RELEASE_REPOSITORY" "$RUNNER_TEMP/release-installers"
       - name: Upload installers
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: proto-fleet-release-installers
           path: ${{ runner.temp }}/release-installers/*
@@ -164,7 +164,7 @@ jobs:
           Write-Host "Windows uninstaller prepared at $uninstallerPath"
 
       - name: Upload Windows installer artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: proto-fleet-windows-installer
           path: |
@@ -274,7 +274,7 @@ jobs:
             version.txt
 
       - name: Upload server artifact for job use
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: proto-fleet-server-artifact-${{ matrix.arch }}
           path: ./server/proto-fleet-server-${{ needs.metadata.outputs.version }}-${{ matrix.arch }}.tar.gz
@@ -373,7 +373,7 @@ jobs:
           deployment-files/fleetnode/tests/qualify-package.sh "$VERSION" "$PACKAGE_DIR"
 
       - name: Upload Fleet Node artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: fleetnode-linux-${{ matrix.arch }}
           path: |
@@ -396,7 +396,7 @@ jobs:
         uses: ./.github/actions/hermit-setup
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           cache: "npm"
           cache-dependency-path: "./client/package-lock.json"
@@ -426,7 +426,7 @@ jobs:
           tar -czf "proto-fleet-client-${VERSION}.tar.gz" dist/protoFleet
 
       - name: Upload client artifact for job use
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: proto-fleet-client-artifact
           path: ./client/proto-fleet-client-${{ needs.metadata.outputs.version }}.tar.gz
@@ -447,7 +447,7 @@ jobs:
         uses: ./.github/actions/hermit-setup
 
       - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           cache: "npm"
           cache-dependency-path: "./client/package-lock.json"
@@ -488,7 +488,7 @@ jobs:
           VERSION: ${{ needs.metadata.outputs.version }}
 
       - name: Upload ProtoOS artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: proto-os-artifact
           path: |
@@ -557,7 +557,7 @@ jobs:
           echo "${{ matrix.arch }} image size: $(du -h timescaledb-${{ matrix.arch }}.tar.gz | cut -f1)"
 
       - name: Upload TimescaleDB image artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: proto-fleet-timescaledb-${{ matrix.arch }}
           path: timescaledb-${{ matrix.arch }}.tar.gz
@@ -594,26 +594,26 @@ jobs:
           mkdir -p deployment/client
 
       - name: Download server artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: proto-fleet-server-artifact-${{ matrix.arch }}
           path: /tmp/server-artifacts
 
       - name: Download client artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: proto-fleet-client-artifact
           path: /tmp
 
       - name: Download Windows installer artifact
         if: matrix.arch == 'amd64'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: proto-fleet-windows-installer
           path: /tmp/windows-installer
 
       - name: Download TimescaleDB image artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: proto-fleet-timescaledb-${{ matrix.arch }}
           path: /tmp/timescaledb-images
@@ -740,7 +740,7 @@ jobs:
           done
 
       - name: Upload deployment bundle artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: proto-fleet-deployment-bundle-${{ matrix.arch }}
           path: |
