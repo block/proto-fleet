@@ -198,6 +198,78 @@ describe("TeamInvitations", () => {
       expect(requests).toHaveLength(3);
     });
 
+    const fail = (index: number) => {
+      act(() => {
+        requests[index].onError?.("network error");
+        requests[index].onFinally?.();
+      });
+    };
+
+    it("keeps the page and its cursor when Next fails, so a retry and Previous stay in order", async () => {
+      render(<TeamInvitations refreshKey={0} />);
+      respond(0, "first-page", "page-2");
+      fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+      await waitFor(() => expect(requests).toHaveLength(2));
+      fail(1);
+      expect(screen.getByText("first-page")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Previous" })).toBeDisabled();
+
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      await waitFor(() => expect(requests).toHaveLength(3));
+      expect(requests[2].pageToken).toBe("page-2");
+      respond(2, "second-page", "page-3");
+      fireEvent.click(await screen.findByRole("button", { name: "Previous" }));
+      await waitFor(() => expect(requests).toHaveLength(4));
+      expect(requests[3].pageToken).toBe("");
+    });
+
+    it("keeps the later page when Previous fails", async () => {
+      render(<TeamInvitations refreshKey={0} />);
+      respond(0, "first-page", "page-2");
+      fireEvent.click(await screen.findByRole("button", { name: "Next" }));
+      await waitFor(() => expect(requests).toHaveLength(2));
+      respond(1, "second-page");
+      fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+      await waitFor(() => expect(requests).toHaveLength(3));
+      fail(2);
+
+      expect(screen.getByText("second-page")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
+      fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+      await waitFor(() => expect(requests).toHaveLength(4));
+      expect(requests[3].pageToken).toBe("");
+    });
+
+    it("refreshes the page on screen when a deletion finishes after paging", async () => {
+      let finishDelete: (() => void) | undefined;
+      mockDelete.mockImplementation(({ onSuccess, onFinally }) => {
+        finishDelete = () => {
+          onSuccess?.();
+          onFinally?.();
+        };
+      });
+      render(
+        <PopoverProvider>
+          <TeamInvitations refreshKey={0} />
+        </PopoverProvider>,
+      );
+      act(() => {
+        requests[0].onSuccess?.([invitation("dead", TeamInvitationStatus.REVOKED, "first-page")], "page-2");
+        requests[0].onFinally?.();
+      });
+      fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+      fireEvent.click(screen.getByRole("button", { name: "Next" }));
+      await waitFor(() => expect(requests).toHaveLength(2));
+      respond(1, "second-page");
+
+      act(() => finishDelete?.());
+      await waitFor(() => expect(requests).toHaveLength(3));
+      expect(requests[2].pageToken).toBe("page-2");
+      respond(2, "refreshed-second-page");
+      expect(screen.getByText("refreshed-second-page")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
+    });
+
     it("ignores stale errors after unmounting the list", async () => {
       const { unmount } = render(<TeamInvitations refreshKey={0} />);
       await waitFor(() => expect(requests).toHaveLength(1));

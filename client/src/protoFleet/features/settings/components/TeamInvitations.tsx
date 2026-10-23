@@ -52,60 +52,65 @@ interface TeamInvitationsProps {
   filtersClassName?: string;
 }
 
+/** A page index and the cursors that reach every page up to it. */
+type PageView = { page: number; pageTokens: string[] };
+const firstPage: PageView = { page: 0, pageTokens: [""] };
+
 const TeamInvitations = ({ refreshKey, headerControls, filtersClassName }: TeamInvitationsProps) => {
   const { listTeamInvitations, revokeTeamInvitation, deleteTeamInvitation } = useTeamInvitations();
   const [invitations, setInvitations] = useState<TeamInvitation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [pageTokens, setPageTokens] = useState([""]);
-  const [page, setPage] = useState(0);
+  const [view, setView] = useState<PageView>(firstPage);
   const [nextPageToken, setNextPageToken] = useState("");
   const [revoking, setRevoking] = useState<TeamInvitation | null>(null);
   const [isRevoking, setIsRevoking] = useState(false);
   const pendingDeletes = useRef(new Set<string>());
   const [deletingInvitationIds, setDeletingInvitationIds] = useState<Set<string>>(() => new Set());
 
-  // A new invitation is always newest, so creation returns to the first page.
-  const [prevRefreshKey, setPrevRefreshKey] = useState(refreshKey);
-  if (prevRefreshKey !== refreshKey) {
-    setPrevRefreshKey(refreshKey);
-    setPage(0);
-    setPageTokens([""]);
-  }
-
-  // Only the latest request may update the page; earlier responses are stale.
-  const latestRequest = useRef(0);
-  const fetchInvitations = useCallback(
-    (signal?: AbortSignal) => {
-      const request = ++latestRequest.current;
+  // The page on screen changes only when a requested page loads, so a failed
+  // request keeps the current rows, page index and cursors together. Starting
+  // a load abandons the previous one.
+  const shownView = useRef<PageView>(firstPage);
+  const inFlight = useRef<AbortController | null>(null);
+  const loadPage = useCallback(
+    (target: PageView) => {
+      inFlight.current?.abort();
+      const controller = new AbortController();
+      inFlight.current = controller;
       setIsLoading(true);
       listTeamInvitations({
-        pageToken: pageTokens[page],
-        signal,
+        pageToken: target.pageTokens[target.page],
+        signal: controller.signal,
         onSuccess: (rows, next) => {
-          if (signal?.aborted || request !== latestRequest.current) return;
+          if (controller.signal.aborted) return;
+          shownView.current = target;
+          setView(target);
           setInvitations(rows);
           setNextPageToken(next);
         },
         onError: (error) => {
-          if (signal?.aborted || request !== latestRequest.current) return;
+          if (controller.signal.aborted) return;
           pushToast({ message: error || "Failed to load invitations", status: STATUSES.error });
         },
         onFinally: () => {
-          if (!signal?.aborted && request === latestRequest.current) setIsLoading(false);
+          if (controller.signal.aborted) return;
+          inFlight.current = null;
+          setIsLoading(false);
         },
       });
     },
-    [listTeamInvitations, page, pageTokens],
+    [listTeamInvitations],
   );
+  // Revocation and deletion finish asynchronously; refresh whichever page is
+  // on screen by then.
+  const reloadShownPage = useCallback(() => loadPage(shownView.current), [loadPage]);
 
+  // A new invitation is always newest, so creation returns to the first page.
   useEffect(() => {
-    const controller = new AbortController();
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on mount and page changes; setState inside async fetch is the external-sync pattern
-    fetchInvitations(controller.signal);
-    return () => {
-      controller.abort();
-    };
-  }, [fetchInvitations, refreshKey]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on mount and after creation; setState inside async fetch is the external-sync pattern
+    loadPage(firstPage);
+  }, [loadPage, refreshKey]);
+  useEffect(() => () => inFlight.current?.abort(), []);
 
   const handleRevokeConfirm = useCallback(() => {
     if (!revoking) return;
@@ -115,7 +120,7 @@ const TeamInvitations = ({ refreshKey, headerControls, filtersClassName }: TeamI
       onSuccess: () => {
         pushToast({ message: "Invitation revoked", status: STATUSES.success });
         setRevoking(null);
-        fetchInvitations();
+        reloadShownPage();
       },
       onError: (error) => {
         pushToast({ message: error || "Failed to revoke invitation", status: STATUSES.error });
@@ -124,7 +129,7 @@ const TeamInvitations = ({ refreshKey, headerControls, filtersClassName }: TeamI
         setIsRevoking(false);
       },
     });
-  }, [fetchInvitations, revokeTeamInvitation, revoking]);
+  }, [reloadShownPage, revokeTeamInvitation, revoking]);
 
   // Dead invitations grant nothing, so removing one needs no confirmation.
   const handleDelete = useCallback(
@@ -136,7 +141,7 @@ const TeamInvitations = ({ refreshKey, headerControls, filtersClassName }: TeamI
         invitationId: invitation.invitationId,
         onSuccess: () => {
           pushToast({ message: "Invitation deleted", status: STATUSES.success });
-          fetchInvitations();
+          reloadShownPage();
         },
         onError: (error) => {
           pushToast({ message: error || "Failed to delete invitation", status: STATUSES.error });
@@ -147,7 +152,7 @@ const TeamInvitations = ({ refreshKey, headerControls, filtersClassName }: TeamI
         },
       });
     },
-    [deleteTeamInvitation, fetchInvitations],
+    [deleteTeamInvitation, reloadShownPage],
   );
 
   const colConfig: ColConfig<TeamInvitation, string, InvitationColumns> = useMemo(
@@ -211,18 +216,13 @@ const TeamInvitations = ({ refreshKey, headerControls, filtersClassName }: TeamI
         />
       )}
       <PageControls
-        previous={page > 0}
+        previous={view.page > 0}
         next={Boolean(nextPageToken)}
         disabled={isLoading}
-        onPrevious={() => {
-          setIsLoading(true);
-          setPage(page - 1);
-        }}
-        onNext={() => {
-          setIsLoading(true);
-          setPageTokens((tokens) => [...tokens.slice(0, page + 1), nextPageToken]);
-          setPage(page + 1);
-        }}
+        onPrevious={() => loadPage({ page: view.page - 1, pageTokens: view.pageTokens })}
+        onNext={() =>
+          loadPage({ page: view.page + 1, pageTokens: [...view.pageTokens.slice(0, view.page + 1), nextPageToken] })
+        }
       />
       <Dialog
         open={Boolean(revoking)}
