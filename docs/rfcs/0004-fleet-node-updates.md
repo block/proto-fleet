@@ -26,7 +26,7 @@ This replaces the statement in [RFC 0001](0001-agent-server-split.md#fleet-node-
 - **Connectivity.** A Fleet Node can always reach its Fleet server, either directly on the same network or through the server's HTTPS endpoint, for example behind a load balancer. Fleet never opens connections to Nodes. Nodes already hold an outbound connection to their server, and they download release files through that same endpoint.
 - **Fleet's reach.** The Fleet server can reach GitHub over HTTPS when automatic retrieval is used. A server without that access relies on manual upload.
 - **Front-end limits.** Proxies, load balancers, and web application firewalls in front of Fleet may cap request sizes per path, time out idle connections, and rate-limit Node bootstrap RPCs per source IP. Several Nodes at one site can share a source IP.
-- **HA storage.** In HA deployments, Fleet's file storage is local to each host and not replicated ([RFC 0002](0002-active-passive-fleet-ha.md)). The release store therefore can't rely on file storage alone.
+- **HA storage.** In HA deployments, Fleet's file storage is local to each host and not replicated ([RFC 0002](0002-active-passive-fleet-ha.md)). The release store therefore keeps its files on every host, or in storage that every host shares.
 - **Clocks.** Node clocks are correct, as authentication already requires.
 
 ## Decision summary
@@ -36,7 +36,8 @@ This replaces the statement in [RFC 0001](0001-agent-server-split.md#fleet-node-
 | Trigger | Fleet API, used first by the Nodes page, gated by `fleetnode:manage`. The host installer remains the manual path. |
 | What Fleet sends | An operation ID, an exact version, the current revocation list, and references to the bundle in its release store. Never a URL, repository, or script. |
 | Update source | Default: the Fleet server the Node is enrolled with, derived from enrollment state with no stored URL. Re-pairing changes it automatically. Uncommon override: a static HTTPS mirror or a local directory, set in root-owned host configuration. Fleet can't change it remotely. |
-| Distribution | Nodes download from their update source, never from GitHub. Fleet fills its release store by automatic retrieval from a configurable location, which defaults to the GitHub releases of its publishing repository, or by chunked manual upload. Bundles are stored in Fleet's database so every HA host can serve them, with a cache on each host. |
+| Distribution | Nodes download from their update source, never from GitHub. Fleet fills its release store by automatic retrieval from a configurable location, which defaults to the GitHub releases of its publishing repository, or by chunked manual upload. Bundle files are replicated to every Fleet host, or kept in shared object storage where a deployment has it. Storing them in Fleet's database remains an option. |
+| Node disk space | Nodes report free disk space on heartbeats. Fleet shows it, alerts when it's low, and refuses updates that wouldn't fit. |
 | Privilege boundary | The unprivileged daemon downloads; a root, socket-activated `fleet-node-update` service only verifies and installs, without network access. |
 | Signing | Offline root keys embedded in Node binaries issue short-lived signing certificates scoped to a repository. Signing keys are held in a KMS. A root-signed revocation list covers compromise. |
 | Key rotation | Routine signing-key rotation needs no Node update. Root rotation overlaps two roots across releases. Both have documented emergency procedures. |
@@ -130,6 +131,20 @@ Overrides are expected to be uncommon; re-pairing is the simpler way to move a N
 
 **Why this is safe.** Releases are verified against pipeline signatures on the Node. So where a Node downloads from affects whether the files are available, not whether they're trusted. The publishing repository a Node accepts stays fixed at build time, and the repository rules from block/proto-fleet#1046 are unchanged.
 
+### Node disk space
+
+A Fleet Node already measures free space with `statfs` before it stages miner firmware, but it doesn't report the result. With this change, the daemon reports available and total bytes on every heartbeat for the filesystems that hold:
+- the program, `/opt/fleetnode`
+- the daemon's state and download spool, `/var/lib/fleetnode`
+- the executor's working directory, `/var/lib/fleetnode-update`
+
+Directories on the same filesystem are reported once. Fleet stores the latest values with the Node's other heartbeat details, such as version and addresses, so they stay visible while a Node is offline.
+
+Fleet uses the values in three places:
+- **Display:** the Nodes page and Node details show free space, and highlight a Node running low.
+- **Alerting:** Fleet exports free space per Node as a metric, so deployments can alert before a Node fills up.
+- **Update admission:** at ingest, Fleet records each stored release's archive and unpacked sizes and derives the space an update needs. That covers the download, the executor's verified copy, the unpacked candidate, and the previous version the installer keeps until the new one is ready. For current releases this is about 450 MB. Fleet rejects an update for a Node whose last report shows too little space. The executor repeats the check before it stages anything, so a Node that filled up since its last heartbeat fails early, before the service stops.
+
 ### Fleet release store
 
 The release store holds signed Node bundles: an archive, `.sha256`, and `.sig` for each architecture. Bundles arrive in two ways:
@@ -141,11 +156,18 @@ The release store holds signed Node bundles: an archive, `.sha256`, and `.sig` f
 
 Fleet verifies every bundle's signature, version, repository, and architecture before accepting it, and records where it came from and who supplied it. The upload and retrieval-settings APIs are gated by `fleetnode:manage`.
 
-**Storage.**
-- **Database:** the authoritative copy of each accepted bundle is stored in Fleet's database in fixed-size chunks. In HA deployments the database is already replicated, so whichever host is active can serve every stored release, including uploads, after a failover. The host that received an upload doesn't need to stay active.
-- **Host cache:** each host keeps a file cache of bundles it has served, checked against the recorded digest. The cache is rebuilt from the database whenever it's missing or stale, and it stays within the host's free-space reservations.
-- **Size:** stored bundles take about 45 MiB per release and architecture.
-- **Retention:** by default the store keeps every release still installed on a Node, plus the three newest releases. Removing a release is a recorded operator action.
+**Storage.** Fleet's database always holds the release records, including each file's digest and size. Those records are already replicated in HA deployments, so every host knows what the store should contain. A deployment setting chooses where the bundle files live:
+
+- **Replicated host files** (default). Each Fleet host keeps its own copy in its file storage. A reconciler on every host compares local files with the release records, on startup and whenever a release is added or removed.
+  - **Filling gaps:** a missing or mismatched file is fetched from a peer host, or failing that from the retrieval location. Peer fetches use a private endpoint that only peer hosts can reach, authenticated with the credentials HA hosts already use for peer checks (block/proto-fleet#1080). Every copy is checked against the recorded digest and signature before use.
+  - **Tracking:** each host records which releases it holds.
+  - **Standalone:** an installation with one host simply keeps local files.
+- **Shared object storage** (optional). An S3-compatible bucket that every host reads and writes, for deployments that have one. Hosts keep a local cache checked against the recorded digest.
+- **Database** (optional). Bundle files are stored in fixed-size chunks in Fleet's database and replicate with it, with a local cache on each host. This needs no transfer channel between hosts, but it adds about 45 MiB per release and architecture to the database, its backups, and its replication traffic.
+
+**HA availability rule.** A release can start a batch only when every healthy Fleet host holds a verified copy, or the copy is in shared storage. A resumed batch after a failover therefore never stalls on a missing file. An upload finishes when the receiving host has stored and verified it. The release page shows replication progress until every host has a copy.
+
+**Size and retention.** Stored bundles take about 45 MiB per release and architecture on each host that holds them, and caches stay within each host's free-space reservations. By default the store keeps every release still installed on a Node, plus the three newest releases. Removing a release is a recorded operator action that every backend applies.
 
 ### Release signing
 
@@ -236,7 +258,7 @@ The executor never reads a URL, path, repository, or command from a request. It 
 - No other operation is active. Repeating an operation ID returns that operation's current status rather than starting a new one.
 
 **Installation.** The executor:
-1. Copies the three files from the descriptors into a private, root-only directory, so the daemon can't change them after verification.
+1. Checks free space on each filesystem it and the installer will write. If any is short, it fails with `INSUFFICIENT_SPACE` before staging anything. It then copies the three files from the descriptors into a private, root-only directory, so the daemon can't change them after verification.
 2. Adopts the revocation list if it's newer than the stored one, then verifies the signature as described under *Release signing*.
 3. Checks that the checksum file names the archive, verifies the checksum, and extracts the archive.
 4. Confirms the archive's `version.txt` matches the signed statement.
@@ -328,8 +350,17 @@ message ReleaseArtifacts {
 // New CommandArtifactPurpose value, admitted only for an in-flight update_node command.
 //   COMMAND_ARTIFACT_PURPOSE_FLEET_NODE_RELEASE = 3;
 
-// New UploadHeartbeatRequest field: the active operation while the old daemon runs.
+// New UploadHeartbeatRequest fields: the active operation while the old daemon runs,
+// and free space on the filesystems that hold the program, state, and executor work.
 //   NodeUpdateOperation update = 4;
+//   repeated FilesystemUsage filesystems = 5;
+
+message FilesystemUsage {
+  // Directories on this filesystem, from a fixed set: program, state, update.
+  repeated FilesystemRole roles = 1;
+  uint64 available_bytes = 2;
+  uint64 total_bytes = 3;
+}
 ```
 
 The daemon validates the command, fetches the bundle from its update source, forwards the request to the executor socket, and acknowledges it once the executor accepts or rejects it. A rejection maps to an existing `AckCode` with the executor's reason. Bundle downloads use the existing command-artifact admission: the gateway serves the release files only for the in-flight `update_node` command that referenced them, to the Node it was sent to. The daemon downloads before it acknowledges, so `update_node` gets a dispatch timeout long enough to download about 45 MiB.
@@ -338,7 +369,7 @@ Fleet dispatches only to connections whose `ControlHello` reports `executor_avai
 
 ### Update records
 
-Fleet keeps durable records in four tables, plus one table that holds bundle contents, all added by a new migration. Batches are stored even for a single Node, so every operation has the same shape.
+Fleet keeps durable records in four tables, plus a table that tracks which host holds each release, all added by a new migration. A sixth table holds bundle contents only when a deployment chooses the database backend. Batches are stored even for a single Node, so every operation has the same shape.
 
 ```sql
 CREATE TABLE fleet_node_release (
@@ -348,6 +379,8 @@ CREATE TABLE fleet_node_release (
   arch text NOT NULL,
   release_repository text NOT NULL,
   artifact_sha256 text NOT NULL,
+  archive_size_bytes bigint NOT NULL,
+  unpacked_size_bytes bigint NOT NULL,
   signing_key_id text NOT NULL,
   origin text NOT NULL,            -- retrieved, uploaded
   supplied_by bigint REFERENCES "user"(id),
@@ -356,7 +389,15 @@ CREATE TABLE fleet_node_release (
   removed_by bigint REFERENCES "user"(id)
 );
 
--- Bundle contents (archive, checksum, signature) in fixed-size chunks.
+-- Verified copies of each release on each Fleet host (replicated host files backend).
+CREATE TABLE fleet_node_release_copy (
+  release_id bigint NOT NULL REFERENCES fleet_node_release(id),
+  host_id text NOT NULL,
+  verified_at timestamptz NOT NULL,
+  PRIMARY KEY (release_id, host_id)
+);
+
+-- Database backend only: bundle contents (archive, checksum, signature) in fixed-size chunks.
 -- Rows are deleted when a release is removed; the release record above remains.
 CREATE TABLE fleet_node_release_chunk (
   release_id bigint NOT NULL REFERENCES fleet_node_release(id),
@@ -421,7 +462,7 @@ CREATE TABLE fleet_node_update_event (
 - **Retention.** Records are kept when a Node is revoked or deleted, or a release is removed from the store. Fleet Nodes are soft-deleted, and the tables never cascade deletes. Records are kept indefinitely in phase 1; a pruning policy can follow if volume requires it.
 - **Audit feed.** Fleet also writes activity-log events for releases added and removed, and for update batches requested and completed, using the batch ID the activity log already supports. Update activity then appears alongside other operator actions, and the detailed records hold the timeline.
 - **Access.** `ListFleetNodeReleases`, `ListFleetNodeUpdates` (by Node, batch, or time range), and `GetFleetNodeUpdate` (an operation with its events) are gated by `fleetnode:read`. Records never contain credentials or override URLs, and bundle contents are reachable only through the release store.
-- **Metrics.** Fleet exports update counts by outcome, durations by phase, and the number of Nodes behind Fleet's version, plus structured logs keyed by operation ID. Deployments can then alert on failed or unconfirmed updates and on Nodes left behind.
+- **Metrics.** Fleet exports update counts by outcome, durations by phase, the number of Nodes behind Fleet's version, each Node's free disk space, and the release store's replication state, plus structured logs keyed by operation ID. Deployments can then alert on failed or unconfirmed updates, Nodes left behind, Nodes running out of disk, and releases missing from a host.
 
 ### Fleet API and UI
 
@@ -431,8 +472,9 @@ CREATE TABLE fleet_node_update_event (
 - a `release_repository` that equals Fleet's own `releaseinfo.Repository`
 - a target newer than the Node's running version
 - trust in the target release's signing root
+- enough free disk space for the update, according to the Node's latest heartbeat
 
-When the Node's source is `fleet`, the store must also hold a verified bundle for the Node's architecture. If it doesn't, Fleet retrieves it when automatic retrieval is enabled. A Node that fails a check is recorded as `rejected` with the reason, for example "release not uploaded". The UI defaults the target to Fleet's own version, and operators can choose another exact tag that the store holds or can retrieve.
+When the Node's source is `fleet`, the store must also hold a verified bundle for the Node's architecture that meets the HA availability rule. If it doesn't, Fleet retrieves it when automatic retrieval is enabled. A Node that fails a check is recorded as `rejected` with the reason, for example "release not uploaded". The UI defaults the target to Fleet's own version, and operators can choose another exact tag that the store holds or can retrieve.
 
 `ListFleetNodes` adds `update_available`, `update_unavailable_reason`, the effective update source, and the latest operation, using `FleetNodeSummary` field numbers 16 and above.
 
@@ -452,11 +494,11 @@ Because batches and operations are stored, a new active instance resumes a runni
 - **Unconfirmed:** the Node doesn't reconnect within 10 minutes of `ACTIVATING`.
 
 **UI.**
-- **Releases:** a Node releases page lists the store with each release's source, uploader, digest, and signing key. It offers upload, retrieval settings, and removal.
+- **Releases:** a Node releases page lists the store with each release's source, uploader, digest, signing key, and which hosts hold it. It offers upload, retrieval settings, and removal.
 - **Nodes page:** a row action and multi-select. The confirmation names the target version and warns about the short telemetry and command gap.
 - **Progress:** shows the current phase.
 - **Failures:** show the error, the recovery command, and `journalctl -u fleet-node-update.service`.
-- **History:** each Node's details include its update history and effective update source. A batch view shows each Node's position and outcome.
+- **History:** each Node's details include its update history, effective update source, and free disk space. A batch view shows each Node's position and outcome.
 
 ### Repository pin repair
 
@@ -479,6 +521,9 @@ A new installer action, `install-fleet-node.sh repair-repository-pin`, rewrites 
 | Situation | Result | Recovery |
 | --------- | ------ | -------- |
 | The store lacks the release, and retrieval is off or fails | The Node's operation is `rejected` before dispatch, with the reason | Upload the release, or fix the retrieval settings or connectivity |
+| A healthy HA host doesn't hold the release yet | The batch waits to start, and the release page shows replication progress | Fix peer connectivity, or the reconciler fetches the file from the retrieval location |
+| The Node's last heartbeat shows too little free disk | The Node's operation is `rejected` before dispatch, with the space needed | Free space on the Node and retry |
+| The Node runs out of space after its last heartbeat | `FAILED` with `INSUFFICIENT_SPACE` before anything is staged | Free space on the Node and retry with a new operation ID |
 | An uploaded or retrieved bundle fails verification | Fleet rejects it on ingest and records why | Upload the correct, signed files |
 | Signature invalid, key revoked, certificate expired, or root not trusted, on the Node | `FAILED` with `SIGNATURE_INVALID` and the reason, before the service stops | Re-sign the release, update the revocation list, fix the Node's clock, or update the Node manually to a release trusting the new root |
 | Download from the update source fails, or the checksum doesn't match | `FAILED` before the service stops; nothing changes | Fix the source and retry with a new operation ID |
@@ -486,7 +531,7 @@ A new installer action, `install-fleet-node.sh repair-repository-pin`, rewrites 
 | Rollback also fails | `FAILED` with the rollback error; the Node may be down | On the host, install the previous release with `--release-dir` |
 | Starts but doesn't reconnect | `UNCONFIRMED` | Inspect the host journal and history; reinstall the previous release |
 | Executor or host restarts mid-update | Executor reconciles the status from `version.txt` on its next start | None, or as above |
-| Fleet restarts or fails over during a batch | A new active instance resumes the batch and serves bundles from the database, rebuilding its cache as needed; Fleet reconciles missed outcomes when Nodes reconnect | None |
+| Fleet restarts or fails over during a batch | A new active instance resumes the batch and serves bundles from its own verified copy, shared storage, or the database; Fleet reconciles missed outcomes when Nodes reconnect | None |
 
 ### Validation gates
 
@@ -501,8 +546,15 @@ A new installer action, `install-fleet-node.sh repair-repository-pin`, rewrites 
 - **Release store:**
   - automatic retrieval, chunked upload, and rejection on ingest
   - retention, and the release records
-  - cache rebuild from the database
+  - each backend: replicated host files, shared object storage, and the database
+  - the reconciler fills missing or corrupt copies from a peer, and falls back to the retrieval location
+  - peer fetches are refused from anything other than a peer host
+  - a batch waits until every healthy host holds the release
   - after an HA failover, the new active host serves a release uploaded to the old one
+- **Node disk space:**
+  - heartbeats report each filesystem once
+  - Fleet rejects an update that wouldn't fit
+  - the executor fails with `INSUFFICIENT_SPACE` before staging anything
 - **Front end:**
   - a chunked upload through a proxy that caps requests at 64 MiB
   - a release download through a load balancer with an idle timeout
@@ -524,7 +576,7 @@ A new installer action, `install-fleet-node.sh repair-repository-pin`, rewrites 
 - **More root code:** every Node gets a root component to secure and maintain.
 - **Key operations:** root custody, ceremonies, KMS configuration in two repositories, re-signing before certificates expire, and rotation drills are ongoing work.
 - **Load on Fleet:** Fleet serves every Node's download through the gateway. Waves bound this to about 450 MiB at a time at the default size.
-- **Database size:** the database holds stored bundles, about 45 MiB per release and architecture, bounded by store retention. They also add to database backups and replication traffic.
+- **Storage:** every Fleet host keeps a copy of the store, about 45 MiB per release and architecture. Replicated host files need a new transfer path between hosts and a reconciler. The database backend avoids both but grows the database, its backups, and its replication traffic.
 - **Clock dependency:** certificate checks need a correct clock on the Node.
 - **Bootstrap:** existing Nodes need one manual update to the first signed release with the executor.
 - **Downtime:** each update interrupts telemetry and commands for that Node's miners briefly.
@@ -545,7 +597,7 @@ A new installer action, `install-fleet-node.sh repair-repository-pin`, rewrites 
 - **Activity log as the only record.** It's a good audit feed but lacks structured per-operation state and phase timelines for debugging.
 - **Gate on `CommandProtocolVersion`.** Support depends on the installed executor, not only on daemon code. Forks can also extend the command protocol independently, so version numbers aren't comparable across them.
 - **Store bundles in host-local file storage, as firmware is.** In HA deployments, an uploaded release would be missing on the other host after a failover, and resumed batches would stall (RFC 0002).
-- **Replicate bundles between HA hosts, or require shared object storage.** Replication needs a new transfer channel between hosts. Shared object storage only exists in some environments.
+- **Require shared object storage everywhere.** Simplest for deployments that have it, but on-premises installations often don't. It stays an optional backend.
 - **Strictly sequential batches.** Simple, but far too slow at the Node counts a single server is sized for.
 - **Reuse the firmware rollout engine.** It's built around miner release channels, model groups, and per-device provenance, which is far heavier than Nodes need.
 
@@ -561,7 +613,7 @@ A new installer action, `install-fleet-node.sh repair-repository-pin`, rewrites 
 8. Should targets newer than Fleet's own version be allowed? The proposed default is yes, when an operator selects them and the store holds them.
 9. How long should records be retained, and should events be pruned before operations?
 10. Should `fleetcli` expose updates, uploads, and history in phase 1?
-11. Is storing bundles in the database acceptable for backup size and replication load? The alternatives are replication between HA hosts or optional shared object storage.
+11. Which storage backend should each kind of deployment default to? Should firmware and command artifacts later use the same replication, which would settle RFC 0002's open question about artifacts in HA?
 12. What default wave size and server-wide maximum should batches use, and should waves also be limited per site or per shared source IP?
 
 ## Phased rollout
@@ -580,7 +632,12 @@ A new installer action, `install-fleet-node.sh repair-repository-pin`, rewrites 
   - **Behavior change:** signed releases include the executor; nothing triggers it remotely yet.
 - **Phase 1c: distribution.**
   - **Goal:** Fleet distributes releases.
-  - **Scope:** the release store with automatic retrieval and upload; `ControlHello` identity, architecture, capability, trust state, and source; the `update_node` command; the release artifact purpose; heartbeat progress; the mirror override.
+  - **Scope:**
+    - the release store, with automatic retrieval, chunked upload, the storage backends, and the reconciler
+    - `ControlHello` identity, architecture, capability, trust state, and source
+    - the `update_node` command and the release artifact purpose
+    - heartbeat progress and free disk space
+    - the mirror override
   - **Behavior change:** roll out Nodes first. Older Fleet versions ignore the new fields.
 - **Phase 1d: records and UI.**
   - **Goal:** operator-facing, auditable updates.
