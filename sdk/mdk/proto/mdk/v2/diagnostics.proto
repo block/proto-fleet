@@ -1,0 +1,116 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/api/annotations.proto";
+import "mdk/v2/options.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// DiagnosticsService exposes tightly bounded, read-only database diagnostics.
+service DiagnosticsService {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "Diagnostics"
+    description: "Read-only database schema and query diagnostics."
+  };
+
+  // DescribeReadOnlyDatabase lists the database objects available to the
+  // dedicated diagnostics reader role.
+  rpc DescribeReadOnlyDatabase(DescribeReadOnlyDatabaseRequest) returns (DescribeReadOnlyDatabaseResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/diagnostics/database"};
+  }
+
+  // QueryReadOnlySQL runs exactly one bounded SELECT statement through the
+  // dedicated diagnostics reader role.
+  rpc QueryReadOnlySQL(QueryReadOnlySQLRequest) returns (QueryReadOnlySQLResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {
+      post: "/api/v2/diagnostics/database/query"
+      body: "*"
+    };
+  }
+}
+
+message DescribeReadOnlyDatabaseRequest {}
+
+// ReadOnlyDatabaseTable describes one allowlisted relation.
+message ReadOnlyDatabaseTable {
+  string schema = 1;
+  string name = 2;
+  repeated ReadOnlyDatabaseColumn columns = 3;
+  DiagnosticsDatabaseRouting routing = 4;
+}
+
+// DiagnosticsDatabaseRouting identifies whether a relation can be read from a
+// physical standby without losing non-WAL-replicated data.
+enum DiagnosticsDatabaseRouting {
+  DIAGNOSTICS_DATABASE_ROUTING_UNSPECIFIED = 0;
+  DIAGNOSTICS_DATABASE_ROUTING_PRIMARY_ONLY = 1;
+  DIAGNOSTICS_DATABASE_ROUTING_REPLICA_SAFE = 2;
+}
+
+enum DiagnosticsDatabaseRole {
+  DIAGNOSTICS_DATABASE_ROLE_UNSPECIFIED = 0;
+  DIAGNOSTICS_DATABASE_ROLE_PRIMARY = 1;
+  DIAGNOSTICS_DATABASE_ROLE_STANDBY = 2;
+}
+
+message DiagnosticsDatabaseTarget {
+  DiagnosticsDatabaseRouting routing = 1;
+  DiagnosticsDatabaseRole role = 2;
+  string instance = 3;
+  int64 lag_bytes = 4;
+  // primary_fallback is true when a replica-safe query ran on the primary only
+  // because no healthy standby was available and the container opted in to the
+  // tighter-capped primary fallback.
+  bool primary_fallback = 5;
+}
+
+// ReadOnlyDatabaseColumn describes one column in an allowlisted relation.
+message ReadOnlyDatabaseColumn {
+  string name = 1;
+  string postgres_type = 2;
+  bool nullable = 3;
+}
+
+message DescribeReadOnlyDatabaseResponse {
+  repeated ReadOnlyDatabaseTable tables = 1;
+}
+
+message QueryReadOnlySQLRequest {
+  string sql = 1;
+  int32 max_rows = 2;
+}
+
+// ReadOnlySQLResultColumn identifies one result column.
+message ReadOnlySQLResultColumn {
+  string name = 1;
+  string postgres_type = 2;
+}
+
+// ReadOnlySQLCell preserves PostgreSQL text encoding without losing numeric
+// precision and represents SQL NULL explicitly.
+message ReadOnlySQLCell {
+  bool is_null = 1;
+  string text = 2;
+}
+
+message ReadOnlySQLRow {
+  repeated ReadOnlySQLCell cells = 1;
+}
+
+message QueryReadOnlySQLResponse {
+  repeated ReadOnlySQLResultColumn columns = 1;
+  repeated ReadOnlySQLRow rows = 2;
+  int32 row_count = 3;
+  bool truncated = 4;
+  int64 elapsed_milliseconds = 5;
+  DiagnosticsDatabaseTarget target = 6;
+  // served_from is the lowercase database role that served the query:
+  // "primary" or "standby". Older servers leave it empty; use target.role.
+  string served_from = 7;
+}

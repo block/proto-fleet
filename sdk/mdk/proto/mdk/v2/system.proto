@@ -97,7 +97,14 @@ service SystemService {
     option (google.api.http) = {get: "/api/v2/system/firmware/check"};
   }
 
-  // ApplyFirmwareUpdate applies a firmware update.
+  // UploadSystemImage uploads and starts installing a local control-board .swu.
+  // Reinstalling the same image or version is supported.
+  rpc UploadSystemImage(stream UploadSystemImageRequest) returns (UploadSystemImageResponse) {
+    option (mdk.v2.product) = PRODUCT_R2;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+
+  // ApplyFirmwareUpdate downloads and installs the selected firmware version.
   rpc ApplyFirmwareUpdate(ApplyFirmwareUpdateRequest) returns (ApplyFirmwareUpdateResponse) {
     option (mdk.v2.product) = PRODUCT_R2;
     option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
@@ -105,6 +112,15 @@ service SystemService {
       post: "/api/v2/system/firmware/apply"
       body: "*"
     };
+  }
+
+  // WatchFirmwareUpdate streams the current status and changes for one update.
+  // Reconnect with the same operation ID after interruption or ordinary reboot.
+  // A clear-settings reboot erases the operation history.
+  rpc WatchFirmwareUpdate(WatchFirmwareUpdateRequest) returns (stream WatchFirmwareUpdateResponse) {
+    option (mdk.v2.product) = PRODUCT_R2;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/system/firmware/updates/{operation_id}/watch"};
   }
 
   // GetSSHConfig returns the SSH configuration.
@@ -229,6 +245,9 @@ message SoftwareUpdateStatus {
   optional uint32 progress_percent = 6;
   string error = 7;
   string release_notes = 8;
+  // R2 update ID; GetSystemInfo exposes the active or latest retained ID.
+  // Empty when unavailable.
+  string operation_id = 9;
 }
 
 // SystemInfo contains static system information.
@@ -335,6 +354,11 @@ message SystemStatus {
   // Older Frigate/Flotilla versions omit it, so consumers must render absence
   // as "not reported" rather than healthy.
   HostDiagnostics host_diagnostics = 17;
+  // HaMembers reports this server's cached, bounded probe of the distributed
+  // configuration store voters and the configured etcd witness host. Each HA
+  // peer probes independently, so peers can disagree during a partition. An
+  // empty list means the deployment does not publish HA member probes.
+  repeated HAMember ha_members = 19;
 }
 
 // HostDiagnostics contains bounded host signals that remain useful when the
@@ -344,6 +368,111 @@ message HostDiagnostics {
   optional bool root_filesystem_read_only = 1;
   optional bool clock_synchronized = 2;
   google.protobuf.Timestamp observed_at = 3;
+  // SocTemperatureC is the SoC thermal-zone temperature in degrees Celsius.
+  optional double soc_temperature_c = 4;
+  // Throttle is the Raspberry Pi firmware throttle state. Other platforms omit it.
+  HostThrottleState throttle = 5;
+  // CpuFrequencyMhz is CPU0's current scaling frequency.
+  optional double cpu_frequency_mhz = 6;
+  // CpuMaxFrequencyMhz is CPU0's maximum scaling frequency.
+  optional double cpu_max_frequency_mhz = 7;
+  // CpuQuota is the cgroup v2 CPU bandwidth state of the Frigate service.
+  HostCPUQuota cpu_quota = 8;
+  // Nvme contains the most recent fresh SMART sample for each NVMe controller.
+  repeated HostNVMeHealth nvme = 9;
+  // KernelBlockIoErrors counts kernel I/O error messages for any block device
+  // (NVMe, SD card, or USB storage) logged during the host boot named by
+  // host_boot_id. It is absent unless the sample belongs to that boot.
+  optional uint64 kernel_block_io_errors = 10;
+  // CoredumpCount counts crash dumps retained by systemd-coredump.
+  optional uint32 coredump_count = 11;
+  // HostBootId is the kernel boot ID from /proc/sys/kernel/random/boot_id.
+  // Per-boot counters such as kernel_block_io_errors rebase when it changes.
+  string host_boot_id = 12;
+}
+
+// HostThrottleFlags decodes one half of the Raspberry Pi get_throttled bitmap.
+message HostThrottleFlags {
+  bool under_voltage = 1;
+  bool frequency_capped = 2;
+  bool throttled = 3;
+  bool soft_temperature_limit = 4;
+}
+
+// HostThrottleState reports current and since-boot Raspberry Pi throttling.
+message HostThrottleState {
+  HostThrottleFlags current = 1;
+  HostThrottleFlags since_boot = 2;
+  // Raw is the firmware bitmap for flags this schema does not name.
+  uint32 raw = 3;
+}
+
+// HostCPUQuota reports the Frigate service's cgroup v2 CPU bandwidth limit and
+// cumulative throttling counters.
+message HostCPUQuota {
+  // QuotaCores is cpu.max quota divided by period. Absent means unlimited.
+  optional double quota_cores = 1;
+  uint64 period_usec = 2;
+  uint64 nr_periods = 3;
+  uint64 nr_throttled = 4;
+  uint64 throttled_usec = 5;
+  // RecentThrottledRatio is the fraction of enforcement periods throttled over
+  // the most recent completed sampling window. Absent until a window completes.
+  optional double recent_throttled_ratio = 6;
+  uint32 recent_window_seconds = 7;
+}
+
+// HostNVMeHealth is one NVMe controller's SMART health summary.
+message HostNVMeHealth {
+  string device = 1;
+  uint32 critical_warning = 2;
+  uint64 media_errors = 3;
+  uint32 percentage_used = 4;
+  uint64 error_log_entries = 5;
+  google.protobuf.Timestamp observed_at = 6;
+  // SmartUnavailable reports that the controller is present but smartctl
+  // returned no health log in the latest sample. The counters are then unknown
+  // and left zero.
+  bool smart_unavailable = 7;
+}
+
+// HAMemberRole identifies why a host participates in the HA control plane.
+enum HAMemberRole {
+  HA_MEMBER_ROLE_UNSPECIFIED = 0;
+  // HA_MEMBER_ROLE_FRIGATE is a Frigate control-server peer.
+  HA_MEMBER_ROLE_FRIGATE = 1;
+  // HA_MEMBER_ROLE_WITNESS is an etcd-only voting witness.
+  HA_MEMBER_ROLE_WITNESS = 2;
+}
+
+// HAMember is one probed HA control-plane host.
+message HAMember {
+  // Name is the etcd member name, or the configured witness name when etcd
+  // membership is unavailable.
+  string name = 1;
+  HAMemberRole role = 2;
+  // Local reports whether this member runs on the reporting Frigate host.
+  bool local = 3;
+  // Reachable reports whether the member's etcd endpoint answered the latest
+  // bounded status probe. It is absent when the probe could not determine
+  // reachability, such as when listing etcd members failed.
+  optional bool reachable = 4;
+  // LastSeenAt is the most recent successful etcd probe in this process.
+  google.protobuf.Timestamp last_seen_at = 5;
+  // ObservedAt is when the latest probe for this member completed.
+  google.protobuf.Timestamp observed_at = 6;
+  // DiskUsedPercent is the root filesystem usage reported by the member's
+  // node-exporter. Only the witness host is scraped.
+  optional double disk_used_percent = 7;
+  // TemperatureC is the hottest thermal zone reported by node-exporter.
+  optional double temperature_c = 8;
+  // HostMetricsReachable reports whether the latest node-exporter scrape
+  // succeeded. Absent when no scrape is configured for the member.
+  optional bool host_metrics_reachable = 9;
+  // HostMetricsObservedAt is the most recent successful node-exporter scrape.
+  google.protobuf.Timestamp host_metrics_observed_at = 10;
+  // Detail is a bounded, human-readable reason for the latest probe failure.
+  string detail = 11;
 }
 
 message GetSystemStatusRequest {}
@@ -563,13 +692,59 @@ message CheckFirmwareUpdateResponse {
   int64 size_bytes = 4;
 }
 
+message UploadSystemImageRequest {
+  // Nonempty file bytes in order, at most 1 MiB per chunk.
+  bytes chunk = 1;
+  // First message only; later options return INVALID_ARGUMENT.
+  SystemUpdateOptions options = 2;
+}
+
+message UploadSystemImageResponse {
+  // Installation accepted; completion is reported by WatchFirmwareUpdate.
+  bool accepted = 1;
+  string message = 2;
+  // Durable ID for the accepted update, until history is expired or cleared.
+  string operation_id = 3;
+}
+
+// SystemUpdateOptions defaults to preserving settings and manual reboot.
+// Options are process-local; a server restart drops automatic reboot/reset intent.
+message SystemUpdateOptions {
+  // Clear user settings with the platform reset reboot after successful installation.
+  // Requires auto_reboot; otherwise the request returns FAILED_PRECONDITION.
+  // On R2 this clears /data, including API credentials and update history.
+  bool clear_user_settings = 1;
+  // Reboot automatically after successful installation.
+  bool auto_reboot = 2;
+}
+
 message ApplyFirmwareUpdateRequest {
+  // Exact version returned by CheckFirmwareUpdate.
   string version = 1;
+  // Nondefault options with an already-current version return FAILED_PRECONDITION.
+  SystemUpdateOptions options = 2;
 }
 
 message ApplyFirmwareUpdateResponse {
   bool accepted = 1;
   string message = 2;
+  // Durable update ID until history is expired or cleared; empty for an
+  // already-current no-op or legacy response.
+  string operation_id = 3;
+}
+
+message WatchFirmwareUpdateRequest {
+  string operation_id = 1 [(google.api.field_behavior) = REQUIRED];
+}
+
+message WatchFirmwareUpdateResponse {
+  string operation_id = 1;
+  // Existing software-update status, scoped to this operation.
+  SoftwareUpdateStatus status = 2;
+  // Options held by the current server process; defaults after a server restart.
+  SystemUpdateOptions options = 3;
+  // Time this snapshot was observed.
+  google.protobuf.Timestamp observed_at = 4;
 }
 
 // SSHConfig contains SSH daemon configuration.

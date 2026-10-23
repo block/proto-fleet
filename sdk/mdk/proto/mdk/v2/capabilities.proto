@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "mdk/v2/options.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// LocalCapabilitiesService reports the authenticated local MDK implementation.
+// It is infrastructure rather than a product API and intentionally has no
+// product, tunnel_access, or HTTP annotation. Implementations must expose this
+// service only on an authenticated loopback or Unix-domain-socket listener; it
+// must not be registered on a public product API listener.
+service LocalCapabilitiesService {
+  // GetCapabilities returns the local implementation and contract surface.
+  rpc GetCapabilities(GetCapabilitiesRequest) returns (GetCapabilitiesResponse);
+}
+
+message GetCapabilitiesRequest {}
+
+// GetCapabilitiesResponse identifies the local implementation and the methods
+// it currently supports.
+message GetCapabilitiesResponse {
+  // product must be one concrete implementation product (CT1 or R2).
+  Product product = 1;
+  string product_version = 2;
+  reserved 3, 4;
+  reserved "contract_digest";
+  // methods contains canonical gRPC names for locally implemented product
+  // methods. Infrastructure methods are omitted. Entries are unique and
+  // lexicographically sorted.
+  repeated string methods = 5;
+}

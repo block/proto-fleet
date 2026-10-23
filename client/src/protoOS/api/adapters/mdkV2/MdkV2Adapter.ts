@@ -17,9 +17,9 @@ import type {
 } from "../types";
 import { mapWithConcurrency } from "../utils/async";
 import { parseIsoDurationMs } from "../utils/time";
+import { createMdkV2Client, type MdkV2Client } from "./connectClient";
 import { queryContainerHistory } from "./containerHistory";
 import {
-  Api,
   type TelemetryServiceQueryTimeSeriesParams,
   V2HashboardIdentifyLEDMode,
   V2PerformanceMode,
@@ -48,8 +48,8 @@ import type { CoolingMode, MiningTarget, MiningTargetUpdate } from "@/protoOS/st
 import { getHashboardId } from "@/protoOS/store/utils/entityIds";
 import type { PoolInfo } from "@/shared/types/pool";
 
-export type MdkV2Client = InstanceType<typeof Api>["api"];
 type QueryTimeSeriesResponse = Awaited<ReturnType<MdkV2Client["telemetryServiceQueryTimeSeries"]>>["data"];
+export type { MdkV2Client } from "./connectClient";
 
 const ACTOR = "proto-os";
 const DEFAULT_DEVICE_ID = "ct1";
@@ -140,7 +140,7 @@ export class MdkV2Adapter implements MinerAdapter {
    * class directly with a mock client.
    */
   static fromConfig(config: { baseUrl: string }, match: AdapterProbeMatch = {}): MdkV2Adapter {
-    return new MdkV2Adapter(new Api({ baseUrl: config.baseUrl }).api, match);
+    return new MdkV2Adapter(createMdkV2Client(config.baseUrl), match);
   }
 
   private containerDeviceId(context?: { deviceId: string }) {

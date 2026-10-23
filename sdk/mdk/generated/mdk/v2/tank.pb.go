@@ -86,14 +86,16 @@ func (x *TankTelemetryBatch) GetConfigurationGeneration() string {
 }
 
 type ConfiguredTank struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	TankKey       string                 `protobuf:"bytes,1,opt,name=tank_key,json=tankKey,proto3" json:"tank_key,omitempty"`
-	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
-	Model         string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
-	ControllerId  string                 `protobuf:"bytes,4,opt,name=controller_id,json=controllerId,proto3" json:"controller_id,omitempty"`
-	ModuleId      string                 `protobuf:"bytes,5,opt,name=module_id,json=moduleId,proto3" json:"module_id,omitempty"`
-	Probe_1Role   string                 `protobuf:"bytes,6,opt,name=probe_1_role,json=probe1Role,proto3" json:"probe_1_role,omitempty"`
-	Probe_2Role   string                 `protobuf:"bytes,7,opt,name=probe_2_role,json=probe2Role,proto3" json:"probe_2_role,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	TankKey      string                 `protobuf:"bytes,1,opt,name=tank_key,json=tankKey,proto3" json:"tank_key,omitempty"`
+	Name         string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Model        string                 `protobuf:"bytes,3,opt,name=model,proto3" json:"model,omitempty"`
+	ControllerId string                 `protobuf:"bytes,4,opt,name=controller_id,json=controllerId,proto3" json:"controller_id,omitempty"`
+	ModuleId     string                 `protobuf:"bytes,5,opt,name=module_id,json=moduleId,proto3" json:"module_id,omitempty"`
+	// Optional verified probe roles: "inlet", "outlet", or "ambient". Empty
+	// means unlabeled. Readers must treat any other value as a display label.
+	Probe_1Role   string `protobuf:"bytes,6,opt,name=probe_1_role,json=probe1Role,proto3" json:"probe_1_role,omitempty"`
+	Probe_2Role   string `protobuf:"bytes,7,opt,name=probe_2_role,json=probe2Role,proto3" json:"probe_2_role,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }

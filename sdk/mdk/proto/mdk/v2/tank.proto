@@ -20,6 +20,8 @@ message ConfiguredTank {
   string model = 3;
   string controller_id = 4;
   string module_id = 5;
+  // Optional verified probe roles: "inlet", "outlet", or "ambient". Empty
+  // means unlabeled. Readers must treat any other value as a display label.
   string probe_1_role = 6;
   string probe_2_role = 7;
 }

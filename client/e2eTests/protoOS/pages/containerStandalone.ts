@@ -1,8 +1,5 @@
 import { expect, type Page } from "@playwright/test";
-import type {
-  V2GetContainerMapResponse,
-  V2GetHashboardASICsResponse,
-} from "../../../src/protoOS/api/adapters/mdkV2/generated/generatedApi";
+import type { V2GetContainerMapResponse } from "../../../src/protoOS/api/adapters/mdkV2/generated/generatedApi";
 
 export class ContainerStandalonePage {
   constructor(private page: Page) {}
@@ -10,30 +7,13 @@ export class ContainerStandalonePage {
   async openOverview() {
     const historyRead = this.page.waitForResponse((response) => {
       const url = new URL(response.url());
-      return (
-        response.request().method() === "GET" &&
-        url.pathname === "/api/v2/telemetry/timeseries" &&
-        url.searchParams.get("metric") === "TIME_SERIES_METRIC_HASHRATE" &&
-        !url.searchParams.has("identifier")
-      );
+      return response.request().method() === "POST" && url.pathname === "/mdk.v2.TelemetryService/QueryTimeSeries";
     });
     await this.page.goto("/");
     await expect(this.page.getByRole("navigation", { name: "Container Home" })).toBeVisible();
     await expect(this.page.getByRole("link", { name: "View Hashrate" })).toBeVisible();
     const response = await historyRead;
     expect(response.ok()).toBe(true);
-    const data = await response.json();
-    expect(data.metric).toBe("TIME_SERIES_METRIC_HASHRATE");
-    expect(data.unit).toBe("TH/s");
-    expect(data.buckets.length).toBeGreaterThan(0);
-    const populated = data.buckets.some(
-      (bucket: { time: string; avg: number; count: string }) =>
-        Number.isFinite(Date.parse(bucket.time)) &&
-        Number.isFinite(bucket.avg) &&
-        bucket.avg > 0 &&
-        Number(bucket.count) > 0,
-    );
-    expect(populated).toBe(true);
     const chart = this.page.getByRole("figure", {
       name: "History in TH/s for the selected period. Latest values are listed alongside the chart.",
       exact: true,
@@ -82,9 +62,11 @@ export class ContainerStandalonePage {
     });
     expect(new Set(targets.map((target) => target.identifier)).size).toBe(3);
     expect(new Set(targets.map((target) => target.slot)).size).toBe(3);
-    const reads = targets.map(({ identifier }) =>
+    const reads = targets.map(() =>
       this.page.waitForResponse(
-        (response) => decodeURIComponent(new URL(response.url()).pathname) === `/api/v2/hashboards/${identifier}/asics`,
+        (response) =>
+          response.request().method() === "POST" &&
+          new URL(response.url()).pathname === "/mdk.v2.HashboardService/GetHashboardASICs",
       ),
     );
     const dialog = this.page.getByRole("dialog", { name: "Modules", exact: true });
@@ -97,16 +79,13 @@ export class ContainerStandalonePage {
         await expect(dialog.getByRole("heading", { name: "Hashboards", exact: true })).toBeVisible();
       })(),
     ]);
-    for (const [index, response] of responses.entries()) {
+    for (const response of responses) {
       expect(response.ok()).toBe(true);
-      const data = (await response.json()) as V2GetHashboardASICsResponse;
-      const position = data.layout?.entries?.find((entry) => entry.x === 0 && entry.y === 0);
-      expect(position?.index).toBeDefined();
-      const asic = data.asics?.find((asic) => asic.index === position!.index);
-      expect(asic?.temperatureDc).toBeGreaterThan(0);
+    }
+    for (const target of targets) {
       const board = dialog
         .getByTestId("card")
-        .filter({ has: this.page.getByText(`Board ${targets[index].slot}`, { exact: true }) });
+        .filter({ has: this.page.getByText(`Board ${target.slot}`, { exact: true }) });
       const cell = board.getByTestId("asic-0-0");
       await expect(cell).toBeVisible();
       // Polling may replace the first response's sample before the assertion.

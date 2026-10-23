@@ -140,11 +140,13 @@ gen-protos: _server-init _client-init _lint-protos _gen-protos _gen-fleet-cli ge
   goimports -w server/generated/grpc server/cmd/fleetcli
   (cd client && npx prettier --write 'src/protoFleet/api/generated/**/*.ts')
 
-# regenerate pinned internal Frigate contracts (Go only)
+# regenerate pinned internal Frigate contracts
 [working-directory: 'sdk/mdk']
 gen-mdk-protos:
-  buf generate
+  PATH="$(pwd)/../../client/node_modules/.bin:$PATH" buf generate
   goimports -w generated
+  (cd ../../client && npx prettier --write 'src/protoOS/api/adapters/mdkV2/generated/proto/**/*.ts')
+  python3 -c 'from pathlib import Path; root = Path("../../client/src/protoOS/api/adapters/mdkV2/generated/proto"); [p.write_bytes(p.read_bytes().rstrip(b"\n") + b"\n") for p in root.rglob("*.ts")]'
 
 # regenerate sqlc bindings only
 [working-directory: 'server']

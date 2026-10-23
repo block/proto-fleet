@@ -31,7 +31,9 @@ const (
 	SystemService_LocateDevice_FullMethodName        = "/mdk.v2.SystemService/LocateDevice"
 	SystemService_GetLogs_FullMethodName             = "/mdk.v2.SystemService/GetLogs"
 	SystemService_CheckFirmwareUpdate_FullMethodName = "/mdk.v2.SystemService/CheckFirmwareUpdate"
+	SystemService_UploadSystemImage_FullMethodName   = "/mdk.v2.SystemService/UploadSystemImage"
 	SystemService_ApplyFirmwareUpdate_FullMethodName = "/mdk.v2.SystemService/ApplyFirmwareUpdate"
+	SystemService_WatchFirmwareUpdate_FullMethodName = "/mdk.v2.SystemService/WatchFirmwareUpdate"
 	SystemService_GetSSHConfig_FullMethodName        = "/mdk.v2.SystemService/GetSSHConfig"
 	SystemService_SetSSHConfig_FullMethodName        = "/mdk.v2.SystemService/SetSSHConfig"
 	SystemService_GetNetworkConfig_FullMethodName    = "/mdk.v2.SystemService/GetNetworkConfig"
@@ -68,8 +70,15 @@ type SystemServiceClient interface {
 	GetLogs(ctx context.Context, in *GetLogsRequest, opts ...grpc.CallOption) (SystemService_GetLogsClient, error)
 	// CheckFirmwareUpdate checks for available firmware updates.
 	CheckFirmwareUpdate(ctx context.Context, in *CheckFirmwareUpdateRequest, opts ...grpc.CallOption) (*CheckFirmwareUpdateResponse, error)
-	// ApplyFirmwareUpdate applies a firmware update.
+	// UploadSystemImage uploads and starts installing a local control-board .swu.
+	// Reinstalling the same image or version is supported.
+	UploadSystemImage(ctx context.Context, opts ...grpc.CallOption) (SystemService_UploadSystemImageClient, error)
+	// ApplyFirmwareUpdate downloads and installs the selected firmware version.
 	ApplyFirmwareUpdate(ctx context.Context, in *ApplyFirmwareUpdateRequest, opts ...grpc.CallOption) (*ApplyFirmwareUpdateResponse, error)
+	// WatchFirmwareUpdate streams the current status and changes for one update.
+	// Reconnect with the same operation ID after interruption or ordinary reboot.
+	// A clear-settings reboot erases the operation history.
+	WatchFirmwareUpdate(ctx context.Context, in *WatchFirmwareUpdateRequest, opts ...grpc.CallOption) (SystemService_WatchFirmwareUpdateClient, error)
 	// GetSSHConfig returns the SSH configuration.
 	GetSSHConfig(ctx context.Context, in *GetSSHConfigRequest, opts ...grpc.CallOption) (*GetSSHConfigResponse, error)
 	// SetSSHConfig updates the SSH configuration.
@@ -220,6 +229,40 @@ func (c *systemServiceClient) CheckFirmwareUpdate(ctx context.Context, in *Check
 	return out, nil
 }
 
+func (c *systemServiceClient) UploadSystemImage(ctx context.Context, opts ...grpc.CallOption) (SystemService_UploadSystemImageClient, error) {
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[1], SystemService_UploadSystemImage_FullMethodName, opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &systemServiceUploadSystemImageClient{stream}
+	return x, nil
+}
+
+type SystemService_UploadSystemImageClient interface {
+	Send(*UploadSystemImageRequest) error
+	CloseAndRecv() (*UploadSystemImageResponse, error)
+	grpc.ClientStream
+}
+
+type systemServiceUploadSystemImageClient struct {
+	grpc.ClientStream
+}
+
+func (x *systemServiceUploadSystemImageClient) Send(m *UploadSystemImageRequest) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *systemServiceUploadSystemImageClient) CloseAndRecv() (*UploadSystemImageResponse, error) {
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	m := new(UploadSystemImageResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 func (c *systemServiceClient) ApplyFirmwareUpdate(ctx context.Context, in *ApplyFirmwareUpdateRequest, opts ...grpc.CallOption) (*ApplyFirmwareUpdateResponse, error) {
 	out := new(ApplyFirmwareUpdateResponse)
 	err := c.cc.Invoke(ctx, SystemService_ApplyFirmwareUpdate_FullMethodName, in, out, opts...)
@@ -227,6 +270,38 @@ func (c *systemServiceClient) ApplyFirmwareUpdate(ctx context.Context, in *Apply
 		return nil, err
 	}
 	return out, nil
+}
+
+func (c *systemServiceClient) WatchFirmwareUpdate(ctx context.Context, in *WatchFirmwareUpdateRequest, opts ...grpc.CallOption) (SystemService_WatchFirmwareUpdateClient, error) {
+	stream, err := c.cc.NewStream(ctx, &SystemService_ServiceDesc.Streams[2], SystemService_WatchFirmwareUpdate_FullMethodName, opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &systemServiceWatchFirmwareUpdateClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type SystemService_WatchFirmwareUpdateClient interface {
+	Recv() (*WatchFirmwareUpdateResponse, error)
+	grpc.ClientStream
+}
+
+type systemServiceWatchFirmwareUpdateClient struct {
+	grpc.ClientStream
+}
+
+func (x *systemServiceWatchFirmwareUpdateClient) Recv() (*WatchFirmwareUpdateResponse, error) {
+	m := new(WatchFirmwareUpdateResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
 }
 
 func (c *systemServiceClient) GetSSHConfig(ctx context.Context, in *GetSSHConfigRequest, opts ...grpc.CallOption) (*GetSSHConfigResponse, error) {
@@ -327,8 +402,15 @@ type SystemServiceServer interface {
 	GetLogs(*GetLogsRequest, SystemService_GetLogsServer) error
 	// CheckFirmwareUpdate checks for available firmware updates.
 	CheckFirmwareUpdate(context.Context, *CheckFirmwareUpdateRequest) (*CheckFirmwareUpdateResponse, error)
-	// ApplyFirmwareUpdate applies a firmware update.
+	// UploadSystemImage uploads and starts installing a local control-board .swu.
+	// Reinstalling the same image or version is supported.
+	UploadSystemImage(SystemService_UploadSystemImageServer) error
+	// ApplyFirmwareUpdate downloads and installs the selected firmware version.
 	ApplyFirmwareUpdate(context.Context, *ApplyFirmwareUpdateRequest) (*ApplyFirmwareUpdateResponse, error)
+	// WatchFirmwareUpdate streams the current status and changes for one update.
+	// Reconnect with the same operation ID after interruption or ordinary reboot.
+	// A clear-settings reboot erases the operation history.
+	WatchFirmwareUpdate(*WatchFirmwareUpdateRequest, SystemService_WatchFirmwareUpdateServer) error
 	// GetSSHConfig returns the SSH configuration.
 	GetSSHConfig(context.Context, *GetSSHConfigRequest) (*GetSSHConfigResponse, error)
 	// SetSSHConfig updates the SSH configuration.
@@ -387,8 +469,14 @@ func (UnimplementedSystemServiceServer) GetLogs(*GetLogsRequest, SystemService_G
 func (UnimplementedSystemServiceServer) CheckFirmwareUpdate(context.Context, *CheckFirmwareUpdateRequest) (*CheckFirmwareUpdateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CheckFirmwareUpdate not implemented")
 }
+func (UnimplementedSystemServiceServer) UploadSystemImage(SystemService_UploadSystemImageServer) error {
+	return status.Errorf(codes.Unimplemented, "method UploadSystemImage not implemented")
+}
 func (UnimplementedSystemServiceServer) ApplyFirmwareUpdate(context.Context, *ApplyFirmwareUpdateRequest) (*ApplyFirmwareUpdateResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ApplyFirmwareUpdate not implemented")
+}
+func (UnimplementedSystemServiceServer) WatchFirmwareUpdate(*WatchFirmwareUpdateRequest, SystemService_WatchFirmwareUpdateServer) error {
+	return status.Errorf(codes.Unimplemented, "method WatchFirmwareUpdate not implemented")
 }
 func (UnimplementedSystemServiceServer) GetSSHConfig(context.Context, *GetSSHConfigRequest) (*GetSSHConfigResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetSSHConfig not implemented")
@@ -628,6 +716,32 @@ func _SystemService_CheckFirmwareUpdate_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SystemService_UploadSystemImage_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(SystemServiceServer).UploadSystemImage(&systemServiceUploadSystemImageServer{stream})
+}
+
+type SystemService_UploadSystemImageServer interface {
+	SendAndClose(*UploadSystemImageResponse) error
+	Recv() (*UploadSystemImageRequest, error)
+	grpc.ServerStream
+}
+
+type systemServiceUploadSystemImageServer struct {
+	grpc.ServerStream
+}
+
+func (x *systemServiceUploadSystemImageServer) SendAndClose(m *UploadSystemImageResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *systemServiceUploadSystemImageServer) Recv() (*UploadSystemImageRequest, error) {
+	m := new(UploadSystemImageRequest)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 func _SystemService_ApplyFirmwareUpdate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ApplyFirmwareUpdateRequest)
 	if err := dec(in); err != nil {
@@ -644,6 +758,27 @@ func _SystemService_ApplyFirmwareUpdate_Handler(srv interface{}, ctx context.Con
 		return srv.(SystemServiceServer).ApplyFirmwareUpdate(ctx, req.(*ApplyFirmwareUpdateRequest))
 	}
 	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemService_WatchFirmwareUpdate_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(WatchFirmwareUpdateRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(SystemServiceServer).WatchFirmwareUpdate(m, &systemServiceWatchFirmwareUpdateServer{stream})
+}
+
+type SystemService_WatchFirmwareUpdateServer interface {
+	Send(*WatchFirmwareUpdateResponse) error
+	grpc.ServerStream
+}
+
+type systemServiceWatchFirmwareUpdateServer struct {
+	grpc.ServerStream
+}
+
+func (x *systemServiceWatchFirmwareUpdateServer) Send(m *WatchFirmwareUpdateResponse) error {
+	return x.ServerStream.SendMsg(m)
 }
 
 func _SystemService_GetSSHConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -878,6 +1013,16 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "GetLogs",
 			Handler:       _SystemService_GetLogs_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "UploadSystemImage",
+			Handler:       _SystemService_UploadSystemImage_Handler,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "WatchFirmwareUpdate",
+			Handler:       _SystemService_WatchFirmwareUpdate_Handler,
 			ServerStreams: true,
 		},
 	},

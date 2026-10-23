@@ -1,0 +1,265 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/api/annotations.proto";
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/options.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// PoolService manages mining pool configurations.
+service PoolService {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "Pools"
+    description: "Mining pool configuration, weighted work sharing, priority fallback, and connection testing."
+  };
+  // ListPools returns all configured mining pools ordered by priority.
+  rpc ListPools(ListPoolsRequest) returns (ListPoolsResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/pools"};
+  }
+
+  // CreatePool adds a new pool configuration.
+  rpc CreatePool(CreatePoolRequest) returns (CreatePoolResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {
+      post: "/api/v2/pools"
+      body: "*"
+    };
+  }
+
+  // GetPool returns a single pool by ID.
+  rpc GetPool(GetPoolRequest) returns (GetPoolResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/pools/{id}"};
+  }
+
+  // UpdatePool updates an existing pool configuration.
+  rpc UpdatePool(UpdatePoolRequest) returns (UpdatePoolResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {
+      put: "/api/v2/pools/{pool.id}"
+      body: "*"
+    };
+  }
+
+  // SetPoolAllocationMode changes the container's pool allocation strategy in
+  // one shared-database transaction. The current strategies are priority
+  // failover and weighted time share.
+  rpc SetPoolAllocationMode(SetPoolAllocationModeRequest) returns (SetPoolAllocationModeResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {
+      put: "/api/v2/pools/allocation-mode"
+      body: "*"
+    };
+  }
+
+  // DeletePool removes a pool configuration.
+  rpc DeletePool(DeletePoolRequest) returns (DeletePoolResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+    option (mdk.v2.tunnel_mutation_route) = TUNNEL_MUTATION_ROUTE_SHARED_STATE;
+    option (google.api.http) = {delete: "/api/v2/pools/{id}"};
+  }
+
+  // TestPoolConnection tests connectivity to a configured pool.
+  rpc TestPoolConnection(TestPoolConnectionRequest) returns (TestPoolConnectionResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {post: "/api/v2/pools/{id}/test"};
+  }
+
+  // GetPoolDiagnostics returns per-configured-enabled-pool runtime connection
+  // diagnostics reflecting this node's live pool connections. The manager tracks
+  // only enabled pools (SetPools filters to enabled), so disabled pools are not
+  // included.
+  rpc GetPoolDiagnostics(GetPoolDiagnosticsRequest) returns (GetPoolDiagnosticsResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/pools/diagnostics"};
+  }
+}
+
+// Pool represents a mining pool configuration.
+// The password field is write-only and never included in responses.
+message Pool {
+  int64 id = 1;
+  string name = 2;
+  string url = 3;
+  string username = 4;
+  int32 priority = 5;
+  bool enabled = 6;
+  google.protobuf.Timestamp created_at = 7;
+  // share_weight enables weighted mining for this pool. It is a relative,
+  // positive weight; when absent the pool remains a priority failover target.
+  optional double share_weight = 8;
+}
+
+message ListPoolsRequest {}
+
+message ListPoolsResponse {
+  repeated Pool pools = 1;
+}
+
+message CreatePoolRequest {
+  Pool pool = 1;
+  // password is the pool authentication password (write-only, never returned in responses).
+  string password = 2;
+}
+
+message CreatePoolResponse {
+  Pool pool = 1;
+}
+
+message GetPoolRequest {
+  int64 id = 1;
+}
+
+message GetPoolResponse {
+  Pool pool = 1;
+}
+
+message UpdatePoolRequest {
+  Pool pool = 1;
+  // password is the pool authentication password (write-only, never returned in
+  // responses). An EMPTY password preserves the stored credential; there is
+  // currently no way to clear a stored password via this API.
+  string password = 2;
+  // update_mask selects which Pool fields to apply; unselected fields are
+  // backfilled from the stored record so a partial write (for example an
+  // enabled-only toggle) can never erase configuration. Valid paths: name,
+  // url, username, priority, enabled, share_weight (plus id, a no-op);
+  // unknown paths are refused. A masked share_weight is
+  // presence-authoritative: an absent value clears the stored weight. A pool
+  // name can never be cleared; an empty masked name preserves the stored one.
+  //
+  // Compatibility: an EMPTY mask keeps the legacy contract — all Pool fields
+  // are applied, and an absent share_weight preserves the stored weight. The
+  // historical single-path {"share_weight"} mask likewise applies the full
+  // record while treating share_weight absence as a clear, because deployed
+  // TUI clients send it that way with every update.
+  google.protobuf.FieldMask update_mask = 3;
+}
+
+message UpdatePoolResponse {
+  Pool pool = 1;
+}
+
+// PoolAllocationMode is container scoped. A future board assignment strategy
+// can extend this enum without changing the existing pool credential schema.
+enum PoolAllocationMode {
+  POOL_ALLOCATION_MODE_UNSPECIFIED = 0;
+  POOL_ALLOCATION_MODE_PRIORITY = 1;
+  POOL_ALLOCATION_MODE_WEIGHTED = 2;
+}
+
+message SetPoolAllocationModeRequest {
+  PoolAllocationMode mode = 1;
+}
+
+message SetPoolAllocationModeResponse {
+  PoolAllocationMode mode = 1;
+}
+
+message DeletePoolRequest {
+  int64 id = 1;
+}
+
+message DeletePoolResponse {}
+
+message TestPoolConnectionRequest {
+  int64 id = 1;
+}
+
+message TestPoolConnectionResponse {
+  bool success = 1;
+  double latency_ms = 2;
+  string error = 3;
+}
+
+// PoolConnState mirrors the runtime connection state tracked by pkg/pools.
+enum PoolConnState {
+  POOL_CONN_STATE_UNSPECIFIED = 0;
+  // POOL_CONN_STATE_IDLE indicates the pool is available but not actively mining.
+  POOL_CONN_STATE_IDLE = 1;
+  // POOL_CONN_STATE_ACTIVE indicates the pool is a current mining target.
+  POOL_CONN_STATE_ACTIVE = 2;
+  // POOL_CONN_STATE_DEAD indicates the pool is unreachable.
+  POOL_CONN_STATE_DEAD = 3;
+}
+
+// PoolConnectionDiagnostics contains runtime connection diagnostics for one pool.
+message PoolConnectionDiagnostics {
+  int64 pool_id = 1;
+  string pool_name = 2;
+  PoolConnState conn_state = 3;
+  bool is_active = 4;
+  google.protobuf.Timestamp last_failover_time = 5;
+  string last_failover_reason = 6;
+  // seconds_since_last_notify is -1 when a notify was never received.
+  int64 seconds_since_last_notify = 7;
+  double current_difficulty = 8;
+  int64 reconnect_count = 9;
+  // configured_share_weight is zero when this pool is not weighted.
+  double configured_share_weight = 10;
+  // effective_share is this pool's normalized target work fraction once the
+  // current session is ready. A ready failover-only pool reports 1 when every
+  // weighted pool is unavailable. It is zero when inactive or not yet ready.
+  double effective_share = 11;
+  // is_ready is true after this connection session has delivered usable work.
+  bool is_ready = 12;
+  // session_id changes on every successful connection activation.
+  uint64 session_id = 13;
+}
+
+// PoolRecordedShareResult is the latest retained result for one configured
+// pool. The timestamp is recorded after the pool submission returns, not when
+// submission began. The difficulty is the assigned work target, not the
+// difficulty achieved by the submitted nonce. Rejected and failed submissions
+// are included. Missing optional values reflect legacy rows with no outcome or
+// target difficulty.
+message PoolRecordedShareResult {
+  int64 pool_id = 1;
+  google.protobuf.Timestamp result_at = 2;
+  optional bool accepted = 3;
+  optional int64 assigned_difficulty = 4;
+  // reject_reason is empty for accepted shares or older rows without a reason.
+  // "submit_error" identifies a transport/submit failure.
+  string reject_reason = 5;
+}
+
+message GetPoolDiagnosticsRequest {
+  // Opt in to a bounded share-log lookup. The default false preserves the
+  // database cost of existing high-frequency diagnostics consumers.
+  bool include_last_recorded_shares = 1;
+}
+
+// GetPoolDiagnosticsResponse contains per-configured-enabled-pool runtime
+// connection diagnostics reflecting this node's live pool connections. Only
+// enabled pools are tracked, so disabled pools are absent.
+message GetPoolDiagnosticsResponse {
+  repeated PoolConnectionDiagnostics pools = 1;
+  // active_pool_id is the highest-priority active pool for compatibility;
+  // inspect each pool's is_active field when weighted_mode is true.
+  int64 active_pool_id = 2;
+  bool weighted_mode = 3;
+  // Populated only when requested. Includes configured disabled pools with a
+  // retained result even though they have no live PoolConnectionDiagnostics.
+  // Empty means no result within the last 30 days, or an older server that
+  // does not support this opt-in field.
+  repeated PoolRecordedShareResult last_recorded_shares = 4;
+  // Explicit strategy vocabulary for clients. The current implementation
+  // derives it from enabled share weights; future strategies can be added here.
+  PoolAllocationMode allocation_mode = 5;
+}

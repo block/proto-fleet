@@ -1,0 +1,658 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+import "google/rpc/status.proto";
+import "mdk/v2/common.proto";
+import "mdk/v2/feed_mapping.proto";
+import "mdk/v2/hashboard.proto";
+import "mdk/v2/mining.proto";
+import "mdk/v2/mining_group.proto";
+import "mdk/v2/pool.proto";
+import "mdk/v2/power.proto";
+import "mdk/v2/server_update.proto";
+import "mdk/v2/system.proto";
+import "mdk/v2/tank.proto";
+import "mdk/v2/telemetry.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// FlotillaTunnelService accepts outbound, long-lived fleet-unit connections.
+// These infrastructure RPCs are not product API methods and intentionally
+// declare neither product nor tunnel_access options.
+service FlotillaTunnelService {
+  // Connect multiplexes synchronization, telemetry, leases, and MDK calls.
+  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
+  // buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
+  rpc Connect(stream TunnelFrame) returns (stream TunnelFrame);
+
+  // EnrollUnit is retained only for wire compatibility with unreleased
+  // clients. R2 uses the site's current/next bearer tokens on Connect instead;
+  // servers do not implement a separate unit-enrollment lifecycle.
+  rpc EnrollUnit(EnrollUnitRequest) returns (EnrollUnitResponse) {
+    option deprecated = true;
+  }
+}
+
+// TunnelUnitKind identifies the product represented by one tunnel stream.
+enum TunnelUnitKind {
+  TUNNEL_UNIT_KIND_UNSPECIFIED = 0;
+  TUNNEL_UNIT_KIND_CT1_CONTAINER = 1;
+  TUNNEL_UNIT_KIND_R2_MINER = 2;
+}
+
+// TunnelMode identifies the negotiated data plane for a tunnel stream.
+enum TunnelMode {
+  TUNNEL_MODE_UNSPECIFIED = 0;
+  TUNNEL_MODE_DATASET_SYNC = 1;
+  TUNNEL_MODE_RPC_ONLY = 2;
+}
+
+// TunnelPlane separates lightweight authority/control traffic from bulk CT1
+// dataset traffic while retaining the original combined stream for rolling
+// compatibility.
+enum TunnelPlane {
+  TUNNEL_PLANE_UNSPECIFIED = 0;
+  TUNNEL_PLANE_CONTROL = 1;
+  TUNNEL_PLANE_DATA = 2;
+}
+
+// TunnelDataset identifies independently sequenced state.
+enum TunnelDataset {
+  TUNNEL_DATASET_UNSPECIFIED = 0;
+  TUNNEL_DATASET_INVENTORY = 1;
+  TUNNEL_DATASET_SYSTEM = 2;
+  TUNNEL_DATASET_SITE_METRICS = 3;
+  TUNNEL_DATASET_BOARD_HEALTH = 4;
+  TUNNEL_DATASET_CONTAINER_HEALTH = 5;
+  TUNNEL_DATASET_POOL_STATE = 6;
+  TUNNEL_DATASET_ISSUES = 7;
+  TUNNEL_DATASET_ASIC_HEALTH = 8;
+  TUNNEL_DATASET_LOGS = 9;
+  TUNNEL_DATASET_OPERATIONS = 10;
+  // TUNNEL_DATASET_AUDIT sequences audit-log push frames and the audit
+  // full-sync object.
+  TUNNEL_DATASET_AUDIT = 11;
+  // TUNNEL_DATASET_PLANT_HISTORY carries an independently staged, atomically
+  // committed 24-hour plant history snapshot.
+  TUNNEL_DATASET_PLANT_HISTORY = 12;
+}
+
+// TunnelAuthority is the server's disposition for one instance connection.
+enum TunnelAuthority {
+  TUNNEL_AUTHORITY_UNSPECIFIED = 0;
+  TUNNEL_AUTHORITY_AUTHORITATIVE = 1;
+  TUNNEL_AUTHORITY_WARM_STANDBY = 2;
+  TUNNEL_AUTHORITY_REJECTED = 3;
+}
+
+// TunnelLeaseKind identifies demand-driven upstream data.
+enum TunnelLeaseKind {
+  TUNNEL_LEASE_KIND_UNSPECIFIED = 0;
+  TUNNEL_LEASE_KIND_BOARD = 1;
+  TUNNEL_LEASE_KIND_ASIC = 2;
+  TUNNEL_LEASE_KIND_LOGS = 3;
+}
+
+// RpcDataDirection identifies which half of a remote call owns a data frame.
+enum RpcDataDirection {
+  RPC_DATA_DIRECTION_UNSPECIFIED = 0;
+  RPC_DATA_DIRECTION_REQUEST = 1;
+  RPC_DATA_DIRECTION_RESPONSE = 2;
+}
+
+// ResyncReason explains why a complete dataset snapshot is required.
+enum ResyncReason {
+  RESYNC_REASON_UNSPECIFIED = 0;
+  RESYNC_REASON_INITIAL_CONNECT = 1;
+  RESYNC_REASON_PROCESS_RESTART = 2;
+  RESYNC_REASON_SEQUENCE_GAP = 3;
+  RESYNC_REASON_EXPLICIT_REQUEST = 4;
+  RESYNC_REASON_TRANSITION_OVERFLOW = 5;
+  RESYNC_REASON_AUTHORITY_CHANGE = 6;
+}
+
+// TunnelFrame is the sole message carried by Connect.
+message TunnelFrame {
+  uint32 protocol_version = 1;
+  string site_id = 2;
+  string instance_id = 3;
+  string connection_id = 4;
+  string container_id = 5;
+  // unit_id and unit_kind are required on every R2 RPC_ONLY frame. R2
+  // authenticates with its physical site's token and uses unit_id as its
+  // stable hardware identity. R2 leaves container_id empty. Existing CT1
+  // dataset-sync clients continue to identify a container through container_id.
+  string unit_id = 6;
+  TunnelUnitKind unit_kind = 7;
+  // data_sequence is a stable replay-buffer sequence on negotiated DATA
+  // transports. Zero preserves the legacy dataset-cursor-only contract.
+  uint64 data_sequence = 8;
+  oneof payload {
+    TunnelHello hello = 10;
+    TunnelWelcome welcome = 11;
+    TunnelHeartbeat heartbeat = 12;
+    SyncChunk sync_chunk = 13;
+    InventoryDelta inventory_delta = 14;
+    TelemetryBatch telemetry_batch = 15;
+    IssueDelta issue_delta = 16;
+    LeaseUpdate lease_update = 17;
+    RpcOpen rpc_open = 18;
+    RpcData rpc_data = 19;
+    RpcClose rpc_close = 20;
+    RpcCancel rpc_cancel = 21;
+    ResyncRequest resync_request = 22;
+    ResyncComplete resync_complete = 23;
+    BoardHealthBatch board_health_batch = 24;
+    SiteOperationalSnapshot site_operational_snapshot = 25;
+    AuditDelta audit_delta = 26;
+    PlantHistoryCommit plant_history_commit = 27;
+    PlantHistoryAck plant_history_ack = 28;
+    TransportPing transport_ping = 29;
+    TransportPong transport_pong = 30;
+    DataProgressAck data_progress_ack = 31;
+    TunnelDisconnect disconnect = 32;
+  }
+}
+
+// TunnelDisconnect lets a negotiated client preserve the local cause of an
+// intentional control-stream shutdown for in-flight RPC callers. Transport
+// failures that prevent delivery continue to use the generic disconnect.
+message TunnelDisconnect {
+  google.rpc.Status status = 1;
+}
+
+// TransportPing is handled before coordinator, ingestion, or durable-store
+// work. Sequence is scoped to one transport connection.
+message TransportPing {
+  uint64 sequence = 1;
+  google.protobuf.Timestamp sent_at = 2;
+}
+
+// TransportPong echoes one accepted ping without granting HA authority.
+message TransportPong {
+  uint64 sequence = 1;
+  google.protobuf.Timestamp ping_sent_at = 2;
+  google.protobuf.Timestamp received_at = 3;
+}
+
+// DataProgressAck confirms that the server successfully processed every
+// negotiated DATA frame through sequence. It is transport progress only;
+// dataset cursors remain the durable logical acknowledgement.
+message DataProgressAck {
+  uint64 sequence = 1;
+}
+
+// DatasetCursor identifies one source boot and its contiguous sequence.
+message DatasetCursor {
+  TunnelDataset dataset = 1;
+  string boot_id = 2;
+  uint64 sequence = 3;
+}
+
+// SourceMetadata accompanies every telemetry-bearing payload.
+message SourceMetadata {
+  string boot_id = 1;
+  TunnelDataset dataset = 2;
+  uint64 sequence = 3;
+  google.protobuf.Timestamp observed_at = 4;
+  google.protobuf.Timestamp sent_at = 5;
+  // peer_relay marks demand-driven telemetry that a standby tunnel fetched
+  // from the exact HA primary named by relay_instance_id. It never grants the
+  // standby's ordinary shadow observations authoritative status.
+  bool peer_relay = 6;
+  // authority_generation fences the relay to the fleet server decision that
+  // selected this standby transport.
+  uint64 authority_generation = 7;
+  string relay_instance_id = 8;
+  // lease_stream_generation changes whenever the agent opens a new upstream
+  // RPC for demand-driven ASIC or log telemetry. Zero means the sender predates
+  // this marker; ordinary non-leased telemetry always leaves it zero.
+  uint64 lease_stream_generation = 9;
+}
+
+// ContainerMetadata contains stable operator-facing container identity. Site
+// display metadata is configured only by Flotilla.
+message ContainerMetadata {
+  string display_name = 1;
+  map<string, string> labels = 2;
+}
+
+// TunnelCapability advertises a supported dataset or operation.
+message TunnelCapability {
+  string name = 1;
+  uint32 version = 2;
+}
+
+// TunnelHello is the required first client frame.
+message TunnelHello {
+  uint32 minimum_protocol_version = 1;
+  uint32 maximum_protocol_version = 2;
+  ContainerMetadata container = 3;
+  string frigate_version = 4;
+  string boot_id = 5;
+  HARole ha_role = 6;
+  bool container_write_primary = 7;
+  repeated TunnelCapability capabilities = 8;
+  repeated TunnelDataset datasets = 9;
+  repeated string mdk_methods = 10;
+  string configuration_revision = 11;
+  // etcd_cluster_id is observational and may be empty when Frigate cannot
+  // report it. Container identity never depends on this value.
+  string etcd_cluster_id = 12;
+  string architecture = 13;
+  ServerInstallationType installation_type = 14;
+  string peer_instance_id = 15;
+  bool update_helper_available = 16;
+  // agent_version identifies the tunnel adapter independently of the product
+  // software it observes.
+  string agent_version = 17;
+  // product_version identifies the observed miner or controller software.
+  string product_version = 18;
+  reserved 19, 20;
+  reserved "mdk_method_capabilities", "mdk_contract_digest";
+  // requested_mode distinguishes the lightweight RPC-only R2 lifecycle from
+  // the existing CT1 dataset-sync lifecycle. RPC_ONLY clients advertise no
+  // datasets and send no dataset, inventory, telemetry, issue, lease, or audit
+  // payloads.
+  TunnelMode requested_mode = 21;
+  // maximum_in_flight_calls is the agent relay's concurrent RPC-call
+  // capacity. It is transport evidence only, not device or fleet policy.
+  // RPC_ONLY agents set a value from 1 through 64. Zero uses the server's
+  // conservative compatibility default.
+  uint32 maximum_in_flight_calls = 22;
+  // update_support_message carries the local updater's exact fail-closed
+  // readiness reason so Flotilla can reject a rollout before staging bytes.
+  string update_support_message = 23;
+  // requested_plane opts a CT1 client into split control/data transports. An
+  // unspecified value preserves the legacy combined stream.
+  TunnelPlane requested_plane = 24;
+  // parent_connection_id and attachment_token are required only for DATA and
+  // bind that replaceable transport to one live CONTROL session.
+  string parent_connection_id = 25;
+  bytes attachment_token = 26;
+  // ha_recovery lets Flotilla retain the prior authoritative snapshot while a
+  // promoted Frigate deliberately delays its heavyweight full synchronization.
+  HARecoveryStatus ha_recovery = 27;
+}
+
+// EnrollUnitRequest is retained only as the deprecated request type for the
+// compatibility-only EnrollUnit method.
+message EnrollUnitRequest {
+  string unit_id = 1;
+  TunnelUnitKind unit_kind = 2;
+  string agent_version = 3;
+  string request_id = 4;
+}
+
+// EnrollUnitResponse is retained only as the deprecated response type for the
+// compatibility-only EnrollUnit method.
+message EnrollUnitResponse {
+  string assigned_site_id = 1;
+  string device_credential = 2;
+  google.protobuf.Timestamp expires_at = 3;
+  google.protobuf.Timestamp renew_after = 4;
+}
+
+// TunnelWelcome completes negotiation and authorizes operational traffic.
+message TunnelWelcome {
+  uint32 selected_protocol_version = 1;
+  string connection_id = 2;
+  TunnelAuthority authority = 3;
+  // heartbeat_interval_seconds is a positive whole-second cadence.
+  uint32 heartbeat_interval_seconds = 4;
+  uint32 maximum_frame_bytes = 5;
+  repeated Lease leases = 6;
+  bool full_resync_required = 7;
+  google.rpc.Status rejection = 8;
+  repeated DatasetCursor accepted_cursors = 9;
+  uint64 authority_generation = 10;
+  // sync_object_types names additive full-sync objects this server can decode.
+  repeated string sync_object_types = 11;
+  // selected_mode confirms the exact requested data plane. The server rejects
+  // an unsupported explicit mode rather than silently downgrading it. Existing
+  // CT1 clients omit this additive field and retain dataset synchronization.
+  TunnelMode selected_mode = 12;
+  // ownership_generation fences this Flotilla process against overlapping
+  // rollout peers. Zero is accepted from pre-coordination servers.
+  uint64 ownership_generation = 13;
+  // heartbeat_acknowledgements is true when the server replies to every
+  // accepted client heartbeat with a TunnelHeartbeat frame. Clients must not
+  // infer this behavior from protocol v1 because older compatible servers did
+  // not send heartbeat responses.
+  bool heartbeat_acknowledgements = 14;
+  // selected_plane confirms split transport negotiation. An unspecified value
+  // means the existing combined stream contract remains active.
+  TunnelPlane selected_plane = 15;
+  // data_plane_attachment_token is an opaque process-local secret returned on
+  // CONTROL and presented by the corresponding DATA transport.
+  bytes data_plane_attachment_token = 16;
+  AdaptiveLivenessPolicy liveness_policy = 17;
+  // maximum_sync_bytes and maximum_sync_chunks let the sender reserve one
+  // complete full-sync transaction plus bounded live headroom without a
+  // producer/ack deadlock.
+  uint64 maximum_sync_bytes = 18;
+  uint32 maximum_sync_chunks = 19;
+  // data_progress_acknowledgements opts a split DATA transport into bounded
+  // sequence-window replay. Older peers leave this false and continue using
+  // dataset cursors alone.
+  bool data_progress_acknowledgements = 20;
+  // disconnect_status_notices is true only when both peers understand the
+  // additive final-frame status notice.
+  bool disconnect_status_notices = 21;
+  // selected_extensions is the intersection of separately versioned CT1
+  // capabilities understood by both endpoints. Protocol-v1 remains frozen.
+  repeated string selected_extensions = 22;
+}
+
+// AdaptiveLivenessPolicy bounds the RTT estimator used by split transports.
+message AdaptiveLivenessPolicy {
+  uint32 minimum_timeout_seconds = 1;
+  uint32 initial_timeout_seconds = 2;
+  uint32 maximum_timeout_seconds = 3;
+}
+
+// TunnelHeartbeat carries role changes and contiguous dataset acknowledgements.
+message TunnelHeartbeat {
+  google.protobuf.Timestamp sent_at = 1;
+  HARole ha_role = 2;
+  bool container_write_primary = 3;
+  repeated DatasetCursor acknowledgements = 4;
+  HARecoveryStatus ha_recovery = 5;
+}
+
+// SyncChunk is one bounded part of an atomically committed full synchronization.
+// Chunk indexes and counts apply to one (sync_id, object_id) pair.
+// Concatenating the chunks in index order yields one message encoded according
+// to type_url.
+message SyncChunk {
+  string sync_id = 1;
+  TunnelDataset dataset = 2;
+  uint32 chunk_index = 3;
+  uint32 chunk_count = 4;
+  string type_url = 5;
+  bytes data = 6;
+  SourceMetadata source = 7;
+  string object_id = 8;
+}
+
+// InventoryDelta carries typed inventory upserts and removals.
+message InventoryDelta {
+  SourceMetadata source = 1;
+  repeated google.protobuf.Any upserts = 2;
+  repeated string removed_resource_ids = 3;
+  string revision = 4;
+}
+
+// TelemetryRecord is one typed value within a site batch.
+message TelemetryRecord {
+  string resource_id = 1;
+  google.protobuf.Any value = 2;
+}
+
+// TelemetryBatch carries co-cadenced latest values for one dataset.
+message TelemetryBatch {
+  SourceMetadata source = 1;
+  repeated TelemetryRecord records = 2;
+}
+
+// BoardHealthSample carries only the changing fields for one board.
+message BoardHealthSample {
+  string board_id = 1;
+  MiningState mining_state = 2;
+  bool isolated = 3;
+  HashboardHealth health = 4;
+  // 1h rolling accepted-share counter, populated periodically (every Nth
+  // batch); absent otherwise.
+  optional int64 shares_accepted_1h = 5;
+  // 1h rolling rejected-share counter, populated periodically (every Nth
+  // batch); absent otherwise.
+  optional int64 shares_rejected_1h = 6;
+  // asic_bin carries the latest complete board-level CP-bin summary. Empty
+  // means unavailable and clears any previously retained value.
+  string asic_bin = 7;
+}
+
+// BoardHealthBatch is the compact, typed 1 Hz board update for a site.
+message BoardHealthBatch {
+  SourceMetadata source = 1;
+  repeated BoardHealthSample boards = 2;
+  // full_set marks this batch as authoritative for board presence: it
+  // contains every known board. False (default) means a delta batch that
+  // only adds fresh samples. Field 3 is the next free number.
+  bool full_set = 3;
+}
+
+// SiteOperationalSnapshot carries current site aggregates and low-volume state.
+message SiteOperationalSnapshot {
+  SourceMetadata source = 1;
+  GetMiningStatusResponse mining = 2;
+  GetDevicePowerResponse device_power = 3;
+  SystemStatus system = 4;
+  GetContainerHealthResponse container_health = 5;
+  ListPoolsResponse pools = 6;
+  GetPoolDiagnosticsResponse pool_diagnostics = 7;
+  SitePlantSystemsSnapshot plant_systems = 8;
+  reserved 9;
+  reserved "plant_history";
+  TankTelemetryBatch tank_telemetry = 10;
+  // Negotiated mining-groups-live-v1 refresh. Original board observation times
+  // remain inside the snapshot; this does not request a full synchronization.
+  MiningGroupsSnapshot mining_groups = 11;
+}
+
+// SitePlantSystemsSnapshot carries bounded passive Plant Systems state through
+// normal synchronization and live publication. It is never populated by a
+// browser-triggered ad-hoc read.
+message SitePlantSystemsSnapshot {
+  GetFeedMappingReportResponse feed_mapping_report = 1;
+  GetActiveFeedMappingRunResponse active_feed_mapping = 2;
+  ListFeedMappingRunEventsResponse feed_mapping_events = 3;
+  GetSoftFeedMappingReportResponse soft_feed_mapping_report = 4;
+  GetActiveSoftFeedMappingRunResponse active_soft_feed_mapping = 5;
+  ListContainerPlantEventsResponse plant_events = 6;
+  ListUnitTagsResponse unit_tags = 7;
+  google.protobuf.Timestamp plant_events_start = 8;
+  google.protobuf.Timestamp plant_events_end = 9;
+  bool plant_events_complete = 10;
+  bool plant_events_truncated = 11;
+  ListContainerPlantAlarmEpisodesResponse alarm_episodes = 12;
+  google.protobuf.Timestamp alarm_episodes_start = 13;
+  google.protobuf.Timestamp alarm_episodes_end = 14;
+  bool alarm_episodes_complete = 15;
+  bool alarm_episodes_truncated = 16;
+  // Sticky producer capability. Once true, Flotilla retains per-alarm issue
+  // behavior across temporary collection failures and rolling reconnects.
+  bool alarm_episodes_supported = 17;
+}
+
+// PlantMinuteHistoryPoint is one minute offset from its parent series start.
+// Floats and offsets keep the 24-hour snapshot compact on the tunnel.
+message PlantMinuteHistoryPoint {
+  uint32 minute_offset = 1;
+  float avg = 2;
+  float min = 3;
+  float max = 4;
+  uint32 count = 5;
+}
+
+message PlantMinuteHistorySeries {
+  TimeSeriesMetric metric = 1;
+  string identifier = 2;
+  google.protobuf.Timestamp start = 3;
+  repeated PlantMinuteHistoryPoint points = 4;
+}
+
+// PlantMinuteHistorySnapshot is prepared asynchronously by Frigate and
+// published through the dedicated staged plant-history dataset. Browser reads
+// never trigger its collection.
+message PlantMinuteHistorySnapshot {
+  google.protobuf.Timestamp start = 1;
+  google.protobuf.Timestamp end = 2;
+  google.protobuf.Timestamp hydrated_at = 3;
+  repeated PlantMinuteHistorySeries series = 4;
+  bool complete = 5;
+  uint32 failed_series = 6;
+}
+
+// PlantHistoryCommit atomically applies SyncChunk frames in the dedicated
+// plant-history dataset. The digest covers the reassembled protobuf bytes.
+message PlantHistoryCommit {
+  string sync_id = 1;
+  string sha256 = 2;
+  SourceMetadata source = 3;
+  uint64 authority_generation = 4;
+  uint64 ownership_generation = 5;
+  // incremental merges this bounded overlapping tail into an acknowledged
+  // full baseline. Senders set it only when the receiver advertised
+  // plant-history-tail-v1; older receivers continue to receive replacements.
+  bool incremental = 6;
+}
+
+// PlantHistoryAck confirms that a staged history snapshot was either admitted
+// to the hot store or explicitly rejected without terminating the tunnel.
+message PlantHistoryAck {
+  string sync_id = 1;
+  google.rpc.Status status = 2;
+}
+
+// ActiveRunInKind distinguishes prepared campaigns from quick one-off tasks.
+enum ActiveRunInKind {
+  ACTIVE_RUN_IN_KIND_UNSPECIFIED = 0;
+  ACTIVE_RUN_IN_KIND_CAMPAIGN = 1;
+  ACTIVE_RUN_IN_KIND_ONE_OFF = 2;
+}
+
+// ActiveRunInMembership is the stable, membership-only subset of one active
+// prepared campaign or quick one-off task.
+message ActiveRunInMembership {
+  ActiveRunInKind kind = 1;
+  string id = 2;
+  string name = 3;
+  repeated string board_ids = 4;
+}
+
+// ActiveRunInsSnapshot is synchronized atomically with inventory. History,
+// progress, phase, and task execution details are deliberately excluded so
+// operational churn does not force inventory resynchronization.
+message ActiveRunInsSnapshot {
+  repeated ActiveRunInMembership runs = 1;
+}
+
+// IssueTransition is a typed active-issue upsert or removal.
+message IssueTransition {
+  string issue_id = 1;
+  google.protobuf.Any issue = 2;
+  bool removed = 3;
+}
+
+// IssueDelta carries retained issue transitions.
+message IssueDelta {
+  SourceMetadata source = 1;
+  repeated IssueTransition transitions = 2;
+}
+
+// AuditDelta carries newly appended audit log entries, oldest first.
+message AuditDelta {
+  // Source stamps dataset=TUNNEL_DATASET_AUDIT boot_id and sequence.
+  SourceMetadata source = 1;
+  // Events are mdk.v2.AuditEvent rows, verbatim, oldest first.
+  repeated AuditEvent events = 2;
+  // Highest event ID included; the agent's poll cursor.
+  int64 last_event_id = 3;
+}
+
+// Lease identifies one demand-driven subscription.
+message Lease {
+  string lease_id = 1;
+  TunnelLeaseKind kind = 2;
+  string resource_id = 3;
+  google.protobuf.Timestamp expires_at = 4;
+  google.protobuf.Any parameters = 5;
+}
+
+// LeaseUpdate replaces or removes leases by stable lease ID.
+message LeaseUpdate {
+  repeated Lease upserts = 1;
+  repeated string removed_lease_ids = 2;
+  uint64 revision = 3;
+  // peer_relay makes the standby agent execute these demand-driven streams
+  // against its configured HA peer instead of its local MDK server.
+  bool peer_relay = 4;
+  uint64 authority_generation = 5;
+  string relay_instance_id = 6;
+}
+
+// RpcOpen starts one allowlisted MDK v2 call. request is required for unary
+// and server-streaming methods and omitted for client-streaming methods.
+message RpcOpen {
+  string call_id = 1;
+  string method = 2;
+  google.protobuf.Any request = 3;
+  google.protobuf.Timestamp deadline = 4;
+  string idempotency_key = 5;
+  string actor = 6;
+  repeated RpcMetadata headers = 7;
+  uint64 authority_generation = 8;
+  // InstanceScoped is reserved for narrowly allowlisted reads and server-update
+  // preparation methods that must reach every HA peer, including warm standbys.
+  bool instance_scoped = 9;
+  // ownership_generation must match the process lease carried by welcome.
+  uint64 ownership_generation = 10;
+  // peer_relay asks a warm-standby tunnel to forward this call to its exact HA
+  // peer. The agent revalidates that relay_instance_id is the live primary
+  // before dispatch; ordinary warm-standby local calls remain forbidden.
+  bool peer_relay = 11;
+  string relay_instance_id = 12;
+  // shared_state_local asks one unfenced warm standby to execute an explicitly
+  // annotated durable shared-state mutation against its local MDK server.
+  bool shared_state_local = 13;
+}
+
+// RpcData carries a request or response message. end_stream half-closes only
+// the selected direction and is required for client-streaming request input.
+message RpcData {
+  string call_id = 1;
+  RpcDataDirection direction = 2;
+  uint64 sequence = 3;
+  google.protobuf.Any message = 4;
+  bool end_stream = 5;
+}
+
+// RpcMetadata preserves repeated gRPC metadata values.
+message RpcMetadata {
+  string key = 1;
+  repeated bytes values = 2;
+}
+
+// RpcClose terminates a call with its canonical gRPC result.
+message RpcClose {
+  string call_id = 1;
+  google.rpc.Status status = 2;
+  repeated RpcMetadata trailers = 3;
+}
+
+// RpcCancel idempotently requests cancellation of an in-flight call.
+message RpcCancel {
+  string call_id = 1;
+  string reason = 2;
+}
+
+// ResyncRequest invalidates deltas until the requested snapshot completes.
+message ResyncRequest {
+  string sync_id = 1;
+  repeated TunnelDataset datasets = 2;
+  ResyncReason reason = 3;
+  repeated DatasetCursor last_accepted = 4;
+  uint64 authority_generation = 5;
+}
+
+// ResyncComplete commits all chunks for a synchronization revision.
+message ResyncComplete {
+  string sync_id = 1;
+  string revision = 2;
+  repeated DatasetCursor cursors = 3;
+}

@@ -14,6 +14,7 @@ import (
 func newHTTPHandler(state *ContainerState, webRoot string) (http.Handler, func(), error) {
 	mux := http.NewServeMux()
 	NewRESTApiHandler(state).RegisterRoutes(mux)
+	registerConnectRoutes(mux, state)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))
@@ -29,6 +30,10 @@ func newHTTPHandler(state *ContainerState, webRoot string) (http.Handler, func()
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+		if strings.HasPrefix(name, "mdk.v2.") {
+			api.ServeHTTP(w, r)
+			return
+		}
 		for _, prefix := range []string{"api", "health", "metrics", "debug"} {
 			if name == prefix || strings.HasPrefix(name, prefix+"/") {
 				api.ServeHTTP(w, r)

@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "mdk/v2/mining.proto";
+import "mdk/v2/options.proto";
+import "mdk/v2/runin.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// C1MiningService is an additive, generation-fenced mining operation surface.
+// It never controls the ESP32 cooling hardware.
+service C1MiningService {
+  rpc ApplyTankOperation(ApplyTankOperationRequest) returns (ApplyTankOperationResponse) {
+    option (mdk.v2.product) = PRODUCT_FOGHASHING_C1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+}
+
+enum TankMiningAction {
+  TANK_MINING_ACTION_UNSPECIFIED = 0;
+  TANK_MINING_ACTION_START = 1;
+  TANK_MINING_ACTION_STOP = 2;
+  TANK_MINING_ACTION_ISOLATE = 3;
+  TANK_MINING_ACTION_CLEAR_ISOLATION = 4;
+  TANK_MINING_ACTION_SET_POWER_TARGET = 5;
+  TANK_MINING_ACTION_CLEAR_POWER_TARGET = 6;
+}
+
+message ApplyTankOperationRequest {
+  string tank_key = 1;
+  string configuration_generation = 2;
+  // Empty selects every currently observed board of the configured CU1.
+  repeated string board_macs = 3;
+  TankMiningAction action = 4;
+  string reason = 5;
+  double watts = 6;
+  PLLAlgorithm pll_algorithm = 7;
+}
+
+message ApplyTankOperationResponse {
+  int32 boards_applied = 1;
+  repeated BoardResult results = 2;
+}

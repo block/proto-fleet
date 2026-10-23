@@ -29,6 +29,8 @@ const (
 	HashboardService_GetContainerMap_FullMethodName          = "/mdk.v2.HashboardService/GetContainerMap"
 	HashboardService_GetHashboardEvents_FullMethodName       = "/mdk.v2.HashboardService/GetHashboardEvents"
 	HashboardService_SetIdentifyLED_FullMethodName           = "/mdk.v2.HashboardService/SetIdentifyLED"
+	HashboardService_ListRecoveryEvidence_FullMethodName     = "/mdk.v2.HashboardService/ListRecoveryEvidence"
+	HashboardService_GetRecoveryEvidence_FullMethodName      = "/mdk.v2.HashboardService/GetRecoveryEvidence"
 )
 
 // HashboardServiceClient is the client API for HashboardService service.
@@ -64,6 +66,12 @@ type HashboardServiceClient interface {
 	// SetIdentifyLED records the desired identification LED state for a board or
 	// module. The HA node that owns each board applies the command to firmware.
 	SetIdentifyLED(ctx context.Context, in *SetIdentifyLEDRequest, opts ...grpc.CallOption) (*SetIdentifyLEDResponse, error)
+	// ListRecoveryEvidence returns bounded summaries of evidence snapshots taken
+	// before automatic hashboard recovery acted, newest first.
+	ListRecoveryEvidence(ctx context.Context, in *ListRecoveryEvidenceRequest, opts ...grpc.CallOption) (*ListRecoveryEvidenceResponse, error)
+	// GetRecoveryEvidence returns one recovery evidence snapshot, including its
+	// bounded JSON payload.
+	GetRecoveryEvidence(ctx context.Context, in *GetRecoveryEvidenceRequest, opts ...grpc.CallOption) (*GetRecoveryEvidenceResponse, error)
 }
 
 type hashboardServiceClient struct {
@@ -155,6 +163,24 @@ func (c *hashboardServiceClient) SetIdentifyLED(ctx context.Context, in *SetIden
 	return out, nil
 }
 
+func (c *hashboardServiceClient) ListRecoveryEvidence(ctx context.Context, in *ListRecoveryEvidenceRequest, opts ...grpc.CallOption) (*ListRecoveryEvidenceResponse, error) {
+	out := new(ListRecoveryEvidenceResponse)
+	err := c.cc.Invoke(ctx, HashboardService_ListRecoveryEvidence_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *hashboardServiceClient) GetRecoveryEvidence(ctx context.Context, in *GetRecoveryEvidenceRequest, opts ...grpc.CallOption) (*GetRecoveryEvidenceResponse, error) {
+	out := new(GetRecoveryEvidenceResponse)
+	err := c.cc.Invoke(ctx, HashboardService_GetRecoveryEvidence_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // HashboardServiceServer is the server API for HashboardService service.
 // All implementations must embed UnimplementedHashboardServiceServer
 // for forward compatibility
@@ -188,6 +214,12 @@ type HashboardServiceServer interface {
 	// SetIdentifyLED records the desired identification LED state for a board or
 	// module. The HA node that owns each board applies the command to firmware.
 	SetIdentifyLED(context.Context, *SetIdentifyLEDRequest) (*SetIdentifyLEDResponse, error)
+	// ListRecoveryEvidence returns bounded summaries of evidence snapshots taken
+	// before automatic hashboard recovery acted, newest first.
+	ListRecoveryEvidence(context.Context, *ListRecoveryEvidenceRequest) (*ListRecoveryEvidenceResponse, error)
+	// GetRecoveryEvidence returns one recovery evidence snapshot, including its
+	// bounded JSON payload.
+	GetRecoveryEvidence(context.Context, *GetRecoveryEvidenceRequest) (*GetRecoveryEvidenceResponse, error)
 	mustEmbedUnimplementedHashboardServiceServer()
 }
 
@@ -221,6 +253,12 @@ func (UnimplementedHashboardServiceServer) GetHashboardEvents(context.Context, *
 }
 func (UnimplementedHashboardServiceServer) SetIdentifyLED(context.Context, *SetIdentifyLEDRequest) (*SetIdentifyLEDResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetIdentifyLED not implemented")
+}
+func (UnimplementedHashboardServiceServer) ListRecoveryEvidence(context.Context, *ListRecoveryEvidenceRequest) (*ListRecoveryEvidenceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListRecoveryEvidence not implemented")
+}
+func (UnimplementedHashboardServiceServer) GetRecoveryEvidence(context.Context, *GetRecoveryEvidenceRequest) (*GetRecoveryEvidenceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetRecoveryEvidence not implemented")
 }
 func (UnimplementedHashboardServiceServer) mustEmbedUnimplementedHashboardServiceServer() {}
 
@@ -397,6 +435,42 @@ func _HashboardService_SetIdentifyLED_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _HashboardService_ListRecoveryEvidence_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListRecoveryEvidenceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HashboardServiceServer).ListRecoveryEvidence(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HashboardService_ListRecoveryEvidence_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HashboardServiceServer).ListRecoveryEvidence(ctx, req.(*ListRecoveryEvidenceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _HashboardService_GetRecoveryEvidence_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetRecoveryEvidenceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(HashboardServiceServer).GetRecoveryEvidence(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: HashboardService_GetRecoveryEvidence_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(HashboardServiceServer).GetRecoveryEvidence(ctx, req.(*GetRecoveryEvidenceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // HashboardService_ServiceDesc is the grpc.ServiceDesc for HashboardService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -439,6 +513,14 @@ var HashboardService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetIdentifyLED",
 			Handler:    _HashboardService_SetIdentifyLED_Handler,
+		},
+		{
+			MethodName: "ListRecoveryEvidence",
+			Handler:    _HashboardService_ListRecoveryEvidence_Handler,
+		},
+		{
+			MethodName: "GetRecoveryEvidence",
+			Handler:    _HashboardService_GetRecoveryEvidence_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

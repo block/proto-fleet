@@ -1,0 +1,134 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/options.proto";
+import "protoc-gen-openapiv2/options/annotations.proto";
+
+// AuthService handles authentication and session management.
+service AuthService {
+  option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_tag) = {
+    name: "Auth"
+    description: "Authentication, session management, and password operations."
+  };
+  // GetAuthStatus returns the local authentication-onboarding posture. A
+  // client may call it before login to choose initial SetPassword or Login.
+  rpc GetAuthStatus(GetAuthStatusRequest) returns (GetAuthStatusResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (google.api.http) = {get: "/api/v2/auth/status"};
+  }
+
+  // Login authenticates a user and returns a session token.
+  rpc Login(LoginRequest) returns (LoginResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (google.api.http) = {
+      post: "/api/v2/auth/login"
+      body: "*"
+    };
+  }
+
+  // Logout invalidates the caller's active session. The REST binding
+  // intentionally accepts an empty body and uses the Authorization bearer
+  // token, preserving existing callers.
+  rpc Logout(LogoutRequest) returns (LogoutResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (google.api.http) = {post: "/api/v2/auth/logout"};
+  }
+
+  // RefreshToken exchanges a valid token for a new one.
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (google.api.http) = {
+      post: "/api/v2/auth/refresh"
+      body: "*"
+    };
+  }
+
+  // SetPassword sets the initial password during onboarding.
+  // The server MUST reject calls once a password has already been set.
+  rpc SetPassword(SetPasswordRequest) returns (SetPasswordResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (google.api.http) = {
+      post: "/api/v2/auth/password"
+      body: "*"
+    };
+  }
+
+  // ChangePassword updates the password for an authenticated user.
+  rpc ChangePassword(ChangePasswordRequest) returns (ChangePasswordResponse) {
+    option (mdk.v2.product) = PRODUCT_COMMON;
+    option (google.api.http) = {
+      put: "/api/v2/auth/password"
+      body: "*"
+    };
+  }
+}
+
+message GetAuthStatusRequest {}
+
+// AuthStatus contains local authentication posture rather than operational
+// system health. Presence distinguishes an authoritative false value from an
+// implementation that cannot report the field.
+message AuthStatus {
+  optional bool onboarded = 1;
+  optional bool password_set = 2;
+}
+
+message GetAuthStatusResponse {
+  AuthStatus status = 1;
+}
+
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  // token is the access token retained for protocol compatibility.
+  string token = 1;
+  // expires_at is the access-token expiry retained for protocol compatibility.
+  google.protobuf.Timestamp expires_at = 2;
+  string refresh_token = 3;
+  google.protobuf.Timestamp refresh_token_expires_at = 4;
+}
+
+message LogoutRequest {
+  // token optionally identifies the session for native gRPC callers. An empty
+  // value uses bearer authentication metadata. The REST binding does not map
+  // this field into a request body.
+  string token = 1;
+}
+
+message LogoutResponse {}
+
+message RefreshTokenRequest {
+  // token is the refresh token being exchanged.
+  string token = 1;
+}
+
+message RefreshTokenResponse {
+  // token is the new access token retained for protocol compatibility.
+  string token = 1;
+  // expires_at is the access-token expiry retained for protocol compatibility.
+  google.protobuf.Timestamp expires_at = 2;
+  // refresh_token is populated when the server rotates the refresh token.
+  string refresh_token = 3;
+  google.protobuf.Timestamp refresh_token_expires_at = 4;
+}
+
+message SetPasswordRequest {
+  string password = 1;
+}
+
+message SetPasswordResponse {}
+
+message ChangePasswordRequest {
+  string current_password = 1;
+  string new_password = 2;
+}
+
+message ChangePasswordResponse {}
