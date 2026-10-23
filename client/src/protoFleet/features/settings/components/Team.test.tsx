@@ -139,6 +139,19 @@ describe("Team", () => {
     expect(screen.getByTestId("location-probe").textContent).toBe("/settings/team?tab=roles");
   });
 
+  it("reloads members when returning to the Members tab", async () => {
+    renderTeam();
+    await waitFor(() => expect(screen.getByTestId("members-list").textContent).toBe("1 member"));
+    expect(listUsersMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId("team-tab-roles-activate"));
+    expect(screen.getByTestId("roles-panel")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("team-tab-members-activate"));
+
+    await waitFor(() => expect(listUsersMock).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId("members-list").textContent).toBe("1 member");
+  });
+
   it("deep-links to the roles tab", () => {
     renderTeam("/settings/team?tab=roles");
 

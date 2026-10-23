@@ -125,12 +125,14 @@ const Team = () => {
     });
   }, [listUsers]);
 
+  // Invited members join from elsewhere, so returning to Members reloads the roster.
+  const showingMembers = canReadTeamMembers && activeTab === "members";
   useEffect(() => {
-    if (canReadTeamMembers) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch on mount; setState inside async fetch is the external-sync pattern
+    if (showingMembers) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch whenever Members becomes active; setState inside async fetch is the external-sync pattern
       fetchUsers();
     }
-  }, [fetchUsers, canReadTeamMembers]);
+  }, [fetchUsers, showingMembers]);
 
   const colConfig: ColConfig<UserData, string, UserColumns> = useMemo(
     () => ({
@@ -332,7 +334,7 @@ const Team = () => {
 
       {activeTab === "members" ? (
         <>
-          {isLoading ? (
+          {isLoading && users.length === 0 ? (
             <div className="text-center text-text-primary-50">Loading team members...</div>
           ) : (
             <List<UserData, string, UserColumns>
