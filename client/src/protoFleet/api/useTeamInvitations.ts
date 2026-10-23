@@ -43,6 +43,7 @@ interface DeleteTeamInvitationProps {
 }
 
 const TEAM_INVITATION_PAGE_SIZE = 50;
+const TEAM_INVITATION_RPC_TIMEOUT_MS = 30_000;
 
 const useTeamInvitations = () => {
   const { handleAuthErrors } = useAuthErrors();
@@ -61,7 +62,7 @@ const useTeamInvitations = () => {
   const createTeamInvitation = useCallback(
     async ({ roleId, expiresInSeconds, onSuccess, onError, onFinally }: CreateTeamInvitationProps) => {
       await invitationClient
-        .createTeamInvitation({ roleId, expiresInSeconds })
+        .createTeamInvitation({ roleId, expiresInSeconds }, { timeoutMs: TEAM_INVITATION_RPC_TIMEOUT_MS })
         .then((response) => {
           onSuccess?.(response.token);
         })
@@ -76,7 +77,10 @@ const useTeamInvitations = () => {
   const listTeamInvitations = useCallback(
     async ({ pageToken = "", signal, onSuccess, onError, onFinally }: ListTeamInvitationsProps) => {
       await invitationClient
-        .listTeamInvitations({ pageSize: TEAM_INVITATION_PAGE_SIZE, pageToken }, signal ? { signal } : undefined)
+        .listTeamInvitations(
+          { pageSize: TEAM_INVITATION_PAGE_SIZE, pageToken },
+          { timeoutMs: TEAM_INVITATION_RPC_TIMEOUT_MS, signal },
+        )
         .then((response) => {
           onSuccess?.(response.invitations, response.nextPageToken);
         })
@@ -93,7 +97,7 @@ const useTeamInvitations = () => {
   const revokeTeamInvitation = useCallback(
     async ({ invitationId, onSuccess, onError, onFinally }: RevokeTeamInvitationProps) => {
       await invitationClient
-        .revokeTeamInvitation({ invitationId })
+        .revokeTeamInvitation({ invitationId }, { timeoutMs: TEAM_INVITATION_RPC_TIMEOUT_MS })
         .then(() => {
           onSuccess?.();
         })
@@ -108,7 +112,7 @@ const useTeamInvitations = () => {
   const deleteTeamInvitation = useCallback(
     async ({ invitationId, onSuccess, onError, onFinally }: DeleteTeamInvitationProps) => {
       await invitationClient
-        .deleteTeamInvitation({ invitationId })
+        .deleteTeamInvitation({ invitationId }, { timeoutMs: TEAM_INVITATION_RPC_TIMEOUT_MS })
         .then(() => {
           onSuccess?.();
         })

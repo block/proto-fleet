@@ -33,6 +33,9 @@ const rows = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockList.mockReset();
+  mockRevoke.mockReset();
+  mockDelete.mockReset();
   vi.mocked(useTeamInvitations).mockReturnValue({
     createTeamInvitation: vi.fn(),
     listTeamInvitations: mockList,
@@ -86,6 +89,23 @@ describe("TeamInvitations", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Revoke" }));
 
     await waitFor(() => expect(mockRevoke).toHaveBeenCalledWith(expect.objectContaining({ invitationId: "pending" })));
+  });
+
+  it("keeps the revoke confirmation open while revoke is pending", async () => {
+    render(
+      <PopoverProvider>
+        <TeamInvitations refreshKey={0} />
+      </PopoverProvider>,
+    );
+    await screen.findByText("Pending");
+
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Revoke" }));
+
+    await waitFor(() => expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled());
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   it("deletes expired and revoked invitations without confirmation", async () => {
@@ -268,6 +288,34 @@ describe("TeamInvitations", () => {
       respond(2, "refreshed-second-page");
       expect(screen.getByText("refreshed-second-page")).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled();
+    });
+
+    it("does not reload the list when a deletion finishes after unmount", async () => {
+      let finishDelete: (() => void) | undefined;
+      mockDelete.mockImplementation(({ onSuccess, onFinally }) => {
+        finishDelete = () => {
+          onSuccess?.();
+          onFinally?.();
+        };
+      });
+      const { unmount } = render(
+        <PopoverProvider>
+          <TeamInvitations refreshKey={0} />
+        </PopoverProvider>,
+      );
+      act(() => {
+        requests[0].onSuccess?.([invitation("dead", TeamInvitationStatus.REVOKED, "first-page")], "");
+        requests[0].onFinally?.();
+      });
+
+      fireEvent.click(await screen.findByRole("button", { name: "Delete" }));
+      expect(mockDelete).toHaveBeenCalledTimes(1);
+
+      unmount();
+      act(() => finishDelete?.());
+
+      expect(requests).toHaveLength(1);
+      expect(pushToast).not.toHaveBeenCalled();
     });
 
     it("ignores stale errors after unmounting the list", async () => {

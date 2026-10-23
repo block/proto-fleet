@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import Team from "./Team";
@@ -104,6 +104,15 @@ const renderTeam = (initialEntry = "/settings/team") =>
     </MemoryRouter>,
   );
 
+const member = (userId: string, role = "ADMIN") => ({
+  userId,
+  username: `${userId}@example.com`,
+  passwordUpdatedAt: null,
+  lastLoginAt: null,
+  role,
+  requiresPasswordChange: false,
+});
+
 describe("Team", () => {
   beforeEach(() => {
     permissionsMock.current = ["user:read", "user:manage", "role:manage"];
@@ -150,6 +159,33 @@ describe("Team", () => {
 
     await waitFor(() => expect(listUsersMock).toHaveBeenCalledTimes(2));
     expect(screen.getByTestId("members-list").textContent).toBe("1 member");
+  });
+
+  it("keeps the latest member reload when an earlier request finishes late", async () => {
+    const requests: Array<{
+      onSuccess?: Parameters<typeof listUsersMock>[0]["onSuccess"];
+      onFinally?: () => void;
+    }> = [];
+    listUsersMock.mockImplementation((request) => requests.push(request));
+
+    renderTeam();
+    await waitFor(() => expect(requests).toHaveLength(1));
+
+    fireEvent.click(screen.getByTestId("team-tab-roles-activate"));
+    fireEvent.click(screen.getByTestId("team-tab-members-activate"));
+    await waitFor(() => expect(requests).toHaveLength(2));
+
+    act(() => {
+      requests[1].onSuccess?.([member("new-1"), member("new-2")]);
+      requests[1].onFinally?.();
+    });
+    expect(await screen.findByText("2 members")).toBeInTheDocument();
+
+    act(() => {
+      requests[0].onSuccess?.([member("stale-1")]);
+      requests[0].onFinally?.();
+    });
+    expect(screen.getByText("2 members")).toBeInTheDocument();
   });
 
   it("deep-links to the roles tab", () => {

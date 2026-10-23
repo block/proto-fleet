@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import { useUserManagement } from "@/protoFleet/api/useUserManagement";
 import DeactivateUserDialog from "@/protoFleet/features/settings/components/DeactivateUserDialog";
@@ -74,6 +74,7 @@ const Team = () => {
   const [isDeactivating, setIsDeactivating] = useState(false);
   const [editRoleUser, setEditRoleUser] = useState<UserData | null>(null);
   const [memberFilters, setMemberFilters] = useState<ActiveFilters>(defaultMemberFilters);
+  const memberRequestId = useRef(0);
   const requestedTabParam = searchParams.get("tab");
   const requestedTab: TeamTab =
     requestedTabParam === "roles" || requestedTabParam === "invitations" ? requestedTabParam : "members";
@@ -108,18 +109,24 @@ const Team = () => {
   );
 
   const fetchUsers = useCallback(() => {
+    const requestId = memberRequestId.current + 1;
+    memberRequestId.current = requestId;
+    const requestIsCurrent = () => memberRequestId.current === requestId;
     setIsLoading(true);
     listUsers({
       onSuccess: (userList) => {
+        if (!requestIsCurrent()) return;
         setUsers(userList);
       },
       onError: (error) => {
+        if (!requestIsCurrent()) return;
         pushToast({
           message: error || "Failed to load team members",
           status: STATUSES.error,
         });
       },
       onFinally: () => {
+        if (!requestIsCurrent()) return;
         setIsLoading(false);
       },
     });
@@ -131,7 +138,12 @@ const Team = () => {
     if (showingMembers) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch whenever Members becomes active; setState inside async fetch is the external-sync pattern
       fetchUsers();
+      return () => {
+        memberRequestId.current += 1;
+      };
     }
+
+    memberRequestId.current += 1;
   }, [fetchUsers, showingMembers]);
 
   const colConfig: ColConfig<UserData, string, UserColumns> = useMemo(

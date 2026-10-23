@@ -66,6 +66,7 @@ const TeamInvitations = ({ refreshKey, headerControls, filtersClassName }: TeamI
   const [isRevoking, setIsRevoking] = useState(false);
   const pendingDeletes = useRef(new Set<string>());
   const [deletingInvitationIds, setDeletingInvitationIds] = useState<Set<string>>(() => new Set());
+  const mounted = useRef(true);
 
   // The page on screen changes only when a requested page loads, so a failed
   // request keeps the current rows, page index and cursors together. Starting
@@ -74,6 +75,7 @@ const TeamInvitations = ({ refreshKey, headerControls, filtersClassName }: TeamI
   const inFlight = useRef<AbortController | null>(null);
   const loadPage = useCallback(
     (target: PageView) => {
+      if (!mounted.current) return;
       inFlight.current?.abort();
       const controller = new AbortController();
       inFlight.current = controller;
@@ -103,29 +105,42 @@ const TeamInvitations = ({ refreshKey, headerControls, filtersClassName }: TeamI
   );
   // Revocation and deletion finish asynchronously; refresh whichever page is
   // on screen by then.
-  const reloadShownPage = useCallback(() => loadPage(shownView.current), [loadPage]);
+  const reloadShownPage = useCallback(() => {
+    if (!mounted.current) return;
+    loadPage(shownView.current);
+  }, [loadPage]);
 
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      inFlight.current?.abort();
+    };
+  }, []);
   // A new invitation is always newest, so creation returns to the first page.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on mount and after creation; setState inside async fetch is the external-sync pattern
     loadPage(firstPage);
   }, [loadPage, refreshKey]);
-  useEffect(() => () => inFlight.current?.abort(), []);
 
   const handleRevokeConfirm = useCallback(() => {
     if (!revoking) return;
+    const invitationId = revoking.invitationId;
     setIsRevoking(true);
     revokeTeamInvitation({
-      invitationId: revoking.invitationId,
+      invitationId,
       onSuccess: () => {
+        if (!mounted.current) return;
         pushToast({ message: "Invitation revoked", status: STATUSES.success });
-        setRevoking(null);
+        setRevoking((current) => (current?.invitationId === invitationId ? null : current));
         reloadShownPage();
       },
       onError: (error) => {
+        if (!mounted.current) return;
         pushToast({ message: error || "Failed to revoke invitation", status: STATUSES.error });
       },
       onFinally: () => {
+        if (!mounted.current) return;
         setIsRevoking(false);
       },
     });
@@ -140,13 +155,16 @@ const TeamInvitations = ({ refreshKey, headerControls, filtersClassName }: TeamI
       deleteTeamInvitation({
         invitationId: invitation.invitationId,
         onSuccess: () => {
+          if (!mounted.current) return;
           pushToast({ message: "Invitation deleted", status: STATUSES.success });
           reloadShownPage();
         },
         onError: (error) => {
+          if (!mounted.current) return;
           pushToast({ message: error || "Failed to delete invitation", status: STATUSES.error });
         },
         onFinally: () => {
+          if (!mounted.current) return;
           pendingDeletes.current.delete(invitation.invitationId);
           setDeletingInvitationIds(new Set(pendingDeletes.current));
         },
@@ -227,14 +245,14 @@ const TeamInvitations = ({ refreshKey, headerControls, filtersClassName }: TeamI
       <Dialog
         open={Boolean(revoking)}
         title="Revoke invitation?"
-        onDismiss={() => setRevoking(null)}
+        onDismiss={isRevoking ? undefined : () => setRevoking(null)}
         icon={
           <DialogIcon intent="critical">
             <Alert />
           </DialogIcon>
         }
         buttons={[
-          { text: "Cancel", onClick: () => setRevoking(null), variant: variants.secondary },
+          { text: "Cancel", onClick: () => setRevoking(null), variant: variants.secondary, disabled: isRevoking },
           { text: "Revoke", onClick: handleRevokeConfirm, variant: variants.danger, loading: isRevoking },
         ]}
       >
