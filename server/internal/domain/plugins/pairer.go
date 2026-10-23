@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -223,6 +225,7 @@ func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin,
 		return err
 	}
 
+	discoveredDevice.Endpoints = deviceendpoints.FromSDK(updatedDeviceInfo.Endpoints)
 	discoveredDevice.SerialNumber = updatedDeviceInfo.SerialNumber
 	discoveredDevice.MacAddress = networking.NormalizeMAC(updatedDeviceInfo.MacAddress)
 	discoveredDevice.Model = updatedDeviceInfo.Model
@@ -629,6 +632,7 @@ func convertFleetDeviceToSDKDeviceInfo(device *pb.Device) sdk.DeviceInfo {
 		URLScheme:       device.UrlScheme,
 		RPCPort:         device.RpcPort,
 		RPCTLS:          device.RpcTls,
+		Endpoints:       deviceendpoints.ToSDK(device.Endpoints),
 		SerialNumber:    device.SerialNumber,
 		Model:           device.Model,
 		DeviceClass:     sdk.DeviceClass(device.DeviceClass),

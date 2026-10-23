@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,13 +18,22 @@ import (
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 const DefaultRPCPort int32 = 9095
 const maxReceiveBytes = 8 << 20
+
+func effectiveRPCPort(port int32) int32 {
+	if port == 0 {
+		return DefaultRPCPort
+	}
+	return port
+}
 
 // Client owns one controller connection. Independent reads share it; controls
 // retain their serialized read/write/readback sequence.
@@ -32,6 +42,9 @@ type Client struct {
 	closeErr  error
 	baseURL   string
 	conn      *grpc.ClientConn
+	endpoint  sdk.DeviceInfo
+	memberID  string
+	updates   mdk.ServerUpdateServiceClient
 	system    mdk.SystemServiceClient
 	boards    mdk.HashboardServiceClient
 	mining    mdk.MiningServiceClient
@@ -45,10 +58,7 @@ func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
 	if info.Host == "" || info.Port <= 0 || info.Port > 65535 || (info.URLScheme != "http" && info.URLScheme != "https") {
 		return nil, fmt.Errorf("invalid CT1 web endpoint")
 	}
-	port := info.RPCPort
-	if port == 0 {
-		port = DefaultRPCPort
-	}
+	port := effectiveRPCPort(info.RPCPort)
 	if port < 1 || port > 65535 {
 		return nil, fmt.Errorf("invalid CT1 RPC port")
 	}
@@ -71,7 +81,8 @@ func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
 		return nil, fmt.Errorf("create CT1 connection: %w", err)
 	}
 	web := url.URL{Scheme: info.URLScheme, Host: net.JoinHostPort(info.Host, strconv.Itoa(int(info.Port)))}
-	return &Client{baseURL: web.String(), conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn)}, nil
+	info.RPCPort = port
+	return &Client{endpoint: info, updates: mdk.NewServerUpdateServiceClient(conn), baseURL: web.String(), conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn)}, nil
 }
 func (c *Client) Close() error {
 	c.closeOnce.Do(func() { c.closeErr = c.conn.Close() })
@@ -89,11 +100,44 @@ func (c *Client) Discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceI
 	if v == nil || strings.TrimSpace(v.Id) == "" || (!strings.EqualFold(v.Product, "Frigate") && !strings.EqualFold(v.Product, "CT1") && !strings.EqualFold(v.Model, "CT1")) {
 		return sdk.DeviceInfo{}, fmt.Errorf("endpoint is not a CT1 container")
 	}
-	if info.SerialNumber != "" && info.SerialNumber != v.Id {
+	support, err := c.updates.GetServerUpdateSupport(ctx, &mdk.GetServerUpdateSupportRequest{})
+	if err != nil && status.Code(err) != codes.Unimplemented {
+		return sdk.DeviceInfo{}, fmt.Errorf("read CT1 partner identity: %w", err)
+	}
+	var endpoints []sdk.DeviceEndpoint
+	if support.GetPeerInstanceId() != "" {
+		key, keyErr := pairKey(v.Id, support.GetPeerInstanceId())
+		if keyErr != nil || support.GetInstanceId() != v.Id {
+			return sdk.DeviceInfo{}, fmt.Errorf("invalid CT1 partner identity")
+		}
+		members := []string{v.Id, support.GetPeerInstanceId()}
+		slices.Sort(members)
+		endpoints = []sdk.DeviceEndpoint{{ID: v.Id, DeviceKey: key, MemberIDs: members, Host: c.endpoint.Host, Port: c.endpoint.Port, URLScheme: c.endpoint.URLScheme, RPCPort: c.endpoint.RPCPort, RPCTLS: c.endpoint.RPCTLS}}
+		if endpoints[0].RPCPort == 0 {
+			endpoints[0].RPCPort = DefaultRPCPort
+		}
+	}
+	if len(info.Endpoints) > 0 {
+		if len(endpoints) != 1 || c.endpointID(info.Endpoints) != v.Id {
+			return sdk.DeviceInfo{}, fmt.Errorf("CT1 partner identity changed")
+		}
+		expected := slices.ContainsFunc(info.Endpoints, func(endpoint sdk.DeviceEndpoint) bool {
+			return endpoint.ID == v.Id && endpoint.DeviceKey == endpoints[0].DeviceKey
+		})
+		if !expected {
+			return sdk.DeviceInfo{}, fmt.Errorf("CT1 partner identity changed")
+		}
+	}
+	if info.SerialNumber != "" && info.SerialNumber != v.Id && !(len(info.Endpoints) > 0 && info.SerialNumber == support.GetPeerInstanceId()) {
 		return sdk.DeviceInfo{}, fmt.Errorf("CT1 controller identity mismatch")
 	}
 	info.DeviceClass = sdk.DeviceClassContainer
-	info.SerialNumber = v.Id
+	if info.SerialNumber == "" {
+		info.SerialNumber = v.Id
+	}
+	if len(info.Endpoints) == 0 {
+		info.Endpoints = endpoints
+	}
 	info.Model = "CT1"
 	info.Manufacturer = "Proto"
 	info.FirmwareVersion = v.Version

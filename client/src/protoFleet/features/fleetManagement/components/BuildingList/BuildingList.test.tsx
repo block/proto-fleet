@@ -11,6 +11,7 @@ import {
 } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import {
   type Container,
+  ContainerHASchema,
   ContainerSchema,
   TankHealthSchema,
 } from "@/protoFleet/api/generated/containers/v1/containers_pb";
@@ -255,6 +256,21 @@ const container = create(ContainerSchema, {
 });
 
 describe("combined building and container rows", () => {
+  it("shows HA degraded before an HA report is available", () => {
+    renderList({ containers: [container] });
+    expect(screen.getByText("HA degraded")).toBeInTheDocument();
+  });
+  it.each([
+    { degraded: true, stale: false, warning: true },
+    { degraded: true, stale: true, warning: true },
+    { degraded: false, stale: true, warning: true },
+    { degraded: false, stale: false, warning: false },
+  ])("shows HA warning for $degraded / stale=$stale", ({ degraded, stale, warning }) => {
+    renderList({
+      containers: [create(ContainerSchema, { ...container, ha: create(ContainerHASchema, { degraded, stale }) })],
+    });
+    expect(screen.queryByText("HA degraded") !== null).toBe(warning);
+  });
   it("opens container actions without navigating or offering miner-only commands", async () => {
     const fetchStatus = vi
       .spyOn(globalThis, "fetch")

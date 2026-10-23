@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
@@ -246,11 +248,16 @@ func (s *Service) resolveMiner(ctx context.Context, deviceID models.DeviceIdenti
 	if useTransientCredentials {
 		scope += ":password-recovery:" + id.GenerateID()
 	}
+	controllers, err := deviceendpoints.Decode([]byte(deviceData.Endpoints))
+	if err != nil {
+		return nil, err
+	}
 	m, err := plugins.NewPluginMinerWithCredentials(ctx, plugins.PluginMinerConfig{
 		SDKReuseScopeKey:   scope,
 		DeviceClass:        sdk.DeviceClass(deviceData.DeviceClass),
 		RPCPort:            deviceData.RpcPort,
 		RPCTLS:             deviceData.RpcTls,
+		Endpoints:          deviceendpoints.ToSDK(controllers),
 		DeviceIdentifier:   deviceData.DeviceIdentifier,
 		DriverName:         deviceData.DriverName,
 		Caps:               s.effectiveCapabilitiesForDevice(ctx, deviceData.DriverName, deviceManufacturer, deviceModel),
@@ -311,6 +318,10 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 	}
 	// No server-side plugin gate: the fleet node (not the server) dials the miner
 	// and loads the driver plugin; the server only routes the command.
+	controllers, err := deviceendpoints.Decode([]byte(telemetryRoute.Endpoints))
+	if err != nil {
+		return nil, false, err
+	}
 	remoteCommandMiner, err := remotenode.New(remotenode.Config{
 		DeviceClass: commonpb.DeviceClass(telemetryRoute.DeviceClass),
 		Sender:      s.commandSender,
@@ -332,6 +343,7 @@ func (s *Service) tryFleetNodeMiner(ctx context.Context, deviceID models.DeviceI
 		URLScheme:          telemetryRoute.UrlScheme,
 		RPCPort:            telemetryRoute.RpcPort,
 		RPCTLS:             telemetryRoute.RpcTls,
+		Endpoints:          controllers,
 		SerialNumber:       telemetryRoute.SerialNumber.String,
 		MacAddress:         telemetryRoute.MacAddress,
 		CredentialUsername: fleetNodeCredentialBytes(telemetryRoute.UsernameEnc),

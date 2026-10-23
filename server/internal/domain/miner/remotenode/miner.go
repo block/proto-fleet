@@ -57,6 +57,7 @@ type LogArtifactSaver interface {
 // Config carries everything the adapter needs to address a fleet-node-paired miner.
 type Config struct {
 	DeviceClass commonpb.DeviceClass
+	Endpoints   []*commonpb.DeviceEndpoint
 	RPCPort     int32
 	RPCTLS      bool
 	WriteGate   interfaces.MinerWriteGate
@@ -160,6 +161,7 @@ func New(cfg Config) (*Miner, error) {
 			UrlScheme:          cfg.URLScheme,
 			RpcPort:            cfg.RPCPort,
 			RpcTls:             cfg.RPCTLS,
+			Endpoints:          cfg.Endpoints,
 			SerialNumber:       cfg.SerialNumber,
 			MacAddress:         cfg.MacAddress,
 			CredentialUsername: cfg.CredentialUsername,

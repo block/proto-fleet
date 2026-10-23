@@ -486,6 +486,7 @@ message DeviceInfo {
   // port/url_scheme continue to describe the web endpoint.
   int32 rpc_port = 12;
   bool rpc_tls = 13;
+  repeated DeviceEndpoint endpoints = 14;
 }
 
 message DiscoverDeviceRequest {
@@ -823,7 +824,12 @@ service Driver {
 }
 
 // Container topology and health are observations, not independently paired miners.
+message ContainerHA {
+ google.protobuf.Timestamp observed_at = 1;
+ bool degraded = 2;
+}
 message ContainerSnapshot {
+ ContainerHA ha = 9;
  // Inventory observations without physical placement; position must be zero.
  repeated ContainerHashboard unlocated_hashboards = 8;
  ContainerRollup metrics = 7;
@@ -1013,4 +1019,18 @@ message ContainerFeedEvidence {
  int32 configured_tank = 5;
  int32 configured_module = 6;
  string observed_power_feed_id = 7;
+}
+
+// Discovered device address. The plugin defines the opaque endpoint ID and
+// shared device key; Fleet scopes the key by driver and network owner.
+message DeviceEndpoint {
+  string id = 1;
+  string device_key = 2;
+  string host = 3;
+  int32 port = 4;
+  string url_scheme = 5;
+  int32 rpc_port = 6;
+  bool rpc_tls = 7;
+  // Known endpoint identities in this group, including peers without a scanned address.
+  repeated string member_ids = 8;
 }

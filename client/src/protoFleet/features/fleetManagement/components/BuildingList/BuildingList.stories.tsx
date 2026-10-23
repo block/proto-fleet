@@ -3,7 +3,11 @@ import type { Meta, StoryObj } from "@storybook/react";
 import BuildingList from "./BuildingList";
 import { BuildingSchema, BuildingWithCountsSchema } from "@/protoFleet/api/generated/buildings/v1/buildings_pb";
 import { FleetListStatsSchema } from "@/protoFleet/api/generated/common/v1/fleet_list_stats_pb";
-import { ContainerSchema, TankHealthSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
+import {
+  ContainerHASchema,
+  ContainerSchema,
+  TankHealthSchema,
+} from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { EntityKind, InventoryItemSchema } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { SiteWithCountsSchema } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 
@@ -81,5 +85,23 @@ export const LastInventoryPage: Story = {
     hasPreviousPage: true,
     hasNextPage: false,
     onPrevPage: () => undefined,
+  },
+};
+
+export const ContainerHA: Story = {
+  args: {
+    buildings: [],
+    containers: [
+      { name: "Healthy pair", degraded: false, stale: false },
+      { name: "Degraded pair", degraded: true, stale: false },
+      { name: "Stale HA report", degraded: false, stale: true },
+    ].map(({ name, degraded, stale }, index) =>
+      create(ContainerSchema, {
+        deviceIdentifier: `ha-${index}`,
+        name,
+        site: { id: 1n, label: "West site" },
+        ha: create(ContainerHASchema, { degraded, stale }),
+      }),
+    ),
   },
 };

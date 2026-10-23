@@ -44,6 +44,18 @@ func (q *retryingQuerier) AcquireReconcileLock(ctx context.Context) error {
 	})
 }
 
+func (q *retryingQuerier) ActivateDirectDiscoveredDevice(ctx context.Context, arg ActivateDirectDiscoveredDeviceParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ActivateDirectDiscoveredDevice", func() error {
+		callResult, callErr := q.next.ActivateDirectDiscoveredDevice(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) AddDevicesToDeviceSet(ctx context.Context, arg AddDevicesToDeviceSetParams) ([]string, error) {
 	var result []string
 	err := q.retrier.RetryQuery(ctx, "AddDevicesToDeviceSet", func() error {
@@ -2154,6 +2166,18 @@ func (q *retryingQuerier) FindDirectContainerByIP(ctx context.Context, arg FindD
 	var result []DiscoveredDevice
 	err := q.retrier.RetryQuery(ctx, "FindDirectContainerByIP", func() error {
 		callResult, callErr := q.next.FindDirectContainerByIP(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) FindEndpointDiscovery(ctx context.Context, arg FindEndpointDiscoveryParams) ([]DiscoveredDevice, error) {
+	var result []DiscoveredDevice
+	err := q.retrier.RetryQuery(ctx, "FindEndpointDiscovery", func() error {
+		callResult, callErr := q.next.FindEndpointDiscovery(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -7298,6 +7322,12 @@ func (q *retryingQuerier) LockDevicesForReassign(ctx context.Context, arg LockDe
 	return result, err
 }
 
+func (q *retryingQuerier) LockEndpointDiscovery(ctx context.Context, lockKey string) error {
+	return q.retrier.RetryQuery(ctx, "LockEndpointDiscovery", func() error {
+		return q.next.LockEndpointDiscovery(ctx, lockKey)
+	})
+}
+
 func (q *retryingQuerier) LockFleetNodeByID(ctx context.Context, arg LockFleetNodeByIDParams) (LockFleetNodeByIDRow, error) {
 	var result LockFleetNodeByIDRow
 	err := q.retrier.RetryQuery(ctx, "LockFleetNodeByID", func() error {
@@ -9608,6 +9638,12 @@ func (q *retryingQuerier) UpsertContainerFans(ctx context.Context, arg UpsertCon
 	})
 }
 
+func (q *retryingQuerier) UpsertContainerHA(ctx context.Context, arg UpsertContainerHAParams) error {
+	return q.retrier.RetryQuery(ctx, "UpsertContainerHA", func() error {
+		return q.next.UpsertContainerHA(ctx, arg)
+	})
+}
+
 func (q *retryingQuerier) UpsertContainerRollup(ctx context.Context, arg UpsertContainerRollupParams) error {
 	return q.retrier.RetryQuery(ctx, "UpsertContainerRollup", func() error {
 		return q.next.UpsertContainerRollup(ctx, arg)
@@ -9680,8 +9716,8 @@ func (q *retryingQuerier) UpsertDiscoveredDevice(ctx context.Context, arg Upsert
 	return result, err
 }
 
-func (q *retryingQuerier) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (int32, error) {
-	var result int32
+func (q *retryingQuerier) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (UpsertDiscoveredDeviceFromFleetNodeRow, error) {
+	var result UpsertDiscoveredDeviceFromFleetNodeRow
 	err := q.retrier.RetryQuery(ctx, "UpsertDiscoveredDeviceFromFleetNode", func() error {
 		callResult, callErr := q.next.UpsertDiscoveredDeviceFromFleetNode(ctx, arg)
 		if callErr == nil {

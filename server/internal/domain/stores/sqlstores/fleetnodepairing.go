@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
+
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -155,7 +158,12 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDiscoveredDevices(ctx context.Co
 	}
 	out := make([]pairing.FleetNodeDiscoveredDevice, 0, len(rows))
 	for _, r := range rows {
+		controllers, err := deviceendpoints.Decode(r.Endpoints)
+		if err != nil {
+			return nil, err
+		}
 		out = append(out, pairing.FleetNodeDiscoveredDevice{
+			Endpoints:        controllers,
 			ID:               r.ID,
 			FleetNodeID:      r.DiscoveredByFleetNodeID.Int64,
 			DeviceIdentifier: r.DeviceIdentifier,
@@ -176,26 +184,69 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDiscoveredDevices(ctx context.Co
 	return out, nil
 }
 
-func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport) (commonpb.DeviceClass, bool, error) {
-	deviceClass, err := s.q(ctx).UpsertDiscoveredDeviceFromFleetNode(ctx, sqlc.UpsertDiscoveredDeviceFromFleetNodeParams{
-		OrgID:                   orgID,
-		DeviceIdentifier:        report.DeviceIdentifier,
-		IpAddress:               report.IPAddress,
-		Port:                    report.Port,
-		UrlScheme:               report.URLScheme,
-		RpcPort:                 report.RPCPort,
-		RpcTls:                  report.RPCTLS,
-		DriverName:              report.DriverName,
-		Model:                   emptyToNullString(report.Model),
-		DeviceClass:             int32(report.DeviceClass),
-		Manufacturer:            emptyToNullString(report.Manufacturer),
-		FirmwareVersion:         emptyToNullString(report.FirmwareVersion),
+func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport) (pairing.DiscoveredDeviceReport, bool, error) {
+	var saved pairing.DiscoveredDeviceReport
+	var stored bool
+	err := NewSQLTransactor(s.conn.DB).RunInTx(ctx, func(ctx context.Context) error {
+		candidate := report
+		if len(report.Endpoints) > 0 {
+			existing, endpoints, err := reconcileDeviceEndpoints(ctx, s.q(ctx), sqlc.FindEndpointDiscoveryParams{
+				OrgID: orgID, FleetNodeID: sql.NullInt64{Int64: fleetNodeID, Valid: true}, DriverName: report.DriverName, ScannedHost: report.IPAddress,
+				DeviceClass: int32(report.DeviceClass), Model: report.Model, Manufacturer: report.Manufacturer,
+			}, report.Endpoints)
+			if err != nil {
+				return err
+			}
+			candidate.Endpoints = endpoints
+			if existing != nil {
+				candidate.DeviceIdentifier = existing.DeviceIdentifier
+			} else {
+				candidate.DeviceIdentifier, err = deviceendpoints.NodeIdentifier(fleetNodeID, report.DriverName, endpoints)
+				if err != nil {
+					return err
+				}
+			}
+			browser, err := discoveryBrowserEndpoint(existing, endpoints)
+			if err != nil {
+				return err
+			}
+			if browser != nil {
+				candidate.IPAddress, candidate.Port, candidate.URLScheme = browser.Host, strconv.Itoa(int(browser.Port)), browser.UrlScheme
+				candidate.RPCPort, candidate.RPCTLS = browser.RpcPort, browser.RpcTls
+			}
+		}
+		var err error
+		saved, stored, err = s.upsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, candidate)
+		return err
+	})
+	return saved, stored, err
+}
+
+func (s *SQLFleetNodePairingStore) upsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport) (pairing.DiscoveredDeviceReport, bool, error) {
+	endpoints, err := deviceendpoints.Encode(report.Endpoints)
+	if err != nil {
+		return report, false, err
+	}
+	key, err := deviceendpoints.Key(report.Endpoints)
+	if err != nil {
+		return report, false, err
+	}
+	row, err := s.q(ctx).UpsertDiscoveredDeviceFromFleetNode(ctx, sqlc.UpsertDiscoveredDeviceFromFleetNodeParams{
+		EndpointKey: key, Endpoints: endpoints, OrgID: orgID, DeviceIdentifier: report.DeviceIdentifier,
+		IpAddress: report.IPAddress, Port: report.Port, UrlScheme: report.URLScheme, RpcPort: report.RPCPort, RpcTls: report.RPCTLS,
+		DriverName: report.DriverName, Model: emptyToNullString(report.Model), DeviceClass: int32(report.DeviceClass),
+		Manufacturer: emptyToNullString(report.Manufacturer), FirmwareVersion: emptyToNullString(report.FirmwareVersion),
 		DiscoveredByFleetNodeID: sql.NullInt64{Int64: fleetNodeID, Valid: true},
 	})
 	if errors.Is(err, sql.ErrNoRows) {
-		return commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED, false, nil
+		return report, false, nil
 	}
-	return commonpb.DeviceClass(deviceClass), err == nil, err
+	if err != nil {
+		return report, false, err
+	}
+	report.Endpoints, err = deviceendpoints.Decode(row.Endpoints)
+	report.DeviceIdentifier, report.DeviceClass = row.DeviceIdentifier, commonpb.DeviceClass(row.DeviceClass)
+	return report, err == nil, err
 }
 
 func (s *SQLFleetNodePairingStore) GetDeviceIDByDeviceIdentifier(ctx context.Context, identifier string) (int64, error) {

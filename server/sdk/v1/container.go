@@ -7,10 +7,17 @@ import (
 	sdkerrors "github.com/block/proto-fleet/server/sdk/v1/errors"
 )
 
+// ContainerHA is the plugin's observation of controller redundancy.
+type ContainerHA struct {
+	ObservedAt time.Time `json:"observed_at"`
+	Degraded   bool      `json:"degraded"`
+}
+
 // ContainerSnapshot is the latest observed topology and module health. Positions
 // are selectors; ReportedID is firmware identity evidence, not a Fleet miner ID.
 // Nil snapshots mean collection failed and must never erase a previous snapshot.
 type ContainerSnapshot struct {
+	HA *ContainerHA `json:"ha,omitempty"`
 	// UnlocatedHashboards retains inventory observations without physical placement.
 	// Position must be zero; readings contribute only to container totals after
 	// identity reconciliation. These observations never create installations.

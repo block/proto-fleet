@@ -19,6 +19,11 @@ import (
 func storeContainerEquipment(ctx context.Context, q *sqlc.Queries, identifier string, snapshot *sdk.ContainerSnapshot) error {
 	now := time.Now()
 	validTime := func(t time.Time) bool { return !t.IsZero() && !t.After(now.Add(5*time.Second)) }
+	if ha := snapshot.HA; ha != nil && validTime(ha.ObservedAt) {
+		if err := q.UpsertContainerHA(ctx, sqlc.UpsertContainerHAParams{DeviceIdentifier: identifier, ObservedAt: ha.ObservedAt, Degraded: ha.Degraded}); err != nil {
+			return err
+		}
+	}
 	finite := func(v *float64) bool { return v == nil || (!math.IsNaN(*v) && !math.IsInf(*v, 0)) }
 	fans := make([]sdk.ContainerFan, 0, len(snapshot.Fans))
 	seen := map[string]bool{}

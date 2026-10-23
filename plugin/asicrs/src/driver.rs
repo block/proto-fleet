@@ -473,6 +473,7 @@ impl Driver for DriverService {
                 default_password_active: None,
                 rpc_port: 0,
                 rpc_tls: false,
+                endpoints: Vec::new(),
             }),
         }))
     }
@@ -633,6 +634,7 @@ impl Driver for DriverService {
                 default_password_active: None,
                 rpc_port: 0,
                 rpc_tls: false,
+                endpoints: Vec::new(),
             }),
         }))
     }

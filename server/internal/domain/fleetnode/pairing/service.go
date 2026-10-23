@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
@@ -43,7 +45,7 @@ type Store interface { //nolint:interfacebloat // Pairing coordinates several sq
 	ListFleetNodeDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]FleetNodeDevice, error)
 	CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) (map[int64]int64, error)
 	ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64, filter FleetNodeDiscoveredDeviceFilter) ([]FleetNodeDiscoveredDevice, error)
-	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID int64, fleetNodeID int64, report DiscoveredDeviceReport) (commonpb.DeviceClass, bool, error)
+	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID int64, fleetNodeID int64, report DiscoveredDeviceReport) (DiscoveredDeviceReport, bool, error)
 	DeviceExistsInOrg(ctx context.Context, deviceID, orgID int64) (bool, error)
 	GetDeviceIDByDeviceIdentifier(ctx context.Context, identifier string) (int64, error)
 	GetFleetNodePairedDeviceIdentifier(ctx context.Context, deviceID, orgID int64) (string, error)
@@ -441,7 +443,7 @@ func (s *Service) UpsertDiscoveredDevices(ctx context.Context, fleetNodeID, orgI
 		accepted = accepted[:0]
 		rejected = 0
 		for _, r := range reports {
-			deviceClass, stored, upErr := s.store.UpsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, r)
+			saved, stored, upErr := s.store.UpsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, r)
 			if upErr != nil {
 				return fleeterror.LogInternal(component, "upsert discovered device", clientErrUpsertDiscoveredDevice, upErr)
 			}
@@ -449,8 +451,7 @@ func (s *Service) UpsertDiscoveredDevices(ctx context.Context, fleetNodeID, orgI
 				rejected++
 				continue
 			}
-			r.DeviceClass = deviceClass
-			accepted = append(accepted, r)
+			accepted = append(accepted, saved)
 		}
 		return nil
 	}); txErr != nil {
@@ -460,6 +461,19 @@ func (s *Service) UpsertDiscoveredDevices(ctx context.Context, fleetNodeID, orgI
 }
 
 func validateReport(r DiscoveredDeviceReport) error {
+	if len(r.Endpoints) > 0 {
+		if _, err := deviceendpoints.Key(r.Endpoints); err != nil {
+			return err
+		}
+		if len(r.Endpoints) != 1 {
+			return fmt.Errorf("discovery must report one scanned endpoint")
+		}
+		c := r.Endpoints[0]
+		if c.Host != r.IPAddress || strconv.Itoa(int(c.Port)) != r.Port || c.UrlScheme != r.URLScheme || c.RpcPort != r.RPCPort || c.RpcTls != r.RPCTLS {
+			return fmt.Errorf("device endpoint must match the scanned endpoint")
+		}
+	}
+
 	if r.DeviceIdentifier == "" {
 		return fmt.Errorf("device_identifier is required")
 	}

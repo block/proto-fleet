@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+	"google.golang.org/protobuf/proto"
+
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
@@ -66,13 +69,72 @@ func (s *SQLDiscoveredDeviceStore) Save(ctx context.Context, doi discoverymodels
 	return s.save(ctx, doi, device, false)
 }
 
+func (s *SQLDiscoveredDeviceStore) ActivateDirect(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier) error {
+	count, err := s.getQueries(ctx).ActivateDirectDiscoveredDevice(ctx, sqlc.ActivateDirectDiscoveredDeviceParams{
+		OrgID: doi.OrgID, DeviceIdentifier: doi.DeviceIdentifier,
+	})
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return fleeterror.NewFailedPreconditionError("discovered device is missing or managed by a Fleet Node")
+	}
+	return nil
+}
+
 func (s *SQLDiscoveredDeviceStore) SaveDirect(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
-	return s.save(ctx, doi, device, true)
+	if len(device.Endpoints) == 0 {
+		return s.save(ctx, doi, device, true)
+	}
+	var saved *discoverymodels.DiscoveredDevice
+	err := NewSQLTransactor(s.conn.DB).RunInTx(ctx, func(ctx context.Context) error {
+		existing, endpoints, err := reconcileDeviceEndpoints(ctx, s.getQueries(ctx), sqlc.FindEndpointDiscoveryParams{
+			OrgID: doi.OrgID, DriverName: device.DriverName, ScannedHost: device.IpAddress,
+			DeviceClass: int32(device.DeviceClass), Model: device.Model, Manufacturer: device.Manufacturer,
+		}, device.Endpoints)
+		if err != nil {
+			return err
+		}
+		candidate := &discoverymodels.DiscoveredDevice{
+			IsActive: device.IsActive, OrgID: device.OrgID,
+			FirstDiscovered: device.FirstDiscovered, LastSeen: device.LastSeen,
+			DiscoveredByFleetNodeID: device.DiscoveredByFleetNodeID,
+			DefaultPasswordActive:   device.DefaultPasswordActive,
+		}
+		proto.Merge(&candidate.Device, &device.Device)
+		candidate.Endpoints = endpoints
+		if existing != nil {
+			doi.DeviceIdentifier = existing.DeviceIdentifier
+			if existing.SerialNumber != "" {
+				candidate.SerialNumber = existing.SerialNumber
+			}
+		}
+		browser, err := discoveryBrowserEndpoint(existing, endpoints)
+		if err != nil {
+			return err
+		}
+		if browser != nil {
+			candidate.IpAddress, candidate.Port, candidate.UrlScheme = browser.Host, strconv.Itoa(int(browser.Port)), browser.UrlScheme
+			candidate.RpcPort, candidate.RpcTls = browser.RpcPort, browser.RpcTls
+		}
+		saved, err = s.save(ctx, doi, candidate, true)
+		return err
+	})
+	return saved, err
 }
 
 func (s *SQLDiscoveredDeviceStore) save(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice, direct bool) (*discoverymodels.DiscoveredDevice, error) {
+	controllers, err := deviceendpoints.Encode(device.Endpoints)
+	if err != nil {
+		return nil, err
+	}
+	key, err := deviceendpoints.Key(device.Endpoints)
+	if err != nil {
+		return nil, err
+	}
 	insertedID, err := s.getQueries(ctx).UpsertDiscoveredDevice(ctx, sqlc.UpsertDiscoveredDeviceParams{
-		DirectDiscovery:  direct,
+		DirectDiscovery: direct,
+		EndpointKey:     key, Endpoints: controllers,
 		OrgID:            doi.OrgID,
 		DeviceIdentifier: doi.DeviceIdentifier,
 		Model:            sql.NullString{String: device.Model, Valid: len(device.Model) > 0},
@@ -102,7 +164,7 @@ func (s *SQLDiscoveredDeviceStore) save(ctx context.Context, doi discoverymodels
 		return nil, fleeterror.NewInternalErrorf("failed to fetch discovered device after upsert: %w", err)
 	}
 
-	return toDiscoveredDevice(dbDevice), nil
+	return toDiscoveredDevice(dbDevice)
 }
 
 // GetDevice retrieves a discovered device by its organization and device identifier
@@ -118,7 +180,7 @@ func (s *SQLDiscoveredDeviceStore) GetDevice(ctx context.Context, doi discoverym
 		return nil, fleeterror.NewInternalErrorf("failed to query discovered device: %v", err)
 	}
 
-	return toDiscoveredDevice(dbDevice), nil
+	return toDiscoveredDevice(dbDevice)
 }
 
 // GetByIPAndPort retrieves a discovered device by its IP address and port for a given organization
@@ -135,7 +197,7 @@ func (s *SQLDiscoveredDeviceStore) GetByIPAndPort(ctx context.Context, orgID int
 		return nil, fleeterror.NewInternalErrorf("failed to query discovered device by IP and port: %v", err)
 	}
 
-	return toDiscoveredDevice(dbDevice), nil
+	return toDiscoveredDevice(dbDevice)
 }
 
 func (s *SQLDiscoveredDeviceStore) GetDirectContainerByIP(ctx context.Context, orgID int64, ipAddress, driverName, model, manufacturer string) (*discoverymodels.DiscoveredDevice, error) {
@@ -149,7 +211,7 @@ func (s *SQLDiscoveredDeviceStore) GetDirectContainerByIP(ctx context.Context, o
 	case 0:
 		return nil, minerdiscovery.MinerNotFoundFleetError
 	case 1:
-		return toDiscoveredDevice(rows[0]), nil
+		return toDiscoveredDevice(rows[0])
 	default:
 		return nil, fleeterror.NewFailedPreconditionError("multiple containers match this IP; resolve duplicate inventory before rediscovery")
 	}
@@ -197,7 +259,10 @@ func (s *SQLDiscoveredDeviceStore) GetActiveUnpairedDevices(ctx context.Context,
 	// Convert to domain models
 	devices := make([]*discoverymodels.DiscoveredDevice, len(dbDevices))
 	for i, dbDevice := range dbDevices {
-		devices[i] = toDiscoveredDeviceFromRow(dbDevice)
+		devices[i], err = toDiscoveredDeviceFromRow(dbDevice)
+		if err != nil {
+			return nil, "", err
+		}
 	}
 
 	// Generate next cursor if there are more pages
@@ -211,10 +276,15 @@ func (s *SQLDiscoveredDeviceStore) GetActiveUnpairedDevices(ctx context.Context,
 }
 
 // toDiscoveredDeviceFromRow converts a GetActiveUnpairedDiscoveredDevicesRow to a domain DiscoveredDevice
-func toDiscoveredDeviceFromRow(dbDevice sqlc.GetActiveUnpairedDiscoveredDevicesRow) *discoverymodels.DiscoveredDevice {
+func toDiscoveredDeviceFromRow(dbDevice sqlc.GetActiveUnpairedDiscoveredDevicesRow) (*discoverymodels.DiscoveredDevice, error) {
+	controllers, err := deviceendpoints.Decode(dbDevice.Endpoints)
+	if err != nil {
+		return nil, err
+	}
 	return &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
 			DeviceIdentifier: dbDevice.DeviceIdentifier,
+			Endpoints:        controllers,
 			SerialNumber:     dbDevice.SerialNumber,
 			MacAddress:       dbDevice.MacAddress,
 			Model:            dbDevice.Model.String,
@@ -232,7 +302,7 @@ func toDiscoveredDeviceFromRow(dbDevice sqlc.GetActiveUnpairedDiscoveredDevicesR
 		OrgID:           dbDevice.OrgID,
 		FirstDiscovered: dbDevice.FirstDiscovered.Time,
 		LastSeen:        dbDevice.LastSeen.Time,
-	}
+	}, nil
 }
 
 // CountActiveUnpairedDevices returns the total count of active unpaired devices for an organization
@@ -258,7 +328,11 @@ func (s *SQLDiscoveredDeviceStore) SoftDelete(ctx context.Context, doi discovery
 }
 
 // toDiscoveredDevice converts a sqlc DiscoveredDevice to a domain DiscoveredDevice
-func toDiscoveredDevice(dbDevice sqlc.DiscoveredDevice) *discoverymodels.DiscoveredDevice {
+func toDiscoveredDevice(dbDevice sqlc.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
+	controllers, err := deviceendpoints.Decode(dbDevice.Endpoints)
+	if err != nil {
+		return nil, err
+	}
 	var attribution *int64
 	if dbDevice.DiscoveredByFleetNodeID.Valid {
 		v := dbDevice.DiscoveredByFleetNodeID.Int64
@@ -267,6 +341,7 @@ func toDiscoveredDevice(dbDevice sqlc.DiscoveredDevice) *discoverymodels.Discove
 	return &discoverymodels.DiscoveredDevice{
 		Device: pb.Device{
 			DeviceIdentifier: dbDevice.DeviceIdentifier,
+			Endpoints:        controllers,
 			SerialNumber:     dbDevice.SerialNumber,
 			MacAddress:       dbDevice.MacAddress,
 			Model:            dbDevice.Model.String,
@@ -285,5 +360,5 @@ func toDiscoveredDevice(dbDevice sqlc.DiscoveredDevice) *discoverymodels.Discove
 		FirstDiscovered:         dbDevice.FirstDiscovered.Time,
 		LastSeen:                dbDevice.LastSeen.Time,
 		DiscoveredByFleetNodeID: attribution,
-	}
+	}, nil
 }

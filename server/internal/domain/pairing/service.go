@@ -526,6 +526,10 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 	// Use existing device identifier if available
 	deviceIdentifier := discoveredDevice.DeviceIdentifier
 	preserveMissingFirmware := deviceIdentifier != ""
+	if deviceIdentifier == "" && len(discoveredDevice.Endpoints) > 0 {
+		// The store reconciles the plugin-defined identity across scanned addresses.
+		deviceIdentifier = id.GenerateID()
+	}
 	if deviceIdentifier == "" && discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
 		// Containers keep one shared IP even when their HTTP/RPC ports differ.
 		// Resolve them before the generic scanned-port path, which may refer to
@@ -1280,7 +1284,7 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 	pairer := s.pairer
 
 	discoveredDevice.IsActive = true
-	_, err = s.discoveredDeviceStore.SaveDirect(ctx, orgDeviceID, discoveredDevice)
+	err = s.discoveredDeviceStore.ActivateDirect(ctx, orgDeviceID)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error activating discovered device: %v", err)
 	}

@@ -16,3 +16,7 @@ Run `just gen-mdk-protos` from the repository root after updating sources.
 The repository's existing Hermit-managed Buf/Go generators override only Go
 package paths; do not edit generated files. Commit source and generated output
 together. Generated historical RPC definitions do not enable historical fetching.
+
+`server_update.proto` is copied unmodified from Frigate commit
+`4677049b24e9428ebf01b17323682e2a16d332d7`. Its read-only
+`GetServerUpdateSupport` method reports controller and partner IDs for HA pairing.

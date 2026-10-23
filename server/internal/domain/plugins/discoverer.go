@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 
@@ -164,6 +166,7 @@ func discoverWithPlugin(ctx context.Context, plugin *LoadedPlugin, pluginName, i
 			UrlScheme:        fleetDevice.UrlScheme,
 			RpcPort:          fleetDevice.RpcPort,
 			RpcTls:           fleetDevice.RpcTls,
+			Endpoints:        fleetDevice.Endpoints,
 			SerialNumber:     fleetDevice.SerialNumber,
 			Model:            fleetDevice.Model,
 			DeviceClass:      fleetDevice.DeviceClass,
@@ -204,6 +207,7 @@ func convertSDKDeviceInfoToFleetDevice(deviceInfo sdk.DeviceInfo, ipAddress, por
 		UrlScheme:        deviceInfo.URLScheme,
 		RpcPort:          deviceInfo.RPCPort,
 		RpcTls:           deviceInfo.RPCTLS,
+		Endpoints:        deviceendpoints.FromSDK(deviceInfo.Endpoints),
 		SerialNumber:     deviceInfo.SerialNumber,
 		Model:            deviceInfo.Model,
 		DeviceClass:      commonpb.DeviceClass(deviceInfo.DeviceClass),

@@ -360,12 +360,13 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 		if err != nil {
 			return sdk.DeviceInfo{}, err
 		}
-		c, err := ct1.NewClient(deviceInfo, credentials)
+		device, err := ct1.NewDevice(ctx, "pairing", deviceInfo, credentials)
 		if err != nil {
 			return sdk.DeviceInfo{}, err
 		}
-		defer c.Close()
-		return c.Discover(ctx, deviceInfo)
+		defer device.Close(ctx)
+		info, _, err := device.DescribeDevice(ctx)
+		return info, err
 	}
 
 	slog.Debug("Plugin PairDevice called",

@@ -38,7 +38,12 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	c := d.client
+	d.writeMu.Lock()
+	defer d.writeMu.Unlock()
+	c, err := d.selectClient(ctx, true)
+	if err != nil {
+		return err
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	expectedSerial := strings.TrimSpace(d.info.SerialNumber)

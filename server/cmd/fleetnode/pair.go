@@ -10,6 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
 	"google.golang.org/grpc/codes"
@@ -67,6 +69,11 @@ func newPluginPairer(manager *plugins.Manager, credentials credentialSealer) *pl
 
 func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePairTarget, creds *pairingpb.Credentials) *pb.FleetNodePairResult {
 	res := &pb.FleetNodePairResult{DeviceIdentifier: target.GetDeviceIdentifier()}
+	if err := validateDialTarget(&pb.MinerConnectionDescriptor{IpAddress: target.GetIpAddress(), UrlScheme: target.GetUrlScheme(), DriverName: target.GetDriverName(), DeviceClass: target.GetDeviceClass(), Endpoints: target.GetEndpoints()}); err != nil && len(target.GetEndpoints()) > 0 {
+		res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
+		res.ErrorMessage = err.Error()
+		return res
+	}
 
 	plugin, err := p.manager.GetPluginByDriverNameWithCapability(target.GetDriverName(), sdk.CapabilityPairing)
 	if err != nil {
@@ -87,6 +94,7 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 		URLScheme:       target.GetUrlScheme(),
 		RPCPort:         target.GetRpcPort(),
 		RPCTLS:          target.GetRpcTls(),
+		Endpoints:       deviceendpoints.ToSDK(target.GetEndpoints()),
 		Manufacturer:    target.GetManufacturer(),
 		FirmwareVersion: target.GetFirmwareVersion(),
 		DeviceClass:     sdk.DeviceClass(target.GetDeviceClass()),

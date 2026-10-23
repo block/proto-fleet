@@ -194,3 +194,13 @@ func TestTelemetryFingerprintIncludesRPCEndpoint(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, second, third)
 }
+
+func TestTelemetryFingerprintChangesWithAlternateEndpoint(t *testing.T) {
+	info := sdk.DeviceInfo{Endpoints: []sdk.DeviceEndpoint{{ID: "a", DeviceKey: "opaque", Host: "10.0.0.11"}, {ID: "b", DeviceKey: "opaque", Host: "10.0.0.12"}}}
+	before, err := telemetryClientFingerprint(info, sdk.SecretBundle{})
+	require.NoError(t, err)
+	info.Endpoints[1].Host = "10.0.0.22"
+	after, err := telemetryClientFingerprint(info, sdk.SecretBundle{})
+	require.NoError(t, err)
+	require.NotEqual(t, before, after)
+}

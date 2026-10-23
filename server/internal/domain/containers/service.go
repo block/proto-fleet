@@ -101,6 +101,9 @@ func Project(rows []sqlc.ListContainersRow, canRead func(*int64) (bool, error)) 
 			continue
 		}
 		c := &pb.Container{Id: r.ID, DeviceIdentifier: r.DeviceIdentifier, Name: r.Name, Stale: true}
+		if r.HaObservedAt.Valid && r.HaDegraded.Valid {
+			c.Ha = &pb.ContainerHA{ObservedAt: timestamppb.New(r.HaObservedAt.Time), Degraded: r.HaDegraded.Bool, Stale: now.Sub(r.HaObservedAt.Time) > 2*time.Minute || r.HaObservedAt.Time.After(now.Add(5*time.Second))}
+		}
 		if c.Name == "" {
 			c.Name = "Container " + r.SerialNumber.String
 		}

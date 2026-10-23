@@ -10,8 +10,9 @@ Retained historical ingestion remains #179.
 
 The shared [MDK module](../../sdk/mdk/README.md) pins Frigate commit
 `e069860da77f91857d664d26bbadd6672e0463ba`, the upstream main revision selected
-at implementation start. This is a source compatibility target, not a qualified
-hardware deployment. Both the plugin and fake-ct1 use the same generated types.
+at implementation start. The additive ServerUpdateService contract comes from
+`4677049b24e9428ebf01b17323682e2a16d332d7` for partner identity discovery. These are
+source compatibility targets, not qualified hardware deployments. Both the plugin and fake-ct1 use the same generated types.
 
 At that revision, `internal/config/config.go` defaults `server.mdk_listen` to
 `:9095` and `server.api_listen` to `:8080`. `pkg/api/server.go` registers the
@@ -73,9 +74,91 @@ and IP recovery. Recovery scans the configured RPC port and preserves the web
 port; it does not infer a changed RPC listener port. Endpoint changes invalidate
 the FleetNode telemetry handle fingerprint.
 
+## Endpoint groups and HA failover
+
+The Proto plugin reads `SystemService.GetSystemInfo` and
+`ServerUpdateService.GetServerUpdateSupport`. The latter reports `instanceId`
+and `peerInstanceId`. The plugin hashes the sorted pair into an opaque device
+key. This key groups discoveries; it is not a container serial number. Neither
+Docker MAC addresses nor hashboard inventory determines the pair.
+
+Fleet stores generic `DeviceEndpoint` records in `discovered_device.endpoints`.
+Each record contains an endpoint ID, the plugin's device key, and independent
+web/RPC transport settings. It also carries known member IDs, including a peer
+whose address has not been scanned. Fleet scopes that key by organization, driver, and
+network owner (direct Fleet Server or a Fleet Node). Concurrent scans merge
+addresses by endpoint ID. A later scan of one address retains the other address.
+If a verified controller takes its peer's saved address, Fleet discards that
+stale peer endpoint. Scan the peer's new address to restore both endpoints.
+The remaining endpoint keeps its web settings; set any custom web settings for
+the discarded endpoint again after discovery. If the browser target was discarded,
+Fleet uses the remaining verified endpoint.
+Fleet passes the complete saved list to the plugin for pairing, telemetry, and
+commands, including through Fleet Nodes. Endpoint changes alter the cached
+plugin configuration fingerprint.
+Pairing updates identity metadata without replacing addresses from later scans.
+
+Scan both server addresses to learn both endpoints. The partner ID is not an
+address, and the plugin does not dial an unverified URL supplied by a controller.
+The plugin retains both gRPC connections. Before an operation, it probes both
+connections in parallel with a one-second budget per server. It verifies each
+server's ID and declared pair, then reads `GetSystemStatus`. Reads prefer a
+settled write-primary and can use a reachable standby. Writes require one
+settled write-primary. A conflicting write claim rejects the command. Fleet
+never promotes a server; Frigate performs that operation. A failure during a
+read is retried on the next poll. A failed or uncertain mutation is never
+replayed on the partner. The next new command performs a fresh selection.
+
+The plugin reports healthy HA only when both expected servers respond with:
+
+| Field | Primary | Standby |
+| --- | --- | --- |
+| `haRole` | `HA_ROLE_PRIMARY` | `HA_ROLE_STANDBY` |
+| `containerWritePrimary` | `true` | `false` |
+| `databaseConnected` | `true` | `true` |
+| `haRecovery.state` | `HA_RECOVERY_STATE_STEADY` | `HA_RECOVERY_STATE_STEADY` |
+
+A missing server, invalid identity, missing/unknown field, different role, or
+recovery state reports degraded HA. An explicitly false `dcsHealthy` also
+reports degraded HA. Older firmware may omit that optional DCS field. Servers
+without partner metadata remain usable through the existing single-address
+path, but cannot report healthy HA.
+
+Fleet stores the plugin's HA observation without interpreting CT1 APIs. The
+container's Issues column shows **HA degraded** for a missing, degraded, or stale
+HA observation. A current healthy observation clears it. Observations become stale
+after two minutes; an older sample cannot replace a newer recovery sample.
+If all endpoints are unreachable, ordinary device polling reports the outage,
+and the previous HA observation becomes stale.
+
+### Boundaries and rollout
+
+- Upgrade Fleet Server, the managing Fleet Nodes, and the Proto plugin together.
+  Rescan both addresses to populate the saved endpoint list.
+- Existing inventory identity is retained when a scan matches one compatible
+  saved device. Known member IDs let either server match a legacy controller's
+  saved serial before both addresses are scanned. Fleet retains that controller's
+  saved address and custom web settings. For an old unpaired Fleet Node discovery
+  with no saved serial, scan its saved address first to establish this identity.
+  Multiple matching legacy records are rejected rather than merged blindly.
+  Resolve duplicate legacy inventory before pairing.
+- A replacement Fleet Node can reclaim one matching endpoint group from a revoked
+  node. Fleet retains the existing inventory identifier and placement. Groups
+  owned by live nodes remain separate. Without a current group, multiple revoked
+  matches require duplicate inventory cleanup before discovery can proceed.
+- Native telemetry and SDK controls use plugin-selected endpoints. The HTTP
+  ProtoOS proxy still uses its saved web address; HTTP proxy failover is separate.
+- The legacy single-address recovery job does not rewrite endpoint groups. Run
+  discovery again after an address changes. It updates the endpoint with the
+  matching plugin identity while retaining the partner.
+- Authenticated production MDK discovery remains unsupported as described above.
+  The opt-in `TestFrigateHALab` uses a local lab credential only for loopback test
+  endpoints. It does not enable credential transmission during production scans.
+
 ## Collection and controls
 
-Each active CT1 owns a reusable gRPC connection, closed by `Device.Close`.
+Each active CT1 owns a reusable gRPC connection per saved endpoint, closed by
+`Device.Close`.
 Temporary discovery/pairing connections are closed on success and failure.
 Client construction is lazy; a bounded SystemInfo call proves reachability.
 The transport reconnects after interruptions. No CT1 REST fallback is enabled.

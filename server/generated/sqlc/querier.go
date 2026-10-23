@@ -23,6 +23,7 @@ type Querier interface {
 	// with locks taken by other parts of the system (see schedule.sql for
 	// the same pattern).
 	AcquireReconcileLock(ctx context.Context) error
+	ActivateDirectDiscoveredDevice(ctx context.Context, arg ActivateDirectDiscoveredDeviceParams) (int64, error)
 	// RETURNING yields one row per device whose membership was actually inserted
 	// (ON CONFLICT DO NOTHING skips already-members), so callers can both count
 	// the change (len of result) and resolve the changed set for activity site
@@ -596,6 +597,7 @@ type Querier interface {
 	// Container identity follows its shared IP, independently of either service port.
 	// Return two candidates so callers can reject ambiguous existing inventory.
 	FindDirectContainerByIP(ctx context.Context, arg FindDirectContainerByIPParams) ([]DiscoveredDevice, error)
+	FindEndpointDiscovery(ctx context.Context, arg FindEndpointDiscoveryParams) ([]DiscoveredDevice, error)
 	FindHashboardIdentities(ctx context.Context, arg FindHashboardIdentitiesParams) ([]FindHashboardIdentitiesRow, error)
 	// Membership administration may look up only members of the selected account.
 	FindHostedAccountMemberByUUID(ctx context.Context, arg FindHostedAccountMemberByUUIDParams) (int64, error)
@@ -1769,6 +1771,7 @@ type Querier interface {
 	// atomic against a concurrent reassign. Empty result means none of the
 	// identifiers exist; the caller still wants the lock side-effect.
 	LockDevicesForReassign(ctx context.Context, arg LockDevicesForReassignParams) ([]int64, error)
+	LockEndpointDiscovery(ctx context.Context, lockKey string) error
 	LockFleetNodeByID(ctx context.Context, arg LockFleetNodeByIDParams) (LockFleetNodeByIDRow, error)
 	// Teardown follows dispatch's device-before-child order and retains routing
 	// children until any admitted physical call has actually returned.
@@ -2496,6 +2499,7 @@ type Querier interface {
 	UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error
 	// Source time orders fans independently of inventory and control reads.
 	UpsertContainerFans(ctx context.Context, arg UpsertContainerFansParams) error
+	UpsertContainerHA(ctx context.Context, arg UpsertContainerHAParams) error
 	UpsertContainerRollup(ctx context.Context, arg UpsertContainerRollupParams) error
 	UpsertContainerTopologyVersion(ctx context.Context, arg UpsertContainerTopologyVersionParams) (int64, error)
 	UpsertCurtailmentAutomationSignalState(ctx context.Context, arg UpsertCurtailmentAutomationSignalStateParams) error
@@ -2527,7 +2531,7 @@ type Querier interface {
 	// refreshable, subject to the attribution guard. The agent synthesizes a stable
 	// per-device identifier (mac:/serial:, else auto:<hash>), so a re-scan reuses
 	// the same row.
-	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (int32, error)
+	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (UpsertDiscoveredDeviceFromFleetNodeRow, error)
 	UpsertFleetMetricRollups(ctx context.Context, arg UpsertFleetMetricRollupsParams) error
 	UpsertFleetNodeAuthChallenge(ctx context.Context, arg UpsertFleetNodeAuthChallengeParams) error
 	UpsertFleetNodeSession(ctx context.Context, arg UpsertFleetNodeSessionParams) error

@@ -2,30 +2,69 @@ package ct1
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"sync"
 	"time"
 
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
 type Device struct {
-	id     string
-	info   sdk.DeviceInfo
-	client *Client
+	id      string
+	info    sdk.DeviceInfo
+	client  *Client
+	clients []*Client
+	writeMu sync.Mutex
 }
 
 var _ sdk.Device = (*Device)(nil)
 
 func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials sdk.UsernamePassword) (*Device, error) {
-	c, err := NewClient(info, credentials)
+	d := &Device{id: id, info: info}
+	if len(info.Endpoints) > 0 {
+		if len(info.Endpoints) > 2 {
+			return nil, fmt.Errorf("CT1 must have at most two endpoints")
+		}
+		if _, err := sdk.DeviceEndpointKey(info.Endpoints); err != nil {
+			return nil, err
+		}
+		for _, endpoint := range info.Endpoints {
+			member := info
+			member.Host, member.Port, member.URLScheme = endpoint.Host, endpoint.Port, endpoint.URLScheme
+			member.RPCPort, member.RPCTLS = endpoint.RPCPort, endpoint.RPCTLS
+			c, err := NewClient(member, credentials)
+			if err != nil {
+				_ = d.Close(ctx)
+				return nil, err
+			}
+			c.memberID = endpoint.ID
+			d.clients = append(d.clients, c)
+		}
+		d.client = d.clients[0]
+	} else {
+		c, err := NewClient(info, credentials)
+		if err != nil {
+			return nil, err
+		}
+		d.client, d.clients = c, []*Client{c}
+	}
+	c := d.client
+	if len(info.Endpoints) > 0 {
+		var err error
+		c, err = d.selectClient(ctx, false)
+		if err != nil {
+			_ = d.Close(ctx)
+			return nil, err
+		}
+	}
+	verified, err := c.Discover(ctx, info)
 	if err != nil {
+		_ = d.Close(ctx)
 		return nil, err
 	}
-	info, err = c.Discover(ctx, info)
-	if err != nil {
-		_ = c.Close()
-		return nil, err
-	}
-	return &Device{id: id, info: info, client: c}, nil
+	d.info = verified
+	return d, nil
 }
 func Capabilities() sdk.Capabilities {
 	return sdk.Capabilities{sdk.CapabilityTankMining: true, sdk.CapabilityModuleMining: true, sdk.CapabilityContainerControl: true, sdk.CapabilityPollingHost: true, sdk.CapabilityDiscovery: true, sdk.CapabilityPairing: true, sdk.CapabilityRealtimeTelemetry: true, sdk.CapabilityHashrateReported: true, sdk.CapabilityPowerUsage: true}
@@ -35,11 +74,27 @@ func (d *Device) DescribeDevice(context.Context) (sdk.DeviceInfo, sdk.Capabiliti
 	return d.info, Capabilities(), nil
 }
 func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
-	metrics, err := d.client.Collect(ctx, d.id)
+	c, ha, err := d.probeControllers(ctx, false)
+	if err != nil {
+		return sdk.DeviceMetrics{}, err
+	}
+	metrics, err := c.Collect(ctx, d.id)
+	if metrics.Container != nil {
+		metrics.Container.HA = ha
+	}
 	metrics.FirmwareVersion = d.info.FirmwareVersion
 	return metrics, err
 }
-func (d *Device) Close(context.Context) error { return d.client.Close() }
+func (d *Device) Close(context.Context) error {
+	if len(d.clients) == 0 && d.client != nil {
+		return d.client.Close()
+	}
+	var errs []error
+	for _, c := range d.clients {
+		errs = append(errs, c.Close())
+	}
+	return errors.Join(errs...)
+}
 
 // Unpair is a Fleet-side removal. It does not reset the container or its peers.
 func (d *Device) Unpair(context.Context) error { return nil }
@@ -84,8 +139,12 @@ func (d *Device) TryBatchStatus(context.Context, []sdk.Device) (map[string]sdk.D
 func (d *Device) TrySubscribe(context.Context, []string) (<-chan sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil
 }
-func (d *Device) TryGetWebViewURL(context.Context) (string, bool, error) {
-	return d.client.baseURL, true, nil
+func (d *Device) TryGetWebViewURL(ctx context.Context) (string, bool, error) {
+	c, err := d.selectClient(ctx, false)
+	if err != nil {
+		return "", false, err
+	}
+	return c.baseURL, true, nil
 }
 func (d *Device) TryGetTimeSeriesData(context.Context, []string, time.Time, time.Time, *time.Duration, int32, string) ([]sdk.DeviceMetrics, string, bool, error) {
 	return nil, "", false, nil

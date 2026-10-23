@@ -20,18 +20,22 @@ INSERT INTO discovered_device (
     is_active,
     device_class,
     rpc_port,
-    rpc_tls
+    rpc_tls, endpoint_key, endpoints
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11, sqlc.arg('rpc_port'), sqlc.arg('rpc_tls'))
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11, sqlc.arg('rpc_port'), sqlc.arg('rpc_tls'), sqlc.arg(endpoint_key), sqlc.arg(endpoints))
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     ip_address = EXCLUDED.ip_address,
     -- Native CT1 rediscovery must retain the existing browser endpoint.
     port = CASE WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
+                  AND discovered_device.endpoint_key = '' AND EXCLUDED.endpoint_key = ''
                 THEN discovered_device.port ELSE EXCLUDED.port END,
     url_scheme = CASE WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
+                  AND discovered_device.endpoint_key = '' AND EXCLUDED.endpoint_key = ''
                       THEN discovered_device.url_scheme ELSE EXCLUDED.url_scheme END,
     rpc_port = EXCLUDED.rpc_port,
     rpc_tls = EXCLUDED.rpc_tls,
+    endpoint_key = EXCLUDED.endpoint_key,
+    endpoints = EXCLUDED.endpoints,
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     model = EXCLUDED.model,
     device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
@@ -40,7 +44,9 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id,
     last_seen = CURRENT_TIMESTAMP,
     is_active = TRUE
-WHERE (
+WHERE (discovered_device.endpoint_key = '' OR
+    (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name))
+AND (
     discovered_device.discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id
     -- The attributing node was revoked (soft-deleted), so a replacement node may
     -- reclaim its rows (otherwise a re-scan of the same stable mac:/serial: device
@@ -93,7 +99,7 @@ WHERE (
         )
       )
 )
-RETURNING device_class;
+RETURNING device_class, device_identifier, endpoints;
 
 -- name: PairDeviceToFleetNode :execrows
 -- The parent lock also protects absence of a route during dispatch. A scalar
@@ -285,7 +291,7 @@ WITH candidate AS (
          dd.discovered_by_fleet_node_id,
          dd.ip_address,
          dd.port,
-         dd.url_scheme, dd.rpc_port, dd.rpc_tls,
+         dd.url_scheme, dd.rpc_port, dd.rpc_tls, dd.endpoints,
          dd.driver_name,
          dd.model,
          dd.device_class,

@@ -41,6 +41,20 @@ func (m *MockDiscoveredDeviceStore) EXPECT() *MockDiscoveredDeviceStoreMockRecor
 	return m.recorder
 }
 
+// ActivateDirect mocks base method.
+func (m *MockDiscoveredDeviceStore) ActivateDirect(ctx context.Context, doi models.DeviceOrgIdentifier) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ActivateDirect", ctx, doi)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// ActivateDirect indicates an expected call of ActivateDirect.
+func (mr *MockDiscoveredDeviceStoreMockRecorder) ActivateDirect(ctx, doi any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ActivateDirect", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).ActivateDirect), ctx, doi)
+}
+
 // CountActiveUnpairedDevices mocks base method.
 func (m *MockDiscoveredDeviceStore) CountActiveUnpairedDevices(ctx context.Context, orgID int64) (int64, error) {
 	m.ctrl.T.Helper()

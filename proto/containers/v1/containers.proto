@@ -47,7 +47,13 @@ message ListContainersRequest {
 message ListContainersResponse {
   repeated Container containers = 1;
 }
+message ContainerHA {
+ google.protobuf.Timestamp observed_at = 1;
+ bool degraded = 2;
+ bool stale = 3;
+}
 message Container {
+ ContainerHA ha = 22;
  // Current caller can manage placement at this controller's current site.
  // Assignment rechecks both current and destination site permissions.
  bool can_assign_site = 21;

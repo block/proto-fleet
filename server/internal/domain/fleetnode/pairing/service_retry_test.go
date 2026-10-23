@@ -35,12 +35,13 @@ type fakeUpsertStore struct {
 	calls int
 }
 
-func (s *fakeUpsertStore) UpsertDiscoveredDeviceFromFleetNode(_ context.Context, _ int64, _ int64, report fleetnodepairing.DiscoveredDeviceReport) (commonpb.DeviceClass, bool, error) {
+func (s *fakeUpsertStore) UpsertDiscoveredDeviceFromFleetNode(_ context.Context, _ int64, _ int64, report fleetnodepairing.DiscoveredDeviceReport) (fleetnodepairing.DiscoveredDeviceReport, bool, error) {
 	s.calls++
 	if report.DeviceIdentifier == "accept" {
-		return commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, true, nil
+		report.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
+		return report, true, nil
 	}
-	return commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED, false, nil
+	return report, false, nil
 }
 
 func TestUpsertDiscoveredDevices_CountsAreNotDoubledOnTxRetry(t *testing.T) {

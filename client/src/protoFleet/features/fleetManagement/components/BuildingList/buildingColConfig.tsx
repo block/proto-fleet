@@ -72,8 +72,14 @@ export const createBuildingColConfig = (
   },
   issues: {
     component: (item) => {
-      // The container API reports module states, not an issue count.
-      if (item.kind === "container") return <span>{INACTIVE_PLACEHOLDER}</span>;
+      if (item.kind === "container") {
+        const ha = item.container.ha;
+        return !ha || ha.stale || ha.degraded ? (
+          <span className="text-core-negative">HA degraded</span>
+        ) : (
+          <span>{INACTIVE_PLACEHOLDER}</span>
+        );
+      }
       const count = issueCount(item);
       if (count === undefined) return <span>{INACTIVE_PLACEHOLDER}</span>;
       if (count === 0) return <span>0</span>;

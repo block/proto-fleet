@@ -69,6 +69,7 @@ WHERE d.discovered_device_id = dd.id
   AND dd.rpc_tls = $12
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
+  AND dd.endpoint_key = ''
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
 RETURNING d.id
@@ -134,6 +135,7 @@ WITH eligible AS MATERIALIZED (
   AND dd.rpc_port = $10
   AND dd.rpc_tls = $11
       AND dd.deleted_at IS NULL
+  AND dd.endpoint_key = ''
       AND dd.is_active = TRUE
     FOR UPDATE OF fnd, ds, dd
 ), updated_pairing AS (
@@ -155,6 +157,7 @@ WITH eligible AS MATERIALIZED (
   AND dd.rpc_tls = $11
       AND d.deleted_at IS NULL
       AND dd.deleted_at IS NULL
+  AND dd.endpoint_key = ''
       AND dd.is_active = TRUE
       AND (
           (mc.device_id IS NULL
@@ -1708,6 +1711,7 @@ JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN miner_credentials mc ON mc.device_id = d.id
 WHERE d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
+  AND dd.endpoint_key = ''
   AND dd.is_active = TRUE
   AND fn.deleted_at IS NULL
   AND fn.enrollment_status = 'CONFIRMED'
