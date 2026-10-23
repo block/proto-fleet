@@ -80,19 +80,33 @@ func TestPairingMetadataSaveKeepsCurrentEndpointGroup(t *testing.T) {
 func testPairingMetadataSaveKeepsCurrentEndpointGroup(t *testing.T, legacySnapshot bool) {
 	t.Helper()
 	_, store, org := ct1HAStore(t)
-	initial := ct1HADiscovery(org, "a", "10.0.0.11")
+	initial := ct1HADiscovery(org, "b", "10.0.0.12")
+	initial.MacAddress = "AA:BB:CC:DD:EE:0B"
 	if legacySnapshot {
+		initial = ct1HADiscovery(org, "a", "10.0.0.11")
 		initial.Endpoints = nil
 	}
 	before := saveCT1HA(t, store, "container", initial)
+	if !legacySnapshot {
+		before = saveCT1HA(t, store, "scan-a", ct1HADiscovery(org, "a", "10.0.0.11"))
+		require.Len(t, before.Endpoints, 2)
+		require.Equal(t, "b", before.SerialNumber)
+		// Pairing can learn B's MAC before a later scan replaces B with C.
+		before.MacAddress = "AA:BB:CC:DD:EE:0B"
+	}
 	incoming := ct1HADiscovery(org, "a", "10.0.0.11")
 	incoming.Endpoints[0].DeviceKey = "different-group"
+	incoming.Endpoints[0].MemberIds = []string{"a", "c"}
+	incoming.SerialNumber, incoming.MacAddress = "a", "AA:BB:CC:DD:EE:0A"
 	current := saveCT1HA(t, store, "scan-a", incoming)
 	before.FirmwareVersion = "pair-v2"
 	saved, err := store.Save(t.Context(), before.GetDeviceOrgIdentifier(), before)
 	require.NoError(t, err)
 	require.Equal(t, "pair-v2", saved.FirmwareVersion)
+	require.Equal(t, current.SerialNumber, saved.SerialNumber)
+	require.Equal(t, current.MacAddress, saved.MacAddress)
 	require.True(t, proto.Equal(current.Endpoints[0], saved.Endpoints[0]))
+	require.Len(t, saved.Endpoints, 1)
 	before.DriverName = "unrelated-driver"
 	_, err = store.Save(t.Context(), before.GetDeviceOrgIdentifier(), before)
 	require.True(t, fleeterror.IsFailedPreconditionError(err))

@@ -113,6 +113,11 @@ Pairing updates identity metadata without replacing addresses from later scans.
 Direct and Fleet Node pairing use the same endpoint-group check.
 Pairing cannot introduce a new endpoint group. If pairing reports a new group,
 run discovery before pairing again so the inventory checks can reconcile it.
+Before committing pairing state or identity, Fleet locks the inventory and
+compares its current network owner, group, and routes with the snapshot used for pairing.
+Fleet Node commands retain their dispatched snapshot for this check. A changed
+binding rejects the result and requires a new pairing attempt. An older metadata
+save also preserves the current identity when the endpoint group has changed.
 Once paired, the saved endpoint routes are pinned. Discovery cannot add an
 address, relocate a controller, or exchange endpoint identities at an address.
 Controller IDs and grouping keys are not authentication credentials. Unpair the device,

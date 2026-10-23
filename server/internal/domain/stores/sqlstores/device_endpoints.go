@@ -27,11 +27,15 @@ func lockEndpointDiscoveryTransaction(ctx context.Context, q sqlc.Querier, orgID
 	return q.LockEndpointDiscovery(ctx, fmt.Sprintf("endpoint-discovery:%d", orgID))
 }
 
-func lockEndpointDiscoveryInventory(ctx context.Context, q sqlc.Querier, existing sqlc.DiscoveredDevice) (sqlc.DiscoveredDevice, bool, error) {
+func lockDiscoveredInventory(ctx context.Context, q sqlc.Querier, existing sqlc.DiscoveredDevice) (sqlc.DiscoveredDevice, error) {
 	if _, err := q.LockEndpointDiscoveryDevices(ctx, sqlc.LockEndpointDiscoveryDevicesParams{OrgID: existing.OrgID, DiscoveredDeviceID: existing.ID}); err != nil {
-		return existing, false, err
+		return existing, err
 	}
-	current, err := q.LockDiscoveredDeviceForEndpointDiscovery(ctx, sqlc.LockDiscoveredDeviceForEndpointDiscoveryParams{OrgID: existing.OrgID, ID: existing.ID})
+	return q.LockDiscoveredDeviceForEndpointDiscovery(ctx, sqlc.LockDiscoveredDeviceForEndpointDiscoveryParams{OrgID: existing.OrgID, ID: existing.ID})
+}
+
+func lockEndpointDiscoveryInventory(ctx context.Context, q sqlc.Querier, existing sqlc.DiscoveredDevice) (sqlc.DiscoveredDevice, bool, error) {
+	current, err := lockDiscoveredInventory(ctx, q, existing)
 	if err != nil {
 		return existing, false, err
 	}

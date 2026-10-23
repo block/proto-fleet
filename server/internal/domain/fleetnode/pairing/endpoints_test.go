@@ -49,7 +49,7 @@ func TestEndpointDiscoveryReclaimsRevokedNodeInventory(t *testing.T) {
 		SerialNumber: "controller-a", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER,
 		Model: "CT1", Manufacturer: "Proto",
 	}
-	status, err := svc.PersistFleetNodePairResult(ctx, original, org, result, nil)
+	status, err := svc.PersistFleetNodePairResult(ctx, original, org, result, nil, pairingSnapshot(t, db, org, result.GetDeviceIdentifier()))
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusPaired, status)
 	deviceID := deviceIDByIdentifier(t, db, org, a.DeviceIdentifier)
@@ -74,7 +74,7 @@ func TestEndpointDiscoveryReclaimsRevokedNodeInventory(t *testing.T) {
 	require.Len(t, accepted[0].Endpoints, 2)
 	require.Equal(t, "10.0.0.11", accepted[0].Endpoints[0].Host)
 	require.Equal(t, "10.0.0.22", accepted[0].Endpoints[1].Host)
-	status, err = svc.PersistFleetNodePairResult(ctx, replacement, org, result, nil)
+	status, err = svc.PersistFleetNodePairResult(ctx, replacement, org, result, nil, pairingSnapshot(t, db, org, result.GetDeviceIdentifier()))
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusPaired, status)
 	require.True(t, deviceBoundToNode(t, db, org, replacement, a.DeviceIdentifier))
@@ -201,7 +201,7 @@ func TestPairedEndpointDiscoveryRejectsSpoofedReportsWithoutDroppingBatch(t *tes
 	_, err = svc.PersistFleetNodePairResult(ctx, node, org, &gatewaypb.FleetNodePairResult{
 		DeviceIdentifier: a.DeviceIdentifier, Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED,
 		SerialNumber: "controller-a", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, Model: "CT1", Manufacturer: "Proto",
-	}, nil)
+	}, nil, pairingSnapshot(t, db, org, a.DeviceIdentifier))
 	require.NoError(t, err)
 	q := sqlc.New(db)
 	before, err := q.GetDiscoveredDeviceByDeviceIdentifier(ctx, sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{OrgID: org, DeviceIdentifier: a.DeviceIdentifier})
@@ -251,7 +251,7 @@ func TestPairedLegacyNodeDiscoveryRejectsRouteChanges(t *testing.T) {
 	_, err = svc.PersistFleetNodePairResult(ctx, node, org, &gatewaypb.FleetNodePairResult{
 		DeviceIdentifier: legacy.DeviceIdentifier, Outcome: gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED,
 		SerialNumber: "controller-a", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, Model: "CT1", Manufacturer: "Proto",
-	}, nil)
+	}, nil, pairingSnapshot(t, db, org, legacy.DeviceIdentifier))
 	require.NoError(t, err)
 	moved := legacy
 	moved.IPAddress = "10.0.0.99"

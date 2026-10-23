@@ -175,7 +175,8 @@ func pairingStatusFilterValues(statuses []fleetmanagementv1.PairingStatus) ([]st
 // single transaction and returns the resulting status. PAIRED binds the device to
 // the node and stores node-encrypted credentials when reported; AUTH_NEEDED/AUTH_FAILED
 // record AUTHENTICATION_NEEDED for retry; ERROR/UNSPECIFIED persist nothing.
-func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, orgID int64, result *gatewaypb.FleetNodePairResult, assignedBy *int64) (string, error) {
+// expected is the immutable target captured before dispatch, not a fresh lookup.
+func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, orgID int64, result *gatewaypb.FleetNodePairResult, assignedBy *int64, expected *pairingpb.FleetNodePairTarget) (string, error) {
 	if s.deviceStore == nil || s.discoveredDeviceStore == nil {
 		return "", fleeterror.NewInternalError("fleet node pairing provisioning is not configured")
 	}
@@ -201,6 +202,17 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 		persisted = defaultPersisted
 		conflict = false
 		boundDeviceID = 0
+		// Keep node identity before device/discovery locks. Discovery may finish
+		// while we wait; validate and then load the locked current inventory.
+		if err := s.lockFleetNodeIdentityForPairing(ctx, fleetNodeID, orgID); err != nil {
+			return err
+		}
+		if expected != nil && expected.GetDeviceIdentifier() != identifier {
+			return fleeterror.NewFailedPreconditionError("pairing snapshot does not match the reported device")
+		}
+		if err := s.discoveredDeviceStore.LockPairingSnapshot(ctx, doi, pairTargetDevice(expected), &fleetNodeID); err != nil {
+			return err
+		}
 
 		dd, err := s.discoveredDeviceStore.GetDevice(ctx, doi)
 		if err != nil {
@@ -219,11 +231,6 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 			return logInternal("lookup device", clientErrLookupDeviceForPairing, err)
 		}
 
-		// Retain node identity while waiting for a device; authentication revocation
-		// stays independent of physical dispatch. Recheck enrollment after the wait.
-		if err := s.lockFleetNodeIdentityForPairing(ctx, fleetNodeID, orgID); err != nil {
-			return err
-		}
 		var deviceID int64
 		if existing != nil {
 			deviceID, err = s.store.GetDeviceIDByDeviceIdentifier(ctx, identifier)
@@ -367,6 +374,18 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, fleetNodeID, o
 		s.reapplyRigConfigBestEffort(ctx, orgID, assignedBy, []string{identifier})
 	}
 	return persisted, nil
+}
+
+func pairTargetDevice(target *pairingpb.FleetNodePairTarget) *pairingpb.Device {
+	if target == nil {
+		return nil
+	}
+	return &pairingpb.Device{
+		DeviceIdentifier: target.GetDeviceIdentifier(), DriverName: target.GetDriverName(),
+		IpAddress: target.GetIpAddress(), Port: target.GetPort(), UrlScheme: target.GetUrlScheme(),
+		RpcPort: target.GetRpcPort(), RpcTls: target.GetRpcTls(), Endpoints: target.GetEndpoints(),
+		DeviceClass: target.GetDeviceClass(), Manufacturer: target.GetManufacturer(),
+	}
 }
 
 func (s *Service) saveFleetNodeEncryptedCredentials(ctx context.Context, device *pairingpb.Device, orgID int64, encrypted *gatewaypb.EncryptedCredentials) error {

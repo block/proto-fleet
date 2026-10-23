@@ -3,13 +3,20 @@ package interfaces
 import (
 	"context"
 
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 )
 
 //go:generate go run go.uber.org/mock/mockgen -source=discovered_device.go -destination=mocks/mock_discovered_device_store.go -package=mocks DiscoveredDeviceStore
 
 // DiscoveredDeviceStore defines the interface for discovered device operations in the store layer
+//
+//nolint:interfacebloat // Discovery reads, writes, and pairing guards share one transactional store boundary.
 type DiscoveredDeviceStore interface {
+	// LockPairingSnapshot requires a transaction. It locks the saved inventory
+	// and rejects pairing writes if its group, routes, or owner changed after verification.
+	LockPairingSnapshot(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, expected *pairingpb.Device, expectedFleetNodeID *int64) error
+
 	// Save stores device metadata. Existing endpoint groups retain their current addresses.
 	Save(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error)
 

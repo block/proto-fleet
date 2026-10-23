@@ -140,8 +140,9 @@ const (
 // the report quota. nil for discovery.
 type PairMeta struct {
 	OrgID      int64
-	AssignedBy *int64              // operator user id; nullable end-to-end
-	Targets    map[string]struct{} // dispatched device identifiers; also the report quota
+	AssignedBy *int64                                    // operator user id; nullable end-to-end
+	Targets    map[string]struct{}                       // dispatched device identifiers; also the report quota
+	Snapshots  map[string]*pairingpb.FleetNodePairTarget // immutable dispatch targets, retained for persistence retries
 }
 
 // ArtifactDirection indicates which side of a command artifact transfer owns the bytes.

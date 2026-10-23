@@ -13,6 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	pairingv1 "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	models "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -144,6 +145,20 @@ func (m *MockDiscoveredDeviceStore) GetDirectContainerByIP(ctx context.Context, 
 func (mr *MockDiscoveredDeviceStoreMockRecorder) GetDirectContainerByIP(ctx, orgID, ipAddress, driverName, model, manufacturer any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDirectContainerByIP", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).GetDirectContainerByIP), ctx, orgID, ipAddress, driverName, model, manufacturer)
+}
+
+// LockPairingSnapshot mocks base method.
+func (m *MockDiscoveredDeviceStore) LockPairingSnapshot(ctx context.Context, doi models.DeviceOrgIdentifier, expected *pairingv1.Device, expectedFleetNodeID *int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LockPairingSnapshot", ctx, doi, expected, expectedFleetNodeID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LockPairingSnapshot indicates an expected call of LockPairingSnapshot.
+func (mr *MockDiscoveredDeviceStoreMockRecorder) LockPairingSnapshot(ctx, doi, expected, expectedFleetNodeID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LockPairingSnapshot", reflect.TypeOf((*MockDiscoveredDeviceStore)(nil).LockPairingSnapshot), ctx, doi, expected, expectedFleetNodeID)
 }
 
 // Save mocks base method.
