@@ -697,6 +697,9 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     rpc_tls = EXCLUDED.rpc_tls,
     endpoint_key = EXCLUDED.endpoint_key,
     endpoints = EXCLUDED.endpoints,
+    -- Reports do not carry verified serials. A replacement group must not keep
+    -- the removed peer's identity; pairing will learn the current serial again.
+    serial_number = CASE WHEN $16::boolean THEN '' ELSE discovered_device.serial_number END,
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     model = EXCLUDED.model,
     device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
@@ -706,7 +709,14 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     last_seen = CURRENT_TIMESTAMP,
     is_active = TRUE
 WHERE (discovered_device.endpoint_key = '' OR
-    (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name))
+    (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name)
+    OR ($16::boolean AND discovered_device.driver_name = EXCLUDED.driver_name
+        AND NOT EXISTS (
+            SELECT 1 FROM device d LEFT JOIN device_pairing dp ON dp.device_id=d.id
+            WHERE d.discovered_device_id=discovered_device.id AND d.org_id=discovered_device.org_id AND d.deleted_at IS NULL
+            AND (dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD','AUTHENTICATION_NEEDED')
+                OR EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id=d.id AND fnd.org_id=d.org_id))
+        )))
 AND (
     discovered_device.discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id
     -- The attributing node was revoked (soft-deleted), so a replacement node may
@@ -764,21 +774,22 @@ RETURNING device_class, device_identifier, endpoints
 `
 
 type UpsertDiscoveredDeviceFromFleetNodeParams struct {
-	OrgID                   int64
-	DeviceIdentifier        string
-	IpAddress               string
-	Port                    string
-	UrlScheme               string
-	DriverName              string
-	Model                   sql.NullString
-	Manufacturer            sql.NullString
-	FirmwareVersion         sql.NullString
-	DiscoveredByFleetNodeID sql.NullInt64
-	DeviceClass             int32
-	RpcPort                 int32
-	RpcTls                  bool
-	EndpointKey             string
-	Endpoints               json.RawMessage
+	OrgID                    int64
+	DeviceIdentifier         string
+	IpAddress                string
+	Port                     string
+	UrlScheme                string
+	DriverName               string
+	Model                    sql.NullString
+	Manufacturer             sql.NullString
+	FirmwareVersion          sql.NullString
+	DiscoveredByFleetNodeID  sql.NullInt64
+	DeviceClass              int32
+	RpcPort                  int32
+	RpcTls                   bool
+	EndpointKey              string
+	Endpoints                json.RawMessage
+	AllowEndpointGroupChange bool
 }
 
 type UpsertDiscoveredDeviceFromFleetNodeRow struct {
@@ -811,6 +822,7 @@ func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg U
 		arg.RpcTls,
 		arg.EndpointKey,
 		arg.Endpoints,
+		arg.AllowEndpointGroupChange,
 	)
 	var i UpsertDiscoveredDeviceFromFleetNodeRow
 	err := row.Scan(&i.DeviceClass, &i.DeviceIdentifier, &i.Endpoints)

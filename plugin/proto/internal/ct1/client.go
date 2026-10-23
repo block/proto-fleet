@@ -17,11 +17,9 @@ import (
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 )
 
 const DefaultRPCPort int32 = 9095
@@ -98,8 +96,13 @@ func (c *Client) Discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceI
 		return sdk.DeviceInfo{}, fmt.Errorf("endpoint is not a CT1 container")
 	}
 	support, err := c.updates.GetServerUpdateSupport(ctx, &mdk.GetServerUpdateSupportRequest{})
-	if err != nil && status.Code(err) != codes.Unimplemented {
-		return sdk.DeviceInfo{}, fmt.Errorf("read CT1 partner identity: %w", err)
+	if err != nil {
+		// New discovery can retain the controller without optional pair metadata.
+		// Saved endpoint groups require fresh partner identity on every probe.
+		if len(info.Endpoints) > 0 || ctx.Err() != nil {
+			return sdk.DeviceInfo{}, fmt.Errorf("read CT1 partner identity: %w", err)
+		}
+		support = nil
 	}
 	var endpoints []sdk.DeviceEndpoint
 	if support.GetPeerInstanceId() != "" {
@@ -110,9 +113,6 @@ func (c *Client) Discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceI
 		members := []string{v.Id, support.GetPeerInstanceId()}
 		slices.Sort(members)
 		endpoints = []sdk.DeviceEndpoint{{ID: v.Id, DeviceKey: key, MemberIDs: members, Host: c.endpoint.Host, Port: c.endpoint.Port, URLScheme: c.endpoint.URLScheme, RPCPort: c.endpoint.RPCPort, RPCTLS: c.endpoint.RPCTLS}}
-		if endpoints[0].RPCPort == 0 {
-			endpoints[0].RPCPort = DefaultRPCPort
-		}
 	}
 	if len(info.Endpoints) > 0 {
 		if len(endpoints) != 1 || c.endpointID(info.Endpoints) != v.Id {

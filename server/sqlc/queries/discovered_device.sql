@@ -119,8 +119,18 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     -- Keep existing driver_name if already set (prevent discovery flip-flop)
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     last_seen = CURRENT_TIMESTAMP
-WHERE (discovered_device.endpoint_key = '' OR
-    (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name))
+WHERE ((NOT sqlc.arg('direct_discovery')::boolean AND discovered_device.endpoint_key <> '' AND discovered_device.driver_name = EXCLUDED.driver_name)
+    OR discovered_device.endpoint_key = ''
+    OR (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name)
+    OR (sqlc.arg('allow_endpoint_group_change')::boolean AND discovered_device.driver_name = EXCLUDED.driver_name
+        AND NOT EXISTS (
+            SELECT 1 FROM device d LEFT JOIN device_pairing dp ON dp.device_id=d.id
+            WHERE d.discovered_device_id=discovered_device.id AND d.org_id=discovered_device.org_id AND d.deleted_at IS NULL
+            AND (dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD','AUTHENTICATION_NEEDED')
+                OR EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id=d.id AND fnd.org_id=d.org_id))
+        )))
+-- A fast rig write must fall back to locked reconciliation for a saved container.
+AND (NOT sqlc.arg('lockless_discovery')::boolean OR (discovered_device.device_class <> 2 AND discovered_device.endpoint_key = ''))
 AND (NOT sqlc.arg('direct_discovery')::boolean OR (
     discovered_device.discovered_by_fleet_node_id IS NULL
     AND NOT EXISTS (
@@ -166,11 +176,23 @@ LIMIT $2;
 SELECT COUNT(*) as total
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
+WHERE dd.org_id = $1 AND dd.is_active = TRUE AND dd.deleted_at IS NULL
+    AND d.id IS NULL AND dd.discovered_by_fleet_node_id IS NULL;
+
+-- name: ListActiveUnpairedDiscoveredDeviceEndpoints :many
+-- Bounded count scan. Endpoint validity is checked by the canonical Go codec.
+SELECT dd.id, dd.endpoints
+FROM discovered_device dd
+LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
 WHERE dd.org_id = $1
     AND dd.is_active = TRUE
     AND dd.deleted_at IS NULL
     AND d.id IS NULL
-    AND dd.discovered_by_fleet_node_id IS NULL;
+    AND dd.discovered_by_fleet_node_id IS NULL
+    AND dd.endpoints <> '{}'::jsonb
+    AND dd.id > sqlc.arg(cursor_id)
+ORDER BY dd.id
+LIMIT sqlc.arg(page_size);
 
 -- name: SoftDeleteDiscoveredDeviceByIdentifier :exec
 -- Soft-deletes a discovered_device record. Used to clean up orphaned records
@@ -237,6 +259,12 @@ AND (dd.discovered_by_fleet_node_id IS NOT DISTINCT FROM sqlc.narg(fleet_node_id
             WHERE fn.id = dd.discovered_by_fleet_node_id AND fn.org_id = dd.org_id AND fn.deleted_at IS NULL
         )))
 AND (dd.endpoint_key = sqlc.arg(group_key) OR
+    (dd.endpoint_key <> '' AND EXISTS (
+        SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(dd.endpoints)='object' THEN dd.endpoints ELSE '{}'::jsonb END) endpoint
+        WHERE endpoint.value->>'Host' = sqlc.arg(scanned_host)::text
+          AND endpoint.value->>'RPCPort' = sqlc.arg(scanned_rpc_port)::integer::text
+          AND (sqlc.arg(scanned_rpc_port)::integer <> 0 OR endpoint.value->>'Port' = sqlc.arg(scanned_port)::integer::text)
+    )) OR
     (dd.endpoint_key = ''
       AND dd.device_class = sqlc.arg(device_class)::integer
       AND COALESCE(lower(dd.model), '') = lower(sqlc.arg(model)::text)
@@ -249,3 +277,25 @@ AND NOT EXISTS (
  AND fnd.fleet_node_id IS DISTINCT FROM sqlc.narg(fleet_node_id)::bigint
 )
 ORDER BY (dd.discovered_by_fleet_node_id IS NOT DISTINCT FROM sqlc.narg(fleet_node_id)::bigint) DESC, dd.id LIMIT 2;
+
+-- name: EndpointDiscoveryHasSavedGroupAtSocket :one
+-- A keyless fallback must not create another row for a known group's peer.
+SELECT EXISTS (
+    SELECT 1 FROM discovered_device dd
+    WHERE dd.org_id=sqlc.arg(org_id) AND dd.driver_name=sqlc.arg(driver_name)::text
+    AND dd.deleted_at IS NULL AND dd.endpoint_key <> ''
+    AND dd.discovered_by_fleet_node_id IS NOT DISTINCT FROM sqlc.narg(fleet_node_id)::bigint
+    AND NOT EXISTS (
+        SELECT 1 FROM device d JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
+        WHERE d.discovered_device_id=dd.id AND d.org_id=dd.org_id AND d.deleted_at IS NULL
+        AND fnd.fleet_node_id IS DISTINCT FROM sqlc.narg(fleet_node_id)::bigint
+    )
+    AND ((dd.ip_address=sqlc.arg(host)::text AND dd.rpc_port=sqlc.arg(rpc_port)::integer
+          AND (sqlc.arg(rpc_port)::integer <> 0 OR dd.port=sqlc.arg(port)::text))
+      OR EXISTS (
+        SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(dd.endpoints)='object' THEN dd.endpoints ELSE '{}'::jsonb END) endpoint
+        WHERE endpoint.value->>'Host'=sqlc.arg(host)::text
+        AND endpoint.value->>'RPCPort'=sqlc.arg(rpc_port)::integer::text
+        AND (sqlc.arg(rpc_port)::integer <> 0 OR endpoint.value->>'Port'=sqlc.arg(port)::text)
+      ))
+);

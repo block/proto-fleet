@@ -225,15 +225,8 @@ func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin,
 		return err
 	}
 
-	if len(updatedDeviceInfo.Endpoints) > 0 {
-		updatedKey, err := sdk.DeviceEndpointKey(updatedDeviceInfo.Endpoints)
-		if err != nil {
-			return fleeterror.NewFailedPreconditionError("pairing returned invalid device endpoints; discover the device again before pairing")
-		}
-		savedKey, err := deviceendpoints.Key(discoveredDevice.Endpoints)
-		if err != nil || savedKey == "" || savedKey != updatedKey {
-			return fleeterror.NewFailedPreconditionError("device endpoint group changed; discover the device again before pairing")
-		}
+	if err := deviceendpoints.ValidatePairingResult(deviceInfo.Endpoints, updatedDeviceInfo.Endpoints); err != nil {
+		return fleeterror.NewFailedPreconditionError(err.Error())
 	}
 	// Pairing owns identity and credentials. Only discovery may reconcile and
 	// persist endpoint groups, using its inventory locks and ambiguity checks.

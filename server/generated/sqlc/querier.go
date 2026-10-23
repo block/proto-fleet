@@ -548,6 +548,8 @@ type Querier interface {
 	DisableSyncCommit(ctx context.Context) error
 	// Read after taking inventory locks so a pairing that won the wait is visible.
 	EndpointDiscoveryHasPairing(ctx context.Context, arg EndpointDiscoveryHasPairingParams) (bool, error)
+	// A keyless fallback must not create another row for a known group's peer.
+	EndpointDiscoveryHasSavedGroupAtSocket(ctx context.Context, arg EndpointDiscoveryHasSavedGroupAtSocketParams) (bool, error)
 	// Idempotent backfill (INSERT ... DO NOTHING + fallback SELECT). Both
 	// branches require organization.deleted_at IS NULL.
 	EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (EnsureCurtailmentOrgConfigRow, error)
@@ -1179,6 +1181,8 @@ type Querier interface {
 	// per-org built-ins. The onboarding flow also seeds built-ins for
 	// new orgs inside its creation transaction.
 	ListActiveOrganizationIDs(ctx context.Context) ([]int64, error)
+	// Bounded count scan. Endpoint validity is checked by the canonical Go codec.
+	ListActiveUnpairedDiscoveredDeviceEndpoints(ctx context.Context, arg ListActiveUnpairedDiscoveredDeviceEndpointsParams) ([]ListActiveUnpairedDiscoveredDeviceEndpointsRow, error)
 	// Array filter contract: the Go store layer must pass nil (not empty slice)
 	// for the narg text[] filters below. An empty non-nil array
 	// (pq.Array([]string{})) produces '{}' which matches nothing via ANY, leading
@@ -2533,6 +2537,7 @@ type Querier interface {
 	// revocation committed and waited on this row's lock.
 	UpsertDeviceStatus(ctx context.Context, arg UpsertDeviceStatusParams) error
 	// PostgreSQL version returns the id directly using RETURNING
+	// A fast rig write must fall back to locked reconciliation for a saved container.
 	UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscoveredDeviceParams) (int64, error)
 	// No returned row on conflict signals rejection. A remote report must not redirect the
 	// endpoint/credentials of a miner the cloud owns, so the update is blocked

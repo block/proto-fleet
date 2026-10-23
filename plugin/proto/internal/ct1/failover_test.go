@@ -34,6 +34,8 @@ type haServer struct {
 	infoReads      atomic.Int32
 	infoDelay      time.Duration
 	statusDelay    time.Duration
+	supportError   error
+	supportEntered chan struct{}
 }
 
 func startHAServer(t *testing.T, id, peer string) *haServer {
@@ -66,7 +68,15 @@ func (s *haServer) GetSystemInfo(ctx context.Context, _ *mdk.GetSystemInfoReques
 	}
 	return &mdk.GetSystemInfoResponse{Info: &mdk.SystemInfo{Id: s.id, Product: "Frigate", Model: "CT1"}}, nil
 }
-func (s *haServer) GetServerUpdateSupport(context.Context, *mdk.GetServerUpdateSupportRequest) (*mdk.GetServerUpdateSupportResponse, error) {
+func (s *haServer) GetServerUpdateSupport(ctx context.Context, _ *mdk.GetServerUpdateSupportRequest) (*mdk.GetServerUpdateSupportResponse, error) {
+	if s.supportEntered != nil {
+		close(s.supportEntered)
+		<-ctx.Done()
+		return nil, fmt.Errorf("server update support canceled: %w", ctx.Err())
+	}
+	if s.supportError != nil {
+		return nil, fmt.Errorf("server update support: %w", s.supportError)
+	}
 	peer := s.peer
 	if override := s.peerOverride.Load(); override != nil {
 		peer = *override

@@ -33,6 +33,24 @@ func Key(endpoints []*commonpb.DeviceEndpoint) (string, error) {
 	return sdk.DeviceEndpointKey(ToSDK(endpoints))
 }
 
+// ValidatePairingResult keeps endpoint group changes in discovery, which owns
+// inventory locking and duplicate checks. Pairing may omit endpoint metadata;
+// callers retain the discovered routes in either case.
+func ValidatePairingResult(saved, returned []sdk.DeviceEndpoint) error {
+	if len(returned) == 0 {
+		return nil
+	}
+	returnedKey, err := sdk.DeviceEndpointKey(returned)
+	if err != nil {
+		return fmt.Errorf("pairing returned invalid device endpoints; discover the device again before pairing")
+	}
+	savedKey, err := sdk.DeviceEndpointKey(saved)
+	if err != nil || savedKey == "" || savedKey != returnedKey {
+		return fmt.Errorf("device endpoint group changed; discover the device again before pairing")
+	}
+	return nil
+}
+
 // Store by endpoint ID so rediscovery replaces one address and retains other addresses.
 func Encode(endpoints []*commonpb.DeviceEndpoint) ([]byte, error) {
 	sdkEndpoints := ToSDK(endpoints)

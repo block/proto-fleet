@@ -326,6 +326,18 @@ func minerCommandActionTimeout(mc *pb.MinerCommand) time.Duration {
 // or link-local address, or a scheme the drivers can't dial. Loopback is allowed for the
 // dev virtual driver; mirrors the discovery path's private-address policy.
 func validateDialTarget(t *pb.MinerConnectionDescriptor) error {
+	if err := validateTargetAddresses(t); err != nil {
+		return err
+	}
+	// Restrict to schemes the dial path accepts (networking.ProtocolFromString); rejects empty/unknown.
+	if _, err := networking.ProtocolFromString(t.GetUrlScheme()); err != nil {
+		return fmt.Errorf("unsupported url_scheme %q", t.GetUrlScheme())
+	}
+	return nil
+}
+
+// Pairing and command targets share the same endpoint and private-address checks.
+func validateTargetAddresses(t *pb.MinerConnectionDescriptor) error {
 	if _, err := deviceendpoints.Key(t.GetEndpoints()); err != nil {
 		return err
 	}
@@ -342,10 +354,6 @@ func validateDialTarget(t *pb.MinerConnectionDescriptor) error {
 	}
 	if a := addr.Unmap(); !a.IsPrivate() && !a.IsLoopback() {
 		return fmt.Errorf("ip_address %q is not a private or loopback address", t.GetIpAddress())
-	}
-	// Restrict to schemes the dial path accepts (networking.ProtocolFromString); rejects empty/unknown.
-	if _, err := networking.ProtocolFromString(t.GetUrlScheme()); err != nil {
-		return fmt.Errorf("unsupported url_scheme %q", t.GetUrlScheme())
 	}
 	return nil
 }

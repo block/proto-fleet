@@ -81,25 +81,36 @@ The Proto plugin reads `SystemService.GetSystemInfo` and
 and `peerInstanceId`. The plugin hashes the sorted pair into an opaque device
 key. This key groups discoveries; it is not a container serial number. Neither
 Docker MAC addresses nor hashboard inventory determines the pair.
+Discovery allows five seconds for both identity calls, within the caller's
+deadline. If the optional partner service fails, a controller with no saved
+endpoint group can still use the single-address path. Cancellation still stops
+discovery. A saved group requires a successful partner response on every probe.
 
 Fleet stores generic `DeviceEndpoint` records in `discovered_device.endpoints`.
 Each record contains an endpoint ID, the plugin's device key, and independent
 web/RPC transport settings. It also carries known member IDs, including a peer
 whose address has not been scanned. Fleet scopes that key by organization, driver, and
-network owner (direct Fleet Server or a Fleet Node). Discovery serializes its
-database writes per organization before locking groups and inventory rows. This
+network owner (direct Fleet Server or a Fleet Node). Fleet Node reports and direct
+container or endpoint-group scans serialize database writes per organization
+before locking groups and inventory rows. This
 prevents direct scans and report batches from taking those locks in opposite
-orders; network probes remain concurrent. Before pairing, scans merge addresses
+orders. Direct plain-rig scans do not take this lock; network probes remain concurrent.
+Before pairing, scans merge addresses
 by endpoint ID. A later scan of one address retains the
 other address. If an unpaired controller takes its peer's saved address, Fleet discards that
 stale peer endpoint. Scan the peer's new address to restore both endpoints.
 The remaining endpoint keeps its web settings; set any custom web settings for
 the discarded endpoint again after discovery. If the browser target was discarded,
 Fleet uses the remaining verified endpoint.
+If an unpaired controller reports a replacement partner at its saved RPC route,
+Fleet keeps the inventory row and discards the old partner's routes. Scan the new
+partner before pairing. A changed group without a matching saved controller route
+is rejected. A paired container must be unpaired before a partner change.
 Fleet passes the complete saved list to the plugin for pairing, telemetry, and
 commands, including through Fleet Nodes. Endpoint changes alter the cached
 plugin configuration fingerprint.
 Pairing updates identity metadata without replacing addresses from later scans.
+Direct and Fleet Node pairing use the same endpoint-group check.
 Pairing cannot introduce a new endpoint group. If pairing reports a new group,
 run discovery before pairing again so the inventory checks can reconcile it.
 Once paired, the saved endpoint routes are pinned. Discovery cannot add an
@@ -169,7 +180,8 @@ and the previous HA observation becomes stale.
   For unpaired inventory, a scanned explicit route replaces an unknown legacy
   route at the same host rather than retaining two conflicting identities.
 - Discovery lists log and skip invalid stored endpoints, including across page
-  boundaries. Direct route lookups still reject invalid endpoints. A grouped
+  boundaries. Unpaired totals use the same validation as their lists. Direct
+  route lookups still reject invalid endpoints. A grouped
   device cannot silently lose its endpoint list when HA metadata disappears.
 - A replacement Fleet Node can reclaim one matching endpoint group from a revoked
   node at its saved addresses. Route changes require unpairing first. Fleet

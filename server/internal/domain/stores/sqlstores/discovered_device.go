@@ -67,7 +67,7 @@ func (s *SQLDiscoveredDeviceStore) decodeCursor(encoded string) (int64, error) {
 
 // Save stores or updates a discovered device and returns the saved device
 func (s *SQLDiscoveredDeviceStore) Save(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
-	return s.save(ctx, doi, device, false)
+	return s.save(ctx, doi, device, discoveredDeviceSaveOptions{})
 }
 
 func (s *SQLDiscoveredDeviceStore) ActivateDirect(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier) error {
@@ -84,17 +84,25 @@ func (s *SQLDiscoveredDeviceStore) ActivateDirect(ctx context.Context, doi disco
 }
 
 func (s *SQLDiscoveredDeviceStore) SaveDirect(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
+	if len(device.Endpoints) == 0 && device.DeviceClass != commonpb.DeviceClass_DEVICE_CLASS_CONTAINER && device.RpcPort == 0 && !device.RpcTls {
+		saved, err := s.save(ctx, doi, device, discoveredDeviceSaveOptions{direct: true, lockless: true})
+		if !fleeterror.IsFailedPreconditionError(err) {
+			return saved, err
+		}
+		// A saved container or group needs the guarded path even when a scan
+		// omits its class/endpoints. The fast SQL write did not change that row.
+	}
 	var saved *discoverymodels.DiscoveredDevice
 	err := NewSQLTransactor(s.conn.DB).RunInTx(ctx, func(ctx context.Context) error {
 		if err := lockEndpointDiscoveryTransaction(ctx, s.getQueries(ctx), doi.OrgID); err != nil {
 			return err
 		}
 		if len(device.Endpoints) == 0 {
-			if err := guardLegacyEndpointDiscovery(ctx, s.getQueries(ctx), doi.OrgID, doi.DeviceIdentifier, device.IpAddress, device.Port, device.UrlScheme, device.RpcPort, device.RpcTls); err != nil {
+			if err := guardLegacyEndpointDiscovery(ctx, s.getQueries(ctx), doi.OrgID, doi.DeviceIdentifier, device.DriverName, device.IpAddress, device.Port, device.UrlScheme, device.RpcPort, device.RpcTls, device.DeviceClass, sql.NullInt64{}); err != nil {
 				return err
 			}
 			var err error
-			saved, err = s.save(ctx, doi, device, true)
+			saved, err = s.save(ctx, doi, device, discoveredDeviceSaveOptions{direct: true})
 			return err
 		}
 		existing, endpoints, err := reconcileDeviceEndpoints(ctx, s.getQueries(ctx), sqlc.FindEndpointDiscoveryParams{
@@ -104,6 +112,7 @@ func (s *SQLDiscoveredDeviceStore) SaveDirect(ctx context.Context, doi discovery
 		if err != nil {
 			return err
 		}
+		allowGroupChange := existing != nil && existing.EndpointKey != "" && existing.EndpointKey != endpoints[0].DeviceKey
 		candidate := &discoverymodels.DiscoveredDevice{
 			IsActive: device.IsActive, OrgID: device.OrgID,
 			FirstDiscovered: device.FirstDiscovered, LastSeen: device.LastSeen,
@@ -114,7 +123,7 @@ func (s *SQLDiscoveredDeviceStore) SaveDirect(ctx context.Context, doi discovery
 		candidate.Endpoints = endpoints
 		if existing != nil {
 			doi.DeviceIdentifier = existing.DeviceIdentifier
-			if existing.SerialNumber != "" {
+			if existing.SerialNumber != "" && !allowGroupChange {
 				candidate.SerialNumber = existing.SerialNumber
 			}
 		}
@@ -126,7 +135,7 @@ func (s *SQLDiscoveredDeviceStore) SaveDirect(ctx context.Context, doi discovery
 			candidate.IpAddress, candidate.Port, candidate.UrlScheme = browser.Host, strconv.Itoa(int(browser.Port)), browser.UrlScheme
 			candidate.RpcPort, candidate.RpcTls = browser.RpcPort, browser.RpcTls
 		}
-		saved, err = s.save(ctx, doi, candidate, true)
+		saved, err = s.save(ctx, doi, candidate, discoveredDeviceSaveOptions{direct: true, allowGroupChange: allowGroupChange})
 		return err
 	})
 	if errors.Is(err, errPairedDeviceEndpoints) {
@@ -135,10 +144,19 @@ func (s *SQLDiscoveredDeviceStore) SaveDirect(ctx context.Context, doi discovery
 	if errors.Is(err, errDeviceEndpointGroupRequired) {
 		return nil, fleeterror.NewFailedPreconditionError(errDeviceEndpointGroupRequired.Error())
 	}
+	if errors.Is(err, errDeviceEndpointGroupChanged) {
+		return nil, fleeterror.NewFailedPreconditionError(errDeviceEndpointGroupChanged.Error())
+	}
 	return saved, err
 }
 
-func (s *SQLDiscoveredDeviceStore) save(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice, direct bool) (*discoverymodels.DiscoveredDevice, error) {
+type discoveredDeviceSaveOptions struct {
+	direct           bool
+	lockless         bool
+	allowGroupChange bool
+}
+
+func (s *SQLDiscoveredDeviceStore) save(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice, options discoveredDeviceSaveOptions) (*discoverymodels.DiscoveredDevice, error) {
 	controllers, err := deviceendpoints.Encode(device.Endpoints)
 	if err != nil {
 		return nil, err
@@ -148,8 +166,8 @@ func (s *SQLDiscoveredDeviceStore) save(ctx context.Context, doi discoverymodels
 		return nil, err
 	}
 	insertedID, err := s.getQueries(ctx).UpsertDiscoveredDevice(ctx, sqlc.UpsertDiscoveredDeviceParams{
-		DirectDiscovery: direct,
-		EndpointKey:     key, Endpoints: controllers,
+		DirectDiscovery: options.direct, LocklessDiscovery: options.lockless, AllowEndpointGroupChange: options.allowGroupChange,
+		EndpointKey: key, Endpoints: controllers,
 		OrgID:            doi.OrgID,
 		DeviceIdentifier: doi.DeviceIdentifier,
 		Model:            sql.NullString{String: device.Model, Valid: len(device.Model) > 0},
@@ -324,7 +342,23 @@ func (s *SQLDiscoveredDeviceStore) CountActiveUnpairedDevices(ctx context.Contex
 		return 0, fleeterror.NewInternalErrorf("failed to count active unpaired devices: %v", err)
 	}
 
-	return count, nil
+	const pageSize = 500
+	var cursor int64
+	for {
+		rows, err := s.getQueries(ctx).ListActiveUnpairedDiscoveredDeviceEndpoints(ctx, sqlc.ListActiveUnpairedDiscoveredDeviceEndpointsParams{OrgID: orgID, CursorID: cursor, PageSize: pageSize})
+		if err != nil {
+			return 0, fleeterror.NewInternalErrorf("failed to validate active unpaired device count: %w", err)
+		}
+		for _, row := range rows {
+			if _, err := deviceendpoints.Decode(row.Endpoints); err != nil {
+				count--
+			}
+		}
+		if len(rows) < pageSize {
+			return max(count, 0), nil
+		}
+		cursor = rows[len(rows)-1].ID
+	}
 }
 
 // SoftDelete soft-deletes a discovered device record

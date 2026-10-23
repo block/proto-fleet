@@ -21,6 +21,7 @@ import (
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
+	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
@@ -69,9 +70,20 @@ func newPluginPairer(manager *plugins.Manager, credentials credentialSealer) *pl
 
 func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePairTarget, creds *pairingpb.Credentials) *pb.FleetNodePairResult {
 	res := &pb.FleetNodePairResult{DeviceIdentifier: target.GetDeviceIdentifier()}
-	if err := validateDialTarget(&pb.MinerConnectionDescriptor{IpAddress: target.GetIpAddress(), UrlScheme: target.GetUrlScheme(), DriverName: target.GetDriverName(), DeviceClass: target.GetDeviceClass(), Endpoints: target.GetEndpoints()}); err != nil && len(target.GetEndpoints()) > 0 {
+	if err := validateTargetAddresses(&pb.MinerConnectionDescriptor{
+		IpAddress: target.GetIpAddress(), Port: target.GetPort(), UrlScheme: target.GetUrlScheme(),
+		RpcPort: target.GetRpcPort(), RpcTls: target.GetRpcTls(), DriverName: target.GetDriverName(),
+		DeviceClass: target.GetDeviceClass(), Endpoints: target.GetEndpoints(),
+	}); err != nil {
 		res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
 		res.ErrorMessage = err.Error()
+		return res
+	}
+	// Pairing passes the plugin's discovered scheme through unchanged. Plugins
+	// may use schemes outside the command dialer's supported protocol list.
+	if scheme := target.GetUrlScheme(); scheme != "" && !networking.IsValidURLScheme(scheme) {
+		res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
+		res.ErrorMessage = fmt.Sprintf("url_scheme %q is not a valid scheme", scheme)
 		return res
 	}
 
@@ -99,6 +111,16 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 		FirmwareVersion: target.GetFirmwareVersion(),
 		DeviceClass:     sdk.DeviceClass(target.GetDeviceClass()),
 	}
+	pairDevice := func(bundle sdk.SecretBundle) (sdk.DeviceInfo, error) {
+		updated, err := plugin.Driver.PairDevice(ctx, deviceInfo, bundle)
+		if err != nil {
+			return sdk.DeviceInfo{}, err
+		}
+		if err := deviceendpoints.ValidatePairingResult(deviceInfo.Endpoints, updated.Endpoints); err != nil {
+			return sdk.DeviceInfo{}, err
+		}
+		return updated, nil
+	}
 
 	if bundle, ok := secretBundleFor(plugin.Caps, creds); ok {
 		if !credentialsReportable(creds.GetUsername(), creds.GetPassword()) {
@@ -112,7 +134,7 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 			res.ErrorMessage = truncateUTF8(fmt.Sprintf("encrypt credentials: %v", err), maxAckErrorMessageBytes)
 			return res
 		}
-		updated, pairErr := plugin.Driver.PairDevice(ctx, deviceInfo, bundle)
+		updated, pairErr := pairDevice(bundle)
 		if pairErr != nil {
 			classifyNodePairError(pairErr, res)
 			return res
@@ -125,7 +147,7 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 	// A container may expose public MDK reads. Let its plugin decide; never
 	// borrow a rig factory password and report it as a verified credential.
 	if deviceInfo.DeviceClass == sdk.DeviceClassContainer {
-		updated, pairErr := plugin.Driver.PairDevice(ctx, deviceInfo, sdk.SecretBundle{Version: "v1"})
+		updated, pairErr := pairDevice(sdk.SecretBundle{Version: "v1"})
 		if pairErr != nil {
 			classifyNodePairError(pairErr, res)
 			return res
@@ -147,7 +169,7 @@ func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePair
 				res.ErrorMessage = truncateUTF8(fmt.Sprintf("encrypt credentials: %v", err), maxAckErrorMessageBytes)
 				return res
 			}
-			updated, pairErr := plugin.Driver.PairDevice(ctx, deviceInfo, bundle)
+			updated, pairErr := pairDevice(bundle)
 			if pairErr != nil {
 				if isNodeAuthFailure(pairErr) {
 					continue

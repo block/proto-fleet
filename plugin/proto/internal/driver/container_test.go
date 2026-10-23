@@ -2,15 +2,19 @@ package driver
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -109,4 +113,56 @@ func TestContainerDiscoveryRejectsConfiguredBearerToken(t *testing.T) {
 	require.Equal(t, sdk.ErrCodeInvalidConfig, sdkErr.Code)
 	require.ErrorContains(t, err, "CT1_RPC_TOKEN_FILE is unsupported")
 	require.NotContains(t, err.Error(), "test-token")
+}
+
+type slowContainerIdentityServer struct {
+	containerServer
+	mdk.UnimplementedServerUpdateServiceServer
+}
+
+func (slowContainerIdentityServer) GetSystemInfo(ctx context.Context, _ *mdk.GetSystemInfoRequest) (*mdk.GetSystemInfoResponse, error) {
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("system info delay: %w", ctx.Err())
+	case <-time.After(600 * time.Millisecond):
+	}
+	return &mdk.GetSystemInfoResponse{Info: &mdk.SystemInfo{Id: "controller-a", Product: "Frigate"}}, nil
+}
+
+func (slowContainerIdentityServer) GetServerUpdateSupport(ctx context.Context, _ *mdk.GetServerUpdateSupportRequest) (*mdk.GetServerUpdateSupportResponse, error) {
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("partner info delay: %w", ctx.Err())
+	case <-time.After(600 * time.Millisecond):
+	}
+	return &mdk.GetServerUpdateSupportResponse{InstanceId: "controller-a", PeerInstanceId: "controller-b"}, nil
+}
+
+func TestContainerDiscoveryAllowsSlowSequentialIdentityRPCs(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	server := grpc.NewServer()
+	fixture := slowContainerIdentityServer{}
+	mdk.RegisterSystemServiceServer(server, fixture)
+	mdk.RegisterServerUpdateServiceServer(server, fixture)
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+	host, portText, err := net.SplitHostPort(listener.Addr().String())
+	require.NoError(t, err)
+	port, err := sdk.ParsePort(portText)
+	require.NoError(t, err)
+	driver, err := New(int(port))
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	info, err := driver.DiscoverDevice(ctx, host, portText)
+	require.NoError(t, err)
+	require.Equal(t, "controller-a", info.SerialNumber)
+	require.Len(t, info.Endpoints, 1)
+	require.Equal(t, []string{"controller-a", "controller-b"}, info.Endpoints[0].MemberIDs)
+
+	shortCtx, shortCancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer shortCancel()
+	_, err = discoverContainer(shortCtx, host, port)
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
 }

@@ -19,6 +19,7 @@ import (
 var errAmbiguousDeviceEndpoints = errors.New("multiple saved devices match this endpoint group; resolve duplicate inventory before pairing")
 var errPairedDeviceEndpoints = errors.New("paired device endpoints cannot change during discovery; unpair the device before changing its addresses")
 var errDeviceEndpointGroupRequired = errors.New("discovery report is missing the saved device endpoint group; use endpoint-aware discovery")
+var errDeviceEndpointGroupChanged = errors.New("device endpoint group changed without a matching saved controller route; rescan the known controllers before pairing")
 
 // A report batch can touch both groups and legacy rows in any order. Serialize
 // only its database writes with direct discovery before taking finer locks.
@@ -69,13 +70,23 @@ func preservePairedEndpointRoutes(existing sqlc.DiscoveredDevice, saved, merged 
 
 // Older reports can omit endpoints. Do not let that path clear a paired group
 // or relocate a paired container by reusing its inventory identifier.
-func guardLegacyEndpointDiscovery(ctx context.Context, q sqlc.Querier, orgID int64, identifier, host, port, scheme string, rpcPort int32, rpcTLS bool) error {
+func guardLegacyEndpointDiscovery(ctx context.Context, q sqlc.Querier, orgID int64, identifier, driver, host, port, scheme string, rpcPort int32, rpcTLS bool, deviceClass commonpb.DeviceClass, fleetNodeID sql.NullInt64) error {
 	existing, err := q.GetDiscoveredDeviceByDeviceIdentifier(ctx, sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{OrgID: orgID, DeviceIdentifier: identifier})
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
+	missing := errors.Is(err, sql.ErrNoRows)
+	if err != nil && !missing {
 		return err
+	}
+	if deviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
+		grouped, err := q.EndpointDiscoveryHasSavedGroupAtSocket(ctx, sqlc.EndpointDiscoveryHasSavedGroupAtSocketParams{OrgID: orgID, DriverName: driver, FleetNodeID: fleetNodeID, Host: host, Port: port, RpcPort: rpcPort})
+		if err != nil {
+			return err
+		}
+		if grouped {
+			return errDeviceEndpointGroupRequired
+		}
+	}
+	if missing {
+		return nil
 	}
 	if existing.EndpointKey == "" && existing.DeviceClass != int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER) {
 		return nil
@@ -89,6 +100,9 @@ func guardLegacyEndpointDiscovery(ctx context.Context, q sqlc.Querier, orgID int
 	}
 	if !paired {
 		return nil
+	}
+	if deviceClass != commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED && int32(deviceClass) != existing.DeviceClass {
+		return errPairedDeviceEndpoints
 	}
 	if existing.IpAddress != host || existing.RpcPort != rpcPort || existing.RpcTls != rpcTLS {
 		return errPairedDeviceEndpoints
@@ -116,6 +130,7 @@ func reconcileDeviceEndpoints(ctx context.Context, q sqlc.Querier, criteria sqlc
 		ids = append(ids, e.MemberIds...)
 	}
 	criteria.GroupKey, criteria.EndpointIds = key, ids
+	criteria.ScannedPort, criteria.ScannedRpcPort = incoming[0].Port, incoming[0].RpcPort
 	matches, err := q.FindEndpointDiscovery(ctx, criteria)
 	if err != nil {
 		return nil, nil, err
@@ -135,7 +150,8 @@ func reconcileDeviceEndpoints(ctx context.Context, q sqlc.Querier, criteria sqlc
 	if err != nil {
 		return nil, nil, err
 	}
-	if existing.EndpointKey != "" && existing.EndpointKey != key {
+	groupChanged := existing.EndpointKey != "" && existing.EndpointKey != key
+	if groupChanged && paired {
 		return nil, nil, errPairedDeviceEndpoints
 	}
 	saved, err := deviceendpoints.Decode(existing.Endpoints)
@@ -145,6 +161,20 @@ func reconcileDeviceEndpoints(ctx context.Context, q sqlc.Querier, criteria sqlc
 	byID := map[string]*commonpb.DeviceEndpoint{}
 	for _, e := range saved {
 		byID[e.Id] = e
+	}
+	if groupChanged {
+		retained := make(map[string]*commonpb.DeviceEndpoint, len(incoming))
+		for _, e := range incoming {
+			previous := byID[e.Id]
+			if previous == nil || previous.Host != e.Host || previous.RpcPort != e.RpcPort || previous.RpcTls != e.RpcTls ||
+				(e.RpcPort == 0 && (previous.Port != e.Port || previous.UrlScheme != e.UrlScheme)) {
+				return nil, nil, errDeviceEndpointGroupChanged
+			}
+			retained[e.Id] = previous
+		}
+		// A replacement group starts with only the routes verified in this scan.
+		// Removed peers cannot follow the retained controller into its new group.
+		byID = retained
 	}
 	if paired {
 		if len(saved) == 0 {

@@ -2090,6 +2090,18 @@ func (q *retryingQuerier) EndpointDiscoveryHasPairing(ctx context.Context, arg E
 	return result, err
 }
 
+func (q *retryingQuerier) EndpointDiscoveryHasSavedGroupAtSocket(ctx context.Context, arg EndpointDiscoveryHasSavedGroupAtSocketParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "EndpointDiscoveryHasSavedGroupAtSocket", func() error {
+		callResult, callErr := q.next.EndpointDiscoveryHasSavedGroupAtSocket(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (EnsureCurtailmentOrgConfigRow, error) {
 	var result EnsureCurtailmentOrgConfigRow
 	err := q.retrier.RetryQuery(ctx, "EnsureCurtailmentOrgConfig", func() error {
@@ -5358,6 +5370,18 @@ func (q *retryingQuerier) ListActiveOrganizationIDs(ctx context.Context) ([]int6
 	var result []int64
 	err := q.retrier.RetryQuery(ctx, "ListActiveOrganizationIDs", func() error {
 		callResult, callErr := q.next.ListActiveOrganizationIDs(ctx)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) ListActiveUnpairedDiscoveredDeviceEndpoints(ctx context.Context, arg ListActiveUnpairedDiscoveredDeviceEndpointsParams) ([]ListActiveUnpairedDiscoveredDeviceEndpointsRow, error) {
+	var result []ListActiveUnpairedDiscoveredDeviceEndpointsRow
+	err := q.retrier.RetryQuery(ctx, "ListActiveUnpairedDiscoveredDeviceEndpoints", func() error {
+		callResult, callErr := q.next.ListActiveUnpairedDiscoveredDeviceEndpoints(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}

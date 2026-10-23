@@ -203,12 +203,13 @@ func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx conte
 			return err
 		}
 		candidate := report
+		allowGroupChange := false
 		if len(report.Endpoints) > 0 {
 			existing, endpoints, err := reconcileDeviceEndpoints(ctx, s.q(ctx), sqlc.FindEndpointDiscoveryParams{
 				OrgID: orgID, FleetNodeID: sql.NullInt64{Int64: fleetNodeID, Valid: true}, DriverName: report.DriverName, ScannedHost: report.IPAddress,
 				DeviceClass: int32(report.DeviceClass), Model: report.Model, Manufacturer: report.Manufacturer,
 			}, report.Endpoints)
-			if errors.Is(err, errAmbiguousDeviceEndpoints) || errors.Is(err, errPairedDeviceEndpoints) {
+			if errors.Is(err, errAmbiguousDeviceEndpoints) || errors.Is(err, errPairedDeviceEndpoints) || errors.Is(err, errDeviceEndpointGroupChanged) {
 				logEndpointDiscoveryRejection(ctx, orgID, fleetNodeID, report.DeviceIdentifier, err)
 				return nil
 			}
@@ -218,6 +219,7 @@ func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx conte
 			candidate.Endpoints = endpoints
 			if existing != nil {
 				candidate.DeviceIdentifier = existing.DeviceIdentifier
+				allowGroupChange = existing.EndpointKey != "" && existing.EndpointKey != endpoints[0].DeviceKey
 			} else {
 				candidate.DeviceIdentifier, err = deviceendpoints.NodeIdentifier(fleetNodeID, report.DriverName, endpoints)
 				if err != nil {
@@ -232,7 +234,7 @@ func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx conte
 				candidate.IPAddress, candidate.Port, candidate.URLScheme = browser.Host, strconv.Itoa(int(browser.Port)), browser.UrlScheme
 				candidate.RPCPort, candidate.RPCTLS = browser.RpcPort, browser.RpcTls
 			}
-		} else if err := guardLegacyEndpointDiscovery(ctx, s.q(ctx), orgID, report.DeviceIdentifier, report.IPAddress, report.Port, report.URLScheme, report.RPCPort, report.RPCTLS); err != nil {
+		} else if err := guardLegacyEndpointDiscovery(ctx, s.q(ctx), orgID, report.DeviceIdentifier, report.DriverName, report.IPAddress, report.Port, report.URLScheme, report.RPCPort, report.RPCTLS, report.DeviceClass, sql.NullInt64{Int64: fleetNodeID, Valid: true}); err != nil {
 			if errors.Is(err, errPairedDeviceEndpoints) || errors.Is(err, errDeviceEndpointGroupRequired) {
 				logEndpointDiscoveryRejection(ctx, orgID, fleetNodeID, report.DeviceIdentifier, err)
 				return nil
@@ -240,7 +242,7 @@ func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx conte
 			return err
 		}
 		var err error
-		saved, stored, err = s.upsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, candidate)
+		saved, stored, err = s.upsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, candidate, allowGroupChange)
 		return err
 	})
 	return saved, stored, err
@@ -250,7 +252,7 @@ func logEndpointDiscoveryRejection(ctx context.Context, orgID, fleetNodeID int64
 	slog.WarnContext(ctx, "rejected Fleet Node device discovery report", "org_id", orgID, "fleet_node_id", fleetNodeID, "device_identifier", identifier, "reason", reason)
 }
 
-func (s *SQLFleetNodePairingStore) upsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport) (pairing.DiscoveredDeviceReport, bool, error) {
+func (s *SQLFleetNodePairingStore) upsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport, allowGroupChange bool) (pairing.DiscoveredDeviceReport, bool, error) {
 	endpoints, err := deviceendpoints.Encode(report.Endpoints)
 	if err != nil {
 		return report, false, err
@@ -260,7 +262,8 @@ func (s *SQLFleetNodePairingStore) upsertDiscoveredDeviceFromFleetNode(ctx conte
 		return report, false, err
 	}
 	row, err := s.q(ctx).UpsertDiscoveredDeviceFromFleetNode(ctx, sqlc.UpsertDiscoveredDeviceFromFleetNodeParams{
-		EndpointKey: key, Endpoints: endpoints, OrgID: orgID, DeviceIdentifier: report.DeviceIdentifier,
+		AllowEndpointGroupChange: allowGroupChange,
+		EndpointKey:              key, Endpoints: endpoints, OrgID: orgID, DeviceIdentifier: report.DeviceIdentifier,
 		IpAddress: report.IPAddress, Port: report.Port, UrlScheme: report.URLScheme, RpcPort: report.RPCPort, RpcTls: report.RPCTLS,
 		DriverName: report.DriverName, Model: emptyToNullString(report.Model), DeviceClass: int32(report.DeviceClass),
 		Manufacturer: emptyToNullString(report.Manufacturer), FirmwareVersion: emptyToNullString(report.FirmwareVersion),

@@ -606,6 +606,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.endpointDiscoveryHasPairingStmt, err = db.PrepareContext(ctx, endpointDiscoveryHasPairing); err != nil {
 		return nil, fmt.Errorf("error preparing query EndpointDiscoveryHasPairing: %w", err)
 	}
+	if q.endpointDiscoveryHasSavedGroupAtSocketStmt, err = db.PrepareContext(ctx, endpointDiscoveryHasSavedGroupAtSocket); err != nil {
+		return nil, fmt.Errorf("error preparing query EndpointDiscoveryHasSavedGroupAtSocket: %w", err)
+	}
 	if q.ensureCurtailmentOrgConfigStmt, err = db.PrepareContext(ctx, ensureCurtailmentOrgConfig); err != nil {
 		return nil, fmt.Errorf("error preparing query EnsureCurtailmentOrgConfig: %w", err)
 	}
@@ -1454,6 +1457,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listActiveOrganizationIDsStmt, err = db.PrepareContext(ctx, listActiveOrganizationIDs); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActiveOrganizationIDs: %w", err)
+	}
+	if q.listActiveUnpairedDiscoveredDeviceEndpointsStmt, err = db.PrepareContext(ctx, listActiveUnpairedDiscoveredDeviceEndpoints); err != nil {
+		return nil, fmt.Errorf("error preparing query ListActiveUnpairedDiscoveredDeviceEndpoints: %w", err)
 	}
 	if q.listActivityLogsStmt, err = db.PrepareContext(ctx, listActivityLogs); err != nil {
 		return nil, fmt.Errorf("error preparing query ListActivityLogs: %w", err)
@@ -3750,6 +3756,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing endpointDiscoveryHasPairingStmt: %w", cerr)
 		}
 	}
+	if q.endpointDiscoveryHasSavedGroupAtSocketStmt != nil {
+		if cerr := q.endpointDiscoveryHasSavedGroupAtSocketStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing endpointDiscoveryHasSavedGroupAtSocketStmt: %w", cerr)
+		}
+	}
 	if q.ensureCurtailmentOrgConfigStmt != nil {
 		if cerr := q.ensureCurtailmentOrgConfigStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing ensureCurtailmentOrgConfigStmt: %w", cerr)
@@ -5163,6 +5174,11 @@ func (q *Queries) Close() error {
 	if q.listActiveOrganizationIDsStmt != nil {
 		if cerr := q.listActiveOrganizationIDsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listActiveOrganizationIDsStmt: %w", cerr)
+		}
+	}
+	if q.listActiveUnpairedDiscoveredDeviceEndpointsStmt != nil {
+		if cerr := q.listActiveUnpairedDiscoveredDeviceEndpointsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listActiveUnpairedDiscoveredDeviceEndpointsStmt: %w", cerr)
 		}
 	}
 	if q.listActivityLogsStmt != nil {
@@ -7598,6 +7614,7 @@ type Queries struct {
 	disableCurtailmentAutomationRuleByActiveEventStmt            *sql.Stmt
 	disableSyncCommitStmt                                        *sql.Stmt
 	endpointDiscoveryHasPairingStmt                              *sql.Stmt
+	endpointDiscoveryHasSavedGroupAtSocketStmt                   *sql.Stmt
 	ensureCurtailmentOrgConfigStmt                               *sql.Stmt
 	ensureDeviceWriteFencesStmt                                  *sql.Stmt
 	ensureHashboardsStmt                                         *sql.Stmt
@@ -7881,6 +7898,7 @@ type Queries struct {
 	listActiveNotificationsStmt                                  *sql.Stmt
 	listActiveNotificationsByAlertStmt                           *sql.Stmt
 	listActiveOrganizationIDsStmt                                *sql.Stmt
+	listActiveUnpairedDiscoveredDeviceEndpointsStmt              *sql.Stmt
 	listActivityLogsStmt                                         *sql.Stmt
 	listAlertChannelsStmt                                        *sql.Stmt
 	listAlertMaintenanceWindowsStmt                              *sql.Stmt
@@ -8521,6 +8539,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		disableCurtailmentAutomationRuleByActiveEventStmt:            q.disableCurtailmentAutomationRuleByActiveEventStmt,
 		disableSyncCommitStmt:                                        q.disableSyncCommitStmt,
 		endpointDiscoveryHasPairingStmt:                              q.endpointDiscoveryHasPairingStmt,
+		endpointDiscoveryHasSavedGroupAtSocketStmt:                   q.endpointDiscoveryHasSavedGroupAtSocketStmt,
 		ensureCurtailmentOrgConfigStmt:                               q.ensureCurtailmentOrgConfigStmt,
 		ensureDeviceWriteFencesStmt:                                  q.ensureDeviceWriteFencesStmt,
 		ensureHashboardsStmt:                                         q.ensureHashboardsStmt,
@@ -8804,6 +8823,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listActiveNotificationsStmt:                                  q.listActiveNotificationsStmt,
 		listActiveNotificationsByAlertStmt:                           q.listActiveNotificationsByAlertStmt,
 		listActiveOrganizationIDsStmt:                                q.listActiveOrganizationIDsStmt,
+		listActiveUnpairedDiscoveredDeviceEndpointsStmt:              q.listActiveUnpairedDiscoveredDeviceEndpointsStmt,
 		listActivityLogsStmt:                                         q.listActivityLogsStmt,
 		listAlertChannelsStmt:                                        q.listAlertChannelsStmt,
 		listAlertMaintenanceWindowsStmt:                              q.listAlertMaintenanceWindowsStmt,

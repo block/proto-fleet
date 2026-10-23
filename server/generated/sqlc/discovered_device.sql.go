@@ -40,11 +40,8 @@ const countActiveUnpairedDiscoveredDevices = `-- name: CountActiveUnpairedDiscov
 SELECT COUNT(*) as total
 FROM discovered_device dd
 LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
-WHERE dd.org_id = $1
-    AND dd.is_active = TRUE
-    AND dd.deleted_at IS NULL
-    AND d.id IS NULL
-    AND dd.discovered_by_fleet_node_id IS NULL
+WHERE dd.org_id = $1 AND dd.is_active = TRUE AND dd.deleted_at IS NULL
+    AND d.id IS NULL AND dd.discovered_by_fleet_node_id IS NULL
 `
 
 func (q *Queries) CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error) {
@@ -76,6 +73,52 @@ type EndpointDiscoveryHasPairingParams struct {
 // Read after taking inventory locks so a pairing that won the wait is visible.
 func (q *Queries) EndpointDiscoveryHasPairing(ctx context.Context, arg EndpointDiscoveryHasPairingParams) (bool, error) {
 	row := q.queryRow(ctx, q.endpointDiscoveryHasPairingStmt, endpointDiscoveryHasPairing, arg.OrgID, arg.DiscoveredDeviceID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const endpointDiscoveryHasSavedGroupAtSocket = `-- name: EndpointDiscoveryHasSavedGroupAtSocket :one
+SELECT EXISTS (
+    SELECT 1 FROM discovered_device dd
+    WHERE dd.org_id=$1 AND dd.driver_name=$2::text
+    AND dd.deleted_at IS NULL AND dd.endpoint_key <> ''
+    AND dd.discovered_by_fleet_node_id IS NOT DISTINCT FROM $3::bigint
+    AND NOT EXISTS (
+        SELECT 1 FROM device d JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
+        WHERE d.discovered_device_id=dd.id AND d.org_id=dd.org_id AND d.deleted_at IS NULL
+        AND fnd.fleet_node_id IS DISTINCT FROM $3::bigint
+    )
+    AND ((dd.ip_address=$4::text AND dd.rpc_port=$5::integer
+          AND ($5::integer <> 0 OR dd.port=$6::text))
+      OR EXISTS (
+        SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(dd.endpoints)='object' THEN dd.endpoints ELSE '{}'::jsonb END) endpoint
+        WHERE endpoint.value->>'Host'=$4::text
+        AND endpoint.value->>'RPCPort'=$5::integer::text
+        AND ($5::integer <> 0 OR endpoint.value->>'Port'=$6::text)
+      ))
+)
+`
+
+type EndpointDiscoveryHasSavedGroupAtSocketParams struct {
+	OrgID       int64
+	DriverName  string
+	FleetNodeID sql.NullInt64
+	Host        string
+	RpcPort     int32
+	Port        string
+}
+
+// A keyless fallback must not create another row for a known group's peer.
+func (q *Queries) EndpointDiscoveryHasSavedGroupAtSocket(ctx context.Context, arg EndpointDiscoveryHasSavedGroupAtSocketParams) (bool, error) {
+	row := q.queryRow(ctx, q.endpointDiscoveryHasSavedGroupAtSocketStmt, endpointDiscoveryHasSavedGroupAtSocket,
+		arg.OrgID,
+		arg.DriverName,
+		arg.FleetNodeID,
+		arg.Host,
+		arg.RpcPort,
+		arg.Port,
+	)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -177,12 +220,18 @@ AND (dd.discovered_by_fleet_node_id IS NOT DISTINCT FROM $3::bigint
             WHERE fn.id = dd.discovered_by_fleet_node_id AND fn.org_id = dd.org_id AND fn.deleted_at IS NULL
         )))
 AND (dd.endpoint_key = $4 OR
+    (dd.endpoint_key <> '' AND EXISTS (
+        SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(dd.endpoints)='object' THEN dd.endpoints ELSE '{}'::jsonb END) endpoint
+        WHERE endpoint.value->>'Host' = $5::text
+          AND endpoint.value->>'RPCPort' = $6::integer::text
+          AND ($6::integer <> 0 OR endpoint.value->>'Port' = $7::integer::text)
+    )) OR
     (dd.endpoint_key = ''
-      AND dd.device_class = $5::integer
-      AND COALESCE(lower(dd.model), '') = lower($6::text)
-      AND COALESCE(lower(dd.manufacturer), '') = lower($7::text)
-      AND (dd.serial_number = ANY($8::text[])
-        OR (dd.serial_number = '' AND dd.ip_address = $9::text))))
+      AND dd.device_class = $8::integer
+      AND COALESCE(lower(dd.model), '') = lower($9::text)
+      AND COALESCE(lower(dd.manufacturer), '') = lower($10::text)
+      AND (dd.serial_number = ANY($11::text[])
+        OR (dd.serial_number = '' AND dd.ip_address = $5::text))))
 AND NOT EXISTS (
  SELECT 1 FROM device d JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
  WHERE d.discovered_device_id=dd.id AND d.org_id=dd.org_id AND d.deleted_at IS NULL
@@ -192,15 +241,17 @@ ORDER BY (dd.discovered_by_fleet_node_id IS NOT DISTINCT FROM $3::bigint) DESC, 
 `
 
 type FindEndpointDiscoveryParams struct {
-	OrgID        int64
-	DriverName   string
-	FleetNodeID  sql.NullInt64
-	GroupKey     string
-	DeviceClass  int32
-	Model        string
-	Manufacturer string
-	EndpointIds  []string
-	ScannedHost  string
+	OrgID          int64
+	DriverName     string
+	FleetNodeID    sql.NullInt64
+	GroupKey       string
+	ScannedHost    string
+	ScannedRpcPort int32
+	ScannedPort    int32
+	DeviceClass    int32
+	Model          string
+	Manufacturer   string
+	EndpointIds    []string
 }
 
 func (q *Queries) FindEndpointDiscovery(ctx context.Context, arg FindEndpointDiscoveryParams) ([]DiscoveredDevice, error) {
@@ -209,11 +260,13 @@ func (q *Queries) FindEndpointDiscovery(ctx context.Context, arg FindEndpointDis
 		arg.DriverName,
 		arg.FleetNodeID,
 		arg.GroupKey,
+		arg.ScannedHost,
+		arg.ScannedRpcPort,
+		arg.ScannedPort,
 		arg.DeviceClass,
 		arg.Model,
 		arg.Manufacturer,
 		pq.Array(arg.EndpointIds),
-		arg.ScannedHost,
 	)
 	if err != nil {
 		return nil, err
@@ -518,6 +571,56 @@ func (q *Queries) GetDiscoveredDeviceByIPAndPort(ctx context.Context, arg GetDis
 	return i, err
 }
 
+const listActiveUnpairedDiscoveredDeviceEndpoints = `-- name: ListActiveUnpairedDiscoveredDeviceEndpoints :many
+SELECT dd.id, dd.endpoints
+FROM discovered_device dd
+LEFT JOIN device d ON dd.id = d.discovered_device_id AND d.deleted_at IS NULL
+WHERE dd.org_id = $1
+    AND dd.is_active = TRUE
+    AND dd.deleted_at IS NULL
+    AND d.id IS NULL
+    AND dd.discovered_by_fleet_node_id IS NULL
+    AND dd.endpoints <> '{}'::jsonb
+    AND dd.id > $2
+ORDER BY dd.id
+LIMIT $3
+`
+
+type ListActiveUnpairedDiscoveredDeviceEndpointsParams struct {
+	OrgID    int64
+	CursorID int64
+	PageSize int32
+}
+
+type ListActiveUnpairedDiscoveredDeviceEndpointsRow struct {
+	ID        int64
+	Endpoints json.RawMessage
+}
+
+// Bounded count scan. Endpoint validity is checked by the canonical Go codec.
+func (q *Queries) ListActiveUnpairedDiscoveredDeviceEndpoints(ctx context.Context, arg ListActiveUnpairedDiscoveredDeviceEndpointsParams) ([]ListActiveUnpairedDiscoveredDeviceEndpointsRow, error) {
+	rows, err := q.query(ctx, q.listActiveUnpairedDiscoveredDeviceEndpointsStmt, listActiveUnpairedDiscoveredDeviceEndpoints, arg.OrgID, arg.CursorID, arg.PageSize)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveUnpairedDiscoveredDeviceEndpointsRow
+	for rows.Next() {
+		var i ListActiveUnpairedDiscoveredDeviceEndpointsRow
+		if err := rows.Scan(&i.ID, &i.Endpoints); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockDiscoveredDeviceForEndpointDiscovery = `-- name: LockDiscoveredDeviceForEndpointDiscovery :one
 SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer, dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata, dd.first_discovered, dd.last_seen, dd.is_active, dd.created_at, dd.updated_at, dd.deleted_at, dd.driver_name, dd.ip_address_inet, dd.discovered_by_fleet_node_id, dd.device_class, dd.rpc_port, dd.rpc_tls, dd.serial_number, dd.mac_address, dd.endpoint_key, dd.endpoints FROM discovered_device dd
 WHERE dd.org_id = $1 AND dd.id = $2 AND dd.deleted_at IS NULL
@@ -724,8 +827,17 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     -- Keep existing driver_name if already set (prevent discovery flip-flop)
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     last_seen = CURRENT_TIMESTAMP
-WHERE (discovered_device.endpoint_key = '' OR
-    (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name))
+WHERE ((NOT $18::boolean AND discovered_device.endpoint_key <> '' AND discovered_device.driver_name = EXCLUDED.driver_name)
+    OR discovered_device.endpoint_key = ''
+    OR (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name)
+    OR ($19::boolean AND discovered_device.driver_name = EXCLUDED.driver_name
+        AND NOT EXISTS (
+            SELECT 1 FROM device d LEFT JOIN device_pairing dp ON dp.device_id=d.id
+            WHERE d.discovered_device_id=discovered_device.id AND d.org_id=discovered_device.org_id AND d.deleted_at IS NULL
+            AND (dp.pairing_status IN ('PAIRED','DEFAULT_PASSWORD','AUTHENTICATION_NEEDED')
+                OR EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id=d.id AND fnd.org_id=d.org_id))
+        )))
+AND (NOT $20::boolean OR (discovered_device.device_class <> 2 AND discovered_device.endpoint_key = ''))
 AND (NOT $18::boolean OR (
     discovered_device.discovered_by_fleet_node_id IS NULL
     AND NOT EXISTS (
@@ -737,27 +849,30 @@ RETURNING id
 `
 
 type UpsertDiscoveredDeviceParams struct {
-	OrgID            int64
-	DeviceIdentifier string
-	Model            sql.NullString
-	Manufacturer     sql.NullString
-	FirmwareVersion  sql.NullString
-	IpAddress        string
-	Port             string
-	UrlScheme        string
-	IsActive         bool
-	DriverName       string
-	DeviceClass      int32
-	SerialNumber     string
-	MacAddress       string
-	RpcPort          int32
-	RpcTls           bool
-	EndpointKey      string
-	Endpoints        json.RawMessage
-	DirectDiscovery  bool
+	OrgID                    int64
+	DeviceIdentifier         string
+	Model                    sql.NullString
+	Manufacturer             sql.NullString
+	FirmwareVersion          sql.NullString
+	IpAddress                string
+	Port                     string
+	UrlScheme                string
+	IsActive                 bool
+	DriverName               string
+	DeviceClass              int32
+	SerialNumber             string
+	MacAddress               string
+	RpcPort                  int32
+	RpcTls                   bool
+	EndpointKey              string
+	Endpoints                json.RawMessage
+	DirectDiscovery          bool
+	AllowEndpointGroupChange bool
+	LocklessDiscovery        bool
 }
 
 // PostgreSQL version returns the id directly using RETURNING
+// A fast rig write must fall back to locked reconciliation for a saved container.
 func (q *Queries) UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscoveredDeviceParams) (int64, error) {
 	row := q.queryRow(ctx, q.upsertDiscoveredDeviceStmt, upsertDiscoveredDevice,
 		arg.OrgID,
@@ -778,6 +893,8 @@ func (q *Queries) UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscover
 		arg.EndpointKey,
 		arg.Endpoints,
 		arg.DirectDiscovery,
+		arg.AllowEndpointGroupChange,
+		arg.LocklessDiscovery,
 	)
 	var id int64
 	err := row.Scan(&id)

@@ -23,7 +23,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -532,7 +531,5 @@ func discoverContainer(ctx context.Context, host string, port int32) (sdk.Device
 		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeInvalidConfig, err)
 	}
 	defer c.Close()
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
 	return c.Discover(ctx, info)
 }

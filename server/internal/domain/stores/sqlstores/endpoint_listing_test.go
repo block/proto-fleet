@@ -27,6 +27,9 @@ func TestDiscoveryListingSkipsInvalidEndpointsWithoutLosingPages(t *testing.T) {
 	require.Len(t, first, 1)
 	require.Equal(t, "device-2", first[0].DeviceIdentifier)
 	require.NotEmpty(t, cursor)
+	count, err := store.CountActiveUnpairedDevices(t.Context(), org)
+	require.NoError(t, err)
+	require.EqualValues(t, 2, count)
 	second, cursor, err := store.GetActiveUnpairedDevices(t.Context(), org, cursor, 1)
 	require.NoError(t, err)
 	require.Len(t, second, 1)
@@ -41,6 +44,9 @@ func TestDiscoveryListingSkipsInvalidEndpointsWithoutLosingPages(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, devices)
 	require.Empty(t, cursor)
+	count, err = store.CountActiveUnpairedDevices(t.Context(), org)
+	require.NoError(t, err)
+	require.Zero(t, count)
 }
 
 func TestDirectDiscoveryRejectsMissingGroupWithClearPrecondition(t *testing.T) {
@@ -63,12 +69,32 @@ func TestDirectDiscoveryRejectsMissingGroupWithClearPrecondition(t *testing.T) {
 	}
 }
 
-func TestDiscoverySaveRejectsGroupMismatchWithClearPrecondition(t *testing.T) {
+func TestPairingMetadataSaveKeepsCurrentEndpointGroup(t *testing.T) {
+	for _, legacySnapshot := range []bool{false, true} {
+		t.Run(fmt.Sprintf("legacy_snapshot=%t", legacySnapshot), func(t *testing.T) {
+			testPairingMetadataSaveKeepsCurrentEndpointGroup(t, legacySnapshot)
+		})
+	}
+}
+
+func testPairingMetadataSaveKeepsCurrentEndpointGroup(t *testing.T, legacySnapshot bool) {
+	t.Helper()
 	_, store, org := ct1HAStore(t)
-	before := saveCT1HA(t, store, "container", ct1HADiscovery(org, "a", "10.0.0.11"))
+	initial := ct1HADiscovery(org, "a", "10.0.0.11")
+	if legacySnapshot {
+		initial.Endpoints = nil
+	}
+	before := saveCT1HA(t, store, "container", initial)
 	incoming := ct1HADiscovery(org, "a", "10.0.0.11")
 	incoming.Endpoints[0].DeviceKey = "different-group"
-	_, err := store.Save(t.Context(), before.GetDeviceOrgIdentifier(), incoming)
+	current := saveCT1HA(t, store, "scan-a", incoming)
+	before.FirmwareVersion = "pair-v2"
+	saved, err := store.Save(t.Context(), before.GetDeviceOrgIdentifier(), before)
+	require.NoError(t, err)
+	require.Equal(t, "pair-v2", saved.FirmwareVersion)
+	require.True(t, proto.Equal(current.Endpoints[0], saved.Endpoints[0]))
+	before.DriverName = "unrelated-driver"
+	_, err = store.Save(t.Context(), before.GetDeviceOrgIdentifier(), before)
 	require.True(t, fleeterror.IsFailedPreconditionError(err))
 	require.NotContains(t, err.Error(), "no rows")
 }

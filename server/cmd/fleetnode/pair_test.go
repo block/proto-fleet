@@ -415,7 +415,7 @@ func (failingCredentialSealer) Seal(sdk.SecretBundle) (*pb.EncryptedCredentials,
 }
 
 func fakePairTarget() *pairingpb.FleetNodePairTarget {
-	return &pairingpb.FleetNodePairTarget{DeviceIdentifier: "mac:aa", IpAddress: "10.0.0.5", Port: "80", DriverName: "fakedrv"}
+	return &pairingpb.FleetNodePairTarget{DeviceIdentifier: "mac:aa", IpAddress: "10.0.0.5", Port: "80", UrlScheme: "http", DriverName: "fakedrv"}
 }
 
 func TestPluginPairer_BasicAuthRejectsUnreportableCredentials(t *testing.T) {
