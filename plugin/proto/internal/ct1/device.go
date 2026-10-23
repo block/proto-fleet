@@ -49,16 +49,17 @@ func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials 
 		}
 		d.client, d.clients = c, []*Client{c}
 	}
-	c := d.client
+	var verified sdk.DeviceInfo
+	var err error
 	if len(info.Endpoints) > 0 {
-		var err error
-		c, err = d.selectClient(ctx, false)
-		if err != nil {
-			_ = d.Close(ctx)
-			return nil, err
+		var selected *controllerSelection
+		selected, _, err = d.probeControllers(ctx, false)
+		if err == nil {
+			verified = selected.info
 		}
+	} else {
+		verified, err = d.client.Discover(ctx, info)
 	}
-	verified, err := c.Discover(ctx, info)
 	if err != nil {
 		_ = d.Close(ctx)
 		return nil, err
@@ -74,11 +75,11 @@ func (d *Device) DescribeDevice(context.Context) (sdk.DeviceInfo, sdk.Capabiliti
 	return d.info, Capabilities(), nil
 }
 func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
-	c, ha, err := d.probeControllers(ctx, false)
+	selected, ha, err := d.probeControllers(ctx, false)
 	if err != nil {
 		return sdk.DeviceMetrics{}, err
 	}
-	metrics, err := c.Collect(ctx, d.id)
+	metrics, err := selected.client.Collect(ctx, d.id)
 	if metrics.Container != nil {
 		metrics.Container.HA = ha
 	}

@@ -10,32 +10,42 @@ import (
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 )
 
+const controllerProbeTimeout = 5 * time.Second
+
+type controllerSelection struct {
+	client *Client
+	info   sdk.DeviceInfo
+}
+
 // Probe both open connections within one budget. Never send a mutation here.
 // A selected connection owns the entire subsequent command, including readback.
 func (d *Device) selectClient(ctx context.Context, write bool) (*Client, error) {
-	client, _, err := d.probeControllers(ctx, write)
-	return client, err
+	selected, _, err := d.probeControllers(ctx, write)
+	if err != nil {
+		return nil, err
+	}
+	return selected.client, nil
 }
-func (d *Device) probeControllers(ctx context.Context, write bool) (*Client, *sdk.ContainerHA, error) {
+func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerSelection, *sdk.ContainerHA, error) {
 	if len(d.info.Endpoints) == 0 {
 		// Older or unconfigured servers cannot establish a healthy HA pair.
-		return d.client, &sdk.ContainerHA{ObservedAt: time.Now().UTC(), Degraded: true}, nil
+		return &controllerSelection{client: d.client, info: d.info}, &sdk.ContainerHA{ObservedAt: time.Now().UTC(), Degraded: true}, nil
 	}
 	clients := d.clients
 	if len(clients) == 0 {
 		clients = []*Client{d.client}
 	}
 	type probeResult struct {
-		client *Client
-		state  *mdk.SystemStatus
-		err    error
+		selected *controllerSelection
+		state    *mdk.SystemStatus
+		err      error
 	}
 	results := make(chan probeResult, len(clients))
 	for _, c := range clients {
 		go func(c *Client) {
-			probe, cancel := context.WithTimeout(ctx, time.Second)
+			probe, cancel := context.WithTimeout(ctx, controllerProbeTimeout)
 			defer cancel()
-			_, err := c.Discover(probe, d.info)
+			info, err := c.Discover(probe, d.info)
 			if err != nil {
 				results <- probeResult{err: err}
 				return
@@ -44,10 +54,10 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*Client, *sd
 			if err == nil && state.GetStatus().GetServerId() != c.endpointID(d.info.Endpoints) {
 				err = fmt.Errorf("CT1 status identity mismatch")
 			}
-			results <- probeResult{client: c, state: state.GetStatus(), err: err}
+			results <- probeResult{selected: &controllerSelection{client: c, info: info}, state: state.GetStatus(), err: err}
 		}(c)
 	}
-	var primary, standby, readable *Client
+	var primary, standby, readable, writable *controllerSelection
 	var errs []error
 	primaryCount := 0
 	standbyCount := 0
@@ -63,20 +73,25 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*Client, *sd
 			errs = append(errs, result.err)
 			continue
 		}
-		readable = result.client
+		readable = result.selected
 		state := result.state
 		writePrimary := state.GetContainerWritePrimary()
 		if writePrimary {
 			primaryCount++
+		}
+		// Frigate authorizes writes independently of recovery health. Keep the
+		// strict health table for HA reporting and read preference only.
+		if state.GetHaRole() == mdk.HARole_HA_ROLE_PRIMARY && writePrimary {
+			writable = result.selected
 		}
 		if !settledController(state) {
 			healthy = false
 			continue
 		}
 		if state.GetHaRole() == mdk.HARole_HA_ROLE_PRIMARY && writePrimary {
-			primary = result.client
+			primary = result.selected
 		} else if state.GetHaRole() == mdk.HARole_HA_ROLE_STANDBY && !writePrimary {
-			standby = result.client
+			standby = result.selected
 			standbyCount++
 		} else {
 			healthy = false
@@ -85,6 +100,9 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*Client, *sd
 	ha := &sdk.ContainerHA{ObservedAt: time.Now().UTC(), Degraded: !healthy || len(errs) != 0 || primaryCount != 1 || standbyCount != 1}
 	if primaryCount > 1 && write {
 		return nil, ha, fmt.Errorf("both CT1 controllers report write authority")
+	}
+	if write && writable != nil {
+		return writable, ha, nil
 	}
 	if primary != nil {
 		return primary, ha, nil

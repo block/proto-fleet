@@ -131,7 +131,7 @@ AND (NOT sqlc.arg('direct_discovery')::boolean OR (
 RETURNING id;
 
 -- name: ActivateDirectDiscoveredDevice :execrows
-UPDATE discovered_device dd SET is_active = TRUE
+UPDATE discovered_device dd SET is_active = TRUE, last_seen = CURRENT_TIMESTAMP
 WHERE dd.org_id = sqlc.arg(org_id) AND dd.device_identifier = sqlc.arg(device_identifier)
 AND dd.deleted_at IS NULL AND dd.discovered_by_fleet_node_id IS NULL
 AND NOT EXISTS (
@@ -197,6 +197,33 @@ WHERE dd.device_identifier = $1
 
 -- name: LockEndpointDiscovery :exec
 SELECT pg_advisory_xact_lock(hashtextextended(sqlc.arg(lock_key)::text, 0));
+
+-- name: LockEndpointDiscoveryDevices :many
+-- Pairing locks device rows before writing their discovered inventory.
+SELECT d.id FROM device d
+WHERE d.org_id = sqlc.arg(org_id) AND d.discovered_device_id = sqlc.arg(discovered_device_id)
+AND d.deleted_at IS NULL
+ORDER BY d.id FOR UPDATE;
+
+-- name: LockDiscoveredDeviceForEndpointDiscovery :one
+-- FOR UPDATE also waits for an in-flight first pairing's foreign-key lock.
+SELECT dd.* FROM discovered_device dd
+WHERE dd.org_id = sqlc.arg(org_id) AND dd.id = sqlc.arg(id) AND dd.deleted_at IS NULL
+FOR UPDATE;
+
+-- name: EndpointDiscoveryHasPairing :one
+-- Read after taking inventory locks so a pairing that won the wait is visible.
+SELECT EXISTS (
+    SELECT 1 FROM device d
+    WHERE d.org_id = sqlc.arg(org_id) AND d.discovered_device_id = sqlc.arg(discovered_device_id)
+    AND d.deleted_at IS NULL
+    AND (EXISTS (
+        SELECT 1 FROM device_pairing dp WHERE dp.device_id = d.id
+        AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
+    ) OR EXISTS (
+        SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
+    ))
+);
 
 -- name: FindEndpointDiscovery :many
 SELECT dd.* FROM discovered_device dd

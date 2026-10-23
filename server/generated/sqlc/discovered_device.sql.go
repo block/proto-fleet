@@ -14,7 +14,7 @@ import (
 )
 
 const activateDirectDiscoveredDevice = `-- name: ActivateDirectDiscoveredDevice :execrows
-UPDATE discovered_device dd SET is_active = TRUE
+UPDATE discovered_device dd SET is_active = TRUE, last_seen = CURRENT_TIMESTAMP
 WHERE dd.org_id = $1 AND dd.device_identifier = $2
 AND dd.deleted_at IS NULL AND dd.discovered_by_fleet_node_id IS NULL
 AND NOT EXISTS (
@@ -52,6 +52,33 @@ func (q *Queries) CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgI
 	var total int64
 	err := row.Scan(&total)
 	return total, err
+}
+
+const endpointDiscoveryHasPairing = `-- name: EndpointDiscoveryHasPairing :one
+SELECT EXISTS (
+    SELECT 1 FROM device d
+    WHERE d.org_id = $1 AND d.discovered_device_id = $2
+    AND d.deleted_at IS NULL
+    AND (EXISTS (
+        SELECT 1 FROM device_pairing dp WHERE dp.device_id = d.id
+        AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED')
+    ) OR EXISTS (
+        SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = d.id AND fnd.org_id = d.org_id
+    ))
+)
+`
+
+type EndpointDiscoveryHasPairingParams struct {
+	OrgID              int64
+	DiscoveredDeviceID int64
+}
+
+// Read after taking inventory locks so a pairing that won the wait is visible.
+func (q *Queries) EndpointDiscoveryHasPairing(ctx context.Context, arg EndpointDiscoveryHasPairingParams) (bool, error) {
+	row := q.queryRow(ctx, q.endpointDiscoveryHasPairingStmt, endpointDiscoveryHasPairing, arg.OrgID, arg.DiscoveredDeviceID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
 }
 
 const findDirectContainerByIP = `-- name: FindDirectContainerByIP :many
@@ -491,6 +518,52 @@ func (q *Queries) GetDiscoveredDeviceByIPAndPort(ctx context.Context, arg GetDis
 	return i, err
 }
 
+const lockDiscoveredDeviceForEndpointDiscovery = `-- name: LockDiscoveredDeviceForEndpointDiscovery :one
+SELECT dd.id, dd.org_id, dd.device_identifier, dd.model, dd.manufacturer, dd.firmware_version, dd.ip_address, dd.port, dd.url_scheme, dd.discovery_metadata, dd.first_discovered, dd.last_seen, dd.is_active, dd.created_at, dd.updated_at, dd.deleted_at, dd.driver_name, dd.ip_address_inet, dd.discovered_by_fleet_node_id, dd.device_class, dd.rpc_port, dd.rpc_tls, dd.serial_number, dd.mac_address, dd.endpoint_key, dd.endpoints FROM discovered_device dd
+WHERE dd.org_id = $1 AND dd.id = $2 AND dd.deleted_at IS NULL
+FOR UPDATE
+`
+
+type LockDiscoveredDeviceForEndpointDiscoveryParams struct {
+	OrgID int64
+	ID    int64
+}
+
+// FOR UPDATE also waits for an in-flight first pairing's foreign-key lock.
+func (q *Queries) LockDiscoveredDeviceForEndpointDiscovery(ctx context.Context, arg LockDiscoveredDeviceForEndpointDiscoveryParams) (DiscoveredDevice, error) {
+	row := q.queryRow(ctx, q.lockDiscoveredDeviceForEndpointDiscoveryStmt, lockDiscoveredDeviceForEndpointDiscovery, arg.OrgID, arg.ID)
+	var i DiscoveredDevice
+	err := row.Scan(
+		&i.ID,
+		&i.OrgID,
+		&i.DeviceIdentifier,
+		&i.Model,
+		&i.Manufacturer,
+		&i.FirmwareVersion,
+		&i.IpAddress,
+		&i.Port,
+		&i.UrlScheme,
+		&i.DiscoveryMetadata,
+		&i.FirstDiscovered,
+		&i.LastSeen,
+		&i.IsActive,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.DriverName,
+		&i.IpAddressInet,
+		&i.DiscoveredByFleetNodeID,
+		&i.DeviceClass,
+		&i.RpcPort,
+		&i.RpcTls,
+		&i.SerialNumber,
+		&i.MacAddress,
+		&i.EndpointKey,
+		&i.Endpoints,
+	)
+	return i, err
+}
+
 const lockEndpointDiscovery = `-- name: LockEndpointDiscovery :exec
 SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
 `
@@ -498,6 +571,42 @@ SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))
 func (q *Queries) LockEndpointDiscovery(ctx context.Context, lockKey string) error {
 	_, err := q.exec(ctx, q.lockEndpointDiscoveryStmt, lockEndpointDiscovery, lockKey)
 	return err
+}
+
+const lockEndpointDiscoveryDevices = `-- name: LockEndpointDiscoveryDevices :many
+SELECT d.id FROM device d
+WHERE d.org_id = $1 AND d.discovered_device_id = $2
+AND d.deleted_at IS NULL
+ORDER BY d.id FOR UPDATE
+`
+
+type LockEndpointDiscoveryDevicesParams struct {
+	OrgID              int64
+	DiscoveredDeviceID int64
+}
+
+// Pairing locks device rows before writing their discovered inventory.
+func (q *Queries) LockEndpointDiscoveryDevices(ctx context.Context, arg LockEndpointDiscoveryDevicesParams) ([]int64, error) {
+	rows, err := q.query(ctx, q.lockEndpointDiscoveryDevicesStmt, lockEndpointDiscoveryDevices, arg.OrgID, arg.DiscoveredDeviceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const softDeleteDiscoveredDeviceByIdentifier = `-- name: SoftDeleteDiscoveredDeviceByIdentifier :exec

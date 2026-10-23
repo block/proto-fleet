@@ -421,9 +421,8 @@ func (s *Service) ListDiscoveredDevicesForFleetNode(ctx context.Context, orgID i
 
 // UpsertDiscoveredDevices validates the whole batch up front, then runs
 // every upsert inside a single transaction so a mid-batch failure can't
-// leave a committed prefix. Ownership-rejected rows are
-// counted in rejectedOwnership without aborting the tx — they're the
-// store's normal "we refused to overwrite a hijacked row" signal.
+// leave a committed prefix. Ownership conflicts and ambiguous endpoint groups
+// are counted in rejectedOwnership without aborting the transaction.
 // Returns accepted reports with their persisted class so operator-facing
 // consumers retain known classes when a node omits them on rediscovery.
 func (s *Service) UpsertDiscoveredDevices(ctx context.Context, fleetNodeID, orgID int64, reports []DiscoveredDeviceReport) (acceptedReports []DiscoveredDeviceReport, rejectedOwnership int64, err error) {
@@ -445,7 +444,7 @@ func (s *Service) UpsertDiscoveredDevices(ctx context.Context, fleetNodeID, orgI
 		for _, r := range reports {
 			saved, stored, upErr := s.store.UpsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, r)
 			if upErr != nil {
-				return fleeterror.LogInternal(component, "upsert discovered device", clientErrUpsertDiscoveredDevice, upErr)
+				return logInternal("upsert discovered device", clientErrUpsertDiscoveredDevice, upErr)
 			}
 			if !stored {
 				rejected++

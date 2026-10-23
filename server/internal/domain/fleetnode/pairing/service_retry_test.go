@@ -4,11 +4,13 @@ import (
 	"context"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
+	"github.com/block/proto-fleet/server/internal/infrastructure/db"
 )
 
 // retryOnceTransactor models the production retry path: WithTransaction
@@ -32,16 +34,55 @@ func (retryOnceTransactor) RunInTxWithResult(ctx context.Context, fn func(ctx co
 // so a single batch exercises both counters.
 type fakeUpsertStore struct {
 	fleetnodepairing.Store
-	calls int
+	calls  int
+	failAt int
+	err    error
 }
 
 func (s *fakeUpsertStore) UpsertDiscoveredDeviceFromFleetNode(_ context.Context, _ int64, _ int64, report fleetnodepairing.DiscoveredDeviceReport) (fleetnodepairing.DiscoveredDeviceReport, bool, error) {
 	s.calls++
+	if s.calls == s.failAt {
+		return report, false, s.err
+	}
 	if report.DeviceIdentifier == "accept" {
 		report.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
 		return report, true, nil
 	}
 	return report, false, nil
+}
+
+type retryPostgresTransactor struct {
+	retryOnceTransactor
+	t   *testing.T
+	err error
+}
+
+func (tx retryPostgresTransactor) RunInTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	err := fn(ctx)
+	require.ErrorIs(tx.t, err, tx.err)
+	require.True(tx.t, db.IsRetryablePostgresError(err), "the batch must preserve transient errors for retry")
+	return fn(ctx)
+}
+
+func TestUpsertDiscoveredDevicesPreservesRetryableDatabaseErrors(t *testing.T) {
+	for _, code := range []string{db.PGSerializationFailure, db.PGDeadlockDetected} {
+		t.Run(code, func(t *testing.T) {
+			retryable := &pgconn.PgError{Code: code}
+			store := &fakeUpsertStore{failAt: 2, err: retryable}
+			svc := fleetnodepairing.NewService(store, nil, retryPostgresTransactor{t: t, err: retryable})
+			reports := []fleetnodepairing.DiscoveredDeviceReport{
+				{DeviceIdentifier: "accept", IPAddress: "10.0.0.1", Port: "80", URLScheme: "http"},
+				{DeviceIdentifier: "reject", IPAddress: "10.0.0.2", Port: "80", URLScheme: "http"},
+			}
+
+			accepted, rejected, err := svc.UpsertDiscoveredDevices(t.Context(), 1, 1, reports)
+
+			require.NoError(t, err)
+			require.Len(t, accepted, 1)
+			require.Equal(t, "accept", accepted[0].DeviceIdentifier)
+			require.EqualValues(t, 1, rejected)
+		})
+	}
 }
 
 func TestUpsertDiscoveredDevices_CountsAreNotDoubledOnTxRetry(t *testing.T) {

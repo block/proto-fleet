@@ -600,6 +600,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.disableSyncCommitStmt, err = db.PrepareContext(ctx, disableSyncCommit); err != nil {
 		return nil, fmt.Errorf("error preparing query DisableSyncCommit: %w", err)
 	}
+	if q.endpointDiscoveryHasPairingStmt, err = db.PrepareContext(ctx, endpointDiscoveryHasPairing); err != nil {
+		return nil, fmt.Errorf("error preparing query EndpointDiscoveryHasPairing: %w", err)
+	}
 	if q.ensureCurtailmentOrgConfigStmt, err = db.PrepareContext(ctx, ensureCurtailmentOrgConfig); err != nil {
 		return nil, fmt.Errorf("error preparing query EnsureCurtailmentOrgConfig: %w", err)
 	}
@@ -1962,8 +1965,14 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockDevicesForReassignStmt, err = db.PrepareContext(ctx, lockDevicesForReassign); err != nil {
 		return nil, fmt.Errorf("error preparing query LockDevicesForReassign: %w", err)
 	}
+	if q.lockDiscoveredDeviceForEndpointDiscoveryStmt, err = db.PrepareContext(ctx, lockDiscoveredDeviceForEndpointDiscovery); err != nil {
+		return nil, fmt.Errorf("error preparing query LockDiscoveredDeviceForEndpointDiscovery: %w", err)
+	}
 	if q.lockEndpointDiscoveryStmt, err = db.PrepareContext(ctx, lockEndpointDiscovery); err != nil {
 		return nil, fmt.Errorf("error preparing query LockEndpointDiscovery: %w", err)
+	}
+	if q.lockEndpointDiscoveryDevicesStmt, err = db.PrepareContext(ctx, lockEndpointDiscoveryDevices); err != nil {
+		return nil, fmt.Errorf("error preparing query LockEndpointDiscoveryDevices: %w", err)
 	}
 	if q.lockFleetNodeByIDStmt, err = db.PrepareContext(ctx, lockFleetNodeByID); err != nil {
 		return nil, fmt.Errorf("error preparing query LockFleetNodeByID: %w", err)
@@ -3720,6 +3729,11 @@ func (q *Queries) Close() error {
 	if q.disableSyncCommitStmt != nil {
 		if cerr := q.disableSyncCommitStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing disableSyncCommitStmt: %w", cerr)
+		}
+	}
+	if q.endpointDiscoveryHasPairingStmt != nil {
+		if cerr := q.endpointDiscoveryHasPairingStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing endpointDiscoveryHasPairingStmt: %w", cerr)
 		}
 	}
 	if q.ensureCurtailmentOrgConfigStmt != nil {
@@ -5992,9 +6006,19 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockDevicesForReassignStmt: %w", cerr)
 		}
 	}
+	if q.lockDiscoveredDeviceForEndpointDiscoveryStmt != nil {
+		if cerr := q.lockDiscoveredDeviceForEndpointDiscoveryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockDiscoveredDeviceForEndpointDiscoveryStmt: %w", cerr)
+		}
+	}
 	if q.lockEndpointDiscoveryStmt != nil {
 		if cerr := q.lockEndpointDiscoveryStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockEndpointDiscoveryStmt: %w", cerr)
+		}
+	}
+	if q.lockEndpointDiscoveryDevicesStmt != nil {
+		if cerr := q.lockEndpointDiscoveryDevicesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockEndpointDiscoveryDevicesStmt: %w", cerr)
 		}
 	}
 	if q.lockFleetNodeByIDStmt != nil {
@@ -7548,6 +7572,7 @@ type Queries struct {
 	deviceSetsByIDsStmt                                          *sql.Stmt
 	disableCurtailmentAutomationRuleByActiveEventStmt            *sql.Stmt
 	disableSyncCommitStmt                                        *sql.Stmt
+	endpointDiscoveryHasPairingStmt                              *sql.Stmt
 	ensureCurtailmentOrgConfigStmt                               *sql.Stmt
 	ensureDeviceWriteFencesStmt                                  *sql.Stmt
 	ensureHashboardsStmt                                         *sql.Stmt
@@ -8002,7 +8027,9 @@ type Queries struct {
 	lockDeviceWriteFencesStmt                                    *sql.Stmt
 	lockDeviceWriteIdentitiesStmt                                *sql.Stmt
 	lockDevicesForReassignStmt                                   *sql.Stmt
+	lockDiscoveredDeviceForEndpointDiscoveryStmt                 *sql.Stmt
 	lockEndpointDiscoveryStmt                                    *sql.Stmt
+	lockEndpointDiscoveryDevicesStmt                             *sql.Stmt
 	lockFleetNodeByIDStmt                                        *sql.Stmt
 	lockFleetNodeDevicesForRevocationStmt                        *sql.Stmt
 	lockFleetNodeIdentityByIDStmt                                *sql.Stmt
@@ -8465,6 +8492,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deviceSetsByIDsStmt:                                          q.deviceSetsByIDsStmt,
 		disableCurtailmentAutomationRuleByActiveEventStmt:            q.disableCurtailmentAutomationRuleByActiveEventStmt,
 		disableSyncCommitStmt:                                        q.disableSyncCommitStmt,
+		endpointDiscoveryHasPairingStmt:                              q.endpointDiscoveryHasPairingStmt,
 		ensureCurtailmentOrgConfigStmt:                               q.ensureCurtailmentOrgConfigStmt,
 		ensureDeviceWriteFencesStmt:                                  q.ensureDeviceWriteFencesStmt,
 		ensureHashboardsStmt:                                         q.ensureHashboardsStmt,
@@ -8919,7 +8947,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockDeviceWriteFencesStmt:                                    q.lockDeviceWriteFencesStmt,
 		lockDeviceWriteIdentitiesStmt:                                q.lockDeviceWriteIdentitiesStmt,
 		lockDevicesForReassignStmt:                                   q.lockDevicesForReassignStmt,
+		lockDiscoveredDeviceForEndpointDiscoveryStmt:                 q.lockDiscoveredDeviceForEndpointDiscoveryStmt,
 		lockEndpointDiscoveryStmt:                                    q.lockEndpointDiscoveryStmt,
+		lockEndpointDiscoveryDevicesStmt:                             q.lockEndpointDiscoveryDevicesStmt,
 		lockFleetNodeByIDStmt:                                        q.lockFleetNodeByIDStmt,
 		lockFleetNodeDevicesForRevocationStmt:                        q.lockFleetNodeDevicesForRevocationStmt,
 		lockFleetNodeIdentityByIDStmt:                                q.lockFleetNodeIdentityByIDStmt,

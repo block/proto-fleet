@@ -12,9 +12,6 @@ import (
 )
 
 func projectEquipment(c *pb.Container, fansJSON, controlsJSON []byte, now time.Time) error {
-	stale := func(at time.Time) bool {
-		return at.IsZero() || now.Sub(at) > 2*time.Minute || at.After(now.Add(5*time.Second))
-	}
 	var fans []sdk.ContainerFan
 	if len(fansJSON) > 0 {
 		if err := json.Unmarshal(fansJSON, &fans); err != nil {
@@ -22,7 +19,7 @@ func projectEquipment(c *pb.Container, fansJSON, controlsJSON []byte, now time.T
 		}
 	}
 	for _, f := range fans {
-		c.Fans = append(c.Fans, &pb.ContainerFan{ComponentId: f.ComponentID, ObservedAt: timestamppb.New(f.ObservedAt), SpeedPercent: f.SpeedPercent, PowerW: f.PowerW, Direction: f.Direction, AlarmActive: f.AlarmActive, Stale: stale(f.ObservedAt)})
+		c.Fans = append(c.Fans, &pb.ContainerFan{ComponentId: f.ComponentID, ObservedAt: timestamppb.New(f.ObservedAt), SpeedPercent: f.SpeedPercent, PowerW: f.PowerW, Direction: f.Direction, AlarmActive: f.AlarmActive, Stale: observationStale(f.ObservedAt, now)})
 	}
 	var controls *sdk.ContainerControls
 	if len(controlsJSON) > 0 {
@@ -31,7 +28,7 @@ func projectEquipment(c *pb.Container, fansJSON, controlsJSON []byte, now time.T
 		}
 	}
 	if v := controls; v != nil {
-		c.Controls = &pb.ContainerControls{ObservedAt: timestamppb.New(v.ObservedAt), Supported: v.Supported, MainCircuitBreakerSupported: v.MainCircuitBreakerSupported, MainCircuitBreakerClosed: v.MainCircuitBreakerClosed, AlarmResetSupported: v.AlarmResetSupported, AlarmMuteSupported: v.AlarmMuteSupported, DryCoolerFanReverseSupported: v.DryCoolerFanReverseSupported, Stale: stale(v.ObservedAt)}
+		c.Controls = &pb.ContainerControls{ObservedAt: timestamppb.New(v.ObservedAt), Supported: v.Supported, MainCircuitBreakerSupported: v.MainCircuitBreakerSupported, MainCircuitBreakerClosed: v.MainCircuitBreakerClosed, AlarmResetSupported: v.AlarmResetSupported, AlarmMuteSupported: v.AlarmMuteSupported, DryCoolerFanReverseSupported: v.DryCoolerFanReverseSupported, Stale: observationStale(v.ObservedAt, now)}
 		for _, ctl := range v.Controls {
 			c.Controls.Controls = append(c.Controls.Controls, &pb.ContainerControl{Name: ctl.Name, Enabled: ctl.Enabled})
 		}
@@ -60,7 +57,7 @@ func projectPlant(c *pb.Container, plantJSON []byte, now time.Time) error {
 	c.Plant = &pb.ContainerPlant{
 		ObservedAt:                 timestamppb.New(plant.ObservedAt),
 		DryCoolerInletTemperatureC: temperature,
-		Stale:                      plant.ObservedAt.IsZero() || now.Sub(plant.ObservedAt) > 2*time.Minute || plant.ObservedAt.After(now.Add(5*time.Second)),
+		Stale:                      observationStale(plant.ObservedAt, now),
 	}
 	return nil
 }

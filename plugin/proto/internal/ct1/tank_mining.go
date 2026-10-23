@@ -50,12 +50,15 @@ func (d *Device) setScopedMining(ctx context.Context, positions []int32, targets
 	if expectedSerial == "" {
 		return fmt.Errorf("container identity unavailable")
 	}
-	info, err := c.Discover(ctx, d.info)
-	if err != nil {
-		return fmt.Errorf("container identity unavailable: %w", err)
-	}
-	if strings.TrimSpace(info.SerialNumber) != expectedSerial {
-		return fmt.Errorf("container identity changed")
+	// Paired endpoints were already verified during controller selection.
+	if len(d.info.Endpoints) == 0 {
+		info, err := c.Discover(ctx, d.info)
+		if err != nil {
+			return fmt.Errorf("container identity unavailable: %w", err)
+		}
+		if strings.TrimSpace(info.SerialNumber) != expectedSerial {
+			return fmt.Errorf("container identity changed")
+		}
 	}
 	mapWire, err := c.boards.GetContainerMap(ctx, &mdk.GetContainerMapRequest{})
 	if err != nil {

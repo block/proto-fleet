@@ -86,9 +86,9 @@ Fleet stores generic `DeviceEndpoint` records in `discovered_device.endpoints`.
 Each record contains an endpoint ID, the plugin's device key, and independent
 web/RPC transport settings. It also carries known member IDs, including a peer
 whose address has not been scanned. Fleet scopes that key by organization, driver, and
-network owner (direct Fleet Server or a Fleet Node). Concurrent scans merge
-addresses by endpoint ID. A later scan of one address retains the other address.
-If a verified controller takes its peer's saved address, Fleet discards that
+network owner (direct Fleet Server or a Fleet Node). Before pairing, concurrent
+scans merge addresses by endpoint ID. A later scan of one address retains the
+other address. If an unpaired controller takes its peer's saved address, Fleet discards that
 stale peer endpoint. Scan the peer's new address to restore both endpoints.
 The remaining endpoint keeps its web settings; set any custom web settings for
 the discarded endpoint again after discovery. If the browser target was discarded,
@@ -97,17 +97,29 @@ Fleet passes the complete saved list to the plugin for pairing, telemetry, and
 commands, including through Fleet Nodes. Endpoint changes alter the cached
 plugin configuration fingerprint.
 Pairing updates identity metadata without replacing addresses from later scans.
+Once paired, the saved endpoint routes are pinned. Discovery cannot add an
+address, relocate a controller, or exchange endpoint identities at an address.
+Controller IDs and grouping keys are not authentication credentials. Unpair the device,
+scan both addresses, and pair again to approve changed routes. Initial discovery
+and pairing still require a trusted network; this does not authenticate a server
+that can impersonate a controller at the same saved address.
+Removing only its Fleet Node binding does not release the saved routes while
+the device remains paired.
 
 Scan both server addresses to learn both endpoints. The partner ID is not an
 address, and the plugin does not dial an unverified URL supplied by a controller.
 The plugin retains both gRPC connections. Before an operation, it probes both
-connections in parallel with a one-second budget per server. It verifies each
+connections in parallel with a five-second budget per server, bounded by the
+caller's deadline. It verifies each
 server's ID and declared pair, then reads `GetSystemStatus`. Reads prefer a
 settled write-primary and can use a reachable standby. Writes require one
-settled write-primary. A conflicting write claim rejects the command. Fleet
+controller with primary role and explicit write authority. Recovery health
+does not override that authority. A conflicting write claim rejects the command. Fleet
 never promotes a server; Frigate performs that operation. A failure during a
 read is retried on the next poll. A failed or uncertain mutation is never
 replayed on the partner. The next new command performs a fresh selection.
+Device creation reuses the verified identity from this probe. Paired tank and
+module commands do not repeat identity discovery after selection.
 
 The plugin reports healthy HA only when both expected servers respond with:
 
@@ -134,23 +146,27 @@ and the previous HA observation becomes stale.
 ### Boundaries and rollout
 
 - Upgrade Fleet Server, the managing Fleet Nodes, and the Proto plugin together.
-  Rescan both addresses to populate the saved endpoint list.
+  Scan both addresses before pairing to populate the saved endpoint list. For
+  existing paired inventory, unpair before adding the partner address.
 - Existing inventory identity is retained when a scan matches one compatible
   saved device. Known member IDs let either server match a legacy controller's
   saved serial before both addresses are scanned. Fleet retains that controller's
   saved address and custom web settings. For an old unpaired Fleet Node discovery
   with no saved serial, scan its saved address first to establish this identity.
   Multiple matching legacy records are rejected rather than merged blindly.
-  Resolve duplicate legacy inventory before pairing.
+  Resolve duplicate legacy inventory before pairing. An ambiguous Fleet Node
+  discovery is rejected on its own; unrelated reports in the batch can proceed.
+  Database failures still roll back the whole batch.
 - A replacement Fleet Node can reclaim one matching endpoint group from a revoked
-  node. Fleet retains the existing inventory identifier and placement. Groups
+  node at its saved addresses. Route changes require unpairing first. Fleet
+  retains the existing inventory identifier and placement. Groups
   owned by live nodes remain separate. Without a current group, multiple revoked
   matches require duplicate inventory cleanup before discovery can proceed.
 - Native telemetry and SDK controls use plugin-selected endpoints. The HTTP
   ProtoOS proxy still uses its saved web address; HTTP proxy failover is separate.
-- The legacy single-address recovery job does not rewrite endpoint groups. Run
-  discovery again after an address changes. It updates the endpoint with the
-  matching plugin identity while retaining the partner.
+- The legacy single-address recovery job does not rewrite endpoint groups.
+  After an address changes, unpair, scan both addresses, and pair again. A scan
+  cannot move an existing paired endpoint based on self-reported IDs.
 - Authenticated production MDK discovery remains unsupported as described above.
   The opt-in `TestFrigateHALab` uses a local lab credential only for loopback test
   endpoints. It does not enable credential transmission during production scans.

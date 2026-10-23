@@ -2,6 +2,8 @@ package sqlstores
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -13,6 +15,76 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
 	"google.golang.org/protobuf/proto"
 )
+
+var errAmbiguousDeviceEndpoints = errors.New("multiple saved devices match this endpoint group; resolve duplicate inventory before pairing")
+var errPairedDeviceEndpoints = errors.New("paired device endpoints cannot change during discovery; unpair the device before changing its addresses")
+
+func lockEndpointDiscoveryInventory(ctx context.Context, q sqlc.Querier, existing sqlc.DiscoveredDevice) (sqlc.DiscoveredDevice, bool, error) {
+	if _, err := q.LockEndpointDiscoveryDevices(ctx, sqlc.LockEndpointDiscoveryDevicesParams{OrgID: existing.OrgID, DiscoveredDeviceID: existing.ID}); err != nil {
+		return existing, false, err
+	}
+	current, err := q.LockDiscoveredDeviceForEndpointDiscovery(ctx, sqlc.LockDiscoveredDeviceForEndpointDiscoveryParams{OrgID: existing.OrgID, ID: existing.ID})
+	if err != nil {
+		return existing, false, err
+	}
+	paired, err := q.EndpointDiscoveryHasPairing(ctx, sqlc.EndpointDiscoveryHasPairingParams{OrgID: existing.OrgID, DiscoveredDeviceID: existing.ID})
+	return current, paired, err
+}
+
+func sameEndpointRoute(a, b *commonpb.DeviceEndpoint) bool {
+	return a.Id == b.Id && a.Host == b.Host && a.Port == b.Port && a.UrlScheme == b.UrlScheme && a.RpcPort == b.RpcPort && a.RpcTls == b.RpcTls
+}
+
+func preservePairedEndpointRoutes(existing sqlc.DiscoveredDevice, saved, merged []*commonpb.DeviceEndpoint) error {
+	if len(saved) == 0 {
+		// A legacy upgrade may name its saved route, but cannot trust a peer's
+		// address or an identity learned at another address from an unauthenticated scan.
+		if len(merged) != 1 {
+			return errPairedDeviceEndpoints
+		}
+		endpoint := merged[0]
+		if endpoint.Host != existing.IpAddress || endpoint.RpcPort != existing.RpcPort || endpoint.RpcTls != existing.RpcTls ||
+			(existing.SerialNumber != "" && endpoint.Id != existing.SerialNumber) {
+			return errPairedDeviceEndpoints
+		}
+		return nil
+	}
+	if len(saved) != len(merged) {
+		return errPairedDeviceEndpoints
+	}
+	for i, endpoint := range saved {
+		if !sameEndpointRoute(endpoint, merged[i]) {
+			return errPairedDeviceEndpoints
+		}
+	}
+	return nil
+}
+
+// Older reports can omit endpoints. Do not let that path clear a paired group
+// or relocate a paired container by reusing its inventory identifier.
+func guardLegacyEndpointDiscovery(ctx context.Context, q sqlc.Querier, orgID int64, identifier, host, port, scheme string, rpcPort int32, rpcTLS bool) error {
+	existing, err := q.GetDiscoveredDeviceByDeviceIdentifier(ctx, sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{OrgID: orgID, DeviceIdentifier: identifier})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if existing.EndpointKey == "" && existing.DeviceClass != int32(commonpb.DeviceClass_DEVICE_CLASS_CONTAINER) {
+		return nil
+	}
+	existing, paired, err := lockEndpointDiscoveryInventory(ctx, q, existing)
+	if err != nil || !paired {
+		return err
+	}
+	if existing.EndpointKey != "" || existing.IpAddress != host || existing.RpcPort != rpcPort || existing.RpcTls != rpcTLS {
+		return errPairedDeviceEndpoints
+	}
+	if rpcPort == 0 && (existing.Port != port || existing.UrlScheme != scheme) {
+		return errPairedDeviceEndpoints
+	}
+	return nil
+}
 
 // Caller must hold a transaction. The lock serializes discovery of different
 // addresses for the same plugin-defined device, including first discovery.
@@ -41,12 +113,18 @@ func reconcileDeviceEndpoints(ctx context.Context, q sqlc.Querier, criteria sqlc
 		matches = matches[:1]
 	}
 	if len(matches) > 1 {
-		return nil, nil, fmt.Errorf("multiple saved devices match this endpoint group; resolve duplicate inventory before pairing")
+		return nil, nil, errAmbiguousDeviceEndpoints
 	}
 	if len(matches) == 0 {
 		return nil, incoming, nil
 	}
-	existing := matches[0]
+	existing, paired, err := lockEndpointDiscoveryInventory(ctx, q, matches[0])
+	if err != nil {
+		return nil, nil, err
+	}
+	if existing.EndpointKey != "" && existing.EndpointKey != key {
+		return nil, nil, errPairedDeviceEndpoints
+	}
 	saved, err := deviceendpoints.Decode(existing.Endpoints)
 	if err != nil {
 		return nil, nil, err
@@ -54,6 +132,20 @@ func reconcileDeviceEndpoints(ctx context.Context, q sqlc.Querier, criteria sqlc
 	byID := map[string]*commonpb.DeviceEndpoint{}
 	for _, e := range saved {
 		byID[e.Id] = e
+	}
+	if paired {
+		if len(saved) == 0 {
+			if err := preservePairedEndpointRoutes(existing, nil, incoming); err != nil {
+				return nil, nil, err
+			}
+		} else {
+			for _, e := range incoming {
+				previous := byID[e.Id]
+				if previous == nil || previous.Host != e.Host || previous.RpcPort != e.RpcPort || previous.RpcTls != e.RpcTls {
+					return nil, nil, errPairedDeviceEndpoints
+				}
+			}
+		}
 	}
 	// A first scan of the partner must retain the known controller's saved
 	// address and custom web settings, even before that controller is scanned.
@@ -71,6 +163,9 @@ func reconcileDeviceEndpoints(ctx context.Context, q sqlc.Querier, criteria sqlc
 		candidate := proto.CloneOf(e)
 		if previous := byID[e.Id]; previous != nil {
 			candidate.Port, candidate.UrlScheme = previous.Port, previous.UrlScheme
+			if paired {
+				candidate.MemberIds = slices.Clone(previous.MemberIds)
+			}
 		} else if existing.EndpointKey == "" && existing.IpAddress == e.Host {
 			port, err := sdk.ParsePort(existing.Port)
 			if err != nil {
@@ -97,6 +192,9 @@ func reconcileDeviceEndpoints(ctx context.Context, q sqlc.Querier, criteria sqlc
 		return nil, nil, err
 	}
 	merged, err = deviceendpoints.Decode(encoded)
+	if err == nil && paired {
+		err = preservePairedEndpointRoutes(existing, saved, merged)
+	}
 	return &existing, merged, err
 }
 

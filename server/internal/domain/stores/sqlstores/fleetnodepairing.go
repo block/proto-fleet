@@ -188,12 +188,16 @@ func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx conte
 	var saved pairing.DiscoveredDeviceReport
 	var stored bool
 	err := NewSQLTransactor(s.conn.DB).RunInTx(ctx, func(ctx context.Context) error {
+		stored = false
 		candidate := report
 		if len(report.Endpoints) > 0 {
 			existing, endpoints, err := reconcileDeviceEndpoints(ctx, s.q(ctx), sqlc.FindEndpointDiscoveryParams{
 				OrgID: orgID, FleetNodeID: sql.NullInt64{Int64: fleetNodeID, Valid: true}, DriverName: report.DriverName, ScannedHost: report.IPAddress,
 				DeviceClass: int32(report.DeviceClass), Model: report.Model, Manufacturer: report.Manufacturer,
 			}, report.Endpoints)
+			if errors.Is(err, errAmbiguousDeviceEndpoints) || errors.Is(err, errPairedDeviceEndpoints) {
+				return nil
+			}
 			if err != nil {
 				return err
 			}
@@ -214,6 +218,11 @@ func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx conte
 				candidate.IPAddress, candidate.Port, candidate.URLScheme = browser.Host, strconv.Itoa(int(browser.Port)), browser.UrlScheme
 				candidate.RPCPort, candidate.RPCTLS = browser.RpcPort, browser.RpcTls
 			}
+		} else if err := guardLegacyEndpointDiscovery(ctx, s.q(ctx), orgID, report.DeviceIdentifier, report.IPAddress, report.Port, report.URLScheme, report.RPCPort, report.RPCTLS); err != nil {
+			if errors.Is(err, errPairedDeviceEndpoints) {
+				return nil
+			}
+			return err
 		}
 		var err error
 		saved, stored, err = s.upsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, candidate)

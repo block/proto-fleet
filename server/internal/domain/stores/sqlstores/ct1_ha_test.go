@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"sync"
 	"testing"
+	"time"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
@@ -90,6 +91,15 @@ func pairCT1HA(t *testing.T, db *sql.DB, device *discoverymodels.DiscoveredDevic
 	require.NoError(t, store.UpsertDevicePairing(t.Context(), &device.Device, device.OrgID, "PAIRED"))
 }
 
+func setCT1HAPairing(t *testing.T, db *sql.DB, device *discoverymodels.DiscoveredDevice, status sqlc.PairingStatusEnum) {
+	t.Helper()
+	q := sqlc.New(db)
+	d, err := q.GetDeviceByDeviceIdentifier(t.Context(), sqlc.GetDeviceByDeviceIdentifierParams{OrgID: device.OrgID, DeviceIdentifier: device.DeviceIdentifier})
+	require.NoError(t, err)
+	_, err = q.UpsertDevicePairing(t.Context(), sqlc.UpsertDevicePairingParams{DeviceID: d.ID, PairingStatus: status})
+	require.NoError(t, err)
+}
+
 func TestCT1DiscoveryDoesNotAdoptIncompatibleLegacyInventory(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
@@ -134,6 +144,7 @@ func TestCT1LegacyUpgradePreservesInventoryInBothScanOrders(t *testing.T) {
 			legacy.Port, legacy.UrlScheme = "9443", "https"
 			before := saveCT1HA(t, store, "legacy-container", legacy)
 			pairCT1HA(t, db, before)
+			setCT1HAPairing(t, db, before, sqlc.PairingStatusEnumUNPAIRED)
 			originalID, err := store.GetDatabaseID(t.Context(), discoverymodels.DeviceOrgIdentifier{OrgID: org, DeviceIdentifier: before.DeviceIdentifier})
 			require.NoError(t, err)
 			var saved *discoverymodels.DiscoveredDevice
@@ -144,7 +155,7 @@ func TestCT1LegacyUpgradePreservesInventoryInBothScanOrders(t *testing.T) {
 				}
 				saved = saveCT1HA(t, store, "scan-"+id, ct1HADiscovery(org, id, host))
 				require.Equal(t, before.DeviceIdentifier, saved.DeviceIdentifier, "each scan must use the established identity")
-				proxy, err := sqlc.New(db).GetDirectProtoMinerProxyTarget(t.Context(), sqlc.GetDirectProtoMinerProxyTargetParams{OrgID: org, DeviceIdentifier: before.DeviceIdentifier})
+				proxy, err := sqlc.New(db).GetDiscoveredDeviceByDeviceIdentifier(t.Context(), sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{OrgID: org, DeviceIdentifier: before.DeviceIdentifier})
 				require.NoError(t, err)
 				require.Equal(t, "10.0.0.12", proxy.IpAddress)
 				require.Equal(t, "9443", proxy.Port)
@@ -160,12 +171,14 @@ func TestCT1LegacyUpgradePreservesInventoryInBothScanOrders(t *testing.T) {
 			require.Equal(t, "10.0.0.12", saved.Endpoints[1].Host)
 			require.EqualValues(t, 9443, saved.Endpoints[1].Port)
 			require.Equal(t, "https", saved.Endpoints[1].UrlScheme)
+			setCT1HAPairing(t, db, saved, sqlc.PairingStatusEnumPAIRED)
 			paired, err := sqlc.New(db).GetDeviceByDeviceIdentifier(t.Context(), sqlc.GetDeviceByDeviceIdentifierParams{OrgID: org, DeviceIdentifier: before.DeviceIdentifier})
 			require.NoError(t, err)
 			require.Equal(t, originalID, paired.DiscoveredDeviceID)
 			count, err := store.CountActiveUnpairedDevices(t.Context(), org)
 			require.NoError(t, err)
 			require.Zero(t, count, "both addresses must resolve to the paired container")
+			setCT1HAPairing(t, db, saved, sqlc.PairingStatusEnumUNPAIRED)
 			for _, id := range []string{"a", "b"} {
 				host := "10.0.0.21"
 				wantProxyHost := "10.0.0.12"
@@ -173,7 +186,7 @@ func TestCT1LegacyUpgradePreservesInventoryInBothScanOrders(t *testing.T) {
 					host, wantProxyHost = "10.0.0.22", "10.0.0.22"
 				}
 				saveCT1HA(t, store, "moved-"+id, ct1HADiscovery(org, id, host))
-				proxy, err := sqlc.New(db).GetDirectProtoMinerProxyTarget(t.Context(), sqlc.GetDirectProtoMinerProxyTargetParams{OrgID: org, DeviceIdentifier: before.DeviceIdentifier})
+				proxy, err := sqlc.New(db).GetDiscoveredDeviceByDeviceIdentifier(t.Context(), sqlc.GetDiscoveredDeviceByDeviceIdentifierParams{OrgID: org, DeviceIdentifier: before.DeviceIdentifier})
 				require.NoError(t, err)
 				require.Equal(t, wantProxyHost, proxy.IpAddress)
 				require.Equal(t, "9443", proxy.Port)
@@ -236,9 +249,11 @@ func TestCT1PairingSavePreservesRediscoveredEndpoints(t *testing.T) {
 	require.NoError(t, err)
 
 	// Pairing retains this earlier list while discovery moves both controllers.
+	setCT1HAPairing(t, db, saved, sqlc.PairingStatusEnumUNPAIRED)
 	saveCT1HA(t, store, "moved-a", ct1HADiscovery(org, "a", "10.0.0.21"))
 	current := saveCT1HA(t, store, "moved-b", ct1HADiscovery(org, "b", "10.0.0.22"))
-	_, err = db.ExecContext(t.Context(), `UPDATE discovered_device SET is_active = FALSE WHERE org_id = $1 AND device_identifier = $2`, org, doi.DeviceIdentifier)
+	setCT1HAPairing(t, db, current, sqlc.PairingStatusEnumPAIRED)
+	_, err = db.ExecContext(t.Context(), `UPDATE discovered_device SET is_active = FALSE, last_seen = CURRENT_TIMESTAMP - INTERVAL '1 day' WHERE org_id = $1 AND device_identifier = $2`, org, doi.DeviceIdentifier)
 	require.NoError(t, err)
 	inactive, err := store.GetDevice(t.Context(), doi)
 	require.NoError(t, err)
@@ -247,6 +262,8 @@ func TestCT1PairingSavePreservesRediscoveredEndpoints(t *testing.T) {
 	activated, err := store.GetDevice(t.Context(), doi)
 	require.NoError(t, err)
 	require.True(t, activated.IsActive)
+	require.True(t, activated.LastSeen.After(inactive.LastSeen), "pairing activation must refresh last_seen")
+	require.WithinDuration(t, time.Now(), activated.LastSeen, time.Minute)
 	require.True(t, proto.Equal(&current.Device, &activated.Device), "activation must retain current endpoint and browser settings")
 
 	stale.FirmwareVersion = "paired-v2"
@@ -284,6 +301,7 @@ func TestCT1DiscoveryRecoversSwappedAddressesInBothScanOrders(t *testing.T) {
 			doi := discoverymodels.DeviceOrgIdentifier{OrgID: org, DeviceIdentifier: saved.DeviceIdentifier}
 			originalID, err := store.GetDatabaseID(t.Context(), doi)
 			require.NoError(t, err)
+			setCT1HAPairing(t, db, saved, sqlc.PairingStatusEnumUNPAIRED)
 
 			for _, id := range order {
 				host := "10.0.0.12"

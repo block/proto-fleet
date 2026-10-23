@@ -2066,6 +2066,18 @@ func (q *retryingQuerier) DisableSyncCommit(ctx context.Context) error {
 	})
 }
 
+func (q *retryingQuerier) EndpointDiscoveryHasPairing(ctx context.Context, arg EndpointDiscoveryHasPairingParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "EndpointDiscoveryHasPairing", func() error {
+		callResult, callErr := q.next.EndpointDiscoveryHasPairing(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (EnsureCurtailmentOrgConfigRow, error) {
 	var result EnsureCurtailmentOrgConfigRow
 	err := q.retrier.RetryQuery(ctx, "EnsureCurtailmentOrgConfig", func() error {
@@ -7322,10 +7334,34 @@ func (q *retryingQuerier) LockDevicesForReassign(ctx context.Context, arg LockDe
 	return result, err
 }
 
+func (q *retryingQuerier) LockDiscoveredDeviceForEndpointDiscovery(ctx context.Context, arg LockDiscoveredDeviceForEndpointDiscoveryParams) (DiscoveredDevice, error) {
+	var result DiscoveredDevice
+	err := q.retrier.RetryQuery(ctx, "LockDiscoveredDeviceForEndpointDiscovery", func() error {
+		callResult, callErr := q.next.LockDiscoveredDeviceForEndpointDiscovery(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) LockEndpointDiscovery(ctx context.Context, lockKey string) error {
 	return q.retrier.RetryQuery(ctx, "LockEndpointDiscovery", func() error {
 		return q.next.LockEndpointDiscovery(ctx, lockKey)
 	})
+}
+
+func (q *retryingQuerier) LockEndpointDiscoveryDevices(ctx context.Context, arg LockEndpointDiscoveryDevicesParams) ([]int64, error) {
+	var result []int64
+	err := q.retrier.RetryQuery(ctx, "LockEndpointDiscoveryDevices", func() error {
+		callResult, callErr := q.next.LockEndpointDiscoveryDevices(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
 }
 
 func (q *retryingQuerier) LockFleetNodeByID(ctx context.Context, arg LockFleetNodeByIDParams) (LockFleetNodeByIDRow, error) {

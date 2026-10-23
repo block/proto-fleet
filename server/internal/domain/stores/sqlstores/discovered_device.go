@@ -83,11 +83,16 @@ func (s *SQLDiscoveredDeviceStore) ActivateDirect(ctx context.Context, doi disco
 }
 
 func (s *SQLDiscoveredDeviceStore) SaveDirect(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error) {
-	if len(device.Endpoints) == 0 {
-		return s.save(ctx, doi, device, true)
-	}
 	var saved *discoverymodels.DiscoveredDevice
 	err := NewSQLTransactor(s.conn.DB).RunInTx(ctx, func(ctx context.Context) error {
+		if len(device.Endpoints) == 0 {
+			if err := guardLegacyEndpointDiscovery(ctx, s.getQueries(ctx), doi.OrgID, doi.DeviceIdentifier, device.IpAddress, device.Port, device.UrlScheme, device.RpcPort, device.RpcTls); err != nil {
+				return err
+			}
+			var err error
+			saved, err = s.save(ctx, doi, device, true)
+			return err
+		}
 		existing, endpoints, err := reconcileDeviceEndpoints(ctx, s.getQueries(ctx), sqlc.FindEndpointDiscoveryParams{
 			OrgID: doi.OrgID, DriverName: device.DriverName, ScannedHost: device.IpAddress,
 			DeviceClass: int32(device.DeviceClass), Model: device.Model, Manufacturer: device.Manufacturer,
@@ -120,6 +125,9 @@ func (s *SQLDiscoveredDeviceStore) SaveDirect(ctx context.Context, doi discovery
 		saved, err = s.save(ctx, doi, candidate, true)
 		return err
 	})
+	if errors.Is(err, errPairedDeviceEndpoints) {
+		return nil, fleeterror.NewFailedPreconditionError(errPairedDeviceEndpoints.Error())
+	}
 	return saved, err
 }
 
