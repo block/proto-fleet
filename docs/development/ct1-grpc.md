@@ -109,8 +109,9 @@ the device remains paired.
 Scan both server addresses to learn both endpoints. The partner ID is not an
 address, and the plugin does not dial an unverified URL supplied by a controller.
 The plugin retains both gRPC connections. Before an operation, it probes both
-connections in parallel with a five-second budget per server, bounded by the
-caller's deadline. It verifies each
+connections in parallel with a shared probe budget of at most five seconds.
+When the caller has a deadline, probes use at most half the remaining time so
+collection or the command can use the rest. It verifies each
 server's ID and declared pair, then reads `GetSystemStatus`. Reads prefer a
 settled write-primary and can use a reachable standby. Writes require one
 controller with primary role and explicit write authority. Recovery health

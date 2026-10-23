@@ -41,10 +41,15 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerS
 		err      error
 	}
 	results := make(chan probeResult, len(clients))
+	probeTimeout := controllerProbeTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		// Reserve time for collection or command execution after selection.
+		probeTimeout = min(probeTimeout, time.Until(deadline)/2)
+	}
+	probe, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
 	for _, c := range clients {
 		go func(c *Client) {
-			probe, cancel := context.WithTimeout(ctx, controllerProbeTimeout)
-			defer cancel()
 			info, err := c.Discover(probe, d.info)
 			if err != nil {
 				results <- probeResult{err: err}

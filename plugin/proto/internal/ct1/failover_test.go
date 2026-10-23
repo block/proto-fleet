@@ -32,6 +32,7 @@ type haServer struct {
 	mapReads       atomic.Int32
 	infoReads      atomic.Int32
 	infoDelay      time.Duration
+	statusDelay    time.Duration
 }
 
 func startHAServer(t *testing.T, id, peer string) *haServer {
@@ -67,7 +68,14 @@ func (s *haServer) GetSystemInfo(ctx context.Context, _ *mdk.GetSystemInfoReques
 func (s *haServer) GetServerUpdateSupport(context.Context, *mdk.GetServerUpdateSupportRequest) (*mdk.GetServerUpdateSupportResponse, error) {
 	return &mdk.GetServerUpdateSupportResponse{InstanceId: s.id, PeerInstanceId: s.peer}, nil
 }
-func (s *haServer) GetSystemStatus(context.Context, *mdk.GetSystemStatusRequest) (*mdk.GetSystemStatusResponse, error) {
+func (s *haServer) GetSystemStatus(ctx context.Context, _ *mdk.GetSystemStatusRequest) (*mdk.GetSystemStatusResponse, error) {
+	if s.statusDelay > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("system status delay: %w", ctx.Err())
+		case <-time.After(s.statusDelay):
+		}
+	}
 	state := &mdk.SystemStatus{ServerId: s.id, ContainerWritePrimary: s.primary.Load(), HaRole: mdk.HARole_HA_ROLE_STANDBY, DatabaseConnected: true, HaRecovery: &mdk.HARecoveryStatus{State: mdk.HARecoveryState_HA_RECOVERY_STATE_STEADY}}
 	if state.ContainerWritePrimary {
 		state.HaRole = mdk.HARole_HA_ROLE_PRIMARY
@@ -360,6 +368,38 @@ func TestHAAllowsSlowIdentityProbeWithoutDuplicateDiscovery(t *testing.T) {
 	_, _, err = d.probeControllers(ctx, true)
 	require.Error(t, err, "the caller's shorter deadline still applies")
 	require.EqualValues(t, 1, a.writes.Load())
+}
+
+func TestHAStatusReservesCollectionTimeWhenPeerStalls(t *testing.T) {
+	for _, timeout := range []time.Duration{5 * time.Second, 200 * time.Millisecond} {
+		for _, stalledRPC := range []string{"identity", "status"} {
+			t.Run(fmt.Sprintf("%s/%s", timeout, stalledRPC), func(t *testing.T) {
+				a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
+				a.primary.Store(true)
+				d, err := NewDevice(t.Context(), "container", haInfo(a, b), sdk.UsernamePassword{})
+				require.NoError(t, err)
+				defer d.Close(t.Context())
+				if stalledRPC == "identity" {
+					a.infoDelay = 10 * time.Second
+				} else {
+					a.statusDelay = 10 * time.Second
+				}
+
+				ctx, cancel := context.WithTimeout(t.Context(), timeout)
+				defer cancel()
+				metrics, err := d.Status(ctx)
+				require.NoError(t, err)
+				require.NoError(t, ctx.Err())
+				require.NotNil(t, metrics.Container)
+				require.NotNil(t, metrics.Container.HA)
+				require.True(t, metrics.Container.HA.Degraded)
+				require.Zero(t, a.mapReads.Load())
+				require.EqualValues(t, 1, b.mapReads.Load(), "the verified standby must still collect telemetry")
+				deadline, _ := ctx.Deadline()
+				require.Greater(t, time.Until(deadline), timeout/4, "probing must leave a usable collection budget")
+			})
+		}
+	}
 }
 
 func TestHAWritesRequirePrimaryRoleAndAuthority(t *testing.T) {
