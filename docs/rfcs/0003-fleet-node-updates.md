@@ -1,4 +1,4 @@
-# RFC 0004: Fleet Node updates
+# RFC 0003: Fleet Node updates
 
 - **Status**: draft
 - **Author(s)**: Rongxin (@rl-block)
