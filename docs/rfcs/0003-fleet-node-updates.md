@@ -7,651 +7,264 @@
 
 ## Summary
 
-Let an operator update Fleet Nodes from Fleet. Each Node gets updates from the Fleet server it's paired with, by default.
+Let an operator update Fleet Nodes from Fleet. Each Node gets updates from the Fleet server it is paired with by default.
 
-**Distribution.** The Fleet server is the central distribution point. It fills a release store in two ways:
-- downloading Node releases from GitHub automatically
-- accepting releases that operators upload
+Fleet becomes the distribution point for signed Fleet Node releases. It retrieves public releases automatically when it can, accepts operator uploads for private release builds, verifies each bundle on ingest, stores it durably, and serves it to Nodes over the existing gateway connection. Nodes never need GitHub access.
 
-Nodes download from their paired server, never from GitHub. A Node's update source follows its enrollment automatically, so re-pairing a Node with another server also switches where it gets updates. An administrator can override the source on the host, but that should be uncommon.
+Fleet sends a Node an operation ID, an exact target version, a revocation list, and references to release artifacts. It does not send scripts, shell commands, URLs, or repository changes. The unprivileged daemon downloads the bundle, and a small root-owned executor verifies the release signature before running the existing transactional installer.
 
-**Installation.** Fleet sends a Node only an operation ID and an exact release version over the existing `ControlStream`. The unprivileged Fleet Node daemon downloads the release from the Node's update source and hands it to a small root-owned service. That service verifies the release signature and installs it with the existing transactional installer, which rolls back automatically if the new version doesn't start.
+Fleet records every stored release, update batch, per-Node operation, transition, and final outcome. This gives operators progress, recovery information, and an audit trail.
 
-**Trust and records.** Every release is signed by the release pipeline. Neither the Fleet server nor the path a release travels can make a Node run code the pipeline didn't sign. Signing uses offline root keys and short-lived signing certificates, so keys can be rotated, routinely or in an emergency, under a procedure defined up front. Fleet keeps durable records of every release it stores and every update request, transition, and outcome, for audit and debugging.
+This RFC replaces the statement in [RFC 0001](0001-agent-server-split.md#fleet-node-updates) that self-update over the gateway is out of scope. It also delivers RFC 0001's planned signed Fleet Node release artifacts.
 
-This replaces the statement in [RFC 0001](0001-agent-server-split.md#fleet-node-updates) that self-update over the gateway is out of scope. It also delivers RFC 0001's planned signed Node release artifacts.
+## Goals
 
-## Assumptions
+1. Give operators a repeatable way to update selected Fleet Nodes to an exact release.
+2. Report progress, failures, and the version running after each update.
+3. Document normal update, failure recovery, and key rotation workflows.
+4. Keep a durable record of each update for audit and debugging.
+5. Support deployments where Nodes cannot reach GitHub or cannot access private release builds.
+6. Preserve the current Fleet server and Node trust boundary: Fleet coordinates updates, but Nodes verify the code they run.
 
-- **Connectivity.** A Fleet Node can always reach its Fleet server, either directly on the same network or through the server's HTTPS endpoint, for example behind a load balancer. Fleet never opens connections to Nodes. Nodes already hold an outbound connection to their server, and they download release files through that same endpoint.
-- **Fleet's reach.** The Fleet server can reach GitHub over HTTPS when automatic retrieval is used. A server without that access relies on manual upload.
-- **Front-end limits.** Proxies, load balancers, and web application firewalls in front of Fleet may cap request sizes per path, time out idle connections, and rate-limit Node bootstrap RPCs per source IP. Several Nodes at one site can share a source IP.
-- **HA storage.** In HA deployments, Fleet's file storage is local to each host and not replicated ([RFC 0002](0002-active-passive-fleet-ha.md)). The release store therefore keeps its files on every host, or in storage that every host shares.
-- **Clocks.** Node clocks are correct, as authentication already requires.
+## Non-goals
 
-## Decision summary
+- Zero-downtime Node replacement. RFC 0001's warm-standby design is separate.
+- Plugin updates.
+- Windows or Docker development Nodes.
+- Downgrades, nightly builds, or switching a Node between publishing repositories.
+- Updates that start without an operator request.
+- A final answer for every rollout policy. The open questions list the decisions that still need team review.
+
+## Current system and constraints
+
+Fleet Nodes are updated today by signing in to the host and running `install-fleet-node.sh` for an exact release. The installer downloads from GitHub by default, or installs files staged by an operator with `--release-dir DIR VERSION`. Staged installs keep the same checksum, manifest, version, repository, and rollback checks as downloaded installs.
+
+Fleet already has several pieces this proposal can reuse:
+
+- Nodes keep an authenticated outbound connection to their Fleet server over `ControlStream`.
+- Fleet already serves command artifacts to Nodes, such as miner firmware.
+- Node binaries embed their version and publishing repository, expose them through commands, and report the version on heartbeats.
+- Fleet already shows Node versions and flags Nodes whose command protocol is behind the server.
+- Fleet already downloads release metadata for its own update checks.
+- The daemon already loads root-owned config from `/etc/fleetnode/config.yaml`.
+
+The design also has to fit current deployment constraints:
+
+- Fleet never opens connections to Nodes. Nodes reach Fleet directly or through the server's HTTPS endpoint, for example behind a load balancer.
+- Some Fleet servers can reach GitHub over HTTPS. Others rely on upload.
+- Front ends may cap request sizes, time out idle requests, or rate-limit bootstrap RPCs by source IP. Several Nodes at a site may share one source IP.
+- HA deployments may have local file storage on each Fleet host, without file replication between hosts ([RFC 0002](0002-active-passive-fleet-ha.md)).
+- Node clocks must be correct enough for existing authentication and for release certificate checks.
+- Public capacity guidance plans for up to 1,000 Nodes per server, and up to 2,000 for sizing.
+
+## Proposal
+
+An update has five steps:
+
+1. An operator selects Nodes and a target version in Fleet.
+2. Fleet ensures the release bundle exists in its release store and has been verified.
+3. Fleet records a batch and one operation per Node before dispatching anything.
+4. Each Node downloads its bundle from its configured source and asks the local root executor to install it.
+5. Fleet records acknowledgement, phase changes, reconnect, final version, and any failure.
+
+The host installer remains the manual path. Existing Nodes need one manual update to the first signed release that contains the executor. After that, routine updates can be driven from Fleet.
+
+### Decision summary
 
 | Area | Direction |
 | ---- | --------- |
-| Trigger | Fleet API, used first by the Nodes page, gated by `fleetnode:manage`. The host installer remains the manual path. |
-| What Fleet sends | An operation ID, an exact version, the current revocation list, and references to the bundle in its release store. Never a URL, repository, or script. |
-| Update source | Default: the Fleet server the Node is enrolled with, derived from enrollment state with no stored URL. Re-pairing changes it automatically. Uncommon override: a static HTTPS mirror or a local directory, set in root-owned host configuration. Fleet can't change it remotely. |
-| Distribution | Nodes download from their update source, never from GitHub. Fleet fills its release store by automatic retrieval from a configurable location, which defaults to the GitHub releases of its publishing repository, or by chunked manual upload. Bundle files are replicated to every Fleet host, or kept in shared object storage where a deployment has it. Storing them in Fleet's database remains an option. |
-| Node disk space | Nodes report free disk space on heartbeats. Fleet shows it, alerts when it's low, and refuses updates that wouldn't fit. |
-| Privilege boundary | The unprivileged daemon downloads; a root, socket-activated `fleet-node-update` service only verifies and installs, without network access. |
-| Signing | Offline root keys embedded in Node binaries issue short-lived signing certificates scoped to a repository. Signing keys are held in a KMS. A root-signed revocation list covers compromise. |
-| Key rotation | Routine signing-key rotation needs no Node update. Root rotation overlaps two roots across releases. Both have documented emergency procedures; recovering from a root compromise is a host-local installer step that Fleet can't perform. |
-| Version policy | A semantic version newer than the running release, from the same repository. No downgrades, nightlies, or repository switches. |
-| Support signal | A dedicated `ControlHello` field, not a new command protocol version. Nodes that don't send the new fields keep connecting. |
-| Success | The installer succeeds and the Node reconnects reporting the target version. Otherwise the update is "unconfirmed" after a timeout. No automatic rollback beyond the installer's start-time rollback. |
-| Pacing | A canary Node first, then waves of up to 10 Nodes by default, adjustable per batch. Stop at the first failure and skip disconnected Nodes. Runs are stored in the database and resume after a Fleet restart or HA failover. |
-| Records | Durable records of the release store, batches, operations, and events in Fleet's database; activity-log events for the organization's audit feed; update metrics for alerting; and a bounded local history on each host. |
-
-## Motivation
-
-Today a Fleet Node is updated by signing in to its host and running `install-fleet-node.sh` for an exact release, which downloads it from GitHub. Public documentation says "Fleet Node does not update itself." Deployments that run private release builds need a two-person procedure: someone with repository access downloads the release, and someone with host access installs it. Each Node host therefore needs operator shell access, and, unless files are staged, its own access to GitHub. Fleet has no view of update progress and no record of who updated which Node, when, or to what.
-
-This doesn't scale. The public capacity guidance recommends up to 1,000 Fleet Nodes per Fleet server, and up to 2,000 for planning, so a single release can mean hundreds of host logins.
-
-Fleet already holds a live, authenticated connection to every Node it manages. That makes it the natural place to manage updates centrally: it holds the releases, tells Nodes when to update, and records what happened. Nodes then need neither GitHub access nor operator shell access for routine updates.
-
-Several building blocks now exist:
-
-- `install-fleet-node.sh --release-dir DIR VERSION` installs operator-staged files with the same checksum, manifest, version, and repository checks and the same rollback as a download (block/proto-fleet#1108).
-- Node binaries embed their release version and publishing repository. They expose these through `fleetnode --version` and `fleetnode --print-release-repository`, and log them at startup.
-- Nodes report their version on heartbeats, and the Nodes page shows it.
-- Fleet already flags Nodes whose command protocol is behind the server's, but it can't act on that.
-- Fleet already downloads release metadata from GitHub for its own update checks.
-- Fleet already serves files to Nodes through `DownloadCommandArtifact`, for example miner firmware.
-
-Some deployments run release builds from a private fork, which Nodes can't download anonymously. Uploading such a release once to Fleet, which then distributes it, replaces staging files on every host.
-
-The goals follow the acceptance criteria of the public issue (block/proto-fleet#1104), plus an audit requirement:
-
-1. A repeatable way to update Fleet Nodes to a selected release.
-2. Reporting of update progress, failures, and the version running after each update.
-3. Documentation of the update workflow and of recovery from a failed update.
-4. A durable record of every update for audit and debugging.
-
-Non-goals:
-- zero-downtime replacement (the warm-standby design in RFC 0001 Phase 6 isn't built)
-- updating plugins on their own
-- Windows and Docker development Nodes
-- repository switches and downgrades
-- updates that start without an operator request
-
-## Detailed design
-
-### Flow
-
-```mermaid
-sequenceDiagram
-  participant O as Operator
-  participant F as Fleet server
-  participant G as GitHub
-  participant D as Fleet Node daemon
-  participant X as Update executor (root)
-  O->>F: UpdateFleetNodes(nodes, version)
-  alt Release not yet in the store
-    F->>G: Automatic retrieval (or an operator uploaded it earlier)
-  end
-  F->>F: Verify signature, record the batch and operations, check each Node
-  F->>D: AgentCommand.update_node(operation_id, version, revocation list, bundle refs)
-  D->>F: DownloadCommandArtifact (archive, checksum, signature)
-  D->>X: Request plus file descriptors over local socket
-  X-->>D: Accepted, or rejected with a reason
-  D-->>F: ControlAck (recorded)
-  X->>X: Copy, verify signature, checksum, version, and repository
-  X->>D: Archive's installer stops the old daemon
-  Note over X: Installer starts the new daemon, waits for READY, rolls back on failure
-  D->>F: New daemon's ControlHello reports version and final status
-  F->>F: Record the outcome, write activity events, start the next Node
-```
-
-### Release identity
-
-Phase 1 builds on the identity that already exists:
-- the stamped `main.version` and `releaseinfo.Repository`
-- the heartbeat `version` field
-- the version shown on the Nodes page
-
-The heartbeat value stays the display source for disconnected Nodes. `ControlHello` also carries the version, repository, and architecture so that Fleet's checks at dispatch time use the identity of the live connection, and Fleet knows which architecture's bundle to send. A heartbeat-persisted value can lag a reconnect by up to one heartbeat interval.
+| Trigger | Fleet API and Nodes page, gated by `fleetnode:manage`. |
+| What Fleet sends | Operation ID, target version, revocation list, and artifact references. No scripts, URLs, or repository changes. |
+| Default source | The paired Fleet server, derived from enrollment state. Re-pairing changes the source. |
+| Override source | Static HTTPS mirror or local directory in root-owned host config. Fleet cannot change it remotely. |
+| Release store | Verified bundles in Fleet, filled by automatic retrieval or chunked upload. |
+| HA rule | A batch starts only when every healthy Fleet host can serve the release, or the release is in shared storage. |
+| Trust | Nodes verify release signatures locally. Fleet verification catches mistakes early but is not trusted by the Node. |
+| Privilege split | The daemon downloads. A root, socket-activated executor verifies and installs without network access. |
+| Version policy | Newer semantic versions only, from the same publishing repository. |
+| Support signal | Explicit Node update capability in `ControlHello`, not a new command protocol version. |
+| Records | Durable release, batch, operation, event, activity, metric, and local host records. |
+| Pacing | Canary first, then bounded waves. Default wave size is 10 until reviewed. |
 
 ### Update source
 
-**Default.** A Node's update source is its paired Fleet server. The daemon derives this from the `server_url` it already stores at enrollment. There's no separate update URL to configure, store, or hardcode, and the codebase contains no default download location for Nodes. Re-pairing with `fleetnode-enroll --force` replaces `server_url`, so the update source follows without any extra step.
+By default, a Node's update source is its paired Fleet server. The daemon derives this from the `server_url` stored at enrollment. There is no separate update URL to configure or store, and no hardcoded download location for Nodes. Running `fleetnode-enroll --force` against a different server changes the update source because it changes the enrollment server.
 
-**Override.** An administrator can set `update-source` in `/etc/fleetnode/config.yaml`, which the daemon already loads. The file is root-owned and read-only to the service. It accepts two forms:
-- `https://<mirror>/<path>`: a static mirror using the GitHub release layout, `<base>/<version>/fleetnode-<version>-linux-<arch>.tar.gz` plus its `.sha256` and `.sig`.
-- `file:///<directory>`: a local directory with the same layout, readable by the `fleetnode` account and outside `/home`. The service runs with `ProtectHome=true`, so it can't see home directories.
+Operators can override the source on the host when a deployment needs it. The override lives in root-owned config and can name either a static HTTPS mirror using the release layout, or a local directory outside `/home`. Fleet sees only the effective source type: `fleet`, `mirror`, or `local`. It does not receive or control the URL.
 
-Overrides are expected to be uncommon; re-pairing is the simpler way to move a Node to another server.
+This keeps routing and trust separate. A source controls where files are available. It does not decide what code the Node may run.
 
-**Remote control.** Fleet can't change a Node's update source. `ControlHello` reports the effective source as `fleet`, `mirror`, or `local`, without the URL. Fleet shows it on the Nodes page and includes bundle references in the update command only when the source is `fleet`.
+### Release store
 
-**Why this is safe.** Releases are verified against pipeline signatures on the Node. So where a Node downloads from affects whether the files are available, not whether they're trusted. The publishing repository a Node accepts stays fixed at build time, and the repository rules from block/proto-fleet#1046 are unchanged.
+The store holds the archive, checksum, and signature for each version and architecture. Bundles enter the store in two ways:
 
-### Node disk space
+- Automatic retrieval from a configurable release location. The default is the GitHub releases for Fleet's publishing repository.
+- Manual upload through the UI or API, one architecture at a time. Uploads use the existing chunked upload pattern so each request can stay below common front-end limits such as 64 MiB.
 
-A Fleet Node already measures free space with `statfs` before it stages miner firmware, but it doesn't report the result. With this change, the daemon reports available and total bytes on every heartbeat for the filesystems that hold:
-- the program, `/opt/fleetnode`
-- the daemon's state and download spool, `/var/lib/fleetnode`
-- the executor's working directory, `/var/lib/fleetnode-update`
+Automation can upload with a Fleet API key from inside the deployment. A release pipeline can use its own credentials to fetch a private release and then upload it to Fleet. Fleet servers and Nodes do not need GitHub credentials.
 
-Directories on the same filesystem are reported once. Fleet stores the latest values with the Node's other heartbeat details, such as version and addresses, so they stay visible while a Node is offline.
+Fleet verifies signature, version, repository, architecture, digest, and size before accepting a bundle. It records source, supplier, digest, signing key, sizes, and removal. Upload, retrieval settings, and removal are gated by `fleetnode:manage`; Fleet records the operator or API key behind each change. Removing a release is an operator action and does not erase update history.
 
-Fleet uses the values in three places:
-- **Display:** the Nodes page and Node details show free space, and highlight a Node running low.
-- **Alerting:** Fleet exports free space per Node as a metric, so deployments can alert before a Node fills up.
-- **Update admission:** at ingest, Fleet records each stored release's archive and unpacked sizes and derives the space an update needs. That covers the download, the executor's verified copy, the unpacked candidate, and the previous version the installer keeps until the new one is ready. For current releases this is about 450 MB. Fleet rejects an update for a Node whose last report shows too little space. The executor repeats the check before it stages anything, so a Node that filled up since its last heartbeat fails early, before the service stops.
+### Store backends
 
-### Fleet release store
+The database always stores release metadata. Bundle files use one of these backends:
 
-The release store holds signed Node bundles: an archive, `.sha256`, and `.sig` for each architecture. Bundles arrive in two ways:
+- Replicated host files by default. Each Fleet host keeps a verified copy and runs a reconciler. Missing or corrupt files are fetched from a peer host, or from the retrieval location when allowed.
+- Shared object storage for deployments that already have it. Hosts keep a local verified cache.
 
-- **Automatic retrieval.** When an operator requests a version the store doesn't have, Fleet downloads it for the architectures its Nodes report. It downloads the same files as the Fleet installer does. The location is configurable in Fleet's settings: it defaults to the GitHub releases of Fleet's publishing repository, using the same repository identity as Fleet's own update checks, and it can point at a mirror or be turned off. Fleet can also prefetch the release matching its own version after it upgrades. Retrieval makes unauthenticated requests, so private repositories use upload.
-- **Manual upload.** Operators upload one architecture's bundle at a time through the UI or the API. Uploads use the chunked upload flow Fleet already uses for miner firmware, so each request stays within the per-request size limits common in front-end proxies.
+A batch can start only when every healthy host has a verified copy, or when the selected backend is shared. This prevents a failover from stranding a running batch on a host that cannot serve the release.
 
-  Automation can drive the same API with a Fleet API key. Running it inside the deployment, for example on a Fleet host, keeps it clear of front-end restrictions meant for people, such as IP allowlists. A pipeline can download a private release with its own GitHub credentials and upload it; Fleet servers and Nodes never need GitHub credentials.
+Database-backed bundle storage is deferred. It remains a fallback if replicated host files and shared object storage prove insufficient, but it should not be part of the first automated-update release because it adds migrations, backup growth, and replication traffic of about 45 MiB per release and architecture.
 
-Fleet verifies every bundle's signature, version, repository, and architecture before accepting it, and records where it came from and who supplied it. The upload and retrieval-settings APIs are gated by `fleetnode:manage`.
+### Signing and trust
 
-**Storage.** Fleet's database always holds the release records, including each file's digest and size. Those records are already replicated in HA deployments, so every host knows what the store should contain. A deployment setting chooses where the bundle files live:
+Each Fleet Node release gains a signature file. The signed statement binds the archive digest, version, publishing repository, and architecture. Binding these fields prevents a valid archive from being replayed as another version, another architecture, or another repository's release.
 
-- **Replicated host files** (default). Each Fleet host keeps its own copy in its file storage. A reconciler on every host compares local files with the release records, on startup and whenever a release is added or removed.
-  - **Filling gaps:** a missing or mismatched file is fetched from a peer host, or failing that from the retrieval location. Peer fetches use a private endpoint that only peer hosts can reach, authenticated with the credentials HA hosts already use for peer checks (block/proto-fleet#1080). Every copy is checked against the recorded digest and signature before use.
-  - **Tracking:** each host records which releases it holds.
-  - **Standalone:** an installation with one host simply keeps local files.
-- **Shared object storage** (optional). An S3-compatible bucket that every host reads and writes, for deployments that have one. Hosts keep a local cache checked against the recorded digest.
-- **Database** (optional). Bundle files are stored in fixed-size chunks in Fleet's database and replicate with it, with a local cache on each host. This needs no transfer channel between hosts, but it adds about 45 MiB per release and architecture to the database, its backups, and its replication traffic.
+The proposed hierarchy is:
 
-**HA availability rule.** A release can start a batch only when every healthy Fleet host holds a verified copy, or the copy is in shared storage. A resumed batch after a failover therefore never stalls on a missing file. An upload finishes when the receiving host has stored and verified it. The release page shows replication progress until every host has a copy.
+- Offline root keys, held by two custodians, issue repository-scoped signing certificates and revocation lists.
+- KMS-held signing keys sign release statements from protected release workflows.
+- Signing certificates last about 13 months and are scoped to the repositories they may sign for.
+- Each Node binary embeds one or two root public keys.
+- A root-signed revocation list names revoked signing keys and carries a monotonic version plus a valid-until timestamp. Fleet sends the current list with every update command. Nodes reject expired lists, lists older than their stored high-water mark, and releases that require a newer revocation list than Fleet supplied.
 
-**Size and retention.** Stored bundles take about 45 MiB per release and architecture on each host that holds them, and caches stay within each host's free-space reservations. By default the store keeps every release still installed on a Node, plus the three newest releases. Removing a release is a recorded operator action that every backend applies.
+The executor verifies every release before installing it. It checks root trust, certificate validity, repository scope, revocation, signature, digest, version, repository, and architecture. Fleet runs the same verification at ingest, but the Node never relies on Fleet having done it.
 
-### Release signing
+Manual installs keep HTTPS, checksum, version, and repository checks. When the installed binary supports signed verification, the installer verifies the new release with the installed binary before replacing it.
 
-**What is signed.** For each Node archive, the release pipeline produces `fleetnode-<version>-linux-<arch>.tar.gz.sig`. It's a DSSE-style envelope: a typed payload plus signatures, so no JSON canonicalization is needed. The payload is a statement:
+The first release that installs the root executor uses a stricter bootstrap path than older manual updates. The installer must verify that release's signature against a root key pinned in the installer or supplied independently by the operator before it installs the executor. HTTPS and checksum verification alone are not enough for the transition that creates the new local trust boundary.
 
-```json
-{
-  "type": "proto-fleet/fleet-node-release/v1",
-  "artifact": "fleetnode-v0.6.0-linux-arm64.tar.gz",
-  "sha256": "<archive digest>",
-  "version": "v0.6.0",
-  "release_repository": "block/proto-fleet",
-  "arch": "arm64"
-}
-```
+Root compromise is the worst case. Fleet and the daemon cannot replace a Node's trust root. Recovery requires a host-local installer option, `--trust-root FILE --trust-root-sha256 DIGEST`, where the operator supplies a new root key and independently published fingerprint. The executor never accepts a root key from Fleet.
 
-Binding the version and repository into the statement stops a signed archive being replayed as a different version, or into another repository's Nodes. Each envelope carries its signing certificate, so verification needs no network access.
+### Node executor
 
-**Key hierarchy.**
+The first signed release adds a socket-activated root service, `fleet-node-update`, and its socket. The normal daemon remains unprivileged.
 
-```mermaid
-flowchart TD
-  R["Root keys (offline, 2 custodians)"] -->|"issue, about yearly"| C["Signing certificates: key ID, public key, repositories, validity window"]
-  R -->|"sign"| V["Revocation list: monotonic version, revoked key IDs"]
-  K["Signing keys (KMS, non-exportable)"] -->|"sign in release workflow"| E["Release signature envelopes"]
-  C --> E
-  N["Node binary: embedded root public keys"] -->|"verify chain, scope, validity, revocation"| E
-```
+The daemon downloads release files into its spool directory, then sends the executor a small request plus open file descriptors over the local socket. The socket is reachable only by root and the Fleet Node daemon service account. The executor also checks the caller identity and rejects requests that are not tied to an operation Fleet dispatched to the daemon. The request contains the operation ID, target version, and revocation list. It does not contain paths, URLs, repositories, commands, or scripts.
 
-- **Root keys.** Each root key is held offline by two custodians, for example on hardware tokens. They're used only in short signing ceremonies to issue signing certificates and revocation lists. Each Node release embeds a keyring of one or two root public keys at build time, the same way it embeds `releaseinfo.Repository`.
-- **Signing keys.** Signing keys live in a cloud KMS and are never exported. The release workflow reaches them through GitHub OIDC, restricted to release and nightly workflows on protected refs. Algorithm: Ed25519 where the KMS supports it, otherwise ECDSA P-256. Both verify with the Go standard library, so the Node needs no new dependency.
-- **Signing certificates.** Each certificate names its key ID, public key, the repositories it may sign for, and a validity window of about 13 months. The root key signs it. The repository scope means a fork's signing key can't sign releases for upstream Nodes, and the reverse.
-- **Revocation list.** A small root-signed document carrying a monotonic version and the revoked signing key IDs. Each release attaches the current list, and Fleet sends it with every update command. A Node keeps the highest-versioned list it has seen and never accepts an older one.
+The executor accepts only one operation at a time. It checks version policy and repository consistency, copies the files into a private root-owned staging directory, verifies the release, checks free space, and runs the archive's own installer with `--release-dir`. The installer still performs the stop, replace, start, readiness wait, and rollback behavior.
 
-**Verification.** The executor verifies every release before installing it, whichever source the release came from. It checks that:
-- the certificate chains to a root in the Node's keyring
-- the certificate is within its validity window at the Node's current time
-- the certificate's scope includes the Node's pinned repository
-- the key isn't revoked
-- the signature covers the statement
-- the statement's digest, version, repository, and architecture match the archive and the request
+The executor writes status and local history under `/var/lib/fleetnode-update`. The daemon can read status but cannot write it. Local history keeps the most recent 200 finished operations and gives host-level debugging information when Fleet is unreachable.
 
-Fleet runs the same verification when a bundle enters its store, so mistakes surface early, but Nodes never rely on Fleet having checked. Releases that predate signing can't be installed through the executor.
+### Gateway, API, and UI
 
-**Manual installs.** `install-fleet-node.sh` keeps its current checksum and repository checks. When an existing installation's binary supports it, the installer also verifies the new release with `fleetnode release verify` from the *installed* binary before replacing it. Fresh installs keep HTTPS and the checksum as their trust anchor.
+`ControlHello` carries the live Node identity and update capability: version, publishing repository, architecture, executor availability, source type, trusted root key IDs, revocation-list version, and last operation. New fields are optional on the wire. Older Nodes keep their command stream and show as needing a manual update.
 
-**Root recovery.** After a root compromise, the installed binary can't verify a release signed under the replacement root, and it must not take the compromised root's word for the new one. For this case only, the installer accepts `--trust-root FILE --trust-root-sha256 DIGEST`: the new root's public key, and the fingerprint the root custodians publish through channels independent of the release pipeline. The installer checks that the key matches the fingerprint and that the new release embeds it. It then verifies the release with the installed binary's `fleetnode release verify --root FILE`, which uses that key in place of the binary's keyring, and records the replacement in the local history and the journal. `fleetnode release verify` supports `--root` from its first release, so every Node that verifies releases can recover this way. The option exists only in the installer, which needs root on the host; the executor never accepts a root key, so neither Fleet nor the daemon can supply one. After recovery, the executor discards any stored revocation list signed by a root the new keyring doesn't contain.
+Fleet dispatches an update only when the Node has an active stream, reports a supported architecture, has the executor, trusts the target release's root, reports enough disk space, and is running the same publishing repository as Fleet. When the Node's source is Fleet, the store must also hold the right architecture and satisfy the HA rule.
 
-### Key rotation
+When the Node's source is a mirror or local directory, Fleet cannot inspect the source directly. Before adding that Node to a canary or wave, Fleet asks the daemon to preflight the target bundle from its configured source. A source that cannot serve the target is recorded as `rejected` before installation starts.
 
-| Event | Procedure | Node impact |
-| ----- | --------- | ----------- |
-| Routine signing-key rotation (yearly, or when custodians or KMS settings change) | Create a new KMS key. Hold a root ceremony to issue its certificate, then switch the pipeline. Before the old certificate expires, re-sign all supported releases with the new key. Signature files are separate assets, so archives and checksums don't change. Fleet picks up new signatures by retrieval or upload. | None. |
-| Signing-key compromise | 1. Pause distribution and ingest in Fleet. 2. Root custodians publish a revocation list naming the key. 3. Issue a new signing key and certificate. 4. Re-sign supported releases. 5. Resume distribution. 6. Use the durable records to list every update installed under the revoked key, and review those Nodes. | Nodes reject the revoked key from their next update command, because every command carries Fleet's current list and the executor adopts a newer list before verifying. A Node installs nothing through the executor without a command, so idle Nodes are covered too. Releases also attach the list for manual installs. |
-| Planned root rotation (every few years, or when custodians change) | 1. Release N embeds the old and new root keys. 2. Once Fleet reports that every active Node trusts the new root, issue certificates only from it. 3. A later release drops the old root. | One ordinary update, to release N or later. Fleet blocks releases signed only under the new root for Nodes that don't trust it yet, and shows them as needing an update. |
-| Root compromise | 1. Pause distribution. 2. Root custodians create a new root and publish its fingerprint through at least two channels independent of the release pipeline. 3. Publish a release that embeds only the new root, signed under it. 4. On each Node, an operator installs that release with the installer's root recovery option (see *Manual installs*), from its HTTPS download or a staged directory. 5. Resume distribution per Node once it reports the new root. | A manual update on every Node. Revocation lists signed by the old root stop applying. Offline custody and the narrow ceremony scope keep this unlikely. |
-
-`ControlHello` reports each Node's trusted root key IDs and revocation list version, so Fleet can show which Nodes are ready for a rotation before it starts. Certificate checks depend on the Node's clock; a clock error is reported as a signature failure with the reason. Every signing ceremony and rotation is recorded in a runbook kept alongside the release workflow. At least one rotation drill runs in CI before phase 1 ships.
-
-### Update executor
-
-**Packaging.** The Node archive gains three files:
-- a repository-stamped `install-fleet-node.sh`, covered by the archive checksum and signature
-- `fleet-node-update.socket`
-- `fleet-node-update.service`
-
-The installer's manifest allowlist accepts them. Install, rollback, and uninstall handle the two units, and installation enables the socket. Older installers reject archives with the new files, which only matters when someone runs an old installer against a new release. The documented manual flow always uses the target release's own installer.
-
-**Units.**
-- **Socket:** `fleet-node-update.socket` listens on `/run/fleetnode-update/update.sock` with `SocketUser=root`, `SocketGroup=fleetnode`, and `SocketMode=0660`.
-- **Service:** `fleet-node-update.service` runs `fleetnode update-executor` as root, outside `fleet-node.service`. That matters because the installer stops `fleet-node.service`. The service exits when idle. It runs with `PrivateNetwork=yes`, because it never downloads anything; the daemon does.
-- **Daemon unit:** unchanged. Its existing `AF_UNIX` allowance should be enough to connect to the socket; native qualification must confirm this under `ProtectSystem=strict`.
-
-**Fetching.** The daemon downloads the archive, checksum, and signature into its spool directory under `/var/lib/fleetnode`:
-- **Paired server (default):** through `DownloadCommandArtifact`, using the references in the update command and the daemon's existing session.
-- **Override:** from the configured mirror or local directory.
-
-It then sends the executor the request and open file descriptors for the three files.
-
-**Requests.** One JSON object per connection, at most 64 KiB, with the file descriptors passed alongside. It contains:
-- the operation ID
-- the target version
-- Fleet's current revocation list
-
-The executor never reads a URL, path, repository, or command from a request. It accepts a request only when all of these hold:
-
-- `operation_id` is a canonical UUID.
-- `target_version` matches the installer's tag grammar, is a valid semantic version, and is newer than the installed `/opt/fleetnode/version.txt`. Nightly tags aren't semantic versions, so they're rejected.
-- The installed `version.txt`, the installed binary's embedded repository, and `/etc/fleetnode/release-repository` (when present) all name the same repository. A mismatch is reported as `REPOSITORY_MISMATCH`.
-- No other operation is active. Repeating an operation ID returns that operation's current status rather than starting a new one.
-
-**Installation.** The executor:
-1. Checks free space on each filesystem it and the installer will write. If any is short, it fails with `INSUFFICIENT_SPACE` before staging anything. It then copies the three files from the descriptors into a private, root-only directory, so the daemon can't change them after verification.
-2. Adopts the revocation list if it's newer than the stored one, then verifies the signature as described under *Release signing*.
-3. Checks that the checksum file names the archive, verifies the checksum, and extracts the archive.
-4. Confirms the archive's `version.txt` matches the signed statement.
-5. Runs the archive's own installer with `--release-dir` pointing at the private copy.
-
-The installer then performs its existing transactional replacement: stop, replace, start, wait for systemd readiness, and roll back on failure.
-
-**Status and local history.** `/var/lib/fleetnode-update/status.json` lives in a root-owned `0755` directory as a `0644` file, so the daemon can read it but not write it. It records:
-- operation ID
-- target version
-- previous version
-- source
-- archive digest
-- signing key ID
-- phase
-- error
-- timestamps
-- outcome revision
-
-The phases reuse `instance.v1.UpgradePhase` names: `QUEUED`, `DOWNLOADING`, `VERIFYING`, `STAGING`, `ACTIVATING`, `SUCCEEDED`, and `FAILED`, plus `ROLLED_BACK`. The daemon reports `DOWNLOADING` itself before it hands off. On startup, the executor reconciles an operation interrupted in `ACTIVATING` from the installed `version.txt`.
-
-Each finished operation is also appended to `/var/lib/fleetnode-update/history.jsonl`, which keeps the most recent 200 entries, and logged to the journal. This lets someone on the host debug an update even when Fleet is unreachable. The revocation list is stored beside them as `revocations.json`.
-
-**Bootstrap.** A Node running a release without the executor needs one manual update to a signed release that has it.
-
-### Gateway contract
-
-```proto
-message ControlHello {
-  CommandProtocolVersion max_command_protocol_version = 1;
-  // Running binary's release version, publishing repository, and architecture.
-  string version = 2 [(buf.validate.field).string.max_len = 128];
-  string release_repository = 3 [(buf.validate.field).string.max_len = 140];
-  // Empty from Nodes that predate this field; Fleet requires it only when admitting an update.
-  string arch = 4 [(buf.validate.field) = {
-    ignore: IGNORE_IF_UNPOPULATED
-    string: {in: ["amd64", "arm64"]}
-  }];
-  NodeUpdateState update = 5;
-}
-
-message NodeUpdateState {
-  // True only when the root update executor is installed and reachable.
-  bool executor_available = 1;
-  NodeUpdateUnavailableReason unavailable_reason = 2;
-  NodeUpdateOperation last_operation = 3;
-  repeated string trusted_root_key_ids = 4;
-  uint64 revocation_list_version = 5;
-  // Effective update source; the URL itself is never reported.
-  NodeUpdateSource source = 6;
-}
-
-enum NodeUpdateSource {
-  NODE_UPDATE_SOURCE_UNSPECIFIED = 0;
-  NODE_UPDATE_SOURCE_FLEET = 1;
-  NODE_UPDATE_SOURCE_MIRROR = 2;
-  NODE_UPDATE_SOURCE_LOCAL = 3;
-}
-
-message NodeUpdateOperation {
-  string operation_id = 1;
-  string target_version = 2;
-  string previous_version = 3;
-  NodeUpdatePhase phase = 4;
-  string error = 5;
-  NodeUpdateSource source = 6;
-  string artifact_sha256 = 7;
-  string signing_key_id = 8;
-  uint64 outcome_revision = 9;
-  google.protobuf.Timestamp started_at = 10;
-  google.protobuf.Timestamp updated_at = 11;
-  google.protobuf.Timestamp completed_at = 12;
-}
-
-message UpdateFleetNodeRequest {
-  string operation_id = 1 [(buf.validate.field).string.uuid = true];
-  string target_version = 2 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
-  // Root-signed revocation list; the Node keeps the highest version it has verified.
-  bytes revocation_list = 3 [(buf.validate.field).bytes.max_len = 65536];
-  // Present when the Node's source is its paired server.
-  ReleaseArtifacts artifacts = 4;
-}
-
-message ReleaseArtifacts {
-  CommandArtifactRef archive = 1;
-  CommandArtifactRef checksum = 2;
-  CommandArtifactRef signature = 3;
-}
-
-// New AgentCommand arm.
-//   UpdateFleetNodeRequest update_node = 6;
-
-// New CommandArtifactPurpose value, admitted only for an in-flight update_node command.
-//   COMMAND_ARTIFACT_PURPOSE_FLEET_NODE_RELEASE = 3;
-
-// New UploadHeartbeatRequest fields: the active operation while the old daemon runs,
-// and free space on the filesystems that hold the program, state, and executor work.
-//   NodeUpdateOperation update = 4;
-//   repeated FilesystemUsage filesystems = 5;
-
-message FilesystemUsage {
-  // Directories on this filesystem, from a fixed set: program, state, update.
-  repeated FilesystemRole roles = 1;
-  uint64 available_bytes = 2;
-  uint64 total_bytes = 3;
-}
-```
-
-The daemon validates the command, fetches the bundle from its update source, forwards the request to the executor socket, and acknowledges it once the executor accepts or rejects it. A rejection maps to an existing `AckCode` with the executor's reason. Bundle downloads use the existing command-artifact admission: the gateway serves the release files only for the in-flight `update_node` command that referenced them, to the Node it was sent to. The daemon downloads before it acknowledges, so `update_node` gets a dispatch timeout long enough to download about 45 MiB.
-
-Fleet dispatches only to connections whose `ControlHello` reports `executor_available`, a supported architecture, and trust in the root that issued the target release's signing certificate. When the Node's source is `fleet`, the store must also hold the bundle for the Node's architecture. Every new `ControlHello` and heartbeat field is optional on the wire: a Node that predates them sends none, keeps its command stream, and is shown as needing a manual update. The command protocol enum is unchanged: update support depends on whether the executor is installed, not only on daemon code, and keeping it off the enum leaves that enum to miner commands.
-
-### Update records
-
-Fleet keeps durable records in four tables, plus a table that tracks which host holds each release, all added by a new migration. A sixth table holds bundle contents only when a deployment chooses the database backend. Batches are stored even for a single Node, so every operation has the same shape.
-
-```sql
-CREATE TABLE fleet_node_release (
-  id bigserial PRIMARY KEY,
-  org_id bigint NOT NULL,
-  version text NOT NULL,
-  arch text NOT NULL,
-  release_repository text NOT NULL,
-  artifact_sha256 text NOT NULL,
-  archive_size_bytes bigint NOT NULL,
-  unpacked_size_bytes bigint NOT NULL,
-  signing_key_id text NOT NULL,
-  origin text NOT NULL,            -- retrieved, uploaded
-  supplied_by bigint REFERENCES "user"(id),
-  created_at timestamptz NOT NULL,
-  removed_at timestamptz,
-  removed_by bigint REFERENCES "user"(id)
-);
-
--- Verified copies of each release on each Fleet host (replicated host files backend).
-CREATE TABLE fleet_node_release_copy (
-  release_id bigint NOT NULL REFERENCES fleet_node_release(id),
-  host_id text NOT NULL,
-  verified_at timestamptz NOT NULL,
-  PRIMARY KEY (release_id, host_id)
-);
-
--- Database backend only: bundle contents (archive, checksum, signature) in fixed-size chunks.
--- Rows are deleted when a release is removed; the release record above remains.
-CREATE TABLE fleet_node_release_chunk (
-  release_id bigint NOT NULL REFERENCES fleet_node_release(id),
-  file text NOT NULL,              -- archive, checksum, signature
-  seq integer NOT NULL,
-  data bytea NOT NULL,
-  PRIMARY KEY (release_id, file, seq)
-);
-
-CREATE TABLE fleet_node_update_batch (
-  id uuid PRIMARY KEY,
-  org_id bigint NOT NULL,
-  requested_by bigint REFERENCES "user"(id),
-  target_version text NOT NULL,
-  status text NOT NULL,            -- running, completed, stopped, canceled
-  created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL,
-  completed_at timestamptz
-);
-
-CREATE TABLE fleet_node_update (
-  operation_id uuid PRIMARY KEY,
-  org_id bigint NOT NULL,
-  fleet_node_id bigint NOT NULL,
-  batch_id uuid NOT NULL REFERENCES fleet_node_update_batch(id),
-  position integer NOT NULL,
-  target_version text NOT NULL,
-  previous_version text,
-  release_repository text NOT NULL,
-  source text,                     -- fleet, mirror, local
-  release_id bigint REFERENCES fleet_node_release(id),
-  artifact_sha256 text,
-  signing_key_id text,
-  revocation_list_version bigint,
-  status text NOT NULL,            -- pending, dispatched, in_progress, succeeded, failed,
-                                   -- rolled_back, unconfirmed, rejected, skipped, canceled
-  phase text,
-  error_code text,
-  error_message text,
-  reported_version text,
-  node_outcome_revision bigint,
-  created_at timestamptz NOT NULL,
-  updated_at timestamptz NOT NULL,
-  completed_at timestamptz,
-  CONSTRAINT fk_fleet_node_update_node FOREIGN KEY (fleet_node_id, org_id) REFERENCES fleet_node(id, org_id)
-);
-
-CREATE TABLE fleet_node_update_event (
-  id bigserial PRIMARY KEY,
-  operation_id uuid NOT NULL REFERENCES fleet_node_update(operation_id),
-  org_id bigint NOT NULL,
-  occurred_at timestamptz NOT NULL,
-  origin text NOT NULL,            -- fleet, node
-  status text NOT NULL,
-  phase text,
-  message text,
-  details jsonb                    -- bounded, never credentials
-);
-```
-
-- **Writes.** Fleet records each release when it enters the store. It records the batch and every operation before it dispatches anything. It appends an event for each transition: dispatch, acknowledgement, every phase from heartbeats, reconnect, and the final outcome. Writes are idempotent on operation ID and the Node's outcome revision. The Node's status file stays authoritative for what happened on the host: on reconnect, Fleet reconciles any outcome it missed, for example after a Fleet restart.
-- **Retention.** Records are kept when a Node is revoked or deleted, or a release is removed from the store. Fleet Nodes are soft-deleted, and the tables never cascade deletes. Records are kept indefinitely in phase 1; a pruning policy can follow if volume requires it.
-- **Audit feed.** Fleet also writes activity-log events for releases added and removed, and for update batches requested and completed, using the batch ID the activity log already supports. Update activity then appears alongside other operator actions, and the detailed records hold the timeline.
-- **Access.** `ListFleetNodeReleases`, `ListFleetNodeUpdates` (by Node, batch, or time range), and `GetFleetNodeUpdate` (an operation with its events) are gated by `fleetnode:read`. Records never contain credentials or override URLs, and bundle contents are reachable only through the release store.
-- **Metrics.** Fleet exports update counts by outcome, durations by phase, the number of Nodes behind Fleet's version, each Node's free disk space, and the release store's replication state, plus structured logs keyed by operation ID. Deployments can then alert on failed or unconfirmed updates, Nodes left behind, Nodes running out of disk, and releases missing from a host.
-
-### Fleet API and UI
-
-`FleetNodeAdminService.UpdateFleetNodes` takes Node IDs and an exact target version, and returns the batch ID with an operation ID for each Node. It's gated by `fleetnode:manage`. For each Node, Fleet requires:
-- an active `ControlStream`
-- `executor_available`
-- a reported architecture, `amd64` or `arm64`
-- a `release_repository` that equals Fleet's own `releaseinfo.Repository`
-- a target newer than the Node's running version
-- trust in the target release's signing root
-- enough free disk space for the update, according to the Node's latest heartbeat
-
-When the Node's source is `fleet`, the store must also hold a verified bundle for the Node's architecture that meets the HA availability rule. If it doesn't, Fleet retrieves it when automatic retrieval is enabled. A Node that fails a check is recorded as `rejected` with the reason, for example "release not uploaded". The UI defaults the target to Fleet's own version, and operators can choose another exact tag that the store holds or can retrieve.
-
-`ListFleetNodes` adds `update_available`, `update_unavailable_reason`, the effective update source, and the latest operation, using `FleetNodeSummary` field numbers 16 and above.
-
-**Pacing.** The batch runner runs on the active Fleet instance:
-- **Canary:** it updates the first Node alone, and continues only after that Node succeeds.
-- **Waves:** it then updates up to 10 Nodes at a time by default. Operators can lower or raise this per batch, up to a server-wide maximum.
-- **Stopping:** the run stops starting new updates at the first failed or unconfirmed Node. Updates already in progress finish and are recorded.
-- **Disconnected Nodes:** a Node that is disconnected when its turn comes is recorded as `skipped`.
-
-One Node at a time would take a day or more for a server with 1,000 Nodes; waves keep a large batch to hours. Waves also bound the load on Fleet and on sites where many Nodes share bandwidth or a source IP: at the default size, Fleet serves at most about 450 MiB at once. An updated daemon reuses its stored session, so a restart doesn't normally repeat the Node bootstrap RPCs that deployments may rate-limit.
-
-Because batches and operations are stored, a new active instance resumes a running batch after a restart or HA failover. Operation IDs are created when the batch is recorded, so a resumed dispatch can't start a second update on a Node.
-
-**Outcomes.**
-- **Succeeded:** the Node reconnects with `ControlHello.version` equal to the target and `last_operation.phase` of `SUCCEEDED`.
-- **Failed:** the Node reports `FAILED` or `ROLLED_BACK`.
-- **Unconfirmed:** the Node doesn't reconnect within 10 minutes of `ACTIVATING`.
-
-**UI.**
-- **Releases:** a Node releases page lists the store with each release's source, uploader, digest, signing key, and which hosts hold it. It offers upload, retrieval settings, and removal.
-- **Nodes page:** a row action and multi-select. The confirmation names the target version and warns about the short telemetry and command gap.
-- **Progress:** shows the current phase.
-- **Failures:** show the error, the recovery command, and `journalctl -u fleet-node-update.service`.
-- **History:** each Node's details include its update history, effective update source, and free disk space. A batch view shows each Node's position and outcome.
-
-### Repository pin repair
-
-A Node whose program was replaced outside the installer can end up with a `version.txt` and binary from one repository, and a `release-repository` pin from another. The executor reports `REPOSITORY_MISMATCH` for such Nodes.
-
-A new installer action, `install-fleet-node.sh repair-repository-pin`, rewrites the pin only when the installed `version.txt` and the installed binary both name the installer's packaged repository. It never changes the installed program. Moving a Node between repositories, for example from upstream releases to a fork's, remains a planned maintenance procedure.
-
-### Security
-
-- **Compromised Fleet server.** It can distribute only releases the pipeline signed, newer than each Node's version, for that Node's repository. It can't run arbitrary code. Because versions only move forward, it can cause at most a finite number of restarts. It can't roll back a Node's revocation list or change a Node's update source.
-- **Untrusted delivery path.** Mirrors, local directories, Fleet's storage, and the daemon's spool are all untrusted: integrity comes only from signature verification inside the executor. The executor runs without network access and verifies copies it owns.
-- **Compromised signing key.** On its own, it has no way to deliver a release. An attacker also needs a compromised Fleet server, write access to a Node's configured mirror, or root on the host. Non-exportable KMS keys, OIDC limited to release workflows, certificates of about 13 months, and revocation all bound the exposure. The durable records identify every Node that installed a release signed with the key.
-- **Compromised root key.** This is the worst case. Every Node needs a manual reinstallation that trusts a new root the operator authenticates independently (see *Key rotation*). Neither Fleet nor the daemon can replace a Node's root. Offline custody by two people and ceremony-only use keep it unlikely.
-- **Untrusted input.** The executor caps request size, parses requests strictly, never invokes a shell with request data, and takes no paths or URLs from requests. Status and history are written only to root-owned locations.
-- **Credential isolation.** Verifying before installing preserves RFC 0001's credential isolation: Fleet never gets a way to run code that could read a Node's credential key.
-- **No GitHub credentials.** Neither Nodes nor Fleet servers hold GitHub credentials.
-
-### Failure behavior
-
-| Situation | Result | Recovery |
-| --------- | ------ | -------- |
-| The store lacks the release, and retrieval is off or fails | The Node's operation is `rejected` before dispatch, with the reason | Upload the release, or fix the retrieval settings or connectivity |
-| A healthy HA host doesn't hold the release yet | The batch waits to start, and the release page shows replication progress | Fix peer connectivity, or the reconciler fetches the file from the retrieval location |
-| The Node's last heartbeat shows too little free disk | The Node's operation is `rejected` before dispatch, with the space needed | Free space on the Node and retry |
-| The Node runs out of space after its last heartbeat | `FAILED` with `INSUFFICIENT_SPACE` before anything is staged | Free space on the Node and retry with a new operation ID |
-| An uploaded or retrieved bundle fails verification | Fleet rejects it on ingest and records why | Upload the correct, signed files |
-| Signature invalid, key revoked, certificate expired, or root not trusted, on the Node | `FAILED` with `SIGNATURE_INVALID` and the reason, before the service stops | Re-sign the release, update the revocation list, fix the Node's clock, or update the Node manually to a release trusting the new root, using root recovery after a compromise |
-| Download from the update source fails, or the checksum doesn't match | `FAILED` before the service stops; nothing changes | Fix the source and retry with a new operation ID |
-| New version doesn't start | Installer rolls back; `ROLLED_BACK`; previous version running | Inspect the logs and history; choose another release |
-| Rollback also fails | `FAILED` with the rollback error; the Node may be down | On the host, install the previous release with `--release-dir` |
-| Starts but doesn't reconnect | `UNCONFIRMED` | Inspect the host journal and history; reinstall the previous release |
-| Executor or host restarts mid-update | Executor reconciles the status from `version.txt` on its next start | None, or as above |
-| Fleet restarts or fails over during a batch | A new active instance resumes the batch and serves bundles from its own verified copy, shared storage, or the database; Fleet reconciles missed outcomes when Nodes reconnect | None |
-
-### Validation gates
-
-- **Signing:**
-  - tampered archive, wrong repository scope, wrong architecture, and version mismatch
-  - expired and not-yet-valid certificates, revoked key, unknown root, and an older revocation list
-  - a CI rotation drill that signs with a second key and later a second root, and recovers an installation that trusts only a compromised root
-- **Update source:**
-  - the default derives from `server_url` and follows re-pairing
-  - overrides parse and are restricted to root-owned configuration
-  - Fleet can't change the source
-- **Release store:**
-  - automatic retrieval, chunked upload, and rejection on ingest
-  - retention, and the release records
-  - each backend: replicated host files, shared object storage, and the database
-  - the reconciler fills missing or corrupt copies from a peer, and falls back to the retrieval location
-  - peer fetches are refused from anything other than a peer host
-  - a batch waits until every healthy host holds the release
-  - after an HA failover, the new active host serves a release uploaded to the old one
-- **Node disk space:**
-  - heartbeats report each filesystem once
-  - Fleet rejects an update that wouldn't fit
-  - the executor fails with `INSUFFICIENT_SPACE` before staging anything
-- **Front end:**
-  - a chunked upload through a proxy that caps requests at 64 MiB
-  - a release download through a load balancer with an idle timeout
-  - an update wave from Nodes sharing one source IP that stays within bootstrap rate limits
-- **Executor:** unit tests for request parsing, descriptor handling, version policy, repository checks, status, and history.
-- **Installer harness:** the new units, the manifest allowlist, verification with the installed binary, and root recovery: a fingerprint mismatch, a key the release doesn't embed, and a successful recovery.
-- **Compatibility:** a Node from before phase 1c connects to a phase 1c Fleet server, keeps receiving miner commands, and shows as needing a manual update. A phase 1c Node connects to an older Fleet server.
-- **Native qualification (amd64 and arm64):**
-  - install signed release N, then update to N+1 through the socket from Fleet, a mirror, and a local directory
-  - inject a broken candidate and expect `ROLLED_BACK`
-  - interrupt the executor and expect reconciliation
-  - confirm the executor has no network access
-- **Database:** migration tests; idempotent record writes; a batch resuming after a simulated failover.
-- **Scale:** a batch across hundreds of simulated Nodes with the default wave size, measuring duration, Fleet throughput, and database load.
-- **Fleet:** gateway, registry, and admin handler tests, including permissions, plus releases, Nodes page, and history tests.
-- **Manual:** a physical Raspberry Pi and an amd64 VM, paired with a Fleet server, updated through the Nodes page using both retrieved and uploaded releases.
-
-## Drawbacks
-
-- **More root code:** every Node gets a root component to secure and maintain.
-- **Key operations:** root custody, ceremonies, KMS configuration in two repositories, re-signing before certificates expire, and rotation drills are ongoing work.
-- **Load on Fleet:** Fleet serves every Node's download through the gateway. Waves bound this to about 450 MiB at a time at the default size.
-- **Storage:** every Fleet host keeps a copy of the store, about 45 MiB per release and architecture. Replicated host files need a new transfer path between hosts and a reconciler. The database backend avoids both but grows the database, its backups, and its replication traffic.
-- **Clock dependency:** certificate checks need a correct clock on the Node.
-- **Bootstrap:** existing Nodes need one manual update to the first signed release with the executor.
-- **Downtime:** each update interrupts telemetry and commands for that Node's miners briefly.
-- **Migration:** a new migration and records that are kept indefinitely.
+`UpdateFleetNodes` takes Node IDs and an exact version, then returns the batch ID and operation IDs. `ListFleetNodes` adds update availability, effective source, free disk space, and latest operation state. The UI starts with the Nodes page and later adds release-store and history views.
+
+The update flow includes release preparation. Target selection shows store availability by architecture, routes missing bundles to retrieval or chunked upload, and returns the operator to batch creation only after the required bundles verify successfully.
+
+### Pacing and outcomes
+
+The batch runner runs on the active Fleet instance. It updates one canary Node first, then starts waves. The proposed default is 10 Nodes per wave, with a server-wide maximum still to decide. A default wave of 10 bounds one batch's active download load to roughly 450 MB for current releases and avoids a strictly sequential rollout that could take a day or more on a large server. Concurrent batches need a shared server-wide cap so Fleet's total active download load does not grow with each batch.
+
+A batch stops starting new operations after the first failed or unconfirmed Node. Updates already in progress finish and are recorded. Disconnected Nodes are skipped when their turn arrives. Because batches and operations are stored before dispatch, a new active Fleet instance can resume after a restart or HA failover without starting duplicate operations.
+
+Outcomes are:
+
+- `succeeded`: the Node reconnects and reports the target version.
+- `failed`: the executor or installer reports failure other than a completed rollback.
+- `rolled_back`: the target failed to start and the previous version is running.
+- `unconfirmed`: the Node does not reconnect within the timeout after activation.
+- `rejected`: Fleet or the executor refuses the operation before installation starts.
+- `skipped`: the Node is disconnected when its turn arrives.
+
+### Records and observability
+
+Fleet records releases, host copies, batches, operations, and operation events. The schema should preserve records when a Node is revoked or deleted and when a release is removed. Phase 1 keeps records indefinitely; pruning policy is an open question.
+
+Fleet also writes activity-log events for releases added and removed, and for update batches requested and completed. Metrics cover outcomes, phase durations, Nodes behind Fleet's version, Node disk space, and release-store replication state. Structured logs include operation IDs.
+
+Nodes report free space for the filesystems that hold the program, daemon state, and executor work directory. Fleet uses that for display, alerting, and admission checks. The executor repeats the check before staging so a Node that filled up after its last heartbeat fails before the service stops. Current releases need about 450 MB for download, verified copy, unpacked candidate, and rollback space.
+
+## Pros and cons
+
+### Pros
+
+- Operators can update many Nodes without host logins.
+- Nodes do not need GitHub access or GitHub credentials.
+- Private release builds can be uploaded once and distributed through Fleet.
+- Fleet records who requested an update, what ran, and how it ended.
+- The Node, not Fleet, decides whether a release is trusted.
+- Existing staged installs, heartbeats, artifact downloads, and rollback behavior are reused.
+- HA deployments can resume batches after failover because release availability is checked before dispatch.
+
+### Costs and risks
+
+- Every Node gets a root component that must be secured and maintained.
+- Root custody, KMS setup, signing ceremonies, re-signing, and rotation drills become operational work.
+- Fleet serves release downloads, so waves must bound server load and shared-site bandwidth.
+- Replicated host files need a peer transfer path and reconciler. A future database backend would avoid that path but increase database size and backup cost.
+- Certificate checks depend on correct Node clocks.
+- Existing Nodes need one manual update before Fleet can update them.
+- Each update briefly interrupts Node telemetry and commands for that Node's miners.
+- The initial records are kept indefinitely unless a retention policy is added.
+
+## Failure behavior
+
+Most failures happen before the old daemon stops. Fleet rejects a Node if the release is missing, the Node is disconnected, the reported disk space is too low, the source is unsupported, or the Node lacks update capability. The executor rejects or fails before activation if the request is malformed, another operation is active, the repository pin does not match, free space is short, the download is corrupt, or signature verification fails.
+
+If the new version does not start, the existing installer rollback path restores the previous version and Fleet records the operation as rolled back. If the Node starts but never reconnects, Fleet marks the operation unconfirmed after the timeout and points the operator to host logs and local history. If Fleet restarts or fails over, the new active instance resumes stored batches and reconciles missed outcomes when Nodes reconnect.
+
+If a release installs, starts, and reconnects but later proves bad, recovery is a forward update to a newer signed repair release. The UI and runbook should guide operators to identify affected Nodes, prepare the repair release in the store, and apply that newer target. Downgrade remains out of scope.
 
 ## Alternatives considered
 
-- **Nodes download directly from GitHub.** Every Node needs GitHub access, private releases can't work without credentials on hosts, and update management stays scattered across hosts.
-- **An update URL configured on each Node at install time.** It duplicates the enrollment server, drifts when a Node is re-paired, and adds a setting most deployments never need.
-- **Fleet configures each Node's update source remotely.** A compromised Fleet could redirect every Node. Signatures would still protect integrity, but Nodes could be denied updates or sent to arbitrary hosts.
-- **Operator tooling only** (SSH scripts around the installer). It needs shell access to every host, gives no central progress, and keeps no audit trail.
-- **The daemon replaces itself.** This needs write access to `/opt/fleetnode` and service control for the `fleetnode` user, undoing its hardening.
-- **Fleet distributes unsigned bundles.** Fleet would choose code that runs as root on every Node.
-- **One long-lived signing key embedded in Nodes.** Every rotation needs a coordinated Node update, and recovering from a compromise is slow.
-- **Sigstore keyless signing with the public transparency log.** Private repository identities and artifact digests would be published publicly. Nodes would also need a trust root that changes over time, plus offline inclusion proofs.
-- **GitHub artifact attestations.** Verifying them needs GitHub's API or trust root, which Nodes don't have.
-- **GitHub credentials on Fleet servers** for retrieving private releases. That puts long-lived credentials on servers; upload covers private releases without them (see *Unresolved questions*).
-- **Activity log as the only record.** It's a good audit feed but lacks structured per-operation state and phase timelines for debugging.
-- **Gate on `CommandProtocolVersion`.** Support depends on the installed executor, not only on daemon code. Forks can also extend the command protocol independently, so version numbers aren't comparable across them.
-- **Store bundles in host-local file storage, as firmware is.** In HA deployments, an uploaded release would be missing on the other host after a failover, and resumed batches would stall (RFC 0002).
-- **Require shared object storage everywhere.** Simplest for deployments that have it, but on-premises installations often don't. It stays an optional backend.
-- **Strictly sequential batches.** Simple, but far too slow at the Node counts a single server is sized for.
-- **Reuse the firmware rollout engine.** It's built around miner release channels, model groups, and per-device provenance, which is far heavier than Nodes need.
+- **Nodes download directly from GitHub.** This leaves update management scattered across hosts and does not work for private release builds without host credentials.
+- **Configure an update URL on every Node.** This duplicates enrollment state and drifts when a Node is re-paired.
+- **Let Fleet change the Node's source remotely.** A compromised Fleet could redirect every Node, even if signatures still protect code integrity.
+- **Use SSH scripts around the installer.** Operators still need shell access to every host, and Fleet still lacks central progress and records.
+- **Let the daemon replace itself.** The unprivileged service would need write access to `/opt/fleetnode` and service-control power.
+- **Distribute unsigned bundles.** Fleet would choose code that runs as root on every Node.
+- **Use one long-lived signing key.** Rotation and compromise recovery would both require coordinated Node updates.
+- **Use public transparency-log signing.** Private repository identity and artifact digests would become public.
+- **Use GitHub artifact attestations.** Nodes would need GitHub API access or a changing trust root.
+- **Store bundles only in host-local files.** HA failover could move a batch to a host that lacks the uploaded release.
+- **Require shared object storage everywhere.** Some deployments do not have it.
+- **Run strictly sequential batches.** Large fleets would take too long to update.
+- **Reuse the firmware rollout engine.** It carries miner-specific release-channel and model-group concepts that Fleet Nodes do not need.
 
-## Unresolved questions
+## Open questions
 
-1. Key custody: which KMS holds the signing keys, which hardware holds the root keys, and who the root custodians are.
-2. Roots: one root shared by every publishing repository, for example upstream and a fork, with repository-scoped certificates? Or a separate root for each repository?
-3. Is a 13-month certificate lifetime with yearly rotation right?
-4. Should Fleet support credentialed retrieval of private releases, for example a read-only token in Fleet's settings, or is upload enough?
-5. Should Fleet prefetch the release matching its own version after it upgrades, and how many releases should the store keep?
-6. Should pin repair be an installer action, or a documented manual fix?
-7. Is 10 minutes the right unconfirmed timeout, and should a Node that never reconnects roll back automatically? The proposed default is no.
-8. Should targets newer than Fleet's own version be allowed? The proposed default is yes, when an operator selects them and the store holds them.
-9. How long should records be retained, and should events be pruned before operations?
-10. Should `fleetcli` expose updates, uploads, and history in phase 1?
-11. Which storage backend should each kind of deployment default to? Should firmware and command artifacts later use the same replication, which would settle RFC 0002's open question about artifacts in HA?
-12. What default wave size and server-wide maximum should batches use, and should waves also be limited per site or per shared source IP?
+1. Which KMS should hold signing keys, which hardware should hold root keys, and who are the root custodians?
+2. Should upstream and private fork releases share one root with repository-scoped certificates, or should each repository have its own root?
+3. Is a 13-month signing-certificate lifetime with yearly rotation right?
+4. Is upload enough for private releases, or should Fleet support credentialed retrieval with a read-only token?
+5. Should Fleet prefetch the release matching its own version after it upgrades?
+6. How many releases should the store keep by default?
+7. Should repository pin repair be an installer action or a documented manual fix?
+8. Is 10 minutes the right unconfirmed timeout, and should a Node that never reconnects roll back automatically? The proposed default is no automatic rollback beyond the installer's.
+9. Should Fleet allow a target newer than Fleet's own version? The proposed default is yes when the operator selects it and the store has it.
+10. How long should update records and event timelines be retained?
+11. Should `fleetcli` expose updates, uploads, and history in phase 1?
+12. Which storage backend should each deployment type default to, and should firmware and command artifacts later use the same replication path?
+13. What default wave size and server-wide maximum should batches use, and should waves also be limited by site or shared source IP? Options include allowing only one active batch at a time, sharing one server-wide active-download cap across all batches, and adding a per-site cap for Nodes behind the same source IP.
+14. What operator actions should Fleet expose after a batch stops on a failed or unconfirmed Node? The proposed default is explicit operator control: retry the failed Node with a new operation ID, skip it and continue the remaining Nodes, or cancel the batch. Fleet should not auto-continue after a failure.
 
-## Phased rollout
+## Rollout
 
-- **Phase 0, done.**
-  - **Goal:** safer manual updates and visible Node identity.
-  - **Scope:** staged installs, plus version and repository identity with heartbeat version reporting.
-  - **Behavior change:** operators can install without GitHub access and see Node versions on the Nodes page.
-- **Phase 1a: signing.**
-  - **Goal:** every release can be verified offline.
-  - **Scope:** root ceremony and signing keys; signing in release and nightly workflows; the verification library and `fleetnode release verify`; revocation list publishing; root recovery in the installer; the rotation runbook and CI drill. This can start immediately.
-  - **Behavior change:** releases gain `.sig` assets, and the installer verifies upgrades with the installed binary when it can.
-- **Phase 1b: executor.**
-  - **Goal:** a local, privileged, verifying install path.
-  - **Scope:** the executor and units, daemon fetching from a local-directory override for testing, packaging, installer changes, local history, and native qualification.
-  - **Behavior change:** signed releases include the executor; nothing triggers it remotely yet.
-- **Phase 1c: distribution.**
-  - **Goal:** Fleet distributes releases.
-  - **Scope:**
-    - the release store, with automatic retrieval, chunked upload, the storage backends, and the reconciler
-    - `ControlHello` identity, architecture, capability, trust state, and source
-    - the `update_node` command and the release artifact purpose
-    - heartbeat progress and free disk space
-    - the mirror override
-  - **Behavior change:** Fleet and Nodes can upgrade in either order. Older Fleet versions ignore the new fields, and Nodes that don't send them keep connecting.
-- **Phase 1d: records and UI.**
-  - **Goal:** operator-facing, auditable updates.
-  - **Scope:** the migration and records; the API, batch runner, and activity events; the releases and Nodes pages and history; documentation; the pin repair action.
-  - **Behavior change:** operators upload or retrieve releases, update Nodes from Fleet, and can audit every update.
-- **Phase 2, optional.**
-  - **Goal:** larger fleets.
-  - **Scope:** maintenance windows, multi-site scheduling, and offering Node updates automatically when Fleet itself is upgraded.
-  - **Behavior change:** to be decided.
+- **Phase 0, done:** safer manual updates and visible Node identity. Operators can stage releases without GitHub access, and Fleet shows Node versions.
+- **Phase 1a, signing:** root ceremony, signing keys, signed release assets, `fleetnode release verify`, revocation lists, root recovery in the installer, a rotation runbook, and a CI rotation drill.
+- **Phase 1b, executor:** root executor, socket and service units, packaging changes, local-directory testing, local history, and native qualification on supported architectures.
+- **Phase 1c, distribution:** release store, retrieval, chunked upload, replicated host files, optional shared object storage, reconciler, Node capability fields, `update_node`, release artifact purpose, mirror source, progress heartbeats, and disk-space reporting.
+- **Phase 1d, records and UI:** migrations, API, batch runner, activity events, metrics, release-store UI, Nodes page actions, history views, documentation, and pin repair.
+- **Phase 2, optional:** maintenance windows, multi-site scheduling, and prompts to update Nodes after Fleet itself upgrades.
+
+## Validation
+
+The implementation should prove these behaviors before phase 1 ships:
+
+- Signing rejects tampered archives, wrong repository scope, wrong architecture, version mismatch, expired certificates, not-yet-valid certificates, revoked keys, unknown roots, and stale revocation lists.
+- Rotation drills cover a second signing key, a second root, and recovery from a compromised root with an independently supplied fingerprint.
+- Update source defaults to the enrolled server, follows re-pairing, accepts only root-owned overrides, and cannot be changed by Fleet.
+- Release-store tests cover retrieval, chunked upload, ingest rejection, retention, replicated host files, shared object storage, reconciliation, peer fetch authorization, HA availability, and failover after upload.
+- Disk-space checks cover heartbeat reporting, Fleet admission, and executor failure before staging.
+- Front-end tests cover chunked upload through request-size limits, release download through an idle-timeout path, and waves from Nodes sharing a source IP.
+- Executor and installer tests cover request parsing, file descriptor handling, version policy, repository checks, status, local history, units, rollback, and root recovery.
+- Compatibility tests prove old Nodes keep connecting to a new Fleet server and new Nodes can connect to an older server.
+- Native qualification updates a physical arm64 Node and an amd64 VM from Fleet, from a mirror, and from a local directory.
+- Scale tests update hundreds of simulated Nodes and measure duration, Fleet throughput, and database load.
