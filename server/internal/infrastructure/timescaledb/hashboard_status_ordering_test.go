@@ -20,7 +20,7 @@ func TestHashboardStatusFollowsAcceptedCollectionOrder(t *testing.T) {
 		if state == sdk.MinerStatusError {
 			board.HealthJSON = json.RawMessage(`{"errors":[{"cause":"BOARD_OVER_TEMPERATURE"}]}`)
 		}
-		snapshot := &sdk.ContainerSnapshot{ObservedAt: at, TopologyComplete: true, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, State: state, ObservedAt: board.StateObservedAt, Hashboards: []sdk.ContainerHashboard{board}}}}}}
+		snapshot := &sdk.ContainerSnapshot{ObservedAt: at, TopologyComplete: true, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, ReportedID: "psu-0", State: state, ObservedAt: board.StateObservedAt, Hashboards: []sdk.ContainerHashboard{board}}}}}}
 		require.NoError(t, r.store.StoreDeviceMetrics(t.Context(), modelsV2.DeviceMetrics{DeviceIdentifier: r.deviceID, Timestamp: at, Health: modelsV2.HealthHealthyActive, Container: snapshot}))
 	}
 	poll(10*time.Second, 5*time.Second, 10*time.Second, sdk.MinerStatusActive)
@@ -55,7 +55,7 @@ func TestUnknownHashboardRetainsFreshIssues(t *testing.T) {
 	board.State, board.StateObservedAt, board.ObservedAt = sdk.MinerStatusUnknown, time.Time{}, at
 	board.HealthJSON = json.RawMessage(`{"errors":[{"cause":"ASIC_ENUMERATION"}]}`)
 	issues := &sdk.ContainerModuleIssues{ObservedAt: at, Complete: false, SourceTimes: map[string]time.Time{"hashboard:a": at}, Items: []sdk.ContainerModuleIssue{{Component: "hashboard", ComponentID: "a", Cause: "ASIC_ENUMERATION", Severity: "fault", ObservedAt: at}}}
-	snapshot := &sdk.ContainerSnapshot{ObservedAt: at, TopologyComplete: true, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, State: sdk.MinerStatusUnknown, Issues: issues, Hashboards: []sdk.ContainerHashboard{board}}}}}}
+	snapshot := &sdk.ContainerSnapshot{ObservedAt: at, TopologyComplete: true, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, ReportedID: "psu-0", State: sdk.MinerStatusUnknown, Issues: issues, Hashboards: []sdk.ContainerHashboard{board}}}}}}
 	require.NoError(t, r.store.StoreDeviceMetrics(t.Context(), modelsV2.DeviceMetrics{DeviceIdentifier: r.deviceID, Timestamp: at, Health: modelsV2.HealthHealthyActive, Container: snapshot}))
 	current := r.read(t)[0].Slots[0].Board
 	require.Equal(t, "unknown", current.State)

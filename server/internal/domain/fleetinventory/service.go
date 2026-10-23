@@ -33,12 +33,17 @@ type Store interface {
 	GetHistoryResolution(ctx context.Context, params sqlc.GetHistoryResolutionParams) (int32, error)
 	TankStore
 	HashboardStore
+	ModuleHistoryStore
 	ListFleetInventoryOptions(ctx context.Context, params sqlc.ListFleetInventoryOptionsParams) (sqlc.ListFleetInventoryOptionsRow, error)
 	ListContainers(ctx context.Context, params sqlc.ListContainersParams) ([]sqlc.ListContainersRow, error)
 	ListFleetFacilities(ctx context.Context, params sqlc.ListFleetFacilitiesParams) (sqlc.ListFleetFacilitiesRow, error)
 	ListFleetEquipmentGroups(ctx context.Context, params sqlc.ListFleetEquipmentGroupsParams) (sqlc.ListFleetEquipmentGroupsRow, error)
 	ListFleetMiningAssets(ctx context.Context, params sqlc.ListFleetMiningAssetsParams) (sqlc.ListFleetMiningAssetsRow, error)
+}
+
+type ModuleHistoryStore interface {
 	GetContainerModuleScope(ctx context.Context, params sqlc.GetContainerModuleScopeParams) (sqlc.GetContainerModuleScopeRow, error)
+	CanReadContainerModuleHistory(ctx context.Context, params sqlc.CanReadContainerModuleHistoryParams) (bool, error)
 	ListContainerModuleHistory(ctx context.Context, params sqlc.ListContainerModuleHistoryParams) ([]sqlc.ListContainerModuleHistoryRow, error)
 }
 
@@ -261,14 +266,22 @@ func (s *Service) History(ctx context.Context, orgID int64, req *pb.ListModuleHi
 	if req == nil || req.ModuleId <= 0 || req.StartTime == nil || req.EndTime == nil || req.StartTime.CheckValid() != nil || req.EndTime.CheckValid() != nil || !req.StartTime.AsTime().Before(req.EndTime.AsTime()) || req.PageSize < 0 || req.PageSize > 1000 {
 		return nil, fleeterror.NewInvalidArgumentError("invalid module history request")
 	}
-	resource, err := s.store.GetContainerModuleScope(ctx, sqlc.GetContainerModuleScopeParams{ModuleID: req.ModuleId, OrgID: orgID})
+	_, err := s.store.GetContainerModuleScope(ctx, sqlc.GetContainerModuleScopeParams{ModuleID: req.ModuleId, OrgID: orgID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fleeterror.NewNotFoundError("module not found")
 	}
 	if err != nil {
 		return nil, err
 	}
-	if !allows(scopes, resource.SiteID) {
+	authority, err := marshalScopes(scopes)
+	if err != nil {
+		return nil, err
+	}
+	allowed, err := s.store.CanReadContainerModuleHistory(ctx, sqlc.CanReadContainerModuleHistoryParams{ModuleID: req.ModuleId, OrgID: orgID, Authority: authority})
+	if err != nil {
+		return nil, err
+	}
+	if !allowed {
 		return nil, fleeterror.NewForbiddenError("module history is not accessible")
 	}
 	keyRequest, ok := proto.Clone(req).(*pb.ListModuleHistoryRequest)
@@ -292,10 +305,6 @@ func (s *Service) History(ctx context.Context, orgID int64, req *pb.ListModuleHi
 	size := req.PageSize
 	if size == 0 {
 		size = 50
-	}
-	authority, err := marshalScopes(scopes)
-	if err != nil {
-		return nil, err
 	}
 	rows, err := s.store.ListContainerModuleHistory(ctx, sqlc.ListContainerModuleHistoryParams{ResolutionSeconds: resolution, ModuleID: req.ModuleId, OrgID: orgID, Authority: authority, StartTime: req.StartTime.AsTime(), EndTime: req.EndTime.AsTime(), PageLimit: size + 1, HasCursor: req.PageToken != "", AfterTime: cursor.Time, AfterCollectedAt: cursor.CollectedAt})
 	if err != nil {

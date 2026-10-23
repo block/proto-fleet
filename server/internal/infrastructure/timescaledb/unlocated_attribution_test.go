@@ -46,6 +46,7 @@ func TestUnlocatedFirstPlacementExcludesPriorSiteDiagnostics(t *testing.T) {
 	move(siteA)
 	poll(0, 0, 0, false)
 	move(siteB)
+	postMove := time.Now().UTC().Add(100 * time.Millisecond).Truncate(time.Microsecond).Sub(r.base)
 	reader := fleetinventory.NewService(sqlc.New(r.db))
 	var moduleID, boardID int64
 	read := func() *pb.HashboardReading {
@@ -56,7 +57,7 @@ func TestUnlocatedFirstPlacementExcludesPriorSiteDiagnostics(t *testing.T) {
 		return response.Modules[0].Slots[0].Board
 	}
 	history := func() []*pb.HashboardReading {
-		response, err := reader.HashboardHistory(t.Context(), org, &pb.ListHashboardHistoryRequest{HashboardId: boardID, StartTime: timestamppb.New(r.base.Add(-time.Second)), EndTime: timestamppb.New(r.base.Add(time.Minute))}, []fleetinventory.Scope{{Sites: []int64{siteB}}})
+		response, err := reader.HashboardHistory(t.Context(), org, &pb.ListHashboardHistoryRequest{HashboardId: boardID, StartTime: timestamppb.New(r.base.Add(-time.Second)), EndTime: timestamppb.New(r.base.Add(postMove + time.Second))}, []fleetinventory.Scope{{Sites: []int64{siteB}}})
 		require.NoError(t, err)
 		return response.Samples
 	}
@@ -72,7 +73,7 @@ func TestUnlocatedFirstPlacementExcludesPriorSiteDiagnostics(t *testing.T) {
 		}
 	}
 	// First placement and repeated cached polls must not inherit the initial-discovery exception.
-	for _, at := range []time.Duration{time.Second, 2 * time.Second} {
+	for _, at := range []time.Duration{postMove, postMove + 10*time.Millisecond} {
 		s := poll(at, 0, 0, true)
 		require.NoError(t, r.db.QueryRowContext(t.Context(), "SELECT id FROM container_module").Scan(&moduleID))
 		require.NoError(t, r.db.QueryRowContext(t.Context(), "SELECT id FROM hashboard").Scan(&boardID))
@@ -91,19 +92,19 @@ func TestUnlocatedFirstPlacementExcludesPriorSiteDiagnostics(t *testing.T) {
 		require.Equal(t, r.base, source.UTC())
 	}
 	// Fresh health cannot make old state/diagnostics current.
-	poll(3*time.Second, 3*time.Second, 0, true)
+	poll(postMove+20*time.Millisecond, postMove+20*time.Millisecond, 0, true)
 	require.NotNil(t, read().HashrateHs)
 	assertNoState(read())
 	rows := history()
 	require.Len(t, rows, 1)
 	assertNoState(rows[0])
 	// Conversely, fresh state remains useful while cached health is withheld.
-	poll(4*time.Second, 0, 4*time.Second, true)
+	poll(postMove+30*time.Millisecond, 0, postMove+30*time.Millisecond, true)
 	require.Nil(t, read().HashrateHs)
 	require.Nil(t, read().Health)
 	require.Equal(t, "error", read().State)
 	require.Len(t, history(), 1)
-	poll(5*time.Second, 5*time.Second, 5*time.Second, true)
+	poll(postMove+40*time.Millisecond, postMove+40*time.Millisecond, postMove+40*time.Millisecond, true)
 	require.NotNil(t, read().HashrateHs)
 	require.NotNil(t, read().Health)
 	require.Equal(t, "error", read().State)

@@ -55,6 +55,49 @@ The SDK reserves an ID during creation and rejected-result cleanup, returning a
 retryable close error while either is running. IDs being closed cannot be reused
 until cleanup succeeds.
 
+## CT1 module identity
+
+CT1 modules use the PSU-derived `hashboard.moduleId` from the firmware map,
+not `hashboard.psuIdentifier`. `container_module_identity.reported_module_id`
+stores that firmware value; `module_id` references Fleet's own numeric module ID.
+The lookup is scoped by organization to keep each organization's records isolated.
+`container_module_identity` maps that identity to a durable Fleet module ID;
+moving between positions, tanks, or controllers preserves it. Replacing boards
+under the same PSU changes membership, while replacing the PSU creates another
+module identity. Board identities remain independent in both cases.
+
+Missing, malformed, duplicate, or conflicting PSU claims leave an unresolved
+positional record with an empty `reported_id` and unknown state. Such records
+cannot receive module measurements or enable module commands. They are never
+promoted into a PSU identity. Independently identified board observations still
+pass through normal board reconciliation and telemetry storage. The plugin also
+preserves valid board readings when only the PSU identity is conflicting.
+Nonblank PSU IDs with surrounding whitespace are rejected; firmware IDs used in
+commands otherwise retain their exact spelling.
+
+An active claim from another controller conflicts until explicitly removed or
+unseen for two minutes. Conflicts withdraw command eligibility. Delayed polls
+cannot change newer identity or placement evidence. Commands revalidate the
+controller, PSU, position, and live firmware scope before execution.
+
+`container_module_placement` records observed placement intervals. Board
+installations retain their original controller, tank, module position, and site.
+Module history filters samples by their recorded site, so moving a PSU cannot
+authorize its old site's readings at the new site. Cached source readings from
+before a placement change remain unavailable there, including on subsequent
+polls; independently fresh board readings can still contribute.
+Placement changes withdraw current module readings while retaining their source
+watermarks. Site reassignment also withdraws state and command confirmation and
+advances the controller's inventory watermark, so a delayed pre-assignment poll
+cannot restore readings under the new site's authority. Retiring or deleting a
+controller does not remove authorized access to retained module history.
+
+Migration 1038 preserves all legacy module IDs and measurements. A unique legacy
+PSU claim maps to its existing record. Duplicate claims, including retired
+records, retain their IDs in `legacy_module_ids` with a null canonical `module_id`;
+new polls cannot silently choose or merge them. The migration establishes current
+placement evidence only from its upgrade boundary.
+
 ## Firmware reboot reconciliation
 
 Proto miner telemetry clears `REBOOT_REQUIRED` when sampled uptime proves the

@@ -55,7 +55,7 @@ func TestContainerReadIncludesChildrenWithoutRackPermission(t *testing.T) {
 	hashrate := 300e12
 	require.NoError(t, store.StoreDeviceMetrics(ctx, telemetry.DeviceMetrics{DeviceIdentifier: d.DeviceIdentifier, Timestamp: now, Container: &sdk.ContainerSnapshot{
 		ObservedAt: now, TopologyComplete: true, Metrics: &sdk.ContainerRollup{}, Tanks: []sdk.ContainerTank{
-			{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, State: sdk.MinerStatusActive, ObservedAt: now, Metrics: &sdk.ContainerModuleMetrics{ObservedAt: now, HashrateHS: &hashrate}, Hashboards: []sdk.ContainerHashboard{{Position: 1, Occupancy: "occupied", MACAddress: "board-a", State: sdk.MinerStatusActive, ObservedAt: now, StateObservedAt: now, HashrateHS: &hashrate}}}}},
+			{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, ReportedID: "module-a", State: sdk.MinerStatusActive, ObservedAt: now, Metrics: &sdk.ContainerModuleMetrics{ObservedAt: now, HashrateHS: &hashrate}, Hashboards: []sdk.ContainerHashboard{{Position: 1, Occupancy: "occupied", MACAddress: "board-a", State: sdk.MinerStatusActive, ObservedAt: now, StateObservedAt: now, HashrateHS: &hashrate}}}}},
 			{Position: 2},
 		},
 	}}))
@@ -198,8 +198,12 @@ func TestContainerReadIncludesChildrenWithoutRackPermission(t *testing.T) {
 		require.NoError(t, err)
 		require.Zero(t, response.Msg.TotalCount, "child permissions must follow the container after a site move")
 	}
-	_, err = handler.ListModuleHistory(authorized, historyRequest)
-	require.True(t, fleeterror.IsForbiddenError(err), "history must follow the container's current site, got %v", err)
+	historyAfterMove, err := handler.ListModuleHistory(authorized, historyRequest)
+	require.NoError(t, err)
+	require.Equal(t, history.Msg.Samples, historyAfterMove.Msg.Samples, "module history remains accessible at its recorded site")
+	destinationHistory, err := handler.ListModuleHistory(withPermissions(read, other.ID), historyRequest)
+	require.NoError(t, err)
+	require.Empty(t, destinationHistory.Msg.Samples, "moving a controller must not expose its previous site's module history")
 	_, err = handler.GetTankHistory(authorized, tankHistoryRequest)
 	require.True(t, fleeterror.IsForbiddenError(err), "tank history follows current site: %v", err)
 

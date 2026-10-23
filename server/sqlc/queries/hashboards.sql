@@ -33,18 +33,24 @@ WITH input AS MATERIALIZED (
 SELECT x.id::bigint AS id, x.mac_address::text AS mac_address, x.serial::text AS serial FROM input x JOIN boards b ON b.id=x.id;
 
 
+-- Include installations on modules that moved to this controller, even when
+-- their old boards are absent from the new map. Keep i.device_id as the original
+-- placement evidence so reconciliation can close, rather than rewrite, them.
 -- name: GetHashboardInstallations :many
-SELECT i.*, t.device_id, h.last_seen_at AS board_last_seen_at,
+SELECT i.*, h.last_seen_at AS board_last_seen_at,
  EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id
    AND (prior.installed_at,prior.id)<(i.installed_at,i.id)) AS has_prior_installation
 FROM hashboard_installation i JOIN hashboard h ON h.id=i.hashboard_id
-JOIN container_module m ON m.id=i.module_id JOIN container_tank t ON t.id=m.tank_id
 WHERE h.org_id=sqlc.arg('org_id') AND i.removed_at IS NULL
-AND (t.device_id=sqlc.arg('device_id') OR i.hashboard_id=ANY(sqlc.arg('board_ids')::bigint[]));
+AND (i.device_id=sqlc.arg('device_id') OR i.hashboard_id=ANY(sqlc.arg('board_ids')::bigint[])
+ OR EXISTS (
+  SELECT 1 FROM container_module m JOIN container_tank t ON t.id=m.tank_id
+  WHERE m.id=i.module_id AND t.device_id=sqlc.arg('device_id')
+ ));
 
 
 -- name: ListHashboardModules :many
-SELECT m.id, m.position, m.retired_at, t.position AS tank_position, d.site_id
+SELECT m.id, m.tank_id, m.position, m.retired_at, t.position AS tank_position, d.site_id
 FROM container_module m JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id
 WHERE t.device_id=sqlc.arg('device_id');
 
@@ -133,7 +139,7 @@ WHERE hashboard_observation.last_seen_at<=EXCLUDED.last_seen_at;
 -- name: ReleaseHashboardObservations :exec
 UPDATE hashboard_observation SET released_at=sqlc.arg('observed_at')::timestamptz,
  last_seen_at=sqlc.arg('observed_at')::timestamptz
-WHERE device_id=sqlc.arg('device_id') AND last_seen_at<sqlc.arg('observed_at')::timestamptz
+WHERE hashboard_observation.device_id=sqlc.arg('device_id') AND last_seen_at<sqlc.arg('observed_at')::timestamptz
  AND hashboard_id IN (SELECT hashboard_id FROM hashboard_installation WHERE id=ANY(sqlc.arg('installation_ids')::bigint[]));
 
 -- name: InsertHashboardDiagnosticObservations :exec

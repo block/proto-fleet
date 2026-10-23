@@ -500,6 +500,18 @@ func (q *retryingQuerier) BumpCurtailmentTargetRetry(ctx context.Context, arg Bu
 	return result, err
 }
 
+func (q *retryingQuerier) CanReadContainerModuleHistory(ctx context.Context, arg CanReadContainerModuleHistoryParams) (bool, error) {
+	var result bool
+	err := q.retrier.RetryQuery(ctx, "CanReadContainerModuleHistory", func() error {
+		callResult, callErr := q.next.CanReadContainerModuleHistory(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) CanReadHashboardHistory(ctx context.Context, arg CanReadHashboardHistoryParams) (bool, error) {
 	var result bool
 	err := q.retrier.RetryQuery(ctx, "CanReadHashboardHistory", func() error {
@@ -2658,6 +2670,18 @@ func (q *retryingQuerier) GetContainerIdentifiersForCommands(ctx context.Context
 	var result []string
 	err := q.retrier.RetryQuery(ctx, "GetContainerIdentifiersForCommands", func() error {
 		callResult, callErr := q.next.GetContainerIdentifiersForCommands(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
+func (q *retryingQuerier) GetContainerModuleIdentities(ctx context.Context, arg GetContainerModuleIdentitiesParams) ([]GetContainerModuleIdentitiesRow, error) {
+	var result []GetContainerModuleIdentitiesRow
+	err := q.retrier.RetryQuery(ctx, "GetContainerModuleIdentities", func() error {
+		callResult, callErr := q.next.GetContainerModuleIdentities(ctx, arg)
 		if callErr == nil {
 			result = callResult
 		}
@@ -9846,6 +9870,12 @@ func (q *retryingQuerier) UpsertReleaseChannelSetting(ctx context.Context, arg U
 		return callErr
 	})
 	return result, err
+}
+
+func (q *retryingQuerier) WithdrawContainerModuleIdentities(ctx context.Context, moduleIds []int64) error {
+	return q.retrier.RetryQuery(ctx, "WithdrawContainerModuleIdentities", func() error {
+		return q.next.WithdrawContainerModuleIdentities(ctx, moduleIds)
+	})
 }
 
 func (q *retryingQuerier) WithdrawHashboardReadings(ctx context.Context, arg WithdrawHashboardReadingsParams) error {

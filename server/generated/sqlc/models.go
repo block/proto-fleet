@@ -656,6 +656,13 @@ type ContainerModuleDiagnosticObservation struct {
 	Issues           pqtype.NullRawMessage
 }
 
+type ContainerModuleIdentity struct {
+	OrgID            int64
+	ReportedModuleID string
+	ModuleID         sql.NullInt64
+	LegacyModuleIds  []int64
+}
+
 type ContainerModuleLatestMetric struct {
 	ModuleID     int64
 	Time         time.Time
@@ -749,6 +756,16 @@ type ContainerModuleMetricsHourly struct {
 	EfficiencyReporting  interface{}
 	EfficiencyExpected   interface{}
 	EfficiencyComplete   bool
+}
+
+type ContainerModulePlacement struct {
+	ID        int64
+	ModuleID  int64
+	TankID    int64
+	Position  int32
+	SiteID    sql.NullInt64
+	StartedAt time.Time
+	EndedAt   sql.NullTime
 }
 
 type ContainerPlantMetric struct {
@@ -1720,15 +1737,18 @@ type HashboardIdentity struct {
 }
 
 type HashboardInstallation struct {
-	ID          int64
-	HashboardID int64
-	ModuleID    int64
-	Position    int32
-	SiteID      sql.NullInt64
-	InstalledAt time.Time
-	LastSeenAt  time.Time
-	RemovedAt   sql.NullTime
-	Metadata    json.RawMessage
+	ID             int64
+	HashboardID    int64
+	ModuleID       int64
+	Position       int32
+	SiteID         sql.NullInt64
+	InstalledAt    time.Time
+	LastSeenAt     time.Time
+	RemovedAt      sql.NullTime
+	Metadata       json.RawMessage
+	DeviceID       int64
+	TankID         int64
+	ModulePosition int32
 }
 
 type HashboardLatestMetric struct {

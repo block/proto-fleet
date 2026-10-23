@@ -30,9 +30,10 @@ func TestMalformedBoardRetainsModuleIdentityConflict(t *testing.T) {
 			require.Nil(t, module.Metrics.PowerW, "disputed hardware must not contribute measurements")
 			require.Empty(t, module.ReportedID)
 			require.False(t, module.IdentityConfirmed)
-			for _, board := range module.Hashboards {
-				require.Equal(t, sdk.HashboardIdentityConflict, board.UnavailableReason)
-			}
+			require.Equal(t, "occupied", module.Hashboards[0].Occupancy)
+			require.Empty(t, module.Hashboards[0].UnavailableReason)
+			require.Equal(t, sdk.HashboardInvalidObservation, module.Hashboards[1].UnavailableReason)
+			require.Equal(t, "empty", module.Hashboards[2].Occupancy)
 		})
 	}
 }

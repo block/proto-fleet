@@ -171,6 +171,11 @@ func TestContainerSummariesPreserveSiteBoundariesAndMissingValues(t *testing.T) 
 			r.store(t, r.snapshot(time.Hour+10*time.Second, false, 300e12, 200e12))
 			_, err = r.db.ExecContext(t.Context(), `UPDATE device SET site_id=$2 WHERE id=$1`, r.databaseID, siteB)
 			require.NoError(t, err)
+			// This fixture deliberately builds old history after changing sites. Put
+			// the inventory clock back at the last staged observation so those
+			// historical samples remain ordered within the synthetic timeline.
+			_, err = r.db.ExecContext(t.Context(), `UPDATE container_inventory SET observed_at=$2 WHERE device_id=$1`, r.databaseID, r.base.Add(time.Hour+10*time.Second))
+			require.NoError(t, err)
 			missing := r.snapshot(time.Hour+20*time.Second, false, 500e12, 200e12)
 			for _, rollup := range []*sdk.ContainerRollup{missing.Metrics, missing.Tanks[0].Metrics, missing.Tanks[0].Modules[0].Metrics.Rollup} {
 				rollup.PowerW, rollup.EfficiencyJH = nil, nil

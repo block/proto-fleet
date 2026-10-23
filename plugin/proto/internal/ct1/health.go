@@ -278,16 +278,8 @@ func snapshot(wire MapResponse, now time.Time) (*sdk.ContainerSnapshot, error) {
 				state = sdk.MinerStatusUnknown
 				reportedID = ""
 				out.TopologyComplete = false
-				for i := range hashboards {
-					board := hashboards[i]
-					rejected := sdk.UnavailableHashboard(board.Position, sdk.HashboardIdentityConflict)
-					rejected.Feed, rejected.IdentityClaims = board.Feed, board.IdentityClaims
-					// Rejected placements still veto another slot claiming a known alias.
-					if board.MACAddress != "" || board.Serial != "" {
-						rejected.IdentityClaims = append(rejected.IdentityClaims, sdk.HashboardIdentityClaim{MACAddress: board.MACAddress, Serial: board.Serial})
-					}
-					hashboards[i] = rejected
-				}
+				// PSU identity does not determine board identity. Keep independently
+				// validated board readings, but withhold this module's shared metrics.
 				boards = nil
 			}
 			out.Modules = append(out.Modules, sdk.ContainerModule{Position: m.ID, ReportedID: reportedID, IdentityConfirmed: reportedID != "" && !identityUnavailable, State: state, ObservedAt: moduleObservedAt(boards, state, now), Metrics: moduleMetrics(boards, now), Hashboards: hashboards, Issues: moduleIssuesWithBudget(boards, now, identityConflict, &issuesBudget)})
