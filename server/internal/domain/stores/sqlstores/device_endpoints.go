@@ -18,6 +18,13 @@ import (
 
 var errAmbiguousDeviceEndpoints = errors.New("multiple saved devices match this endpoint group; resolve duplicate inventory before pairing")
 var errPairedDeviceEndpoints = errors.New("paired device endpoints cannot change during discovery; unpair the device before changing its addresses")
+var errDeviceEndpointGroupRequired = errors.New("discovery report is missing the saved device endpoint group; use endpoint-aware discovery")
+
+// A report batch can touch both groups and legacy rows in any order. Serialize
+// only its database writes with direct discovery before taking finer locks.
+func lockEndpointDiscoveryTransaction(ctx context.Context, q sqlc.Querier, orgID int64) error {
+	return q.LockEndpointDiscovery(ctx, fmt.Sprintf("endpoint-discovery:%d", orgID))
+}
 
 func lockEndpointDiscoveryInventory(ctx context.Context, q sqlc.Querier, existing sqlc.DiscoveredDevice) (sqlc.DiscoveredDevice, bool, error) {
 	if _, err := q.LockEndpointDiscoveryDevices(ctx, sqlc.LockEndpointDiscoveryDevicesParams{OrgID: existing.OrgID, DiscoveredDeviceID: existing.ID}); err != nil {
@@ -74,10 +81,16 @@ func guardLegacyEndpointDiscovery(ctx context.Context, q sqlc.Querier, orgID int
 		return nil
 	}
 	existing, paired, err := lockEndpointDiscoveryInventory(ctx, q, existing)
-	if err != nil || !paired {
+	if err != nil {
 		return err
 	}
-	if existing.EndpointKey != "" || existing.IpAddress != host || existing.RpcPort != rpcPort || existing.RpcTls != rpcTLS {
+	if existing.EndpointKey != "" {
+		return errDeviceEndpointGroupRequired
+	}
+	if !paired {
+		return nil
+	}
+	if existing.IpAddress != host || existing.RpcPort != rpcPort || existing.RpcTls != rpcTLS {
 		return errPairedDeviceEndpoints
 	}
 	if rpcPort == 0 && (existing.Port != port || existing.UrlScheme != scheme) {
@@ -173,10 +186,12 @@ func reconcileDeviceEndpoints(ctx context.Context, q sqlc.Querier, criteria sqlc
 			}
 			candidate.Port, candidate.UrlScheme = port, existing.UrlScheme
 		}
-		// A verified identity at this address disproves the retained peer address.
+		// Drop an unverified legacy default at the scanned host instead of guessing
+		// which explicit RPC port it means. A separate peer must be scanned again.
 		for id, previous := range byID {
-			if id != e.Id && previous.Host == candidate.Host && previous.RpcPort == candidate.RpcPort &&
-				(candidate.RpcPort != 0 || previous.Port == candidate.Port) {
+			sameAddress := previous.RpcPort == candidate.RpcPort && (candidate.RpcPort != 0 || previous.Port == candidate.Port)
+			unknownLegacyAddress := previous.RpcPort == 0 && candidate.RpcPort != 0
+			if id != e.Id && previous.Host == candidate.Host && (sameAddress || unknownLegacyAddress) {
 				delete(byID, id)
 			}
 		}

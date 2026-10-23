@@ -60,7 +60,7 @@ func TestEquipmentControlRequiresLiveSupportAndExplicitState(t *testing.T) {
 			require.NoError(t, err)
 			dev, err := NewDevice(t.Context(), "ct1", sdk.DeviceInfo{Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
 			require.NoError(t, err)
-			defer dev.client.Close()
+			defer dev.Close(t.Context())
 			err = dev.SetContainerControl(t.Context(), sdk.ContainerControlRequest{Name: tc.control, Enabled: tc.enabled})
 			if tc.reject {
 				require.Error(t, err)
@@ -107,7 +107,7 @@ func TestEquipmentWriteFailureIsNotRetried(t *testing.T) {
 			require.NoError(t, err)
 			dev, err := NewDevice(t.Context(), "ct1", sdk.DeviceInfo{Host: u.Hostname(), Port: 8080, RPCPort: int32(port), URLScheme: u.Scheme}, sdk.UsernamePassword{})
 			require.NoError(t, err)
-			defer dev.client.Close()
+			defer dev.Close(t.Context())
 			ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 			defer cancel()
 			err = dev.SetContainerControl(ctx, sdk.ContainerControlRequest{Name: "dry_cooler", Enabled: new(false)})

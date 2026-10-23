@@ -225,7 +225,18 @@ func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin,
 		return err
 	}
 
-	discoveredDevice.Endpoints = deviceendpoints.FromSDK(updatedDeviceInfo.Endpoints)
+	if len(updatedDeviceInfo.Endpoints) > 0 {
+		updatedKey, err := sdk.DeviceEndpointKey(updatedDeviceInfo.Endpoints)
+		if err != nil {
+			return fleeterror.NewFailedPreconditionError("pairing returned invalid device endpoints; discover the device again before pairing")
+		}
+		savedKey, err := deviceendpoints.Key(discoveredDevice.Endpoints)
+		if err != nil || savedKey == "" || savedKey != updatedKey {
+			return fleeterror.NewFailedPreconditionError("device endpoint group changed; discover the device again before pairing")
+		}
+	}
+	// Pairing owns identity and credentials. Only discovery may reconcile and
+	// persist endpoint groups, using its inventory locks and ambiguity checks.
 	discoveredDevice.SerialNumber = updatedDeviceInfo.SerialNumber
 	discoveredDevice.MacAddress = networking.NormalizeMAC(updatedDeviceInfo.MacAddress)
 	discoveredDevice.Model = updatedDeviceInfo.Model
@@ -700,6 +711,9 @@ func isDefaultPasswordActiveFailure(err error) bool {
 // recognize codes.Unauthenticated here — otherwise credential drift falls
 // through to InternalError and AUTHENTICATION_NEEDED remediation never fires.
 func classifyPairingDriverError(err error, prefix string) error {
+	if fleeterror.IsFailedPreconditionError(err) {
+		return err
+	}
 	if isDefaultPasswordActiveFailure(err) {
 		return fleeterror.NewForbiddenErrorf("%s: %v", prefix, err)
 	}

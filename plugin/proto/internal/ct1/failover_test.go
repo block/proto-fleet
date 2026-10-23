@@ -22,6 +22,7 @@ type haServer struct {
 	mdk.UnimplementedPowerServiceServer
 	mdk.UnimplementedHashboardServiceServer
 	id, peer       string
+	peerOverride   atomic.Pointer[string]
 	primary        atomic.Bool
 	writes         atomic.Int32
 	uncertain      atomic.Bool
@@ -66,7 +67,11 @@ func (s *haServer) GetSystemInfo(ctx context.Context, _ *mdk.GetSystemInfoReques
 	return &mdk.GetSystemInfoResponse{Info: &mdk.SystemInfo{Id: s.id, Product: "Frigate", Model: "CT1"}}, nil
 }
 func (s *haServer) GetServerUpdateSupport(context.Context, *mdk.GetServerUpdateSupportRequest) (*mdk.GetServerUpdateSupportResponse, error) {
-	return &mdk.GetServerUpdateSupportResponse{InstanceId: s.id, PeerInstanceId: s.peer}, nil
+	peer := s.peer
+	if override := s.peerOverride.Load(); override != nil {
+		peer = *override
+	}
+	return &mdk.GetServerUpdateSupportResponse{InstanceId: s.id, PeerInstanceId: peer}, nil
 }
 func (s *haServer) GetSystemStatus(ctx context.Context, _ *mdk.GetSystemStatusRequest) (*mdk.GetSystemStatusResponse, error) {
 	if s.statusDelay > 0 {
@@ -128,7 +133,7 @@ func TestHALegacyDefaultRPCPort(t *testing.T) {
 	require.Len(t, verified.Endpoints, 1)
 	require.Equal(t, DefaultRPCPort, verified.Endpoints[0].RPCPort)
 	require.Equal(t, []string{"a", "b"}, verified.Endpoints[0].MemberIDs)
-	d := &Device{id: "legacy", info: verified, client: c, clients: []*Client{c}}
+	d := &Device{id: "legacy", info: verified, clients: []*Client{c}}
 	selected, ha, err := d.probeControllers(t.Context(), false)
 	require.NoError(t, err)
 	require.Same(t, c, selected.client)
@@ -160,7 +165,7 @@ func TestHASavedDefaultRPCPortSelectsPrimary(t *testing.T) {
 	require.NoError(t, err)
 	defer partner.Close()
 
-	d := &Device{id: "legacy", info: info, client: c, clients: []*Client{c, partner}}
+	d := &Device{id: "legacy", info: info, clients: []*Client{c, partner}}
 	selected, ha, err := d.probeControllers(t.Context(), true)
 	require.NoError(t, err)
 	require.Same(t, c, selected.client)
@@ -309,6 +314,57 @@ func TestHARejectsReplacementServer(t *testing.T) {
 	_, err := NewDevice(t.Context(), "container", info, sdk.UsernamePassword{})
 	require.Error(t, err)
 	require.Zero(t, b.writes.Load())
+}
+
+func TestHARechecksPartnerIdentityBeforeReadsAndWrites(t *testing.T) {
+	a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
+	a.primary.Store(true)
+	d, err := NewDevice(t.Context(), "container", haInfo(a, b), sdk.UsernamePassword{})
+	require.NoError(t, err)
+	defer d.Close(t.Context())
+
+	// B keeps its own ID but now belongs to another pair. Its own status ID
+	// cannot prove that this endpoint still belongs to the saved container.
+	a.server.Stop()
+	b.primary.Store(true)
+	b.peerOverride.Store(new("replacement"))
+	_, err = d.Status(t.Context())
+	require.ErrorContains(t, err, "partner identity changed")
+	err = d.SetContainerControl(t.Context(), sdk.ContainerControlRequest{Name: mainCircuitBreakerControl, Enabled: new(true)})
+	require.ErrorContains(t, err, "partner identity changed")
+	require.Zero(t, b.mapReads.Load())
+	require.Zero(t, b.writes.Load())
+}
+
+func TestHAWebViewUsesSavedEndpointWithoutProbing(t *testing.T) {
+	a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
+	b.primary.Store(true)
+	info := haInfo(a, b)
+	info.Host, info.Port, info.URLScheme = "browser.example", 8443, "https"
+	d, err := NewDevice(t.Context(), "container", info, sdk.UsernamePassword{})
+	require.NoError(t, err)
+	defer d.Close(t.Context())
+	require.EqualValues(t, 1, a.infoReads.Load())
+	require.EqualValues(t, 1, b.infoReads.Load())
+
+	a.server.Stop()
+	b.server.Stop()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	web, supported, err := d.TryGetWebViewURL(ctx)
+	require.NoError(t, err)
+	require.True(t, supported)
+	require.Equal(t, "https://browser.example:8443", web)
+	require.EqualValues(t, 1, a.infoReads.Load())
+	require.EqualValues(t, 1, b.infoReads.Load())
+}
+
+func TestWebViewFormatsSavedIPv6Endpoint(t *testing.T) {
+	d := &Device{info: sdk.DeviceInfo{Host: "2001:db8::1", Port: 8080, URLScheme: "http"}}
+	web, supported, err := d.TryGetWebViewURL(t.Context())
+	require.NoError(t, err)
+	require.True(t, supported)
+	require.Equal(t, "http://[2001:db8::1]:8080", web)
 }
 
 func TestHADegradedUnlessPairIsSettled(t *testing.T) {

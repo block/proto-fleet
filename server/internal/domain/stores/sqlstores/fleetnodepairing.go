@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"strconv"
 
 	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
@@ -142,7 +143,7 @@ func (s *SQLFleetNodePairingStore) GetFleetNodePairedDeviceIdentifier(ctx contex
 }
 
 func (s *SQLFleetNodePairingStore) ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64, filter pairing.FleetNodeDiscoveredDeviceFilter) ([]pairing.FleetNodeDiscoveredDevice, error) {
-	rows, err := s.q(ctx).ListFleetNodeDiscoveredDevices(ctx, sqlc.ListFleetNodeDiscoveredDevicesParams{
+	params := sqlc.ListFleetNodeDiscoveredDevicesParams{
 		OrgID:             orgID,
 		FleetNodeID:       ptrToNullInt64(fleetNodeID),
 		Identifiers:       filter.Identifiers,
@@ -152,36 +153,45 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDiscoveredDevices(ctx context.Co
 		PairingStatuses:   filter.PairingStatuses,
 		Models:            filter.Models,
 		Manufacturers:     filter.Manufacturers,
-	})
-	if err != nil {
-		return nil, err
 	}
-	out := make([]pairing.FleetNodeDiscoveredDevice, 0, len(rows))
-	for _, r := range rows {
-		controllers, err := deviceendpoints.Decode(r.Endpoints)
+	out := make([]pairing.FleetNodeDiscoveredDevice, 0)
+	for {
+		rows, err := s.q(ctx).ListFleetNodeDiscoveredDevices(ctx, params)
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, pairing.FleetNodeDiscoveredDevice{
-			Endpoints:        controllers,
-			ID:               r.ID,
-			FleetNodeID:      r.DiscoveredByFleetNodeID.Int64,
-			DeviceIdentifier: r.DeviceIdentifier,
-			IPAddress:        r.IpAddress,
-			Port:             r.Port,
-			URLScheme:        r.UrlScheme,
-			RPCPort:          r.RpcPort,
-			RPCTLS:           r.RpcTls,
-			DriverName:       r.DriverName,
-			Model:            r.Model.String,
-			DeviceClass:      commonpb.DeviceClass(r.DeviceClass),
-			Manufacturer:     r.Manufacturer.String,
-			FirmwareVersion:  r.FirmwareVersion.String,
-			LastSeen:         r.LastSeen.Time,
-			PairingStatus:    r.PairingStatus,
-		})
+		for _, r := range rows {
+			controllers, err := deviceendpoints.Decode(r.Endpoints)
+			if err != nil {
+				slog.WarnContext(ctx, "skipping Fleet Node discovered device with invalid endpoints", "org_id", orgID, "discovered_device_id", r.ID, "error", err)
+				continue
+			}
+			out = append(out, pairing.FleetNodeDiscoveredDevice{
+				Endpoints:        controllers,
+				ID:               r.ID,
+				FleetNodeID:      r.DiscoveredByFleetNodeID.Int64,
+				DeviceIdentifier: r.DeviceIdentifier,
+				IPAddress:        r.IpAddress,
+				Port:             r.Port,
+				URLScheme:        r.UrlScheme,
+				RPCPort:          r.RpcPort,
+				RPCTLS:           r.RpcTls,
+				DriverName:       r.DriverName,
+				Model:            r.Model.String,
+				DeviceClass:      commonpb.DeviceClass(r.DeviceClass),
+				Manufacturer:     r.Manufacturer.String,
+				FirmwareVersion:  r.FirmwareVersion.String,
+				LastSeen:         r.LastSeen.Time,
+				PairingStatus:    r.PairingStatus,
+			})
+		}
+		if !params.Limit.Valid || len(rows) == 0 || int64(len(rows)) < params.Limit.Int64 || int64(len(out)) == *filter.Limit {
+			return out, nil
+		}
+		// Refill past invalid rows so a short page does not hide later devices.
+		params.CursorID = sql.NullInt64{Int64: rows[len(rows)-1].ID, Valid: true}
+		params.Limit.Int64 = *filter.Limit - int64(len(out))
 	}
-	return out, nil
 }
 
 func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport) (pairing.DiscoveredDeviceReport, bool, error) {
@@ -189,6 +199,9 @@ func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx conte
 	var stored bool
 	err := NewSQLTransactor(s.conn.DB).RunInTx(ctx, func(ctx context.Context) error {
 		stored = false
+		if err := lockEndpointDiscoveryTransaction(ctx, s.q(ctx), orgID); err != nil {
+			return err
+		}
 		candidate := report
 		if len(report.Endpoints) > 0 {
 			existing, endpoints, err := reconcileDeviceEndpoints(ctx, s.q(ctx), sqlc.FindEndpointDiscoveryParams{
@@ -196,6 +209,7 @@ func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx conte
 				DeviceClass: int32(report.DeviceClass), Model: report.Model, Manufacturer: report.Manufacturer,
 			}, report.Endpoints)
 			if errors.Is(err, errAmbiguousDeviceEndpoints) || errors.Is(err, errPairedDeviceEndpoints) {
+				logEndpointDiscoveryRejection(ctx, orgID, fleetNodeID, report.DeviceIdentifier, err)
 				return nil
 			}
 			if err != nil {
@@ -219,7 +233,8 @@ func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx conte
 				candidate.RPCPort, candidate.RPCTLS = browser.RpcPort, browser.RpcTls
 			}
 		} else if err := guardLegacyEndpointDiscovery(ctx, s.q(ctx), orgID, report.DeviceIdentifier, report.IPAddress, report.Port, report.URLScheme, report.RPCPort, report.RPCTLS); err != nil {
-			if errors.Is(err, errPairedDeviceEndpoints) {
+			if errors.Is(err, errPairedDeviceEndpoints) || errors.Is(err, errDeviceEndpointGroupRequired) {
+				logEndpointDiscoveryRejection(ctx, orgID, fleetNodeID, report.DeviceIdentifier, err)
 				return nil
 			}
 			return err
@@ -229,6 +244,10 @@ func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx conte
 		return err
 	})
 	return saved, stored, err
+}
+
+func logEndpointDiscoveryRejection(ctx context.Context, orgID, fleetNodeID int64, identifier string, reason error) {
+	slog.WarnContext(ctx, "rejected Fleet Node device discovery report", "org_id", orgID, "fleet_node_id", fleetNodeID, "device_identifier", identifier, "reason", reason)
 }
 
 func (s *SQLFleetNodePairingStore) upsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport) (pairing.DiscoveredDeviceReport, bool, error) {

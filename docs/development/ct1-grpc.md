@@ -86,8 +86,11 @@ Fleet stores generic `DeviceEndpoint` records in `discovered_device.endpoints`.
 Each record contains an endpoint ID, the plugin's device key, and independent
 web/RPC transport settings. It also carries known member IDs, including a peer
 whose address has not been scanned. Fleet scopes that key by organization, driver, and
-network owner (direct Fleet Server or a Fleet Node). Before pairing, concurrent
-scans merge addresses by endpoint ID. A later scan of one address retains the
+network owner (direct Fleet Server or a Fleet Node). Discovery serializes its
+database writes per organization before locking groups and inventory rows. This
+prevents direct scans and report batches from taking those locks in opposite
+orders; network probes remain concurrent. Before pairing, scans merge addresses
+by endpoint ID. A later scan of one address retains the
 other address. If an unpaired controller takes its peer's saved address, Fleet discards that
 stale peer endpoint. Scan the peer's new address to restore both endpoints.
 The remaining endpoint keeps its web settings; set any custom web settings for
@@ -97,6 +100,8 @@ Fleet passes the complete saved list to the plugin for pairing, telemetry, and
 commands, including through Fleet Nodes. Endpoint changes alter the cached
 plugin configuration fingerprint.
 Pairing updates identity metadata without replacing addresses from later scans.
+Pairing cannot introduce a new endpoint group. If pairing reports a new group,
+run discovery before pairing again so the inventory checks can reconcile it.
 Once paired, the saved endpoint routes are pinned. Discovery cannot add an
 address, relocate a controller, or exchange endpoint identities at an address.
 Controller IDs and grouping keys are not authentication credentials. Unpair the device,
@@ -158,6 +163,14 @@ and the previous HA observation becomes stale.
   Resolve duplicate legacy inventory before pairing. An ambiguous Fleet Node
   discovery is rejected on its own; unrelated reports in the batch can proceed.
   Database failures still roll back the whole batch.
+- A paired legacy row with RPC port zero retains an unspecified driver default.
+  Fleet does not interpret that default as an explicit port from a new scan.
+  Unpair the device, scan both addresses, and pair again to upgrade that row.
+  For unpaired inventory, a scanned explicit route replaces an unknown legacy
+  route at the same host rather than retaining two conflicting identities.
+- Discovery lists log and skip invalid stored endpoints, including across page
+  boundaries. Direct route lookups still reject invalid endpoints. A grouped
+  device cannot silently lose its endpoint list when HA metadata disappears.
 - A replacement Fleet Node can reclaim one matching endpoint group from a revoked
   node at its saved addresses. Route changes require unpairing first. Fleet
   retains the existing inventory identifier and placement. Groups
@@ -165,6 +178,7 @@ and the previous HA observation becomes stale.
   matches require duplicate inventory cleanup before discovery can proceed.
 - Native telemetry and SDK controls use plugin-selected endpoints. The HTTP
   ProtoOS proxy still uses its saved web address; HTTP proxy failover is separate.
+  The plugin's web URL also uses that saved address and does not probe controllers.
 - The legacy single-address recovery job does not rewrite endpoint groups.
   After an address changes, unpair, scan both addresses, and pair again. A scan
   cannot move an existing paired endpoint based on self-reported IDs.

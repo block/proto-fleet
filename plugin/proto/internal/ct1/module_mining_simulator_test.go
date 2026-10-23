@@ -81,7 +81,7 @@ func TestModuleMiningSimulatorLeavesNeighborsUnaffected(t *testing.T) {
 	for _, mining := range []bool{false, true} {
 		req.Mining = &mining
 		require.NoError(t, dev.SetModuleMining(t.Context(), req))
-		wire, err := dev.client.boards.GetContainerMap(t.Context(), &mdk.GetContainerMapRequest{})
+		wire, err := dev.clients[0].boards.GetContainerMap(t.Context(), &mdk.GetContainerMapRequest{})
 		require.NoError(t, err)
 		after := mapResponse(wire)
 		for _, tank := range after.ContainerMap.Tanks {

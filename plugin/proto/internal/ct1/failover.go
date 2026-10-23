@@ -29,12 +29,9 @@ func (d *Device) selectClient(ctx context.Context, write bool) (*Client, error) 
 func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerSelection, *sdk.ContainerHA, error) {
 	if len(d.info.Endpoints) == 0 {
 		// Older or unconfigured servers cannot establish a healthy HA pair.
-		return &controllerSelection{client: d.client, info: d.info}, &sdk.ContainerHA{ObservedAt: time.Now().UTC(), Degraded: true}, nil
+		return &controllerSelection{client: d.clients[0], info: d.info}, &sdk.ContainerHA{ObservedAt: time.Now().UTC(), Degraded: true}, nil
 	}
 	clients := d.clients
-	if len(clients) == 0 {
-		clients = []*Client{d.client}
-	}
 	type probeResult struct {
 		selected *controllerSelection
 		state    *mdk.SystemStatus

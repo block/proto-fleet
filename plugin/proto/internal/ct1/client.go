@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"math"
 	"net"
-	"net/url"
 	"os"
 	"slices"
 	"strconv"
@@ -40,7 +39,6 @@ func effectiveRPCPort(port int32) int32 {
 type Client struct {
 	closeOnce sync.Once
 	closeErr  error
-	baseURL   string
 	conn      *grpc.ClientConn
 	endpoint  sdk.DeviceInfo
 	memberID  string
@@ -80,9 +78,8 @@ func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create CT1 connection: %w", err)
 	}
-	web := url.URL{Scheme: info.URLScheme, Host: net.JoinHostPort(info.Host, strconv.Itoa(int(info.Port)))}
 	info.RPCPort = port
-	return &Client{endpoint: info, updates: mdk.NewServerUpdateServiceClient(conn), baseURL: web.String(), conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn)}, nil
+	return &Client{endpoint: info, updates: mdk.NewServerUpdateServiceClient(conn), conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn)}, nil
 }
 func (c *Client) Close() error {
 	c.closeOnce.Do(func() { c.closeErr = c.conn.Close() })

@@ -22,7 +22,9 @@ func TestTransportDefaultsAndValidation(t *testing.T) {
 	require.NoError(t, err)
 	defer c.Close()
 	require.Equal(t, "dns:///controller.example:9095", c.conn.CanonicalTarget())
-	require.Equal(t, "https://controller.example:8181", c.baseURL)
+	require.Equal(t, info.Host, c.endpoint.Host)
+	require.Equal(t, info.Port, c.endpoint.Port)
+	require.Equal(t, info.URLScheme, c.endpoint.URLScheme)
 	info.RPCPort = -1
 	_, err = NewClient(info, sdk.UsernamePassword{})
 	require.Error(t, err)

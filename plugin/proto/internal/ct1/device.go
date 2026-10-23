@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -13,7 +16,6 @@ import (
 type Device struct {
 	id      string
 	info    sdk.DeviceInfo
-	client  *Client
 	clients []*Client
 	writeMu sync.Mutex
 }
@@ -41,13 +43,12 @@ func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials 
 			c.memberID = endpoint.ID
 			d.clients = append(d.clients, c)
 		}
-		d.client = d.clients[0]
 	} else {
 		c, err := NewClient(info, credentials)
 		if err != nil {
 			return nil, err
 		}
-		d.client, d.clients = c, []*Client{c}
+		d.clients = []*Client{c}
 	}
 	var verified sdk.DeviceInfo
 	var err error
@@ -58,7 +59,7 @@ func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials 
 			verified = selected.info
 		}
 	} else {
-		verified, err = d.client.Discover(ctx, info)
+		verified, err = d.clients[0].Discover(ctx, info)
 	}
 	if err != nil {
 		_ = d.Close(ctx)
@@ -87,9 +88,6 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	return metrics, err
 }
 func (d *Device) Close(context.Context) error {
-	if len(d.clients) == 0 && d.client != nil {
-		return d.client.Close()
-	}
 	var errs []error
 	for _, c := range d.clients {
 		errs = append(errs, c.Close())
@@ -140,12 +138,9 @@ func (d *Device) TryBatchStatus(context.Context, []sdk.Device) (map[string]sdk.D
 func (d *Device) TrySubscribe(context.Context, []string) (<-chan sdk.DeviceMetrics, bool, error) {
 	return nil, false, nil
 }
-func (d *Device) TryGetWebViewURL(ctx context.Context) (string, bool, error) {
-	c, err := d.selectClient(ctx, false)
-	if err != nil {
-		return "", false, err
-	}
-	return c.baseURL, true, nil
+func (d *Device) TryGetWebViewURL(context.Context) (string, bool, error) {
+	web := url.URL{Scheme: d.info.URLScheme, Host: net.JoinHostPort(d.info.Host, strconv.Itoa(int(d.info.Port)))}
+	return web.String(), true, nil
 }
 func (d *Device) TryGetTimeSeriesData(context.Context, []string, time.Time, time.Time, *time.Duration, int32, string) ([]sdk.DeviceMetrics, string, bool, error) {
 	return nil, "", false, nil
