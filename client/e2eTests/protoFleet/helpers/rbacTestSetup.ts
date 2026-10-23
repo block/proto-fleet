@@ -85,8 +85,8 @@ type ProvisionedMember = {
   username: string;
 };
 
-type ProvisionedMemberWithTemporaryPassword = ProvisionedMember & {
-  temporaryPassword: string;
+type ProvisionedMemberWithInvitation = ProvisionedMember & {
+  invitationCode: string;
 };
 
 type CleanupPages = {
@@ -134,18 +134,13 @@ export async function provisionRoleAndLogin(
   const roleName = generateRandomText(RBAC_ROLE_PREFIX);
   const username = generateRandomText(RBAC_USER_PREFIX);
 
-  const temporaryPassword = await commonSteps.createRoleAndTeamMember({
+  const invitationCode = await commonSteps.createRoleAndTeamInvitation({
     roleName,
     roleDescription,
     permissionKeys,
-    username,
   });
 
-  await commonSteps.completeFirstLoginAsTeamMember({
-    username,
-    temporaryPassword,
-    newPassword: MEMBER_PASSWORD,
-  });
+  await commonSteps.joinTeamWithInvitation({ invitationCode, username, password: MEMBER_PASSWORD });
 
   return { roleName, username };
 }
@@ -160,20 +155,42 @@ export async function provisionRoleViaStoredAdminContext(
     permissionKeys: string[];
     roleDescription: string;
   },
-): Promise<ProvisionedMemberWithTemporaryPassword> {
+): Promise<ProvisionedMemberWithInvitation> {
   return await withStoredAdminContext(browser, testInfo, async ({ commonSteps }) => {
     const roleName = generateRandomText(RBAC_ROLE_PREFIX);
     const username = generateRandomText(RBAC_USER_PREFIX);
 
-    const temporaryPassword = await commonSteps.createRoleAndTeamMember({
+    const invitationCode = await commonSteps.createRoleAndTeamInvitation({
       roleName,
       roleDescription,
       permissionKeys,
-      username,
     });
 
-    return { roleName, temporaryPassword, username };
+    return { roleName, invitationCode, username };
   });
+}
+
+/** Redeems a team invitation with a new login in a separate, signed-out browser context. */
+export async function joinTeamInFreshContext(
+  browser: Browser,
+  testInfo: TestInfo,
+  { invitationCode, username }: { invitationCode: string; username: string },
+) {
+  const isMobile = testInfo.project.use?.isMobile ?? false;
+  const context = await browser.newContext({
+    baseURL: testConfig.baseUrl,
+    storageState: { cookies: [], origins: [] },
+    viewport: testInfo.project.use?.viewport,
+  });
+
+  try {
+    const page = await context.newPage();
+    await page.goto("/auth");
+    const commonSteps = new CommonSteps(new AuthPage(page, isMobile), new MinersPage(page, isMobile));
+    await commonSteps.joinTeamWithInvitation({ invitationCode, username, password: MEMBER_PASSWORD });
+  } finally {
+    await context.close();
+  }
 }
 
 export async function provisionRoleAndLoginViaStoredAdminContext(
@@ -193,10 +210,10 @@ export async function provisionRoleAndLoginViaStoredAdminContext(
     roleDescription,
   });
 
-  await commonSteps.completeFirstLoginAsTeamMember({
+  await commonSteps.joinTeamWithInvitation({
+    invitationCode: provisionedMember.invitationCode,
     username: provisionedMember.username,
-    temporaryPassword: provisionedMember.temporaryPassword,
-    newPassword: MEMBER_PASSWORD,
+    password: MEMBER_PASSWORD,
   });
 
   return {

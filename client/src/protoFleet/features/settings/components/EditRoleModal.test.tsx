@@ -50,7 +50,6 @@ beforeEach(() => {
   vi.clearAllMocks();
 
   vi.mocked(useUserManagement).mockReturnValue({
-    createUser: vi.fn(),
     listUsers: vi.fn(),
     resetUserPassword: vi.fn(),
     deactivateUser: vi.fn(),

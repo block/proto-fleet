@@ -2,6 +2,7 @@ import type { ActivityEntry } from "@/protoFleet/api/generated/activity/v1/activ
 import { ALERT_FIRING_EVENT_TYPE, ALERT_RESOLVED_EVENT_TYPE } from "@/protoFleet/features/activity/utils/alertEntries";
 import { baseEventType, isCompletedEvent } from "@/protoFleet/features/activity/utils/eventType";
 import { formatLabel } from "@/protoFleet/features/activity/utils/formatLabel";
+import { formatRole } from "@/protoFleet/features/settings/utils/formatRole";
 
 type ActivityMetadata = Record<string, unknown>;
 
@@ -145,6 +146,16 @@ const descriptionFormatters: Record<string, (entry: ActivityEntry) => string | u
   update_user_role: (entry) => {
     const username = displayName(entry, "target_username");
     return username ? `Updated role for ${username}` : "Updated user role";
+  },
+  create_team_invitation: (entry) => {
+    const role = metadataString(entry, "role_name");
+    return withTarget("Created user invitation", role ? formatRole(role) : undefined);
+  },
+  revoke_team_invitation: () => "Revoked user invitation",
+  delete_team_invitation: () => "Deleted user invitation",
+  accept_team_invitation: (entry) => {
+    const role = metadataString(entry, "role_name");
+    return withTarget("Joined team", role ? formatRole(role) : undefined);
   },
   create_api_key: () => "Created API key",
   revoke_api_key: () => "Revoked API key",

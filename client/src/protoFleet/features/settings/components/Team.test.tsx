@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import Team from "./Team";
@@ -26,8 +26,19 @@ vi.mock("@/protoFleet/features/settings/components/Roles", () => ({
   default: () => <div data-testid="roles-panel">Roles panel</div>,
 }));
 
-vi.mock("@/protoFleet/features/settings/components/AddTeamMemberModal", () => ({
-  default: () => null,
+vi.mock("@/protoFleet/features/settings/components/InviteTeamMemberModal", () => ({
+  default: ({ open, onCreated }: { open: boolean; onCreated: () => void }) =>
+    open ? (
+      <button type="button" onClick={onCreated}>
+        Create mock invitation
+      </button>
+    ) : null,
+}));
+
+vi.mock("@/protoFleet/features/settings/components/TeamInvitations", () => ({
+  default: ({ refreshKey }: { refreshKey: number }) => (
+    <div data-testid="invitations-panel">{`Invitations panel ${refreshKey}`}</div>
+  ),
 }));
 
 vi.mock("@/protoFleet/features/settings/components/DeactivateUserDialog", () => ({
@@ -93,6 +104,15 @@ const renderTeam = (initialEntry = "/settings/team") =>
     </MemoryRouter>,
   );
 
+const member = (userId: string, role = "ADMIN") => ({
+  userId,
+  username: `${userId}@example.com`,
+  passwordUpdatedAt: null,
+  lastLoginAt: null,
+  role,
+  requiresPasswordChange: false,
+});
+
 describe("Team", () => {
   beforeEach(() => {
     permissionsMock.current = ["user:read", "user:manage", "role:manage"];
@@ -119,13 +139,53 @@ describe("Team", () => {
     expect(screen.queryByTestId("segmented-control")).not.toBeInTheDocument();
     expect(screen.getByTestId("team-tab-members")).toHaveAttribute("data-active", "true");
     expect(screen.getByTestId("member-filter-Role")).toBeInTheDocument();
-    expect(screen.getByTestId("members-toolbar")).toContainElement(screen.getByText("Add team member"));
+    expect(screen.getByTestId("members-toolbar")).toContainElement(screen.getByText("Invite team member"));
 
     fireEvent.click(screen.getByTestId("team-tab-roles-activate"));
 
     expect(screen.getByTestId("roles-panel")).toBeInTheDocument();
     expect(screen.getByTestId("team-tab-roles")).toHaveAttribute("data-active", "true");
     expect(screen.getByTestId("location-probe").textContent).toBe("/settings/team?tab=roles");
+  });
+
+  it("reloads members when returning to the Members tab", async () => {
+    renderTeam();
+    await waitFor(() => expect(screen.getByTestId("members-list").textContent).toBe("1 member"));
+    expect(listUsersMock).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId("team-tab-roles-activate"));
+    expect(screen.getByTestId("roles-panel")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("team-tab-members-activate"));
+
+    await waitFor(() => expect(listUsersMock).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId("members-list").textContent).toBe("1 member");
+  });
+
+  it("keeps the latest member reload when an earlier request finishes late", async () => {
+    const requests: Array<{
+      onSuccess?: Parameters<typeof listUsersMock>[0]["onSuccess"];
+      onFinally?: () => void;
+    }> = [];
+    listUsersMock.mockImplementation((request) => requests.push(request));
+
+    renderTeam();
+    await waitFor(() => expect(requests).toHaveLength(1));
+
+    fireEvent.click(screen.getByTestId("team-tab-roles-activate"));
+    fireEvent.click(screen.getByTestId("team-tab-members-activate"));
+    await waitFor(() => expect(requests).toHaveLength(2));
+
+    act(() => {
+      requests[1].onSuccess?.([member("new-1"), member("new-2")]);
+      requests[1].onFinally?.();
+    });
+    expect(await screen.findByText("2 members")).toBeInTheDocument();
+
+    act(() => {
+      requests[0].onSuccess?.([member("stale-1")]);
+      requests[0].onFinally?.();
+    });
+    expect(screen.getByText("2 members")).toBeInTheDocument();
   });
 
   it("deep-links to the roles tab", () => {
@@ -142,5 +202,40 @@ describe("Team", () => {
 
     expect(screen.getByTestId("roles-panel")).toBeInTheDocument();
     expect(listUsersMock).not.toHaveBeenCalled();
+  });
+
+  it("shows invitations to user managers after roles and deep-links to them", () => {
+    renderTeam("/settings/team?tab=invitations");
+
+    expect(screen.getAllByTestId(/^team-tab-(members|roles|invitations)$/).map((tab) => tab.dataset.testid)).toEqual([
+      "team-tab-members",
+      "team-tab-roles",
+      "team-tab-invitations",
+    ]);
+
+    expect(screen.getByTestId("invitations-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("team-tab-invitations")).toHaveAttribute("data-active", "true");
+  });
+
+  it("opens the refreshed invitations list after creating an invitation", async () => {
+    renderTeam();
+    await waitFor(() => expect(screen.getByTestId("members-list").textContent).toBe("1 member"));
+
+    fireEvent.click(screen.getByText("Invite team member"));
+    fireEvent.click(screen.getByText("Create mock invitation"));
+
+    expect(await screen.findByTestId("invitations-panel")).toHaveTextContent("Invitations panel 1");
+    expect(screen.getByTestId("team-tab-invitations")).toHaveAttribute("data-active", "true");
+    expect(screen.getByTestId("location-probe")).toHaveTextContent("/settings/team?tab=invitations");
+  });
+
+  it("hides invitations without user:manage", async () => {
+    permissionsMock.current = ["user:read"];
+
+    renderTeam("/settings/team?tab=invitations");
+
+    await waitFor(() => expect(screen.getByTestId("members-list").textContent).toBe("1 member"));
+    expect(screen.queryByTestId("invitations-panel")).not.toBeInTheDocument();
+    expect(screen.queryByText("Invite team member")).not.toBeInTheDocument();
   });
 });
