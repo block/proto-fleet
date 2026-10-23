@@ -151,13 +151,16 @@ func (q *Queries) GetHashboardControllerSite(ctx context.Context, deviceID int64
 }
 
 const getHashboardInstallations = `-- name: GetHashboardInstallations :many
-SELECT i.id, i.hashboard_id, i.module_id, i.position, i.site_id, i.installed_at, i.last_seen_at, i.removed_at, i.metadata, t.device_id, h.last_seen_at AS board_last_seen_at,
+SELECT i.id, i.hashboard_id, i.module_id, i.position, i.site_id, i.installed_at, i.last_seen_at, i.removed_at, i.metadata, i.device_id, i.tank_id, i.module_position, h.last_seen_at AS board_last_seen_at,
  EXISTS (SELECT 1 FROM hashboard_installation prior WHERE prior.hashboard_id=i.hashboard_id
    AND (prior.installed_at,prior.id)<(i.installed_at,i.id)) AS has_prior_installation
 FROM hashboard_installation i JOIN hashboard h ON h.id=i.hashboard_id
-JOIN container_module m ON m.id=i.module_id JOIN container_tank t ON t.id=m.tank_id
 WHERE h.org_id=$1 AND i.removed_at IS NULL
-AND (t.device_id=$2 OR i.hashboard_id=ANY($3::bigint[]))
+AND (i.device_id=$2 OR i.hashboard_id=ANY($3::bigint[])
+ OR EXISTS (
+  SELECT 1 FROM container_module m JOIN container_tank t ON t.id=m.tank_id
+  WHERE m.id=i.module_id AND t.device_id=$2
+ ))
 `
 
 type GetHashboardInstallationsParams struct {
@@ -177,10 +180,15 @@ type GetHashboardInstallationsRow struct {
 	RemovedAt            sql.NullTime
 	Metadata             json.RawMessage
 	DeviceID             int64
+	TankID               int64
+	ModulePosition       int32
 	BoardLastSeenAt      time.Time
 	HasPriorInstallation bool
 }
 
+// Include installations on modules that moved to this controller, even when
+// their old boards are absent from the new map. Keep i.device_id as the original
+// placement evidence so reconciliation can close, rather than rewrite, them.
 func (q *Queries) GetHashboardInstallations(ctx context.Context, arg GetHashboardInstallationsParams) ([]GetHashboardInstallationsRow, error) {
 	rows, err := q.query(ctx, q.getHashboardInstallationsStmt, getHashboardInstallations, arg.OrgID, arg.DeviceID, pq.Array(arg.BoardIds))
 	if err != nil {
@@ -201,6 +209,8 @@ func (q *Queries) GetHashboardInstallations(ctx context.Context, arg GetHashboar
 			&i.RemovedAt,
 			&i.Metadata,
 			&i.DeviceID,
+			&i.TankID,
+			&i.ModulePosition,
 			&i.BoardLastSeenAt,
 			&i.HasPriorInstallation,
 		); err != nil {
@@ -316,13 +326,14 @@ func (q *Queries) InsertHashboardMetrics(ctx context.Context, arg InsertHashboar
 }
 
 const listHashboardModules = `-- name: ListHashboardModules :many
-SELECT m.id, m.position, m.retired_at, t.position AS tank_position, d.site_id
+SELECT m.id, m.tank_id, m.position, m.retired_at, t.position AS tank_position, d.site_id
 FROM container_module m JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id
 WHERE t.device_id=$1
 `
 
 type ListHashboardModulesRow struct {
 	ID           int64
+	TankID       int64
 	Position     int32
 	RetiredAt    sql.NullTime
 	TankPosition int32
@@ -340,6 +351,7 @@ func (q *Queries) ListHashboardModules(ctx context.Context, deviceID int64) ([]L
 		var i ListHashboardModulesRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.TankID,
 			&i.Position,
 			&i.RetiredAt,
 			&i.TankPosition,
@@ -375,7 +387,7 @@ const releaseHashboardObservations = `-- name: ReleaseHashboardObservations :exe
 
 UPDATE hashboard_observation SET released_at=$1::timestamptz,
  last_seen_at=$1::timestamptz
-WHERE device_id=$2 AND last_seen_at<$1::timestamptz
+WHERE hashboard_observation.device_id=$2 AND last_seen_at<$1::timestamptz
  AND hashboard_id IN (SELECT hashboard_id FROM hashboard_installation WHERE id=ANY($3::bigint[]))
 `
 

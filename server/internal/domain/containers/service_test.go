@@ -81,7 +81,7 @@ func TestContainerPersistenceAndMinerSeparation(t *testing.T) {
 	store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
 	require.NoError(t, err)
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	snapshot := &sdk.ContainerSnapshot{ObservedAt: now, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, State: sdk.MinerStatusError, ObservedAt: now}, {Position: 2, State: sdk.MinerStatusActive, ObservedAt: now}}}}}
+	snapshot := &sdk.ContainerSnapshot{ObservedAt: now, Tanks: []sdk.ContainerTank{{Position: 1, Modules: []sdk.ContainerModule{{Position: 1, ReportedID: "psu-1", State: sdk.MinerStatusError, ObservedAt: now}, {Position: 2, ReportedID: "psu-2", State: sdk.MinerStatusActive, ObservedAt: now}}}}}
 	pue := 1.05
 	snapshot.Plant = &sdk.ContainerPlant{ObservedAt: now, PUE: &pue}
 	snapshot.Metrics = &sdk.ContainerRollup{PowerW: new(9000.0), PowerSource: "facility", Power: sdk.MetricCoverage{Reporting: 1, Expected: 1, TopologyComplete: true, OldestAt: now, NewestAt: now}, SourceTimes: map[string]time.Time{"facility": now}}

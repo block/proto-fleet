@@ -52,7 +52,9 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 	byPosition := map[[2]int32]sqlc.ListHashboardModulesRow{}
 	retired := map[int64]bool{}
 	moduleCoordinates := map[int64][2]int32{}
+	moduleTanks := map[int64]int64{}
 	for _, m := range modules {
+		moduleTanks[m.ID] = m.TankID
 		moduleCoordinates[m.ID] = [2]int32{m.TankPosition, m.Position}
 		if m.RetiredAt.Valid {
 			retired[m.ID] = true
@@ -224,7 +226,8 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 			rejectHashboard(ctx, deviceID, v, sdk.HashboardOlderObservation)
 			continue
 		}
-		changedPlacement := !v.unlocated && (old.ModuleID != v.ModuleID || old.Position != v.Position)
+		coordinates := moduleCoordinates[v.ModuleID]
+		changedPlacement := !v.unlocated && (old.ModuleID != v.ModuleID || old.Position != v.Position || old.DeviceID != deviceID || old.TankID != moduleTanks[v.ModuleID] || old.ModulePosition != coordinates[1])
 		// Apply the installation boundary on every poll, not just the poll that
 		// changes placement. Initial discovery may contain asynchronous readings.
 		var boundary time.Time
@@ -302,6 +305,13 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 		v, reported := bySlot[[2]int64{old.ModuleID, int64(old.Position)}]
 		moved, present := newByBoard[old.HashboardID]
 		changedSite := present && sql.NullInt64{Int64: siteValue(moved.SiteID), Valid: moved.SiteID != nil} != old.SiteID
+		coordinates := moduleCoordinates[moved.ModuleID]
+		changedPlacement := present && (old.DeviceID != deviceID || old.TankID != moduleTanks[moved.ModuleID] || old.ModulePosition != coordinates[1])
+		// A confirmed module move ends its prior installations even when board
+		// evidence is unavailable. Unknown slots at an unchanged placement do not.
+		currentTank, moduleHere := moduleTanks[old.ModuleID]
+		currentCoordinates := moduleCoordinates[old.ModuleID]
+		moduleMoved := moduleHere && !retired[old.ModuleID] && (old.DeviceID != deviceID || old.TankID != currentTank || old.ModulePosition != currentCoordinates[1] || old.SiteID != site)
 		retirePlacement := retired[old.ModuleID]
 		// Rejected replacement evidence cannot retire the previous board placement.
 		// The old module stays hidden; a later trustworthy observation resolves it.
@@ -311,7 +321,7 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 				retirePlacement = false
 			}
 		}
-		if retirePlacement || (reported && (v.Occupancy == "empty" || (v.Occupancy == occupiedHashboardSlot && v.BoardID != old.HashboardID))) || (present && (moved.ModuleID != old.ModuleID || moved.Position != old.Position || changedSite)) {
+		if moduleMoved || retirePlacement || (reported && (v.Occupancy == "empty" || (v.Occupancy == occupiedHashboardSlot && v.BoardID != old.HashboardID))) || (present && (moved.ModuleID != old.ModuleID || moved.Position != old.Position || changedSite || changedPlacement)) {
 			closeIDs = append(closeIDs, old.ID)
 		}
 	}
@@ -370,7 +380,7 @@ func storeHashboards(ctx context.Context, q *sqlc.Queries, orgID, deviceID int64
 			m.Hashboards = boards
 		}
 	}
-	if snapshot.Metrics != nil {
+	if hasContainerRollups(snapshot) {
 		sdk.CalculateContainerRollups(snapshot)
 	}
 	return nil

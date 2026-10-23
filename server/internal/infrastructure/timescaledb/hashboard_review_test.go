@@ -3,6 +3,7 @@ package timescaledb
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -61,7 +62,7 @@ func (r *hashboardReviewRig) poll(t *testing.T, offset time.Duration, boards ...
 	tank := sdk.ContainerTank{Position: 1}
 	for i, b := range boards {
 		b.ObservedAt, b.StateObservedAt = at, at
-		tank.Modules = append(tank.Modules, sdk.ContainerModule{Position: int32(i + 1), State: sdk.MinerStatusActive, ObservedAt: at, Metrics: &sdk.ContainerModuleMetrics{ObservedAt: at, HashrateHS: new(100e12)}, Hashboards: []sdk.ContainerHashboard{b}}) //nolint:gosec // fixture has two modules
+		tank.Modules = append(tank.Modules, sdk.ContainerModule{Position: int32(i + 1), ReportedID: fmt.Sprintf("psu-%d", i), State: sdk.MinerStatusActive, ObservedAt: at, Metrics: &sdk.ContainerModuleMetrics{ObservedAt: at, HashrateHS: new(100e12)}, Hashboards: []sdk.ContainerHashboard{b}}) //nolint:gosec // fixture has two modules
 	}
 	snapshot.Tanks = []sdk.ContainerTank{tank}
 	require.NoError(t, r.store.StoreDeviceMetrics(t.Context(), modelsV2.DeviceMetrics{DeviceIdentifier: r.deviceID, Timestamp: at, Health: modelsV2.HealthHealthyActive, Container: snapshot, HashrateHS: &modelsV2.MetricValue{Value: 200e12}}))
@@ -232,7 +233,8 @@ func TestRejectedReplacementModulePreservesBoardInstallation(t *testing.T) {
 	r.poll(t, 3*time.Second, reviewBoard("a", "serial-a"), reviewBoard("b", "serial-b"))
 	var removed sql.NullTime
 	require.NoError(t, r.db.QueryRowContext(t.Context(), "SELECT removed_at FROM hashboard_installation WHERE id=$1", original).Scan(&removed))
-	require.True(t, removed.Valid, "trustworthy reinstall ends the protected interval")
+	require.False(t, removed.Valid, "returning to the same durable PSU placement preserves the protected interval")
+	require.Equal(t, original, r.read(t)[0].Slots[0].Board.InstallationId)
 }
 
 func TestInvalidHashboardDoesNotDiscardHealthyModules(t *testing.T) {

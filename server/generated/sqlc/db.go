@@ -150,6 +150,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.bumpCurtailmentTargetRetryStmt, err = db.PrepareContext(ctx, bumpCurtailmentTargetRetry); err != nil {
 		return nil, fmt.Errorf("error preparing query BumpCurtailmentTargetRetry: %w", err)
 	}
+	if q.canReadContainerModuleHistoryStmt, err = db.PrepareContext(ctx, canReadContainerModuleHistory); err != nil {
+		return nil, fmt.Errorf("error preparing query CanReadContainerModuleHistory: %w", err)
+	}
 	if q.canReadHashboardHistoryStmt, err = db.PrepareContext(ctx, canReadHashboardHistory); err != nil {
 		return nil, fmt.Errorf("error preparing query CanReadHashboardHistory: %w", err)
 	}
@@ -743,6 +746,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getContainerIdentifiersForCommandsStmt, err = db.PrepareContext(ctx, getContainerIdentifiersForCommands); err != nil {
 		return nil, fmt.Errorf("error preparing query GetContainerIdentifiersForCommands: %w", err)
+	}
+	if q.getContainerModuleIdentitiesStmt, err = db.PrepareContext(ctx, getContainerModuleIdentities); err != nil {
+		return nil, fmt.Errorf("error preparing query GetContainerModuleIdentities: %w", err)
 	}
 	if q.getContainerModuleScopeStmt, err = db.PrepareContext(ctx, getContainerModuleScope); err != nil {
 		return nil, fmt.Errorf("error preparing query GetContainerModuleScope: %w", err)
@@ -2742,6 +2748,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.upsertReleaseChannelSettingStmt, err = db.PrepareContext(ctx, upsertReleaseChannelSetting); err != nil {
 		return nil, fmt.Errorf("error preparing query UpsertReleaseChannelSetting: %w", err)
 	}
+	if q.withdrawContainerModuleIdentitiesStmt, err = db.PrepareContext(ctx, withdrawContainerModuleIdentities); err != nil {
+		return nil, fmt.Errorf("error preparing query WithdrawContainerModuleIdentities: %w", err)
+	}
 	if q.withdrawHashboardReadingsStmt, err = db.PrepareContext(ctx, withdrawHashboardReadings); err != nil {
 		return nil, fmt.Errorf("error preparing query WithdrawHashboardReadings: %w", err)
 	}
@@ -2958,6 +2967,11 @@ func (q *Queries) Close() error {
 	if q.bumpCurtailmentTargetRetryStmt != nil {
 		if cerr := q.bumpCurtailmentTargetRetryStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing bumpCurtailmentTargetRetryStmt: %w", cerr)
+		}
+	}
+	if q.canReadContainerModuleHistoryStmt != nil {
+		if cerr := q.canReadContainerModuleHistoryStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing canReadContainerModuleHistoryStmt: %w", cerr)
 		}
 	}
 	if q.canReadHashboardHistoryStmt != nil {
@@ -3948,6 +3962,11 @@ func (q *Queries) Close() error {
 	if q.getContainerIdentifiersForCommandsStmt != nil {
 		if cerr := q.getContainerIdentifiersForCommandsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getContainerIdentifiersForCommandsStmt: %w", cerr)
+		}
+	}
+	if q.getContainerModuleIdentitiesStmt != nil {
+		if cerr := q.getContainerModuleIdentitiesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getContainerModuleIdentitiesStmt: %w", cerr)
 		}
 	}
 	if q.getContainerModuleScopeStmt != nil {
@@ -7280,6 +7299,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing upsertReleaseChannelSettingStmt: %w", cerr)
 		}
 	}
+	if q.withdrawContainerModuleIdentitiesStmt != nil {
+		if cerr := q.withdrawContainerModuleIdentitiesStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing withdrawContainerModuleIdentitiesStmt: %w", cerr)
+		}
+	}
 	if q.withdrawHashboardReadingsStmt != nil {
 		if cerr := q.withdrawHashboardReadingsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing withdrawHashboardReadingsStmt: %w", cerr)
@@ -7366,6 +7390,7 @@ type Queries struct {
 	bulkRefreshAllPairedTargetReadinessStmt                      *sql.Stmt
 	bulkUpdateTicketStatusStmt                                   *sql.Stmt
 	bumpCurtailmentTargetRetryStmt                               *sql.Stmt
+	canReadContainerModuleHistoryStmt                            *sql.Stmt
 	canReadHashboardHistoryStmt                                  *sql.Stmt
 	cancelActiveFirmwareRolloutStmt                              *sql.Stmt
 	cancelEnrollmentForFleetNodeStmt                             *sql.Stmt
@@ -7564,6 +7589,7 @@ type Queries struct {
 	getCancelledEnrollmentByFleetNodeStmt                        *sql.Stmt
 	getConnectedPostgresIdentityStmt                             *sql.Stmt
 	getContainerIdentifiersForCommandsStmt                       *sql.Stmt
+	getContainerModuleIdentitiesStmt                             *sql.Stmt
 	getContainerModuleScopeStmt                                  *sql.Stmt
 	getContainerPollHistoryStmt                                  *sql.Stmt
 	getContainerRollupContextStmt                                *sql.Stmt
@@ -8230,6 +8256,7 @@ type Queries struct {
 	upsertPermissionStmt                                         *sql.Stmt
 	upsertReleaseChannelFirmwareStmt                             *sql.Stmt
 	upsertReleaseChannelSettingStmt                              *sql.Stmt
+	withdrawContainerModuleIdentitiesStmt                        *sql.Stmt
 	withdrawHashboardReadingsStmt                                *sql.Stmt
 }
 
@@ -8279,6 +8306,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		bulkRefreshAllPairedTargetReadinessStmt:                      q.bulkRefreshAllPairedTargetReadinessStmt,
 		bulkUpdateTicketStatusStmt:                                   q.bulkUpdateTicketStatusStmt,
 		bumpCurtailmentTargetRetryStmt:                               q.bumpCurtailmentTargetRetryStmt,
+		canReadContainerModuleHistoryStmt:                            q.canReadContainerModuleHistoryStmt,
 		canReadHashboardHistoryStmt:                                  q.canReadHashboardHistoryStmt,
 		cancelActiveFirmwareRolloutStmt:                              q.cancelActiveFirmwareRolloutStmt,
 		cancelEnrollmentForFleetNodeStmt:                             q.cancelEnrollmentForFleetNodeStmt,
@@ -8477,6 +8505,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getCancelledEnrollmentByFleetNodeStmt:                        q.getCancelledEnrollmentByFleetNodeStmt,
 		getConnectedPostgresIdentityStmt:                             q.getConnectedPostgresIdentityStmt,
 		getContainerIdentifiersForCommandsStmt:                       q.getContainerIdentifiersForCommandsStmt,
+		getContainerModuleIdentitiesStmt:                             q.getContainerModuleIdentitiesStmt,
 		getContainerModuleScopeStmt:                                  q.getContainerModuleScopeStmt,
 		getContainerPollHistoryStmt:                                  q.getContainerPollHistoryStmt,
 		getContainerRollupContextStmt:                                q.getContainerRollupContextStmt,
@@ -9143,6 +9172,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		upsertPermissionStmt:                                         q.upsertPermissionStmt,
 		upsertReleaseChannelFirmwareStmt:                             q.upsertReleaseChannelFirmwareStmt,
 		upsertReleaseChannelSettingStmt:                              q.upsertReleaseChannelSettingStmt,
+		withdrawContainerModuleIdentitiesStmt:                        q.withdrawContainerModuleIdentitiesStmt,
 		withdrawHashboardReadingsStmt:                                q.withdrawHashboardReadingsStmt,
 	}
 }

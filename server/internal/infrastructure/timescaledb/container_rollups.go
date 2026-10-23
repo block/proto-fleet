@@ -37,6 +37,25 @@ type topologyTank struct {
 	Modules     []topologyModule `json:"modules"`
 }
 
+// Partial polls may carry module or tank rollups without a controller rollup.
+// They still need source ordering and recalculation from reconciled board data.
+func hasContainerRollups(s *sdk.ContainerSnapshot) bool {
+	if s.Metrics != nil {
+		return true
+	}
+	for _, tank := range s.Tanks {
+		if tank.Metrics != nil {
+			return true
+		}
+		for _, module := range tank.Modules {
+			if module.Metrics != nil && module.Metrics.Rollup != nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Validate plugin/FleetNode evidence before any source-ordering comparison or
 // write. Invalid values may retain trustworthy times, but invalid times must
 // never become durable watermarks that suppress subsequent valid readings.

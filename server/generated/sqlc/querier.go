@@ -173,6 +173,9 @@ type Querier interface {
 	// still lands on the next successful state-change write. EXISTS guard
 	// → zero rows → ErrCurtailmentEventStateRaceLoss on terminal parent.
 	BumpCurtailmentTargetRetry(ctx context.Context, arg BumpCurtailmentTargetRetryParams) (int64, error)
+	// Module history follows the sites where observations were recorded, including
+	// closed placements. Today's placement does not grant or revoke older access.
+	CanReadContainerModuleHistory(ctx context.Context, arg CanReadContainerModuleHistoryParams) (bool, error)
 	// Access is based on any readable installation, including closed placements.
 	// It is independent of the requested sample range and current hardware location.
 	CanReadHashboardHistory(ctx context.Context, arg CanReadHashboardHistoryParams) (bool, error)
@@ -682,6 +685,7 @@ type Querier interface {
 	GetConnectedPostgresIdentity(ctx context.Context) (ConnectedPostgresIdentity, error)
 	// Class metadata excludes known containers without live capability discovery.
 	GetContainerIdentifiersForCommands(ctx context.Context, arg GetContainerIdentifiersForCommandsParams) ([]string, error)
+	GetContainerModuleIdentities(ctx context.Context, arg GetContainerModuleIdentitiesParams) ([]GetContainerModuleIdentitiesRow, error)
 	GetContainerModuleScope(ctx context.Context, arg GetContainerModuleScopeParams) (GetContainerModuleScopeRow, error)
 	GetContainerPollHistory(ctx context.Context, arg GetContainerPollHistoryParams) ([]GetContainerPollHistoryRow, error)
 	GetContainerRollupContext(ctx context.Context, deviceID int64) (GetContainerRollupContextRow, error)
@@ -827,6 +831,9 @@ type Querier interface {
 	GetGroupRefsForDevices(ctx context.Context, arg GetGroupRefsForDevicesParams) ([]GetGroupRefsForDevicesRow, error)
 	GetHAProfileDatabaseIdentity(ctx context.Context) (GetHAProfileDatabaseIdentityRow, error)
 	GetHashboardControllerSite(ctx context.Context, deviceID int64) (sql.NullInt64, error)
+	// Include installations on modules that moved to this controller, even when
+	// their old boards are absent from the new map. Keep i.device_id as the original
+	// placement evidence so reconciliation can close, rather than rewrite, them.
 	GetHashboardInstallations(ctx context.Context, arg GetHashboardInstallationsParams) ([]GetHashboardInstallationsRow, error)
 	GetHashboardMetricWatermarks(ctx context.Context, boardIds []int64) ([]GetHashboardMetricWatermarksRow, error)
 	GetHashboardObservations(ctx context.Context, arg GetHashboardObservationsParams) ([]HashboardObservation, error)
@@ -1063,11 +1070,8 @@ type Querier interface {
 	// DO NOTHING tolerates duplicate ids in one call rather than aborting the surrounding SetPolicy transaction.
 	InsertAlertRouteChannels(ctx context.Context, arg InsertAlertRouteChannelsParams) error
 	InsertContainerControls(ctx context.Context, arg InsertContainerControlsParams) error
-	// Samples resolve only to current matching hardware. Late samples for replaced
-	// hardware cannot contaminate its replacement. Retried observations are no-ops.
-	// Collection time disambiguates aggregates sharing an oldest-source timestamp.
-	// A reconciled poll may explicitly clear unavailable metrics without identity
-	// evidence. Never use that exception for measurements or delayed inventory.
+	// Samples require the organization-scoped PSU identity and accepted placement.
+	// Unresolved positional observations never receive module measurements.
 	InsertContainerModuleMetrics(ctx context.Context, arg InsertContainerModuleMetricsParams) error
 	InsertContainerPlantMetrics(ctx context.Context, arg InsertContainerPlantMetricsParams) error
 	InsertContainerSetpoints(ctx context.Context, arg InsertContainerSetpointsParams) error
@@ -2107,8 +2111,8 @@ type Querier interface {
 	// exclude the pause; commands already sent continue while paused.
 	ResumeFirmwareRollout(ctx context.Context, arg ResumeFirmwareRolloutParams) (int64, error)
 	ResumePausedSchedule(ctx context.Context, arg ResumePausedScheduleParams) (int64, error)
-	// A full map may retire missing slots. A known identity change also retires
-	// the old hardware so its history is never attached to the replacement.
+	// Detach changed placements before inserting their replacements, including swaps.
+	// Identity rows survive retirement; a returning PSU reuses its original ID.
 	RetireContainerModules(ctx context.Context, arg RetireContainerModulesParams) error
 	RetryRigConfigReconciliation(ctx context.Context, arg RetryRigConfigReconciliationParams) error
 	RevertScheduleToActive(ctx context.Context, id int64) error
@@ -2551,6 +2555,9 @@ type Querier interface {
 	// actor. Reconciliation and retries retain this assignment's owner.
 	UpsertReleaseChannelFirmware(ctx context.Context, arg UpsertReleaseChannelFirmwareParams) (ReleaseChannelFirmware, error)
 	UpsertReleaseChannelSetting(ctx context.Context, arg UpsertReleaseChannelSettingParams) (ReleaseChannelSetting, error)
+	// A contradictory claim withdraws command eligibility without assigning either
+	// position to that identity. Source watermarks survive for a corrected report.
+	WithdrawContainerModuleIdentities(ctx context.Context, moduleIds []int64) error
 	// Withdraw readings when the accepted poll has no health. Keep source ordering
 	// separately in time; a later older sample must never restore withdrawn values.
 	WithdrawHashboardReadings(ctx context.Context, arg WithdrawHashboardReadingsParams) error

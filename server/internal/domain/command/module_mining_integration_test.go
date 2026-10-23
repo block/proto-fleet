@@ -83,7 +83,20 @@ func TestModuleMiningRequiresCurrentlyConfirmedIdentity(t *testing.T) {
 			require.Equal(t, 3600.0, power)
 			require.Equal(t, 60.0, temperature)
 			observe(missing, true)
-			check(false)
+			// A location without PSU evidence cannot stand in for the last PSU
+			// seen there. Neither that retired identity nor the unresolved slot
+			// is eligible for a command.
+			_, err = svc.GetModuleMiningOptions(ctx, ids, allow)
+			require.True(t, fleeterror.IsNotFoundError(err))
+			_, err = svc.SetModuleMining(ctx, ids, new(false), allow)
+			require.Error(t, err)
+			var unresolvedID int64
+			require.NoError(t, conn.QueryRowContext(ctx, `SELECT id FROM container_module WHERE tank_id=$1 AND position=2 AND retired_at IS NULL AND reported_id='' AND NOT identity_confirmed`, tanks[0]).Scan(&unresolvedID))
+			require.NotEqual(t, moduleID, unresolvedID)
+			options, err := svc.GetModuleMiningOptions(ctx, []int64{unresolvedID}, allow)
+			require.NoError(t, err)
+			require.False(t, options.CanStart)
+			require.False(t, options.CanStop)
 			observe("module-a", true)
 			check(true)
 			// A gap must not forget the old identity or hide a later replacement.

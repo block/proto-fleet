@@ -15,10 +15,46 @@ import (
 	"github.com/sqlc-dev/pqtype"
 )
 
+const canReadContainerModuleHistory = `-- name: CanReadContainerModuleHistory :one
+SELECT EXISTS (
+ SELECT 1 FROM (
+  SELECT p.site_id FROM container_module_placement p WHERE p.module_id=$1
+  UNION ALL
+  SELECT h.site_id FROM container_equipment_history h WHERE h.equipment_kind=6 AND h.module_id=$1
+  UNION ALL
+  SELECT d.site_id FROM container_module m JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id WHERE m.id=$1
+ ) evidence
+ JOIN container_module m ON m.id=$1
+ JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id
+ LEFT JOIN container_module_identity i ON i.module_id=m.id
+ WHERE COALESCE(i.org_id,d.org_id)=$2 AND NOT EXISTS (
+  SELECT 1 FROM jsonb_to_recordset($3::jsonb) AS a(org_wide boolean,sites bigint[])
+  WHERE NOT (CASE WHEN a.org_wide THEN evidence.site_id IS NULL OR NOT(evidence.site_id=ANY(a.sites)) ELSE COALESCE(evidence.site_id=ANY(a.sites),FALSE) END)
+ )
+)::boolean AS allowed
+`
+
+type CanReadContainerModuleHistoryParams struct {
+	ModuleID  int64
+	OrgID     int64
+	Authority json.RawMessage
+}
+
+// Module history follows the sites where observations were recorded, including
+// closed placements. Today's placement does not grant or revoke older access.
+func (q *Queries) CanReadContainerModuleHistory(ctx context.Context, arg CanReadContainerModuleHistoryParams) (bool, error) {
+	row := q.queryRow(ctx, q.canReadContainerModuleHistoryStmt, canReadContainerModuleHistory, arg.ModuleID, arg.OrgID, arg.Authority)
+	var allowed bool
+	err := row.Scan(&allowed)
+	return allowed, err
+}
+
 const getContainerModuleScope = `-- name: GetContainerModuleScope :one
-SELECT d.org_id, d.site_id FROM container_module m
-JOIN container_tank t ON t.id = m.tank_id JOIN container_scope d ON d.id = t.device_id
-WHERE m.id = $1 AND d.org_id = $2 AND d.deleted_at IS NULL
+SELECT COALESCE(i.org_id,d.org_id)::bigint AS org_id,d.site_id
+FROM container_module m
+JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id
+LEFT JOIN container_module_identity i ON i.module_id=m.id
+WHERE m.id=$1 AND COALESCE(i.org_id,d.org_id)=$2
 `
 
 type GetContainerModuleScopeParams struct {
@@ -186,10 +222,11 @@ WITH resolution AS (
 ), readable AS (
  SELECT mm.equipment_kind, mm.container_identifier, mm.tank_id, mm.module_id, mm.site_id, mm.topology_version_id, mm.bucket, mm.collected_at, mm.resolution_seconds, mm.measurement_type, mm.total, mm.samples, mm.minimum, mm.maximum, mm.reporting_count, mm.expected_count, mm.coverage_complete FROM container_equipment_history mm
  JOIN container_module m ON m.id=mm.module_id
- JOIN container_tank t ON t.id=m.tank_id JOIN container_scope d ON d.id=t.device_id
+ JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id
+ LEFT JOIN container_module_identity i ON i.module_id=m.id
  CROSS JOIN resolution
  WHERE mm.equipment_kind=6 AND mm.resolution_seconds=resolution.seconds AND m.id=$3
- AND d.org_id=$4 AND d.deleted_at IS NULL
+ AND COALESCE(i.org_id,d.org_id)=$4
  AND mm.bucket>=CASE WHEN resolution.seconds=0 THEN $5::timestamptz ELSE to_timestamp(floor(extract(epoch FROM $5::timestamptz)/resolution.seconds)*resolution.seconds) END AND mm.bucket<$6::timestamptz
  AND NOT EXISTS (
  SELECT 1 FROM jsonb_to_recordset($7::jsonb) AS a(org_wide boolean,sites bigint[])

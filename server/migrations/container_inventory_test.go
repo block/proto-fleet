@@ -16,6 +16,7 @@ func TestContainerInventoryMigrationRoundTrip(t *testing.T) {
 		"001021_internal_hashboard_metric_summaries")
 	// Later child inventory must be rolled back before its parent schema.
 	for _, name := range []string{
+		"001038_internal_module_psu_identity.down.sql",
 		"001037_internal_diagnostic_observations.down.sql",
 		"001028_internal_hosted_account_assets.down.sql",
 		"001025_internal_container_site_scope.down.sql",

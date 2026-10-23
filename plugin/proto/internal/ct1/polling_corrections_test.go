@@ -271,9 +271,9 @@ func TestConflictingModuleRetainsBoardIdentityClaims(t *testing.T) {
 	got, err := snapshot(wire, now)
 	require.NoError(t, err)
 	boards := got.Tanks[0].Modules[0].Hashboards
-	require.Equal(t, sdk.HashboardIdentityConflict, boards[0].UnavailableReason)
-	require.Equal(t, []sdk.HashboardIdentityClaim{{MACAddress: "aa:bb:cc:dd:ee:01"}}, boards[0].IdentityClaims)
-	require.Equal(t, []sdk.HashboardIdentityClaim{{Serial: "other-board"}}, boards[1].IdentityClaims)
+	require.Empty(t, boards[0].UnavailableReason)
+	require.Equal(t, "aa:bb:cc:dd:ee:01", boards[0].MACAddress)
+	require.Equal(t, "other-board", boards[1].Serial)
 	require.Nil(t, boards[0].HashrateHS)
 	require.Equal(t, "known-serial", got.Tanks[0].Modules[1].Hashboards[0].Serial)
 }

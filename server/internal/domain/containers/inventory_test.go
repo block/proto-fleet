@@ -498,7 +498,7 @@ func TestInventoryRetainsPartialTopologyAndModuleHistory(t *testing.T) {
 
 }
 
-func TestMissingModuleIdentityOnlyClearsAcceptedEmptyObservations(t *testing.T) {
+func TestMissingModuleIdentityNeverAttributesByPosition(t *testing.T) {
 	db := testutil.GetTestDB(t)
 	ctx := t.Context()
 	org, err := sqlc.New(db).CreateOrganization(ctx, sqlc.CreateOrganizationParams{OrgID: "anonymous-metrics", Name: "Anonymous metrics"})
@@ -530,69 +530,58 @@ func TestMissingModuleIdentityOnlyClearsAcceptedEmptyObservations(t *testing.T) 
 			require.False(t, snapshot.Tanks[0].Modules[0].IdentityConfirmed)
 		}
 	}
-	assertCurrent := func(empty bool, samples int) {
+	assertCurrent := func(identity string, samples int) {
 		t.Helper()
 		var count int
 		require.NoError(t, db.QueryRowContext(ctx, "SELECT count(*) FROM container_module_metrics mm JOIN container_module m ON m.id=mm.module_id WHERE m.reported_id='replacement'").Scan(&count))
 		require.Equal(t, samples, count)
-		var identity string
-		require.NoError(t, db.QueryRowContext(ctx, "SELECT reported_id FROM container_module WHERE retired_at IS NULL").Scan(&identity))
-		require.Equal(t, "replacement", identity)
+		var current string
+		require.NoError(t, db.QueryRowContext(ctx, "SELECT reported_id FROM container_module WHERE retired_at IS NULL").Scan(&current))
+		require.Equal(t, identity, current)
 		reader := fleetinventory.NewService(sqlc.New(db))
-		for _, view := range []inventorypb.InventoryView{inventorypb.InventoryView_INVENTORY_VIEW_MINING_ASSETS, inventorypb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS} {
-			result, err := reader.List(ctx, org, &inventorypb.ListInventoryRequest{View: view}, []fleetinventory.Scope{{OrgWide: true}})
-			require.NoError(t, err)
-			require.Len(t, result.Items, 1)
-			item := result.Items[0]
-			if empty || view == inventorypb.InventoryView_INVENTORY_VIEW_EQUIPMENT_GROUPS {
-				require.Nil(t, item.HashrateThs)
-				require.Nil(t, item.PowerKw)
-				require.Nil(t, item.MinTemperatureC)
-				require.Zero(t, item.HashrateReportingCount)
-				require.Zero(t, item.PowerReportingCount)
-			} else {
-				require.NotNil(t, item.PowerKw)
-				require.Equal(t, power/1000, *item.PowerKw)
-				require.EqualValues(t, 1, item.HashrateReportingCount)
-				require.EqualValues(t, 1, item.PowerReportingCount)
-			}
+		result, err := reader.List(ctx, org, &inventorypb.ListInventoryRequest{View: inventorypb.InventoryView_INVENTORY_VIEW_MINING_ASSETS}, []fleetinventory.Scope{{OrgWide: true}})
+		require.NoError(t, err)
+		require.Len(t, result.Items, 1)
+		if identity == "" {
+			require.Nil(t, result.Items[0].HashrateThs)
+			require.Nil(t, result.Items[0].PowerKw)
+			require.Zero(t, result.Items[0].HashrateReportingCount)
+		} else {
+			require.NotNil(t, result.Items[0].PowerKw)
+			require.Equal(t, power/1000, *result.Items[0].PowerKw)
 		}
 	}
 	write(base, base, "original", false)
 	write(base.Add(10*time.Second), base.Add(10*time.Second), "replacement", false)
-	assertCurrent(false, 1)
-	// Source time alone cannot authorize an anonymous poll captured before replacement.
+	assertCurrent("replacement", 1)
+	// A delayed anonymous poll cannot withdraw a newer identified placement.
 	write(base.Add(8*time.Second), base.Add(12*time.Second), "", true)
-	assertCurrent(false, 1)
-	// Missing identity does not grant permission to attribute measurements.
+	assertCurrent("replacement", 1)
+	// Missing identity creates an unresolved placement, never samples against
+	// the last PSU seen at this position, even when all metric values are absent.
 	write(base.Add(20*time.Second), base.Add(20*time.Second), "", false)
-	assertCurrent(false, 1)
-	// An accepted empty observation still obeys source ordering.
+	assertCurrent("", 1)
 	write(base.Add(30*time.Second), base.Add(5*time.Second), "", true)
-	assertCurrent(false, 2)
 	write(base.Add(40*time.Second), base.Add(40*time.Second), "", true)
-	assertCurrent(true, 3)
-	// Retrying is idempotent; late evidence for the replaced identity stays excluded.
 	write(base.Add(40*time.Second), base.Add(40*time.Second), "", true)
 	write(base.Add(9*time.Second), base.Add(9*time.Second), "original", false)
-	assertCurrent(true, 3)
-	// All Unicode blank identities use the same anonymous-metric policy.
+	assertCurrent("", 1)
 	for i, blank := range []string{" \t\n", "\u00a0", "\u2003"} {
 		at := base.Add(time.Duration(50+i*2) * time.Second)
 		write(at, at, blank, false)
-		assertCurrent(true, 3+i)
 		write(at.Add(time.Second), at.Add(time.Second), blank, true)
-		assertCurrent(true, 4+i)
+		assertCurrent("", 1)
 	}
-	// Rebuilt rollup samples must apply the same blank-identity policy.
+	// The original PSU can return after an unresolved observation. Recalculated
+	// rollups follow the same rule and cannot attach anonymous values to it.
 	for i, blank := range []string{" ", "\u00a0", "\u2003"} {
 		at := base.Add(time.Duration(60+i*2) * time.Second)
 		withRollups = false
 		write(at, at, "replacement", false)
-		assertCurrent(false, 7+i*2)
+		assertCurrent("replacement", 2+i)
 		withRollups = true
 		write(at.Add(time.Second), at.Add(time.Second), blank, true)
-		assertCurrent(true, 8+i*2)
+		assertCurrent("", 2+i)
 	}
 
 }

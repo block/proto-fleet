@@ -1,7 +1,29 @@
 -- name: GetContainerModuleScope :one
-SELECT d.org_id, d.site_id FROM container_module m
-JOIN container_tank t ON t.id = m.tank_id JOIN container_scope d ON d.id = t.device_id
-WHERE m.id = sqlc.arg('module_id') AND d.org_id = sqlc.arg('org_id') AND d.deleted_at IS NULL;
+SELECT COALESCE(i.org_id,d.org_id)::bigint AS org_id,d.site_id
+FROM container_module m
+JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id
+LEFT JOIN container_module_identity i ON i.module_id=m.id
+WHERE m.id=sqlc.arg('module_id') AND COALESCE(i.org_id,d.org_id)=sqlc.arg('org_id');
+
+-- Module history follows the sites where observations were recorded, including
+-- closed placements. Today's placement does not grant or revoke older access.
+-- name: CanReadContainerModuleHistory :one
+SELECT EXISTS (
+ SELECT 1 FROM (
+  SELECT p.site_id FROM container_module_placement p WHERE p.module_id=sqlc.arg('module_id')
+  UNION ALL
+  SELECT h.site_id FROM container_equipment_history h WHERE h.equipment_kind=6 AND h.module_id=sqlc.arg('module_id')
+  UNION ALL
+  SELECT d.site_id FROM container_module m JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id WHERE m.id=sqlc.arg('module_id')
+ ) evidence
+ JOIN container_module m ON m.id=sqlc.arg('module_id')
+ JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id
+ LEFT JOIN container_module_identity i ON i.module_id=m.id
+ WHERE COALESCE(i.org_id,d.org_id)=sqlc.arg('org_id') AND NOT EXISTS (
+  SELECT 1 FROM jsonb_to_recordset(sqlc.arg('authority')::jsonb) AS a(org_wide boolean,sites bigint[])
+  WHERE NOT (CASE WHEN a.org_wide THEN evidence.site_id IS NULL OR NOT(evidence.site_id=ANY(a.sites)) ELSE COALESCE(evidence.site_id=ANY(a.sites),FALSE) END)
+ )
+)::boolean AS allowed;
 
 -- Resolve once per page; services bind the result to the cursor and pass that
 -- same value into the data query so crossing a cutoff mid-request cannot switch tiers.
@@ -16,10 +38,11 @@ WITH resolution AS (
 ), readable AS (
  SELECT mm.* FROM container_equipment_history mm
  JOIN container_module m ON m.id=mm.module_id
- JOIN container_tank t ON t.id=m.tank_id JOIN container_scope d ON d.id=t.device_id
+ JOIN container_tank t ON t.id=m.tank_id JOIN device d ON d.id=t.device_id
+ LEFT JOIN container_module_identity i ON i.module_id=m.id
  CROSS JOIN resolution
  WHERE mm.equipment_kind=6 AND mm.resolution_seconds=resolution.seconds AND m.id=sqlc.arg('module_id')
- AND d.org_id=sqlc.arg('org_id') AND d.deleted_at IS NULL
+ AND COALESCE(i.org_id,d.org_id)=sqlc.arg('org_id')
  AND mm.bucket>=CASE WHEN resolution.seconds=0 THEN sqlc.arg('start_time')::timestamptz ELSE to_timestamp(floor(extract(epoch FROM sqlc.arg('start_time')::timestamptz)/resolution.seconds)*resolution.seconds) END AND mm.bucket<sqlc.arg('end_time')::timestamptz
  AND NOT EXISTS (
  SELECT 1 FROM jsonb_to_recordset(sqlc.arg('authority')::jsonb) AS a(org_wide boolean,sites bigint[])

@@ -215,20 +215,27 @@ func TestUnlocatedSiteAttributionBoundary(t *testing.T) {
 			require.NoError(t, r.db.QueryRowContext(t.Context(), "SELECT org_id FROM device WHERE id=$1", r.databaseID).Scan(&org))
 			require.NoError(t, r.db.QueryRowContext(t.Context(), "INSERT INTO site(org_id,name,slug) VALUES ($1,'A','a') RETURNING id", org).Scan(&siteA))
 			require.NoError(t, r.db.QueryRowContext(t.Context(), "INSERT INTO site(org_id,name,slug) VALUES ($1,'B','b') RETURNING id", org).Scan(&siteB))
+			var latestPoll time.Time
 			for i, site := range []*int64{nil, &siteA, &siteB, nil} {
 				_, err := r.db.ExecContext(t.Context(), "UPDATE device SET site_id=$1 WHERE id=$2", site, r.databaseID)
 				require.NoError(t, err)
-				offset := time.Duration(i*3) * time.Second
+				pollAt := time.Now().UTC().Add(20 * time.Millisecond).Truncate(time.Microsecond)
+				if !latestPoll.IsZero() && !pollAt.After(latestPoll) {
+					pollAt = latestPoll.Add(10 * time.Millisecond)
+				}
+				offset := pollAt.Sub(r.base)
 				if i > 0 {
-					for _, poll := range []time.Duration{offset, offset + time.Second} {
+					for _, poll := range []time.Duration{offset, offset + 10*time.Millisecond} {
 						cached := singleInventoryBoard(r, poll, offset-time.Second, false)
 						r.store(t, cached)
 						require.Nil(t, cached.Metrics.HashrateHS, "prior-site sample must not regain attribution on a later poll")
 					}
 				}
-				fresh := singleInventoryBoard(r, offset+2*time.Second, offset+2*time.Second, i == 0 && initiallyMapped)
+				freshAt := offset + 20*time.Millisecond
+				fresh := singleInventoryBoard(r, freshAt, freshAt, i == 0 && initiallyMapped)
 				r.store(t, fresh)
 				require.Equal(t, 100e12, *fresh.Metrics.HashrateHS)
+				latestPoll = r.base.Add(freshAt)
 			}
 		})
 	}

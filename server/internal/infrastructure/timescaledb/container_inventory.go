@@ -48,11 +48,33 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 		snapshot.TopologyComplete = false
 	}
 	normalizeContainerPowerTimes(snapshot, received)
+	for ti := range snapshot.Tanks {
+		for mi := range snapshot.Tanks[ti].Modules {
+			module := &snapshot.Tanks[ti].Modules[mi]
+			if strings.TrimSpace(module.ReportedID) == "" {
+				module.ReportedID, module.IdentityConfirmed = "", false
+			}
+		}
+	}
 	orgID, err := q.LockHashboardOrganization(ctx, identifier)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
+		return err
+	}
+	id, err := q.AdvanceContainerInventory(ctx, sqlc.AdvanceContainerInventoryParams{DeviceIdentifier: identifier, ObservedAt: snapshot.ObservedAt})
+	if errors.Is(err, sql.ErrNoRows) {
+		// Delayed topology cannot establish hardware or membership at a new site.
+		// Independently timestamped equipment observations have their own ordering.
+		snapshot.InventoryAccepted = false
+		return storeContainerEquipment(ctx, q, identifier, snapshot)
+	}
+	if err != nil {
+		return err
+	}
+	snapshot.InventoryAccepted = true
+	if err := resolveContainerModuleIdentities(ctx, q, orgID, identifier, snapshot); err != nil {
 		return err
 	}
 	modules := make([]inventoryModule, 0)
@@ -140,77 +162,66 @@ func storeContainerInventory(ctx context.Context, q *sqlc.Queries, identifier st
 	if err != nil {
 		return fmt.Errorf("encode container samples: %w", err)
 	}
-	id, err := q.AdvanceContainerInventory(ctx, sqlc.AdvanceContainerInventoryParams{DeviceIdentifier: identifier, ObservedAt: snapshot.ObservedAt})
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+	if err := q.ReconcileContainerTanks(ctx, sqlc.ReconcileContainerTanksParams{DeviceID: id, ObservedAt: snapshot.ObservedAt, Tanks: tankJSON}); err != nil {
 		return err
 	}
-	snapshot.InventoryAccepted = err == nil
-	if err == nil {
-		if err := q.ReconcileContainerTanks(ctx, sqlc.ReconcileContainerTanksParams{DeviceID: id, ObservedAt: snapshot.ObservedAt, Tanks: tankJSON}); err != nil {
+	if err := q.RetireContainerModules(ctx, sqlc.RetireContainerModulesParams{DeviceID: id, ObservedAt: sql.NullTime{Time: snapshot.ObservedAt, Valid: true}, Complete: snapshot.TopologyComplete, Modules: moduleJSON}); err != nil {
+		return err
+	}
+	if snapshot.TopologyComplete {
+		if err := q.MarkAbsentContainerTanks(ctx, sqlc.MarkAbsentContainerTanksParams{DeviceID: id, Tanks: tankJSON}); err != nil {
 			return err
 		}
-		if err := q.RetireContainerModules(ctx, sqlc.RetireContainerModulesParams{DeviceID: id, ObservedAt: sql.NullTime{Time: snapshot.ObservedAt, Valid: true}, Complete: snapshot.TopologyComplete, Modules: moduleJSON}); err != nil {
+	}
+	if err := q.ReconcileContainerModules(ctx, sqlc.ReconcileContainerModulesParams{DeviceID: id, ObservedAt: snapshot.ObservedAt, Modules: moduleJSON}); err != nil {
+		return err
+	}
+	if err := q.InsertModuleDiagnosticObservations(ctx, sqlc.InsertModuleDiagnosticObservationsParams{DeviceID: id, CollectedAt: snapshot.ObservedAt}); err != nil {
+		return err
+	}
+	if hasContainerRollups(snapshot) {
+		previous, err := q.GetModuleRollupWatermarks(ctx, id)
+		if err != nil {
 			return err
 		}
-		if snapshot.TopologyComplete {
-			if err := q.MarkAbsentContainerTanks(ctx, sqlc.MarkAbsentContainerTanksParams{DeviceID: id, Tanks: tankJSON}); err != nil {
-				return err
-			}
+		watermarks := map[[2]int32][]byte{}
+		for _, v := range previous {
+			watermarks[[2]int32{v.TankPosition, v.Position}] = v.SourceTimes
 		}
-		if err := q.ReconcileContainerModules(ctx, sqlc.ReconcileContainerModulesParams{DeviceID: id, ObservedAt: snapshot.ObservedAt, Modules: moduleJSON}); err != nil {
-			return err
-		}
-		if err := q.InsertModuleDiagnosticObservations(ctx, sqlc.InsertModuleDiagnosticObservationsParams{DeviceID: id, CollectedAt: snapshot.ObservedAt}); err != nil {
-			return err
-		}
-		if snapshot.Metrics != nil {
-			previous, err := q.GetModuleRollupWatermarks(ctx, id)
-			if err != nil {
-				return err
-			}
-			watermarks := map[[2]int32][]byte{}
-			for _, v := range previous {
-				watermarks[[2]int32{v.TankPosition, v.Position}] = v.SourceTimes
-			}
-			for ti := range snapshot.Tanks {
-				t := &snapshot.Tanks[ti]
-				for mi := range t.Modules {
-					m := &t.Modules[mi]
-					if m.Metrics != nil && m.Metrics.Rollup != nil {
-						if err := rejectRegressedRollup(m.Metrics.Rollup, watermarks[[2]int32{t.Position, m.Position}]); err != nil {
-							return err
-						}
+		for ti := range snapshot.Tanks {
+			t := &snapshot.Tanks[ti]
+			for mi := range t.Modules {
+				m := &t.Modules[mi]
+				if m.Metrics != nil && m.Metrics.Rollup != nil {
+					if err := rejectRegressedRollup(m.Metrics.Rollup, watermarks[[2]int32{t.Position, m.Position}]); err != nil {
+						return err
 					}
 				}
 			}
 		}
-		if err := storeHashboards(ctx, q, orgID, id, snapshot); err != nil {
-			return err
-		}
-		if snapshot.Metrics != nil {
-			samples = []moduleSample{}
-			for _, t := range snapshot.Tanks {
-				for _, m := range t.Modules {
-					if v := m.Metrics; v != nil {
-						samples = append(samples, moduleSample{TankPosition: t.Position, Position: m.Position, ReportedID: m.ReportedID, Time: snapshot.ObservedAt, HashrateHS: v.HashrateHS, PowerW: v.PowerW, TemperatureC: v.TemperatureC, EfficiencyJH: v.EfficiencyJH, Coverage: v.Rollup})
-					}
+	}
+	if err := storeHashboards(ctx, q, orgID, id, snapshot); err != nil {
+		return err
+	}
+	if snapshot.Metrics != nil {
+		samples = []moduleSample{}
+		for _, t := range snapshot.Tanks {
+			for _, m := range t.Modules {
+				if v := m.Metrics; v != nil {
+					samples = append(samples, moduleSample{TankPosition: t.Position, Position: m.Position, ReportedID: m.ReportedID, Time: snapshot.ObservedAt, HashrateHS: v.HashrateHS, PowerW: v.PowerW, TemperatureC: v.TemperatureC, EfficiencyJH: v.EfficiencyJH, Coverage: v.Rollup})
 				}
 			}
-			sampleJSON, err = json.Marshal(samples)
-			if err != nil {
-				return fmt.Errorf("encode accepted module samples: %w", err)
-			}
 		}
-		if err := storeContainerRollups(ctx, q, id, snapshot); err != nil {
-			return err
+		sampleJSON, err = json.Marshal(samples)
+		if err != nil {
+			return fmt.Errorf("encode accepted module samples: %w", err)
 		}
 	}
-	if !snapshot.InventoryAccepted && snapshot.Metrics != nil {
-		// A duplicate/delayed topology cannot replace saved rollups, but its
-		// independently timestamped fan/control observations can still be newer.
-		return storeContainerEquipment(ctx, q, identifier, snapshot)
+	if err := storeContainerRollups(ctx, q, id, snapshot); err != nil {
+		return err
 	}
-	if err := q.InsertContainerModuleMetrics(ctx, sqlc.InsertContainerModuleMetricsParams{DeviceIdentifier: identifier, CollectedAt: snapshot.ObservedAt, Samples: sampleJSON, InventoryAccepted: err == nil}); err != nil {
+
+	if err := q.InsertContainerModuleMetrics(ctx, sqlc.InsertContainerModuleMetricsParams{DeviceIdentifier: identifier, CollectedAt: snapshot.ObservedAt, Samples: sampleJSON}); err != nil {
 		return err
 	}
 	return storeContainerEquipment(ctx, q, identifier, snapshot)

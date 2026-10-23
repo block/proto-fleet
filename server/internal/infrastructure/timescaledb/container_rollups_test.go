@@ -291,7 +291,8 @@ func TestStoredContainerRollupsRejectEveryCachedPollAfterSiteMove(t *testing.T) 
 	require.True(t, hash.Valid)
 	require.NoError(t, r.db.QueryRowContext(ctx, "SELECT id FROM container_tank WHERE device_id=$1 AND position=1", r.databaseID).Scan(&tank))
 	move(siteB)
-	for _, offset := range []time.Duration{2 * time.Second, 3 * time.Second} {
+	postMove := time.Now().UTC().Add(100 * time.Millisecond).Truncate(time.Microsecond).Sub(r.base)
+	for _, offset := range []time.Duration{postMove, postMove + 10*time.Millisecond} {
 		r.store(t, cached(offset))
 		for _, query := range []string{
 			"SELECT hashrate_hs,temperature_c,efficiency_jh FROM container_latest_metrics WHERE device_id=$1",
@@ -306,7 +307,7 @@ func TestStoredContainerRollupsRejectEveryCachedPollAfterSiteMove(t *testing.T) 
 		}
 		authority, err := json.Marshal([]map[string]any{{"org_wide": false, "sites": []int64{siteB}}})
 		require.NoError(t, err)
-		rows, err := sqlc.New(r.db).GetContainerTankHistory(ctx, sqlc.GetContainerTankHistoryParams{TankID: tank, ContainerIdentifier: r.deviceID, OrgID: org, Authority: authority, StartTime: r.base.Add(-time.Minute), EndTime: r.base.Add(time.Minute), GranularitySeconds: 1})
+		rows, err := sqlc.New(r.db).GetContainerTankHistory(ctx, sqlc.GetContainerTankHistoryParams{TankID: tank, ContainerIdentifier: r.deviceID, OrgID: org, Authority: authority, StartTime: r.base.Add(-time.Minute), EndTime: r.base.Add(postMove + time.Second), GranularitySeconds: 1})
 		require.NoError(t, err)
 		require.NotEmpty(t, rows)
 		for _, row := range rows {
@@ -315,7 +316,7 @@ func TestStoredContainerRollupsRejectEveryCachedPollAfterSiteMove(t *testing.T) 
 			}
 		}
 	}
-	r.store(t, r.snapshot(4*time.Second, false, 110e12, 220e12))
+	r.store(t, r.snapshot(postMove+20*time.Millisecond, false, 110e12, 220e12))
 	require.NoError(t, r.db.QueryRowContext(ctx, "SELECT hashrate_hs FROM container_latest_metrics WHERE device_id=$1", r.databaseID).Scan(&hash))
 	require.True(t, hash.Valid)
 	require.Equal(t, 330e12, hash.Float64)
