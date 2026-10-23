@@ -1084,7 +1084,7 @@ class WorkflowInvariantTest(unittest.TestCase):
         self.assertIn("':(glob,exclude)**/*codex*benchmark*'", called)
         self.assertIn("test ! -e model-worktree/.git", called)
         self.assertIn(
-            "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1",
+            "actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2",
             called,
         )
         self.assertNotIn('--started-at "${{', called)

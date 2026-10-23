@@ -600,7 +600,7 @@ jobs:
 
       - name: Upload uniquely named benchmark artifacts
         if: ${{ always() && steps.write_artifacts.outcome == 'success' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: benchmark-result-${{ matrix.case.id }}-${{ matrix.variant.id }}-${{ needs.select-cases.outputs.repeat }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -819,7 +819,7 @@ jobs:
 
       - name: Upload uniquely named benchmark timeout artifacts
         if: ${{ steps.write_timeout.outcome == 'success' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ env.TIMEOUT_ARTIFACT_NAME }}
           path: |
