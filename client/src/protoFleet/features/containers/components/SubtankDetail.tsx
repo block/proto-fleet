@@ -183,7 +183,12 @@ const SubtankDetail = ({
               <DurationSelector duration={duration} durations={fleetDurations} onSelect={setDuration} />
             </div>
           </div>
-          <DeviceSetPerformanceSection duration={duration} gapClassName="gap-4" metrics={metrics} />
+          <DeviceSetPerformanceSection
+            cardSurface="overlay"
+            duration={duration}
+            gapClassName="gap-4"
+            metrics={metrics}
+          />
         </section>
       )}
     </div>

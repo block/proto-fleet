@@ -43,6 +43,7 @@ export default function ContainerPerformance({ identifier, siteId }: { identifie
       </p>
       {error ? <p role="alert">Could not refresh container history: {error.message}</p> : null}
       <DeviceSetPerformanceSection
+        cardSurface="overlay"
         duration={duration}
         metrics={data?.metrics ?? (hasLoaded || error ? [] : undefined)}
       />

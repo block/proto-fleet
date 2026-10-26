@@ -35,8 +35,8 @@ import ParentPickerModal from "@/protoFleet/components/ParentPickerModal";
 import { PAGE_SCROLL_CHROME_WIDTH } from "@/protoFleet/constants/layout";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import { tankPath } from "@/protoFleet/features/containers/buildTankOverview";
-import { InventoryCell } from "@/protoFleet/features/containers/InventoryCell";
 import MiningActionsMenu from "@/protoFleet/features/containers/MiningActionsMenu";
+import TankInventoryCard from "@/protoFleet/features/containers/TankInventoryCard";
 import { useFleetCreateFlow } from "@/protoFleet/features/fleetManagement/components/FleetCreateFlow/context";
 import FleetGroupActionsMenu from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu";
 import FleetGroupListActionBar from "@/protoFleet/features/fleetManagement/components/FleetGroupActionsMenu/FleetGroupListActionBar";
@@ -1491,23 +1491,12 @@ const RacksPage = () => {
                 {(gridItems ?? racks).map((entry) => {
                   if ("ref" in entry && entry.ref?.kind === EntityKind.TANK)
                     return (
-                      <div
+                      <TankInventoryCard
                         key={`tank:${entry.ref.id}`}
-                        className="relative rounded-xl border border-border-5 bg-surface-base"
-                      >
-                        <button type="button" className="w-full p-6 text-left" onClick={() => openTank(entry)}>
-                          <InventoryCell item={entry} column="name" />
-                          <p className="py-3 text-200 text-text-primary-70">{entry.assetCount.toString()} modules</p>
-                          <InventoryCell item={entry} column="health" />
-                          <div className="grid grid-cols-2 gap-3 pt-4">
-                            <InventoryCell item={entry} column="hashrate" />
-                            <InventoryCell item={entry} column="power" />
-                          </div>
-                        </button>
-                        <div className="absolute top-3 right-3">
-                          <MiningActionsMenu kind="tank" items={[entry]} onRefresh={refreshCurrentPage} />
-                        </div>
-                      </div>
+                        item={entry}
+                        onClick={() => openTank(entry)}
+                        actions={<MiningActionsMenu kind="tank" items={[entry]} onRefresh={refreshCurrentPage} />}
+                      />
                     );
                   const rack =
                     "details" in entry ? (entry.details.case === "rack" ? entry.details.value : undefined) : entry;

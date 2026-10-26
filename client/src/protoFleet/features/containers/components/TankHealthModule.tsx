@@ -83,7 +83,7 @@ const TankHealthModule = ({
 
   return (
     <div
-      className="flex w-full flex-col overflow-hidden rounded-xl bg-surface-elevated-base shadow-100 laptop:flex-row"
+      className="flex w-full flex-col overflow-hidden rounded-xl bg-surface-overlay laptop:flex-row"
       data-testid="tank-health-module"
     >
       <div className="w-full min-w-0 p-6 laptop:w-3/5 laptop:p-10">

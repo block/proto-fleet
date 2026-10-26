@@ -19,6 +19,7 @@ import { convertCtoF, TH_TO_PH_DIVISOR, TH_TO_PH_THRESHOLD } from "@/shared/util
 
 interface DeviceSetPerformanceSectionProps {
   className?: string;
+  cardSurface?: "elevated" | "overlay";
   connectNulls?: boolean;
   /** Known API units: TH/s, kW, J/TH, and Celsius. Auto preserves legacy telemetry normalization. */
   inputUnits?: "display" | "auto";
@@ -98,6 +99,7 @@ function computeReferenceLines(chartData: ChartData[]): { value: number; color: 
 
 function ChartPanel({
   label,
+  cardSurface,
   metrics,
   units,
   duration,
@@ -106,6 +108,7 @@ function ChartPanel({
   connectNulls,
 }: {
   label: string;
+  cardSurface?: "elevated" | "overlay";
   connectNulls?: boolean;
   metrics: Metric[] | undefined;
   units: string;
@@ -145,20 +148,24 @@ function ChartPanel({
 
   if (metrics === undefined) {
     return (
-      <ChartWidget stats={{ label, value: undefined, units: "" }}>
+      <ChartWidget surface={cardSurface} stats={{ label, value: undefined, units: "" }}>
         <SkeletonBar className="h-60 w-full" />
       </ChartWidget>
     );
   }
 
   if (!chartData || chartData.length === 0) {
-    return <ChartWidget stats={{ label, value: "No data", units: "" }}>{null}</ChartWidget>;
+    return (
+      <ChartWidget surface={cardSurface} stats={{ label, value: "No data", units: "" }}>
+        {null}
+      </ChartWidget>
+    );
   }
 
   const statDisplay = formatStat(chartData, displayUnits);
 
   return (
-    <ChartWidget stats={{ label, value: statDisplay.value, units: statDisplay.units }}>
+    <ChartWidget surface={cardSurface} stats={{ label, value: statDisplay.value, units: statDisplay.units }}>
       <div className="flex w-full flex-col">
         <LineChart
           chartData={chartData}
@@ -230,6 +237,7 @@ function ChartPanel({
 
 export function DeviceSetPerformanceSection({
   className,
+  cardSurface,
   duration,
   gapClassName = "gap-4",
   metrics: allMetrics,
@@ -338,6 +346,7 @@ export function DeviceSetPerformanceSection({
   return (
     <div className={clsx("grid grid-cols-2 phone:grid-cols-1", gapClassName, className)}>
       <ChartPanel
+        cardSurface={cardSurface}
         connectNulls={connectNulls}
         label="Hashrate"
         metrics={hashrateMetrics}
@@ -347,6 +356,7 @@ export function DeviceSetPerformanceSection({
         formatStat={defaultFormatStat}
       />
       <ChartPanel
+        cardSurface={cardSurface}
         connectNulls={connectNulls}
         label="Temperature"
         metrics={temperatureMetrics}
@@ -356,6 +366,7 @@ export function DeviceSetPerformanceSection({
         formatStat={temperatureFormatStat}
       />
       <ChartPanel
+        cardSurface={cardSurface}
         connectNulls={connectNulls}
         label="Efficiency"
         metrics={efficiencyMetrics}
@@ -365,6 +376,7 @@ export function DeviceSetPerformanceSection({
         formatStat={defaultFormatStat}
       />
       <ChartPanel
+        cardSurface={cardSurface}
         connectNulls={connectNulls}
         label="Total power"
         metrics={powerMetrics}
