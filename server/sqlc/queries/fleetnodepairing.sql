@@ -3,9 +3,11 @@
 -- endpoint/credentials of a miner the cloud owns, so the update is blocked
 -- unless the row is already attributed to this fleet node or to a revoked node
 -- that can be reclaimed. Devices paired to the reporting node itself stay
--- refreshable, subject to the attribution guard. The agent synthesizes a stable
--- per-device identifier (mac:/serial:, else auto:<hash>), so a re-scan reuses
--- the same row.
+-- refreshable, subject to the attribution guard. Synthetic identifiers include
+-- the physical node id. After attribution moves to an HA peer, reconcile its
+-- new synthetic identifier to the inherited endpoint within that node and org.
+-- Exact identifiers take precedence, preserving the ownership guard. Container
+-- identity excludes the port because CT1 browser/RPC endpoints can change.
 INSERT INTO discovered_device (
     org_id,
     device_identifier,
@@ -22,7 +24,36 @@ INSERT INTO discovered_device (
     rpc_port,
     rpc_tls, endpoint_key, endpoints
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11, sqlc.arg('rpc_port'), sqlc.arg('rpc_tls'), sqlc.arg(endpoint_key), sqlc.arg(endpoints))
+VALUES (sqlc.arg('org_id'), COALESCE((
+    SELECT dd.device_identifier
+    FROM discovered_device dd
+    WHERE dd.org_id = sqlc.arg('org_id')
+      AND dd.device_identifier = sqlc.arg('device_identifier')
+      AND dd.deleted_at IS NULL
+), (
+    SELECT dd.device_identifier
+    FROM discovered_device dd
+    WHERE dd.org_id = sqlc.arg('org_id')
+      AND dd.deleted_at IS NULL
+      AND dd.discovered_by_fleet_node_id = sqlc.arg('discovered_by_fleet_node_id')
+      AND dd.ip_address = sqlc.arg('ip_address')
+      AND dd.driver_name = sqlc.arg('driver_name')
+      AND dd.device_class = sqlc.arg('device_class')
+      AND COALESCE(dd.model, '') = COALESCE(sqlc.arg('model'), '')
+      AND (
+        (sqlc.arg('device_identifier') LIKE 'auto:%' AND dd.device_identifier LIKE 'auto:%'
+          AND dd.port = sqlc.arg('port'))
+        OR (sqlc.arg('device_identifier') LIKE 'container:%' AND dd.device_identifier LIKE 'container:%'
+          AND dd.device_class = 2)
+      )
+    ORDER BY dd.id ASC
+    LIMIT 1
+), sqlc.arg('device_identifier')),
+    sqlc.arg('ip_address'), sqlc.arg('port'), sqlc.arg('url_scheme'),
+    sqlc.arg('driver_name'), sqlc.arg('model'), sqlc.arg('manufacturer'),
+    sqlc.arg('firmware_version'), sqlc.arg('discovered_by_fleet_node_id'),
+    TRUE, sqlc.arg('device_class'), sqlc.arg('rpc_port'), sqlc.arg('rpc_tls'),
+    sqlc.arg(endpoint_key), sqlc.arg(endpoints))
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     ip_address = EXCLUDED.ip_address,
     -- Native CT1 rediscovery must retain the existing browser endpoint.
@@ -53,7 +84,7 @@ AND (
     discovered_device.discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id
     -- The attributing node was revoked (soft-deleted), so a replacement node may
     -- reclaim its rows (otherwise a re-scan of the same stable mac:/serial: device
-    -- is rejected forever). Attribution moves to the reporter ($10), staying
+    -- is rejected forever). Attribution moves to the reporter, staying
     -- non-NULL, so cloud-exclusion (discovered_by_fleet_node_id IS NULL) is never
     -- widened. Cloud-paired and live-cross-node rows remain blocked below.
     OR (
@@ -83,14 +114,14 @@ AND (
             WHERE dp.device_id = d.id
               AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
           )
-          -- A device paired to THIS reporting node ($10) is node-dialed, not
+          -- A device paired to THIS reporting node is node-dialed, not
           -- cloud-dialed; its paired-like row must not block its own node's re-scan.
           AND NOT EXISTS (
             SELECT 1
             FROM fleet_node_device fnd
             WHERE fnd.device_id = d.id
               AND fnd.org_id = d.org_id
-              AND fnd.fleet_node_id = $10
+              AND fnd.fleet_node_id = sqlc.arg('discovered_by_fleet_node_id')
           )
         )
         OR EXISTS (
@@ -98,7 +129,7 @@ AND (
           FROM fleet_node_device fnd
           WHERE fnd.device_id = d.id
             AND fnd.org_id = d.org_id
-            AND fnd.fleet_node_id <> $10
+            AND fnd.fleet_node_id <> sqlc.arg('discovered_by_fleet_node_id')
         )
       )
 )

@@ -710,7 +710,8 @@ func TestTick_RetriesTransferOnceBackoffExpires(t *testing.T) {
 	require.True(t, ok)
 	assert.True(t, pair.ready)
 	assert.Empty(t, pair.reason)
-	assert.Equal(t, int32(2), exports.Load(), "the failed attempt is retried")
+	assert.Equal(t, int32(1), exports.Load(), "retry reuses the persisted export")
+	assert.Equal(t, int32(2), attempts.Load(), "the failed installation is retried")
 }
 
 func TestTick_ReportsWhyStandbyIsNotReady(t *testing.T) {
@@ -805,6 +806,7 @@ func TestHandOff(t *testing.T) {
 			h := newHarness(t)
 			h.createPair(t, tc.ready)
 			deviceID := h.addDevice(t, h.active)
+			h.connect(t, h.standby, v6)
 			revoked := h.active
 			if tc.revokeStandby {
 				revoked = h.standby
@@ -864,5 +866,153 @@ func TestDeletePair_RemovesThePairForEitherNode(t *testing.T) {
 			_, ok := h.pair(t)
 			assert.False(t, ok)
 		})
+	}
+}
+
+func TestFailover_RechecksConnectivityAfterDeviceLockWait(t *testing.T) {
+	for _, handoff := range []bool{false, true} {
+		t.Run(map[bool]string{false: "automatic", true: "revoke hand-off"}[handoff], func(t *testing.T) {
+			h := newHarness(t)
+			h.createPair(t, true)
+			deviceID := h.addDevice(t, h.active)
+			standby := h.connect(t, h.standby, v6)
+			call, err := h.db.BeginTx(t.Context(), nil)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = call.Rollback() })
+			_, err = call.ExecContext(t.Context(), `SELECT id FROM device WHERE id=$1 FOR SHARE`, deviceID)
+			require.NoError(t, err)
+			finished := make(chan error, 1)
+			go func() {
+				if handoff {
+					finished <- h.svc.HandOff(t.Context(), h.orgID, h.active)
+				} else {
+					h.svc.TickForTest(t.Context(), time.Now())
+					finished <- nil
+				}
+			}()
+			require.Eventually(t, func() bool {
+				var waiting bool
+				err := h.db.QueryRowContext(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%LockFleetNodeDevicesForRevocation%')`).Scan(&waiting)
+				return err == nil && waiting
+			}, 5*time.Second, 10*time.Millisecond)
+			if handoff {
+				standby.Unregister()
+			} else {
+				h.connect(t, h.active, v6)
+			}
+			require.NoError(t, call.Rollback())
+			select {
+			case err := <-finished:
+				if handoff {
+					require.Error(t, err, "revoke must leave the pair retryable when its standby disconnects")
+				} else {
+					require.NoError(t, err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("failover did not finish after device lock was released")
+			}
+			assert.Equal(t, h.active, h.deviceNode(t, deviceID))
+			assert.Equal(t, h.active, h.discoveredBy(t, deviceID))
+			pair, ok := h.pair(t)
+			require.True(t, ok)
+			assert.Equal(t, h.active, pair.active)
+			assert.Empty(t, h.failoverActivities(t))
+		})
+	}
+}
+
+func TestTick_PendingInstallSurvivesTeardownAndRestart(t *testing.T) {
+	h := newHarness(t)
+	h.createPair(t, false)
+	key := make([]byte, credentialkey.KeySize)
+	active := h.connect(t, h.active, v6)
+	exports := respond(t, active, exportKey(key))
+	standby := h.connect(t, h.standby, v6)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		h.svc.TickForTest(ctx, time.Now())
+	}()
+	var delayed *pb.ControlCommand
+	select {
+	case delayed = <-standby.Outgoing:
+	case <-time.After(5 * time.Second):
+		t.Fatal("standby did not receive installation")
+	}
+	// Revoke authentication while installation is still executing on the node.
+	h.exec(t, `UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1`, h.active)
+	active.Unregister()
+	requireCode(t, h.svc.DeletePair(t.Context(), h.orgID, h.active), connect.CodeFailedPrecondition)
+	requireCode(t, h.svc.RequireNotStandby(t.Context(), h.orgID, h.standby), connect.CodeFailedPrecondition)
+	requireCode(t, h.svc.CheckStandbyTarget(t.Context(), h.orgID, h.standby), connect.CodeFailedPrecondition)
+	cancel() // A server timeout/cancellation cannot prove the node stopped installing.
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("canceled transfer did not return")
+	}
+
+	// A fresh service must reconcile without the revoked active or old in-memory state.
+	restarted := ha.NewService(h.db, sqlstores.NewSQLTransactor(h.db), h.registry, nil, nil)
+	restarted.SetTimingForTest(0, 0, 0)
+	retried := make(chan struct{})
+	go func() {
+		defer close(retried)
+		restarted.TickForTest(t.Context(), time.Now())
+	}()
+	select {
+	case cmd := <-standby.Outgoing:
+		assert.Equal(t, delayed.GetPayload(), cmd.GetPayload(), "retry must install the same sealed key")
+		command := &pb.AgentCommand{}
+		require.NoError(t, proto.Unmarshal(cmd.GetPayload(), command))
+		ack := installKey(h.standbyKey)(command)
+		ack.CommandId = cmd.GetCommandId()
+		standby.PublishAck(ack)
+	case <-time.After(5 * time.Second):
+		t.Fatal("restart did not retry pending installation without the active node")
+	}
+	select {
+	case <-retried:
+	case <-time.After(5 * time.Second):
+		t.Fatal("retry did not finish")
+	}
+	pair, ok := h.pair(t)
+	require.True(t, ok)
+	require.True(t, pair.ready)
+	assert.Equal(t, int32(1), exports.Load())
+	require.NoError(t, restarted.DeletePair(t.Context(), h.orgID, h.active))
+	require.NoError(t, restarted.RequireNotStandby(t.Context(), h.orgID, h.standby))
+	require.NoError(t, restarted.CheckStandbyTarget(t.Context(), h.orgID, h.standby))
+}
+
+func TestTick_DoesNotInstallAfterTeardownDuringExport(t *testing.T) {
+	h := newHarness(t)
+	h.createPair(t, false)
+	active := h.connect(t, h.active, v6)
+	standby := h.connect(t, h.standby, v6)
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		h.svc.TickForTest(t.Context(), time.Now())
+	}()
+	select {
+	case cmd := <-active.Outgoing:
+		require.NoError(t, h.svc.DeletePair(t.Context(), h.orgID, h.active))
+		command := &pb.AgentCommand{}
+		require.NoError(t, proto.Unmarshal(cmd.GetPayload(), command))
+		ack := exportKey(make([]byte, credentialkey.KeySize))(command)
+		ack.CommandId = cmd.GetCommandId()
+		active.PublishAck(ack)
+	case <-time.After(5 * time.Second):
+		t.Fatal("active did not receive export")
+	}
+	select {
+	case <-finished:
+	case cmd := <-standby.Outgoing:
+		t.Fatalf("installation sent after pair was dissolved: %s", cmd.GetCommandId())
+	case <-time.After(5 * time.Second):
+		t.Fatal("transfer did not stop after teardown")
 	}
 }

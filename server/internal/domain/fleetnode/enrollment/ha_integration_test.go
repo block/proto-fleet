@@ -261,3 +261,42 @@ func TestRevokeDissolvesPairWithoutHandOff(t *testing.T) {
 		})
 	}
 }
+
+func TestRevokeWithPendingCredentialInstallation(t *testing.T) {
+	for _, revokeStandby := range []bool{false, true} {
+		t.Run(map[bool]string{false: "active remains revoked until install reconciles", true: "revoked standby cannot pair devices"}[revokeStandby], func(t *testing.T) {
+			h := setupHAEnrollmentTest(t)
+			active, standby, deviceID := h.readyPairWithDevice(t)
+			_, err := h.db.ExecContext(t.Context(), `UPDATE fleet_node_ha_pair SET standby_ready=false,pending_credential_key=$1 WHERE active_node_id=$2`, []byte("sealed install in flight"), active)
+			require.NoError(t, err)
+			target := active
+			if revokeStandby {
+				target = standby
+			}
+			err = h.enrollment.RevokeFleetNode(t.Context(), target, h.orgID)
+			if revokeStandby {
+				require.NoError(t, err)
+				_, _, ok := h.pairOf(t, active)
+				assert.False(t, ok)
+				assert.Equal(t, []int64{active}, h.deviceNodes(t, deviceID))
+				return
+			}
+			requireFleetErrorCode(t, err, connect.CodeFailedPrecondition)
+			node, err := h.enrollment.GetFleetNodeByID(t.Context(), active, h.orgID)
+			require.NoError(t, err)
+			assert.Equal(t, fleetnodeenrollment.FleetNodeStatusRevoked, node.EnrollmentStatus)
+			_, _, ok := h.pairOf(t, active)
+			require.True(t, ok, "pending installation keeps the survivor reserved")
+			assert.Equal(t, []int64{active}, h.deviceNodes(t, deviceID), "retryable revoke preserves credentials and pairings")
+			_, _, _, err = h.enrollment.CreateStandbyCode(t.Context(), 1, h.orgID, time.Hour, standby)
+			requireFleetErrorCode(t, err, connect.CodeFailedPrecondition)
+			// The HA loop's acknowledgement releases the durable reservation.
+			_, err = h.db.ExecContext(t.Context(), `UPDATE fleet_node_ha_pair SET standby_ready=true,pending_credential_key=NULL WHERE active_node_id=$1`, active)
+			require.NoError(t, err)
+			require.NoError(t, h.enrollment.RevokeFleetNode(t.Context(), active, h.orgID))
+			assert.Equal(t, []int64{standby}, h.deviceNodes(t, deviceID))
+			_, _, ok = h.pairOf(t, standby)
+			assert.False(t, ok)
+		})
+	}
+}

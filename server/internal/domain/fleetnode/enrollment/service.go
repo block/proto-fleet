@@ -403,13 +403,6 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 				return logInternal("check HA hand-off", clientErrRevokeFleetNode, err)
 			}
 		}
-		if !handOff {
-			var listErr error
-			if devices, listErr = s.dissolvePairAndListDevices(ctx, agentID, orgID); listErr != nil {
-				return listErr
-			}
-		}
-
 		agentName = agent.Name
 		return nil
 	}); err != nil {
@@ -421,11 +414,14 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 	// Record and publish the committed security decision even if hand-off or
 	// teardown is interrupted. The live REVOKED row lets operators retry.
 	s.logActivity(ctx, "revoke_fleet_node", fmt.Sprintf("Revoked fleet node '%s' (id=%d)", agentName, agentID))
+	var err error
 	if handOff {
-		var err error
-		if devices, err = s.handOffRevokedDevices(ctx, agentID, orgID); err != nil {
-			return err
-		}
+		devices, err = s.handOffRevokedDevices(ctx, agentID, orgID)
+	} else {
+		devices, err = s.dissolvePairAndListDevices(ctx, agentID, orgID)
+	}
+	if err != nil {
+		return err
 	}
 	if s.removeTelemetry != nil {
 		// Revocation has committed, so a canceled request must not leave these
@@ -491,6 +487,9 @@ func (s *Service) handOffRevokedDevices(ctx context.Context, agentID, orgID int6
 func (s *Service) dissolvePairAndListDevices(ctx context.Context, agentID, orgID int64) ([]RevokedDevice, error) {
 	if s.ha != nil {
 		if err := s.ha.DeletePair(ctx, orgID, agentID); err != nil {
+			if fleeterror.IsFailedPreconditionError(err) {
+				return nil, err
+			}
 			return nil, logInternal("delete HA pair", clientErrRevokeFleetNode, err)
 		}
 	}

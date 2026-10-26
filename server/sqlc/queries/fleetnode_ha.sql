@@ -17,21 +17,21 @@ SELECT EXISTS (
 
 -- name: ListFleetNodeHAPairs :many
 -- Spans organizations: the failover loop watches every pair.
-SELECT p.id, p.org_id, p.active_node_id, p.standby_node_id, p.standby_ready, p.status_reason,
+SELECT p.id, p.org_id, p.active_node_id, p.standby_node_id, p.standby_ready, p.status_reason, p.pending_credential_key,
        s.encryption_pubkey AS standby_encryption_pubkey
 FROM fleet_node_ha_pair p
 JOIN fleet_node s ON s.id = p.standby_node_id AND s.org_id = p.org_id
 ORDER BY p.id;
 
 -- name: GetFleetNodeHAPairForNode :one
-SELECT id, org_id, active_node_id, standby_node_id, standby_ready, status_reason, created_at, failed_over_at
+SELECT id, org_id, active_node_id, standby_node_id, standby_ready, pending_credential_key, status_reason, created_at, failed_over_at
 FROM fleet_node_ha_pair
 WHERE org_id = sqlc.arg('org_id')
   AND (active_node_id = sqlc.arg('node_id') OR standby_node_id = sqlc.arg('node_id'));
 
 -- name: LockFleetNodeHAPair :one
 -- Failover takes this after the active node's device and fleet_node locks.
-SELECT id, org_id, active_node_id, standby_node_id, standby_ready, status_reason, created_at, failed_over_at
+SELECT id, org_id, active_node_id, standby_node_id, standby_ready, pending_credential_key, status_reason, created_at, failed_over_at
 FROM fleet_node_ha_pair
 WHERE id = $1 AND active_node_id = $2
 FOR UPDATE;
@@ -45,7 +45,7 @@ WHERE id = sqlc.arg('id') AND active_node_id = sqlc.arg('active_node_id')
 
 -- name: MarkFleetNodeHAStandbyReady :execrows
 UPDATE fleet_node_ha_pair
-SET standby_ready = true, status_reason = ''
+SET standby_ready = true, status_reason = '', pending_credential_key = NULL
 WHERE id = $1 AND active_node_id = $2 AND standby_node_id = $3;
 
 -- name: MoveFleetNodeDevices :many
@@ -64,7 +64,21 @@ UPDATE fleet_node_ha_pair
 SET active_node_id = standby_node_id, standby_node_id = active_node_id, failed_over_at = now()
 WHERE id = $1;
 
--- name: DeleteFleetNodeHAPairForNode :exec
-DELETE FROM fleet_node_ha_pair
-WHERE org_id = sqlc.arg('org_id')
-  AND (active_node_id = sqlc.arg('node_id') OR standby_node_id = sqlc.arg('node_id'));
+-- name: DeleteFleetNodeHAPairForNode :execrows
+-- Pending installation may still execute after a server timeout. Keep the
+-- surviving standby reserved until an acknowledgement reconciles its key.
+DELETE FROM fleet_node_ha_pair AS p
+WHERE p.org_id = sqlc.arg('org_id')
+  AND (active_node_id = sqlc.arg('node_id') OR standby_node_id = sqlc.arg('node_id'))
+  AND (p.pending_credential_key IS NULL OR p.standby_ready OR
+       (p.standby_node_id = sqlc.arg('node_id') AND EXISTS (
+           SELECT 1 FROM fleet_node n WHERE n.id = p.standby_node_id AND n.org_id = p.org_id
+             AND n.enrollment_status = 'REVOKED'
+       )));
+
+-- name: PrepareFleetNodeHAKeyInstall :one
+UPDATE fleet_node_ha_pair
+SET pending_credential_key = COALESCE(pending_credential_key, sqlc.arg('pending_credential_key'))
+WHERE id = sqlc.arg('id') AND active_node_id = sqlc.arg('active_node_id')
+  AND standby_node_id = sqlc.arg('standby_node_id') AND NOT standby_ready
+RETURNING pending_credential_key;

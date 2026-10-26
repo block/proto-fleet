@@ -54,7 +54,17 @@ const (
 	reasonTransferFailed  = "Credential key transfer failed; retrying"
 )
 
-var errPairChanged = errors.New("HA pair changed")
+var (
+	errPairChanged    = errors.New("HA pair changed")
+	errFailoverNotDue = errors.New("HA failover is no longer due")
+)
+
+type failoverReason string
+
+const (
+	automaticFailover failoverReason = "after its control stream disconnected"
+	revokedActive     failoverReason = "after revoking the active node"
+)
 
 type Service struct {
 	queries         sqlc.Querier
@@ -180,7 +190,7 @@ func (s *Service) HandOff(ctx context.Context, orgID, nodeID int64) error {
 	if err != nil || !ok {
 		return err
 	}
-	if err := s.failover(ctx, pair.OrgID, pair.ID, pair.ActiveNodeID, pair.StandbyNodeID, "after revoking the active node"); err != nil && !errors.Is(err, errPairChanged) {
+	if err := s.failover(ctx, pair.OrgID, pair.ID, pair.ActiveNodeID, pair.StandbyNodeID, revokedActive); err != nil && !errors.Is(err, errPairChanged) {
 		return err
 	}
 	return nil
@@ -199,9 +209,21 @@ func (s *Service) readyPairOf(ctx context.Context, orgID, nodeID int64) (pair sq
 	return pair, pair.ActiveNodeID == nodeID && pair.StandbyReady, nil
 }
 
-// DeletePair removes nodeID's pair.
+// DeletePair removes a revoked node's pair unless an unresolved installation
+// could still replace the surviving standby's credential key.
 func (s *Service) DeletePair(ctx context.Context, orgID, nodeID int64) error {
-	return s.q(ctx).DeleteFleetNodeHAPairForNode(ctx, sqlc.DeleteFleetNodeHAPairForNodeParams{OrgID: orgID, NodeID: nodeID})
+	rows, err := s.q(ctx).DeleteFleetNodeHAPairForNode(ctx, sqlc.DeleteFleetNodeHAPairForNodeParams{OrgID: orgID, NodeID: nodeID})
+	if err != nil || rows > 0 {
+		return err
+	}
+	paired, err := s.q(ctx).FleetNodeInHAPair(ctx, sqlc.FleetNodeInHAPairParams{OrgID: orgID, NodeID: nodeID})
+	if err != nil {
+		return err
+	}
+	if paired {
+		return fleeterror.NewFailedPreconditionError("fleet node authentication is revoked; standby credential key installation is pending; reconnect the standby and retry revocation")
+	}
+	return nil
 }
 
 // Run watches every pair until ctx ends. It fails over pairs whose active node
@@ -236,8 +258,8 @@ func (s *Service) tick(ctx context.Context, started time.Time, transfers *sync.W
 	for _, pair := range pairs {
 		if pair.StandbyReady {
 			if pastGrace && s.failoverDue(pair.ActiveNodeID, pair.StandbyNodeID) {
-				err := s.failover(ctx, pair.OrgID, pair.ID, pair.ActiveNodeID, pair.StandbyNodeID, "after its control stream disconnected")
-				if err != nil && !errors.Is(err, errPairChanged) && ctx.Err() == nil {
+				err := s.failover(ctx, pair.OrgID, pair.ID, pair.ActiveNodeID, pair.StandbyNodeID, automaticFailover)
+				if err != nil && !errors.Is(err, errPairChanged) && !errors.Is(err, errFailoverNotDue) && ctx.Err() == nil {
 					slog.Error("fleet node HA failover failed", "pair_id", pair.ID, "active_node_id", pair.ActiveNodeID, "err", err)
 				}
 			}
@@ -278,11 +300,12 @@ func (s *Service) failoverDue(activeID, standbyID int64) bool {
 }
 
 func (s *Service) notReadyReason(pair sqlc.ListFleetNodeHAPairsRow) string {
-	if !s.registry.Connected(pair.ActiveNodeID) || !s.registry.Connected(pair.StandbyNodeID) {
+	needsExport := len(pair.PendingCredentialKey) == 0
+	if !s.registry.Connected(pair.StandbyNodeID) || (needsExport && !s.registry.Connected(pair.ActiveNodeID)) {
 		return reasonWaitingForNodes
 	}
-	if s.registry.CommandProtocolUpgradeRequiredForVersion(pair.ActiveNodeID, HAProtocolVersion) ||
-		s.registry.CommandProtocolUpgradeRequiredForVersion(pair.StandbyNodeID, HAProtocolVersion) {
+	if s.registry.CommandProtocolUpgradeRequiredForVersion(pair.StandbyNodeID, HAProtocolVersion) ||
+		(needsExport && s.registry.CommandProtocolUpgradeRequiredForVersion(pair.ActiveNodeID, HAProtocolVersion)) {
 		return reasonUpgradeRequired
 	}
 	return ""
@@ -319,16 +342,34 @@ func (s *Service) transfer(ctx context.Context, pair sqlc.ListFleetNodeHAPairsRo
 // encryption key and the standby install it. fleetd relays the sealed key and
 // compares the fingerprints both nodes report.
 func (s *Service) transferKey(ctx context.Context, pair sqlc.ListFleetNodeHAPairsRow) error {
-	exported, err := s.sendKeyCommand(ctx, pair.ActiveNodeID, &gatewaypb.AgentCommand{
-		Command: &gatewaypb.AgentCommand_ExportCredentialKey{ExportCredentialKey: &gatewaypb.ExportCredentialKey{
-			RecipientPublicKey: pair.StandbyEncryptionPubkey,
-		}},
-	})
-	if err != nil {
-		return fmt.Errorf("export from active node: %w", err)
+	pending := pair.PendingCredentialKey
+	if len(pending) == 0 {
+		exported, err := s.sendKeyCommand(ctx, pair.ActiveNodeID, &gatewaypb.AgentCommand{
+			Command: &gatewaypb.AgentCommand_ExportCredentialKey{ExportCredentialKey: &gatewaypb.ExportCredentialKey{
+				RecipientPublicKey: pair.StandbyEncryptionPubkey,
+			}},
+		})
+		if err != nil {
+			return fmt.Errorf("export from active node: %w", err)
+		}
+		if exported.GetSealedKey() == nil {
+			return errors.New("active node exported no sealed key")
+		}
+		payload, err := proto.Marshal(exported)
+		if err != nil {
+			return fmt.Errorf("marshal pending credential key: %w", err)
+		}
+		pending, err = s.queries.PrepareFleetNodeHAKeyInstall(ctx, sqlc.PrepareFleetNodeHAKeyInstallParams{
+			ID: pair.ID, ActiveNodeID: pair.ActiveNodeID, StandbyNodeID: pair.StandbyNodeID,
+			PendingCredentialKey: payload,
+		})
+		if err != nil {
+			return err
+		}
 	}
-	if exported.GetSealedKey() == nil {
-		return errors.New("active node exported no sealed key")
+	exported := &gatewaypb.CredentialKeyResult{}
+	if err := proto.Unmarshal(pending, exported); err != nil {
+		return fmt.Errorf("decode pending credential key: %w", err)
 	}
 	installed, err := s.sendKeyCommand(ctx, pair.StandbyNodeID, &gatewaypb.AgentCommand{
 		Command: &gatewaypb.AgentCommand_InstallCredentialKey{InstallCredentialKey: &gatewaypb.InstallCredentialKey{
@@ -391,7 +432,7 @@ func (s *Service) setStatus(ctx context.Context, pair sqlc.ListFleetNodeHAPairsR
 // standby and swaps the roles. Locks follow revocation's order: the active
 // node's devices, both fleet_node rows, then the pair. errPairChanged means
 // another failover or a revoke got there first.
-func (s *Service) failover(ctx context.Context, orgID, pairID, activeID, standbyID int64, why string) error {
+func (s *Service) failover(ctx context.Context, orgID, pairID, activeID, standbyID int64, why failoverReason) error {
 	var moved []int64
 	var activeName, standbyName string
 	err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
@@ -425,6 +466,13 @@ func (s *Service) failover(ctx context.Context, orgID, pairID, activeID, standby
 		}
 		if pair.StandbyNodeID != standbyID || !pair.StandbyReady {
 			return errPairChanged
+		}
+		if why == automaticFailover {
+			if !s.failoverDue(activeID, standbyID) {
+				return errFailoverNotDue
+			}
+		} else if !s.registry.Connected(standbyID) {
+			return fleeterror.NewFailedPreconditionError("HA standby disconnected before device hand-off")
 		}
 		moved, err = q.MoveFleetNodeDevices(ctx, sqlc.MoveFleetNodeDevicesParams{ToNodeID: standbyID, FromNodeID: activeID, OrgID: orgID})
 		if err != nil {

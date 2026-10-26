@@ -33,5 +33,5 @@ func (s *Service) TickForTest(ctx context.Context, started time.Time) {
 // FailoverForTest runs a failover for the pair as given, without checking it
 // against the database first.
 func (s *Service) FailoverForTest(ctx context.Context, orgID, pairID, activeID, standbyID int64) error {
-	return s.failover(ctx, orgID, pairID, activeID, standbyID, "after a test")
+	return s.failover(ctx, orgID, pairID, activeID, standbyID, automaticFailover)
 }

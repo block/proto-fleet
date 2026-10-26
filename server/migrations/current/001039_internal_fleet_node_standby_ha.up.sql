@@ -14,6 +14,8 @@ CREATE TABLE fleet_node_ha_pair (
     standby_node_id bigint NOT NULL,
     -- True once the standby holds the active node's credential key.
     standby_ready boolean NOT NULL DEFAULT false,
+    -- Sealed CredentialKeyResult persisted before dispatch, retained until ack.
+    pending_credential_key bytea,
     status_reason text NOT NULL DEFAULT '',
     created_at timestamptz NOT NULL DEFAULT now(),
     failed_over_at timestamptz,

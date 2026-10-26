@@ -32,10 +32,15 @@ func (q *Queries) CreateFleetNodeHAPair(ctx context.Context, arg CreateFleetNode
 	return err
 }
 
-const deleteFleetNodeHAPairForNode = `-- name: DeleteFleetNodeHAPairForNode :exec
-DELETE FROM fleet_node_ha_pair
-WHERE org_id = $1
+const deleteFleetNodeHAPairForNode = `-- name: DeleteFleetNodeHAPairForNode :execrows
+DELETE FROM fleet_node_ha_pair AS p
+WHERE p.org_id = $1
   AND (active_node_id = $2 OR standby_node_id = $2)
+  AND (p.pending_credential_key IS NULL OR p.standby_ready OR
+       (p.standby_node_id = $2 AND EXISTS (
+           SELECT 1 FROM fleet_node n WHERE n.id = p.standby_node_id AND n.org_id = p.org_id
+             AND n.enrollment_status = 'REVOKED'
+       )))
 `
 
 type DeleteFleetNodeHAPairForNodeParams struct {
@@ -43,9 +48,14 @@ type DeleteFleetNodeHAPairForNodeParams struct {
 	NodeID int64
 }
 
-func (q *Queries) DeleteFleetNodeHAPairForNode(ctx context.Context, arg DeleteFleetNodeHAPairForNodeParams) error {
-	_, err := q.exec(ctx, q.deleteFleetNodeHAPairForNodeStmt, deleteFleetNodeHAPairForNode, arg.OrgID, arg.NodeID)
-	return err
+// Pending installation may still execute after a server timeout. Keep the
+// surviving standby reserved until an acknowledgement reconciles its key.
+func (q *Queries) DeleteFleetNodeHAPairForNode(ctx context.Context, arg DeleteFleetNodeHAPairForNodeParams) (int64, error) {
+	result, err := q.exec(ctx, q.deleteFleetNodeHAPairForNodeStmt, deleteFleetNodeHAPairForNode, arg.OrgID, arg.NodeID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const fleetNodeInHAPair = `-- name: FleetNodeInHAPair :one
@@ -69,7 +79,7 @@ func (q *Queries) FleetNodeInHAPair(ctx context.Context, arg FleetNodeInHAPairPa
 }
 
 const getFleetNodeHAPairForNode = `-- name: GetFleetNodeHAPairForNode :one
-SELECT id, org_id, active_node_id, standby_node_id, standby_ready, status_reason, created_at, failed_over_at
+SELECT id, org_id, active_node_id, standby_node_id, standby_ready, pending_credential_key, status_reason, created_at, failed_over_at
 FROM fleet_node_ha_pair
 WHERE org_id = $1
   AND (active_node_id = $2 OR standby_node_id = $2)
@@ -89,6 +99,7 @@ func (q *Queries) GetFleetNodeHAPairForNode(ctx context.Context, arg GetFleetNod
 		&i.ActiveNodeID,
 		&i.StandbyNodeID,
 		&i.StandbyReady,
+		&i.PendingCredentialKey,
 		&i.StatusReason,
 		&i.CreatedAt,
 		&i.FailedOverAt,
@@ -116,7 +127,7 @@ func (q *Queries) IsFleetNodeHAStandby(ctx context.Context, arg IsFleetNodeHASta
 }
 
 const listFleetNodeHAPairs = `-- name: ListFleetNodeHAPairs :many
-SELECT p.id, p.org_id, p.active_node_id, p.standby_node_id, p.standby_ready, p.status_reason,
+SELECT p.id, p.org_id, p.active_node_id, p.standby_node_id, p.standby_ready, p.status_reason, p.pending_credential_key,
        s.encryption_pubkey AS standby_encryption_pubkey
 FROM fleet_node_ha_pair p
 JOIN fleet_node s ON s.id = p.standby_node_id AND s.org_id = p.org_id
@@ -130,6 +141,7 @@ type ListFleetNodeHAPairsRow struct {
 	StandbyNodeID           int64
 	StandbyReady            bool
 	StatusReason            string
+	PendingCredentialKey    []byte
 	StandbyEncryptionPubkey []byte
 }
 
@@ -150,6 +162,7 @@ func (q *Queries) ListFleetNodeHAPairs(ctx context.Context) ([]ListFleetNodeHAPa
 			&i.StandbyNodeID,
 			&i.StandbyReady,
 			&i.StatusReason,
+			&i.PendingCredentialKey,
 			&i.StandbyEncryptionPubkey,
 		); err != nil {
 			return nil, err
@@ -166,7 +179,7 @@ func (q *Queries) ListFleetNodeHAPairs(ctx context.Context) ([]ListFleetNodeHAPa
 }
 
 const lockFleetNodeHAPair = `-- name: LockFleetNodeHAPair :one
-SELECT id, org_id, active_node_id, standby_node_id, standby_ready, status_reason, created_at, failed_over_at
+SELECT id, org_id, active_node_id, standby_node_id, standby_ready, pending_credential_key, status_reason, created_at, failed_over_at
 FROM fleet_node_ha_pair
 WHERE id = $1 AND active_node_id = $2
 FOR UPDATE
@@ -187,6 +200,7 @@ func (q *Queries) LockFleetNodeHAPair(ctx context.Context, arg LockFleetNodeHAPa
 		&i.ActiveNodeID,
 		&i.StandbyNodeID,
 		&i.StandbyReady,
+		&i.PendingCredentialKey,
 		&i.StatusReason,
 		&i.CreatedAt,
 		&i.FailedOverAt,
@@ -196,7 +210,7 @@ func (q *Queries) LockFleetNodeHAPair(ctx context.Context, arg LockFleetNodeHAPa
 
 const markFleetNodeHAStandbyReady = `-- name: MarkFleetNodeHAStandbyReady :execrows
 UPDATE fleet_node_ha_pair
-SET standby_ready = true, status_reason = ''
+SET standby_ready = true, status_reason = '', pending_credential_key = NULL
 WHERE id = $1 AND active_node_id = $2 AND standby_node_id = $3
 `
 
@@ -265,6 +279,33 @@ func (q *Queries) MoveFleetNodeDevices(ctx context.Context, arg MoveFleetNodeDev
 		return nil, err
 	}
 	return items, nil
+}
+
+const prepareFleetNodeHAKeyInstall = `-- name: PrepareFleetNodeHAKeyInstall :one
+UPDATE fleet_node_ha_pair
+SET pending_credential_key = COALESCE(pending_credential_key, $1)
+WHERE id = $2 AND active_node_id = $3
+  AND standby_node_id = $4 AND NOT standby_ready
+RETURNING pending_credential_key
+`
+
+type PrepareFleetNodeHAKeyInstallParams struct {
+	PendingCredentialKey []byte
+	ID                   int64
+	ActiveNodeID         int64
+	StandbyNodeID        int64
+}
+
+func (q *Queries) PrepareFleetNodeHAKeyInstall(ctx context.Context, arg PrepareFleetNodeHAKeyInstallParams) ([]byte, error) {
+	row := q.queryRow(ctx, q.prepareFleetNodeHAKeyInstallStmt, prepareFleetNodeHAKeyInstall,
+		arg.PendingCredentialKey,
+		arg.ID,
+		arg.ActiveNodeID,
+		arg.StandbyNodeID,
+	)
+	var pending_credential_key []byte
+	err := row.Scan(&pending_credential_key)
+	return pending_credential_key, err
 }
 
 const setFleetNodeHAPairStatus = `-- name: SetFleetNodeHAPairStatus :execrows

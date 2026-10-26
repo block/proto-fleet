@@ -1686,14 +1686,15 @@ type FleetNodeDevice struct {
 }
 
 type FleetNodeHaPair struct {
-	ID            int64
-	OrgID         int64
-	ActiveNodeID  int64
-	StandbyNodeID int64
-	StandbyReady  bool
-	StatusReason  string
-	CreatedAt     time.Time
-	FailedOverAt  sql.NullTime
+	ID                   int64
+	OrgID                int64
+	ActiveNodeID         int64
+	StandbyNodeID        int64
+	StandbyReady         bool
+	PendingCredentialKey []byte
+	StatusReason         string
+	CreatedAt            time.Time
+	FailedOverAt         sql.NullTime
 }
 
 type FleetNodeHeartbeat struct {

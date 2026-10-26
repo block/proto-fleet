@@ -2229,6 +2229,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.pauseFirmwareRolloutStmt, err = db.PrepareContext(ctx, pauseFirmwareRollout); err != nil {
 		return nil, fmt.Errorf("error preparing query PauseFirmwareRollout: %w", err)
 	}
+	if q.prepareFleetNodeHAKeyInstallStmt, err = db.PrepareContext(ctx, prepareFleetNodeHAKeyInstall); err != nil {
+		return nil, fmt.Errorf("error preparing query PrepareFleetNodeHAKeyInstall: %w", err)
+	}
 	if q.prepareTelemetrySeedStmt, err = db.PrepareContext(ctx, prepareTelemetrySeed); err != nil {
 		return nil, fmt.Errorf("error preparing query PrepareTelemetrySeed: %w", err)
 	}
@@ -6599,6 +6602,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing pauseFirmwareRolloutStmt: %w", cerr)
 		}
 	}
+	if q.prepareFleetNodeHAKeyInstallStmt != nil {
+		if cerr := q.prepareFleetNodeHAKeyInstallStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing prepareFleetNodeHAKeyInstallStmt: %w", cerr)
+		}
+	}
 	if q.prepareTelemetrySeedStmt != nil {
 		if cerr := q.prepareTelemetrySeedStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing prepareTelemetrySeedStmt: %w", cerr)
@@ -8523,6 +8531,7 @@ type Queries struct {
 	passwordUpdatedAtStmt                                        *sql.Stmt
 	pauseActiveScheduleStmt                                      *sql.Stmt
 	pauseFirmwareRolloutStmt                                     *sql.Stmt
+	prepareFleetNodeHAKeyInstallStmt                             *sql.Stmt
 	prepareTelemetrySeedStmt                                     *sql.Stmt
 	preserveFirmwareRolloutRetryBaselinesStmt                    *sql.Stmt
 	pruneDetachedHashboardPoolIntentsStmt                        *sql.Stmt
@@ -9494,6 +9503,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		passwordUpdatedAtStmt:                                        q.passwordUpdatedAtStmt,
 		pauseActiveScheduleStmt:                                      q.pauseActiveScheduleStmt,
 		pauseFirmwareRolloutStmt:                                     q.pauseFirmwareRolloutStmt,
+		prepareFleetNodeHAKeyInstallStmt:                             q.prepareFleetNodeHAKeyInstallStmt,
 		prepareTelemetrySeedStmt:                                     q.prepareTelemetrySeedStmt,
 		preserveFirmwareRolloutRetryBaselinesStmt:                    q.preserveFirmwareRolloutRetryBaselinesStmt,
 		pruneDetachedHashboardPoolIntentsStmt:                        q.pruneDetachedHashboardPoolIntentsStmt,

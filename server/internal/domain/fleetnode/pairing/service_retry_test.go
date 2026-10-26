@@ -49,6 +49,7 @@ func (s *fakeUpsertStore) UpsertDiscoveredDeviceFromFleetNode(_ context.Context,
 		return report, false, s.err
 	}
 	if report.DeviceIdentifier == "accept" {
+		report.DeviceIdentifier = "canonical-accept"
 		report.DeviceClass = commonpb.DeviceClass_DEVICE_CLASS_CONTAINER
 		return report, true, nil
 	}
@@ -83,7 +84,7 @@ func TestUpsertDiscoveredDevicesPreservesRetryableDatabaseErrors(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Len(t, accepted, 1)
-			require.Equal(t, "accept", accepted[0].DeviceIdentifier)
+			require.Equal(t, "canonical-accept", accepted[0].DeviceIdentifier)
 			require.EqualValues(t, 1, rejected)
 		})
 	}
