@@ -91,14 +91,19 @@ const RevokeNodeDialog = ({
             its devices to {peerLabel} and removes the HA pair. If the handoff fails, the node stays revoked. Retry
             revocation to complete the handoff.
           </>
+        ) : isActive && !haStandbyReady ? (
+          <>
+            Are you sure you want to revoke "{nodeName}"? The node immediately loses access to Fleet. {peerLabel} isn't
+            ready to take over. Its miners keep running. If standby setup is pending, the HA pair, miner pairings, and
+            stored miner credentials are kept until you reconnect the standby and retry revocation. Otherwise,
+            revocation removes them, and another node must discover and pair the miners again.
+          </>
         ) : (
           <>
             Are you sure you want to revoke "{nodeName}"? The node immediately loses access to Fleet, and its miner
             pairings and stored miner credentials are removed. Its miners keep running, but another node will need to
             discover and pair them again.
-            {isActive
-              ? ` The HA pair is removed, since ${peerLabel} ${haStandbyReady ? "isn't connected" : "isn't ready"} to take over.`
-              : ""}
+            {isActive ? ` The HA pair is removed, since ${peerLabel} isn't connected to take over.` : ""}
           </>
         )}{" "}
         This action cannot be undone.

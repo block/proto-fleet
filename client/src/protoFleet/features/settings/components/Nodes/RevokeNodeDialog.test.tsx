@@ -64,25 +64,34 @@ describe("RevokeNodeDialog", () => {
   it.each([
     ["not ready", false, true, "isn't ready"],
     ["not connected", true, false, "isn't connected"],
-  ])(
-    "warns that devices are unpaired when the standby is %s",
-    (_label, haStandbyReady, controlStreamConnected, reason) => {
-      const peerNode = { name: "node-02", controlStreamConnected };
+  ])("explains revocation cleanup when the standby is %s", (_label, haStandbyReady, controlStreamConnected, reason) => {
+    const peerNode = { name: "node-02", controlStreamConnected };
 
-      render(
-        <RevokeNodeDialog
-          {...haProps}
-          haRole={FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE}
-          haStandbyReady={haStandbyReady}
-          peerNode={peerNode}
-        />,
-      );
+    render(
+      <RevokeNodeDialog
+        {...haProps}
+        haRole={FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE}
+        haStandbyReady={haStandbyReady}
+        peerNode={peerNode}
+      />,
+    );
 
+    expect(screen.getByText(/immediately loses access to Fleet/)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`node-02 ${reason} to take over`))).toBeInTheDocument();
+    if (!haStandbyReady) {
+      expect(
+        screen.getByText(
+          /If standby setup is pending, the HA pair, miner pairings, and stored miner credentials are kept/,
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getByText(/reconnect the standby and retry revocation/)).toBeInTheDocument();
+      expect(screen.queryByText(/miner pairings and stored miner credentials are removed/)).not.toBeInTheDocument();
+    } else {
       expect(screen.getByText(/miner pairings and stored miner credentials are removed/)).toBeInTheDocument();
-      expect(screen.getByText(new RegExp(`since node-02 ${reason} to take over`))).toBeInTheDocument();
-      expect(screen.getByText("1 paired Proto Rig miner will lose connection.")).toBeInTheDocument();
-    },
-  );
+      expect(screen.queryByText(/retry revocation/)).not.toBeInTheDocument();
+    }
+    expect(screen.getByText("1 paired Proto Rig miner will lose connection.")).toBeInTheDocument();
+  });
 
   it("warns that devices are unpaired when the standby is missing from the node list", () => {
     render(<RevokeNodeDialog {...haProps} haRole={FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE} haStandbyReady />);

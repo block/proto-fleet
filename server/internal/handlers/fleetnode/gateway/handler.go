@@ -763,11 +763,6 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		keepalive = ControlStreamKeepaliveInterval
 		livenessInterval = keepalive
 	}
-	if err := sendControlStreamAccepted(ctx, stream.Send, keepalive); err != nil {
-		return err
-	}
-	liveness := time.NewTicker(livenessInterval)
-	defer liveness.Stop()
 	silence := control.KeepaliveMisses * keepalive
 	var silent atomic.Bool
 	var watchdog *time.Timer
@@ -781,6 +776,11 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		})
 		defer watchdog.Stop()
 	}
+	if err := sendControlStreamAccepted(ctx, stream.Send, keepalive); err != nil {
+		return err
+	}
+	liveness := time.NewTicker(livenessInterval)
+	defer liveness.Stop()
 	// Side-goroutine bridges blocking stream.Receive into the select loop. Its
 	// send selects on regHandle.Done (closed by the deferred Unregister) so it
 	// can't block forever on a full channel after the main loop exits.

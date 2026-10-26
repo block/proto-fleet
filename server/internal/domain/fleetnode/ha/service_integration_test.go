@@ -90,6 +90,15 @@ func (h *harness) createPair(t *testing.T, ready bool) {
 	}
 }
 
+func (h *harness) createReadyPair(t *testing.T, orgID int64) *harness {
+	t.Helper()
+	pair := &harness{database: h.database, db: h.db, svc: h.svc, registry: h.registry, orgID: orgID}
+	pair.active = pair.createNode(t, "active-"+uuid.NewString(), "CONFIRMED", make([]byte, 32))
+	pair.standby = pair.createNode(t, "standby-"+uuid.NewString(), "CONFIRMED", h.standbyKey.PublicKey().Bytes())
+	pair.createPair(t, true)
+	return pair
+}
+
 func (h *harness) addDevice(t *testing.T, nodeID int64) int64 {
 	t.Helper()
 	device := h.database.CreateDevice(h.orgID, "proto")
@@ -788,6 +797,122 @@ func TestFailover_RechecksConnectivityAfterDeviceLockWait(t *testing.T) {
 			assert.Empty(t, h.failoverActivities(t))
 		})
 	}
+}
+
+func TestTick_BlockedFailoverDoesNotBlockAnotherOrganizationAndRetries(t *testing.T) {
+	h := newHarness(t)
+	h.svc.SetFailoverTimeoutForTest(2 * time.Second)
+	h.createPair(t, true)
+	deviceID := h.addDevice(t, h.active)
+	h.connect(t, h.standby, v7)
+	other := h.createReadyPair(t, h.database.CreateSuperAdminUser2().OrganizationID)
+	otherDevice := other.addDevice(t, other.active)
+	h.connect(t, other.standby, v7)
+
+	call, err := h.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = call.Rollback() })
+	_, err = call.ExecContext(t.Context(), `SELECT id FROM device WHERE id=$1 FOR SHARE`, deviceID)
+	require.NoError(t, err)
+	waiting := func() int {
+		var count int
+		require.NoError(t, h.db.QueryRowContext(t.Context(), `SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%LockFleetNodeDevicesForRevocation%'`).Scan(&count))
+		return count
+	}
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		h.svc.TickForTest(t.Context(), time.Now())
+	}()
+	require.Eventually(t, func() bool {
+		return waiting() == 1 && other.deviceNode(t, otherDevice) == other.standby
+	}, 5*time.Second, 10*time.Millisecond, "another organization must fail over while the first device remains locked")
+
+	secondTick := make(chan struct{})
+	go func() {
+		defer close(secondTick)
+		h.svc.TickForTest(t.Context(), time.Now())
+	}()
+	select {
+	case <-secondTick:
+	case <-time.After(time.Second):
+		t.Fatal("another tick started a duplicate failover for the locked pair")
+	}
+	assert.Equal(t, 1, waiting(), "only one transaction may wait for this pair")
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the automatic transaction deadline did not cancel the lock wait")
+	}
+	require.Eventually(t, func() bool { return waiting() == 0 }, time.Second, 10*time.Millisecond)
+	assert.Equal(t, h.active, h.deviceNode(t, deviceID), "the timed-out transaction must leave ownership unchanged")
+	assert.Equal(t, h.active, h.discoveredBy(t, deviceID))
+	assert.Empty(t, h.failoverActivities(t))
+
+	require.NoError(t, call.Rollback())
+	h.svc.TickForTest(t.Context(), time.Now())
+	assert.Equal(t, h.standby, h.deviceNode(t, deviceID), "the next tick retries after the lock is released")
+	assert.Equal(t, h.standby, h.discoveredBy(t, deviceID))
+	assert.Len(t, h.failoverActivities(t), 1)
+	assert.Len(t, other.failoverActivities(t), 1, "later ticks must not swap the completed pair again")
+}
+
+func TestTick_FailoverCapacityRotatesPastBlockedPairs(t *testing.T) {
+	h := newHarness(t)
+	h.svc.SetFailoverTimeoutForTest(200 * time.Millisecond)
+	call, err := h.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = call.Rollback() })
+	for range ha.MaxConcurrentFailoversForTest {
+		pair := h.createReadyPair(t, h.orgID)
+		deviceID := pair.addDevice(t, pair.active)
+		h.connect(t, pair.standby, v7)
+		_, err := call.ExecContext(t.Context(), `SELECT id FROM device WHERE id=$1 FOR SHARE`, deviceID)
+		require.NoError(t, err)
+	}
+	other := h.createReadyPair(t, h.database.CreateSuperAdminUser2().OrganizationID)
+	deviceID := other.addDevice(t, other.active)
+	h.connect(t, other.standby, v7)
+
+	h.svc.TickForTest(t.Context(), time.Now())
+	assert.Equal(t, other.active, other.deviceNode(t, deviceID), "the first tick fills only the bounded worker slots")
+	h.svc.TickForTest(t.Context(), time.Now())
+	assert.Equal(t, other.standby, other.deviceNode(t, deviceID), "the next tick must reach the pair beyond the blocked workers")
+}
+
+func TestRun_CancelsAndWaitsForBlockedFailovers(t *testing.T) {
+	h := newHarness(t)
+	h.svc.SetFailoverTimeoutForTest(time.Hour)
+	h.createPair(t, true)
+	deviceID := h.addDevice(t, h.active)
+	h.connect(t, h.standby, v7)
+	call, err := h.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = call.Rollback() })
+	_, err = call.ExecContext(t.Context(), `SELECT id FROM device WHERE id=$1 FOR SHARE`, deviceID)
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		h.svc.Run(ctx)
+	}()
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := h.db.QueryRowContext(t.Context(), `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%LockFleetNodeDevicesForRevocation%')`).Scan(&waiting)
+		return err == nil && waiting
+	}, 5*time.Second, 10*time.Millisecond)
+	cancel()
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not cancel its blocked failover")
+	}
+	assert.Equal(t, h.active, h.deviceNode(t, deviceID))
+	require.NoError(t, call.Rollback())
+	h.svc.TickForTest(t.Context(), time.Now())
+	assert.Equal(t, h.standby, h.deviceNode(t, deviceID), "Run must finish its workers and release the pair's in-flight claim before returning")
 }
 
 func TestTick_PendingInstallSurvivesTeardownAndRestart(t *testing.T) {

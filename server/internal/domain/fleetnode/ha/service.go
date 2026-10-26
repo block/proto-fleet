@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -40,6 +41,9 @@ const (
 	startupGrace   = 90 * time.Second
 	provisionRetry = 30 * time.Second
 	commandTimeout = 15 * time.Second
+
+	failoverTransactionTimeout = 3 * time.Second
+	maxConcurrentFailovers     = 8
 
 	// HAProtocolVersion is the first command protocol with key transfer and
 	// stream keepalive.
@@ -71,14 +75,17 @@ type Service struct {
 	activity        *activity.Service
 	invalidateMiner func(context.Context, int64)
 
-	failoverDelay  time.Duration
-	startupGrace   time.Duration
-	tickInterval   time.Duration
-	provisionRetry time.Duration
+	failoverDelay   time.Duration
+	startupGrace    time.Duration
+	tickInterval    time.Duration
+	provisionRetry  time.Duration
+	failoverTimeout time.Duration
 
 	mu           sync.Mutex
 	provisioning map[int64]bool      // pair IDs with a transfer in flight
 	failedAt     map[int64]time.Time // pair IDs whose last transfer failed
+	failingOver  map[int64]bool      // pair IDs with an automatic failover in flight
+	lastFailover int64               // rotate attempts so blocked pairs cannot starve later pairs
 }
 
 func NewService(conn *sql.DB, transactor interfaces.Transactor, registry *control.Registry, activitySvc *activity.Service, invalidateMiner func(context.Context, int64)) *Service {
@@ -92,8 +99,10 @@ func NewService(conn *sql.DB, transactor interfaces.Transactor, registry *contro
 		startupGrace:    startupGrace,
 		tickInterval:    tickInterval,
 		provisionRetry:  provisionRetry,
+		failoverTimeout: failoverTransactionTimeout,
 		provisioning:    make(map[int64]bool),
 		failedAt:        make(map[int64]time.Time),
+		failingOver:     make(map[int64]bool),
 	}
 }
 
@@ -228,10 +237,10 @@ func (s *Service) Run(ctx context.Context) {
 	reportProgress := runtimejobs.TrackProgress(ctx, s.tickInterval)
 	ticker := time.NewTicker(s.tickInterval)
 	defer ticker.Stop()
-	var transfers sync.WaitGroup
-	defer transfers.Wait()
+	var tasks sync.WaitGroup
+	defer tasks.Wait()
 	for {
-		s.tick(ctx, started, &transfers)
+		s.tick(ctx, started, &tasks)
 		reportProgress()
 		select {
 		case <-ctx.Done():
@@ -241,13 +250,14 @@ func (s *Service) Run(ctx context.Context) {
 	}
 }
 
-func (s *Service) tick(ctx context.Context, started time.Time, transfers *sync.WaitGroup) {
+func (s *Service) tick(ctx context.Context, started time.Time, tasks *sync.WaitGroup) {
 	s.mu.Lock()
 	for pairID, failedAt := range s.failedAt {
 		if time.Since(failedAt) >= s.provisionRetry {
 			delete(s.failedAt, pairID)
 		}
 	}
+	lastFailover := s.lastFailover
 	s.mu.Unlock()
 
 	pairs, err := s.queries.ListFleetNodeHAPairs(ctx)
@@ -258,21 +268,33 @@ func (s *Service) tick(ctx context.Context, started time.Time, transfers *sync.W
 		return
 	}
 	pastGrace := time.Since(started) >= s.startupGrace
-	for _, pair := range pairs {
+	// The query orders pairs by ID. Resume after the last attempt when all
+	// slots were occupied, rather than retrying only the earliest pairs.
+	start := sort.Search(len(pairs), func(i int) bool { return pairs[i].ID > lastFailover })
+	for i := range pairs {
+		pair := pairs[(start+i)%len(pairs)]
+		if ctx.Err() != nil {
+			return
+		}
 		if pair.StandbyReady {
-			if pastGrace && s.failoverDue(pair.ActiveNodeID, pair.StandbyNodeID) {
-				err := s.failover(ctx, pair.OrgID, pair.ID, pair.ActiveNodeID, pair.StandbyNodeID, automaticFailover)
-				if err != nil && !errors.Is(err, errPairChanged) && !errors.Is(err, errFailoverNotDue) && ctx.Err() == nil {
-					slog.Error("fleet node HA failover failed", "pair_id", pair.ID, "active_node_id", pair.ActiveNodeID, "err", err)
-				}
+			if pastGrace && s.failoverDue(pair.ActiveNodeID, pair.StandbyNodeID) && s.startFailover(pair.ID) {
+				tasks.Add(1)
+				go func() {
+					defer tasks.Done()
+					defer s.finishFailover(pair.ID)
+					err := s.failover(ctx, pair.OrgID, pair.ID, pair.ActiveNodeID, pair.StandbyNodeID, automaticFailover)
+					if err != nil && !errors.Is(err, errPairChanged) && !errors.Is(err, errFailoverNotDue) && ctx.Err() == nil {
+						slog.Error("fleet node HA failover failed", "pair_id", pair.ID, "active_node_id", pair.ActiveNodeID, "err", err)
+					}
+				}()
 			}
 			continue
 		}
 		reason := s.notReadyReason(pair)
 		if reason == "" && s.startTransfer(pair.ID) {
-			transfers.Add(1)
+			tasks.Add(1)
 			go func() {
-				defer transfers.Done()
+				defer tasks.Done()
 				s.transfer(ctx, pair)
 			}()
 			continue
@@ -281,6 +303,23 @@ func (s *Service) tick(ctx context.Context, started time.Time, transfers *sync.W
 			s.setStatus(ctx, pair, reason)
 		}
 	}
+}
+
+func (s *Service) startFailover(pairID int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.failingOver[pairID] || len(s.failingOver) >= maxConcurrentFailovers {
+		return false
+	}
+	s.failingOver[pairID] = true
+	s.lastFailover = pairID
+	return true
+}
+
+func (s *Service) finishFailover(pairID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.failingOver, pairID)
 }
 
 func (s *Service) failoverDue(activeID, standbyID int64) bool {
@@ -426,7 +465,15 @@ func (s *Service) setStatus(ctx context.Context, pair sqlc.ListFleetNodeHAPairsR
 func (s *Service) failover(ctx context.Context, orgID, pairID, activeID, standbyID int64, why failoverReason) error {
 	var moved []int64
 	var activeName, standbyName string
-	err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+	// Automatic attempts must release lock waits so other pairs can use the
+	// bounded workers. Revocation keeps its caller's hand-off deadline.
+	// Post-commit invalidation uses the lifecycle context, outside this timeout.
+	txCtx := ctx
+	cancel := func() {}
+	if why == automaticFailover {
+		txCtx, cancel = context.WithTimeout(ctx, s.failoverTimeout)
+	}
+	err := s.transactor.RunInTx(txCtx, func(ctx context.Context) error {
 		q := db.GetTxQueries(ctx)
 		if _, err := q.LockFleetNodeDevicesForRevocation(ctx, sqlc.LockFleetNodeDevicesForRevocationParams{FleetNodeID: activeID, OrgID: orgID}); err != nil {
 			return err
@@ -479,6 +526,7 @@ func (s *Service) failover(ctx context.Context, orgID, pairID, activeID, standby
 		activeName, standbyName = active.Name, standby.Name
 		return q.SwapFleetNodeHAPair(ctx, pairID)
 	})
+	cancel()
 	if err != nil {
 		return err
 	}

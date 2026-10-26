@@ -411,21 +411,38 @@ func TestControlStream_PingsKeepStreamOpen(t *testing.T) {
 	assert.Greater(t, received, 3)
 }
 
-func TestControlStream_DropsSilentStreamWhileCommandSendIsBlocked(t *testing.T) {
-	setKeepaliveInterval(t, 20*time.Millisecond)
-	h := newControlHarness(t)
-	// A half-open connection blocks the handler in Send until TCP gives up.
-	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
-	client := startControlServer(t, h, connect.WithInterceptors(blockCommandSends{release: release}))
-	stream := client.ControlStream(t.Context())
-	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
-	require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7)))
+func TestControlStream_DropsSilentStreamWhileSendIsBlocked(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		block func(*pb.ControlStreamResponse) bool
+	}{
+		{name: "initial acceptance", block: func(response *pb.ControlStreamResponse) bool { return response.GetAccepted() != nil }},
+		{name: "command", block: func(response *pb.ControlStreamResponse) bool { return response.GetCommand() != nil }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setKeepaliveInterval(t, 20*time.Millisecond)
+			h := newControlHarness(t)
+			// A half-open connection blocks the handler in Send until TCP gives up.
+			release := make(chan struct{})
+			blocked := make(chan struct{}, 1)
+			t.Cleanup(func() { close(release) })
+			client := startControlServer(t, h, connect.WithInterceptors(blockControlSends{release: release, blocked: blocked, block: tc.block}))
+			stream := client.ControlStream(t.Context())
+			t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+			require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7)))
 
-	waitForSend(t, h.registry, h.fleetNodeID, "blocked", []byte("payload"))
+			session := waitForSend(t, h.registry, h.fleetNodeID, "blocked", []byte("payload"))
+			defer session.Close()
+			select {
+			case <-blocked:
+			case <-time.After(5 * time.Second):
+				t.Fatal("expected handler to block in Send")
+			}
 
-	assert.Eventually(t, func() bool { return !h.registry.Connected(h.fleetNodeID) }, 5*time.Second, 10*time.Millisecond,
-		"a silent stream leaves the registry even while Send is blocked")
+			assert.Eventually(t, func() bool { return !h.registry.Connected(h.fleetNodeID) }, 5*time.Second, 10*time.Millisecond,
+				"a silent stream leaves the registry even while Send is blocked")
+		})
+	}
 }
 
 func TestControlStream_KeepsSilentLegacyStreamOpen(t *testing.T) {
@@ -532,29 +549,35 @@ func startControlServer(t *testing.T, h *controlHarness, opts ...connect.Handler
 	return fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(httpClient, srv.URL, connect.WithGRPC())
 }
 
-type blockCommandSends struct {
+type blockControlSends struct {
 	release <-chan struct{}
+	blocked chan<- struct{}
+	block   func(*pb.ControlStreamResponse) bool
 }
 
-func (b blockCommandSends) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc { return next }
+func (b blockControlSends) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc { return next }
 
-func (b blockCommandSends) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+func (b blockControlSends) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
 	return next
 }
 
-func (b blockCommandSends) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+func (b blockControlSends) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
 	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
-		return next(ctx, blockedSendConn{StreamingHandlerConn: conn, release: b.release})
+		return next(ctx, blockedSendConn{StreamingHandlerConn: conn, blockControlSends: b})
 	}
 }
 
 type blockedSendConn struct {
 	connect.StreamingHandlerConn
-	release <-chan struct{}
+	blockControlSends
 }
 
 func (c blockedSendConn) Send(msg any) error {
-	if response, ok := msg.(*pb.ControlStreamResponse); ok && response.GetCommand() != nil {
+	if response, ok := msg.(*pb.ControlStreamResponse); ok && c.block(response) {
+		select {
+		case c.blocked <- struct{}{}:
+		default:
+		}
 		<-c.release
 	}
 	return c.StreamingHandlerConn.Send(msg) //nolint:wrapcheck // passthrough to the real stream
