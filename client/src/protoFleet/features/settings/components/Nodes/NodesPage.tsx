@@ -1,22 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import type { FleetNodeDeviceSummary } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
-import {
-  FleetNodeEnrollmentStatus,
-  FleetNodeHARole,
-} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import EnrollNodeModal from "@/protoFleet/features/settings/components/Nodes/EnrollNodeModal";
 import FindNodeMinersModal from "@/protoFleet/features/settings/components/Nodes/FindNodeMinersModal";
 import NodeDetailsModal from "@/protoFleet/features/settings/components/Nodes/NodeDetailsModal";
+import NodeRole from "@/protoFleet/features/settings/components/Nodes/NodeRole";
 import NodeStatusBadge from "@/protoFleet/features/settings/components/Nodes/NodeStatusBadge";
 import RevokeNodeDialog from "@/protoFleet/features/settings/components/Nodes/RevokeNodeDialog";
 import SettingsEmptyState from "@/protoFleet/features/settings/components/SettingsEmptyState";
 import SettingsPageHeader from "@/protoFleet/features/settings/components/SettingsPageHeader";
 import { useHasPermission } from "@/protoFleet/store";
-import { Checkmark, Trash } from "@/shared/assets/icons";
+import { Checkmark } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
 import List from "@/shared/components/List";
 import { ColConfig, ColTitles } from "@/shared/components/List/types";
@@ -24,18 +22,20 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { usePoll } from "@/shared/hooks/usePoll";
 import { getRelativeTimeFromEpoch } from "@/shared/utils/datetime";
 
-type NodeColumns = "name" | "ipAddresses" | "status" | "version" | "miners" | "lastSeen";
+type NodeColumns = "name" | "ipAddresses" | "role" | "status" | "version" | "miners" | "lastSeen";
+type NodeTableItem = FleetNodeItem & { endsGroup: boolean };
 
 const colTitles: ColTitles<NodeColumns> = {
   name: "Name",
   ipAddresses: "IP address",
-  status: "Status",
+  role: "Role",
+  status: "Connection",
   version: "Version",
   miners: "Paired miners",
   lastSeen: "Last heartbeat",
 };
 
-const activeCols: NodeColumns[] = ["name", "ipAddresses", "status", "version", "miners", "lastSeen"];
+const activeCols: NodeColumns[] = ["name", "ipAddresses", "role", "status", "version", "miners", "lastSeen"];
 
 const NodesPage = () => {
   const { listFleetNodes, listFleetNodeDevices, revokeFleetNode, discoverOnFleetNode } = useFleetNodes();
@@ -157,6 +157,23 @@ const NodesPage = () => {
   const detailsNode = nodes.find((node) => node.fleetNodeId === detailsNodeId) ?? null;
   const findingNode = nodes.find((node) => node.fleetNodeId === findingNodeId) ?? null;
 
+  const tableNodes = useMemo(() => {
+    const byId = new Map(nodes.map((node) => [node.fleetNodeId, node]));
+    const seen = new Set<string>();
+    const compareNames = (a: FleetNodeItem, b: FleetNodeItem) =>
+      a.name.localeCompare(b.name) || a.fleetNodeId.localeCompare(b.fleetNodeId);
+    // Name order keeps pairs and their members stationary when HA roles swap.
+    return [...nodes].sort(compareNames).flatMap((node): NodeTableItem[] => {
+      if (seen.has(node.fleetNodeId)) return [];
+      const peer = byId.get(node.haPeerNodeId ?? "");
+      const members = peer?.haPeerNodeId === node.fleetNodeId ? [node, peer].sort(compareNames) : [node];
+      return members.map((member, index) => {
+        seen.add(member.fleetNodeId);
+        return { ...member, endsGroup: index === members.length - 1 };
+      });
+    });
+  }, [nodes]);
+
   const revokePeerNode = revokeNodeData?.haPeerNodeId
     ? (nodes.find((node) => node.fleetNodeId === revokeNodeData.haPeerNodeId) ?? null)
     : null;
@@ -247,29 +264,17 @@ const NodesPage = () => {
         },
         hidden: (node: FleetNodeItem) => node.enrollmentStatus !== FleetNodeEnrollmentStatus.AWAITING_CONFIRMATION,
       },
-      {
-        title: "Revoke",
-        icon: <Trash />,
-        variant: "destructive" as const,
-        actionHandler: openRevoke,
-      },
     ],
-    [openRevoke],
+    [],
   );
 
-  const colConfig: ColConfig<FleetNodeItem, string, NodeColumns> = useMemo(
+  const colConfig: ColConfig<NodeTableItem, string, NodeColumns> = useMemo(
     () => ({
       name: {
-        component: (node: FleetNodeItem) => (
-          <div>
-            <span className="text-emphasis-300">{node.name}</span>
-            {node.haRole !== FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED ? (
-              <div className="text-200 text-text-primary-50">
-                {node.haRole === FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY ? "Standby for " : "Standby: "}
-                {node.haPeerNodeName || node.haPeerNodeId}
-              </div>
-            ) : null}
-          </div>
+        component: (node: NodeTableItem) => (
+          <span title={node.name} className="text-emphasis-300">
+            {node.name}
+          </span>
         ),
         width: "w-48",
       },
@@ -289,13 +294,18 @@ const NodesPage = () => {
         width: "w-44",
         allowWrap: true,
       },
+      role: {
+        component: (node: FleetNodeItem) => <NodeRole node={node} />,
+        width: "w-28",
+      },
       status: {
         component: (node: FleetNodeItem) => <NodeStatusBadge node={node} />,
-        width: "w-56",
+        width: "w-44",
       },
       miners: {
         component: (node: FleetNodeItem) => <span>{node.pairedDeviceCount}</span>,
         width: "w-32",
+        align: "right",
       },
       lastSeen: {
         component: (node: FleetNodeItem) => (
@@ -316,7 +326,7 @@ const NodesPage = () => {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-3">
       <div className="flex items-start justify-between gap-4 phone:flex-col phone:items-stretch">
         <SettingsPageHeader title="Nodes" />
         {canManageNodes ? (
@@ -330,27 +340,35 @@ const NodesPage = () => {
         ) : null}
       </div>
 
-      {isLoading ? (
-        <div className="text-center text-text-primary-50">Loading nodes...</div>
-      ) : (
-        <List<FleetNodeItem, string, NodeColumns>
-          items={nodes}
-          itemKey="fleetNodeId"
-          activeCols={activeCols}
-          colTitles={colTitles}
-          colConfig={colConfig}
-          total={nodes.length}
-          itemName={{ singular: "node", plural: "nodes" }}
-          noDataElement={
-            <SettingsEmptyState
-              title="No nodes yet"
-              description="Enroll a host running the fleet-node daemon to discover and manage the miners on its network."
-            />
-          }
-          onRowClick={(node) => setDetailsNodeId(node.fleetNodeId)}
-          actions={canManageNodes ? availableActions : undefined}
-        />
-      )}
+      <div>
+        {isLoading ? (
+          <div className="text-center text-text-primary-50">Loading nodes...</div>
+        ) : (
+          <List<NodeTableItem, string, NodeColumns>
+            items={tableNodes}
+            itemKey="fleetNodeId"
+            activeCols={activeCols}
+            colTitles={colTitles}
+            colConfig={colConfig}
+            showRowDivider={(node) => node.endsGroup}
+            total={nodes.length}
+            itemName={{ singular: "node", plural: "nodes" }}
+            noDataElement={
+              <SettingsEmptyState
+                title="No nodes yet"
+                description="Enroll a host running the fleet-node daemon to discover and manage the miners on its network."
+              />
+            }
+            onRowClick={(node) => setDetailsNodeId(node.fleetNodeId)}
+            actions={
+              canManageNodes &&
+              nodes.some((node) => node.enrollmentStatus === FleetNodeEnrollmentStatus.AWAITING_CONFIRMATION)
+                ? availableActions
+                : undefined
+            }
+          />
+        )}
+      </div>
 
       <EnrollNodeModal
         open={showEnrollModal}
@@ -367,6 +385,14 @@ const NodesPage = () => {
             setDetailsNodeId(null);
             setFindingNodeId(detailsNode.fleetNodeId);
           }}
+          onRevoke={
+            canManageNodes
+              ? () => {
+                  setDetailsNodeId(null);
+                  openRevoke(detailsNode);
+                }
+              : undefined
+          }
         />
       ) : null}
       {findingNode ? (

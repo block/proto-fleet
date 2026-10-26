@@ -1,10 +1,6 @@
 import clsx from "clsx";
 import { getNodeDisplayStatus, STALE_AFTER_MS } from "./getNodeDisplayStatus";
 import type { NodeDisplayStatus } from "./getNodeDisplayStatus";
-import {
-  FleetNodeEnrollmentStatus,
-  FleetNodeHARole,
-} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 
 const DISPLAY_STATUS_CONFIG: Record<NodeDisplayStatus, { label: string; dotClass: string; description?: string }> = {
@@ -27,34 +23,11 @@ const DISPLAY_STATUS_CONFIG: Record<NodeDisplayStatus, { label: string; dotClass
   revoked: { label: "Revoked", dotClass: "bg-intent-critical-fill" },
 };
 
-const getHaRoleLabel = (node: FleetNodeItem): string | null => {
-  switch (node.haRole) {
-    case FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE:
-      return "Active";
-    case FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY:
-      return node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED && !node.haStandbyReady
-        ? "Standby · preparing"
-        : "Standby";
-    default:
-      return null;
-  }
-};
-
 const NodeStatusBadge = ({ node }: { node: FleetNodeItem }) => {
   const status = getNodeDisplayStatus(node);
   const config = DISPLAY_STATUS_CONFIG[status];
-  const haRoleLabel = getHaRoleLabel(node);
   return (
-    <span
-      title={node.haStatusReason || config.description}
-      className="inline-flex flex-wrap items-center gap-2 text-300 text-text-primary-50"
-    >
-      {haRoleLabel ? (
-        <>
-          <span>{haRoleLabel}</span>
-          <span aria-hidden="true">·</span>
-        </>
-      ) : null}
+    <span title={config.description} className="inline-flex flex-wrap items-center gap-2 text-300 text-text-primary-50">
       <span className={clsx("h-2 w-2 rounded-full", config.dotClass)} />
       <span>{config.label}</span>
       {config.description ? <span className="sr-only">{config.description}</span> : null}

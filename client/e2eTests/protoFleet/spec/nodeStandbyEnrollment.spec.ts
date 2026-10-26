@@ -158,34 +158,32 @@ test.describe("Node HA pair display", () => {
       route.fulfill({ contentType: "application/json", body: "{}" }),
     );
 
-    await test.step("Show each member's role and peer in the Nodes list", async () => {
+    await test.step("Show each member's role in the Nodes list", async () => {
       await page.goto("/");
       await commonSteps.loginAsAdmin();
       await settingsNodesPage.navigateToNodesSettings();
       await settingsNodesPage.waitForNodesListToLoad();
-      await settingsNodesPage.validateNodeRowText("active-node", "Standby: standby-node");
       await settingsNodesPage.validateNodeRowText("active-node", "Active");
-      await settingsNodesPage.validateNodeRowText("standby-node", "Standby for active-node");
-      await settingsNodesPage.validateNodeRowText("standby-node", "Standby · preparing");
+      await settingsNodesPage.validateNodeRowText("standby-node", "Preparing");
     });
 
     await test.step("Show HA details and block discovery on the standby", async () => {
       await settingsNodesPage.openNodeDetails("standby-node");
-      await settingsNodesPage.validateNodeDetailsHa("Standby", "Standby for", "active-node", "No");
+      await settingsNodesPage.validateNodeDetailsHa("Preparing", "Standby for", "active-node");
       await settingsNodesPage.validateNodeDetailsHaStatus("Waiting for both nodes to connect");
       await settingsNodesPage.validateFindMinersDisabledForStandby();
       await page.keyboard.press("Escape");
     });
 
     await test.step("Warn that an unready standby cannot take over when revoking the active node", async () => {
-      await settingsNodesPage.clickNodeActionsMenu("active-node");
+      await settingsNodesPage.openNodeDetails("active-node");
       await settingsNodesPage.clickNodeAction("Revoke");
       await settingsNodesPage.validateRevokeDialogText("active-node", "since standby-node isn't ready to take over");
       await page.keyboard.press("Escape");
     });
 
     await test.step("Say the peer keeps its devices when revoking the standby", async () => {
-      await settingsNodesPage.clickNodeActionsMenu("standby-node");
+      await settingsNodesPage.openNodeDetails("standby-node");
       await settingsNodesPage.clickNodeAction("Revoke");
       await settingsNodesPage.validateRevokeDialogText("standby-node", "active-node keeps its devices");
     });

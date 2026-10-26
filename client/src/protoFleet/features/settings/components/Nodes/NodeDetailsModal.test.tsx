@@ -85,11 +85,11 @@ describe("NodeDetailsModal", () => {
   it("hides the HA section for a standalone node", () => {
     show();
 
-    expect(screen.queryByText("HA role")).not.toBeInTheDocument();
+    expect(screen.getByText("Role").nextSibling).toHaveTextContent("Standalone");
     expect(screen.getByRole("button", { name: "Find miners" })).toBeEnabled();
   });
 
-  it("shows the active node's standby peer and readiness", () => {
+  it("shows the active node's role and standby peer", () => {
     show({
       haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE,
       haPeerNodeId: "8",
@@ -97,9 +97,8 @@ describe("NodeDetailsModal", () => {
       haStandbyReady: true,
     });
 
-    expect(screen.getByText("HA role").nextSibling).toHaveTextContent("Active");
+    expect(screen.getByText("Role").nextSibling).toHaveTextContent("Active");
     expect(screen.getByText("Standby node").nextSibling).toHaveTextContent("standby-node");
-    expect(screen.getByText("Standby ready").nextSibling).toHaveTextContent("Yes");
     expect(screen.getByRole("button", { name: "Find miners" })).toBeEnabled();
   });
 
@@ -112,9 +111,8 @@ describe("NodeDetailsModal", () => {
       haStatusReason: "Waiting for both nodes to connect",
     });
 
-    expect(screen.getByText("HA role").nextSibling).toHaveTextContent("Standby");
+    expect(screen.getByText("Role").nextSibling).toHaveTextContent("Preparing");
     expect(screen.getByText("Standby for").nextSibling).toHaveTextContent("primary");
-    expect(screen.getByText("Standby ready").nextSibling).toHaveTextContent("No");
     expect(screen.getByText("HA status").nextSibling).toHaveTextContent("Waiting for both nodes to connect");
     expect(screen.getByRole("button", { name: "Find miners" })).toBeDisabled();
     expect(screen.getByText("Standby nodes can't find miners.")).toBeInTheDocument();

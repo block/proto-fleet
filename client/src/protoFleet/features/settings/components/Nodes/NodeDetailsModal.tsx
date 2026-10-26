@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import NodeRole from "./NodeRole";
 import NodeStatusBadge from "./NodeStatusBadge";
 import { FleetNodeHARole } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
@@ -14,6 +15,7 @@ interface NodeDetailsModalProps {
   canFindMiners: boolean;
   onDismiss: () => void;
   onFindMiners: () => void;
+  onRevoke?: () => void;
 }
 
 const DetailField = ({ label, children }: { label: string; children: ReactNode }) => (
@@ -41,14 +43,17 @@ const CopyableIdentity = ({ label, value }: { label: string; value: string }) =>
   </span>
 );
 
-const NodeDetailsModal = ({ node, canFindMiners, onDismiss, onFindMiners }: NodeDetailsModalProps) => {
+const NodeDetailsModal = ({ node, canFindMiners, onDismiss, onFindMiners, onRevoke }: NodeDetailsModalProps) => {
   const isHaMember = node.haRole !== FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED;
   const isStandby = node.haRole === FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY;
   return (
     <Modal open onDismiss={onDismiss} title={node.name} testId="node-details-modal">
       <div className="flex flex-col gap-4 text-300">
         <dl className="divide-y divide-border-5">
-          <DetailField label="Status">
+          <DetailField label="Role">
+            <NodeRole node={node} />
+          </DetailField>
+          <DetailField label="Connection">
             <NodeStatusBadge node={node} />
           </DetailField>
           <DetailField label="Last heartbeat">
@@ -74,11 +79,9 @@ const NodeDetailsModal = ({ node, canFindMiners, onDismiss, onFindMiners }: Node
         </dl>
         {isHaMember ? (
           <dl className="divide-y divide-border-5" data-testid="node-ha-details">
-            <DetailField label="HA role">{isStandby ? "Standby" : "Active"}</DetailField>
             <DetailField label={isStandby ? "Standby for" : "Standby node"}>
               {node.haPeerNodeName || node.haPeerNodeId || "—"}
             </DetailField>
-            <DetailField label="Standby ready">{node.haStandbyReady ? "Yes" : "No"}</DetailField>
             {node.haStatusReason ? <DetailField label="HA status">{node.haStatusReason}</DetailField> : null}
           </dl>
         ) : null}
@@ -93,17 +96,32 @@ const NodeDetailsModal = ({ node, canFindMiners, onDismiss, onFindMiners }: Node
             </DetailField>
           </dl>
         </details>
-        {canFindMiners ? (
+        {canFindMiners || onRevoke ? (
           <div className="flex items-center justify-end gap-3 pt-2 phone:flex-col phone:items-stretch">
-            {isStandby ? <span className="text-200 text-text-primary-50">Standby nodes can't find miners.</span> : null}
-            <Button
-              variant={variants.primary}
-              size={sizes.compact}
-              text="Find miners"
-              disabled={!node.controlStreamConnected || node.commandProtocolUpgradeRequired || isStandby}
-              onClick={onFindMiners}
-              className="phone:w-full"
-            />
+            {onRevoke ? (
+              <Button
+                variant={variants.secondaryDanger}
+                size={sizes.compact}
+                text="Revoke"
+                onClick={onRevoke}
+                className="mr-auto phone:mr-0 phone:w-full"
+              />
+            ) : null}
+            {canFindMiners ? (
+              <>
+                {isStandby ? (
+                  <span className="text-200 text-text-primary-50">Standby nodes can't find miners.</span>
+                ) : null}
+                <Button
+                  variant={variants.primary}
+                  size={sizes.compact}
+                  text="Find miners"
+                  disabled={!node.controlStreamConnected || node.commandProtocolUpgradeRequired || isStandby}
+                  onClick={onFindMiners}
+                  className="phone:w-full"
+                />
+              </>
+            ) : null}
           </div>
         ) : null}
       </div>

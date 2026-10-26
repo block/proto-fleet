@@ -60,8 +60,8 @@ export class SettingsNodesPage extends BasePage {
     await this.clickButton("Set up a node");
   }
 
-  async clickNodeActionsMenu(nodeName: string) {
-    await this.nodeRow(nodeName).getByTestId("list-actions-trigger").click();
+  async clickConfirmEnrollment(nodeName: string) {
+    await this.nodeRow(nodeName).getByRole("button", { name: "Confirm enrollment", exact: true }).click();
   }
 
   async clickNodeAction(actionName: "Confirm enrollment" | "Revoke") {
@@ -151,15 +151,13 @@ export class SettingsNodesPage extends BasePage {
   private haDetailValue(label: string) {
     return this.page
       .getByTestId("node-details-modal")
-      .getByTestId("node-ha-details")
       .getByText(label, { exact: true })
       .locator("xpath=following-sibling::dd");
   }
 
-  async validateNodeDetailsHa(role: string, peerLabel: string, peerName: string, ready: string) {
-    await expect(this.haDetailValue("HA role")).toHaveText(role);
+  async validateNodeDetailsHa(role: string, peerLabel: string, peerName: string) {
+    await expect(this.haDetailValue("Role")).toHaveText(role);
     await expect(this.haDetailValue(peerLabel)).toHaveText(peerName);
-    await expect(this.haDetailValue("Standby ready")).toHaveText(ready);
   }
 
   async validateNodeDetailsHaStatus(reason: string) {

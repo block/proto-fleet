@@ -210,6 +210,8 @@ type ListProps<ListItem, ItemKeyValueType, ColKey extends string = keyof ListIte
   ) => ReactNode;
   containerClassName?: string;
   tableClassName?: string;
+  /** Draw a separator after this row; defaults to every row. */
+  showRowDivider?: (item: ListItem) => boolean;
   /**
    * Overrides the filter row's default `py-6` vertical padding. The `gap-4`
    * spacing and the horizontal list padding are always applied; only the
@@ -424,6 +426,7 @@ type ListRowRenderProps<ListItem, ItemKeyValueType, ColKey extends string = keyo
   itemRef?: (itemKey: ItemKeyValueType, element: HTMLTableRowElement | null) => void;
   rowDragHandleColumn?: ColKey;
   dragHandleProps?: SortableDragHandleProps;
+  showDivider: boolean;
   rowClassName?: string;
   rowStyle?: CSSProperties;
   rowRef?: (element: HTMLTableRowElement | null) => void;
@@ -467,7 +470,8 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
   itemRef,
   rowDragHandleColumn,
   dragHandleProps,
-  rowClassName = rowClassList,
+  showDivider,
+  rowClassName = showDivider ? rowClassList : undefined,
   rowStyle,
   rowRef,
   onRowClick,
@@ -606,6 +610,7 @@ const renderListRow = <ListItem, ItemKeyValueType, ColKey extends string = keyof
             <div
               className={clsx(
                 overflowClass,
+                colConfig[row]?.align === "right" && "text-right",
                 columnIndex === 0 && flushFirstColumn
                   ? "py-3 pr-2"
                   : columnIndex === 1 && stickyFirstColumn
@@ -793,6 +798,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   renderActionBar,
   containerClassName = "",
   tableClassName,
+  showRowDivider,
   filtersClassName,
   paddingLeft,
   paddingRight,
@@ -1345,6 +1351,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
   const shouldShowTotal = !hideTotal && total !== undefined && !shouldRenderNoDataElement;
 
   const renderRow = (item: ListItem, index: number) => {
+    const showDivider = showRowDivider?.(item) ?? true;
     const rowKey = item[itemKey] as ItemKeyValueType;
     const sharedRowProps: StaticListRowProps<ListItem, ItemKeyValueType, ColKey> = {
       item,
@@ -1374,7 +1381,8 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
       columnShadowVisibleClassList,
       stickyStateHorizontalIsStuck: stickyState.horizontal.isStuck,
       applyColumnWidthsToCells,
-      extendRowDividerToContainerEdge: containsOverflow && !hasHorizontalOverflow,
+      showDivider,
+      extendRowDividerToContainerEdge: showDivider && containsOverflow && !hasHorizontalOverflow,
       rightPaddingClasses,
       paddingCssVariables,
       tdPaddingClassList,
@@ -1487,6 +1495,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                       type="button"
                       className={clsx(
                         "inline-flex w-full cursor-pointer items-center truncate overflow-hidden text-left select-none",
+                        colConfig[row]?.align === "right" && "justify-end",
                         applyColumnWidthsToCells ? "box-border" : columnWidthClass,
                       )}
                       onClick={handleHeaderClick}
@@ -1504,6 +1513,7 @@ const List = <ListItem, ItemKeyValueType, ColKey extends string = keyof ListItem
                     <div
                       className={clsx(
                         "inline-flex w-full items-center truncate overflow-hidden",
+                        colConfig[row]?.align === "right" && "justify-end",
                         applyColumnWidthsToCells ? "box-border" : columnWidthClass,
                       )}
                     >

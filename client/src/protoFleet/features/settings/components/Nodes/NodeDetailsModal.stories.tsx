@@ -34,6 +34,7 @@ const meta = {
     canFindMiners: true,
     onDismiss: fn(),
     onFindMiners: fn(),
+    onRevoke: fn(),
   },
 } satisfies Meta<typeof NodeDetailsModal>;
 

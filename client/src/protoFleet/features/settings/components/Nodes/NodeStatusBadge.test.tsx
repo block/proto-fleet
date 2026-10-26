@@ -108,34 +108,6 @@ describe("NodeStatusBadge", () => {
     expect(getByText(label)).toBeInTheDocument();
   });
 
-  it.each([
-    ["Active", FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE, true],
-    ["Standby", FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY, true],
-    ["Standby · preparing", FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY, false],
-  ])("shows %s for a confirmed HA node (standby ready=%s)", (label, haRole, haStandbyReady) => {
-    const { getByText } = render(<NodeStatusBadge node={{ ...baseNode, haRole, haStandbyReady }} />);
-
-    expect(getByText(label)).toBeInTheDocument();
-  });
-
-  it("does not show an HA role for a standalone node", () => {
-    const { queryByText } = render(<NodeStatusBadge node={baseNode} />);
-
-    expect(queryByText(/Active|Standby/)).not.toBeInTheDocument();
-  });
-
-  it("explains an unready standby with the server-provided reason", () => {
-    const node = {
-      ...baseNode,
-      haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY,
-      haStatusReason: "Waiting for both nodes to connect",
-    };
-
-    const { getByTitle } = render(<NodeStatusBadge node={node} />);
-
-    expect(getByTitle("Waiting for both nodes to connect")).toBeInTheDocument();
-  });
-
   it("shows Awaiting confirmation for a registered node", () => {
     const { getByText } = render(
       <NodeStatusBadge node={{ ...baseNode, enrollmentStatus: FleetNodeEnrollmentStatus.AWAITING_CONFIRMATION }} />,

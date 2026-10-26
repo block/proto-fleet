@@ -130,10 +130,12 @@ test.describe("Proto Fleet - Admin RBAC", () => {
     await test.step("Open the pending-node confirmation controls", async () => {
       await settingsNodesPage.reloadPage();
       await settingsNodesPage.waitForNodesListToLoad();
-      await settingsNodesPage.clickNodeActionsMenu("node-pending");
       await settingsNodesPage.validateNodeActionVisible("Confirm enrollment");
+      await settingsNodesPage.validateNodeActionHidden("Revoke");
+      await settingsNodesPage.openNodeDetails("node-pending");
       await settingsNodesPage.validateNodeActionVisible("Revoke");
-      await settingsNodesPage.clickNodeAction("Confirm enrollment");
+      await page.keyboard.press("Escape");
+      await settingsNodesPage.clickConfirmEnrollment("node-pending");
       await settingsNodesPage.validateConfirmNodeModalOpened("node-pending");
     });
   });

@@ -54,11 +54,13 @@ vi.mock("@/protoFleet/features/settings/components/Nodes/NodeDetailsModal", () =
       canFindMiners,
       onFindMiners,
       onDismiss,
+      onRevoke,
     }: {
       node: FleetNodeItem;
       canFindMiners: boolean;
       onFindMiners: () => void;
       onDismiss: () => void;
+      onRevoke?: () => void;
     }) {
       return (
         <div role="dialog" aria-label="Node details">
@@ -66,6 +68,11 @@ vi.mock("@/protoFleet/features/settings/components/Nodes/NodeDetailsModal", () =
           {canFindMiners ? (
             <button type="button" onClick={onFindMiners}>
               Find miners
+            </button>
+          ) : null}
+          {onRevoke ? (
+            <button type="button" onClick={onRevoke}>
+              Revoke
             </button>
           ) : null}
           <button type="button" onClick={onDismiss}>
@@ -177,6 +184,13 @@ const renderNodesPage = () =>
     </MemoryRouter>,
   );
 
+const openNodeRevoke = async (name = "node-01") => {
+  fireEvent.click(screen.getByRole("button", { name: `View ${name}` }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+  });
+};
+
 describe("NodesPage", () => {
   afterEach(() => vi.useRealTimers());
   beforeEach(() => {
@@ -203,10 +217,11 @@ describe("NodesPage", () => {
     expect(await screen.findByText("node-01")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Set up a node" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Confirm enrollment" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
     expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
   });
 
-  it("shows each HA member's role and peer, with an unready standby marked as preparing", async () => {
+  it("shows each HA member's role separately from its connection", async () => {
     listFleetNodesMock.mockResolvedValue([
       {
         ...confirmedNode,
@@ -228,10 +243,8 @@ describe("NodesPage", () => {
     renderNodesPage();
 
     expect(await screen.findByText("standby-node")).toBeInTheDocument();
-    expect(screen.getByText("Standby: standby-node")).toBeInTheDocument();
-    expect(screen.getByText("Standby for node-01")).toBeInTheDocument();
     expect(screen.getByText("Active")).toBeInTheDocument();
-    expect(screen.getByText("Standby · preparing")).toBeInTheDocument();
+    expect(screen.getByText("Preparing")).toBeInTheDocument();
     expect(screen.getAllByTitle("Waiting for both nodes to connect")).not.toHaveLength(0);
   });
 
@@ -274,7 +287,9 @@ describe("NodesPage", () => {
     renderNodesPage();
 
     expect(await screen.findByText("node-pending")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
+    await openNodeRevoke("node-pending");
+    expect(screen.queryByRole("dialog", { name: "Node details" })).not.toBeInTheDocument();
     expect(screen.getByText("Revoke node?")).toBeInTheDocument();
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Revoke node" })).toBeEnabled());
@@ -411,7 +426,7 @@ describe("NodesPage", () => {
     renderNodesPage();
 
     expect(await screen.findByText("node-01")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    await openNodeRevoke();
     expect(await screen.findByText("1 paired Bitmain S19 miner will lose connection.")).toBeInTheDocument();
     expect(screen.getByText("1 paired MicroBT M60 miner will lose connection.")).toBeInTheDocument();
     expect(screen.queryByText(/ASIC-RS|miner-1/)).not.toBeInTheDocument();
@@ -436,12 +451,33 @@ describe("NodesPage", () => {
     haStandbyReady: true,
   };
 
+  it("keeps HA pairs adjacent and in the same order after failover and polling reorder the nodes", async () => {
+    vi.useFakeTimers();
+    const standalone = { ...confirmedNode, fleetNodeId: "9", name: "other-node" };
+    listFleetNodesMock.mockResolvedValue([standbyNode, standalone, activeNode]);
+    await act(async () => {
+      renderNodesPage();
+    });
+    const rowNames = () => screen.getAllByRole("button", { name: /^View / }).map((button) => button.textContent);
+    expect(rowNames()).toEqual(["View node-01", "View standby-node", "View other-node"]);
+
+    listFleetNodesMock.mockResolvedValue([
+      { ...activeNode, haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY },
+      standalone,
+      { ...standbyNode, haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE },
+    ]);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    });
+    expect(rowNames()).toEqual(["View node-01", "View standby-node", "View other-node"]);
+  });
+
   it("explains authentication denial before handoff when revoking an active node with a ready standby", async () => {
     listFleetNodesMock.mockResolvedValue([activeNode, standbyNode]);
     renderNodesPage();
     await screen.findByText("standby-node");
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
+    await openNodeRevoke();
 
     expect(
       await screen.findByText(/immediately loses access to Fleet.*Fleet then moves its devices to standby-node/),
@@ -462,9 +498,7 @@ describe("NodesPage", () => {
     await act(async () => {
       renderNodesPage();
     });
-    await act(async () => {
-      fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
-    });
+    await openNodeRevoke();
     expect(screen.getByRole("button", { name: "Revoke node" })).toBeEnabled();
 
     listFleetNodesMock.mockResolvedValue(updatedNodes);
@@ -483,9 +517,7 @@ describe("NodesPage", () => {
     await act(async () => {
       renderNodesPage();
     });
-    await act(async () => {
-      fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
-    });
+    await openNodeRevoke();
 
     listFleetNodesMock.mockResolvedValue([
       { ...activeNode, version: "new-version", lastSeenAt: new Date() },
@@ -505,9 +537,7 @@ describe("NodesPage", () => {
     await act(async () => {
       renderNodesPage();
     });
-    await act(async () => {
-      fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[1]);
-    });
+    await openNodeRevoke("standby-node");
     expect(screen.getByText(/node-01 keeps its devices/)).toBeInTheDocument();
 
     listFleetNodesMock.mockResolvedValue([
@@ -525,9 +555,7 @@ describe("NodesPage", () => {
     expect(screen.queryByRole("button", { name: "Revoke node" })).not.toBeInTheDocument();
 
     listFleetNodeDevicesMock.mockResolvedValue([{ deviceIdentifier: "miner-1", manufacturer: "Proto", model: "Rig" }]);
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
-    });
+    await openNodeRevoke("standby-node");
     expect(screen.getByText("1 paired Proto Rig miner will lose connection.")).toBeInTheDocument();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Revoke node" }));
@@ -555,7 +583,7 @@ describe("NodesPage", () => {
     await act(async () => {
       renderNodesPage();
     });
-    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    await openNodeRevoke();
     expect(screen.getByRole("button", { name: "Revoke node" })).toBeDisabled();
 
     listFleetNodesMock.mockResolvedValue([{ ...confirmedNode, pairedDeviceCount: 1 }]);
@@ -563,7 +591,7 @@ describe("NodesPage", () => {
       await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
     });
     expect(screen.queryByRole("button", { name: "Revoke node" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    await openNodeRevoke();
     await act(async () => {
       finishOldImpact?.([{ manufacturer: "Old", model: "Miner" }]);
     });
@@ -585,9 +613,7 @@ describe("NodesPage", () => {
     await act(async () => {
       renderNodesPage();
     });
-    await act(async () => {
-      fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
-    });
+    await openNodeRevoke();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Revoke node" }));
     });
@@ -613,7 +639,7 @@ describe("NodesPage", () => {
     renderNodesPage();
     await screen.findByText("standby-node");
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
+    await openNodeRevoke();
 
     expect(await screen.findByText(/since standby-node isn't connected to take over/)).toBeInTheDocument();
   });
