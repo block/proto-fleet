@@ -116,7 +116,7 @@ describe("EnrollNodeModal", () => {
     await waitFor(() => expect(getByRole("option", { name: "standalone-node" })).toBeInTheDocument());
     expect(queryByRole("option", { name: "paired-node" })).not.toBeInTheDocument();
     expect(queryByRole("option", { name: "unconfirmed-node" })).not.toBeInTheDocument();
-    expect(getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(getByRole("button", { name: "Generate code" })).toBeDisabled();
   });
 
   it("creates a standby enrollment code for the selected target", async () => {
@@ -125,12 +125,18 @@ describe("EnrollNodeModal", () => {
     const { getByRole, getByText } = render(
       <EnrollNodeModal open onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />,
     );
+    expect(getByText("Set up a node")).toBeInTheDocument();
+    await waitFor(() => expect(getByRole("button", { name: "Copy command" })).toBeVisible());
     await selectStandbyTarget(getByRole, "standalone-node");
 
-    fireEvent.click(getByRole("button", { name: "Continue" }));
+    fireEvent.click(getByRole("button", { name: "Generate code" }));
 
     await waitFor(() => expect(mockCreateEnrollmentCode).toHaveBeenCalledWith("1"));
     expect(getByText("standby-code")).toBeInTheDocument();
+    expect(getByRole("checkbox", { name: "Enroll as a standby" })).toBeChecked();
+    expect(getByRole("checkbox", { name: "Enroll as a standby" })).toBeDisabled();
+    expect(getByRole("button", { name: "Standby for" })).toBeDisabled();
+    expect(getByRole("button", { name: "Standby for" })).toHaveTextContent("standalone-node");
   });
 
   describe("when creating the standby enrollment code fails", () => {
@@ -142,28 +148,28 @@ describe("EnrollNodeModal", () => {
       return view;
     };
 
-    it("returns to the options step with the error and keeps the checked standby option enabled", async () => {
+    it("shows the error inline and keeps the checked standby option enabled", async () => {
       const { getByRole, getByText } = await renderFailedStandbyEnrollment();
 
-      fireEvent.click(getByRole("button", { name: "Continue" }));
+      fireEvent.click(getByRole("button", { name: "Generate code" }));
 
       await waitFor(() => expect(getByText("Target is no longer eligible")).toBeInTheDocument());
       await waitFor(() => expect(mockListFleetNodes).toHaveBeenCalledTimes(2));
       await waitFor(() => expect(getByText(/No node can take a standby/)).toBeInTheDocument());
       expect(getByRole("checkbox", { name: "Enroll as a standby" })).toBeChecked();
       expect(getByRole("checkbox", { name: "Enroll as a standby" })).toBeEnabled();
-      expect(getByRole("button", { name: "Continue" })).toBeDisabled();
+      expect(getByRole("button", { name: "Generate code" })).toBeDisabled();
     });
 
     it("lets the user uncheck the standby option to continue as a standalone node", async () => {
       const { getByRole, getByText } = await renderFailedStandbyEnrollment();
-      fireEvent.click(getByRole("button", { name: "Continue" }));
+      fireEvent.click(getByRole("button", { name: "Generate code" }));
       await waitFor(() => expect(getByText(/No node can take a standby/)).toBeInTheDocument());
 
       fireEvent.click(getByRole("checkbox", { name: "Enroll as a standby" }));
 
       expect(getByRole("checkbox", { name: "Enroll as a standby" })).not.toBeChecked();
-      expect(getByRole("button", { name: "Continue" })).toBeEnabled();
+      expect(getByRole("button", { name: "Generate code" })).toBeEnabled();
     });
   });
 
@@ -185,7 +191,7 @@ describe("EnrollNodeModal", () => {
 
     await waitFor(() => expect(getByText(/No node can take a standby/)).toBeInTheDocument());
     expect(getByRole("checkbox", { name: "Enroll as a standby" })).toBeDisabled();
-    expect(getByRole("button", { name: "Continue" })).toBeEnabled();
+    expect(getByRole("button", { name: "Generate code" })).toBeEnabled();
   });
 
   it("retains the standby relationship when resuming confirmation", () => {
@@ -221,7 +227,7 @@ describe("EnrollNodeModal", () => {
     );
     expect(mockCreateEnrollmentCode).not.toHaveBeenCalled();
     expect(getByRole("checkbox", { name: "Enroll as a standby" })).not.toBeChecked();
-    fireEvent.click(getByRole("button", { name: "Continue" }));
+    fireEvent.click(getByRole("button", { name: "Generate code" }));
     await waitFor(() => {
       const command = getByRole("button", { name: "Copy command" }).parentElement;
       expect(command).toHaveTextContent("sudo fleetnode-enroll");
@@ -247,7 +253,7 @@ describe("EnrollNodeModal", () => {
     mockCreateEnrollmentCode.mockResolvedValue({ code: "pf_code_123", pendingEnrollmentId: "11", expiresAt: null });
     const { getByText } = render(<EnrollNodeModal open onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />);
 
-    fireEvent.click(getByText("Continue"));
+    fireEvent.click(getByText("Generate code"));
 
     await waitFor(() => {
       expect(getByText("Confirm the node")).toBeInTheDocument();
@@ -264,7 +270,7 @@ describe("EnrollNodeModal", () => {
       <EnrollNodeModal open onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />,
     );
 
-    fireEvent.click(getByText("Continue"));
+    fireEvent.click(getByText("Generate code"));
 
     await waitFor(() => {
       expect(mockListFleetNodes).toHaveBeenCalled();
@@ -363,13 +369,13 @@ describe("EnrollNodeModal", () => {
     const { getByText, queryByText, rerender } = render(
       <EnrollNodeModal open onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />,
     );
-    fireEvent.click(getByText("Continue"));
+    fireEvent.click(getByText("Generate code"));
     await waitFor(() => {
       expect(mockCreateEnrollmentCode).toHaveBeenCalled();
     });
     rerender(<EnrollNodeModal open={false} onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />);
     rerender(<EnrollNodeModal open onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />);
-    fireEvent.click(getByText("Continue"));
+    fireEvent.click(getByText("Generate code"));
 
     await act(async () => {
       resolveCode?.({ code: "pf_stale_code", pendingEnrollmentId: "11", expiresAt: null });

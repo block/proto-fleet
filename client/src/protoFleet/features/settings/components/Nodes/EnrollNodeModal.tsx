@@ -102,7 +102,7 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
   const standbyTargetInvalid =
     enrollAsStandby && !eligibleTargets.some((node) => node.fleetNodeId === standbyForNodeId);
 
-  const handleContinue = () => {
+  const handleCreateCode = () => {
     if (codeRequestedRef.current || standbyTargetInvalid) return;
     codeRequestedRef.current = true;
     setErrorMsg("");
@@ -236,30 +236,27 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
   const noEligibleTargets = !targetsLoading && eligibleTargets.length === 0;
   const standbyOptionDisabled = noEligibleTargets && !enrollAsStandby;
 
-  if (step === "options") {
+  if (step === "options" || step === "code") {
     return (
-      <Modal
-        open={open}
-        onDismiss={handleDismiss}
-        title="Enroll a node"
-        divider={false}
-        buttons={[
-          {
-            text: "Continue",
-            onClick: handleContinue,
-            variant: variants.primary,
-            disabled: standbyTargetInvalid,
-            dismissModalOnClick: false,
-          },
-        ]}
-      >
+      <Modal open={open} onDismiss={handleDismiss} title="Set up a node" divider={false}>
+        <div className="mb-6">
+          Install Fleet Node on a Linux machine that can reach your miners and this Fleet server.{" "}
+          <a
+            href="https://docs.proto.xyz/fleet/fleet-node"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline"
+          >
+            Installation instructions
+          </a>
+        </div>
         <div className="flex flex-col gap-4">
           {errorMsg ? <Callout intent="danger" prefixIcon={<Alert />} title={errorMsg} /> : null}
           <label className="flex items-center gap-3 text-300">
             <Checkbox
               checked={enrollAsStandby}
               onChange={(event) => setEnrollAsStandby(event.target.checked)}
-              disabled={standbyOptionDisabled}
+              disabled={standbyOptionDisabled || step === "code"}
               ariaLabel="Enroll as a standby"
             />
             Enroll as a standby
@@ -276,68 +273,56 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
               options={eligibleTargets.map((node) => ({ value: node.fleetNodeId, label: node.name }))}
               value={standbyForNodeId}
               onChange={setStandbyForNodeId}
-              disabled={targetsLoading}
+              disabled={targetsLoading || step === "code"}
               placeholder={targetsLoading ? "Loading nodes…" : "Select a node"}
               emptyMessage="No nodes are eligible for standby enrollment."
             />
           ) : null}
-        </div>
-      </Modal>
-    );
-  }
-
-  if (step === "code") {
-    return (
-      <Modal open={open} onDismiss={handleDismiss} title="Set up a node" divider={false}>
-        <div className="mb-6">
-          Install Fleet Node on a Linux machine that can reach your miners and this Fleet server.{" "}
-          <a
-            href="https://docs.proto.xyz/fleet/fleet-node"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline"
-          >
-            Installation instructions
-          </a>
-        </div>
-
-        {errorMsg ? (
-          <Callout className="mb-6" intent="danger" prefixIcon={<Alert />} title={errorMsg} />
-        ) : enrollmentCode ? (
-          <div className="flex flex-col gap-4">
-            <div>
-              <div className="mb-2">1. Run this command on the machine:</div>
-              <CopyableValue value={fleetNodeEnrollCommand} copyLabel="Command" />
-              {includesInsecureTransportFlag ? (
-                <Callout
-                  className="mt-3"
-                  intent="warning"
-                  prefixIcon={<Alert />}
-                  title="HTTP LAN enrollment uses insecure transport"
-                  subtitle="Only use this copied command on a trusted local network. Configure HTTPS on the Fleet server for production enrollment."
-                />
-              ) : null}
+          <div>
+            <div className="mb-2">1. Run this command on the machine:</div>
+            <CopyableValue value={fleetNodeEnrollCommand} copyLabel="Command" />
+            {includesInsecureTransportFlag ? (
+              <Callout
+                className="mt-3"
+                intent="warning"
+                prefixIcon={<Alert />}
+                title="HTTP LAN enrollment uses insecure transport"
+                subtitle="Only use this copied command on a trusted local network. Configure HTTPS on the Fleet server for production enrollment."
+              />
+            ) : null}
+          </div>
+          <div>
+            <div className="mb-2">
+              {enrollmentCode ? "2. Enter this code when prompted:" : "2. Generate a one-time enrollment code:"}
             </div>
-            <div>
-              <div className="mb-2">2. Enter this enrollment code when prompted:</div>
+            {enrollmentCode ? (
               <CopyableValue value={enrollmentCode.code} copyLabel="Enrollment code" />
-              {enrollmentCode.expiresAt ? (
-                <div className="mt-2 text-200 text-text-primary-50">
-                  Single use. Expires {formatTimestamp(Math.floor(enrollmentCode.expiresAt.getTime() / 1000))}.
-                </div>
-              ) : null}
-            </div>
+            ) : step === "code" ? (
+              <div className="flex items-center gap-3 py-2">
+                <ProgressCircular indeterminate size={16} />
+                <span>Creating an enrollment code…</span>
+              </div>
+            ) : (
+              <Button
+                text="Generate code"
+                variant={variants.primary}
+                onClick={handleCreateCode}
+                disabled={standbyTargetInvalid}
+              />
+            )}
+            {enrollmentCode?.expiresAt ? (
+              <div className="mt-2 text-200 text-text-primary-50">
+                Single use. Expires {formatTimestamp(Math.floor(enrollmentCode.expiresAt.getTime() / 1000))}.
+              </div>
+            ) : null}
+          </div>
+          {enrollmentCode ? (
             <div className="flex items-center gap-3 rounded-xl bg-surface-5 px-4 py-3">
               <ProgressCircular indeterminate size={16} />
               <span>Waiting for the node to register…</span>
             </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-3 py-2">
-            <ProgressCircular indeterminate size={16} />
-            <span>Creating an enrollment code…</span>
-          </div>
-        )}
+          ) : null}
+        </div>
       </Modal>
     );
   }

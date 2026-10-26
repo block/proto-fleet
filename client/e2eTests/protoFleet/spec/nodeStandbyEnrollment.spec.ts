@@ -92,7 +92,7 @@ test.describe("Node enrollment intent", () => {
         expect(codeRequests).toEqual([]);
         // eslint-disable-next-line playwright/no-conditional-in-test -- the two deterministic cases share the confirmation flow.
         if (standby) await settingsNodesPage.chooseStandbyFor("active-node", "paired-node");
-        await settingsNodesPage.continueEnrollment();
+        await settingsNodesPage.generateEnrollmentCode();
         await settingsNodesPage.validateEnrollmentCode("test-enrollment-code");
         expect(codeRequests).toEqual([standby ? { standbyForNodeId: "7" } : {}]);
       });

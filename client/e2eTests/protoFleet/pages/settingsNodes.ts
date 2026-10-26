@@ -79,27 +79,29 @@ export class SettingsNodesPage extends BasePage {
   async validateEnrollNodeModalOpened() {
     const modal = this.page.getByTestId("modal");
     await expect(modal).toBeVisible();
-    await expect(modal).toContainText("Enroll a node");
+    await expect(modal).toContainText("Set up a node");
     await expect(modal.getByRole("checkbox", { name: "Enroll as a standby" })).not.toBeChecked();
-    await expect(modal.getByRole("button", { name: "Continue", exact: true })).toBeEnabled();
+    await expect(modal.getByRole("button", { name: "Copy command" })).toBeVisible();
+    await expect(modal.getByRole("button", { name: "Generate code", exact: true })).toBeEnabled();
   }
 
   async chooseStandbyFor(nodeName: string, excludedNodeName: string) {
     const modal = this.page.getByTestId("modal");
     await modal.getByRole("checkbox", { name: "Enroll as a standby" }).check();
-    await expect(modal.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
+    await expect(modal.getByRole("button", { name: "Generate code", exact: true })).toBeDisabled();
     await modal.getByRole("button", { name: "Standby for", exact: true }).click();
     await expect(this.page.getByRole("option", { name: excludedNodeName, exact: true })).toHaveCount(0);
     await this.page.getByRole("option", { name: nodeName, exact: true }).click();
   }
 
-  async continueEnrollment() {
-    await this.page.getByTestId("modal").getByRole("button", { name: "Continue", exact: true }).click();
+  async generateEnrollmentCode() {
+    await this.page.getByTestId("modal").getByRole("button", { name: "Generate code", exact: true }).click();
   }
 
   async validateEnrollmentCode(code: string) {
     const modal = this.page.getByTestId("modal");
     await expect(modal.getByText(code, { exact: true })).toBeVisible();
+    await expect(modal.getByRole("checkbox", { name: "Enroll as a standby" })).toBeDisabled();
     await expect(modal).toContainText("1. Run this command on the machine:");
   }
 
