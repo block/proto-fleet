@@ -209,6 +209,9 @@ func (a *grpcAPI) StopMiningScoped(ctx context.Context, in *mdk.StopMiningScoped
 }
 
 func (a *grpcAPI) SetPowerTargetScoped(ctx context.Context, in *mdk.SetPowerTargetScopedRequest) (*mdk.SetPowerTargetScopedResponse, error) {
+	if err := finiteWatts(in.GetWatts()); err != nil {
+		return nil, err
+	}
 	results, err := a.applyToScope(ctx, in.GetScope(), scopedPowerTarget(in.GetWatts()))
 	if err != nil {
 		return nil, err

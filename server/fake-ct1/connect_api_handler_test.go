@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -150,6 +151,48 @@ func TestConnectGatewayPreservesStatusCodes(t *testing.T) {
 				t.Fatalf("code = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestConnectRejectsNonFinitePowerTargets(t *testing.T) {
+	srv, state := newConnectTestServer(t)
+	ctx := context.Background()
+	mining := mdkv2connect.NewMiningServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+	before, err := mining.GetTargetPower(ctx, connect.NewRequest(&mdk.GetTargetPowerRequest{}))
+	if err != nil {
+		t.Fatalf("GetTargetPower: %v", err)
+	}
+
+	for _, watts := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		_, err := mining.SetTargetPower(ctx, connect.NewRequest(&mdk.SetTargetPowerRequest{Watts: watts}))
+		if got := connect.CodeOf(err); got != connect.CodeInvalidArgument {
+			t.Fatalf("SetTargetPower(%v) code = %v, want invalid_argument", watts, got)
+		}
+		_, err = mining.SetPowerTargetScoped(ctx, connect.NewRequest(&mdk.SetPowerTargetScopedRequest{
+			Scope: &mdk.BoardScope{Modules: []*mdk.ModuleSelector{{Tank: 1, Module: 1}}},
+			Watts: watts,
+		}))
+		if got := connect.CodeOf(err); got != connect.CodeInvalidArgument {
+			t.Fatalf("SetPowerTargetScoped(%v) code = %v, want invalid_argument", watts, got)
+		}
+	}
+
+	after, err := mining.GetTargetPower(ctx, connect.NewRequest(&mdk.GetTargetPowerRequest{}))
+	if err != nil {
+		t.Fatalf("GetTargetPower after rejected writes: %v", err)
+	}
+	if after.Msg.GetWatts() != before.Msg.GetWatts() {
+		t.Fatalf("target watts = %v, want unchanged %v", after.Msg.GetWatts(), before.Msg.GetWatts())
+	}
+	if _, err := mining.GetMiningStatus(ctx, connect.NewRequest(&mdk.GetMiningStatusRequest{})); err != nil {
+		t.Fatalf("GetMiningStatus after rejected writes: %v", err)
+	}
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	for _, board := range state.eachBoard() {
+		if board.ScopedWattsSet {
+			t.Fatalf("board %s has a scoped power target after rejected writes", board.MAC)
+		}
 	}
 }
 

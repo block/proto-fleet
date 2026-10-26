@@ -116,6 +116,9 @@ func (s *ContainerState) targetPower(update *targetPowerUpdate) (targetPowerResp
 		return targetPowerResponse{}, &apiError{http.StatusConflict, codes.FailedPrecondition, "container has no hashboards"}
 	}
 	if update != nil {
+		if err := finiteWatts(update.watts); err != nil {
+			return targetPowerResponse{}, err
+		}
 		if update.watts <= 0 {
 			return targetPowerResponse{}, invalidArgument("watts must be greater than zero")
 		}
@@ -182,6 +185,15 @@ func (s *ContainerState) hashboardASICs(identifier string) (asicsResponse, error
 		return asicsResponse{}, notFoundf("unknown hashboard %q", identifier)
 	}
 	return s.asicsResponse(board), nil
+}
+
+// finiteWatts rejects NaN and infinities, which protobuf can carry but the
+// JSON projection of the simulator state cannot.
+func finiteWatts(watts float64) error {
+	if math.IsNaN(watts) || math.IsInf(watts, 0) {
+		return invalidArgument("watts must be a finite number")
+	}
+	return nil
 }
 
 func scopedPowerTarget(watts float64) func(*Hashboard) (bool, string) {
