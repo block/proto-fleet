@@ -8114,6 +8114,18 @@ func (q *retryingQuerier) ReleaseDeviceWriteFenceToHost(ctx context.Context, arg
 	return result, err
 }
 
+func (q *retryingQuerier) ReleaseFleetRuntimeLease(ctx context.Context, arg ReleaseFleetRuntimeLeaseParams) (int64, error) {
+	var result int64
+	err := q.retrier.RetryQuery(ctx, "ReleaseFleetRuntimeLease", func() error {
+		callResult, callErr := q.next.ReleaseFleetRuntimeLease(ctx, arg)
+		if callErr == nil {
+			result = callResult
+		}
+		return callErr
+	})
+	return result, err
+}
+
 func (q *retryingQuerier) ReleaseHashboardObservations(ctx context.Context, arg ReleaseHashboardObservationsParams) error {
 	return q.retrier.RetryQuery(ctx, "ReleaseHashboardObservations", func() error {
 		return q.next.ReleaseHashboardObservations(ctx, arg)

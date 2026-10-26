@@ -42,6 +42,7 @@ type writerObserver interface {
 }
 
 type ownershipStore interface {
+	Release(ctx context.Context, active Ownership) error
 	Acquire(
 		ctx context.Context,
 		observed WriterObservation,

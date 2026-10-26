@@ -2011,6 +2011,9 @@ type Querier interface {
 	// have changed while they were out of scope.
 	ReincludeFirmwareRolloutDevices(ctx context.Context, arg ReincludeFirmwareRolloutDevicesParams) error
 	ReleaseDeviceWriteFenceToHost(ctx context.Context, arg ReleaseDeviceWriteFenceToHostParams) (int64, error)
+	// A cleanly stopped owner may expire only its exact live term. Keep the row and
+	// fencing history so the next acquisition must advance the epoch.
+	ReleaseFleetRuntimeLease(ctx context.Context, arg ReleaseFleetRuntimeLeaseParams) (int64, error)
 	// Explicit removal permits a prompt transfer, but cannot release a board still
 	// reported elsewhere in this same poll (including unlocated inventory).
 	ReleaseHashboardObservations(ctx context.Context, arg ReleaseHashboardObservationsParams) error

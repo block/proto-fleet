@@ -1,6 +1,7 @@
 package fleetmanagement_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -85,7 +86,9 @@ func TestService_DeleteMiners_UnpairsAfterCachedBindingChanges(t *testing.T) {
 			}})
 			require.NoError(t, err)
 			require.Equal(t, int32(1), response.DeletedCount)
-			service.WaitForPendingUnpairs(10 * time.Second)
+			drainCtx, cancelDrain := context.WithTimeout(t.Context(), 10*time.Second)
+			defer cancelDrain()
+			require.NoError(t, service.WaitForPendingUnpairs(drainCtx))
 			var claimed bool
 			require.NoError(t, deps.DB.QueryRowContext(ctx, "SELECT attempt_id IS NOT NULL FROM device_deletion_unpair_permit WHERE device_id=$1", deviceID).Scan(&claimed))
 			require.True(t, claimed, "the matching current binding must consume the deletion permit and reach Unpair")

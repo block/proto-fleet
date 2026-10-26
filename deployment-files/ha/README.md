@@ -418,6 +418,20 @@ before stopping Fleet. This crash-only profile accepts the small role-change
 window before process exit; if the peer fails in that interval, durable update
 recovery restarts the local application.
 
+A planned Fleet stop closes HTTP admission and drains requests before stopping
+runtime jobs. After a clean drain and renewal shutdown, Fleet expires only its
+exact live lease; the stored epoch remains and the peer can acquire immediately.
+The drain includes pending background unpairs and confirmed plugin process exit.
+Endpoint-probe suppression lasts only through the HTTP shutdown deadline. If a
+handler remains blocked, Fleet stops lease renewal and takes the fatal-abort path;
+voluntary release still requires completed cleanup.
+Failed or incomplete cleanup, ownership loss, and crashes keep the normal
+lease-expiry path. Active application updates stop the API first, retaining nginx while Fleet
+attempts its clean drain. Docker forces an incomplete API stop after three
+seconds. Compose then tears down the remaining application containers with a
+one-second grace. Each of the two commands has its own five-second bound. The
+update still verifies that the peer serves the public endpoint.
+
 ## etcd capacity
 
 See [retention, capacity monitoring, existing-cluster adoption and supervised

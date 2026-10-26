@@ -219,8 +219,9 @@ func (s *Service) resolveDeviceSetSiteScope(ctx context.Context, orgID int64, id
 }
 
 // WaitForPendingUnpairs blocks until all background Unpair goroutines
-// complete or the timeout expires. Call during graceful server shutdown.
-func (s *Service) WaitForPendingUnpairs(timeout time.Duration) {
+// complete or ctx expires. Call after request admission has drained. An error
+// means device work may still be running and HA ownership must not be released.
+func (s *Service) WaitForPendingUnpairs(ctx context.Context) error {
 	done := make(chan struct{})
 	go func() {
 		s.backgroundWg.Wait()
@@ -228,8 +229,12 @@ func (s *Service) WaitForPendingUnpairs(timeout time.Duration) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(timeout):
-		slog.Warn("timed out waiting for pending Unpair operations during shutdown")
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("drain pending Unpair operations: %w", err)
+		}
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("drain pending Unpair operations: %w", ctx.Err())
 	}
 }
 

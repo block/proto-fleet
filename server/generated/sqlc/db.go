@@ -2196,6 +2196,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.releaseDeviceWriteFenceToHostStmt, err = db.PrepareContext(ctx, releaseDeviceWriteFenceToHost); err != nil {
 		return nil, fmt.Errorf("error preparing query ReleaseDeviceWriteFenceToHost: %w", err)
 	}
+	if q.releaseFleetRuntimeLeaseStmt, err = db.PrepareContext(ctx, releaseFleetRuntimeLease); err != nil {
+		return nil, fmt.Errorf("error preparing query ReleaseFleetRuntimeLease: %w", err)
+	}
 	if q.releaseHashboardObservationsStmt, err = db.PrepareContext(ctx, releaseHashboardObservations); err != nil {
 		return nil, fmt.Errorf("error preparing query ReleaseHashboardObservations: %w", err)
 	}
@@ -6379,6 +6382,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing releaseDeviceWriteFenceToHostStmt: %w", cerr)
 		}
 	}
+	if q.releaseFleetRuntimeLeaseStmt != nil {
+		if cerr := q.releaseFleetRuntimeLeaseStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing releaseFleetRuntimeLeaseStmt: %w", cerr)
+		}
+	}
 	if q.releaseHashboardObservationsStmt != nil {
 		if cerr := q.releaseHashboardObservationsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing releaseHashboardObservationsStmt: %w", cerr)
@@ -8072,6 +8080,7 @@ type Queries struct {
 	refreshOpenErrorsLastSeenByDeviceStmt                        *sql.Stmt
 	reincludeFirmwareRolloutDevicesStmt                          *sql.Stmt
 	releaseDeviceWriteFenceToHostStmt                            *sql.Stmt
+	releaseFleetRuntimeLeaseStmt                                 *sql.Stmt
 	releaseHashboardObservationsStmt                             *sql.Stmt
 	releaseInventoryPartStmt                                     *sql.Stmt
 	releaseUndispatchedTargetsForRestoreStmt                     *sql.Stmt
@@ -8988,6 +8997,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		refreshOpenErrorsLastSeenByDeviceStmt:                        q.refreshOpenErrorsLastSeenByDeviceStmt,
 		reincludeFirmwareRolloutDevicesStmt:                          q.reincludeFirmwareRolloutDevicesStmt,
 		releaseDeviceWriteFenceToHostStmt:                            q.releaseDeviceWriteFenceToHostStmt,
+		releaseFleetRuntimeLeaseStmt:                                 q.releaseFleetRuntimeLeaseStmt,
 		releaseHashboardObservationsStmt:                             q.releaseHashboardObservationsStmt,
 		releaseInventoryPartStmt:                                     q.releaseInventoryPartStmt,
 		releaseUndispatchedTargetsForRestoreStmt:                     q.releaseUndispatchedTargetsForRestoreStmt,
