@@ -2,6 +2,7 @@ package updater
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -65,6 +66,7 @@ func TestPreparedHAUpdateRefusesMissingStaleOrTamperedPreparation(t *testing.T) 
 		{mutation: "missing", wantErr: "prepared release is unavailable"},
 		{mutation: "source", wantErr: "source configuration is stale"},
 		{mutation: "staged", wantErr: "content changed"},
+		{mutation: "image proof", wantErr: "content changed"},
 		{mutation: "target", wantErr: "does not match requested target and repository"},
 	} {
 		mutation := tc.mutation
@@ -74,7 +76,16 @@ func TestPreparedHAUpdateRefusesMissingStaleOrTamperedPreparation(t *testing.T) 
 			writeCurrentDeployment(t, installRoot, "v1.0.0")
 			server := releaseServer(t, "v1.1.0", "amd64", releaseBundle(t, "v1.1.0"), "")
 			runner := &haRecordingRunner{}
-			manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) { cfg.DeploymentMode = DeploymentModeHA })
+			manager := newTestManagerWithConfig(t, installRoot, server, runner, func(cfg *Config) {
+				cfg.DeploymentMode = DeploymentModeHA
+				cfg.syncStagedDeployment = func(ctx context.Context, stage string) error {
+					// update-preflight records this proof before the manager syncs and hashes it.
+					if err := os.WriteFile(filepath.Join(stage, ".prepared-images.json"), []byte(`{"api:target":"sha256:prepared"}`), 0o600); err != nil {
+						return fmt.Errorf("write image proof: %w", err)
+					}
+					return syncStagedDeployment(ctx, stage)
+				}
+			})
 			if mutation != "missing" {
 				_, err := manager.TriggerPreparedWithID("v1.1.0", "11111111-1111-4111-8111-111111111111", true, false, false)
 				require.NoError(t, err)
@@ -86,6 +97,9 @@ func TestPreparedHAUpdateRefusesMissingStaleOrTamperedPreparation(t *testing.T) 
 			}
 			if mutation == "staged" {
 				require.NoError(t, os.WriteFile(filepath.Join(installRoot, preparedDirectoryName, "deployment", "ha", "fleet-ha"), []byte("tampered"), 0600))
+			}
+			if mutation == "image proof" {
+				require.NoError(t, os.WriteFile(filepath.Join(installRoot, preparedDirectoryName, "deployment", ".prepared-images.json"), []byte(`{"api:target":"sha256:replacement"}`), 0o600))
 			}
 			target := "v1.1.0"
 			if mutation == "target" {
@@ -147,17 +161,27 @@ func TestPreparedHAUpdateRequiresFreshSchemaImagesAndRole(t *testing.T) {
 			_, err := manager.TriggerPreparedWithID("v1.1.0", "11111111-1111-4111-8111-111111111111", true, false, false)
 			require.NoError(t, err)
 			require.Equal(t, updaterapi.PhaseSucceeded, waitPreparedOperation(t, manager).Phase)
+			// Fresh checks must still run when activation starts after an updater restart.
+			require.NoError(t, manager.Close())
+			manager, err = NewManager(manager.cfg)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, manager.Close()) })
+			failureErr := os.ErrNotExist
+			if failure == "check-images" {
+				failureErr = errors.New("prepared application image identities changed; prepare the release again")
+			}
 			runner.mu.Lock()
-			runner.fail = map[string]error{failure: os.ErrNotExist}
+			runner.fail = map[string]error{failure: failureErr}
 			runner.mu.Unlock()
 
 			// Act
 			_, err = manager.TriggerPreparedWithID("v1.1.0", "22222222-2222-4222-8222-222222222222", false, true, false)
 			require.NoError(t, err)
-			phase := waitPreparedOperation(t, manager).Phase
+			result := waitPreparedOperation(t, manager)
 
 			// Assert
-			require.Equal(t, updaterapi.PhaseFailed, phase)
+			require.Equal(t, updaterapi.PhaseFailed, result.Phase)
+			require.Contains(t, result.Error, failureErr.Error())
 			require.Equal(t, "v1.0.0", mustInstalledVersion(t, installRoot))
 			for _, command := range runner.Commands() {
 				require.NotEqual(t, "app-stop", command.Args[0])

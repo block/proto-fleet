@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -137,7 +136,7 @@ func PrepareApplicationUpdate(ctx context.Context, root string) error {
 	if err != nil {
 		return err
 	}
-	return prepareApplicationUpdate(ctx, root, profile, defaultInstallDependencies(), RunCompose, EtcdStatus)
+	return prepareApplicationUpdate(ctx, root, profile, defaultInstallDependencies(), RunCompose, readComposeOutput, EtcdStatus)
 }
 
 func loadUpdateCompatibleProfile(path string) (fleetApplicationProfile, error) {
@@ -148,7 +147,7 @@ func loadUpdateCompatibleProfile(path string) (fleetApplicationProfile, error) {
 	return profile, nil
 }
 
-func prepareApplicationUpdate(ctx context.Context, root string, profile fleetApplicationProfile, deps installDependencies, runCompose func(context.Context, []string) error, etcdStatus func(context.Context, string) (EtcdReport, error)) error {
+func prepareApplicationUpdate(ctx context.Context, root string, profile fleetApplicationProfile, deps installDependencies, runCompose func(context.Context, []string) error, composeOutput func(context.Context, []string) ([]byte, error), etcdStatus func(context.Context, string) (EtcdReport, error)) error {
 	// The target release must check its new readiness prerequisites before the
 	// installed (possibly older) binary stops the passive application.
 	report, err := etcdStatus(ctx, filepath.Join(configRoot, "node.env"))
@@ -181,32 +180,10 @@ func prepareApplicationUpdate(ctx context.Context, root string, profile fleetApp
 			return fmt.Errorf("release archive did not load required image %s: %s", image, commandError(output, err))
 		}
 	}
+	if err := recordPreparedApplicationImages(ctx, root, profile, composeOutput, deps.run); err != nil {
+		return err
+	}
 	return recordActiveInstall(ctx, deps)
-}
-
-// CheckApplicationImages confirms the prepared images are still loaded. It never
-// pulls or loads images on the activation path.
-func CheckApplicationImages(ctx context.Context, root string) error {
-	profile, err := loadUpdateCompatibleProfile(installedFleetEnvironment)
-	if err != nil {
-		return err
-	}
-	return checkApplicationImages(ctx, root, profile, readComposeOutput, defaultInstallDependencies().run)
-}
-
-func checkApplicationImages(ctx context.Context, root string, profile fleetApplicationProfile, composeOutput func(context.Context, []string) ([]byte, error), run func(context.Context, string, ...string) ([]byte, error)) error {
-	output, err := composeOutput(ctx, fleetApplicationComposeArgsAtProfile(root, installedFleetEnvironment, profile, "config", "--images"))
-	if err != nil {
-		return err
-	}
-	images := strings.Fields(string(output))
-	if len(images) == 0 {
-		return errors.New("prepared application has no resolved images")
-	}
-	if output, err := run(ctx, "docker", append([]string{"--host", localDockerHost, "image", "inspect"}, images...)...); err != nil {
-		return fmt.Errorf("prepared application images are no longer available; prepare the release again: %s", commandError(output, err))
-	}
-	return nil
 }
 
 // CheckApplicationSchema admits a staged release before a rolling update stops Fleet.

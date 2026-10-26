@@ -93,7 +93,7 @@ func TestPrepareApplicationUpdateRejectsEtcdBeforeStaging(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			// Empty dependencies and a nonexistent release prove refusal happens
 			// before staging images, validating Compose, or recording installation.
-			err := prepareApplicationUpdate(t.Context(), filepath.Join(t.TempDir(), "missing-release"), nil, installDependencies{}, nil,
+			err := prepareApplicationUpdate(t.Context(), filepath.Join(t.TempDir(), "missing-release"), nil, installDependencies{}, nil, nil,
 				func(_ context.Context, envPath string) (EtcdReport, error) {
 					require.Equal(t, filepath.Join(configRoot, "node.env"), envPath)
 					return EtcdReport{}, test.err
@@ -122,7 +122,7 @@ func TestPrepareApplicationUpdateStopsBeforeImageLoadWhenComposeValidationFails(
 	// Act
 	err := prepareApplicationUpdate(context.Background(), root, fleetApplicationProfile{"ENABLE_BETA_ALERTS": "true"}, deps, func(_ context.Context, _ []string) error {
 		return composeErr
-	}, healthyUpdateEtcd)
+	}, nil, healthyUpdateEtcd)
 
 	// Assert
 	require.ErrorIs(t, err, composeErr)
@@ -137,16 +137,19 @@ func TestPrepareApplicationUpdateRecordsActiveInstallForExistingHADeployment(t *
 		readFile: os.ReadFile,
 		run: func(_ context.Context, name string, args ...string) ([]byte, error) {
 			commands = append(commands, strings.Join(append([]string{name}, args...), " "))
-			return nil, nil
+			return []byte("sha256:api\nsha256:client\n"), nil
 		},
 	}
 
 	// Act
-	err := prepareApplicationUpdate(t.Context(), root, fleetApplicationProfile{"ENABLE_BETA_ALERTS": "true"}, deps, func(context.Context, []string) error { return nil }, healthyUpdateEtcd)
+	err := prepareApplicationUpdate(t.Context(), root, fleetApplicationProfile{"ENABLE_BETA_ALERTS": "true"}, deps, func(context.Context, []string) error { return nil }, testPreparedComposeImages, healthyUpdateEtcd)
 
 	// Assert
 	require.NoError(t, err)
 	require.Contains(t, strings.Join(commands, "\n"), haActiveInstallMarker)
+	proof, err := os.ReadFile(filepath.Join(root, preparedImagesFilename))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"proto-fleet-api:v1.1.0":"sha256:api","proto-fleet-client:v1.1.0":"sha256:client"}`, string(proof))
 	// Maintenance preflight precedes the manual reconciliation.
 	require.NotContains(t, strings.Join(commands, "\n"), "fleet-db-transition")
 }
