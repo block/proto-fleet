@@ -30,30 +30,13 @@ type connectAPI struct {
 func registerConnectRoutes(mux *http.ServeMux, rest *RESTApiHandler) {
 	api := &connectAPI{native: &grpcAPI{state: rest.state}}
 	options := connect.WithInterceptors(simulationInterceptor(rest))
-	for _, route := range []struct {
-		path    string
-		handler http.Handler
-	}{
-		routeFrom(mdkv2connect.NewSystemServiceHandler(api, options)),
-		routeFrom(mdkv2connect.NewHashboardServiceHandler(api, options)),
-		routeFrom(mdkv2connect.NewMiningServiceHandler(api, options)),
-		routeFrom(mdkv2connect.NewTelemetryServiceHandler(api, options)),
-		routeFrom(mdkv2connect.NewPowerServiceHandler(api, options)),
-		routeFrom(mdkv2connect.NewPoolServiceHandler(api, options)),
-		routeFrom(mdkv2connect.NewRunInServiceHandler(api, options)),
-	} {
-		mux.Handle(route.path, route.handler)
-	}
-}
-
-func routeFrom(path string, handler http.Handler) struct {
-	path    string
-	handler http.Handler
-} {
-	return struct {
-		path    string
-		handler http.Handler
-	}{path, handler}
+	mux.Handle(mdkv2connect.NewSystemServiceHandler(api, options))
+	mux.Handle(mdkv2connect.NewHashboardServiceHandler(api, options))
+	mux.Handle(mdkv2connect.NewMiningServiceHandler(api, options))
+	mux.Handle(mdkv2connect.NewTelemetryServiceHandler(api, options))
+	mux.Handle(mdkv2connect.NewPowerServiceHandler(api, options))
+	mux.Handle(mdkv2connect.NewPoolServiceHandler(api, options))
+	mux.Handle(mdkv2connect.NewRunInServiceHandler(api, options))
 }
 
 // simulationInterceptor gives each Connect call the REST routes' simulation
