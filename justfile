@@ -145,7 +145,7 @@ gen-protos: _server-init _client-init _lint-protos _gen-protos _gen-fleet-cli ge
 gen-mdk-protos:
   PATH="$(pwd)/../../client/node_modules/.bin:$PATH" buf generate
   goimports -w generated
-  (cd ../../client && npx prettier --write 'src/protoOS/api/adapters/mdkV2/generated/proto/**/*.ts')
+  # protoc-gen-es ends files with a blank line, which `git diff --check` rejects.
   python3 -c 'from pathlib import Path; root = Path("../../client/src/protoOS/api/adapters/mdkV2/generated/proto"); [p.write_bytes(p.read_bytes().rstrip(b"\n") + b"\n") for p in root.rglob("*.ts")]'
 
 # regenerate sqlc bindings only
