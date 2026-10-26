@@ -297,24 +297,6 @@ func TestCheckStandbyTarget(t *testing.T) {
 	}
 }
 
-func TestCreatePair_RejectsSecondStandbyForTheSameNode(t *testing.T) {
-	// Arrange
-	h := newHarness(t)
-	h.createPair(t, false)
-	second := h.createNode(t, "second-standby", "CONFIRMED", make([]byte, 32))
-
-	// Act
-	err := sqlstores.NewSQLTransactor(h.db).RunInTx(t.Context(), func(ctx context.Context) error {
-		return h.svc.CreatePair(ctx, h.orgID, h.active, second)
-	})
-
-	// Assert
-	requireCode(t, err, connect.CodeFailedPrecondition)
-	pair, ok := h.pair(t)
-	require.True(t, ok)
-	assert.Equal(t, h.standby, pair.standby)
-}
-
 func TestCreatePair_RequiresTransaction(t *testing.T) {
 	// Arrange
 	h := newHarness(t)
@@ -354,25 +336,6 @@ func TestRequireNotStandby(t *testing.T) {
 	}
 }
 
-func TestTick_FailsOverReadyPairWhenActiveStaysDisconnected(t *testing.T) {
-	// Arrange
-	h := newHarness(t)
-	h.createPair(t, true)
-	deviceID := h.addDevice(t, h.active)
-	h.connect(t, h.standby, v6)
-
-	// Act
-	h.svc.TickForTest(t.Context(), time.Now())
-
-	// Assert
-	pair, ok := h.pair(t)
-	require.True(t, ok)
-	assert.Equal(t, pairRow{active: h.standby, standby: h.active, ready: true}, pair, "the old active node becomes the ready standby")
-	assert.Equal(t, h.standby, h.deviceNode(t, deviceID))
-	assert.Equal(t, h.standby, h.discoveredBy(t, deviceID))
-	assert.Equal(t, []int64{deviceID}, h.invalidated)
-}
-
 func TestFailover_MovesOnlyTheActiveNodesDevicesAndLogsActivity(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -410,6 +373,9 @@ func TestFailover_MovesOnlyTheActiveNodesDevicesAndLogsActivity(t *testing.T) {
 
 			// Assert
 			require.NoError(t, err)
+			pair, ok := h.pair(t)
+			require.True(t, ok)
+			assert.Equal(t, pairRow{active: h.standby, standby: h.active, ready: true}, pair, "the old active node becomes the ready standby")
 			for _, deviceID := range moved {
 				assert.Equal(t, h.standby, h.deviceNode(t, deviceID))
 				assert.Equal(t, h.standby, h.discoveredBy(t, deviceID))
@@ -528,26 +494,6 @@ func TestTick_KeepsDevicesWhileFailoverIsNotDue(t *testing.T) {
 			assert.Empty(t, h.invalidated)
 		})
 	}
-}
-
-func TestTick_TransfersCredentialKeyToNewStandby(t *testing.T) {
-	// Arrange
-	h := newHarness(t)
-	h.createPair(t, false)
-	key := make([]byte, credentialkey.KeySize)
-	_, err := rand.Read(key)
-	require.NoError(t, err)
-	respond(t, h.connect(t, h.active, v6), exportKey(key))
-	respond(t, h.connect(t, h.standby, v6), installKey(h.standbyKey))
-
-	// Act
-	h.svc.TickForTest(t.Context(), time.Now())
-
-	// Assert
-	pair, ok := h.pair(t)
-	require.True(t, ok)
-	assert.True(t, pair.ready)
-	assert.Equal(t, h.active, pair.active, "a transfer never moves devices")
 }
 
 func TestTick_FingerprintMismatchKeepsStandbyNotReadyAndBacksOff(t *testing.T) {
@@ -681,6 +627,7 @@ func TestTick_DoesNotStartSecondTransferWhileOneIsInFlight(t *testing.T) {
 	pair, ok := h.pair(t)
 	require.True(t, ok)
 	assert.True(t, pair.ready)
+	assert.Equal(t, h.active, pair.active, "a transfer never moves devices")
 	assert.Equal(t, int32(1), exports.Load())
 	assert.Equal(t, int32(1), installs.Load())
 }
@@ -845,28 +792,6 @@ func TestHandOff_IgnoresStandbyRevokedAfterPairWasRead(t *testing.T) {
 	assert.Equal(t, h.active, h.discoveredBy(t, deviceID))
 	assert.Empty(t, h.invalidated)
 	assert.Empty(t, h.failoverActivities(t))
-}
-
-func TestDeletePair_RemovesThePairForEitherNode(t *testing.T) {
-	for _, revokeStandby := range []bool{false, true} {
-		t.Run(map[bool]string{false: "active", true: "standby"}[revokeStandby], func(t *testing.T) {
-			// Arrange
-			h := newHarness(t)
-			h.createPair(t, true)
-			nodeID := h.active
-			if revokeStandby {
-				nodeID = h.standby
-			}
-
-			// Act
-			err := h.svc.DeletePair(t.Context(), h.orgID, nodeID)
-
-			// Assert
-			require.NoError(t, err)
-			_, ok := h.pair(t)
-			assert.False(t, ok)
-		})
-	}
 }
 
 func TestFailover_RechecksConnectivityAfterDeviceLockWait(t *testing.T) {

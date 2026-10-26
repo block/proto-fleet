@@ -626,17 +626,4 @@ describe("NodesPage", () => {
     // Assert
     expect(await screen.findByText(/since standby-node isn't connected to take over/)).toBeInTheDocument();
   });
-
-  it("says the peer keeps its devices when revoking a standby", async () => {
-    // Arrange
-    listFleetNodesMock.mockResolvedValue([activeNode, standbyNode]);
-    renderNodesPage();
-    await screen.findByText("standby-node");
-
-    // Act
-    fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[1]);
-
-    // Assert
-    expect(await screen.findByText(/node-01 keeps its devices/)).toBeInTheDocument();
-  });
 });

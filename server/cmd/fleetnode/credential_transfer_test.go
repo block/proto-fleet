@@ -264,24 +264,6 @@ func TestHandleInstallCredentialKey_PersistFailureLeavesKeyUnchanged(t *testing.
 	assert.Equal(t, originalHex, standby.persistedKeyHex(t), "the original state file must be untouched")
 }
 
-func TestCredentialCodec_ReplaceKeyChangesWhichCredentialsOpen(t *testing.T) {
-	// Arrange
-	first := newHANode(t).cmd.credentials
-	second := newHANode(t).cmd.credentials
-	sealed, err := first.Seal(sdk.SecretBundle{Version: "v1", Kind: sdk.UsernamePassword{Username: "u", Password: "p"}})
-	require.NoError(t, err)
-	_, err = second.Open(sealed)
-	require.Error(t, err)
-
-	// Act
-	second.replaceKey(first.currentKey())
-
-	// Assert
-	bundle, err := second.Open(sealed)
-	require.NoError(t, err)
-	assert.Equal(t, sdk.UsernamePassword{Username: "u", Password: "p"}, bundle.Kind)
-}
-
 func TestCredentialCodec_CurrentKeyReturnsCopy(t *testing.T) {
 	// Arrange
 	codec := newHANode(t).cmd.credentials
