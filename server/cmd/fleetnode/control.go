@@ -109,8 +109,6 @@ var (
 	errControlStreamSilent   = errors.New("control stream silent past keepalive deadline")
 )
 
-// minControlKeepaliveInterval keeps a misconfigured server from making the
-// node ping in a tight loop.
 const minControlKeepaliveInterval = time.Second
 
 // connect-go bidi streams are not safe for concurrent Send. The receive
@@ -228,7 +226,6 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	r.initControlConcurrency()
 	credentialCtx, endSession := r.beginControlSession(ctx, st)
 	defer endSession()
-	// The keepalive watchdog cancels streamCtx to retire a silent stream.
 	streamCtx, cancelStream := context.WithCancelCause(credentialCtx)
 	defer cancelStream(context.Canceled)
 	stream := client.ControlStream(streamCtx)

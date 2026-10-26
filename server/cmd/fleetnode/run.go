@@ -42,7 +42,7 @@ type RunCmd struct {
 	discoverer               discoverer                                                               `kong:"-"`
 	driverGetter             driverGetter                                                             `kong:"-"`
 	minerSecrets             secretProvider                                                           `kong:"-"`
-	credentials              *credentialCodec                                                         `kong:"-"` // the HA key transfer exports or replaces its key
+	credentials              *credentialCodec                                                         `kong:"-"`
 	statePath                string                                                                   `kong:"-"`
 	state                    *bootstrap.State                                                         `kong:"-"`
 	passwordUpdatePrivateKey []byte                                                                   `kong:"-"`
@@ -55,11 +55,9 @@ type RunCmd struct {
 	firmwareTempRoot         string                                                                   `kong:"-"`
 	notifyReady              func() error                                                             `kong:"-"`
 
-	stateMu sync.Mutex `kong:"-"` // guards session state, the credential key, and the active control-session cancel func.
-	// saveMu serializes each state snapshot with its write, so a session refresh
-	// cannot overwrite a credential key installed after it took its snapshot.
-	saveMu sync.Mutex `kong:"-"`
-	pairMu sync.Mutex `kong:"-"` // serializes pair commands; held until every pair worker exits (see handlePairCommand).
+	stateMu sync.Mutex `kong:"-"`
+	saveMu  sync.Mutex `kong:"-"`
+	pairMu  sync.Mutex `kong:"-"` // serializes pair commands; held until every pair worker exits (see handlePairCommand).
 
 	controlSessionCancel context.CancelCauseFunc `kong:"-"`
 

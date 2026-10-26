@@ -36,9 +36,7 @@ const (
 	// silent stream within 15s.
 	FailoverDelay = 30 * time.Second
 
-	tickInterval = 5 * time.Second
-	// startupGrace lets nodes reconnect after fleetd starts or becomes the
-	// active instance; the control registry starts empty.
+	tickInterval   = 5 * time.Second
 	startupGrace   = 90 * time.Second
 	provisionRetry = 30 * time.Second
 	commandTimeout = 15 * time.Second
@@ -166,7 +164,6 @@ func (s *Service) CreatePair(ctx context.Context, orgID, activeID, standbyID int
 func (s *Service) RequireNotStandby(ctx context.Context, orgID, nodeID int64) error {
 	standby, err := s.q(ctx).IsFleetNodeHAStandby(ctx, sqlc.IsFleetNodeHAStandbyParams{OrgID: orgID, StandbyNodeID: nodeID})
 	if err != nil {
-		// Handlers return this error as-is, so keep database text out of it.
 		return fleeterror.LogInternal("fleet node HA", "check standby", "failed to check fleet node HA role", err)
 	}
 	if standby {
@@ -196,8 +193,6 @@ func (s *Service) HandOff(ctx context.Context, orgID, nodeID int64) error {
 	return nil
 }
 
-// readyPairOf returns the pair nodeID is the active node of, with ok=false
-// unless that pair exists and its standby is ready.
 func (s *Service) readyPairOf(ctx context.Context, orgID, nodeID int64) (pair sqlc.FleetNodeHaPair, ok bool, err error) {
 	pair, err = s.q(ctx).GetFleetNodeHAPairForNode(ctx, sqlc.GetFleetNodeHAPairForNodeParams{OrgID: orgID, NodeID: nodeID})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -247,6 +242,14 @@ func (s *Service) Run(ctx context.Context) {
 }
 
 func (s *Service) tick(ctx context.Context, started time.Time, transfers *sync.WaitGroup) {
+	s.mu.Lock()
+	for pairID, failedAt := range s.failedAt {
+		if time.Since(failedAt) >= s.provisionRetry {
+			delete(s.failedAt, pairID)
+		}
+	}
+	s.mu.Unlock()
+
 	pairs, err := s.queries.ListFleetNodeHAPairs(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -280,10 +283,6 @@ func (s *Service) tick(ctx context.Context, started time.Time, transfers *sync.W
 	}
 }
 
-// failoverDue reports whether the active node has been disconnected, and the
-// standby connected, for failoverDelay. Counting from the later of the two
-// keeps a standby that recovers first from a shared outage from taking over
-// before the active node can reconnect.
 func (s *Service) failoverDue(activeID, standbyID int64) bool {
 	downSince, down := s.registry.DisconnectedSince(activeID)
 	if !down {
@@ -311,7 +310,6 @@ func (s *Service) notReadyReason(pair sqlc.ListFleetNodeHAPairsRow) string {
 	return ""
 }
 
-// startTransfer claims pairID unless a transfer is running or recently failed.
 func (s *Service) startTransfer(pairID int64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -338,9 +336,6 @@ func (s *Service) transfer(ctx context.Context, pair sqlc.ListFleetNodeHAPairsRo
 	}
 }
 
-// transferKey has the active node seal its credential key to the standby's
-// encryption key and the standby install it. fleetd relays the sealed key and
-// compares the fingerprints both nodes report.
 func (s *Service) transferKey(ctx context.Context, pair sqlc.ListFleetNodeHAPairsRow) error {
 	pending := pair.PendingCredentialKey
 	if len(pending) == 0 {
@@ -428,10 +423,6 @@ func (s *Service) setStatus(ctx context.Context, pair sqlc.ListFleetNodeHAPairsR
 	}
 }
 
-// failover moves the active node's devices and discovery attribution to the
-// standby and swaps the roles. Locks follow revocation's order: the active
-// node's devices, both fleet_node rows, then the pair. errPairChanged means
-// another failover or a revoke got there first.
 func (s *Service) failover(ctx context.Context, orgID, pairID, activeID, standbyID int64, why failoverReason) error {
 	var moved []int64
 	var activeName, standbyName string
@@ -491,7 +482,6 @@ func (s *Service) failover(ctx context.Context, orgID, pairID, activeID, standby
 	if err != nil {
 		return err
 	}
-	// Cached miners still route to the old node.
 	if s.invalidateMiner != nil {
 		for _, deviceID := range moved {
 			s.invalidateMiner(ctx, deviceID)

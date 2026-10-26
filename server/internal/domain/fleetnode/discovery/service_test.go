@@ -250,7 +250,6 @@ func TestEligibleNodeIDs_IntersectsStatusConnectionAndCompatibility(t *testing.T
 }
 
 func TestEligibleNodeIDs_ExcludesHAStandby(t *testing.T) {
-	// Arrange: 1 = active, 2 = its standby, 3 = standalone; all confirmed and connected.
 	reg := control.NewRegistry()
 	activeID, standbyID := int64(1), int64(2)
 	pair := func(n enrollment.FleetNode) enrollment.FleetNodeListing {
@@ -267,10 +266,8 @@ func TestEligibleNodeIDs_ExcludesHAStandby(t *testing.T) {
 		defer stream.Unregister()
 	}
 
-	// Act
 	got, err := svc.EligibleNodeIDs(context.Background(), 1)
 
-	// Assert: the standby is skipped; its active node and the standalone node remain.
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []int64{1, 3}, got)
 }

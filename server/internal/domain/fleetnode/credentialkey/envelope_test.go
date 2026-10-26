@@ -30,16 +30,13 @@ func newKey(t *testing.T) []byte {
 }
 
 func TestSealOpenRoundTrip(t *testing.T) {
-	// Arrange
 	publicKey, privateKey := newKeypair(t)
 	key := newKey(t)
 
-	// Act
 	payload, err := Seal(publicKey, key)
 	require.NoError(t, err)
 	opened, err := Open(privateKey, payload)
 
-	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, key, opened)
 	assert.Equal(t, Algorithm, payload.GetAlgorithm())
@@ -47,46 +44,37 @@ func TestSealOpenRoundTrip(t *testing.T) {
 }
 
 func TestSealProducesPayloadThatPassesProtovalidate(t *testing.T) {
-	// Arrange
 	publicKey, _ := newKeypair(t)
 	payload, err := Seal(publicKey, newKey(t))
 	require.NoError(t, err)
 
-	// Act
 	err = protovalidate.Validate(payload)
 
-	// Assert
 	assert.NoError(t, err)
 }
 
 func TestSealIsRandomized(t *testing.T) {
-	// Arrange
 	publicKey, _ := newKeypair(t)
 	key := newKey(t)
 
-	// Act
 	first, err := Seal(publicKey, key)
 	require.NoError(t, err)
 	second, err := Seal(publicKey, key)
 	require.NoError(t, err)
 
-	// Assert
 	assert.NotEqual(t, first.GetEphemeralPubkey(), second.GetEphemeralPubkey())
 	assert.NotEqual(t, first.GetNonce(), second.GetNonce())
 	assert.NotEqual(t, first.GetCiphertext(), second.GetCiphertext())
 }
 
 func TestOpenRejectsDifferentRecipient(t *testing.T) {
-	// Arrange
 	publicKey, _ := newKeypair(t)
 	_, otherPrivateKey := newKeypair(t)
 	payload, err := Seal(publicKey, newKey(t))
 	require.NoError(t, err)
 
-	// Act
 	opened, err := Open(otherPrivateKey, payload)
 
-	// Assert
 	require.Error(t, err)
 	assert.Nil(t, opened)
 }
@@ -106,16 +94,13 @@ func TestOpenRejectsTamperedPayload(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
 			publicKey, privateKey := newKeypair(t)
 			payload, err := Seal(publicKey, newKey(t))
 			require.NoError(t, err)
 			tc.tamper(payload)
 
-			// Act
 			opened, err := Open(privateKey, payload)
 
-			// Assert
 			require.Error(t, err)
 			assert.Nil(t, opened)
 		})
@@ -123,41 +108,32 @@ func TestOpenRejectsTamperedPayload(t *testing.T) {
 }
 
 func TestOpenRejectsWrongAlgorithm(t *testing.T) {
-	// Arrange
 	publicKey, privateKey := newKeypair(t)
 	payload, err := Seal(publicKey, newKey(t))
 	require.NoError(t, err)
 	payload.Algorithm = "aes-128-cbc"
 
-	// Act
 	_, err = Open(privateKey, payload)
 
-	// Assert
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported encrypted payload algorithm")
 }
 
 func TestOpenRejectsNilPayload(t *testing.T) {
-	// Arrange
 	_, privateKey := newKeypair(t)
 
-	// Act
 	_, err := Open(privateKey, nil)
 
-	// Assert
 	require.Error(t, err)
 }
 
 func TestOpenRejectsInvalidPrivateKey(t *testing.T) {
-	// Arrange
 	publicKey, _ := newKeypair(t)
 	payload, err := Seal(publicKey, newKey(t))
 	require.NoError(t, err)
 
-	// Act
 	_, err = Open([]byte("short"), payload)
 
-	// Assert
 	require.Error(t, err)
 }
 
@@ -172,13 +148,10 @@ func TestSealRejectsWrongKeyLength(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
 			publicKey, _ := newKeypair(t)
 
-			// Act
 			payload, err := Seal(publicKey, tc.key)
 
-			// Assert
 			require.Error(t, err)
 			assert.Nil(t, payload)
 		})
@@ -197,13 +170,10 @@ func TestSealRejectsBadRecipientPublicKey(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
 			key := newKey(t)
 
-			// Act
 			payload, err := Seal(tc.key, key)
 
-			// Assert
 			require.Error(t, err)
 			assert.Nil(t, payload)
 		})
@@ -211,16 +181,13 @@ func TestSealRejectsBadRecipientPublicKey(t *testing.T) {
 }
 
 func TestFingerprint(t *testing.T) {
-	// Arrange
 	key := newKey(t)
 	otherKey := newKey(t)
 
-	// Act
 	first := Fingerprint(key)
 	second := Fingerprint(key)
 	other := Fingerprint(otherKey)
 
-	// Assert
 	assert.Len(t, first, 32)
 	assert.Equal(t, first, second)
 	assert.NotEqual(t, first, other)
@@ -228,15 +195,12 @@ func TestFingerprint(t *testing.T) {
 }
 
 func TestFingerprintIsNotPlainSHA256AndDoesNotMutateKey(t *testing.T) {
-	// Arrange
 	key := newKey(t)
 	original := append([]byte(nil), key...)
 	plain := sha256.Sum256(key)
 
-	// Act
 	fingerprint := Fingerprint(key)
 
-	// Assert
 	assert.Equal(t, original, key)
 	assert.NotEqual(t, plain[:], fingerprint)
 }

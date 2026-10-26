@@ -207,7 +207,6 @@ describe("NodesPage", () => {
   });
 
   it("shows each HA member's role and peer, with an unready standby marked as preparing", async () => {
-    // Arrange
     listFleetNodesMock.mockResolvedValue([
       {
         ...confirmedNode,
@@ -226,10 +225,8 @@ describe("NodesPage", () => {
       },
     ]);
 
-    // Act
     renderNodesPage();
 
-    // Assert
     expect(await screen.findByText("standby-node")).toBeInTheDocument();
     expect(screen.getByText("Standby: standby-node")).toBeInTheDocument();
     expect(screen.getByText("Standby for node-01")).toBeInTheDocument();
@@ -440,15 +437,12 @@ describe("NodesPage", () => {
   };
 
   it("explains authentication denial before handoff when revoking an active node with a ready standby", async () => {
-    // Arrange
     listFleetNodesMock.mockResolvedValue([activeNode, standbyNode]);
     renderNodesPage();
     await screen.findByText("standby-node");
 
-    // Act
     fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
 
-    // Assert
     expect(
       await screen.findByText(/immediately loses access to Fleet.*Fleet then moves its devices to standby-node/),
     ).toBeInTheDocument();
@@ -615,15 +609,12 @@ describe("NodesPage", () => {
   });
 
   it("warns that the standby cannot take over when its control stream is down", async () => {
-    // Arrange
     listFleetNodesMock.mockResolvedValue([activeNode, { ...standbyNode, controlStreamConnected: false }]);
     renderNodesPage();
     await screen.findByText("standby-node");
 
-    // Act
     fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
 
-    // Assert
     expect(await screen.findByText(/since standby-node isn't connected to take over/)).toBeInTheDocument();
   });
 });

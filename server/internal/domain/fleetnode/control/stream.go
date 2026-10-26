@@ -111,9 +111,7 @@ func (s *Stream) Unregister() {
 	if !ok || conn != s.conn {
 		return
 	}
-	teardown(conn)
-	delete(s.r.conns, s.fleetNodeID)
-	s.r.disconnectedAt[s.fleetNodeID] = time.Now()
+	s.r.disconnectLocked(s.fleetNodeID)
 }
 
 // PublishAck routes an agent ack to its in-flight command: a report-bearing command

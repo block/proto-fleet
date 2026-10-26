@@ -42,10 +42,8 @@ describe("RevokeNodeDialog", () => {
   };
 
   it("hands devices to a ready, connected standby when revoking the active node", () => {
-    // Arrange
     const peerNode = { name: "node-02", controlStreamConnected: true };
 
-    // Act
     render(
       <RevokeNodeDialog
         {...haProps}
@@ -55,7 +53,6 @@ describe("RevokeNodeDialog", () => {
       />,
     );
 
-    // Assert
     expect(
       screen.getByText(/immediately loses access to Fleet.*Fleet then moves its devices to node-02/),
     ).toBeInTheDocument();
@@ -70,10 +67,8 @@ describe("RevokeNodeDialog", () => {
   ])(
     "warns that devices are unpaired when the standby is %s",
     (_label, haStandbyReady, controlStreamConnected, reason) => {
-      // Arrange
       const peerNode = { name: "node-02", controlStreamConnected };
 
-      // Act
       render(
         <RevokeNodeDialog
           {...haProps}
@@ -83,7 +78,6 @@ describe("RevokeNodeDialog", () => {
         />,
       );
 
-      // Assert
       expect(screen.getByText(/miner pairings and stored miner credentials are removed/)).toBeInTheDocument();
       expect(screen.getByText(new RegExp(`since node-02 ${reason} to take over`))).toBeInTheDocument();
       expect(screen.getByText("1 paired Proto Rig miner will lose connection.")).toBeInTheDocument();
@@ -91,21 +85,16 @@ describe("RevokeNodeDialog", () => {
   );
 
   it("warns that devices are unpaired when the standby is missing from the node list", () => {
-    // Act
     render(<RevokeNodeDialog {...haProps} haRole={FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE} haStandbyReady />);
 
-    // Assert
     expect(screen.getByText(/since node-02 isn't connected to take over/)).toBeInTheDocument();
   });
 
   it("explains that the peer keeps its devices when revoking a standby", () => {
-    // Arrange
     const peerNode = { name: "node-02", controlStreamConnected: true };
 
-    // Act
     render(<RevokeNodeDialog {...haProps} haRole={FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY} peerNode={peerNode} />);
 
-    // Assert
     expect(screen.getByText(/the HA pair is removed\. node-02 keeps its devices/)).toBeInTheDocument();
     expect(screen.queryByText(/will lose connection/)).not.toBeInTheDocument();
     expect(screen.queryByText(/No paired miners/)).not.toBeInTheDocument();

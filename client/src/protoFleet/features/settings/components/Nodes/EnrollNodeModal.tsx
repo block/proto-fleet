@@ -31,7 +31,6 @@ interface EnrollNodeModalProps {
 
 type Step = "options" | "code" | "confirm" | "apiKey";
 
-// A node can be in at most one HA pair, and the standby's target must be confirmed.
 const isStandbyTarget = (node: FleetNodeItem) =>
   node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED &&
   node.haRole === FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED;
@@ -235,7 +234,6 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
   const includesInsecureTransportFlag = shouldAppendInsecureTransportFlag(window.location);
 
   const noEligibleTargets = !targetsLoading && eligibleTargets.length === 0;
-  // Stay enabled while checked so the user can opt out after a failed attempt empties the target list.
   const standbyOptionDisabled = noEligibleTargets && !enrollAsStandby;
 
   if (step === "options") {

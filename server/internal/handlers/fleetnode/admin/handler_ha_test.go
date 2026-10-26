@@ -19,8 +19,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 )
 
-// withHA enables standby enrollment on the harness' enrollment service, which
-// the shared harness leaves unwired.
 func (h *pairingHarness) withHA() {
 	h.enrollment.WithHA(ha.NewService(h.db, sqlstores.NewSQLTransactor(h.db), h.registry, nil, nil))
 }
@@ -32,8 +30,6 @@ func (h *pairingHarness) insertHAPair(t *testing.T, activeID, standbyID int64, r
 	require.NoError(t, err)
 }
 
-// registerPendingStandby registers a node with a standby code for targetID and
-// leaves it awaiting confirmation.
 func (h *pairingHarness) registerPendingStandby(t *testing.T, name string, targetID int64) int64 {
 	t.Helper()
 	pubKey, _, err := ed25519.GenerateKey(rand.Reader)
@@ -46,15 +42,12 @@ func (h *pairingHarness) registerPendingStandby(t *testing.T, name string, targe
 }
 
 func TestCreateEnrollmentCode_StandbyRecordsTarget(t *testing.T) {
-	// Arrange
 	h := newPairingHarness(t)
 	h.withHA()
 	targetID := h.createFleetNode(t, "admin-standby-code-target")
 
-	// Act
 	resp, err := h.handler.CreateEnrollmentCode(h.adminCtx(), connect.NewRequest(&pb.CreateEnrollmentCodeRequest{StandbyForNodeId: &targetID}))
 
-	// Assert
 	require.NoError(t, err)
 	assert.NotEmpty(t, resp.Msg.GetCode())
 	var recorded sql.NullInt64
@@ -63,7 +56,6 @@ func TestCreateEnrollmentCode_StandbyRecordsTarget(t *testing.T) {
 }
 
 func TestCreateEnrollmentCode_StandbyRejectsTargetAlreadyInPair(t *testing.T) {
-	// Arrange
 	h := newPairingHarness(t)
 	h.withHA()
 	activeID := h.createFleetNode(t, "admin-standby-code-active")
@@ -72,10 +64,8 @@ func TestCreateEnrollmentCode_StandbyRejectsTargetAlreadyInPair(t *testing.T) {
 
 	for name, targetID := range map[string]int64{"active": activeID, "standby": standbyID} {
 		t.Run(name, func(t *testing.T) {
-			// Act
 			_, err := h.handler.CreateEnrollmentCode(h.adminCtx(), connect.NewRequest(&pb.CreateEnrollmentCodeRequest{StandbyForNodeId: &targetID}))
 
-			// Assert
 			require.Error(t, err)
 			var fleetErr fleeterror.FleetError
 			require.ErrorAs(t, err, &fleetErr)
@@ -85,7 +75,6 @@ func TestCreateEnrollmentCode_StandbyRejectsTargetAlreadyInPair(t *testing.T) {
 }
 
 func TestListFleetNodes_ReportsHARoleAndPeer(t *testing.T) {
-	// Arrange
 	h := newPairingHarness(t)
 	h.withHA()
 	activeID := h.createFleetNode(t, "admin-ha-active")
@@ -94,10 +83,8 @@ func TestListFleetNodes_ReportsHARoleAndPeer(t *testing.T) {
 	standaloneID := h.createFleetNode(t, "admin-ha-standalone")
 	pendingStandbyID := h.registerPendingStandby(t, "admin-ha-pending-standby", standaloneID)
 
-	// Act
 	resp, err := h.handler.ListFleetNodes(h.adminCtx(), connect.NewRequest(&pb.ListFleetNodesRequest{}))
 
-	// Assert
 	require.NoError(t, err)
 	type haView struct {
 		role     pb.FleetNodeHARole
@@ -125,7 +112,6 @@ func TestListFleetNodes_ReportsHARoleAndPeer(t *testing.T) {
 }
 
 func TestDiscoverOnFleetNode_StandbyReturnsFailedPrecondition(t *testing.T) {
-	// Arrange
 	h := newPairingHarness(t)
 	activeID := h.createFleetNode(t, "admin-discover-ha-active")
 	standbyID := h.createFleetNode(t, "admin-discover-ha-standby")
@@ -134,7 +120,6 @@ func TestDiscoverOnFleetNode_StandbyReturnsFailedPrecondition(t *testing.T) {
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 
-	// Act
 	resp, err := client.DiscoverOnFleetNode(context.Background(), connect.NewRequest(&pb.DiscoverOnFleetNodeRequest{
 		FleetNodeId: standbyID,
 		Request:     ipListDiscoverRequest("10.0.0.5"),
@@ -143,7 +128,6 @@ func TestDiscoverOnFleetNode_StandbyReturnsFailedPrecondition(t *testing.T) {
 	for resp.Receive() {
 	}
 
-	// Assert
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(resp.Err()))
 	select {
 	case <-stream.Outgoing:
@@ -153,15 +137,12 @@ func TestDiscoverOnFleetNode_StandbyReturnsFailedPrecondition(t *testing.T) {
 }
 
 func TestDiscoverOnFleetNode_ActiveNodeOfPairIsNotBlocked(t *testing.T) {
-	// Arrange: no control stream, so a request that clears the standby guard
-	// surfaces the no-stream warning rather than an error.
 	h := newPairingHarness(t)
 	activeID := h.createFleetNode(t, "admin-discover-ha-active-ok")
 	standbyID := h.createFleetNode(t, "admin-discover-ha-standby-ok")
 	h.insertHAPair(t, activeID, standbyID, true, "")
 	client := startAdminServer(t, h)
 
-	// Act
 	resp, err := client.DiscoverOnFleetNode(context.Background(), connect.NewRequest(&pb.DiscoverOnFleetNodeRequest{
 		FleetNodeId: activeID,
 		Request:     ipListDiscoverRequest("10.0.0.5"),
@@ -172,14 +153,12 @@ func TestDiscoverOnFleetNode_ActiveNodeOfPairIsNotBlocked(t *testing.T) {
 		warnings = append(warnings, resp.Msg().GetResponse().GetWarning())
 	}
 
-	// Assert
 	require.NoError(t, resp.Err())
 	require.Len(t, warnings, 1)
 	assert.Contains(t, warnings[0], "has no active control stream")
 }
 
 func TestPairDiscoveredDevicesOnFleetNode_StandbyReturnsFailedPrecondition(t *testing.T) {
-	// Arrange
 	h := newPairingHarness(t)
 	activeID := h.createFleetNode(t, "admin-pairdisc-ha-active")
 	standbyID := h.createFleetNode(t, "admin-pairdisc-ha-standby")
@@ -189,7 +168,6 @@ func TestPairDiscoveredDevicesOnFleetNode_StandbyReturnsFailedPrecondition(t *te
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 
-	// Act
 	resp, err := client.PairDiscoveredDevicesOnFleetNode(context.Background(), connect.NewRequest(&pb.PairDiscoveredDevicesOnFleetNodeRequest{
 		FleetNodeId:       standbyID,
 		DeviceIdentifiers: []string{"mac:ha-standby-1"},
@@ -198,7 +176,6 @@ func TestPairDiscoveredDevicesOnFleetNode_StandbyReturnsFailedPrecondition(t *te
 	for resp.Receive() {
 	}
 
-	// Assert
 	assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(resp.Err()))
 	select {
 	case <-stream.Outgoing:
@@ -208,8 +185,6 @@ func TestPairDiscoveredDevicesOnFleetNode_StandbyReturnsFailedPrecondition(t *te
 }
 
 func TestPairDiscoveredDevicesOnFleetNode_ActiveNodeOfPairIsNotBlocked(t *testing.T) {
-	// Arrange: an unknown identifier clears the standby guard and is then
-	// rejected as unpairable, which is a different code than the guard's.
 	h := newPairingHarness(t)
 	activeID := h.createFleetNode(t, "admin-pairdisc-ha-active-ok")
 	standbyID := h.createFleetNode(t, "admin-pairdisc-ha-standby-ok")
@@ -218,7 +193,6 @@ func TestPairDiscoveredDevicesOnFleetNode_ActiveNodeOfPairIsNotBlocked(t *testin
 	defer stream.Unregister()
 	client := startAdminServer(t, h)
 
-	// Act
 	resp, err := client.PairDiscoveredDevicesOnFleetNode(context.Background(), connect.NewRequest(&pb.PairDiscoveredDevicesOnFleetNodeRequest{
 		FleetNodeId:       activeID,
 		DeviceIdentifiers: []string{"mac:does-not-exist"},
@@ -227,7 +201,6 @@ func TestPairDiscoveredDevicesOnFleetNode_ActiveNodeOfPairIsNotBlocked(t *testin
 	for resp.Receive() {
 	}
 
-	// Assert
 	assert.Equal(t, connect.CodeInvalidArgument, connect.CodeOf(resp.Err()))
 }
 

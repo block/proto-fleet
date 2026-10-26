@@ -145,7 +145,6 @@ type ListFleetNodeHAPairsRow struct {
 	StandbyEncryptionPubkey []byte
 }
 
-// Spans organizations: the failover loop watches every pair.
 func (q *Queries) ListFleetNodeHAPairs(ctx context.Context) ([]ListFleetNodeHAPairsRow, error) {
 	rows, err := q.query(ctx, q.listFleetNodeHAPairsStmt, listFleetNodeHAPairs)
 	if err != nil {
@@ -190,7 +189,6 @@ type LockFleetNodeHAPairParams struct {
 	ActiveNodeID int64
 }
 
-// Failover takes this after the active node's device and fleet_node locks.
 func (q *Queries) LockFleetNodeHAPair(ctx context.Context, arg LockFleetNodeHAPairParams) (FleetNodeHaPair, error) {
 	row := q.queryRow(ctx, q.lockFleetNodeHAPairStmt, lockFleetNodeHAPair, arg.ID, arg.ActiveNodeID)
 	var i FleetNodeHaPair

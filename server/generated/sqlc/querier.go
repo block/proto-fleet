@@ -1486,7 +1486,7 @@ type Querier interface {
 	// (the latest live device's pairing_status). Paginates by ascending id; a NULL
 	// limit returns all rows (the pairing batch path needs every candidate).
 	ListFleetNodeDiscoveredDevices(ctx context.Context, arg ListFleetNodeDiscoveredDevicesParams) ([]ListFleetNodeDiscoveredDevicesRow, error)
-	ListFleetNodeHAMembers(ctx context.Context, arg ListFleetNodeHAMembersParams) ([]ListFleetNodeHAMembersRow, error)
+	ListFleetNodeHAPairs(ctx context.Context) ([]ListFleetNodeHAPairsRow, error)
 	// A fleet node can have multiple pending_enrollment rows over its lifetime
 	// (terminal CONFIRMED/EXPIRED/CANCELLED + a new AWAITING_CONFIRMATION on
 	// re-enrollment), so the join is filtered to the one status the listing
@@ -1834,7 +1834,7 @@ type Querier interface {
 	// Teardown follows dispatch's device-before-child order and retains routing
 	// children until any admitted physical call has actually returned.
 	LockFleetNodeDevicesForRevocation(ctx context.Context, arg LockFleetNodeDevicesForRevocationParams) ([]int64, error)
-	LockFleetNodeHAGroup(ctx context.Context, arg LockFleetNodeHAGroupParams) (FleetNodeHaGroup, error)
+	LockFleetNodeHAPair(ctx context.Context, arg LockFleetNodeHAPairParams) (FleetNodeHaPair, error)
 	// Keep the routing identity alive during a device wait without blocking
 	// authentication revocation. Writers revalidate with LockFleetNodeByID after
 	// acquiring the device lock before they mutate any binding children.

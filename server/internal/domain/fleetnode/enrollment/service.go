@@ -397,8 +397,6 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 			return err
 		}
 		if s.ha != nil {
-			// A ready standby takes the devices after this commits, so the pair
-			// stays until then.
 			if handOff, err = s.ha.ShouldHandOff(ctx, orgID, agentID); err != nil {
 				return logInternal("check HA hand-off", clientErrRevokeFleetNode, err)
 			}
@@ -411,8 +409,6 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 	if s.invalidateControlStream != nil {
 		s.invalidateControlStream(agentID)
 	}
-	// Record and publish the committed security decision even if hand-off or
-	// teardown is interrupted. The live REVOKED row lets operators retry.
 	s.logActivity(ctx, "revoke_fleet_node", fmt.Sprintf("Revoked fleet node '%s' (id=%d)", agentName, agentID))
 	var err error
 	if handOff {
@@ -470,10 +466,6 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 	return nil
 }
 
-// handOffRevokedDevices moves a revoked active node's devices to its ready
-// standby, dissolves the pair, and returns any devices left to tear down. On
-// failure the pair stays, so a retry, or failover once the revoked node has
-// been disconnected long enough, still moves the devices.
 func (s *Service) handOffRevokedDevices(ctx context.Context, agentID, orgID int64) ([]RevokedDevice, error) {
 	if err := s.ha.HandOff(ctx, orgID, agentID); err != nil {
 		slog.Warn("revoked fleet node device hand-off did not finish", "fleet_node_id", agentID, "org_id", orgID, "err", err)
@@ -482,8 +474,6 @@ func (s *Service) handOffRevokedDevices(ctx context.Context, agentID, orgID int6
 	return s.dissolvePairAndListDevices(ctx, agentID, orgID)
 }
 
-// dissolvePairAndListDevices removes a revoked node's HA pair, if any, and
-// returns the devices still assigned to it.
 func (s *Service) dissolvePairAndListDevices(ctx context.Context, agentID, orgID int64) ([]RevokedDevice, error) {
 	if s.ha != nil {
 		if err := s.ha.DeletePair(ctx, orgID, agentID); err != nil {
@@ -582,8 +572,6 @@ func logInternal(op, clientMsg string, err error) error {
 	return fleeterror.LogInternal(component, op, clientMsg, err)
 }
 
-// sanitizeDomainError keeps fleeterror results from a collaborator and
-// sanitizes everything else like logInternal.
 func sanitizeDomainError(op, clientMsg string, err error) error {
 	var fleetErr fleeterror.FleetError
 	if errors.As(err, &fleetErr) {

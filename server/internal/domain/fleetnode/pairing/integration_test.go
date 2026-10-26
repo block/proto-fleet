@@ -359,8 +359,6 @@ func TestUpsertDiscoveredDevices_RescanReusesRowForStableIdentifier(t *testing.T
 	assert.Equal(t, "x9000", model.String, "rescan refreshes the row's metadata")
 }
 
-// Use the same ownership/attribution moves as HA failover, then report the
-// identifier the promoted physical node synthesizes for the inherited device.
 func TestUpsertDiscoveredDevices_PromotedNodeReusesSyntheticIdentity(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -391,7 +389,6 @@ func TestUpsertDiscoveredDevices_PromotedNodeReusesSyntheticIdentity(t *testing.
 			require.NoError(t, pairing.PairDevice(ctx, active, deviceID, orgID, nil))
 			setPairingStatus(t, db, deviceID, "PAIRED")
 
-			// Overlapping private networks on unrelated nodes remain distinct.
 			other := report
 			other.DeviceIdentifier = tc.prefix + "unrelated-hash"
 			accepted, rejected, err = pairing.UpsertDiscoveredDevices(ctx, unrelated, orgID, []fleetnodepairing.DiscoveredDeviceReport{other})
@@ -412,9 +409,8 @@ func TestUpsertDiscoveredDevices_PromotedNodeReusesSyntheticIdentity(t *testing.
 			rescan := report
 			rescan.DeviceIdentifier = tc.prefix + "promoted-hash"
 			rescan.FirmwareVersion = "updated"
-			rescan.URLScheme = "http" // Transport is not part of the node-generated identity.
+			rescan.URLScheme = "http"
 			if tc.rpcPort != 0 {
-				// Container identity survives switching from browser to native RPC.
 				rescan.Port, rescan.URLScheme = "50051", "http"
 				rescan.RPCPort = tc.rpcPort
 			}
@@ -441,7 +437,6 @@ func TestUpsertDiscoveredDevices_PromotedNodeReusesSyntheticIdentity(t *testing.
 			require.NoError(t, err)
 			assert.Empty(t, unpaired, "a promoted paired device must not appear available for pairing")
 
-			// Stable driver-supplied identifiers must never be merged by endpoint.
 			stable := rescan
 			stable.DeviceIdentifier = "serial:distinct-device"
 			accepted, rejected, err = pairing.UpsertDiscoveredDevices(ctx, promoted, orgID, []fleetnodepairing.DiscoveredDeviceReport{stable})
@@ -450,8 +445,6 @@ func TestUpsertDiscoveredDevices_PromotedNodeReusesSyntheticIdentity(t *testing.
 			require.Len(t, accepted, 1)
 			assert.Equal(t, stable.DeviceIdentifier, accepted[0].DeviceIdentifier)
 
-			// An exact foreign identity must hit the ownership rejection even when
-			// an owned synthetic endpoint could otherwise match this report.
 			foreign := rescan
 			foreign.DeviceIdentifier = other.DeviceIdentifier
 			accepted, rejected, err = pairing.UpsertDiscoveredDevices(ctx, promoted, orgID, []fleetnodepairing.DiscoveredDeviceReport{foreign})

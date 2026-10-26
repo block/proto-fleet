@@ -113,33 +113,26 @@ describe("NodeStatusBadge", () => {
     ["Standby", FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY, true],
     ["Standby · preparing", FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY, false],
   ])("shows %s for a confirmed HA node (standby ready=%s)", (label, haRole, haStandbyReady) => {
-    // Act
     const { getByText } = render(<NodeStatusBadge node={{ ...baseNode, haRole, haStandbyReady }} />);
 
-    // Assert
     expect(getByText(label)).toBeInTheDocument();
   });
 
   it("does not show an HA role for a standalone node", () => {
-    // Act
     const { queryByText } = render(<NodeStatusBadge node={baseNode} />);
 
-    // Assert
     expect(queryByText(/Active|Standby/)).not.toBeInTheDocument();
   });
 
   it("explains an unready standby with the server-provided reason", () => {
-    // Arrange
     const node = {
       ...baseNode,
       haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY,
       haStatusReason: "Waiting for both nodes to connect",
     };
 
-    // Act
     const { getByTitle } = render(<NodeStatusBadge node={node} />);
 
-    // Assert
     expect(getByTitle("Waiting for both nodes to connect")).toBeInTheDocument();
   });
 

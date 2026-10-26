@@ -36,8 +36,6 @@ func setupHAEnrollmentTest(t *testing.T) *haEnrollment {
 	return &haEnrollment{db: db, orgID: orgID, enrollment: enrollment, registry: registry}
 }
 
-// register mints a code (a standby code when standbyFor is non-zero) and
-// registers a new node with it, leaving the node awaiting confirmation.
 func (h *haEnrollment) register(t *testing.T, name string, standbyFor int64) (nodeID, pendingEnrollmentID int64) {
 	t.Helper()
 	ctx := t.Context()
@@ -64,7 +62,6 @@ func (h *haEnrollment) enroll(t *testing.T, name string, standbyFor int64) int64
 	return nodeID
 }
 
-// pairOf returns the pair's active and standby node IDs, or ok=false.
 func (h *haEnrollment) pairOf(t *testing.T, nodeID int64) (active, standby int64, ok bool) {
 	t.Helper()
 	err := h.db.QueryRowContext(t.Context(),
@@ -76,8 +73,6 @@ func (h *haEnrollment) pairOf(t *testing.T, nodeID int64) (active, standby int64
 	return active, standby, true
 }
 
-// readyPairWithDevice enrolls an active node with one device and a ready,
-// connected standby.
 func (h *haEnrollment) readyPairWithDevice(t *testing.T) (active, standby, deviceID int64) {
 	t.Helper()
 	active = h.enroll(t, "active", 0)
@@ -114,14 +109,11 @@ func requireFleetErrorCode(t *testing.T, err error, code connect.Code) {
 }
 
 func TestConfirmStandbyEnrollmentCreatesPair(t *testing.T) {
-	// Arrange
 	h := setupHAEnrollmentTest(t)
 	active := h.enroll(t, "active", 0)
 
-	// Act
 	standby := h.enroll(t, "standby", active)
 
-	// Assert
 	pairActive, pairStandby, ok := h.pairOf(t, active)
 	require.True(t, ok)
 	assert.Equal(t, active, pairActive)
@@ -129,24 +121,20 @@ func TestConfirmStandbyEnrollmentCreatesPair(t *testing.T) {
 }
 
 func TestCreateStandbyCodeRejectsNodeAlreadyInPair(t *testing.T) {
-	// Arrange
 	h := setupHAEnrollmentTest(t)
 	active := h.enroll(t, "active", 0)
 	standby := h.enroll(t, "standby", active)
 
 	for name, target := range map[string]int64{"active": active, "standby": standby} {
 		t.Run(name, func(t *testing.T) {
-			// Act
 			_, _, _, err := h.enrollment.CreateStandbyCode(t.Context(), 1, h.orgID, time.Hour, target)
 
-			// Assert
 			requireFleetErrorCode(t, err, connect.CodeFailedPrecondition)
 		})
 	}
 }
 
 func TestConfirmSecondStandbyForSameNodeFails(t *testing.T) {
-	// Arrange
 	h := setupHAEnrollmentTest(t)
 	active := h.enroll(t, "active", 0)
 	first, firstPending := h.register(t, "standby-1", active)
@@ -154,10 +142,8 @@ func TestConfirmSecondStandbyForSameNodeFails(t *testing.T) {
 	_, _, err := h.enrollment.ConfirmExpected(t.Context(), first, h.orgID, firstPending, 1)
 	require.NoError(t, err)
 
-	// Act
 	_, _, err = h.enrollment.ConfirmExpected(t.Context(), second, h.orgID, secondPending, 1)
 
-	// Assert
 	requireFleetErrorCode(t, err, connect.CodeFailedPrecondition)
 	node, err := h.enrollment.GetFleetNodeByID(t.Context(), second, h.orgID)
 	require.NoError(t, err)
@@ -168,7 +154,6 @@ func TestConfirmSecondStandbyForSameNodeFails(t *testing.T) {
 }
 
 func TestRevokeActiveNodeHandsDevicesToReadyStandby(t *testing.T) {
-	// Arrange
 	h := setupHAEnrollmentTest(t)
 	active, standby, deviceID := h.readyPairWithDevice(t)
 	var invalidated []int64
@@ -176,10 +161,8 @@ func TestRevokeActiveNodeHandsDevicesToReadyStandby(t *testing.T) {
 		invalidated = append(invalidated, deviceID)
 	})
 
-	// Act
 	err := h.enrollment.RevokeFleetNode(t.Context(), active, h.orgID)
 
-	// Assert
 	require.NoError(t, err)
 	assert.Equal(t, []int64{standby}, h.deviceNodes(t, deviceID))
 	assert.Empty(t, invalidated, "the revoked node had no devices left to tear down")
@@ -188,10 +171,8 @@ func TestRevokeActiveNodeHandsDevicesToReadyStandby(t *testing.T) {
 }
 
 func TestRevokeActiveNodeDeniesAuthBeforeWaitingForInFlightCalls(t *testing.T) {
-	// Arrange
 	h := setupHAEnrollmentTest(t)
 	active, standby, deviceID := h.readyPairWithDevice(t)
-	// An admitted miner call holds its device binding until the call returns.
 	call, err := h.db.BeginTx(t.Context(), nil)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = call.Rollback() })
@@ -204,7 +185,6 @@ func TestRevokeActiveNodeDeniesAuthBeforeWaitingForInFlightCalls(t *testing.T) {
 	}
 	revoked := make(chan error, 1)
 
-	// Act
 	go func() { revoked <- h.enrollment.RevokeFleetNode(t.Context(), active, h.orgID) }()
 	for deadline := time.Now().Add(5 * time.Second); status() != fleetnodeenrollment.FleetNodeStatusRevoked && time.Now().Before(deadline); {
 		time.Sleep(10 * time.Millisecond)
@@ -218,7 +198,6 @@ func TestRevokeActiveNodeDeniesAuthBeforeWaitingForInFlightCalls(t *testing.T) {
 		t.Fatal("revoke did not finish after the in-flight call returned")
 	}
 
-	// Assert
 	assert.Equal(t, fleetnodeenrollment.FleetNodeStatusRevoked, statusWhileCallHeld, "authentication is denied before the hand-off waits")
 	require.NoError(t, revokeErr)
 	assert.Equal(t, []int64{standby}, h.deviceNodes(t, deviceID))
@@ -237,7 +216,6 @@ func TestRevokeDissolvesPairWithoutHandOff(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
 			h := setupHAEnrollmentTest(t)
 			active := h.enroll(t, "active", 0)
 			standby := h.enroll(t, "standby", active)
@@ -247,10 +225,8 @@ func TestRevokeDissolvesPairWithoutHandOff(t *testing.T) {
 				revoked, kept = standby, active
 			}
 
-			// Act
 			err := h.enrollment.RevokeFleetNode(t.Context(), revoked, h.orgID)
 
-			// Assert
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNodes(active, standby), h.deviceNodes(t, deviceID))
 			_, _, ok := h.pairOf(t, kept)
@@ -290,7 +266,6 @@ func TestRevokeWithPendingCredentialInstallation(t *testing.T) {
 			assert.Equal(t, []int64{active}, h.deviceNodes(t, deviceID), "retryable revoke preserves credentials and pairings")
 			_, _, _, err = h.enrollment.CreateStandbyCode(t.Context(), 1, h.orgID, time.Hour, standby)
 			requireFleetErrorCode(t, err, connect.CodeFailedPrecondition)
-			// The HA loop's acknowledgement releases the durable reservation.
 			_, err = h.db.ExecContext(t.Context(), `UPDATE fleet_node_ha_pair SET standby_ready=true,pending_credential_key=NULL WHERE active_node_id=$1`, active)
 			require.NoError(t, err)
 			require.NoError(t, h.enrollment.RevokeFleetNode(t.Context(), active, h.orgID))

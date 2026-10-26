@@ -7,7 +7,6 @@ import {
   FleetNodeEnrollmentStatus,
   FleetNodeHARole,
   FleetNodeSummarySchema,
-  ListFleetNodesResponseSchema,
 } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 
 test.describe("Node enrollment intent", () => {
@@ -54,15 +53,7 @@ test.describe("Node enrollment intent", () => {
             haPeerNodeId: standby ? 7n : undefined,
             haPeerNodeName: standby ? "active-node" : "",
           });
-          await route.fulfill({
-            contentType: "application/json",
-            body: toJsonString(
-              ListFleetNodesResponseSchema,
-              create(ListFleetNodesResponseSchema, {
-                fleetNodes: [active, alreadyPaired, ...(registered ? [pending] : [])],
-              }),
-            ),
-          });
+          await fulfillFleetNodes(route, [active, alreadyPaired, ...(registered ? [pending] : [])]);
         } else if (method === "CreateEnrollmentCode") {
           codeRequests.push(route.request().postDataJSON());
           await route.fulfill({

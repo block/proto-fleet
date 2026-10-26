@@ -16,7 +16,6 @@ SELECT EXISTS (
 );
 
 -- name: ListFleetNodeHAPairs :many
--- Spans organizations: the failover loop watches every pair.
 SELECT p.id, p.org_id, p.active_node_id, p.standby_node_id, p.standby_ready, p.status_reason, p.pending_credential_key,
        s.encryption_pubkey AS standby_encryption_pubkey
 FROM fleet_node_ha_pair p
@@ -30,7 +29,6 @@ WHERE org_id = sqlc.arg('org_id')
   AND (active_node_id = sqlc.arg('node_id') OR standby_node_id = sqlc.arg('node_id'));
 
 -- name: LockFleetNodeHAPair :one
--- Failover takes this after the active node's device and fleet_node locks.
 SELECT id, org_id, active_node_id, standby_node_id, standby_ready, pending_credential_key, status_reason, created_at, failed_over_at
 FROM fleet_node_ha_pair
 WHERE id = $1 AND active_node_id = $2

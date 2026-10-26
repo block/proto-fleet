@@ -230,13 +230,10 @@ func TestPairingLockRejectsHAStandby(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
 			service := NewService(&pairServiceStore{haStandby: tc.haStandby}, pairServiceEnrollmentStore{}, passThroughTransactor{})
 
-			// Act
 			err := service.lockFleetNodeForPairing(t.Context(), 12, 34)
 
-			// Assert
 			if !tc.wantErr {
 				require.NoError(t, err)
 				return

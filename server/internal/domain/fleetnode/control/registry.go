@@ -222,9 +222,8 @@ type Registry struct {
 	sessionFences            map[int64]sessionFence
 	commandArtifactUploads   map[int64]int
 	commandArtifactDownloads map[int64]int
-	// started and disconnectedAt answer DisconnectedSince for HA failover.
-	started        time.Time
-	disconnectedAt map[int64]time.Time
+	started                  time.Time
+	disconnectedAt           map[int64]time.Time
 }
 
 type sessionFence struct {

@@ -12,9 +12,6 @@ import (
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
 )
 
-// handleExportCredentialKey seals this node's miner-credential key to its HA
-// standby, so the standby can open the credentials fleetd stores for these
-// miners after a failover.
 func (r *RunCmd) handleExportCredentialKey(stream acker, commandID string, req *pb.ExportCredentialKey, logger *slog.Logger) {
 	if r.credentials == nil {
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node has no credential key configured", logger)
@@ -29,8 +26,6 @@ func (r *RunCmd) handleExportCredentialKey(stream acker, commandID string, req *
 	r.sendCredentialKeyResult(stream, commandID, &pb.CredentialKeyResult{SealedKey: sealed, Fingerprint: credentialkey.Fingerprint(key)}, logger)
 }
 
-// handleInstallCredentialKey replaces this standby's credential key with its
-// active node's. Standbys own no miners, so nothing is sealed under the old key.
 func (r *RunCmd) handleInstallCredentialKey(stream acker, commandID string, req *pb.InstallCredentialKey, logger *slog.Logger) {
 	if r.credentials == nil || len(r.passwordUpdatePrivateKey) == 0 {
 		r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_AGENT_INCAPABLE, "fleet node has no credential key configured", logger)
@@ -49,8 +44,6 @@ func (r *RunCmd) handleInstallCredentialKey(stream acker, commandID string, req 
 	r.sendCredentialKeyResult(stream, commandID, &pb.CredentialKeyResult{Fingerprint: credentialkey.Fingerprint(key)}, logger)
 }
 
-// installCredentialKey persists the key before using it, so a restart cannot
-// fall back to a key fleetd believes was replaced.
 func (r *RunCmd) installCredentialKey(key []byte) error {
 	r.saveMu.Lock()
 	defer r.saveMu.Unlock()

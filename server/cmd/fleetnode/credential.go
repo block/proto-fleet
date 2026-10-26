@@ -157,7 +157,6 @@ func (c *credentialCodec) openValue(label string, blob []byte) (string, error) {
 	return string(plaintext), nil
 }
 
-// currentKey returns a copy of the key; the HA standby install can replace it.
 func (c *credentialCodec) currentKey() []byte {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

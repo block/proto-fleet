@@ -245,8 +245,6 @@ func (h *Handler) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[
 	})
 }
 
-// setHASummary reports pair membership. A node awaiting confirmation as a
-// standby reports its target as the peer before the pair exists.
 func setHASummary(summary *pb.FleetNodeSummary, n enrollment.FleetNodeListing, names map[int64]string) {
 	var peer *int64
 	switch {

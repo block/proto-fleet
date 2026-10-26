@@ -16,7 +16,6 @@ vi.mock("@/protoFleet/store", () => ({
 }));
 
 it("maps reported metadata and protobuf defaults into node items", async () => {
-  // Arrange
   const registered = new Date("2026-07-09T12:00:00Z");
   listFleetNodes.mockResolvedValue({
     fleetNodes: [
@@ -37,10 +36,8 @@ it("maps reported metadata and protobuf defaults into node items", async () => {
   });
   const { result } = renderHook(() => useFleetNodes());
 
-  // Act
   const nodes = await result.current.listFleetNodes();
 
-  // Assert
   expect(nodes).toMatchObject([
     {
       fleetNodeId: "7",
@@ -70,25 +67,19 @@ it("maps reported metadata and protobuf defaults into node items", async () => {
 });
 
 it("sends an empty standalone enrollment request", async () => {
-  // Arrange
   createEnrollmentCode.mockResolvedValue({ code: "code", pendingEnrollmentId: 11n });
   const { result } = renderHook(() => useFleetNodes());
 
-  // Act
   await result.current.createEnrollmentCode();
 
-  // Assert
   expect(createEnrollmentCode).toHaveBeenLastCalledWith({});
 });
 
 it("sends the exact standby intent", async () => {
-  // Arrange
   createEnrollmentCode.mockResolvedValue({ code: "code", pendingEnrollmentId: 11n });
   const { result } = renderHook(() => useFleetNodes());
 
-  // Act
   await result.current.createEnrollmentCode("7");
 
-  // Assert
   expect(createEnrollmentCode).toHaveBeenLastCalledWith({ standbyForNodeId: 7n });
 });

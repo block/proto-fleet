@@ -342,18 +342,15 @@ func TestControlStream_NegotiatesKeepalive(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Arrange
 			activeCtx, cancelActive := context.WithCancel(t.Context())
 			defer cancelActive()
 			client := startControlServerWithAdmission(t, controlledAdmissionGate{active: activeCtx})
 			stream := client.ControlStream(t.Context())
 			t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
 
-			// Act
 			require.NoError(t, stream.Send(controlHello(tc.version)))
 			first, err := stream.Receive()
 
-			// Assert
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantKeepalive, first.GetAccepted().GetKeepaliveInterval().AsDuration())
 		})
@@ -361,7 +358,6 @@ func TestControlStream_NegotiatesKeepalive(t *testing.T) {
 }
 
 func TestControlStream_ClosesSilentKeepaliveStream(t *testing.T) {
-	// Arrange
 	setKeepaliveInterval(t, 20*time.Millisecond)
 	activeCtx, cancelActive := context.WithCancel(t.Context())
 	defer cancelActive()
@@ -370,20 +366,17 @@ func TestControlStream_ClosesSilentKeepaliveStream(t *testing.T) {
 	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
 	require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)))
 
-	// Act
 	var err error
 	for err == nil {
 		_, err = stream.Receive()
 	}
 
-	// Assert
 	var connectErr *connect.Error
 	require.ErrorAs(t, err, &connectErr)
 	assert.Equal(t, connect.CodeUnavailable, connectErr.Code())
 }
 
 func TestControlStream_PingsKeepStreamOpen(t *testing.T) {
-	// Arrange
 	setKeepaliveInterval(t, 20*time.Millisecond)
 	activeCtx, cancelActive := context.WithCancel(t.Context())
 	defer cancelActive()
@@ -408,20 +401,17 @@ func TestControlStream_PingsKeepStreamOpen(t *testing.T) {
 		}
 	}()
 
-	// Act
 	var received int
 	var err error
 	for deadline := time.Now().Add(200 * time.Millisecond); time.Now().Before(deadline) && err == nil; received++ {
 		_, err = stream.Receive()
 	}
 
-	// Assert
 	require.NoError(t, err)
 	assert.Greater(t, received, 3)
 }
 
 func TestControlStream_DropsSilentStreamWhileCommandSendIsBlocked(t *testing.T) {
-	// Arrange
 	setKeepaliveInterval(t, 20*time.Millisecond)
 	h := newControlHarness(t)
 	// A half-open connection blocks the handler in Send until TCP gives up.
@@ -432,16 +422,13 @@ func TestControlStream_DropsSilentStreamWhileCommandSendIsBlocked(t *testing.T) 
 	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
 	require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)))
 
-	// Act
 	waitForSend(t, h.registry, h.fleetNodeID, "blocked", []byte("payload"))
 
-	// Assert
 	assert.Eventually(t, func() bool { return !h.registry.Connected(h.fleetNodeID) }, 5*time.Second, 10*time.Millisecond,
 		"a silent stream leaves the registry even while Send is blocked")
 }
 
 func TestControlStream_KeepsSilentLegacyStreamOpen(t *testing.T) {
-	// Arrange
 	const interval = 20 * time.Millisecond
 	setKeepaliveInterval(t, interval)
 	h := newControlHarness(t)
@@ -453,10 +440,8 @@ func TestControlStream_KeepsSilentLegacyStreamOpen(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, accepted.GetAccepted())
 
-	// Act
 	time.Sleep(4 * control.KeepaliveMisses * interval)
 
-	// Assert
 	assert.True(t, h.registry.Connected(h.fleetNodeID), "V5 nodes never ping, so silence must not close them")
 }
 
@@ -547,7 +532,6 @@ func startControlServer(t *testing.T, h *controlHarness, opts ...connect.Handler
 	return fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(httpClient, srv.URL, connect.WithGRPC())
 }
 
-// blockCommandSends holds every command the handler sends until release closes.
 type blockCommandSends struct {
 	release <-chan struct{}
 }
