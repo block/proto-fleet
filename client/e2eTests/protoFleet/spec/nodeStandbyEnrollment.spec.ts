@@ -189,10 +189,7 @@ test.describe("Node HA pair display", () => {
     await test.step("Warn that an unready standby cannot take over when revoking the active node", async () => {
       await settingsNodesPage.clickNodeActionsMenu("active-node");
       await settingsNodesPage.clickNodeAction("Revoke");
-      await settingsNodesPage.validateRevokeDialogText(
-        "active-node",
-        "standby-node can't take over because it isn't ready",
-      );
+      await settingsNodesPage.validateRevokeDialogText("active-node", "since standby-node isn't ready to take over");
       await page.keyboard.press("Escape");
     });
 

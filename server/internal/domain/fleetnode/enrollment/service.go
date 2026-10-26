@@ -345,15 +345,9 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 	if db.GetTxQueries(ctx) != nil {
 		return fleeterror.NewFailedPreconditionError("fleet node revocation requires its own transactions")
 	}
-	if s.ha != nil {
-		// Hand a ready standby the devices first, in its own transaction, so
-		// revoking the active node does not unpair them.
-		if err := s.ha.HandOffBeforeRevoke(ctx, orgID, agentID); err != nil {
-			return logInternal("hand off fleet node devices", clientErrRevokeFleetNode, err)
-		}
-	}
 	var agentName string
 	var devices []RevokedDevice
+	var handOff bool
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// This transaction only denies authentication; it never waits for a device
 		// binding held through physical dispatch. Enrollment locks match Confirm.
@@ -403,14 +397,17 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 			return err
 		}
 		if s.ha != nil {
-			if err := s.ha.DeletePair(ctx, orgID, agentID); err != nil {
-				return logInternal("delete HA pair", clientErrRevokeFleetNode, err)
+			// A ready standby takes the devices after this commits, so the pair
+			// stays until then.
+			if handOff, err = s.ha.ShouldHandOff(ctx, orgID, agentID); err != nil {
+				return logInternal("check HA hand-off", clientErrRevokeFleetNode, err)
 			}
 		}
-		var listErr error
-		devices, listErr = s.store.ListDevicesForFleetNodeRevocation(ctx, agentID, orgID)
-		if listErr != nil {
-			return logInternal("list fleet node devices", clientErrRevokeFleetNode, listErr)
+		if !handOff {
+			var listErr error
+			if devices, listErr = s.dissolvePairAndListDevices(ctx, agentID, orgID); listErr != nil {
+				return listErr
+			}
 		}
 
 		agentName = agent.Name
@@ -420,6 +417,15 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 	}
 	if s.invalidateControlStream != nil {
 		s.invalidateControlStream(agentID)
+	}
+	// Record and publish the committed security decision even if hand-off or
+	// teardown is interrupted. The live REVOKED row lets operators retry.
+	s.logActivity(ctx, "revoke_fleet_node", fmt.Sprintf("Revoked fleet node '%s' (id=%d)", agentName, agentID))
+	if handOff {
+		var err error
+		if devices, err = s.handOffRevokedDevices(ctx, agentID, orgID); err != nil {
+			return err
+		}
 	}
 	if s.removeTelemetry != nil {
 		// Revocation has committed, so a canceled request must not leave these
@@ -439,9 +445,6 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 			s.invalidateMiner(ctx, device.ID)
 		}
 	}
-	// Record and publish the committed security decision even if teardown is
-	// interrupted. The live REVOKED row lets operators retry incomplete cleanup.
-	s.logActivity(ctx, "revoke_fleet_node", fmt.Sprintf("Revoked fleet node '%s' (id=%d)", agentName, agentID))
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Device/route locks precede the final node update. No node row lock is
 		// held while waiting for an admitted, possibly context-ignoring call.
@@ -469,6 +472,33 @@ func (s *Service) revokeFleetNode(ctx context.Context, agentID, orgID, expectedP
 		return fleeterror.NewFailedPreconditionError("fleet node authentication is revoked; route cleanup did not finish; retry revocation")
 	}
 	return nil
+}
+
+// handOffRevokedDevices moves a revoked active node's devices to its ready
+// standby, dissolves the pair, and returns any devices left to tear down. On
+// failure the pair stays, so a retry, or failover once the revoked node has
+// been disconnected long enough, still moves the devices.
+func (s *Service) handOffRevokedDevices(ctx context.Context, agentID, orgID int64) ([]RevokedDevice, error) {
+	if err := s.ha.HandOff(ctx, orgID, agentID); err != nil {
+		slog.Warn("revoked fleet node device hand-off did not finish", "fleet_node_id", agentID, "org_id", orgID, "err", err)
+		return nil, fleeterror.NewFailedPreconditionError("fleet node authentication is revoked; device hand-off did not finish; retry revocation")
+	}
+	return s.dissolvePairAndListDevices(ctx, agentID, orgID)
+}
+
+// dissolvePairAndListDevices removes a revoked node's HA pair, if any, and
+// returns the devices still assigned to it.
+func (s *Service) dissolvePairAndListDevices(ctx context.Context, agentID, orgID int64) ([]RevokedDevice, error) {
+	if s.ha != nil {
+		if err := s.ha.DeletePair(ctx, orgID, agentID); err != nil {
+			return nil, logInternal("delete HA pair", clientErrRevokeFleetNode, err)
+		}
+	}
+	devices, err := s.store.ListDevicesForFleetNodeRevocation(ctx, agentID, orgID)
+	if err != nil {
+		return nil, logInternal("list fleet node devices", clientErrRevokeFleetNode, err)
+	}
+	return devices, nil
 }
 
 // UpdateLastSeen advances the Fleet Node heartbeat without locking its routing row. 0 rows

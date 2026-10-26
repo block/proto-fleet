@@ -31,8 +31,9 @@ import (
 )
 
 const (
-	// FailoverDelay is how long an active node must stay disconnected before
-	// its devices move. HA-capable nodes drop a silent stream within 15s.
+	// FailoverDelay is how long an active node must stay disconnected, with
+	// its standby connected, before its devices move. HA-capable nodes drop a
+	// silent stream within 15s.
 	FailoverDelay = 30 * time.Second
 
 	tickInterval = 5 * time.Second
@@ -155,7 +156,8 @@ func (s *Service) CreatePair(ctx context.Context, orgID, activeID, standbyID int
 func (s *Service) RequireNotStandby(ctx context.Context, orgID, nodeID int64) error {
 	standby, err := s.q(ctx).IsFleetNodeHAStandby(ctx, sqlc.IsFleetNodeHAStandbyParams{OrgID: orgID, StandbyNodeID: nodeID})
 	if err != nil {
-		return err
+		// Handlers return this error as-is, so keep database text out of it.
+		return fleeterror.LogInternal("fleet node HA", "check standby", "failed to check fleet node HA role", err)
 	}
 	if standby {
 		return fleeterror.NewFailedPreconditionError("fleet node is an HA standby; use its active node")
@@ -163,26 +165,41 @@ func (s *Service) RequireNotStandby(ctx context.Context, orgID, nodeID int64) er
 	return nil
 }
 
-// HandOffBeforeRevoke moves an active node's devices to its standby when the
-// standby is ready and connected, so they stay paired after the revoke.
-func (s *Service) HandOffBeforeRevoke(ctx context.Context, orgID, nodeID int64) error {
-	pair, err := s.q(ctx).GetFleetNodeHAPairForNode(ctx, sqlc.GetFleetNodeHAPairForNodeParams{OrgID: orgID, NodeID: nodeID})
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
+// ShouldHandOff reports whether revoking nodeID should move its devices to its
+// standby: nodeID is a pair's active node and the standby is ready and connected.
+func (s *Service) ShouldHandOff(ctx context.Context, orgID, nodeID int64) (bool, error) {
+	pair, ok, err := s.readyPairOf(ctx, orgID, nodeID)
+	return ok && s.registry.Connected(pair.StandbyNodeID), err
+}
+
+// HandOff moves a revoked active node's devices to its ready standby, so they
+// stay paired. Revocation calls it after denying the node authentication,
+// because failover waits for in-flight miner calls to release device locks.
+func (s *Service) HandOff(ctx context.Context, orgID, nodeID int64) error {
+	pair, ok, err := s.readyPairOf(ctx, orgID, nodeID)
+	if err != nil || !ok {
 		return err
 	}
-	if pair.ActiveNodeID != nodeID || !pair.StandbyReady || !s.registry.Connected(pair.StandbyNodeID) {
-		return nil
-	}
-	if err := s.failover(ctx, pair.OrgID, pair.ID, pair.ActiveNodeID, pair.StandbyNodeID, "before revoking the active node"); err != nil && !errors.Is(err, errPairChanged) {
+	if err := s.failover(ctx, pair.OrgID, pair.ID, pair.ActiveNodeID, pair.StandbyNodeID, "after revoking the active node"); err != nil && !errors.Is(err, errPairChanged) {
 		return err
 	}
 	return nil
 }
 
-// DeletePair removes nodeID's pair. Revocation calls it under the node lock.
+// readyPairOf returns the pair nodeID is the active node of, with ok=false
+// unless that pair exists and its standby is ready.
+func (s *Service) readyPairOf(ctx context.Context, orgID, nodeID int64) (pair sqlc.FleetNodeHaPair, ok bool, err error) {
+	pair, err = s.q(ctx).GetFleetNodeHAPairForNode(ctx, sqlc.GetFleetNodeHAPairForNodeParams{OrgID: orgID, NodeID: nodeID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return pair, false, nil
+	}
+	if err != nil {
+		return pair, false, err
+	}
+	return pair, pair.ActiveNodeID == nodeID && pair.StandbyReady, nil
+}
+
+// DeletePair removes nodeID's pair.
 func (s *Service) DeletePair(ctx context.Context, orgID, nodeID int64) error {
 	return s.q(ctx).DeleteFleetNodeHAPairForNode(ctx, sqlc.DeleteFleetNodeHAPairForNodeParams{OrgID: orgID, NodeID: nodeID})
 }
@@ -218,7 +235,7 @@ func (s *Service) tick(ctx context.Context, started time.Time, transfers *sync.W
 	pastGrace := time.Since(started) >= s.startupGrace
 	for _, pair := range pairs {
 		if pair.StandbyReady {
-			if pastGrace && s.activeDown(pair.ActiveNodeID) && s.registry.Connected(pair.StandbyNodeID) {
+			if pastGrace && s.failoverDue(pair.ActiveNodeID, pair.StandbyNodeID) {
 				err := s.failover(ctx, pair.OrgID, pair.ID, pair.ActiveNodeID, pair.StandbyNodeID, "after its control stream disconnected")
 				if err != nil && !errors.Is(err, errPairChanged) && ctx.Err() == nil {
 					slog.Error("fleet node HA failover failed", "pair_id", pair.ID, "active_node_id", pair.ActiveNodeID, "err", err)
@@ -241,9 +258,23 @@ func (s *Service) tick(ctx context.Context, started time.Time, transfers *sync.W
 	}
 }
 
-func (s *Service) activeDown(nodeID int64) bool {
-	since, disconnected := s.registry.DisconnectedSince(nodeID)
-	return disconnected && time.Since(since) >= s.failoverDelay
+// failoverDue reports whether the active node has been disconnected, and the
+// standby connected, for failoverDelay. Counting from the later of the two
+// keeps a standby that recovers first from a shared outage from taking over
+// before the active node can reconnect.
+func (s *Service) failoverDue(activeID, standbyID int64) bool {
+	downSince, down := s.registry.DisconnectedSince(activeID)
+	if !down {
+		return false
+	}
+	upSince, up := s.registry.ConnectedSince(standbyID)
+	if !up {
+		return false
+	}
+	if upSince.After(downSince) {
+		downSince = upSince
+	}
+	return time.Since(downSince) >= s.failoverDelay
 }
 
 func (s *Service) notReadyReason(pair sqlc.ListFleetNodeHAPairsRow) string {

@@ -189,6 +189,7 @@ func TestHandleExportCredentialKey_Rejections(t *testing.T) {
 }
 
 func TestHandleInstallCredentialKey_Rejections(t *testing.T) {
+	// Arrange
 	otherNode := newHANode(t)
 	sealedToOther, err := credentialkey.Seal(otherNode.publicKey, make([]byte, credentialKeySize))
 	require.NoError(t, err)
@@ -287,15 +288,23 @@ func TestCredentialCodec_CurrentKeyReturnsCopy(t *testing.T) {
 	original := codec.currentKey()
 
 	// Act
-	leaked := codec.currentKey()
-	leaked[0] ^= 0xff
+	codec.currentKey()[0] ^= 0xff
+
+	// Assert
+	assert.Equal(t, original, codec.currentKey())
+}
+
+func TestCredentialCodec_ReplaceKeyCopiesArgument(t *testing.T) {
+	// Arrange
+	codec := newHANode(t).cmd.credentials
 	replacement := make([]byte, credentialKeySize)
+
+	// Act
 	codec.replaceKey(replacement)
 	replacement[0] ^= 0xff
 
 	// Assert
 	assert.Equal(t, make([]byte, credentialKeySize), codec.currentKey())
-	assert.NotEqual(t, original, codec.currentKey())
 }
 
 func TestCredentialCodec_ConcurrentSealAndReplaceKey(t *testing.T) {
@@ -428,25 +437,24 @@ func TestRunControlKeepalive_ReceivedSignalsKeepStreamAlive(t *testing.T) {
 	defer stopFeed()
 	feedReceived(feedCtx, received, 10*time.Millisecond)
 
-	// Act
+	// Act: feed server traffic for ten intervals, then go quiet.
 	runControlKeepalive(streamCtx, sender, received, interval, cancelStream)
-
-	// Assert
 	select {
 	case <-streamCtx.Done():
-		t.Fatalf("stream canceled despite server traffic: %v", context.Cause(streamCtx))
 	case <-time.After(10 * interval):
 	}
-	assert.GreaterOrEqual(t, sender.pings(), 1)
-
-	// Once the server goes quiet the watchdog must fire.
+	causeWhileFed := context.Cause(streamCtx)
+	pingsWhileFed := sender.pings()
 	stopFeed()
 	select {
 	case <-streamCtx.Done():
 	case <-time.After(5 * time.Second):
-		t.Fatal("stream not canceled after traffic stopped")
 	}
-	assert.ErrorIs(t, context.Cause(streamCtx), errControlStreamSilent)
+
+	// Assert
+	assert.NoError(t, causeWhileFed, "stream canceled despite server traffic")
+	assert.GreaterOrEqual(t, pingsWhileFed, 1)
+	assert.ErrorIs(t, context.Cause(streamCtx), errControlStreamSilent, "watchdog must fire once traffic stops")
 }
 
 func TestRunControlKeepalive_StopsWhenSessionEnds(t *testing.T) {

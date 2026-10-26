@@ -5,7 +5,9 @@ import (
 	"crypto/ecdh"
 	"crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,6 +20,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/internal/domain/activity"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialkey"
@@ -55,7 +58,7 @@ func newHarness(t *testing.T) *harness {
 	database := testutil.NewDatabaseService(t, cfg)
 	h := &harness{database: database, db: database.DB, registry: control.NewRegistry()}
 	h.orgID = database.CreateSuperAdminUser().OrganizationID
-	h.svc = ha.NewService(h.db, sqlstores.NewSQLTransactor(h.db), h.registry, nil, func(_ context.Context, deviceID int64) {
+	h.svc = ha.NewService(h.db, sqlstores.NewSQLTransactor(h.db), h.registry, activity.NewService(sqlstores.NewSQLActivityStore(h.db)), func(_ context.Context, deviceID int64) {
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		h.invalidated = append(h.invalidated, deviceID)
@@ -83,8 +86,7 @@ func (h *harness) createPair(t *testing.T, ready bool) {
 		return h.svc.CreatePair(ctx, h.orgID, h.active, h.standby)
 	}))
 	if ready {
-		_, err := h.db.ExecContext(t.Context(), `UPDATE fleet_node_ha_pair SET standby_ready=true, status_reason='' WHERE active_node_id=$1`, h.active)
-		require.NoError(t, err)
+		h.exec(t, `UPDATE fleet_node_ha_pair SET standby_ready=true, status_reason='' WHERE active_node_id=$1`, h.active)
 	}
 }
 
@@ -92,10 +94,8 @@ func (h *harness) createPair(t *testing.T, ready bool) {
 func (h *harness) addDevice(t *testing.T, nodeID int64) int64 {
 	t.Helper()
 	device := h.database.CreateDevice(h.orgID, "proto")
-	_, err := h.db.ExecContext(t.Context(), `INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,$3)`, nodeID, device.DatabaseID, h.orgID)
-	require.NoError(t, err)
-	_, err = h.db.ExecContext(t.Context(), `UPDATE discovered_device SET discovered_by_fleet_node_id=$1 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$2)`, nodeID, device.DatabaseID)
-	require.NoError(t, err)
+	h.exec(t, `INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,$3)`, nodeID, device.DatabaseID, h.orgID)
+	h.exec(t, `UPDATE discovered_device SET discovered_by_fleet_node_id=$1 WHERE id=(SELECT discovered_device_id FROM device WHERE id=$2)`, nodeID, device.DatabaseID)
 	return device.DatabaseID
 }
 
@@ -140,6 +140,56 @@ func (h *harness) discoveredBy(t *testing.T, deviceID int64) int64 {
 	return nodeID
 }
 
+// pairID returns the ID of the org's HA pair.
+func (h *harness) pairID(t *testing.T) int64 {
+	t.Helper()
+	var id int64
+	require.NoError(t, h.db.QueryRowContext(t.Context(), `SELECT id FROM fleet_node_ha_pair WHERE org_id=$1`, h.orgID).Scan(&id))
+	return id
+}
+
+// exec runs a statement that sets up stale or unusual database state.
+func (h *harness) exec(t *testing.T, query string, args ...any) {
+	t.Helper()
+	_, err := h.db.ExecContext(t.Context(), query, args...)
+	require.NoError(t, err)
+}
+
+type failoverActivity struct {
+	description    string
+	result         string
+	actorType      string
+	organizationID int64
+	fromNodeID     int64
+	toNodeID       int64
+	deviceCount    int
+}
+
+// failoverActivities returns the failover events logged for the org.
+func (h *harness) failoverActivities(t *testing.T) []failoverActivity {
+	t.Helper()
+	rows, err := h.db.QueryContext(t.Context(),
+		`SELECT description, result, actor_type, organization_id, metadata FROM activity_log WHERE event_type='fleet_node_failover' AND organization_id=$1 ORDER BY id`, h.orgID)
+	require.NoError(t, err)
+	defer rows.Close()
+	var events []failoverActivity
+	for rows.Next() {
+		var event failoverActivity
+		var metadata []byte
+		require.NoError(t, rows.Scan(&event.description, &event.result, &event.actorType, &event.organizationID, &metadata))
+		var fields struct {
+			FromNodeID  int64 `json:"from_node_id"`
+			ToNodeID    int64 `json:"to_node_id"`
+			DeviceCount int   `json:"device_count"`
+		}
+		require.NoError(t, json.Unmarshal(metadata, &fields))
+		event.fromNodeID, event.toNodeID, event.deviceCount = fields.FromNodeID, fields.ToNodeID, fields.DeviceCount
+		events = append(events, event)
+	}
+	require.NoError(t, rows.Err())
+	return events
+}
+
 // respond plays a fleet node: it answers each command sent to stream and
 // returns how many it received.
 func respond(t *testing.T, stream *control.Stream, reply func(*pb.AgentCommand) *pb.ControlAck) *atomic.Int32 {
@@ -181,12 +231,29 @@ func failedAck(err error) *pb.ControlAck {
 
 // exportKey answers ExportCredentialKey the way a node holding key does.
 func exportKey(key []byte) func(*pb.AgentCommand) *pb.ControlAck {
+	return exportKeyWithFingerprint(key, credentialkey.Fingerprint(key))
+}
+
+// exportKeyWithFingerprint seals key but reports fingerprint for it.
+func exportKeyWithFingerprint(key, fingerprint []byte) func(*pb.AgentCommand) *pb.ControlAck {
 	return func(command *pb.AgentCommand) *pb.ControlAck {
 		sealed, err := credentialkey.Seal(command.GetExportCredentialKey().GetRecipientPublicKey(), key)
 		if err != nil {
 			return failedAck(err)
 		}
-		return keyResultAck(&pb.CredentialKeyResult{SealedKey: sealed, Fingerprint: credentialkey.Fingerprint(key)})
+		return keyResultAck(&pb.CredentialKeyResult{SealedKey: sealed, Fingerprint: fingerprint})
+	}
+}
+
+// installKey answers InstallCredentialKey the way a node whose encryption key
+// is priv does.
+func installKey(priv *ecdh.PrivateKey) func(*pb.AgentCommand) *pb.ControlAck {
+	return func(command *pb.AgentCommand) *pb.ControlAck {
+		installed, err := credentialkey.Open(priv.Bytes(), command.GetInstallCredentialKey().GetSealedKey())
+		if err != nil {
+			return failedAck(err)
+		}
+		return keyResultAck(&pb.CredentialKeyResult{Fingerprint: credentialkey.Fingerprint(installed)})
 	}
 }
 
@@ -198,6 +265,7 @@ func requireCode(t *testing.T, err error, code connect.Code) {
 }
 
 func TestCheckStandbyTarget(t *testing.T) {
+	// Arrange
 	h := newHarness(t)
 	h.createPair(t, false)
 	unpaired := h.createNode(t, "unpaired", "CONFIRMED", make([]byte, 32))
@@ -259,6 +327,7 @@ func TestCreatePair_RequiresTransaction(t *testing.T) {
 }
 
 func TestRequireNotStandby(t *testing.T) {
+	// Arrange
 	h := newHarness(t)
 	h.createPair(t, true)
 
@@ -304,6 +373,116 @@ func TestTick_FailsOverReadyPairWhenActiveStaysDisconnected(t *testing.T) {
 	assert.Equal(t, []int64{deviceID}, h.invalidated)
 }
 
+func TestFailover_MovesOnlyTheActiveNodesDevicesAndLogsActivity(t *testing.T) {
+	tests := []struct {
+		name    string
+		trigger func(t *testing.T, h *harness) error
+		why     string
+	}{
+		{
+			name: "tick after the active node disconnects",
+			trigger: func(t *testing.T, h *harness) error {
+				h.svc.TickForTest(t.Context(), time.Now())
+				return nil
+			},
+			why: "after its control stream disconnected",
+		},
+		{
+			name: "hand-off after revoking the active node",
+			trigger: func(t *testing.T, h *harness) error {
+				return h.svc.HandOff(t.Context(), h.orgID, h.active)
+			},
+			why: "after revoking the active node",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h := newHarness(t)
+			h.createPair(t, true)
+			moved := []int64{h.addDevice(t, h.active), h.addDevice(t, h.active)}
+			bystander := h.createNode(t, "bystander", "CONFIRMED", make([]byte, 32))
+			bystanderDevice := h.addDevice(t, bystander)
+			h.connect(t, h.standby, v6)
+
+			// Act
+			err := tc.trigger(t, h)
+
+			// Assert
+			require.NoError(t, err)
+			for _, deviceID := range moved {
+				assert.Equal(t, h.standby, h.deviceNode(t, deviceID))
+				assert.Equal(t, h.standby, h.discoveredBy(t, deviceID))
+			}
+			assert.Equal(t, bystander, h.deviceNode(t, bystanderDevice))
+			assert.Equal(t, bystander, h.discoveredBy(t, bystanderDevice))
+			assert.ElementsMatch(t, moved, h.invalidated)
+			assert.Equal(t, []failoverActivity{{
+				description:    fmt.Sprintf("Moved 2 devices from fleet node 'active' (id=%d) to standby 'standby' (id=%d) %s", h.active, h.standby, tc.why),
+				result:         "success",
+				actorType:      "system",
+				organizationID: h.orgID,
+				fromNodeID:     h.active,
+				toNodeID:       h.standby,
+				deviceCount:    2,
+			}}, h.failoverActivities(t))
+		})
+	}
+}
+
+func TestFailover_RejectsStalePair(t *testing.T) {
+	tests := []struct {
+		name string
+		// stale changes the database after the pair was listed and returns the
+		// active and standby IDs failover is asked to use.
+		stale func(t *testing.T, h *harness) (activeID, standbyID int64)
+	}{
+		{name: "standby revoked", stale: func(t *testing.T, h *harness) (int64, int64) {
+			h.exec(t, `UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1`, h.standby)
+			return h.active, h.standby
+		}},
+		{name: "standby deleted", stale: func(t *testing.T, h *harness) (int64, int64) {
+			h.exec(t, `UPDATE fleet_node SET deleted_at=now() WHERE id=$1`, h.standby)
+			return h.active, h.standby
+		}},
+		{name: "active deleted", stale: func(t *testing.T, h *harness) (int64, int64) {
+			h.exec(t, `UPDATE fleet_node SET deleted_at=now() WHERE id=$1`, h.active)
+			return h.active, h.standby
+		}},
+		{name: "standby not ready", stale: func(t *testing.T, h *harness) (int64, int64) {
+			h.exec(t, `UPDATE fleet_node_ha_pair SET standby_ready=false WHERE active_node_id=$1`, h.active)
+			return h.active, h.standby
+		}},
+		{name: "different standby", stale: func(t *testing.T, h *harness) (int64, int64) {
+			return h.active, h.createNode(t, "other-standby", "CONFIRMED", make([]byte, 32))
+		}},
+		{name: "pair deleted", stale: func(t *testing.T, h *harness) (int64, int64) {
+			h.exec(t, `DELETE FROM fleet_node_ha_pair WHERE active_node_id=$1`, h.active)
+			return h.active, h.standby
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h := newHarness(t)
+			h.createPair(t, true)
+			deviceID := h.addDevice(t, h.active)
+			pairID := h.pairID(t)
+			activeID, standbyID := tc.stale(t, h)
+
+			// Act
+			err := h.svc.FailoverForTest(t.Context(), h.orgID, pairID, activeID, standbyID)
+
+			// Assert
+			require.ErrorIs(t, err, ha.ErrPairChangedForTest)
+			assert.Equal(t, h.active, h.deviceNode(t, deviceID))
+			assert.Equal(t, h.active, h.discoveredBy(t, deviceID))
+			assert.Empty(t, h.invalidated)
+			assert.Empty(t, h.failoverActivities(t))
+		})
+	}
+}
+
 func TestTick_KeepsDevicesWhileFailoverIsNotDue(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -312,9 +491,11 @@ func TestTick_KeepsDevicesWhileFailoverIsNotDue(t *testing.T) {
 		ready          bool
 		connectActive  bool
 		connectStandby bool
+		standbyAfter   time.Duration
 	}{
 		{name: "within startup grace", startupGrace: time.Hour, ready: true, connectStandby: true},
 		{name: "within failover delay", failoverDelay: time.Hour, ready: true, connectStandby: true},
+		{name: "standby connected for less than the failover delay", failoverDelay: 300 * time.Millisecond, ready: true, connectStandby: true, standbyAfter: 400 * time.Millisecond},
 		{name: "active connected", ready: true, connectActive: true, connectStandby: true},
 		{name: "standby disconnected", ready: true},
 		{name: "standby not ready", connectStandby: true},
@@ -329,6 +510,8 @@ func TestTick_KeepsDevicesWhileFailoverIsNotDue(t *testing.T) {
 			if tc.connectActive {
 				h.connect(t, h.active, v6)
 			}
+			// The active node has been down since the registry started.
+			time.Sleep(tc.standbyAfter)
 			if tc.connectStandby {
 				h.connect(t, h.standby, v6)
 			}
@@ -355,13 +538,7 @@ func TestTick_TransfersCredentialKeyToNewStandby(t *testing.T) {
 	_, err := rand.Read(key)
 	require.NoError(t, err)
 	respond(t, h.connect(t, h.active, v6), exportKey(key))
-	respond(t, h.connect(t, h.standby, v6), func(command *pb.AgentCommand) *pb.ControlAck {
-		installed, err := credentialkey.Open(h.standbyKey.Bytes(), command.GetInstallCredentialKey().GetSealedKey())
-		if err != nil {
-			return failedAck(err)
-		}
-		return keyResultAck(&pb.CredentialKeyResult{Fingerprint: credentialkey.Fingerprint(installed)})
-	})
+	respond(t, h.connect(t, h.standby, v6), installKey(h.standbyKey))
 
 	// Act
 	h.svc.TickForTest(t.Context(), time.Now())
@@ -395,6 +572,145 @@ func TestTick_FingerprintMismatchKeepsStandbyNotReadyAndBacksOff(t *testing.T) {
 	assert.False(t, pair.ready)
 	assert.Equal(t, ha.ReasonTransferFailed, pair.reason)
 	assert.Equal(t, int32(1), installs.Load(), "the retry backoff suppresses the second attempt")
+}
+
+func TestTick_KeyTransferFailuresKeepStandbyNotReady(t *testing.T) {
+	key := make([]byte, credentialkey.KeySize)
+	tests := []struct {
+		name   string
+		export func(*pb.AgentCommand) *pb.ControlAck
+		// install replaces a standby that installs the key correctly.
+		install       func(*pb.AgentCommand) *pb.ControlAck
+		wantInstalled int32
+	}{
+		{
+			name: "export fails",
+			export: func(*pb.AgentCommand) *pb.ControlAck {
+				return failedAck(errors.New("export refused"))
+			},
+		},
+		{
+			name: "export returns no sealed key",
+			export: func(*pb.AgentCommand) *pb.ControlAck {
+				return keyResultAck(&pb.CredentialKeyResult{Fingerprint: credentialkey.Fingerprint(key)})
+			},
+		},
+		{
+			name: "export payload is malformed",
+			export: func(*pb.AgentCommand) *pb.ControlAck {
+				return &pb.ControlAck{Succeeded: true, Code: pb.AckCode_ACK_CODE_OK, Payload: []byte{0xff, 0xff, 0xff}}
+			},
+		},
+		{
+			name:   "export result is invalid",
+			export: exportKeyWithFingerprint(key, []byte{1, 2, 3}),
+		},
+		{
+			name:   "install fails",
+			export: exportKey(key),
+			install: func(*pb.AgentCommand) *pb.ControlAck {
+				return failedAck(errors.New("install refused"))
+			},
+			wantInstalled: 1,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h := newHarness(t)
+			h.createPair(t, false)
+			exports := respond(t, h.connect(t, h.active, v6), tc.export)
+			install := tc.install
+			if install == nil {
+				install = installKey(h.standbyKey)
+			}
+			installs := respond(t, h.connect(t, h.standby, v6), install)
+
+			// Act
+			h.svc.TickForTest(t.Context(), time.Now())
+			h.svc.TickForTest(t.Context(), time.Now())
+
+			// Assert
+			pair, ok := h.pair(t)
+			require.True(t, ok)
+			assert.False(t, pair.ready)
+			assert.Equal(t, ha.ReasonTransferFailed, pair.reason)
+			assert.Equal(t, int32(1), exports.Load(), "the retry backoff suppresses the second export")
+			assert.Equal(t, tc.wantInstalled, installs.Load())
+		})
+	}
+}
+
+func TestTick_DoesNotStartSecondTransferWhileOneIsInFlight(t *testing.T) {
+	// Arrange
+	h := newHarness(t)
+	h.createPair(t, false)
+	key := make([]byte, credentialkey.KeySize)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseExport := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(releaseExport)
+	active := h.connect(t, h.active, v6)
+	exports := respond(t, active, func(command *pb.AgentCommand) *pb.ControlAck {
+		select {
+		case <-release:
+		case <-t.Context().Done():
+		}
+		return exportKey(key)(command)
+	})
+	installs := respond(t, h.connect(t, h.standby, v6), installKey(h.standbyKey))
+	firstTick := make(chan struct{})
+	go func() {
+		defer close(firstTick)
+		h.svc.TickForTest(t.Context(), time.Now())
+	}()
+	require.Eventually(t, func() bool { return exports.Load() == 1 }, 10*time.Second, 5*time.Millisecond, "the first transfer should reach the active node")
+
+	// Act
+	h.svc.TickForTest(t.Context(), time.Now())
+
+	// Assert
+	assert.Equal(t, int32(1), exports.Load())
+	assert.Empty(t, active.Outgoing, "no second export is queued while the first is in flight")
+	releaseExport()
+	select {
+	case <-firstTick:
+	case <-time.After(10 * time.Second):
+		require.Fail(t, "the first transfer did not finish after the export was released")
+	}
+	pair, ok := h.pair(t)
+	require.True(t, ok)
+	assert.True(t, pair.ready)
+	assert.Equal(t, int32(1), exports.Load())
+	assert.Equal(t, int32(1), installs.Load())
+}
+
+func TestTick_RetriesTransferOnceBackoffExpires(t *testing.T) {
+	// Arrange
+	h := newHarness(t)
+	h.svc.SetTimingForTest(0, 0, 0)
+	h.createPair(t, false)
+	key := make([]byte, credentialkey.KeySize)
+	exports := respond(t, h.connect(t, h.active, v6), exportKey(key))
+	var attempts atomic.Int32
+	install := installKey(h.standbyKey)
+	respond(t, h.connect(t, h.standby, v6), func(command *pb.AgentCommand) *pb.ControlAck {
+		if attempts.Add(1) == 1 {
+			return failedAck(errors.New("install refused"))
+		}
+		return install(command)
+	})
+
+	// Act
+	h.svc.TickForTest(t.Context(), time.Now())
+	h.svc.TickForTest(t.Context(), time.Now())
+
+	// Assert
+	pair, ok := h.pair(t)
+	require.True(t, ok)
+	assert.True(t, pair.ready)
+	assert.Empty(t, pair.reason)
+	assert.Equal(t, int32(2), exports.Load(), "the failed attempt is retried")
 }
 
 func TestTick_ReportsWhyStandbyIsNotReady(t *testing.T) {
@@ -432,26 +748,28 @@ func TestTick_ReportsWhyStandbyIsNotReady(t *testing.T) {
 	}
 }
 
-func TestHandOffBeforeRevoke(t *testing.T) {
+func TestShouldHandOff(t *testing.T) {
 	tests := []struct {
 		name           string
+		noPair         bool
 		ready          bool
 		connectStandby bool
 		revokeStandby  bool
-		wantMoved      bool
+		want           bool
 	}{
-		{name: "ready connected standby takes the devices", ready: true, connectStandby: true, wantMoved: true},
+		{name: "ready connected standby", ready: true, connectStandby: true, want: true},
 		{name: "standby not ready", connectStandby: true},
 		{name: "standby disconnected", ready: true},
 		{name: "revoking the standby", ready: true, connectStandby: true, revokeStandby: true},
+		{name: "no pair", noPair: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			// Arrange
 			h := newHarness(t)
-			h.createPair(t, tc.ready)
-			deviceID := h.addDevice(t, h.active)
-			h.connect(t, h.active, v6)
+			if !tc.noPair {
+				h.createPair(t, tc.ready)
+			}
 			if tc.connectStandby {
 				h.connect(t, h.standby, v6)
 			}
@@ -461,7 +779,39 @@ func TestHandOffBeforeRevoke(t *testing.T) {
 			}
 
 			// Act
-			err := h.svc.HandOffBeforeRevoke(t.Context(), h.orgID, revoked)
+			got, err := h.svc.ShouldHandOff(t.Context(), h.orgID, revoked)
+
+			// Assert
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestHandOff(t *testing.T) {
+	tests := []struct {
+		name          string
+		ready         bool
+		revokeStandby bool
+		wantMoved     bool
+	}{
+		{name: "ready standby takes the devices", ready: true, wantMoved: true},
+		{name: "standby not ready", ready: false},
+		{name: "revoking the standby", ready: true, revokeStandby: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			h := newHarness(t)
+			h.createPair(t, tc.ready)
+			deviceID := h.addDevice(t, h.active)
+			revoked := h.active
+			if tc.revokeStandby {
+				revoked = h.standby
+			}
+
+			// Act
+			err := h.svc.HandOff(t.Context(), h.orgID, revoked)
 
 			// Assert
 			require.NoError(t, err)
@@ -475,6 +825,24 @@ func TestHandOffBeforeRevoke(t *testing.T) {
 			assert.Equal(t, wantNode, pair.active)
 		})
 	}
+}
+
+func TestHandOff_IgnoresStandbyRevokedAfterPairWasRead(t *testing.T) {
+	// Arrange
+	h := newHarness(t)
+	h.createPair(t, true)
+	deviceID := h.addDevice(t, h.active)
+	h.exec(t, `UPDATE fleet_node SET enrollment_status='REVOKED' WHERE id=$1`, h.standby)
+
+	// Act
+	err := h.svc.HandOff(t.Context(), h.orgID, h.active)
+
+	// Assert
+	require.NoError(t, err)
+	assert.Equal(t, h.active, h.deviceNode(t, deviceID))
+	assert.Equal(t, h.active, h.discoveredBy(t, deviceID))
+	assert.Empty(t, h.invalidated)
+	assert.Empty(t, h.failoverActivities(t))
 }
 
 func TestDeletePair_RemovesThePairForEitherNode(t *testing.T) {

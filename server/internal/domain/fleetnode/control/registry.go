@@ -184,6 +184,7 @@ type connection struct {
 	done                      chan struct{}                  // closed once on evict/Unregister; wakes the handler and blocked senders
 	cmds                      map[string]*inflightCommand    // in-flight commands by command_id
 	maxCommandProtocolVersion gatewaypb.CommandProtocolVersion
+	connectedAt               time.Time
 }
 
 // inflightCommand is the operator/worker side of one in-flight command. Its result
@@ -247,6 +248,17 @@ func (r *Registry) Connected(fleetNodeID int64) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.conns[fleetNodeID] != nil
+}
+
+// ConnectedSince reports when fleetNodeID's current ControlStream registered.
+// ok is false while the node is disconnected.
+func (r *Registry) ConnectedSince(fleetNodeID int64) (since time.Time, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if conn := r.conns[fleetNodeID]; conn != nil {
+		return conn.connectedAt, true
+	}
+	return time.Time{}, false
 }
 
 // DisconnectedSince reports when fleetNodeID's last ControlStream ended. A node

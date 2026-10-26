@@ -249,6 +249,32 @@ func TestEligibleNodeIDs_IntersectsStatusConnectionAndCompatibility(t *testing.T
 	assert.ElementsMatch(t, []int64{1}, got)
 }
 
+func TestEligibleNodeIDs_ExcludesHAStandby(t *testing.T) {
+	// Arrange: 1 = active, 2 = its standby, 3 = standalone; all confirmed and connected.
+	reg := control.NewRegistry()
+	activeID, standbyID := int64(1), int64(2)
+	pair := func(n enrollment.FleetNode) enrollment.FleetNodeListing {
+		return enrollment.FleetNodeListing{FleetNode: n, HAActiveNodeID: &activeID, HAStandbyNodeID: &standbyID}
+	}
+	lister := stubLister{nodes: []enrollment.FleetNodeListing{
+		pair(enrollment.FleetNode{ID: 1, EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}),
+		pair(enrollment.FleetNode{ID: 2, EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}),
+		{FleetNode: enrollment.FleetNode{ID: 3, EnrollmentStatus: enrollment.FleetNodeStatusConfirmed}},
+	}}
+	svc := NewService(reg, lister)
+	for _, nodeID := range []int64{1, 2, 3} {
+		stream := reg.Register(nodeID)
+		defer stream.Unregister()
+	}
+
+	// Act
+	got, err := svc.EligibleNodeIDs(context.Background(), 1)
+
+	// Assert: the standby is skipped; its active node and the standalone node remain.
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []int64{1, 3}, got)
+}
+
 func TestRunOnNode_PreservesIPRangeRequest(t *testing.T) {
 	reg := control.NewRegistry()
 	svc := NewService(reg, stubLister{})

@@ -100,12 +100,11 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
     };
   }, [open, resumeNode, step, listFleetNodes]);
 
+  const standbyTargetInvalid =
+    enrollAsStandby && !eligibleTargets.some((node) => node.fleetNodeId === standbyForNodeId);
+
   const handleContinue = () => {
-    if (
-      codeRequestedRef.current ||
-      (enrollAsStandby && !eligibleTargets.some((node) => node.fleetNodeId === standbyForNodeId))
-    )
-      return;
+    if (codeRequestedRef.current || standbyTargetInvalid) return;
     codeRequestedRef.current = true;
     setErrorMsg("");
     setStep("code");
@@ -236,6 +235,8 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
   const includesInsecureTransportFlag = shouldAppendInsecureTransportFlag(window.location);
 
   const noEligibleTargets = !targetsLoading && eligibleTargets.length === 0;
+  // Stay enabled while checked so the user can opt out after a failed attempt empties the target list.
+  const standbyOptionDisabled = noEligibleTargets && !enrollAsStandby;
 
   if (step === "options") {
     return (
@@ -249,7 +250,7 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
             text: "Continue",
             onClick: handleContinue,
             variant: variants.primary,
-            disabled: enrollAsStandby && !eligibleTargets.some((node) => node.fleetNodeId === standbyForNodeId),
+            disabled: standbyTargetInvalid,
             dismissModalOnClick: false,
           },
         ]}
@@ -260,7 +261,7 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
             <Checkbox
               checked={enrollAsStandby}
               onChange={(event) => setEnrollAsStandby(event.target.checked)}
-              disabled={noEligibleTargets}
+              disabled={standbyOptionDisabled}
               ariaLabel="Enroll as a standby"
             />
             Enroll as a standby

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"buf.build/go/protovalidate"
@@ -767,7 +768,19 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 	}
 	liveness := time.NewTicker(livenessInterval)
 	defer liveness.Stop()
-	lastReceived := time.Now()
+	silence := control.KeepaliveMisses * keepalive
+	var silent atomic.Bool
+	var watchdog *time.Timer
+	if keepalive > 0 {
+		// The watchdog runs apart from the loop below, which can block in Send on
+		// a half-open connection, so a silent node leaves the registry (and can
+		// fail over) without waiting for TCP to give up.
+		watchdog = time.AfterFunc(silence, func() {
+			silent.Store(true)
+			regHandle.Unregister()
+		})
+		defer watchdog.Stop()
+	}
 	// Side-goroutine bridges blocking stream.Receive into the select loop. Its
 	// send selects on regHandle.Done (closed by the deferred Unregister) so it
 	// can't block forever on a full channel after the main loop exits.
@@ -791,13 +804,13 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		case <-ctx.Done():
 			return controlStreamExitError(ctx, nil)
 		case <-regHandle.Done:
-			// Newest-wins eviction or Unregister fired; let the handler
-			// exit so connect-go closes the stream.
+			// Newest-wins eviction, Unregister, or the keepalive watchdog fired;
+			// let the handler exit so connect-go closes the stream.
+			if silent.Load() {
+				return controlStreamExitError(ctx, fleeterror.NewUnavailableErrorf("control stream silent for %s", silence))
+			}
 			return controlStreamExitError(ctx, nil)
 		case <-liveness.C:
-			if keepalive > 0 && time.Since(lastReceived) >= control.KeepaliveMisses*keepalive {
-				return controlStreamExitError(ctx, fleeterror.NewUnavailableErrorf("control stream silent for %s", time.Since(lastReceived).Round(time.Second)))
-			}
 			if err := sendControlStreamAccepted(ctx, stream.Send, keepalive); err != nil {
 				return err
 			}
@@ -812,7 +825,9 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 				}
 				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("control stream recv: %v", r.err))
 			}
-			lastReceived = time.Now()
+			if watchdog != nil {
+				watchdog.Reset(silence)
+			}
 			if ack := r.msg.GetAck(); ack != nil {
 				// Trust boundary for node input: drop a malformed/oversized ack rather than
 				// routing it into the command error path (the waiting command times out).

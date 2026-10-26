@@ -61,6 +61,7 @@ func (r *Registry) registerLocked(fleetNodeID int64, maxCommandProtocolVersion g
 		done:                      make(chan struct{}),
 		cmds:                      make(map[string]*inflightCommand),
 		maxCommandProtocolVersion: maxCommandProtocolVersion,
+		connectedAt:               time.Now(),
 	}
 	r.conns[fleetNodeID] = conn
 	return &Stream{r: r, fleetNodeID: fleetNodeID, conn: conn, Outgoing: conn.outgoing, Done: conn.done}

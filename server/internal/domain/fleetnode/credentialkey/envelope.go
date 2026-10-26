@@ -1,6 +1,8 @@
 // Package credentialkey seals a Fleet Node's miner-credential key to its HA
 // standby. fleetd relays the sealed key between the two nodes but cannot
-// decrypt it: only the standby's enrollment encryption key can.
+// decrypt it: only the standby's enrollment encryption key can. The active
+// node seals to whichever recipient fleetd names, so this keeps the key out
+// of fleetd's storage and logs, not away from a compromised fleetd.
 package credentialkey
 
 import (

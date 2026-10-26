@@ -1704,3 +1704,36 @@ func TestRegistry_DisconnectedSince_TracksNodesIndependently(t *testing.T) {
 	_, ok := r.DisconnectedSince(2)
 	assert.False(t, ok)
 }
+
+func TestRegistry_ConnectedSince_ReportsLatestRegistration(t *testing.T) {
+	// Arrange
+	r := NewRegistry()
+	first, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	first.Unregister()
+	beforeReconnect := time.Now()
+
+	// Act
+	second, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	defer second.Unregister()
+
+	// Assert
+	since, ok := r.ConnectedSince(7)
+	assert.True(t, ok)
+	assert.False(t, since.Before(beforeReconnect))
+}
+
+func TestRegistry_ConnectedSince_DisconnectedNodeReportsNotConnected(t *testing.T) {
+	// Arrange
+	r := NewRegistry()
+	stream, err := r.RegisterAuthenticated(7, "session", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+
+	// Act
+	stream.Unregister()
+
+	// Assert
+	_, ok := r.ConnectedSince(7)
+	assert.False(t, ok)
+}

@@ -76,6 +76,21 @@ func (h *haEnrollment) pairOf(t *testing.T, nodeID int64) (active, standby int64
 	return active, standby, true
 }
 
+// readyPairWithDevice enrolls an active node with one device and a ready,
+// connected standby.
+func (h *haEnrollment) readyPairWithDevice(t *testing.T) (active, standby, deviceID int64) {
+	t.Helper()
+	active = h.enroll(t, "active", 0)
+	standby = h.enroll(t, "standby", active)
+	deviceID = insertFleetNodeDevice(t, h.db, h.orgID, active)
+	_, err := h.db.ExecContext(t.Context(), `UPDATE fleet_node_ha_pair SET standby_ready=true WHERE active_node_id=$1`, active)
+	require.NoError(t, err)
+	stream, err := h.registry.RegisterAuthenticated(standby, "", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	require.NoError(t, err)
+	t.Cleanup(stream.Unregister)
+	return active, standby, deviceID
+}
+
 func (h *haEnrollment) deviceNodes(t *testing.T, deviceID int64) []int64 {
 	t.Helper()
 	rows, err := h.db.QueryContext(t.Context(), `SELECT fleet_node_id FROM fleet_node_device WHERE device_id=$1`, deviceID)
@@ -114,6 +129,7 @@ func TestConfirmStandbyEnrollmentCreatesPair(t *testing.T) {
 }
 
 func TestCreateStandbyCodeRejectsNodeAlreadyInPair(t *testing.T) {
+	// Arrange
 	h := setupHAEnrollmentTest(t)
 	active := h.enroll(t, "active", 0)
 	standby := h.enroll(t, "standby", active)
@@ -154,21 +170,14 @@ func TestConfirmSecondStandbyForSameNodeFails(t *testing.T) {
 func TestRevokeActiveNodeHandsDevicesToReadyStandby(t *testing.T) {
 	// Arrange
 	h := setupHAEnrollmentTest(t)
-	active := h.enroll(t, "active", 0)
-	standby := h.enroll(t, "standby", active)
-	deviceID := insertFleetNodeDevice(t, h.db, h.orgID, active)
-	_, err := h.db.ExecContext(t.Context(), `UPDATE fleet_node_ha_pair SET standby_ready=true WHERE active_node_id=$1`, active)
-	require.NoError(t, err)
-	stream, err := h.registry.RegisterAuthenticated(standby, "", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
-	require.NoError(t, err)
-	t.Cleanup(stream.Unregister)
+	active, standby, deviceID := h.readyPairWithDevice(t)
 	var invalidated []int64
 	h.enrollment.WithMinerInvalidator(func(_ context.Context, deviceID int64) {
 		invalidated = append(invalidated, deviceID)
 	})
 
 	// Act
-	err = h.enrollment.RevokeFleetNode(t.Context(), active, h.orgID)
+	err := h.enrollment.RevokeFleetNode(t.Context(), active, h.orgID)
 
 	// Assert
 	require.NoError(t, err)
@@ -176,6 +185,45 @@ func TestRevokeActiveNodeHandsDevicesToReadyStandby(t *testing.T) {
 	assert.Empty(t, invalidated, "the revoked node had no devices left to tear down")
 	_, _, ok := h.pairOf(t, standby)
 	assert.False(t, ok, "revoking either node dissolves the pair")
+}
+
+func TestRevokeActiveNodeDeniesAuthBeforeWaitingForInFlightCalls(t *testing.T) {
+	// Arrange
+	h := setupHAEnrollmentTest(t)
+	active, standby, deviceID := h.readyPairWithDevice(t)
+	// An admitted miner call holds its device binding until the call returns.
+	call, err := h.db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = call.Rollback() })
+	_, err = call.ExecContext(t.Context(), `SELECT id FROM device WHERE id=$1 FOR SHARE`, deviceID)
+	require.NoError(t, err)
+	status := func() fleetnodeenrollment.FleetNodeStatus {
+		node, err := h.enrollment.GetFleetNodeByID(t.Context(), active, h.orgID)
+		require.NoError(t, err)
+		return node.EnrollmentStatus
+	}
+	revoked := make(chan error, 1)
+
+	// Act
+	go func() { revoked <- h.enrollment.RevokeFleetNode(t.Context(), active, h.orgID) }()
+	for deadline := time.Now().Add(5 * time.Second); status() != fleetnodeenrollment.FleetNodeStatusRevoked && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	statusWhileCallHeld := status()
+	require.NoError(t, call.Rollback())
+	var revokeErr error
+	select {
+	case revokeErr = <-revoked:
+	case <-time.After(10 * time.Second):
+		t.Fatal("revoke did not finish after the in-flight call returned")
+	}
+
+	// Assert
+	assert.Equal(t, fleetnodeenrollment.FleetNodeStatusRevoked, statusWhileCallHeld, "authentication is denied before the hand-off waits")
+	require.NoError(t, revokeErr)
+	assert.Equal(t, []int64{standby}, h.deviceNodes(t, deviceID))
+	_, _, ok := h.pairOf(t, standby)
+	assert.False(t, ok)
 }
 
 func TestRevokeDissolvesPairWithoutHandOff(t *testing.T) {

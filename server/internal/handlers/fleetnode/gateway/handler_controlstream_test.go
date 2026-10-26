@@ -420,6 +420,46 @@ func TestControlStream_PingsKeepStreamOpen(t *testing.T) {
 	assert.Greater(t, received, 3)
 }
 
+func TestControlStream_DropsSilentStreamWhileCommandSendIsBlocked(t *testing.T) {
+	// Arrange
+	setKeepaliveInterval(t, 20*time.Millisecond)
+	h := newControlHarness(t)
+	// A half-open connection blocks the handler in Send until TCP gives up.
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	client := startControlServer(t, h, connect.WithInterceptors(blockCommandSends{release: release}))
+	stream := client.ControlStream(t.Context())
+	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+	require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)))
+
+	// Act
+	waitForSend(t, h.registry, h.fleetNodeID, "blocked", []byte("payload"))
+
+	// Assert
+	assert.Eventually(t, func() bool { return !h.registry.Connected(h.fleetNodeID) }, 5*time.Second, 10*time.Millisecond,
+		"a silent stream leaves the registry even while Send is blocked")
+}
+
+func TestControlStream_KeepsSilentLegacyStreamOpen(t *testing.T) {
+	// Arrange
+	const interval = 20 * time.Millisecond
+	setKeepaliveInterval(t, interval)
+	h := newControlHarness(t)
+	client := startControlServer(t, h)
+	stream := client.ControlStream(t.Context())
+	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
+	require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5)))
+	accepted, err := stream.Receive()
+	require.NoError(t, err)
+	require.NotNil(t, accepted.GetAccepted())
+
+	// Act
+	time.Sleep(4 * control.KeepaliveMisses * interval)
+
+	// Assert
+	assert.True(t, h.registry.Connected(h.fleetNodeID), "V5 nodes never ping, so silence must not close them")
+}
+
 func controlHello(version pb.CommandProtocolVersion) *pb.ControlStreamRequest {
 	return &pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{MaxCommandProtocolVersion: version}}}
 }
@@ -505,6 +545,35 @@ func startControlServer(t *testing.T, h *controlHarness, opts ...connect.Handler
 		},
 	}
 	return fleetnodegatewayv1connect.NewFleetNodeGatewayServiceClient(httpClient, srv.URL, connect.WithGRPC())
+}
+
+// blockCommandSends holds every command the handler sends until release closes.
+type blockCommandSends struct {
+	release <-chan struct{}
+}
+
+func (b blockCommandSends) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc { return next }
+
+func (b blockCommandSends) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+	return next
+}
+
+func (b blockCommandSends) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
+		return next(ctx, blockedSendConn{StreamingHandlerConn: conn, release: b.release})
+	}
+}
+
+type blockedSendConn struct {
+	connect.StreamingHandlerConn
+	release <-chan struct{}
+}
+
+func (c blockedSendConn) Send(msg any) error {
+	if response, ok := msg.(*pb.ControlStreamResponse); ok && response.GetCommand() != nil {
+		<-c.release
+	}
+	return c.StreamingHandlerConn.Send(msg) //nolint:wrapcheck // passthrough to the real stream
 }
 
 type agentSubjectInjector struct {
