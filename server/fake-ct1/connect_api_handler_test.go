@@ -116,3 +116,72 @@ func TestConnectGatewayServesBrowserMDKClient(t *testing.T) {
 		t.Fatal("time series returned no buckets")
 	}
 }
+
+func TestConnectGatewayPreservesStatusCodes(t *testing.T) {
+	srv, _ := newConnectTestServer(t)
+	ctx := context.Background()
+	hashboards := mdkv2connect.NewHashboardServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+	runIn := mdkv2connect.NewRunInServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+	telemetry := mdkv2connect.NewTelemetryServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+
+	for _, tc := range []struct {
+		name string
+		call func() error
+		want connect.Code
+	}{
+		{"unknown hashboard", func() error {
+			_, err := hashboards.GetHashboardASICs(ctx, connect.NewRequest(&mdk.GetHashboardASICsRequest{Identifier: "missing"}))
+			return err
+		}, connect.CodeNotFound},
+		{"run-in without config", func() error {
+			_, err := runIn.StartModuleRunIn(ctx, connect.NewRequest(&mdk.StartModuleRunInRequest{ModuleId: "T1-M01"}))
+			return err
+		}, connect.CodeInvalidArgument},
+		{"time series without range", func() error {
+			_, err := telemetry.QueryTimeSeries(ctx, connect.NewRequest(&mdk.QueryTimeSeriesRequest{
+				Metric:     mdk.TimeSeriesMetric_TIME_SERIES_METRIC_HASHRATE,
+				BucketSize: mdk.BucketSize_BUCKET_SIZE_5M,
+			}))
+			return err
+		}, connect.CodeInvalidArgument},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := connect.CodeOf(tc.call()); got != tc.want {
+				t.Fatalf("code = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestConnectWritesRecordHistoryLikeREST(t *testing.T) {
+	srv, state := newConnectTestServer(t)
+	mining := mdkv2connect.NewMiningServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
+	if _, err := mining.StopMining(context.Background(), connect.NewRequest(&mdk.StopMiningRequest{})); err != nil {
+		t.Fatalf("StopMining: %v", err)
+	}
+
+	state.mu.RLock()
+	defer state.mu.RUnlock()
+	latest := state.history.Samples[len(state.history.Samples)-1]
+	for _, board := range latest.Boards {
+		if board.Mining {
+			t.Fatal("latest history sample still reports a mining board after StopMining")
+		}
+	}
+}
+
+func TestBoundToGETFollowsRESTBindings(t *testing.T) {
+	for procedure, want := range map[string]bool{
+		mdkv2connect.SystemServiceGetSystemInfoProcedure:               true,
+		mdkv2connect.TelemetryServiceQueryTimeSeriesProcedure:          true,
+		mdkv2connect.MiningServiceStopMiningScopedProcedure:            false,
+		mdkv2connect.MiningServiceSetTargetPowerProcedure:              false,
+		mdkv2connect.RunInServiceStartModuleRunInProcedure:             false,
+		"/mdk.v2.SystemService/NoSuchMethod":                           false,
+		mdkv2connect.TelemetryServiceQueryShareQualityHistoryProcedure: true,
+	} {
+		if got := boundToGET(procedure); got != want {
+			t.Errorf("boundToGET(%q) = %v, want %v", procedure, got, want)
+		}
+	}
+}

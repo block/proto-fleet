@@ -2,11 +2,18 @@ package main
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"strings"
 
 	"connectrpc.com/connect"
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	"github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2/mdkv2connect"
+	"google.golang.org/genproto/googleapis/api/annotations"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/reflect/protoregistry"
 )
 
 type connectAPI struct {
@@ -20,19 +27,20 @@ type connectAPI struct {
 	native *grpcAPI
 }
 
-func registerConnectRoutes(mux *http.ServeMux, state *ContainerState) {
-	api := &connectAPI{native: &grpcAPI{state: state}}
+func registerConnectRoutes(mux *http.ServeMux, rest *RESTApiHandler) {
+	api := &connectAPI{native: &grpcAPI{state: rest.state}}
+	options := connect.WithInterceptors(simulationInterceptor(rest))
 	for _, route := range []struct {
 		path    string
 		handler http.Handler
 	}{
-		routeFrom(mdkv2connect.NewSystemServiceHandler(api)),
-		routeFrom(mdkv2connect.NewHashboardServiceHandler(api)),
-		routeFrom(mdkv2connect.NewMiningServiceHandler(api)),
-		routeFrom(mdkv2connect.NewTelemetryServiceHandler(api)),
-		routeFrom(mdkv2connect.NewPowerServiceHandler(api)),
-		routeFrom(mdkv2connect.NewPoolServiceHandler(api)),
-		routeFrom(mdkv2connect.NewRunInServiceHandler(api)),
+		routeFrom(mdkv2connect.NewSystemServiceHandler(api, options)),
+		routeFrom(mdkv2connect.NewHashboardServiceHandler(api, options)),
+		routeFrom(mdkv2connect.NewMiningServiceHandler(api, options)),
+		routeFrom(mdkv2connect.NewTelemetryServiceHandler(api, options)),
+		routeFrom(mdkv2connect.NewPowerServiceHandler(api, options)),
+		routeFrom(mdkv2connect.NewPoolServiceHandler(api, options)),
+		routeFrom(mdkv2connect.NewRunInServiceHandler(api, options)),
 	} {
 		mux.Handle(route.path, route.handler)
 	}
@@ -46,6 +54,38 @@ func routeFrom(path string, handler http.Handler) struct {
 		path    string
 		handler http.Handler
 	}{path, handler}
+}
+
+// simulationInterceptor gives each Connect call the REST routes' simulation
+// lifecycle and reports native status codes as Connect codes. A procedure is a
+// write unless its REST binding is a GET, matching the REST routes' rule.
+func simulationInterceptor(rest *RESTApiHandler) connect.UnaryInterceptorFunc {
+	return func(next connect.UnaryFunc) connect.UnaryFunc {
+		return func(ctx context.Context, req connect.AnyRequest) (res connect.AnyResponse, err error) {
+			rest.serve(!boundToGET(req.Spec().Procedure), func() { res, err = next(ctx, req) })
+			if err == nil {
+				return res, nil
+			}
+			if st, ok := status.FromError(err); ok {
+				return nil, connect.NewError(connect.Code(st.Code()), errors.New(st.Message()))
+			}
+			return nil, err
+		}
+	}
+}
+
+func boundToGET(procedure string) bool {
+	name := protoreflect.FullName(strings.ReplaceAll(strings.TrimPrefix(procedure, "/"), "/", "."))
+	descriptor, err := protoregistry.GlobalFiles.FindDescriptorByName(name)
+	if err != nil {
+		return false
+	}
+	method, ok := descriptor.(protoreflect.MethodDescriptor)
+	if !ok {
+		return false
+	}
+	rule, _ := proto.GetExtension(method.Options(), annotations.E_Http).(*annotations.HttpRule)
+	return rule.GetGet() != ""
 }
 
 func connectResult[T any](msg *T, err error) (*connect.Response[T], error) {
