@@ -1,8 +1,6 @@
 package control
 
 import (
-	"context"
-	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -11,7 +9,6 @@ import (
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
 // Agent/ControlStream side of a Registry entry (fleetnode/gateway handler):
@@ -56,9 +53,9 @@ func (r *Registry) RegisterAuthenticated(
 
 func (r *Registry) registerLocked(fleetNodeID int64, maxCommandProtocolVersion gatewaypb.CommandProtocolVersion) *Stream {
 	if old, exists := r.conns[fleetNodeID]; exists {
-		r.invalidateConnectionRoutesLocked(fleetNodeID)
 		teardown(old)
 	}
+	delete(r.disconnectedAt, fleetNodeID)
 	conn := &connection{
 		outgoing:                  make(chan *gatewaypb.ControlCommand, outgoingBuffer),
 		done:                      make(chan struct{}),
@@ -99,9 +96,9 @@ func (r *Registry) disconnectLocked(fleetNodeID int64) {
 	if !ok {
 		return
 	}
-	r.invalidateConnectionRoutesLocked(fleetNodeID)
 	teardown(conn)
 	delete(r.conns, fleetNodeID)
+	r.disconnectedAt[fleetNodeID] = time.Now()
 }
 
 // Unregister tears the connection down so blocked senders/the handler wake. No-op if
@@ -113,16 +110,16 @@ func (s *Stream) Unregister() {
 	if !ok || conn != s.conn {
 		return
 	}
-	s.r.invalidateConnectionRoutesLocked(s.fleetNodeID)
 	teardown(conn)
 	delete(s.r.conns, s.fleetNodeID)
+	s.r.disconnectedAt[s.fleetNodeID] = time.Now()
 }
 
 // PublishAck routes an agent ack to its in-flight command: a report-bearing command
 // receives it as the terminal event on `events`; an ack-only command receives it on
 // `ack`. Unknown/stale/duplicate command_ids are dropped.
 func (s *Stream) PublishAck(ack *gatewaypb.ControlAck) {
-	s.r.deliverAckFrom(s.fleetNodeID, ack, s.conn)
+	s.r.deliverAck(s.fleetNodeID, ack)
 }
 
 // PublishBatch routes an agent discovery batch to the in-flight report-bearing command.
@@ -413,72 +410,13 @@ func artifactExpectationMatches(exp, want ArtifactExpectation) bool {
 	return true
 }
 
-// PairPersistMeta retains the operator context and admitted physical authority
-// the gateway needs to persist a pair result authoritatively.
+// PairPersistMeta is the operator context the gateway needs to persist a pair
+// result authoritatively, returned by AdmitAndScopePairResults.
 type PairPersistMeta struct {
-	RouteBinding
-	OrgID      int64
-	AssignedBy *int64
-	Snapshots  map[string]*pairingpb.FleetNodePairTarget
-
-	registry  *Registry
-	authority *haAuthority
-}
-
-// PersistenceContext keeps admitted writes bounded by their original physical
-// authority, independently of the operator's command session. Renewal extends
-// that same authority; replacing or expiring it cancels pending transactions.
-func (m PairPersistMeta) PersistenceContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	ctx, cancel := context.WithCancel(ctx)
-	if m.authority == nil {
-		return ctx, cancel
-	}
-	stop := context.AfterFunc(m.authority.ctx, cancel)
-	if m.authority.ctx.Err() != nil {
-		cancel()
-	}
-	return ctx, func() { stop(); cancel() }
-}
-
-// ValidateAuthority rechecks the admitted physical tuple after device-lock
-// waits. The resolver uses the caller's transaction without holding Registry.mu.
-func (m PairPersistMeta) ValidateAuthority(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("pairing persistence context: %w", err)
-	}
-	if m.registry == nil {
-		if m.Epoch == 0 {
-			return nil
-		}
-		return fleeterror.NewFailedPreconditionError("pairing report has no admitted HA authority")
-	}
-	m.registry.mu.Lock()
-	current := m.registry.haRoutes[m.OwnerNodeID]
-	valid := m.Epoch == 0 || (m.authority != nil && current == m.authority && current.ctx.Err() == nil && sameAuthority(current.route, m.RouteBinding) && time.Now().Before(current.route.ExpiresAt))
-	resolve := m.registry.haResolve
-	m.registry.mu.Unlock()
-	if !valid || (resolve == nil && m.Epoch > 0) {
-		return fleeterror.NewFailedPreconditionError("pairing report HA authority expired or changed")
-	}
-	if resolve == nil {
-		return nil
-	}
-	route, err := resolve(ctx, m.OwnerNodeID)
-	if err != nil {
-		return err
-	}
-	if !sameAuthority(route, m.RouteBinding) {
-		return fleeterror.NewFailedPreconditionError("pairing report HA authority changed")
-	}
-	if m.authority != nil {
-		if err := m.authority.ctx.Err(); err != nil {
-			return fmt.Errorf("pairing persistence authority: %w", err)
-		}
-	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("pairing persistence context: %w", err)
-	}
-	return nil
+	FleetNodeID int64
+	OrgID       int64
+	AssignedBy  *int64
+	Snapshots   map[string]*pairingpb.FleetNodePairTarget
 }
 
 // AdmitAndScopePairResults is the single atomic gate for the gateway's
@@ -515,12 +453,10 @@ func (r *Registry) AdmitAndScopePairResults(fleetNodeID int64, commandID string,
 	}
 	cmd.reported += len(kept)
 	return kept, PairPersistMeta{
-		RouteBinding: cmd.route,
-		OrgID:        cmd.pair.OrgID,
-		AssignedBy:   cmd.pair.AssignedBy,
-		Snapshots:    snapshots,
-		registry:     r,
-		authority:    cmd.authority,
+		FleetNodeID: fleetNodeID,
+		OrgID:       cmd.pair.OrgID,
+		AssignedBy:  cmd.pair.AssignedBy,
+		Snapshots:   snapshots,
 	}, nil
 }
 
@@ -545,18 +481,18 @@ func (r *Registry) ReinstatePairTargets(fleetNodeID int64, commandID string, ide
 	}
 }
 
-// ReportScopeFor returns the stable owner and scan scope captured by the
-// in-flight report command. ok=true with a nil matcher means
+// ReportScopeFor returns the scan-scope matcher for the in-flight report-bearing
+// command, or (nil, false) if commandID isn't one. ok=true with a nil matcher means
 // the command is in flight but unconstrained. Callers filter reported devices
 // through the matcher so a node can't report outside the requested scope.
-func (r *Registry) ReportScopeFor(fleetNodeID int64, commandID string) (int64, ReportScope, bool) {
+func (r *Registry) ReportScopeFor(fleetNodeID int64, commandID string) (ReportScope, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cmd := r.inflightFor(fleetNodeID, commandID)
 	if cmd == nil || !cmd.reportBearing() {
-		return 0, nil, false
+		return nil, false
 	}
-	return cmd.route.OwnerNodeID, cmd.scope, true
+	return cmd.scope, true
 }
 
 // deliverEvent routes a batch/ack event to an in-flight report-bearing command under
@@ -579,15 +515,8 @@ func (r *Registry) deliverEvent(fleetNodeID int64, commandID string, ev CommandE
 
 // deliverAck routes a terminal ack to its in-flight command under the mutex, by kind.
 func (r *Registry) deliverAck(fleetNodeID int64, ack *gatewaypb.ControlAck) {
-	r.deliverAckFrom(fleetNodeID, ack, nil)
-}
-
-func (r *Registry) deliverAckFrom(fleetNodeID int64, ack *gatewaypb.ControlAck, expected *connection) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if expected != nil && r.conns[fleetNodeID] != expected {
-		return
-	}
 	cmd := r.inflightFor(fleetNodeID, ack.GetCommandId())
 	if cmd == nil {
 		return // unknown/stale/duplicate command_id

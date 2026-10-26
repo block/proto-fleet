@@ -1,7 +1,10 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EnrollNodeModal from "./EnrollNodeModal";
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import {
+  FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 
@@ -25,13 +28,11 @@ const awaitingNode: FleetNodeItem = {
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: false,
   pairedDeviceCount: 0,
-  standbyEnrollmentEligible: false,
-  standbyEnrollmentUnavailableReason: "",
-  standbyForNodeId: null,
-  standbyForNodeName: "",
-  haRole: "",
+  haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
+  haPeerNodeId: null,
+  haPeerNodeName: "",
+  haStandbyReady: false,
   haStatusReason: "",
-  haOwnerNodeId: null,
   ipAddresses: [],
   version: "",
   enrolledBy: "",
@@ -68,49 +69,86 @@ beforeEach(() => {
 });
 
 describe("EnrollNodeModal", () => {
-  it("requires a server-eligible target before minting a standby code", async () => {
+  it("only offers confirmed nodes outside an HA pair as standby targets", async () => {
+    // Arrange
     mockListFleetNodes.mockResolvedValue([
       {
         ...awaitingNode,
         fleetNodeId: "1",
-        name: "active-node",
+        name: "standalone-node",
         enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
-        standbyEnrollmentEligible: true,
-        haRole: "active",
       },
       {
         ...awaitingNode,
         fleetNodeId: "2",
-        name: "unavailable-node",
+        name: "paired-node",
         enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
-        standbyEnrollmentEligible: false,
+        haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE,
+        haPeerNodeId: "3",
       },
+      { ...awaitingNode, fleetNodeId: "4", name: "unconfirmed-node" },
     ]);
     mockCreateEnrollmentCode.mockResolvedValue({ code: "standby-code", pendingEnrollmentId: "12", expiresAt: null });
     const { getByRole, getByText, queryByRole } = render(
       <EnrollNodeModal open onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />,
     );
+    await waitFor(() => expect(getByRole("checkbox", { name: "Enroll as a standby" })).toBeEnabled());
+
+    // Act
     fireEvent.click(getByRole("checkbox", { name: "Enroll as a standby" }));
     expect(getByRole("button", { name: "Continue" })).toBeDisabled();
     await waitFor(() => expect(getByRole("button", { name: "Standby for" })).toBeEnabled());
     fireEvent.click(getByRole("button", { name: "Standby for" }));
-    await waitFor(() => expect(getByRole("option", { name: "active-node" })).toBeInTheDocument());
-    expect(queryByRole("option", { name: "unavailable-node" })).not.toBeInTheDocument();
-    fireEvent.click(getByRole("option", { name: "active-node" }));
+    await waitFor(() => expect(getByRole("option", { name: "standalone-node" })).toBeInTheDocument());
+    expect(queryByRole("option", { name: "paired-node" })).not.toBeInTheDocument();
+    expect(queryByRole("option", { name: "unconfirmed-node" })).not.toBeInTheDocument();
+    fireEvent.click(getByRole("option", { name: "standalone-node" }));
     fireEvent.click(getByRole("button", { name: "Continue" }));
+
+    // Assert
     await waitFor(() => expect(mockCreateEnrollmentCode).toHaveBeenCalledWith("1"));
     expect(getByText("standby-code")).toBeInTheDocument();
   });
 
-  it("retains the standby relationship when resuming confirmation", () => {
-    const { getByText, queryByRole } = render(
-      <EnrollNodeModal
-        open
-        resumeNode={{ ...awaitingNode, standbyForNodeId: "1", standbyForNodeName: "active-node" }}
-        onDismiss={mockOnDismiss}
-        onUpdated={mockOnUpdated}
-      />,
+  it("disables the standby option when no node is eligible", async () => {
+    // Arrange
+    mockListFleetNodes.mockResolvedValue([
+      {
+        ...awaitingNode,
+        fleetNodeId: "2",
+        name: "standby-node",
+        enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
+        haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY,
+        haPeerNodeId: "3",
+      },
+    ]);
+
+    // Act
+    const { getByRole, getByText } = render(
+      <EnrollNodeModal open onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />,
     );
+
+    // Assert
+    await waitFor(() => expect(getByText(/No node can take a standby/)).toBeInTheDocument());
+    expect(getByRole("checkbox", { name: "Enroll as a standby" })).toBeDisabled();
+    expect(getByRole("button", { name: "Continue" })).toBeEnabled();
+  });
+
+  it("retains the standby relationship when resuming confirmation", () => {
+    // Arrange
+    const resumeNode = {
+      ...awaitingNode,
+      haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY,
+      haPeerNodeId: "1",
+      haPeerNodeName: "active-node",
+    };
+
+    // Act
+    const { getByText, queryByRole } = render(
+      <EnrollNodeModal open resumeNode={resumeNode} onDismiss={mockOnDismiss} onUpdated={mockOnUpdated} />,
+    );
+
+    // Assert
     expect(getByText("Standby for active-node")).toBeInTheDocument();
     expect(queryByRole("checkbox")).not.toBeInTheDocument();
     expect(mockCreateEnrollmentCode).not.toHaveBeenCalled();

@@ -87,11 +87,10 @@ func Encrypt(publicKey []byte, secret Secret) (*gatewaypb.NodeEncryptedPayload, 
 	}
 	ciphertext := aead.Seal(nil, nonce, plaintext, associatedData(secret.DeviceIdentifier))
 	return &gatewaypb.NodeEncryptedPayload{
-		RecipientPublicKey: append([]byte(nil), publicKey...),
-		Algorithm:          Algorithm,
-		EphemeralPubkey:    append([]byte(nil), ephemeral.PublicKey().Bytes()...),
-		Nonce:              nonce,
-		Ciphertext:         ciphertext,
+		Algorithm:       Algorithm,
+		EphemeralPubkey: append([]byte(nil), ephemeral.PublicKey().Bytes()...),
+		Nonce:           nonce,
+		Ciphertext:      ciphertext,
 	}, nil
 }
 

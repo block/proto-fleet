@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -23,7 +22,6 @@ import (
 
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
-	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -108,7 +106,12 @@ var errControlSenderClosed = errors.New("control session sender closed")
 var (
 	errControlSessionRotated = errors.New("control session credentials rotated")
 	errControlSessionExpired = errors.New("control session credentials expired")
+	errControlStreamSilent   = errors.New("control stream silent past keepalive deadline")
 )
+
+// minControlKeepaliveInterval keeps a misconfigured server from making the
+// node ping in a tight loop.
+const minControlKeepaliveInterval = time.Second
 
 // connect-go bidi streams are not safe for concurrent Send. The receive
 // loop's busy-ack and the worker's completion ack now share a stream;
@@ -165,29 +168,12 @@ func (r *RunCmd) runControlLoop(ctx context.Context, client gatewayClient, st *b
 		if err == nil {
 			return nil
 		}
-		if errors.Is(err, errRestartInitialization) {
-			credentials, reloadErr := ensureCredentialCodec(r.haStatePath, st)
-			if reloadErr != nil {
-				return fmt.Errorf("reload installed credential key: %w", reloadErr)
-			}
-			r.credentials = credentials
-			backoff = controlReconnectInitial
-			continue
-		}
-		if errors.Is(err, errRuntimeInitialization) {
-			return err
-		}
 		if errors.Is(err, bootstrap.ErrBeginAuthRejected) || connect.CodeOf(err) == connect.CodeNotFound {
 			return operatorActionRequired(err)
 		}
 		if connect.CodeOf(err) == connect.CodeUnimplemented {
 			// Old server: drop to heartbeat-only instead of looping forever.
 			loopLogger.Info("control stream unimplemented by server; running heartbeat-only", "err", err)
-			if !r.runtimeStarted && r.notifyReady != nil {
-				if err := r.notifyReady(); err != nil {
-					return fmt.Errorf("notify heartbeat-only readiness: %w", err)
-				}
-			}
 			return nil
 		}
 		sleep, nextBackoff := controlReconnectDelay(err, time.Since(started), backoff, rng)
@@ -238,14 +224,14 @@ func isNotActiveControlError(err error) bool {
 	return false
 }
 
-var errRestartInitialization = errors.New("credential key installed; restart initialization")
-var errRuntimeInitialization = errors.New("initialize device runtime")
-
 func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, client gatewayClient, st *bootstrap.State) error {
 	r.initControlConcurrency()
 	credentialCtx, endSession := r.beginControlSession(ctx, st)
 	defer endSession()
-	stream := client.ControlStream(credentialCtx)
+	// The keepalive watchdog cancels streamCtx to retire a silent stream.
+	streamCtx, cancelStream := context.WithCancelCause(credentialCtx)
+	defer cancelStream(context.Canceled)
+	stream := client.ControlStream(streamCtx)
 	// stream.Receive parks in http2.pipe on a sync.Cond ctx can't unblock;
 	// the watcher below closes the stream so Ctrl+C returns. Defers run
 	// LIFO: close(done) fires first so the watcher exits quietly on normal
@@ -255,38 +241,20 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	defer close(done)
 	go func() {
 		select {
-		case <-credentialCtx.Done():
+		case <-streamCtx.Done():
 			_ = stream.CloseRequest()
 			_ = stream.CloseResponse()
 		case <-done:
 		}
 	}()
 
-	instanceID, err := r.processInstanceID()
-	if err != nil {
-		return fmt.Errorf("create process incarnation: %w", err)
-	}
-	key := r.credentials.keySnapshot()
-	if len(key) == 0 {
-		r.stateMu.Lock()
-		key, _ = hex.DecodeString(st.CredentialKeyHex)
-		r.stateMu.Unlock()
-	}
-	var fingerprint []byte
-	if len(key) == credentialKeySize {
-		sum := sha256.Sum256(key)
-		fingerprint = sum[:]
-	}
 	if err := stream.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Hello{Hello: &pb.ControlHello{
 		MaxCommandProtocolVersion: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6,
-		HaCapable:                 true,
-		InstanceId:                instanceID,
-		CredentialKeyFingerprint:  fingerprint,
 	}}}); err != nil {
 		if ctx.Err() != nil {
 			return nil
 		}
-		if cause := context.Cause(credentialCtx); cause != nil {
+		if cause := context.Cause(streamCtx); cause != nil {
 			return fmt.Errorf("control session ended while sending hello: %w", cause)
 		}
 		return fmt.Errorf("send hello: %w", err)
@@ -296,32 +264,13 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 		if ctx.Err() != nil {
 			return nil
 		}
-		if cause := context.Cause(credentialCtx); cause != nil {
+		if cause := context.Cause(streamCtx); cause != nil {
 			return fmt.Errorf("control session ended while awaiting acceptance: %w", cause)
 		}
 		return fmt.Errorf("await accepted: %w", err)
 	}
 	if first.GetAccepted() == nil {
 		return fmt.Errorf("first server message was not Accepted")
-	}
-	accepted := first.GetAccepted()
-	if (accepted.GetHaOwnerNodeId() > 0 || accepted.GetPreparing()) && (accepted.GetHaOwnerNodeId() <= 0 || accepted.GetOrgId() <= 0 || accepted.GetControlSessionId() == "" || len(accepted.GetCredentialKeyFingerprint()) != credentialKeySize) {
-		return fmt.Errorf("%w: incomplete HA assignment", errRuntimeInitialization)
-	}
-	if !accepted.GetPreparing() && len(accepted.GetCredentialKeyFingerprint()) > 0 && !bytes.Equal(accepted.GetCredentialKeyFingerprint(), fingerprint) {
-		return fmt.Errorf("accepted credential key does not match installed key")
-	}
-	if accepted.GetPreparing() {
-		if r.runtimeStarted {
-			return fmt.Errorf("%w: preparation requires an unused node", errRuntimeInitialization)
-		}
-	} else if !r.runtimeStarted {
-		if r.initializeRuntime != nil {
-			if err := r.initializeRuntime(ctx); err != nil {
-				return fmt.Errorf("%w: %w", errRuntimeInitialization, err)
-			}
-		}
-		r.runtimeStarted = true
 	}
 	logger.Info("control stream opened",
 		"shared_command_limit", commandPoolSize,
@@ -332,48 +281,22 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 	// sessionCtx so a dropped stream cancels the in-flight scan immediately;
 	// without it the agent would burn up to commandTimeout finishing an old
 	// scan before opening a new session.
-	sessionCtx, cancelSession := context.WithCancel(credentialCtx)
+	sessionCtx, cancelSession := context.WithCancel(streamCtx)
 
 	// Serialize all sends on the bidi: the worker's completion ack and the
 	// receive loop's busy ack would otherwise race on stream.Send.
 	sender := &lockedAcker{inner: stream}
-	authority := newHAAuthority(sessionCtx, st.FleetNodeID, instanceID, accepted.GetControlSessionId())
-	authority.accept(accepted)
-	defer authority.close()
-	go func() {
-		select {
-		case <-authority.expired:
-			cancelSession()
-			_ = stream.CloseRequest()
-			_ = stream.CloseResponse()
-		case <-sessionCtx.Done():
-		}
-	}()
-	if accepted.GetHaOwnerNodeId() > 0 && !accepted.GetPreparing() {
-		go func() {
-			ticker := time.NewTicker(haRenewInterval)
-			defer ticker.Stop()
-			for {
-				request := authority.request(time.Now())
-				if request != nil {
-					if err := sender.Send(&pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_HaLease{HaLease: request}}); err != nil {
-						cancelSession()
-						_ = stream.CloseResponse()
-						return
-					}
-				}
-				select {
-				case <-sessionCtx.Done():
-					return
-				case <-ticker.C:
-				}
-			}
-		}()
-	}
 	defer func() {
 		cancelSession()
 		sender.Close()
 	}()
+
+	// Servers that predate keepalive leave the interval unset.
+	var received chan struct{}
+	if keepalive := first.GetAccepted().GetKeepaliveInterval().AsDuration(); keepalive > 0 {
+		received = make(chan struct{}, 1)
+		runControlKeepalive(sessionCtx, sender, received, max(keepalive, minControlKeepaliveInterval), cancelStream)
+	}
 
 	// Process-wide lanes owned by RunCmd:
 	//   - discovery and pairing are heavy, report-bearing scans that share an
@@ -392,7 +315,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 			if ctx.Err() != nil {
 				return nil
 			}
-			if cause := context.Cause(credentialCtx); cause != nil {
+			if cause := context.Cause(streamCtx); cause != nil {
 				return fmt.Errorf("control session ended: %w", cause)
 			}
 			if errors.Is(err, io.EOF) {
@@ -400,31 +323,18 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 			}
 			return fmt.Errorf("recv: %w", err)
 		}
-		if lease := msg.GetHaLease(); lease != nil {
-			authority.apply(lease, time.Now())
-			continue
+		select {
+		case received <- struct{}{}:
+		default:
 		}
 		cmd := msg.GetCommand()
 		if cmd == nil {
-			continue
-		}
-		if cmd.GetCommandId() == "" || len(cmd.GetCommandId()) > 128 {
 			continue
 		}
 		// Decode the envelope once here so we can pick a lane and handleCommand
 		// need not re-parse the payload. A malformed payload is not report-bearing:
 		// it takes the pool lane and handleCommand acks it BAD_REQUEST.
 		env, parseErr := decodeAgentCommand(cmd.GetPayload())
-		if parseErr == nil && env.GetHaKeyTransfer() != nil {
-			if r.handleHAKeyTransfer(sender, cmd, env.GetHaKeyTransfer(), authority, logger) {
-				return errRestartInitialization
-			}
-			continue
-		}
-		if !authority.allowed(cmd, time.Now()) {
-			r.sendAck(sender, cmd.GetCommandId(), pb.AckCode_ACK_CODE_HA_NOT_AUTHORIZED, "command not dispatched: no matching live HA authority", logger)
-			continue
-		}
 		admissionClass, commandKind := fleetnodecontrol.AdmissionForCommand(env)
 		releaseSlot, rejectReason, acquired := r.tryAcquireControlCommandSlotDetailed(admissionClass)
 		if acquired {
@@ -435,7 +345,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 				defer r.controlWorkers.Done()
 				started := time.Now()
 				workerAcker := &observedAcker{inner: sender}
-				_, commandSpan := startFleetNodeCommandSpan(sessionCtx, st.FleetNodeID, c, kind, class)
+				commandCtx, commandSpan := startFleetNodeCommandSpan(sessionCtx, st.FleetNodeID, c, kind, class)
 				defer commandSpan.End()
 				defer func() {
 					recordFleetNodeCommandResult(commandSpan, workerAcker.ack, workerAcker.sendErr)
@@ -459,16 +369,7 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 					}
 					logger.Debug("control command completed", attrs...)
 				}()
-				// Check inside the worker immediately before dispatch, even if the
-				// receive loop accepted it while a grant was still live.
-				workerCtx, authorized := authority.start(c, time.Now())
-				if !authorized {
-					r.sendAck(workerAcker, c.GetCommandId(), pb.AckCode_ACK_CODE_HA_NOT_AUTHORIZED, "command not dispatched: no matching live HA authority", logger)
-					return
-				}
-				workerCtx = trace.ContextWithSpan(workerCtx, commandSpan)
-				workerCtx = context.WithValue(workerCtx, haOwnerNodeIDKey{}, c.GetHaOwnerNodeId())
-				r.handleCommand(workerCtx, client, &haCommandAcker{ctx: workerCtx, inner: workerAcker}, c, e, pErr, logger)
+				r.handleCommand(commandCtx, client, workerAcker, c, e, pErr, logger)
 			}(cmd, env, parseErr, releaseSlot, admissionClass, commandKind)
 		} else {
 			sharedActive, deferrableActive, exclusiveActive := r.controlSlotOccupancy()
@@ -488,6 +389,45 @@ func (r *RunCmd) runControlSession(ctx context.Context, logger *slog.Logger, cli
 			commandSpan.End()
 		}
 	}
+}
+
+// runControlKeepalive pings fleetd every interval and retires the stream after
+// fleetnodecontrol.KeepaliveMisses intervals with no server message, so a
+// half-open connection reconnects in seconds rather than at a TCP timeout.
+// The watchdog has its own goroutine so a ping blocked on a dead connection
+// cannot delay it.
+func runControlKeepalive(ctx context.Context, sender acker, received <-chan struct{}, interval time.Duration, cancelStream context.CancelCauseFunc) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		ping := &pb.ControlStreamRequest{Kind: &pb.ControlStreamRequest_Ping{Ping: &pb.ControlPing{}}}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if sender.Send(ping) != nil {
+					return
+				}
+			}
+		}
+	}()
+	go func() {
+		deadline := fleetnodecontrol.KeepaliveMisses * interval
+		timer := time.NewTimer(deadline)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-received:
+				timer.Reset(deadline)
+			case <-timer.C:
+				cancelStream(errControlStreamSilent)
+				return
+			}
+		}
+	}()
 }
 
 func (r *RunCmd) beginControlSession(parent context.Context, st *bootstrap.State) (context.Context, func()) {
@@ -598,6 +538,10 @@ func (r *RunCmd) handleCommand(ctx context.Context, client gatewayClient, stream
 		r.handleTelemetryCommand(ctx, stream, commandID, k.Telemetry, logger)
 	case *pb.AgentCommand_RecoverMinerEndpoints:
 		r.handleRecoverMinerEndpoints(ctx, stream, commandID, k.RecoverMinerEndpoints, logger)
+	case *pb.AgentCommand_ExportCredentialKey:
+		r.handleExportCredentialKey(stream, commandID, k.ExportCredentialKey, logger)
+	case *pb.AgentCommand_InstallCredentialKey:
+		r.handleInstallCredentialKey(stream, commandID, k.InstallCredentialKey, logger)
 	default:
 		if len(env.ProtoReflect().GetUnknown()) > 0 {
 			r.sendAck(stream, commandID, pb.AckCode_ACK_CODE_UNIMPLEMENTED, "server-to-node command type is not supported", logger)
@@ -942,7 +886,7 @@ func (p *pluginDiscoverer) Probe(ctx context.Context, ipAddress, port string) (*
 	if dev == nil {
 		return nil, nil
 	}
-	return reportFromDiscovered(dev, ipAddress, port, discoveryOwnerNodeID(ctx, p.fleetNodeID)), nil
+	return reportFromDiscovered(dev, ipAddress, port, p.fleetNodeID), nil
 }
 
 func (p *pluginDiscoverer) ProbeRecovery(ctx context.Context, ipAddress, port string) (stableidentity.Identity, string, string, error) {

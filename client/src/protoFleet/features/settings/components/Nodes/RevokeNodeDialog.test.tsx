@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import RevokeNodeDialog from "./RevokeNodeDialog";
+import { FleetNodeHARole } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 
 describe("RevokeNodeDialog", () => {
   it("groups ASIC-rs miners by manufacturer and model instead of driver", () => {
@@ -28,46 +29,83 @@ describe("RevokeNodeDialog", () => {
     expect(screen.queryByText(/ASIC-RS/)).not.toBeInTheDocument();
   });
 
-  it.each(["active", "standby"])("preserves shared pairings when revoking an HA %s with other members", (haRole) => {
+  const haProps = {
+    open: true,
+    nodeName: "node-01",
+    affectedDevices: [{ manufacturer: "Proto", model: "Rig" }],
+    isLoadingImpact: false,
+    impactError: "",
+    onConfirm: vi.fn(),
+    onDismiss: vi.fn(),
+    isSubmitting: false,
+    peerName: "node-02",
+  };
+
+  it("hands devices to a ready, connected standby when revoking the active node", () => {
+    // Arrange
+    const peerNode = { name: "node-02", controlStreamConnected: true };
+
+    // Act
     render(
       <RevokeNodeDialog
-        open
-        nodeName="node-01"
-        affectedDevices={[{ manufacturer: "Proto", model: "Rig" }]}
-        isLoadingImpact={false}
-        impactError=""
-        onConfirm={vi.fn()}
-        onDismiss={vi.fn()}
-        isSubmitting={false}
-        haRole={haRole}
-        isHaMember
-        hasOtherMembers
+        {...haProps}
+        haRole={FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE}
+        haStandbyReady
+        peerNode={peerNode}
       />,
     );
-    expect(screen.getByText(/pairings and stored miner credentials are retained/)).toBeInTheDocument();
+
+    // Assert
+    expect(screen.getByText(/Its devices move to node-02 before the node is revoked/)).toBeInTheDocument();
+    expect(screen.getByText(/the HA pair is removed/)).toBeInTheDocument();
     expect(screen.queryByText(/will lose connection/)).not.toBeInTheDocument();
-    if (haRole === "active") expect(screen.getByText(/lease expires/)).toBeInTheDocument();
   });
 
-  it("explains cleanup when the final HA member is removed", () => {
-    render(
-      <RevokeNodeDialog
-        open
-        nodeName="last-node"
-        affectedDevices={[{ manufacturer: "Proto", model: "Rig" }]}
-        isLoadingImpact={false}
-        impactError=""
-        onConfirm={vi.fn()}
-        onDismiss={vi.fn()}
-        isSubmitting={false}
-        haRole="standby"
-        isHaMember
-        hasOtherMembers={false}
-      />,
-    );
-    expect(screen.getByText(/This is the final member/)).toBeInTheDocument();
-    expect(screen.getByText(/Its miner pairings and stored miner credentials are removed/)).toBeInTheDocument();
-    expect(screen.getByText("1 paired Proto Rig miner will lose connection.")).toBeInTheDocument();
+  it.each([
+    ["not ready", false, true, "isn't ready"],
+    ["not connected", true, false, "isn't connected"],
+  ])(
+    "warns that devices are unpaired when the standby is %s",
+    (_label, haStandbyReady, controlStreamConnected, reason) => {
+      // Arrange
+      const peerNode = { name: "node-02", controlStreamConnected };
+
+      // Act
+      render(
+        <RevokeNodeDialog
+          {...haProps}
+          haRole={FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE}
+          haStandbyReady={haStandbyReady}
+          peerNode={peerNode}
+        />,
+      );
+
+      // Assert
+      expect(screen.getByText(/miner pairings and stored miner credentials are removed/)).toBeInTheDocument();
+      expect(screen.getByText(new RegExp(`since node-02 ${reason} to take over`))).toBeInTheDocument();
+      expect(screen.getByText("1 paired Proto Rig miner will lose connection.")).toBeInTheDocument();
+    },
+  );
+
+  it("warns that devices are unpaired when the standby is missing from the node list", () => {
+    // Act
+    render(<RevokeNodeDialog {...haProps} haRole={FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE} haStandbyReady />);
+
+    // Assert
+    expect(screen.getByText(/since node-02 isn't connected to take over/)).toBeInTheDocument();
+  });
+
+  it("explains that the peer keeps its devices when revoking a standby", () => {
+    // Arrange
+    const peerNode = { name: "node-02", controlStreamConnected: true };
+
+    // Act
+    render(<RevokeNodeDialog {...haProps} haRole={FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY} peerNode={peerNode} />);
+
+    // Assert
+    expect(screen.getByText(/the HA pair is removed\. node-02 keeps its devices/)).toBeInTheDocument();
+    expect(screen.queryByText(/will lose connection/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/No paired miners/)).not.toBeInTheDocument();
   });
 
   it("requires a successful impact preview before revocation", () => {

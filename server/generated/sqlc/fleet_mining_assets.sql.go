@@ -77,7 +77,7 @@ WITH assets AS (
  LEFT JOIN device_pairing dp ON dp.device_id=d.id
  LEFT JOIN device_status ds ON ds.device_id=d.id
  LEFT JOIN fleet_node_device fnd ON fnd.device_id=d.id AND fnd.org_id=d.org_id
- LEFT JOIN fleet_node_effective_live fn ON fn.id=fnd.fleet_node_id AND fn.org_id=d.org_id
+ LEFT JOIN fleet_node_live fn ON fn.id=fnd.fleet_node_id AND fn.org_id=d.org_id
  LEFT JOIN device_set_rack rack ON r.kind=5 AND rack.device_set_id=r.group_id
  LEFT JOIN LATERAL (
    SELECT count(DISTINCT (e.device_id, e.component_type)) FILTER (WHERE e.component_type IN (1,2,3,4))::bigint AS issue_count, array_agg(DISTINCT e.component_type) AS issue_types,

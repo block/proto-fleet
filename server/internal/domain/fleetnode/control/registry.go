@@ -34,8 +34,6 @@ command that reused its command_id.
 package control
 
 import (
-	"bytes"
-	"context"
 	"errors"
 	"sync"
 	"time"
@@ -54,6 +52,10 @@ const commandEventBuffer = 64
 // exceeds the node's command worker-pool ceiling so concurrent Send/SendCommand to
 // one node enqueue without serializing behind the gateway's single drain loop.
 const outgoingBuffer = 1024
+
+// KeepaliveMisses is how many negotiated keepalive intervals of silence either
+// end of a V6 ControlStream tolerates before closing it.
+const KeepaliveMisses = 3
 
 // MaxConcurrentCommandArtifactUploadsPerFleetNode bounds upload streams before
 // their first message can be matched to a command expectation.
@@ -178,9 +180,6 @@ type artifactExpectation struct {
 // connection is the server's view of one agent ControlStream. It can hold many
 // concurrent in-flight commands keyed by command_id. Fields guarded by Registry.mu.
 type connection struct {
-	haHello                   *gatewaypb.ControlHello
-	haSessionID               string
-	orgID                     int64
 	outgoing                  chan *gatewaypb.ControlCommand // commands to the ControlStream handler (buffered, never closed)
 	done                      chan struct{}                  // closed once on evict/Unregister; wakes the handler and blocked senders
 	cmds                      map[string]*inflightCommand    // in-flight commands by command_id
@@ -191,11 +190,7 @@ type connection struct {
 // channel determines its shape: report-bearing commands carry `events` (plus
 // scope/reported); ack-only commands carry `ack`.
 type inflightCommand struct {
-	route                  RouteBinding
-	authority              *haAuthority
-	provisioning           bool
-	terminalOnInterruption bool
-	id                     string
+	id string
 
 	// report-bearing (events != nil): discovery/pairing batches + terminal ack.
 	kind       ReportKind        // which gateway report RPC may admit reports for this command
@@ -221,14 +216,14 @@ type inflightCommand struct {
 func (c *inflightCommand) reportBearing() bool { return c.events != nil }
 
 type Registry struct {
-	haResolve                func(context.Context, int64) (RouteBinding, error)
-	haRoutes                 map[int64]*haAuthority
-	haActivations            map[int64]bool
 	mu                       sync.Mutex
 	conns                    map[int64]*connection
 	sessionFences            map[int64]sessionFence
 	commandArtifactUploads   map[int64]int
 	commandArtifactDownloads map[int64]int
+	// started and disconnectedAt answer DisconnectedSince for HA failover.
+	started        time.Time
+	disconnectedAt map[int64]time.Time
 }
 
 type sessionFence struct {
@@ -239,12 +234,34 @@ type sessionFence struct {
 func NewRegistry() *Registry {
 	return &Registry{
 		conns:                    make(map[int64]*connection),
-		haRoutes:                 make(map[int64]*haAuthority),
-		haActivations:            make(map[int64]bool),
 		sessionFences:            make(map[int64]sessionFence),
 		commandArtifactUploads:   make(map[int64]int),
 		commandArtifactDownloads: make(map[int64]int),
+		started:                  time.Now(),
+		disconnectedAt:           make(map[int64]time.Time),
 	}
+}
+
+// Connected reports whether fleetNodeID has an active ControlStream.
+func (r *Registry) Connected(fleetNodeID int64) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.conns[fleetNodeID] != nil
+}
+
+// DisconnectedSince reports when fleetNodeID's last ControlStream ended. A node
+// that has not connected since this registry started counts as disconnected
+// since then. ok is false while the node is connected.
+func (r *Registry) DisconnectedSince(fleetNodeID int64) (since time.Time, ok bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.conns[fleetNodeID] != nil {
+		return time.Time{}, false
+	}
+	if since, ok := r.disconnectedAt[fleetNodeID]; ok {
+		return since, true
+	}
+	return r.started, true
 }
 
 // ConnectedFleetNodeIDs returns the fleet_node IDs with an active ControlStream
@@ -316,11 +333,7 @@ func (r *Registry) inflightFor(fleetNodeID int64, commandID string) *inflightCom
 	if conn == nil {
 		return nil
 	}
-	cmd := conn.cmds[commandID]
-	if cmd != nil && cmd.authority != nil && (cmd.authority.ctx.Err() != nil || !time.Now().Before(cmd.authority.route.ExpiresAt)) {
-		return nil
-	}
-	return cmd
+	return conn.cmds[commandID] // nil if absent
 }
 
 // addCmd registers c under its command_id, returning ErrNoActiveStream if the node
@@ -334,19 +347,6 @@ func (r *Registry) addCmd(fleetNodeID int64, minimumCommandProtocolVersion gatew
 	conn, ok := r.conns[fleetNodeID]
 	if !ok {
 		return nil, nil, ErrNoActiveStream
-	}
-	if _, activating := r.haActivations[c.route.OwnerNodeID]; activating && !c.provisioning {
-		return nil, nil, fleeterror.NewUnavailableErrorf("fleet node HA activation is pending")
-	}
-	if (c.route.ControlSessionID != "" && c.route.ControlSessionID != conn.haSessionID) || (c.route.InstanceID != "" && c.route.InstanceID != conn.haHello.GetInstanceId()) {
-		return nil, nil, fleeterror.NewUnavailableErrorf("fleet node route changed before enqueue")
-	}
-	if c.route.Epoch > 0 {
-		authority := r.haRoutes[c.route.OwnerNodeID]
-		if authority == nil || authority.ctx.Err() != nil || !sameAuthority(authority.route, c.route) || !bytes.Equal(authority.route.EncryptionPublicKey, c.route.EncryptionPublicKey) || !time.Now().Before(authority.route.ExpiresAt) {
-			return nil, nil, fleeterror.NewUnavailableErrorf("fleet node HA authority changed before enqueue")
-		}
-		c.authority = authority
 	}
 	if conn.maxCommandProtocolVersion < minimumCommandProtocolVersion {
 		return nil, nil, fleeterror.NewFailedPreconditionErrorf(

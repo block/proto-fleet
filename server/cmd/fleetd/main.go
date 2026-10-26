@@ -347,15 +347,8 @@ func start(config *Config) (result error) {
 	fleetNodePairingStore := sqlstores.NewSQLFleetNodePairingStore(conn)
 	fleetNodePairingSvc := fleetnodepairing.NewService(fleetNodePairingStore, fleetNodeEnrollmentStore, transactor)
 	fleetNodeControlRegistry := control.NewRegistry()
-	fleetNodeHASvc := fleetnodeha.NewService(conn, fleetNodeControlRegistry)
-	fleetNodeHASvc.WithAudit(activitySvc, transactor)
-	fleetNodeEnrollmentSvc.WithHA(fleetNodeHASvc)
-	fleetNodeControlRegistry.SetHARouteResolver(func(ctx context.Context, ownerID int64) (control.RouteBinding, error) {
-		return fleetNodeHASvc.Resolve(ctx, ownerID, 0)
-	})
 	fleetNodeEnrollmentSvc.WithControlStreamInvalidator(fleetNodeControlRegistry.RevokeSession)
 	fleetNodeDiscoverySvc := fleetnodediscovery.NewService(fleetNodeControlRegistry, fleetNodeEnrollmentSvc)
-	fleetNodeDiscoverySvc.WithOwnerResolver(fleetNodeHASvc.EffectiveOwner)
 	fleetNodeAuthStore := sqlstores.NewSQLFleetNodeAuthStore(conn)
 	fleetNodeAuthSvc := fleetnodeauth.NewService(fleetNodeAuthStore, fleetNodeEnrollmentStore, apiKeySvc)
 
@@ -450,10 +443,6 @@ func start(config *Config) (result error) {
 	discoverer := pluginService.CreateDiscoverer()
 	discoveredDeviceStore := sqlstores.NewSQLDiscoveredDeviceStore(conn)
 
-	fleetNodePairingSvc.WithHAOwnerResolver(func(ctx context.Context, ownerID, orgID int64) error {
-		_, err := fleetNodeHASvc.Resolve(ctx, ownerID, orgID)
-		return err
-	})
 	fleetNodePairingSvc.WithProvisioning(deviceStore, discoveredDeviceStore, fleetNodeControlRegistry)
 
 	timescaledbService, err := timescaledb.NewTelemetryStore(conn, config.TimescaleDB)
@@ -538,17 +527,9 @@ func start(config *Config) (result error) {
 	pairingSvc.WithOptionsCache(fleetOptionsCache)
 	fleetNodePairingSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
 	fleetNodeEnrollmentSvc.WithMinerInvalidator(minerService.InvalidateMinerByID)
-	fleetNodeHASvc.WithLeadershipInvalidator(func(ctx context.Context, ownerID, orgID int64) {
-		devices, err := fleetNodeEnrollmentStore.ListDevicesForFleetNodeRevocation(ctx, ownerID, orgID)
-		if err != nil {
-			slog.Warn("failed to invalidate Fleet Node HA miner handles", "owner_node_id", ownerID, "err", err)
-			return
-		}
-		for _, device := range devices {
-			minerService.InvalidateMiner(device.Identifier)
-		}
-	})
 	fleetNodeEnrollmentSvc.WithTelemetryRemover(telemetryService.RemoveUnpairedDevices)
+	fleetNodeHASvc := fleetnodeha.NewService(conn, transactor, fleetNodeControlRegistry, activitySvc, minerService.InvalidateMinerByID)
+	fleetNodeEnrollmentSvc.WithHA(fleetNodeHASvc)
 
 	// Initialize IP scanner service
 	ipScannerService := ipscanner.NewIPScannerService(
@@ -842,6 +823,7 @@ func start(config *Config) (result error) {
 		curtailmentRigConfig:      mqttSettingsSvc,
 		curtailmentAlertMetrics:   curtailmentAlertMetrics,
 		chunkedUploadCleanup:      chunkedUploadCleanup,
+		fleetNodeFailover:         newBackgroundLoop(fleetNodeHASvc.Run),
 		systemMonitoring:          systemMonitoring,
 		haReadiness:               haReadiness,
 		releaseChecker:            releaseCheckerJob,
@@ -960,12 +942,12 @@ func start(config *Config) (result error) {
 		connect.WithReadMaxBytes(sitemapDomain.MaxImportBytes+1024),
 	))
 	mux.Handle(fleetnodegatewayv1connect.NewFleetNodeGatewayServiceHandler(
-		gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry, filesService).WithHA(fleetNodeHASvc),
+		gateway.NewHandler(fleetNodeEnrollmentSvc, fleetNodeAuthSvc, fleetNodePairingSvc, fleetNodeControlRegistry, filesService),
 		li,
 		gateway.CommandArtifactUploadReadLimitOption(),
 		gateway.BootstrapRateLimitOption(),
 	))
-	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(admin.NewHandler(fleetNodeEnrollmentSvc, fleetNodePairingSvc, fleetNodeDiscoverySvc, fleetNodeControlRegistry).WithHA(fleetNodeHASvc), li))
+	mux.Handle(fleetnodeadminv1connect.NewFleetNodeAdminServiceHandler(admin.NewHandler(fleetNodeEnrollmentSvc, fleetNodePairingSvc, fleetNodeDiscoverySvc, fleetNodeControlRegistry, fleetNodeHASvc), li))
 	mux.Handle(collectionv1connect.NewDeviceCollectionServiceHandler(collectionHandler.NewHandler(collectionSvc), li))
 	mux.Handle(device_setv1connect.NewDeviceSetServiceHandler(devicesetHandler.NewHandler(collectionSvc), li))
 	mux.Handle(telemetryv1connect.NewTelemetryServiceHandler(telemetryHandler.NewHandler(telemetryService), li))

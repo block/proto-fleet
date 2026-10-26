@@ -355,7 +355,7 @@ SELECT
 FROM fleet_node_device fnd
 JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id AND d.deleted_at IS NULL
 JOIN device_pairing dp ON dp.device_id = d.id
-JOIN fleet_node_effective_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
+JOIN fleet_node fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 JOIN discovered_device dd ON dd.id = d.discovered_device_id
 LEFT JOIN miner_credentials mc ON d.id = mc.device_id
 LEFT JOIN device_write_fence f ON f.device_id=d.id AND f.organization_id=d.org_id
@@ -427,19 +427,4 @@ func (q *Queries) GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Conte
 		&i.WriteEpoch,
 	)
 	return i, err
-}
-
-const hasFleetNodeAssignmentByDeviceIdentifier = `-- name: HasFleetNodeAssignmentByDeviceIdentifier :one
-SELECT EXISTS (
-    SELECT 1 FROM fleet_node_device fnd
-    JOIN device d ON d.id = fnd.device_id AND d.org_id = fnd.org_id
-    WHERE d.device_identifier = $1 AND d.deleted_at IS NULL
-)
-`
-
-func (q *Queries) HasFleetNodeAssignmentByDeviceIdentifier(ctx context.Context, deviceIdentifier string) (bool, error) {
-	row := q.queryRow(ctx, q.hasFleetNodeAssignmentByDeviceIdentifierStmt, hasFleetNodeAssignmentByDeviceIdentifier, deviceIdentifier)
-	var exists bool
-	err := row.Scan(&exists)
-	return exists, err
 }

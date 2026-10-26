@@ -49,16 +49,8 @@ type nodeRegistry interface {
 
 // Service runs discovery commands against connected fleet nodes.
 type Service struct {
-	ownerResolver func(context.Context, int64, int64) (int64, error)
-	registry      nodeRegistry
-	enrollment    nodeLister
-}
-
-// WithOwnerResolver keeps authenticated physical membership out of discovery's
-// stable device ownership and excludes non-active members from fan-out.
-func (s *Service) WithOwnerResolver(resolve func(context.Context, int64, int64) (int64, error)) *Service {
-	s.ownerResolver = resolve
-	return s
+	registry   nodeRegistry
+	enrollment nodeLister
 }
 
 func NewService(registry nodeRegistry, enrollmentSvc nodeLister) *Service {
@@ -66,7 +58,7 @@ func NewService(registry nodeRegistry, enrollmentSvc nodeLister) *Service {
 }
 
 // EligibleNodeIDs returns the confirmed, connected nodes that support current
-// discovery commands.
+// discovery commands. HA standbys are excluded; their active node discovers.
 func (s *Service) EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, error) {
 	nodes, err := s.enrollment.ListFleetNodes(ctx, orgID)
 	if err != nil {
@@ -74,26 +66,15 @@ func (s *Service) EligibleNodeIDs(ctx context.Context, orgID int64) ([]int64, er
 	}
 	confirmed := make(map[int64]struct{}, len(nodes))
 	for _, n := range nodes {
-		if n.EnrollmentStatus == enrollment.FleetNodeStatusConfirmed {
+		if n.EnrollmentStatus == enrollment.FleetNodeStatusConfirmed && !n.IsHAStandby() {
 			confirmed[n.ID] = struct{}{}
 		}
 	}
 	connected := s.registry.ConnectedFleetNodeIDs()
 	out := make([]int64, 0, len(connected))
-	seen := make(map[int64]bool)
 	for _, nodeID := range connected {
 		if _, ok := confirmed[nodeID]; ok && !s.registry.CommandProtocolUpgradeRequired(nodeID) {
-			ownerID := nodeID
-			if s.ownerResolver != nil {
-				ownerID, err = s.ownerResolver(ctx, nodeID, orgID)
-				if err != nil {
-					continue
-				}
-			}
-			if !seen[ownerID] {
-				out = append(out, ownerID)
-				seen[ownerID] = true
-			}
+			out = append(out, nodeID)
 		}
 	}
 	return out, nil

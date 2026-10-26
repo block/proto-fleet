@@ -1,9 +1,11 @@
 import { create, toJsonString } from "@bufbuild/protobuf";
 import { expect, test } from "../fixtures/pageFixtures";
+import { createNodeSummary, fulfillFleetNodes } from "../helpers/rbacAdminTestSetup";
 import {
   ConfirmFleetNodeResponseSchema,
   CreateEnrollmentCodeResponseSchema,
   FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
   FleetNodeSummarySchema,
   ListFleetNodesResponseSchema,
 } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
@@ -24,15 +26,16 @@ test.describe("Node enrollment intent", () => {
         fleetNodeId: 7n,
         name: "active-node",
         enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
-        standbyEnrollmentEligible: true,
         controlStreamConnected: true,
         pairedDeviceCount: 25n,
       });
-      const unavailable = create(FleetNodeSummarySchema, {
+      const alreadyPaired = create(FleetNodeSummarySchema, {
         fleetNodeId: 8n,
-        name: "unavailable-node",
+        name: "paired-node",
         enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
-        standbyEnrollmentEligible: false,
+        haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE,
+        haPeerNodeId: 12n,
+        haPeerNodeName: "paired-standby",
       });
       await page.route(/FleetNodeAdminService\//, async (route) => {
         const method = route.request().url().split("/").pop();
@@ -45,17 +48,18 @@ test.describe("Node enrollment intent", () => {
             enrollmentStatus: confirmed
               ? FleetNodeEnrollmentStatus.CONFIRMED
               : FleetNodeEnrollmentStatus.AWAITING_CONFIRMATION,
-            standbyForNodeId: standby ? 7n : undefined,
-            standbyForNodeName: standby ? "active-node" : "",
-            haRole: standby && confirmed ? "standby" : "",
-            haOwnerNodeId: standby && confirmed ? 7n : undefined,
+            haRole: standby
+              ? FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY
+              : FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
+            haPeerNodeId: standby ? 7n : undefined,
+            haPeerNodeName: standby ? "active-node" : "",
           });
           await route.fulfill({
             contentType: "application/json",
             body: toJsonString(
               ListFleetNodesResponseSchema,
               create(ListFleetNodesResponseSchema, {
-                fleetNodes: [active, unavailable, ...(registered ? [pending] : [])],
+                fleetNodes: [active, alreadyPaired, ...(registered ? [pending] : [])],
               }),
             ),
           });
@@ -96,7 +100,7 @@ test.describe("Node enrollment intent", () => {
         await settingsNodesPage.validateEnrollNodeModalOpened();
         expect(codeRequests).toEqual([]);
         // eslint-disable-next-line playwright/no-conditional-in-test -- the two deterministic cases share the confirmation flow.
-        if (standby) await settingsNodesPage.chooseStandbyFor("active-node", "unavailable-node");
+        if (standby) await settingsNodesPage.chooseStandbyFor("active-node", "paired-node");
         await settingsNodesPage.continueEnrollment();
         await settingsNodesPage.validateEnrollmentCode("test-enrollment-code");
         expect(codeRequests).toEqual([standby ? { standbyForNodeId: "7" } : {}]);
@@ -114,4 +118,88 @@ test.describe("Node enrollment intent", () => {
       });
     });
   }
+});
+
+test.describe("Node HA pair display", () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
+
+  test("shows roles, a preparing standby, and role-specific revoke copy", async ({
+    page,
+    commonSteps,
+    settingsNodesPage,
+  }) => {
+    const lastSeenAt = new Date();
+    await page.route(/FleetNodeAdminService\/ListFleetNodes/, async (route) =>
+      fulfillFleetNodes(route, [
+        createNodeSummary({
+          fleetNodeId: 7n,
+          name: "active-node",
+          enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
+          identityFingerprint: "SHA256:ha-active",
+          lastSeenAt,
+          extra: {
+            controlStreamConnected: true,
+            haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE,
+            haPeerNodeId: 8n,
+            haPeerNodeName: "standby-node",
+            haStandbyReady: false,
+            haStatusReason: "Waiting for both nodes to connect",
+          },
+        }),
+        createNodeSummary({
+          fleetNodeId: 8n,
+          name: "standby-node",
+          enrollmentStatus: FleetNodeEnrollmentStatus.CONFIRMED,
+          identityFingerprint: "SHA256:ha-standby",
+          lastSeenAt,
+          extra: {
+            controlStreamConnected: true,
+            haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY,
+            haPeerNodeId: 7n,
+            haPeerNodeName: "active-node",
+            haStandbyReady: false,
+            haStatusReason: "Waiting for both nodes to connect",
+          },
+        }),
+      ]),
+    );
+    await page.route(/FleetNodeAdminService\/ListFleetNodeDevices/, async (route) =>
+      route.fulfill({ contentType: "application/json", body: "{}" }),
+    );
+
+    await test.step("Show each member's role and peer in the Nodes list", async () => {
+      await page.goto("/");
+      await commonSteps.loginAsAdmin();
+      await settingsNodesPage.navigateToNodesSettings();
+      await settingsNodesPage.waitForNodesListToLoad();
+      await settingsNodesPage.validateNodeRowText("active-node", "Standby: standby-node");
+      await settingsNodesPage.validateNodeRowText("active-node", "Active");
+      await settingsNodesPage.validateNodeRowText("standby-node", "Standby for active-node");
+      await settingsNodesPage.validateNodeRowText("standby-node", "Standby · preparing");
+    });
+
+    await test.step("Show HA details and block discovery on the standby", async () => {
+      await settingsNodesPage.openNodeDetails("standby-node");
+      await settingsNodesPage.validateNodeDetailsHa("Standby", "Standby for", "active-node", "No");
+      await settingsNodesPage.validateNodeDetailsHaStatus("Waiting for both nodes to connect");
+      await settingsNodesPage.validateFindMinersDisabledForStandby();
+      await page.keyboard.press("Escape");
+    });
+
+    await test.step("Warn that an unready standby cannot take over when revoking the active node", async () => {
+      await settingsNodesPage.clickNodeActionsMenu("active-node");
+      await settingsNodesPage.clickNodeAction("Revoke");
+      await settingsNodesPage.validateRevokeDialogText(
+        "active-node",
+        "standby-node can't take over because it isn't ready",
+      );
+      await page.keyboard.press("Escape");
+    });
+
+    await test.step("Say the peer keeps its devices when revoking the standby", async () => {
+      await settingsNodesPage.clickNodeActionsMenu("standby-node");
+      await settingsNodesPage.clickNodeAction("Revoke");
+      await settingsNodesPage.validateRevokeDialogText("standby-node", "active-node keeps its devices");
+    });
+  });
 });

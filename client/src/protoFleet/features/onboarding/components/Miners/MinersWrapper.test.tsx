@@ -3,7 +3,10 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import MinersPage from "./MinersWrapper";
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import {
+  FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { NetworkInfoSchema } from "@/protoFleet/api/generated/networkinfo/v1/networkinfo_pb";
 import { DeviceSchema } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
 import { type FleetNodeItem, useFleetNodes } from "@/protoFleet/api/useFleetNodes";
@@ -110,13 +113,11 @@ function fleetNode(overrides: Partial<FleetNodeItem> = {}): FleetNodeItem {
     commandProtocolUpgradeRecommended: false,
     controlStreamConnected: true,
     pairedDeviceCount: 0,
-    standbyEnrollmentEligible: false,
-    standbyEnrollmentUnavailableReason: "",
-    standbyForNodeId: null,
-    standbyForNodeName: "",
-    haRole: "",
+    haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
+    haPeerNodeId: null,
+    haPeerNodeName: "",
+    haStandbyReady: false,
     haStatusReason: "",
-    haOwnerNodeId: null,
     ipAddresses: [],
     version: "",
     enrolledBy: "",

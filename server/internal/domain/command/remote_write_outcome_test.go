@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,7 +11,6 @@ import (
 	"go.uber.org/mock/gomock"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
-	"github.com/block/proto-fleet/server/generated/sqlc"
 	minerMocks "github.com/block/proto-fleet/server/internal/domain/command/mocks"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
@@ -20,111 +18,12 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/miner/dto"
 	"github.com/block/proto-fleet/server/internal/domain/miner/remotenode"
-	"github.com/block/proto-fleet/server/internal/infrastructure/id"
 )
 
 type writeOutcomeSender struct {
 	calls int
 	ack   *gatewaypb.ControlAck
 	err   error
-}
-
-func TestQueuedHAInterruptionDoesNotReplayOrBlockNewHostWrite(t *testing.T) {
-	for _, interruption := range []string{"disconnect", "node_ack", "first_activation"} {
-		t.Run(interruption, func(t *testing.T) {
-			service, conn, _, deviceID, identifier := setupPasswordCommandDevice(t, "proto", false)
-			first, messages := enqueueFenceTestCommand(t, conn, deviceID, commandtype.StopMining, nil)
-			registry := control.NewRegistry()
-			initialMember := int64(20)
-			if interruption == "first_activation" {
-				initialMember = 7
-			}
-			stream := registry.Register(initialMember)
-			defer stream.Unregister()
-			stream.SetHAConnection(1, &gatewaypb.ControlHello{HaCapable: true, InstanceId: "old-process"}, "old-session")
-			var active atomic.Int64
-			active.Store(initialMember)
-			resolve := func(context.Context, int64) (control.RouteBinding, error) {
-				member := active.Load()
-				instance, session, epoch := "old-process", "old-session", int64(1)
-				if member == 7 {
-					epoch = 0
-				}
-				if member == 21 {
-					instance, session, epoch = "new-process", "new-session", 2
-				}
-				return control.RouteBinding{OwnerNodeID: 7, PhysicalNodeID: member, Epoch: epoch, InstanceID: instance, ControlSessionID: session, ExpiresAt: time.Now().Add(time.Minute)}, nil
-			}
-			registry.SetHARouteResolver(resolve)
-			initialRoute, err := resolve(t.Context(), 7)
-			require.NoError(t, err)
-			registry.SetHARoute(initialRoute)
-			miner, err := remotenode.New(remotenode.Config{WriteGate: func(ctx context.Context, _ commandtype.Type, call func(context.Context) error) error {
-				return devicewrite.NewService(conn).RunHost(ctx, 1, deviceID, first.WriteEpoch, call)
-			}, Sender: registry, FleetNodeID: 7, OrgID: 1, DeviceIdentifier: identifier, DriverName: "proto", IPAddress: "192.0.2.10", Port: "443", URLScheme: "https"})
-			require.NoError(t, err)
-			getter := minerMocks.NewMockCachedMinerGetter(gomock.NewController(t))
-			getter.EXPECT().GetMinerForCommand(gomock.Any(), deviceID).Return(miner, nil).Times(2)
-			service.minerService = getter
-			service.messageQueue = messages
-			finished := make(chan struct{})
-			go func() { service.workerProcessCommand(t.Context(), first); close(finished) }()
-			var dispatched *gatewaypb.ControlCommand
-			select {
-			case dispatched = <-stream.Outgoing:
-			case <-time.After(5 * time.Second):
-				t.Fatal("write was not dispatched")
-			}
-			if interruption == "first_activation" {
-				registry.BeginHAActivation(7)
-			}
-			if interruption == "node_ack" {
-				stream.PublishAck(&gatewaypb.ControlAck{CommandId: dispatched.GetCommandId(), Code: gatewaypb.AckCode_ACK_CODE_COMMAND_INTERRUPTED, ErrorMessage: "execution authority expired"})
-			} else if interruption == "first_activation" {
-				registry.FinishHAActivation(7)
-			} else {
-				stream.Unregister()
-			}
-			select {
-			case <-finished:
-			case <-time.After(5 * time.Second):
-				t.Fatal("interrupted write did not finish")
-			}
-			var status string
-			require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT status FROM queue_message WHERE id=$1", first.ID).Scan(&status))
-			require.Equal(t, "FAILED", status)
-			remaining, err := messages.Dequeue(t.Context(), 1)
-			require.NoError(t, err)
-			require.Empty(t, remaining, "interrupted work must not replay")
-			current := registry.Register(21)
-			defer current.Unregister()
-			current.SetHAConnection(1, &gatewaypb.ControlHello{HaCapable: true, InstanceId: "new-process"}, "new-session")
-			active.Store(21)
-			nextRoute, err := resolve(t.Context(), 7)
-			require.NoError(t, err)
-			registry.SetHARoute(nextRoute)
-			batch := id.GenerateID()
-			var userID int64
-			require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT id FROM \"user\" LIMIT 1").Scan(&userID))
-			_, err = sqlc.New(conn).CreateCommandBatchLog(t.Context(), sqlc.CreateCommandBatchLogParams{Uuid: batch, Type: first.CommandType.String(), CreatedBy: userID, CreatedAt: time.Now(), Status: sqlc.BatchStatusEnumPENDING, DevicesCount: 1, OrganizationID: sql.NullInt64{Int64: 1, Valid: true}})
-			require.NoError(t, err)
-			require.NoError(t, messages.Enqueue(t.Context(), batch, commandtype.StopMining, []int64{deviceID}, nil))
-			next, err := messages.Dequeue(t.Context(), 1)
-			require.NoError(t, err)
-			require.Len(t, next, 1)
-			second := next[0]
-			go func() {
-				command := <-current.Outgoing
-				current.PublishAck(&gatewaypb.ControlAck{CommandId: command.CommandId, Code: gatewaypb.AckCode_ACK_CODE_OK, Succeeded: true})
-			}()
-			service.workerProcessCommand(t.Context(), second)
-			require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT status FROM queue_message WHERE id=$1", second.ID).Scan(&status))
-			require.Equal(t, "SUCCESS", status)
-			require.NoError(t, conn.QueryRowContext(t.Context(), "SELECT status FROM device_write_attempt WHERE queue_message_id=$1", first.ID).Scan(&status))
-			require.Equal(t, "unknown", status, "new work must not erase the interrupted attempt")
-
-		})
-	}
 }
 
 func (s *writeOutcomeSender) SendCommand(context.Context, int64, gatewaypb.CommandProtocolVersion, *gatewaypb.ControlCommand) (*gatewaypb.ControlAck, error) {

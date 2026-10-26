@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import type { FleetNodeDeviceSummary } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import {
+  FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
@@ -152,7 +155,10 @@ const NodesPage = () => {
 
   const detailsNode = nodes.find((node) => node.fleetNodeId === detailsNodeId) ?? null;
   const findingNode = nodes.find((node) => node.fleetNodeId === findingNodeId) ?? null;
-  const pairingStateKey = findingNode?.haOwnerNodeId ?? findingNode?.fleetNodeId ?? "";
+
+  const revokePeerNode = revokeNodeData?.haPeerNodeId
+    ? (nodes.find((node) => node.fleetNodeId === revokeNodeData.haPeerNodeId) ?? null)
+    : null;
 
   const dismissRevoke = useCallback(() => {
     revokeImpactRequestRef.current++;
@@ -234,10 +240,10 @@ const NodesPage = () => {
         component: (node: FleetNodeItem) => (
           <div>
             <span className="text-emphasis-300">{node.name}</span>
-            {node.standbyForNodeId ? (
+            {node.haRole !== FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED ? (
               <div className="text-200 text-text-primary-50">
-                {node.haRole ? "Device set: " : "Standby for "}
-                {node.standbyForNodeName || node.standbyForNodeId}
+                {node.haRole === FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY ? "Standby for " : "Standby: "}
+                {node.haPeerNodeName || node.haPeerNodeId}
               </div>
             ) : null}
           </div>
@@ -265,9 +271,7 @@ const NodesPage = () => {
         width: "w-56",
       },
       miners: {
-        component: (node: FleetNodeItem) => (
-          <span>{node.haOwnerNodeId && node.haOwnerNodeId !== node.fleetNodeId ? "—" : node.pairedDeviceCount}</span>
-        ),
+        component: (node: FleetNodeItem) => <span>{node.pairedDeviceCount}</span>,
         width: "w-32",
       },
       lastSeen: {
@@ -347,13 +351,13 @@ const NodesPage = () => {
           key={findingNode.fleetNodeId}
           node={findingNode}
           canPair={Boolean(canPairMiners)}
-          blockedPairingIdentifiers={blockedPairingByNode[pairingStateKey] ?? []}
-          settledPairingRevision={finderRevisionByNode[pairingStateKey] ?? 0}
+          blockedPairingIdentifiers={blockedPairingByNode[findingNode.fleetNodeId] ?? []}
+          settledPairingRevision={finderRevisionByNode[findingNode.fleetNodeId] ?? 0}
           onDismiss={() => setFindingNodeId(null)}
           onUpdated={handleNodesUpdated}
-          onPairingStarted={(identifiers) => rememberPairing(pairingStateKey, identifiers)}
-          onPairingCompleted={(identifiers) => forgetPairing(pairingStateKey, identifiers)}
-          onPairingSettledAfterDismiss={() => refreshReopenedFinder(pairingStateKey)}
+          onPairingStarted={(identifiers) => rememberPairing(findingNode.fleetNodeId, identifiers)}
+          onPairingCompleted={(identifiers) => forgetPairing(findingNode.fleetNodeId, identifiers)}
+          onPairingSettledAfterDismiss={() => refreshReopenedFinder(findingNode.fleetNodeId)}
           scanOnNode={scanOnNode}
         />
       ) : null}
@@ -362,16 +366,9 @@ const NodesPage = () => {
         nodeName={revokeNodeData?.name ?? ""}
         affectedDevices={revokeDevices}
         haRole={revokeNodeData?.haRole}
-        isHaMember={Boolean(revokeNodeData?.haOwnerNodeId)}
-        hasOtherMembers={Boolean(
-          revokeNodeData?.haOwnerNodeId &&
-          nodes.some(
-            (node) =>
-              node.fleetNodeId !== revokeNodeData.fleetNodeId &&
-              node.haOwnerNodeId === revokeNodeData.haOwnerNodeId &&
-              node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED,
-          ),
-        )}
+        haStandbyReady={revokeNodeData?.haStandbyReady}
+        peerNode={revokePeerNode}
+        peerName={revokeNodeData?.haPeerNodeName}
         isLoadingImpact={revokeImpactLoading}
         impactError={revokeImpactError}
         onConfirm={handleRevokeConfirm}

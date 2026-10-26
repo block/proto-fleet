@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -32,18 +33,25 @@ type Handler struct {
 
 var _ fleetnodeadminv1connect.FleetNodeAdminServiceHandler = &Handler{}
 
-func NewHandler(enrollment *enrollment.Service, pairing *pairing.Service, discoverySvc *discovery.Service, registry *control.Registry) *Handler {
-	return &Handler{enrollment: enrollment, pairing: pairing, discovery: discoverySvc, registry: registry}
+func NewHandler(enrollment *enrollment.Service, pairing *pairing.Service, discoverySvc *discovery.Service, registry *control.Registry, haSvc *ha.Service) *Handler {
+	return &Handler{enrollment: enrollment, pairing: pairing, discovery: discoverySvc, registry: registry, ha: haSvc}
 }
-
-func (h *Handler) WithHA(service *ha.Service) *Handler { h.ha = service; return h }
 
 func (h *Handler) CreateEnrollmentCode(ctx context.Context, req *connect.Request[pb.CreateEnrollmentCodeRequest]) (*connect.Response[pb.CreateEnrollmentCodeResponse], error) {
 	info, err := middleware.RequirePermission(ctx, authz.PermFleetnodeManage, authz.ResourceContext{})
 	if err != nil {
 		return nil, err
 	}
-	code, pendingEnrollmentID, expiresAt, err := h.enrollment.CreateCodeForStandby(ctx, info.UserID, info.OrganizationID, 0, req.Msg.StandbyForNodeId)
+	var (
+		code                string
+		pendingEnrollmentID int64
+		expiresAt           time.Time
+	)
+	if req.Msg.StandbyForNodeId != nil {
+		code, pendingEnrollmentID, expiresAt, err = h.enrollment.CreateStandbyCode(ctx, info.UserID, info.OrganizationID, 0, req.Msg.GetStandbyForNodeId())
+	} else {
+		code, pendingEnrollmentID, expiresAt, err = h.enrollment.CreateCodeWithEnrollmentID(ctx, info.UserID, info.OrganizationID, 0)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -72,22 +80,15 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 			return nil, err
 		}
 	}
-	var haSummaries map[int64]ha.NodeSummary
-	if h.ha != nil && includeAdministrativeDetails {
-		haSummaries, err = h.ha.ListSummaries(ctx, info.OrganizationID)
-		if err != nil {
-			return nil, err
-		}
-	}
 	connected := make(map[int64]struct{})
 	for _, fleetNodeID := range h.registry.ConnectedFleetNodeIDs() {
 		connected[fleetNodeID] = struct{}{}
 	}
-	resp := &pb.ListFleetNodesResponse{FleetNodes: make([]*pb.FleetNodeSummary, 0, len(fleetNodes))}
-	ownerNames := make(map[int64]string, len(fleetNodes))
-	for _, node := range fleetNodes {
-		ownerNames[node.ID] = node.Name
+	names := make(map[int64]string, len(fleetNodes))
+	for _, n := range fleetNodes {
+		names[n.ID] = n.Name
 	}
+	resp := &pb.ListFleetNodesResponse{FleetNodes: make([]*pb.FleetNodeSummary, 0, len(fleetNodes))}
 	for _, n := range fleetNodes {
 		_, controlStreamConnected := connected[n.ID]
 		summary := &pb.FleetNodeSummary{
@@ -96,28 +97,9 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 			CommandProtocolUpgradeRecommended: h.registry.CommandProtocolUpgradeRecommended(n.ID),
 			ControlStreamConnected:            controlStreamConnected,
 		}
-		if h.ha != nil && includeAdministrativeDetails {
-			membership := haSummaries[n.ID]
-			summary.StandbyEnrollmentEligible = membership.Eligible
-			summary.StandbyEnrollmentUnavailableReason = membership.EligibilityReason
-			summary.StandbyForNodeId = n.StandbyOwnerNodeID
-			summary.StandbyForNodeName = n.StandbyOwnerName
-			summary.HaRole = membership.Role
-			summary.HaStatusReason = membership.Reason
-			if membership.OwnerNodeID != 0 {
-				summary.HaOwnerNodeId = &membership.OwnerNodeID
-				if n.ID != membership.OwnerNodeID {
-					summary.StandbyForNodeId = &membership.OwnerNodeID
-					summary.StandbyForNodeName = ownerNames[membership.OwnerNodeID]
-				}
-			}
-		}
 		if includeAdministrativeDetails {
 			summary.FleetNodeId = n.ID
 			summary.PairedDeviceCount = pairedCounts[n.ID]
-			if summary.HaOwnerNodeId != nil && n.ID != summary.GetHaOwnerNodeId() {
-				summary.PairedDeviceCount = 0
-			}
 			summary.Name = n.Name
 			summary.IpAddresses = n.IPAddresses
 			summary.Version = n.Version
@@ -130,6 +112,7 @@ func (h *Handler) ListFleetNodes(ctx context.Context, _ *connect.Request[pb.List
 			if n.LastSeenAt != nil {
 				summary.LastSeenAt = timestamppb.New(*n.LastSeenAt)
 			}
+			setHASummary(summary, n, names)
 		}
 		resp.FleetNodes = append(resp.FleetNodes, summary)
 	}
@@ -176,14 +159,7 @@ func (h *Handler) PairDeviceToFleetNode(ctx context.Context, req *connect.Reques
 		return nil, err
 	}
 	assignedBy := info.UserID
-	fleetNodeID := req.Msg.GetFleetNodeId()
-	if h.ha != nil {
-		fleetNodeID, err = h.ha.DispatchOwner(ctx, fleetNodeID, info.OrganizationID)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if err := h.pairing.PairDevice(ctx, fleetNodeID, req.Msg.GetDeviceId(), info.OrganizationID, &assignedBy); err != nil {
+	if err := h.pairing.PairDevice(ctx, req.Msg.GetFleetNodeId(), req.Msg.GetDeviceId(), info.OrganizationID, &assignedBy); err != nil {
 		return nil, err
 	}
 	return connect.NewResponse(&pb.PairDeviceToFleetNodeResponse{}), nil
@@ -207,12 +183,6 @@ func (h *Handler) ListFleetNodeDevices(ctx context.Context, req *connect.Request
 	}
 	var pairs []pairing.FleetNodeDevice
 	if fleetNodeID := req.Msg.GetFleetNodeId(); fleetNodeID > 0 {
-		if h.ha != nil {
-			fleetNodeID, err = h.ha.CanonicalOwner(ctx, fleetNodeID, info.OrganizationID)
-			if err != nil {
-				return nil, err
-			}
-		}
 		pairs, err = h.pairing.ListDevicesForFleetNode(ctx, fleetNodeID, info.OrganizationID)
 	} else {
 		pairs, err = h.pairing.ListPairs(ctx, info.OrganizationID)
@@ -256,22 +226,15 @@ func (h *Handler) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[
 		return fleeterror.NewInvalidArgumentError("request is required")
 	}
 
-	if h.ha != nil {
-		fleetNodeID, err = h.ha.DispatchOwner(ctx, fleetNodeID, info.OrganizationID)
-		if err != nil {
-			return err
-		}
-	}
 	node, err := h.enrollment.GetFleetNodeByID(ctx, fleetNodeID, info.OrganizationID)
 	if err != nil {
 		return err
 	}
-	if h.ha != nil {
-		if _, err := h.ha.Resolve(ctx, fleetNodeID, info.OrganizationID); err != nil {
-			return err
-		}
-	} else if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
+	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
 		return fleeterror.NewFailedPreconditionError("fleet node is not CONFIRMED")
+	}
+	if err := h.ha.RequireNotStandby(ctx, info.OrganizationID, fleetNodeID); err != nil {
+		return err
 	}
 
 	return h.discovery.RunOnNode(ctx, fleetNodeID, fmt.Sprintf("Fleet Node %d", fleetNodeID), discoverReq, func(batch *pairingpb.DiscoverResponse) error {
@@ -280,6 +243,29 @@ func (h *Handler) DiscoverOnFleetNode(ctx context.Context, req *connect.Request[
 		}
 		return nil
 	})
+}
+
+// setHASummary reports pair membership. A node awaiting confirmation as a
+// standby reports its target as the peer before the pair exists.
+func setHASummary(summary *pb.FleetNodeSummary, n enrollment.FleetNodeListing, names map[int64]string) {
+	var peer *int64
+	switch {
+	case n.HAActiveNodeID != nil && *n.HAActiveNodeID == n.ID:
+		summary.HaRole = pb.FleetNodeHARole_FLEET_NODE_HA_ROLE_ACTIVE
+		peer = n.HAStandbyNodeID
+	case n.IsHAStandby():
+		summary.HaRole = pb.FleetNodeHARole_FLEET_NODE_HA_ROLE_STANDBY
+		peer = n.HAActiveNodeID
+	case n.StandbyForNodeID != nil:
+		summary.HaRole = pb.FleetNodeHARole_FLEET_NODE_HA_ROLE_STANDBY
+		peer = n.StandbyForNodeID
+	default:
+		return
+	}
+	summary.HaPeerNodeId = peer
+	summary.HaPeerNodeName = names[*peer]
+	summary.HaStandbyReady = n.HAStandbyReady
+	summary.HaStatusReason = n.HAStatusReason
 }
 
 // AWAITING_CONFIRMATION lives only on pending_enrollment, so a PENDING fleet

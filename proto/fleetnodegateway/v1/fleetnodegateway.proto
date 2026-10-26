@@ -12,6 +12,7 @@ import "common/v1/cooling.proto";
 import "common/v1/common.proto";
 import "curtailment/v1/curtailment.proto";
 import "errors/v1/errors.proto";
+import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "minercommand/v1/command.proto";
 import "pairing/v1/pairing.proto";
@@ -271,7 +272,7 @@ message ControlStreamRequest {
 
         ControlHello hello = 1;
         ControlAck   ack   = 2;
-        HALeaseRequest ha_lease = 3;
+        ControlPing  ping  = 3;
     }
 }
 
@@ -281,7 +282,6 @@ message ControlStreamResponse {
 
         ControlAccepted accepted = 1;
         ControlCommand  command  = 2;
-        HALeaseResponse ha_lease = 3;
     }
 }
 
@@ -301,27 +301,25 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V4 = 4;
     // V5 adds module mining with expected hardware identity.
     COMMAND_PROTOCOL_VERSION_V5 = 5;
+    // V6 adds standby credential key transfer. V6 nodes also send ControlPing
+    // when ControlAccepted asks for a keepalive.
     COMMAND_PROTOCOL_VERSION_V6 = 6;
 }
 
 message ControlHello {
     // Highest server-to-node command protocol version this fleet node supports.
     CommandProtocolVersion max_command_protocol_version = 1;
-    bool ha_capable = 2;
-    string instance_id = 3 [(buf.validate.field).string.max_len = 128];
-    bytes credential_key_fingerprint = 4 [(buf.validate.field).bytes.max_len = 32];
 }
 
 message ControlAccepted {
     google.protobuf.Timestamp server_time = 1;
-    string control_session_id = 2;
-    // Zero keeps standalone nodes outside the HA lease protocol. Preparing
-    // members install the expected key before starting their device runtime.
-    int64 ha_owner_node_id = 3;
-    bool preparing = 4;
-    int64 org_id = 5;
-    bytes credential_key_fingerprint = 6;
+    // Set for V6 nodes. The server repeats ControlAccepted and the node sends
+    // ControlPing at this interval; either side ends the stream after three
+    // intervals without a message from the other.
+    google.protobuf.Duration keepalive_interval = 2;
 }
+
+message ControlPing {}
 
 // TraceContext carries W3C trace propagation fields for one server-issued
 // command. Fleet nodes treat missing or invalid context as a new trace.
@@ -331,54 +329,9 @@ message TraceContext {
 }
 
 message ControlCommand {
-    string command_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
-    bytes  payload    = 2 [(buf.validate.field).bytes.max_len = 1048576];
+    string       command_id    = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
+    bytes        payload       = 2 [(buf.validate.field).bytes.max_len = 1048576];
     TraceContext trace_context = 3;
-    int64 ha_owner_node_id = 4;
-    int64 ha_lease_epoch = 5;
-    string intended_instance_id = 6;
-    string control_session_id = 7;
-}
-
-// Requests are correlated to the node's monotonic send time. Heartbeats do not
-// renew HA authority. A grant is routable only after its epoch is acknowledged.
-message HALeaseRequest {
-    string request_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
-    int64 acknowledged_epoch = 2 [(buf.validate.field).int64.gte = 0];
-}
-
-message HALeaseResponse {
-    string request_id = 1;
-    int64 owner_node_id = 2;
-    int64 active_node_id = 3;
-    int64 lease_epoch = 4;
-    int64 lease_duration_ms = 5;
-    bool granted = 6;
-    bool preparing = 7;
-    string instance_id = 8;
-    string control_session_id = 9;
-    int64 org_id = 10;
-}
-
-// A source exports only its credential key, sealed to the independently
-// enrolled recipient. The server forwards ciphertext without decrypting it.
-message HAKeyTransfer {
-    string operation_id = 1 [(buf.validate.field).string = {min_len: 1, max_len: 128}];
-    int64 org_id = 2 [(buf.validate.field).int64.gt = 0];
-    int64 owner_node_id = 3 [(buf.validate.field).int64.gt = 0];
-    int64 source_node_id = 4 [(buf.validate.field).int64.gt = 0];
-    int64 recipient_node_id = 5 [(buf.validate.field).int64.gt = 0];
-    bytes recipient_public_key = 6 [(buf.validate.field).bytes.len = 32];
-    bytes credential_key_fingerprint = 7 [(buf.validate.field).bytes.len = 32];
-    google.protobuf.Timestamp expires_at = 8 [(buf.validate.field).required = true];
-    // Absent on export, present on import. The envelope authenticates all
-    // transfer metadata, including the operation and intended recipient.
-    NodeEncryptedPayload encrypted_key = 9;
-}
-
-message HAKeyTransferResult {
-    NodeEncryptedPayload encrypted_key = 1;
-    bytes credential_key_fingerprint = 2;
 }
 
 // MinerConnectionDescriptor tells a fleet node how to reach one of its local
@@ -529,8 +482,6 @@ message NodeEncryptedPayload {
     bytes ephemeral_pubkey = 2 [(buf.validate.field).bytes.len = 32];
     bytes nonce            = 3 [(buf.validate.field).bytes.len = 12];
     bytes ciphertext       = 4 [(buf.validate.field).bytes = {min_len: 17, max_len: 8192}];
-    // Pins queued ciphertext to the recipient key used during preparation.
-    bytes recipient_public_key = 5 [(buf.validate.field).bytes.max_len = 32];
 }
 
 message UpdateMinerPasswordAction {
@@ -653,6 +604,7 @@ message GetErrorsResult {
 //   3 = MinerCommand miner_command   (per-miner command path)
 //   4 = FleetNodeTelemetryRequest telemetry (per-miner telemetry path)
 //   5 = RecoverMinerEndpointsRequest recover_miner_endpoints (offline endpoint recovery)
+//   6, 7 = standby credential key export and install
 message AgentCommand {
     oneof command {
         option (buf.validate.oneof).required = true;
@@ -662,8 +614,28 @@ message AgentCommand {
         MinerCommand miner_command = 3;
         telemetry.v1.FleetNodeTelemetryRequest telemetry = 4;
         RecoverMinerEndpointsRequest recover_miner_endpoints = 5;
-        HAKeyTransfer ha_key_transfer = 6;
+        ExportCredentialKey export_credential_key = 6;
+        InstallCredentialKey install_credential_key = 7;
     }
+}
+
+// Seals the active node's miner credential key to its standby so the standby
+// can open the active node's stored miner credentials after failover. The
+// server forwards the sealed key without being able to read it.
+message ExportCredentialKey {
+    bytes recipient_public_key = 1 [(buf.validate.field).bytes.len = 32];
+}
+
+// Replaces a standby's unused credential key with its active node's key.
+message InstallCredentialKey {
+    NodeEncryptedPayload sealed_key = 1 [(buf.validate.field).required = true];
+}
+
+// ControlAck payload for both credential key commands. sealed_key is set only
+// by export. fingerprint is the SHA-256 of the key the node now holds.
+message CredentialKeyResult {
+    NodeEncryptedPayload sealed_key = 1;
+    bytes fingerprint = 2 [(buf.validate.field).bytes.len = 32];
 }
 
 message ControlAck {
@@ -695,12 +667,6 @@ enum AckCode {
     ACK_CODE_INTERNAL        = 7;
     // BUSY: agent already has a command in flight; safe to retry shortly.
     ACK_CODE_BUSY            = 8;
-    // A trusted node refuses this command before device dispatch because its
-    // HA grant or intended process/session does not match. Safe to resolve anew.
-    ACK_CODE_HA_NOT_AUTHORIZED = 12;
-    // Work started, then lost execution authority. Its physical outcome is
-    // unknown; terminally fail the attempt without replaying it on another node.
-    ACK_CODE_COMMAND_INTERRUPTED = 13;
     // UNAUTHENTICATED: the miner rejected the supplied/derived credentials. The
     // server evicts the cached miner handle so the next attempt re-resolves creds.
     ACK_CODE_UNAUTHENTICATED = 9;

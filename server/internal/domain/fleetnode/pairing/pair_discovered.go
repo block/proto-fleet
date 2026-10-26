@@ -11,9 +11,7 @@ import (
 	minercommandv1 "github.com/block/proto-fleet/server/generated/grpc/minercommand/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
-	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/credentialblob"
-	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	minermodels "github.com/block/proto-fleet/server/internal/domain/miner/models"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
@@ -179,9 +177,7 @@ func pairingStatusFilterValues(statuses []fleetmanagementv1.PairingStatus) ([]st
 // record AUTHENTICATION_NEEDED for retry; ERROR/UNSPECIFIED persist nothing.
 // expected is the immutable target captured before dispatch, not a fresh lookup.
 func (s *Service) PersistFleetNodePairResult(ctx context.Context, meta control.PairPersistMeta, result *gatewaypb.FleetNodePairResult) (string, error) {
-	fleetNodeID, orgID, assignedBy := meta.OwnerNodeID, meta.OrgID, meta.AssignedBy
-	ctx, cancel := meta.PersistenceContext(ctx)
-	defer cancel()
+	fleetNodeID, orgID, assignedBy := meta.FleetNodeID, meta.OrgID, meta.AssignedBy
 	if s.deviceStore == nil || s.discoveredDeviceStore == nil {
 		return "", fleeterror.NewInternalError("fleet node pairing provisioning is not configured")
 	}
@@ -248,22 +244,7 @@ func (s *Service) PersistFleetNodePairResult(ctx context.Context, meta control.P
 			}
 		}
 
-		reporter, err := s.enrollmentStore.LockFleetNodeByID(ctx, meta.PhysicalNodeID, orgID)
-		if err != nil {
-			if fleeterror.IsNotFoundError(err) {
-				return fleeterror.NewNotFoundError("reporting fleet node not found")
-			}
-			return logInternal("lock reporting fleet node", clientErrLookupFleetNodeForPairing, err)
-		}
-		if reporter.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
-			return fleeterror.NewFailedPreconditionError("reporting fleet node is not confirmed")
-		}
-		if meta.PhysicalNodeID != fleetNodeID {
-			if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
-				return err
-			}
-		}
-		if err := meta.ValidateAuthority(ctx); err != nil {
+		if err := s.lockFleetNodeForPairing(ctx, fleetNodeID, orgID); err != nil {
 			return err
 		}
 

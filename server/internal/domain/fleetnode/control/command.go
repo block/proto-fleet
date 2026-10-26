@@ -37,20 +37,11 @@ func (r *Registry) SendCommandWithArtifactResults(ctx context.Context, fleetNode
 	ctx, span := startCommandDispatchSpan(ctx, fleetNodeID, "", cmd)
 	defer func() { finishCommandDispatchSpan(span, resultErr) }()
 
-	route, bound, routeErr := r.resolveCommand(ctx, fleetNodeID, cmd)
-	if routeErr != nil {
-		return nil, nil, commandNotEnqueued(routeErr)
-	}
-	cmd = bound
-	fleetNodeID = route.PhysicalNodeID
-	provisioning, _ := ctx.Value(provisioningContextKey{}).(bool)
 	c := &inflightCommand{
-		provisioning: provisioning,
-		route:        route,
-		id:           cmd.GetCommandId(),
-		ack:          make(chan *gatewaypb.ControlAck, 1), // never closed
-		artifacts:    cloneArtifactExpectations(artifacts),
-		done:         make(chan struct{}),
+		id:        cmd.GetCommandId(),
+		ack:       make(chan *gatewaypb.ControlAck, 1), // never closed
+		artifacts: cloneArtifactExpectations(artifacts),
+		done:      make(chan struct{}),
 	}
 	outgoing, connDone, err := r.addCmd(fleetNodeID, minimumCommandProtocolVersion, c)
 	if err != nil {
@@ -62,30 +53,28 @@ func (r *Registry) SendCommandWithArtifactResults(ctx context.Context, fleetNode
 	// Always free the slot: on ack, disconnect, or ctx expiry.
 	defer r.removeCmd(fleetNodeID, c)
 
-	if err := r.enqueue(ctx, outgoing, connDone, cmd, c); err != nil {
+	if err := r.enqueue(ctx, outgoing, connDone, cmd); err != nil {
 		return nil, nil, commandNotEnqueued(err)
 	}
 
-	var waitErr error
 	select {
 	case ack := <-c.ack:
 		recordCommandAck(span, ack)
 		refs, resultErr := r.completedUploadRefs(ack, c)
 		return ack, refs, resultErr
 	case <-c.done:
-		waitErr = ErrNoActiveStream
+		// teardown raced the ack; drain a late ack before giving up so select
+		// randomness can't drop a terminal result that landed with the teardown.
+		select {
+		case ack := <-c.ack:
+			recordCommandAck(span, ack)
+			refs, resultErr := r.completedUploadRefs(ack, c)
+			return ack, refs, resultErr
+		default:
+			return nil, nil, ErrNoActiveStream
+		}
 	case <-ctx.Done():
-		waitErr = fleeterror.NewInternalErrorf("await ack: %w", ctx.Err())
-	}
-	// Disconnect and lease cancellation can race an already accepted result.
-	// Preserve that terminal result before completing the interruption.
-	select {
-	case ack := <-c.ack:
-		recordCommandAck(span, ack)
-		refs, resultErr := r.completedUploadRefs(ack, c)
-		return ack, refs, resultErr
-	default:
-		return nil, nil, r.interrupted(c, waitErr)
+		return nil, nil, fleeterror.NewInternalErrorf("await ack: %w", ctx.Err())
 	}
 }
 

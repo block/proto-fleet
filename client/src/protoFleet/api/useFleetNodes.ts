@@ -7,6 +7,7 @@ import type {
   FleetNodeDeviceSummary,
   FleetNodeDiscoveredDevice,
   FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
   FleetNodeSummary,
 } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { Credentials, DiscoverRequest, DiscoverResponse } from "@/protoFleet/api/generated/pairing/v1/pairing_pb";
@@ -23,13 +24,11 @@ export interface FleetNodeItem {
   commandProtocolUpgradeRecommended: boolean;
   controlStreamConnected: boolean;
   pairedDeviceCount: number;
-  standbyEnrollmentEligible: boolean;
-  standbyEnrollmentUnavailableReason: string;
-  standbyForNodeId: string | null;
-  standbyForNodeName: string;
-  haRole: string;
+  haRole: FleetNodeHARole;
+  haPeerNodeId: string | null;
+  haPeerNodeName: string;
+  haStandbyReady: boolean;
   haStatusReason: string;
-  haOwnerNodeId: string | null;
   ipAddresses: string[];
   version: string;
   enrolledBy: string;
@@ -60,13 +59,11 @@ function toFleetNodeItem(summary: FleetNodeSummary): FleetNodeItem {
     commandProtocolUpgradeRecommended: summary.commandProtocolUpgradeRecommended,
     controlStreamConnected: summary.controlStreamConnected,
     pairedDeviceCount: Number(summary.pairedDeviceCount),
-    standbyEnrollmentEligible: summary.standbyEnrollmentEligible,
-    standbyEnrollmentUnavailableReason: summary.standbyEnrollmentUnavailableReason,
-    standbyForNodeId: summary.standbyForNodeId?.toString() ?? null,
-    standbyForNodeName: summary.standbyForNodeName,
     haRole: summary.haRole,
+    haPeerNodeId: summary.haPeerNodeId?.toString() ?? null,
+    haPeerNodeName: summary.haPeerNodeName,
+    haStandbyReady: summary.haStandbyReady,
     haStatusReason: summary.haStatusReason,
-    haOwnerNodeId: summary.haOwnerNodeId?.toString() ?? null,
     createdAt: toDate(summary.createdAt),
     lastSeenAt: toDate(summary.lastSeenAt),
   };

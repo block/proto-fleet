@@ -92,6 +92,13 @@ func (s *SQLFleetNodePairingStore) DeviceHasActivePairing(ctx context.Context, d
 	})
 }
 
+func (s *SQLFleetNodePairingStore) IsFleetNodeHAStandby(ctx context.Context, fleetNodeID, orgID int64) (bool, error) {
+	return s.q(ctx).IsFleetNodeHAStandby(ctx, sqlc.IsFleetNodeHAStandbyParams{
+		OrgID:         orgID,
+		StandbyNodeID: fleetNodeID,
+	})
+}
+
 func (s *SQLFleetNodePairingStore) UnpairDevice(ctx context.Context, deviceID, orgID int64) (int64, error) {
 	var removed int64
 	err := NewSQLTransactor(s.conn.DB).RunInTx(ctx, func(ctx context.Context) error {

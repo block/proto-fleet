@@ -1,7 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import NodeDetailsModal from "./NodeDetailsModal";
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import {
+  FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { pushToast, STATUSES } from "@/shared/features/toaster";
 import { copyToClipboard } from "@/shared/utils/utility";
@@ -28,13 +31,11 @@ const node: FleetNodeItem = {
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: true,
   pairedDeviceCount: 12,
-  standbyEnrollmentEligible: false,
-  standbyEnrollmentUnavailableReason: "",
-  standbyForNodeId: null,
-  standbyForNodeName: "",
-  haRole: "",
+  haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
+  haPeerNodeId: null,
+  haPeerNodeName: "",
+  haStandbyReady: false,
   haStatusReason: "",
-  haOwnerNodeId: null,
   createdAt: new Date("2026-07-09T12:00:00Z"),
   lastSeenAt: new Date(),
   ipAddresses: ["192.168.1.7", "fd00::7"],
@@ -81,22 +82,48 @@ describe("NodeDetailsModal", () => {
     },
   );
 
-  it("shows standby relationship without duplicating shared miner counts or enabling discovery", () => {
-    show({
-      haRole: "standby",
-      haOwnerNodeId: "1",
-      standbyForNodeId: "1",
-      standbyForNodeName: "primary",
-      pairedDeviceCount: 12,
-    });
-    expect(screen.getByText("primary")).toBeInTheDocument();
-    expect(screen.queryByText("12")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Find miners" })).toBeDisabled();
+  it("hides the HA section for a standalone node", () => {
+    // Act
+    show();
+
+    // Assert
+    expect(screen.queryByText("HA role")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Find miners" })).toBeEnabled();
   });
 
-  it("shows the server-provided HA status reason", async () => {
-    show({ haRole: "unavailable", haOwnerNodeId: "1", haStatusReason: "Waiting for credential transfer" });
-    await waitFor(() => expect(screen.getByText("Waiting for credential transfer")).toBeVisible());
+  it("shows the active node's standby peer and readiness", () => {
+    // Act
+    show({
+      haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE,
+      haPeerNodeId: "8",
+      haPeerNodeName: "standby-node",
+      haStandbyReady: true,
+    });
+
+    // Assert
+    expect(screen.getByText("HA role").nextSibling).toHaveTextContent("Active");
+    expect(screen.getByText("Standby node").nextSibling).toHaveTextContent("standby-node");
+    expect(screen.getByText("Standby ready").nextSibling).toHaveTextContent("Yes");
+    expect(screen.getByRole("button", { name: "Find miners" })).toBeEnabled();
+  });
+
+  it("shows the standby relationship and status reason, and disables Find miners", () => {
+    // Act
+    show({
+      haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY,
+      haPeerNodeId: "1",
+      haPeerNodeName: "primary",
+      haStandbyReady: false,
+      haStatusReason: "Waiting for both nodes to connect",
+    });
+
+    // Assert
+    expect(screen.getByText("HA role").nextSibling).toHaveTextContent("Standby");
+    expect(screen.getByText("Standby for").nextSibling).toHaveTextContent("primary");
+    expect(screen.getByText("Standby ready").nextSibling).toHaveTextContent("No");
+    expect(screen.getByText("HA status").nextSibling).toHaveTextContent("Waiting for both nodes to connect");
+    expect(screen.getByRole("button", { name: "Find miners" })).toBeDisabled();
+    expect(screen.getByText("Standby nodes can't find miners.")).toBeInTheDocument();
   });
 
   it("copies the node id and confirms with a toast", async () => {

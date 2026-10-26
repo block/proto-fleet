@@ -42,6 +42,9 @@ type RunCmd struct {
 	discoverer               discoverer                                                               `kong:"-"`
 	driverGetter             driverGetter                                                             `kong:"-"`
 	minerSecrets             secretProvider                                                           `kong:"-"`
+	credentials              *credentialCodec                                                         `kong:"-"` // the HA key transfer exports or replaces its key
+	statePath                string                                                                   `kong:"-"`
+	state                    *bootstrap.State                                                         `kong:"-"`
 	passwordUpdatePrivateKey []byte                                                                   `kong:"-"`
 	pairer                   pairer                                                                   `kong:"-"`
 	telemetry                telemetryFetcher                                                         `kong:"-"`
@@ -53,17 +56,12 @@ type RunCmd struct {
 	notifyReady              func() error                                                             `kong:"-"`
 
 	stateMu sync.Mutex `kong:"-"` // guards session state and the active control-session cancel func.
-	pairMu  sync.Mutex `kong:"-"` // serializes pair commands; held until every pair worker exits (see handlePairCommand).
+	// saveMu serializes each state snapshot with its write, so a session refresh
+	// cannot overwrite a credential key installed after it took its snapshot.
+	saveMu sync.Mutex `kong:"-"`
+	pairMu sync.Mutex `kong:"-"` // serializes pair commands; held until every pair worker exits (see handlePairCommand).
 
-	controlSessionCancel context.CancelCauseFunc     `kong:"-"`
-	haInstanceOnce       sync.Once                   `kong:"-"`
-	haInstanceID         string                      `kong:"-"`
-	haInstanceErr        error                       `kong:"-"`
-	credentials          *credentialCodec            `kong:"-"`
-	haStatePath          string                      `kong:"-"`
-	haState              *bootstrap.State            `kong:"-"`
-	initializeRuntime    func(context.Context) error `kong:"-"`
-	runtimeStarted       bool                        `kong:"-"`
+	controlSessionCancel context.CancelCauseFunc `kong:"-"`
 
 	scannerOnce                sync.Once      `kong:"-"`
 	deviceHandlesOnce          sync.Once      `kong:"-"`
@@ -214,45 +212,37 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 	if err := bootstrap.ValidateServerURL(st.ServerURL, st.AllowInsecureTransport); err != nil {
 		return operatorActionRequired(err)
 	}
-	r.haStatePath = path
-	r.haState = st
 	r.firmwareTempRoot = filepath.Join(c.StateDir, firmwareArtifactTempDirName)
 	if err := prepareFirmwareArtifactTempRoot(r.firmwareTempRoot); err != nil {
 		return operatorActionRequired(fmt.Errorf("prepare firmware temp dir: %w", err))
 	}
 
-	controlEnabled := resolvedPluginsDir != "" || r.discoverer != nil
-	if controlEnabled {
+	// Reap + spawn inside the lock, from the state loaded under it, so the
+	// synthesized auto: identifiers hash with the fleet_node_id the gateway
+	// attributes reports to, and a contending agent's reaper can't kill our
+	// children mid-startup.
+	if resolvedPluginsDir != "" {
+		reapOrphanedPlugins(ctx, resolvedPluginsDir, logger)
 		credentials, credentialErr := ensureCredentialCodec(path, st)
 		if credentialErr != nil {
 			return operatorActionRequired(fmt.Errorf("prepare credential key: %w", credentialErr))
 		}
-		r.credentials = credentials
-	}
-	// No plugin or device manager starts before the server has accepted the
-	// installed key. A preparing recipient only runs its provisioning stream.
-	cleanup := func() {}
-	defer func() { cleanup() }()
-	r.initializeRuntime = func(runtimeCtx context.Context) error {
-		if resolvedPluginsDir != "" {
-			reapOrphanedPlugins(runtimeCtx, resolvedPluginsDir, logger)
-			nextCleanup, bootstrapErr := r.startPluginComponents(runtimeCtx, resolvedPluginsDir, st.FleetNodeID, r.credentials)
-			if bootstrapErr != nil {
-				return fmt.Errorf("bootstrap plugins: %w", bootstrapErr)
-			}
-			cleanup = nextCleanup
-			if r.minerSecrets == nil {
-				r.minerSecrets = r.credentials
-			}
-			if r.passwordUpdatePrivateKey == nil {
-				privateKey, err := decodePasswordUpdatePrivateKey(st)
-				if err != nil {
-					return operatorActionRequired(err)
-				}
-				r.passwordUpdatePrivateKey = privateKey
-			}
+		cleanup, bootstrapErr := r.startPluginComponents(ctx, resolvedPluginsDir, st.FleetNodeID, credentials)
+		if bootstrapErr != nil {
+			return fmt.Errorf("bootstrap plugins: %w", bootstrapErr)
 		}
-		return r.notifyReady()
+		defer cleanup()
+		if r.minerSecrets == nil {
+			r.minerSecrets = credentials
+		}
+		r.credentials, r.statePath, r.state = credentials, path, st
+		if r.passwordUpdatePrivateKey == nil {
+			privateKey, err := decodePasswordUpdatePrivateKey(st)
+			if err != nil {
+				return operatorActionRequired(err)
+			}
+			r.passwordUpdatePrivateKey = privateKey
+		}
 	}
 
 	tokenSource := func() string {
@@ -271,7 +261,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		"fleet_node_id", st.FleetNodeID,
 		"server_url", st.ServerURL,
 		"heartbeat_interval", r.HeartbeatInterval.String(),
-		"control_loop_enabled", controlEnabled,
+		"control_loop_enabled", r.discoverer != nil,
 		"session_expires_at", st.SessionExpiresAt.Format(time.RFC3339),
 	)
 
@@ -281,10 +271,8 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 	if ctx.Err() != nil {
 		return nil
 	}
-	if !controlEnabled {
-		if err := r.notifyReady(); err != nil {
-			return fmt.Errorf("notify systemd ready: %w", err)
-		}
+	if err := r.notifyReady(); err != nil {
+		return fmt.Errorf("notify systemd ready: %w", err)
 	}
 
 	loopCtx, cancelLoops := context.WithCancel(ctx)
@@ -302,7 +290,7 @@ func (r *RunCmd) runLocked(ctx context.Context, c *Context, resolvedPluginsDir s
 		}
 	}()
 
-	if controlEnabled {
+	if r.discoverer != nil {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -384,9 +372,7 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *bootstrap.State, path s
 	logger.Info("refreshing session", "fleet_node_id", st.FleetNodeID, "session_expires_at", st.SessionExpiresAt.Format(time.RFC3339))
 	// Handshake on a shallow copy so the 2-RPC call doesn't hold stateMu and
 	// stall the control loop's token reads.
-	r.stateMu.Lock()
 	next := *st
-	r.stateMu.Unlock()
 	if err := bootstrap.Refresh(ctx, &next); err != nil {
 		if errors.Is(err, bootstrap.ErrBeginAuthRejected) || connect.CodeOf(err) != connect.CodeUnauthenticated {
 			return err
@@ -396,6 +382,8 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *bootstrap.State, path s
 			return err
 		}
 	}
+	r.saveMu.Lock()
+	defer r.saveMu.Unlock()
 	r.stateMu.Lock()
 	st.SessionToken = next.SessionToken
 	st.SessionExpiresAt = next.SessionExpiresAt
@@ -403,13 +391,12 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *bootstrap.State, path s
 	// tokenSource goroutine that the control loop will add later.
 	snapshot := *st
 	cancelControlSession := r.controlSessionCancel
-	saveErr := bootstrap.SaveState(path, &snapshot)
 	r.stateMu.Unlock()
 	if cancelControlSession != nil {
 		cancelControlSession(errControlSessionRotated)
 	}
-	if saveErr != nil {
-		return fmt.Errorf("save state after refresh: %w", saveErr)
+	if err := bootstrap.SaveState(path, &snapshot); err != nil {
+		return fmt.Errorf("save state after refresh: %w", err)
 	}
 	logger.Info("session refreshed", "fleet_node_id", st.FleetNodeID, "session_expires_at", st.SessionExpiresAt.Format(time.RFC3339))
 	return nil

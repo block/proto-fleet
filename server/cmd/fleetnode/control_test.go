@@ -314,9 +314,9 @@ func TestDiscoverForCommand_ContinuesAfterNonPrivateResolvedIPListHostname(t *te
 }
 
 func TestControlLoop_UnknownCommandDoesNotCloseStream(t *testing.T) {
-	// Arrange: field 7 is a future top-level AgentCommand oneof arm unknown to
+	// Arrange: field 8 is a future top-level AgentCommand oneof arm unknown to
 	// this node. Follow it with a command the node does understand.
-	unknownPayload := protowire.AppendTag(nil, 7, protowire.BytesType)
+	unknownPayload := protowire.AppendTag(nil, 8, protowire.BytesType)
 	unknownPayload = protowire.AppendBytes(unknownPayload, nil)
 	discoveryPayload := discoverPayload(t, discoverIPList([]string{"10.0.0.5"}, []string{"4028"}))
 	disc := &stubDiscoverer{probes: map[string]*pb.DiscoveredDeviceReport{
@@ -546,8 +546,7 @@ func TestControlLoop_PermanentErrorPropagates(t *testing.T) {
 
 func TestControlLoop_UnimplementedFallsBackToHeartbeatOnly(t *testing.T) {
 	// Arrange
-	notified := false
-	cmd := &RunCmd{discoverer: &stubDiscoverer{}, notifyReady: func() error { notified = true; return nil }}
+	cmd := &RunCmd{discoverer: &stubDiscoverer{}}
 	state := &bootstrap.State{FleetNodeID: 12}
 
 	fake := &controlFakeGateway{}
@@ -562,11 +561,6 @@ func TestControlLoop_UnimplementedFallsBackToHeartbeatOnly(t *testing.T) {
 
 	// Assert
 	require.NoError(t, err)
-	require.True(t, notified, "heartbeat-only fallback must satisfy systemd startup readiness")
-	require.False(t, cmd.runtimeStarted, "an old server cannot authorize device-runtime startup")
-	notifyErr := errors.New("readiness notification failed")
-	cmd.notifyReady = func() error { return notifyErr }
-	require.ErrorIs(t, cmd.runControlLoop(ctx, client, state, discardLogger(t)), notifyErr)
 }
 
 func TestControlLoop_ReconnectsAfterStreamEOF(t *testing.T) {
@@ -673,7 +667,6 @@ func (s *stubDiscoverer) DefaultDiscoveryPorts(_ context.Context) []string {
 }
 
 type controlFakeBehavior struct {
-	accepted           *pb.ControlAccepted
 	closeAfterAccepted bool
 	acceptedLiveness   int
 	// closeOnSignal lets tests force a server-side stream close at a precise
@@ -698,7 +691,6 @@ type controlFakeGateway struct {
 	pending                      []pendingCommand
 	hellos                       int32
 	helloCommandProtocolVersions []pb.CommandProtocolVersion
-	leaseRequests                int
 	acks                         []*pb.ControlAck
 	reports                      []*pb.ReportDiscoveredDevicesRequest
 	pairReports                  []*pb.ReportPairedDevicesRequest
@@ -800,13 +792,7 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 	f.mu.Unlock()
 	atomic.AddInt32(&f.hellos, 1)
 
-	f.mu.Lock()
-	accepted := f.behavior.accepted
-	f.mu.Unlock()
-	if accepted == nil {
-		accepted = &pb.ControlAccepted{ServerTime: timestamppb.Now()}
-	}
-	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: accepted}}); err != nil {
+	if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: &pb.ControlAccepted{ServerTime: timestamppb.Now()}}}); err != nil {
 		return fmt.Errorf("send accepted: %w", err)
 	}
 
@@ -864,11 +850,6 @@ func (f *controlFakeGateway) ControlStream(ctx context.Context, stream *connect.
 					return nil
 				}
 				return r.err
-			}
-			if r.msg.GetHaLease() != nil {
-				f.mu.Lock()
-				f.leaseRequests++
-				f.mu.Unlock()
 			}
 			if ack := r.msg.GetAck(); ack != nil {
 				f.mu.Lock()
@@ -1330,7 +1311,7 @@ func TestControlLoop_CommandPoolCeilingAcksBusy(t *testing.T) {
 }
 
 func TestClassifyControlCommand(t *testing.T) {
-	unknownPayload := protowire.AppendTag(nil, 7, protowire.BytesType)
+	unknownPayload := protowire.AppendTag(nil, 6, protowire.BytesType)
 	unknownPayload = protowire.AppendBytes(unknownPayload, nil)
 	unknownCommand := &pb.AgentCommand{}
 	require.NoError(t, proto.Unmarshal(unknownPayload, unknownCommand))

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { buildFleetNodeEnrollCommand, shouldAppendInsecureTransportFlag } from "./enrollNodeCommand";
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import {
+  FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { EnrollmentCode, FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 import { Alert, Copy, Success } from "@/shared/assets/icons";
@@ -27,6 +30,11 @@ interface EnrollNodeModalProps {
 }
 
 type Step = "options" | "code" | "confirm" | "apiKey";
+
+// A node can be in at most one HA pair, and the standby's target must be confirmed.
+const isStandbyTarget = (node: FleetNodeItem) =>
+  node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED &&
+  node.haRole === FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED;
 
 const CopyableValue = ({ value, copyLabel }: { value: string; copyLabel: string }) => {
   const handleCopy = useCallback(() => {
@@ -55,7 +63,6 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
   const [enrollAsStandby, setEnrollAsStandby] = useState(false);
   const [standbyForNodeId, setStandbyForNodeId] = useState("");
   const [eligibleTargets, setEligibleTargets] = useState<FleetNodeItem[]>([]);
-  const [unavailableReasons, setUnavailableReasons] = useState<string[]>([]);
   const [targetsLoading, setTargetsLoading] = useState(true);
   const [enrollmentCode, setEnrollmentCode] = useState<EnrollmentCode | null>(null);
   const [foundNode, setFoundNode] = useState<FleetNodeItem | null>(open && resumeNode ? resumeNode : null);
@@ -79,15 +86,7 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
     void listFleetNodes()
       .then((nodes) => {
         if (!cancelled) {
-          setEligibleTargets(nodes.filter((node) => node.standbyEnrollmentEligible));
-          setUnavailableReasons([
-            ...new Set(
-              nodes
-                .filter((node) => !node.standbyEnrollmentEligible)
-                .map((node) => node.standbyEnrollmentUnavailableReason)
-                .filter(Boolean),
-            ),
-          ]);
+          setEligibleTargets(nodes.filter(isStandbyTarget));
         }
       })
       .catch((error) => {
@@ -236,6 +235,8 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
   const fleetNodeEnrollCommand = buildFleetNodeEnrollCommand(window.location);
   const includesInsecureTransportFlag = shouldAppendInsecureTransportFlag(window.location);
 
+  const noEligibleTargets = !targetsLoading && eligibleTargets.length === 0;
+
   if (step === "options") {
     return (
       <Modal
@@ -259,10 +260,16 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
             <Checkbox
               checked={enrollAsStandby}
               onChange={(event) => setEnrollAsStandby(event.target.checked)}
+              disabled={noEligibleTargets}
               ariaLabel="Enroll as a standby"
             />
             Enroll as a standby
           </label>
+          {noEligibleTargets ? (
+            <div className="text-200 text-text-primary-50">
+              No node can take a standby. A confirmed node that is not in an HA pair is required.
+            </div>
+          ) : null}
           {enrollAsStandby ? (
             <Select
               id="standby-for-node"
@@ -272,7 +279,7 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
               onChange={setStandbyForNodeId}
               disabled={targetsLoading}
               placeholder={targetsLoading ? "Loading nodes…" : "Select a node"}
-              emptyMessage={`No nodes are eligible for standby enrollment.${unavailableReasons.length ? ` ${unavailableReasons.join(". ")}` : ""}`}
+              emptyMessage="No nodes are eligible for standby enrollment."
             />
           ) : null}
         </div>
@@ -362,8 +369,8 @@ const EnrollNodeModalContent = ({ open, resumeNode, onDismiss, onUpdated }: Enro
         {errorMsg ? <Callout className="mb-6" intent="danger" prefixIcon={<Alert />} title={errorMsg} /> : null}
 
         <div className="mb-6">A node registered and is awaiting confirmation.</div>
-        {foundNode?.standbyForNodeId ? (
-          <div className="mb-6 text-300">Standby for {foundNode.standbyForNodeName || foundNode.standbyForNodeId}</div>
+        {foundNode?.haRole === FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY ? (
+          <div className="mb-6 text-300">Standby for {foundNode.haPeerNodeName || foundNode.haPeerNodeId}</div>
         ) : null}
 
         <div className="mb-6 flex flex-col gap-4">

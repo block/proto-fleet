@@ -37,11 +37,10 @@ type UpdateMinerPasswordPayload struct {
 }
 
 type NodeEncryptedPayload struct {
-	RecipientPublicKey []byte `json:"recipient_public_key,omitempty"`
-	Algorithm          string `json:"algorithm"`
-	EphemeralPubkey    []byte `json:"ephemeral_pubkey"`
-	Nonce              []byte `json:"nonce"`
-	Ciphertext         []byte `json:"ciphertext"`
+	Algorithm       string `json:"algorithm"`
+	EphemeralPubkey []byte `json:"ephemeral_pubkey"`
+	Nonce           []byte `json:"nonce"`
+	Ciphertext      []byte `json:"ciphertext"`
 }
 
 // CurtailPayload carries the curtailment level for a Curtail dispatch.

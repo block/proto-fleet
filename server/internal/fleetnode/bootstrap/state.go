@@ -20,7 +20,6 @@ type State struct {
 	EncryptionPrivateKeyHex string    `yaml:"encryption_private_key_hex,omitempty"`
 	EncryptionPublicKeyHex  string    `yaml:"encryption_public_key_hex,omitempty"`
 	CredentialKeyHex        string    `yaml:"credential_key_hex,omitempty"`
-	HACredentialOwnerNodeID int64     `yaml:"ha_credential_owner_node_id,omitempty"`
 	APIKey                  string    `yaml:"api_key,omitempty"`
 	SessionToken            string    `yaml:"session_token,omitempty"`
 	SessionExpiresAt        time.Time `yaml:"session_expires_at,omitempty"`

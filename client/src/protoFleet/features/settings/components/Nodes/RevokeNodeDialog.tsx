@@ -1,4 +1,6 @@
 import type { FleetNodeDeviceSummary } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import { FleetNodeHARole } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import { Alert } from "@/shared/assets/icons";
 import { variants } from "@/shared/components/Button";
 import Dialog, { DialogIcon } from "@/shared/components/Dialog";
@@ -12,9 +14,10 @@ interface RevokeNodeDialogProps {
   onConfirm: () => void;
   onDismiss: () => void;
   isSubmitting: boolean;
-  haRole?: string;
-  isHaMember?: boolean;
-  hasOtherMembers?: boolean;
+  haRole?: FleetNodeHARole;
+  haStandbyReady?: boolean;
+  peerNode?: Pick<FleetNodeItem, "name" | "controlStreamConnected"> | null;
+  peerName?: string;
 }
 
 const RevokeNodeDialog = ({
@@ -26,9 +29,10 @@ const RevokeNodeDialog = ({
   onConfirm,
   onDismiss,
   isSubmitting,
-  haRole,
-  isHaMember = false,
-  hasOtherMembers = false,
+  haRole = FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
+  haStandbyReady = false,
+  peerNode,
+  peerName,
 }: RevokeNodeDialogProps) => {
   const countsByHardware = new Map<string, { label: string; count: number }>();
   for (const device of affectedDevices) {
@@ -43,7 +47,11 @@ const RevokeNodeDialog = ({
     first.label.localeCompare(second.label),
   );
 
-  const retainsPairings = isHaMember && hasOtherMembers;
+  const isStandby = haRole === FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY;
+  const peerLabel = peerNode?.name || peerName || (isStandby ? "The active node" : "the standby");
+  const isActive = haRole === FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE;
+  const handsOffDevices = isActive && haStandbyReady && !!peerNode?.controlStreamConnected;
+  const keepsDevices = handsOffDevices || isStandby;
 
   return (
     <Dialog
@@ -72,20 +80,24 @@ const RevokeNodeDialog = ({
       ]}
     >
       <div className="text-300 text-text-primary-70">
-        Are you sure you want to revoke "{nodeName}"? The node immediately loses access to Fleet.
-        {retainsPairings ? (
+        {isStandby ? (
           <>
-            {" "}
-            Its shared miner pairings and stored miner credentials are retained while another member remains.
-            {haRole === "active"
-              ? " Any ready standby can take over after the active lease expires."
-              : " This removes this node's standby protection."}
+            Are you sure you want to revoke "{nodeName}"? The node immediately loses access to Fleet and the HA pair is
+            removed. {peerLabel} keeps its devices.
+          </>
+        ) : handsOffDevices ? (
+          <>
+            Are you sure you want to revoke "{nodeName}"? Its devices move to {peerLabel} before the node is revoked,
+            and the HA pair is removed.
           </>
         ) : (
           <>
-            {" "}
-            {isHaMember ? "This is the final member. " : ""}Its miner pairings and stored miner credentials are removed.
-            Its miners keep running, but another node will need to discover and pair them again.
+            Are you sure you want to revoke "{nodeName}"? The node immediately loses access to Fleet, and its miner
+            pairings and stored miner credentials are removed. Its miners keep running, but another node will need to
+            discover and pair them again.
+            {isActive
+              ? ` The HA pair is removed, since ${peerLabel} ${haStandbyReady ? "isn't connected" : "isn't ready"} to take over.`
+              : ""}
           </>
         )}{" "}
         This action cannot be undone.
@@ -96,7 +108,7 @@ const RevokeNodeDialog = ({
           {impactError}
         </div>
       ) : null}
-      {!isLoadingImpact && !impactError && !retainsPairings ? (
+      {!isLoadingImpact && !impactError && !keepsDevices ? (
         groupedHardware.length > 0 ? (
           <ul className="mt-3 max-h-32 list-disc overflow-y-auto pl-5 text-300">
             {groupedHardware.map(([key, { label, count }]) => {

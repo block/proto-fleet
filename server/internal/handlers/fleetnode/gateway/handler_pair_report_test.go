@@ -1,9 +1,7 @@
 package gateway_test
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"testing"
 	"time"
 
@@ -14,15 +12,9 @@ import (
 
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
-	"github.com/block/proto-fleet/server/internal/domain/apikey"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
-	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
-	"github.com/block/proto-fleet/server/internal/domain/fleetnode/ha"
-	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
-	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
-	"github.com/block/proto-fleet/server/internal/handlers/fleetnode/gateway"
 )
 
 func TestReportPairedDevices_RejectsMissingCommandID(t *testing.T) {
@@ -248,150 +240,4 @@ func TestReportPairedDevices_RejectsMissingSubject(t *testing.T) {
 
 	// Assert
 	require.Error(t, err)
-}
-
-func TestReportPairedDevices_PendingPromotedPairRevalidatesAuthority(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		accepted int64
-	}{
-		{name: "revoke_reporting_member"},
-		{name: "durable_lease_expired"},
-		{name: "durable_session_replaced"},
-		{name: "first_activation"},
-		{name: "revoke_original_owner", accepted: 1},
-		{name: "renew_while_waiting", accepted: 1},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			h := newControlHarness(t)
-			ctx := t.Context()
-			ownerID := h.fleetNodeID
-			var physicalID int64
-			require.NoError(t, h.db.QueryRow(`INSERT INTO fleet_node(org_id,name,identity_pubkey,encryption_pubkey,enrollment_status)
-		VALUES(1,'promoted-standby',$1,$1,'CONFIRMED') RETURNING id`, make([]byte, 32)).Scan(&physicalID))
-			fingerprint := bytes.Repeat([]byte{7}, 32)
-			_, err := h.db.Exec(`INSERT INTO fleet_node_ha_group(owner_node_id,org_id,credential_key_fingerprint,enabled,active_node_id,instance_id,control_session_id,lease_epoch,lease_expires_at,acknowledged)
-		VALUES($1,1,$2,true,$3,'promoted-instance','promoted-session',2,clock_timestamp()+interval '1 minute',true)`, ownerID, fingerprint, physicalID)
-			require.NoError(t, err)
-			_, err = h.db.Exec(`INSERT INTO fleet_node_ha_member(node_id,org_id,owner_node_id,ready,status_reason)
-		VALUES($1,1,$1,true,''),($2,1,$1,true,'')`, ownerID, physicalID)
-			require.NoError(t, err)
-			if tc.name == "first_activation" {
-				physicalID = ownerID
-				_, err = h.db.Exec(`UPDATE fleet_node_ha_group SET enabled=false,active_node_id=$1,instance_id='',control_session_id='',lease_epoch=0,acknowledged=false WHERE owner_node_id=$1`, ownerID)
-				require.NoError(t, err)
-			}
-			haService := ha.NewService(h.db, h.registry)
-			stream := h.registry.Register(physicalID)
-			defer stream.Unregister()
-			require.NoError(t, haService.ConnectStream(ctx, physicalID, 1, &pb.ControlHello{HaCapable: true, InstanceId: "promoted-instance", CredentialKeyFingerprint: fingerprint}, "promoted-session", stream))
-			if tc.name != "first_activation" {
-				h.registry.SetHARoute(control.RouteBinding{OwnerNodeID: ownerID, PhysicalNodeID: physicalID, Epoch: 2, InstanceID: "promoted-instance", ControlSessionID: "promoted-session", EncryptionPublicKey: make([]byte, 32), ExpiresAt: time.Now().Add(time.Minute)})
-			}
-			h.registry.SetHARouteResolver(func(ctx context.Context, ownerID int64) (control.RouteBinding, error) {
-				return haService.Resolve(ctx, ownerID, 1)
-			})
-
-			apiKeys := apikey.NewService(sqlstores.NewSQLApiKeyStore(h.db), nil)
-			enrollmentStore := sqlstores.NewSQLFleetNodeEnrollmentStore(h.db)
-			transactor := sqlstores.NewSQLTransactor(h.db)
-			enrollmentService := enrollment.NewService(enrollmentStore, apiKeys, transactor, nil)
-			enrollmentService.WithHA(haService)
-			pairingService := pairing.NewService(sqlstores.NewSQLFleetNodePairingStore(h.db), enrollmentStore, transactor).
-				WithProvisioning(sqlstores.NewSQLDeviceStore(h.db), sqlstores.NewSQLDiscoveredDeviceStore(h.db), h.registry).
-				WithHAOwnerResolver(func(ctx context.Context, nodeID, orgID int64) error {
-					_, err := haService.Resolve(ctx, nodeID, orgID)
-					return err
-				})
-			h.handler = gateway.NewHandler(enrollmentService, nil, pairingService, h.registry, h.files).WithHA(haService)
-
-			var discoveredID, deviceID int64
-			require.NoError(t, h.db.QueryRow(`INSERT INTO discovered_device(org_id,device_identifier,serial_number,ip_address,port,url_scheme,driver_name,is_active,discovered_by_fleet_node_id)
-		VALUES(1,'pending-promoted-pair','original-serial','10.0.0.7','80','http','virtual',true,$1) RETURNING id`, ownerID).Scan(&discoveredID))
-			require.NoError(t, h.db.QueryRow(`INSERT INTO device(org_id,device_identifier,mac_address,serial_number,discovered_device_id)
-		VALUES(1,'pending-promoted-pair','aa:bb:cc:dd:ee:ff','original-serial',$1) RETURNING id`, discoveredID).Scan(&deviceID))
-			_, err = h.db.Exec(`INSERT INTO fleet_node_device(fleet_node_id,device_id,org_id) VALUES($1,$2,1)`, ownerID, deviceID)
-			require.NoError(t, err)
-			_, err = h.db.Exec(`INSERT INTO device_pairing(device_id,pairing_status) VALUES($1,'PAIRED')`, deviceID)
-			require.NoError(t, err)
-			_, err = h.db.Exec(`INSERT INTO miner_credentials(device_id,username_enc,password_enc) VALUES($1,'original-user','original-password')`, deviceID)
-			require.NoError(t, err)
-			session, err := h.registry.Send(context.Background(), ownerID, pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, &pb.ControlCommand{CommandId: "pending-promoted-pair"}, nil, control.ReportKindPair, &control.PairMeta{OrgID: 1, Targets: map[string]struct{}{"pending-promoted-pair": {}}})
-			require.NoError(t, err)
-			defer session.Close()
-			<-stream.Outgoing
-
-			blocker, err := h.db.BeginTx(ctx, nil)
-			require.NoError(t, err)
-			defer func() { _ = blocker.Rollback() }()
-			_, err = blocker.ExecContext(ctx, `SELECT id FROM device WHERE id=$1 FOR UPDATE`, deviceID)
-			require.NoError(t, err)
-			type reportOutcome struct {
-				accepted int64
-				err      error
-			}
-			done := make(chan reportOutcome, 1)
-			go func() {
-				resp, err := h.handler.ReportPairedDevices(authn.SetInfo(ctx, &auth.Subject{FleetNodeID: physicalID, OrgID: 1}), connect.NewRequest(&pb.ReportPairedDevicesRequest{CommandId: "pending-promoted-pair", Results: []*pb.FleetNodePairResult{{DeviceIdentifier: "pending-promoted-pair", SerialNumber: "stale-serial", Outcome: pb.PairOutcome_PAIR_OUTCOME_PAIRED, EncryptedCredentials: &pb.EncryptedCredentials{Username: []byte("stale-user"), Password: []byte("stale-password")}}}}))
-				outcome := reportOutcome{err: err}
-				if resp != nil {
-					outcome.accepted = resp.Msg.GetAcceptedCount()
-				}
-				done <- outcome
-			}()
-			require.Eventually(t, func() bool {
-				var waiting bool
-				err := h.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND query LIKE '%name: LockFleetNodePairingDevice%')`).Scan(&waiting)
-				return err == nil && waiting
-			}, 5*time.Second, 10*time.Millisecond)
-
-			changeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-			defer cancel()
-			switch tc.name {
-			case "first_activation":
-				h.registry.BeginHAActivation(ownerID)
-				_, err = h.db.ExecContext(changeCtx, `UPDATE fleet_node_ha_group SET enabled=true,lease_expires_at=clock_timestamp()+interval '30 seconds' WHERE owner_node_id=$1`, ownerID)
-				h.registry.FinishHAActivation(ownerID)
-			case "revoke_reporting_member":
-				err = enrollmentService.RevokeFleetNode(changeCtx, physicalID, 1)
-			case "revoke_original_owner":
-				err = enrollmentService.RevokeFleetNode(changeCtx, ownerID, 1)
-			case "durable_lease_expired":
-				_, err = h.db.ExecContext(changeCtx, `UPDATE fleet_node_ha_group SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE owner_node_id=$1`, ownerID)
-			case "durable_session_replaced":
-				_, err = h.db.ExecContext(changeCtx, `UPDATE fleet_node_ha_group SET control_session_id='replacement-session' WHERE owner_node_id=$1`, ownerID)
-			case "renew_while_waiting":
-				var lease *pb.HALeaseResponse
-				lease, err = haService.Lease(changeCtx, physicalID, 1, "promoted-instance", "promoted-session", &pb.HALeaseRequest{RequestId: "renew", AcknowledgedEpoch: 2})
-				if err == nil {
-					require.True(t, lease.GetGranted(), "pending device work must not block independent lease renewal")
-				}
-			}
-			require.NoError(t, err, "authority changes must not wait for the device lock")
-			require.NoError(t, blocker.Commit())
-			select {
-			case result := <-done:
-				require.NoError(t, result.err)
-				require.Equal(t, tc.accepted, result.accepted, "pending persistence must follow the reporting member's authority")
-			case <-time.After(5 * time.Second):
-				t.Fatal("pair persistence did not finish")
-			}
-			var discoveredSerial, deviceSerial, username, password string
-			require.NoError(t, h.db.QueryRow(`SELECT dd.serial_number,d.serial_number,mc.username_enc,mc.password_enc FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id JOIN miner_credentials mc ON mc.device_id=d.id WHERE d.id=$1`, deviceID).Scan(&discoveredSerial, &deviceSerial, &username, &password))
-			if tc.accepted == 0 {
-				assert.Equal(t, "original-serial", discoveredSerial)
-				assert.Equal(t, "original-serial", deviceSerial)
-				assert.Equal(t, "original-user", username)
-				assert.Equal(t, "original-password", password)
-			} else {
-				assert.Equal(t, "stale-serial", discoveredSerial)
-				assert.Equal(t, "stale-serial", deviceSerial)
-				assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("stale-user")), username)
-				assert.Equal(t, base64.StdEncoding.EncodeToString([]byte("stale-password")), password)
-			}
-			var boundOwner int64
-			require.NoError(t, h.db.QueryRow(`SELECT fleet_node_id FROM fleet_node_device WHERE device_id=$1`, deviceID).Scan(&boundOwner))
-			assert.Equal(t, ownerID, boundOwner, "device ownership remains stable across physical member changes")
-		})
-	}
 }

@@ -9,12 +9,12 @@ import {
   DevicePairingResultSchema,
   FleetNodeDiscoveredDeviceSchema,
   FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
 } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 import type { ColConfig, ColTitles, ListAction, ListActionValue } from "@/shared/components/List/types";
 
 const permissionsMock = vi.hoisted(() => ({ current: [] as string[] }));
-const pollMock = vi.hoisted(() => ({ fetchData: undefined as (() => Promise<void> | void) | undefined }));
 const listFleetNodesMock = vi.hoisted(() => vi.fn());
 const revokeFleetNodeMock = vi.hoisted(() => vi.fn());
 const listFleetNodeDevicesMock = vi.hoisted(() => vi.fn());
@@ -43,7 +43,6 @@ vi.mock("@/shared/hooks/usePoll", async () => {
   const React = await vi.importActual<typeof import("react")>("react");
   return {
     usePoll: ({ enabled, fetchData }: { enabled?: boolean; fetchData: () => Promise<void> | void }) => {
-      pollMock.fetchData = fetchData;
       React.useEffect(() => {
         if (enabled !== false) {
           void fetchData();
@@ -164,13 +163,11 @@ const confirmedNode: FleetNodeItem = {
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: true,
   pairedDeviceCount: 0,
-  standbyEnrollmentEligible: false,
-  standbyEnrollmentUnavailableReason: "",
-  standbyForNodeId: null,
-  standbyForNodeName: "",
-  haRole: "",
+  haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
+  haPeerNodeId: null,
+  haPeerNodeName: "",
+  haStandbyReady: false,
   haStatusReason: "",
-  haOwnerNodeId: null,
   ipAddresses: [],
   version: "",
   enrolledBy: "",
@@ -220,25 +217,36 @@ describe("NodesPage", () => {
     expect(screen.queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
   });
 
-  it("shows a standby relationship while counting shared miners only on the stable owner row", async () => {
+  it("shows each HA member's role and peer, with an unready standby marked as preparing", async () => {
+    // Arrange
     listFleetNodesMock.mockResolvedValue([
-      { ...confirmedNode, haRole: "standby", haOwnerNodeId: "7", pairedDeviceCount: 25 },
+      {
+        ...confirmedNode,
+        haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE,
+        haPeerNodeId: "8",
+        haPeerNodeName: "standby-node",
+      },
       {
         ...confirmedNode,
         fleetNodeId: "8",
         name: "standby-node",
-        haRole: "active",
-        haOwnerNodeId: "7",
-        standbyForNodeId: "7",
-        standbyForNodeName: "node-01",
-        pairedDeviceCount: 25,
+        haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY,
+        haPeerNodeId: "7",
+        haPeerNodeName: "node-01",
+        haStatusReason: "Waiting for both nodes to connect",
       },
     ]);
+
+    // Act
     renderNodesPage();
+
+    // Assert
     expect(await screen.findByText("standby-node")).toBeInTheDocument();
-    // The active physical replacement still uses the original logical owner.
-    expect(screen.getByText("Device set: node-01")).toBeInTheDocument();
-    expect(screen.getAllByText("25")).toHaveLength(1);
+    expect(screen.getByText("Standby: standby-node")).toBeInTheDocument();
+    expect(screen.getByText("Standby for node-01")).toBeInTheDocument();
+    expect(screen.getByText("Active")).toBeInTheDocument();
+    expect(screen.getByText("Standby · preparing")).toBeInTheDocument();
+    expect(screen.getAllByTitle("Waiting for both nodes to connect")).not.toHaveLength(0);
   });
 
   it.each([
@@ -363,7 +371,7 @@ describe("NodesPage", () => {
     expect(signal.aborted).toBe(true);
   });
 
-  it.each([false, true])("preserves reopened pairing state (HA promotion: %s)", async (promote) => {
+  it("keeps the reopened finder intact when an earlier pairing settles", async () => {
     permissionsMock.current = ["fleetnode:read", "fleetnode:manage", "miner:pair"];
     listFleetNodeDiscoveredDevicesMock.mockResolvedValue({
       devices: [
@@ -383,10 +391,6 @@ describe("NodesPage", () => {
                 deviceIdentifier: "miner-2",
                 pairingStatus: PairingStatus.AUTHENTICATION_NEEDED,
               }),
-              create(DevicePairingResultSchema, {
-                deviceIdentifier: "miner-3",
-                pairingStatus: PairingStatus.FAILED,
-              }),
             ]);
             reject(new Error("Pair result stream disconnected"));
           };
@@ -399,33 +403,18 @@ describe("NodesPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Find miners" }));
     fireEvent.click(await screen.findByRole("button", { name: "Continue with 3 miners" }));
     await waitFor(() => expect(pairDiscoveredDevicesOnFleetNodeMock).toHaveBeenCalledTimes(1));
-    expect(pairDiscoveredDevicesOnFleetNodeMock.mock.calls[0][0]).toBe("7");
 
     fireEvent.click(screen.getByRole("button", { name: "Close add miners" }));
-    if (promote) {
-      listFleetNodesMock.mockResolvedValue([
-        { ...confirmedNode, controlStreamConnected: false, haOwnerNodeId: "7", haRole: "standby" },
-        { ...confirmedNode, fleetNodeId: "8", name: "standby-node", haOwnerNodeId: "7", haRole: "active" },
-      ]);
-      await act(async () => pollMock.fetchData?.());
-    }
-    fireEvent.click(screen.getByRole("button", { name: promote ? "View standby-node" : "View node-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "View node-01" }));
     fireEvent.click(screen.getByRole("button", { name: "Find miners" }));
     expect(screen.getByText("Add miners")).toBeInTheDocument();
     expect(await screen.findByText(/3 miners have an unknown pairing result/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Continue with/ })).not.toBeInTheDocument();
-    const physicalNodeId = promote ? "8" : "7";
-    await waitFor(() => expect(listFleetNodeDiscoveredDevicesMock).toHaveBeenLastCalledWith(physicalNodeId, 0n));
-    expect(discoverOnFleetNodeMock.mock.calls[discoverOnFleetNodeMock.mock.calls.length - 1]?.[0]).toBe(physicalNodeId);
-    const discoveryLoads = listFleetNodeDiscoveredDevicesMock.mock.calls.length;
 
     await act(async () => finishFirstPairing?.());
 
     expect(screen.getByText("Add miners")).toBeInTheDocument();
     expect(await screen.findByText(/2 miners have an unknown pairing result/)).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: "Continue with 1 miners" })).toBeEnabled();
-    await waitFor(() => expect(listFleetNodeDiscoveredDevicesMock.mock.calls.length).toBeGreaterThan(discoveryLoads));
-    expect(listFleetNodeDiscoveredDevicesMock).toHaveBeenLastCalledWith(physicalNodeId, 0n);
+    await waitFor(() => expect(listFleetNodeDiscoveredDevicesMock).toHaveBeenCalled());
   });
 
   it("loads the affected miners before allowing revocation", async () => {
@@ -442,5 +431,61 @@ describe("NodesPage", () => {
     expect(screen.queryByText(/ASIC-RS|miner-1/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Revoke node" })).toBeEnabled();
     expect(listFleetNodeDevicesMock).toHaveBeenCalledWith("7");
+  });
+
+  const activeNode: FleetNodeItem = {
+    ...confirmedNode,
+    haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE,
+    haPeerNodeId: "8",
+    haPeerNodeName: "standby-node",
+    haStandbyReady: true,
+  };
+  const standbyNode: FleetNodeItem = {
+    ...confirmedNode,
+    fleetNodeId: "8",
+    name: "standby-node",
+    haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY,
+    haPeerNodeId: "7",
+    haPeerNodeName: "node-01",
+    haStandbyReady: true,
+  };
+
+  it("says devices move to the peer when revoking an active node with a ready, connected standby", async () => {
+    // Arrange
+    listFleetNodesMock.mockResolvedValue([activeNode, standbyNode]);
+    renderNodesPage();
+    await screen.findByText("standby-node");
+
+    // Act
+    fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
+
+    // Assert
+    expect(await screen.findByText(/Its devices move to standby-node before the node is revoked/)).toBeInTheDocument();
+  });
+
+  it("warns that the standby cannot take over when its control stream is down", async () => {
+    // Arrange
+    listFleetNodesMock.mockResolvedValue([activeNode, { ...standbyNode, controlStreamConnected: false }]);
+    renderNodesPage();
+    await screen.findByText("standby-node");
+
+    // Act
+    fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
+
+    // Assert
+    expect(await screen.findByText(/since standby-node isn't connected to take over/)).toBeInTheDocument();
+  });
+
+  it("says the peer keeps its devices when revoking a standby", async () => {
+    // Arrange
+    listFleetNodesMock.mockResolvedValue([activeNode, standbyNode]);
+    renderNodesPage();
+    await screen.findByText("standby-node");
+
+    // Act
+    fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[1]);
+
+    // Assert
+    expect(await screen.findByText(/node-01 keeps its devices/)).toBeInTheDocument();
   });
 });

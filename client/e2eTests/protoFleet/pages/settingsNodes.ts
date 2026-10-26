@@ -138,4 +138,43 @@ export class SettingsNodesPage extends BasePage {
     await expect(modal).toContainText(nodeName);
     await expect(modal.getByRole("button", { name: "Confirm node", exact: true })).toBeVisible();
   }
+
+  async validateNodeRowText(nodeName: string, text: string) {
+    await expect(this.nodeRow(nodeName)).toContainText(text);
+  }
+
+  async openNodeDetails(nodeName: string) {
+    await this.nodeRow(nodeName).getByTestId("name").click();
+    await expect(this.page.getByTestId("node-details-modal")).toBeVisible();
+  }
+
+  private haDetailValue(label: string) {
+    return this.page
+      .getByTestId("node-details-modal")
+      .getByTestId("node-ha-details")
+      .getByText(label, { exact: true })
+      .locator("xpath=following-sibling::dd");
+  }
+
+  async validateNodeDetailsHa(role: string, peerLabel: string, peerName: string, ready: string) {
+    await expect(this.haDetailValue("HA role")).toHaveText(role);
+    await expect(this.haDetailValue(peerLabel)).toHaveText(peerName);
+    await expect(this.haDetailValue("Standby ready")).toHaveText(ready);
+  }
+
+  async validateNodeDetailsHaStatus(reason: string) {
+    await expect(this.haDetailValue("HA status")).toHaveText(reason);
+  }
+
+  async validateFindMinersDisabledForStandby() {
+    const details = this.page.getByTestId("node-details-modal");
+    await expect(details.getByRole("button", { name: "Find miners", exact: true })).toBeDisabled();
+    await expect(details).toContainText("Standby nodes can't find miners.");
+  }
+
+  async validateRevokeDialogText(nodeName: string, text: string) {
+    const dialog = this.page.getByRole("dialog").filter({ hasText: "Revoke node?" });
+    await expect(dialog).toContainText(`revoke "${nodeName}"`);
+    await expect(dialog).toContainText(text);
+  }
 }

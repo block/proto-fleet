@@ -21,16 +21,17 @@ const (
 )
 
 type PendingEnrollment struct {
-	StandbyOwnerNodeID *int64
-	ID                 int64
-	CodeHash           string
-	OrgID              int64
-	CreatedBy          int64
-	FleetNodeID        *int64
-	Status             Status
-	ExpiresAt          time.Time
-	ConsumedAt         *time.Time
-	CreatedAt          time.Time
+	ID          int64
+	CodeHash    string
+	OrgID       int64
+	CreatedBy   int64
+	FleetNodeID *int64
+	Status      Status
+	ExpiresAt   time.Time
+	ConsumedAt  *time.Time
+	CreatedAt   time.Time
+	// StandbyForNodeID is the confirmed node this enrollment will back up.
+	StandbyForNodeID *int64
 }
 
 type FleetNode struct {
@@ -48,12 +49,22 @@ type FleetNode struct {
 // AWAITING_CONFIRMATION lives on pending_enrollment.status, not on
 // agent.enrollment_status, so operator listings need both fields.
 type FleetNodeListing struct {
-	StandbyOwnerNodeID *int64
-	StandbyOwnerName   string
-	IPAddresses        []string
-	Version            string
-	EnrolledBy         string
+	IPAddresses []string
+	Version     string
+	EnrolledBy  string
 	FleetNode
 	PendingEnrollmentID     *int64
 	PendingEnrollmentStatus Status
+	// StandbyForNodeID is set while the node awaits confirmation as a standby.
+	StandbyForNodeID *int64
+	// HA pair membership; both IDs are nil for standalone nodes.
+	HAActiveNodeID  *int64
+	HAStandbyNodeID *int64
+	HAStandbyReady  bool
+	HAStatusReason  string
+}
+
+// IsHAStandby reports whether the node is the standby member of an HA pair.
+func (l FleetNodeListing) IsHAStandby() bool {
+	return l.HAStandbyNodeID != nil && *l.HAStandbyNodeID == l.ID
 }

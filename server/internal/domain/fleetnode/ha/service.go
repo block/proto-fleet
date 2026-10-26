@@ -1,5 +1,8 @@
-// Package ha coordinates stable Fleet Node ownership and physical-node leases.
-// Credential keys travel only as source-sealed envelopes through this service.
+// Package ha runs two-node Fleet Node high availability. A pair's active node
+// owns its devices. The standby holds the same miner credential key, so when
+// the active node's control stream stays down, Run moves the devices to the
+// standby and swaps the roles. There is no automatic failback: a returning
+// node serves as the pair's standby.
 package ha
 
 import (
@@ -9,12 +12,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
 	"buf.build/go/protovalidate"
-	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"google.golang.org/protobuf/proto"
+
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
 	"github.com/block/proto-fleet/server/internal/domain/activity"
 	activitymodels "github.com/block/proto-fleet/server/internal/domain/activity/models"
@@ -22,34 +26,66 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	"github.com/block/proto-fleet/server/internal/infrastructure/db"
-	"github.com/google/uuid"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	"github.com/block/proto-fleet/server/internal/infrastructure/id"
+	"github.com/block/proto-fleet/server/internal/runtimejobs"
 )
 
-const LeaseDuration = 30 * time.Second
-const confirmedEnrollmentStatus = "CONFIRMED"
-const controlStreamDisconnectedReason = "control stream disconnected"
-const notActiveMemberReason = "fleet node is not the active member"
+const (
+	// FailoverDelay is how long an active node must stay disconnected before
+	// its devices move. HA-capable nodes drop a silent stream within 15s.
+	FailoverDelay = 30 * time.Second
 
-type Route = control.RouteBinding
+	tickInterval = 5 * time.Second
+	// startupGrace lets nodes reconnect after fleetd starts or becomes the
+	// active instance; the control registry starts empty.
+	startupGrace   = 90 * time.Second
+	provisionRetry = 30 * time.Second
+	commandTimeout = 15 * time.Second
+
+	// HAProtocolVersion is the first command protocol with key transfer and
+	// stream keepalive.
+	HAProtocolVersion = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6
+
+	confirmedStatus = "CONFIRMED"
+
+	reasonWaitingForNodes = "Waiting for both nodes to connect"
+	reasonUpgradeRequired = "Both nodes must run a Fleet Node version that supports HA"
+	reasonTransferFailed  = "Credential key transfer failed; retrying"
+)
+
+var errPairChanged = errors.New("HA pair changed")
 
 type Service struct {
-	conn                 *sql.DB
-	queries              sqlc.Querier
-	registry             *control.Registry
-	mu                   sync.Mutex
-	preparing            map[int64]*preparation
-	activationMu         sync.Mutex
-	connectMu            sync.Mutex
-	connecting           map[int64]*connectionGate
-	activity             *activity.Service
-	transactor           interfaces.Transactor
-	invalidateLeadership func(context.Context, int64, int64)
+	queries         sqlc.Querier
+	transactor      interfaces.Transactor
+	registry        *control.Registry
+	activity        *activity.Service
+	invalidateMiner func(context.Context, int64)
+
+	failoverDelay  time.Duration
+	startupGrace   time.Duration
+	tickInterval   time.Duration
+	provisionRetry time.Duration
+
+	mu           sync.Mutex
+	provisioning map[int64]bool      // pair IDs with a transfer in flight
+	failedAt     map[int64]time.Time // pair IDs whose last transfer failed
 }
 
-func NewService(conn *sql.DB, registry *control.Registry) *Service {
-	return &Service{conn: conn, queries: db.NewFailoverResettingQuerier(db.NewRetryDB(conn)), registry: registry, preparing: make(map[int64]*preparation), connecting: make(map[int64]*connectionGate)}
+func NewService(conn *sql.DB, transactor interfaces.Transactor, registry *control.Registry, activitySvc *activity.Service, invalidateMiner func(context.Context, int64)) *Service {
+	return &Service{
+		queries:         db.NewFailoverResettingQuerier(db.NewRetryDB(conn)),
+		transactor:      transactor,
+		registry:        registry,
+		activity:        activitySvc,
+		invalidateMiner: invalidateMiner,
+		failoverDelay:   FailoverDelay,
+		startupGrace:    startupGrace,
+		tickInterval:    tickInterval,
+		provisionRetry:  provisionRetry,
+		provisioning:    make(map[int64]bool),
+		failedAt:        make(map[int64]time.Time),
+	}
 }
 
 func (s *Service) q(ctx context.Context) sqlc.Querier {
@@ -59,721 +95,339 @@ func (s *Service) q(ctx context.Context) sqlc.Querier {
 	return s.queries
 }
 
-type connectionGate struct {
-	mu   sync.Mutex
-	refs int
-}
-
-func (s *Service) lockConnection(nodeID int64) func() {
-	s.connectMu.Lock()
-	gate := s.connecting[nodeID]
-	if gate == nil {
-		gate = &connectionGate{}
-		s.connecting[nodeID] = gate
-	}
-	gate.refs++
-	s.connectMu.Unlock()
-	gate.mu.Lock()
-	return func() {
-		gate.mu.Unlock()
-		s.connectMu.Lock()
-		gate.refs--
-		if gate.refs == 0 {
-			delete(s.connecting, nodeID)
-		}
-		s.connectMu.Unlock()
-	}
-}
-
-// ConnectStream serializes only one physical node's connection writes. Newer
-// registrations can evict this stream while SQL is in flight; the pointer-bound
-// setter then rejects it, and cleanup removes its stale SQL row before a newer
-// ConnectStream may persist. Registry.mu is never held during database I/O.
-func (s *Service) ConnectStream(ctx context.Context, nodeID, orgID int64, hello *pb.ControlHello, sessionID string, registration *control.Stream) error {
-	if hello.GetHaCapable() && (hello.GetInstanceId() == "" || len(hello.GetCredentialKeyFingerprint()) != 32) {
-		return fleeterror.NewInvalidArgumentError("HA-capable Hello requires an instance and credential key fingerprint")
-	}
-	unlock := s.lockConnection(nodeID)
-	defer unlock()
-	if registration == nil || !registration.IsCurrent() {
-		return fleeterror.NewUnauthenticatedError("control registration replaced")
-	}
-	member, err := s.q(ctx).GetFleetNodeHAMember(ctx, sqlc.GetFleetNodeHAMemberParams{NodeID: nodeID, OrgID: orgID})
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return err
-	}
-	if err == nil {
-		if member.RevokedAt.Valid {
-			return fleeterror.NewUnauthenticatedError("fleet node revoked")
-		}
-		group, err := s.q(ctx).GetFleetNodeHAGroup(ctx, sqlc.GetFleetNodeHAGroupParams{OwnerNodeID: member.OwnerNodeID, OrgID: orgID})
-		if err != nil {
-			return err
-		}
-		if (member.Ready || nodeID == member.OwnerNodeID) && !bytes.Equal(hello.GetCredentialKeyFingerprint(), group.CredentialKeyFingerprint) {
-			return fleeterror.NewFailedPreconditionError("credential key conflicts with HA group")
-		}
-	}
-	fingerprint := hello.GetCredentialKeyFingerprint()
-	if fingerprint == nil {
-		fingerprint = []byte{}
-	}
-	if err := s.q(ctx).UpsertFleetNodeHAConnection(ctx, sqlc.UpsertFleetNodeHAConnectionParams{NodeID: nodeID, OrgID: orgID, HaCapable: hello.GetHaCapable(), InstanceID: hello.GetInstanceId(), ControlSessionID: sessionID, CredentialKeyFingerprint: fingerprint}); err != nil {
-		return err
-	}
-	bound := false
-	defer func() {
-		if !bound {
-			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			defer cancel()
-			if err := s.q(cleanup).DeleteFleetNodeHAConnection(cleanup, sqlc.DeleteFleetNodeHAConnectionParams{NodeID: nodeID, OrgID: orgID, ControlSessionID: sessionID}); err != nil {
-				slog.Warn("stale HA control registration cleanup failed", "fleet_node_id", nodeID, "err", err)
-			}
-		}
-	}()
-	bound = registration.SetHAConnection(orgID, hello, sessionID)
-	if !bound {
-		return fleeterror.NewUnauthenticatedError("control registration replaced")
-	}
-	if err == nil && !member.Ready {
-		return s.confirmFingerprint(ctx, nodeID, orgID, sessionID)
-	}
-	return nil
-}
-
-// Configure supplies authority before any device work starts. A first standby's
-// preparation leaves the original source in its existing standalone scope.
-func (s *Service) Configure(ctx context.Context, nodeID, orgID int64, accepted *pb.ControlAccepted) error {
-	accepted.OrgId = orgID
-	member, err := s.q(ctx).GetFleetNodeHAMember(ctx, sqlc.GetFleetNodeHAMemberParams{NodeID: nodeID, OrgID: orgID})
+// CheckStandbyTarget reports whether a new node may enroll as targetID's standby.
+func (s *Service) CheckStandbyTarget(ctx context.Context, orgID, targetID int64) error {
+	node, err := s.q(ctx).GetFleetNodeByID(ctx, sqlc.GetFleetNodeByIDParams{ID: targetID, OrgID: orgID})
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil
+		return fleeterror.NewNotFoundError("standby target fleet node not found")
 	}
 	if err != nil {
 		return err
 	}
-	if member.RevokedAt.Valid {
-		return fleeterror.NewUnauthenticatedError("fleet node revoked")
+	return s.checkTarget(ctx, orgID, targetID, node.EnrollmentStatus)
+}
+
+func (s *Service) checkTarget(ctx context.Context, orgID, targetID int64, status string) error {
+	if status != confirmedStatus {
+		return fleeterror.NewFailedPreconditionError("standby target must be a confirmed fleet node")
 	}
-	group, err := s.q(ctx).GetFleetNodeHAGroup(ctx, sqlc.GetFleetNodeHAGroupParams{OwnerNodeID: member.OwnerNodeID, OrgID: orgID})
+	paired, err := s.q(ctx).FleetNodeInHAPair(ctx, sqlc.FleetNodeInHAPairParams{OrgID: orgID, NodeID: targetID})
 	if err != nil {
 		return err
 	}
-	accepted.Preparing = !member.Ready
-	accepted.CredentialKeyFingerprint = bytes.Clone(group.CredentialKeyFingerprint)
-	if group.Enabled || nodeID != member.OwnerNodeID {
-		accepted.HaOwnerNodeId = member.OwnerNodeID
+	if paired {
+		return fleeterror.NewFailedPreconditionError("fleet node is already in an HA pair")
 	}
 	return nil
 }
 
-func (s *Service) confirmFingerprint(ctx context.Context, nodeID, orgID int64, sessionID string) error {
-	return s.runInTx(ctx, func(ctx context.Context) error {
-		rows, err := s.q(ctx).ConfirmFleetNodeHAMemberFingerprint(ctx, sqlc.ConfirmFleetNodeHAMemberFingerprintParams{NodeID: nodeID, OrgID: orgID, ControlSessionID: sessionID})
-		if err != nil || rows == 0 {
-			return err
-		}
-		member, err := s.q(ctx).GetFleetNodeHAMember(ctx, sqlc.GetFleetNodeHAMemberParams{NodeID: nodeID, OrgID: orgID})
-		if err != nil {
-			return err
-		}
-		key := fmt.Sprintf("fleet_node.ha.ready/%d/%s", nodeID, sessionID)
-		return s.audit(ctx, orgID, member.OwnerNodeID, nodeID, 0, "fleet_node.ha.ready", key, fmt.Sprintf("Fleet Node %d ready as standby for HA owner %d", nodeID, member.OwnerNodeID))
-	})
-}
-
-// Disconnect does not shorten the lease: the old process must lose its local
-// authority before a replacement can become active. Revocation is explicit.
-func (s *Service) Disconnect(ctx context.Context, nodeID, orgID int64, sessionID string) error {
-	return s.q(ctx).DeleteFleetNodeHAConnection(ctx, sqlc.DeleteFleetNodeHAConnectionParams{NodeID: nodeID, OrgID: orgID, ControlSessionID: sessionID})
-}
-
-func (s *Service) Resolve(ctx context.Context, ownerID, orgID int64) (Route, error) {
-	state, err := s.q(ctx).GetFleetNodeHARoute(ctx, sqlc.GetFleetNodeHARouteParams{ID: ownerID, OrgID: orgID})
-	if err != nil {
-		return Route{}, err
+// CreatePair pairs a newly confirmed standby with its target. It runs in the
+// confirm transaction, after the standby's fleet_node lock, and locks the
+// target so a concurrent revoke or second standby cannot interleave.
+func (s *Service) CreatePair(ctx context.Context, orgID, activeID, standbyID int64) error {
+	q := db.GetTxQueries(ctx)
+	if q == nil {
+		return fleeterror.NewInternalError("HA pair creation requires a transaction")
 	}
-	if state.MemberOwnerNodeID != ownerID {
-		return Route{}, fleeterror.NewFailedPreconditionError("standby is not a device owner")
-	}
-	if !state.Enabled {
-		if state.EnrollmentStatus != confirmedEnrollmentStatus {
-			return Route{}, fleeterror.NewFailedPreconditionError("fleet node is not confirmed")
-		}
-		return Route{OwnerNodeID: ownerID, PhysicalNodeID: ownerID, EncryptionPublicKey: state.EncryptionPubkey}, nil
-	}
-	route, ok := s.registry.HARoute(ownerID)
-	if !state.Acknowledged || !state.LeaseExpiresAt.After(time.Now()) || state.PhysicalEnrollmentStatus != confirmedEnrollmentStatus || !ok || route.PhysicalNodeID != state.PhysicalNodeID || route.Epoch != state.LeaseEpoch || route.InstanceID != state.InstanceID || route.ControlSessionID != state.ControlSessionID {
-		return Route{}, fleeterror.NewUnavailableErrorf("fleet node HA group has no acknowledged active connection")
-	}
-	return route, nil
-}
-
-func (s *Service) Eligible(ctx context.Context, nodeID, orgID int64) (int64, string, error) {
-	hello, _, connected := s.registry.HAConnection(nodeID)
-	if !connected {
-		return 0, controlStreamDisconnectedReason, nil
-	}
-	if !hello.GetHaCapable() || len(hello.GetCredentialKeyFingerprint()) != 32 {
-		return 0, "fleet node upgrade required", nil
-	}
-	ownerID := nodeID
-	member, err := s.q(ctx).GetFleetNodeHAMember(ctx, sqlc.GetFleetNodeHAMemberParams{NodeID: nodeID, OrgID: orgID})
-	if err == nil {
-		ownerID = member.OwnerNodeID
-	} else if !errors.Is(err, sql.ErrNoRows) {
-		return 0, "", err
-	}
-	route, err := s.Resolve(ctx, ownerID, orgID)
-	if err != nil {
-		if fleeterror.IsUnavailableError(err) || fleeterror.IsNotFoundError(err) || errors.Is(err, sql.ErrNoRows) {
-			return 0, notActiveMemberReason, nil
-		}
-		return 0, "", err
-	}
-	if route.PhysicalNodeID != nodeID {
-		return 0, notActiveMemberReason, nil
-	}
-	return ownerID, "", nil
-}
-
-func (s *Service) SetEnrollmentIntent(ctx context.Context, enrollmentID, orgID, ownerID int64) error {
-	rows, err := s.q(ctx).SetEnrollmentStandbyOwner(ctx, sqlc.SetEnrollmentStandbyOwnerParams{EnrollmentID: enrollmentID, OrgID: orgID, OwnerNodeID: sql.NullInt64{Int64: ownerID, Valid: true}})
-	if err != nil {
-		return err
-	}
-	if rows != 1 {
-		return fleeterror.NewFailedPreconditionError("enrollment state changed")
-	}
-	return nil
-}
-
-// Confirm runs inside enrollment's transaction; no stream I/O or row lock is
-// retained while provisioning. The original owner remains the canonical ID.
-func (s *Service) Confirm(ctx context.Context, nodeID, orgID, ownerID int64) error {
-	route, err := s.Resolve(ctx, ownerID, orgID)
-	if err != nil {
-		return err
-	}
-	hello, _, ok := s.registry.HAConnection(route.PhysicalNodeID)
-	if !ok || !hello.GetHaCapable() || len(hello.GetCredentialKeyFingerprint()) != 32 {
-		return fleeterror.NewFailedPreconditionError("standby source is unavailable or requires upgrade")
-	}
-	q := s.q(ctx)
-	source, err := q.LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: route.PhysicalNodeID, OrgID: orgID})
+	target, err := q.LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: activeID, OrgID: orgID})
 	if errors.Is(err, sql.ErrNoRows) {
-		return fleeterror.NewFailedPreconditionError("standby source is revoked")
+		return fleeterror.NewFailedPreconditionError("standby target fleet node no longer exists")
 	}
 	if err != nil {
 		return err
 	}
-	if source.EnrollmentStatus != confirmedEnrollmentStatus {
-		return fleeterror.NewFailedPreconditionError("standby source is revoked")
-	}
-	if err = q.CreateFleetNodeHAGroup(ctx, sqlc.CreateFleetNodeHAGroupParams{OwnerNodeID: ownerID, OrgID: orgID, CredentialKeyFingerprint: hello.GetCredentialKeyFingerprint()}); err != nil {
+	if err := s.checkTarget(ctx, orgID, activeID, target.EnrollmentStatus); err != nil {
 		return err
 	}
-	group, err := q.LockFleetNodeHAGroup(ctx, sqlc.LockFleetNodeHAGroupParams{OwnerNodeID: ownerID, OrgID: orgID})
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(group.CredentialKeyFingerprint, hello.GetCredentialKeyFingerprint()) {
-		return fleeterror.NewFailedPreconditionError("source credential key conflicts with HA group")
-	}
-
-	if err = q.CreateFleetNodeHAMember(ctx, sqlc.CreateFleetNodeHAMemberParams{NodeID: ownerID, OrgID: orgID, OwnerNodeID: ownerID, Ready: true, StatusReason: ""}); err != nil {
-		return err
-	}
-	if err := q.CreateFleetNodeHAMember(ctx, sqlc.CreateFleetNodeHAMemberParams{NodeID: nodeID, OrgID: orgID, OwnerNodeID: ownerID, Ready: false, StatusReason: "preparing credential key"}); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (s *Service) WithAudit(service *activity.Service, transactor interfaces.Transactor) {
-	s.activity = service
-	s.transactor = transactor
-}
-func (s *Service) WithLeadershipInvalidator(invalidate func(context.Context, int64, int64)) {
-	s.invalidateLeadership = invalidate
-}
-func (s *Service) runInTx(ctx context.Context, fn func(context.Context) error) error {
-	if s.transactor != nil {
-		return s.transactor.RunInTx(ctx, fn)
-	}
-	if db.GetTxQueries(ctx) != nil {
-		return fn(ctx)
-	}
-	var committed func()
-	err := db.WithTransactionNoResult(ctx, s.conn, func(q sqlc.Querier) error {
-		txCtx, commit := db.WithCommitHooks(db.WithTxQueries(ctx, q))
-		committed = commit
-		return fn(txCtx)
+	err = q.CreateFleetNodeHAPair(ctx, sqlc.CreateFleetNodeHAPairParams{
+		OrgID:         orgID,
+		ActiveNodeID:  activeID,
+		StandbyNodeID: standbyID,
+		StatusReason:  reasonWaitingForNodes,
 	})
-	if err == nil {
-		committed()
+	if db.IsUniqueViolationError(err) {
+		return fleeterror.NewFailedPreconditionError("fleet node is already in an HA pair")
 	}
 	return err
 }
-func (s *Service) audit(ctx context.Context, orgID, ownerID, nodeID, epoch int64, eventType, key, description string) error {
-	if s.activity == nil {
-		return nil
-	}
-	scope := "fleet_node"
-	label := fmt.Sprintf("%d", ownerID)
-	err := s.activity.LogStrict(ctx, activitymodels.Event{Category: activitymodels.CategorySystem, Type: eventType, Description: description, ActorType: activitymodels.ActorSystem, OrganizationID: &orgID, ScopeType: &scope, ScopeLabel: &label, IdempotencyKey: key, Metadata: map[string]any{"owner_node_id": ownerID, "physical_node_id": nodeID, "lease_epoch": epoch}})
+
+// RequireNotStandby rejects work that would give a standby devices of its own.
+func (s *Service) RequireNotStandby(ctx context.Context, orgID, nodeID int64) error {
+	standby, err := s.q(ctx).IsFleetNodeHAStandby(ctx, sqlc.IsFleetNodeHAStandbyParams{OrgID: orgID, StandbyNodeID: nodeID})
 	if err != nil {
-		return fmt.Errorf("persist HA activity: %w", err)
+		return err
+	}
+	if standby {
+		return fleeterror.NewFailedPreconditionError("fleet node is an HA standby; use its active node")
 	}
 	return nil
 }
 
-func (s *Service) Lease(ctx context.Context, nodeID, orgID int64, instanceID, sessionID string, req *pb.HALeaseRequest) (*pb.HALeaseResponse, error) {
-	var response *pb.HALeaseResponse
-	err := s.runInTx(ctx, func(ctx context.Context) error {
-		var err error
-		response, err = s.lease(ctx, nodeID, orgID, instanceID, sessionID, req)
+// HandOffBeforeRevoke moves an active node's devices to its standby when the
+// standby is ready and connected, so they stay paired after the revoke.
+func (s *Service) HandOffBeforeRevoke(ctx context.Context, orgID, nodeID int64) error {
+	pair, err := s.q(ctx).GetFleetNodeHAPairForNode(ctx, sqlc.GetFleetNodeHAPairForNodeParams{OrgID: orgID, NodeID: nodeID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
 		return err
-	})
-	return response, err
+	}
+	if pair.ActiveNodeID != nodeID || !pair.StandbyReady || !s.registry.Connected(pair.StandbyNodeID) {
+		return nil
+	}
+	if err := s.failover(ctx, pair.OrgID, pair.ID, pair.ActiveNodeID, pair.StandbyNodeID, "before revoking the active node"); err != nil && !errors.Is(err, errPairChanged) {
+		return err
+	}
+	return nil
 }
 
-func (s *Service) lease(ctx context.Context, nodeID, orgID int64, instanceID, sessionID string, req *pb.HALeaseRequest) (*pb.HALeaseResponse, error) {
-	q := s.q(ctx)
-	rows, err := q.TouchFleetNodeHAConnection(ctx, sqlc.TouchFleetNodeHAConnectionParams{NodeID: nodeID, OrgID: orgID, InstanceID: instanceID, ControlSessionID: sessionID})
-	if err != nil {
-		return nil, err
-	}
-	if rows != 1 {
-		return nil, fleeterror.NewUnauthenticatedError("control session replaced")
-	}
-	resp := &pb.HALeaseResponse{RequestId: req.GetRequestId(), OrgId: orgID, OwnerNodeId: nodeID, InstanceId: instanceID, ControlSessionId: sessionID, LeaseDurationMs: LeaseDuration.Milliseconds()}
-	member, err := q.GetFleetNodeHAMember(ctx, sqlc.GetFleetNodeHAMemberParams{NodeID: nodeID, OrgID: orgID})
-	if errors.Is(err, sql.ErrNoRows) {
-		node, e := q.GetFleetNodeByID(ctx, sqlc.GetFleetNodeByIDParams{ID: nodeID, OrgID: orgID})
-		if e != nil {
-			return nil, e
-		}
-		if node.EnrollmentStatus != confirmedEnrollmentStatus {
-			return nil, fleeterror.NewUnauthenticatedError("fleet node revoked")
-		}
-		resp.OwnerNodeId = 0
-		resp.Granted = false
-		resp.ActiveNodeId = nodeID
-		return resp, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	resp.OwnerNodeId = member.OwnerNodeID
-	resp.Preparing = !member.Ready
-	if member.RevokedAt.Valid {
-		return nil, fleeterror.NewUnauthenticatedError("fleet node revoked")
-	}
-	previous, err := q.LockFleetNodeHAGroup(ctx, sqlc.LockFleetNodeHAGroupParams{OwnerNodeID: member.OwnerNodeID, OrgID: orgID})
-	if err != nil {
-		return nil, err
-	}
-	if !previous.Enabled {
-		if nodeID == member.OwnerNodeID {
-			resp.OwnerNodeId = 0
-			resp.Preparing = false
-			resp.ActiveNodeId = nodeID
-		}
-		return resp, nil
-	}
-	group, err := q.AcquireOrRenewFleetNodeHALease(ctx, sqlc.AcquireOrRenewFleetNodeHALeaseParams{NodeID: nodeID, OrgID: orgID, OwnerNodeID: member.OwnerNodeID, InstanceID: instanceID, ControlSessionID: sessionID, AcknowledgedEpoch: req.GetAcknowledgedEpoch()})
-	if errors.Is(err, sql.ErrNoRows) {
-		group, err = q.GetFleetNodeHAGroup(ctx, sqlc.GetFleetNodeHAGroupParams{OwnerNodeID: member.OwnerNodeID, OrgID: orgID})
-		if err != nil {
-			return nil, err
-		}
-		resp.ActiveNodeId = group.ActiveNodeID
-		resp.LeaseEpoch = group.LeaseEpoch
-		return resp, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if previous.LeaseEpoch > 0 && group.LeaseEpoch != previous.LeaseEpoch {
-		if err := q.DeleteFleetNodeHAConnection(ctx, sqlc.DeleteFleetNodeHAConnectionParams{NodeID: previous.ActiveNodeID, OrgID: orgID, ControlSessionID: previous.ControlSessionID}); err != nil {
-			return nil, err
-		}
-	}
-	if group.Acknowledged && (!previous.Acknowledged || previous.LeaseEpoch != group.LeaseEpoch) {
-		key := fmt.Sprintf("fleet_node.ha.leadership/%d/%d", group.OwnerNodeID, group.LeaseEpoch)
-		if err := s.audit(ctx, orgID, group.OwnerNodeID, nodeID, group.LeaseEpoch, "fleet_node.ha.leadership", key, fmt.Sprintf("Fleet Node HA owner %d active on physical node %d (epoch %d)", group.OwnerNodeID, nodeID, group.LeaseEpoch)); err != nil {
-			return nil, err
-		}
-		if s.invalidateLeadership != nil {
-			invalidate := func() {
-				work, cancel := context.WithTimeout(context.WithoutCancel(db.WithoutTransaction(ctx)), 5*time.Second)
-				defer cancel()
-				s.invalidateLeadership(work, group.OwnerNodeID, orgID)
-			}
-			if !db.AfterCommit(ctx, invalidate) {
-				invalidate()
-			}
-		}
-	}
-	if group.Acknowledged {
-		node, err := q.GetFleetNodeByID(ctx, sqlc.GetFleetNodeByIDParams{ID: nodeID, OrgID: orgID})
-		if err != nil {
-			return nil, err
-		}
-		route := control.RouteBinding{OwnerNodeID: member.OwnerNodeID, PhysicalNodeID: nodeID, Epoch: group.LeaseEpoch, InstanceID: instanceID, ControlSessionID: sessionID, EncryptionPublicKey: node.EncryptionPubkey, ExpiresAt: group.LeaseExpiresAt}
-		db.AfterCommit(ctx, func() { s.registry.SetHARoute(route) })
-	}
-	sameConnection := previous.ActiveNodeID == nodeID && previous.InstanceID == instanceID && previous.ControlSessionID == sessionID
-	acknowledgedCurrentEpoch := req.GetAcknowledgedEpoch() == previous.LeaseEpoch
-	resp.Granted = !sameConnection || acknowledgedCurrentEpoch
-	resp.ActiveNodeId = group.ActiveNodeID
-	resp.LeaseEpoch = group.LeaseEpoch
-	return resp, nil
+// DeletePair removes nodeID's pair. Revocation calls it under the node lock.
+func (s *Service) DeletePair(ctx context.Context, orgID, nodeID int64) error {
+	return s.q(ctx).DeleteFleetNodeHAPairForNode(ctx, sqlc.DeleteFleetNodeHAPairForNodeParams{OrgID: orgID, NodeID: nodeID})
 }
 
-func (s *Service) EffectiveOwner(ctx context.Context, nodeID, orgID int64) (int64, error) {
-	member, err := s.q(ctx).GetFleetNodeHAMember(ctx, sqlc.GetFleetNodeHAMemberParams{NodeID: nodeID, OrgID: orgID})
-	if errors.Is(err, sql.ErrNoRows) {
-		return nodeID, nil
+// Run watches every pair until ctx ends. It fails over pairs whose active node
+// has stayed disconnected and transfers the credential key to new standbys.
+func (s *Service) Run(ctx context.Context) {
+	started := time.Now()
+	reportProgress := runtimejobs.TrackProgress(ctx, s.tickInterval)
+	ticker := time.NewTicker(s.tickInterval)
+	defer ticker.Stop()
+	var transfers sync.WaitGroup
+	defer transfers.Wait()
+	for {
+		s.tick(ctx, started, &transfers)
+		reportProgress()
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
 	}
-	if err != nil {
-		return 0, err
-	}
-	route, err := s.Resolve(ctx, member.OwnerNodeID, orgID)
-	if err != nil {
-		return 0, err
-	}
-	if route.PhysicalNodeID != nodeID {
-		return 0, fleeterror.NewFailedPreconditionError("reporting fleet node is not active")
-	}
-	return member.OwnerNodeID, nil
 }
 
-// Revoke is called in the authentication-revocation transaction. It denies
-// routing immediately while retaining the old lease expiry before promotion.
-// It preserves shared data
-// until the last nonrevoked member has gone.
-func (s *Service) Revoke(ctx context.Context, nodeID, orgID int64) (ownerID int64, retain bool, err error) {
-	q := s.q(ctx)
-	member, err := q.GetFleetNodeHAMember(ctx, sqlc.GetFleetNodeHAMemberParams{NodeID: nodeID, OrgID: orgID})
-	if errors.Is(err, sql.ErrNoRows) {
-		return nodeID, false, nil
-	}
+func (s *Service) tick(ctx context.Context, started time.Time, transfers *sync.WaitGroup) {
+	pairs, err := s.queries.ListFleetNodeHAPairs(ctx)
 	if err != nil {
-		return 0, false, err
-	}
-	if _, err = q.LockFleetNodeHAGroup(ctx, sqlc.LockFleetNodeHAGroupParams{OwnerNodeID: member.OwnerNodeID, OrgID: orgID}); err != nil {
-		return 0, false, err
-	}
-	if err = q.RevokeFleetNodeHAMember(ctx, sqlc.RevokeFleetNodeHAMemberParams{NodeID: nodeID, OrgID: orgID}); err != nil {
-		return 0, false, err
-	}
-	if err = q.ExpireFleetNodeHALease(ctx, sqlc.ExpireFleetNodeHALeaseParams{ActiveNodeID: nodeID, OrgID: orgID}); err != nil {
-		return 0, false, err
-	}
-	db.AfterCommit(ctx, func() {
-		if route, ok := s.registry.HARoute(member.OwnerNodeID); ok && route.PhysicalNodeID == nodeID {
-			s.registry.InvalidateHARoute(member.OwnerNodeID)
+		if ctx.Err() == nil {
+			slog.Error("failed to list fleet node HA pairs", "err", err)
 		}
-	})
-	members, err := q.ListFleetNodeHAMembers(ctx, sqlc.ListFleetNodeHAMembersParams{OwnerNodeID: member.OwnerNodeID, OrgID: orgID})
-	if err != nil {
-		return 0, false, err
-	}
-	for _, remaining := range members {
-		if remaining.Ready && remaining.EnrollmentStatus == confirmedEnrollmentStatus {
-			return member.OwnerNodeID, true, nil
-		}
-	}
-	for _, remaining := range members {
-		if strings.HasPrefix(remaining.StatusReason, "failed: ") {
-			continue
-		}
-		if err := q.SetFleetNodeHAMemberFailure(ctx, sqlc.SetFleetNodeHAMemberFailureParams{NodeID: remaining.NodeID, OrgID: orgID, StatusReason: "failed: no credential source remains; revoke remaining standby nodes and enroll again"}); err != nil {
-			return 0, false, err
-		}
-	}
-	return member.OwnerNodeID, len(members) > 0, nil
-}
-
-type preparation struct {
-	sessionID string
-	cancel    context.CancelFunc
-}
-
-// StartPreparation is called after Accepted has reached the stream. Retries
-// start fresh, and all transient state disappears with this connection.
-func (s *Service) StartPreparation(ctx context.Context, nodeID, orgID int64) {
-	_, sessionID, connected := s.registry.HAConnection(nodeID)
-	if !connected {
 		return
 	}
+	pastGrace := time.Since(started) >= s.startupGrace
+	for _, pair := range pairs {
+		if pair.StandbyReady {
+			if pastGrace && s.activeDown(pair.ActiveNodeID) && s.registry.Connected(pair.StandbyNodeID) {
+				err := s.failover(ctx, pair.OrgID, pair.ID, pair.ActiveNodeID, pair.StandbyNodeID, "after its control stream disconnected")
+				if err != nil && !errors.Is(err, errPairChanged) && ctx.Err() == nil {
+					slog.Error("fleet node HA failover failed", "pair_id", pair.ID, "active_node_id", pair.ActiveNodeID, "err", err)
+				}
+			}
+			continue
+		}
+		reason := s.notReadyReason(pair)
+		if reason == "" && s.startTransfer(pair.ID) {
+			transfers.Add(1)
+			go func() {
+				defer transfers.Done()
+				s.transfer(ctx, pair)
+			}()
+			continue
+		}
+		if reason != "" {
+			s.setStatus(ctx, pair, reason)
+		}
+	}
+}
+
+func (s *Service) activeDown(nodeID int64) bool {
+	since, disconnected := s.registry.DisconnectedSince(nodeID)
+	return disconnected && time.Since(since) >= s.failoverDelay
+}
+
+func (s *Service) notReadyReason(pair sqlc.ListFleetNodeHAPairsRow) string {
+	if !s.registry.Connected(pair.ActiveNodeID) || !s.registry.Connected(pair.StandbyNodeID) {
+		return reasonWaitingForNodes
+	}
+	if s.registry.CommandProtocolUpgradeRequiredForVersion(pair.ActiveNodeID, HAProtocolVersion) ||
+		s.registry.CommandProtocolUpgradeRequiredForVersion(pair.StandbyNodeID, HAProtocolVersion) {
+		return reasonUpgradeRequired
+	}
+	return ""
+}
+
+// startTransfer claims pairID unless a transfer is running or recently failed.
+func (s *Service) startTransfer(pairID int64) bool {
 	s.mu.Lock()
-	if old := s.preparing[nodeID]; old != nil {
-		if old.sessionID == sessionID {
-			s.mu.Unlock()
-			return
-		}
-		old.cancel()
+	defer s.mu.Unlock()
+	if s.provisioning[pairID] || time.Since(s.failedAt[pairID]) < s.provisionRetry {
+		return false
 	}
-	work, cancel := context.WithCancel(db.WithoutTransaction(ctx))
-	pending := &preparation{sessionID: sessionID, cancel: cancel}
-	s.preparing[nodeID] = pending
+	s.provisioning[pairID] = true
+	return true
+}
+
+func (s *Service) transfer(ctx context.Context, pair sqlc.ListFleetNodeHAPairsRow) {
+	err := s.transferKey(ctx, pair)
+	s.mu.Lock()
+	delete(s.provisioning, pair.ID)
+	if err != nil {
+		s.failedAt[pair.ID] = time.Now()
+	} else {
+		delete(s.failedAt, pair.ID)
+	}
 	s.mu.Unlock()
-	go func() {
-		defer cancel()
-		defer func() {
-			s.mu.Lock()
-			if s.preparing[nodeID] == pending {
-				delete(s.preparing, nodeID)
-			}
-			s.mu.Unlock()
-		}()
-		backoff := time.Second
-		for {
-			finished, err := s.prepare(work, nodeID, orgID, sessionID)
-			if finished || work.Err() != nil {
-				return
-			}
-			if err != nil {
-				slog.Warn("fleet node standby credential preparation pending", "fleet_node_id", nodeID, "err", err)
-			}
-			timer := time.NewTimer(backoff)
-			select {
-			case <-work.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-			}
-			backoff = min(backoff*2, 30*time.Second)
-		}
-	}()
+	if err != nil && ctx.Err() == nil {
+		slog.Warn("fleet node HA credential key transfer failed", "pair_id", pair.ID, "active_node_id", pair.ActiveNodeID, "standby_node_id", pair.StandbyNodeID, "err", err)
+		s.setStatus(ctx, pair, reasonTransferFailed)
+	}
 }
 
-func (s *Service) prepare(ctx context.Context, nodeID, orgID int64, sessionID string) (bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	q := s.q(ctx)
-	member, err := q.GetFleetNodeHAMember(ctx, sqlc.GetFleetNodeHAMemberParams{NodeID: nodeID, OrgID: orgID})
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && member.RevokedAt.Valid) {
-		return true, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	group, err := q.GetFleetNodeHAGroup(ctx, sqlc.GetFleetNodeHAGroupParams{OwnerNodeID: member.OwnerNodeID, OrgID: orgID})
-	if err != nil {
-		return false, err
-	}
-	_, currentSession, connected := s.registry.HAConnection(nodeID)
-	if !connected || currentSession != sessionID {
-		return true, nil
-	}
-	if member.Ready {
-		if group.Enabled {
-			return true, nil
-		}
-		if nodeID == member.OwnerNodeID {
-			return true, nil
-		}
-		enabled, err := s.activate(ctx, member.OwnerNodeID, orgID)
-		return enabled, err
-	}
-	if strings.HasPrefix(member.StatusReason, "failed: ") {
-		return true, nil
-	}
-	recipient, err := q.GetFleetNodeByID(ctx, sqlc.GetFleetNodeByIDParams{ID: nodeID, OrgID: orgID})
-	if err != nil {
-		return false, err
-	}
-	members, err := q.ListFleetNodeHAMembers(ctx, sqlc.ListFleetNodeHAMembersParams{OwnerNodeID: member.OwnerNodeID, OrgID: orgID})
-	if err != nil {
-		return false, err
-	}
-	var source int64
-	for _, m := range members {
-		hello, _, ok := s.registry.HAConnection(m.NodeID)
-		if m.NodeID != nodeID && m.Ready && m.EnrollmentStatus == confirmedEnrollmentStatus && ok && bytes.Equal(hello.GetCredentialKeyFingerprint(), group.CredentialKeyFingerprint) {
-			source = m.NodeID
-			break
-		}
-	}
-	if source == 0 {
-		return false, nil
-	}
-	transfer := &pb.HAKeyTransfer{OperationId: uuid.NewString(), OrgId: orgID, OwnerNodeId: member.OwnerNodeID, SourceNodeId: source, RecipientNodeId: nodeID, RecipientPublicKey: recipient.EncryptionPubkey, CredentialKeyFingerprint: group.CredentialKeyFingerprint, ExpiresAt: timestamppb.New(time.Now().Add(time.Minute))}
-	result, err := s.transfer(ctx, source, transfer)
-	if err != nil {
-		return false, err
-	}
-	if result.GetEncryptedKey() == nil || !bytes.Equal(result.GetCredentialKeyFingerprint(), group.CredentialKeyFingerprint) {
-		return true, s.failTransfer(ctx, nodeID, orgID, "source credential transfer fingerprint mismatch")
-	}
-	if err := protovalidate.Validate(result.GetEncryptedKey()); err != nil {
-		return true, s.failTransfer(ctx, nodeID, orgID, "source returned invalid encrypted credential envelope")
-	}
-	transfer.EncryptedKey = result.GetEncryptedKey()
-	// No ciphertext is checkpointed. Installation becomes ready only when a new
-	// control-session Hello proves the expected key after durable installation.
-	result, err = s.transfer(ctx, nodeID, transfer)
-	if err != nil {
-		return false, err
-	}
-	if !bytes.Equal(result.GetCredentialKeyFingerprint(), group.CredentialKeyFingerprint) {
-		return true, s.failTransfer(ctx, nodeID, orgID, "installed credential transfer fingerprint mismatch")
-	}
-	return false, nil
-}
-
-func (s *Service) activate(ctx context.Context, ownerID, orgID int64) (bool, error) {
-	s.activationMu.Lock()
-	defer s.activationMu.Unlock()
-	committed := false
-	paused := false
-	defer func() {
-		if paused && !committed {
-			s.registry.AbortHAActivation(ownerID)
-		}
-	}()
-	err := s.runInTx(ctx, func(ctx context.Context) error {
-		group, err := s.q(ctx).LockFleetNodeHAGroup(ctx, sqlc.LockFleetNodeHAGroupParams{OwnerNodeID: ownerID, OrgID: orgID})
-		if err != nil {
-			return err
-		}
-		if group.Enabled {
-			return nil
-		}
-		s.registry.BeginHAActivation(ownerID)
-		paused = true
-		rows, err := s.q(ctx).EnableFleetNodeHAGroup(ctx, sqlc.EnableFleetNodeHAGroupParams{OwnerNodeID: ownerID, OrgID: orgID})
-		if err != nil {
-			return err
-		}
-		if rows == 0 {
-			return fleeterror.NewFailedPreconditionError("HA requires a ready standby")
-		}
-		db.AfterCommit(ctx, func() { s.registry.FinishHAActivation(ownerID) })
-		return nil
+// transferKey has the active node seal its credential key to the standby's
+// encryption key and the standby install it. fleetd relays the sealed key and
+// compares the fingerprints both nodes report.
+func (s *Service) transferKey(ctx context.Context, pair sqlc.ListFleetNodeHAPairsRow) error {
+	exported, err := s.sendKeyCommand(ctx, pair.ActiveNodeID, &gatewaypb.AgentCommand{
+		Command: &gatewaypb.AgentCommand_ExportCredentialKey{ExportCredentialKey: &gatewaypb.ExportCredentialKey{
+			RecipientPublicKey: pair.StandbyEncryptionPubkey,
+		}},
 	})
-	committed = err == nil
-	return committed, err
+	if err != nil {
+		return fmt.Errorf("export from active node: %w", err)
+	}
+	if exported.GetSealedKey() == nil {
+		return errors.New("active node exported no sealed key")
+	}
+	installed, err := s.sendKeyCommand(ctx, pair.StandbyNodeID, &gatewaypb.AgentCommand{
+		Command: &gatewaypb.AgentCommand_InstallCredentialKey{InstallCredentialKey: &gatewaypb.InstallCredentialKey{
+			SealedKey: exported.GetSealedKey(),
+		}},
+	})
+	if err != nil {
+		return fmt.Errorf("install on standby: %w", err)
+	}
+	if !bytes.Equal(installed.GetFingerprint(), exported.GetFingerprint()) {
+		return errors.New("standby credential key fingerprint does not match the active node")
+	}
+	_, err = s.queries.MarkFleetNodeHAStandbyReady(ctx, sqlc.MarkFleetNodeHAStandbyReadyParams{
+		ID:            pair.ID,
+		ActiveNodeID:  pair.ActiveNodeID,
+		StandbyNodeID: pair.StandbyNodeID,
+	})
+	return err
 }
 
-func (s *Service) transfer(ctx context.Context, nodeID int64, transfer *pb.HAKeyTransfer) (*pb.HAKeyTransferResult, error) {
-	ack, err := s.registry.SendProvisioningCommand(ctx, nodeID, &pb.AgentCommand{Command: &pb.AgentCommand_HaKeyTransfer{HaKeyTransfer: transfer}})
+func (s *Service) sendKeyCommand(ctx context.Context, nodeID int64, command *gatewaypb.AgentCommand) (*gatewaypb.CredentialKeyResult, error) {
+	payload, err := proto.Marshal(command)
+	if err != nil {
+		return nil, fmt.Errorf("marshal credential key command: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
+	defer cancel()
+	ack, err := s.registry.SendCommand(ctx, nodeID, HAProtocolVersion, &gatewaypb.ControlCommand{CommandId: id.GenerateID(), Payload: payload})
 	if err != nil {
 		return nil, err
 	}
-	if !ack.GetSucceeded() || ack.GetCode() != pb.AckCode_ACK_CODE_OK {
-		return nil, fmt.Errorf("credential transfer rejected: %s", ack.GetErrorMessage())
+	if !ack.GetSucceeded() {
+		return nil, control.AckFailure(ack, "credential key")
 	}
-	result := &pb.HAKeyTransferResult{}
-	if err = proto.Unmarshal(ack.GetPayload(), result); err != nil {
-		return nil, fmt.Errorf("decode credential transfer acknowledgement: %w", err)
+	result := &gatewaypb.CredentialKeyResult{}
+	if err := proto.Unmarshal(ack.GetPayload(), result); err != nil {
+		return nil, fmt.Errorf("decode credential key result: %w", err)
+	}
+	if err := protovalidate.Validate(result); err != nil {
+		return nil, fmt.Errorf("invalid credential key result: %w", err)
 	}
 	return result, nil
 }
 
-// Summary exposes membership and preparation without inventing a second public
-// group resource. The owner ID is the existing stable Fleet Node device owner.
-type Summary struct {
-	OwnerNodeID  int64
-	Role, Reason string
+func (s *Service) setStatus(ctx context.Context, pair sqlc.ListFleetNodeHAPairsRow, reason string) {
+	if pair.StatusReason == reason {
+		return
+	}
+	if _, err := s.queries.SetFleetNodeHAPairStatus(ctx, sqlc.SetFleetNodeHAPairStatusParams{
+		StatusReason:  reason,
+		ID:            pair.ID,
+		ActiveNodeID:  pair.ActiveNodeID,
+		StandbyNodeID: pair.StandbyNodeID,
+	}); err != nil && ctx.Err() == nil {
+		slog.Warn("failed to update fleet node HA status", "pair_id", pair.ID, "err", err)
+	}
 }
 
-// CanonicalOwner maps a member for administrative previews without requiring
-// that physical member to hold the lease. The organization is always scoped.
-func (s *Service) CanonicalOwner(ctx context.Context, nodeID, orgID int64) (int64, error) {
-	state, err := s.q(ctx).GetFleetNodeHARoute(ctx, sqlc.GetFleetNodeHARouteParams{ID: nodeID, OrgID: orgID})
+// failover moves the active node's devices and discovery attribution to the
+// standby and swaps the roles. Locks follow revocation's order: the active
+// node's devices, both fleet_node rows, then the pair. errPairChanged means
+// another failover or a revoke got there first.
+func (s *Service) failover(ctx context.Context, orgID, pairID, activeID, standbyID int64, why string) error {
+	var moved []int64
+	var activeName, standbyName string
+	err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
+		q := db.GetTxQueries(ctx)
+		if _, err := q.LockFleetNodeDevicesForRevocation(ctx, sqlc.LockFleetNodeDevicesForRevocationParams{FleetNodeID: activeID, OrgID: orgID}); err != nil {
+			return err
+		}
+		active, err := q.LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: activeID, OrgID: orgID})
+		if errors.Is(err, sql.ErrNoRows) {
+			return errPairChanged
+		}
+		if err != nil {
+			return err
+		}
+		standby, err := q.LockFleetNodeByID(ctx, sqlc.LockFleetNodeByIDParams{ID: standbyID, OrgID: orgID})
+		if errors.Is(err, sql.ErrNoRows) {
+			return errPairChanged
+		}
+		if err != nil {
+			return err
+		}
+		if standby.EnrollmentStatus != confirmedStatus {
+			return errPairChanged
+		}
+		pair, err := q.LockFleetNodeHAPair(ctx, sqlc.LockFleetNodeHAPairParams{ID: pairID, ActiveNodeID: activeID})
+		if errors.Is(err, sql.ErrNoRows) {
+			return errPairChanged
+		}
+		if err != nil {
+			return err
+		}
+		if pair.StandbyNodeID != standbyID || !pair.StandbyReady {
+			return errPairChanged
+		}
+		moved, err = q.MoveFleetNodeDevices(ctx, sqlc.MoveFleetNodeDevicesParams{ToNodeID: standbyID, FromNodeID: activeID, OrgID: orgID})
+		if err != nil {
+			return err
+		}
+		if err := q.MoveDiscoveredDeviceAttribution(ctx, sqlc.MoveDiscoveredDeviceAttributionParams{
+			ToNodeID:   sql.NullInt64{Int64: standbyID, Valid: true},
+			FromNodeID: sql.NullInt64{Int64: activeID, Valid: true},
+			OrgID:      orgID,
+		}); err != nil {
+			return err
+		}
+		activeName, standbyName = active.Name, standby.Name
+		return q.SwapFleetNodeHAPair(ctx, pairID)
+	})
 	if err != nil {
-		return 0, err
-	}
-	return state.MemberOwnerNodeID, nil
-}
-
-// DispatchOwner accepts the stable owner or its current active physical member.
-// A preparing or passive member cannot be targeted for ordinary device work.
-func (s *Service) DispatchOwner(ctx context.Context, nodeID, orgID int64) (int64, error) {
-	ownerID, err := s.CanonicalOwner(ctx, nodeID, orgID)
-	if err != nil {
-		return 0, err
-	}
-	route, err := s.Resolve(ctx, ownerID, orgID)
-	if err != nil {
-		return 0, err
-	}
-	if nodeID != ownerID && nodeID != route.PhysicalNodeID {
-		return 0, fleeterror.NewFailedPreconditionError("fleet node is not the active member")
-	}
-	return ownerID, nil
-}
-
-func (s *Service) failTransfer(ctx context.Context, nodeID, orgID int64, reason string) error {
-	if err := s.q(ctx).SetFleetNodeHAMemberFailure(ctx, sqlc.SetFleetNodeHAMemberFailureParams{NodeID: nodeID, OrgID: orgID, StatusReason: "failed: " + reason}); err != nil {
 		return err
 	}
-	return fmt.Errorf("%s", reason)
-}
-
-// NodeSummary combines membership status and source eligibility from one
-// database snapshot and the same acknowledged in-process authority tuple.
-type NodeSummary struct {
-	Summary
-	Eligible          bool
-	EligibilityReason string
-}
-
-func (s *Service) ListSummaries(ctx context.Context, orgID int64) (map[int64]NodeSummary, error) {
-	states, err := s.q(ctx).ListFleetNodeHAState(ctx, orgID)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[int64]NodeSummary, len(states))
-	for _, state := range states {
-		summary := NodeSummary{Summary: Summary{OwnerNodeID: state.OwnerNodeID}}
-		hello, session, connected := s.registry.HAConnection(state.NodeID)
-		active := false
-		if state.OwnerNodeID != 0 {
-			summary.Role = "standby"
-			summary.Reason = state.StatusReason
-			switch {
-			case state.RevokedAt.Valid || state.EnrollmentStatus != confirmedEnrollmentStatus:
-				summary.Role = "unavailable"
-				summary.Reason = "revoked"
-			case !state.Ready:
-				summary.Role = "preparing"
-				if strings.HasPrefix(state.StatusReason, "failed: ") {
-					summary.Role = "failed"
-					summary.Reason = strings.TrimPrefix(state.StatusReason, "failed: ")
-				}
-			case !connected:
-				summary.Role = "unavailable"
-				summary.Reason = controlStreamDisconnectedReason
-			case !state.Enabled && state.NodeID == state.OwnerNodeID:
-				active = true
-				summary.Role = "active"
-			default:
-				route, ok := s.registry.HARoute(state.OwnerNodeID)
-				active = ok && state.Enabled && state.Acknowledged && state.LeaseExpiresAt.After(time.Now()) && route.PhysicalNodeID == state.NodeID && route.PhysicalNodeID == state.ActiveNodeID && route.Epoch == state.LeaseEpoch && route.InstanceID == state.InstanceID && route.ControlSessionID == state.ControlSessionID && hello.GetInstanceId() == route.InstanceID && session == route.ControlSessionID
-				if active {
-					summary.Role = "active"
-				}
-			}
+	// Cached miners still route to the old node.
+	if s.invalidateMiner != nil {
+		for _, deviceID := range moved {
+			s.invalidateMiner(ctx, deviceID)
 		}
-		switch {
-		case state.EnrollmentStatus != confirmedEnrollmentStatus || state.RevokedAt.Valid:
-			summary.EligibilityReason = "fleet node is not confirmed"
-		case !connected:
-			summary.EligibilityReason = controlStreamDisconnectedReason
-		case !hello.GetHaCapable() || len(hello.GetCredentialKeyFingerprint()) != 32:
-			summary.EligibilityReason = "fleet node upgrade required"
-		case state.OwnerNodeID != 0 && (!active || !state.Ready || !bytes.Equal(hello.GetCredentialKeyFingerprint(), state.CredentialKeyFingerprint)):
-			summary.EligibilityReason = notActiveMemberReason
-		default:
-			summary.Eligible = true
-		}
-		result[state.NodeID] = summary
 	}
-	return result, nil
+	description := fmt.Sprintf("Moved %d devices from fleet node '%s' (id=%d) to standby '%s' (id=%d) %s", len(moved), activeName, activeID, standbyName, standbyID, why)
+	slog.Info("fleet node HA failover", "pair_id", pairID, "from_node_id", activeID, "to_node_id", standbyID, "devices", len(moved))
+	s.activity.Log(ctx, activitymodels.Event{
+		Category:       activitymodels.CategorySystem,
+		Type:           "fleet_node_failover",
+		Description:    description,
+		Result:         activitymodels.ResultSuccess,
+		ActorType:      activitymodels.ActorSystem,
+		OrganizationID: &orgID,
+		Metadata:       map[string]any{"from_node_id": activeID, "to_node_id": standbyID, "device_count": len(moved)},
+	})
+	return nil
 }

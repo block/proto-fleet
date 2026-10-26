@@ -1,6 +1,10 @@
 import clsx from "clsx";
 import { getNodeDisplayStatus, STALE_AFTER_MS } from "./getNodeDisplayStatus";
 import type { NodeDisplayStatus } from "./getNodeDisplayStatus";
+import {
+  FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 
 const DISPLAY_STATUS_CONFIG: Record<NodeDisplayStatus, { label: string; dotClass: string; description?: string }> = {
@@ -23,35 +27,35 @@ const DISPLAY_STATUS_CONFIG: Record<NodeDisplayStatus, { label: string; dotClass
   revoked: { label: "Revoked", dotClass: "bg-intent-critical-fill" },
 };
 
-const HA_ROLE_LABELS: Record<string, string> = {
-  active: "Active",
-  standby: "Standby",
-  preparing: "Preparing",
-  unavailable: "Unavailable",
-  failed: "Failed",
+const getHaRoleLabel = (node: FleetNodeItem): string | null => {
+  switch (node.haRole) {
+    case FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE:
+      return "Active";
+    case FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY:
+      return node.enrollmentStatus === FleetNodeEnrollmentStatus.CONFIRMED && !node.haStandbyReady
+        ? "Standby · preparing"
+        : "Standby";
+    default:
+      return null;
+  }
 };
 
 const NodeStatusBadge = ({ node }: { node: FleetNodeItem }) => {
   const status = getNodeDisplayStatus(node);
   const config = DISPLAY_STATUS_CONFIG[status];
-  const dotClass =
-    node.haRole === "failed" || config.dotClass === "bg-intent-critical-fill"
-      ? "bg-intent-critical-fill"
-      : node.haRole === "preparing" || node.haRole === "unavailable"
-        ? "bg-intent-warning-fill"
-        : config.dotClass;
+  const haRoleLabel = getHaRoleLabel(node);
   return (
     <span
       title={node.haStatusReason || config.description}
       className="inline-flex flex-wrap items-center gap-2 text-300 text-text-primary-50"
     >
-      {HA_ROLE_LABELS[node.haRole] ? (
+      {haRoleLabel ? (
         <>
-          <span>{HA_ROLE_LABELS[node.haRole]}</span>
+          <span>{haRoleLabel}</span>
           <span aria-hidden="true">·</span>
         </>
       ) : null}
-      <span className={clsx("h-2 w-2 rounded-full", dotClass)} />
+      <span className={clsx("h-2 w-2 rounded-full", config.dotClass)} />
       <span>{config.label}</span>
       {config.description ? <span className="sr-only">{config.description}</span> : null}
     </span>

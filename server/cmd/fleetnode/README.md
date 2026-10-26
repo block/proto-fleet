@@ -65,7 +65,7 @@ A full command can report up to 40,960 endpoints in forty 1,024-report uploads. 
 `run` opens a bidirectional `ControlStream` over the gateway:
 
 1. Agent dials gateway, sends `ControlHello`.
-2. Server replies `ControlAccepted`; stream stays open.
+2. Server replies `ControlAccepted`; stream stays open. For nodes that speak command protocol V6, `ControlAccepted.keepalive_interval` is set (five seconds): the node sends `ControlPing` at that interval, and either side closes the stream after three intervals without receiving anything, so a half-open connection reconnects within seconds.
 3. Server pushes `ControlCommand{command_id, payload}`. Payload is a serialized `AgentCommand` envelope containing discovery, pairing, telemetry, or a per-miner command.
 4. Agent executes the command locally and sends any command-specific reports or acknowledgement payload. For discovery, it scans the requested TCP endpoints and identifies open ports using plugins, then sends results via `ReportDiscoveredDevices` in batches of 1,024 under one 90-second upload budget. Each batch carries `command_id`; identified results survive a late scan failure or deadline. Fleet Nodes do not support mDNS discovery.
 5. Agent sends `ControlAck{command_id, succeeded}` on completion.
@@ -126,7 +126,7 @@ Stop with `SIGINT`, `SIGTERM`, or `SIGHUP` (terminal close). On shutdown the age
 
 ## Enrollment flow
 
-1. Operator opens **Enroll node** in the UI, chooses standalone enrollment or **Enroll as a standby**, and continues to generate the enrollment code.
+1. Operator mints an enrollment code in the UI and shares it.
 2. `fleetnode enroll --server-url=...` prompts for the code, registers, prints a fingerprint.
 3. Operator verifies the fingerprint in the UI and clicks confirm; the UI displays the `api_key`.
 4. Agent prompts for the `api_key`, completes the handshake, persists session.
@@ -134,51 +134,15 @@ Stop with `SIGINT`, `SIGTERM`, or `SIGHUP` (terminal close). On shutdown the age
 
 If anything is interrupted between Register and Complete, `fleetnode refresh` resumes from the persisted state.
 
-## Standby enrollment and high availability
+## High availability
 
-Install nodes on separate machines that can reach Fleet Server and the same
-miners. In **Settings → Nodes → Enroll node**, select **Enroll as a standby**,
-choose the current active node in **Standby for**, and complete normal enrollment.
-Repeat to add more standbys. Credentials transfer automatically; each member
-keeps its own enrollment identity and API key, and Fleet receives no plaintext
-miner-credential key. Existing device assignments and encrypted credentials stay
-with the shared device set.
+A node can have one standby. In **Settings → Nodes → Enroll node**, select **Enroll as a standby**, choose a confirmed node that is not already in a pair, and complete normal enrollment on a second machine that can reach Fleet and the same miners. Each node keeps its own identity and API key.
 
-A standby provides redundancy only when **Ready**. Heartbeat and control-stream
-status are separate from readiness. Temporary setup failures retry automatically;
-for a permanent failure, use **Revoke** and enroll a replacement. If all credential
-sources are revoked during setup, shared data remains until the final member is
-revoked. Shared devices count once, rather than once per member.
+Once both nodes are connected and run an HA-capable version, Fleet asks the active node to seal its miner-credential key to the standby's enrollment encryption key, relays the sealed key, and has the standby install it in `state.yaml`. Fleet never sees the plaintext key; it compares key fingerprints from both nodes before marking the standby **Ready**. A standby does not discover or pair miners.
 
-First activation briefly interrupts command availability while the original node
-reconnects. Running commands may fail with an unknown physical outcome. During
-activation or failover, interrupted dispatched commands are not replayed; an old
-backend operation may still finish and overlap new work. Inspect the device state
-before repeating an uncertain write. New commands need no additional HA recovery
-block; existing write-recovery safeguards still apply.
+When the active node's control stream stays down for 30 seconds and a ready standby is connected, Fleet moves the active node's device assignments and discovery attribution to the standby and swaps the roles. Fleet waits 90 seconds after it starts, or becomes the active Fleet instance, so nodes can reconnect first. There is no automatic failback: the old active node returns as the ready standby. Commands in flight on the failed node are not replayed, so check device state before repeating an uncertain write. Plugin-local state is not copied between nodes.
 
-Fleet uses a 30-second lease, renewed every five seconds, with a five-second node
-safety margin. Heartbeats alone do not renew it. Automatic takeover requires Fleet
-Server and its database to remain available. The acceptance target is usable new
-commands within 60 seconds, then fresh telemetry in the following polling interval.
-Recovered members remain standby; there is no automatic failback.
-
-Use **Revoke** to remove members. Standby removal preserves shared devices; active
-removal permits takeover after its outstanding lease expires. Final-member removal
-uses normal device unpairing and cleanup safeguards. Revocation cannot erase a
-shared key from a machine. For a compromised member, revoke all members, rotate
-affected miner credentials, then enroll fresh nodes and pair devices again.
-Do not reuse compromised node state.
-
-Deploy server support before upgrading nodes; upgrades alone do not enable HA.
-Do not downgrade to a version without HA support while groups remain configured: revoke all members and finish
-normal cleanup first. Back up the database before changing versions.
-
-Qualify failover, interrupted writes, and revocation in staging on at least three
-machines before production use. Plugin-local state is not copied; verify curtail
-on one member and resume after promotion for each supported driver, including
-restored frequency, power, and mining state. In-process tests do not establish
-real power-loss or device-network behavior.
+Revoking either node dissolves the pair. Revoking an active node with a ready, connected standby moves its devices to the standby first; otherwise its devices are unpaired as usual. Revocation cannot erase the credential key from a machine: for a compromised node, revoke both nodes and rotate the affected miner credentials. Deploy the Fleet server before upgrading nodes; a pair stays not ready until both nodes support HA.
 
 ## Security model
 
@@ -187,7 +151,7 @@ real power-loss or device-network behavior.
 - **Lock contention.** PID is written under the lock so contention reports are actionable.
 - **Plugins.** The directory must be owned by root or the running uid and must not be group- or world-writable; the agent refuses to load otherwise. The Windows build performs an existence-only check — production Windows installs must place the binary under an Administrator-only directory (e.g., `%ProgramFiles%\fleetnode\`) so the `plugins\` subdirectory inherits a safe ACL.
 - **Scan targets.** Server-supplied targets use the shared `netscan` grammar, private-address policy, and per-command limits. Leading dashes, whitespace, and shell metacharacters are rejected.
-- **Server compatibility.** The control stream depends on RFC-0001 phase 2 server handlers; older servers that return `Unimplemented` leave the agent in heartbeat-only mode until it restarts against a compatible server.
+- **Server compatibility.** The control stream depends on RFC-0001 phase 2 server handlers; older servers return `Unimplemented` and the agent reconnects with backoff without crashing.
 
 ## Development
 

@@ -2,7 +2,10 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import {
+  FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { type FleetNodeItem, useFleetNodes } from "@/protoFleet/api/useFleetNodes";
 import { useFleetNodeUpgradeIndicator } from "@/protoFleet/components/PageHeader/useFleetNodeUpgradeIndicator";
 import { useHasPermission } from "@/protoFleet/store";
@@ -25,13 +28,11 @@ const node = (upgradeRecommended: boolean): FleetNodeItem => ({
   commandProtocolUpgradeRecommended: upgradeRecommended,
   controlStreamConnected: true,
   pairedDeviceCount: 0,
-  standbyEnrollmentEligible: false,
-  standbyEnrollmentUnavailableReason: "",
-  standbyForNodeId: null,
-  standbyForNodeName: "",
-  haRole: "",
+  haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
+  haPeerNodeId: null,
+  haPeerNodeName: "",
+  haStandbyReady: false,
   haStatusReason: "",
-  haOwnerNodeId: null,
   ipAddresses: [],
   version: "",
   enrolledBy: "",

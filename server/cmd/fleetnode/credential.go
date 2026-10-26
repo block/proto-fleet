@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"sync"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/fleetnode/bootstrap"
@@ -23,6 +24,7 @@ const (
 )
 
 type credentialCodec struct {
+	mu  sync.RWMutex
 	key []byte
 }
 
@@ -96,9 +98,6 @@ func (c *credentialCodec) Open(encrypted *gatewaypb.EncryptedCredentials) (sdk.S
 	if encrypted == nil || (len(encrypted.GetUsername()) == 0 && len(encrypted.GetPassword()) == 0) {
 		return sdk.SecretBundle{}, nil
 	}
-	if c == nil {
-		return sdk.SecretBundle{}, credentialAuthError(fmt.Errorf("credential key is not configured"))
-	}
 	username, err := c.openValue("username", encrypted.GetUsername())
 	if err != nil {
 		return sdk.SecretBundle{}, err
@@ -158,11 +157,28 @@ func (c *credentialCodec) openValue(label string, blob []byte) (string, error) {
 	return string(plaintext), nil
 }
 
+// currentKey returns a copy of the key; the HA standby install can replace it.
+func (c *credentialCodec) currentKey() []byte {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return append([]byte(nil), c.key...)
+}
+
+func (c *credentialCodec) replaceKey(key []byte) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.key = append([]byte(nil), key...)
+}
+
 func (c *credentialCodec) aead() (cipher.AEAD, error) {
-	if c == nil || len(c.key) != credentialKeySize {
+	if c == nil {
 		return nil, fmt.Errorf("credential key is not configured")
 	}
-	block, err := aes.NewCipher(c.key)
+	key := c.currentKey()
+	if len(key) != credentialKeySize {
+		return nil, fmt.Errorf("credential key is not configured")
+	}
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("create credential cipher: %w", err)
 	}
@@ -179,11 +195,4 @@ func credentialAuthError(err error) error {
 
 func credentialAAD(label string) []byte {
 	return []byte(credentialBlobAAD + "/" + credentialPayloadVersion + "/" + label)
-}
-
-func (c *credentialCodec) keySnapshot() []byte {
-	if c == nil {
-		return nil
-	}
-	return append([]byte(nil), c.key...)
 }

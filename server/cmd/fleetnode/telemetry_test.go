@@ -93,14 +93,11 @@ func TestControlLoop_TelemetryAckCarriesPayload(t *testing.T) {
 		HashrateHs:       ptrFloat64(42),
 	}}
 	cmd := &RunCmd{telemetry: fetcher}
-	fake := &controlFakeGateway{behavior: controlFakeBehavior{accepted: &pb.ControlAccepted{ControlSessionId: "standalone", OrgId: 1}}}
+	fake := &controlFakeGateway{}
 	fake.queue(telemetryCmd(t, validTelemetryRequest()))
 
 	runControlLoopOnce(t, cmd, fake)
 
-	fake.mu.Lock()
-	assert.Zero(t, fake.leaseRequests, "standalone commands need no HA lease protocol")
-	fake.mu.Unlock()
 	acks := fake.acksCopy()
 	require.Len(t, acks, 1)
 	assert.True(t, acks[0].GetSucceeded())

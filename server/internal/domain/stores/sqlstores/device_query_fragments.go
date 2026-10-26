@@ -87,7 +87,7 @@ LEFT JOIN device_pairing ON device.id = device_pairing.device_id
 LEFT JOIN device_status ON device.id = device_status.device_id
 LEFT JOIN fleet_node_device fleet_node_assignment ON fleet_node_assignment.device_id = device.id
     AND fleet_node_assignment.org_id = device.org_id
-LEFT JOIN fleet_node_effective_live assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
+LEFT JOIN fleet_node_live assigned_fleet_node ON assigned_fleet_node.id = fleet_node_assignment.fleet_node_id
     AND assigned_fleet_node.org_id = fleet_node_assignment.org_id
 LEFT JOIN LATERAL (
     SELECT

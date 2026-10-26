@@ -32,8 +32,18 @@ enum FleetNodeEnrollmentStatus {
     FLEET_NODE_ENROLLMENT_STATUS_REVOKED                = 4;
 }
 
+// A node is in at most one HA pair. The active node runs the pair's devices;
+// the standby holds the same credential key and takes the devices over when the
+// active node's control stream has been down for the failover delay.
+enum FleetNodeHARole {
+    FLEET_NODE_HA_ROLE_UNSPECIFIED = 0;
+    FLEET_NODE_HA_ROLE_ACTIVE      = 1;
+    FLEET_NODE_HA_ROLE_STANDBY     = 2;
+}
+
 message CreateEnrollmentCodeRequest {
-    // Enroll an unused node as a standby for this node's stable device owner.
+    // Enroll the new node as the standby for this confirmed node. The target
+    // must not already be in an HA pair.
     optional int64 standby_for_node_id = 1 [(buf.validate.field).int64.gt = 0];
 }
 
@@ -78,15 +88,15 @@ message FleetNodeSummary {
     string version = 14;
     // Username of the operator who confirmed enrollment, empty for older records.
     string enrolled_by = 15;
-    // Server-derived eligibility for the standby enrollment selector.
-    bool standby_enrollment_eligible = 16;
-    string standby_enrollment_unavailable_reason = 17;
-    optional int64 standby_for_node_id = 18;
-    string standby_for_node_name = 19;
-    // Empty for standalone nodes; active, standby, preparing, unavailable, failed.
-    string ha_role = 20;
-    string ha_status_reason = 21;
-    optional int64 ha_owner_node_id = 22;
+    // HA pair membership. Unset for standalone nodes. A pending standby
+    // enrollment reports STANDBY with its target as the peer.
+    FleetNodeHARole ha_role = 16;
+    optional int64 ha_peer_node_id = 17;
+    string ha_peer_node_name = 18;
+    // True once the standby holds the active node's credential key.
+    bool ha_standby_ready = 19;
+    // Why the standby is not ready yet; empty when ready.
+    string ha_status_reason = 20;
 }
 
 message ConfirmFleetNodeRequest {

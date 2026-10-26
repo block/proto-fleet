@@ -50,27 +50,18 @@ func (r *Registry) Send(ctx context.Context, fleetNodeID int64, minimumCommandPr
 		}
 		pair = cloned
 	}
-	route, bound, err := r.resolveCommand(ctx, fleetNodeID, cmd)
-	if err != nil {
-		return nil, err
-	}
-	cmd = bound
-	fleetNodeID = route.PhysicalNodeID
 	maxReports := maxReportsPerCommand
 	if pair != nil {
 		maxReports = len(pair.Targets)
 	}
-	provisioning, _ := ctx.Value(provisioningContextKey{}).(bool)
 	c := &inflightCommand{
-		provisioning: provisioning,
-		route:        route,
-		id:           cmd.GetCommandId(),
-		kind:         kind,
-		scope:        scope,
-		events:       make(chan CommandEvent, commandEventBuffer),
-		maxReports:   maxReports,
-		pair:         pair,
-		done:         make(chan struct{}),
+		id:         cmd.GetCommandId(),
+		kind:       kind,
+		scope:      scope,
+		events:     make(chan CommandEvent, commandEventBuffer),
+		maxReports: maxReports,
+		pair:       pair,
+		done:       make(chan struct{}),
 	}
 	outgoing, connDone, err := r.addCmd(fleetNodeID, minimumCommandProtocolVersion, c)
 	if err != nil {
@@ -81,7 +72,7 @@ func (r *Registry) Send(ctx context.Context, fleetNodeID int64, minimumCommandPr
 	}
 
 	session := &Session{r: r, fleetNodeID: fleetNodeID, cmd: c}
-	if err := r.enqueue(ctx, outgoing, connDone, cmd, c); err != nil {
+	if err := r.enqueue(ctx, outgoing, connDone, cmd); err != nil {
 		session.Close()
 		return nil, err
 	}
@@ -102,22 +93,11 @@ func cloneArtifactExpectations(in []ArtifactExpectation) []artifactExpectation {
 // enqueue hands cmd to the connection's outbound queue, returning ErrNoActiveStream
 // if the connection drops first or an Internal error if ctx expires. The caller owns
 // freeing the inflight entry on failure (Session.Close / removeCmd).
-func (r *Registry) enqueue(ctx context.Context, outgoing chan<- *gatewaypb.ControlCommand, connDone <-chan struct{}, cmd *gatewaypb.ControlCommand, c *inflightCommand) error {
+func (r *Registry) enqueue(ctx context.Context, outgoing chan<- *gatewaypb.ControlCommand, connDone <-chan struct{}, cmd *gatewaypb.ControlCommand) error {
 	if err := ctx.Err(); err != nil {
 		return fleeterror.NewInternalErrorf("send command: %v", err)
 	}
-	var authorityDone <-chan struct{}
-	if c.authority != nil {
-		authorityDone = c.authority.ctx.Done()
-	}
 	select {
-	case <-authorityDone:
-		return ErrNoActiveStream
-	default:
-	}
-	select {
-	case <-authorityDone:
-		return ErrNoActiveStream
 	case outgoing <- cmd:
 		return nil
 	case <-connDone:

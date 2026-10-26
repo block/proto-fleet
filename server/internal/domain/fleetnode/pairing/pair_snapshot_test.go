@@ -37,10 +37,10 @@ func pairingSnapshot(t *testing.T, db *sql.DB, orgID int64, identifier string) *
 func pairPersistMeta(t *testing.T, db *sql.DB, nodeID, orgID int64, assignedBy *int64, identifier string) control.PairPersistMeta {
 	t.Helper()
 	return control.PairPersistMeta{
-		RouteBinding: control.RouteBinding{OwnerNodeID: nodeID, PhysicalNodeID: nodeID},
-		OrgID:        orgID,
-		AssignedBy:   assignedBy,
-		Snapshots:    map[string]*pairingpb.FleetNodePairTarget{identifier: pairingSnapshot(t, db, orgID, identifier)},
+		FleetNodeID: nodeID,
+		OrgID:       orgID,
+		AssignedBy:  assignedBy,
+		Snapshots:   map[string]*pairingpb.FleetNodePairTarget{identifier: pairingSnapshot(t, db, orgID, identifier)},
 	}
 }
 
@@ -137,8 +137,8 @@ func TestPairResultRequiresDispatchSnapshot(t *testing.T) {
 	node := createFleetNode(t, enrollment, org, "missing-snapshot-node")
 	upsertNodeDiscovered(t, svc, org, node, "missing-snapshot")
 	_, err := svc.PersistFleetNodePairResult(t.Context(), control.PairPersistMeta{
-		RouteBinding: control.RouteBinding{OwnerNodeID: node, PhysicalNodeID: node},
-		OrgID:        org,
+		FleetNodeID: node,
+		OrgID:       org,
 	}, pairResult("missing-snapshot", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED))
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "a missing snapshot must stop persistence, got %v", err)
 	var devices int

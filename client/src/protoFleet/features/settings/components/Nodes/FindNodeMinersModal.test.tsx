@@ -9,7 +9,10 @@ import {
   DevicePairingResultSchema,
   FleetNodeDiscoveredDeviceSchema,
 } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import {
+  FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import { createErrorWithCause } from "@/protoFleet/api/requestErrors";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 
@@ -35,13 +38,11 @@ const node: FleetNodeItem = {
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: true,
   pairedDeviceCount: 1,
-  standbyEnrollmentEligible: false,
-  standbyEnrollmentUnavailableReason: "",
-  standbyForNodeId: null,
-  standbyForNodeName: "",
-  haRole: "",
+  haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
+  haPeerNodeId: null,
+  haPeerNodeName: "",
+  haStandbyReady: false,
   haStatusReason: "",
-  haOwnerNodeId: null,
   ipAddresses: [],
   version: "",
   enrolledBy: "",

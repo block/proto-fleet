@@ -14,6 +14,7 @@ import (
 
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -25,10 +26,8 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/auth"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
-	"github.com/block/proto-fleet/server/internal/domain/fleetnode/ha"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/infrastructure/files"
-	"github.com/google/uuid"
 )
 
 const (
@@ -57,7 +56,6 @@ type Handler struct {
 	auth       authService
 	pairing    *pairing.Service
 	registry   *control.Registry
-	ha         *ha.Service
 	files      *files.Service
 	// Keep the persisted session rotation and in-memory fence in the same order.
 	sessionRotationMu sync.Mutex
@@ -73,8 +71,6 @@ var _ fleetnodegatewayv1connect.FleetNodeGatewayServiceHandler = &Handler{}
 func NewHandler(enrollment *enrollment.Service, auth *auth.Service, pairing *pairing.Service, registry *control.Registry, filesService *files.Service) *Handler {
 	return &Handler{enrollment: enrollment, auth: auth, pairing: pairing, registry: registry, files: filesService}
 }
-
-func (h *Handler) WithHA(service *ha.Service) *Handler { h.ha = service; return h }
 
 func CommandArtifactUploadReadLimitOption() connect.HandlerOption {
 	return connect.WithConditionalHandlerOptions(func(spec connect.Spec) []connect.HandlerOption {
@@ -522,10 +518,7 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 	// node can't report (or claim) devices it was never asked to scan. A nil
 	// scope is unconstrained; ok is false only if the command was torn down
 	// between AdmitReport and here (then nothing is in scope).
-	ownerID, scope, ok := h.registry.ReportScopeFor(subject.FleetNodeID, commandID)
-	if !ok {
-		return nil, fleeterror.NewFailedPreconditionError("discovery command is no longer in flight")
-	}
+	scope, ok := h.registry.ReportScopeFor(subject.FleetNodeID, commandID)
 	inScope := make([]*pb.DiscoveredDeviceReport, 0, len(in))
 	var outOfScope int64
 	for _, d := range in {
@@ -562,7 +555,7 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 			FirmwareVersion:  d.GetFirmwareVersion(),
 		})
 	}
-	accepted, ownershipRejected, err := h.pairing.UpsertDiscoveredDevices(ctx, ownerID, subject.OrgID, reports)
+	accepted, ownershipRejected, err := h.pairing.UpsertDiscoveredDevices(ctx, subject.FleetNodeID, subject.OrgID, reports)
 	if err != nil {
 		return nil, err
 	}
@@ -705,6 +698,12 @@ var (
 	// ControlStreamLivenessInterval keeps data moving across the fleetd-to-NGINX
 	// hop so NGINX can detect a stalled upstream within its read timeout.
 	ControlStreamLivenessInterval = 30 * time.Second
+
+	// ControlStreamKeepaliveInterval is the ping cadence negotiated with nodes
+	// that speak CommandProtocolVersion V6. Both ends close the stream after
+	// control.KeepaliveMisses intervals of silence, so the HA failover loop
+	// sees a half-open connection within seconds instead of a TCP timeout.
+	ControlStreamKeepaliveInterval = 5 * time.Second
 )
 
 func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[pb.ControlStreamRequest, pb.ControlStreamResponse]) error {
@@ -755,40 +754,20 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 		return fleeterror.NewUnauthenticatedError("fleet node session was replaced or revoked")
 	}
 	defer regHandle.Unregister()
-	controlSessionID := uuid.NewString()
-	if h.ha != nil {
-		if err := h.ha.ConnectStream(ctx, subject.FleetNodeID, subject.OrgID, hello, controlSessionID, regHandle); err != nil {
-			return err
-		}
-		defer func() {
-			cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			defer cancel()
-			if err := h.ha.Disconnect(cleanup, subject.FleetNodeID, subject.OrgID, controlSessionID); err != nil {
-				slog.Warn("fleet node HA connection cleanup failed", "err", err)
-			}
-		}()
-	}
 
-	sendAccepted := func() error {
-		accepted := &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().UTC()), ControlSessionId: controlSessionID, OrgId: subject.OrgID}
-		if h.ha != nil {
-			if err := h.ha.Configure(ctx, subject.FleetNodeID, subject.OrgID, accepted); err != nil {
-				return err
-			}
-		}
-		if err := sendControlStreamAccepted(ctx, stream.Send, accepted); err != nil {
-			return err
-		}
-		if h.ha != nil {
-			h.ha.StartPreparation(ctx, subject.FleetNodeID, subject.OrgID)
-		}
-		return nil
+	// Older nodes never ping, so only V6 nodes get a keepalive deadline.
+	var keepalive time.Duration
+	livenessInterval := ControlStreamLivenessInterval
+	if hello.GetMaxCommandProtocolVersion() >= pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6 {
+		keepalive = ControlStreamKeepaliveInterval
+		livenessInterval = keepalive
 	}
-	if err := sendAccepted(); err != nil {
+	if err := sendControlStreamAccepted(ctx, stream.Send, keepalive); err != nil {
 		return err
 	}
-	liveness := time.NewTicker(ControlStreamLivenessInterval)
+	liveness := time.NewTicker(livenessInterval)
 	defer liveness.Stop()
+	lastReceived := time.Now()
 	// Side-goroutine bridges blocking stream.Receive into the select loop. Its
 	// send selects on regHandle.Done (closed by the deferred Unregister) so it
 	// can't block forever on a full channel after the main loop exits.
@@ -816,7 +795,10 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 			// exit so connect-go closes the stream.
 			return controlStreamExitError(ctx, nil)
 		case <-liveness.C:
-			if err := sendAccepted(); err != nil {
+			if keepalive > 0 && time.Since(lastReceived) >= control.KeepaliveMisses*keepalive {
+				return controlStreamExitError(ctx, fleeterror.NewUnavailableErrorf("control stream silent for %s", time.Since(lastReceived).Round(time.Second)))
+			}
+			if err := sendControlStreamAccepted(ctx, stream.Send, keepalive); err != nil {
 				return err
 			}
 		case cmd := <-regHandle.Outgoing:
@@ -830,22 +812,7 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 				}
 				return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("control stream recv: %v", r.err))
 			}
-			if lease := r.msg.GetHaLease(); lease != nil {
-				if h.ha == nil {
-					return fleeterror.NewFailedPreconditionError("HA leases unavailable")
-				}
-				if err := protovalidate.Validate(lease); err != nil {
-					return fleeterror.NewInvalidArgumentError("invalid HA lease request")
-				}
-				response, err := h.ha.Lease(ctx, subject.FleetNodeID, subject.OrgID, hello.GetInstanceId(), controlSessionID, lease)
-				if err != nil {
-					return err
-				}
-				if err := stream.Send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_HaLease{HaLease: response}}); err != nil {
-					return fmt.Errorf("send HA lease response: %w", err)
-				}
-				continue
-			}
+			lastReceived = time.Now()
 			if ack := r.msg.GetAck(); ack != nil {
 				// Trust boundary for node input: drop a malformed/oversized ack rather than
 				// routing it into the command error path (the waiting command times out).
@@ -868,10 +835,12 @@ func controlStreamExitError(ctx context.Context, fallback error) error {
 	return fallback
 }
 
-func sendControlStreamAccepted(ctx context.Context, send func(*pb.ControlStreamResponse) error, accepted *pb.ControlAccepted) error {
-	if err := send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{
-		Accepted: accepted,
-	}}); err != nil {
+func sendControlStreamAccepted(ctx context.Context, send func(*pb.ControlStreamResponse) error, keepalive time.Duration) error {
+	accepted := &pb.ControlAccepted{ServerTime: timestamppb.New(time.Now().UTC())}
+	if keepalive > 0 {
+		accepted.KeepaliveInterval = durationpb.New(keepalive)
+	}
+	if err := send(&pb.ControlStreamResponse{Kind: &pb.ControlStreamResponse_Accepted{Accepted: accepted}}); err != nil {
 		return controlStreamExitError(ctx, fleeterror.NewInternalErrorf("send accepted: %v", err))
 	}
 	return nil

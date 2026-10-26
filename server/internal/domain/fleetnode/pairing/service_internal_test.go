@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
 	stores "github.com/block/proto-fleet/server/internal/domain/stores/interfaces"
 	telemetrymodels "github.com/block/proto-fleet/server/internal/domain/telemetry/models"
@@ -19,6 +20,7 @@ type pairServiceStore struct {
 	identifier    string
 	identifierErr error
 	devices       []FleetNodeDevice
+	haStandby     bool
 }
 
 func (s *pairServiceStore) ListFleetNodeDevices(context.Context, int64, *int64) ([]FleetNodeDevice, error) {
@@ -31,6 +33,10 @@ func (s *pairServiceStore) DeviceExistsInOrg(context.Context, int64, int64) (boo
 
 func (s *pairServiceStore) DeviceHasActiveCloudPairing(context.Context, int64, int64) (bool, error) {
 	return false, nil
+}
+
+func (s *pairServiceStore) IsFleetNodeHAStandby(context.Context, int64, int64) (bool, error) {
+	return s.haStandby, nil
 }
 
 func (s *pairServiceStore) DeviceHasRevokedFleetNodeStatus(context.Context, int64, int64) (bool, error) {
@@ -211,4 +217,31 @@ func TestFleetNodeRigConfigReapplyDetachesFromRequestCancellation(t *testing.T) 
 	called = false
 	svc.reapplyRigConfigBestEffort(ctx, 56, &assignedBy, nil)
 	require.False(t, called, "empty targets must not become an organization-wide request")
+}
+
+func TestPairingLockRejectsHAStandby(t *testing.T) {
+	tests := []struct {
+		name      string
+		haStandby bool
+		wantErr   bool
+	}{
+		{name: "active or unpaired node", haStandby: false},
+		{name: "standby node", haStandby: true, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Arrange
+			service := NewService(&pairServiceStore{haStandby: tc.haStandby}, pairServiceEnrollmentStore{}, passThroughTransactor{})
+
+			// Act
+			err := service.lockFleetNodeForPairing(t.Context(), 12, 34)
+
+			// Assert
+			if !tc.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.True(t, fleeterror.IsFailedPreconditionError(err), "got %v", err)
+		})
+	}
 }

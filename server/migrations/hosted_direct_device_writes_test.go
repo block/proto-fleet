@@ -223,7 +223,7 @@ func TestHostedUpgradePreflightPreservesCheckpointAndHistory(t *testing.T) {
 			user := database.CreateSuperAdminUser()
 			device := database.CreateDevice(user.OrganizationID, "proto")
 			ctx := t.Context()
-			for _, name := range []string{"001036_internal_fleet_node_standby_ha", "001013_internal_fleet_node_heartbeat", "001012_internal_retired_device_write_permits", "001011_internal_direct_device_write_attempts"} {
+			for _, name := range []string{"001013_internal_fleet_node_heartbeat", "001012_internal_retired_device_write_permits", "001011_internal_direct_device_write_attempts"} {
 				down, err := migrations.Current.ReadFile("current/" + name + ".down.sql")
 				require.NoError(t, err)
 				_, err = database.DB.ExecContext(ctx, string(down))

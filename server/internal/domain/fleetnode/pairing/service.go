@@ -41,6 +41,7 @@ type Store interface { //nolint:interfacebloat // Pairing coordinates several sq
 	ClearFleetNodeRevokedStatus(ctx context.Context, fleetNodeID, deviceID, orgID int64) (int64, error)
 	DeviceHasActiveCloudPairing(ctx context.Context, deviceID, orgID int64) (bool, error)
 	DeviceHasActivePairing(ctx context.Context, deviceID, orgID int64) (bool, error)
+	IsFleetNodeHAStandby(ctx context.Context, fleetNodeID, orgID int64) (bool, error)
 	UnpairDevice(ctx context.Context, deviceID, orgID int64) (int64, error)
 	ListFleetNodeDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]FleetNodeDevice, error)
 	CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) (map[int64]int64, error)
@@ -71,7 +72,6 @@ type TelemetryScheduler interface {
 }
 
 type Service struct {
-	haOwnerResolver func(context.Context, int64, int64) error
 	store           Store
 	enrollmentStore enrollment.AgentStore
 	transactor      stores.Transactor
@@ -85,11 +85,6 @@ type Service struct {
 
 	invalidateMiner    func(context.Context, int64)
 	rigConfigReapplier func(context.Context, int64, int64, []string)
-}
-
-func (s *Service) WithHAOwnerResolver(resolve func(context.Context, int64, int64) error) *Service {
-	s.haOwnerResolver = resolve
-	return s
 }
 
 func NewService(store Store, enrollmentStore enrollment.AgentStore, transactor stores.Transactor) *Service {
@@ -198,8 +193,17 @@ func (s *Service) lockFleetNodeForPairing(ctx context.Context, fleetNodeID, orgI
 		}
 		return logInternal("lock fleet node", clientErrLookupFleetNodeForPairing, lockErr)
 	}
-	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed && (s.haOwnerResolver == nil || s.haOwnerResolver(ctx, fleetNodeID, orgID) != nil) {
+	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
 		return fleeterror.NewFailedPreconditionError("fleet node is not confirmed; cannot pair until enrollment completes")
+	}
+	// A separate statement after the lock sees a failover that committed while
+	// this transaction waited, so devices never land on a standby.
+	standby, err := s.store.IsFleetNodeHAStandby(ctx, fleetNodeID, orgID)
+	if err != nil {
+		return logInternal("check HA standby", clientErrLookupFleetNodeForPairing, err)
+	}
+	if standby {
+		return fleeterror.NewFailedPreconditionError("fleet node is an HA standby; pair devices to its active node")
 	}
 	return nil
 }
@@ -212,7 +216,7 @@ func (s *Service) lockFleetNodeIdentityForPairing(ctx context.Context, fleetNode
 		}
 		return logInternal("lock fleet node identity", clientErrLookupFleetNodeForPairing, err)
 	}
-	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed && (s.haOwnerResolver == nil || s.haOwnerResolver(ctx, fleetNodeID, orgID) != nil) {
+	if node.EnrollmentStatus != enrollment.FleetNodeStatusConfirmed {
 		return fleeterror.NewFailedPreconditionError("fleet node is not confirmed; cannot pair until enrollment completes")
 	}
 	return nil

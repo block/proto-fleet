@@ -12,8 +12,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
-
 	"golang.org/x/sync/errgroup"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
@@ -734,7 +732,7 @@ func (es *ExecutionService) markQueueMessageStatus(ctx context.Context, q sqlc.Q
 			Status: sqlc.QueueStatusEnumSUCCESS,
 		})
 		terminal = true
-	case control.IsCommandInterrupted(workerError), fleeterror.IsUnimplementedError(workerError),
+	case fleeterror.IsUnimplementedError(workerError),
 		fleeterror.IsFailedPreconditionError(workerError):
 		result, err = q.UpdateMessagePermanentlyFailed(ctx, sqlc.UpdateMessagePermanentlyFailedParams{
 			ID:        message.ID,

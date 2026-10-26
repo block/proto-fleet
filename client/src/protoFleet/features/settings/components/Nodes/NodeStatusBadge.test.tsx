@@ -1,7 +1,10 @@
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import NodeStatusBadge from "./NodeStatusBadge";
-import { FleetNodeEnrollmentStatus } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
+import {
+  FleetNodeEnrollmentStatus,
+  FleetNodeHARole,
+} from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
 
 const baseNode: FleetNodeItem = {
@@ -14,13 +17,11 @@ const baseNode: FleetNodeItem = {
   commandProtocolUpgradeRecommended: false,
   controlStreamConnected: false,
   pairedDeviceCount: 0,
-  standbyEnrollmentEligible: false,
-  standbyEnrollmentUnavailableReason: "",
-  standbyForNodeId: null,
-  standbyForNodeName: "",
-  haRole: "",
+  haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
+  haPeerNodeId: null,
+  haPeerNodeName: "",
+  haStandbyReady: false,
   haStatusReason: "",
-  haOwnerNodeId: null,
   ipAddresses: [],
   version: "",
   enrolledBy: "",
@@ -107,13 +108,40 @@ describe("NodeStatusBadge", () => {
     expect(getByText(label)).toBeInTheDocument();
   });
 
-  it.each(["active", "standby", "preparing", "unavailable", "failed"])(
-    "shows the %s role supplied by the server",
-    (haRole) => {
-      const { getByText } = render(<NodeStatusBadge node={{ ...baseNode, haRole }} />);
-      expect(getByText(haRole[0].toUpperCase() + haRole.slice(1))).toBeInTheDocument();
-    },
-  );
+  it.each([
+    ["Active", FleetNodeHARole.FLEET_NODE_HA_ROLE_ACTIVE, true],
+    ["Standby", FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY, true],
+    ["Standby · preparing", FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY, false],
+  ])("shows %s for a confirmed HA node (standby ready=%s)", (label, haRole, haStandbyReady) => {
+    // Act
+    const { getByText } = render(<NodeStatusBadge node={{ ...baseNode, haRole, haStandbyReady }} />);
+
+    // Assert
+    expect(getByText(label)).toBeInTheDocument();
+  });
+
+  it("does not show an HA role for a standalone node", () => {
+    // Act
+    const { queryByText } = render(<NodeStatusBadge node={baseNode} />);
+
+    // Assert
+    expect(queryByText(/Active|Standby/)).not.toBeInTheDocument();
+  });
+
+  it("explains an unready standby with the server-provided reason", () => {
+    // Arrange
+    const node = {
+      ...baseNode,
+      haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY,
+      haStatusReason: "Waiting for both nodes to connect",
+    };
+
+    // Act
+    const { getByTitle } = render(<NodeStatusBadge node={node} />);
+
+    // Assert
+    expect(getByTitle("Waiting for both nodes to connect")).toBeInTheDocument();
+  });
 
   it("shows Awaiting confirmation for a registered node", () => {
     const { getByText } = render(

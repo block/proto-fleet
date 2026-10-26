@@ -164,8 +164,8 @@ func TestPersistPairResultLocksIdentityThenDeviceThenEnrollmentBeforeWrites(t *t
 			).WithProvisioning(deviceStore, discoveredStore, nil)
 			defaultPasswordActive := false
 			status, err := service.PersistFleetNodePairResult(t.Context(), control.PairPersistMeta{
-				RouteBinding: control.RouteBinding{OwnerNodeID: fleetNodeID, PhysicalNodeID: fleetNodeID},
-				OrgID:        orgID,
+				FleetNodeID: fleetNodeID,
+				OrgID:       orgID,
 				Snapshots: map[string]*pairingpb.FleetNodePairTarget{
 					identifier: {DeviceIdentifier: identifier},
 				},

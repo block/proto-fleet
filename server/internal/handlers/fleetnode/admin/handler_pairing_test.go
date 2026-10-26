@@ -22,6 +22,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/discovery"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/enrollment"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/ha"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	"github.com/block/proto-fleet/server/internal/domain/session"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -62,8 +63,9 @@ func newPairingHarness(t *testing.T) *pairingHarness {
 		WithProvisioning(sqlstores.NewSQLDeviceStore(db), sqlstores.NewSQLDiscoveredDeviceStore(db), registry)
 
 	discoverySvc := discovery.NewService(registry, enrollmentSvc)
+	haSvc := ha.NewService(db, transactor, registry, nil, nil)
 	return &pairingHarness{
-		handler:    admin.NewHandler(enrollmentSvc, pairingSvc, discoverySvc, registry),
+		handler:    admin.NewHandler(enrollmentSvc, pairingSvc, discoverySvc, registry, haSvc),
 		db:         db,
 		orgID:      1,
 		enrollment: enrollmentSvc,
