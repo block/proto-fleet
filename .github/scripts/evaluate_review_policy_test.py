@@ -1638,22 +1638,24 @@ class ReviewPolicyTest(unittest.TestCase):
     def test_review_events_publish_only_after_trusted_reevaluation(self):
         workflow = load_workflow("review-policy.yml")
         triggers = workflow_triggers(workflow)
-        self.assertIn("Review Policy", triggers["workflow_run"]["workflows"])
-        self.assertEqual(triggers["workflow_run"]["types"], ["completed"])
+        relay = load_workflow("review-policy-relay.yml")
+        relay_triggers = workflow_triggers(relay)
+        self.assertIn("workflow_call", triggers)
+        self.assertEqual(relay_triggers["workflow_run"]["workflows"], ["Review Policy"])
+        self.assertEqual(relay_triggers["workflow_run"]["types"], ["completed"])
+        self.assertNotIn(workflow["name"], triggers["workflow_run"]["workflows"])
+        self.assertNotIn(relay["name"], triggers["workflow_run"]["workflows"])
+        self.assertNotIn(relay["name"], relay_triggers["workflow_run"]["workflows"])
+        relay_job = relay["jobs"]["reevaluate"]
+        self.assertEqual(relay_job["uses"], "./.github/workflows/review-policy.yml")
+        self.assertEqual(
+            relay_job["if"],
+            'contains(fromJSON(\'["pull_request","pull_request_review"]\'), github.event.workflow_run.event)',
+        )
         for job_id in ("publish-status", "sync-label"):
             condition = workflow["jobs"][job_id]["if"]
             for event in ("pull_request", "pull_request_review"):
                 self.assertIn(f"github.event_name != '{event}'", condition)
-
-        ignore_relay = (
-            "github.event_name == 'workflow_run' && "
-            "github.event.workflow_run.name == 'Review Policy' && "
-            '!contains(fromJSON(\'["pull_request","pull_request_review"]\'), '
-            "github.event.workflow_run.event)"
-        )
-        self.assertIn(ignore_relay, workflow["concurrency"]["group"])
-        self.assertIn(ignore_relay, workflow["concurrency"]["cancel-in-progress"])
-        self.assertIn(f"!({ignore_relay})", workflow["jobs"]["evaluate"]["if"])
 
     def test_workflow_completion_resolves_current_fork_head_without_associations(self):
         workflow = load_workflow("review-policy.yml")
@@ -1684,7 +1686,6 @@ class ReviewPolicyTest(unittest.TestCase):
                 {**pr, "state": "closed"},
                 False,
             ),
-            ("relay-completion", "Review Policy", "workflow_run", head_sha, pr, False),
         ]
         for name, run_name, event, run_sha, current_pr, expected_found in scenarios:
             scenario = {

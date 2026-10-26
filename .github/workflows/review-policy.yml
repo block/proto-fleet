@@ -6,8 +6,9 @@ on: # zizmor: ignore[dangerous-triggers] review policy runs from trusted workflo
   check_suite:
     types: [completed]
   workflow_run:
-    workflows: ["PR Gate", "Codex Security Review", "Semgrep OSS", "zizmor", "Review Policy"]
+    workflows: ["PR Gate", "Codex Security Review", "Semgrep OSS", "zizmor"]
     types: [completed]
+  workflow_call:
   pull_request:
     types: [edited]
   pull_request_review:
@@ -24,7 +25,6 @@ concurrency:
   group: >-
     review-policy-${{
       (
-        (github.event_name == 'workflow_run' && github.event.workflow_run.name == 'Review Policy' && !contains(fromJSON('["pull_request","pull_request_review"]'), github.event.workflow_run.event)) ||
         (github.event_name == 'check_run' && github.event.check_run.app.slug == 'github-actions') ||
         (github.event_name == 'check_run' && github.event.action == 'rerequested') ||
         (github.event_name == 'check_suite' && github.event.check_suite.app.slug == 'github-actions') ||
@@ -40,7 +40,6 @@ concurrency:
   cancel-in-progress: >-
     ${{
       !(
-        (github.event_name == 'workflow_run' && github.event.workflow_run.name == 'Review Policy' && !contains(fromJSON('["pull_request","pull_request_review"]'), github.event.workflow_run.event)) ||
         (github.event_name == 'check_run' && github.event.check_run.app.slug == 'github-actions') ||
         (github.event_name == 'check_run' && github.event.action == 'rerequested') ||
         (github.event_name == 'check_suite' && github.event.check_suite.app.slug == 'github-actions') ||
@@ -63,7 +62,6 @@ jobs:
   evaluate:
     name: Evaluate Review Policy
     if: >-
-      !(github.event_name == 'workflow_run' && github.event.workflow_run.name == 'Review Policy' && !contains(fromJSON('["pull_request","pull_request_review"]'), github.event.workflow_run.event)) &&
       !(github.event_name == 'check_run' && github.event.check_run.app.slug == 'github-actions') &&
       !(github.event_name == 'check_run' && github.event.action == 'rerequested') &&
       !(github.event_name == 'check_suite' && github.event.check_suite.app.slug == 'github-actions') &&
@@ -172,14 +170,6 @@ jobs:
               pr = await findOpenPrForSha(context.payload.check_suite?.head_sha);
             } else if (context.eventName === 'workflow_run') {
               const run = context.payload.workflow_run;
-              // PR/review events can have read-only tokens. Their completion
-              // starts one trusted reevaluation; do not relay its completion.
-              if (run?.name === 'Review Policy' &&
-                  !['pull_request', 'pull_request_review'].includes(run.event)) {
-                core.notice('Ignoring completed Review Policy relay to avoid recursion.');
-                core.setOutput('found', 'false');
-                return;
-              }
               const candidate = run?.pull_requests?.[0];
               if (candidate) {
                 const data = await getOpenPrByNumber(candidate.number);
