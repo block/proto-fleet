@@ -1,8 +1,17 @@
-import { type DescMessage, type DescMethodUnary, fromJson, type JsonValue, toJson } from "@bufbuild/protobuf";
+import {
+  type DescEnum,
+  type DescMessage,
+  type DescMethodUnary,
+  fromJson,
+  type JsonObject,
+  type JsonValue,
+  toJson,
+} from "@bufbuild/protobuf";
 import { Code, ConnectError, type Transport } from "@connectrpc/connect";
 
 import type { AdapterRequestOptions, MiningScope } from "../types";
 import type {
+  PoolServiceGetPoolDiagnosticsParams,
   PoolServiceUpdatePoolBody,
   TelemetryServiceQueryShareQualityHistoryParams,
   TelemetryServiceQueryTimeSeriesParams,
@@ -33,6 +42,8 @@ import type {
   V2SetModuleFixedVoltageResponse,
   V2SetPowerTargetScopedRequest,
   V2SetPowerTargetScopedResponse,
+  V2SetTargetPowerRequest,
+  V2SetTargetPowerResponse,
   V2StartMiningScopedResponse,
   V2StartModuleRunInResponse,
   V2StopMiningScopedResponse,
@@ -53,7 +64,10 @@ export interface MdkV2Client {
   systemServiceGetSystemStatus(params?: AdapterRequestOptions): HttpResponse<V2GetSystemStatusResponse>;
   miningServiceGetMiningStatus(params?: AdapterRequestOptions): HttpResponse<V2GetMiningStatusResponse>;
   miningServiceGetTargetPower(params?: AdapterRequestOptions): HttpResponse<V2GetTargetPowerResponse>;
-  miningServiceSetTargetPower(data: unknown, params?: AdapterRequestOptions): HttpResponse<unknown>;
+  miningServiceSetTargetPower(
+    data: V2SetTargetPowerRequest,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2SetTargetPowerResponse>;
   miningServiceSetPowerTargetScoped(
     data: V2SetPowerTargetScopedRequest,
     params?: AdapterRequestOptions,
@@ -96,7 +110,7 @@ export interface MdkV2Client {
   ): HttpResponse<V2GetHashboardASICsResponse>;
   poolServiceListPools(params?: AdapterRequestOptions): HttpResponse<V2ListPoolsResponse>;
   poolServiceGetPoolDiagnostics(
-    query?: TelemetryServiceQueryShareQualityHistoryParams | { includeLastRecordedShares?: boolean },
+    query?: PoolServiceGetPoolDiagnosticsParams,
     params?: AdapterRequestOptions,
   ): HttpResponse<V2GetPoolDiagnosticsResponse>;
   poolServiceCreatePool(data: V2CreatePoolRequest, params?: AdapterRequestOptions): HttpResponse<V2CreatePoolResponse>;
@@ -174,6 +188,35 @@ const withoutUndefined = (value: unknown): unknown => {
   return value;
 };
 
+const isJsonObject = (value: JsonValue): value is JsonObject =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+// Binary responses keep enum numbers the bundled schema doesn't define, and toJson emits those as
+// numbers. The REST gateway always sent names, so callers get `<SHARED_PREFIX><number>` instead.
+const enumName = (desc: DescEnum, value: JsonValue) => {
+  if (typeof value !== "number") return value;
+  const prefix = desc.sharedPrefix ? desc.values[0].name.slice(0, desc.sharedPrefix.length) : "";
+  return `${prefix}${value}`;
+};
+
+const nameUnknownEnums = (desc: DescMessage, json: JsonValue): void => {
+  // Well-known types have their own JSON forms (Timestamp strings, Struct objects) and no enums to name.
+  if (desc.typeName.startsWith("google.protobuf.") || !isJsonObject(json)) return;
+  for (const field of desc.fields) {
+    const value = json[field.jsonName];
+    if (value === undefined || (!field.enum && !field.message)) continue;
+    const nameValue = (item: JsonValue) => {
+      if (field.enum) return enumName(field.enum, item);
+      if (field.message) nameUnknownEnums(field.message, item);
+      return item;
+    };
+    if (field.fieldKind === "list" && Array.isArray(value)) json[field.jsonName] = value.map(nameValue);
+    else if (field.fieldKind === "map" && isJsonObject(value))
+      json[field.jsonName] = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, nameValue(item)]));
+    else json[field.jsonName] = nameValue(value);
+  }
+};
+
 const unary = async <I extends DescMessage, O extends DescMessage, T>(
   transport: Transport,
   method: DescMethodUnary<I, O>,
@@ -185,7 +228,9 @@ const unary = async <I extends DescMessage, O extends DescMessage, T>(
   const signal = params.signal ?? undefined;
   try {
     const response = await transport.unary(method, signal, undefined, params.headers, input);
-    return { data: toJson(method.output, response.message, { alwaysEmitImplicit: true }) as T };
+    const data = toJson(method.output, response.message, { alwaysEmitImplicit: true });
+    nameUnknownEnums(method.output, data);
+    return { data: data as T };
   } catch (error) {
     // fetch rejects with the abort reason; callers use that to ignore cancellations.
     if (signal?.aborted) throw signal.reason;

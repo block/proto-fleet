@@ -3,11 +3,13 @@ import { Code, ConnectError, createRouterTransport } from "@connectrpc/connect";
 
 import { createMdkV2Client } from "./connectClient";
 import { BucketSize, TimeSeriesMetric } from "./generated/proto/mdk/v2/common_pb";
+import { HashboardErrorCause, HashboardService } from "./generated/proto/mdk/v2/hashboard_pb";
 import { MiningService, PerformanceMode } from "./generated/proto/mdk/v2/mining_pb";
 import { PoolService } from "./generated/proto/mdk/v2/pool_pb";
 import { PowerService } from "./generated/proto/mdk/v2/power_pb";
 import { RunInService } from "./generated/proto/mdk/v2/runin_pb";
-import { TelemetryService } from "./generated/proto/mdk/v2/telemetry_pb";
+import { HistorySource, TelemetryService } from "./generated/proto/mdk/v2/telemetry_pb";
+import { MdkV2Adapter } from "./MdkV2Adapter";
 import { isAbortError } from "@/shared/utils/abort";
 
 describe("MDK v2 Connect client", () => {
@@ -136,8 +138,70 @@ describe("MDK v2 Connect client", () => {
         service(MiningService, { setTargetPower: () => ({ performanceMode: PerformanceMode.EFFICIENCY }) }),
       ),
     );
+    const body = { watts: 900, wattsPerBoard: 1 };
 
-    await expect(client.miningServiceSetTargetPower({ watts: 900, wattsPerBoard: 1 })).rejects.toThrow(/wattsPerBoard/);
+    await expect(client.miningServiceSetTargetPower(body)).rejects.toThrow(/wattsPerBoard/);
+  });
+
+  it("names enum values the bundled schema does not define", async () => {
+    const client = createMdkV2Client(
+      createRouterTransport(({ service }) => {
+        service(MiningService, { getTargetPower: () => ({ watts: 900, performanceMode: 4242 as PerformanceMode }) });
+        service(TelemetryService, {
+          queryTimeSeries: () => ({ unit: "TH/s", buckets: [{ count: 1n, source: 77 as HistorySource }] }),
+        });
+      }),
+    );
+
+    const { data: target } = await client.miningServiceGetTargetPower();
+    const { data: series } = await client.telemetryServiceQueryTimeSeries({
+      metric: "TIME_SERIES_METRIC_HASHRATE",
+      bucketSize: "BUCKET_SIZE_5M",
+      "range.start": "2026-09-16T00:00:00Z",
+      "range.end": "2026-09-16T01:00:00Z",
+    });
+
+    expect(target.performanceMode).toBe("PERFORMANCE_MODE_4242");
+    expect(series.buckets?.[0]?.source).toBe("HISTORY_SOURCE_77");
+  });
+
+  it("keeps listing hashboard errors whose cause the bundled schema does not define", async () => {
+    const adapter = new MdkV2Adapter(
+      createMdkV2Client(
+        createRouterTransport(({ service }) => {
+          service(HashboardService, {
+            getContainerMap: () => ({
+              containerMap: {
+                tanks: [
+                  {
+                    id: 1,
+                    modules: [
+                      {
+                        id: 1,
+                        slots: [
+                          {
+                            hashboard: {
+                              macAddress: "02:00:00:00:00:01",
+                              location: { hashboardPosition: 1 },
+                              health: { errors: [{ cause: 4242 as HashboardErrorCause }] },
+                            },
+                          },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            }),
+          });
+          service(TelemetryService, { getContainerHealth: () => ({}) });
+        }),
+      ),
+    );
+
+    await expect(adapter.getErrors()).resolves.toContainEqual(
+      expect.objectContaining({ code: "HASHBOARD_ERROR_CAUSE_4242", message: "4242", severity: "critical" }),
+    );
   });
 
   it.each([
