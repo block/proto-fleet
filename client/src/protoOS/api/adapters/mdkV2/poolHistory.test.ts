@@ -157,6 +157,95 @@ describe("pool history", () => {
     expect(result).toEqual({ byPool: {}, unavailable: request.poolIds });
   });
 
+  describe("generated HTTP transport", () => {
+    const adapter = () => MdkV2Adapter.fromConfig({ baseUrl: "http://miner.test", protocol: "rest" });
+
+    it.each([
+      [404, 5],
+      [405, 12],
+      [501, 12],
+    ])("classifies HTTP %s as unavailable with an RPC error body", async (status, code) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ code, message: "Unsupported" }, { status })),
+      );
+      await expect(adapter().getPoolHistory(request)).resolves.toEqual({ byPool: {}, unavailable: request.poolIds });
+    });
+
+    it.each([
+      [401, 16],
+      [403, 7],
+    ])("preserves HTTP %s and the parsed RPC body for authentication handling", async (status, code) => {
+      const body = { code, message: "Access denied" };
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json(body, { status })),
+      );
+      await expect(adapter().getPoolHistory(request)).rejects.toMatchObject({ status, error: body });
+    });
+
+    it("classifies an unsupported non-JSON response by HTTP status", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("Not found", { status: 404 })),
+      );
+      await expect(adapter().getPoolHistory(request)).resolves.toEqual({ byPool: {}, unavailable: request.poolIds });
+    });
+
+    it("rejects total outages with RPC error bodies", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ code: 14, message: "Unavailable" }, { status: 503 })),
+      );
+      await expect(adapter().getPoolHistory(request)).rejects.toThrow("Could not refresh any pool history");
+    });
+  });
+
+  describe("Connect transport", () => {
+    const adapter = () => MdkV2Adapter.fromConfig({ baseUrl: "http://miner.test", protocol: "connect" });
+
+    it.each([
+      [404, "not_found"],
+      [501, "unimplemented"],
+    ])("classifies HTTP %s (%s) as unavailable", async (status, code) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ code, message: "Unsupported" }, { status })),
+      );
+      await expect(adapter().getPoolHistory(request)).resolves.toEqual({ byPool: {}, unavailable: request.poolIds });
+    });
+
+    it.each([
+      [401, "unauthenticated", 16],
+      [403, "permission_denied", 7],
+    ])("preserves HTTP %s and the RPC error for authentication handling", async (status, name, code) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ code: name, message: "Access denied" }, { status })),
+      );
+      await expect(adapter().getPoolHistory(request)).rejects.toMatchObject({
+        status,
+        error: { code, message: "Access denied" },
+      });
+    });
+
+    it("classifies a host without the procedure as unavailable", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => new Response("Not found", { status: 404 })),
+      );
+      await expect(adapter().getPoolHistory(request)).resolves.toEqual({ byPool: {}, unavailable: request.poolIds });
+    });
+
+    it("rejects total outages", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => Response.json({ code: "unavailable", message: "Unavailable" }, { status: 503 })),
+      );
+      await expect(adapter().getPoolHistory(request)).rejects.toThrow("Could not refresh any pool history");
+    });
+  });
+
   it("drains siblings and skips queued requests before an auth retry", async () => {
     let active = 0,
       peak = 0;

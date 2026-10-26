@@ -1,3 +1,4 @@
+import { createConnectTransport } from "@connectrpc/connect-web";
 import type { ContainerHistoryRequest } from "../containerHistory";
 import type { PoolHistoryRequest } from "../poolHistory";
 import type {
@@ -20,6 +21,7 @@ import { parseIsoDurationMs } from "../utils/time";
 import { createMdkV2Client, type MdkV2Client } from "./connectClient";
 import { queryContainerHistory } from "./containerHistory";
 import {
+  Api,
   type TelemetryServiceQueryTimeSeriesParams,
   V2HashboardIdentifyLEDMode,
   V2PerformanceMode,
@@ -50,6 +52,9 @@ import type { PoolInfo } from "@/shared/types/pool";
 
 type QueryTimeSeriesResponse = Awaited<ReturnType<MdkV2Client["telemetryServiceQueryTimeSeries"]>>["data"];
 export type { MdkV2Client } from "./connectClient";
+
+/** `connect` reaches Frigate's MDK v2 Connect gateway; `rest` reaches the `/api/v2` gateway. */
+export type MdkV2Protocol = "connect" | "rest";
 
 const ACTOR = "proto-os";
 const DEFAULT_DEVICE_ID = "ct1";
@@ -139,8 +144,12 @@ export class MdkV2Adapter implements MinerAdapter {
    * no generated v2 runtime leaks into MinerHostingContext; tests construct the
    * class directly with a mock client.
    */
-  static fromConfig(config: { baseUrl: string }, match: AdapterProbeMatch = {}): MdkV2Adapter {
-    return new MdkV2Adapter(createMdkV2Client(config.baseUrl), match);
+  static fromConfig(config: { baseUrl: string; protocol: MdkV2Protocol }, match: AdapterProbeMatch = {}): MdkV2Adapter {
+    const client: MdkV2Client =
+      config.protocol === "rest"
+        ? new Api({ baseUrl: config.baseUrl }).api
+        : createMdkV2Client(createConnectTransport({ baseUrl: config.baseUrl, useBinaryFormat: true }));
+    return new MdkV2Adapter(client, match);
   }
 
   private containerDeviceId(context?: { deviceId: string }) {

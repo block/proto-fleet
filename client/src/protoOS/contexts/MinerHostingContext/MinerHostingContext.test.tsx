@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -211,6 +212,31 @@ describe("MinerHostingProvider adapter resolution", () => {
     // Same baseUrl but a different mode selects a different credential, so the
     // prior mode's resolved adapter must not flash through during the switch.
     expect(screen.getByTestId("resolution")).toHaveTextContent("probing:none");
+  });
+
+  test.each([
+    ["direct", "/miner-one/mdk.v2.HashboardService/GetContainerMap"],
+    ["fleet", "/miner-one/api/v2/container/map"],
+  ] as const)("sends %s-hosted CT1 adapter calls to %s", async (mode, path) => {
+    const fetchMock = vi.fn<typeof fetch>(async () =>
+      jsonResponse({ info: { id: "container-1", version: "v2", product: "CT1" } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const ReadHashboards = () => {
+      const { adapter } = useMinerHosting();
+      useEffect(() => {
+        adapter?.getHashboards().catch(() => undefined);
+      }, [adapter]);
+      return null;
+    };
+
+    render(
+      <MinerHostingProvider baseUrl="/miner-one" mode={mode}>
+        <ReadHashboards />
+      </MinerHostingProvider>,
+    );
+
+    await waitFor(() => expect(fetchMock.mock.calls.map(([input]) => String(input))).toContain(path));
   });
 
   test("aborts an in-flight probe and ignores its result when the miner changes", async () => {

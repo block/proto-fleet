@@ -1,6 +1,5 @@
-import { type DescMessage, fromJson, type JsonValue, type MessageShape, toJson } from "@bufbuild/protobuf";
-import { Code, ConnectError, createClient } from "@connectrpc/connect";
-import { createConnectTransport } from "@connectrpc/connect-web";
+import { type DescMessage, type DescMethodUnary, fromJson, type JsonValue, toJson } from "@bufbuild/protobuf";
+import { Code, ConnectError, type Transport } from "@connectrpc/connect";
 
 import type { AdapterRequestOptions, MiningScope } from "../types";
 import type {
@@ -39,75 +38,13 @@ import type {
   V2StopMiningScopedResponse,
   V2UpdatePoolResponse,
 } from "./generated/generatedApi";
-import {
-  GetContainerMapResponseSchema,
-  GetHashboardASICsRequestSchema,
-  GetHashboardASICsResponseSchema,
-  HashboardService,
-  SetIdentifyLEDRequestSchema,
-  SetIdentifyLEDResponseSchema,
-} from "./generated/proto/mdk/v2/hashboard_pb";
-import {
-  ClearModuleFixedVoltageRequestSchema,
-  ClearModuleFixedVoltageResponseSchema,
-  ClearPowerTargetScopedRequestSchema,
-  ClearPowerTargetScopedResponseSchema,
-  GetMiningStatusResponseSchema,
-  GetTargetPowerResponseSchema,
-  MiningService,
-  SetIsolationRequestSchema,
-  SetIsolationResponseSchema,
-  SetModuleFixedVoltageRequestSchema,
-  SetModuleFixedVoltageResponseSchema,
-  SetPowerTargetScopedRequestSchema,
-  SetPowerTargetScopedResponseSchema,
-  SetTargetPowerRequestSchema,
-  SetTargetPowerResponseSchema,
-  StartMiningResponseSchema,
-  StartMiningScopedRequestSchema,
-  StartMiningScopedResponseSchema,
-  StopMiningResponseSchema,
-  StopMiningScopedRequestSchema,
-  StopMiningScopedResponseSchema,
-} from "./generated/proto/mdk/v2/mining_pb";
-import {
-  CreatePoolRequestSchema,
-  CreatePoolResponseSchema,
-  DeletePoolRequestSchema,
-  DeletePoolResponseSchema,
-  GetPoolDiagnosticsRequestSchema,
-  GetPoolDiagnosticsResponseSchema,
-  ListPoolsResponseSchema,
-  PoolService,
-  UpdatePoolRequestSchema,
-  UpdatePoolResponseSchema,
-} from "./generated/proto/mdk/v2/pool_pb";
-import {
-  GetContainerControlsResponseSchema,
-  PowerService,
-  SetContainerControlRequestSchema,
-  SetContainerControlResponseSchema,
-  SetContainerSetpointRequestSchema,
-  SetContainerSetpointResponseSchema,
-} from "./generated/proto/mdk/v2/power_pb";
-import {
-  RunInService,
-  StartModuleRunInRequestSchema,
-  StartModuleRunInResponseSchema,
-} from "./generated/proto/mdk/v2/runin_pb";
-import {
-  GetSystemInfoResponseSchema,
-  GetSystemStatusResponseSchema,
-  SystemService,
-} from "./generated/proto/mdk/v2/system_pb";
-import {
-  GetContainerHealthResponseSchema,
-  QueryShareQualityHistoryRequestSchema,
-  QueryShareQualityHistoryResponseSchema,
-  QueryTimeSeriesRequestSchema,
-  QueryTimeSeriesResponseSchema,
-  TelemetryService,
-} from "./generated/proto/mdk/v2/telemetry_pb";
+import { HashboardService } from "./generated/proto/mdk/v2/hashboard_pb";
+import { MiningService } from "./generated/proto/mdk/v2/mining_pb";
+import { PoolService } from "./generated/proto/mdk/v2/pool_pb";
+import { PowerService } from "./generated/proto/mdk/v2/power_pb";
+import { RunInService } from "./generated/proto/mdk/v2/runin_pb";
+import { SystemService } from "./generated/proto/mdk/v2/system_pb";
+import { TelemetryService } from "./generated/proto/mdk/v2/telemetry_pb";
 
 type HttpResponse<T> = Promise<{ data: T }>;
 
@@ -196,190 +133,120 @@ export interface MdkV2Client {
   ): HttpResponse<V2QueryShareQualityHistoryResponse>;
 }
 
-const callOptions = (params: AdapterRequestOptions = {}) => ({
-  headers: params.headers,
-  signal: params.signal ?? undefined,
-});
-
-const statusByCode: Partial<Record<Code, number>> = {
+// Same mapping as grpc-gateway's HTTPStatusFromCode, which callers were written against.
+const httpStatusByCode: Record<Code, number> = {
+  [Code.Canceled]: 499,
+  [Code.Unknown]: 500,
   [Code.InvalidArgument]: 400,
-  [Code.Unauthenticated]: 401,
-  [Code.PermissionDenied]: 403,
+  [Code.DeadlineExceeded]: 504,
   [Code.NotFound]: 404,
+  [Code.AlreadyExists]: 409,
+  [Code.PermissionDenied]: 403,
   [Code.ResourceExhausted]: 429,
-  [Code.FailedPrecondition]: 412,
+  [Code.FailedPrecondition]: 400,
   [Code.Aborted]: 409,
+  [Code.OutOfRange]: 400,
   [Code.Unimplemented]: 501,
   [Code.Internal]: 500,
   [Code.Unavailable]: 503,
-  [Code.DeadlineExceeded]: 504,
+  [Code.DataLoss]: 500,
+  [Code.Unauthenticated]: 401,
 };
 
-const withHttpStatus = (error: unknown) => {
-  const connect = ConnectError.from(error);
-  const status = statusByCode[connect.code];
-  return status === undefined ? connect : Object.assign(connect, { status });
+/** Rejects with the REST client's shape: an HTTP `status` plus the gateway's `{ code, message }` body on `error`. */
+const toGatewayError = (error: unknown) => {
+  const connectError = ConnectError.from(error);
+  return Object.assign(connectError, {
+    status: httpStatusByCode[connectError.code],
+    error: { code: connectError.code, message: connectError.rawMessage },
+  });
 };
 
-const cleanJson = (value: unknown): unknown => {
-  if (value === undefined) return undefined;
-  if (Array.isArray(value)) return value.map(cleanJson).filter((item) => item !== undefined);
+const withoutUndefined = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(withoutUndefined).filter((item) => item !== undefined);
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value)
-        .map(([key, item]) => [key, cleanJson(item)] as const)
+        .map(([key, item]) => [key, withoutUndefined(item)] as const)
         .filter(([, item]) => item !== undefined),
     );
   }
   return value;
 };
 
-const request = <Desc extends DescMessage>(schema: Desc, value: unknown = {}) =>
-  fromJson(schema, cleanJson(value) as JsonValue, { ignoreUnknownFields: true });
-
-const response = <Desc extends DescMessage, T>(schema: Desc, value: MessageShape<Desc>) => ({
-  data: toJson(schema, value, { alwaysEmitImplicit: true }) as T,
-});
-
-const unary = async <Desc extends DescMessage, T>(schema: Desc, call: () => Promise<MessageShape<Desc>>) => {
+const unary = async <I extends DescMessage, O extends DescMessage, T>(
+  transport: Transport,
+  method: DescMethodUnary<I, O>,
+  request: unknown,
+  params: AdapterRequestOptions = {},
+): HttpResponse<T> => {
+  // Unknown fields throw so a request shaped for the REST path cannot silently lose data.
+  const input = fromJson(method.input, withoutUndefined(request) as JsonValue);
+  const signal = params.signal ?? undefined;
   try {
-    return response<Desc, T>(schema, await call());
+    const response = await transport.unary(method, signal, undefined, params.headers, input);
+    return { data: toJson(method.output, response.message, { alwaysEmitImplicit: true }) as T };
   } catch (error) {
-    throw withHttpStatus(error);
+    // fetch rejects with the abort reason; callers use that to ignore cancellations.
+    if (signal?.aborted) throw signal.reason;
+    throw toGatewayError(error);
   }
 };
 
-const timeRangeQuery = (query: { "range.start"?: string; "range.end"?: string }) => ({
-  ...query,
-  range: { start: query["range.start"], end: query["range.end"] },
-  "range.start": undefined,
-  "range.end": undefined,
-});
+const timeRange = <Q extends { "range.start"?: string; "range.end"?: string }>({
+  "range.start": start,
+  "range.end": end,
+  ...query
+}: Q) => ({ ...query, range: { start, end } });
 
-export const createMdkV2Client = (baseUrl: string): MdkV2Client => {
-  const transport = createConnectTransport({ baseUrl, useBinaryFormat: true });
-  const system = createClient(SystemService, transport);
-  const mining = createClient(MiningService, transport);
-  const hashboard = createClient(HashboardService, transport);
-  const pool = createClient(PoolService, transport);
-  const power = createClient(PowerService, transport);
-  const runIn = createClient(RunInService, transport);
-  const telemetry = createClient(TelemetryService, transport);
+export const createMdkV2Client = (transport: Transport): MdkV2Client => {
+  const system = SystemService.method;
+  const mining = MiningService.method;
+  const hashboard = HashboardService.method;
+  const pool = PoolService.method;
+  const power = PowerService.method;
+  const runIn = RunInService.method;
+  const telemetry = TelemetryService.method;
 
   return {
-    systemServiceGetSystemInfo: (params = {}) =>
-      unary(GetSystemInfoResponseSchema, () => system.getSystemInfo({}, callOptions(params))),
-    systemServiceGetSystemStatus: (params = {}) =>
-      unary(GetSystemStatusResponseSchema, () => system.getSystemStatus({}, callOptions(params))),
-    miningServiceGetMiningStatus: (params = {}) =>
-      unary(GetMiningStatusResponseSchema, () => mining.getMiningStatus({}, callOptions(params))),
-    miningServiceGetTargetPower: (params = {}) =>
-      unary(GetTargetPowerResponseSchema, () => mining.getTargetPower({}, callOptions(params))),
-    miningServiceSetTargetPower: (data, params = {}) =>
-      unary(SetTargetPowerResponseSchema, () =>
-        mining.setTargetPower(request(SetTargetPowerRequestSchema, data), callOptions(params)),
-      ),
-    miningServiceSetPowerTargetScoped: (data, params = {}) =>
-      unary(SetPowerTargetScopedResponseSchema, () =>
-        mining.setPowerTargetScoped(request(SetPowerTargetScopedRequestSchema, data), callOptions(params)),
-      ),
-    miningServiceClearPowerTargetScoped: (data, params = {}) =>
-      unary(ClearPowerTargetScopedResponseSchema, () =>
-        mining.clearPowerTargetScoped(request(ClearPowerTargetScopedRequestSchema, data), callOptions(params)),
-      ),
-    miningServiceStartMiningScoped: (data, params = {}) =>
-      unary(StartMiningScopedResponseSchema, () =>
-        mining.startMiningScoped(request(StartMiningScopedRequestSchema, data), callOptions(params)),
-      ),
-    miningServiceStopMiningScoped: (data, params = {}) =>
-      unary(StopMiningScopedResponseSchema, () =>
-        mining.stopMiningScoped(request(StopMiningScopedRequestSchema, data), callOptions(params)),
-      ),
-    miningServiceSetIsolation: (data, params = {}) =>
-      unary(SetIsolationResponseSchema, () =>
-        mining.setIsolation(request(SetIsolationRequestSchema, data), callOptions(params)),
-      ),
-    miningServiceSetModuleFixedVoltage: ({ moduleId }, data, params = {}) =>
-      unary(SetModuleFixedVoltageResponseSchema, () =>
-        mining.setModuleFixedVoltage(
-          request(SetModuleFixedVoltageRequestSchema, { ...data, moduleId }),
-          callOptions(params),
-        ),
-      ),
-    miningServiceClearModuleFixedVoltage: ({ moduleId }, params = {}) =>
-      unary(ClearModuleFixedVoltageResponseSchema, () =>
-        mining.clearModuleFixedVoltage(
-          request(ClearModuleFixedVoltageRequestSchema, { moduleId }),
-          callOptions(params),
-        ),
-      ),
-    miningServiceStartMining: (params = {}) =>
-      unary(StartMiningResponseSchema, () => mining.startMining({}, callOptions(params))),
-    miningServiceStopMining: (params = {}) =>
-      unary(StopMiningResponseSchema, () => mining.stopMining({}, callOptions(params))),
-    hashboardServiceGetContainerMap: (params = {}) =>
-      unary(GetContainerMapResponseSchema, () => hashboard.getContainerMap({}, callOptions(params))),
-    hashboardServiceSetIdentifyLed: (data, params = {}) =>
-      unary(SetIdentifyLEDResponseSchema, () =>
-        hashboard.setIdentifyLED(request(SetIdentifyLEDRequestSchema, data), callOptions(params)),
-      ),
-    hashboardServiceGetHashboardAsiCs: ({ identifier }, params = {}) =>
-      unary(GetHashboardASICsResponseSchema, () =>
-        hashboard.getHashboardASICs(request(GetHashboardASICsRequestSchema, { identifier }), callOptions(params)),
-      ),
-    poolServiceListPools: (params = {}) =>
-      unary(ListPoolsResponseSchema, () => pool.listPools({}, callOptions(params))),
-    poolServiceGetPoolDiagnostics: (query = {}, params = {}) =>
-      unary(GetPoolDiagnosticsResponseSchema, () =>
-        pool.getPoolDiagnostics(request(GetPoolDiagnosticsRequestSchema, query), callOptions(params)),
-      ),
-    poolServiceCreatePool: (data, params = {}) =>
-      unary(CreatePoolResponseSchema, () =>
-        pool.createPool(request(CreatePoolRequestSchema, data), callOptions(params)),
-      ),
-    poolServiceUpdatePool: ({ poolId }, data, params = {}) =>
-      unary(UpdatePoolResponseSchema, () =>
-        pool.updatePool(
-          request(UpdatePoolRequestSchema, {
-            ...data,
-            pool: { ...data.pool, id: poolId },
-          }),
-          callOptions(params),
-        ),
-      ),
-    poolServiceDeletePool: ({ id }, params = {}) =>
-      unary(DeletePoolResponseSchema, () =>
-        pool.deletePool(request(DeletePoolRequestSchema, { id }), callOptions(params)),
-      ),
-    powerServiceGetContainerControls: (params = {}) =>
-      unary(GetContainerControlsResponseSchema, () => power.getContainerControls({}, callOptions(params))),
-    powerServiceSetContainerControl: ({ name }, data, params = {}) =>
-      unary(SetContainerControlResponseSchema, () =>
-        power.setContainerControl(request(SetContainerControlRequestSchema, { ...data, name }), callOptions(params)),
-      ),
-    powerServiceSetContainerSetpoint: ({ name }, data, params = {}) =>
-      unary(SetContainerSetpointResponseSchema, () =>
-        power.setContainerSetpoint(request(SetContainerSetpointRequestSchema, { ...data, name }), callOptions(params)),
-      ),
-    runInServiceStartModuleRunIn: ({ moduleId, taskId }, data, params = {}) =>
-      unary(StartModuleRunInResponseSchema, () =>
-        runIn.startModuleRunIn(
-          request(StartModuleRunInRequestSchema, { ...data, moduleId, taskId }),
-          callOptions(params),
-        ),
-      ),
-    telemetryServiceGetContainerHealth: (params = {}) =>
-      unary(GetContainerHealthResponseSchema, () => telemetry.getContainerHealth({}, callOptions(params))),
-    telemetryServiceQueryTimeSeries: (query, params = {}) =>
-      unary(QueryTimeSeriesResponseSchema, () =>
-        telemetry.queryTimeSeries(request(QueryTimeSeriesRequestSchema, timeRangeQuery(query)), callOptions(params)),
-      ),
-    telemetryServiceQueryShareQualityHistory: (query, params = {}) =>
-      unary(QueryShareQualityHistoryResponseSchema, () =>
-        telemetry.queryShareQualityHistory(
-          request(QueryShareQualityHistoryRequestSchema, timeRangeQuery(query)),
-          callOptions(params),
-        ),
-      ),
+    systemServiceGetSystemInfo: (params) => unary(transport, system.getSystemInfo, {}, params),
+    systemServiceGetSystemStatus: (params) => unary(transport, system.getSystemStatus, {}, params),
+    miningServiceGetMiningStatus: (params) => unary(transport, mining.getMiningStatus, {}, params),
+    miningServiceGetTargetPower: (params) => unary(transport, mining.getTargetPower, {}, params),
+    miningServiceSetTargetPower: (data, params) => unary(transport, mining.setTargetPower, data, params),
+    miningServiceSetPowerTargetScoped: (data, params) => unary(transport, mining.setPowerTargetScoped, data, params),
+    miningServiceClearPowerTargetScoped: (data, params) =>
+      unary(transport, mining.clearPowerTargetScoped, data, params),
+    miningServiceStartMiningScoped: (data, params) => unary(transport, mining.startMiningScoped, data, params),
+    miningServiceStopMiningScoped: (data, params) => unary(transport, mining.stopMiningScoped, data, params),
+    miningServiceSetIsolation: (data, params) => unary(transport, mining.setIsolation, data, params),
+    miningServiceSetModuleFixedVoltage: ({ moduleId }, data, params) =>
+      unary(transport, mining.setModuleFixedVoltage, { ...data, moduleId }, params),
+    miningServiceClearModuleFixedVoltage: ({ moduleId }, params) =>
+      unary(transport, mining.clearModuleFixedVoltage, { moduleId }, params),
+    miningServiceStartMining: (params) => unary(transport, mining.startMining, {}, params),
+    miningServiceStopMining: (params) => unary(transport, mining.stopMining, {}, params),
+    hashboardServiceGetContainerMap: (params) => unary(transport, hashboard.getContainerMap, {}, params),
+    hashboardServiceSetIdentifyLed: (data, params) => unary(transport, hashboard.setIdentifyLED, data, params),
+    hashboardServiceGetHashboardAsiCs: ({ identifier }, params) =>
+      unary(transport, hashboard.getHashboardASICs, { identifier }, params),
+    poolServiceListPools: (params) => unary(transport, pool.listPools, {}, params),
+    poolServiceGetPoolDiagnostics: (query = {}, params) => unary(transport, pool.getPoolDiagnostics, query, params),
+    poolServiceCreatePool: (data, params) => unary(transport, pool.createPool, data, params),
+    poolServiceUpdatePool: ({ poolId }, data, params) =>
+      unary(transport, pool.updatePool, { ...data, pool: { ...data.pool, id: poolId } }, params),
+    poolServiceDeletePool: ({ id }, params) => unary(transport, pool.deletePool, { id }, params),
+    powerServiceGetContainerControls: (params) => unary(transport, power.getContainerControls, {}, params),
+    powerServiceSetContainerControl: ({ name }, data, params) =>
+      unary(transport, power.setContainerControl, { ...data, name }, params),
+    powerServiceSetContainerSetpoint: ({ name }, data, params) =>
+      unary(transport, power.setContainerSetpoint, { ...data, name }, params),
+    runInServiceStartModuleRunIn: ({ moduleId, taskId }, config, params) =>
+      unary(transport, runIn.startModuleRunIn, { moduleId, taskId, config }, params),
+    telemetryServiceGetContainerHealth: (params) => unary(transport, telemetry.getContainerHealth, {}, params),
+    telemetryServiceQueryTimeSeries: (query, params) =>
+      unary(transport, telemetry.queryTimeSeries, timeRange(query), params),
+    telemetryServiceQueryShareQualityHistory: (query, params) =>
+      unary(transport, telemetry.queryShareQualityHistory, timeRange(query), params),
   };
 };

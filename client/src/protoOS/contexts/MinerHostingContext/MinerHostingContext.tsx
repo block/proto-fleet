@@ -87,16 +87,19 @@ export const MinerHostingProvider = ({
   // The provider carries the credential to the adapter: direct mode hands v1 the
   // store bearer to decorate with; fleet mode hands none (proxy owns auth).
   const credential = mode === "direct" ? directAccessToken : undefined;
+  // Fleet's miner proxy authorizes and fences MDK v2 calls per REST route; it
+  // has no Connect routes, so fleet-hosted CT1 views stay on REST.
+  const mdkV2Protocol = mode === "fleet" ? "rest" : "connect";
   // Each definition owns its transport construction (adapter.fromConfig builds
   // the generation-specific client for this URL), so the context imports no
   // generated runtime — only the adapter's dialect knows the wire.
   const definitions = useMemo(
     () => [
-      createMdkV2Ct1Definition((match) => MdkV2Adapter.fromConfig({ baseUrl: url }, match)),
+      createMdkV2Ct1Definition((match) => MdkV2Adapter.fromConfig({ baseUrl: url, protocol: mdkV2Protocol }, match)),
       mdkV2Definition,
       createMdkV1Definition(() => MdkV1Adapter.fromConfig({ baseUrl: url, getAccessToken: credential })),
     ],
-    [url, credential],
+    [url, credential, mdkV2Protocol],
   );
   const [resolved, setResolved] = useState<{ url: string; mode: MinerHostingMode; resolution: AdapterResolution }>(
     () => ({ url, mode, resolution: PROBING_RESOLUTION }),
