@@ -147,6 +147,8 @@ const context = {
   runId: scenario.run_id || 100,
   sha: scenario.head_sha || 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
   repo: {owner: 'block', repo: 'proto-fleet'},
+  eventName: scenario.event_name || 'workflow_run',
+  payload: scenario.payload || {},
 };
 const core = {
   info: message => calls.push({type: 'info', message}),
@@ -161,6 +163,12 @@ const github = {
     return response.data || response;
   },
   rest: {
+    repos: {
+      listPullRequestsAssociatedWithCommit: async () => {
+        maybeFail('repos.listPullRequestsAssociatedWithCommit');
+        return {data: scenario.associated_pull_requests || []};
+      },
+    },
     pulls: {
       get: async () => {
         maybeFail('pulls.get');
@@ -1627,6 +1635,81 @@ class ReviewPolicyTest(unittest.TestCase):
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("failed before its budget", completed.stderr)
 
+    def test_review_events_publish_only_after_trusted_reevaluation(self):
+        workflow = load_workflow("review-policy.yml")
+        triggers = workflow_triggers(workflow)
+        self.assertIn("Review Policy", triggers["workflow_run"]["workflows"])
+        self.assertEqual(triggers["workflow_run"]["types"], ["completed"])
+        for job_id in ("publish-status", "sync-label"):
+            condition = workflow["jobs"][job_id]["if"]
+            for event in ("pull_request", "pull_request_review"):
+                self.assertIn(f"github.event_name != '{event}'", condition)
+
+        ignore_relay = (
+            "github.event_name == 'workflow_run' && "
+            "github.event.workflow_run.name == 'Review Policy' && "
+            '!contains(fromJSON(\'["pull_request","pull_request_review"]\'), '
+            "github.event.workflow_run.event)"
+        )
+        self.assertIn(ignore_relay, workflow["concurrency"]["group"])
+        self.assertIn(ignore_relay, workflow["concurrency"]["cancel-in-progress"])
+        self.assertIn(f"!({ignore_relay})", workflow["jobs"]["evaluate"]["if"])
+
+    def test_workflow_completion_resolves_current_fork_head_without_associations(self):
+        workflow = load_workflow("review-policy.yml")
+        script = find_step(workflow, "evaluate", "pr")["with"]["script"]
+        head_sha = "b" * 40
+        pr = {
+            "number": 1115,
+            "state": "open",
+            "user": {"login": "contributor"},
+            "head": {"sha": head_sha, "repo": {"full_name": "contributor/proto-fleet"}},
+            "base": {
+                "sha": "a" * 40,
+                "ref": "main",
+                "repo": {"full_name": "block/proto-fleet", "default_branch": "main"},
+            },
+        }
+        scenarios = [
+            ("fork-review", "Review Policy", "pull_request_review", head_sha, pr, True),
+            ("fork-edit", "Review Policy", "pull_request", head_sha, pr, True),
+            ("ci-completion", "PR Gate", "pull_request", head_sha, pr, True),
+            ("stale-head", "Review Policy", "pull_request_review", "c" * 40, pr, False),
+            ("missing-head", "Review Policy", "pull_request_review", None, pr, False),
+            (
+                "closed-pr",
+                "Review Policy",
+                "pull_request_review",
+                head_sha,
+                {**pr, "state": "closed"},
+                False,
+            ),
+            ("relay-completion", "Review Policy", "workflow_run", head_sha, pr, False),
+        ]
+        for name, run_name, event, run_sha, current_pr, expected_found in scenarios:
+            scenario = {
+                "event_name": "workflow_run",
+                "payload": {
+                    "workflow_run": {
+                        "name": run_name,
+                        "event": event,
+                        "head_sha": run_sha,
+                        "pull_requests": [],
+                    }
+                },
+                "pull_request": current_pr,
+                "associated_pull_requests": [pr],
+            }
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                completed, result = run_github_script(script, scenario, tmp)
+                self.assertEqual(completed.returncode, 0, completed.stderr)
+                self.assertEqual(
+                    result["outputs"].get("found"), str(expected_found).lower()
+                )
+                if expected_found:
+                    self.assertEqual(result["outputs"]["head_sha"], head_sha)
+                    self.assertEqual(result["outputs"]["same_repo"], "false")
+
     def test_workflow_ignored_events_do_not_cancel_active_evaluations(self):
         workflow = load_workflow("review-policy.yml")
         group_expression = workflow["concurrency"]["group"]
@@ -1682,7 +1765,8 @@ class ReviewPolicyTest(unittest.TestCase):
         script = publish_step["with"]["script"]
 
         self.assertEqual(
-            publish_job["if"], "always() && needs.evaluate.outputs.found == 'true'"
+            publish_job["if"],
+            "always() && github.event_name != 'pull_request' && github.event_name != 'pull_request_review' && needs.evaluate.outputs.found == 'true'",
         )
         self.assertEqual(
             publish_job["concurrency"]["group"],
@@ -1704,7 +1788,7 @@ class ReviewPolicyTest(unittest.TestCase):
 
         self.assertEqual(
             label_job["if"],
-            "always() && needs.evaluate.outputs.found == 'true' && needs.evaluate.result != 'cancelled'",
+            "always() && github.event_name != 'pull_request' && github.event_name != 'pull_request_review' && needs.evaluate.outputs.found == 'true' && needs.evaluate.result != 'cancelled'",
         )
         self.assertEqual(
             label_job["concurrency"]["group"],

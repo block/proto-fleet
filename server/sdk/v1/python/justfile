@@ -51,9 +51,13 @@ clean:
 setup:
   #!/usr/bin/env bash
   set -euo pipefail
-  if [ ! -d ".venv" ]; then
-    python3 -m venv .venv
+  if [ ! -x ".venv/bin/python3" ]; then
+    python3 -m venv --without-pip .venv
     echo "✅ Created virtual environment at .venv"
+  fi
+  # Run ensurepip directly so bootstrap errors are visible, and repair partial setups.
+  if ! .venv/bin/python3 -I -m pip --version >/dev/null 2>&1; then
+    .venv/bin/python3 -I -m ensurepip --upgrade --default-pip
   fi
   source "{{repo_root}}/scripts/pip-config.sh"
   .venv/bin/pip install -e ".[dev]"
