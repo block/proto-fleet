@@ -1,19 +1,47 @@
-import { expect, type Page } from "@playwright/test";
+import { type DescMessage, fromBinary, type MessageShape } from "@bufbuild/protobuf";
+import { expect, type Page, type Response } from "@playwright/test";
 import type { V2GetContainerMapResponse } from "../../../src/protoOS/api/adapters/mdkV2/generated/generatedApi";
+import { TimeSeriesMetric } from "../../../src/protoOS/api/adapters/mdkV2/generated/proto/mdk/v2/common_pb";
+import {
+  GetHashboardASICsRequestSchema,
+  GetHashboardASICsResponseSchema,
+} from "../../../src/protoOS/api/adapters/mdkV2/generated/proto/mdk/v2/hashboard_pb";
+import {
+  QueryTimeSeriesRequestSchema,
+  QueryTimeSeriesResponseSchema,
+} from "../../../src/protoOS/api/adapters/mdkV2/generated/proto/mdk/v2/telemetry_pb";
+
+const connectRequest = <Desc extends DescMessage>(
+  response: Response,
+  procedure: string,
+  schema: Desc,
+): MessageShape<Desc> | undefined => {
+  const request = response.request();
+  if (request.method() !== "POST" || new URL(response.url()).pathname !== procedure) return undefined;
+  return fromBinary(schema, request.postDataBuffer() ?? new Uint8Array());
+};
 
 export class ContainerStandalonePage {
   constructor(private page: Page) {}
 
   async openOverview() {
     const historyRead = this.page.waitForResponse((response) => {
-      const url = new URL(response.url());
-      return response.request().method() === "POST" && url.pathname === "/mdk.v2.TelemetryService/QueryTimeSeries";
+      const query = connectRequest(response, "/mdk.v2.TelemetryService/QueryTimeSeries", QueryTimeSeriesRequestSchema);
+      return query?.metric === TimeSeriesMetric.HASHRATE && query.identifier === "";
     });
     await this.page.goto("/");
     await expect(this.page.getByRole("navigation", { name: "Container Home" })).toBeVisible();
     await expect(this.page.getByRole("link", { name: "View Hashrate" })).toBeVisible();
     const response = await historyRead;
     expect(response.ok()).toBe(true);
+    const data = fromBinary(QueryTimeSeriesResponseSchema, await response.body());
+    expect(data.metric).toBe(TimeSeriesMetric.HASHRATE);
+    expect(data.unit).toBe("TH/s");
+    expect(data.buckets.length).toBeGreaterThan(0);
+    const populated = data.buckets.some(
+      (bucket) => bucket.time !== undefined && Number.isFinite(bucket.avg) && bucket.avg > 0 && bucket.count > 0n,
+    );
+    expect(populated).toBe(true);
     const chart = this.page.getByRole("figure", {
       name: "History in TH/s for the selected period. Latest values are listed alongside the chart.",
       exact: true,
@@ -62,11 +90,11 @@ export class ContainerStandalonePage {
     });
     expect(new Set(targets.map((target) => target.identifier)).size).toBe(3);
     expect(new Set(targets.map((target) => target.slot)).size).toBe(3);
-    const reads = targets.map(() =>
+    const reads = targets.map(({ identifier }) =>
       this.page.waitForResponse(
         (response) =>
-          response.request().method() === "POST" &&
-          new URL(response.url()).pathname === "/mdk.v2.HashboardService/GetHashboardASICs",
+          connectRequest(response, "/mdk.v2.HashboardService/GetHashboardASICs", GetHashboardASICsRequestSchema)
+            ?.identifier === identifier,
       ),
     );
     const dialog = this.page.getByRole("dialog", { name: "Modules", exact: true });
@@ -79,13 +107,16 @@ export class ContainerStandalonePage {
         await expect(dialog.getByRole("heading", { name: "Hashboards", exact: true })).toBeVisible();
       })(),
     ]);
-    for (const response of responses) {
+    for (const [index, response] of responses.entries()) {
       expect(response.ok()).toBe(true);
-    }
-    for (const target of targets) {
+      const data = fromBinary(GetHashboardASICsResponseSchema, await response.body());
+      const position = data.layout?.entries.find((entry) => entry.x === 0 && entry.y === 0);
+      expect(position).toBeDefined();
+      const asic = data.asics.find((asic) => asic.index === position!.index);
+      expect(asic?.temperatureDc).toBeGreaterThan(0);
       const board = dialog
         .getByTestId("card")
-        .filter({ has: this.page.getByText(`Board ${target.slot}`, { exact: true }) });
+        .filter({ has: this.page.getByText(`Board ${targets[index].slot}`, { exact: true }) });
       const cell = board.getByTestId("asic-0-0");
       await expect(cell).toBeVisible();
       // Polling may replace the first response's sample before the assertion.

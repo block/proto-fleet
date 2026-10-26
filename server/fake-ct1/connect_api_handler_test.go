@@ -113,8 +113,9 @@ func TestConnectGatewayServesBrowserMDKClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("QueryTimeSeries: %v", err)
 	}
-	if len(series.Msg.GetBuckets()) == 0 {
-		t.Fatal("time series returned no buckets")
+	buckets := series.Msg.GetBuckets()
+	if series.Msg.GetUnit() != "TH/s" || len(buckets) == 0 || buckets[0].GetAvg() <= 0 {
+		t.Fatalf("unexpected time series: unit=%q buckets=%v", series.Msg.GetUnit(), buckets)
 	}
 }
 
