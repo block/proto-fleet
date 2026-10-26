@@ -287,9 +287,9 @@ func serveFleetRuntimeWithContext(
 	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), timeout)
+	shutdownDeadline, _ := shutdownCtx.Deadline()
 	if plannedDrain {
-		deadline, _ := shutdownCtx.Deadline()
-		runtime.BeginPlannedDrain(deadline)
+		runtime.BeginPlannedDrain(shutdownDeadline)
 	}
 	// Closing admission before cancellation prevents keep-alive and h2c requests
 	// from starting work after the drain has begun.
@@ -307,13 +307,14 @@ func serveFleetRuntimeWithContext(
 	// A handler that ignores cancellation must keep its dependencies and binding
 	// locks until it actually returns; a timeout cannot establish completion.
 	drain.active.Wait()
+	drainedBeforeDeadline := time.Now().Before(shutdownDeadline)
 	if !serverStopped {
 		serverErr = <-serverResult
 	}
-	// Only signal-driven shutdown with a completed HTTP drain may voluntarily
-	// release HA ownership. Serve failures and uncertain cleanup retain the TTL.
+	// Only signal-driven shutdown with an HTTP drain completed before its deadline
+	// may voluntarily release HA ownership. Late drains retain the TTL fallback.
 	stopCause := context.Canceled
-	if ctx.Err() != nil && shutdownErr == nil && !runtimeStopped &&
+	if ctx.Err() != nil && shutdownErr == nil && drainedBeforeDeadline && !runtimeStopped &&
 		(serverErr == nil || errors.Is(serverErr, http.ErrServerClosed)) {
 		stopCause = ha.ErrPlannedStop
 	}

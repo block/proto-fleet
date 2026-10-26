@@ -57,12 +57,12 @@ type scriptedRuntimeJobGroupStopper struct {
 
 type scriptedFleetRuntime struct {
 	run        func(context.Context) error
-	beginDrain func()
+	beginDrain func(time.Time)
 }
 
-func (r scriptedFleetRuntime) BeginPlannedDrain(time.Time) {
+func (r scriptedFleetRuntime) BeginPlannedDrain(deadline time.Time) {
 	if r.beginDrain != nil {
-		r.beginDrain()
+		r.beginDrain(deadline)
 	}
 }
 
@@ -536,6 +536,74 @@ func TestServeFleetRuntimeWaitsForHandlerAfterShutdownTimeout(t *testing.T) {
 	requireReceive(t, runtimeStopped)
 }
 
+func TestServeFleetRuntimeLateH2CDrainIsNotPlannedStop(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	started := make(chan struct{})
+	cancelled := make(chan struct{})
+	allowCleanup := make(chan struct{})
+	release := sync.OnceFunc(func() { close(allowCleanup) })
+	t.Cleanup(release)
+	drain := &httpRequestDrain{handler: http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done()
+		close(cancelled)
+		<-allowCleanup
+	})}
+	server := &http.Server{Handler: h2c.NewHandler(drain, &http2.Server{}), ReadHeaderTimeout: time.Second}
+	t.Cleanup(func() { _ = server.Close() })
+	deadline := make(chan time.Time, 1)
+	stopCause := make(chan error, 1)
+	// No health ticker runs here: the HTTP drain must detect its own deadline.
+	runtime := scriptedFleetRuntime{
+		beginDrain: func(at time.Time) { deadline <- at },
+		run: func(ctx context.Context) error {
+			<-ctx.Done()
+			stopCause <- context.Cause(ctx)
+			return nil
+		},
+	}
+	result := make(chan error, 1)
+	go func() {
+		result <- serveFleetRuntimeWithContext(ctx, server, listener, runtime, 20*time.Millisecond, drain)
+	}()
+	client := &http.Client{Timeout: time.Second, Transport: &http2.Transport{
+		AllowHTTP: true,
+		DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, addr)
+		},
+	}}
+	t.Cleanup(client.CloseIdleConnections)
+	requestDone := make(chan struct{})
+	go func() {
+		defer close(requestDone)
+		response, err := client.Get("http://" + listener.Addr().String()) //nolint:noctx // Test client has a deadline.
+		if err == nil {
+			_ = response.Body.Close()
+		}
+	}()
+	requireReceive(t, started)
+	cancel()
+	requireReceive(t, cancelled)
+	// h2c sockets close before the handler finishes, even though Shutdown succeeds.
+	requireReceive(t, requestDone)
+	drainDeadline := <-deadline
+	timer := time.NewTimer(time.Until(drainDeadline))
+	defer timer.Stop()
+	<-timer.C
+	select {
+	case <-stopCause:
+		t.Fatal("runtime stopped before the handler finished")
+	default:
+	}
+	release()
+	// A nil result proves this exercised Shutdown's success path for hijacked h2c.
+	require.NoError(t, <-result)
+	require.ErrorIs(t, <-stopCause, context.Canceled)
+}
+
 func TestServeFleetRuntimeSignalShutdown(t *testing.T) {
 	if os.Getenv("FLEETD_SHUTDOWN_SIGNAL_TEST") == "1" {
 		listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -775,7 +843,7 @@ func TestServeFleetRuntimeServeFailureIsNotPlannedStop(t *testing.T) {
 			stopCause <- context.Cause(ctx)
 			return nil
 		},
-		beginDrain: func() { plannedDrain.Store(true) },
+		beginDrain: func(time.Time) { plannedDrain.Store(true) },
 	}
 	result := make(chan error, 1)
 	go func() {
@@ -810,7 +878,7 @@ func TestServeFleetRuntimeBeginsPlannedDrainBeforeStoppingRuntime(t *testing.T) 
 			}
 			return nil
 		},
-		beginDrain: func() { plannedDrain.Store(true) },
+		beginDrain: func(time.Time) { plannedDrain.Store(true) },
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	result := make(chan error, 1)
