@@ -119,7 +119,6 @@ func TestContainerDiscoveryRejectsConfiguredBearerToken(t *testing.T) {
 
 type slowContainerIdentityServer struct {
 	containerServer
-	mdk.UnimplementedServerUpdateServiceServer
 }
 
 func (slowContainerIdentityServer) GetSystemInfo(ctx context.Context, _ *mdk.GetSystemInfoRequest) (*mdk.GetSystemInfoResponse, error) {
@@ -131,13 +130,21 @@ func (slowContainerIdentityServer) GetSystemInfo(ctx context.Context, _ *mdk.Get
 	return &mdk.GetSystemInfoResponse{Info: &mdk.SystemInfo{Id: "controller-a", Product: "Frigate"}}, nil
 }
 
-func (slowContainerIdentityServer) GetServerUpdateSupport(ctx context.Context, _ *mdk.GetServerUpdateSupportRequest) (*mdk.GetServerUpdateSupportResponse, error) {
+func (slowContainerIdentityServer) GetHAStatus(ctx context.Context, _ *mdk.GetHAStatusRequest) (*mdk.GetHAStatusResponse, error) {
 	select {
 	case <-ctx.Done():
 		return nil, fmt.Errorf("partner info delay: %w", ctx.Err())
 	case <-time.After(600 * time.Millisecond):
 	}
-	return &mdk.GetServerUpdateSupportResponse{InstanceId: "controller-a", PeerInstanceId: "controller-b"}, nil
+	return &mdk.GetHAStatusResponse{Status: &mdk.HAStatus{
+		Enabled: true, ReportingServerId: "controller-a", PeerServerId: "controller-b",
+		ClusterId: "7900e1a3-5be9-4a6b-b640-eaf3d959333b", InventoryReady: true,
+		IdentityState: mdk.HAIdentityState_HA_IDENTITY_STATE_CONFIRMED,
+		Members: []*mdk.HAMemberStatus{
+			{Id: "controller-a", Kind: mdk.HAMemberRole_HA_MEMBER_ROLE_FRIGATE, Local: true},
+			{Id: "controller-b", Kind: mdk.HAMemberRole_HA_MEMBER_ROLE_FRIGATE},
+		},
+	}}, nil
 }
 
 func TestContainerDiscoveryAllowsSlowSequentialIdentityRPCs(t *testing.T) {
@@ -146,7 +153,6 @@ func TestContainerDiscoveryAllowsSlowSequentialIdentityRPCs(t *testing.T) {
 	server := grpc.NewServer()
 	fixture := slowContainerIdentityServer{}
 	mdk.RegisterSystemServiceServer(server, fixture)
-	mdk.RegisterServerUpdateServiceServer(server, fixture)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(server.Stop)
 	host, portText, err := net.SplitHostPort(listener.Addr().String())

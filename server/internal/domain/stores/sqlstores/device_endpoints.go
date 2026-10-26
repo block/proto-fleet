@@ -117,15 +117,10 @@ func guardLegacyEndpointDiscovery(ctx context.Context, q sqlc.Querier, orgID int
 	return nil
 }
 
-// Caller must hold a transaction. The lock serializes discovery of different
-// addresses for the same plugin-defined device, including first discovery.
+// Caller must hold the organization's endpoint discovery transaction lock.
 func reconcileDeviceEndpoints(ctx context.Context, q sqlc.Querier, criteria sqlc.FindEndpointDiscoveryParams, incoming []*commonpb.DeviceEndpoint) (*sqlc.DiscoveredDevice, []*commonpb.DeviceEndpoint, error) {
 	key, err := deviceendpoints.Key(incoming)
 	if err != nil {
-		return nil, nil, err
-	}
-	// Replacement nodes share the lock with the revoked owner's discovery group.
-	if err := q.LockEndpointDiscovery(ctx, fmt.Sprintf("endpoint:%d:%s:%s", criteria.OrgID, criteria.DriverName, key)); err != nil {
 		return nil, nil, err
 	}
 	ids := make([]string, 0, len(incoming))
@@ -154,13 +149,22 @@ func reconcileDeviceEndpoints(ctx context.Context, q sqlc.Querier, criteria sqlc
 	if err != nil {
 		return nil, nil, err
 	}
-	groupChanged := existing.EndpointKey != "" && existing.EndpointKey != key
-	if groupChanged && paired {
-		return nil, nil, errPairedDeviceEndpoints
-	}
 	saved, err := deviceendpoints.Decode(existing.Endpoints)
 	if err != nil {
 		return nil, nil, err
+	}
+	groupChanged := existing.EndpointKey != "" && existing.EndpointKey != key
+	// Stable keys can outlive a controller. Removing a saved route still needs
+	// an explicit unpair, but an old peer claim does not identify another route.
+	if members := incoming[0].MemberIds; len(members) > 0 {
+		for _, endpoint := range saved {
+			if !slices.Contains(members, endpoint.Id) {
+				groupChanged = true
+			}
+		}
+	}
+	if groupChanged && paired {
+		return nil, nil, errPairedDeviceEndpoints
 	}
 	byID := map[string]*commonpb.DeviceEndpoint{}
 	for _, e := range saved {
@@ -204,6 +208,13 @@ func reconcileDeviceEndpoints(ctx context.Context, q sqlc.Querier, criteria sqlc
 		byID[existing.SerialNumber] = &commonpb.DeviceEndpoint{
 			Id: existing.SerialNumber, DeviceKey: key, MemberIds: slices.Clone(incoming[0].MemberIds),
 			Host: existing.IpAddress, Port: port, UrlScheme: existing.UrlScheme, RpcPort: existing.RpcPort, RpcTls: existing.RpcTls,
+		}
+	}
+	if !paired && len(incoming[0].MemberIds) > 0 {
+		// A scan updates membership metadata for retained routes too. Otherwise
+		// the merged set can contain conflicting old and new peer claims.
+		for _, endpoint := range byID {
+			endpoint.MemberIds = slices.Clone(incoming[0].MemberIds)
 		}
 	}
 	for _, e := range incoming {
@@ -275,4 +286,14 @@ func discoveryBrowserEndpoint(existing *sqlc.DiscoveredDevice, endpoints []*comm
 		return endpoints[0], nil
 	}
 	return nil, fmt.Errorf("saved browser endpoint is missing from device endpoints")
+}
+
+// A durable device key can survive replacement of the controller whose serial
+// was saved during pairing. Do not carry that serial into the new member set.
+func endpointIdentityReplaced(existing *sqlc.DiscoveredDevice, endpoints []*commonpb.DeviceEndpoint) bool {
+	if existing == nil || existing.EndpointKey == "" || len(endpoints) == 0 {
+		return false
+	}
+	return existing.EndpointKey != endpoints[0].DeviceKey ||
+		(existing.SerialNumber != "" && len(endpoints[0].MemberIds) > 0 && !slices.Contains(endpoints[0].MemberIds, existing.SerialNumber))
 }

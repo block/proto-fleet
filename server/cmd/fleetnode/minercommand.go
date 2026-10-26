@@ -326,7 +326,7 @@ func minerCommandActionTimeout(mc *pb.MinerCommand) time.Duration {
 // or link-local address, or a scheme the drivers can't dial. Loopback is allowed for the
 // dev virtual driver; mirrors the discovery path's private-address policy.
 func validateDialTarget(t *pb.MinerConnectionDescriptor) error {
-	if err := validateTargetAddresses(t); err != nil {
+	if err := validateTargetAddresses(t.GetIpAddress(), t.GetEndpoints()); err != nil {
 		return err
 	}
 	// Restrict to schemes the dial path accepts (networking.ProtocolFromString); rejects empty/unknown.
@@ -337,23 +337,23 @@ func validateDialTarget(t *pb.MinerConnectionDescriptor) error {
 }
 
 // Pairing and command targets share the same endpoint and private-address checks.
-func validateTargetAddresses(t *pb.MinerConnectionDescriptor) error {
-	if _, err := deviceendpoints.Key(t.GetEndpoints()); err != nil {
+func validateTargetAddresses(ipAddress string, endpoints []*commonpb.DeviceEndpoint) error {
+	if _, err := deviceendpoints.Key(endpoints); err != nil {
 		return err
 	}
-	for _, controller := range t.GetEndpoints() {
+	for _, controller := range endpoints {
 		addr, err := netip.ParseAddr(controller.GetHost())
 		if err != nil || (!addr.Unmap().IsPrivate() && !addr.Unmap().IsLoopback()) {
 			return fmt.Errorf("device endpoint must use a private or loopback IP")
 		}
 	}
 
-	addr, err := netip.ParseAddr(t.GetIpAddress())
+	addr, err := netip.ParseAddr(ipAddress)
 	if err != nil {
-		return fmt.Errorf("ip_address %q is not a valid IP", t.GetIpAddress())
+		return fmt.Errorf("ip_address %q is not a valid IP", ipAddress)
 	}
 	if a := addr.Unmap(); !a.IsPrivate() && !a.IsLoopback() {
-		return fmt.Errorf("ip_address %q is not a private or loopback address", t.GetIpAddress())
+		return fmt.Errorf("ip_address %q is not a private or loopback address", ipAddress)
 	}
 	return nil
 }

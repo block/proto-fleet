@@ -795,13 +795,13 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     -- Retaining an old value could associate replacement hardware with the wrong miner.
     -- Fleet-node discovery reports have no identity fields; their separate upsert
     -- preserves identity learned during pairing.
-    -- A metadata snapshot from a different group cannot restore a removed
+    -- A metadata snapshot from a different group or member set cannot restore a removed
     -- controller's identity after an explicit unpair and replacement scan.
     serial_number = CASE WHEN NOT $18::boolean AND discovered_device.endpoint_key <> ''
-                             AND discovered_device.endpoint_key <> EXCLUDED.endpoint_key
+                             AND (discovered_device.endpoint_key <> EXCLUDED.endpoint_key OR discovered_device.endpoints <> EXCLUDED.endpoints)
                         THEN discovered_device.serial_number ELSE EXCLUDED.serial_number END,
     mac_address = CASE WHEN NOT $18::boolean AND discovered_device.endpoint_key <> ''
-                           AND discovered_device.endpoint_key <> EXCLUDED.endpoint_key
+                           AND (discovered_device.endpoint_key <> EXCLUDED.endpoint_key OR discovered_device.endpoints <> EXCLUDED.endpoints)
                       THEN discovered_device.mac_address ELSE EXCLUDED.mac_address END,
     device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
     manufacturer = EXCLUDED.manufacturer,

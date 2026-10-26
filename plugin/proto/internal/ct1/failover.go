@@ -35,6 +35,7 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerS
 	type probeResult struct {
 		selected *controllerSelection
 		state    *mdk.SystemStatus
+		report   *mdk.HAStatus
 		err      error
 	}
 	results := make(chan probeResult, len(clients))
@@ -47,16 +48,23 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerS
 	defer cancel()
 	for _, c := range clients {
 		go func(c *Client) {
-			info, err := c.Discover(probe, d.info)
+			id := c.endpointID(d.info.Endpoints)
+			report, _, err := c.readHA(probe, id, d.info.Endpoints[0].DeviceKey)
 			if err != nil {
 				results <- probeResult{err: err}
 				return
 			}
-			state, err := c.system.GetSystemStatus(probe, &mdk.GetSystemStatusRequest{})
-			if err == nil && state.GetStatus().GetServerId() != c.endpointID(d.info.Endpoints) {
+			response, err := c.system.GetSystemStatus(probe, &mdk.GetSystemStatusRequest{})
+			state := response.GetStatus()
+			if err == nil && state.GetServerId() != id {
 				err = fmt.Errorf("CT1 status identity mismatch")
 			}
-			results <- probeResult{selected: &controllerSelection{client: c, info: info}, state: state.GetStatus(), err: err}
+			info := d.info
+			info.FirmwareVersion = state.GetVersion()
+			if info.SerialNumber == "" {
+				info.SerialNumber = state.GetServerId()
+			}
+			results <- probeResult{selected: &controllerSelection{client: c, info: info}, state: state, report: report, err: err}
 		}(c)
 	}
 	var primary, standby, readable, writable *controllerSelection
@@ -77,22 +85,27 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerS
 		}
 		readable = result.selected
 		state := result.state
+		if !healthyHAReport(result.report, state, d.info.Endpoints, time.Now()) {
+			healthy = false
+		}
 		writePrimary := state.GetContainerWritePrimary()
 		if writePrimary {
 			primaryCount++
 		}
+		isPrimary := state.GetHaRole() == mdk.HARole_HA_ROLE_PRIMARY && writePrimary
+		isStandby := state.GetHaRole() == mdk.HARole_HA_ROLE_STANDBY && !writePrimary
 		// Frigate authorizes writes independently of recovery health. Keep the
 		// strict health table for HA reporting and read preference only.
-		if state.GetHaRole() == mdk.HARole_HA_ROLE_PRIMARY && writePrimary {
+		if isPrimary {
 			writable = result.selected
 		}
 		if !settledController(state) {
 			healthy = false
 			continue
 		}
-		if state.GetHaRole() == mdk.HARole_HA_ROLE_PRIMARY && writePrimary {
+		if isPrimary {
 			primary = result.selected
-		} else if state.GetHaRole() == mdk.HARole_HA_ROLE_STANDBY && !writePrimary {
+		} else if isStandby {
 			standby = result.selected
 			standbyCount++
 		} else {
@@ -100,20 +113,23 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerS
 		}
 	}
 	ha := &sdk.ContainerHA{ObservedAt: time.Now().UTC(), Degraded: !healthy || len(errs) != 0 || primaryCount != 1 || standbyCount != 1}
-	if primaryCount > 1 && write {
-		return nil, ha, fmt.Errorf("both CT1 controllers report write authority")
-	}
-	if write && writable != nil {
-		return writable, ha, nil
-	}
-	if primary != nil {
-		return primary, ha, nil
-	}
-	if !write && standby != nil {
-		return standby, ha, nil
-	}
-	if !write && readable != nil {
-		return readable, ha, nil
+	if write {
+		if primaryCount > 1 {
+			return nil, ha, fmt.Errorf("both CT1 controllers report write authority")
+		}
+		if writable != nil {
+			return writable, ha, nil
+		}
+	} else {
+		if primary != nil {
+			return primary, ha, nil
+		}
+		if standby != nil {
+			return standby, ha, nil
+		}
+		if readable != nil {
+			return readable, ha, nil
+		}
 	}
 	errs = append(errs, errors.New("no eligible controller"))
 	return nil, ha, fmt.Errorf("no CT1 controller available for this operation: %w", errors.Join(errs...))

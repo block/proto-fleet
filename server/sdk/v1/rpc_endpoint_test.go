@@ -7,6 +7,12 @@ import (
 )
 
 func TestDeviceInfoPreservesIndependentRPCEndpoint(t *testing.T) {
-	info := DeviceInfo{Host: "10.1.2.3", Port: 8080, URLScheme: "http", RPCPort: 9443, RPCTLS: true, DeviceClass: DeviceClassContainer}
+	info := DeviceInfo{
+		Host: "10.1.2.3", Port: 8080, URLScheme: "http", RPCPort: 9443, RPCTLS: true, DeviceClass: DeviceClassContainer,
+		Endpoints: []DeviceEndpoint{
+			{ID: "a", DeviceKey: "opaque", MemberIDs: []string{"a", "b"}, Host: "10.0.0.11", Port: 8080, URLScheme: "http", RPCPort: 9095},
+			{ID: "b", DeviceKey: "opaque", MemberIDs: []string{"a", "b"}, Host: "10.0.0.12", Port: 8443, URLScheme: "https", RPCPort: 9443, RPCTLS: true},
+		},
+	}
 	require.Equal(t, info, deviceInfoFromProto(deviceInfoToProto(info)))
 }

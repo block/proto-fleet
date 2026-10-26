@@ -112,7 +112,7 @@ func (s *SQLDiscoveredDeviceStore) SaveDirect(ctx context.Context, doi discovery
 		if err != nil {
 			return err
 		}
-		allowGroupChange := existing != nil && existing.EndpointKey != "" && existing.EndpointKey != endpoints[0].DeviceKey
+		allowGroupChange := endpointIdentityReplaced(existing, endpoints)
 		candidate := &discoverymodels.DiscoveredDevice{
 			IsActive: device.IsActive, OrgID: device.OrgID,
 			FirstDiscovered: device.FirstDiscovered, LastSeen: device.LastSeen,
@@ -138,14 +138,8 @@ func (s *SQLDiscoveredDeviceStore) SaveDirect(ctx context.Context, doi discovery
 		saved, err = s.save(ctx, doi, candidate, discoveredDeviceSaveOptions{direct: true, allowGroupChange: allowGroupChange})
 		return err
 	})
-	if errors.Is(err, errPairedDeviceEndpoints) {
-		return nil, fleeterror.NewFailedPreconditionError(errPairedDeviceEndpoints.Error())
-	}
-	if errors.Is(err, errDeviceEndpointGroupRequired) {
-		return nil, fleeterror.NewFailedPreconditionError(errDeviceEndpointGroupRequired.Error())
-	}
-	if errors.Is(err, errDeviceEndpointGroupChanged) {
-		return nil, fleeterror.NewFailedPreconditionError(errDeviceEndpointGroupChanged.Error())
+	if errors.Is(err, errAmbiguousDeviceEndpoints) || errors.Is(err, errPairedDeviceEndpoints) || errors.Is(err, errDeviceEndpointGroupRequired) || errors.Is(err, errDeviceEndpointGroupChanged) {
+		return nil, fleeterror.NewFailedPreconditionError(err.Error())
 	}
 	return saved, err
 }

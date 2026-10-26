@@ -687,7 +687,7 @@ func (s *Service) hydrateMissingFirmwareVersion(
 // upsert updates the old record's IP instead of creating a duplicate.
 func (s *Service) reconcileByMAC(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, orgID int64, newIP string, newPort string) (string, error) {
 	if discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER || len(discoveredDevice.Endpoints) > 0 {
-		return "", nil // Controller identity must not move a container off its shared IP.
+		return "", nil // A controller MAC does not identify the whole device.
 	}
 	mac := networking.NormalizeMAC(discoveredDevice.MacAddress)
 

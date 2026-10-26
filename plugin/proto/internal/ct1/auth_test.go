@@ -36,7 +36,7 @@ func TestDiscoveryNeverSendsCredentials(t *testing.T) {
 		t.Run(outcome, func(t *testing.T) {
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
-			received := make(chan metadata.MD, 1)
+			received := make(chan metadata.MD, 2)
 			server := grpc.NewServer(grpc.UnaryInterceptor(func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 				md, _ := metadata.FromIncomingContext(ctx)
 				received <- md.Copy()
@@ -69,12 +69,18 @@ func TestDiscoveryNeverSendsCredentials(t *testing.T) {
 			case "authentication_required":
 				require.Equal(t, codes.Unauthenticated, status.Code(err))
 			}
-			select {
-			case md := <-received:
-				require.Empty(t, md.Get("authorization"), "neither shared tokens nor saved REST credentials may be sent")
-				require.Equal(t, []string{"proto-fleet"}, md.Get("x-frigate-actor"), "audit attribution is not authentication")
-			default:
-				t.Fatal("discovery did not reach the test endpoint")
+			count := 1
+			if outcome == "controller" {
+				count = 2
+			}
+			for range count {
+				select {
+				case md := <-received:
+					require.Empty(t, md.Get("authorization"), "neither shared tokens nor saved REST credentials may be sent")
+					require.Equal(t, []string{"proto-fleet"}, md.Get("x-frigate-actor"), "audit attribution is not authentication")
+				default:
+					t.Fatal("discovery did not reach the test endpoint")
+				}
 			}
 		})
 	}

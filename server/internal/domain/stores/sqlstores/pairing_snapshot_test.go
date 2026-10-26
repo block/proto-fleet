@@ -12,7 +12,7 @@ import (
 )
 
 func TestPairingSnapshotRejectsChangedInventory(t *testing.T) {
-	for _, change := range []string{"group", "route", "browser route", "owner", "legacy upgrade"} {
+	for _, change := range []string{"group", "members", "route", "browser route", "owner", "legacy upgrade"} {
 		t.Run(change, func(t *testing.T) {
 			db, store, org := ct1HAStore(t)
 			initial := ct1HADiscovery(org, "a", "10.0.0.11")
@@ -24,6 +24,8 @@ func TestPairingSnapshotRejectsChangedInventory(t *testing.T) {
 			switch change {
 			case "group":
 				incoming.Endpoints[0].DeviceKey = "a-c"
+				incoming.Endpoints[0].MemberIds = []string{"a", "c"}
+			case "members":
 				incoming.Endpoints[0].MemberIds = []string{"a", "c"}
 			case "route":
 				incoming.IpAddress, incoming.Endpoints[0].Host = "10.0.0.99", "10.0.0.99"

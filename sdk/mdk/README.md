@@ -7,7 +7,7 @@ These are separate from Fleet's public/browser APIs.
 [`btc-mining/frigate` at `e069860da77f91857d664d26bbadd6672e0463ba`](https://github.com/btc-mining/frigate/tree/e069860da77f91857d664d26bbadd6672e0463ba/proto/mdk/v2),
 the upstream `main` revision selected at migration implementation start.
 The files include the import closure of System, Hashboard, Mining, Power, and
-Telemetry services. No repository-root license file was present at this pin;
+Telemetry services. Some files use the newer pins listed below. No repository-root license file was present at this pin;
 these remain internal Frigate sources, not independently licensed public code.
 External annotation dependencies are pinned in `buf.lock` and retain their
 upstream licensing through Buf's Google APIs and grpc-gateway modules.
@@ -17,6 +17,8 @@ The repository's existing Hermit-managed Buf/Go generators override only Go
 package paths; do not edit generated files. Commit source and generated output
 together. Generated historical RPC definitions do not enable historical fetching.
 
-`server_update.proto` is copied unmodified from Frigate commit
-`4677049b24e9428ebf01b17323682e2a16d332d7`. Its read-only
-`GetServerUpdateSupport` method reports controller and partner IDs for HA pairing.
+`system.proto` is copied unmodified from Frigate commit
+[`3115a6e7ec53458ce22a05856f8fb804e9dbe3a9`](https://github.com/btc-mining/frigate/commit/3115a6e7ec53458ce22a05856f8fb804e9dbe3a9).
+`SystemService.GetHAStatus` provides durable cluster identity, configured members,
+and independently aged HA observations. The plugin uses confirmed cluster IDs
+for new endpoint groups and live `GetSystemStatus` for command selection.

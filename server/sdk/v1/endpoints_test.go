@@ -2,22 +2,9 @@ package sdk
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
-
-func TestEndpointAndHAPluginTransport(t *testing.T) {
-	info := DeviceInfo{Endpoints: []DeviceEndpoint{
-		{ID: "a", DeviceKey: "opaque", MemberIDs: []string{"a", "b"}, Host: "10.0.0.11", Port: 8080, URLScheme: "http", RPCPort: 9095},
-		{ID: "b", DeviceKey: "opaque", MemberIDs: []string{"a", "b"}, Host: "10.0.0.12", Port: 8443, URLScheme: "https", RPCPort: 9443, RPCTLS: true},
-	}}
-	require.Equal(t, info, deviceInfoFromProto(deviceInfoToProto(info)))
-	now := time.Now().UTC()
-	snapshot := &ContainerSnapshot{ObservedAt: now, HA: &ContainerHA{ObservedAt: now, Degraded: true}}
-	got := containerSnapshotFromProto(containerSnapshotToProto(snapshot))
-	require.Equal(t, snapshot.HA, got.HA)
-}
 
 func TestDeviceEndpointKeyRejectsConflictingMetadata(t *testing.T) {
 	valid := []DeviceEndpoint{

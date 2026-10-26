@@ -13,6 +13,7 @@ import (
 func TestContainerSnapshotSurvivesTelemetryTransport(t *testing.T) {
 	now := time.Now().UTC()
 	snapshot := &ContainerSnapshot{ObservedAt: now, Tanks: []ContainerTank{{Position: 2, Modules: []ContainerModule{{Position: 3, ReportedID: "module-serial", IdentityConfirmed: true, State: MinerStatusError, ObservedAt: now.Add(-119 * time.Second)}}}}}
+	snapshot.HA = &ContainerHA{ObservedAt: now, Degraded: true}
 	pue := 1.05
 	snapshot.TopologyComplete = true
 	snapshot.Metrics = &ContainerRollup{UnlocatedHashboards: 6, SourceTimes: map[string]time.Time{}}

@@ -14,11 +14,11 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type haServer struct {
 	mdk.UnimplementedSystemServiceServer
-	mdk.UnimplementedServerUpdateServiceServer
 	mdk.UnimplementedPowerServiceServer
 	mdk.UnimplementedHashboardServiceServer
 	id, peer       string
@@ -28,14 +28,16 @@ type haServer struct {
 	uncertain      atomic.Bool
 	server         *grpc.Server
 	endpoint       sdk.DeviceEndpoint
+	haOverride     func(*mdk.HAStatus)
 	statusOverride func(*mdk.SystemStatus)
 	mapError       error
 	mapReads       atomic.Int32
 	infoReads      atomic.Int32
-	infoDelay      time.Duration
+	haDelay        time.Duration
+	haReads        atomic.Int32
 	statusDelay    time.Duration
-	supportError   error
-	supportEntered chan struct{}
+	haError        error
+	haEntered      chan struct{}
 }
 
 func startHAServer(t *testing.T, id, peer string) *haServer {
@@ -46,42 +48,66 @@ func startHAServer(t *testing.T, id, peer string) *haServer {
 	require.NoError(t, err)
 	port, err := sdk.ParsePort(portText)
 	require.NoError(t, err)
-	key, err := pairKey(id, peer)
-	require.NoError(t, err)
-	s := &haServer{id: id, peer: peer, server: grpc.NewServer(), endpoint: sdk.DeviceEndpoint{ID: id, DeviceKey: key, Host: host, Port: 8080, URLScheme: "http", RPCPort: port}}
+	key := "ct1:" + testClusterID
+	s := &haServer{id: id, peer: peer, server: grpc.NewServer(), endpoint: sdk.DeviceEndpoint{ID: id, DeviceKey: key, MemberIDs: []string{id, peer}, Host: host, Port: 8080, URLScheme: "http", RPCPort: port}}
 	mdk.RegisterSystemServiceServer(s.server, s)
-	mdk.RegisterServerUpdateServiceServer(s.server, s)
 	mdk.RegisterPowerServiceServer(s.server, s)
 	mdk.RegisterHashboardServiceServer(s.server, s)
 	go func() { _ = s.server.Serve(listener) }()
 	t.Cleanup(s.server.Stop)
 	return s
 }
-func (s *haServer) GetSystemInfo(ctx context.Context, _ *mdk.GetSystemInfoRequest) (*mdk.GetSystemInfoResponse, error) {
+func (s *haServer) GetSystemInfo(context.Context, *mdk.GetSystemInfoRequest) (*mdk.GetSystemInfoResponse, error) {
 	s.infoReads.Add(1)
-	if s.infoDelay > 0 {
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("system info delay: %w", ctx.Err())
-		case <-time.After(s.infoDelay):
-		}
-	}
+
 	return &mdk.GetSystemInfoResponse{Info: &mdk.SystemInfo{Id: s.id, Product: "Frigate", Model: "CT1", Version: "v1-" + s.id}}, nil
 }
-func (s *haServer) GetServerUpdateSupport(ctx context.Context, _ *mdk.GetServerUpdateSupportRequest) (*mdk.GetServerUpdateSupportResponse, error) {
-	if s.supportEntered != nil {
-		close(s.supportEntered)
-		<-ctx.Done()
-		return nil, fmt.Errorf("server update support canceled: %w", ctx.Err())
+
+const testClusterID = "7900e1a3-5be9-4a6b-b640-eaf3d959333b"
+
+func (s *haServer) GetHAStatus(ctx context.Context, _ *mdk.GetHAStatusRequest) (*mdk.GetHAStatusResponse, error) {
+	s.haReads.Add(1)
+	if s.haDelay > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("HA status delay: %w", ctx.Err())
+		case <-time.After(s.haDelay):
+		}
 	}
-	if s.supportError != nil {
-		return nil, fmt.Errorf("server update support: %w", s.supportError)
+	if s.haEntered != nil {
+		close(s.haEntered)
+		<-ctx.Done()
+		return nil, fmt.Errorf("HA status canceled: %w", ctx.Err())
+	}
+	if s.haError != nil {
+		return nil, s.haError
 	}
 	peer := s.peer
 	if override := s.peerOverride.Load(); override != nil {
 		peer = *override
 	}
-	return &mdk.GetServerUpdateSupportResponse{InstanceId: s.id, PeerInstanceId: peer}, nil
+	now := timestamppb.Now()
+	report := &mdk.HAStatus{Enabled: true, ReportingServerId: s.id, PeerServerId: peer,
+		ClusterId: testClusterID, IdentityState: mdk.HAIdentityState_HA_IDENTITY_STATE_CONFIRMED,
+		InventoryReady: true, ObservedAt: now}
+	for _, id := range []string{s.id, peer} {
+		primary := s.primary.Load() == (id == s.id)
+		role := mdk.HARole_HA_ROLE_STANDBY
+		if primary {
+			role = mdk.HARole_HA_ROLE_PRIMARY
+		}
+		report.Members = append(report.Members, &mdk.HAMemberStatus{
+			Id: id, Kind: mdk.HAMemberRole_HA_MEMBER_ROLE_FRIGATE, Local: id == s.id,
+			HaRole: role, ContainerWritePrimary: &primary, FrigateReachable: new(true),
+			Recovery:           &mdk.HARecoveryStatus{State: mdk.HARecoveryState_HA_RECOVERY_STATE_STEADY},
+			RoleObservation:    &mdk.HAObservation{SourceServerId: id, ObservedAt: now, Freshness: mdk.HAObservationFreshness_HA_OBSERVATION_FRESHNESS_FRESH},
+			FrigateObservation: &mdk.HAObservation{SourceServerId: s.id, ObservedAt: now, Freshness: mdk.HAObservationFreshness_HA_OBSERVATION_FRESHNESS_FRESH},
+		})
+	}
+	if s.haOverride != nil {
+		s.haOverride(report)
+	}
+	return &mdk.GetHAStatusResponse{Status: report}, nil
 }
 func (s *haServer) GetSystemStatus(ctx context.Context, _ *mdk.GetSystemStatusRequest) (*mdk.GetSystemStatusResponse, error) {
 	if s.statusDelay > 0 {
@@ -91,7 +117,7 @@ func (s *haServer) GetSystemStatus(ctx context.Context, _ *mdk.GetSystemStatusRe
 		case <-time.After(s.statusDelay):
 		}
 	}
-	state := &mdk.SystemStatus{ServerId: s.id, ContainerWritePrimary: s.primary.Load(), HaRole: mdk.HARole_HA_ROLE_STANDBY, DatabaseConnected: true, HaRecovery: &mdk.HARecoveryStatus{State: mdk.HARecoveryState_HA_RECOVERY_STATE_STEADY}}
+	state := &mdk.SystemStatus{ServerId: s.id, Version: "v1-" + s.id, ContainerWritePrimary: s.primary.Load(), HaRole: mdk.HARole_HA_ROLE_STANDBY, DatabaseConnected: true, HaRecovery: &mdk.HARecoveryStatus{State: mdk.HARecoveryState_HA_RECOVERY_STATE_STEADY}}
 	if state.ContainerWritePrimary {
 		state.HaRole = mdk.HARole_HA_ROLE_PRIMARY
 	}
@@ -121,112 +147,31 @@ func haInfo(a, b *haServer) sdk.DeviceInfo {
 	return sdk.DeviceInfo{Host: a.endpoint.Host, Port: 8080, URLScheme: "http", RPCPort: a.endpoint.RPCPort, SerialNumber: a.id, Endpoints: []sdk.DeviceEndpoint{a.endpoint, b.endpoint}}
 }
 
-func TestHALegacyDefaultRPCPort(t *testing.T) {
-	a := startHAServer(t, "a", "b")
-	a.primary.Store(true)
-	info := sdk.DeviceInfo{Host: a.endpoint.Host, Port: 8080, URLScheme: "http", SerialNumber: a.id}
-	c, err := NewClient(info, sdk.UsernamePassword{})
-	require.NoError(t, err)
-	defer c.Close()
-
-	// Keep the logical default-port endpoint while sending fixture RPCs to an
-	// ephemeral listener, so the test does not need exclusive use of port 9095.
-	transportInfo := info
-	transportInfo.RPCPort = a.endpoint.RPCPort
-	transport, err := NewClient(transportInfo, sdk.UsernamePassword{})
-	require.NoError(t, err)
-	defer transport.Close()
-	c.system, c.updates, c.power = transport.system, transport.updates, transport.power
-
-	verified, err := c.Discover(t.Context(), info)
-	require.NoError(t, err)
-	require.Len(t, verified.Endpoints, 1)
-	require.Equal(t, DefaultRPCPort, verified.Endpoints[0].RPCPort)
-	require.Equal(t, []string{"a", "b"}, verified.Endpoints[0].MemberIDs)
-	d := &Device{id: "legacy", info: verified, clients: []*Client{c}}
-	selected, ha, err := d.probeControllers(t.Context(), false)
-	require.NoError(t, err)
-	require.Same(t, c, selected.client)
-	require.True(t, ha.Degraded)
-	require.NoError(t, d.SetContainerControl(t.Context(), sdk.ContainerControlRequest{Name: mainCircuitBreakerControl, Enabled: new(true)}))
-	require.EqualValues(t, 1, a.writes.Load())
-}
-
-func TestHASavedDefaultRPCPortSelectsPrimary(t *testing.T) {
-	a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
-	a.primary.Store(true)
-	info := haInfo(a, b)
-	info.RPCPort, info.Endpoints[0].RPCPort = 0, 0
-	c, err := NewClient(info, sdk.UsernamePassword{})
-	require.NoError(t, err)
-	defer c.Close()
-
-	// The saved primary uses its default port. Route only its test transport to
-	// the ephemeral listener, preserving the saved zero-port configuration.
-	transportInfo := info
-	transportInfo.RPCPort = a.endpoint.RPCPort
-	transport, err := NewClient(transportInfo, sdk.UsernamePassword{})
-	require.NoError(t, err)
-	defer transport.Close()
-	c.system, c.updates, c.power = transport.system, transport.updates, transport.power
-	partnerInfo := info
-	partnerInfo.RPCPort = b.endpoint.RPCPort
-	partner, err := NewClient(partnerInfo, sdk.UsernamePassword{})
-	require.NoError(t, err)
-	defer partner.Close()
-
-	d := &Device{id: "legacy", info: info, clients: []*Client{c, partner}}
-	selected, ha, err := d.probeControllers(t.Context(), true)
-	require.NoError(t, err)
-	require.Same(t, c, selected.client)
-	require.False(t, ha.Degraded)
-	require.NoError(t, d.SetContainerControl(t.Context(), sdk.ContainerControlRequest{Name: mainCircuitBreakerControl, Enabled: new(true)}))
-	require.EqualValues(t, 1, a.writes.Load())
-	require.Zero(t, b.writes.Load())
-}
-
 func TestHAPairingAndFailoverWithoutHashboards(t *testing.T) {
 	a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
 	a.primary.Store(true)
 	d, err := NewDevice(t.Context(), "container", haInfo(a, b), sdk.UsernamePassword{})
 	require.NoError(t, err)
 	defer d.Close(t.Context())
-	c, ha, err := d.probeControllers(t.Context(), false)
+	metrics, err := d.Status(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, a.endpoint.RPCPort, c.client.endpoint.RPCPort)
-	require.False(t, ha.Degraded)
+	require.False(t, metrics.Container.HA.Degraded)
+	require.Equal(t, "v1-a", metrics.FirmwareVersion)
+	require.EqualValues(t, 1, a.mapReads.Load())
+	require.Zero(t, b.mapReads.Load())
 	a.server.Stop()
 	b.primary.Store(true)
-	c, ha, err = d.probeControllers(t.Context(), true)
+	metrics, err = d.Status(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, b.endpoint.RPCPort, c.client.endpoint.RPCPort)
-	require.True(t, ha.Degraded)
+	require.True(t, metrics.Container.HA.Degraded)
+	require.Equal(t, "v1-b", metrics.FirmwareVersion)
+	require.EqualValues(t, 1, b.mapReads.Load())
+	require.NoError(t, d.SetContainerControl(t.Context(), sdk.ContainerControlRequest{Name: mainCircuitBreakerControl, Enabled: new(true)}))
+	require.EqualValues(t, 1, b.writes.Load())
 	// Restarting Fleet while A is unavailable must still create a usable device.
 	restarted, err := NewDevice(t.Context(), "container", haInfo(a, b), sdk.UsernamePassword{})
 	require.NoError(t, err)
 	defer restarted.Close(t.Context())
-}
-
-func TestHAStatusReportsSelectedControllerFirmware(t *testing.T) {
-	a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
-	a.primary.Store(true)
-	d, err := NewDevice(t.Context(), "container", haInfo(a, b), sdk.UsernamePassword{})
-	require.NoError(t, err)
-	defer d.Close(t.Context())
-
-	metrics, err := d.Status(t.Context())
-	require.NoError(t, err)
-	require.Equal(t, "v1-a", metrics.FirmwareVersion)
-	require.EqualValues(t, 1, a.mapReads.Load())
-	require.Zero(t, b.mapReads.Load())
-
-	a.primary.Store(false)
-	b.primary.Store(true)
-	metrics, err = d.Status(t.Context())
-	require.NoError(t, err)
-	require.Equal(t, "v1-b", metrics.FirmwareVersion)
-	require.EqualValues(t, 1, a.mapReads.Load())
-	require.EqualValues(t, 1, b.mapReads.Load())
 }
 
 func TestHAReusedDefaultRPCAddressKeepsVerifiedPartnerUsable(t *testing.T) {
@@ -237,17 +182,17 @@ func TestHAReusedDefaultRPCAddressKeepsVerifiedPartnerUsable(t *testing.T) {
 	require.NoError(t, err)
 	defer d.Close(t.Context())
 	stale, current := d.clients[0], d.clients[1]
-	aSystem, aUpdates, aPower := stale.system, stale.updates, stale.power
+	aSystem, aPower := stale.system, stale.power
 
 	// Keep the saved logical ports while routing both clients to B's ephemeral
 	// listener. The old zero port and explicit 9095 name the same CT1 socket.
 	d.info.Endpoints[0].RPCPort = 0
 	d.info.Endpoints[1].RPCPort = DefaultRPCPort
 	stale.endpoint.RPCPort, current.endpoint.RPCPort = DefaultRPCPort, DefaultRPCPort
-	stale.system, stale.updates, stale.power = current.system, current.updates, current.power
+	stale.system, stale.power = current.system, current.power
 
 	_, err = stale.Discover(t.Context(), d.info)
-	require.ErrorContains(t, err, "partner identity changed")
+	require.ErrorContains(t, err, "controller identity mismatch")
 	selected, ha, err := d.probeControllers(t.Context(), true)
 	require.NoError(t, err)
 	require.Same(t, current, selected.client)
@@ -257,7 +202,7 @@ func TestHAReusedDefaultRPCAddressKeepsVerifiedPartnerUsable(t *testing.T) {
 	require.EqualValues(t, 1, b.writes.Load())
 
 	// Rediscovery restores A's own address and makes the full pair healthy.
-	stale.system, stale.updates, stale.power = aSystem, aUpdates, aPower
+	stale.system, stale.power = aSystem, aPower
 	d.info.Endpoints[0] = a.endpoint
 	stale.endpoint.RPCPort = a.endpoint.RPCPort
 	selected, ha, err = d.probeControllers(t.Context(), true)
@@ -336,36 +281,30 @@ func TestHARefusesConflictingWriteAuthority(t *testing.T) {
 	require.Zero(t, b.writes.Load())
 }
 
-func TestHARejectsReplacementServer(t *testing.T) {
-	a, b := startHAServer(t, "a", "b"), startHAServer(t, "replacement", "other")
-	info := haInfo(a, b)
-	info.Endpoints[1].ID = "b"
-	info.Endpoints[1].DeviceKey = info.Endpoints[0].DeviceKey
-	a.server.Stop()
-	b.primary.Store(true)
-	_, err := NewDevice(t.Context(), "container", info, sdk.UsernamePassword{})
-	require.Error(t, err)
-	require.Zero(t, b.writes.Load())
-}
-
-func TestHARechecksPartnerIdentityBeforeReadsAndWrites(t *testing.T) {
+func TestHAClusterIdentitySurvivesPartnerReplacement(t *testing.T) {
 	a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
 	a.primary.Store(true)
 	d, err := NewDevice(t.Context(), "container", haInfo(a, b), sdk.UsernamePassword{})
 	require.NoError(t, err)
 	defer d.Close(t.Context())
 
-	// B keeps its own ID but now belongs to another pair. Its own status ID
-	// cannot prove that this endpoint still belongs to the saved container.
+	// B still belongs to this container, even when its configured partner changes.
+	// Its pinned route and live write authority remain valid; the old pair is unhealthy.
 	a.server.Stop()
 	b.primary.Store(true)
 	b.peerOverride.Store(new("replacement"))
-	_, err = d.Status(t.Context())
-	require.ErrorContains(t, err, "partner identity changed")
-	err = d.SetContainerControl(t.Context(), sdk.ContainerControlRequest{Name: mainCircuitBreakerControl, Enabled: new(true)})
-	require.ErrorContains(t, err, "partner identity changed")
-	require.Zero(t, b.mapReads.Load())
-	require.Zero(t, b.writes.Load())
+	metrics, err := d.Status(t.Context())
+	require.NoError(t, err)
+	require.True(t, metrics.Container.HA.Degraded)
+	require.NoError(t, d.SetContainerControl(t.Context(), sdk.ContainerControlRequest{Name: mainCircuitBreakerControl, Enabled: new(true)}))
+	require.EqualValues(t, 1, b.mapReads.Load())
+	require.EqualValues(t, 1, b.writes.Load())
+	// Operation routing does not adopt the new peer or modify saved routes.
+	require.Equal(t, haInfo(a, b).Endpoints, d.info.Endpoints)
+	verified, err := d.clients[1].Discover(t.Context(), sdk.DeviceInfo{})
+	require.NoError(t, err)
+	require.Equal(t, d.info.Endpoints[0].DeviceKey, verified.Endpoints[0].DeviceKey)
+	require.Equal(t, []string{"b", "replacement"}, verified.Endpoints[0].MemberIDs)
 }
 
 func TestHAWebViewUsesSavedEndpointWithoutProbing(t *testing.T) {
@@ -376,8 +315,6 @@ func TestHAWebViewUsesSavedEndpointWithoutProbing(t *testing.T) {
 	d, err := NewDevice(t.Context(), "container", info, sdk.UsernamePassword{})
 	require.NoError(t, err)
 	defer d.Close(t.Context())
-	require.EqualValues(t, 1, a.infoReads.Load())
-	require.EqualValues(t, 1, b.infoReads.Load())
 
 	a.server.Stop()
 	b.server.Stop()
@@ -387,8 +324,6 @@ func TestHAWebViewUsesSavedEndpointWithoutProbing(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, supported)
 	require.Equal(t, "https://[2001:db8::1]:8443", web)
-	require.EqualValues(t, 1, a.infoReads.Load())
-	require.EqualValues(t, 1, b.infoReads.Load())
 }
 
 func TestHADegradedUnlessPairIsSettled(t *testing.T) {
@@ -427,21 +362,22 @@ func TestHADegradedUnlessPairIsSettled(t *testing.T) {
 	}
 }
 
-func TestHAAllowsSlowIdentityProbeWithoutDuplicateDiscovery(t *testing.T) {
+func TestHAProbesClusterWithoutRepeatingSystemInfo(t *testing.T) {
 	a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
 	a.primary.Store(true)
-	a.infoDelay = 1100 * time.Millisecond
+	a.haDelay = 1100 * time.Millisecond
 	d, err := NewDevice(t.Context(), "container", haInfo(a, b), sdk.UsernamePassword{})
 	require.NoError(t, err)
 	defer d.Close(t.Context())
-	require.EqualValues(t, 1, a.infoReads.Load(), "creation reuses the verified controller info")
-	require.EqualValues(t, 1, b.infoReads.Load())
+	require.Zero(t, a.infoReads.Load(), "saved groups use HA identity and live status")
+	require.Zero(t, b.infoReads.Load())
 	require.NoError(t, d.SetContainerControl(t.Context(), sdk.ContainerControlRequest{Name: mainCircuitBreakerControl, Enabled: new(true)}))
 	require.EqualValues(t, 1, a.writes.Load())
-	require.EqualValues(t, 2, a.infoReads.Load())
+	require.EqualValues(t, 2, a.haReads.Load())
 	err = d.SetTankMining(t.Context(), sdk.TankMiningRequest{Positions: []int32{1}, Mining: new(true)})
 	require.Error(t, err, "the empty fixture has no tank topology")
-	require.EqualValues(t, 3, a.infoReads.Load(), "tank commands do not repeat identity discovery")
+	require.EqualValues(t, 3, a.haReads.Load(), "tank commands do not repeat identity discovery")
+	require.Zero(t, a.infoReads.Load())
 
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 	defer cancel()
@@ -460,7 +396,7 @@ func TestHAStatusReservesCollectionTimeWhenPeerStalls(t *testing.T) {
 				require.NoError(t, err)
 				defer d.Close(t.Context())
 				if stalledRPC == "identity" {
-					a.infoDelay = 10 * time.Second
+					a.haDelay = 10 * time.Second
 				} else {
 					a.statusDelay = 10 * time.Second
 				}

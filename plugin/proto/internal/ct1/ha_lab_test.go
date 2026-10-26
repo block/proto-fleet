@@ -35,8 +35,11 @@ func TestFrigateHALab(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(data, &summary))
 	require.Len(t, summary.Controllers, 2)
+	token, err := os.ReadFile(filepath.Join(root, "mdk.token"))
+	require.NoError(t, err)
+	ctx := metadata.AppendToOutgoingContext(t.Context(), "authorization", "Bearer "+strings.TrimSpace(string(token)))
 	var endpoints []sdk.DeviceEndpoint
-	for i, c := range summary.Controllers {
+	for _, c := range summary.Controllers {
 		host, rpcText, err := net.SplitHostPort(c.GRPC)
 		require.NoError(t, err)
 		require.Equal(t, "127.0.0.1", host, "this test sends the lab token only to loopback")
@@ -46,13 +49,27 @@ func TestFrigateHALab(t *testing.T) {
 		require.NoError(t, err)
 		web, err := sdk.ParsePort(webText)
 		require.NoError(t, err)
-		key, err := pairKey(c.Info.ID, summary.Controllers[1-i].Info.ID)
-		require.NoError(t, err)
-		endpoints = append(endpoints, sdk.DeviceEndpoint{ID: c.Info.ID, DeviceKey: key, Host: host, RPCPort: rpc, Port: web, URLScheme: "http"})
+		endpoints = append(endpoints, sdk.DeviceEndpoint{ID: c.Info.ID, Host: host, RPCPort: rpc, Port: web, URLScheme: "http"})
 	}
-	token, err := os.ReadFile(filepath.Join(root, "mdk.token"))
-	require.NoError(t, err)
-	ctx := metadata.AppendToOutgoingContext(t.Context(), "authorization", "Bearer "+strings.TrimSpace(string(token)))
+	// A degraded lab may have only one reachable controller. Use its confirmed
+	// inventory to verify the fixed addresses from the local lab manifest.
+	var identity sdk.DeviceEndpoint
+	for _, endpoint := range endpoints {
+		info := sdk.DeviceInfo{Host: endpoint.Host, RPCPort: endpoint.RPCPort, Port: endpoint.Port, URLScheme: endpoint.URLScheme}
+		client, err := NewClient(info, sdk.UsernamePassword{})
+		require.NoError(t, err)
+		verified, err := client.Discover(ctx, info)
+		require.NoError(t, client.Close())
+		if err == nil && len(verified.Endpoints) == 1 {
+			identity = verified.Endpoints[0]
+			break
+		}
+	}
+	require.NotEmpty(t, identity.DeviceKey, "the lab must expose a confirmed HA cluster ID")
+	require.ElementsMatch(t, []string{endpoints[0].ID, endpoints[1].ID}, identity.MemberIDs)
+	for i := range endpoints {
+		endpoints[i].DeviceKey, endpoints[i].MemberIDs = identity.DeviceKey, identity.MemberIDs
+	}
 	info := sdk.DeviceInfo{Host: endpoints[0].Host, Port: endpoints[0].Port, URLScheme: "http", RPCPort: endpoints[0].RPCPort, SerialNumber: endpoints[0].ID, Endpoints: endpoints}
 	d, err := NewDevice(ctx, "ct1-ha-lab", info, sdk.UsernamePassword{})
 	require.NoError(t, err)

@@ -477,8 +477,8 @@ func extractWorkerNameFromConfiguredPools(pools []sdk.ConfiguredPool) string {
 // Antminer (only serial available after callPluginPairDevice) devices.
 func (p *Pairer) reconcileExistingDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, excludeIdentifier string) (*pb.Device, error) {
 	if discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER || len(discoveredDevice.Endpoints) > 0 {
-		// Discovery reconciles the shared IP. A controller serial/MAC is not
-		// the container identity and must not merge different endpoints.
+		// Discovery reconciles endpoint groups. A controller serial/MAC must
+		// not merge separate devices.
 		return nil, nil
 	}
 	// Try MAC-based reconciliation first

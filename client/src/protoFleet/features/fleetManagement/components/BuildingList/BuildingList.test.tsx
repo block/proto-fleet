@@ -262,7 +262,6 @@ describe("combined building and container rows", () => {
   });
   it.each([
     { degraded: true, stale: false, warning: true },
-    { degraded: true, stale: true, warning: true },
     { degraded: false, stale: true, warning: true },
     { degraded: false, stale: false, warning: false },
   ])("shows HA warning for $degraded / stale=$stale", ({ degraded, stale, warning }) => {

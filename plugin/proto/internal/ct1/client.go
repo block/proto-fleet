@@ -40,7 +40,6 @@ type Client struct {
 	conn      *grpc.ClientConn
 	endpoint  sdk.DeviceInfo
 	memberID  string
-	updates   mdk.ServerUpdateServiceClient
 	system    mdk.SystemServiceClient
 	boards    mdk.HashboardServiceClient
 	mining    mdk.MiningServiceClient
@@ -77,7 +76,7 @@ func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
 		return nil, fmt.Errorf("create CT1 connection: %w", err)
 	}
 	info.RPCPort = port
-	return &Client{endpoint: info, updates: mdk.NewServerUpdateServiceClient(conn), conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn)}, nil
+	return &Client{endpoint: info, conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn)}, nil
 }
 func (c *Client) Close() error {
 	c.closeOnce.Do(func() { c.closeErr = c.conn.Close() })
@@ -95,45 +94,32 @@ func (c *Client) Discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceI
 	if v == nil || strings.TrimSpace(v.Id) == "" || (!strings.EqualFold(v.Product, "Frigate") && !strings.EqualFold(v.Product, "CT1") && !strings.EqualFold(v.Model, "CT1")) {
 		return sdk.DeviceInfo{}, fmt.Errorf("endpoint is not a CT1 container")
 	}
-	support, err := c.updates.GetServerUpdateSupport(ctx, &mdk.GetServerUpdateSupportRequest{})
+	savedKey, err := sdk.DeviceEndpointKey(info.Endpoints)
 	if err != nil {
-		// New discovery can retain the controller without optional pair metadata.
-		// Saved endpoint groups require fresh partner identity on every probe.
-		if len(info.Endpoints) > 0 || ctx.Err() != nil {
-			return sdk.DeviceInfo{}, fmt.Errorf("read CT1 partner identity: %w", err)
-		}
-		support = nil
+		return sdk.DeviceInfo{}, err
 	}
-	var endpoints []sdk.DeviceEndpoint
-	if support.GetPeerInstanceId() != "" {
-		key, keyErr := pairKey(v.Id, support.GetPeerInstanceId())
-		if keyErr != nil || support.GetInstanceId() != v.Id {
-			return sdk.DeviceInfo{}, fmt.Errorf("invalid CT1 partner identity")
-		}
-		members := []string{v.Id, support.GetPeerInstanceId()}
-		slices.Sort(members)
-		endpoints = []sdk.DeviceEndpoint{{ID: v.Id, DeviceKey: key, MemberIDs: members, Host: c.endpoint.Host, Port: c.endpoint.Port, URLScheme: c.endpoint.URLScheme, RPCPort: c.endpoint.RPCPort, RPCTLS: c.endpoint.RPCTLS}}
+	expectedID := info.SerialNumber
+	if savedKey != "" {
+		expectedID = c.endpointID(info.Endpoints)
 	}
-	if len(info.Endpoints) > 0 {
-		if len(endpoints) != 1 || c.endpointID(info.Endpoints) != v.Id {
-			return sdk.DeviceInfo{}, fmt.Errorf("CT1 partner identity changed")
-		}
-		expected := slices.ContainsFunc(info.Endpoints, func(endpoint sdk.DeviceEndpoint) bool {
-			return endpoint.ID == v.Id && endpoint.DeviceKey == endpoints[0].DeviceKey
-		})
-		if !expected {
-			return sdk.DeviceInfo{}, fmt.Errorf("CT1 partner identity changed")
-		}
-	}
-	if info.SerialNumber != "" && info.SerialNumber != v.Id && !(len(info.Endpoints) > 0 && info.SerialNumber == support.GetPeerInstanceId()) {
+	if (savedKey != "" || expectedID != "") && expectedID != v.Id {
 		return sdk.DeviceInfo{}, fmt.Errorf("CT1 controller identity mismatch")
+	}
+	report, key, err := c.readHA(ctx, v.Id, savedKey)
+	if err != nil {
+		return sdk.DeviceInfo{}, err
+	}
+	if savedKey == "" && key != "" {
+		members := []string{report.ReportingServerId, report.PeerServerId}
+		slices.Sort(members)
+		info.Endpoints = []sdk.DeviceEndpoint{{ID: v.Id, DeviceKey: key, MemberIDs: members, Host: c.endpoint.Host, Port: c.endpoint.Port, URLScheme: c.endpoint.URLScheme, RPCPort: c.endpoint.RPCPort, RPCTLS: c.endpoint.RPCTLS}}
+		if _, err := sdk.DeviceEndpointKey(info.Endpoints); err != nil {
+			return sdk.DeviceInfo{}, err
+		}
 	}
 	info.DeviceClass = sdk.DeviceClassContainer
 	if info.SerialNumber == "" {
 		info.SerialNumber = v.Id
-	}
-	if len(info.Endpoints) == 0 {
-		info.Endpoints = endpoints
 	}
 	info.Model = "CT1"
 	info.Manufacturer = "Proto"

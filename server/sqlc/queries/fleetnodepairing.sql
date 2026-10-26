@@ -36,9 +36,10 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     rpc_tls = EXCLUDED.rpc_tls,
     endpoint_key = EXCLUDED.endpoint_key,
     endpoints = EXCLUDED.endpoints,
-    -- Reports do not carry verified serials. A replacement group must not keep
-    -- the removed peer's identity; pairing will learn the current serial again.
+    -- Reports do not carry verified serials or MACs. A replacement group must
+    -- not keep the removed peer's identity; pairing will learn it again.
     serial_number = CASE WHEN sqlc.arg('allow_endpoint_group_change')::boolean THEN '' ELSE discovered_device.serial_number END,
+    mac_address = CASE WHEN sqlc.arg('allow_endpoint_group_change')::boolean THEN '' ELSE discovered_device.mac_address END,
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     model = EXCLUDED.model,
     device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),

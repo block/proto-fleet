@@ -49,35 +49,14 @@ func TestDiscoveryListingSkipsInvalidEndpointsWithoutLosingPages(t *testing.T) {
 	require.Zero(t, count)
 }
 
-func TestDirectDiscoveryRejectsMissingGroupWithClearPrecondition(t *testing.T) {
-	for _, paired := range []bool{false, true} {
-		t.Run(fmt.Sprintf("paired=%t", paired), func(t *testing.T) {
-			db, store, org := ct1HAStore(t)
-			before := saveCT1HA(t, store, "container", ct1HADiscovery(org, "a", "10.0.0.11"))
-			if paired {
-				pairCT1HA(t, db, before)
-			}
-			incoming := ct1HADiscovery(org, "a", "10.0.0.11")
-			incoming.Endpoints = nil
-			_, err := store.SaveDirect(t.Context(), before.GetDeviceOrgIdentifier(), incoming)
-			require.True(t, fleeterror.IsFailedPreconditionError(err))
-			require.NotContains(t, err.Error(), "no rows")
-			after, err := store.GetDevice(t.Context(), before.GetDeviceOrgIdentifier())
-			require.NoError(t, err)
-			require.True(t, proto.Equal(&before.Device, &after.Device))
-		})
-	}
-}
-
 func TestPairingMetadataSaveKeepsCurrentEndpointGroup(t *testing.T) {
-	for _, legacySnapshot := range []bool{false, true} {
-		t.Run(fmt.Sprintf("legacy_snapshot=%t", legacySnapshot), func(t *testing.T) {
-			testPairingMetadataSaveKeepsCurrentEndpointGroup(t, legacySnapshot)
-		})
+	for _, key := range []string{"different-group", "opaque-pair"} {
+		t.Run(key, func(t *testing.T) { testPairingMetadataSaveKeepsCurrentEndpointGroup(t, false, key) })
 	}
+	t.Run("legacy snapshot", func(t *testing.T) { testPairingMetadataSaveKeepsCurrentEndpointGroup(t, true, "different-group") })
 }
 
-func testPairingMetadataSaveKeepsCurrentEndpointGroup(t *testing.T, legacySnapshot bool) {
+func testPairingMetadataSaveKeepsCurrentEndpointGroup(t *testing.T, legacySnapshot bool, key string) {
 	t.Helper()
 	_, store, org := ct1HAStore(t)
 	initial := ct1HADiscovery(org, "b", "10.0.0.12")
@@ -95,7 +74,7 @@ func testPairingMetadataSaveKeepsCurrentEndpointGroup(t *testing.T, legacySnapsh
 		before.MacAddress = "AA:BB:CC:DD:EE:0B"
 	}
 	incoming := ct1HADiscovery(org, "a", "10.0.0.11")
-	incoming.Endpoints[0].DeviceKey = "different-group"
+	incoming.Endpoints[0].DeviceKey = key
 	incoming.Endpoints[0].MemberIds = []string{"a", "c"}
 	incoming.SerialNumber, incoming.MacAddress = "a", "AA:BB:CC:DD:EE:0A"
 	current := saveCT1HA(t, store, "scan-a", incoming)

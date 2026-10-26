@@ -173,6 +173,9 @@ export const ListContainersResponseSchema: GenMessage<ListContainersResponse> =
   messageDesc(file_containers_v1_containers, 6);
 
 /**
+ * Latest controller redundancy observation. Stale evidence is unavailable,
+ * even when the last observation was healthy.
+ *
  * @generated from message containers.v1.ContainerHA
  */
 export type ContainerHA = Message<"containers.v1.ContainerHA"> & {
@@ -203,6 +206,8 @@ export const ContainerHASchema: GenMessage<ContainerHA> = /*@__PURE__*/ messageD
  */
 export type Container = Message<"containers.v1.Container"> & {
   /**
+   * Missing or stale HA evidence must be shown as degraded redundancy.
+   *
    * @generated from field: containers.v1.ContainerHA ha = 22;
    */
   ha?: ContainerHA | undefined;

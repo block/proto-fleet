@@ -219,7 +219,7 @@ func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx conte
 			candidate.Endpoints = endpoints
 			if existing != nil {
 				candidate.DeviceIdentifier = existing.DeviceIdentifier
-				allowGroupChange = existing.EndpointKey != "" && existing.EndpointKey != endpoints[0].DeviceKey
+				allowGroupChange = endpointIdentityReplaced(existing, endpoints)
 			} else {
 				candidate.DeviceIdentifier, err = deviceendpoints.NodeIdentifier(fleetNodeID, report.DriverName, endpoints)
 				if err != nil {

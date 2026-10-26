@@ -24,11 +24,13 @@ func TestDirectPartnerReplacementKeepsInventoryAfterExplicitUnpair(t *testing.T)
 		if bFirst {
 			name = "b first"
 		}
-		t.Run(name, func(t *testing.T) { testDirectPartnerReplacement(t, bFirst) })
+		for _, key := range []string{"replacement-pair", "opaque-pair"} {
+			t.Run(name+"/"+key, func(t *testing.T) { testDirectPartnerReplacement(t, bFirst, key) })
+		}
 	}
 }
 
-func testDirectPartnerReplacement(t *testing.T, bFirst bool) {
+func testDirectPartnerReplacement(t *testing.T, bFirst bool, key string) {
 	t.Helper()
 	db, store, org := ct1HAStore(t)
 	first, second := ct1HADiscovery(org, "a", "10.0.0.11"), ct1HADiscovery(org, "b", "10.0.0.12")
@@ -43,7 +45,7 @@ func testDirectPartnerReplacement(t *testing.T, bFirst bool) {
 	_, err := store.SaveDirect(t.Context(), discovery.DeviceOrgIdentifier{OrgID: org, DeviceIdentifier: "keyless-peer-scan"}, fallback)
 	require.True(t, fleeterror.IsFailedPreconditionError(err), "a keyless peer scan must not create a duplicate")
 	newGroup := ct1HADiscovery(org, "a", "10.0.0.11")
-	newGroup.Endpoints[0].DeviceKey, newGroup.Endpoints[0].MemberIds = "replacement-pair", []string{"a", "c"}
+	newGroup.Endpoints[0].DeviceKey, newGroup.Endpoints[0].MemberIds = key, []string{"a", "c"}
 	_, err = store.SaveDirect(t.Context(), discovery.DeviceOrgIdentifier{OrgID: org, DeviceIdentifier: "new-scan"}, newGroup)
 	require.True(t, fleeterror.IsFailedPreconditionError(err))
 	var count int
@@ -56,10 +58,10 @@ func testDirectPartnerReplacement(t *testing.T, bFirst bool) {
 	require.Equal(t, before.DeviceIdentifier, changed.DeviceIdentifier)
 	require.Len(t, changed.Endpoints, 1)
 	require.Equal(t, "a", changed.Endpoints[0].Id)
-	require.Equal(t, "replacement-pair", changed.Endpoints[0].DeviceKey)
+	require.Equal(t, key, changed.Endpoints[0].DeviceKey)
 	require.Equal(t, "a", changed.SerialNumber, "a removed peer's serial must not survive replacement")
 	peer := ct1HADiscovery(org, "c", "10.0.0.13")
-	peer.Endpoints[0].DeviceKey, peer.Endpoints[0].MemberIds = "replacement-pair", []string{"a", "c"}
+	peer.Endpoints[0].DeviceKey, peer.Endpoints[0].MemberIds = key, []string{"a", "c"}
 	changed = saveCT1HA(t, store, "scan-c", peer)
 	require.Len(t, changed.Endpoints, 2)
 	require.Equal(t, "c", changed.Endpoints[1].Id)
@@ -72,7 +74,45 @@ func testDirectPartnerReplacement(t *testing.T, bFirst bool) {
 	require.True(t, fleeterror.IsFailedPreconditionError(err))
 }
 
+func TestEndpointDiscoveryUpdatesMemberClaimsWithoutChangingIdentity(t *testing.T) {
+	t.Run("paired claims retain saved routes", func(t *testing.T) {
+		db, store, org := ct1HAStore(t)
+		before := saveCT1HA(t, store, "container", ct1HADiscovery(org, "a", "10.0.0.11"))
+		pairCT1HA(t, db, before)
+		incoming := ct1HADiscovery(org, "a", "10.0.0.11")
+		incoming.Endpoints[0].MemberIds = []string{"a", "c"}
+		after := saveCT1HA(t, store, "rescan", incoming)
+		require.Equal(t, before.DeviceIdentifier, after.DeviceIdentifier)
+		require.Equal(t, before.SerialNumber, after.SerialNumber)
+		require.Len(t, after.Endpoints, 1)
+		require.Equal(t, []string{"a", "b"}, after.Endpoints[0].MemberIds, "peer claims cannot change the paired snapshot")
+	})
+	t.Run("unpaired claims update retained routes", func(t *testing.T) {
+		_, store, org := ct1HAStore(t)
+		before := saveCT1HA(t, store, "container", ct1HADiscovery(org, "a", "10.0.0.11"))
+		saveCT1HA(t, store, "scan-b", ct1HADiscovery(org, "b", "10.0.0.12"))
+		incoming := ct1HADiscovery(org, "c", "10.0.0.13")
+		incoming.Endpoints[0].MemberIds = []string{"a", "b", "c"}
+		after := saveCT1HA(t, store, "scan-c", incoming)
+		require.Equal(t, before.DeviceIdentifier, after.DeviceIdentifier)
+		require.Equal(t, before.SerialNumber, after.SerialNumber)
+		require.Len(t, after.Endpoints, 3)
+		for _, endpoint := range after.Endpoints {
+			require.Equal(t, []string{"a", "b", "c"}, endpoint.MemberIds)
+		}
+		require.Equal(t, "10.0.0.11", after.Endpoints[0].Host)
+		require.Equal(t, "10.0.0.12", after.Endpoints[1].Host)
+	})
+}
+
 func TestNodePartnerReplacementKeepsInventoryAfterExplicitUnpair(t *testing.T) {
+	for _, key := range []string{"new-pair", "old-pair"} {
+		t.Run(key, func(t *testing.T) { testNodePartnerReplacement(t, key) })
+	}
+}
+
+func testNodePartnerReplacement(t *testing.T, key string) {
+	t.Helper()
 	db, discovered, org := ct1HAStore(t)
 	ctx := t.Context()
 	var node int64
@@ -94,7 +134,7 @@ func TestNodePartnerReplacementKeepsInventoryAfterExplicitUnpair(t *testing.T) {
 	_, stored, err = store.UpsertDiscoveredDeviceFromFleetNode(ctx, org, node, report("b", "10.0.0.12", "old-pair", oldMembers))
 	require.NoError(t, err)
 	require.True(t, stored)
-	_, err = db.ExecContext(ctx, `UPDATE discovered_device SET serial_number='b' WHERE org_id=$1 AND device_identifier=$2`, org, before.DeviceIdentifier)
+	_, err = db.ExecContext(ctx, `UPDATE discovered_device SET serial_number='b', mac_address='AA:BB:CC:DD:EE:0B' WHERE org_id=$1 AND device_identifier=$2`, org, before.DeviceIdentifier)
 	require.NoError(t, err)
 	d, err := discovered.GetDevice(ctx, discovery.DeviceOrgIdentifier{OrgID: org, DeviceIdentifier: before.DeviceIdentifier})
 	require.NoError(t, err)
@@ -109,7 +149,7 @@ func TestNodePartnerReplacementKeepsInventoryAfterExplicitUnpair(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, stored, "a keyless peer scan must not create a duplicate")
 	newMembers := []string{"a", "c"}
-	changed := report("a", "10.0.0.11", "new-pair", newMembers)
+	changed := report("a", "10.0.0.11", key, newMembers)
 	_, stored, err = store.UpsertDiscoveredDeviceFromFleetNode(ctx, org, node, changed)
 	require.NoError(t, err)
 	require.False(t, stored)
@@ -131,7 +171,8 @@ func TestNodePartnerReplacementKeepsInventoryAfterExplicitUnpair(t *testing.T) {
 	updated, err := discovered.GetDevice(ctx, d.GetDeviceOrgIdentifier())
 	require.NoError(t, err)
 	require.Empty(t, updated.SerialNumber, "node reports cannot retain a removed peer's serial")
-	saved, stored, err = store.UpsertDiscoveredDeviceFromFleetNode(ctx, org, node, report("c", "10.0.0.13", "new-pair", newMembers))
+	require.Empty(t, updated.MacAddress, "node reports cannot retain a removed peer's MAC")
+	saved, stored, err = store.UpsertDiscoveredDeviceFromFleetNode(ctx, org, node, report("c", "10.0.0.13", key, newMembers))
 	require.NoError(t, err)
 	require.True(t, stored)
 	require.Equal(t, before.DeviceIdentifier, saved.DeviceIdentifier)

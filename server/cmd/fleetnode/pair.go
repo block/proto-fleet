@@ -70,11 +70,7 @@ func newPluginPairer(manager *plugins.Manager, credentials credentialSealer) *pl
 
 func (p *pluginPairer) Pair(ctx context.Context, target *pairingpb.FleetNodePairTarget, creds *pairingpb.Credentials) *pb.FleetNodePairResult {
 	res := &pb.FleetNodePairResult{DeviceIdentifier: target.GetDeviceIdentifier()}
-	if err := validateTargetAddresses(&pb.MinerConnectionDescriptor{
-		IpAddress: target.GetIpAddress(), Port: target.GetPort(), UrlScheme: target.GetUrlScheme(),
-		RpcPort: target.GetRpcPort(), RpcTls: target.GetRpcTls(), DriverName: target.GetDriverName(),
-		DeviceClass: target.GetDeviceClass(), Endpoints: target.GetEndpoints(),
-	}); err != nil {
+	if err := validateTargetAddresses(target.GetIpAddress(), target.GetEndpoints()); err != nil {
 		res.Outcome = pb.PairOutcome_PAIR_OUTCOME_ERROR
 		res.ErrorMessage = err.Error()
 		return res

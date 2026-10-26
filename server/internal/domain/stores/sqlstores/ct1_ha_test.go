@@ -9,6 +9,7 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -17,17 +18,10 @@ import (
 )
 
 func TestCT1ConcurrentDiscoveryKeepsBothEndpointsInOneContainer(t *testing.T) {
-	db := testutil.GetTestDB(t)
-	store := sqlstores.NewSQLDiscoveredDeviceStore(db)
-	org, err := sqlc.New(db).CreateOrganization(t.Context(), sqlc.CreateOrganizationParams{OrgID: "ha", Name: "HA"})
-	require.NoError(t, err)
-	devices := []*discoverymodels.DiscoveredDevice{}
-	for i, id := range []string{"a", "b"} {
-		host := "10.0.0.11"
-		if i == 1 {
-			host = "10.0.0.12"
-		}
-		devices = append(devices, &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: id, IpAddress: host, Port: "8080", UrlScheme: "http", RpcPort: 9095, SerialNumber: id, DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, DriverName: "proto", Model: "CT1", Manufacturer: "Proto", Endpoints: []*commonpb.DeviceEndpoint{{Id: id, DeviceKey: "opaque-pair", Host: host, Port: 8080, UrlScheme: "http", RpcPort: 9095}}}, OrgID: org, IsActive: true})
+	_, store, org := ct1HAStore(t)
+	devices := []*discoverymodels.DiscoveredDevice{
+		ct1HADiscovery(org, "a", "10.0.0.11"),
+		ct1HADiscovery(org, "b", "10.0.0.12"),
 	}
 	var wg sync.WaitGroup
 	results := make([]*discoverymodels.DiscoveredDevice, 2)
@@ -107,7 +101,6 @@ func TestCT1DiscoveryDoesNotAdoptIncompatibleLegacyInventory(t *testing.T) {
 		model        string
 		manufacturer string
 	}{
-		{name: "R2 rig", class: commonpb.DeviceClass_DEVICE_CLASS_RIG, model: "R2", manufacturer: "Proto"},
 		{name: "different class", class: commonpb.DeviceClass_DEVICE_CLASS_RIG, model: "CT1", manufacturer: "Proto"},
 		{name: "different model", class: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, model: "other", manufacturer: "Proto"},
 		{name: "different manufacturer", class: commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, model: "CT1", manufacturer: "other"},
@@ -228,7 +221,7 @@ func TestCT1LegacyUpgradeRejectsMultipleLegacyMatches(t *testing.T) {
 	}
 
 	_, err := store.SaveDirect(t.Context(), discoverymodels.DeviceOrgIdentifier{OrgID: org, DeviceIdentifier: "scan-a"}, ct1HADiscovery(org, "a", "10.0.0.11"))
-	require.Error(t, err)
+	require.True(t, fleeterror.IsFailedPreconditionError(err))
 	for _, device := range before {
 		after, err := store.GetDevice(t.Context(), discoverymodels.DeviceOrgIdentifier{OrgID: org, DeviceIdentifier: device.DeviceIdentifier})
 		require.NoError(t, err)

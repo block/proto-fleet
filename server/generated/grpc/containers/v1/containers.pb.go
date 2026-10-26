@@ -358,6 +358,8 @@ func (x *ListContainersResponse) GetContainers() []*Container {
 	return nil
 }
 
+// Latest controller redundancy observation. Stale evidence is unavailable,
+// even when the last observation was healthy.
 type ContainerHA struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ObservedAt    *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=observed_at,json=observedAt,proto3" json:"observed_at,omitempty"`
@@ -420,7 +422,8 @@ func (x *ContainerHA) GetStale() bool {
 
 type Container struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	Ha    *ContainerHA           `protobuf:"bytes,22,opt,name=ha,proto3" json:"ha,omitempty"`
+	// Missing or stale HA evidence must be shown as degraded redundancy.
+	Ha *ContainerHA `protobuf:"bytes,22,opt,name=ha,proto3" json:"ha,omitempty"`
 	// Current caller can manage placement at this controller's current site.
 	// Assignment rechecks both current and destination site permissions.
 	CanAssignSite bool `protobuf:"varint,21,opt,name=can_assign_site,json=canAssignSite,proto3" json:"can_assign_site,omitempty"`
