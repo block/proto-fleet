@@ -84,7 +84,7 @@ func (d *Device) Status(ctx context.Context) (sdk.DeviceMetrics, error) {
 	if metrics.Container != nil {
 		metrics.Container.HA = ha
 	}
-	metrics.FirmwareVersion = d.info.FirmwareVersion
+	metrics.FirmwareVersion = selected.info.FirmwareVersion
 	return metrics, err
 }
 func (d *Device) Close(context.Context) error {

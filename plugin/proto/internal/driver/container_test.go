@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -165,4 +167,41 @@ func TestContainerDiscoveryAllowsSlowSequentialIdentityRPCs(t *testing.T) {
 	defer shortCancel()
 	_, err = discoverContainer(shortCtx, host, port)
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+}
+
+func TestContainerDiscoveryBoundsWebPortFallback(t *testing.T) {
+	probeStarted := make(chan struct{}, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 {
+			select {
+			case probeStarted <- struct{}{}:
+			default:
+			}
+			<-r.Context().Done()
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	server.Config.Protocols = new(http.Protocols)
+	server.Config.Protocols.SetHTTP1(true)
+	server.Config.Protocols.SetUnencryptedHTTP2(true)
+	server.Start()
+	t.Cleanup(server.Close)
+	host, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	require.NoError(t, err)
+	driver, err := New(0)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+
+	_, err = driver.DiscoverDevice(ctx, host, port)
+	var sdkErr sdk.SDKError
+	require.ErrorAs(t, err, &sdkErr)
+	require.Equal(t, sdk.ErrCodeDeviceNotFound, sdkErr.Code)
+	require.NoError(t, ctx.Err(), "the stalled fallback must not consume the caller's full budget")
+	select {
+	case <-probeStarted:
+	default:
+		t.Fatal("the CT1 fallback did not reach the stalled HTTP/2 handler")
+	}
 }

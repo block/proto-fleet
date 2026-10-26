@@ -66,7 +66,7 @@ func (s *haServer) GetSystemInfo(ctx context.Context, _ *mdk.GetSystemInfoReques
 		case <-time.After(s.infoDelay):
 		}
 	}
-	return &mdk.GetSystemInfoResponse{Info: &mdk.SystemInfo{Id: s.id, Product: "Frigate", Model: "CT1"}}, nil
+	return &mdk.GetSystemInfoResponse{Info: &mdk.SystemInfo{Id: s.id, Product: "Frigate", Model: "CT1", Version: "v1-" + s.id}}, nil
 }
 func (s *haServer) GetServerUpdateSupport(ctx context.Context, _ *mdk.GetServerUpdateSupportRequest) (*mdk.GetServerUpdateSupportResponse, error) {
 	if s.supportEntered != nil {
@@ -205,6 +205,28 @@ func TestHAPairingAndFailoverWithoutHashboards(t *testing.T) {
 	restarted, err := NewDevice(t.Context(), "container", haInfo(a, b), sdk.UsernamePassword{})
 	require.NoError(t, err)
 	defer restarted.Close(t.Context())
+}
+
+func TestHAStatusReportsSelectedControllerFirmware(t *testing.T) {
+	a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
+	a.primary.Store(true)
+	d, err := NewDevice(t.Context(), "container", haInfo(a, b), sdk.UsernamePassword{})
+	require.NoError(t, err)
+	defer d.Close(t.Context())
+
+	metrics, err := d.Status(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "v1-a", metrics.FirmwareVersion)
+	require.EqualValues(t, 1, a.mapReads.Load())
+	require.Zero(t, b.mapReads.Load())
+
+	a.primary.Store(false)
+	b.primary.Store(true)
+	metrics, err = d.Status(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "v1-b", metrics.FirmwareVersion)
+	require.EqualValues(t, 1, a.mapReads.Load())
+	require.EqualValues(t, 1, b.mapReads.Load())
 }
 
 func TestHAReusedDefaultRPCAddressKeepsVerifiedPartnerUsable(t *testing.T) {

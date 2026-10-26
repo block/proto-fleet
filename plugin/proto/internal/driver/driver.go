@@ -23,6 +23,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -34,9 +35,10 @@ import (
 )
 
 const (
-	driverName         = "proto"
-	apiVersion         = "v2"
-	maxValidPortNumber = math.MaxUint16
+	driverName               = "proto"
+	apiVersion               = "v2"
+	maxValidPortNumber       = math.MaxUint16
+	containerFallbackTimeout = time.Second
 )
 
 var canonicalDiscoveryPorts = []int{443}
@@ -231,7 +233,11 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 		}
 	}
 	if portInt32 != ct1.DefaultRPCPort && d.requiredPort == 0 {
-		if info, err := discoverContainer(ctx, ipAddress, portInt32); err == nil {
+		// Bound opportunistic RPC checks on web ports. Explicit CT1 discovery
+		// keeps the longer budget for sequential identity requests.
+		probeCtx, cancel := context.WithTimeout(ctx, containerFallbackTimeout)
+		defer cancel()
+		if info, err := discoverContainer(probeCtx, ipAddress, portInt32); err == nil {
 			return info, nil
 		} else if terminalRPCDiscoveryError(err) {
 			return sdk.DeviceInfo{}, err
