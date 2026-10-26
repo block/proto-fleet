@@ -55,7 +55,7 @@ type RunCmd struct {
 	firmwareTempRoot         string                                                                   `kong:"-"`
 	notifyReady              func() error                                                             `kong:"-"`
 
-	stateMu sync.Mutex `kong:"-"` // guards session state and the active control-session cancel func.
+	stateMu sync.Mutex `kong:"-"` // guards session state, the credential key, and the active control-session cancel func.
 	// saveMu serializes each state snapshot with its write, so a session refresh
 	// cannot overwrite a credential key installed after it took its snapshot.
 	saveMu sync.Mutex `kong:"-"`
@@ -369,15 +369,17 @@ func (r *RunCmd) sessionNeedsRefresh(st *bootstrap.State) bool {
 }
 
 func (r *RunCmd) refreshAndSave(ctx context.Context, st *bootstrap.State, path string, logger *slog.Logger) error {
-	logger.Info("refreshing session", "fleet_node_id", st.FleetNodeID, "session_expires_at", st.SessionExpiresAt.Format(time.RFC3339))
 	// Handshake on a shallow copy so the 2-RPC call doesn't hold stateMu and
 	// stall the control loop's token reads.
+	r.stateMu.Lock()
 	next := *st
+	r.stateMu.Unlock()
+	logger.Info("refreshing session", "fleet_node_id", next.FleetNodeID, "session_expires_at", next.SessionExpiresAt.Format(time.RFC3339))
 	if err := bootstrap.Refresh(ctx, &next); err != nil {
 		if errors.Is(err, bootstrap.ErrBeginAuthRejected) || connect.CodeOf(err) != connect.CodeUnauthenticated {
 			return err
 		}
-		logger.Warn("session refresh completion rejected; retrying handshake once", "fleet_node_id", st.FleetNodeID, "err", err)
+		logger.Warn("session refresh completion rejected; retrying handshake once", "fleet_node_id", next.FleetNodeID, "err", err)
 		if err := bootstrap.Refresh(ctx, &next); err != nil {
 			return err
 		}
@@ -398,7 +400,7 @@ func (r *RunCmd) refreshAndSave(ctx context.Context, st *bootstrap.State, path s
 	if err := bootstrap.SaveState(path, &snapshot); err != nil {
 		return fmt.Errorf("save state after refresh: %w", err)
 	}
-	logger.Info("session refreshed", "fleet_node_id", st.FleetNodeID, "session_expires_at", st.SessionExpiresAt.Format(time.RFC3339))
+	logger.Info("session refreshed", "fleet_node_id", snapshot.FleetNodeID, "session_expires_at", snapshot.SessionExpiresAt.Format(time.RFC3339))
 	return nil
 }
 

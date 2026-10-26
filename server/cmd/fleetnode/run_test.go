@@ -492,6 +492,77 @@ func TestRunCmd_RefreshRetriesOneCompleteAuthRejection(t *testing.T) {
 	assert.Equal(t, "session-2", state.SessionToken)
 }
 
+func TestRunCmd_ConcurrentRefreshAndCredentialKeyInstallPreservesState(t *testing.T) {
+	standby := newHANode(t)
+	state := standby.cmd.state
+	pubKey, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	handshakeStarted := make(chan struct{})
+	releaseHandshake := make(chan struct{})
+	fake := &fakeFleetNodeGateway{
+		expectedAPIKey:   "fleet_known_key",
+		identityPub:      pubKey,
+		challenge:        bytes.Repeat([]byte{0x38}, 32),
+		sessionToken:     "session-2",
+		sessionExpiresAt: time.Now().Add(24 * time.Hour).UTC().Truncate(time.Second),
+		completeAuthResponder: func(int) error {
+			close(handshakeStarted)
+			select {
+			case <-releaseHandshake:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		},
+	}
+	state.ServerURL = newFakeServer(t, fake).URL
+	state.AllowInsecureTransport = true
+	state.IdentityPrivateKeyHex = hex.EncodeToString(priv)
+	state.IdentityPublicKeyHex = hex.EncodeToString(pubKey)
+	state.APIKey = "fleet_known_key"
+	state.SessionToken = "session-1"
+	state.SessionExpiresAt = time.Now().Add(30 * time.Minute)
+	require.NoError(t, bootstrap.SaveState(standby.statePath, state))
+	key := bytes.Repeat([]byte{0x71}, credentialKeySize)
+	start := make(chan struct{})
+	installDone := make(chan error, 1)
+	refreshDone := make(chan error, 1)
+	logger := discardLogger(t)
+
+	go func() {
+		<-start
+		installDone <- standby.cmd.installCredentialKey(key)
+	}()
+	go func() {
+		<-start
+		refreshDone <- standby.cmd.refreshAndSave(ctx, state, standby.statePath, logger)
+	}()
+	close(start)
+	select {
+	case <-handshakeStarted:
+	case <-ctx.Done():
+		t.Fatal("refresh did not reach the authentication handshake")
+	}
+	select {
+	case err := <-installDone:
+		require.NoError(t, err)
+	case <-ctx.Done():
+		t.Fatal("credential key install blocked behind the authentication handshake")
+	}
+	close(releaseHandshake)
+	require.NoError(t, <-refreshDone)
+
+	loaded, exists, err := bootstrap.LoadState(standby.statePath)
+	require.NoError(t, err)
+	require.True(t, exists)
+	assert.Equal(t, hex.EncodeToString(key), loaded.CredentialKeyHex)
+	assert.Equal(t, key, standby.cmd.credentials.currentKey())
+	assert.Equal(t, "session-2", loaded.SessionToken)
+	assert.Equal(t, fake.sessionExpiresAt, loaded.SessionExpiresAt)
+}
+
 func TestRunCmd_RepeatedCompleteAuthRejectionRequiresOperatorAction(t *testing.T) {
 	t.Parallel()
 
