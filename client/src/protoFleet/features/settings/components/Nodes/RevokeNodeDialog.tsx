@@ -87,8 +87,9 @@ const RevokeNodeDialog = ({
           </>
         ) : handsOffDevices ? (
           <>
-            Are you sure you want to revoke "{nodeName}"? Its devices move to {peerLabel} before the node is revoked,
-            and the HA pair is removed.
+            Are you sure you want to revoke "{nodeName}"? The node immediately loses access to Fleet. Fleet then moves
+            its devices to {peerLabel} and removes the HA pair. If the handoff fails, the node stays revoked. Retry
+            revocation to complete the handoff.
           </>
         ) : (
           <>

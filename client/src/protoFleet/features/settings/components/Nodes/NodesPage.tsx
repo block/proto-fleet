@@ -57,6 +57,7 @@ const NodesPage = () => {
   const [isRevoking, setIsRevoking] = useState(false);
   const notifyNextLoadErrorRef = useRef(true);
   const revokeImpactRequestRef = useRef(0);
+  const revokePeerConnectedRef = useRef<boolean | undefined>(undefined);
   const scansByNodeRef = useRef(
     new Map<
       string,
@@ -165,9 +166,31 @@ const NodesPage = () => {
     setRevokeNodeData(null);
   }, []);
 
+  useEffect(() => {
+    if (!revokeNodeData || isRevoking) return;
+    const currentNode = nodes.find((node) => node.fleetNodeId === revokeNodeData.fleetNodeId);
+    if (
+      !currentNode ||
+      currentNode.haRole !== revokeNodeData.haRole ||
+      currentNode.haPeerNodeId !== revokeNodeData.haPeerNodeId ||
+      currentNode.haStandbyReady !== revokeNodeData.haStandbyReady ||
+      currentNode.pairedDeviceCount !== revokeNodeData.pairedDeviceCount ||
+      revokePeerNode?.controlStreamConnected !== revokePeerConnectedRef.current
+    ) {
+      dismissRevoke();
+      pushToast({
+        message: "Node details changed. Reopen Revoke to review the current impact.",
+        status: STATUSES.error,
+      });
+    }
+  }, [nodes, revokeNodeData, revokePeerNode, isRevoking, dismissRevoke]);
+
   const openRevoke = useCallback(
     (node: FleetNodeItem) => {
       const requestId = ++revokeImpactRequestRef.current;
+      revokePeerConnectedRef.current = nodes.find(
+        (peer) => peer.fleetNodeId === node.haPeerNodeId,
+      )?.controlStreamConnected;
       setRevokeNodeData(node);
       setRevokeDevices([]);
       setRevokeImpactError("");
@@ -187,7 +210,7 @@ const NodesPage = () => {
           if (requestId === revokeImpactRequestRef.current) setRevokeImpactLoading(false);
         });
     },
-    [listFleetNodeDevices],
+    [listFleetNodeDevices, nodes],
   );
 
   const handleRevokeConfirm = useCallback(() => {
@@ -361,22 +384,24 @@ const NodesPage = () => {
           scanOnNode={scanOnNode}
         />
       ) : null}
-      <RevokeNodeDialog
-        open={!!revokeNodeData}
-        nodeName={revokeNodeData?.name ?? ""}
-        affectedDevices={revokeDevices}
-        haRole={revokeNodeData?.haRole}
-        haStandbyReady={revokeNodeData?.haStandbyReady}
-        peerNode={revokePeerNode}
-        peerName={revokeNodeData?.haPeerNodeName}
-        isLoadingImpact={revokeImpactLoading}
-        impactError={revokeImpactError}
-        onConfirm={handleRevokeConfirm}
-        onDismiss={() => {
-          if (!isRevoking) dismissRevoke();
-        }}
-        isSubmitting={isRevoking}
-      />
+      {revokeNodeData ? (
+        <RevokeNodeDialog
+          open
+          nodeName={revokeNodeData.name}
+          affectedDevices={revokeDevices}
+          haRole={revokeNodeData.haRole}
+          haStandbyReady={revokeNodeData.haStandbyReady}
+          peerNode={revokePeerNode}
+          peerName={revokeNodeData.haPeerNodeName}
+          isLoadingImpact={revokeImpactLoading}
+          impactError={revokeImpactError}
+          onConfirm={handleRevokeConfirm}
+          onDismiss={() => {
+            if (!isRevoking) dismissRevoke();
+          }}
+          isSubmitting={isRevoking}
+        />
+      ) : null}
     </div>
   );
 };

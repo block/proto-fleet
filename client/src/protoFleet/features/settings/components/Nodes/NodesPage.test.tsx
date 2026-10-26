@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import NodesPage from "./NodesPage";
 import { PairingStatus } from "@/protoFleet/api/generated/fleetmanagement/v1/fleetmanagement_pb";
@@ -12,6 +12,7 @@ import {
   FleetNodeHARole,
 } from "@/protoFleet/api/generated/fleetnodeadmin/v1/fleetnodeadmin_pb";
 import type { FleetNodeItem } from "@/protoFleet/api/useFleetNodes";
+import { POLL_INTERVAL_MS } from "@/protoFleet/constants/polling";
 import type { ColConfig, ColTitles, ListAction, ListActionValue } from "@/shared/components/List/types";
 
 const permissionsMock = vi.hoisted(() => ({ current: [] as string[] }));
@@ -38,19 +39,6 @@ vi.mock("@/protoFleet/api/useFleetNodes", () => ({
     pairDiscoveredDevicesOnFleetNode: pairDiscoveredDevicesOnFleetNodeMock,
   }),
 }));
-
-vi.mock("@/shared/hooks/usePoll", async () => {
-  const React = await vi.importActual<typeof import("react")>("react");
-  return {
-    usePoll: ({ enabled, fetchData }: { enabled?: boolean; fetchData: () => Promise<void> | void }) => {
-      React.useEffect(() => {
-        if (enabled !== false) {
-          void fetchData();
-        }
-      }, [enabled, fetchData]);
-    },
-  };
-});
 
 vi.mock("@/protoFleet/features/settings/components/Nodes/EnrollNodeModal", () => ({
   default: ({ open, resumeNode }: { open: boolean; resumeNode?: FleetNodeItem | null }) =>
@@ -190,6 +178,7 @@ const renderNodesPage = () =>
   );
 
 describe("NodesPage", () => {
+  afterEach(() => vi.useRealTimers());
   beforeEach(() => {
     permissionsMock.current = ["fleetnode:read", "fleetnode:manage"];
     listFleetNodesMock.mockReset();
@@ -450,7 +439,7 @@ describe("NodesPage", () => {
     haStandbyReady: true,
   };
 
-  it("says devices move to the peer when revoking an active node with a ready, connected standby", async () => {
+  it("explains authentication denial before handoff when revoking an active node with a ready standby", async () => {
     // Arrange
     listFleetNodesMock.mockResolvedValue([activeNode, standbyNode]);
     renderNodesPage();
@@ -460,7 +449,169 @@ describe("NodesPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
 
     // Assert
-    expect(await screen.findByText(/Its devices move to standby-node before the node is revoked/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/immediately loses access to Fleet.*Fleet then moves its devices to standby-node/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/If the handoff fails, the node stays revoked.*Retry revocation/)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["role", [{ ...activeNode, haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_STANDBY }, standbyNode]],
+    ["peer", [{ ...activeNode, haPeerNodeId: "9" }, standbyNode]],
+    ["readiness", [{ ...activeNode, haStandbyReady: false }, standbyNode]],
+    ["device ownership", [{ ...activeNode, pairedDeviceCount: 1 }, standbyNode]],
+    ["peer connection", [activeNode, { ...standbyNode, controlStreamConnected: false }]],
+    ["removed target", [standbyNode]],
+  ])("requires reopening revoke after polling changes %s", async (_change, updatedNodes) => {
+    vi.useFakeTimers();
+    listFleetNodesMock.mockResolvedValue([activeNode, standbyNode]);
+    await act(async () => {
+      renderNodesPage();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
+    });
+    expect(screen.getByRole("button", { name: "Revoke node" })).toBeEnabled();
+
+    listFleetNodesMock.mockResolvedValue(updatedNodes);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    });
+
+    expect(listFleetNodesMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("button", { name: "Revoke node" })).not.toBeInTheDocument();
+    expect(revokeFleetNodeMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps the confirmation open when a poll only updates host metadata", async () => {
+    vi.useFakeTimers();
+    listFleetNodesMock.mockResolvedValue([activeNode, standbyNode]);
+    await act(async () => {
+      renderNodesPage();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
+    });
+
+    listFleetNodesMock.mockResolvedValue([
+      { ...activeNode, version: "new-version", lastSeenAt: new Date() },
+      standbyNode,
+    ]);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    });
+
+    expect(listFleetNodesMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "Revoke node" })).toBeEnabled();
+  });
+
+  it("reviews the promoted standby's current impact before allowing revocation", async () => {
+    vi.useFakeTimers();
+    listFleetNodesMock.mockResolvedValue([activeNode, standbyNode]);
+    await act(async () => {
+      renderNodesPage();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[1]);
+    });
+    expect(screen.getByText(/node-01 keeps its devices/)).toBeInTheDocument();
+
+    listFleetNodesMock.mockResolvedValue([
+      {
+        ...standbyNode,
+        haRole: FleetNodeHARole.FLEET_NODE_HA_ROLE_UNSPECIFIED,
+        haPeerNodeId: null,
+        haPeerNodeName: "",
+        pairedDeviceCount: 1,
+      },
+    ]);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    });
+    expect(screen.queryByRole("button", { name: "Revoke node" })).not.toBeInTheDocument();
+
+    listFleetNodeDevicesMock.mockResolvedValue([{ deviceIdentifier: "miner-1", manufacturer: "Proto", model: "Rig" }]);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    });
+    expect(screen.getByText("1 paired Proto Rig miner will lose connection.")).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Revoke node" }));
+    });
+    expect(revokeFleetNodeMock).toHaveBeenCalledWith("8", null);
+  });
+
+  it("ignores an obsolete impact response after polling invalidates and reopens revoke", async () => {
+    vi.useFakeTimers();
+    let finishOldImpact: ((devices: unknown[]) => void) | undefined;
+    let finishCurrentImpact: ((devices: unknown[]) => void) | undefined;
+    listFleetNodeDevicesMock
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOldImpact = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishCurrentImpact = resolve;
+          }),
+      );
+    await act(async () => {
+      renderNodesPage();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    expect(screen.getByRole("button", { name: "Revoke node" })).toBeDisabled();
+
+    listFleetNodesMock.mockResolvedValue([{ ...confirmedNode, pairedDeviceCount: 1 }]);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    });
+    expect(screen.queryByRole("button", { name: "Revoke node" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
+    await act(async () => {
+      finishOldImpact?.([{ manufacturer: "Old", model: "Miner" }]);
+    });
+    expect(screen.getByRole("button", { name: "Revoke node" })).toBeDisabled();
+    expect(screen.queryByText(/paired Old Miner/)).not.toBeInTheDocument();
+
+    await act(async () => {
+      finishCurrentImpact?.([{ manufacturer: "Proto", model: "Rig" }]);
+    });
+    expect(screen.getByRole("button", { name: "Revoke node" })).toBeEnabled();
+    expect(screen.getByText("1 paired Proto Rig miner will lose connection.")).toBeInTheDocument();
+    expect(revokeFleetNodeMock).not.toHaveBeenCalled();
+  });
+
+  it("allows retry after authentication is revoked but handoff fails", async () => {
+    vi.useFakeTimers();
+    listFleetNodesMock.mockResolvedValue([activeNode, standbyNode]);
+    revokeFleetNodeMock.mockRejectedValueOnce(new Error("Handoff interrupted"));
+    await act(async () => {
+      renderNodesPage();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button", { name: "Revoke" })[0]);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Revoke node" }));
+    });
+
+    listFleetNodesMock.mockResolvedValue([
+      { ...activeNode, enrollmentStatus: FleetNodeEnrollmentStatus.REVOKED, controlStreamConnected: false },
+      standbyNode,
+    ]);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    });
+
+    expect(screen.getByRole("button", { name: "Revoke node" })).toBeEnabled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Revoke node" }));
+    });
+    expect(revokeFleetNodeMock).toHaveBeenCalledTimes(2);
+    expect(revokeFleetNodeMock).toHaveBeenLastCalledWith("7", null);
   });
 
   it("warns that the standby cannot take over when its control stream is down", async () => {

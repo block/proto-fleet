@@ -56,8 +56,11 @@ describe("RevokeNodeDialog", () => {
     );
 
     // Assert
-    expect(screen.getByText(/Its devices move to node-02 before the node is revoked/)).toBeInTheDocument();
-    expect(screen.getByText(/the HA pair is removed/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/immediately loses access to Fleet.*Fleet then moves its devices to node-02/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/If the handoff fails, the node stays revoked.*Retry revocation/)).toBeInTheDocument();
+    expect(screen.getByText(/removes the HA pair/)).toBeInTheDocument();
     expect(screen.queryByText(/will lose connection/)).not.toBeInTheDocument();
   });
 
