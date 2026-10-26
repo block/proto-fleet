@@ -1,7 +1,8 @@
 # Fake CT1
 
 A lightweight, dockerized simulator for a **CT1 container**, implementing the
-MDK v2 REST API for ProtoOS and native gRPC for the Fleet CT1 plugin.
+MDK v2 Connect routes that ProtoOS calls on the device, the REST API behind
+Fleet-hosted CT1 views, and native gRPC for the Fleet CT1 plugin.
 
 It is the CT1 counterpart to [`server/fake-proto-rig`](../fake-proto-rig)
 (which fakes R2 rigs on the MDK v1 surface). It lets the fleet dev environment
@@ -36,16 +37,23 @@ seeded variation, and stable device differences. Reads within a sample interval
 reconcile across endpoints. `CT1_SEED` changes the pattern; identical seeds and
 elapsed times reproduce it, independent of request order.
 
-## Native gRPC
+## Native gRPC and Connect
 
-The listener defaults to `:9095` (`GRPC_PORT`; zero selects an ephemeral port).
-SystemInfo, ContainerMap, MiningStatus, ContainerHealth and ContainerControls
-reads share the REST state and clock. SetContainerControl writes update that same
-state and return controller-register confirmation. The dedicated main breaker
-remains unsupported, matching the REST fixture. Other generated services and
-historical RPCs are not enabled. This development listener is plaintext without
-authentication; see [CT1 transport configuration](../../docs/development/ct1-grpc.md)
-for the production plugin's TLS/token settings.
+The native gRPC listener defaults to `:9095` (`GRPC_PORT`; zero selects an
+ephemeral port). It implements the System, Hashboard, Mining, Telemetry, Power,
+Pool, and RunIn reads and controls that ProtoOS and the CT1 plugin use, except
+pool create, update, and delete. They share the REST state and clock.
+SetContainerControl writes return controller-register confirmation. The dedicated main breaker remains unsupported, matching the REST
+fixture. Other generated services and historical RPCs are not enabled. This
+development listener is plaintext without authentication; see
+[CT1 transport configuration](../../docs/development/ct1-grpc.md) for the
+production plugin's TLS/token settings.
+
+The HTTP origin serves the same methods as Connect routes
+(`/mdk.v2.<Service>/<Method>`), ahead of the `--web-root` static fallback. Each
+Connect call runs through the REST request lifecycle: calls are serialized, the
+clock advances first, and writes are recorded into history afterwards. Native
+status codes are kept as Connect codes.
 
 ## Implemented endpoints
 
@@ -260,9 +268,9 @@ them.
 ## Contract fidelity
 
 Native service types come from the pinned [shared MDK module](../../sdk/mdk/README.md).
-REST retains its existing DTOs and browser surface. gRPC projects the same DTO
-builders into generated types, dropping only older REST diagnostic fields that
-are absent from the pinned protobuf contract. The integration test exercises the
+REST retains its existing DTOs for Fleet-hosted views. Native gRPC and Connect
+project the same DTO builders into generated types, dropping only older REST
+diagnostic fields that are absent from the pinned protobuf contract. The integration test exercises the
 real plugin against a full 288-board process and checks HTTP coexistence.
 
 Use the real `task dev:full` stack as a reference oracle to refine shapes/values:

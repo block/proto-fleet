@@ -44,10 +44,15 @@ cd client && npm run generate-api-types
 
 The generated code is placed in `client/src/protoOS/api/adapters/<dialect>/generated/generatedApi.ts` (e.g. `adapters/mdkV1/generated/`). Each generated client is private to its adapter; consumers import through the adapter barrel (e.g. `@/protoOS/api/adapters/mdkV1`), a boundary enforced by `no-restricted-imports` in `client/eslint.config.js`.
 
-The MDK v2 cross-repo sourcing decision is to vendor Frigate's generated
-OpenAPI snapshot in this repo and generate the adapter-local TypeScript client
-from that snapshot. This keeps ProtoOS reproducible without vendoring Frigate
-protos directly or depending on a published Frigate TypeScript package.
+MDK v2 has two vendored Frigate sources. The OpenAPI snapshot here generates
+the adapter-local REST client and the request and response types the MDK v2
+adapter is written against. The protos in
+[`sdk/mdk/proto/mdk/v2`](../sdk/mdk/README.md) generate the protobuf-es
+bindings that the ProtoOS Connect client uses on the device, plus the Go
+contracts for the CT1 plugin and `server/fake-ct1`. The Connect client encodes
+and decodes with the protos but returns data typed by this snapshot, so refresh
+both from the same Frigate commit. `VERSION.md` records both pins and any skew
+between them.
 
 The simulators (`server/fake-proto-rig/`, `server/fake-ct1/`) manually implement
 the consumed endpoint surfaces - see their READMEs for maintenance guidelines.
@@ -65,12 +70,16 @@ The `VERSION.md` file in this directory contains:
 When a miner API changes:
 
 1. Re-vendor the affected OpenAPI specification (see `VERSION.md` for the
-   exact source paths and steps)
-2. Update `VERSION.md` with the source commit SHA and dates
+   exact source paths and steps). For MDK v2, also sync
+   `sdk/mdk/proto/mdk/v2` from the same Frigate commit.
+2. Update `VERSION.md` with the source commit SHA and dates (and the
+   `sdk/mdk/README.md` pin for MDK v2 protos)
 3. Regenerate dependent code:
    - `cd client && npm run generate-api-types` (TypeScript clients from the
      OpenAPI specs)
-4. Update simulator REST APIs if the OpenAPI spec changed:
+   - `just gen-mdk-protos` from the repository root for MDK v2 (Go,
+     Connect-Go, and protobuf-es bindings)
+4. Update simulator APIs if the contract changed:
    - See `server/fake-proto-rig/README.md` and `server/fake-ct1/README.md` for
      maintenance checklists
 5. Run tests to verify compatibility

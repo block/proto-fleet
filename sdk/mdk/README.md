@@ -13,6 +13,11 @@ these remain internal Frigate sources, not independently licensed public code.
 External annotation dependencies are pinned in `buf.lock` and retain their
 upstream licensing through Buf's Google APIs and grpc-gateway modules.
 
+Keep this pin and the MDK v2 OpenAPI snapshot in `proto-rig-api/` on the same
+Frigate commit. The ProtoOS Connect client encodes with these protos but types
+its results with the snapshot's REST types; `proto-rig-api/VERSION.md` records
+any skew between the two.
+
 Run `just gen-mdk-protos` from the repository root after updating sources.
 It uses the Hermit-managed Buf and Go generators plus the client's
 `protoc-gen-es`; managed mode overrides only Go package paths. Do not edit

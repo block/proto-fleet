@@ -27,11 +27,23 @@ fake-proto-rig simulator is updated for the `lines=0` and `message` changes.
   - Extraction Date: 2026-09-04
 
 This snapshot contains Frigate's generated MDK v2 OpenAPI document for the
-protobuf-first `/api/v2/...` REST/JSON gateway. ProtoOS consumes the vendored
-OpenAPI snapshot to generate a private TypeScript client under the MDK v2
-adapter. The current sourcing decision is to commit the generated OpenAPI
-document here, rather than vendoring Frigate protos into this repository or
-publishing a separate Frigate TypeScript package.
+protobuf-first `/api/v2/...` REST/JSON gateway. ProtoOS generates a private
+TypeScript client from it under the MDK v2 adapter, and its request and
+response types are the shapes the adapter works with on both MDK v2
+transports.
+
+The MDK v2 protos are vendored separately in `sdk/mdk/proto/mdk/v2` and pinned
+in `sdk/mdk/README.md`. They generate the protobuf-es bindings that the ProtoOS
+Connect client encodes and decodes with, so this snapshot and those protos must
+describe compatible contracts. Refresh both from the same Frigate commit.
+
+The two pins currently differ: this snapshot is at `5225b5fa`, the protos at
+`4f3fe6ee8a99`. A comparison on 2026-10-25 found every property and enum value
+of this snapshot's 363 `mdk.v2` definitions in the `4f3fe6ee8a99` protos. The
+protos only add fields and enum values, such as
+`HASHBOARD_ERROR_CAUSE_STACK_DROPOUT`, so Connect responses still carry every
+field these types declare. Re-vendor this snapshot at the proto pin the next
+time Frigate's OpenAPI document is generated.
 
 ## Files Extracted
 
@@ -65,13 +77,17 @@ To update the MDK v2 API specification:
 3. Generate the OpenAPI document from Frigate's protobuf definitions using its
    `proto/buf.gen.openapi.yaml` configuration
 4. Copy the generated MDK v2 OpenAPI document to `openapi/MDK-v2-API.json`
-5. Update this VERSION.md with the new commit SHA and dates
-6. Regenerate the dependent generated code:
+5. Copy the same commit's `proto/mdk/v2` sources to `sdk/mdk/proto/mdk/v2` and
+   update the pin in `sdk/mdk/README.md`
+6. Update this VERSION.md with the new commit SHA and dates
+7. Regenerate the dependent generated code:
    - Client: `cd client && npm run generate-api-types`
-7. Update the fake CT1 simulator if the consumed MDK v2 endpoint surface changed
+   - MDK v2 bindings: `just gen-mdk-protos` from the repository root, after
+     installing client dependencies (it runs the client's `protoc-gen-es`)
+8. Update the fake CT1 simulator if the consumed MDK v2 surface changed
    (see `server/fake-ct1/README.md`)
-8. Run tests to verify compatibility
-9. Commit all changes together
+9. Run tests to verify compatibility
+10. Commit all changes together
 
 **Note**: The OpenAPI specs are the consumed miner API contracts. They drive the
 generated ProtoOS TypeScript clients and serve as references for the
