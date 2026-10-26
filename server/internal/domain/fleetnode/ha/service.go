@@ -43,7 +43,7 @@ const (
 
 	// HAProtocolVersion is the first command protocol with key transfer and
 	// stream keepalive.
-	HAProtocolVersion = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6
+	HAProtocolVersion = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7
 
 	confirmedStatus = "CONFIRMED"
 

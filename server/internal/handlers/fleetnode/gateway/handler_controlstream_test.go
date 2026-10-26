@@ -337,8 +337,8 @@ func TestControlStream_NegotiatesKeepalive(t *testing.T) {
 		version       pb.CommandProtocolVersion
 		wantKeepalive time.Duration
 	}{
-		{name: "legacy node", version: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5, wantKeepalive: 0},
-		{name: "keepalive node", version: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6, wantKeepalive: gateway.ControlStreamKeepaliveInterval},
+		{name: "pre-keepalive node", version: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6, wantKeepalive: 0},
+		{name: "keepalive node", version: pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7, wantKeepalive: gateway.ControlStreamKeepaliveInterval},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -364,7 +364,7 @@ func TestControlStream_ClosesSilentKeepaliveStream(t *testing.T) {
 	client := startControlServerWithAdmission(t, controlledAdmissionGate{active: activeCtx})
 	stream := client.ControlStream(t.Context())
 	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
-	require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)))
+	require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7)))
 
 	var err error
 	for err == nil {
@@ -383,7 +383,7 @@ func TestControlStream_PingsKeepStreamOpen(t *testing.T) {
 	client := startControlServerWithAdmission(t, controlledAdmissionGate{active: activeCtx})
 	stream := client.ControlStream(t.Context())
 	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
-	require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)))
+	require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7)))
 	pingCtx, stopPings := context.WithCancel(t.Context())
 	defer stopPings()
 	go func() {
@@ -420,7 +420,7 @@ func TestControlStream_DropsSilentStreamWhileCommandSendIsBlocked(t *testing.T) 
 	client := startControlServer(t, h, connect.WithInterceptors(blockCommandSends{release: release}))
 	stream := client.ControlStream(t.Context())
 	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
-	require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)))
+	require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7)))
 
 	waitForSend(t, h.registry, h.fleetNodeID, "blocked", []byte("payload"))
 
@@ -435,14 +435,14 @@ func TestControlStream_KeepsSilentLegacyStreamOpen(t *testing.T) {
 	client := startControlServer(t, h)
 	stream := client.ControlStream(t.Context())
 	t.Cleanup(func() { _ = stream.CloseRequest(); _ = stream.CloseResponse() })
-	require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5)))
+	require.NoError(t, stream.Send(controlHello(pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)))
 	accepted, err := stream.Receive()
 	require.NoError(t, err)
 	require.NotNil(t, accepted.GetAccepted())
 
 	time.Sleep(4 * control.KeepaliveMisses * interval)
 
-	assert.True(t, h.registry.Connected(h.fleetNodeID), "V5 nodes never ping, so silence must not close them")
+	assert.True(t, h.registry.Connected(h.fleetNodeID), "V6 nodes never ping, so silence must not close them")
 }
 
 func controlHello(version pb.CommandProtocolVersion) *pb.ControlStreamRequest {

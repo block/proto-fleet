@@ -30,8 +30,8 @@ import (
 )
 
 const (
-	v5 = pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5
 	v6 = pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6
+	v7 = pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7
 )
 
 type harness struct {
@@ -346,7 +346,7 @@ func TestFailover_MovesOnlyTheActiveNodesDevicesAndLogsActivity(t *testing.T) {
 			moved := []int64{h.addDevice(t, h.active), h.addDevice(t, h.active)}
 			bystander := h.createNode(t, "bystander", "CONFIRMED", make([]byte, 32))
 			bystanderDevice := h.addDevice(t, bystander)
-			h.connect(t, h.standby, v6)
+			h.connect(t, h.standby, v7)
 
 			err := tc.trigger(t, h)
 
@@ -446,11 +446,11 @@ func TestTick_KeepsDevicesWhileFailoverIsNotDue(t *testing.T) {
 			h.createPair(t, tc.ready)
 			deviceID := h.addDevice(t, h.active)
 			if tc.connectActive {
-				h.connect(t, h.active, v6)
+				h.connect(t, h.active, v7)
 			}
 			time.Sleep(tc.standbyAfter)
 			if tc.connectStandby {
-				h.connect(t, h.standby, v6)
+				h.connect(t, h.standby, v7)
 			}
 
 			h.svc.TickForTest(t.Context(), time.Now())
@@ -471,8 +471,8 @@ func TestTick_FingerprintMismatchKeepsStandbyNotReadyAndBacksOff(t *testing.T) {
 	activeKey := make([]byte, credentialkey.KeySize)
 	otherKey := make([]byte, credentialkey.KeySize)
 	otherKey[0] = 1
-	respond(t, h.connect(t, h.active, v6), exportKey(activeKey))
-	installs := respond(t, h.connect(t, h.standby, v6), func(*pb.AgentCommand) *pb.ControlAck {
+	respond(t, h.connect(t, h.active, v7), exportKey(activeKey))
+	installs := respond(t, h.connect(t, h.standby, v7), func(*pb.AgentCommand) *pb.ControlAck {
 		return keyResultAck(&pb.CredentialKeyResult{Fingerprint: credentialkey.Fingerprint(otherKey)})
 	})
 
@@ -529,12 +529,12 @@ func TestTick_KeyTransferFailuresKeepStandbyNotReady(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
 			h.createPair(t, false)
-			exports := respond(t, h.connect(t, h.active, v6), tc.export)
+			exports := respond(t, h.connect(t, h.active, v7), tc.export)
 			install := tc.install
 			if install == nil {
 				install = installKey(h.standbyKey)
 			}
-			installs := respond(t, h.connect(t, h.standby, v6), install)
+			installs := respond(t, h.connect(t, h.standby, v7), install)
 
 			h.svc.TickForTest(t.Context(), time.Now())
 			h.svc.TickForTest(t.Context(), time.Now())
@@ -557,7 +557,7 @@ func TestTick_DoesNotStartSecondTransferWhileOneIsInFlight(t *testing.T) {
 	var releaseOnce sync.Once
 	releaseExport := func() { releaseOnce.Do(func() { close(release) }) }
 	t.Cleanup(releaseExport)
-	active := h.connect(t, h.active, v6)
+	active := h.connect(t, h.active, v7)
 	exports := respond(t, active, func(command *pb.AgentCommand) *pb.ControlAck {
 		select {
 		case <-release:
@@ -565,7 +565,7 @@ func TestTick_DoesNotStartSecondTransferWhileOneIsInFlight(t *testing.T) {
 		}
 		return exportKey(key)(command)
 	})
-	installs := respond(t, h.connect(t, h.standby, v6), installKey(h.standbyKey))
+	installs := respond(t, h.connect(t, h.standby, v7), installKey(h.standbyKey))
 	firstTick := make(chan struct{})
 	go func() {
 		defer close(firstTick)
@@ -596,10 +596,10 @@ func TestTick_RetriesTransferOnceBackoffExpires(t *testing.T) {
 	h.svc.SetTimingForTest(0, 0, 0)
 	h.createPair(t, false)
 	key := make([]byte, credentialkey.KeySize)
-	exports := respond(t, h.connect(t, h.active, v6), exportKey(key))
+	exports := respond(t, h.connect(t, h.active, v7), exportKey(key))
 	var attempts atomic.Int32
 	install := installKey(h.standbyKey)
-	respond(t, h.connect(t, h.standby, v6), func(command *pb.AgentCommand) *pb.ControlAck {
+	respond(t, h.connect(t, h.standby, v7), func(command *pb.AgentCommand) *pb.ControlAck {
 		if attempts.Add(1) == 1 {
 			return failedAck(errors.New("install refused"))
 		}
@@ -625,8 +625,8 @@ func TestTick_ReportsWhyStandbyIsNotReady(t *testing.T) {
 		wantReason     string
 	}{
 		{name: "nodes disconnected", wantReason: ha.ReasonWaitingForNodes},
-		{name: "standby predates HA", activeVersion: v6, standbyVersion: v5, wantReason: ha.ReasonUpgradeRequired},
-		{name: "active predates HA", activeVersion: v5, standbyVersion: v6, wantReason: ha.ReasonUpgradeRequired},
+		{name: "standby predates HA", activeVersion: v7, standbyVersion: v6, wantReason: ha.ReasonUpgradeRequired},
+		{name: "active predates HA", activeVersion: v6, standbyVersion: v7, wantReason: ha.ReasonUpgradeRequired},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -671,7 +671,7 @@ func TestShouldHandOff(t *testing.T) {
 				h.createPair(t, tc.ready)
 			}
 			if tc.connectStandby {
-				h.connect(t, h.standby, v6)
+				h.connect(t, h.standby, v7)
 			}
 			revoked := h.active
 			if tc.revokeStandby {
@@ -702,7 +702,7 @@ func TestHandOff(t *testing.T) {
 			h := newHarness(t)
 			h.createPair(t, tc.ready)
 			deviceID := h.addDevice(t, h.active)
-			h.connect(t, h.standby, v6)
+			h.connect(t, h.standby, v7)
 			revoked := h.active
 			if tc.revokeStandby {
 				revoked = h.standby
@@ -744,7 +744,7 @@ func TestFailover_RechecksConnectivityAfterDeviceLockWait(t *testing.T) {
 			h := newHarness(t)
 			h.createPair(t, true)
 			deviceID := h.addDevice(t, h.active)
-			standby := h.connect(t, h.standby, v6)
+			standby := h.connect(t, h.standby, v7)
 			call, err := h.db.BeginTx(t.Context(), nil)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = call.Rollback() })
@@ -767,7 +767,7 @@ func TestFailover_RechecksConnectivityAfterDeviceLockWait(t *testing.T) {
 			if handoff {
 				standby.Unregister()
 			} else {
-				h.connect(t, h.active, v6)
+				h.connect(t, h.active, v7)
 			}
 			require.NoError(t, call.Rollback())
 			select {
@@ -794,9 +794,9 @@ func TestTick_PendingInstallSurvivesTeardownAndRestart(t *testing.T) {
 	h := newHarness(t)
 	h.createPair(t, false)
 	key := make([]byte, credentialkey.KeySize)
-	active := h.connect(t, h.active, v6)
+	active := h.connect(t, h.active, v7)
 	exports := respond(t, active, exportKey(key))
-	standby := h.connect(t, h.standby, v6)
+	standby := h.connect(t, h.standby, v7)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	finished := make(chan struct{})
@@ -857,8 +857,8 @@ func TestTick_PendingInstallSurvivesTeardownAndRestart(t *testing.T) {
 func TestTick_DoesNotInstallAfterTeardownDuringExport(t *testing.T) {
 	h := newHarness(t)
 	h.createPair(t, false)
-	active := h.connect(t, h.active, v6)
-	standby := h.connect(t, h.standby, v6)
+	active := h.connect(t, h.active, v7)
+	standby := h.connect(t, h.standby, v7)
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)

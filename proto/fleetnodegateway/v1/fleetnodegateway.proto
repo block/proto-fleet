@@ -301,9 +301,10 @@ enum CommandProtocolVersion {
     COMMAND_PROTOCOL_VERSION_V4 = 4;
     // V5 adds module mining with expected hardware identity.
     COMMAND_PROTOCOL_VERSION_V5 = 5;
-    // V6 adds standby credential key transfer. V6 nodes also send ControlPing
-    // when ControlAccepted asks for a keepalive.
+    // V6 adds CT1 module and hashboard mining-pool assignments.
     COMMAND_PROTOCOL_VERSION_V6 = 6;
+    // V7 adds standby credential key transfer and ControlPing keepalive.
+    COMMAND_PROTOCOL_VERSION_V7 = 7;
 }
 
 message ControlHello {
@@ -313,7 +314,7 @@ message ControlHello {
 
 message ControlAccepted {
     google.protobuf.Timestamp server_time = 1;
-    // Set for V6 nodes. The server repeats ControlAccepted and the node sends
+    // Set for V7 nodes. The server repeats ControlAccepted and the node sends
     // ControlPing at this interval; either side ends the stream after three
     // intervals without a message from the other.
     google.protobuf.Duration keepalive_interval = 2;

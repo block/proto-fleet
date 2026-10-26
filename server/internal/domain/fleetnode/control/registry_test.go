@@ -108,7 +108,8 @@ func TestRegistry_CommandProtocolUpgradeRequiredForVersion(t *testing.T) {
 		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4,
 		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5,
 		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6,
-		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6 + 1,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7,
+		gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7 + 1,
 	} {
 		t.Run(installed.String(), func(t *testing.T) {
 			r := NewRegistry()
@@ -122,6 +123,7 @@ func TestRegistry_CommandProtocolUpgradeRequiredForVersion(t *testing.T) {
 				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4,
 				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5,
 				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6,
+				gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7,
 			} {
 				require.Equal(t, installed < minimum, r.CommandProtocolUpgradeRequiredForVersion(7, minimum))
 			}
@@ -145,8 +147,9 @@ func TestRegistry_CommandProtocolUpgradeRecommended(t *testing.T) {
 		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V3, true},
 		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4, true},
 		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5, true},
-		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6, false},
-		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6 + 1, false},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6, true},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7, false},
+		{gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7 + 1, false},
 	} {
 		t.Run(tc.version.String(), func(t *testing.T) {
 			stream, err := r.RegisterAuthenticated(7, "session", tc.version)

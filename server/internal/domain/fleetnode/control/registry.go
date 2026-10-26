@@ -54,7 +54,7 @@ const commandEventBuffer = 64
 const outgoingBuffer = 1024
 
 // KeepaliveMisses is how many negotiated keepalive intervals of silence either
-// end of a V6 ControlStream tolerates before closing it.
+// end of a V7 ControlStream tolerates before closing it.
 const KeepaliveMisses = 3
 
 // MaxConcurrentCommandArtifactUploadsPerFleetNode bounds upload streams before

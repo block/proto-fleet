@@ -41,6 +41,7 @@ test.describe("Remote-network prerequisites", () => {
       await settingsNodesPage.validateNodesPageOpened();
       await settingsNodesPage.clickEnrollNode();
       await settingsNodesPage.validateEnrollNodeModalOpened();
+      await settingsNodesPage.continueEnrollment();
       await settingsNodesPage.validateInstallationPrerequisite();
     });
 

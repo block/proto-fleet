@@ -701,7 +701,7 @@ var (
 	ControlStreamLivenessInterval = 30 * time.Second
 
 	// ControlStreamKeepaliveInterval is the ping cadence negotiated with nodes
-	// that speak CommandProtocolVersion V6. Both ends close the stream after
+	// that speak CommandProtocolVersion V7. Both ends close the stream after
 	// control.KeepaliveMisses intervals of silence, so the HA failover loop
 	// sees a half-open connection within seconds instead of a TCP timeout.
 	ControlStreamKeepaliveInterval = 5 * time.Second
@@ -756,10 +756,10 @@ func (h *Handler) ControlStream(ctx context.Context, stream *connect.BidiStream[
 	}
 	defer regHandle.Unregister()
 
-	// Older nodes never ping, so only V6 nodes get a keepalive deadline.
+	// Older nodes never ping, so only V7 nodes get a keepalive deadline.
 	var keepalive time.Duration
 	livenessInterval := ControlStreamLivenessInterval
-	if hello.GetMaxCommandProtocolVersion() >= pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6 {
+	if hello.GetMaxCommandProtocolVersion() >= pb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7 {
 		keepalive = ControlStreamKeepaliveInterval
 		livenessInterval = keepalive
 	}

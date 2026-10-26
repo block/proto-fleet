@@ -65,7 +65,7 @@ A full command can report up to 40,960 endpoints in forty 1,024-report uploads. 
 `run` opens a bidirectional `ControlStream` over the gateway:
 
 1. Agent dials gateway, sends `ControlHello`.
-2. Server replies `ControlAccepted`; stream stays open. For nodes that speak command protocol V6, `ControlAccepted.keepalive_interval` is set (five seconds): the node sends `ControlPing` at that interval, and either side closes the stream after three intervals without receiving anything, so a half-open connection reconnects within seconds.
+2. Server replies `ControlAccepted`; stream stays open. For nodes that speak command protocol V7, `ControlAccepted.keepalive_interval` is set (five seconds): the node sends `ControlPing` at that interval, and either side closes the stream after three intervals without receiving anything, so a half-open connection reconnects within seconds.
 3. Server pushes `ControlCommand{command_id, payload}`. Payload is a serialized `AgentCommand` envelope containing discovery, pairing, telemetry, or a per-miner command.
 4. Agent executes the command locally and sends any command-specific reports or acknowledgement payload. For discovery, it scans the requested TCP endpoints and identifies open ports using plugins, then sends results via `ReportDiscoveredDevices` in batches of 1,024 under one 90-second upload budget. Each batch carries `command_id`; identified results survive a late scan failure or deadline. Fleet Nodes do not support mDNS discovery.
 5. Agent sends `ControlAck{command_id, succeeded}` on completion.

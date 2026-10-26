@@ -80,7 +80,7 @@ func (h *haEnrollment) readyPairWithDevice(t *testing.T) (active, standby, devic
 	deviceID = insertFleetNodeDevice(t, h.db, h.orgID, active)
 	_, err := h.db.ExecContext(t.Context(), `UPDATE fleet_node_ha_pair SET standby_ready=true WHERE active_node_id=$1`, active)
 	require.NoError(t, err)
-	stream, err := h.registry.RegisterAuthenticated(standby, "", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6)
+	stream, err := h.registry.RegisterAuthenticated(standby, "", gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V7)
 	require.NoError(t, err)
 	t.Cleanup(stream.Unregister)
 	return active, standby, deviceID
