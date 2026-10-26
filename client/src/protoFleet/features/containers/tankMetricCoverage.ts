@@ -16,10 +16,10 @@ export function tankMetricCoverage(item: InventoryItem, metric: TankMetric): str
     return measurementCoverage(
       metricCoverage,
       metric === "temperature" && item.ref?.kind !== EntityKind.MODULE
-        ? "modules"
+        ? "module"
         : metric === "power"
-          ? "meters"
-          : "boards",
+          ? "meter"
+          : "board",
     );
   }
   if (item.assetCount <= 0n) return undefined;
@@ -32,13 +32,16 @@ export function tankMetricCoverage(item: InventoryItem, metric: TankMetric): str
   const count = counts[metric];
   if (count === undefined) return undefined;
   const reporting = BigInt(count);
-  return reporting < item.assetCount ? `${reporting}/${item.assetCount} modules reporting` : undefined;
+  return reporting < item.assetCount
+    ? `${reporting}/${item.assetCount} ${item.assetCount === 1n ? "module" : "modules"} reporting`
+    : undefined;
 }
 
 export function measurementCoverage(coverage: MeasurementCoverage | undefined, unit: string): string | undefined {
   if (!coverage) return undefined;
-  if (!coverage.topologyComplete) return `${coverage.reporting} ${unit} reporting · topology incomplete`;
+  if (!coverage.topologyComplete)
+    return `${coverage.reporting} ${unit}${coverage.reporting === 1 ? "" : "s"} reporting · topology incomplete`;
   return coverage.reporting < coverage.expected
-    ? `${coverage.reporting}/${coverage.expected} ${unit} reporting`
+    ? `${coverage.reporting}/${coverage.expected} ${unit}${coverage.expected === 1 ? "" : "s"} reporting`
     : undefined;
 }

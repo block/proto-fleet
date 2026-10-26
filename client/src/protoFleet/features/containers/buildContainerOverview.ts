@@ -68,6 +68,27 @@ export function buildContainerOverview(data: ContainerOverviewData, unit: "C" | 
       const cols = Math.min(8, Math.max(1, children.length));
       const complete =
         children.length === Number(tank.assetCount) && children.every((module) => !!states[module.state]);
+      const hashingCount = children.filter((module) => module.state === "active").length;
+      const moduleUnit = tank.assetCount === 1n ? "module" : "modules";
+      const hashingLabel = hashingCount === children.length ? `${hashingCount}` : `${hashingCount}/${children.length}`;
+      let moduleSummary = `${tank.assetCount} ${moduleUnit}`;
+      if (stale || !complete) {
+        moduleSummary += " · readings incomplete";
+      } else if (tank.assetCount !== 0n) {
+        moduleSummary = `${hashingLabel} ${moduleUnit} hashing`;
+      }
+
+      const { minTemperatureC, maxTemperatureC } = tank;
+      const hasTemperature = !stale && minTemperatureC !== undefined && maxTemperatureC !== undefined;
+      const temperatureCoverage = hasTemperature ? tankMetricCoverage(tank, "temperature") : undefined;
+      const powerCoverage = !stale && tank.powerKw !== undefined ? tankMetricCoverage(tank, "power") : undefined;
+      const reportingSummary: string[] = [];
+      if (temperatureCoverage && temperatureCoverage === powerCoverage) {
+        reportingSummary.push(`Temperature and power: ${temperatureCoverage}`);
+      } else {
+        if (temperatureCoverage) reportingSummary.push(`Temperature: ${temperatureCoverage}`);
+        if (powerCoverage) reportingSummary.push(`Power: ${powerCoverage}`);
+      }
       const slots = children.map((module, index) => ({
         id: module.ref.id.toString(),
         position: module.position,
@@ -84,20 +105,10 @@ export function buildContainerOverview(data: ContainerOverviewData, unit: "C" | 
         on: undefined,
         modules: slots.map((slot) => slot.state),
         slots,
-        statSubtitles: [
-          undefined,
-          !stale && tank.minTemperatureC !== undefined && tank.maxTemperatureC !== undefined
-            ? tankMetricCoverage(tank, "temperature")
-            : undefined,
-          !stale && tank.powerKw !== undefined ? tankMetricCoverage(tank, "power") : undefined,
-        ],
+        reportingSummary,
+        moduleSummary,
         stats: [
-          !stale && complete
-            ? `${children.filter((module) => module.state === "active").length}/${children.length} modules hashing`
-            : `${tank.assetCount} modules · readings incomplete`,
-          !stale && tank.minTemperatureC !== undefined && tank.maxTemperatureC !== undefined
-            ? formatTempRange(tank.minTemperatureC, tank.maxTemperatureC, unit)
-            : "—",
+          hasTemperature ? formatTempRange(minTemperatureC, maxTemperatureC, unit) : "—",
           formatPowerKwOrDash(stale ? null : tank.powerKw),
         ],
       };

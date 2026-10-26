@@ -22,7 +22,7 @@ export default function PsuCard({
     <article
       aria-label={title}
       data-testid="card"
-      className="@container flex min-w-0 flex-col gap-6 rounded-xl bg-surface-2 p-4 dark:bg-core-primary-5"
+      className="@container flex min-w-0 flex-col gap-6 rounded-xl bg-surface-overlay p-4"
     >
       <HardwareCardHeader
         title={title}

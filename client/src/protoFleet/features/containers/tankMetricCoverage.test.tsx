@@ -53,11 +53,47 @@ it("labels partial tank KPIs even when every module state is known", () => {
   expect(items[2]).toHaveTextContent("1/2 modules reporting");
   expect(within(items[3]).queryByText(/reporting/)).not.toBeInTheDocument();
 });
-it("labels partial power beside the value on container tank cards", () => {
+it("groups partial power with the module count above the container tank diagram", () => {
   const card = buildContainerOverview(fixture(), "C").tanks[0];
   render(<TankCard {...card} />);
-  expect(screen.getByTestId("tank-card-stats")).toHaveTextContent("2/2 modules hashing");
-  expect(screen.getByText("18.0 kW").parentElement).toHaveTextContent("1/2 modules reporting");
+  const summary = screen.getByTestId("tank-card-module-summary");
+  expect(summary).toHaveTextContent("2 modules hashing");
+  expect(summary).toHaveTextContent("Power: 1/2 modules reporting");
+  expect(screen.getByTestId("tank-card-stats")).not.toHaveTextContent(/modules|reporting/);
+  expect(screen.getByText("18.0 kW")).toBeInTheDocument();
+});
+it("shows matching temperature and power coverage only once", () => {
+  const data = fixture();
+  data.tanks[0].listStats!.temperatureReportingCount = 1;
+  render(<TankCard {...buildContainerOverview(data, "C").tanks[0]} />);
+  expect(screen.getAllByText(/1\/2 modules reporting/)).toHaveLength(1);
+  expect(screen.getByTestId("tank-card-module-summary")).toHaveTextContent(
+    "Temperature and power: 1/2 modules reporting",
+  );
+});
+it("keeps module health, temperature coverage, and meter coverage distinct", () => {
+  const data = fixture();
+  data.modules[0].state = "unknown";
+  data.tanks[0].coverage = create(EquipmentCoverageSchema, {
+    temperature: { reporting: 1, expected: 2, topologyComplete: false },
+    power: { reporting: 1, expected: 2, topologyComplete: true },
+  });
+  render(<TankCard {...buildContainerOverview(data, "C").tanks[0]} />);
+  const summary = screen.getByTestId("tank-card-module-summary");
+  expect(summary).toHaveTextContent("2 modules · readings incomplete");
+  expect(summary).toHaveTextContent("Temperature: 1 module reporting · topology incomplete");
+  expect(summary).toHaveTextContent("Power: 1/2 meters reporting");
+  expect(screen.getByTestId("tank-card-stats")).not.toHaveTextContent(/reporting|incomplete/);
+});
+it("omits unavailable metric coverage from the summary but retains measured zero", () => {
+  const data = fixture();
+  data.tanks[0].minTemperatureC = undefined;
+  data.tanks[0].listStats!.temperatureReportingCount = 1;
+  data.tanks[0].powerKw = 0;
+  render(<TankCard {...buildContainerOverview(data, "C").tanks[0]} />);
+  expect(screen.getByTestId("tank-card-module-summary")).not.toHaveTextContent("Temperature:");
+  expect(screen.getByTestId("tank-card-module-summary")).toHaveTextContent("Power: 1/2 modules reporting");
+  expect(screen.getByText("0.0 kW")).toBeInTheDocument();
 });
 it.each(["hashrate", "power", "temperature", "efficiency"])(
   "shows metric-specific inventory coverage for %s",
@@ -103,7 +139,9 @@ describe.each([
       expect(screen.queryByText(/reporting/)).not.toBeInTheDocument();
     } else {
       expect(
-        screen.getByText(state === "partial" ? `1/2 ${unit} reporting` : `1 ${unit} reporting · topology incomplete`),
+        screen.getByText(
+          state === "partial" ? `1/2 ${unit} reporting` : `1 ${unit.slice(0, -1)} reporting · topology incomplete`,
+        ),
       ).toBeInTheDocument();
     }
   });

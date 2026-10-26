@@ -20,7 +20,8 @@ const TEST_TANK = {
   cols: 1,
   rows: 1,
   modules: ["healthy" as const],
-  stats: ["1/1 module", "65.5°", "12.3 kW"],
+  moduleSummary: "1 module hashing",
+  stats: ["65.5°", "12.3 kW"],
   tempLabel: "65.5°",
   powerLabel: "12.3 kW",
 };

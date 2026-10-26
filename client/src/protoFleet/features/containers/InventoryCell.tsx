@@ -16,11 +16,20 @@ import {
 
 // Shared read-only cells for tanks and modules. A controller's network address,
 // firmware, and worker are deliberately not presented as module attributes.
-export function InventoryCell({ item, column }: { item: InventoryItem; column: string }) {
+export function InventoryCell({
+  item,
+  column,
+  showCoverage = true,
+}: {
+  item: InventoryItem;
+  column: string;
+  /** Cards can present metric coverage together above their health bar. */
+  showCoverage?: boolean;
+}) {
   const unit = useTemperatureUnit();
   const stats = item.listStats;
   const metricValue = (metric: TankMetric, value: string) => {
-    const coverage = value === "—" ? undefined : tankMetricCoverage(item, metric);
+    const coverage = !showCoverage || value === "—" ? undefined : tankMetricCoverage(item, metric);
     return (
       <span>
         <span className="block">{value}</span>
