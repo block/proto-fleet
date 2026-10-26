@@ -313,7 +313,9 @@ func (m *Miner) sendInSlot(ctx context.Context, mc *gatewaypb.MinerCommand) (*ga
 		return nil, devicewrite.NotDispatched(err)
 	}
 	version := gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1
-	if mc.GetSetModuleMining() != nil {
+	if mc.GetMiningGroups() != nil {
+		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V6
+	} else if mc.GetSetModuleMining() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V5
 	} else if mc.GetSetTankMining() != nil {
 		version = gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V4

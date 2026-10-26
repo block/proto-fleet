@@ -8,7 +8,7 @@ export const CONTAINER_ACTIONS = [
   { label: "Manage power", path: "mining/target-power", permission: "miner:set_power_target", kind: "power" },
 ] as const;
 
-export type ContainerAction = (typeof CONTAINER_ACTIONS)[number];
+export type ContainerAction = Omit<(typeof CONTAINER_ACTIONS)[number], "label"> & { label: string };
 
 // The subset of MDK v2 responses consumed by the Fleet action dialogs.
 export interface ContainerActionResponse {

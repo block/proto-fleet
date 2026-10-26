@@ -11,10 +11,12 @@ import { pushToast, STATUSES } from "@/shared/features/toaster";
 export default function ContainerActionDialog({
   container,
   action,
+  miningScope,
   onClose,
 }: {
   container: Container;
   action: ContainerAction;
+  miningScope: "container" | "default-group" | "unknown";
   onClose: () => void;
 }) {
   const permissions = usePermissions();
@@ -91,7 +93,11 @@ export default function ContainerActionDialog({
       title={`${action.label}: ${container.name}`}
       subtitle={
         action.path === "mining/start" || action.path === "mining/stop"
-          ? "Applies to the whole container. Isolated boards keep their individual mining state."
+          ? miningScope === "default-group"
+            ? "Applies only to the default mining group. Other mining groups are unaffected."
+            : miningScope === "container"
+              ? "Applies to the whole container. Isolated boards keep their individual mining state."
+              : "If mining groups are enabled, this affects only the default mining group."
           : "Applies to this container. The controller determines whether the command can be applied."
       }
       onDismiss={busy ? undefined : onClose}

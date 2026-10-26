@@ -76,6 +76,13 @@ func (s *scriptedRuntimeJobGroupStopper) Stop(ctx context.Context) error {
 }
 
 func TestNewRuntimeJobs(t *testing.T) {
+	miningStarted := make(chan struct{}, 1)
+	miningStopped := make(chan struct{}, 1)
+	miningLoop := newBackgroundLoop(func(ctx context.Context) {
+		miningStarted <- struct{}{}
+		<-ctx.Done()
+		miningStopped <- struct{}{}
+	})
 	all := runtimeJobLifecycles{
 		plugins:                   noopLifecycle{},
 		pendingUnpairs:            noopLifecycle{},
@@ -85,6 +92,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		telemetry:                 noopLifecycle{},
 		ipScanner:                 noopLifecycle{},
 		commandExecution:          noopLifecycle{},
+		miningGroupReconciliation: miningLoop,
 		scheduleProcessor:         noopLifecycle{},
 		rolloutEnforcement:        noopLifecycle{},
 		curtailmentReconciler:     noopLifecycle{},
@@ -107,6 +115,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"telemetry",
 		"ip-scanner",
 		"command-execution",
+		"mining-group-reconciliation",
 		"schedule-processor",
 		"rollout-enforcement",
 		"curtailment-reconciler",
@@ -119,6 +128,20 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"release-checker",
 		"pending-unpairs",
 	}, jobNames(jobs))
+	select {
+	case <-miningStarted:
+		t.Fatal("mining group reconciliation started before runtime activation")
+	default:
+	}
+	group, err := runtimejobs.NewGroup(jobs)
+	require.NoError(t, err)
+	activeCtx, cancelActive := context.WithCancel(t.Context())
+	defer cancelActive()
+	require.NoError(t, group.Start(activeCtx))
+	requireReceive(t, miningStarted)
+	cancelActive()
+	requireReceive(t, miningStopped)
+	require.NoError(t, group.Stop(t.Context()))
 
 	all.curtailmentAlertMetrics = nil
 	all.systemMonitoring = nil
@@ -134,6 +157,7 @@ func TestNewRuntimeJobs(t *testing.T) {
 		"telemetry",
 		"ip-scanner",
 		"command-execution",
+		"mining-group-reconciliation",
 		"schedule-processor",
 		"rollout-enforcement",
 		"curtailment-reconciler",
@@ -185,6 +209,7 @@ func TestRuntimeJobGroupKeepsCommandExecutionAliveWhileProducersDrain(t *testing
 		telemetry:                 noopLifecycle{},
 		ipScanner:                 noopLifecycle{},
 		commandExecution:          commandExecution,
+		miningGroupReconciliation: producer,
 		scheduleProcessor:         producer,
 		rolloutEnforcement:        noopLifecycle{},
 		curtailmentReconciler:     noopLifecycle{},
@@ -806,6 +831,7 @@ func TestRuntimeJobsDrainUnpairsBeforeTheirPluginDependency(t *testing.T) {
 				telemetry:                 funcLifecycle{stop: func(context.Context) error { stopped = append(stopped, "telemetry"); return nil }},
 				ipScanner:                 noopLifecycle{},
 				commandExecution:          noopLifecycle{},
+				miningGroupReconciliation: noopLifecycle{},
 				scheduleProcessor:         noopLifecycle{},
 				rolloutEnforcement:        noopLifecycle{},
 				curtailmentReconciler:     noopLifecycle{},

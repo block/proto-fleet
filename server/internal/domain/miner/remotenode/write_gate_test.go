@@ -205,6 +205,7 @@ func TestPhysicalWriteKindCoversEveryProtocolAction(t *testing.T) {
 		"firmware_update": commandtype.FirmwareUpdate, "set_container_control": commandtype.SetContainerControl,
 		"set_tank_mining":   commandtype.SetTankMining,
 		"set_module_mining": commandtype.SetModuleMining,
+		"mining_groups":     commandtype.Type(-1),
 	}
 	actions := (&gatewaypb.MinerCommand{}).ProtoReflect().Descriptor().Oneofs().ByName("action").Fields()
 	require.Equal(t, len(readAndIndicator)+len(mutationKinds), actions.Len(), "classify new protocol actions explicitly")
@@ -348,5 +349,20 @@ func TestRemoteInvalidTankRequestInsideOuterDispatchIsNotDispatched(t *testing.T
 			require.True(t, devicewrite.IsNotDispatched(outcome), "outer dispatch must see that local validation prevented transport")
 			require.Nil(t, sender.cmd)
 		})
+	}
+}
+
+func TestMiningGroupReadAdmissionRequiresAValidReadRequest(t *testing.T) {
+	for _, tc := range []struct {
+		payload  string
+		physical bool
+	}{
+		{`{"action":"observe"}`, false},
+		{`{"action":"operation","group_id":"receipt"}`, false},
+		{`{"action":"start","group_id":"g","revision":1,"key":"k"}`, true},
+		{`{"action":"observe","pools":[{"password":"secret"}]}`, true},
+	} {
+		_, physical := physicalWriteKind(&gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_MiningGroups{MiningGroups: &gatewaypb.MiningGroupsAction{Request: []byte(tc.payload)}}})
+		require.Equal(t, tc.physical, physical)
 	}
 }

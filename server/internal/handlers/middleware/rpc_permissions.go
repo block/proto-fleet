@@ -24,6 +24,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/maintenance/v1/maintenancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/marketdata/v1/marketdatav1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
+	mininggroupsv1connect "github.com/block/proto-fleet/server/generated/grpc/mininggroups/v1/mininggroupsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/networkinfo/v1/networkinfov1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/pairing/v1/pairingv1connect"
@@ -157,7 +158,14 @@ var ProcedurePermissions = map[string]string{
 	containersv1connect.ContainerServiceGetTankMiningOptionsProcedure:      authz.PermSiteRead,
 	containersv1connect.ContainerServiceGetModuleMiningOptionsProcedure:    authz.PermSiteRead,
 	// Handler resolves every tank/module and enforces the requested mining permission at its current site.
-	containersv1connect.ContainerServiceSetTankMiningProcedure:       authz.PermSiteRead,
+	containersv1connect.ContainerServiceSetTankMiningProcedure:               authz.PermSiteRead,
+	mininggroupsv1connect.MiningGroupServiceGetStateProcedure:                authz.PermSiteRead,
+	mininggroupsv1connect.MiningGroupServiceActivateProcedure:                authz.PermSiteRead,
+	mininggroupsv1connect.MiningGroupServiceSetPoolsProcedure:                authz.PermSiteRead,
+	mininggroupsv1connect.MiningGroupServiceListPoolConfigurationsProcedure:  authz.PermPoolRead,
+	mininggroupsv1connect.MiningGroupServiceCreatePoolConfigurationProcedure: authz.PermPoolManage,
+	mininggroupsv1connect.MiningGroupServiceResolveFleetPoolsProcedure:       authz.PermPoolRead,
+
 	containersv1connect.ContainerServiceSetModuleMiningProcedure:     authz.PermSiteRead,
 	containersv1connect.ContainerServiceSetEquipmentControlProcedure: authz.PermMinerSetCoolingMode,
 	// CreateBuilding optionally seeds racks + devices atomically (#559). This

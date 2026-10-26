@@ -12,6 +12,12 @@ vi.mock("@/shared/components/Popover/usePopoverPosition", () => ({
   default: () => ({ popoverRef: { current: null }, popoverStyle: {}, popoverAnimation: "" }),
 }));
 
+vi.mock("@/protoFleet/api/clients", () => ({
+  miningGroupsClient: {
+    getState: vi.fn().mockResolvedValue({ supported: false, enabled: false }),
+  },
+}));
+
 vi.mock("@/protoFleet/store", () => ({
   usePermissions: () => [
     "miner:stop_mining",

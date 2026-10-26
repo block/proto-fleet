@@ -18,6 +18,7 @@ type grpcAPI struct {
 	mdk.UnimplementedSystemServiceServer
 	mdk.UnimplementedHashboardServiceServer
 	mdk.UnimplementedMiningServiceServer
+	mdk.UnimplementedMiningGroupServiceServer
 	mdk.UnimplementedTelemetryServiceServer
 	mdk.UnimplementedPowerServiceServer
 	state *ContainerState
@@ -30,6 +31,7 @@ func newGRPCServer(state *ContainerState) *grpc.Server {
 	mdk.RegisterSystemServiceServer(server, api)
 	mdk.RegisterHashboardServiceServer(server, api)
 	mdk.RegisterMiningServiceServer(server, api)
+	mdk.RegisterMiningGroupServiceServer(server, api)
 	mdk.RegisterTelemetryServiceServer(server, api)
 	mdk.RegisterPowerServiceServer(server, api)
 	return server
@@ -103,6 +105,33 @@ func (a *grpcAPI) SetContainerControl(ctx context.Context, in *mdk.SetContainerC
 }
 func (a *grpcAPI) SetMainCircuitBreakerState(context.Context, *mdk.SetMainCircuitBreakerStateRequest) (*mdk.SetMainCircuitBreakerStateResponse, error) {
 	return nil, status.Error(codes.Unimplemented, fmt.Sprintf("%s simulator has no dedicated breaker readback", product))
+}
+
+func (a *grpcAPI) StartMining(ctx context.Context, _ *mdk.StartMiningRequest) (*mdk.StartMiningResponse, error) {
+	if err := a.setGlobalMining(ctx, true); err != nil {
+		return nil, err
+	}
+	return &mdk.StartMiningResponse{}, nil
+}
+func (a *grpcAPI) StopMining(ctx context.Context, _ *mdk.StopMiningRequest) (*mdk.StopMiningResponse, error) {
+	if err := a.setGlobalMining(ctx, false); err != nil {
+		return nil, err
+	}
+	return &mdk.StopMiningResponse{}, nil
+}
+func (a *grpcAPI) setGlobalMining(ctx context.Context, mining bool) error {
+	if err := ctx.Err(); err != nil {
+		return status.FromContextError(err).Err()
+	}
+	a.state.mu.Lock()
+	defer a.state.mu.Unlock()
+	now := a.state.now()
+	a.state.recordUntil(now)
+	a.state.advance(now)
+	a.state.setGlobalMining(mining)
+	a.state.advance(now)
+	a.state.recordTransition()
+	return nil
 }
 
 func (a *grpcAPI) StartMiningScoped(ctx context.Context, in *mdk.StartMiningScopedRequest) (*mdk.StartMiningScopedResponse, error) {

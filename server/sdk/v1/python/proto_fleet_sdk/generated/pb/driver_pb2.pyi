@@ -1295,3 +1295,17 @@ class ContainerFeedEvidence(_message.Message):
     configured_module: int
     observed_power_feed_id: str
     def __init__(self, power_feed_id: _Optional[str] = ..., expected_power_feed_id: _Optional[str] = ..., wiring_status: _Optional[str] = ..., wiring_reasons: _Optional[_Iterable[str]] = ..., configured_tank: _Optional[int] = ..., configured_module: _Optional[int] = ..., observed_power_feed_id: _Optional[str] = ...) -> None: ...
+
+class MiningGroupsRequest(_message.Message):
+    __slots__ = ("ref", "payload")
+    REF_FIELD_NUMBER: _ClassVar[int]
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    ref: DeviceRef
+    payload: bytes
+    def __init__(self, ref: _Optional[_Union[DeviceRef, _Mapping]] = ..., payload: _Optional[bytes] = ...) -> None: ...
+
+class MiningGroupsResponse(_message.Message):
+    __slots__ = ("payload",)
+    PAYLOAD_FIELD_NUMBER: _ClassVar[int]
+    payload: bytes
+    def __init__(self, payload: _Optional[bytes] = ...) -> None: ...

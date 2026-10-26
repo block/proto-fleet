@@ -1,0 +1,54 @@
+package remotenode
+
+import (
+	"context"
+	"encoding/json"
+	"slices"
+
+	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
+	"github.com/block/proto-fleet/server/internal/domain/fleetnode/poolconfig"
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+)
+
+func (m *Miner) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (sdk.MiningGroupResult, error) {
+	var result sdk.MiningGroupResult
+	if err := r.Validate(); err != nil {
+		return result, devicewrite.NotDispatched(err)
+	}
+	action := &gatewaypb.MiningGroupsAction{}
+	r.Pools = slices.Clone(r.Pools)
+	if r.Action == "replace_pools" {
+		if m.encryptionPublicKey == nil {
+			return result, devicewrite.NotDispatched(fleeterror.NewFailedPreconditionError("fleet node encryption key unavailable"))
+		}
+		key, err := m.encryptionPublicKey(ctx)
+		if err != nil {
+			return result, devicewrite.NotDispatched(err)
+		}
+		config := &gatewaypb.MiningPoolWriteConfiguration{}
+		for i, p := range r.Pools {
+			password := p.Password
+			config.Pools = append(config.Pools, &gatewaypb.MiningPoolWriteConfig{Priority: []int32{0, 1, 2}[i], Url: p.URL, Username: p.Username, Password: &password})
+			r.Pools[i].Password = ""
+		}
+		action.EncryptedPools, err = poolconfig.Encrypt(key, m.desc.GetDeviceIdentifier(), config)
+		if err != nil {
+			return result, devicewrite.NotDispatched(err)
+		}
+	}
+	var err error
+	action.Request, err = json.Marshal(r)
+	if err != nil {
+		return result, devicewrite.NotDispatched(err)
+	}
+	ack, err := m.send(ctx, &gatewaypb.MinerCommand{Action: &gatewaypb.MinerCommand_MiningGroups{MiningGroups: action}})
+	if err != nil {
+		return result, err
+	}
+	if err := ackToError(ack); err != nil {
+		return result, err
+	}
+	return sdk.DecodeMiningGroupResult(ack.GetPayload(), r)
+}

@@ -143,6 +143,30 @@ docker build -t fake-ct1 -f server/fake-ct1/Dockerfile .
 docker run -p 8080:8080 -p 9095:9095 fake-ct1
 ```
 
+## Mining groups in Fleet
+
+The native gRPC listener supports Fleet's mining-group workflow. New simulator
+processes advertise `mining-groups-v1` with groups **disabled**. Use **Enable
+mining groups** in Fleet: it automatically stops mining, enables groups, and
+resumes with existing pools if the container was running. Activation adopts the
+existing hashboards into the stopped `default` group before Fleet resumes it.
+Native gRPC and REST global start/stop share the same lifecycle behavior. Module and hashboard **Edit pool**
+actions become available after Fleet observes completed activation.
+
+The fixture supports capability and membership reads, group creation, ordered
+pool replacement, exact-board transfers, mining intent, operation receipts, and
+empty-group deletion. New groups start stopped. Groups without enabled pools do
+not mine or fall back to default pools. Once activated, container start/stop
+changes only the default group. Revisions and successful idempotency receipts
+are checked; pool credentials never appear in readback.
+
+All group state resets when the simulator restarts. Connected-board transfers
+complete synchronously; transfers involving isolated or disconnected boards are
+rejected. This fixture does not model HA ownership, physical shutdown proofs,
+real Stratum sessions, or per-group pool diagnostics/history. Existing pool
+diagnostics remain demonstration data. REST retains its existing API; Fleet uses
+the native gRPC group service.
+
 ## Environment variables
 
 | Variable                 | Description                                                                                                                                    | Default           |

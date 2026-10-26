@@ -576,6 +576,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.deleteScheduleTargetsStmt, err = db.PrepareContext(ctx, deleteScheduleTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteScheduleTargets: %w", err)
 	}
+	if q.deleteUnappliedHashboardPoolIntentsStmt, err = db.PrepareContext(ctx, deleteUnappliedHashboardPoolIntents); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteUnappliedHashboardPoolIntents: %w", err)
+	}
 	if q.deleteUndispatchedDirectAttemptStmt, err = db.PrepareContext(ctx, deleteUndispatchedDirectAttempt); err != nil {
 		return nil, fmt.Errorf("error preparing query DeleteUndispatchedDirectAttempt: %w", err)
 	}
@@ -608,6 +611,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.ensureHashboardsStmt, err = db.PrepareContext(ctx, ensureHashboards); err != nil {
 		return nil, fmt.Errorf("error preparing query EnsureHashboards: %w", err)
+	}
+	if q.ensureMiningGroupStateStmt, err = db.PrepareContext(ctx, ensureMiningGroupState); err != nil {
+		return nil, fmt.Errorf("error preparing query EnsureMiningGroupState: %w", err)
 	}
 	if q.excludeFirmwareRolloutDevicesStmt, err = db.PrepareContext(ctx, excludeFirmwareRolloutDevices); err != nil {
 		return nil, fmt.Errorf("error preparing query ExcludeFirmwareRolloutDevices: %w", err)
@@ -990,6 +996,15 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.getHistoryResolutionStmt, err = db.PrepareContext(ctx, getHistoryResolution); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHistoryResolution: %w", err)
 	}
+	if q.getHostMiningGroupPoolRevisionStmt, err = db.PrepareContext(ctx, getHostMiningGroupPoolRevision); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostMiningGroupPoolRevision: %w", err)
+	}
+	if q.getHostMiningGroupPoolRevisionForReconciliationStmt, err = db.PrepareContext(ctx, getHostMiningGroupPoolRevisionForReconciliation); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostMiningGroupPoolRevisionForReconciliation: %w", err)
+	}
+	if q.getHostPoolAccountStmt, err = db.PrepareContext(ctx, getHostPoolAccount); err != nil {
+		return nil, fmt.Errorf("error preparing query GetHostPoolAccount: %w", err)
+	}
 	if q.getHostedAccountActivityPageStmt, err = db.PrepareContext(ctx, getHostedAccountActivityPage); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHostedAccountActivityPage: %w", err)
 	}
@@ -1094,6 +1109,24 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, getMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query GetMinerStateSnapshots: %w", err)
+	}
+	if q.getMiningGroupBoardsStmt, err = db.PrepareContext(ctx, getMiningGroupBoards); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMiningGroupBoards: %w", err)
+	}
+	if q.getMiningGroupRequestStmt, err = db.PrepareContext(ctx, getMiningGroupRequest); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMiningGroupRequest: %w", err)
+	}
+	if q.getMiningGroupRequestActivityStmt, err = db.PrepareContext(ctx, getMiningGroupRequestActivity); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMiningGroupRequestActivity: %w", err)
+	}
+	if q.getMiningGroupStateStmt, err = db.PrepareContext(ctx, getMiningGroupState); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMiningGroupState: %w", err)
+	}
+	if q.getMiningGroupTargetStmt, err = db.PrepareContext(ctx, getMiningGroupTarget); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMiningGroupTarget: %w", err)
+	}
+	if q.getMiningGroupWorkflowAttemptStmt, err = db.PrepareContext(ctx, getMiningGroupWorkflowAttempt); err != nil {
+		return nil, fmt.Errorf("error preparing query GetMiningGroupWorkflowAttempt: %w", err)
 	}
 	if q.getModuleHashboardsStmt, err = db.PrepareContext(ctx, getModuleHashboards); err != nil {
 		return nil, fmt.Errorf("error preparing query GetModuleHashboards: %w", err)
@@ -1304,6 +1337,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.hasBlockedTelemetrySeedRecoveryStmt, err = db.PrepareContext(ctx, hasBlockedTelemetrySeedRecovery); err != nil {
 		return nil, fmt.Errorf("error preparing query HasBlockedTelemetrySeedRecovery: %w", err)
+	}
+	if q.hasDetachedHashboardPoolIntentsStmt, err = db.PrepareContext(ctx, hasDetachedHashboardPoolIntents); err != nil {
+		return nil, fmt.Errorf("error preparing query HasDetachedHashboardPoolIntents: %w", err)
 	}
 	if q.hasDueTelemetrySeedRecoveryStmt, err = db.PrepareContext(ctx, hasDueTelemetrySeedRecovery); err != nil {
 		return nil, fmt.Errorf("error preparing query HasDueTelemetrySeedRecovery: %w", err)
@@ -1635,6 +1671,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listHashboardModulesStmt, err = db.PrepareContext(ctx, listHashboardModules); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHashboardModules: %w", err)
 	}
+	if q.listHashboardPoolIntentsStmt, err = db.PrepareContext(ctx, listHashboardPoolIntents); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHashboardPoolIntents: %w", err)
+	}
+	if q.listHostMiningGroupPoolRevisionsStmt, err = db.PrepareContext(ctx, listHostMiningGroupPoolRevisions); err != nil {
+		return nil, fmt.Errorf("error preparing query ListHostMiningGroupPoolRevisions: %w", err)
+	}
 	if q.listHostedAccountAncestorGrantsStmt, err = db.PrepareContext(ctx, listHostedAccountAncestorGrants); err != nil {
 		return nil, fmt.Errorf("error preparing query ListHostedAccountAncestorGrants: %w", err)
 	}
@@ -1709,6 +1751,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.listMinerStateSnapshotsStmt, err = db.PrepareContext(ctx, listMinerStateSnapshots); err != nil {
 		return nil, fmt.Errorf("error preparing query ListMinerStateSnapshots: %w", err)
+	}
+	if q.listMiningGroupControllersStmt, err = db.PrepareContext(ctx, listMiningGroupControllers); err != nil {
+		return nil, fmt.Errorf("error preparing query ListMiningGroupControllers: %w", err)
 	}
 	if q.listModuleCommandTargetsStmt, err = db.PrepareContext(ctx, listModuleCommandTargets); err != nil {
 		return nil, fmt.Errorf("error preparing query ListModuleCommandTargets: %w", err)
@@ -2037,6 +2082,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.lockMinerBindingRoutesStmt, err = db.PrepareContext(ctx, lockMinerBindingRoutes); err != nil {
 		return nil, fmt.Errorf("error preparing query LockMinerBindingRoutes: %w", err)
 	}
+	if q.lockMiningGroupStateStmt, err = db.PrepareContext(ctx, lockMiningGroupState); err != nil {
+		return nil, fmt.Errorf("error preparing query LockMiningGroupState: %w", err)
+	}
 	if q.lockQueuedDeviceWriteStmt, err = db.PrepareContext(ctx, lockQueuedDeviceWrite); err != nil {
 		return nil, fmt.Errorf("error preparing query LockQueuedDeviceWrite: %w", err)
 	}
@@ -2118,6 +2166,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.preserveFirmwareRolloutRetryBaselinesStmt, err = db.PrepareContext(ctx, preserveFirmwareRolloutRetryBaselines); err != nil {
 		return nil, fmt.Errorf("error preparing query PreserveFirmwareRolloutRetryBaselines: %w", err)
 	}
+	if q.pruneDetachedHashboardPoolIntentsStmt, err = db.PrepareContext(ctx, pruneDetachedHashboardPoolIntents); err != nil {
+		return nil, fmt.Errorf("error preparing query PruneDetachedHashboardPoolIntents: %w", err)
+	}
 	if q.pruneExpiredAlertMaintenanceWindowsStmt, err = db.PrepareContext(ctx, pruneExpiredAlertMaintenanceWindows); err != nil {
 		return nil, fmt.Errorf("error preparing query PruneExpiredAlertMaintenanceWindows: %w", err)
 	}
@@ -2183,6 +2234,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.recordFirmwareRolloutActionStmt, err = db.PrepareContext(ctx, recordFirmwareRolloutAction); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordFirmwareRolloutAction: %w", err)
+	}
+	if q.recordMiningGroupRequestStmt, err = db.PrepareContext(ctx, recordMiningGroupRequest); err != nil {
+		return nil, fmt.Errorf("error preparing query RecordMiningGroupRequest: %w", err)
 	}
 	if q.recoverTelemetrySeedBatchStmt, err = db.PrepareContext(ctx, recoverTelemetrySeedBatch); err != nil {
 		return nil, fmt.Errorf("error preparing query RecoverTelemetrySeedBatch: %w", err)
@@ -2325,6 +2379,12 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.revokeSessionStmt, err = db.PrepareContext(ctx, revokeSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RevokeSession: %w", err)
 	}
+	if q.saveMiningGroupStateStmt, err = db.PrepareContext(ctx, saveMiningGroupState); err != nil {
+		return nil, fmt.Errorf("error preparing query SaveMiningGroupState: %w", err)
+	}
+	if q.scheduleMiningGroupReconciliationStmt, err = db.PrepareContext(ctx, scheduleMiningGroupReconciliation); err != nil {
+		return nil, fmt.Errorf("error preparing query ScheduleMiningGroupReconciliation: %w", err)
+	}
 	if q.setCurtailmentAutomationActiveEventStmt, err = db.PrepareContext(ctx, setCurtailmentAutomationActiveEvent); err != nil {
 		return nil, fmt.Errorf("error preparing query SetCurtailmentAutomationActiveEvent: %w", err)
 	}
@@ -2345,6 +2405,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.setFleetNodeEnrollmentStatusStmt, err = db.PrepareContext(ctx, setFleetNodeEnrollmentStatus); err != nil {
 		return nil, fmt.Errorf("error preparing query SetFleetNodeEnrollmentStatus: %w", err)
+	}
+	if q.setHashboardPoolIntentStmt, err = db.PrepareContext(ctx, setHashboardPoolIntent); err != nil {
+		return nil, fmt.Errorf("error preparing query SetHashboardPoolIntent: %w", err)
 	}
 	if q.setHostedAccountAncestorGrantStmt, err = db.PrepareContext(ctx, setHostedAccountAncestorGrant); err != nil {
 		return nil, fmt.Errorf("error preparing query SetHostedAccountAncestorGrant: %w", err)
@@ -3682,6 +3745,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing deleteScheduleTargetsStmt: %w", cerr)
 		}
 	}
+	if q.deleteUnappliedHashboardPoolIntentsStmt != nil {
+		if cerr := q.deleteUnappliedHashboardPoolIntentsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteUnappliedHashboardPoolIntentsStmt: %w", cerr)
+		}
+	}
 	if q.deleteUndispatchedDirectAttemptStmt != nil {
 		if cerr := q.deleteUndispatchedDirectAttemptStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing deleteUndispatchedDirectAttemptStmt: %w", cerr)
@@ -3735,6 +3803,11 @@ func (q *Queries) Close() error {
 	if q.ensureHashboardsStmt != nil {
 		if cerr := q.ensureHashboardsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing ensureHashboardsStmt: %w", cerr)
+		}
+	}
+	if q.ensureMiningGroupStateStmt != nil {
+		if cerr := q.ensureMiningGroupStateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing ensureMiningGroupStateStmt: %w", cerr)
 		}
 	}
 	if q.excludeFirmwareRolloutDevicesStmt != nil {
@@ -4372,6 +4445,21 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getHistoryResolutionStmt: %w", cerr)
 		}
 	}
+	if q.getHostMiningGroupPoolRevisionStmt != nil {
+		if cerr := q.getHostMiningGroupPoolRevisionStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostMiningGroupPoolRevisionStmt: %w", cerr)
+		}
+	}
+	if q.getHostMiningGroupPoolRevisionForReconciliationStmt != nil {
+		if cerr := q.getHostMiningGroupPoolRevisionForReconciliationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostMiningGroupPoolRevisionForReconciliationStmt: %w", cerr)
+		}
+	}
+	if q.getHostPoolAccountStmt != nil {
+		if cerr := q.getHostPoolAccountStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getHostPoolAccountStmt: %w", cerr)
+		}
+	}
 	if q.getHostedAccountActivityPageStmt != nil {
 		if cerr := q.getHostedAccountActivityPageStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getHostedAccountActivityPageStmt: %w", cerr)
@@ -4545,6 +4633,36 @@ func (q *Queries) Close() error {
 	if q.getMinerStateSnapshotsStmt != nil {
 		if cerr := q.getMinerStateSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getMinerStateSnapshotsStmt: %w", cerr)
+		}
+	}
+	if q.getMiningGroupBoardsStmt != nil {
+		if cerr := q.getMiningGroupBoardsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMiningGroupBoardsStmt: %w", cerr)
+		}
+	}
+	if q.getMiningGroupRequestStmt != nil {
+		if cerr := q.getMiningGroupRequestStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMiningGroupRequestStmt: %w", cerr)
+		}
+	}
+	if q.getMiningGroupRequestActivityStmt != nil {
+		if cerr := q.getMiningGroupRequestActivityStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMiningGroupRequestActivityStmt: %w", cerr)
+		}
+	}
+	if q.getMiningGroupStateStmt != nil {
+		if cerr := q.getMiningGroupStateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMiningGroupStateStmt: %w", cerr)
+		}
+	}
+	if q.getMiningGroupTargetStmt != nil {
+		if cerr := q.getMiningGroupTargetStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMiningGroupTargetStmt: %w", cerr)
+		}
+	}
+	if q.getMiningGroupWorkflowAttemptStmt != nil {
+		if cerr := q.getMiningGroupWorkflowAttemptStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getMiningGroupWorkflowAttemptStmt: %w", cerr)
 		}
 	}
 	if q.getModuleHashboardsStmt != nil {
@@ -4895,6 +5013,11 @@ func (q *Queries) Close() error {
 	if q.hasBlockedTelemetrySeedRecoveryStmt != nil {
 		if cerr := q.hasBlockedTelemetrySeedRecoveryStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing hasBlockedTelemetrySeedRecoveryStmt: %w", cerr)
+		}
+	}
+	if q.hasDetachedHashboardPoolIntentsStmt != nil {
+		if cerr := q.hasDetachedHashboardPoolIntentsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing hasDetachedHashboardPoolIntentsStmt: %w", cerr)
 		}
 	}
 	if q.hasDueTelemetrySeedRecoveryStmt != nil {
@@ -5447,6 +5570,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing listHashboardModulesStmt: %w", cerr)
 		}
 	}
+	if q.listHashboardPoolIntentsStmt != nil {
+		if cerr := q.listHashboardPoolIntentsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHashboardPoolIntentsStmt: %w", cerr)
+		}
+	}
+	if q.listHostMiningGroupPoolRevisionsStmt != nil {
+		if cerr := q.listHostMiningGroupPoolRevisionsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listHostMiningGroupPoolRevisionsStmt: %w", cerr)
+		}
+	}
 	if q.listHostedAccountAncestorGrantsStmt != nil {
 		if cerr := q.listHostedAccountAncestorGrantsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listHostedAccountAncestorGrantsStmt: %w", cerr)
@@ -5570,6 +5703,11 @@ func (q *Queries) Close() error {
 	if q.listMinerStateSnapshotsStmt != nil {
 		if cerr := q.listMinerStateSnapshotsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listMinerStateSnapshotsStmt: %w", cerr)
+		}
+	}
+	if q.listMiningGroupControllersStmt != nil {
+		if cerr := q.listMiningGroupControllersStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing listMiningGroupControllersStmt: %w", cerr)
 		}
 	}
 	if q.listModuleCommandTargetsStmt != nil {
@@ -6117,6 +6255,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing lockMinerBindingRoutesStmt: %w", cerr)
 		}
 	}
+	if q.lockMiningGroupStateStmt != nil {
+		if cerr := q.lockMiningGroupStateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing lockMiningGroupStateStmt: %w", cerr)
+		}
+	}
 	if q.lockQueuedDeviceWriteStmt != nil {
 		if cerr := q.lockQueuedDeviceWriteStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing lockQueuedDeviceWriteStmt: %w", cerr)
@@ -6252,6 +6395,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing preserveFirmwareRolloutRetryBaselinesStmt: %w", cerr)
 		}
 	}
+	if q.pruneDetachedHashboardPoolIntentsStmt != nil {
+		if cerr := q.pruneDetachedHashboardPoolIntentsStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing pruneDetachedHashboardPoolIntentsStmt: %w", cerr)
+		}
+	}
 	if q.pruneExpiredAlertMaintenanceWindowsStmt != nil {
 		if cerr := q.pruneExpiredAlertMaintenanceWindowsStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing pruneExpiredAlertMaintenanceWindowsStmt: %w", cerr)
@@ -6360,6 +6508,11 @@ func (q *Queries) Close() error {
 	if q.recordFirmwareRolloutActionStmt != nil {
 		if cerr := q.recordFirmwareRolloutActionStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing recordFirmwareRolloutActionStmt: %w", cerr)
+		}
+	}
+	if q.recordMiningGroupRequestStmt != nil {
+		if cerr := q.recordMiningGroupRequestStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing recordMiningGroupRequestStmt: %w", cerr)
 		}
 	}
 	if q.recoverTelemetrySeedBatchStmt != nil {
@@ -6597,6 +6750,16 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing revokeSessionStmt: %w", cerr)
 		}
 	}
+	if q.saveMiningGroupStateStmt != nil {
+		if cerr := q.saveMiningGroupStateStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing saveMiningGroupStateStmt: %w", cerr)
+		}
+	}
+	if q.scheduleMiningGroupReconciliationStmt != nil {
+		if cerr := q.scheduleMiningGroupReconciliationStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing scheduleMiningGroupReconciliationStmt: %w", cerr)
+		}
+	}
 	if q.setCurtailmentAutomationActiveEventStmt != nil {
 		if cerr := q.setCurtailmentAutomationActiveEventStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setCurtailmentAutomationActiveEventStmt: %w", cerr)
@@ -6630,6 +6793,11 @@ func (q *Queries) Close() error {
 	if q.setFleetNodeEnrollmentStatusStmt != nil {
 		if cerr := q.setFleetNodeEnrollmentStatusStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing setFleetNodeEnrollmentStatusStmt: %w", cerr)
+		}
+	}
+	if q.setHashboardPoolIntentStmt != nil {
+		if cerr := q.setHashboardPoolIntentStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing setHashboardPoolIntentStmt: %w", cerr)
 		}
 	}
 	if q.setHostedAccountAncestorGrantStmt != nil {
@@ -7540,6 +7708,7 @@ type Queries struct {
 	deleteReleaseChannelTargetsStmt                              *sql.Stmt
 	deleteReleasedFirmwareRolloutReservationsStmt                *sql.Stmt
 	deleteScheduleTargetsStmt                                    *sql.Stmt
+	deleteUnappliedHashboardPoolIntentsStmt                      *sql.Stmt
 	deleteUndispatchedDirectAttemptStmt                          *sql.Stmt
 	deviceHasActiveCloudPairingStmt                              *sql.Stmt
 	deviceHasActivePairingStmt                                   *sql.Stmt
@@ -7551,6 +7720,7 @@ type Queries struct {
 	ensureCurtailmentOrgConfigStmt                               *sql.Stmt
 	ensureDeviceWriteFencesStmt                                  *sql.Stmt
 	ensureHashboardsStmt                                         *sql.Stmt
+	ensureMiningGroupStateStmt                                   *sql.Stmt
 	excludeFirmwareRolloutDevicesStmt                            *sql.Stmt
 	findDeviceBuildingConflictsStmt                              *sql.Stmt
 	findDeviceSiteConflictsStmt                                  *sql.Stmt
@@ -7678,6 +7848,9 @@ type Queries struct {
 	getHashboardMetricWatermarksStmt                             *sql.Stmt
 	getHashboardObservationsStmt                                 *sql.Stmt
 	getHistoryResolutionStmt                                     *sql.Stmt
+	getHostMiningGroupPoolRevisionStmt                           *sql.Stmt
+	getHostMiningGroupPoolRevisionForReconciliationStmt          *sql.Stmt
+	getHostPoolAccountStmt                                       *sql.Stmt
 	getHostedAccountActivityPageStmt                             *sql.Stmt
 	getHostedAccountAncestorGrantStmt                            *sql.Stmt
 	getHostedAccountAssetDeviceStmt                              *sql.Stmt
@@ -7713,6 +7886,12 @@ type Queries struct {
 	getMinerStateSnapshotDeviceRollupsDailyStmt                  *sql.Stmt
 	getMinerStateSnapshotDeviceRollupsHourlyStmt                 *sql.Stmt
 	getMinerStateSnapshotsStmt                                   *sql.Stmt
+	getMiningGroupBoardsStmt                                     *sql.Stmt
+	getMiningGroupRequestStmt                                    *sql.Stmt
+	getMiningGroupRequestActivityStmt                            *sql.Stmt
+	getMiningGroupStateStmt                                      *sql.Stmt
+	getMiningGroupTargetStmt                                     *sql.Stmt
+	getMiningGroupWorkflowAttemptStmt                            *sql.Stmt
 	getModuleHashboardsStmt                                      *sql.Stmt
 	getModuleRollupWatermarksStmt                                *sql.Stmt
 	getOfflineDevicesStmt                                        *sql.Stmt
@@ -7783,6 +7962,7 @@ type Queries struct {
 	getUsersForOrganizationStmt                                  *sql.Stmt
 	haltFirmwareRolloutDevicesStmt                               *sql.Stmt
 	hasBlockedTelemetrySeedRecoveryStmt                          *sql.Stmt
+	hasDetachedHashboardPoolIntentsStmt                          *sql.Stmt
 	hasDueTelemetrySeedRecoveryStmt                              *sql.Stmt
 	hasHostedAccountHostAuthorityStmt                            *sql.Stmt
 	hasPendingContainerControlStmt                               *sql.Stmt
@@ -7893,6 +8073,8 @@ type Queries struct {
 	listFleetTankOptionsStmt                                     *sql.Stmt
 	listHashboardHistoryStmt                                     *sql.Stmt
 	listHashboardModulesStmt                                     *sql.Stmt
+	listHashboardPoolIntentsStmt                                 *sql.Stmt
+	listHostMiningGroupPoolRevisionsStmt                         *sql.Stmt
 	listHostedAccountAncestorGrantsStmt                          *sql.Stmt
 	listHostedAccountAssetChildrenStmt                           *sql.Stmt
 	listHostedAccountAssetFilterOptionsStmt                      *sql.Stmt
@@ -7918,6 +8100,7 @@ type Queries struct {
 	listManagedFirmwareUpdateDevicesStmt                         *sql.Stmt
 	listMinerFirmwareHistoryStmt                                 *sql.Stmt
 	listMinerStateSnapshotsStmt                                  *sql.Stmt
+	listMiningGroupControllersStmt                               *sql.Stmt
 	listModuleCommandTargetsStmt                                 *sql.Stmt
 	listNonTerminalCurtailmentEventsStmt                         *sql.Stmt
 	listNotificationHistoryStmt                                  *sql.Stmt
@@ -8027,6 +8210,7 @@ type Queries struct {
 	lockMinerBindingObservationDeviceStmt                        *sql.Stmt
 	lockMinerBindingPairingStmt                                  *sql.Stmt
 	lockMinerBindingRoutesStmt                                   *sql.Stmt
+	lockMiningGroupStateStmt                                     *sql.Stmt
 	lockQueuedDeviceWriteStmt                                    *sql.Stmt
 	lockRackPlacementForWriteStmt                                *sql.Stmt
 	lockRacksForReparentStmt                                     *sql.Stmt
@@ -8054,6 +8238,7 @@ type Queries struct {
 	pauseFirmwareRolloutStmt                                     *sql.Stmt
 	prepareTelemetrySeedStmt                                     *sql.Stmt
 	preserveFirmwareRolloutRetryBaselinesStmt                    *sql.Stmt
+	pruneDetachedHashboardPoolIntentsStmt                        *sql.Stmt
 	pruneExpiredAlertMaintenanceWindowsStmt                      *sql.Stmt
 	pruneHostedInvitationRateLimitStmt                           *sql.Stmt
 	prunePermissionsOutsideKeysStmt                              *sql.Stmt
@@ -8076,6 +8261,7 @@ type Queries struct {
 	recordDeviceWriteRecoveryStmt                                *sql.Stmt
 	recordFirmwareDeploymentStmt                                 *sql.Stmt
 	recordFirmwareRolloutActionStmt                              *sql.Stmt
+	recordMiningGroupRequestStmt                                 *sql.Stmt
 	recoverTelemetrySeedBatchStmt                                *sql.Stmt
 	refreshOpenErrorsLastSeenByDeviceStmt                        *sql.Stmt
 	reincludeFirmwareRolloutDevicesStmt                          *sql.Stmt
@@ -8123,6 +8309,8 @@ type Queries struct {
 	revokeOrganizationInvitationStmt                             *sql.Stmt
 	revokePermissionFromRoleStmt                                 *sql.Stmt
 	revokeSessionStmt                                            *sql.Stmt
+	saveMiningGroupStateStmt                                     *sql.Stmt
+	scheduleMiningGroupReconciliationStmt                        *sql.Stmt
 	setCurtailmentAutomationActiveEventStmt                      *sql.Stmt
 	setCurtailmentAutomationExecutionErrorStmt                   *sql.Stmt
 	setCurtailmentAutomationRestoreStartedStmt                   *sql.Stmt
@@ -8130,6 +8318,7 @@ type Queries struct {
 	setDevicePairingAuthNeededIfNotPairedStmt                    *sql.Stmt
 	setFirmwareRolloutControllerWaitStmt                         *sql.Stmt
 	setFleetNodeEnrollmentStatusStmt                             *sql.Stmt
+	setHashboardPoolIntentStmt                                   *sql.Stmt
 	setHostedAccountAncestorGrantStmt                            *sql.Stmt
 	setHostedAccountAssetStmt                                    *sql.Stmt
 	setHostedAccountMembershipStmt                               *sql.Stmt
@@ -8457,6 +8646,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		deleteReleaseChannelTargetsStmt:                              q.deleteReleaseChannelTargetsStmt,
 		deleteReleasedFirmwareRolloutReservationsStmt:                q.deleteReleasedFirmwareRolloutReservationsStmt,
 		deleteScheduleTargetsStmt:                                    q.deleteScheduleTargetsStmt,
+		deleteUnappliedHashboardPoolIntentsStmt:                      q.deleteUnappliedHashboardPoolIntentsStmt,
 		deleteUndispatchedDirectAttemptStmt:                          q.deleteUndispatchedDirectAttemptStmt,
 		deviceHasActiveCloudPairingStmt:                              q.deviceHasActiveCloudPairingStmt,
 		deviceHasActivePairingStmt:                                   q.deviceHasActivePairingStmt,
@@ -8468,6 +8658,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		ensureCurtailmentOrgConfigStmt:                               q.ensureCurtailmentOrgConfigStmt,
 		ensureDeviceWriteFencesStmt:                                  q.ensureDeviceWriteFencesStmt,
 		ensureHashboardsStmt:                                         q.ensureHashboardsStmt,
+		ensureMiningGroupStateStmt:                                   q.ensureMiningGroupStateStmt,
 		excludeFirmwareRolloutDevicesStmt:                            q.excludeFirmwareRolloutDevicesStmt,
 		findDeviceBuildingConflictsStmt:                              q.findDeviceBuildingConflictsStmt,
 		findDeviceSiteConflictsStmt:                                  q.findDeviceSiteConflictsStmt,
@@ -8595,6 +8786,9 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getHashboardMetricWatermarksStmt:                             q.getHashboardMetricWatermarksStmt,
 		getHashboardObservationsStmt:                                 q.getHashboardObservationsStmt,
 		getHistoryResolutionStmt:                                     q.getHistoryResolutionStmt,
+		getHostMiningGroupPoolRevisionStmt:                           q.getHostMiningGroupPoolRevisionStmt,
+		getHostMiningGroupPoolRevisionForReconciliationStmt:          q.getHostMiningGroupPoolRevisionForReconciliationStmt,
+		getHostPoolAccountStmt:                                       q.getHostPoolAccountStmt,
 		getHostedAccountActivityPageStmt:                             q.getHostedAccountActivityPageStmt,
 		getHostedAccountAncestorGrantStmt:                            q.getHostedAccountAncestorGrantStmt,
 		getHostedAccountAssetDeviceStmt:                              q.getHostedAccountAssetDeviceStmt,
@@ -8630,6 +8824,12 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getMinerStateSnapshotDeviceRollupsDailyStmt:                  q.getMinerStateSnapshotDeviceRollupsDailyStmt,
 		getMinerStateSnapshotDeviceRollupsHourlyStmt:                 q.getMinerStateSnapshotDeviceRollupsHourlyStmt,
 		getMinerStateSnapshotsStmt:                                   q.getMinerStateSnapshotsStmt,
+		getMiningGroupBoardsStmt:                                     q.getMiningGroupBoardsStmt,
+		getMiningGroupRequestStmt:                                    q.getMiningGroupRequestStmt,
+		getMiningGroupRequestActivityStmt:                            q.getMiningGroupRequestActivityStmt,
+		getMiningGroupStateStmt:                                      q.getMiningGroupStateStmt,
+		getMiningGroupTargetStmt:                                     q.getMiningGroupTargetStmt,
+		getMiningGroupWorkflowAttemptStmt:                            q.getMiningGroupWorkflowAttemptStmt,
 		getModuleHashboardsStmt:                                      q.getModuleHashboardsStmt,
 		getModuleRollupWatermarksStmt:                                q.getModuleRollupWatermarksStmt,
 		getOfflineDevicesStmt:                                        q.getOfflineDevicesStmt,
@@ -8700,6 +8900,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getUsersForOrganizationStmt:                                  q.getUsersForOrganizationStmt,
 		haltFirmwareRolloutDevicesStmt:                               q.haltFirmwareRolloutDevicesStmt,
 		hasBlockedTelemetrySeedRecoveryStmt:                          q.hasBlockedTelemetrySeedRecoveryStmt,
+		hasDetachedHashboardPoolIntentsStmt:                          q.hasDetachedHashboardPoolIntentsStmt,
 		hasDueTelemetrySeedRecoveryStmt:                              q.hasDueTelemetrySeedRecoveryStmt,
 		hasHostedAccountHostAuthorityStmt:                            q.hasHostedAccountHostAuthorityStmt,
 		hasPendingContainerControlStmt:                               q.hasPendingContainerControlStmt,
@@ -8810,6 +9011,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listFleetTankOptionsStmt:                                     q.listFleetTankOptionsStmt,
 		listHashboardHistoryStmt:                                     q.listHashboardHistoryStmt,
 		listHashboardModulesStmt:                                     q.listHashboardModulesStmt,
+		listHashboardPoolIntentsStmt:                                 q.listHashboardPoolIntentsStmt,
+		listHostMiningGroupPoolRevisionsStmt:                         q.listHostMiningGroupPoolRevisionsStmt,
 		listHostedAccountAncestorGrantsStmt:                          q.listHostedAccountAncestorGrantsStmt,
 		listHostedAccountAssetChildrenStmt:                           q.listHostedAccountAssetChildrenStmt,
 		listHostedAccountAssetFilterOptionsStmt:                      q.listHostedAccountAssetFilterOptionsStmt,
@@ -8835,6 +9038,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listManagedFirmwareUpdateDevicesStmt:                         q.listManagedFirmwareUpdateDevicesStmt,
 		listMinerFirmwareHistoryStmt:                                 q.listMinerFirmwareHistoryStmt,
 		listMinerStateSnapshotsStmt:                                  q.listMinerStateSnapshotsStmt,
+		listMiningGroupControllersStmt:                               q.listMiningGroupControllersStmt,
 		listModuleCommandTargetsStmt:                                 q.listModuleCommandTargetsStmt,
 		listNonTerminalCurtailmentEventsStmt:                         q.listNonTerminalCurtailmentEventsStmt,
 		listNotificationHistoryStmt:                                  q.listNotificationHistoryStmt,
@@ -8944,6 +9148,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		lockMinerBindingObservationDeviceStmt:                        q.lockMinerBindingObservationDeviceStmt,
 		lockMinerBindingPairingStmt:                                  q.lockMinerBindingPairingStmt,
 		lockMinerBindingRoutesStmt:                                   q.lockMinerBindingRoutesStmt,
+		lockMiningGroupStateStmt:                                     q.lockMiningGroupStateStmt,
 		lockQueuedDeviceWriteStmt:                                    q.lockQueuedDeviceWriteStmt,
 		lockRackPlacementForWriteStmt:                                q.lockRackPlacementForWriteStmt,
 		lockRacksForReparentStmt:                                     q.lockRacksForReparentStmt,
@@ -8971,6 +9176,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		pauseFirmwareRolloutStmt:                                     q.pauseFirmwareRolloutStmt,
 		prepareTelemetrySeedStmt:                                     q.prepareTelemetrySeedStmt,
 		preserveFirmwareRolloutRetryBaselinesStmt:                    q.preserveFirmwareRolloutRetryBaselinesStmt,
+		pruneDetachedHashboardPoolIntentsStmt:                        q.pruneDetachedHashboardPoolIntentsStmt,
 		pruneExpiredAlertMaintenanceWindowsStmt:                      q.pruneExpiredAlertMaintenanceWindowsStmt,
 		pruneHostedInvitationRateLimitStmt:                           q.pruneHostedInvitationRateLimitStmt,
 		prunePermissionsOutsideKeysStmt:                              q.prunePermissionsOutsideKeysStmt,
@@ -8993,6 +9199,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		recordDeviceWriteRecoveryStmt:                                q.recordDeviceWriteRecoveryStmt,
 		recordFirmwareDeploymentStmt:                                 q.recordFirmwareDeploymentStmt,
 		recordFirmwareRolloutActionStmt:                              q.recordFirmwareRolloutActionStmt,
+		recordMiningGroupRequestStmt:                                 q.recordMiningGroupRequestStmt,
 		recoverTelemetrySeedBatchStmt:                                q.recoverTelemetrySeedBatchStmt,
 		refreshOpenErrorsLastSeenByDeviceStmt:                        q.refreshOpenErrorsLastSeenByDeviceStmt,
 		reincludeFirmwareRolloutDevicesStmt:                          q.reincludeFirmwareRolloutDevicesStmt,
@@ -9040,6 +9247,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		revokeOrganizationInvitationStmt:                             q.revokeOrganizationInvitationStmt,
 		revokePermissionFromRoleStmt:                                 q.revokePermissionFromRoleStmt,
 		revokeSessionStmt:                                            q.revokeSessionStmt,
+		saveMiningGroupStateStmt:                                     q.saveMiningGroupStateStmt,
+		scheduleMiningGroupReconciliationStmt:                        q.scheduleMiningGroupReconciliationStmt,
 		setCurtailmentAutomationActiveEventStmt:                      q.setCurtailmentAutomationActiveEventStmt,
 		setCurtailmentAutomationExecutionErrorStmt:                   q.setCurtailmentAutomationExecutionErrorStmt,
 		setCurtailmentAutomationRestoreStartedStmt:                   q.setCurtailmentAutomationRestoreStartedStmt,
@@ -9047,6 +9256,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		setDevicePairingAuthNeededIfNotPairedStmt:                    q.setDevicePairingAuthNeededIfNotPairedStmt,
 		setFirmwareRolloutControllerWaitStmt:                         q.setFirmwareRolloutControllerWaitStmt,
 		setFleetNodeEnrollmentStatusStmt:                             q.setFleetNodeEnrollmentStatusStmt,
+		setHashboardPoolIntentStmt:                                   q.setHashboardPoolIntentStmt,
 		setHostedAccountAncestorGrantStmt:                            q.setHostedAccountAncestorGrantStmt,
 		setHostedAccountAssetStmt:                                    q.setHostedAccountAssetStmt,
 		setHostedAccountMembershipStmt:                               q.setHostedAccountMembershipStmt,

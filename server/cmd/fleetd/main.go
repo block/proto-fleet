@@ -13,6 +13,10 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	mininggroupsv1connect "github.com/block/proto-fleet/server/generated/grpc/mininggroups/v1/mininggroupsv1connect"
+	mininggroupsDomain "github.com/block/proto-fleet/server/internal/domain/mininggroups"
+	mininggroupsHandler "github.com/block/proto-fleet/server/internal/handlers/mininggroups"
+
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/ipscanner"
 	marketdataDomain "github.com/block/proto-fleet/server/internal/domain/marketdata"
@@ -212,6 +216,7 @@ func normalizeFleetdArgs(args []string) []string {
 // service shape (no business data), so the inclusion list is "all
 // services" rather than a curated subset.
 var reflectEnabledServices = []string{
+	mininggroupsv1connect.MiningGroupServiceName,
 	marketdatav1connect.MarketDataServiceName,
 	hostedv1connect.HostedAccountServiceName,
 	invitationv1connect.InvitationServiceName,
@@ -793,6 +798,7 @@ func start(config *Config) (result error) {
 	if config.Updates.Enabled {
 		releaseCheckerJob = releaseChecker
 	}
+	groupsSvc := mininggroupsDomain.NewService(conn, minerService, hostedPoolsSvc, encryptSvc)
 	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
 		plugins: stopOnlyLifecycle{
 			stop:     pluginService.Shutdown,
@@ -806,6 +812,7 @@ func start(config *Config) (result error) {
 		telemetry:                 telemetryService,
 		ipScanner:                 ipScannerService,
 		commandExecution:          executionService,
+		miningGroupReconciliation: newBackgroundLoop(groupsSvc.Run),
 		scheduleProcessor:         scheduleProcessor,
 		rolloutEnforcement:        rolloutEnforcement,
 		curtailmentReconciler:     curtailmentRec,
@@ -921,6 +928,7 @@ func start(config *Config) (result error) {
 	))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
+	mux.Handle(mininggroupsv1connect.NewMiningGroupServiceHandler(mininggroupsHandler.NewHandler(groupsSvc, hostedPoolsSvc, authSvc), li))
 	mux.Handle(containersv1connect.NewContainerServiceHandler(containersHandler.NewHandler(containersDomain.NewService(sqlstores.NewSQLContainerStore(conn))).WithCommands(commandSvc), li))
 	mux.Handle(fleetinventoryv1connect.NewFleetInventoryServiceHandler(fleetInventoryHandler.NewHandler(fleetInventoryDomain.NewService(db.NewFailoverResettingQuerier(db.NewRetryDB(conn))).WithBuildings(buildingStore).WithMiners(fleetMgmtSvc)), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))

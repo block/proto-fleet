@@ -6,9 +6,17 @@ import ContainerActionsMenu from "./ContainerActionsMenu";
 import { ContainerSchema } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { STATUSES } from "@/shared/features/toaster";
 
-const state = vi.hoisted(() => ({ permissions: [] as string[], deleteMiners: vi.fn(), pushToast: vi.fn() }));
+const state = vi.hoisted(() => ({
+  permissions: [] as string[],
+  deleteMiners: vi.fn(),
+  pushToast: vi.fn(),
+  getState: vi.fn(),
+}));
 vi.mock("@/protoFleet/store", () => ({ usePermissions: () => state.permissions }));
-vi.mock("@/protoFleet/api/clients", () => ({ fleetManagementClient: { deleteMiners: state.deleteMiners } }));
+vi.mock("@/protoFleet/api/clients", () => ({
+  fleetManagementClient: { deleteMiners: state.deleteMiners },
+  miningGroupsClient: { getState: state.getState },
+}));
 
 vi.mock("@/shared/features/toaster", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/shared/features/toaster")>()),
@@ -44,6 +52,7 @@ const renderMenu = (overrides = {}, onUnpaired = vi.fn()) =>
 
 beforeEach(() => {
   state.pushToast.mockClear();
+  state.getState.mockReset().mockResolvedValue({ enabled: false });
   state.permissions = [
     "miner:read",
     "miner:delete",
@@ -93,6 +102,9 @@ describe("container command dispatch", () => {
     expect(request).not.toHaveBeenCalled();
     const dialog = screen.getByTestId("container-action-dialog");
     expect(dialog).toHaveTextContent("Container 1");
+    expect(dialog).toHaveTextContent(
+      "Applies to the whole container. Isolated boards keep their individual mining state.",
+    );
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirm" }));
     await waitFor(() => expect(screen.queryByTestId("container-action-dialog")).not.toBeInTheDocument());
     expect(request).toHaveBeenCalledTimes(1);
@@ -506,4 +518,68 @@ describe("container unpair", () => {
     expect(screen.getByRole("button", { name: "Unpair" })).toBeDisabled();
     expect(state.deleteMiners).not.toHaveBeenCalled();
   });
+});
+
+it.each([true, false])("confirms default-group-only scope after activation (mining=%s)", async (mining) => {
+  state.getState.mockResolvedValue({ enabled: true });
+  statusRequest.mockImplementation(async () => json({ mining }));
+  const verb = mining ? "Sleep" : "Wake";
+  renderMenu();
+  fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+  await screen.findByRole("button", { name: `${verb} default mining group` });
+  expect(screen.queryByRole("button", { name: `${verb} container` })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: `${verb} default mining group` }));
+  expect(screen.getByTestId("container-action-dialog")).toHaveTextContent(
+    "Applies only to the default mining group. Other mining groups are unaffected.",
+  );
+  expect(screen.getByTestId("container-action-dialog")).not.toHaveTextContent("whole container");
+});
+
+it.each([true, false])("keeps legacy controls available when group observation fails (mining=%s)", async (mining) => {
+  state.getState.mockRejectedValue(new Error("Fleet Node requires protocol v6"));
+  statusRequest.mockImplementation(async () => json({ mining }));
+  renderMenu();
+  fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+  expect(await screen.findByRole("button", { name: mining ? "Sleep" : "Wake" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Manage power" })).toBeEnabled();
+  expect(
+    screen.queryByRole("button", { name: /default mining group|Sleep container|Wake container/ }),
+  ).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: mining ? "Sleep" : "Wake" }));
+  expect(screen.getByTestId("container-action-dialog")).toHaveTextContent(
+    "If mining groups are enabled, this affects only the default mining group.",
+  );
+  expect(screen.getByTestId("container-action-dialog")).not.toHaveTextContent("whole container");
+});
+
+it("does not wait for group observation before enabling legacy controls", async () => {
+  state.getState.mockReturnValue(new Promise(() => {}));
+  renderMenu();
+  fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+  expect(await screen.findByRole("button", { name: "Sleep" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Manage power" })).toBeEnabled();
+});
+
+it.each([
+  { supported: false, enabled: false, visible: false },
+  { supported: true, enabled: false, visible: true },
+  { supported: true, enabled: true, visible: false },
+])("gates activation on controller support and state: %j", async ({ supported, enabled, visible }) => {
+  state.permissions = ["miner:read", "miner:activate_mining_groups", "miner:start_mining", "miner:stop_mining"];
+  state.getState.mockResolvedValue({ supported, enabled });
+  renderMenu();
+  fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+  await waitFor(() => expect(state.getState).toHaveBeenCalled());
+  await waitFor(() => expect(!!screen.queryByRole("button", { name: "Enable mining groups" })).toBe(visible));
+});
+
+it.each(["miner:start_mining", "miner:stop_mining"])("hides activation without %s", async (missing) => {
+  state.permissions = ["miner:read", "miner:activate_mining_groups", "miner:start_mining", "miner:stop_mining"].filter(
+    (permission) => permission !== missing,
+  );
+  state.getState.mockResolvedValue({ supported: true, enabled: false });
+  renderMenu();
+  fireEvent.click(screen.getByRole("button", { name: "Actions for Container 1" }));
+  await waitFor(() => expect(state.getState).toHaveBeenCalled());
+  expect(screen.queryByRole("button", { name: "Enable mining groups" })).not.toBeInTheDocument();
 });

@@ -8,6 +8,9 @@ import {
 } from "./containerActions";
 import ContainerSiteDialog from "./ContainerSiteDialog";
 import ContainerUnpairDialog from "./ContainerUnpairDialog";
+import { hasMiningGroupPermissions } from "./miningGroupPermissions";
+import MiningGroupsDialog from "./MiningGroupsDialog";
+import { useMiningGroupState } from "./useMiningGroupState";
 import { useOpenContainerView } from "./useOpenContainerView";
 import type { Container } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import { ACTION_PERMISSIONS } from "@/protoFleet/features/fleetManagement/components/MinerActionsMenu/actionPermissions";
@@ -37,6 +40,7 @@ export default function ContainerActionsMenu({
   onUnpaired?: (deviceIdentifier: string) => void;
 }) {
   const permissions = usePermissions();
+  const [groupsOpen, setGroupsOpen] = useState(false);
   const openContainerView = useOpenContainerView();
   const [action, setAction] = useState<ContainerAction>();
   const [unpairOpen, setUnpairOpen] = useState(false);
@@ -54,6 +58,8 @@ export default function ContainerActionsMenu({
   const hasControls = permittedActions.length > 0;
   const { deviceIdentifier } = container;
   const currentStatus = status?.deviceIdentifier === deviceIdentifier ? status : undefined;
+  const { state: groups } = useMiningGroupState(deviceIdentifier, open && permissions.includes("miner:read"));
+  const groupsEnabled = groups?.enabled;
 
   useEffect(() => {
     if (!open || !hasControls) return;
@@ -61,7 +67,11 @@ export default function ContainerActionsMenu({
     void requestContainerAction(deviceIdentifier, "mining/status", "GET", undefined, abort.signal)
       .then((data) => {
         if (!abort.signal.aborted)
-          setStatus({ deviceIdentifier, available: true, command: containerMiningCommand(data) });
+          setStatus({
+            deviceIdentifier,
+            available: true,
+            command: containerMiningCommand(data),
+          });
       })
       .catch(() => {
         if (!abort.signal.aborted) setStatus({ deviceIdentifier, available: false });
@@ -71,12 +81,16 @@ export default function ContainerActionsMenu({
 
   const commands: RowAction[] = permittedActions
     .filter((entry) => entry.kind === "command" && entry.path === currentStatus?.command)
-    .map((entry) => ({
-      label: entry.label,
-      icon: entry.path === "mining/start" ? <Play /> : <Power />,
-      showGroupDivider: true,
-      onClick: () => setAction(entry),
-    }));
+    .map((entry) => {
+      const verb = entry.path === "mining/start" ? "Wake" : "Sleep";
+      const label = groupsEnabled === undefined ? verb : groupsEnabled ? `${verb} default mining group` : entry.label;
+      return {
+        label,
+        icon: entry.path === "mining/start" ? <Play /> : <Power />,
+        showGroupDivider: true,
+        onClick: () => setAction({ ...entry, label }),
+      };
+    });
   if (hasMiningActions && commands.length === 0) {
     commands.push({
       label:
@@ -99,6 +113,12 @@ export default function ContainerActionsMenu({
           icon: <ArrowRight className="text-text-primary" />,
           showGroupDivider: true,
           onClick: () => openContainerView(container),
+        },
+        {
+          label: "Enable mining groups",
+          icon: <MiningPools />,
+          hidden: !hasMiningGroupPermissions(permissions, "activate") || !groups?.supported || groups.enabled,
+          onClick: () => setGroupsOpen(true),
         },
         ...commands,
         ...permittedActions
@@ -151,10 +171,15 @@ export default function ContainerActionsMenu({
         triggerClassName="!size-8 !rounded-full !p-0 text-text-primary-70"
         actions={actions}
         onOpenChange={(nextOpen) => {
-          if (nextOpen) setStatus(undefined);
+          if (nextOpen) {
+            setStatus(undefined);
+          }
           setOpen(nextOpen);
         }}
       />
+      {groupsOpen ? (
+        <MiningGroupsDialog deviceIdentifier={deviceIdentifier} onClose={() => setGroupsOpen(false)} />
+      ) : null}
       {assigningSite ? (
         <ContainerSiteDialog container={container} onClose={() => setAssigningSite(false)} onSaved={onSiteChanged} />
       ) : null}
@@ -163,6 +188,7 @@ export default function ContainerActionsMenu({
           key={`${container.deviceIdentifier}:${action.path}`}
           container={container}
           action={action}
+          miningScope={groupsEnabled === undefined ? "unknown" : groupsEnabled ? "default-group" : "container"}
           onClose={() => setAction(undefined)}
         />
       ) : null}

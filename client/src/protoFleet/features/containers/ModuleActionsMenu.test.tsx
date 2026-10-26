@@ -70,7 +70,7 @@ it("confirms named modules and preserves exact selection and known successes acr
     }),
   );
 });
-it("shows unsupported or stale scope without offering a container operation", async () => {
+it("disables unsafe module controls without rendering identity diagnostics as menu items", async () => {
   mocks.options.mockResolvedValue({
     canStart: false,
     canStop: false,
@@ -78,7 +78,9 @@ it("shows unsupported or stale scope without offering a container operation", as
   });
   render(<MiningActionsMenu kind="module" items={[modules[0]]} onRefresh={vi.fn()} />);
   fireEvent.click(screen.getByRole("button", { name: "Actions for North T1 M2" }));
-  await screen.findByRole("button", { name: "Module identity unavailable" });
+  await waitFor(() => expect(mocks.options).toHaveBeenCalled());
+  expect(screen.queryByRole("button", { name: "Module identity unavailable" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Checking module controls…" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Start mining" })).toBeDisabled();
   expect(screen.getByRole("button", { name: "Stop mining" })).toBeDisabled();
   expect(screen.queryByRole("button", { name: "Reboot" })).not.toBeInTheDocument();

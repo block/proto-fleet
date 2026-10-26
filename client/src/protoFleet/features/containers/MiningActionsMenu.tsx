@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from "react";
+import EditHashboardPoolDialog from "./EditHashboardPoolDialog";
 import MiningDialog from "./MiningDialog";
+import { hasMiningGroupPermissions } from "./miningGroupPermissions";
+import { canEditHashboardPools, useMiningGroupState } from "./useMiningGroupState";
 import { containersClient } from "@/protoFleet/api/clients";
 import type { GetModuleMiningOptionsResponse } from "@/protoFleet/api/generated/containers/v1/containers_pb";
 import type { InventoryItem } from "@/protoFleet/api/generated/fleetinventory/v1/fleetinventory_pb";
 import { getErrorMessage } from "@/protoFleet/api/getErrorMessage";
-import { ChevronDown, Play, Power } from "@/shared/assets/icons";
+import { usePermissions } from "@/protoFleet/store";
+import { ChevronDown, MiningPools, Play, Power } from "@/shared/assets/icons";
 import { iconSizes } from "@/shared/assets/icons/constants";
 import { variants } from "@/shared/components/Button";
+import ProgressCircular from "@/shared/components/ProgressCircular";
 import RowActionsMenu from "@/shared/components/RowActionsMenu";
 import { useMountedCallback } from "@/shared/hooks/useMountedCallback";
 
@@ -27,8 +32,17 @@ export default function MiningActionsMenu({
   onActionComplete?: () => void;
   unavailable?: boolean;
 }) {
+  const permissions = usePermissions();
+  const [poolsOpen, setPoolsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
+  const canEditPools =
+    kind === "module" && hasMiningGroupPermissions(permissions, "pools") && permissions.includes("pool:read");
+  const oneContainer = new Set(items.map((item) => item.deviceIdentifier)).size === 1;
+  const { state: groups, isFetching } = useMiningGroupState(
+    oneContainer ? items[0].deviceIdentifier : "",
+    open && canEditPools,
+  );
   const [result, setResult] = useState<{
     key: string;
     options?: Pick<GetModuleMiningOptionsResponse, "canStart" | "canStop" | "unavailableReason">;
@@ -102,6 +116,18 @@ export default function MiningActionsMenu({
         }}
         actions={[
           {
+            label: "Edit pool",
+            icon:
+              !unavailable && oneContainer && isFetching && !canEditHashboardPools(groups) ? (
+                <ProgressCircular indeterminate size={18} dataTestId="pool-readiness-spinner" />
+              ) : (
+                <MiningPools />
+              ),
+            hidden: !canEditPools || groups?.supported === false,
+            disabled: unavailable || !oneContainer || !canEditHashboardPools(groups),
+            onClick: () => setPoolsOpen(true),
+          },
+          {
             label: "Start mining",
             icon: <Play />,
             hidden: !start && !showDisabledActions,
@@ -119,12 +145,20 @@ export default function MiningActionsMenu({
             label: unavailable
               ? "Controls unavailable until module status refreshes."
               : error || options?.unavailableReason || `Checking ${kind} controls…`,
-            hidden: !showDisabledActions,
+            hidden: kind === "module" || !showDisabledActions,
             disabled: true,
             onClick: () => undefined,
           },
         ]}
       />
+      {poolsOpen ? (
+        <EditHashboardPoolDialog
+          key={`${items[0].deviceIdentifier}:${key}`}
+          deviceIdentifier={items[0].deviceIdentifier}
+          moduleIds={items.map((i) => i.ref!.id)}
+          onClose={() => setPoolsOpen(false)}
+        />
+      ) : null}
       {mining !== undefined ? (
         <MiningDialog
           key={`${key}:${mining}`}
