@@ -151,15 +151,10 @@ func RunCompose(ctx context.Context, args []string) error {
 }
 
 func runCompose(ctx context.Context, args []string, stdin io.Reader) error {
-	environment, external, err := composeEnvironment(args)
+	command, err := composeCommand(ctx, args)
 	if err != nil {
 		return err
 	}
-	args = endpointComposeArgs(args, external)
-
-	commandArgs := append([]string{"--host", localDockerHost, "compose"}, args...)
-	command := exec.CommandContext(ctx, "docker", commandArgs...)
-	command.Env = environment
 	command.Stdin = stdin
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
@@ -167,6 +162,31 @@ func runCompose(ctx context.Context, args []string, stdin io.Reader) error {
 		return fmt.Errorf("run Docker Compose: %w", err)
 	}
 	return nil
+}
+
+func composeCommand(ctx context.Context, args []string) (*exec.Cmd, error) {
+	environment, external, err := composeEnvironment(args)
+	if err != nil {
+		return nil, err
+	}
+	args = endpointComposeArgs(args, external)
+	commandArgs := append([]string{"--host", localDockerHost, "compose"}, args...)
+	command := exec.CommandContext(ctx, "docker", commandArgs...)
+	command.Env = environment
+	return command, nil
+}
+
+func readComposeOutput(ctx context.Context, args []string) ([]byte, error) {
+	command, err := composeCommand(ctx, args)
+	if err != nil {
+		return nil, err
+	}
+	command.Stderr = os.Stderr
+	output, err := command.Output()
+	if err != nil {
+		return nil, fmt.Errorf("read Docker Compose output: %w", err)
+	}
+	return output, nil
 }
 
 func endpointComposeArgs(args []string, external bool) []string {

@@ -28,6 +28,19 @@ func requirePassiveStatus(ctx context.Context, envPath string) (StatusReport, er
 	return report, nil
 }
 
+// ValidateUpdatePreparation permits either serving role because preparation
+// cannot stop or replace the application.
+func ValidateUpdatePreparation(ctx context.Context, envPath string) error {
+	report, err := Status(ctx, envPath)
+	if err != nil {
+		return err
+	}
+	if report.Runtime.Observation != ha.ObservationCurrent || (report.Runtime.Role != ha.RoleActive && report.Runtime.Role != ha.RolePassive) || !rollingUpdateControlReady(report.Control) {
+		return errors.New("HA update preparation requires a healthy active or passive node with a healthy control path")
+	}
+	return nil
+}
+
 // ValidatePassiveUpdate proves that the active peer runs either the local or
 // target release before the passive host changes versions.
 func ValidatePassiveUpdate(ctx context.Context, envPath, targetVersion string) error {
@@ -43,10 +56,7 @@ func ValidatePassiveUpdate(ctx context.Context, envPath, targetVersion string) e
 	if err != nil {
 		return err
 	}
-	peerAddress := config.DatabaseAIP
-	if config.NodeIP == config.DatabaseAIP {
-		peerAddress = config.DatabaseBIP
-	}
+	peerAddress := config.peerAddress()
 	peer := probeFleetHost(ctx, tlsConfig, config.hostCertificateIdentity(peerAddress), peerAddress)
 	if !peer.reachable || !peer.active || (peer.version != report.Runtime.Version && peer.version != targetVersion) {
 		return fmt.Errorf("HA application update requires the active peer to run %s or %s", report.Runtime.Version, targetVersion)
@@ -100,10 +110,7 @@ func requireUpdatedPeer(ctx context.Context, envPath, targetVersion string) erro
 	if err != nil {
 		return err
 	}
-	peerAddress := config.DatabaseAIP
-	if config.NodeIP == config.DatabaseAIP {
-		peerAddress = config.DatabaseBIP
-	}
+	peerAddress := config.peerAddress()
 	tlsConfig, err := ha.LoadServiceTLS(filepath.Join(config.SecretsDir, "service-ca.crt"))
 	if err != nil {
 		return err
@@ -129,7 +136,7 @@ func PrepareApplicationUpdate(ctx context.Context, root string) error {
 	if err != nil {
 		return err
 	}
-	return prepareApplicationUpdate(ctx, root, profile, defaultInstallDependencies(), RunCompose, EtcdStatus)
+	return prepareApplicationUpdate(ctx, root, profile, defaultInstallDependencies(), RunCompose, readComposeOutput, EtcdStatus)
 }
 
 func loadUpdateCompatibleProfile(path string) (fleetApplicationProfile, error) {
@@ -140,7 +147,7 @@ func loadUpdateCompatibleProfile(path string) (fleetApplicationProfile, error) {
 	return profile, nil
 }
 
-func prepareApplicationUpdate(ctx context.Context, root string, profile fleetApplicationProfile, deps installDependencies, runCompose func(context.Context, []string) error, etcdStatus func(context.Context, string) (EtcdReport, error)) error {
+func prepareApplicationUpdate(ctx context.Context, root string, profile fleetApplicationProfile, deps installDependencies, runCompose func(context.Context, []string) error, composeOutput func(context.Context, []string) ([]byte, error), etcdStatus func(context.Context, string) (EtcdReport, error)) error {
 	// The target release must check its new readiness prerequisites before the
 	// installed (possibly older) binary stops the passive application.
 	report, err := etcdStatus(ctx, filepath.Join(configRoot, "node.env"))
@@ -172,6 +179,9 @@ func prepareApplicationUpdate(ctx context.Context, root string, profile fleetApp
 		if output, err := deps.run(ctx, "docker", "image", "inspect", image); err != nil {
 			return fmt.Errorf("release archive did not load required image %s: %s", image, commandError(output, err))
 		}
+	}
+	if err := recordPreparedApplicationImages(ctx, root, profile, composeOutput, deps.run); err != nil {
+		return err
 	}
 	return recordActiveInstall(ctx, deps)
 }
@@ -264,6 +274,9 @@ func updatedPassivePeerReady(status fleetHostStatus, targetVersion string) bool 
 
 // StartApplication starts the target release and proves it serves its observed HA role.
 func StartApplication(ctx context.Context, root, targetVersion string, requirePassive, requireFailoverReady bool) error {
+	if err := clearControlledStartToken(controlledStartToken); err != nil {
+		return err
+	}
 	profile, err := loadUpdateCompatibleProfile(installedFleetEnvironment)
 	if err != nil {
 		return err
@@ -298,7 +311,12 @@ func StartApplication(ctx context.Context, root, targetVersion string, requirePa
 	if statusErr != nil && !errors.Is(statusErr, syscall.ECONNREFUSED) {
 		return fmt.Errorf("verify local HA application is stopped: %w", statusErr)
 	}
-	if err := startFleetApplication(ctx, root, "-d", "--no-deps", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "60"); err != nil {
+	if err := startApplicationWithCooldown(ctx, controlledStartToken, requirePassive, statusErr, func() fleetHostStatus {
+		peerAddress := config.peerAddress()
+		return probeFleetHost(ctx, tlsConfig, config.hostCertificateIdentity(peerAddress), peerAddress)
+	}, func() error {
+		return startFleetApplication(ctx, root, "-d", "--no-deps", "--no-build", "--pull", "never", "--wait", "--wait-timeout", "60")
+	}); err != nil {
 		return fmt.Errorf("start HA application: %w", err)
 	}
 	for {

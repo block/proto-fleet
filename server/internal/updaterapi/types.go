@@ -25,6 +25,8 @@ type Operation struct {
 	ID              string     `json:"id"`
 	TargetVersion   string     `json:"target_version"`
 	Complete        bool       `json:"complete,omitempty"`
+	PrepareOnly     bool       `json:"prepare_only,omitempty"`
+	Prepared        bool       `json:"prepared,omitempty"`
 	Phase           Phase      `json:"phase"`
 	Message         string     `json:"message,omitempty"`
 	StartedAt       time.Time  `json:"started_at"`
@@ -43,7 +45,10 @@ type Operation struct {
 	Acknowledged bool `json:"acknowledged,omitempty"`
 }
 
+const CapabilityPreparedUpdateV1 = "prepared-update-v1"
+
 type StatusResponse struct {
+	Capabilities      []string   `json:"capabilities,omitempty"`
 	Operation         *Operation `json:"operation,omitempty"`
 	ReleaseRepository string     `json:"release_repository,omitempty"`
 }
@@ -52,6 +57,8 @@ type TriggerRequest struct {
 	OperationID   string `json:"operation_id"`
 	TargetVersion string `json:"target_version"`
 	Complete      bool   `json:"complete,omitempty"`
+	PrepareOnly   bool   `json:"prepare_only,omitempty"`
+	Prepared      bool   `json:"prepared,omitempty"`
 }
 
 type TriggerResponse struct {

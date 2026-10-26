@@ -3,6 +3,7 @@ package updaterapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -101,4 +102,45 @@ func TestClientAcknowledgeCarriesAndValidatesOutcomeIdentity(t *testing.T) {
 		var protocolErr *ProtocolError
 		require.ErrorAs(t, err, &protocolErr)
 	})
+}
+
+func TestPreparedClientChecksOperationModeIdentity(t *testing.T) {
+	for _, mode := range []string{"prepare", "prepared", "complete"} {
+		for _, dropMode := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/drop-mode=%t", mode, dropMode), func(t *testing.T) {
+				// Arrange
+				client := NewClientWithHTTP(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+					var body TriggerRequest
+					require.NoError(t, json.NewDecoder(request.Body).Decode(&body))
+					operation := Operation{ID: body.OperationID, TargetVersion: body.TargetVersion, Complete: body.Complete, PrepareOnly: body.PrepareOnly, Prepared: body.Prepared}
+					require.Equal(t, mode == "prepare", body.PrepareOnly)
+					require.Equal(t, mode != "prepare", body.Prepared)
+					require.Equal(t, mode == "complete", body.Complete)
+					if dropMode {
+						operation.PrepareOnly = false
+						operation.Prepared = false
+					}
+					encoded, err := json.Marshal(TriggerResponse{Operation: operation})
+					require.NoError(t, err)
+					return &http.Response{StatusCode: http.StatusAccepted, Body: io.NopCloser(strings.NewReader(string(encoded))), Header: make(http.Header), Request: request}, nil
+				})})
+
+				// Act
+				var err error
+				if mode == "prepare" {
+					_, err = client.Prepare(t.Context(), "operation", "v1.2.3")
+				} else {
+					_, err = client.TriggerPrepared(t.Context(), "operation", "v1.2.3", mode == "complete")
+				}
+
+				// Assert
+				if dropMode {
+					var protocolErr *ProtocolError
+					require.ErrorAs(t, err, &protocolErr)
+				} else {
+					require.NoError(t, err)
+				}
+			})
+		}
+	}
 }
