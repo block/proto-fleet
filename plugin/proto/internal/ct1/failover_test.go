@@ -372,7 +372,7 @@ func TestHAWebViewUsesSavedEndpointWithoutProbing(t *testing.T) {
 	a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
 	b.primary.Store(true)
 	info := haInfo(a, b)
-	info.Host, info.Port, info.URLScheme = "browser.example", 8443, "https"
+	info.Host, info.Port, info.URLScheme = "2001:db8::1", 8443, "https"
 	d, err := NewDevice(t.Context(), "container", info, sdk.UsernamePassword{})
 	require.NoError(t, err)
 	defer d.Close(t.Context())
@@ -386,17 +386,9 @@ func TestHAWebViewUsesSavedEndpointWithoutProbing(t *testing.T) {
 	web, supported, err := d.TryGetWebViewURL(ctx)
 	require.NoError(t, err)
 	require.True(t, supported)
-	require.Equal(t, "https://browser.example:8443", web)
+	require.Equal(t, "https://[2001:db8::1]:8443", web)
 	require.EqualValues(t, 1, a.infoReads.Load())
 	require.EqualValues(t, 1, b.infoReads.Load())
-}
-
-func TestWebViewFormatsSavedIPv6Endpoint(t *testing.T) {
-	d := &Device{info: sdk.DeviceInfo{Host: "2001:db8::1", Port: 8080, URLScheme: "http"}}
-	web, supported, err := d.TryGetWebViewURL(t.Context())
-	require.NoError(t, err)
-	require.True(t, supported)
-	require.Equal(t, "http://[2001:db8::1]:8080", web)
 }
 
 func TestHADegradedUnlessPairIsSettled(t *testing.T) {

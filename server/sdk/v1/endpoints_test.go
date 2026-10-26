@@ -20,10 +20,14 @@ func TestEndpointAndHAPluginTransport(t *testing.T) {
 }
 
 func TestDeviceEndpointKeyRejectsConflictingMetadata(t *testing.T) {
-	valid := []DeviceEndpoint{{ID: "a", DeviceKey: "opaque", Host: "10.0.0.11", Port: 8080, URLScheme: "http", RPCPort: 9095}, {ID: "b", DeviceKey: "opaque", Host: "10.0.0.12", Port: 8080, URLScheme: "http", RPCPort: 9095}}
+	valid := []DeviceEndpoint{
+		{ID: "a", DeviceKey: "opaque", MemberIDs: []string{"a", "b"}, Host: "10.0.0.11", Port: 8080, URLScheme: "http", RPCPort: 9095},
+		{ID: "b", DeviceKey: "opaque", MemberIDs: []string{"b", "a"}, Host: "10.0.0.12", Port: 8080, URLScheme: "http", RPCPort: 9095},
+	}
 	key, err := DeviceEndpointKey(valid)
 	require.NoError(t, err)
 	require.Equal(t, "opaque", key)
+	require.Equal(t, []string{"b", "a"}, valid[1].MemberIDs, "validation must not reorder the caller's member IDs")
 	for _, change := range []func([]DeviceEndpoint){
 		func(e []DeviceEndpoint) { e[1].DeviceKey = "other" },
 		func(e []DeviceEndpoint) { e[1].ID = "a" },
@@ -43,15 +47,4 @@ func TestDeviceEndpointKeyRejectsConflictingMetadata(t *testing.T) {
 		_, err := DeviceEndpointKey(changed)
 		require.Error(t, err)
 	}
-}
-
-func TestDeviceEndpointMembersAllowEitherOrder(t *testing.T) {
-	endpoints := []DeviceEndpoint{
-		{ID: "a", DeviceKey: "opaque", MemberIDs: []string{"a", "b"}, Host: "10.0.0.11", Port: 8080, URLScheme: "http"},
-		{ID: "b", DeviceKey: "opaque", MemberIDs: []string{"b", "a"}, Host: "10.0.0.12", Port: 8080, URLScheme: "http"},
-	}
-	key, err := DeviceEndpointKey(endpoints)
-	require.NoError(t, err)
-	require.Equal(t, "opaque", key)
-	require.Equal(t, []string{"b", "a"}, endpoints[1].MemberIDs)
 }

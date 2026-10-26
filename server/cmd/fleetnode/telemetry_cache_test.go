@@ -11,6 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	telemetrypb "github.com/block/proto-fleet/server/generated/grpc/telemetry/v1"
 	"github.com/block/proto-fleet/server/internal/domain/plugins"
@@ -40,14 +41,19 @@ func (telemetryTestSecrets) SecretBundle(target *pb.MinerConnectionDescriptor) (
 
 func TestTelemetryReplacesChangedDevice(t *testing.T) {
 	for name, change := range map[string]func(*telemetrypb.FleetNodeTelemetryRequest){
-		"address":     func(r *telemetrypb.FleetNodeTelemetryRequest) { r.IpAddress = "10.0.0.6" },
-		"credentials": func(r *telemetrypb.FleetNodeTelemetryRequest) { r.CredentialPassword = []byte("changed") },
+		"address":            func(r *telemetrypb.FleetNodeTelemetryRequest) { r.IpAddress = "10.0.0.6" },
+		"credentials":        func(r *telemetrypb.FleetNodeTelemetryRequest) { r.CredentialPassword = []byte("changed") },
+		"alternate endpoint": func(r *telemetrypb.FleetNodeTelemetryRequest) { r.Endpoints[1].Host = "10.0.0.22" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			impl := &cleanupTestDriver{}
 			fetcher := newHandleTestTelemetryFetcher(t, newHandleTestGRPCDriver(t, impl), newCleanupTestPool(t, 4))
 			fetcher.minerSecrets = telemetryTestSecrets{}
 			req := handleTestTelemetryRequest()
+			req.Endpoints = []*commonpb.DeviceEndpoint{
+				{Id: "a", DeviceKey: "opaque", Host: req.IpAddress, Port: 8080, UrlScheme: "http", RpcPort: 9095},
+				{Id: "b", DeviceKey: "opaque", Host: "10.0.0.12", Port: 8080, UrlScheme: "http", RpcPort: 9095},
+			}
 			_, err := fetcher.Fetch(t.Context(), req)
 			require.NoError(t, err)
 			change(req)
@@ -193,14 +199,4 @@ func TestTelemetryFingerprintIncludesRPCEndpoint(t *testing.T) {
 	third, err := telemetryClientFingerprint(info, sdk.SecretBundle{})
 	require.NoError(t, err)
 	require.NotEqual(t, second, third)
-}
-
-func TestTelemetryFingerprintChangesWithAlternateEndpoint(t *testing.T) {
-	info := sdk.DeviceInfo{Endpoints: []sdk.DeviceEndpoint{{ID: "a", DeviceKey: "opaque", Host: "10.0.0.11"}, {ID: "b", DeviceKey: "opaque", Host: "10.0.0.12"}}}
-	before, err := telemetryClientFingerprint(info, sdk.SecretBundle{})
-	require.NoError(t, err)
-	info.Endpoints[1].Host = "10.0.0.22"
-	after, err := telemetryClientFingerprint(info, sdk.SecretBundle{})
-	require.NoError(t, err)
-	require.NotEqual(t, before, after)
 }
