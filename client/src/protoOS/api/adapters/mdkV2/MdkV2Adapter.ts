@@ -201,7 +201,7 @@ export class MdkV2Adapter implements MinerAdapter {
     const decorated = this.decorate(params);
     const [map, health] = await Promise.all([
       this.client.hashboardServiceGetContainerMap(decorated),
-      this.client.telemetryServiceGetContainerHealth(decorated).catch((error) => {
+      this.client.telemetryServiceGetContainerHealth({}, decorated).catch((error) => {
         // A mixed-version CT1 deployment may not expose plant health yet.
         // Preserve the existing board/PSU errors in that case.
         const status = (error as { status?: number })?.status;
@@ -339,7 +339,7 @@ export class MdkV2Adapter implements MinerAdapter {
     const [map, status, telemetry] = await Promise.all([
       this.client.hashboardServiceGetContainerMap(decorated),
       this.client.miningServiceGetMiningStatus(decorated),
-      this.client.telemetryServiceGetContainerHealth(decorated),
+      this.client.telemetryServiceGetContainerHealth({}, decorated),
     ]);
     return toCanonicalContainer(map.data, status.data, telemetry.data, deviceId);
   }
@@ -524,7 +524,7 @@ export class MdkV2Adapter implements MinerAdapter {
     const decorated = this.decorate(params);
     const [status, telemetry] = await Promise.all([
       this.client.miningServiceGetMiningStatus(decorated),
-      this.client.telemetryServiceGetContainerHealth(decorated),
+      this.client.telemetryServiceGetContainerHealth({}, decorated),
     ]);
     return toCanonicalContainerTelemetry(status.data, telemetry.data, this.containerDeviceId());
   }
@@ -652,7 +652,7 @@ export class MdkV2Adapter implements MinerAdapter {
   }
 
   async getCoolingStatus(params: AdapterRequestOptions = {}) {
-    const response = await this.client.telemetryServiceGetContainerHealth(this.decorate(params));
+    const response = await this.client.telemetryServiceGetContainerHealth({}, this.decorate(params));
     return { mode: "unknown" as CoolingMode, fans: toCanonicalContainerFans(response.data, this.containerDeviceId()) };
   }
 

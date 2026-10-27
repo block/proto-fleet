@@ -22,6 +22,7 @@ const _ = grpc.SupportPackageIsVersion7
 const (
 	SystemService_GetSystemInfo_FullMethodName       = "/mdk.v2.SystemService/GetSystemInfo"
 	SystemService_GetSystemStatus_FullMethodName     = "/mdk.v2.SystemService/GetSystemStatus"
+	SystemService_GetHAStatus_FullMethodName         = "/mdk.v2.SystemService/GetHAStatus"
 	SystemService_GetHardwareInfo_FullMethodName     = "/mdk.v2.SystemService/GetHardwareInfo"
 	SystemService_ListPowerSupplies_FullMethodName   = "/mdk.v2.SystemService/ListPowerSupplies"
 	SystemService_UpdatePSUFirmware_FullMethodName   = "/mdk.v2.SystemService/UpdatePSUFirmware"
@@ -52,6 +53,8 @@ type SystemServiceClient interface {
 	GetSystemInfo(ctx context.Context, in *GetSystemInfoRequest, opts ...grpc.CallOption) (*GetSystemInfoResponse, error)
 	// GetSystemStatus returns current system status.
 	GetSystemStatus(ctx context.Context, in *GetSystemStatusRequest, opts ...grpc.CallOption) (*GetSystemStatusResponse, error)
+	// GetHAStatus returns this server's cached HA identity and observations.
+	GetHAStatus(ctx context.Context, in *GetHAStatusRequest, opts ...grpc.CallOption) (*GetHAStatusResponse, error)
 	// GetHardwareInfo returns hardware details.
 	GetHardwareInfo(ctx context.Context, in *GetHardwareInfoRequest, opts ...grpc.CallOption) (*GetHardwareInfoResponse, error)
 	// ListPowerSupplies returns information about installed PSUs.
@@ -119,6 +122,15 @@ func (c *systemServiceClient) GetSystemInfo(ctx context.Context, in *GetSystemIn
 func (c *systemServiceClient) GetSystemStatus(ctx context.Context, in *GetSystemStatusRequest, opts ...grpc.CallOption) (*GetSystemStatusResponse, error) {
 	out := new(GetSystemStatusResponse)
 	err := c.cc.Invoke(ctx, SystemService_GetSystemStatus_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *systemServiceClient) GetHAStatus(ctx context.Context, in *GetHAStatusRequest, opts ...grpc.CallOption) (*GetHAStatusResponse, error) {
+	out := new(GetHAStatusResponse)
+	err := c.cc.Invoke(ctx, SystemService_GetHAStatus_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -384,6 +396,8 @@ type SystemServiceServer interface {
 	GetSystemInfo(context.Context, *GetSystemInfoRequest) (*GetSystemInfoResponse, error)
 	// GetSystemStatus returns current system status.
 	GetSystemStatus(context.Context, *GetSystemStatusRequest) (*GetSystemStatusResponse, error)
+	// GetHAStatus returns this server's cached HA identity and observations.
+	GetHAStatus(context.Context, *GetHAStatusRequest) (*GetHAStatusResponse, error)
 	// GetHardwareInfo returns hardware details.
 	GetHardwareInfo(context.Context, *GetHardwareInfoRequest) (*GetHardwareInfoResponse, error)
 	// ListPowerSupplies returns information about installed PSUs.
@@ -441,6 +455,9 @@ func (UnimplementedSystemServiceServer) GetSystemInfo(context.Context, *GetSyste
 }
 func (UnimplementedSystemServiceServer) GetSystemStatus(context.Context, *GetSystemStatusRequest) (*GetSystemStatusResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetSystemStatus not implemented")
+}
+func (UnimplementedSystemServiceServer) GetHAStatus(context.Context, *GetHAStatusRequest) (*GetHAStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetHAStatus not implemented")
 }
 func (UnimplementedSystemServiceServer) GetHardwareInfo(context.Context, *GetHardwareInfoRequest) (*GetHardwareInfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetHardwareInfo not implemented")
@@ -547,6 +564,24 @@ func _SystemService_GetSystemStatus_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(SystemServiceServer).GetSystemStatus(ctx, req.(*GetSystemStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SystemService_GetHAStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetHAStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SystemServiceServer).GetHAStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SystemService_GetHAStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SystemServiceServer).GetHAStatus(ctx, req.(*GetHAStatusRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -939,6 +974,10 @@ var SystemService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetSystemStatus",
 			Handler:    _SystemService_GetSystemStatus_Handler,
+		},
+		{
+			MethodName: "GetHAStatus",
+			Handler:    _SystemService_GetHAStatus_Handler,
 		},
 		{
 			MethodName: "GetHardwareInfo",

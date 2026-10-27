@@ -9,14 +9,15 @@ Retained historical ingestion remains #179.
 ## Firmware contract
 
 The shared [MDK module](../../sdk/mdk/README.md) pins Frigate commit
-`e069860da77f91857d664d26bbadd6672e0463ba`, the upstream main revision selected
-at implementation start. This is a source compatibility target, not a qualified
-hardware deployment. Both the plugin and fake-ct1 use the same generated types.
+`6acbeba0dcde568d33ca7121aee15a3b567abb4f`. This is a source compatibility
+target, not a qualified hardware deployment. Both the plugin and fake-ct1 use
+the same generated types.
 
 At that revision, `internal/config/config.go` defaults `server.mdk_listen` to
 `:9095` and `server.api_listen` to `:8080`. `pkg/api/server.go` registers the
-System, Hashboard, Mining, Telemetry and Power services on a plaintext gRPC
-server. There is no registered AuthService/login RPC. The optional
+public MDK v2 services, including System, Hashboard, Mining, MiningGroup,
+Telemetry, Power, Pool, and RunIn, on a plaintext gRPC server. There is no
+registered AuthService/login RPC. The optional
 `server.mdk_auth.enabled` / `server.mdk_auth.token_file` configuration gates
 native RPCs with a shared bearer credential (`pkg/api/mdkauth/auth.go`).
 It is disabled by default. Audit actor metadata does not authenticate callers.

@@ -442,6 +442,8 @@ message SiteOperationalSnapshot {
   // Negotiated mining-groups-live-v1 refresh. Original board observation times
   // remain inside the snapshot; this does not request a full synchronization.
   MiningGroupsSnapshot mining_groups = 11;
+  // Present only when ha-status-v1 is negotiated. Member source times are retained.
+  HAStatus ha_status = 12;
 }
 
 // SitePlantSystemsSnapshot carries bounded passive Plant Systems state through

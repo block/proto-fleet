@@ -2,8 +2,8 @@
 
 This directory contains vendored API specifications for Proto miner devices. The
 v1 MDK spec is extracted from the private `miner-firmware` repository; the v2 MDK
-spec is generated from Frigate's protobuf-first API and vendored here as the
-OpenAPI contract consumed by ProtoOS.
+spec is the published `btc-mining/proto-api` mirror of Frigate's protobuf-first
+API, vendored here as the OpenAPI contract consumed by ProtoOS.
 
 ## Directory Structure
 
@@ -35,7 +35,7 @@ Current specs:
 | Spec                      | Source                                                     | Generated client                                                  |
 | ------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------- |
 | `openapi/MDK-API.json`    | MDK v1 OpenAPI from `miner-firmware`                       | `client/src/protoOS/api/adapters/mdkV1/generated/generatedApi.ts` |
-| `openapi/MDK-v2-API.json` | MDK v2 OpenAPI generated from Frigate protobuf definitions | `client/src/protoOS/api/adapters/mdkV2/generated/generatedApi.ts` |
+| `openapi/MDK-v2-API.json` | MDK v2 OpenAPI from `proto-api` (`mdk/v2/spec-all.json`)   | `client/src/protoOS/api/adapters/mdkV2/generated/generatedApi.ts` |
 
 ```bash
 # Generate TypeScript client

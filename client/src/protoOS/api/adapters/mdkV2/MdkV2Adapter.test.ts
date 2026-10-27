@@ -917,7 +917,7 @@ describe("MdkV2Adapter", () => {
         },
       ],
     });
-    expect(getContainerHealth).toHaveBeenCalledWith({ headers: { "X-Frigate-Actor": "proto-os" } });
+    expect(getContainerHealth).toHaveBeenCalledWith({}, { headers: { "X-Frigate-Actor": "proto-os" } });
   });
 
   test("rejects unsupported granular histories instead of returning a container aggregate", async () => {

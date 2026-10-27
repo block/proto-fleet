@@ -40,6 +40,9 @@ const (
 	// SystemServiceGetSystemStatusProcedure is the fully-qualified name of the SystemService's
 	// GetSystemStatus RPC.
 	SystemServiceGetSystemStatusProcedure = "/mdk.v2.SystemService/GetSystemStatus"
+	// SystemServiceGetHAStatusProcedure is the fully-qualified name of the SystemService's GetHAStatus
+	// RPC.
+	SystemServiceGetHAStatusProcedure = "/mdk.v2.SystemService/GetHAStatus"
 	// SystemServiceGetHardwareInfoProcedure is the fully-qualified name of the SystemService's
 	// GetHardwareInfo RPC.
 	SystemServiceGetHardwareInfoProcedure = "/mdk.v2.SystemService/GetHardwareInfo"
@@ -104,6 +107,8 @@ type SystemServiceClient interface {
 	GetSystemInfo(context.Context, *connect.Request[v2.GetSystemInfoRequest]) (*connect.Response[v2.GetSystemInfoResponse], error)
 	// GetSystemStatus returns current system status.
 	GetSystemStatus(context.Context, *connect.Request[v2.GetSystemStatusRequest]) (*connect.Response[v2.GetSystemStatusResponse], error)
+	// GetHAStatus returns this server's cached HA identity and observations.
+	GetHAStatus(context.Context, *connect.Request[v2.GetHAStatusRequest]) (*connect.Response[v2.GetHAStatusResponse], error)
 	// GetHardwareInfo returns hardware details.
 	GetHardwareInfo(context.Context, *connect.Request[v2.GetHardwareInfoRequest]) (*connect.Response[v2.GetHardwareInfoResponse], error)
 	// ListPowerSupplies returns information about installed PSUs.
@@ -169,6 +174,11 @@ func NewSystemServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 		getSystemStatus: connect.NewClient[v2.GetSystemStatusRequest, v2.GetSystemStatusResponse](
 			httpClient,
 			baseURL+SystemServiceGetSystemStatusProcedure,
+			opts...,
+		),
+		getHAStatus: connect.NewClient[v2.GetHAStatusRequest, v2.GetHAStatusResponse](
+			httpClient,
+			baseURL+SystemServiceGetHAStatusProcedure,
 			opts...,
 		),
 		getHardwareInfo: connect.NewClient[v2.GetHardwareInfoRequest, v2.GetHardwareInfoResponse](
@@ -278,6 +288,7 @@ func NewSystemServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 type systemServiceClient struct {
 	getSystemInfo       *connect.Client[v2.GetSystemInfoRequest, v2.GetSystemInfoResponse]
 	getSystemStatus     *connect.Client[v2.GetSystemStatusRequest, v2.GetSystemStatusResponse]
+	getHAStatus         *connect.Client[v2.GetHAStatusRequest, v2.GetHAStatusResponse]
 	getHardwareInfo     *connect.Client[v2.GetHardwareInfoRequest, v2.GetHardwareInfoResponse]
 	listPowerSupplies   *connect.Client[v2.ListPowerSuppliesRequest, v2.ListPowerSuppliesResponse]
 	updatePSUFirmware   *connect.Client[v2.UpdatePSUFirmwareRequest, v2.UpdatePSUFirmwareResponse]
@@ -308,6 +319,11 @@ func (c *systemServiceClient) GetSystemInfo(ctx context.Context, req *connect.Re
 // GetSystemStatus calls mdk.v2.SystemService.GetSystemStatus.
 func (c *systemServiceClient) GetSystemStatus(ctx context.Context, req *connect.Request[v2.GetSystemStatusRequest]) (*connect.Response[v2.GetSystemStatusResponse], error) {
 	return c.getSystemStatus.CallUnary(ctx, req)
+}
+
+// GetHAStatus calls mdk.v2.SystemService.GetHAStatus.
+func (c *systemServiceClient) GetHAStatus(ctx context.Context, req *connect.Request[v2.GetHAStatusRequest]) (*connect.Response[v2.GetHAStatusResponse], error) {
+	return c.getHAStatus.CallUnary(ctx, req)
 }
 
 // GetHardwareInfo calls mdk.v2.SystemService.GetHardwareInfo.
@@ -416,6 +432,8 @@ type SystemServiceHandler interface {
 	GetSystemInfo(context.Context, *connect.Request[v2.GetSystemInfoRequest]) (*connect.Response[v2.GetSystemInfoResponse], error)
 	// GetSystemStatus returns current system status.
 	GetSystemStatus(context.Context, *connect.Request[v2.GetSystemStatusRequest]) (*connect.Response[v2.GetSystemStatusResponse], error)
+	// GetHAStatus returns this server's cached HA identity and observations.
+	GetHAStatus(context.Context, *connect.Request[v2.GetHAStatusRequest]) (*connect.Response[v2.GetHAStatusResponse], error)
 	// GetHardwareInfo returns hardware details.
 	GetHardwareInfo(context.Context, *connect.Request[v2.GetHardwareInfoRequest]) (*connect.Response[v2.GetHardwareInfoResponse], error)
 	// ListPowerSupplies returns information about installed PSUs.
@@ -477,6 +495,11 @@ func NewSystemServiceHandler(svc SystemServiceHandler, opts ...connect.HandlerOp
 	systemServiceGetSystemStatusHandler := connect.NewUnaryHandler(
 		SystemServiceGetSystemStatusProcedure,
 		svc.GetSystemStatus,
+		opts...,
+	)
+	systemServiceGetHAStatusHandler := connect.NewUnaryHandler(
+		SystemServiceGetHAStatusProcedure,
+		svc.GetHAStatus,
 		opts...,
 	)
 	systemServiceGetHardwareInfoHandler := connect.NewUnaryHandler(
@@ -585,6 +608,8 @@ func NewSystemServiceHandler(svc SystemServiceHandler, opts ...connect.HandlerOp
 			systemServiceGetSystemInfoHandler.ServeHTTP(w, r)
 		case SystemServiceGetSystemStatusProcedure:
 			systemServiceGetSystemStatusHandler.ServeHTTP(w, r)
+		case SystemServiceGetHAStatusProcedure:
+			systemServiceGetHAStatusHandler.ServeHTTP(w, r)
 		case SystemServiceGetHardwareInfoProcedure:
 			systemServiceGetHardwareInfoHandler.ServeHTTP(w, r)
 		case SystemServiceListPowerSuppliesProcedure:
@@ -640,6 +665,10 @@ func (UnimplementedSystemServiceHandler) GetSystemInfo(context.Context, *connect
 
 func (UnimplementedSystemServiceHandler) GetSystemStatus(context.Context, *connect.Request[v2.GetSystemStatusRequest]) (*connect.Response[v2.GetSystemStatusResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mdk.v2.SystemService.GetSystemStatus is not implemented"))
+}
+
+func (UnimplementedSystemServiceHandler) GetHAStatus(context.Context, *connect.Request[v2.GetHAStatusRequest]) (*connect.Response[v2.GetHAStatusResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("mdk.v2.SystemService.GetHAStatus is not implemented"))
 }
 
 func (UnimplementedSystemServiceHandler) GetHardwareInfo(context.Context, *connect.Request[v2.GetHardwareInfoRequest]) (*connect.Response[v2.GetHardwareInfoResponse], error) {

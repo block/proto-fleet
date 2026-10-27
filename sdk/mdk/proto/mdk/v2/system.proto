@@ -31,6 +31,13 @@ service SystemService {
     option (google.api.http) = {get: "/api/v2/system/status"};
   }
 
+  // GetHAStatus returns this server's cached HA identity and observations.
+  rpc GetHAStatus(GetHAStatusRequest) returns (GetHAStatusResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+    option (google.api.http) = {get: "/api/v2/system/ha"};
+  }
+
   // GetHardwareInfo returns hardware details.
   rpc GetHardwareInfo(GetHardwareInfoRequest) returns (GetHardwareInfoResponse) {
     option (mdk.v2.product) = PRODUCT_COMMON;
@@ -274,6 +281,82 @@ message GetSystemInfoRequest {}
 
 message GetSystemInfoResponse {
   SystemInfo info = 1;
+}
+
+message GetHAStatusRequest {}
+
+message GetHAStatusResponse {
+  HAStatus status = 1;
+}
+
+// HAIdentityState describes agreement on a durable logical cluster identity.
+enum HAIdentityState {
+  HA_IDENTITY_STATE_UNSPECIFIED = 0;
+  HA_IDENTITY_STATE_UNAVAILABLE = 1;
+  HA_IDENTITY_STATE_CONFIRMED = 2;
+  HA_IDENTITY_STATE_CONFLICTED = 3;
+}
+
+enum HAObservationFreshness {
+  HA_OBSERVATION_FRESHNESS_UNSPECIFIED = 0;
+  HA_OBSERVATION_FRESHNESS_FRESH = 1;
+  HA_OBSERVATION_FRESHNESS_STALE = 2;
+}
+
+// HAObservation preserves source time independently of response and transport time.
+message HAObservation {
+  string source_server_id = 1;
+  google.protobuf.Timestamp observed_at = 2;
+  google.protobuf.Timestamp last_successful_at = 3;
+  HAObservationFreshness freshness = 4;
+  string detail = 5;
+}
+
+// HANetworkInterface is observed hardware metadata, never a logical identity.
+message HANetworkInterface {
+  string name = 1;
+  string mac_address = 2;
+  repeated string ip_addresses = 3;
+  bool primary = 4;
+}
+
+// HAMemberStatus is one configured member and independently aged observations.
+message HAMemberStatus {
+  // Id is the configured Frigate server ID or provisioned witness name.
+  // The pair (kind, id) identifies a member; etcd names are separate.
+  string id = 1;
+  HAMemberRole kind = 2;
+  string etcd_name = 3;
+  bool local = 4;
+  string hostname = 5;
+  repeated HANetworkInterface interfaces = 6;
+  HAObservation inventory_observation = 7;
+  // Role and write authority are last reported, qualified by role_observation.
+  HARole ha_role = 8;
+  optional bool container_write_primary = 9;
+  HARecoveryStatus recovery = 10;
+  HAObservation role_observation = 11;
+  optional bool frigate_reachable = 12;
+  HAObservation frigate_observation = 13;
+  optional bool etcd_reachable = 14;
+  HAObservation etcd_observation = 15;
+}
+
+// HAStatus is a bounded diagnostic view, not a command-authority grant.
+message HAStatus {
+  bool enabled = 1;
+  string reporting_server_id = 2;
+  string peer_server_id = 3;
+  // ClusterId is shared durable identity, independent of etcd's cluster ID.
+  string cluster_id = 4;
+  HAIdentityState identity_state = 5;
+  // InventoryReady means local persisted identity was successfully loaded.
+  // False must never be interpreted as evidence that no prior identity exists.
+  bool inventory_ready = 6;
+  google.protobuf.Timestamp observed_at = 7;
+  repeated HAMemberStatus members = 8;
+  repeated string conflicts = 9;
+  string detail = 10;
 }
 
 // HARole identifies this server's role in a high-availability cluster.

@@ -13,6 +13,7 @@ import type { AdapterRequestOptions, MiningScope } from "../types";
 import type {
   PoolServiceGetPoolDiagnosticsParams,
   PoolServiceUpdatePoolBody,
+  TelemetryServiceGetContainerHealthParams,
   TelemetryServiceQueryShareQualityHistoryParams,
   TelemetryServiceQueryTimeSeriesParams,
   V2ClearModuleFixedVoltageResponse,
@@ -136,7 +137,10 @@ export interface MdkV2Client {
     data: V2HashboardRunInConfig,
     params?: AdapterRequestOptions,
   ): HttpResponse<V2StartModuleRunInResponse>;
-  telemetryServiceGetContainerHealth(params?: AdapterRequestOptions): HttpResponse<V2GetContainerHealthResponse>;
+  telemetryServiceGetContainerHealth(
+    query?: TelemetryServiceGetContainerHealthParams,
+    params?: AdapterRequestOptions,
+  ): HttpResponse<V2GetContainerHealthResponse>;
   telemetryServiceQueryTimeSeries(
     query: TelemetryServiceQueryTimeSeriesParams,
     params?: AdapterRequestOptions,
@@ -288,7 +292,8 @@ export const createMdkV2Client = (transport: Transport): MdkV2Client => {
       unary(transport, power.setContainerSetpoint, { ...data, name }, params),
     runInServiceStartModuleRunIn: ({ moduleId, taskId }, config, params) =>
       unary(transport, runIn.startModuleRunIn, { moduleId, taskId, config }, params),
-    telemetryServiceGetContainerHealth: (params) => unary(transport, telemetry.getContainerHealth, {}, params),
+    telemetryServiceGetContainerHealth: (query = {}, params) =>
+      unary(transport, telemetry.getContainerHealth, query, params),
     telemetryServiceQueryTimeSeries: (query, params) =>
       unary(transport, telemetry.queryTimeSeries, timeRange(query), params),
     telemetryServiceQueryShareQualityHistory: (query, params) =>
