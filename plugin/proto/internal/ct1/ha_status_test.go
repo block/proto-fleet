@@ -133,6 +133,34 @@ func TestHASavedClusterWorksWhileInventoryLoads(t *testing.T) {
 	}
 }
 
+func TestHAIdentityConfirmedAfterPairing(t *testing.T) {
+	s := startHAServer(t, "a", "b")
+	s.primary.Store(true)
+	s.haOverride = func(h *mdk.HAStatus) {
+		h.InventoryReady = false
+		h.IdentityState = mdk.HAIdentityState_HA_IDENTITY_STATE_UNAVAILABLE
+		h.ClusterId = ""
+	}
+	info := sdk.DeviceInfo{Host: s.endpoint.Host, Port: s.endpoint.Port, URLScheme: s.endpoint.URLScheme, RPCPort: s.endpoint.RPCPort}
+	initial, err := NewDevice(t.Context(), "container", info, sdk.UsernamePassword{})
+	require.NoError(t, err)
+	paired, _, err := initial.DescribeDevice(t.Context())
+	require.NoError(t, err)
+	require.Empty(t, paired.Endpoints)
+	require.NoError(t, initial.Close(t.Context()))
+
+	s.haOverride = nil
+	restarted, err := NewDevice(t.Context(), "container", paired, sdk.UsernamePassword{})
+	require.NoError(t, err)
+	defer restarted.Close(t.Context())
+	metrics, err := restarted.Status(t.Context())
+	require.NoError(t, err)
+	require.True(t, metrics.Container.HA.Degraded, "the partner has not been scanned")
+	require.EqualValues(t, 1, s.mapReads.Load())
+	require.NoError(t, restarted.SetContainerControl(t.Context(), sdk.ContainerControlRequest{Name: mainCircuitBreakerControl, Enabled: new(true)}))
+	require.EqualValues(t, 1, s.writes.Load())
+}
+
 func TestHACachedPrimaryNeverGrantsWriteAuthority(t *testing.T) {
 	a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
 	a.primary.Store(true)

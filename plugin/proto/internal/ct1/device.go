@@ -57,6 +57,7 @@ func NewDevice(ctx context.Context, id string, info sdk.DeviceInfo, credentials 
 			return nil, err
 		}
 		d.info = verified
+		d.clients[0].memberID = verified.SerialNumber
 	}
 	return d, nil
 }
