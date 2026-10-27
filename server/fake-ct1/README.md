@@ -51,10 +51,13 @@ development listener is plaintext without authentication; see
 production plugin's TLS/token settings.
 
 The HTTP origin serves the same methods, except the MiningGroup service, as Connect routes
-(`/mdk.v2.<Service>/<Method>`), ahead of the `--web-root` static fallback. Each
-Connect call runs through the REST request lifecycle: calls are serialized, the
-clock advances first, and writes are recorded into history afterwards. Native
+(`/mdk.v2.<Service>/<Method>`), ahead of the `--web-root` static fallback. Native
 status codes are kept as Connect codes.
+
+REST, Connect, and native gRPC calls share one request lifecycle: calls from
+every transport are serialized, the clock advances first, and writes are
+recorded into history afterwards. A REST write is any non-GET request; an RPC
+is a write unless its `google.api.http` binding is a GET.
 
 ## Implemented endpoints
 

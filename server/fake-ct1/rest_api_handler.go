@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -22,8 +21,7 @@ var dryCoolerFanIDs = []string{
 // CT1 container. JSON field names follow the grpc-gateway camelCase encoding
 // of the mdk.v2 protos so the simulator can't silently drift from the client.
 type RESTApiHandler struct {
-	state    *ContainerState
-	requests sync.Mutex
+	state *ContainerState
 }
 
 // NewRESTApiHandler creates a handler backed by the given container state.
@@ -41,7 +39,7 @@ func NewRESTApiHandler(state *ContainerState) *RESTApiHandler {
 func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	register := func(pattern string, handler http.HandlerFunc) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-			h.serve(r.Method != http.MethodGet, func() { handler(w, r) })
+			h.state.serve(r.Method != http.MethodGet, func() { handler(w, r) })
 		})
 	}
 
@@ -84,25 +82,6 @@ func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	// Unmatched paths (404) and wrong-method requests to matched paths (405)
 	// fall through to ServeMux's defaults; jsonErrorMiddleware rewrites those
 	// text/plain responses into the JSON error envelope every endpoint uses.
-}
-
-// serve runs one API request at a time against the simulation clock: state
-// advances before the request, and a write is recorded into history after it.
-func (h *RESTApiHandler) serve(write bool, handle func()) {
-	h.requests.Lock()
-	defer h.requests.Unlock()
-	h.state.mu.Lock()
-	now := h.state.now()
-	h.state.recordUntil(now)
-	h.state.advance(now)
-	h.state.mu.Unlock()
-	handle()
-	if write {
-		h.state.mu.Lock()
-		h.state.advance(now)
-		h.state.recordTransition()
-		h.state.mu.Unlock()
-	}
 }
 
 // ---------------------------------------------------------------------------

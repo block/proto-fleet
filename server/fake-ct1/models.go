@@ -84,7 +84,9 @@ type ContainerConfig struct {
 // ContainerState holds the full simulated container tree and shared metadata.
 // All reads and writes go through mu.
 type ContainerState struct {
-	mu           sync.RWMutex
+	mu sync.RWMutex
+	// requests serializes API calls from every transport; see serve.
+	requests     sync.Mutex
 	now          func() time.Time
 	sampleTime   time.Time
 	observedAt   time.Time

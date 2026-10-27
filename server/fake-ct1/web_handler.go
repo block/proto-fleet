@@ -13,9 +13,8 @@ import (
 // its JSON 404/405 responses or change the existing /health method behavior.
 func newHTTPHandler(state *ContainerState, webRoot string) (http.Handler, func(), error) {
 	mux := http.NewServeMux()
-	rest := NewRESTApiHandler(state)
-	rest.RegisterRoutes(mux)
-	registerConnectRoutes(mux, rest)
+	NewRESTApiHandler(state).RegisterRoutes(mux)
+	registerConnectRoutes(mux, state)
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("OK"))

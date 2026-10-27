@@ -4,16 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 
 	"connectrpc.com/connect"
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	"github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2/mdkv2connect"
-	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/reflect/protoregistry"
 )
 
 type connectAPI struct {
@@ -27,9 +22,9 @@ type connectAPI struct {
 	native *grpcAPI
 }
 
-func registerConnectRoutes(mux *http.ServeMux, rest *RESTApiHandler) {
-	api := &connectAPI{native: &grpcAPI{state: rest.state}}
-	options := connect.WithInterceptors(simulationInterceptor(rest))
+func registerConnectRoutes(mux *http.ServeMux, state *ContainerState) {
+	api := &connectAPI{native: &grpcAPI{state: state}}
+	options := connect.WithInterceptors(simulationInterceptor(state))
 	mux.Handle(mdkv2connect.NewSystemServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewHashboardServiceHandler(api, options))
 	mux.Handle(mdkv2connect.NewMiningServiceHandler(api, options))
@@ -39,13 +34,12 @@ func registerConnectRoutes(mux *http.ServeMux, rest *RESTApiHandler) {
 	mux.Handle(mdkv2connect.NewRunInServiceHandler(api, options))
 }
 
-// simulationInterceptor gives each Connect call the REST routes' simulation
-// lifecycle and reports native status codes as Connect codes. A procedure is a
-// write unless its REST binding is a GET, matching the REST routes' rule.
-func simulationInterceptor(rest *RESTApiHandler) connect.UnaryInterceptorFunc {
+// simulationInterceptor gives each Connect call the shared request lifecycle
+// and reports native status codes as Connect codes.
+func simulationInterceptor(state *ContainerState) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (res connect.AnyResponse, err error) {
-			rest.serve(!boundToGET(req.Spec().Procedure), func() { res, err = next(ctx, req) })
+			state.serve(!boundToGET(req.Spec().Procedure), func() { res, err = next(ctx, req) })
 			if err == nil {
 				return res, nil
 			}
@@ -55,20 +49,6 @@ func simulationInterceptor(rest *RESTApiHandler) connect.UnaryInterceptorFunc {
 			return nil, err
 		}
 	}
-}
-
-func boundToGET(procedure string) bool {
-	name := protoreflect.FullName(strings.ReplaceAll(strings.TrimPrefix(procedure, "/"), "/", "."))
-	descriptor, err := protoregistry.GlobalFiles.FindDescriptorByName(name)
-	if err != nil {
-		return false
-	}
-	method, ok := descriptor.(protoreflect.MethodDescriptor)
-	if !ok {
-		return false
-	}
-	rule, _ := proto.GetExtension(method.Options(), annotations.E_Http).(*annotations.HttpRule)
-	return rule.GetGet() != ""
 }
 
 func connectResult[T any](msg *T, err error) (*connect.Response[T], error) {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"math"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,6 +12,8 @@ import (
 	"connectrpc.com/connect"
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	"github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2/mdkv2connect"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -122,36 +125,41 @@ func TestConnectGatewayServesBrowserMDKClient(t *testing.T) {
 func TestConnectGatewayPreservesStatusCodes(t *testing.T) {
 	srv, _ := newConnectTestServer(t)
 	ctx := context.Background()
-	hashboards := mdkv2connect.NewHashboardServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
-	runIn := mdkv2connect.NewRunInServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
-	telemetry := mdkv2connect.NewTelemetryServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
-
-	for _, tc := range []struct {
-		name string
-		call func() error
-		want connect.Code
-	}{
-		{"unknown hashboard", func() error {
-			_, err := hashboards.GetHashboardASICs(ctx, connect.NewRequest(&mdk.GetHashboardASICsRequest{Identifier: "missing"}))
-			return err
-		}, connect.CodeNotFound},
-		{"run-in without config", func() error {
-			_, err := runIn.StartModuleRunIn(ctx, connect.NewRequest(&mdk.StartModuleRunInRequest{ModuleId: "T1-M01"}))
-			return err
-		}, connect.CodeInvalidArgument},
-		{"time series without range", func() error {
-			_, err := telemetry.QueryTimeSeries(ctx, connect.NewRequest(&mdk.QueryTimeSeriesRequest{
-				Metric:     mdk.TimeSeriesMetric_TIME_SERIES_METRIC_HASHRATE,
-				BucketSize: mdk.BucketSize_BUCKET_SIZE_5M,
-			}))
-			return err
-		}, connect.CodeInvalidArgument},
+	for protocol, options := range map[string][]connect.ClientOption{
+		"connect":  nil,
+		"grpc-web": {connect.WithGRPCWeb()},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := connect.CodeOf(tc.call()); got != tc.want {
-				t.Fatalf("code = %v, want %v", got, tc.want)
-			}
-		})
+		hashboards := mdkv2connect.NewHashboardServiceClient(http.DefaultClient, srv.URL, options...)
+		runIn := mdkv2connect.NewRunInServiceClient(http.DefaultClient, srv.URL, options...)
+		telemetry := mdkv2connect.NewTelemetryServiceClient(http.DefaultClient, srv.URL, options...)
+
+		for _, tc := range []struct {
+			name string
+			call func() error
+			want connect.Code
+		}{
+			{"unknown hashboard", func() error {
+				_, err := hashboards.GetHashboardASICs(ctx, connect.NewRequest(&mdk.GetHashboardASICsRequest{Identifier: "missing"}))
+				return err
+			}, connect.CodeNotFound},
+			{"run-in without config", func() error {
+				_, err := runIn.StartModuleRunIn(ctx, connect.NewRequest(&mdk.StartModuleRunInRequest{ModuleId: "T1-M01"}))
+				return err
+			}, connect.CodeInvalidArgument},
+			{"time series without range", func() error {
+				_, err := telemetry.QueryTimeSeries(ctx, connect.NewRequest(&mdk.QueryTimeSeriesRequest{
+					Metric:     mdk.TimeSeriesMetric_TIME_SERIES_METRIC_HASHRATE,
+					BucketSize: mdk.BucketSize_BUCKET_SIZE_5M,
+				}))
+				return err
+			}, connect.CodeInvalidArgument},
+		} {
+			t.Run(protocol+"/"+tc.name, func(t *testing.T) {
+				if got := connect.CodeOf(tc.call()); got != tc.want {
+					t.Fatalf("code = %v, want %v", got, tc.want)
+				}
+			})
+		}
 	}
 }
 
@@ -197,21 +205,68 @@ func TestConnectRejectsNonFinitePowerTargets(t *testing.T) {
 	}
 }
 
-func TestConnectWritesRecordHistoryLikeREST(t *testing.T) {
-	srv, state := newConnectTestServer(t)
-	mining := mdkv2connect.NewMiningServiceClient(http.DefaultClient, srv.URL, connect.WithGRPCWeb())
-	if _, err := mining.StopMining(context.Background(), connect.NewRequest(&mdk.StopMiningRequest{})); err != nil {
-		t.Fatalf("StopMining: %v", err)
-	}
+func TestRPCWritesRecordHistoryLikeREST(t *testing.T) {
+	scope := &mdk.BoardScope{Modules: []*mdk.ModuleSelector{{Tank: 1, Module: 1}}}
+	for _, tc := range []struct {
+		name string
+		stop func(*testing.T, *httptest.Server, *ContainerState) error
+	}{
+		{"connect", func(t *testing.T, srv *httptest.Server, _ *ContainerState) error {
+			mining := mdkv2connect.NewMiningServiceClient(http.DefaultClient, srv.URL)
+			_, err := mining.StopMiningScoped(context.Background(), connect.NewRequest(&mdk.StopMiningScopedRequest{Scope: scope}))
+			return err
+		}},
+		{"native gRPC", func(t *testing.T, _ *httptest.Server, state *ContainerState) error {
+			_, err := mdk.NewMiningServiceClient(newNativeTestConn(t, state)).StopMiningScoped(context.Background(), &mdk.StopMiningScopedRequest{Scope: scope})
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv, state := newConnectTestServer(t)
+			state.mu.RLock()
+			module := state.Tanks[0].Modules[0]
+			miningBefore := 0
+			for _, slot := range module.Slots {
+				if slot.Board != nil && slot.Board.isMining() {
+					miningBefore++
+				}
+			}
+			state.mu.RUnlock()
+			if miningBefore == 0 {
+				t.Fatal("precondition: tank 1 module 1 has no mining boards to stop")
+			}
 
-	state.mu.RLock()
-	defer state.mu.RUnlock()
-	latest := state.history.Samples[len(state.history.Samples)-1]
-	for _, board := range latest.Boards {
-		if board.Mining {
-			t.Fatal("latest history sample still reports a mining board after StopMining")
-		}
+			if err := tc.stop(t, srv, state); err != nil {
+				t.Fatalf("StopMiningScoped: %v", err)
+			}
+
+			state.mu.RLock()
+			defer state.mu.RUnlock()
+			latest := state.history.Samples[len(state.history.Samples)-1]
+			for i, board := range state.eachBoard() {
+				if latest.Boards[i].Mining != board.isMining() {
+					t.Fatalf("latest history sample board %s mining = %v, want %v", board.MAC, latest.Boards[i].Mining, board.isMining())
+				}
+			}
+		})
 	}
+}
+
+func newNativeTestConn(t *testing.T, state *ContainerState) *grpc.ClientConn {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := newGRPCServer(state)
+	t.Cleanup(server.Stop)
+	go func() { _ = server.Serve(listener) }()
+	conn, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	return conn
 }
 
 func TestBoundToGETFollowsRESTBindings(t *testing.T) {

@@ -29,7 +29,7 @@ type grpcAPI struct {
 func newGRPCServer(state *ContainerState) *grpc.Server {
 	state.initHistory()
 	api := &grpcAPI{state: state}
-	server := grpc.NewServer()
+	server := grpc.NewServer(grpc.UnaryInterceptor(serveUnary(state)))
 	mdk.RegisterSystemServiceServer(server, api)
 	mdk.RegisterHashboardServiceServer(server, api)
 	mdk.RegisterMiningServiceServer(server, api)
@@ -64,15 +64,11 @@ func project[T any, M proto.Message](dto T, err error, out M) (M, error) {
 	return out, nil
 }
 
-// Reuse the simulator's existing DTO builders and clock for both transports.
 // The REST simulator retains some older diagnostic fields (e.g. breakerId)
 // that aren't in the pinned native contract; protojson drops only those fields.
 func (a *grpcAPI) snapshot(build func(*ContainerState) any, out proto.Message) error {
 	a.state.mu.Lock()
 	defer a.state.mu.Unlock()
-	now := a.state.now()
-	a.state.recordUntil(now)
-	a.state.advance(now)
 	return projectProto(build(a.state), out)
 }
 func (a *grpcAPI) GetSystemInfo(context.Context, *mdk.GetSystemInfoRequest) (*mdk.GetSystemInfoResponse, error) {
@@ -136,11 +132,7 @@ func (a *grpcAPI) SetContainerControl(ctx context.Context, in *mdk.SetContainerC
 		return nil, status.Error(codes.NotFound, "unknown container control")
 	}
 	now := a.state.now()
-	a.state.recordUntil(now)
-	a.state.advance(now)
 	a.state.ContainerControls[in.Name] = in.Enabled
-	a.state.advance(now)
-	a.state.recordTransition()
 	return &mdk.SetContainerControlResponse{Control: &mdk.ContainerControl{Name: in.Name, Enabled: in.Enabled, StateKnown: true}, Confirmation: &mdk.ContainerControlConfirmation{RequestedEnabled: in.Enabled, ObservedEnabled: new(a.state.ContainerControls[in.Name]), ObservedAt: timestamppb.New(now), State: mdk.PlantWriteConfirmationState_PLANT_WRITE_CONFIRMATION_STATE_CONFIRMED, Source: mdk.PlantWriteConfirmationSource_PLANT_WRITE_CONFIRMATION_SOURCE_CONTROLLER_REGISTER}}, nil
 }
 func (a *grpcAPI) SetMainCircuitBreakerState(context.Context, *mdk.SetMainCircuitBreakerStateRequest) (*mdk.SetMainCircuitBreakerStateResponse, error) {
@@ -195,12 +187,7 @@ func (a *grpcAPI) setGlobalMining(ctx context.Context, mining bool) error {
 	}
 	a.state.mu.Lock()
 	defer a.state.mu.Unlock()
-	now := a.state.now()
-	a.state.recordUntil(now)
-	a.state.advance(now)
 	a.state.setGlobalMining(mining)
-	a.state.advance(now)
-	a.state.recordTransition()
 	return nil
 }
 
