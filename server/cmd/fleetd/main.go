@@ -13,6 +13,10 @@ import (
 	"time"
 	_ "time/tzdata"
 
+	mininggroupsv1connect "github.com/block/proto-fleet/server/generated/grpc/mininggroups/v1/mininggroupsv1connect"
+	mininggroupsDomain "github.com/block/proto-fleet/server/internal/domain/mininggroups"
+	mininggroupsHandler "github.com/block/proto-fleet/server/internal/handlers/mininggroups"
+
 	"github.com/block/proto-fleet/server/internal/domain/authz"
 	"github.com/block/proto-fleet/server/internal/domain/ipscanner"
 	marketdataDomain "github.com/block/proto-fleet/server/internal/domain/marketdata"
@@ -163,6 +167,10 @@ import (
 
 const shutdownTimeout = 10 * time.Second
 
+// Matches the updater's API stop grace; a timed-out drain still blocks HA
+// lease release.
+const pendingUnpairsStopTimeout = 3 * time.Second
+
 // version is overwritten at release build time via -ldflags "-X main.version=<tag>".
 var version = "dev"
 
@@ -208,6 +216,7 @@ func normalizeFleetdArgs(args []string) []string {
 // service shape (no business data), so the inclusion list is "all
 // services" rather than a curated subset.
 var reflectEnabledServices = []string{
+	mininggroupsv1connect.MiningGroupServiceName,
 	marketdatav1connect.MarketDataServiceName,
 	hostedv1connect.HostedAccountServiceName,
 	invitationv1connect.InvitationServiceName,
@@ -566,7 +575,6 @@ func start(config *Config) (result error) {
 	// the fleetmanagement resolver; wire it now that fleetMgmtSvc exists (it
 	// depends on commandSvc, so this can't be passed to NewService).
 	commandSvc.SetDeviceIdentifierResolver(fleetMgmtSvc)
-	defer fleetMgmtSvc.WaitForPendingUnpairs(shutdownTimeout)
 	onboardingSvc := onboardingDomain.NewService(deviceStore, poolStore, userStore)
 	poolsSvc := poolsDomain.NewService(poolStore, transactor, config.Pools, activitySvc)
 	scheduleStore := sqlstores.NewSQLScheduleStore(conn)
@@ -790,13 +798,21 @@ func start(config *Config) (result error) {
 	if config.Updates.Enabled {
 		releaseCheckerJob = releaseChecker
 	}
+	groupsSvc := mininggroupsDomain.NewService(conn, minerService, hostedPoolsSvc, encryptSvc)
 	jobs, err := newRuntimeJobs(runtimeJobLifecycles{
+		plugins: stopOnlyLifecycle{
+			stop:     pluginService.Shutdown,
+			timeout:  time.Duration(config.Plugins.ShutdownTimeoutSeconds) * time.Second,
+			detached: true,
+		},
+		pendingUnpairs:            stopOnlyLifecycle{stop: fleetMgmtSvc.WaitForPendingUnpairs, timeout: pendingUnpairsStopTimeout},
 		identityStateCleanup:      identityStateCleanup,
 		commandArtifactCleanup:    commandArtifactCleanup,
 		diagnosticsErrorCloser:    diagnosticsService,
 		telemetry:                 telemetryService,
 		ipScanner:                 ipScannerService,
 		commandExecution:          executionService,
+		miningGroupReconciliation: newBackgroundLoop(groupsSvc.Run),
 		scheduleProcessor:         scheduleProcessor,
 		rolloutEnforcement:        rolloutEnforcement,
 		curtailmentReconciler:     curtailmentRec,
@@ -912,6 +928,7 @@ func start(config *Config) (result error) {
 	))
 	mux.Handle(sitesv1connect.NewSiteServiceHandler(sitesHandler.NewHandler(sitesSvc), li))
 	mux.Handle(buildingsv1connect.NewBuildingServiceHandler(buildingsHandler.NewHandler(buildingsSvc), li))
+	mux.Handle(mininggroupsv1connect.NewMiningGroupServiceHandler(mininggroupsHandler.NewHandler(groupsSvc, hostedPoolsSvc, authSvc), li))
 	mux.Handle(containersv1connect.NewContainerServiceHandler(containersHandler.NewHandler(containersDomain.NewService(sqlstores.NewSQLContainerStore(conn))).WithCommands(commandSvc), li))
 	mux.Handle(fleetinventoryv1connect.NewFleetInventoryServiceHandler(fleetInventoryHandler.NewHandler(fleetInventoryDomain.NewService(db.NewFailoverResettingQuerier(db.NewRetryDB(conn))).WithBuildings(buildingStore).WithMiners(fleetMgmtSvc)), li))
 	mux.Handle(infrastructurev1connect.NewInfrastructureServiceHandler(infrastructureHandler.NewHandler(infrastructureSvc), li))

@@ -46,6 +46,7 @@ export default function ModulePerformance({ moduleId, enabled }: { moduleId: big
             const latest = [...points].reverse().find((point) => point[key] !== null)?.[key];
             return (
               <ChartWidget
+                surface="overlay"
                 key={key}
                 stats={{
                   label,

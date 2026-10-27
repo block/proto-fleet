@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	infradb "github.com/block/proto-fleet/server/internal/infrastructure/db"
 	"github.com/block/proto-fleet/server/internal/testutil"
 )
 
@@ -280,4 +281,67 @@ func countMatchingErrors(errs []error, target error) int {
 		}
 	}
 	return count
+}
+
+func TestLeaseStoreReleasePreservesTermAndAllowsImmediateTakeover(t *testing.T) {
+	store, reader := leaseReleaseTestSurfaces(t)
+	observed := databaseObservation(t, reader, "cluster-a", 41)
+	first, err := store.Acquire(t.Context(), observed, uuid.New(), time.Minute)
+	require.NoError(t, err)
+	require.NoError(t, store.Release(t.Context(), first))
+	_, err = store.Renew(t.Context(), observed, first, time.Minute)
+	require.ErrorIs(t, err, ErrOwnershipLost)
+	second, err := store.Acquire(t.Context(), observed, uuid.New(), time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, first.Token.LeaseEpoch+1, second.Token.LeaseEpoch)
+	require.Equal(t, first.Token.WriterGeneration, second.Token.WriterGeneration)
+	// A delayed old-owner release must not shorten the replacement's lease.
+	require.ErrorIs(t, store.Release(t.Context(), first), ErrOwnershipLost)
+	retried, err := store.Acquire(t.Context(), observed, second.HolderID, time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, second.Token, retried.Token)
+	require.Equal(t, second.ExpiresAt, retried.ExpiresAt)
+	require.Equal(t, second.HolderID, retried.HolderID)
+}
+
+func TestLeaseStoreReleaseRequiresExactOwnership(t *testing.T) {
+	store, reader := leaseReleaseTestSurfaces(t)
+	observed := databaseObservation(t, reader, "cluster-a", 41)
+	active, err := store.Acquire(t.Context(), observed, uuid.New(), time.Minute)
+	require.NoError(t, err)
+	for name, mutate := range map[string]func(*Ownership){
+		"holder":     func(wrong *Ownership) { wrong.HolderID = uuid.New() },
+		"generation": func(wrong *Ownership) { wrong.Token.WriterGeneration++ },
+		"epoch":      func(wrong *Ownership) { wrong.Token.LeaseEpoch++ },
+		"cluster":    func(wrong *Ownership) { wrong.DCSClusterID = "cluster-b" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			wrong := active
+			mutate(&wrong)
+			require.ErrorIs(t, store.Release(t.Context(), wrong), ErrOwnershipLost)
+			_, err := store.Acquire(t.Context(), observed, uuid.New(), time.Minute)
+			require.ErrorIs(t, err, ErrLeaseUnavailable)
+		})
+	}
+}
+
+func TestLeaseStoreReleaseCannotChangeExpiredTerm(t *testing.T) {
+	store, reader := leaseReleaseTestSurfaces(t)
+	observed := databaseObservation(t, reader, "cluster-a", 41)
+	first, err := store.Acquire(t.Context(), observed, uuid.New(), shortIntegrationLeaseDuration)
+	require.NoError(t, err)
+	waitForLeaseExpiry(t, first)
+	require.ErrorIs(t, store.Release(t.Context(), first), ErrOwnershipLost)
+	next, err := store.Acquire(t.Context(), observed, uuid.New(), time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, first.Token.LeaseEpoch+1, next.Token.LeaseEpoch)
+}
+
+func leaseReleaseTestSurfaces(t *testing.T) (*LeaseStore, postgresIdentityReader) {
+	t.Helper()
+	conn := testutil.GetTestDB(t)
+	queries, err := infradb.NewPreparedQuerier(t.Context(), conn)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, queries.Close()) })
+	return NewLeaseStore(queries), queries
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/block/proto-fleet/server/generated/grpc/instance/v1/instancev1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/invitation/v1/invitationv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/minercommand/v1/minercommandv1connect"
+	mininggroupsv1connect "github.com/block/proto-fleet/server/generated/grpc/mininggroups/v1/mininggroupsv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/onboarding/v1/onboardingv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/serverlog/v1/serverlogv1connect"
 	"github.com/block/proto-fleet/server/generated/grpc/sitemap/v1/sitemapv1connect"
@@ -25,6 +26,8 @@ import (
 // (passwords, pool credentials, provider attestations) and must not be
 // logged at debug level.
 var RedactedRequestProcedures = []string{
+	mininggroupsv1connect.MiningGroupServiceSetPoolsProcedure,
+	mininggroupsv1connect.MiningGroupServiceCreatePoolConfigurationProcedure,
 	hostedv1connect.HostedAccountServiceCreatePoolConfigurationProcedure,
 	hostedv1connect.HostedAccountServiceRevisePoolConfigurationProcedure,
 	hostedv1connect.HostedAccountServiceSetIncomingPoolProfileProcedure,

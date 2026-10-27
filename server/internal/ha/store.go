@@ -19,6 +19,7 @@ var (
 )
 
 type leaseQuerier interface {
+	ReleaseFleetRuntimeLease(ctx context.Context, arg sqlc.ReleaseFleetRuntimeLeaseParams) (int64, error)
 	AcquireFleetRuntimeLease(
 		ctx context.Context,
 		arg sqlc.AcquireFleetRuntimeLeaseParams,
@@ -192,4 +193,25 @@ func ownershipFromAcquire(row sqlc.AcquireFleetRuntimeLeaseRow) Ownership {
 		ExpiresAt:    row.ExpiresAt,
 		DatabaseTime: row.DatabaseTime,
 	}
+}
+
+// Release expires the exact live term after its runtime has completely stopped.
+// Stale and already-expired owners cannot change the persisted lease.
+func (s *LeaseStore) Release(ctx context.Context, active Ownership) error {
+	if active.DCSClusterID == "" || active.HolderID == uuid.Nil || active.Token.WriterGeneration <= 0 || active.Token.LeaseEpoch <= 0 {
+		return errors.New("invalid Fleet active lease release")
+	}
+	affected, err := s.queries.ReleaseFleetRuntimeLease(ctx, sqlc.ReleaseFleetRuntimeLeaseParams{
+		DcsClusterID:     active.DCSClusterID,
+		WriterGeneration: active.Token.WriterGeneration,
+		LeaseEpoch:       active.Token.LeaseEpoch,
+		HolderID:         active.HolderID,
+	})
+	if err != nil {
+		return fmt.Errorf("release Fleet active lease: %w", err)
+	}
+	if affected != 1 {
+		return ErrOwnershipLost
+	}
+	return nil
 }

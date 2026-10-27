@@ -17,23 +17,24 @@ const (
 	PermFleetRead = "fleet:read"
 
 	// miner — per-row reads and miner-scoped actions. Site-scoped resource.
-	PermMinerRead             = "miner:read"
-	PermMinerBlinkLED         = "miner:blink_led"
-	PermMinerReboot           = "miner:reboot"
-	PermMinerStartMining      = "miner:start_mining"
-	PermMinerStopMining       = "miner:stop_mining"
-	PermMinerUpdatePools      = "miner:update_pools"
-	PermMinerUpdateWorkerName = "miner:update_worker_names"
-	PermMinerRename           = "miner:rename"
-	PermMinerDelete           = "miner:delete"
-	PermMinerSetCoolingMode   = "miner:set_cooling_mode"
-	PermMinerSetPowerTarget   = "miner:set_power_target"
-	PermMinerFirmwareUpdate   = "miner:firmware_update"
-	PermMinerDownloadLogs     = "miner:download_logs"
-	PermMinerUpdatePassword   = "miner:update_password"
-	PermMinerUnpair           = "miner:unpair"
-	PermMinerPair             = "miner:pair"
-	PermMinerExportCSV        = "miner:export_csv"
+	PermMinerActivateMiningGroups = "miner:activate_mining_groups"
+	PermMinerRead                 = "miner:read"
+	PermMinerBlinkLED             = "miner:blink_led"
+	PermMinerReboot               = "miner:reboot"
+	PermMinerStartMining          = "miner:start_mining"
+	PermMinerStopMining           = "miner:stop_mining"
+	PermMinerUpdatePools          = "miner:update_pools"
+	PermMinerUpdateWorkerName     = "miner:update_worker_names"
+	PermMinerRename               = "miner:rename"
+	PermMinerDelete               = "miner:delete"
+	PermMinerSetCoolingMode       = "miner:set_cooling_mode"
+	PermMinerSetPowerTarget       = "miner:set_power_target"
+	PermMinerFirmwareUpdate       = "miner:firmware_update"
+	PermMinerDownloadLogs         = "miner:download_logs"
+	PermMinerUpdatePassword       = "miner:update_password"
+	PermMinerUnpair               = "miner:unpair"
+	PermMinerPair                 = "miner:pair"
+	PermMinerExportCSV            = "miner:export_csv"
 
 	// rack — site-scoped physical organization.
 	PermRackRead   = "rack:read"
@@ -141,6 +142,7 @@ type CatalogEntry struct {
 var catalog = []CatalogEntry{
 	{PermFleetRead, "View the dashboard, live telemetry, and fleet diagnostics.", ResourceFleet},
 
+	{PermMinerActivateMiningGroups, "Enable per-hashboard pool configuration on a container", ResourceMiner},
 	{PermMinerRead, "View a miner's details, status, and the fleet-wide miner list. Required for every other miner action.", ResourceMiner},
 	{PermMinerBlinkLED, "Flash a miner's locator LED.", ResourceMiner},
 	{PermMinerReboot, "Reboot a miner.", ResourceMiner},

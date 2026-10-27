@@ -43,6 +43,7 @@ interface PoolSelectionPageProps {
   deviceIdentifiers: string[];
   numberOfMiners?: number; // Optional explicit count (for "all" mode with filters)
   currentDevice?: string | null; // Optional single device identifier (for single miner edit)
+  hashboardTarget?: { count: number; ready: boolean; submitted?: boolean; message?: string; error?: string };
   onAssignPools: (poolConfig: PoolConfig) => Promise<void>;
   onDismiss: () => void;
 }
@@ -52,6 +53,7 @@ const PoolSelectionPage = ({
   deviceIdentifiers,
   numberOfMiners: numberOfMinersOverride,
   currentDevice,
+  hashboardTarget,
   onAssignPools,
   onDismiss: onCancel,
 }: PoolSelectionPageProps) => {
@@ -304,7 +306,9 @@ const PoolSelectionPage = ({
   };
 
   const numberOfMiners = numberOfMinersOverride ?? deviceIdentifiers.length;
-  const buttonText = `Assign to ${numberOfMiners} miner${numberOfMiners === 1 ? "" : "s"}`;
+  const buttonText = hashboardTarget
+    ? `Assign to ${hashboardTarget.count} hashboard${hashboardTarget.count === 1 ? "" : "s"}`
+    : `Assign to ${numberOfMiners} miner${numberOfMiners === 1 ? "" : "s"}`;
   const isSingleMinerEdit = numberOfMiners === 1;
   const isLoadingInitialState = isSingleMinerEdit && isLoadingAssignments;
   const hasConfiguredPools = assignedPoolData.length > 0;
@@ -363,10 +367,16 @@ const PoolSelectionPage = ({
           inline
           buttons={[
             {
-              text: buttonText,
+              text: hashboardTarget?.submitted ? "Done" : buttonText,
               variant: variants.primary,
-              onClick: handleAssignPoolsClick,
-              disabled: !hasConfiguredPools || isLoadingInitialState || isAssigning || hasDuplicatePools,
+              onClick: hashboardTarget?.submitted ? onCancel : handleAssignPoolsClick,
+              disabled:
+                !hashboardTarget?.submitted &&
+                (!hasConfiguredPools ||
+                  isLoadingInitialState ||
+                  isAssigning ||
+                  hasDuplicatePools ||
+                  (hashboardTarget && !hashboardTarget.ready)),
               loading: isAssigning,
             },
           ]}
@@ -376,12 +386,25 @@ const PoolSelectionPage = ({
           <div className="flex flex-col">
             {/* Page header */}
             <div className="mb-6 flex flex-col">
-              <h1 className="text-heading-300 text-text-primary">Assign pools to your miner</h1>
+              <h1 className="text-heading-300 text-text-primary">
+                Assign pools to your {hashboardTarget ? "hashboards" : "miner"}
+              </h1>
               <p className="text-300 text-text-primary-70">
                 Add up to 3 pools in order of priority. If a pool fails or is removed, Fleet switches to the next
                 available pool automatically.
               </p>
             </div>
+
+            {hashboardTarget?.message ? (
+              <p role="status" className="mb-4 text-300 text-text-primary-70">
+                {hashboardTarget.message}
+              </p>
+            ) : null}
+            {hashboardTarget?.error ? (
+              <div role="alert">
+                <Callout intent={intents.danger} prefixIcon={<Alert />} title={hashboardTarget.error} />
+              </div>
+            ) : null}
 
             {/* Connection test result callouts */}
             <DismissibleCalloutWrapper

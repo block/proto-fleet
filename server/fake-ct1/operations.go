@@ -63,16 +63,6 @@ func (s *ContainerState) systemStatusDTO() systemStatusResponse {
 	}}
 }
 
-func (s *ContainerState) setAllMining(mining bool) {
-	for _, b := range s.eachBoard() {
-		if !mining {
-			b.State = miningStateIdle
-		} else if !b.Isolated {
-			b.State = miningStateMining
-		}
-	}
-}
-
 func (s *ContainerState) poolDiagnosticsDTO() poolDiagnosticsResponse {
 	activeBoards, _ := s.boardCounts()
 	active := activeBoards > 0

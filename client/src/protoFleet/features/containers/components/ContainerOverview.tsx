@@ -30,7 +30,7 @@ export default function ContainerOverview(props: ContainerOverviewProps) {
               <h2 className="text-heading-200">Performance</h2>
               <DurationSelector duration={duration} durations={fleetDurations} onSelect={setDuration} />
             </div>
-            <DeviceSetPerformanceSection duration={duration} metrics={props.metrics} />
+            <DeviceSetPerformanceSection cardSurface="overlay" duration={duration} metrics={props.metrics} />
           </section>
         }
       />

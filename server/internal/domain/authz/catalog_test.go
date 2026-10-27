@@ -41,6 +41,7 @@ func TestCatalogCompleteness(t *testing.T) {
 		PermMinerStartMining,
 		PermMinerStopMining,
 		PermMinerUpdatePools,
+		PermMinerActivateMiningGroups,
 		PermMinerUpdateWorkerName,
 		PermMinerRename,
 		PermMinerDelete,

@@ -780,6 +780,7 @@ service Driver {
 
   // Optional controller-only equipment command. Backend support is checked at execution.
   rpc SetTankMining(SetTankMiningRequest) returns (google.protobuf.Empty);
+  rpc MiningGroups(MiningGroupsRequest) returns (MiningGroupsResponse);
   rpc SetModuleMining(SetModuleMiningRequest) returns (google.protobuf.Empty);
   rpc SetContainerControl(SetContainerControlRequest) returns (google.protobuf.Empty);
 
@@ -1014,3 +1015,8 @@ message ContainerFeedEvidence {
  int32 configured_module = 6;
  string observed_power_feed_id = 7;
 }
+
+// Closed SDK MiningGroupRequest/Result JSON schema, validated on both ends.
+// Requests can contain credentials and must never be logged.
+message MiningGroupsRequest { DeviceRef ref = 1; bytes payload = 2; }
+message MiningGroupsResponse { bytes payload = 1; }

@@ -309,6 +309,40 @@ Fleet images, then rechecks that this host is passive. It stops and replaces
 PostgreSQL, and keepalived remain running. The command returns only after the
 target version is healthy and passive.
 
+For orchestration that prepares both hosts before either application stops,
+first require `prepared-update-v1` in **both** the installed CLI's
+`fleet-ha update --capabilities` JSON and the running updater's
+`/v1/status` `capabilities` list on each host. Run the following on both hosts,
+including the active host, and require both preparations to succeed:
+
+```bash
+sudo /opt/proto-fleet/deployment/ha/fleet-ha update v0.2.11 --prepare-only
+```
+
+Preparation verifies and extracts the release, preserves configuration, loads
+images, checks the target schema, and fsyncs a private prepared tree and receipt
+while the old application stays online. It also checks that the target CLI
+supports the protocol. The receipt survives updater restarts and binds the
+release to its source version and configuration. Configuration changes, missing
+images, a different target, or changed prepared files require preparation again.
+Activation never silently downloads or prepares a missing release.
+
+Activate the passive host with `fleet-ha update v0.2.11 --prepared`, then use
+`fleet-ha update v0.2.11 --prepared --complete` on the old active host. Use
+`--prepared` without `--complete` if the peer has already taken over. Activation rechecks
+the schema, loaded image availability, local role, and configuration before the
+existing stop/swap/recovery flow. It does not repeat extraction or image loading.
+
+Install the first release introducing this protocol through the ordinary update
+workflow. Only later rollouts can prepare both hosts this way; require both
+capability probes rather than inferring support from a version number.
+
+Controlled starts of a stopped passive application can skip the normal
+15-second restart delay after confirming a healthy active peer. A root-owned,
+one-shot token is consumed before Fleet executes and removed on failed starts.
+Every later container process restart retains the cooldown; systemd startup
+also clears leftover tokens.
+
 After the peer is confirmed on the target release, complete the update from
 the old active host:
 
@@ -417,6 +451,20 @@ A passive update rechecks the local role, active peer, and control path just
 before stopping Fleet. This crash-only profile accepts the small role-change
 window before process exit; if the peer fails in that interval, durable update
 recovery restarts the local application.
+
+A planned Fleet stop closes HTTP admission and drains requests before stopping
+runtime jobs. After a clean drain and renewal shutdown, Fleet expires only its
+exact live lease; the stored epoch remains and the peer can acquire immediately.
+The drain includes pending background unpairs and confirmed plugin process exit.
+Endpoint-probe suppression lasts only through the HTTP shutdown deadline. If a
+handler remains blocked, Fleet stops lease renewal and takes the fatal-abort path;
+voluntary release still requires completed cleanup.
+Failed or incomplete cleanup, ownership loss, and crashes keep the normal
+lease-expiry path. Active application updates stop the API first, retaining nginx while Fleet
+attempts its clean drain. Docker forces an incomplete API stop after three
+seconds. Compose then tears down the remaining application containers with a
+one-second grace. Each of the two commands has its own five-second bound. The
+update still verifies that the peer serves the public endpoint.
 
 ## etcd capacity
 

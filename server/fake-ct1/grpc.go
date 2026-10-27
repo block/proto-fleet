@@ -18,6 +18,7 @@ type grpcAPI struct {
 	mdk.UnimplementedSystemServiceServer
 	mdk.UnimplementedHashboardServiceServer
 	mdk.UnimplementedMiningServiceServer
+	mdk.UnimplementedMiningGroupServiceServer
 	mdk.UnimplementedTelemetryServiceServer
 	mdk.UnimplementedPowerServiceServer
 	mdk.UnimplementedPoolServiceServer
@@ -32,6 +33,7 @@ func newGRPCServer(state *ContainerState) *grpc.Server {
 	mdk.RegisterSystemServiceServer(server, api)
 	mdk.RegisterHashboardServiceServer(server, api)
 	mdk.RegisterMiningServiceServer(server, api)
+	mdk.RegisterMiningGroupServiceServer(server, api)
 	mdk.RegisterTelemetryServiceServer(server, api)
 	mdk.RegisterPowerServiceServer(server, api)
 	mdk.RegisterPoolServiceServer(server, api)
@@ -176,20 +178,29 @@ func (a *grpcAPI) SetTargetPower(_ context.Context, in *mdk.SetTargetPowerReques
 }
 
 func (a *grpcAPI) StartMining(ctx context.Context, _ *mdk.StartMiningRequest) (*mdk.StartMiningResponse, error) {
-	return &mdk.StartMiningResponse{}, a.setAllMining(ctx, true)
+	if err := a.setGlobalMining(ctx, true); err != nil {
+		return nil, err
+	}
+	return &mdk.StartMiningResponse{}, nil
 }
-
 func (a *grpcAPI) StopMining(ctx context.Context, _ *mdk.StopMiningRequest) (*mdk.StopMiningResponse, error) {
-	return &mdk.StopMiningResponse{}, a.setAllMining(ctx, false)
+	if err := a.setGlobalMining(ctx, false); err != nil {
+		return nil, err
+	}
+	return &mdk.StopMiningResponse{}, nil
 }
-
-func (a *grpcAPI) setAllMining(ctx context.Context, mining bool) error {
+func (a *grpcAPI) setGlobalMining(ctx context.Context, mining bool) error {
 	if err := ctx.Err(); err != nil {
 		return status.FromContextError(err).Err()
 	}
 	a.state.mu.Lock()
-	a.state.setAllMining(mining)
-	a.state.mu.Unlock()
+	defer a.state.mu.Unlock()
+	now := a.state.now()
+	a.state.recordUntil(now)
+	a.state.advance(now)
+	a.state.setGlobalMining(mining)
+	a.state.advance(now)
+	a.state.recordTransition()
 	return nil
 }
 

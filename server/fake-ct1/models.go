@@ -84,11 +84,12 @@ type ContainerConfig struct {
 // ContainerState holds the full simulated container tree and shared metadata.
 // All reads and writes go through mu.
 type ContainerState struct {
-	mu         sync.RWMutex
-	now        func() time.Time
-	sampleTime time.Time
-	observedAt time.Time
-	history    *simulationHistory
+	mu           sync.RWMutex
+	now          func() time.Time
+	sampleTime   time.Time
+	observedAt   time.Time
+	history      *simulationHistory
+	miningGroups *simulatedMiningGroups
 
 	Config    ContainerConfig
 	ServerID  string

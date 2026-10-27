@@ -42,6 +42,9 @@ vi.mock("@/shared/hooks/useClickOutside", () => ({
 }));
 
 vi.mock("@/protoFleet/api/clients", () => ({
+  miningGroupsClient: {
+    getState: vi.fn().mockResolvedValue({ supported: false, enabled: false }),
+  },
   fleetManagementClient: {
     listMinerStateSnapshots: vi.fn(),
     deleteMiners: vi.fn().mockResolvedValue({ deletedCount: 1 }),

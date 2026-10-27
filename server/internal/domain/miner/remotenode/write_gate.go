@@ -3,6 +3,8 @@ package remotenode
 import (
 	"context"
 
+	sdk "github.com/block/proto-fleet/server/sdk/v1"
+
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	"github.com/block/proto-fleet/server/internal/domain/commandtype"
 	"github.com/block/proto-fleet/server/internal/domain/devicewrite"
@@ -48,6 +50,9 @@ func (m *Miner) withPhysicalWriteAdmission(ctx context.Context, command *gateway
 // Future actions remain fenced until their behavior has been classified.
 func physicalWriteKind(command *gatewaypb.MinerCommand) (commandtype.Type, bool) {
 	switch command.GetAction().(type) {
+	case *gatewaypb.MinerCommand_MiningGroups:
+		r, err := sdk.DecodeMiningGroupRequest(command.GetMiningGroups().Request)
+		return commandtype.Type(-1), err != nil || !r.ReadOnly()
 	case *gatewaypb.MinerCommand_GetCoolingMode, *gatewaypb.MinerCommand_GetErrors, *gatewaypb.MinerCommand_GetMiningPools, *gatewaypb.MinerCommand_GetFirmwareUpdateStatus, *gatewaypb.MinerCommand_DownloadLogs, *gatewaypb.MinerCommand_BlinkLed:
 		return commandtype.Type(-1), false
 	case *gatewaypb.MinerCommand_Reboot:

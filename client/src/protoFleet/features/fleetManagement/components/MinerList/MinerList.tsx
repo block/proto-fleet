@@ -607,7 +607,9 @@ const ScopedMinerListBody = ({
               create(HashboardSlotSchema, { position, occupancy: "unknown" });
             const cells: Partial<Record<MinerColumn, ReactNode>> = {};
             for (const column of Object.keys(minerColConfig) as MinerColumn[])
-              cells[column] = <HashboardCell slot={slot} column={column} />;
+              cells[column] = (
+                <HashboardCell slot={slot} column={column} deviceIdentifier={item.row.deviceIdentifier} />
+              );
             if (!result) cells.status = <span role="status">Loading…</span>;
             if (result?.error && position === 1)
               cells.status = (

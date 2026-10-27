@@ -18,7 +18,8 @@ export interface ContainerTank {
   modules: TankModuleState[];
   slots?: ModuleSlot[];
   stats: string[];
-  statSubtitles?: (string | undefined)[];
+  moduleSummary: string;
+  reportingSummary?: string[];
   tempLabel?: string;
   powerLabel?: string;
 }
@@ -98,7 +99,7 @@ export default function ContainerOverviewLayout(props: ContainerOverviewLayoutPr
         padding=""
       />
       {props.notice}
-      <div className="flex flex-col gap-6 rounded-xl bg-surface-elevated-base p-4 shadow-100 tablet:p-6">
+      <div className="flex flex-col gap-6">
         <section aria-label="Tanks">
           {tanks.length ? (
             <div

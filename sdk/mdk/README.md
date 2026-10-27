@@ -23,3 +23,9 @@ It uses the Hermit-managed Buf and Go generators plus the client's
 `protoc-gen-es`; managed mode overrides only Go package paths. Do not edit
 generated files. Commit source and generated output together. Generated
 historical RPC definitions do not enable historical fetching.
+
+Fleet's mining group observation contains every configured pool's URL, worker,
+priority, enabled flag, and weight. Passwords are write-only in MDK and are not
+inferred from readback. Fleet retains an encrypted write receipt to associate
+its immutable configuration revision with a group. A password-only change made
+outside Fleet cannot be detected by this observation contract.

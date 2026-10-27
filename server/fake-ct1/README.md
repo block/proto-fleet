@@ -42,14 +42,15 @@ elapsed times reproduce it, independent of request order.
 The native gRPC listener defaults to `:9095` (`GRPC_PORT`; zero selects an
 ephemeral port). It implements the System, Hashboard, Mining, Telemetry, Power,
 Pool, and RunIn reads and controls that ProtoOS and the CT1 plugin use, except
-pool create, update, and delete. They share the REST state and clock.
+pool create, update, and delete, plus the MiningGroup service described in
+[Mining groups in Fleet](#mining-groups-in-fleet). They share the REST state and clock.
 SetContainerControl writes return controller-register confirmation. The dedicated main breaker remains unsupported, matching the REST
 fixture. Other generated services and historical RPCs are not enabled. This
 development listener is plaintext without authentication; see
 [CT1 transport configuration](../../docs/development/ct1-grpc.md) for the
 production plugin's TLS/token settings.
 
-The HTTP origin serves the same methods as Connect routes
+The HTTP origin serves the same methods, except the MiningGroup service, as Connect routes
 (`/mdk.v2.<Service>/<Method>`), ahead of the `--web-root` static fallback. Each
 Connect call runs through the REST request lifecycle: calls are serialized, the
 clock advances first, and writes are recorded into history afterwards. Native
@@ -150,6 +151,30 @@ builds the production bundle and launches its own simulator on port 18081.
 docker build -t fake-ct1 -f server/fake-ct1/Dockerfile .
 docker run -p 8080:8080 -p 9095:9095 fake-ct1
 ```
+
+## Mining groups in Fleet
+
+The native gRPC listener supports Fleet's mining-group workflow. New simulator
+processes advertise `mining-groups-v1` with groups **disabled**. Use **Enable
+mining groups** in Fleet: it automatically stops mining, enables groups, and
+resumes with existing pools if the container was running. Activation adopts the
+existing hashboards into the stopped `default` group before Fleet resumes it.
+Native gRPC and REST global start/stop share the same lifecycle behavior. Module and hashboard **Edit pool**
+actions become available after Fleet observes completed activation.
+
+The fixture supports capability and membership reads, group creation, ordered
+pool replacement, exact-board transfers, mining intent, operation receipts, and
+empty-group deletion. New groups start stopped. Groups without enabled pools do
+not mine or fall back to default pools. Once activated, container start/stop
+changes only the default group. Revisions and successful idempotency receipts
+are checked; pool credentials never appear in readback.
+
+All group state resets when the simulator restarts. Connected-board transfers
+complete synchronously; transfers involving isolated or disconnected boards are
+rejected. This fixture does not model HA ownership, physical shutdown proofs,
+real Stratum sessions, or per-group pool diagnostics/history. Existing pool
+diagnostics remain demonstration data. REST retains its existing API; Fleet uses
+the native gRPC group service.
 
 ## Environment variables
 

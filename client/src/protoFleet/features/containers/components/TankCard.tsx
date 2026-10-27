@@ -20,10 +20,11 @@ interface TankCardProps {
   onInfo?: () => void;
   /**
    * Footer readouts spread across the row, e.g.
-   * ["48/48 boards", "65.5°", "12.3 kW"].
+   * ["65.5°", "12.3 kW"].
    */
   stats: string[];
-  statSubtitles?: (string | undefined)[];
+  moduleSummary: string;
+  reportingSummary?: string[];
   onClick?: () => void;
   /**
    * When supplied, each module bar becomes an action-menu trigger (View +
@@ -50,7 +51,8 @@ const TankCard = ({
   onToggle,
   onInfo,
   stats,
-  statSubtitles,
+  moduleSummary,
+  reportingSummary,
   onClick,
   onModuleAction,
   slots,
@@ -100,6 +102,13 @@ const TankCard = ({
         </div>
       </div>
 
+      <div className="px-5 pt-3 text-200 text-text-primary-70" data-testid="tank-card-module-summary">
+        <p>{moduleSummary}</p>
+        {reportingSummary?.map((summary) => (
+          <p key={summary}>{summary}</p>
+        ))}
+      </div>
+
       {/* Module bars */}
       <div
         className={clsx(
@@ -130,7 +139,6 @@ const TankCard = ({
         {stats.map((stat, i) => (
           <span key={i} className="min-w-0 flex-1 text-center" title={stat}>
             <span className="block">{stat}</span>
-            {statSubtitles?.[i] ? <span className="text-100 block">{statSubtitles[i]}</span> : null}
           </span>
         ))}
       </div>

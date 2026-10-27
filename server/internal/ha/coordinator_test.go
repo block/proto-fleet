@@ -579,6 +579,7 @@ type fakeLeaseStore struct {
 	renewErr     error
 	acquireDelay time.Duration
 	acquires     int
+	releaseErr   error
 }
 
 func (f *fakeLeaseStore) Acquire(
@@ -648,4 +649,61 @@ func (f *fakeLeaseStore) callSequence() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]string(nil), f.calls...)
+}
+
+func (f *fakeLeaseStore) Release(_ context.Context, _ Ownership) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, "release")
+	return f.releaseErr
+}
+
+func TestCoordinatorRetainsPlannedStopCauseOnActiveLifetime(t *testing.T) {
+	coordinator, err := NewCoordinator(
+		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Minute)},
+		&fakeLeaseStore{}, coordinatorTestConfig())
+	require.NoError(t, err)
+	runCtx, cancelRun := context.WithCancelCause(t.Context())
+	result := make(chan error, 1)
+	go func() { result <- coordinator.Run(runCtx) }()
+	activeCtx, _, err := coordinator.WaitForActive(t.Context())
+	require.NoError(t, err)
+	cancelRun(ErrPlannedStop)
+	require.ErrorIs(t, <-result, context.Canceled)
+	require.ErrorIs(t, context.Cause(activeCtx), ErrPlannedStop)
+	require.Equal(t, StatePassive, coordinator.Snapshot().State)
+}
+
+func TestCoordinatorReleaseRequiresCurrentHolder(t *testing.T) {
+	// Arrange
+	store := &fakeLeaseStore{}
+	coordinator, err := NewCoordinator(
+		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Minute)},
+		store, coordinatorTestConfig())
+	require.NoError(t, err)
+
+	// Act
+	err = coordinator.Release(t.Context(), Ownership{HolderID: uuid.New()})
+
+	// Assert
+	require.ErrorIs(t, err, ErrOwnershipLost)
+	require.NotContains(t, store.callSequence(), "release")
+}
+
+func TestCoordinatorReleaseWrapsStoreError(t *testing.T) {
+	// Arrange
+	storeErr := errors.New("database unavailable")
+	store := &fakeLeaseStore{releaseErr: storeErr}
+	coordinator, err := NewCoordinator(
+		staticObserver{observation: coordinatorObservation("cluster-a", 41, time.Minute)},
+		store, coordinatorTestConfig())
+	require.NoError(t, err)
+
+	// Act
+	err = coordinator.Release(t.Context(), Ownership{HolderID: coordinator.HolderID()})
+
+	// Assert
+	require.ErrorIs(t, err, storeErr)
+	require.ErrorContains(t, err, "release Fleet ownership term")
+	require.Equal(t, []string{"release"}, store.callSequence())
 }
