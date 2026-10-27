@@ -19,15 +19,15 @@ func (h *Handler) ListCurtailmentAutomationRules(ctx context.Context, _ *connect
 	if err != nil {
 		return nil, err
 	}
-	if h.automation == nil {
-		return nil, errCurtailmentNotImplemented("ListCurtailmentAutomationRules")
+	if err := requireService(h.automation, "ListCurtailmentAutomationRules"); err != nil {
+		return nil, err
 	}
 	rules, err := h.automation.List(ctx, info.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
-	if h.responseProfiles == nil {
-		return nil, errCurtailmentNotImplemented("ListCurtailmentAutomationRules")
+	if err := requireService(h.responseProfiles, "ListCurtailmentAutomationRules"); err != nil {
+		return nil, err
 	}
 	profiles, err := h.responseProfiles.List(ctx, info.OrganizationID)
 	if err != nil {
@@ -107,8 +107,8 @@ func (h *Handler) GetCurtailmentAutomationRule(ctx context.Context, req *connect
 	if err != nil {
 		return nil, err
 	}
-	if h.automation == nil {
-		return nil, errCurtailmentNotImplemented("GetCurtailmentAutomationRule")
+	if err := requireService(h.automation, "GetCurtailmentAutomationRule"); err != nil {
+		return nil, err
 	}
 	rule, err := h.getAutomationRuleWithProfilePermission(ctx, info.OrganizationID, req.Msg.GetRuleId())
 	if err != nil {
@@ -122,8 +122,8 @@ func (h *Handler) CreateCurtailmentAutomationRule(ctx context.Context, req *conn
 	if err != nil {
 		return nil, err
 	}
-	if h.automation == nil {
-		return nil, errCurtailmentNotImplemented("CreateCurtailmentAutomationRule")
+	if err := requireService(h.automation, "CreateCurtailmentAutomationRule"); err != nil {
+		return nil, err
 	}
 	profile, err := h.getResponseProfileWithSitePermission(ctx, info.OrganizationID, req.Msg.GetResponseProfileId())
 	if err != nil {
@@ -154,8 +154,8 @@ func (h *Handler) UpdateCurtailmentAutomationRule(ctx context.Context, req *conn
 	if err != nil {
 		return nil, err
 	}
-	if h.automation == nil {
-		return nil, errCurtailmentNotImplemented("UpdateCurtailmentAutomationRule")
+	if err := requireService(h.automation, "UpdateCurtailmentAutomationRule"); err != nil {
+		return nil, err
 	}
 	if _, err := h.getAutomationRuleWithProfilePermission(ctx, info.OrganizationID, req.Msg.GetRuleId()); err != nil {
 		return nil, err
@@ -189,8 +189,8 @@ func (h *Handler) SetCurtailmentAutomationRuleEnabled(ctx context.Context, req *
 	if err != nil {
 		return nil, err
 	}
-	if h.automation == nil {
-		return nil, errCurtailmentNotImplemented("SetCurtailmentAutomationRuleEnabled")
+	if err := requireService(h.automation, "SetCurtailmentAutomationRuleEnabled"); err != nil {
+		return nil, err
 	}
 	rule, profile, err := h.getAutomationRuleWithAuthorizedProfile(ctx, info.OrganizationID, req.Msg.GetRuleId())
 	if err != nil {
@@ -226,8 +226,8 @@ func (h *Handler) DeleteCurtailmentAutomationRule(ctx context.Context, req *conn
 	if err != nil {
 		return nil, err
 	}
-	if h.automation == nil {
-		return nil, errCurtailmentNotImplemented("DeleteCurtailmentAutomationRule")
+	if err := requireService(h.automation, "DeleteCurtailmentAutomationRule"); err != nil {
+		return nil, err
 	}
 	if _, err := h.getAutomationRuleWithProfilePermission(ctx, info.OrganizationID, req.Msg.GetRuleId()); err != nil {
 		return nil, err
@@ -266,8 +266,8 @@ func (h *Handler) requireAutomationRuleProfilePermission(ctx context.Context, ru
 	if err := requireResourceContextPermissions(ctx, authz.PermCurtailmentManage, requirements); err != nil {
 		return nil, err
 	}
-	if h.responseProfiles == nil {
-		return nil, errCurtailmentNotImplemented("GetCurtailmentAutomationRule")
+	if err := requireService(h.responseProfiles, "GetCurtailmentAutomationRule"); err != nil {
+		return nil, err
 	}
 	profile, err := h.responseProfiles.Get(ctx, rule.OrgID, rule.ResponseProfileID)
 	if err != nil {

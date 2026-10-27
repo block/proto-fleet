@@ -48,37 +48,33 @@ func RequestReadLimitOption() connect.HandlerOption {
 	return connect.WithReadMaxBytes(requestReadMaxBytes)
 }
 
-func NewHandler(service *curtailment.Service, mqttSettings ...*mqttingest.SettingsService) *Handler {
-	h := &Handler{service: service}
-	if len(mqttSettings) > 0 {
-		h.mqttSettings = mqttSettings[0]
-	}
-	return h
-}
-
-func NewHandlerWithResponseProfiles(
-	service *curtailment.Service,
-	profiles *curtailment.ResponseProfileService,
-	mqttSettings ...*mqttingest.SettingsService,
-) *Handler {
-	h := NewHandler(service, mqttSettings...)
-	h.responseProfiles = profiles
-	return h
-}
-
-func NewHandlerWithAutomation(
+// NewHandler wires the four curtailment services. Tests may omit a service to
+// exercise authorization and validation without invoking domain behavior.
+func NewHandler(
 	service *curtailment.Service,
 	profiles *curtailment.ResponseProfileService,
 	automation *curtailment.AutomationService,
 	mqttSettings *mqttingest.SettingsService,
 ) *Handler {
-	h := NewHandlerWithResponseProfiles(service, profiles, mqttSettings)
-	h.automation = automation
-	return h
+	return &Handler{
+		service:          service,
+		responseProfiles: profiles,
+		automation:       automation,
+		mqttSettings:     mqttSettings,
+	}
+}
+
+// requireService preserves the RPC's validation/authorization ordering when a
+// dependency is omitted by a test or an alternate server assembly.
+func requireService[T any](service *T, rpc string) error {
+	if service == nil {
+		return errCurtailmentNotImplemented(rpc)
+	}
+	return nil
 }
 
 func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Request[pb.PreviewCurtailmentPlanRequest]) (*connect.Response[pb.PreviewCurtailmentPlanResponse], error) {
-	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
+	info, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermCurtailmentManage)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +92,7 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 	if err != nil {
 		return nil, err
 	}
-	requirements, err := h.previewResourceContextRequirements(ctx, info.OrganizationID, req.Msg)
+	requirements, err := h.requestResourceContextRequirements(ctx, info.OrganizationID, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -120,8 +116,8 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 			return nil, err
 		}
 	}
-	if h.service == nil {
-		return nil, errCurtailmentNotImplemented("PreviewCurtailmentPlan")
+	if err := requireService(h.service, "PreviewCurtailmentPlan"); err != nil {
+		return nil, err
 	}
 
 	plan, err := h.service.Preview(ctx, previewReq)
@@ -137,7 +133,7 @@ func (h *Handler) PreviewCurtailmentPlan(ctx context.Context, req *connect.Reque
 }
 
 func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.StartCurtailmentRequest]) (*connect.Response[pb.StartCurtailmentResponse], error) {
-	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
+	info, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermCurtailmentManage)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +186,7 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 	if profile != nil {
 		startReq.UseProfileCurtailSettings = true
 	}
-	requirements, err := h.startResourceContextRequirements(ctx, info.OrganizationID, req.Msg)
+	requirements, err := h.requestResourceContextRequirements(ctx, info.OrganizationID, req.Msg)
 	if err != nil {
 		return nil, err
 	}
@@ -212,8 +208,8 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 			return nil, err
 		}
 	}
-	if h.service == nil {
-		return nil, errCurtailmentNotImplemented("StartCurtailment")
+	if err := requireService(h.service, "StartCurtailment"); err != nil {
+		return nil, err
 	}
 
 	startReq.AuthorizedDeviceSites = requirements.deviceSites
@@ -243,8 +239,8 @@ func (h *Handler) StartCurtailment(ctx context.Context, req *connect.Request[pb.
 }
 
 func (h *Handler) UpdateCurtailmentEvent(ctx context.Context, req *connect.Request[pb.UpdateCurtailmentEventRequest]) (*connect.Response[pb.UpdateCurtailmentEventResponse], error) {
-	if h.service == nil {
-		return nil, errCurtailmentNotImplemented("UpdateCurtailmentEvent")
+	if err := requireService(h.service, "UpdateCurtailmentEvent"); err != nil {
+		return nil, err
 	}
 	eventUUID, err := parseEventUUID(req.Msg.GetEventUuid())
 	if err != nil {
@@ -315,10 +311,10 @@ func (h *Handler) StopCurtailment(ctx context.Context, req *connect.Request[pb.S
 }
 
 func (h *Handler) ListActiveCurtailments(ctx context.Context, _ *connect.Request[pb.ListActiveCurtailmentsRequest]) (*connect.Response[pb.ListActiveCurtailmentsResponse], error) {
-	if h.service == nil {
-		return nil, errCurtailmentNotImplemented("ListActiveCurtailments")
+	if err := requireService(h.service, "ListActiveCurtailments"); err != nil {
+		return nil, err
 	}
-	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentRead)
+	info, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermCurtailmentRead)
 	if err != nil {
 		return nil, err
 	}
@@ -357,10 +353,10 @@ func hasOrgWidePermission(ctx context.Context, permission string) (bool, error) 
 }
 
 func (h *Handler) ListCurtailmentEvents(ctx context.Context, req *connect.Request[pb.ListCurtailmentEventsRequest]) (*connect.Response[pb.ListCurtailmentEventsResponse], error) {
-	if h.service == nil {
-		return nil, errCurtailmentNotImplemented("ListCurtailmentEvents")
+	if err := requireService(h.service, "ListCurtailmentEvents"); err != nil {
+		return nil, err
 	}
-	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentRead)
+	info, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermCurtailmentRead)
 	if err != nil {
 		return nil, err
 	}
@@ -379,8 +375,8 @@ func (h *Handler) ListCurtailmentEvents(ctx context.Context, req *connect.Reques
 }
 
 func (h *Handler) GetCurtailmentEvent(ctx context.Context, req *connect.Request[pb.GetCurtailmentEventRequest]) (*connect.Response[pb.GetCurtailmentEventResponse], error) {
-	if h.service == nil {
-		return nil, errCurtailmentNotImplemented("GetCurtailmentEvent")
+	if err := requireService(h.service, "GetCurtailmentEvent"); err != nil {
+		return nil, err
 	}
 	eventUUID, err := parseEventUUID(req.Msg.GetEventUuid())
 	if err != nil {
@@ -455,15 +451,15 @@ func (h *Handler) AdminTerminateEvent(ctx context.Context, req *connect.Request[
 // curtailment ownership immediately. It requires manage capability and an
 // Admin/SuperAdmin role, then authorizes the persisted event envelope.
 func (h *Handler) ForceReleaseCurtailmentOwnership(ctx context.Context, req *connect.Request[pb.ForceReleaseCurtailmentOwnershipRequest]) (*connect.Response[pb.ForceReleaseCurtailmentOwnershipResponse], error) {
-	info, err := requireScopedPermissionCapability(ctx, authz.PermCurtailmentManage)
+	info, err := middleware.RequirePermissionAtAnySite(ctx, authz.PermCurtailmentManage)
 	if err != nil {
 		return nil, err
 	}
 	if err := requireAdminFromContext(ctx, actionAdminTerminateEvents); err != nil {
 		return nil, err
 	}
-	if h.service == nil {
-		return nil, errCurtailmentNotImplemented("ForceReleaseCurtailmentOwnership")
+	if err := requireService(h.service, "ForceReleaseCurtailmentOwnership"); err != nil {
+		return nil, err
 	}
 	eventUUID, err := parseEventUUID(req.Msg.GetEventUuid())
 	if err != nil {
@@ -590,46 +586,16 @@ func authorizationEnvelopeAccessAllowed(
 	)
 }
 
-func (h *Handler) previewResourceContextRequirements(
-	ctx context.Context,
-	orgID int64,
-	msg *pb.PreviewCurtailmentPlanRequest,
-) (scopeResourceContextRequirements, error) {
-	if scopes := msg.GetScopes(); len(scopes) > 0 {
-		return h.scopeResourceContextRequirementsFromProto(ctx, orgID, scopes, nil, false)
+func (h *Handler) requestResourceContextRequirements(ctx context.Context, orgID int64, msg scopeRequest) (scopeResourceContextRequirements, error) {
+	scope, err := toScope(msg)
+	if err != nil {
+		return scopeResourceContextRequirements{}, err
 	}
-	switch s := msg.GetScope().(type) {
-	case *pb.PreviewCurtailmentPlanRequest_WholeOrg:
-		return scopeResourceContextRequirements{requireOrgWide: true}, nil
-	case *pb.PreviewCurtailmentPlanRequest_Site:
-		siteID := s.Site.GetSiteId()
-		return scopeResourceContextRequirements{siteContexts: []authz.ResourceContext{{SiteID: &siteID}}}, nil
-	case *pb.PreviewCurtailmentPlanRequest_DeviceIdentifiers:
-		scope := curtailment.Scope{DeviceIdentifiers: s.DeviceIdentifiers.GetDeviceIdentifiers()}
-		return h.scopeResourceContextRequirements(ctx, orgID, scope, nil, false)
+	requirements, err := h.scopeResourceContextRequirements(ctx, orgID, scope, nil, false)
+	if err != nil {
+		return scopeResourceContextRequirements{}, err
 	}
-	return scopeResourceContextRequirements{}, nil
-}
-
-func (h *Handler) startResourceContextRequirements(
-	ctx context.Context,
-	orgID int64,
-	msg *pb.StartCurtailmentRequest,
-) (scopeResourceContextRequirements, error) {
-	if scopes := msg.GetScopes(); len(scopes) > 0 {
-		return h.scopeResourceContextRequirementsFromProto(ctx, orgID, scopes, nil, false)
-	}
-	switch s := msg.GetScope().(type) {
-	case *pb.StartCurtailmentRequest_WholeOrg:
-		return scopeResourceContextRequirements{requireOrgWide: true}, nil
-	case *pb.StartCurtailmentRequest_Site:
-		siteID := s.Site.GetSiteId()
-		return scopeResourceContextRequirements{siteContexts: []authz.ResourceContext{{SiteID: &siteID}}}, nil
-	case *pb.StartCurtailmentRequest_DeviceIdentifiers:
-		scope := curtailment.Scope{DeviceIdentifiers: s.DeviceIdentifiers.GetDeviceIdentifiers()}
-		return h.scopeResourceContextRequirements(ctx, orgID, scope, nil, false)
-	}
-	return scopeResourceContextRequirements{}, nil
+	return requirements, nil
 }
 
 func (h *Handler) scopeResourceContextRequirementsFromProto(
@@ -653,6 +619,11 @@ func (h *Handler) scopeResourceContextRequirements(
 	deviceSites map[string]*int64,
 	requireKnownDevices bool,
 ) (scopeResourceContextRequirements, error) {
+	switch scope.Type {
+	case "", models.ScopeTypeWholeOrg, models.ScopeTypeSite, models.ScopeTypeDeviceList, models.ScopeTypeMixed:
+	default:
+		return scopeResourceContextRequirements{}, fleeterror.NewInvalidArgumentError("unsupported curtailment scope type")
+	}
 	out := scopeResourceContextRequirements{
 		siteContexts: siteResourceContextsForScope(scope),
 	}
@@ -669,6 +640,9 @@ func (h *Handler) scopeResourceContextRequirements(
 	}
 	deviceIdentifiers := uniqueResponseProfileDeviceIdentifiers(scope.DeviceIdentifiers)
 	if len(deviceIdentifiers) == 0 {
+		if len(out.siteContexts) == 0 {
+			return scopeResourceContextRequirements{}, fleeterror.NewInvalidArgumentError("scope must identify an authorization boundary")
+		}
 		return out, nil
 	}
 	if deviceSites == nil {
@@ -774,23 +748,6 @@ func requireScopeResourceContextPermissions(
 	return info, nil
 }
 
-func requireScopedPermissionCapability(ctx context.Context, permission string) (*session.Info, error) {
-	info, err := session.GetInfo(ctx)
-	if err != nil {
-		return nil, fleeterror.NewUnauthenticatedError("authentication required")
-	}
-	orgWide, siteIDs, err := middleware.SiteScopeForPermission(ctx, permission)
-	if err != nil {
-		return nil, err
-	}
-	if orgWide || len(siteIDs) > 0 {
-		return info, nil
-	}
-	// Preserve the middleware's structured permission-denied response when the
-	// caller has no grant for this capability at any supported scope.
-	return middleware.RequirePermission(ctx, permission, authz.ResourceContext{})
-}
-
 func requireResourceContextPermissions(ctx context.Context, permission string, requirements scopeResourceContextRequirements) error {
 	_, err := requireScopeResourceContextPermissions(ctx, permission, requirements, nil)
 	return err
@@ -807,7 +764,7 @@ func parseEventUUID(raw string) (uuid.UUID, error) {
 }
 
 func (h *Handler) requireEventPermission(ctx context.Context, permission string, eventUUID uuid.UUID) (*session.Info, *models.Event, error) {
-	info, err := requireScopedPermissionCapability(ctx, permission)
+	info, err := middleware.RequirePermissionAtAnySite(ctx, permission)
 	if err != nil {
 		return nil, nil, err
 	}

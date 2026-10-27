@@ -778,7 +778,7 @@ func TestResponseProfileService_CreateRejectsNonAdminOverrides(t *testing.T) {
 	t.Parallel()
 
 	targetKW := 1000.0
-	slowInterval := nonAdminRestoreBatchIntervalMax + 1
+	slowInterval := nonAdminBatchIntervalMax + 1
 
 	tests := []struct {
 		name   string

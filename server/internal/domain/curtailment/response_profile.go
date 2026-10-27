@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"math"
 	"strings"
 	"unicode/utf8"
 
@@ -27,8 +26,7 @@ const (
 	// clamps.
 	RestoreBatchSizeMax int32 = 10000
 
-	responseProfileBatchSizeMax int32   = RestoreBatchSizeMax
-	responseProfileNumericMax   float64 = 999999999.999
+	responseProfileNumericMax float64 = 999999999.999
 )
 
 // ResponseProfileService validates and persists reusable curtailment response
@@ -460,121 +458,28 @@ func validateResponseProfileBehavior(profile models.ResponseProfile, canUseAdmin
 	if profile.Mode == models.ModeFullFleet && (profile.TargetKW != nil || profile.ToleranceKW != nil) {
 		return fleeterror.NewInvalidArgumentError("target_kw and tolerance_kw must be unset for FULL_FLEET response profiles")
 	}
-	if profile.FanOffDelaySec < 0 {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"fan_off_delay_sec must be >= 0, got %d",
-			profile.FanOffDelaySec,
-		)
+	if err := validateControlBounds(controlBounds{
+		ProfileFanDelayErrors: true,
+		CurtailBatchSize:      profile.CurtailBatchSize, CurtailBatchIntervalSec: &profile.CurtailBatchIntervalSec,
+		RestoreBatchSize: &profile.RestoreBatchSize, RestoreBatchIntervalSec: &profile.RestoreBatchIntervalSec,
+		FanOffDelaySec: &profile.FanOffDelaySec, FanRestoreDelaySec: &profile.FanRestoreDelaySec,
+	}); err != nil {
+		return err
 	}
-	if profile.FanRestoreDelaySec < 0 {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"fan_restore_delay_sec must be >= 0, got %d",
-			profile.FanRestoreDelaySec,
-		)
-	}
-	if responseProfileRequiresAdminControls(profile) && !canUseAdminControls {
+	if adminControlsRequirement(responseProfileAdminControls(profile)) != "" && !canUseAdminControls {
 		return fleeterror.NewForbiddenError("only admins can save response profiles with admin-only controls")
 	}
-	if profile.TargetKW != nil && math.IsInf(*profile.TargetKW, 0) {
+	if profile.TargetKW != nil && !IsFinite(*profile.TargetKW) {
 		return fleeterror.NewInvalidArgumentErrorf("target_kw must be finite, got %v", *profile.TargetKW)
 	}
 	if profile.TargetKW != nil && *profile.TargetKW > responseProfileNumericMax {
 		return fleeterror.NewInvalidArgumentErrorf("target_kw must be <= %.3f, got %v", responseProfileNumericMax, *profile.TargetKW)
 	}
-	if profile.ToleranceKW != nil && math.IsInf(*profile.ToleranceKW, 0) {
+	if profile.ToleranceKW != nil && !IsFinite(*profile.ToleranceKW) {
 		return fleeterror.NewInvalidArgumentErrorf("tolerance_kw must be finite, got %v", *profile.ToleranceKW)
 	}
 	if profile.ToleranceKW != nil && *profile.ToleranceKW > responseProfileNumericMax {
 		return fleeterror.NewInvalidArgumentErrorf("tolerance_kw must be <= %.3f, got %v", responseProfileNumericMax, *profile.ToleranceKW)
-	}
-	if profile.CurtailBatchSize != nil && *profile.CurtailBatchSize <= 0 {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"curtail_batch_size must be > 0 when set, got %d",
-			*profile.CurtailBatchSize,
-		)
-	}
-	if profile.CurtailBatchSize != nil && *profile.CurtailBatchSize > responseProfileBatchSizeMax {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"curtail_batch_size must be <= %d, got %d",
-			responseProfileBatchSizeMax,
-			*profile.CurtailBatchSize,
-		)
-	}
-	if profile.CurtailBatchIntervalSec < 0 {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"curtail_batch_interval_sec must be >= 0, got %d",
-			profile.CurtailBatchIntervalSec,
-		)
-	}
-	if profile.CurtailBatchSize == nil && profile.CurtailBatchIntervalSec > 0 {
-		return fleeterror.NewInvalidArgumentError(
-			"curtail_batch_interval_sec must be 0 when curtail_batch_size is unset",
-		)
-	}
-	if profile.CurtailBatchIntervalSec > restoreBatchIntervalUpperBoundSec {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"curtail_batch_interval_sec must be <= %d, got %d",
-			restoreBatchIntervalUpperBoundSec,
-			profile.CurtailBatchIntervalSec,
-		)
-	}
-	if profile.CurtailBatchIntervalSec > nonAdminRestoreBatchIntervalMax && !canUseAdminControls {
-		return fleeterror.NewForbiddenErrorf(
-			"only admins can set curtail_batch_interval_sec above %d",
-			nonAdminRestoreBatchIntervalMax,
-		)
-	}
-	if profile.RestoreBatchSize < 0 {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"restore_batch_size must be >= 0, got %d",
-			profile.RestoreBatchSize,
-		)
-	}
-	if profile.RestoreBatchSize > responseProfileBatchSizeMax {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"restore_batch_size must be <= %d, got %d",
-			responseProfileBatchSizeMax,
-			profile.RestoreBatchSize,
-		)
-	}
-	if profile.RestoreBatchIntervalSec < 0 {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"restore_batch_interval_sec must be >= 0, got %d",
-			profile.RestoreBatchIntervalSec,
-		)
-	}
-	if profile.RestoreBatchIntervalSec > restoreBatchIntervalUpperBoundSec {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"restore_batch_interval_sec must be <= %d, got %d",
-			restoreBatchIntervalUpperBoundSec,
-			profile.RestoreBatchIntervalSec,
-		)
-	}
-	if profile.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax && !canUseAdminControls {
-		return fleeterror.NewForbiddenErrorf(
-			"only admins can set restore_batch_interval_sec above %d",
-			nonAdminRestoreBatchIntervalMax,
-		)
-	}
-	if profile.FanOffDelaySec < 0 || profile.FanOffDelaySec > facilityFanDelayUpperBoundSec {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"fan_off_delay_sec must be between 0 and %d, got %d",
-			facilityFanDelayUpperBoundSec,
-			profile.FanOffDelaySec,
-		)
-	}
-	if profile.FanRestoreDelaySec < 0 || profile.FanRestoreDelaySec > facilityFanDelayUpperBoundSec {
-		return fleeterror.NewInvalidArgumentErrorf(
-			"fan_restore_delay_sec must be between 0 and %d, got %d",
-			facilityFanDelayUpperBoundSec,
-			profile.FanRestoreDelaySec,
-		)
-	}
-	if profile.ForceIncludeMaintenance && !canUseAdminControls {
-		return fleeterror.NewForbiddenError("only admins can set force_include_maintenance")
-	}
-	if profile.ForceIncludeAllPairedMiners && !canUseAdminControls {
-		return fleeterror.NewForbiddenError("only admins can set force_include_all_paired_miners")
 	}
 	if err := validatePostEventCooldownSec(profile.PostEventCooldownSec); err != nil {
 		return err
@@ -594,14 +499,6 @@ func validatePostEventCooldownSec(value int32) error {
 		)
 	}
 	return nil
-}
-
-func responseProfileRequiresAdminControls(profile models.ResponseProfile) bool {
-	return profile.Mode == models.ModeFullFleet ||
-		profile.ForceIncludeMaintenance ||
-		profile.ForceIncludeAllPairedMiners ||
-		profile.CurtailBatchIntervalSec > nonAdminRestoreBatchIntervalMax ||
-		profile.RestoreBatchIntervalSec > nonAdminRestoreBatchIntervalMax
 }
 
 func ResponseProfileScope(profile models.ResponseProfile) (Scope, error) {

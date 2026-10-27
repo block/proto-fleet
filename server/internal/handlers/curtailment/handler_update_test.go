@@ -259,7 +259,7 @@ func updateSessionCtxWithPerms(orgID int64, role string, perms ...string) contex
 func TestHandler_UpdateCurtailmentEvent_HappyPath(t *testing.T) {
 	t.Parallel()
 	store := newUpdateStubStore(models.EventStateActive)
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	newReason := "schedule conflict — extending"
 	newCap := uint32(1800)
@@ -290,7 +290,7 @@ func TestHandler_UpdateCurtailmentEvent_HappyPath(t *testing.T) {
 func TestHandler_UpdateCurtailmentEvent_RejectsRestoringState(t *testing.T) {
 	t.Parallel()
 	store := newUpdateStubStore(models.EventStateRestoring)
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	newReason := "updated"
 	_, err := h.UpdateCurtailmentEvent(
@@ -313,7 +313,7 @@ func TestHandler_UpdateCurtailmentEvent_RejectsRestoringState(t *testing.T) {
 func TestHandler_UpdateCurtailmentEvent_RejectsMissingSession(t *testing.T) {
 	t.Parallel()
 	store := newUpdateStubStore(models.EventStateActive)
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.UpdateCurtailmentEvent(
 		t.Context(),
@@ -332,7 +332,7 @@ func TestHandler_UpdateCurtailmentEvent_RejectsMissingSession(t *testing.T) {
 func TestHandler_UpdateCurtailmentEvent_RejectsWithoutCurtailmentManage(t *testing.T) {
 	t.Parallel()
 	store := newUpdateStubStore(models.EventStateActive)
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.UpdateCurtailmentEvent(
 		updateSessionCtxWithPerms(42, "OPERATOR" /* no curtailment:manage */),
@@ -372,7 +372,7 @@ func TestHandler_UpdateCurtailmentEvent_UsesSiteScopedEventPermission(t *testing
 			store.event.AuthorizationEnvelopeJSON = testAuthorizationEnvelopeJSON(
 				[]int64{allowedSite}, nil, false, nil, false,
 			)
-			h := NewHandler(domainCurtailment.NewService(store))
+			h := newTestHandler(domainCurtailment.NewService(store))
 
 			ctx := testSessionCtxWithAssignments(t, &session.Info{
 				AuthMethod:     session.AuthMethodSession,
@@ -405,7 +405,7 @@ func TestHandler_UpdateCurtailmentEvent_UsesSiteScopedEventPermission(t *testing
 func TestHandler_UpdateCurtailmentEvent_RejectsMalformedUUID(t *testing.T) {
 	t.Parallel()
 	store := newUpdateStubStore(models.EventStateActive)
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	_, err := h.UpdateCurtailmentEvent(
 		updateSessionCtx(42, "OPERATOR"),
@@ -426,7 +426,7 @@ func TestHandler_UpdateCurtailmentEvent_RejectsMalformedUUID(t *testing.T) {
 func TestHandler_UpdateCurtailmentEvent_AdminLargeIntervalAllowed(t *testing.T) {
 	t.Parallel()
 	store := newUpdateStubStore(models.EventStateActive)
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	interval := uint32(600) // > 300 non-admin cap, < 3600 absolute ceiling
 	_, err := h.UpdateCurtailmentEvent(
@@ -446,7 +446,7 @@ func TestHandler_UpdateCurtailmentEvent_AdminLargeIntervalAllowed(t *testing.T) 
 func TestHandler_UpdateCurtailmentEvent_NonAdminLargeIntervalForbidden(t *testing.T) {
 	t.Parallel()
 	store := newUpdateStubStore(models.EventStateActive)
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	interval := uint32(600)
 	_, err := h.UpdateCurtailmentEvent(
@@ -480,7 +480,7 @@ func TestHandler_UpdateCurtailmentEvent_ResponseCarriesScopeAndTargets(t *testin
 			DesiredState:       models.DesiredStateCurtailed,
 		},
 	}
-	h := NewHandler(domainCurtailment.NewService(store))
+	h := newTestHandler(domainCurtailment.NewService(store))
 
 	newReason := "operator update"
 	resp, err := h.UpdateCurtailmentEvent(

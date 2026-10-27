@@ -4,6 +4,7 @@ import { Code, ConnectError } from "@connectrpc/connect";
 
 import { AutomationResponseProfileRevisionConflictError } from "@/protoFleet/api/automationResponseProfileRevisionConflict";
 import { curtailmentClient } from "@/protoFleet/api/clients";
+import type { AutomationRule, AutomationRuleFormValues, ResponseProfile } from "@/protoFleet/api/curtailmentTypes";
 import {
   type CurtailmentAutomationRule as ApiCurtailmentAutomationRule,
   CreateCurtailmentAutomationRuleRequestSchema,
@@ -14,11 +15,6 @@ import {
   UpdateCurtailmentAutomationRuleRequestSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { assertNotAborted, isAbortError, toError } from "@/protoFleet/api/requestErrors";
-import type {
-  AutomationRule,
-  AutomationRuleFormValues,
-  ResponseProfile,
-} from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useAuthErrors } from "@/protoFleet/store";
 
 const responseProfileRevisionConflictMessage =

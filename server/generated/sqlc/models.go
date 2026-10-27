@@ -970,6 +970,23 @@ type CurtailmentAutomationRule struct {
 	UpdatedAt         time.Time
 }
 
+type CurtailmentAutomationRuleBinding struct {
+	ID                       int64
+	OrgID                    int64
+	RuleName                 string
+	TriggerType              string
+	MqttSourceID             int64
+	ResponseProfileID        int64
+	Enabled                  bool
+	CreatedAt                time.Time
+	UpdatedAt                time.Time
+	ResponseProfileRevision  uuid.UUID
+	MqttSourceName           string
+	ResponseProfileName      string
+	ResponseProfileSiteID    sql.NullInt64
+	ResponseProfileScopeJson json.RawMessage
+}
+
 type CurtailmentAutomationRuleProfileRevision struct {
 	AutomationRuleID        int64
 	ResponseProfileRevision uuid.UUID

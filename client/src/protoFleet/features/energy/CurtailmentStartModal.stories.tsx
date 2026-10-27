@@ -1,13 +1,14 @@
 import { type ReactElement, useState } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
-import CurtailmentStartModal, {
-  type CurtailmentFormValues,
-  type CurtailmentPlanPreview,
-  type CurtailmentResponseProfileOption,
-  type CurtailmentStartModalMode,
-  type CurtailmentStartModalVariant,
-} from "@/protoFleet/features/energy/CurtailmentStartModal";
+import type {
+  CurtailmentFormValues,
+  CurtailmentPlanPreview,
+  CurtailmentResponseProfileOption,
+  CurtailmentStartModalMode,
+  CurtailmentStartModalVariant,
+} from "@/protoFleet/api/curtailmentTypes";
+import CurtailmentStartModal from "@/protoFleet/features/energy/CurtailmentStartModal";
 import CurtailmentStopConfirmationDialog from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
 import type { FacilityFanDeviceOption } from "@/protoFleet/features/energy/FacilityFanSelectionModal";
 import { withMockedMinerSelectionApis } from "@/protoFleet/stories/MockedMinerSelectionApis";

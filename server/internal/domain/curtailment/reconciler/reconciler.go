@@ -1283,10 +1283,10 @@ func hasFreshTelemetry(c *models.Candidate) bool {
 	if c == nil || c.LatestMetricsAt == nil {
 		return false
 	}
-	if c.LatestPowerW != nil && isFinite(*c.LatestPowerW) {
+	if c.LatestPowerW != nil && curtailment.IsFinite(*c.LatestPowerW) {
 		return true
 	}
-	return c.LatestHashRateHS != nil && isFinite(*c.LatestHashRateHS)
+	return c.LatestHashRateHS != nil && curtailment.IsFinite(*c.LatestHashRateHS)
 }
 
 func activeFanTargetConfirmation(targets []*models.Target) (confirmed int, allConfirmed bool) {
@@ -1836,14 +1836,6 @@ func isClosedLoopFullFleet(ev *models.Event) bool {
 	return ev != nil && ev.Mode == models.ModeFullFleet && ev.LoopType == models.LoopTypeClosed
 }
 
-func toStringSet(values []string) map[string]struct{} {
-	out := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		out[value] = struct{}{}
-	}
-	return out
-}
-
 func listCandidatesParamsForEventScope(ev *models.Event) (interfaces.ListCandidatesParams, bool) {
 	switch ev.ScopeType {
 	case models.ScopeTypeWholeOrg, "":
@@ -1940,7 +1932,7 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 			State:      models.TargetStateDrifted,
 			ObservedAt: &now,
 		}
-		if c.LatestPowerW != nil && isFinite(*c.LatestPowerW) {
+		if c.LatestPowerW != nil && curtailment.IsFinite(*c.LatestPowerW) {
 			power := *c.LatestPowerW
 			params.ObservedPowerW = &power
 		}
@@ -1977,7 +1969,7 @@ func (r *Reconciler) checkDrift(ctx context.Context, ev *models.Event, t *models
 		hasFreshCurtailedFanEvidence(c, t, r.cfg.DriftThresholdFactor) {
 		params.ConfirmedAt = &now
 	}
-	if c.LatestPowerW != nil && isFinite(*c.LatestPowerW) {
+	if c.LatestPowerW != nil && curtailment.IsFinite(*c.LatestPowerW) {
 		power := *c.LatestPowerW
 		params.ObservedPowerW = &power
 	}
@@ -2263,29 +2255,25 @@ func (r *Reconciler) curtailBatchIntervalElapsed(ev *models.Event) bool {
 // → not curtailed); false is the drift path (missing sample preserves
 // curtailed so a flaky sensor doesn't restorm).
 func isCurtailed(latestPowerW *float64, baselinePowerW *float64, latestHashRateHS *float64, driftThresholdFactor float64, requirePositiveEvidence bool) bool {
-	if latestPowerW == nil || !isFinite(*latestPowerW) {
+	if latestPowerW == nil || !curtailment.IsFinite(*latestPowerW) {
 		if requirePositiveEvidence {
 			return false
 		}
 		// Drift path: zero/missing hash → still curtailed; positive hash → resumed.
-		if latestHashRateHS == nil || !isFinite(*latestHashRateHS) {
+		if latestHashRateHS == nil || !curtailment.IsFinite(*latestHashRateHS) {
 			return true
 		}
 		return *latestHashRateHS <= 0
 	}
-	if baselinePowerW != nil && isFinite(*baselinePowerW) && *baselinePowerW > 0 {
+	if baselinePowerW != nil && curtailment.IsFinite(*baselinePowerW) && *baselinePowerW > 0 {
 		threshold := *baselinePowerW * driftThresholdFactor
 		return *latestPowerW <= threshold
 	}
 	// Baseline missing: hash-only fallback.
-	if latestHashRateHS == nil || !isFinite(*latestHashRateHS) {
+	if latestHashRateHS == nil || !curtailment.IsFinite(*latestHashRateHS) {
 		return !requirePositiveEvidence
 	}
 	return *latestHashRateHS <= 0
-}
-
-func isFinite(v float64) bool {
-	return !math.IsNaN(v) && !math.IsInf(v, 0)
 }
 
 // enforceMaxDuration transitions an active event to restoring when the
@@ -2993,13 +2981,13 @@ func (r *Reconciler) eventStillDispatchable(ctx context.Context, ev *models.Even
 // a flaky sensor doesn't trigger a premature Resolved. The strict > vs
 // isCurtailed's <= leaves a no-progress band at exactly baseline×factor.
 func isRestored(latestPowerW *float64, baselinePowerW *float64, latestHashRateHS *float64, restoreThresholdFactor float64) bool {
-	if latestPowerW != nil && isFinite(*latestPowerW) {
-		if baselinePowerW != nil && isFinite(*baselinePowerW) && *baselinePowerW > 0 {
+	if latestPowerW != nil && curtailment.IsFinite(*latestPowerW) {
+		if baselinePowerW != nil && curtailment.IsFinite(*baselinePowerW) && *baselinePowerW > 0 {
 			return *latestPowerW > *baselinePowerW*restoreThresholdFactor
 		}
 	}
 	// Baseline missing / power stale: hash-only fallback.
-	if latestHashRateHS == nil || !isFinite(*latestHashRateHS) {
+	if latestHashRateHS == nil || !curtailment.IsFinite(*latestHashRateHS) {
 		return false
 	}
 	return *latestHashRateHS > 0

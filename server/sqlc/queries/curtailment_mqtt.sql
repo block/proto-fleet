@@ -115,22 +115,12 @@ INSERT INTO curtailment_mqtt_source_config (
     sqlc.arg('enabled')
 )
 RETURNING *
-), requested AS (
-    INSERT INTO curtailment_rig_config_reconciliation (
-        organization_id,
-        requested_by,
-        full_reconcile_generation
-    )
-    SELECT organization_id, service_user_id, 1
-    FROM changed
-    ON CONFLICT (organization_id) DO UPDATE
-    SET requested_by = EXCLUDED.requested_by,
-        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        retry_at = CURRENT_TIMESTAMP,
-        last_error = NULL
 )
-SELECT * FROM changed;
+SELECT changed.*
+FROM changed
+CROSS JOIN LATERAL request_curtailment_rig_config_reconciliation(
+    changed.organization_id, changed.service_user_id, TRUE
+) requested;
 
 -- name: UpdateMQTTSourceConfig :one
 WITH changed AS (
@@ -150,22 +140,12 @@ SET
 WHERE config.id = sqlc.arg('id')
   AND config.organization_id = sqlc.arg('organization_id')
 RETURNING *
-), requested AS (
-    INSERT INTO curtailment_rig_config_reconciliation (
-        organization_id,
-        requested_by,
-        full_reconcile_generation
-    )
-    SELECT organization_id, service_user_id, 1
-    FROM changed
-    ON CONFLICT (organization_id) DO UPDATE
-    SET requested_by = EXCLUDED.requested_by,
-        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        retry_at = CURRENT_TIMESTAMP,
-        last_error = NULL
 )
-SELECT * FROM changed;
+SELECT changed.*
+FROM changed
+CROSS JOIN LATERAL request_curtailment_rig_config_reconciliation(
+    changed.organization_id, changed.service_user_id, TRUE
+) requested;
 
 -- name: SetMQTTSourceConfigEnabled :one
 WITH changed AS (
@@ -174,22 +154,12 @@ SET enabled = sqlc.arg('enabled')
 WHERE config.id = sqlc.arg('id')
   AND config.organization_id = sqlc.arg('organization_id')
 RETURNING *
-), requested AS (
-    INSERT INTO curtailment_rig_config_reconciliation (
-        organization_id,
-        requested_by,
-        full_reconcile_generation
-    )
-    SELECT organization_id, service_user_id, 1
-    FROM changed
-    ON CONFLICT (organization_id) DO UPDATE
-    SET requested_by = EXCLUDED.requested_by,
-        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        retry_at = CURRENT_TIMESTAMP,
-        last_error = NULL
 )
-SELECT * FROM changed;
+SELECT changed.*
+FROM changed
+CROSS JOIN LATERAL request_curtailment_rig_config_reconciliation(
+    changed.organization_id, changed.service_user_id, TRUE
+) requested;
 
 -- name: DeleteDisabledMQTTSourceConfigByOrg :one
 WITH changed AS (
@@ -198,22 +168,12 @@ WHERE config.id = sqlc.arg('id')
   AND config.organization_id = sqlc.arg('organization_id')
   AND config.enabled = FALSE
 RETURNING config.organization_id, config.service_user_id
-), requested AS (
-    INSERT INTO curtailment_rig_config_reconciliation (
-        organization_id,
-        requested_by,
-        full_reconcile_generation
-    )
-    SELECT organization_id, service_user_id, 1
-    FROM changed
-    ON CONFLICT (organization_id) DO UPDATE
-    SET requested_by = EXCLUDED.requested_by,
-        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        full_reconcile_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        retry_at = CURRENT_TIMESTAMP,
-        last_error = NULL
 )
-SELECT COUNT(*)::BIGINT FROM changed;
+SELECT COUNT(*)::BIGINT
+FROM changed
+CROSS JOIN LATERAL request_curtailment_rig_config_reconciliation(
+    changed.organization_id, changed.service_user_id, TRUE
+) requested;
 
 -- name: RequestRigConfigReconciliationForDevices :exec
 -- Lock/update the organization before writing targets. Completion and terminal
@@ -230,18 +190,11 @@ WITH eligible AS MATERIALIZED (
       AND dd.device_class <> sqlc.arg('container_device_class')::integer
       AND dp.pairing_status = 'PAIRED'
 ), requested AS (
-    INSERT INTO curtailment_rig_config_reconciliation (
-        organization_id,
-        requested_by
-    )
-    SELECT DISTINCT org_id, sqlc.arg('requested_by')::bigint
-    FROM eligible
-    ON CONFLICT (organization_id) DO UPDATE
-    SET requested_by = EXCLUDED.requested_by,
-        desired_generation = curtailment_rig_config_reconciliation.desired_generation + 1,
-        retry_at = CURRENT_TIMESTAMP,
-        last_error = NULL
-    RETURNING organization_id, desired_generation
+    SELECT organizations.org_id AS organization_id,
+           request_curtailment_rig_config_reconciliation(
+               organizations.org_id, sqlc.arg('requested_by')::bigint, FALSE
+           ) AS desired_generation
+    FROM (SELECT DISTINCT org_id FROM eligible) organizations
 )
 INSERT INTO curtailment_rig_config_target (
     organization_id,

@@ -162,7 +162,7 @@ func TestService_Update_RejectsAbsoluteCapViolations(t *testing.T) {
 			req: UpdateRequest{
 				OrgID:                   orgID,
 				EventUUID:               eventUUID,
-				RestoreBatchIntervalSec: int32Ptr(restoreBatchIntervalUpperBoundSec + 1),
+				RestoreBatchIntervalSec: int32Ptr(batchIntervalUpperBoundSec + 1),
 				CanUseAdminControls:     true,
 			},
 			msg: "restore_batch_interval_sec must be <=",
@@ -204,7 +204,7 @@ func TestService_Update_RejectsNonAdminLargeInterval(t *testing.T) {
 	_, err := svc.Update(t.Context(), UpdateRequest{
 		OrgID:                   orgID,
 		EventUUID:               eventUUID,
-		RestoreBatchIntervalSec: int32Ptr(nonAdminRestoreBatchIntervalMax + 1),
+		RestoreBatchIntervalSec: int32Ptr(nonAdminBatchIntervalMax + 1),
 		CanUseAdminControls:     false,
 	})
 	require.Error(t, err)
@@ -502,7 +502,7 @@ func TestService_Update_AllowsNonAdminEchoOfAdminElevatedRestoreInterval(t *test
 	t.Parallel()
 	const orgID = int64(1)
 	eventUUID := uuid.New()
-	elevatedInterval := int32(600) // above nonAdminRestoreBatchIntervalMax (300)
+	elevatedInterval := int32(600) // above nonAdminBatchIntervalMax (300)
 	persisted := &models.Event{
 		ID:                      99,
 		EventUUID:               eventUUID,

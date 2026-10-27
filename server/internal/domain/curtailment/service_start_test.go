@@ -508,7 +508,7 @@ func TestService_Start_RejectsNonAdminLargeRestoreBatchInterval(t *testing.T) {
 	}
 	svc := NewService(store)
 	req := validStartRequest(orgID)
-	req.RestoreBatchIntervalSec = nonAdminRestoreBatchIntervalMax + 1
+	req.RestoreBatchIntervalSec = nonAdminBatchIntervalMax + 1
 
 	_, err := svc.Start(t.Context(), req)
 	require.Error(t, err)
@@ -526,18 +526,18 @@ func TestService_Start_AllowsAdminLargeRestoreBatchInterval(t *testing.T) {
 	}
 	svc := NewService(store)
 	req := validStartRequest(orgID)
-	req.RestoreBatchIntervalSec = nonAdminRestoreBatchIntervalMax + 1
+	req.RestoreBatchIntervalSec = nonAdminBatchIntervalMax + 1
 	req.CanUseAdminControls = true
 
 	_, err := svc.Start(t.Context(), req)
 	require.NoError(t, err)
-	assert.Equal(t, nonAdminRestoreBatchIntervalMax+1, store.lastInsertEvent.RestoreBatchIntervalSec)
+	assert.Equal(t, nonAdminBatchIntervalMax+1, store.lastInsertEvent.RestoreBatchIntervalSec)
 }
 
 // TestService_Start_RejectsAdminRestoreBatchIntervalAboveAbsoluteCeiling pins
 // the absolute upper bound: the admin role bypasses the non-admin cap
-// (nonAdminRestoreBatchIntervalMax) but still cannot exceed the absolute
-// ceiling (restoreBatchIntervalUpperBoundSec). A refactor that drops the
+// (nonAdminBatchIntervalMax) but still cannot exceed the absolute
+// ceiling (batchIntervalUpperBoundSec). A refactor that drops the
 // validateStartRequest upper-bound check would otherwise hit the DB CHECK
 // constraint instead of the friendly service-layer error.
 func TestService_Start_RejectsAdminRestoreBatchIntervalAboveAbsoluteCeiling(t *testing.T) {
@@ -550,7 +550,7 @@ func TestService_Start_RejectsAdminRestoreBatchIntervalAboveAbsoluteCeiling(t *t
 	}
 	svc := NewService(store)
 	req := validStartRequest(orgID)
-	req.RestoreBatchIntervalSec = restoreBatchIntervalUpperBoundSec + 1
+	req.RestoreBatchIntervalSec = batchIntervalUpperBoundSec + 1
 	req.CanUseAdminControls = true
 
 	_, err := svc.Start(t.Context(), req)
@@ -1036,7 +1036,7 @@ func TestService_Start_AllowUnboundedPersistsNullMaxDuration(t *testing.T) {
 		"allow_unbounded events must persist max_duration_seconds = NULL")
 }
 
-func TestStartRequiresAdminControls(t *testing.T) {
+func TestAdminControlsRequirement_StartControls(t *testing.T) {
 	t.Parallel()
 
 	orgConfig := &models.OrgConfig{MaxDurationDefaultSec: 100}
@@ -1050,8 +1050,8 @@ func TestStartRequiresAdminControls(t *testing.T) {
 		{name: "candidate power override", req: StartRequest{PreviewRequest: PreviewRequest{CandidateMinPowerWOverride: int32Ptr(1)}}, want: true},
 		{name: "force maintenance", req: StartRequest{PreviewRequest: PreviewRequest{ForceIncludeMaintenance: true}}, want: true},
 		{name: "force all paired", req: StartRequest{PreviewRequest: PreviewRequest{ForceIncludeAllPairedMiners: true}}, want: true},
-		{name: "curtail pacing above operator limit", req: StartRequest{CurtailBatchIntervalSec: nonAdminRestoreBatchIntervalMax + 1}, want: true},
-		{name: "restore pacing above operator limit", req: StartRequest{RestoreBatchIntervalSec: nonAdminRestoreBatchIntervalMax + 1}, want: true},
+		{name: "curtail pacing above operator limit", req: StartRequest{CurtailBatchIntervalSec: nonAdminBatchIntervalMax + 1}, want: true},
+		{name: "restore pacing above operator limit", req: StartRequest{RestoreBatchIntervalSec: nonAdminBatchIntervalMax + 1}, want: true},
 		{name: "duration above org default", req: StartRequest{MaxDurationSeconds: int32Ptr(101)}, want: true},
 		{name: "duration at org default", req: StartRequest{MaxDurationSeconds: int32Ptr(100)}},
 	}
@@ -1059,7 +1059,7 @@ func TestStartRequiresAdminControls(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tt.want, startRequiresAdminControls(tt.req, orgConfig))
+			assert.Equal(t, tt.want, adminControlsRequirement(startAdminControls(tt.req, orgConfig)) != "")
 		})
 	}
 }

@@ -3,6 +3,15 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
 
+import {
+  type AutomationRule,
+  type CurtailmentFormValues,
+  type CurtailmentPlanPreview,
+  type CurtailmentSource,
+  type CurtailmentSourceFormValues,
+  type ResponseProfile,
+} from "@/protoFleet/api/curtailmentTypes";
+
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { useSites } from "@/protoFleet/api/sites";
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
@@ -10,16 +19,9 @@ import useCurtailmentAutomationRules from "@/protoFleet/api/useCurtailmentAutoma
 import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
 import useInfrastructureDevices from "@/protoFleet/api/useInfrastructureDevices";
 import useMqttCurtailmentSources from "@/protoFleet/api/useMqttCurtailmentSources";
-import type { CurtailmentFormValues, CurtailmentPlanPreview } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import CurtailmentSettingsPage, {
   CurtailmentSettingsContent,
 } from "@/protoFleet/features/settings/components/Curtailment";
-import type {
-  AutomationRule,
-  CurtailmentSource,
-  CurtailmentSourceFormValues,
-  ResponseProfile,
-} from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useHasPermission } from "@/protoFleet/store";
 import { useFleetStore } from "@/protoFleet/store/useFleetStore";
 import { pushToast } from "@/shared/features/toaster";

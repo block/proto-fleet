@@ -2,8 +2,25 @@ import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } 
 import { useNavigate } from "react-router-dom";
 import clsx from "clsx";
 import { Code, ConnectError } from "@connectrpc/connect";
+import {
+  getCurtailmentScopeSummary,
+  getCurtailmentTerminalScope,
+  normalizeCurtailmentSelectionValues,
+} from "@/protoFleet/api/curtailmentScopes";
 
-import { getCurtailmentScopeSummary, getCurtailmentTerminalScope } from "@/protoFleet/api/curtailmentScopes";
+import {
+  type ActiveCurtailmentEvent,
+  type CurtailmentHistoryEvent,
+  type CurtailmentPlanPreview,
+  type CurtailmentResponseProfileOption,
+  type CurtailmentSiteOption,
+  type CurtailmentStartModalMode,
+  type CurtailmentSubmitValues,
+  type EditableResponseProfile,
+  isEditableResponseProfile,
+  type ResponseProfileFormValues,
+} from "@/protoFleet/api/curtailmentTypes";
+
 import type { SiteWithCounts } from "@/protoFleet/api/generated/sites/v1/sites_pb";
 import { getErrorCause } from "@/protoFleet/api/requestErrors";
 import { buildSiteNameById } from "@/protoFleet/api/siteNames";
@@ -18,29 +35,16 @@ import {
 import useCurtailmentResponseProfiles from "@/protoFleet/api/useCurtailmentResponseProfiles";
 import useInfrastructureDevices from "@/protoFleet/api/useInfrastructureDevices";
 import { useActiveSite } from "@/protoFleet/components/PageHeader/SitePicker";
-import ActiveCurtailmentStatus, {
-  type ActiveCurtailmentEvent,
-} from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
+import ActiveCurtailmentStatus from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import type { CurtailmentEventState } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
-import CurtailmentHistory, { type CurtailmentHistoryEvent } from "@/protoFleet/features/energy/CurtailmentHistory";
+import CurtailmentHistory from "@/protoFleet/features/energy/CurtailmentHistory";
 import { immediateRestoreBatchSizeInputValue } from "@/protoFleet/features/energy/curtailmentNumericFields";
 import { getDefaultCurtailmentSiteScope } from "@/protoFleet/features/energy/curtailmentSiteScopeDefaults";
-import CurtailmentStartModal, {
-  type CurtailmentPlanPreview,
-  type CurtailmentResponseProfileOption,
-  type CurtailmentSiteOption,
-  type CurtailmentStartModalMode,
-  type CurtailmentSubmitValues,
-} from "@/protoFleet/features/energy/CurtailmentStartModal";
+import CurtailmentStartModal from "@/protoFleet/features/energy/CurtailmentStartModal";
 import CurtailmentStopConfirmationDialog, {
   type CurtailmentStopConfirmationAction,
 } from "@/protoFleet/features/energy/CurtailmentStopConfirmationDialog";
 import { createCurtailmentPlanPreview } from "@/protoFleet/features/energy/useCurtailmentPlanPreview";
-import {
-  type EditableResponseProfile,
-  isEditableResponseProfile,
-  type ResponseProfileFormValues,
-} from "@/protoFleet/features/settings/components/Curtailment/types";
 import { useHasPermission } from "@/protoFleet/store";
 import { Alert } from "@/shared/assets/icons";
 import Button, { sizes, variants } from "@/shared/components/Button";
@@ -158,14 +162,10 @@ function createSiteOptions(sites: SiteWithCounts[]): CurtailmentSiteOption[] {
     .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
 }
 
-function uniqueNonEmptyStrings(values: readonly string[]): string[] {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
-}
-
 function getSelectedResponseProfileSiteIds(
   values: Pick<ResponseProfileFormValues, "siteSelection" | "siteId" | "siteIds">,
 ): string[] {
-  const siteIds = uniqueNonEmptyStrings(
+  const siteIds = normalizeCurtailmentSelectionValues(
     values.siteIds !== undefined && values.siteIds.length > 0 ? values.siteIds : values.siteId ? [values.siteId] : [],
   );
 

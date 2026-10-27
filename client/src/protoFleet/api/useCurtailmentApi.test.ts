@@ -10,6 +10,7 @@ import {
   resetActiveCurtailmentData,
 } from "@/protoFleet/api/activeCurtailmentData";
 import { CURTAILMENT_CHANGED_EVENT } from "@/protoFleet/api/curtailmentEvents";
+import type { CurtailmentSubmitValues } from "@/protoFleet/api/curtailmentTypes";
 import {
   type CurtailmentEvent,
   CurtailmentEventSchema,
@@ -30,7 +31,6 @@ import {
   ScopeWholeOrgSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { useCurtailmentApi } from "@/protoFleet/api/useCurtailmentApi";
-import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const {
   mockAdminTerminateEvent,

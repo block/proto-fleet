@@ -478,7 +478,7 @@ func (s *SettingsService) viewFor(cfg SourceConfig, state SourceState, hasState 
 	}
 }
 
-func (s *SettingsService) validateSourceConfig(ctx context.Context, source SourceConfig) error {
+func validateSourceConnectionConfig(source SourceConfig, validatePassword func() error) error {
 	if source.OrganizationID <= 0 {
 		return fleeterror.NewInvalidArgumentError("org_id must be set")
 	}
@@ -510,16 +510,28 @@ func (s *SettingsService) validateSourceConfig(ctx context.Context, source Sourc
 	if err := validateBoundedString("mqtt_username", source.MQTTUsername); err != nil {
 		return err
 	}
-	if source.MQTTPasswordEncrypted == "" {
-		return fleeterror.NewInvalidArgumentError("mqtt_password is required")
+	if err := validatePassword(); err != nil {
+		return err
 	}
-	password, err := s.cipher.Decrypt(source.MQTTPasswordEncrypted)
-	if err != nil {
-		return fleeterror.NewInvalidArgumentErrorf("mqtt_password cannot be decrypted: %v", err)
-	}
-	clear(password)
 	if _, err := decoderForFormat(source.PayloadFormat); err != nil {
 		return fleeterror.NewInvalidArgumentError(err.Error())
+	}
+	return nil
+}
+
+func (s *SettingsService) validateSourceConfig(ctx context.Context, source SourceConfig) error {
+	if err := validateSourceConnectionConfig(source, func() error {
+		if source.MQTTPasswordEncrypted == "" {
+			return fleeterror.NewInvalidArgumentError("mqtt_password is required")
+		}
+		password, err := s.cipher.Decrypt(source.MQTTPasswordEncrypted)
+		if err != nil {
+			return fleeterror.NewInvalidArgumentErrorf("mqtt_password cannot be decrypted: %v", err)
+		}
+		clear(password)
+		return nil
+	}); err != nil {
+		return err
 	}
 	if source.StalenessThreshold <= 0 {
 		return fleeterror.NewInvalidArgumentError("staleness_threshold_sec must be greater than zero")
@@ -531,44 +543,12 @@ func (s *SettingsService) validateSourceConfig(ctx context.Context, source Sourc
 }
 
 func validateConnectionTestConfig(source SourceConfig, plaintextPassword string) error {
-	if source.OrganizationID <= 0 {
-		return fleeterror.NewInvalidArgumentError("org_id must be set")
-	}
-	if source.ServiceUserID <= 0 {
-		return fleeterror.NewInvalidArgumentError("service_user_id must be set")
-	}
-	if err := validateSourceName(source.SourceName); err != nil {
-		return err
-	}
-	if err := validateBoundedString("topic", source.Topic); err != nil {
-		return err
-	}
-	if err := validateBoundedString("broker_primary_host", source.BrokerPrimaryHost); err != nil {
-		return err
-	}
-	if err := validateBoundedString("broker_secondary_host", source.BrokerSecondaryHost); err != nil {
-		return err
-	}
-	if source.BrokerPort <= 0 || source.BrokerPort > 65535 {
-		return fleeterror.NewInvalidArgumentError("broker_port must be between 1 and 65535")
-	}
-	primary, secondary, ok := ResolveBrokerRoles(source.BrokerPrimaryHost, source.BrokerSecondaryHost)
-	if !ok {
-		return fleeterror.NewInvalidArgumentError("broker hosts must be distinct")
-	}
-	if err := validateBrokerTransport(source, primary, secondary); err != nil {
-		return fleeterror.NewInvalidArgumentError(err.Error())
-	}
-	if err := validateBoundedString("mqtt_username", source.MQTTUsername); err != nil {
-		return err
-	}
-	if strings.TrimSpace(plaintextPassword) == "" {
-		return fleeterror.NewInvalidArgumentError("mqtt_password is required")
-	}
-	if _, err := decoderForFormat(source.PayloadFormat); err != nil {
-		return fleeterror.NewInvalidArgumentError(err.Error())
-	}
-	return nil
+	return validateSourceConnectionConfig(source, func() error {
+		if strings.TrimSpace(plaintextPassword) == "" {
+			return fleeterror.NewInvalidArgumentError("mqtt_password is required")
+		}
+		return nil
+	})
 }
 
 func (s *SettingsService) encryptPassword(plaintext string) (string, error) {

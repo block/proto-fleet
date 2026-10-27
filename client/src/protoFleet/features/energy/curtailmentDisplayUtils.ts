@@ -1,3 +1,11 @@
+import { getCurtailmentScopeSelectionCount } from "@/protoFleet/api/curtailmentScopes";
+import type { CurtailmentFormValues } from "@/protoFleet/api/curtailmentTypes";
+import {
+  estimatedReductionKwSnapshotKeys,
+  formatCurtailmentKw,
+  selectedCountSnapshotKeys,
+  wattsPerKilowatt,
+} from "@/protoFleet/api/curtailmentUtils";
 import {
   type CurtailmentEvent as ProtoCurtailmentEvent,
   CurtailmentEventState as ProtoCurtailmentEventState,
@@ -173,9 +181,6 @@ const startedCurtailmentDispatchTargetStates: CurtailmentTargetState[] = [
 const curtailedTargetStates: CurtailmentTargetState[] = ["confirmed", "resolved"];
 const restoreFailedTargetStates: CurtailmentTargetState[] = ["restoreFailed"];
 const restoredTargetStates: CurtailmentTargetState[] = ["resolved", "released"];
-const estimatedReductionKwSnapshotKeys = ["estimated_reduction_kw", "estimatedReductionKw"] as const;
-const selectedCountSnapshotKeys = ["selected_count", "selectedCount"] as const;
-const wattsPerKilowatt = 1000;
 
 interface CurtailmentTargetKwEvent {
   estimatedReductionKw: number;
@@ -525,26 +530,6 @@ export function getActiveCurtailmentRestoreProgress(
   };
 }
 
-// Compact duration for the SLA-facing elapsed readout ("3m 12s"); zero units
-// are omitted except the bare-seconds case.
-export function formatCurtailmentElapsedDuration(totalSeconds: number): string {
-  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
-    return "0s";
-  }
-
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = Math.floor(totalSeconds % 60);
-
-  if (hours > 0) {
-    return minutes > 0 ? `${hours.toLocaleString()}h ${minutes}m` : `${hours.toLocaleString()}h`;
-  }
-  if (minutes > 0) {
-    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
-  }
-  return `${seconds}s`;
-}
-
 export function getActiveCurtailmentMinerCompliance(
   event: ActiveCurtailmentDisplayEvent,
 ): ActiveCurtailmentMinerCompliance {
@@ -610,15 +595,6 @@ export function getActiveCurtailmentDisplayState(
   return powerShedPercent >= 100 || curtailedPercent >= 100 ? "curtailed" : "curtailing";
 }
 
-export function formatCurtailmentKw(value: number, fractionDigits = 1): string {
-  const finiteValue = Number.isFinite(value) ? value : 0;
-
-  return `${finiteValue.toLocaleString(undefined, {
-    maximumFractionDigits: fractionDigits,
-    minimumFractionDigits: fractionDigits,
-  })} kW`;
-}
-
 export function formatCurtailmentMinerCount(minerCount: number): string {
   return `${minerCount.toLocaleString()} ${getMinerCountLabel(minerCount)}`;
 }
@@ -647,4 +623,122 @@ export function formatCurtailmentSelectedMinerCount(minerCount: number): string 
 
 export function formatCurtailmentTargetVsActual(event: CurtailmentTargetKwEvent): string {
   return `${formatCurtailmentKw(getCurtailmentTargetKw(event))} / ${formatCurtailmentKw(event.estimatedReductionKw)}`;
+}
+
+function formatSelectedScopeLabel(count: number, singular: string): string {
+  return count === 1 ? `from 1 selected ${singular}` : `from ${count} selected ${singular}s`;
+}
+
+function formatSelectedMinerScopeLabel(count: number): string {
+  return count === 1 ? "from the selected miner" : "from selected miners";
+}
+
+export function formatCurtailmentPlanScopeLabel(values: CurtailmentFormValues): string {
+  if (values.minerSelectionMode === "all") {
+    return "across the fleet";
+  }
+
+  const selectedMinerCount = values.deviceIdentifiers?.length ?? 0;
+  const selectedSiteIds =
+    values.siteSelection === "site" || values.siteSelection === "allSites"
+      ? values.siteIds?.length
+        ? values.siteIds
+        : values.siteId
+          ? [values.siteId]
+          : []
+      : [];
+  const selectedSiteLabel =
+    values.siteSelection === "allSites"
+      ? "all sites"
+      : selectedSiteIds.length === 1
+        ? values.scopeId?.trim() || `site ${selectedSiteIds[0]}`
+        : `${selectedSiteIds.length} selected sites`;
+  const siteLabel = `from ${selectedSiteLabel}`;
+  const canonicalScopeCount = getCurtailmentScopeSelectionCount(values) ?? 0;
+  if (values.scopeType === "explicitMiners" && selectedMinerCount > 0) {
+    return formatSelectedMinerScopeLabel(selectedMinerCount);
+  }
+  if (values.scopeType === "site" && selectedSiteIds.length > 0) {
+    return siteLabel;
+  }
+
+  switch (values.scopeType) {
+    case "building":
+      return formatSelectedScopeLabel(canonicalScopeCount, "building");
+    case "rack":
+      return formatSelectedScopeLabel(canonicalScopeCount, "rack");
+    case "group":
+      return formatSelectedScopeLabel(canonicalScopeCount, "group");
+    case "site":
+    case "explicitMiners":
+    case "wholeOrg":
+    default:
+      return "across the fleet";
+  }
+}
+
+type CurtailmentDurationUnit = "hour" | "minute" | "second";
+type CurtailmentDurationOptions = {
+  style?: "elapsed" | "long" | "estimate";
+  approximate?: boolean;
+};
+
+export function formatCurtailmentDuration(
+  totalSeconds: number,
+  { style = "elapsed", approximate = true }: CurtailmentDurationOptions = {},
+): string {
+  if (totalSeconds <= 0 || (style !== "estimate" && !Number.isFinite(totalSeconds))) {
+    return style === "elapsed" ? "0s" : style === "long" ? "Immediate" : "Immediately";
+  }
+
+  let parts: [number, CurtailmentDurationUnit][];
+  if (style === "elapsed") {
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+    parts =
+      hours > 0
+        ? [
+            [hours, "hour"],
+            [minutes, "minute"],
+          ]
+        : minutes > 0
+          ? [
+              [minutes, "minute"],
+              [seconds, "second"],
+            ]
+          : [[seconds, "second"]];
+    parts = parts.filter(([value], index) => index === 0 || value > 0);
+  } else if (style === "long") {
+    parts = [
+      [Math.floor(totalSeconds / 60), "minute"],
+      [totalSeconds % 60, "second"],
+    ];
+    parts = parts.filter(([value]) => value > 0);
+  } else if (totalSeconds < 60) {
+    parts = [[totalSeconds, "second"]];
+  } else {
+    const minutes = Math.ceil(totalSeconds / 60);
+    if (minutes < 60) {
+      parts = [[minutes, "minute"]];
+    } else {
+      const remainingMinutes = minutes % 60;
+      parts = [[Math.floor(minutes / 60), "hour"]];
+      if (remainingMinutes !== 0) {
+        parts.push([remainingMinutes, "minute"]);
+      }
+    }
+  }
+
+  const prefix = style === "estimate" && approximate ? "~" : "";
+  return (
+    prefix +
+    parts
+      .map(([value, unit]) => {
+        const magnitude =
+          style === "long" || (style === "elapsed" && unit === "hour") ? value.toLocaleString() : String(value);
+        return style === "elapsed" ? `${magnitude}${unit[0]}` : `${magnitude} ${unit}${value === 1 ? "" : "s"}`;
+      })
+      .join(style === "long" ? ", " : " ")
+  );
 }

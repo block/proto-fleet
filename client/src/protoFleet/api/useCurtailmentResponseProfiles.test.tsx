@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
+import type { ResponseProfile, ResponseProfileFormValues } from "@/protoFleet/api/curtailmentTypes";
 import {
   CurtailmentLevel,
   CurtailmentMode,
@@ -23,10 +24,6 @@ import {
 import useCurtailmentResponseProfiles, {
   clearCurtailmentResponseProfileSessionCacheForTest,
 } from "@/protoFleet/api/useCurtailmentResponseProfiles";
-import type {
-  ResponseProfile,
-  ResponseProfileFormValues,
-} from "@/protoFleet/features/settings/components/Curtailment/types";
 
 const {
   mockCreateCurtailmentResponseProfile,

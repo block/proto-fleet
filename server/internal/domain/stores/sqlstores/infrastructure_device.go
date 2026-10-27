@@ -180,11 +180,12 @@ func (s *SQLInfrastructureDeviceStore) CountActiveCurtailmentEventsByInfrastruct
 	ctx context.Context,
 	orgID, id int64,
 ) (int64, error) {
-	count, err := s.GetQueries(ctx).CountActiveCurtailmentEventsByInfrastructureDevices(
+	count, err := s.GetQueries(ctx).CountCurtailmentFanClaims(
 		ctx,
-		sqlc.CountActiveCurtailmentEventsByInfrastructureDevicesParams{
-			OrgID:                   orgID,
-			InfrastructureDeviceIds: []int64{id},
+		sqlc.CountCurtailmentFanClaimsParams{
+			IncludeTerminalErrors: true,
+			OrgID:                 orgID,
+			FacilityFanDeviceIds:  []int64{id},
 		},
 	)
 	if err != nil {
@@ -197,11 +198,12 @@ func (s *SQLInfrastructureDeviceStore) CountNonTerminalCurtailmentEventsByInfras
 	ctx context.Context,
 	orgID, id int64,
 ) (int64, error) {
-	count, err := s.GetQueries(ctx).CountNonTerminalCurtailmentEventsByInfrastructureDevices(
+	count, err := s.GetQueries(ctx).CountCurtailmentFanClaims(
 		ctx,
-		sqlc.CountNonTerminalCurtailmentEventsByInfrastructureDevicesParams{
-			OrgID:                   orgID,
-			InfrastructureDeviceIds: []int64{id},
+		sqlc.CountCurtailmentFanClaimsParams{
+			IncludeTerminalErrors: false,
+			OrgID:                 orgID,
+			FacilityFanDeviceIds:  []int64{id},
 		},
 	)
 	if err != nil {

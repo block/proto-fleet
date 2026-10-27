@@ -4,6 +4,7 @@ import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
 import { AutomationResponseProfileRevisionConflictError } from "@/protoFleet/api/automationResponseProfileRevisionConflict";
+import type { AutomationRuleFormValues, ResponseProfile } from "@/protoFleet/api/curtailmentTypes";
 import {
   type CurtailmentAutomationRule,
   CurtailmentAutomationRuleSchema,
@@ -11,10 +12,6 @@ import {
   CurtailmentAutomationTriggerType,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import useCurtailmentAutomationRules from "@/protoFleet/api/useCurtailmentAutomationRules";
-import type {
-  AutomationRuleFormValues,
-  ResponseProfile,
-} from "@/protoFleet/features/settings/components/Curtailment/types";
 
 const {
   mockCreateCurtailmentAutomationRule,

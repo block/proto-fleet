@@ -1137,43 +1137,6 @@ func uniqueSortedInt64s(values []int64) []int64 {
 	return out
 }
 
-func validateResponseProfileExecutionFence(profileID int64, revision uuid.UUID) error {
-	if profileID < 0 {
-		return fleeterror.NewInvalidArgumentError("response profile execution fence requires a non-negative ID")
-	}
-	if (profileID > 0) != (revision != uuid.Nil) {
-		return fleeterror.NewInvalidArgumentError(
-			"response profile execution fence requires both profile ID and revision",
-		)
-	}
-	return nil
-}
-
-func validateAutomationExecutionFence(ruleID, mqttSourceID, serviceUserID, profileID int64, revision uuid.UUID) error {
-	if ruleID < 0 || mqttSourceID < 0 || serviceUserID < 0 {
-		return fleeterror.NewInvalidArgumentError("automation execution fence IDs must be non-negative")
-	}
-	if ruleID == 0 {
-		if mqttSourceID > 0 {
-			return fleeterror.NewInvalidArgumentError(
-				"automation execution fence requires a rule ID with the MQTT source ID",
-			)
-		}
-		return nil
-	}
-	if mqttSourceID == 0 || serviceUserID == 0 {
-		return fleeterror.NewInvalidArgumentError(
-			"automation execution fence requires rule, MQTT source, and service user IDs",
-		)
-	}
-	if ruleID > 0 && (profileID <= 0 || revision == uuid.Nil) {
-		return fleeterror.NewInvalidArgumentError(
-			"automation execution fence requires a response profile ID and revision",
-		)
-	}
-	return nil
-}
-
 func lockAutomationRuleMutation(ctx context.Context, q sqlc.Querier, orgID, ruleID int64) error {
 	if err := q.LockCurtailmentAutomationRuleMutation(ctx, sqlc.LockCurtailmentAutomationRuleMutationParams{
 		OrgID:  orgID,
@@ -1376,16 +1339,11 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 	event models.InsertEventParams,
 	targets []models.InsertTargetParams,
 ) (*models.InsertEventResult, error) {
-	if err := validateResponseProfileExecutionFence(event.ResponseProfileID, event.ResponseProfileRevision); err != nil {
-		return nil, err
-	}
-	if err := validateAutomationExecutionFence(
-		event.AutomationRuleID,
-		event.AutomationMQTTSourceID,
-		event.CreatedByUserID,
-		event.ResponseProfileID,
-		event.ResponseProfileRevision,
-	); err != nil {
+	if err := domainCurtailment.ValidateExecutionFence(domainCurtailment.ExecutionFence{
+		ResponseProfileID: event.ResponseProfileID, ResponseProfileRevision: event.ResponseProfileRevision,
+		AutomationRuleID: event.AutomationRuleID, AutomationMQTTSourceID: event.AutomationMQTTSourceID,
+		AutomationServiceUserID: event.CreatedByUserID,
+	}, domainCurtailment.ExecutionFenceStore); err != nil {
 		return nil, err
 	}
 	// A closed-loop FULL_FLEET event may begin as a targetless active watcher.
@@ -1468,10 +1426,11 @@ func (s *SQLCurtailmentStore) InsertEventWithTargets(
 			}
 		}
 		if usesFanGuard {
-			conflicts, err := q.CountConflictingCurtailmentFanClaims(ctx, sqlc.CountConflictingCurtailmentFanClaimsParams{
-				OrgID:                event.OrgID,
-				ExcludedEventID:      0,
-				FacilityFanDeviceIds: fanIDs,
+			conflicts, err := q.CountCurtailmentFanClaims(ctx, sqlc.CountCurtailmentFanClaimsParams{
+				IncludeTerminalErrors: true,
+				OrgID:                 event.OrgID,
+				ExcludedEventID:       sql.NullInt64{Int64: 0, Valid: true},
+				FacilityFanDeviceIds:  fanIDs,
 			})
 			if err != nil {
 				return nil, fleeterror.NewInternalErrorf("failed to check facility fan claims: %v", err)
@@ -3157,10 +3116,11 @@ func (s *SQLCurtailmentStore) ForceReleaseEventWithFanRecovery(
 			if result.Event == nil || !result.Event.State.IsTerminal() || result.Event.ID != eventID {
 				return interfaces.ForceReleaseEventResult{}, interfaces.ErrCurtailmentEventStateRaceLoss
 			}
-			claims, claimErr := q.CountConflictingCurtailmentFanClaims(ctx, sqlc.CountConflictingCurtailmentFanClaimsParams{
-				OrgID:                orgID,
-				ExcludedEventID:      eventID,
-				FacilityFanDeviceIds: fanIDs,
+			claims, claimErr := q.CountCurtailmentFanClaims(ctx, sqlc.CountCurtailmentFanClaimsParams{
+				IncludeTerminalErrors: true,
+				OrgID:                 orgID,
+				ExcludedEventID:       sql.NullInt64{Int64: eventID, Valid: true},
+				FacilityFanDeviceIds:  fanIDs,
 			})
 			if claimErr != nil {
 				return interfaces.ForceReleaseEventResult{}, fleeterror.NewInternalErrorf(
@@ -3237,10 +3197,11 @@ func (s *SQLCurtailmentStore) RecoverTerminalFanState(
 				return struct{}{}, fleeterror.NewInternalErrorf("failed to lock terminal facility fan device %d: %v", fanID, err)
 			}
 		}
-		claims, err := q.CountConflictingCurtailmentFanClaims(ctx, sqlc.CountConflictingCurtailmentFanClaimsParams{
-			OrgID:                orgID,
-			ExcludedEventID:      eventID,
-			FacilityFanDeviceIds: fanIDs,
+		claims, err := q.CountCurtailmentFanClaims(ctx, sqlc.CountCurtailmentFanClaimsParams{
+			IncludeTerminalErrors: true,
+			OrgID:                 orgID,
+			ExcludedEventID:       sql.NullInt64{Int64: eventID, Valid: true},
+			FacilityFanDeviceIds:  fanIDs,
 		})
 		if err != nil {
 			return struct{}{}, fleeterror.NewInternalErrorf("failed to check newer facility fan claims: %v", err)
@@ -3484,16 +3445,11 @@ func (s *SQLCurtailmentStore) BeginRecurtailTransition(
 	eventUUID uuid.UUID,
 	params interfaces.BeginRecurtailTransitionParams,
 ) (*models.Event, error) {
-	if err := validateResponseProfileExecutionFence(params.ResponseProfileID, params.ResponseProfileRevision); err != nil {
-		return nil, err
-	}
-	if err := validateAutomationExecutionFence(
-		params.AutomationRuleID,
-		params.AutomationMQTTSourceID,
-		params.AutomationServiceUserID,
-		params.ResponseProfileID,
-		params.ResponseProfileRevision,
-	); err != nil {
+	if err := domainCurtailment.ValidateExecutionFence(domainCurtailment.ExecutionFence{
+		ResponseProfileID: params.ResponseProfileID, ResponseProfileRevision: params.ResponseProfileRevision,
+		AutomationRuleID: params.AutomationRuleID, AutomationMQTTSourceID: params.AutomationMQTTSourceID,
+		AutomationServiceUserID: params.AutomationServiceUserID,
+	}, domainCurtailment.ExecutionFenceStore); err != nil {
 		return nil, err
 	}
 	return db.WithTransaction(ctx, s.conn.DB, func(q sqlc.Querier) (*models.Event, error) {

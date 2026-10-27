@@ -7,16 +7,26 @@ import {
   parseCurtailmentTerminalScopes,
 } from "@/protoFleet/api/curtailmentScopes";
 import {
+  type ActiveCurtailmentEvent,
+  type ActiveCurtailmentTargetSiteCoverage,
+  type ActiveCurtailmentUnavailableReasonCount,
+  type CurtailmentHistoryEvent,
+  type CurtailmentMode,
+  type CurtailmentSubmitValues,
+} from "@/protoFleet/api/curtailmentTypes";
+
+import {
+  estimatedReductionKwSnapshotKeys,
+  mapCurtailmentPriority,
+  mapEditableCurtailmentPriority,
+  selectedCountSnapshotKeys,
+  wattsPerKilowatt,
+} from "@/protoFleet/api/curtailmentUtils";
+import {
   type CurtailmentEvent as ProtoCurtailmentEvent,
   CurtailmentMode as ProtoCurtailmentMode,
-  CurtailmentPriority as ProtoCurtailmentPriority,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import { getSiteDisplayName, type SiteNameById } from "@/protoFleet/api/siteNames";
-import type {
-  ActiveCurtailmentEvent,
-  ActiveCurtailmentTargetSiteCoverage,
-  ActiveCurtailmentUnavailableReasonCount,
-} from "@/protoFleet/features/energy/ActiveCurtailmentStatus";
 import {
   getActiveCurtailmentDisplayState,
   getCurtailmentEventEstimatedReductionKw,
@@ -28,14 +38,9 @@ import {
   isActiveCurtailmentEventState,
   mapCurtailmentEventState,
 } from "@/protoFleet/features/energy/curtailmentDisplayUtils";
-import type { CurtailmentHistoryEvent, CurtailmentPriority } from "@/protoFleet/features/energy/CurtailmentHistory";
-import type { CurtailmentMode, CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
-const wattsPerKilowatt = 1000;
 const automationExternalSource = "curtailment_automation";
 const automationSourceLabel = "Curtailment automation";
-const estimatedReductionKwSnapshotKeys = ["estimated_reduction_kw", "estimatedReductionKw"] as const;
-const selectedCountSnapshotKeys = ["selected_count", "selectedCount"] as const;
 const unavailableReasonLabels: Record<string, string> = {
   active_event: "in another event",
   authentication_needed: "needs authentication",
@@ -221,7 +226,7 @@ export function mapCurtailmentEventToFormValues(
     minerSelectionStrategy: "leastEfficientFirst",
     targetKw: fixedKwTarget !== undefined ? String(fixedKwTarget) : "",
     toleranceKw: fixedKwTolerance !== undefined ? String(fixedKwTolerance) : "",
-    priority: event.priority === ProtoCurtailmentPriority.EMERGENCY ? "emergency" : "normal",
+    priority: mapEditableCurtailmentPriority(event.priority),
     minDurationSec: formatPositiveNumberField(event.minCurtailedDurationSec),
     maxDurationSec: formatPositiveNumberField(event.maxDurationSeconds),
     curtailBatchSize: hasCurtailBatchSize ? formatPositiveNumberField(event.curtailBatchSize) : "",
@@ -235,19 +240,6 @@ export function mapCurtailmentEventToFormValues(
     includeMaintenance: event.includeMaintenance,
     forceIncludeAllPairedMiners: event.forceIncludeAllPairedMiners,
   };
-}
-
-export function mapCurtailmentPriority(priority: ProtoCurtailmentPriority): CurtailmentPriority {
-  switch (priority) {
-    case ProtoCurtailmentPriority.EMERGENCY:
-      return "emergency";
-    case ProtoCurtailmentPriority.HIGH:
-      return "high";
-    case ProtoCurtailmentPriority.NORMAL:
-    case ProtoCurtailmentPriority.UNSPECIFIED:
-    default:
-      return "normal";
-  }
 }
 
 function isAutomationExternalSource(externalSource: string): boolean {

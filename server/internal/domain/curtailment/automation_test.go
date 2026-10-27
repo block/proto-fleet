@@ -123,13 +123,13 @@ func TestAutomationService_CreateRejectsAdminOnlyProfileWithoutAdminControls(t *
 		{
 			name: "slow curtail batch interval",
 			mutate: func(profile *models.ResponseProfile) {
-				profile.CurtailBatchIntervalSec = nonAdminRestoreBatchIntervalMax + 1
+				profile.CurtailBatchIntervalSec = nonAdminBatchIntervalMax + 1
 			},
 		},
 		{
 			name: "slow restore batch interval",
 			mutate: func(profile *models.ResponseProfile) {
-				profile.RestoreBatchIntervalSec = nonAdminRestoreBatchIntervalMax + 1
+				profile.RestoreBatchIntervalSec = nonAdminBatchIntervalMax + 1
 			},
 		},
 	}

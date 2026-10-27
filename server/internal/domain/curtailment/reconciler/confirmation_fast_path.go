@@ -378,7 +378,7 @@ func (r *Reconciler) confirmationUpdateFromSample(
 		ObservedAt:       now,
 		ConfirmedAt:      now,
 	}
-	if powerW != nil && isFinite(*powerW) {
+	if powerW != nil && curtailment.IsFinite(*powerW) {
 		power := *powerW
 		update.ObservedPowerW = &power
 	}
@@ -427,7 +427,7 @@ func confirmedCurtailTargetParams(now time.Time, observedPowerW *float64) interf
 		ObservedAt:  &now,
 		RetryCount:  &zero,
 	}
-	if observedPowerW != nil && isFinite(*observedPowerW) {
+	if observedPowerW != nil && curtailment.IsFinite(*observedPowerW) {
 		power := *observedPowerW
 		params.ObservedPowerW = &power
 	}
@@ -442,7 +442,7 @@ func resolvedRestoreTargetParams(now time.Time, observedPowerW *float64) interfa
 		ConfirmedAt: &now,
 		ObservedAt:  &now,
 	}
-	if observedPowerW != nil && isFinite(*observedPowerW) {
+	if observedPowerW != nil && curtailment.IsFinite(*observedPowerW) {
 		power := *observedPowerW
 		params.ObservedPowerW = &power
 	}

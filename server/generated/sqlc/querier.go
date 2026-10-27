@@ -341,7 +341,6 @@ type Querier interface {
 	// granting anything, so DeleteCustomRole should be allowed to clear
 	// it rather than block the admin on phantom assignments.
 	CountActiveAssignmentsForRole(ctx context.Context, roleID int64) (int64, error)
-	CountActiveCurtailmentEventsByInfrastructureDevices(ctx context.Context, arg CountActiveCurtailmentEventsByInfrastructureDevicesParams) (int64, error)
 	CountActiveRepairTicketsAssignedToUser(ctx context.Context, arg CountActiveRepairTicketsAssignedToUserParams) (int64, error)
 	CountActiveUnpairedDiscoveredDevices(ctx context.Context, orgID int64) (int64, error)
 	// Site filter must stay byte-for-byte identical to ListActivityLogs so the
@@ -352,9 +351,9 @@ type Querier interface {
 	CountCompletedTickets(ctx context.Context, arg CountCompletedTicketsParams) (int32, error)
 	// Counts distinct (device_id, component_type, component_id) tuples that have errors matching filter criteria.
 	CountComponentsWithErrors(ctx context.Context, arg CountComponentsWithErrorsParams) (int64, error)
-	CountConflictingCurtailmentFanClaims(ctx context.Context, arg CountConflictingCurtailmentFanClaimsParams) (int64, error)
 	CountCurtailmentAutomationRulesByMQTTSource(ctx context.Context, arg CountCurtailmentAutomationRulesByMQTTSourceParams) (int64, error)
 	CountCurtailmentAutomationRulesByResponseProfile(ctx context.Context, arg CountCurtailmentAutomationRulesByResponseProfileParams) (int64, error)
+	CountCurtailmentFanClaims(ctx context.Context, arg CountCurtailmentFanClaimsParams) (int64, error)
 	CountCurtailmentResponseProfilesBySite(ctx context.Context, arg CountCurtailmentResponseProfilesBySiteParams) (int64, error)
 	// Serializes logical FULL_FLEET scope ownership. Whole-org conflicts with every
 	// hierarchy watcher; site selectors conflict on overlap; topology selectors
@@ -388,7 +387,6 @@ type Querier interface {
 	// UNSPECIFIED (0) is excluded (normalized at ingestion by miner_error_mapper).
 	// Open actionable errors (severity 1-4; excludes UNSPECIFIED=0)
 	CountMinersByState(ctx context.Context, arg CountMinersByStateParams) (CountMinersByStateRow, error)
-	CountNonTerminalCurtailmentEventsByInfrastructureDevices(ctx context.Context, arg CountNonTerminalCurtailmentEventsByInfrastructureDevicesParams) (int64, error)
 	// Same guard, but for DeactivateUser: counts live SUPER_ADMINs in
 	// the org excluding any assignment held by the user being
 	// deactivated. Same liveness filters as above so a deactivated user

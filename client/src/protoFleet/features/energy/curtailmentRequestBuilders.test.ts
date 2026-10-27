@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import type { CurtailmentSubmitValues } from "@/protoFleet/api/curtailmentTypes";
 import { CurtailmentMode, type CurtailmentScope } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
 import {
   buildStartCurtailmentRequest,
   buildUpdateCurtailmentEventRequest,
 } from "@/protoFleet/features/energy/curtailmentRequestBuilders";
-import type { CurtailmentSubmitValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 
 const baseValues: CurtailmentSubmitValues = {
   scopeType: "wholeOrg",

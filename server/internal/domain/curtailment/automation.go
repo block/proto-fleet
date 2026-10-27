@@ -458,11 +458,7 @@ func (s *AutomationService) restoreCandidateEvent(ctx context.Context, rule *mod
 		return s.curtailment.GetEvent(ctx, rule.OrgID, *rule.ActiveEventUUID)
 	}
 	externalReference, idempotencyKey := automationRuleEventReference(rule.ID)
-	event, err := s.curtailment.store.GetEventByIdempotencyKey(ctx, rule.OrgID, idempotencyKey)
-	if err != nil || event != nil {
-		return event, validateAutomationReplayOwnership(event, rule, err)
-	}
-	event, err = s.curtailment.store.GetEventByExternalReference(ctx, rule.OrgID, automationExternalSource, externalReference)
+	event, err := s.curtailment.lookupAutomationReplay(ctx, rule.OrgID, idempotencyKey, externalReference)
 	return event, validateAutomationReplayOwnership(event, rule, err)
 }
 
@@ -522,30 +518,8 @@ func (s *AutomationService) validateAndNormalize(
 	if _, err := s.sourceStore.GetSourceConfigByOrg(ctx, rule.OrgID, rule.MQTTSourceID); err != nil {
 		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, mqttSourceLookupError(err)
 	}
-	profile, err := s.profiles.Get(ctx, rule.OrgID, rule.ResponseProfileID)
-	if err != nil {
+	if err := s.validateAutomationSaveBinding(ctx, rule.OrgID, rule.ResponseProfileID, expectedResponseProfileRevision, canUseAdminControls, expectedFanSettings); err != nil {
 		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, err
-	}
-	if profile == nil {
-		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewNotFoundError("curtailment response profile not found")
-	}
-	if profile.Revision == uuid.Nil {
-		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewFailedPreconditionError(
-			"curtailment response profile revision is missing; reload and retry",
-		)
-	}
-	if profile.Revision != expectedResponseProfileRevision {
-		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewFailedPreconditionError(
-			"curtailment response profile changed before automation rule save; retry",
-		)
-	}
-	if err := s.validateAutomationProfileBinding(ctx, profile, canUseAdminControls); err != nil {
-		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, err
-	}
-	if !sameResponseProfileFanSettings(responseProfileFanSettings(profile), expectedFanSettings) {
-		return models.AutomationRule{}, models.ResponseProfileFanSettings{}, fleeterror.NewFailedPreconditionError(
-			"curtailment response profile changed before automation rule save; retry",
-		)
 	}
 	rule.ResponseProfileRevision = expectedResponseProfileRevision
 	return rule, expectedFanSettings, nil
@@ -566,32 +540,41 @@ func (s *AutomationService) ensureProfileCanBeAutomated(
 			"expected_response_profile_revision must be set when enabling an automation rule",
 		)
 	}
-	profile, err := s.profiles.Get(ctx, rule.OrgID, rule.ResponseProfileID)
-	if err != nil {
+	if err := s.validateAutomationSaveBinding(ctx, rule.OrgID, rule.ResponseProfileID, expectedResponseProfileRevision, canUseAdminControls, expectedFanSettings); err != nil {
 		return models.ResponseProfileFanSettings{}, err
 	}
+	return expectedFanSettings, nil
+}
+
+// validateAutomationSaveBinding keeps rule saves and enables bound to the same
+// authorized response-profile revision and fan settings.
+func (s *AutomationService) validateAutomationSaveBinding(ctx context.Context, orgID, profileID int64, expectedResponseProfileRevision uuid.UUID, canUseAdminControls bool, expectedFanSettings models.ResponseProfileFanSettings) error {
+	profile, err := s.profiles.Get(ctx, orgID, profileID)
+	if err != nil {
+		return err
+	}
 	if profile == nil {
-		return models.ResponseProfileFanSettings{}, fleeterror.NewNotFoundError("curtailment response profile not found")
+		return fleeterror.NewNotFoundError("curtailment response profile not found")
 	}
 	if profile.Revision == uuid.Nil {
-		return models.ResponseProfileFanSettings{}, fleeterror.NewFailedPreconditionError(
+		return fleeterror.NewFailedPreconditionError(
 			"curtailment response profile revision is missing; reload and retry",
 		)
 	}
 	if profile.Revision != expectedResponseProfileRevision {
-		return models.ResponseProfileFanSettings{}, fleeterror.NewFailedPreconditionError(
+		return fleeterror.NewFailedPreconditionError(
 			"curtailment response profile changed before automation rule save; retry",
 		)
 	}
 	if err := s.validateAutomationProfileBinding(ctx, profile, canUseAdminControls); err != nil {
-		return models.ResponseProfileFanSettings{}, err
+		return err
 	}
 	if !sameResponseProfileFanSettings(responseProfileFanSettings(profile), expectedFanSettings) {
-		return models.ResponseProfileFanSettings{}, fleeterror.NewFailedPreconditionError(
+		return fleeterror.NewFailedPreconditionError(
 			"curtailment response profile changed before automation rule save; retry",
 		)
 	}
-	return expectedFanSettings, nil
+	return nil
 }
 
 func (s *AutomationService) currentBoundAutomationProfile(
@@ -636,7 +619,7 @@ func (s *AutomationService) validateAutomationProfileBinding(
 	if err := s.profiles.ValidateAutomationScope(ctx, profile); err != nil {
 		return err
 	}
-	if canUseAdminControls || !responseProfileRequiresAdminControls(*profile) {
+	if canUseAdminControls || adminControlsRequirement(responseProfileAdminControls(*profile)) == "" {
 		return nil
 	}
 	return fleeterror.NewForbiddenError("only admins can bind automation rules to response profiles with admin-only controls")

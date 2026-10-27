@@ -3,13 +3,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { create } from "@bufbuild/protobuf";
 import { Code, ConnectError } from "@connectrpc/connect";
 
+import type { CurtailmentFormValues } from "@/protoFleet/api/curtailmentTypes";
 import {
   CurtailmentCandidateSchema,
   CurtailmentMode,
   FixedKwParamsSchema,
   PreviewCurtailmentPlanResponseSchema,
 } from "@/protoFleet/api/generated/curtailment/v1/curtailment_pb";
-import type { CurtailmentFormValues } from "@/protoFleet/features/energy/CurtailmentStartModal";
 import {
   buildPreviewCurtailmentPlanRequest,
   createCurtailmentPlanPreview,

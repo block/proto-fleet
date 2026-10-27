@@ -924,7 +924,7 @@ func start(config *Config) (result error) {
 	mux.Handle(rolloutPath, rolloutHTTP)
 	rolloutHandler.RegisterRESTRoutes(mux, rolloutHTTP)
 	mux.Handle(curtailmentv1connect.NewCurtailmentServiceHandler(
-		curtailmentHandler.NewHandlerWithAutomation(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc),
+		curtailmentHandler.NewHandler(curtailmentSvc, curtailmentResponseProfileSvc, curtailmentAutomationSvc, mqttSettingsSvc),
 		li,
 		curtailmentHandler.RequestReadLimitOption(),
 	))
