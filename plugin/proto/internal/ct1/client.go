@@ -92,23 +92,18 @@ func (c *Client) Discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceI
 	if v == nil || strings.TrimSpace(v.Id) == "" || (!strings.EqualFold(v.Product, "Frigate") && !strings.EqualFold(v.Product, "CT1") && !strings.EqualFold(v.Model, "CT1")) {
 		return sdk.DeviceInfo{}, fmt.Errorf("endpoint is not a CT1 container")
 	}
-	savedKey, err := sdk.DeviceEndpointKey(info.Endpoints)
-	if err != nil {
-		return sdk.DeviceInfo{}, err
-	}
-	expectedID := info.SerialNumber
-	if savedKey != "" {
-		expectedID = c.endpointID(info.Endpoints)
-	}
-	if (savedKey != "" || expectedID != "") && expectedID != v.Id {
+	if info.SerialNumber != "" && info.SerialNumber != v.Id {
 		return sdk.DeviceInfo{}, fmt.Errorf("CT1 controller identity mismatch")
 	}
-	_, key, err := c.readHA(ctx, v.Id, savedKey)
+	report, key, err := c.readHA(ctx, v.Id, "")
 	if err != nil {
 		return sdk.DeviceInfo{}, err
 	}
-	if savedKey == "" && key != "" {
-		info.Endpoints = []sdk.DeviceEndpoint{{ID: v.Id, DeviceKey: key, Host: c.endpoint.Host, Port: c.endpoint.Port, URLScheme: c.endpoint.URLScheme, RPCPort: c.endpoint.RPCPort, RPCTLS: c.endpoint.RPCTLS}}
+	if key != "" {
+		if strings.TrimSpace(report.PeerServerId) == "" || report.PeerServerId == v.Id {
+			return sdk.DeviceInfo{}, fmt.Errorf("invalid CT1 HA membership")
+		}
+		info.Endpoints = []sdk.DeviceEndpoint{{ID: v.Id, DeviceKey: key, MemberIDs: []string{v.Id, report.PeerServerId}, Host: c.endpoint.Host, Port: c.endpoint.Port, URLScheme: c.endpoint.URLScheme, RPCPort: c.endpoint.RPCPort, RPCTLS: c.endpoint.RPCTLS}}
 		if _, err := sdk.DeviceEndpointKey(info.Endpoints); err != nil {
 			return sdk.DeviceInfo{}, err
 		}

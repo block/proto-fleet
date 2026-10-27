@@ -1032,6 +1032,8 @@ message DeviceEndpoint {
   string url_scheme = 5;
   int32 rpc_port = 6;
   bool rpc_tls = 7;
+  // Current group members. Discovery removes routes for replaced members.
+  repeated string member_ids = 8;
 }
 
 // Closed SDK MiningGroupRequest/Result JSON schema, validated on both ends.

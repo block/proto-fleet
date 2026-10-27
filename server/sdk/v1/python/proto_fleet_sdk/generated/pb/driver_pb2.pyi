@@ -1309,7 +1309,7 @@ class ContainerFeedEvidence(_message.Message):
     def __init__(self, power_feed_id: _Optional[str] = ..., expected_power_feed_id: _Optional[str] = ..., wiring_status: _Optional[str] = ..., wiring_reasons: _Optional[_Iterable[str]] = ..., configured_tank: _Optional[int] = ..., configured_module: _Optional[int] = ..., observed_power_feed_id: _Optional[str] = ...) -> None: ...
 
 class DeviceEndpoint(_message.Message):
-    __slots__ = ("id", "device_key", "host", "port", "url_scheme", "rpc_port", "rpc_tls")
+    __slots__ = ("id", "device_key", "host", "port", "url_scheme", "rpc_port", "rpc_tls", "member_ids")
     ID_FIELD_NUMBER: _ClassVar[int]
     DEVICE_KEY_FIELD_NUMBER: _ClassVar[int]
     HOST_FIELD_NUMBER: _ClassVar[int]
@@ -1317,6 +1317,7 @@ class DeviceEndpoint(_message.Message):
     URL_SCHEME_FIELD_NUMBER: _ClassVar[int]
     RPC_PORT_FIELD_NUMBER: _ClassVar[int]
     RPC_TLS_FIELD_NUMBER: _ClassVar[int]
+    MEMBER_IDS_FIELD_NUMBER: _ClassVar[int]
     id: str
     device_key: str
     host: str
@@ -1324,7 +1325,8 @@ class DeviceEndpoint(_message.Message):
     url_scheme: str
     rpc_port: int
     rpc_tls: bool
-    def __init__(self, id: _Optional[str] = ..., device_key: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., rpc_port: _Optional[int] = ..., rpc_tls: bool = ...) -> None: ...
+    member_ids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, id: _Optional[str] = ..., device_key: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., rpc_port: _Optional[int] = ..., rpc_tls: bool = ..., member_ids: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class MiningGroupsRequest(_message.Message):
     __slots__ = ("ref", "payload")

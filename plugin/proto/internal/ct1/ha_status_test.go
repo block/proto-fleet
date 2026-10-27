@@ -86,7 +86,6 @@ func TestHASavedClusterIdentityCannotChange(t *testing.T) {
 	}{
 		{"different cluster", func(h *mdk.HAStatus) { h.ClusterId = "ae4cbef0-74ae-44cc-9354-3e8bba79d688" }},
 		{"conflicting identity", func(h *mdk.HAStatus) { h.IdentityState = mdk.HAIdentityState_HA_IDENTITY_STATE_CONFLICTED }},
-		{"lost inventory", func(h *mdk.HAStatus) { h.InventoryReady = false }},
 	} {
 		t.Run(change.name, func(t *testing.T) {
 			a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
@@ -102,6 +101,32 @@ func TestHASavedClusterIdentityCannotChange(t *testing.T) {
 			require.Error(t, d.SetContainerControl(t.Context(), sdk.ContainerControlRequest{Name: mainCircuitBreakerControl, Enabled: new(true)}))
 			require.Zero(t, b.mapReads.Load())
 			require.Zero(t, b.writes.Load())
+		})
+	}
+}
+
+func TestHASavedClusterWorksWhileInventoryLoads(t *testing.T) {
+	for _, identity := range []mdk.HAIdentityState{
+		mdk.HAIdentityState_HA_IDENTITY_STATE_CONFIRMED,
+		mdk.HAIdentityState_HA_IDENTITY_STATE_UNAVAILABLE,
+	} {
+		t.Run(identity.String(), func(t *testing.T) {
+			a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
+			a.server.Stop()
+			b.primary.Store(true)
+			b.haOverride = func(h *mdk.HAStatus) {
+				h.InventoryReady = false
+				h.IdentityState = identity
+			}
+			d, err := NewDevice(t.Context(), "container", haInfo(a, b), sdk.UsernamePassword{})
+			require.NoError(t, err, "a Fleet restart must retain access to the verified surviving controller")
+			defer d.Close(t.Context())
+			metrics, err := d.Status(t.Context())
+			require.NoError(t, err)
+			require.True(t, metrics.Container.HA.Degraded)
+			require.EqualValues(t, 1, b.mapReads.Load())
+			require.NoError(t, d.SetContainerControl(t.Context(), sdk.ContainerControlRequest{Name: mainCircuitBreakerControl, Enabled: new(true)}))
+			require.EqualValues(t, 1, b.writes.Load())
 		})
 	}
 }

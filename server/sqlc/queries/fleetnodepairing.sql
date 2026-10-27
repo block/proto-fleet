@@ -46,6 +46,8 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     is_active = TRUE
 WHERE (discovered_device.endpoint_key = '' OR
     (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name))
+AND (NOT sqlc.arg('lockless_discovery')::boolean OR
+    (discovered_device.endpoint_key = '' AND discovered_device.rpc_port = 0 AND NOT discovered_device.rpc_tls))
 AND (
     discovered_device.discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id
     -- The attributing node was revoked (soft-deleted), so a replacement node may

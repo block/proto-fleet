@@ -208,8 +208,6 @@ func TestHAReusedDefaultRPCAddressKeepsVerifiedPartnerUsable(t *testing.T) {
 	stale.endpoint.RPCPort, current.endpoint.RPCPort = DefaultRPCPort, DefaultRPCPort
 	stale.system, stale.power = current.system, current.power
 
-	_, err = stale.Discover(t.Context(), d.info)
-	require.ErrorContains(t, err, "controller identity mismatch")
 	selected, ha, err := d.probeControllers(t.Context(), true)
 	require.NoError(t, err)
 	require.Same(t, current, selected.client)
@@ -261,6 +259,33 @@ func TestHAReadsPreferSettledStandby(t *testing.T) {
 			require.NoError(t, err)
 			require.EqualValues(t, 1, a.writes.Load())
 			require.Zero(t, b.writes.Load())
+		})
+	}
+}
+
+func TestHAReadsPreferWritePrimaryWhenNeitherControllerIsSettled(t *testing.T) {
+	for _, delayed := range []string{"primary", "standby"} {
+		t.Run(delayed+" replies last", func(t *testing.T) {
+			a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
+			a.primary.Store(true)
+			a.statusOverride = func(s *mdk.SystemStatus) {
+				s.HaRecovery.State = mdk.HARecoveryState_HA_RECOVERY_STATE_RECONCILING
+			}
+			b.statusOverride = func(s *mdk.SystemStatus) { s.DatabaseConnected = false }
+			b.mapError = status.Error(codes.Internal, "database unavailable")
+			if delayed == "primary" {
+				a.statusDelay = 50 * time.Millisecond
+			} else {
+				b.statusDelay = 50 * time.Millisecond
+			}
+			d, err := NewDevice(t.Context(), "container", haInfo(a, b), sdk.UsernamePassword{})
+			require.NoError(t, err)
+			defer d.Close(t.Context())
+			metrics, err := d.Status(t.Context())
+			require.NoError(t, err)
+			require.True(t, metrics.Container.HA.Degraded)
+			require.EqualValues(t, 1, a.mapReads.Load())
+			require.Zero(t, b.mapReads.Load())
 		})
 	}
 }

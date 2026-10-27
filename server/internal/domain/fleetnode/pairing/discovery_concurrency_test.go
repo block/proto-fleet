@@ -7,7 +7,9 @@ import (
 	"testing"
 	"time"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
+	"github.com/block/proto-fleet/server/generated/sqlc"
 	fleetnodepairing "github.com/block/proto-fleet/server/internal/domain/fleetnode/pairing"
 	discovery "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
@@ -38,10 +40,10 @@ func (s *pausedDiscoveryStore) UpsertDiscoveredDeviceFromFleetNode(ctx context.C
 }
 
 func TestConcurrentDiscoveryBatchesKeepOneLockOrder(t *testing.T) {
-	for _, mixedLegacy := range []bool{false, true} {
+	for _, mixedRig := range []bool{false, true} {
 		name := "reversed groups"
-		if mixedLegacy {
-			name = "mixed legacy and group"
+		if mixedRig {
+			name = "mixed rig and group"
 		}
 		t.Run(name, func(t *testing.T) {
 			db, org, _, enrollment := setupPairingTest(t)
@@ -49,8 +51,9 @@ func TestConcurrentDiscoveryBatchesKeepOneLockOrder(t *testing.T) {
 			a, b := endpointGroupReport(t, node, "controller-a", "10.0.0.11"), endpointGroupReport(t, node, "controller-b", "10.0.0.12")
 			a.Endpoints[0].DeviceKey = "group-a"
 			b.Endpoints[0].DeviceKey = "group-b"
-			if mixedLegacy {
-				a.DeviceIdentifier, a.Endpoints = "legacy-a", nil
+			if mixedRig {
+				a.DeviceIdentifier, a.Endpoints = "rig-a", nil
+				a.DeviceClass, a.RPCPort = commonpb.DeviceClass_DEVICE_CLASS_RIG, 0
 			}
 			store := &pausedDiscoveryStore{SQLFleetNodePairingStore: sqlstores.NewSQLFleetNodePairingStore(db), first: make(chan struct{}), resume: make(chan struct{})}
 			release := sync.OnceFunc(func() { close(store.resume) })
@@ -87,6 +90,23 @@ func TestConcurrentDiscoveryBatchesKeepOneLockOrder(t *testing.T) {
 			require.NoError(t, <-errors, "reversed batches must succeed without a transaction retry")
 		})
 	}
+}
+
+func TestRigDiscoveryDoesNotWaitForEndpointDiscoveryLock(t *testing.T) {
+	db, org, svc, enrollment := setupPairingTest(t)
+	node := createFleetNode(t, enrollment, org, "rig-node")
+	tx, err := db.BeginTx(t.Context(), nil)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, tx.Rollback()) }()
+	require.NoError(t, sqlc.New(tx).LockEndpointDiscovery(t.Context(), fmt.Sprintf("endpoint-discovery:%d", org)))
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	accepted, rejected, err := svc.UpsertDiscoveredDevices(ctx, node, org, []fleetnodepairing.DiscoveredDeviceReport{{
+		DeviceIdentifier: "rig", IPAddress: "10.0.0.11", Port: "4028", DriverName: "antminer", DeviceClass: commonpb.DeviceClass_DEVICE_CLASS_RIG,
+	}})
+	require.NoError(t, err)
+	require.Len(t, accepted, 1)
+	require.Zero(t, rejected)
 }
 
 func TestDirectDiscoveryWaitsForNodeDiscoveryDatabasePhase(t *testing.T) {

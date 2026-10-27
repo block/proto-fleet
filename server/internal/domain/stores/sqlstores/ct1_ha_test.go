@@ -9,6 +9,7 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
@@ -48,6 +49,49 @@ func TestCT1ConcurrentDiscoveryKeepsBothEndpointsInOneContainer(t *testing.T) {
 	require.Equal(t, saved.DeviceIdentifier, again.DeviceIdentifier)
 	require.Len(t, again.Endpoints, 2)
 	require.Equal(t, saved.SerialNumber, again.SerialNumber)
+}
+
+func TestCT1DiscoveryLearnsInitiallyUnavailableIdentity(t *testing.T) {
+	for _, paired := range []bool{false, true} {
+		t.Run(map[bool]string{false: "unpaired", true: "paired"}[paired], func(t *testing.T) {
+			db, store, org := ct1HAStore(t)
+			initial := ct1HADiscovery(org, "a", "10.0.0.11")
+			initial.Endpoints = nil
+			before := saveCT1HA(t, store, "initial-scan", initial)
+			if paired {
+				pairCT1HA(t, db, before)
+			}
+			after, err := store.SaveDirect(t.Context(), discoverymodels.DeviceOrgIdentifier{OrgID: org, DeviceIdentifier: "confirmed-scan"}, ct1HADiscovery(org, "a", "10.0.0.11"))
+			if paired {
+				require.True(t, fleeterror.IsFailedPreconditionError(err), "paired routes must not change")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, before.DeviceIdentifier, after.DeviceIdentifier)
+			require.Len(t, after.Endpoints, 1)
+			count, err := store.CountActiveUnpairedDevices(t.Context(), org)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, count)
+			pairCT1HA(t, db, after)
+		})
+	}
+}
+
+func TestCT1UnpairedDiscoveryRetiresReplacedController(t *testing.T) {
+	db, store, org := ct1HAStore(t)
+	for _, endpoint := range []struct{ id, host string }{{"a", "10.0.0.11"}, {"b", "10.0.0.12"}} {
+		incoming := ct1HADiscovery(org, endpoint.id, endpoint.host)
+		incoming.Endpoints[0].MemberIds = []string{"a", "b"}
+		saveCT1HA(t, store, endpoint.id, incoming)
+	}
+	replacement := ct1HADiscovery(org, "c", "10.0.0.13")
+	replacement.Endpoints[0].MemberIds = []string{"a", "c"}
+	after := saveCT1HA(t, store, "replacement-scan", replacement)
+	require.Len(t, after.Endpoints, 2)
+	require.Equal(t, "a", after.Endpoints[0].Id)
+	require.Equal(t, "c", after.Endpoints[1].Id)
+	require.Equal(t, []string{"a", "c"}, after.Endpoints[0].MemberIds)
+	pairCT1HA(t, db, after)
 }
 
 func ct1HADiscovery(org int64, id, host string) *discoverymodels.DiscoveredDevice {

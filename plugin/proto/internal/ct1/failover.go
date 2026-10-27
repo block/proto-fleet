@@ -118,6 +118,9 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerP
 		if standby != nil {
 			return standby, ha, nil
 		}
+		if writable != nil && primaryCount == 1 {
+			return writable, ha, nil
+		}
 		if readable != nil {
 			return readable, ha, nil
 		}

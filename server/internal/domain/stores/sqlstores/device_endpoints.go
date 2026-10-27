@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -91,7 +92,7 @@ func reconcileDeviceEndpoints(ctx context.Context, q sqlc.Querier, criteria sqlc
 	if err != nil {
 		return nil, nil, err
 	}
-	if existing.EndpointKey != key {
+	if existing.EndpointKey != "" && existing.EndpointKey != key {
 		return nil, nil, errDeviceEndpointGroupChanged
 	}
 	saved, err := deviceendpoints.Decode(existing.Endpoints)
@@ -100,6 +101,12 @@ func reconcileDeviceEndpoints(ctx context.Context, q sqlc.Querier, criteria sqlc
 	}
 	byID := make(map[string]*commonpb.DeviceEndpoint, len(saved)+len(incoming))
 	for _, endpoint := range saved {
+		if !paired && len(incoming[0].MemberIds) > 0 {
+			if !slices.Contains(incoming[0].MemberIds, endpoint.Id) {
+				continue
+			}
+			endpoint.MemberIds = slices.Clone(incoming[0].MemberIds)
+		}
 		byID[endpoint.Id] = endpoint
 	}
 	for _, endpoint := range incoming {

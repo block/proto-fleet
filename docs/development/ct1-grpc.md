@@ -93,23 +93,26 @@ endpoint. Without HA identity, the existing single-address path remains usable.
 Scan both controller addresses before pairing. Each report adds only the address
 that Fleet scanned. Fleet does not dial advertised peer addresses. It stores
 scanned endpoints under the plugin's key, scoped by organization, driver, and
-network owner. The server does not store or interpret CT1 peer-member lists.
+network owner. The plugin also supplies current member IDs so unpaired discovery
+can remove a replaced controller's route without interpreting CT1 state.
 A rescan updates an unpaired controller's address while retaining the other
 scanned route and custom web settings. Different cluster IDs are different
 inventory identities; discovery does not migrate one cluster into another.
 
-Discovery writes use an organization lock before device and inventory locks.
+CT1 discovery uses an organization lock before device and inventory locks.
+Rig-only batches do not take this lock.
 Network probes remain concurrent. Pairing checks the saved owner, key, and
 routes against the discovery snapshot before writing identity or pairing state.
 Fleet Node retries retain the original dispatched snapshot. A changed snapshot
-requires a new pairing attempt. A failed discovery report does not discard other
+requires a new pairing attempt. An invalid endpoint report does not discard other
 valid reports; a database failure rolls back the batch.
 
 Once paired, routes are pinned. Scans cannot add or move a route. Unpair the last
 owner, scan both addresses, and pair again to change routes or replace a
 controller. Removing the last pairing clears the saved endpoint set and hardware
 identity. Removing only a Fleet Node binding retains routes while cloud pairing
-still exists. There is no automatic conversion of older discovery formats.
+still exists. If an unpaired controller first reports no HA identity, a later
+scan adds its confirmed group to the same record at that socket.
 A report without a group cannot erase an existing group.
 
 A replacement Fleet Node can reclaim one matching group from a revoked node at

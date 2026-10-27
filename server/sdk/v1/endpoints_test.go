@@ -19,6 +19,9 @@ func TestDeviceEndpointKeyRejectsConflictingMetadata(t *testing.T) {
 		func(e []DeviceEndpoint) { e[1].ID = "a" },
 		func(e []DeviceEndpoint) { e[1].Host = e[0].Host },
 		func(e []DeviceEndpoint) { e[1].RPCPort = -1 },
+		func(e []DeviceEndpoint) { e[0].MemberIDs = []string{"a", "c"} },
+		func(e []DeviceEndpoint) { e[0].MemberIDs = []string{"a", "a"} },
+		func(e []DeviceEndpoint) { e[0].MemberIDs, e[1].MemberIDs = []string{"a", "b"}, []string{"b", "c"} },
 	} {
 		changed := append([]DeviceEndpoint(nil), valid...)
 		change(changed)

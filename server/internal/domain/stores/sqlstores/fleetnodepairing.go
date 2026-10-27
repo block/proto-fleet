@@ -203,7 +203,24 @@ func (s *SQLFleetNodePairingStore) ListFleetNodeDiscoveredDevices(ctx context.Co
 	return out, nil
 }
 
+func fleetNodeReportNeedsEndpointLock(report pairing.DiscoveredDeviceReport) bool {
+	return len(report.Endpoints) > 0 || report.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER || report.RPCPort != 0 || report.RPCTLS
+}
+
+// Mixed batches take the outer lock before any rig row locks.
+func (s *SQLFleetNodePairingStore) LockDiscoveredDeviceReports(ctx context.Context, orgID int64, reports []pairing.DiscoveredDeviceReport) error {
+	for _, report := range reports {
+		if fleetNodeReportNeedsEndpointLock(report) {
+			return lockEndpointDiscoveryTransaction(ctx, s.q(ctx), orgID)
+		}
+	}
+	return nil
+}
+
 func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport) (pairing.DiscoveredDeviceReport, bool, error) {
+	if !fleetNodeReportNeedsEndpointLock(report) {
+		return s.upsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, report, true)
+	}
 	var saved pairing.DiscoveredDeviceReport
 	var stored bool
 	err := NewSQLTransactor(s.conn.DB).RunInTx(ctx, func(ctx context.Context) error {
@@ -241,14 +258,14 @@ func (s *SQLFleetNodePairingStore) UpsertDiscoveredDeviceFromFleetNode(ctx conte
 				candidate.RPCPort, candidate.RPCTLS = browser.RpcPort, browser.RpcTls
 			}
 		} else if err := guardUngroupedEndpointDiscovery(ctx, s.q(ctx), orgID, report.DeviceIdentifier, report.DriverName, report.IPAddress, report.Port, report.RPCPort, sql.NullInt64{Int64: fleetNodeID, Valid: true}); err != nil {
-			if errors.Is(err, errPairedDeviceEndpoints) || errors.Is(err, errDeviceEndpointGroupRequired) {
+			if errors.Is(err, errDeviceEndpointGroupRequired) {
 				logEndpointDiscoveryRejection(ctx, orgID, fleetNodeID, report.DeviceIdentifier, err)
 				return nil
 			}
 			return err
 		}
 		var err error
-		saved, stored, err = s.upsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, candidate)
+		saved, stored, err = s.upsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, candidate, false)
 		return err
 	})
 	return saved, stored, err
@@ -258,7 +275,7 @@ func logEndpointDiscoveryRejection(ctx context.Context, orgID, fleetNodeID int64
 	slog.WarnContext(ctx, "rejected Fleet Node device discovery report", "org_id", orgID, "fleet_node_id", fleetNodeID, "device_identifier", identifier, "reason", reason)
 }
 
-func (s *SQLFleetNodePairingStore) upsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport) (pairing.DiscoveredDeviceReport, bool, error) {
+func (s *SQLFleetNodePairingStore) upsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID, fleetNodeID int64, report pairing.DiscoveredDeviceReport, lockless bool) (pairing.DiscoveredDeviceReport, bool, error) {
 	endpoints, err := deviceendpoints.Encode(report.Endpoints)
 	if err != nil {
 		return report, false, err
@@ -268,7 +285,8 @@ func (s *SQLFleetNodePairingStore) upsertDiscoveredDeviceFromFleetNode(ctx conte
 		return report, false, err
 	}
 	row, err := s.q(ctx).UpsertDiscoveredDeviceFromFleetNode(ctx, sqlc.UpsertDiscoveredDeviceFromFleetNodeParams{
-		EndpointKey: key, Endpoints: endpoints, OrgID: orgID, DeviceIdentifier: report.DeviceIdentifier,
+		LocklessDiscovery: lockless,
+		EndpointKey:       key, Endpoints: endpoints, OrgID: orgID, DeviceIdentifier: report.DeviceIdentifier,
 		IpAddress: report.IPAddress, Port: report.Port, UrlScheme: report.URLScheme, RpcPort: report.RPCPort, RpcTls: report.RPCTLS,
 		DriverName: report.DriverName, Model: emptyToNullString(report.Model), DeviceClass: int32(report.DeviceClass),
 		Manufacturer: emptyToNullString(report.Manufacturer), FirmwareVersion: emptyToNullString(report.FirmwareVersion),

@@ -39,6 +39,10 @@ type fakeUpsertStore struct {
 	err    error
 }
 
+func (*fakeUpsertStore) LockDiscoveredDeviceReports(context.Context, int64, []fleetnodepairing.DiscoveredDeviceReport) error {
+	return nil
+}
+
 func (s *fakeUpsertStore) UpsertDiscoveredDeviceFromFleetNode(_ context.Context, _ int64, _ int64, report fleetnodepairing.DiscoveredDeviceReport) (fleetnodepairing.DiscoveredDeviceReport, bool, error) {
 	s.calls++
 	if s.calls == s.failAt {
@@ -86,13 +90,14 @@ func TestUpsertDiscoveredDevicesPreservesRetryableDatabaseErrors(t *testing.T) {
 }
 
 func TestUpsertDiscoveredDevices_CountsAreNotDoubledOnTxRetry(t *testing.T) {
-	// Arrange: one accepted report and one ownership-rejected report, run
+	// Arrange: one accepted report, one ownership conflict, and invalid endpoints, run
 	// through a transactor that retries the closure once before committing.
 	store := &fakeUpsertStore{}
 	svc := fleetnodepairing.NewService(store, nil, retryOnceTransactor{})
 	reports := []fleetnodepairing.DiscoveredDeviceReport{
 		{DeviceIdentifier: "accept", IPAddress: "10.0.0.1", Port: "80", URLScheme: "http"},
 		{DeviceIdentifier: "reject", IPAddress: "10.0.0.2", Port: "80", URLScheme: "http"},
+		{DeviceIdentifier: "malformed", IPAddress: "10.0.0.3", Port: "80", URLScheme: "http", Endpoints: []*commonpb.DeviceEndpoint{nil}},
 	}
 
 	// Act
@@ -104,5 +109,6 @@ func TestUpsertDiscoveredDevices_CountsAreNotDoubledOnTxRetry(t *testing.T) {
 	assert.Equal(t, "accept", accepted[0].DeviceIdentifier)
 	assert.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER, accepted[0].DeviceClass)
 	assert.Equal(t, commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED, reports[0].DeviceClass, "transaction attempts must not mutate the input")
-	assert.Equal(t, int64(1), rejected, "rejected count must not accumulate across retries")
+	assert.Equal(t, int64(2), rejected, "rejected count must not accumulate across retries")
+	assert.Equal(t, 4, store.calls, "invalid endpoints must not reach the store on either attempt")
 }

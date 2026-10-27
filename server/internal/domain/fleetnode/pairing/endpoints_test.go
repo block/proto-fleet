@@ -152,17 +152,25 @@ func TestPairedEndpointDiscoveryRejectsSpoofedReportsWithoutDroppingBatch(t *tes
 	transport.RPCPort, transport.Endpoints[0].RpcPort = 9443, 9443
 	omitted := a
 	omitted.Endpoints = nil
+	downgraded := omitted
+	downgraded.DeviceClass, downgraded.RPCPort = commonpb.DeviceClass_DEVICE_CLASS_RIG, 0
+	malformed := a
+	malformed.Endpoints = []*commonpb.DeviceEndpoint{nil}
+	uncheckedPeer := a
+	uncheckedPeer.Endpoints = append([]*commonpb.DeviceEndpoint{a.Endpoints[0]}, b.Endpoints[0])
+	mismatched := a
+	mismatched.Endpoints = []*commonpb.DeviceEndpoint{{Id: "controller-a", DeviceKey: "ct1-pair", Host: "10.0.0.99", Port: 8080, UrlScheme: "http", RpcPort: 9095}}
 	validBefore := fleetnodepairing.DiscoveredDeviceReport{DeviceIdentifier: "valid-before", IPAddress: "10.0.0.21", Port: "80", URLScheme: "http", DriverName: "virtual"}
 	validAfter := validBefore
 	validAfter.DeviceIdentifier, validAfter.IPAddress = "valid-after", "10.0.0.22"
 	reports := []fleetnodepairing.DiscoveredDeviceReport{validBefore,
-		endpointGroupReport(t, node, "controller-a", "10.0.0.99"), rogue, swap, transport, omitted,
+		endpointGroupReport(t, node, "controller-a", "10.0.0.99"), rogue, swap, transport, omitted, downgraded, malformed, uncheckedPeer, mismatched,
 		a, validAfter}
 
 	accepted, rejected, err := svc.UpsertDiscoveredDevices(ctx, node, org, reports)
 
 	require.NoError(t, err)
-	require.EqualValues(t, 5, rejected)
+	require.EqualValues(t, 9, rejected)
 	require.Len(t, accepted, 3)
 	require.Equal(t, validBefore.DeviceIdentifier, accepted[0].DeviceIdentifier)
 	require.Equal(t, a.DeviceIdentifier, accepted[1].DeviceIdentifier, "same-route scans must remain valid")
@@ -186,10 +194,15 @@ func TestEndpointDiscoveryGroupsByPluginKeyAndNetworkOwner(t *testing.T) {
 	b := endpointGroupReport(t, node, "controller-b", "10.0.0.12")
 	a.Port, a.URLScheme = "8181", "https"
 	a.Endpoints[0].Port, a.Endpoints[0].UrlScheme = 8181, "https"
+	keyless := a
+	keyless.DeviceIdentifier, keyless.Endpoints = "serial:identity-unavailable", nil
+	_, _, err := svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{keyless})
+	require.NoError(t, err)
 	accepted, rejected, err := svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{a, b})
 	require.NoError(t, err)
 	require.Zero(t, rejected)
 	require.Len(t, accepted, 2)
+	require.Equal(t, keyless.DeviceIdentifier, accepted[0].DeviceIdentifier, "confirmed group identity must reuse the unpaired row at the scanned socket")
 	require.Equal(t, accepted[0].DeviceIdentifier, accepted[1].DeviceIdentifier)
 	listed, _, err := svc.ListDiscoveredDevicesForFleetNode(t.Context(), org, &node, nil, nil)
 	require.NoError(t, err)
@@ -212,6 +225,8 @@ func TestEndpointDiscoveryGroupsByPluginKeyAndNetworkOwner(t *testing.T) {
 	require.Equal(t, "10.0.0.12", again[0].Endpoints[1].Host)
 	// A report cannot introduce a second address that was not scanned.
 	a.Endpoints = append(a.Endpoints, b.Endpoints[0])
-	_, _, err = svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{a})
-	require.Error(t, err)
+	accepted, rejected, err = svc.UpsertDiscoveredDevices(t.Context(), node, org, []fleetnodepairing.DiscoveredDeviceReport{a})
+	require.NoError(t, err)
+	require.Empty(t, accepted)
+	require.EqualValues(t, 1, rejected)
 }

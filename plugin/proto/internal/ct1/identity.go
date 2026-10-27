@@ -17,7 +17,7 @@ func haIdentity(report *mdk.HAStatus, id, savedKey string) (string, error) {
 	if report.ReportingServerId != id || report.IdentityState == mdk.HAIdentityState_HA_IDENTITY_STATE_CONFLICTED || len(report.Conflicts) > 0 {
 		return "", fmt.Errorf("invalid or conflicting CT1 HA identity")
 	}
-	if !report.Enabled || !report.InventoryReady {
+	if !report.Enabled || (!report.InventoryReady && savedKey == "") {
 		return "", nil
 	}
 	if report.ClusterId == "" && report.IdentityState == mdk.HAIdentityState_HA_IDENTITY_STATE_UNAVAILABLE {
@@ -51,6 +51,9 @@ func (c *Client) readHA(ctx context.Context, id, savedKey string) (*mdk.HAStatus
 	key, err := haIdentity(report, id, savedKey)
 	if err != nil {
 		return nil, "", err
+	}
+	if savedKey != "" && key == "" {
+		return nil, "", fmt.Errorf("CT1 cluster identity is not available")
 	}
 	if savedKey != "" && key != savedKey {
 		return nil, "", fmt.Errorf("CT1 cluster identity changed")

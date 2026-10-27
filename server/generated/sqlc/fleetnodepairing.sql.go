@@ -741,6 +741,8 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     is_active = TRUE
 WHERE (discovered_device.endpoint_key = '' OR
     (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name))
+AND (NOT $16::boolean OR
+    (discovered_device.endpoint_key = '' AND discovered_device.rpc_port = 0 AND NOT discovered_device.rpc_tls))
 AND (
     discovered_device.discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id
     -- The attributing node was revoked (soft-deleted), so a replacement node may
@@ -813,6 +815,7 @@ type UpsertDiscoveredDeviceFromFleetNodeParams struct {
 	RpcTls                  bool
 	EndpointKey             string
 	Endpoints               json.RawMessage
+	LocklessDiscovery       bool
 }
 
 type UpsertDiscoveredDeviceFromFleetNodeRow struct {
@@ -845,6 +848,7 @@ func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg U
 		arg.RpcTls,
 		arg.EndpointKey,
 		arg.Endpoints,
+		arg.LocklessDiscovery,
 	)
 	var i UpsertDiscoveredDeviceFromFleetNodeRow
 	err := row.Scan(&i.DeviceClass, &i.DeviceIdentifier, &i.Endpoints)

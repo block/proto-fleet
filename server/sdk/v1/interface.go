@@ -411,6 +411,8 @@ const (
 type DeviceEndpoint struct {
 	ID        string
 	DeviceKey string
+	// MemberIDs declares current group members so discovery can retire replaced endpoints.
+	MemberIDs []string
 	Host      string
 	Port      int32
 	URLScheme string

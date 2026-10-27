@@ -32,11 +32,6 @@ func TestDiscoveryOptionalHAErrors(t *testing.T) {
 			info.SerialNumber = "replacement"
 			_, err = c.Discover(t.Context(), info)
 			require.ErrorContains(t, err, "controller identity mismatch")
-			info.SerialNumber = "a"
-			info.Endpoints = []sdk.DeviceEndpoint{s.endpoint}
-			_, err = c.Discover(t.Context(), info)
-			require.ErrorContains(t, err, "read CT1 HA identity")
-			require.Equal(t, code, status.Code(err), "saved endpoints must not fall back to standalone discovery")
 		})
 	}
 }
@@ -83,6 +78,8 @@ func TestDiscoveryUsesConfirmedClusterIdentity(t *testing.T) {
 		{"conflicted", func(h *mdk.HAStatus) { h.IdentityState = mdk.HAIdentityState_HA_IDENTITY_STATE_CONFLICTED }, false, true},
 		{"conflict details", func(h *mdk.HAStatus) { h.Conflicts = []string{"peer disagrees"} }, false, true},
 		{"wrong reporter", func(h *mdk.HAStatus) { h.ReportingServerId = "other" }, false, true},
+		{"empty peer", func(h *mdk.HAStatus) { h.PeerServerId = "" }, false, true},
+		{"self peer", func(h *mdk.HAStatus) { h.PeerServerId = h.ReportingServerId }, false, true},
 		{"missing peer", func(h *mdk.HAStatus) { h.Members = h.Members[:1] }, true, false},
 		{"duplicate member", func(h *mdk.HAStatus) { h.Members = append(h.Members, h.Members[0]) }, true, false},
 		{"invalid cluster", func(h *mdk.HAStatus) { h.ClusterId = "not-a-uuid" }, false, true},
@@ -103,6 +100,7 @@ func TestDiscoveryUsesConfirmedClusterIdentity(t *testing.T) {
 			if tc.grouped {
 				require.Len(t, got.Endpoints, 1)
 				require.Equal(t, "ct1:"+testClusterID, got.Endpoints[0].DeviceKey)
+				require.ElementsMatch(t, []string{"a", "b"}, got.Endpoints[0].MemberIDs)
 			} else {
 				require.Empty(t, got.Endpoints)
 			}

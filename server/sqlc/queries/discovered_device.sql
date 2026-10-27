@@ -50,6 +50,7 @@ LIMIT 2;
 
 -- name: UpsertDiscoveredDevice :one
 -- PostgreSQL version returns the id directly using RETURNING
+WITH discovery_mode AS (SELECT sqlc.arg('direct_discovery')::boolean AS direct)
 INSERT INTO discovered_device (
     org_id,
     device_identifier,
@@ -83,43 +84,30 @@ INSERT INTO discovered_device (
 )
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     model = EXCLUDED.model,
-    -- Direct discovery replaces evidence on every save, including missing identity.
-    -- Retaining an old value could associate replacement hardware with the wrong miner.
-    -- Fleet-node discovery reports have no identity fields; their separate upsert
-    -- preserves identity learned during pairing.
-    -- A metadata snapshot from a different group or route set cannot restore a removed
-    -- controller's identity after an explicit unpair and replacement scan.
-    serial_number = CASE WHEN NOT sqlc.arg('direct_discovery')::boolean AND discovered_device.endpoint_key <> ''
-                             AND (discovered_device.endpoint_key <> EXCLUDED.endpoint_key OR discovered_device.endpoints <> EXCLUDED.endpoints)
-                        THEN discovered_device.serial_number ELSE EXCLUDED.serial_number END,
-    mac_address = CASE WHEN NOT sqlc.arg('direct_discovery')::boolean AND discovered_device.endpoint_key <> ''
-                           AND (discovered_device.endpoint_key <> EXCLUDED.endpoint_key OR discovered_device.endpoints <> EXCLUDED.endpoints)
-                      THEN discovered_device.mac_address ELSE EXCLUDED.mac_address END,
-    device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
     manufacturer = EXCLUDED.manufacturer,
-    ip_address = CASE WHEN NOT sqlc.arg('direct_discovery')::boolean AND discovered_device.endpoint_key <> ''
-                      THEN discovered_device.ip_address ELSE EXCLUDED.ip_address END,
-    -- Native CT1 rediscovery must retain the existing browser endpoint.
-    port = CASE WHEN NOT sqlc.arg('direct_discovery')::boolean AND discovered_device.endpoint_key <> ''
-                THEN discovered_device.port
-                WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
-                  AND discovered_device.endpoint_key = '' AND EXCLUDED.endpoint_key = ''
-                THEN discovered_device.port ELSE EXCLUDED.port END,
-    url_scheme = CASE WHEN NOT sqlc.arg('direct_discovery')::boolean AND discovered_device.endpoint_key <> ''
-                      THEN discovered_device.url_scheme
-                      WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
-                  AND discovered_device.endpoint_key = '' AND EXCLUDED.endpoint_key = ''
-                      THEN discovered_device.url_scheme ELSE EXCLUDED.url_scheme END,
-    rpc_port = CASE WHEN NOT sqlc.arg('direct_discovery')::boolean AND discovered_device.endpoint_key <> ''
-                    THEN discovered_device.rpc_port ELSE EXCLUDED.rpc_port END,
-    rpc_tls = CASE WHEN NOT sqlc.arg('direct_discovery')::boolean AND discovered_device.endpoint_key <> ''
-                   THEN discovered_device.rpc_tls ELSE EXCLUDED.rpc_tls END,
-    endpoint_key = CASE WHEN NOT sqlc.arg('direct_discovery')::boolean AND discovered_device.endpoint_key <> ''
-                        THEN discovered_device.endpoint_key ELSE EXCLUDED.endpoint_key END,
-    -- Pairing saves carry an older snapshot. Only discovery owns endpoint addresses.
-    endpoints = CASE WHEN NOT sqlc.arg('direct_discovery')::boolean AND discovered_device.endpoint_key <> ''
-        THEN discovered_device.endpoints
-        ELSE EXCLUDED.endpoints END,
+    device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
+    -- Metadata saves keep the current grouped routes. Only discovery replaces them.
+    (ip_address, port, url_scheme, rpc_port, rpc_tls, endpoint_key, endpoints, serial_number, mac_address) = (
+        SELECT discovered_device.ip_address, discovered_device.port, discovered_device.url_scheme,
+               discovered_device.rpc_port, discovered_device.rpc_tls, discovered_device.endpoint_key, discovered_device.endpoints,
+               CASE WHEN discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.endpoints = EXCLUDED.endpoints
+                    THEN EXCLUDED.serial_number ELSE discovered_device.serial_number END,
+               CASE WHEN discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.endpoints = EXCLUDED.endpoints
+                    THEN EXCLUDED.mac_address ELSE discovered_device.mac_address END
+        WHERE NOT (SELECT direct FROM discovery_mode) AND discovered_device.endpoint_key <> ''
+        UNION ALL
+        SELECT EXCLUDED.ip_address,
+               -- Native rediscovery of an ungrouped container keeps its web settings.
+               CASE WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
+                         AND discovered_device.endpoint_key = '' AND EXCLUDED.endpoint_key = ''
+                    THEN discovered_device.port ELSE EXCLUDED.port END,
+               CASE WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
+                         AND discovered_device.endpoint_key = '' AND EXCLUDED.endpoint_key = ''
+                    THEN discovered_device.url_scheme ELSE EXCLUDED.url_scheme END,
+               EXCLUDED.rpc_port, EXCLUDED.rpc_tls, EXCLUDED.endpoint_key, EXCLUDED.endpoints,
+               EXCLUDED.serial_number, EXCLUDED.mac_address
+        WHERE (SELECT direct FROM discovery_mode) OR discovered_device.endpoint_key = ''
+    ),
     firmware_version = EXCLUDED.firmware_version,
     is_active = EXCLUDED.is_active,
     -- Keep existing driver_name if already set (prevent discovery flip-flop)
@@ -243,6 +231,8 @@ AND (dd.discovered_by_fleet_node_id IS NOT DISTINCT FROM sqlc.narg(fleet_node_id
             WHERE fn.id = dd.discovered_by_fleet_node_id AND fn.org_id = dd.org_id AND fn.deleted_at IS NULL
         )))
 AND (dd.endpoint_key = sqlc.arg(group_key) OR
+    (dd.endpoint_key = '' AND dd.ip_address = sqlc.arg(scanned_host)::text
+        AND dd.rpc_port = sqlc.arg(scanned_rpc_port)::integer AND dd.port = sqlc.arg(scanned_port)::integer::text) OR
     (dd.endpoint_key <> '' AND EXISTS (
         SELECT 1 FROM jsonb_each(CASE WHEN jsonb_typeof(dd.endpoints)='object' THEN dd.endpoints ELSE '{}'::jsonb END) endpoint
         WHERE endpoint.value->>'Host' = sqlc.arg(scanned_host)::text
