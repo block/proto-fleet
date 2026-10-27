@@ -18,6 +18,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
 	"google.golang.org/protobuf/proto"
@@ -860,6 +862,7 @@ func reportFromDiscovered(dev *discoverymodels.DiscoveredDevice, ip, port string
 		UrlScheme:        dev.GetUrlScheme(),
 		RpcPort:          dev.GetRpcPort(),
 		RpcTls:           dev.GetRpcTls(),
+		Endpoints:        dev.GetEndpoints(),
 		DriverName:       dev.GetDriverName(),
 		Model:            dev.GetModel(),
 		DeviceClass:      dev.GetDeviceClass(),
@@ -875,9 +878,13 @@ func reportFromDiscovered(dev *discoverymodels.DiscoveredDevice, ip, port string
 // server-side reconciliation). The fleet node id is in the hash so two nodes on
 // overlapping RFC1918 space don't mint the same auto: key for distinct miners.
 func synthesizeIdentifier(dev *discoverymodels.DiscoveredDevice, ip, port string, fleetNodeID int64) string {
+	if identifier, err := deviceendpoints.NodeIdentifier(fleetNodeID, dev.DriverName, dev.Endpoints); err == nil && identifier != "" {
+		return identifier
+	}
+
 	if dev.GetDeviceClass() == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
-		// A container has one shared IP. Controller MAC/serial and API port can
-		// change across failover; neither identifies the physical container.
+		// Without a plugin-defined endpoint group, retain the legacy container
+		// identifier scoped to its scanned address.
 		node := strconv.FormatInt(fleetNodeID, 10)
 		sum := sha256.Sum256([]byte(strings.Join([]string{node, ip, dev.GetDriverName(), dev.GetModel()}, "\x00")))
 		return "container:" + hex.EncodeToString(sum[:8])

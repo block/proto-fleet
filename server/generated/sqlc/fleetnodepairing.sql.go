@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/lib/pq"
@@ -321,7 +322,7 @@ WITH candidate AS (
          dd.discovered_by_fleet_node_id,
          dd.ip_address,
          dd.port,
-         dd.url_scheme, dd.rpc_port, dd.rpc_tls,
+         dd.url_scheme, dd.rpc_port, dd.rpc_tls, dd.endpoints,
          dd.driver_name,
          dd.model,
          dd.device_class,
@@ -393,7 +394,7 @@ WITH candidate AS (
     AND ($9::bigint IS NULL OR dd.id > $9::bigint)
   ORDER BY dd.id ASC, d.id DESC NULLS LAST
 )
-SELECT id, org_id, device_identifier, discovered_by_fleet_node_id, ip_address, port, url_scheme, rpc_port, rpc_tls, driver_name, model, device_class, manufacturer, firmware_version, last_seen, pairing_status
+SELECT id, org_id, device_identifier, discovered_by_fleet_node_id, ip_address, port, url_scheme, rpc_port, rpc_tls, endpoints, driver_name, model, device_class, manufacturer, firmware_version, last_seen, pairing_status
 FROM candidate
 WHERE ($2::text[] IS NULL OR pairing_status = ANY($2::text[]))
 ORDER BY id ASC
@@ -422,6 +423,7 @@ type ListFleetNodeDiscoveredDevicesRow struct {
 	UrlScheme               string
 	RpcPort                 int32
 	RpcTls                  bool
+	Endpoints               json.RawMessage
 	DriverName              string
 	Model                   sql.NullString
 	DeviceClass             int32
@@ -475,6 +477,7 @@ func (q *Queries) ListFleetNodeDiscoveredDevices(ctx context.Context, arg ListFl
 			&i.UrlScheme,
 			&i.RpcPort,
 			&i.RpcTls,
+			&i.Endpoints,
 			&i.DriverName,
 			&i.Model,
 			&i.DeviceClass,
@@ -624,9 +627,43 @@ func (q *Queries) TransferDiscoveredDeviceAttribution(ctx context.Context, arg T
 	return result.RowsAffected()
 }
 
-const unpairDevice = `-- name: UnpairDevice :execrows
-DELETE FROM fleet_node_device
-WHERE device_id = $1 AND org_id = $2
+const unpairDevice = `-- name: UnpairDevice :one
+WITH locked_device AS MATERIALIZED (
+    SELECT d.id, d.discovered_device_id
+    FROM device d
+    WHERE d.id = $1 AND d.org_id = $2
+    FOR UPDATE
+), removed AS (
+    DELETE FROM fleet_node_device fnd
+    USING locked_device d
+    WHERE fnd.device_id = d.id AND fnd.org_id = $2
+    RETURNING fnd.device_id
+), reset_discovery AS (
+    UPDATE discovered_device dd
+    SET endpoints = '{}', endpoint_key = '', serial_number = '', mac_address = ''
+    FROM locked_device d
+    WHERE dd.id = d.discovered_device_id AND dd.org_id = $2
+      AND dd.endpoint_key <> ''
+      AND EXISTS (SELECT 1 FROM removed)
+      AND NOT EXISTS (
+          SELECT 1 FROM device owner
+          WHERE owner.discovered_device_id = dd.id
+            AND owner.org_id = dd.org_id AND owner.deleted_at IS NULL
+            AND (
+                EXISTS (SELECT 1 FROM device_pairing dp WHERE dp.device_id = owner.id
+                        AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED'))
+                OR EXISTS (SELECT 1 FROM fleet_node_device fnd
+                           WHERE fnd.device_id = owner.id AND fnd.org_id = owner.org_id
+                             AND fnd.device_id NOT IN (SELECT device_id FROM removed))
+            )
+      )
+    RETURNING dd.id
+), reset_identity AS (
+    UPDATE device d SET serial_number = NULL, mac_address = ''
+    WHERE d.id IN (SELECT device_id FROM removed)
+      AND d.discovered_device_id IN (SELECT id FROM reset_discovery)
+)
+SELECT count(*)::bigint FROM removed
 `
 
 type UnpairDeviceParams struct {
@@ -634,12 +671,12 @@ type UnpairDeviceParams struct {
 	OrgID    int64
 }
 
+// A remaining cloud pairing or another inventory owner keeps its saved routes.
 func (q *Queries) UnpairDevice(ctx context.Context, arg UnpairDeviceParams) (int64, error) {
-	result, err := q.exec(ctx, q.unpairDeviceStmt, unpairDevice, arg.DeviceID, arg.OrgID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+	row := q.queryRow(ctx, q.unpairDeviceStmt, unpairDevice, arg.DeviceID, arg.OrgID)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const unpairDevicesForFleetNodeRevocation = `-- name: UnpairDevicesForFleetNodeRevocation :execrows
@@ -678,18 +715,22 @@ INSERT INTO discovered_device (
     is_active,
     device_class,
     rpc_port,
-    rpc_tls
+    rpc_tls, endpoint_key, endpoints
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11, $12, $13)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11, $12, $13, $14, $15)
 ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     ip_address = EXCLUDED.ip_address,
     -- Native CT1 rediscovery must retain the existing browser endpoint.
     port = CASE WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
+                  AND discovered_device.endpoint_key = '' AND EXCLUDED.endpoint_key = ''
                 THEN discovered_device.port ELSE EXCLUDED.port END,
     url_scheme = CASE WHEN discovered_device.device_class = 2 AND EXCLUDED.rpc_port > 0
+                  AND discovered_device.endpoint_key = '' AND EXCLUDED.endpoint_key = ''
                       THEN discovered_device.url_scheme ELSE EXCLUDED.url_scheme END,
     rpc_port = EXCLUDED.rpc_port,
     rpc_tls = EXCLUDED.rpc_tls,
+    endpoint_key = EXCLUDED.endpoint_key,
+    endpoints = EXCLUDED.endpoints,
     driver_name = COALESCE(discovered_device.driver_name, EXCLUDED.driver_name),
     model = EXCLUDED.model,
     device_class = COALESCE(NULLIF(EXCLUDED.device_class, 0), discovered_device.device_class),
@@ -698,7 +739,11 @@ ON CONFLICT (org_id, device_identifier) WHERE deleted_at IS NULL DO UPDATE SET
     discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id,
     last_seen = CURRENT_TIMESTAMP,
     is_active = TRUE
-WHERE (
+WHERE (discovered_device.endpoint_key = '' OR
+    (discovered_device.endpoint_key = EXCLUDED.endpoint_key AND discovered_device.driver_name = EXCLUDED.driver_name))
+AND (EXCLUDED.endpoint_key <> '' OR EXCLUDED.rpc_port > 0
+    OR (discovered_device.rpc_port = 0 AND NOT discovered_device.rpc_tls))
+AND (
     discovered_device.discovered_by_fleet_node_id = EXCLUDED.discovered_by_fleet_node_id
     -- The attributing node was revoked (soft-deleted), so a replacement node may
     -- reclaim its rows (otherwise a re-scan of the same stable mac:/serial: device
@@ -751,7 +796,7 @@ WHERE (
         )
       )
 )
-RETURNING device_class
+RETURNING device_class, device_identifier, endpoints
 `
 
 type UpsertDiscoveredDeviceFromFleetNodeParams struct {
@@ -768,6 +813,14 @@ type UpsertDiscoveredDeviceFromFleetNodeParams struct {
 	DeviceClass             int32
 	RpcPort                 int32
 	RpcTls                  bool
+	EndpointKey             string
+	Endpoints               json.RawMessage
+}
+
+type UpsertDiscoveredDeviceFromFleetNodeRow struct {
+	DeviceClass      int32
+	DeviceIdentifier string
+	Endpoints        json.RawMessage
 }
 
 // No returned row on conflict signals rejection. A remote report must not redirect the
@@ -777,7 +830,8 @@ type UpsertDiscoveredDeviceFromFleetNodeParams struct {
 // refreshable, subject to the attribution guard. The agent synthesizes a stable
 // per-device identifier (mac:/serial:, else auto:<hash>), so a re-scan reuses
 // the same row.
-func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (int32, error) {
+// A web-only scan cannot erase a saved native RPC route.
+func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (UpsertDiscoveredDeviceFromFleetNodeRow, error) {
 	row := q.queryRow(ctx, q.upsertDiscoveredDeviceFromFleetNodeStmt, upsertDiscoveredDeviceFromFleetNode,
 		arg.OrgID,
 		arg.DeviceIdentifier,
@@ -792,8 +846,10 @@ func (q *Queries) UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg U
 		arg.DeviceClass,
 		arg.RpcPort,
 		arg.RpcTls,
+		arg.EndpointKey,
+		arg.Endpoints,
 	)
-	var device_class int32
-	err := row.Scan(&device_class)
-	return device_class, err
+	var i UpsertDiscoveredDeviceFromFleetNodeRow
+	err := row.Scan(&i.DeviceClass, &i.DeviceIdentifier, &i.Endpoints)
+	return i, err
 }

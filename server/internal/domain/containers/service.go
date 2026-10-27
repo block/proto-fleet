@@ -101,6 +101,9 @@ func Project(rows []sqlc.ListContainersRow, canRead func(*int64) (bool, error)) 
 			continue
 		}
 		c := &pb.Container{Id: r.ID, DeviceIdentifier: r.DeviceIdentifier, Name: r.Name, Stale: true}
+		if r.HaObservedAt.Valid && r.HaDegraded.Valid {
+			c.Ha = &pb.ContainerHA{ObservedAt: timestamppb.New(r.HaObservedAt.Time), Degraded: r.HaDegraded.Bool, Stale: observationStale(r.HaObservedAt.Time, now)}
+		}
 		if c.Name == "" {
 			c.Name = "Container " + r.SerialNumber.String
 		}
@@ -112,12 +115,12 @@ func Project(rows []sqlc.ListContainersRow, canRead func(*int64) (bool, error)) 
 				return nil, fmt.Errorf("decode container tank health: %w", err)
 			}
 			c.ObservedAt = timestamppb.New(r.ObservedAt.Time)
-			c.Stale = now.Sub(r.ObservedAt.Time) > 2*time.Minute || r.ObservedAt.Time.After(now.Add(5*time.Second))
+			c.Stale = observationStale(r.ObservedAt.Time, now)
 		}
 		if r.MetricsAt.Unix() > 0 {
 			c.MetricsAt = timestamppb.New(r.MetricsAt)
 		}
-		metricsFresh := now.Sub(r.MetricsAt) <= 2*time.Minute && !r.MetricsAt.After(now.Add(5*time.Second))
+		metricsFresh := !observationStale(r.MetricsAt, now)
 		if metricsFresh && r.HashRateHs.Valid {
 			c.HashrateHs = &r.HashRateHs.Float64
 		}

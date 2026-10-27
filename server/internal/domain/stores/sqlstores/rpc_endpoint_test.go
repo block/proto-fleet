@@ -7,10 +7,12 @@ import (
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	pb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/generated/sqlc"
+	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	discovery "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 	"github.com/block/proto-fleet/server/internal/domain/stores/sqlstores"
 	"github.com/block/proto-fleet/server/internal/testutil"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestDirectContainerLookupRequiresMatchingOrganizationAndDevice(t *testing.T) {
@@ -63,6 +65,18 @@ func TestDiscoveredDeviceRPCEndpointRoundTrip(t *testing.T) {
 	require.Equal(t, input.MacAddress, row.MacAddress)
 	require.Equal(t, "8181", row.Port)
 	require.Equal(t, "http", row.UrlScheme)
+	for _, class := range []commonpb.DeviceClass{commonpb.DeviceClass_DEVICE_CLASS_UNSPECIFIED, commonpb.DeviceClass_DEVICE_CLASS_RIG, commonpb.DeviceClass_DEVICE_CLASS_CONTAINER} {
+		t.Run(class.String(), func(t *testing.T) {
+			incomplete := &discovery.DiscoveredDevice{OrgID: org}
+			proto.Merge(&incomplete.Device, &input.Device)
+			incomplete.DeviceClass, incomplete.RpcPort, incomplete.RpcTls = class, 0, false
+			_, err := store.SaveDirect(ctx, id, incomplete)
+			require.True(t, fleeterror.IsFailedPreconditionError(err))
+			retained, err := q.GetDiscoveredDeviceByID(ctx, sqlc.GetDiscoveredDeviceByIDParams{OrgID: org, ID: row.ID})
+			require.NoError(t, err)
+			require.Equal(t, row, retained, "rejected web scans must preserve native transport and identity")
+		})
+	}
 	input.Port = "8080" // discovery default must not replace the stored custom web port
 	input.UrlScheme = "https"
 	input.RpcPort = 9095

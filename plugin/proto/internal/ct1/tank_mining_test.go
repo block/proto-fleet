@@ -296,7 +296,7 @@ func newTankTestDevice(t *testing.T, id string, info sdk.DeviceInfo) (*Device, e
 		return nil, err
 	}
 	t.Cleanup(func() { _ = c.Close() })
-	return &Device{id: id, info: info, client: c}, nil
+	return &Device{id: id, info: info, clients: []*Client{c}}, nil
 }
 
 func TestTankMiningSkipsUnoccupiedSlotsWithResidualBoards(t *testing.T) {

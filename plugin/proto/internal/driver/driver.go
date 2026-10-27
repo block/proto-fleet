@@ -35,9 +35,10 @@ import (
 )
 
 const (
-	driverName         = "proto"
-	apiVersion         = "v2"
-	maxValidPortNumber = math.MaxUint16
+	driverName               = "proto"
+	apiVersion               = "v2"
+	maxValidPortNumber       = math.MaxUint16
+	containerFallbackTimeout = time.Second
 )
 
 var canonicalDiscoveryPorts = []int{443}
@@ -232,7 +233,11 @@ func (d *Driver) DiscoverDevice(ctx context.Context, ipAddress, port string) (sd
 		}
 	}
 	if portInt32 != ct1.DefaultRPCPort && d.requiredPort == 0 {
-		if info, err := discoverContainer(ctx, ipAddress, portInt32); err == nil {
+		// Bound opportunistic RPC checks on web ports. Explicit CT1 discovery
+		// keeps the longer budget for sequential identity requests.
+		probeCtx, cancel := context.WithTimeout(ctx, containerFallbackTimeout)
+		defer cancel()
+		if info, err := discoverContainer(probeCtx, ipAddress, portInt32); err == nil {
 			return info, nil
 		} else if terminalRPCDiscoveryError(err) {
 			return sdk.DeviceInfo{}, err
@@ -360,12 +365,13 @@ func (d *Driver) PairDevice(ctx context.Context, deviceInfo sdk.DeviceInfo, acce
 		if err != nil {
 			return sdk.DeviceInfo{}, err
 		}
-		c, err := ct1.NewClient(deviceInfo, credentials)
+		device, err := ct1.NewDevice(ctx, "pairing", deviceInfo, credentials)
 		if err != nil {
 			return sdk.DeviceInfo{}, err
 		}
-		defer c.Close()
-		return c.Discover(ctx, deviceInfo)
+		defer device.Close(ctx)
+		info, _, err := device.DescribeDevice(ctx)
+		return info, err
 	}
 
 	slog.Debug("Plugin PairDevice called",
@@ -531,7 +537,5 @@ func discoverContainer(ctx context.Context, host string, port int32) (sdk.Device
 		return sdk.DeviceInfo{}, typedDiscoveryError(sdk.ErrCodeInvalidConfig, err)
 	}
 	defer c.Close()
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
 	return c.Discover(ctx, info)
 }

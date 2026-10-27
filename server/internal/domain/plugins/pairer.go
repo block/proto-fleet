@@ -9,8 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 
@@ -171,6 +174,8 @@ func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedP
 			Password: &password,
 		}
 
+		expected := proto.CloneOf(&discoveredDevice.Device)
+		expectedFleetNodeID := discoveredDevice.DiscoveredByFleetNodeID
 		err := p.callPluginPairDevice(ctx, plugin, discoveredDevice, credentials)
 		if err != nil {
 			if isAuthenticationFailure(err) {
@@ -182,8 +187,11 @@ func (p *Pairer) pairWithDefaultCredentials(ctx context.Context, plugin *LoadedP
 		}
 
 		workerName, fallbackWorkerName := p.resolveFleetWorkerName(ctx, plugin, discoveredDevice, credentials)
-		if err := p.handlePairViaStore(ctx, discoveredDevice, credentials, workerName, fallbackWorkerName, plugin); err != nil {
-			return fleeterror.NewInternalErrorf("error saving device to database: %v", err)
+		if err := p.handlePairViaStore(ctx, discoveredDevice, expected, expectedFleetNodeID, credentials, workerName, fallbackWorkerName, plugin); err != nil {
+			if fleeterror.IsFailedPreconditionError(err) {
+				return err
+			}
+			return fleeterror.NewInternalErrorf("error saving device to database: %w", err)
 		}
 
 		// Only fetch device info when pair_device didn't return a firmware version.
@@ -223,6 +231,11 @@ func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin,
 		return err
 	}
 
+	if err := deviceendpoints.ValidatePairingResult(deviceInfo.Endpoints, updatedDeviceInfo.Endpoints); err != nil {
+		return fleeterror.NewFailedPreconditionError(err.Error())
+	}
+	// Pairing owns identity and credentials. Only discovery may reconcile and
+	// persist endpoint groups, using its inventory locks and ambiguity checks.
 	discoveredDevice.SerialNumber = updatedDeviceInfo.SerialNumber
 	discoveredDevice.MacAddress = networking.NormalizeMAC(updatedDeviceInfo.MacAddress)
 	discoveredDevice.Model = updatedDeviceInfo.Model
@@ -238,13 +251,18 @@ func (p *Pairer) callPluginPairDevice(ctx context.Context, plugin *LoadedPlugin,
 
 // executePairing performs the actual pairing operation with given credentials.
 func (p *Pairer) executePairing(ctx context.Context, plugin *LoadedPlugin, discoveredDevice *discoverymodels.DiscoveredDevice, credentials *pb.Credentials) error {
+	expected := proto.CloneOf(&discoveredDevice.Device)
+	expectedFleetNodeID := discoveredDevice.DiscoveredByFleetNodeID
 	if err := p.callPluginPairDevice(ctx, plugin, discoveredDevice, credentials); err != nil {
 		return classifyPairingDriverError(err, "plugin pairing failed")
 	}
 
 	workerName, fallbackWorkerName := p.resolveFleetWorkerName(ctx, plugin, discoveredDevice, credentials)
-	if err := p.handlePairViaStore(ctx, discoveredDevice, credentials, workerName, fallbackWorkerName, plugin); err != nil {
-		return fleeterror.NewInternalErrorf("error saving device to database: %v", err)
+	if err := p.handlePairViaStore(ctx, discoveredDevice, expected, expectedFleetNodeID, credentials, workerName, fallbackWorkerName, plugin); err != nil {
+		if fleeterror.IsFailedPreconditionError(err) {
+			return err
+		}
+		return fleeterror.NewInternalErrorf("error saving device to database: %w", err)
 	}
 
 	return nil
@@ -254,6 +272,8 @@ func (p *Pairer) executePairing(ctx context.Context, plugin *LoadedPlugin, disco
 func (p *Pairer) handlePairViaStore(
 	ctx context.Context,
 	discoveredDevice *discoverymodels.DiscoveredDevice,
+	expected *pb.Device,
+	expectedFleetNodeID *int64,
 	credentials *pb.Credentials,
 	workerName string,
 	fallbackWorkerName bool,
@@ -263,6 +283,9 @@ func (p *Pairer) handlePairViaStore(
 	return p.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Restore original identifier so retries after serialization failures start with clean state.
 		discoveredDevice.DeviceIdentifier = originalIdentifier
+		if err := p.discoveredDeviceStore.LockPairingSnapshot(ctx, discoverymodels.DeviceOrgIdentifier{OrgID: discoveredDevice.OrgID, DeviceIdentifier: originalIdentifier}, expected, expectedFleetNodeID); err != nil {
+			return err
+		}
 
 		// Check if device already exists by its device_identifier (e.g., from AUTHENTICATION_NEEDED status)
 		existingDevice, err := p.deviceStore.GetDeviceByDeviceIdentifier(ctx, discoveredDevice.DeviceIdentifier, discoveredDevice.OrgID)
@@ -453,9 +476,9 @@ func extractWorkerNameFromConfiguredPools(pools []sdk.ConfiguredPool) string {
 // This handles re-pairing after subnet migration for both Proto (MAC available) and
 // Antminer (only serial available after callPluginPairDevice) devices.
 func (p *Pairer) reconcileExistingDevice(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, excludeIdentifier string) (*pb.Device, error) {
-	if discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
-		// Discovery reconciles the shared IP. A controller serial/MAC is not
-		// the container identity and must not merge different endpoints.
+	if discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER || len(discoveredDevice.Endpoints) > 0 {
+		// Discovery reconciles endpoint groups. A controller serial/MAC must
+		// not merge separate devices.
 		return nil, nil
 	}
 	// Try MAC-based reconciliation first
@@ -629,6 +652,7 @@ func convertFleetDeviceToSDKDeviceInfo(device *pb.Device) sdk.DeviceInfo {
 		URLScheme:       device.UrlScheme,
 		RPCPort:         device.RpcPort,
 		RPCTLS:          device.RpcTls,
+		Endpoints:       deviceendpoints.ToSDK(device.Endpoints),
 		SerialNumber:    device.SerialNumber,
 		Model:           device.Model,
 		DeviceClass:     sdk.DeviceClass(device.DeviceClass),
@@ -696,6 +720,9 @@ func isDefaultPasswordActiveFailure(err error) bool {
 // recognize codes.Unauthenticated here — otherwise credential drift falls
 // through to InternalError and AUTHENTICATION_NEEDED remediation never fires.
 func classifyPairingDriverError(err error, prefix string) error {
+	if fleeterror.IsFailedPreconditionError(err) {
+		return err
+	}
 	if isDefaultPasswordActiveFailure(err) {
 		return fleeterror.NewForbiddenErrorf("%s: %v", prefix, err)
 	}

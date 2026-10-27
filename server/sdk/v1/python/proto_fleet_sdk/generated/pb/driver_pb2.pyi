@@ -740,7 +740,7 @@ class DownloadLogsResponse(_message.Message):
     def __init__(self, log_data: _Optional[str] = ..., more_data: bool = ...) -> None: ...
 
 class DeviceInfo(_message.Message):
-    __slots__ = ("host", "port", "url_scheme", "serial_number", "model", "manufacturer", "mac_address", "firmware_version", "default_password_active", "device_class", "rpc_port", "rpc_tls")
+    __slots__ = ("host", "port", "url_scheme", "serial_number", "model", "manufacturer", "mac_address", "firmware_version", "default_password_active", "device_class", "rpc_port", "rpc_tls", "endpoints")
     HOST_FIELD_NUMBER: _ClassVar[int]
     PORT_FIELD_NUMBER: _ClassVar[int]
     URL_SCHEME_FIELD_NUMBER: _ClassVar[int]
@@ -753,6 +753,7 @@ class DeviceInfo(_message.Message):
     DEVICE_CLASS_FIELD_NUMBER: _ClassVar[int]
     RPC_PORT_FIELD_NUMBER: _ClassVar[int]
     RPC_TLS_FIELD_NUMBER: _ClassVar[int]
+    ENDPOINTS_FIELD_NUMBER: _ClassVar[int]
     host: str
     port: int
     url_scheme: str
@@ -765,7 +766,8 @@ class DeviceInfo(_message.Message):
     device_class: DeviceClass
     rpc_port: int
     rpc_tls: bool
-    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., serial_number: _Optional[str] = ..., model: _Optional[str] = ..., manufacturer: _Optional[str] = ..., mac_address: _Optional[str] = ..., firmware_version: _Optional[str] = ..., default_password_active: bool = ..., device_class: _Optional[_Union[DeviceClass, str]] = ..., rpc_port: _Optional[int] = ..., rpc_tls: bool = ...) -> None: ...
+    endpoints: _containers.RepeatedCompositeFieldContainer[DeviceEndpoint]
+    def __init__(self, host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., serial_number: _Optional[str] = ..., model: _Optional[str] = ..., manufacturer: _Optional[str] = ..., mac_address: _Optional[str] = ..., firmware_version: _Optional[str] = ..., default_password_active: bool = ..., device_class: _Optional[_Union[DeviceClass, str]] = ..., rpc_port: _Optional[int] = ..., rpc_tls: bool = ..., endpoints: _Optional[_Iterable[_Union[DeviceEndpoint, _Mapping]]] = ...) -> None: ...
 
 class DiscoverDeviceRequest(_message.Message):
     __slots__ = ("ip_address", "port")
@@ -954,8 +956,17 @@ class DeviceErrors(_message.Message):
     errors: _containers.RepeatedCompositeFieldContainer[DeviceError]
     def __init__(self, device_id: _Optional[str] = ..., errors: _Optional[_Iterable[_Union[DeviceError, _Mapping]]] = ...) -> None: ...
 
+class ContainerHA(_message.Message):
+    __slots__ = ("observed_at", "degraded")
+    OBSERVED_AT_FIELD_NUMBER: _ClassVar[int]
+    DEGRADED_FIELD_NUMBER: _ClassVar[int]
+    observed_at: _timestamp_pb2.Timestamp
+    degraded: bool
+    def __init__(self, observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., degraded: bool = ...) -> None: ...
+
 class ContainerSnapshot(_message.Message):
-    __slots__ = ("unlocated_hashboards", "metrics", "fans", "controls", "observed_at", "tanks", "plant", "topology_complete")
+    __slots__ = ("ha", "unlocated_hashboards", "metrics", "fans", "controls", "observed_at", "tanks", "plant", "topology_complete")
+    HA_FIELD_NUMBER: _ClassVar[int]
     UNLOCATED_HASHBOARDS_FIELD_NUMBER: _ClassVar[int]
     METRICS_FIELD_NUMBER: _ClassVar[int]
     FANS_FIELD_NUMBER: _ClassVar[int]
@@ -964,6 +975,7 @@ class ContainerSnapshot(_message.Message):
     TANKS_FIELD_NUMBER: _ClassVar[int]
     PLANT_FIELD_NUMBER: _ClassVar[int]
     TOPOLOGY_COMPLETE_FIELD_NUMBER: _ClassVar[int]
+    ha: ContainerHA
     unlocated_hashboards: _containers.RepeatedCompositeFieldContainer[ContainerHashboard]
     metrics: ContainerRollup
     fans: _containers.RepeatedCompositeFieldContainer[ContainerFan]
@@ -972,7 +984,7 @@ class ContainerSnapshot(_message.Message):
     tanks: _containers.RepeatedCompositeFieldContainer[ContainerTank]
     plant: ContainerPlant
     topology_complete: bool
-    def __init__(self, unlocated_hashboards: _Optional[_Iterable[_Union[ContainerHashboard, _Mapping]]] = ..., metrics: _Optional[_Union[ContainerRollup, _Mapping]] = ..., fans: _Optional[_Iterable[_Union[ContainerFan, _Mapping]]] = ..., controls: _Optional[_Union[ContainerControls, _Mapping]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., tanks: _Optional[_Iterable[_Union[ContainerTank, _Mapping]]] = ..., plant: _Optional[_Union[ContainerPlant, _Mapping]] = ..., topology_complete: bool = ...) -> None: ...
+    def __init__(self, ha: _Optional[_Union[ContainerHA, _Mapping]] = ..., unlocated_hashboards: _Optional[_Iterable[_Union[ContainerHashboard, _Mapping]]] = ..., metrics: _Optional[_Union[ContainerRollup, _Mapping]] = ..., fans: _Optional[_Iterable[_Union[ContainerFan, _Mapping]]] = ..., controls: _Optional[_Union[ContainerControls, _Mapping]] = ..., observed_at: _Optional[_Union[_timestamp_pb2.Timestamp, _Mapping]] = ..., tanks: _Optional[_Iterable[_Union[ContainerTank, _Mapping]]] = ..., plant: _Optional[_Union[ContainerPlant, _Mapping]] = ..., topology_complete: bool = ...) -> None: ...
 
 class ContainerTank(_message.Message):
     __slots__ = ("metrics", "topology_complete", "position", "modules")
@@ -1295,6 +1307,26 @@ class ContainerFeedEvidence(_message.Message):
     configured_module: int
     observed_power_feed_id: str
     def __init__(self, power_feed_id: _Optional[str] = ..., expected_power_feed_id: _Optional[str] = ..., wiring_status: _Optional[str] = ..., wiring_reasons: _Optional[_Iterable[str]] = ..., configured_tank: _Optional[int] = ..., configured_module: _Optional[int] = ..., observed_power_feed_id: _Optional[str] = ...) -> None: ...
+
+class DeviceEndpoint(_message.Message):
+    __slots__ = ("id", "device_key", "host", "port", "url_scheme", "rpc_port", "rpc_tls", "member_ids")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    DEVICE_KEY_FIELD_NUMBER: _ClassVar[int]
+    HOST_FIELD_NUMBER: _ClassVar[int]
+    PORT_FIELD_NUMBER: _ClassVar[int]
+    URL_SCHEME_FIELD_NUMBER: _ClassVar[int]
+    RPC_PORT_FIELD_NUMBER: _ClassVar[int]
+    RPC_TLS_FIELD_NUMBER: _ClassVar[int]
+    MEMBER_IDS_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    device_key: str
+    host: str
+    port: int
+    url_scheme: str
+    rpc_port: int
+    rpc_tls: bool
+    member_ids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, id: _Optional[str] = ..., device_key: _Optional[str] = ..., host: _Optional[str] = ..., port: _Optional[int] = ..., url_scheme: _Optional[str] = ..., rpc_port: _Optional[int] = ..., rpc_tls: bool = ..., member_ids: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class MiningGroupsRequest(_message.Message):
     __slots__ = ("ref", "payload")

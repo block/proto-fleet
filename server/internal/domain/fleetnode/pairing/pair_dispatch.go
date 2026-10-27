@@ -88,13 +88,15 @@ func (s *Service) PairOnNode(ctx context.Context, fleetNodeID int64, targets []*
 	// displayPending is a separate copy we consume as results arrive, to synthesize
 	// a terminal display status for any target the node never reported.
 	scopeTargets := make(map[string]struct{}, len(targets))
+	snapshots := make(map[string]*pairingpb.FleetNodePairTarget, len(targets))
 	displayPending := make(map[string]struct{}, len(targets))
 	for _, t := range targets {
 		scopeTargets[t.GetDeviceIdentifier()] = struct{}{}
+		snapshots[t.GetDeviceIdentifier()] = proto.CloneOf(t)
 		displayPending[t.GetDeviceIdentifier()] = struct{}{}
 	}
 
-	pair := &control.PairMeta{OrgID: orgID, AssignedBy: assignedBy, Targets: scopeTargets}
+	pair := &control.PairMeta{OrgID: orgID, AssignedBy: assignedBy, Targets: scopeTargets, Snapshots: snapshots}
 	cmd := &gatewaypb.ControlCommand{CommandId: id.GenerateID(), Payload: payload}
 	err = control.RunCommandToCompletion(ctx, s.dispatcher, fleetNodeID, gatewaypb.CommandProtocolVersion_COMMAND_PROTOCOL_VERSION_V1, cmd, nil, control.ReportKindPair, pair, PairCommandTimeout, "pair",
 		func(ev control.CommandEvent) (terminal bool, err error) {

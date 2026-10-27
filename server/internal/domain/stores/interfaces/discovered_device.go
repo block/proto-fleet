@@ -3,18 +3,28 @@ package interfaces
 import (
 	"context"
 
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	discoverymodels "github.com/block/proto-fleet/server/internal/domain/minerdiscovery/models"
 )
 
 //go:generate go run go.uber.org/mock/mockgen -source=discovered_device.go -destination=mocks/mock_discovered_device_store.go -package=mocks DiscoveredDeviceStore
 
 // DiscoveredDeviceStore defines the interface for discovered device operations in the store layer
+//
+//nolint:interfacebloat // Discovery reads, writes, and pairing guards share one transactional store boundary.
 type DiscoveredDeviceStore interface {
-	// Save stores or updates a discovered device and returns the saved device
+	// LockPairingSnapshot requires a transaction. It locks the saved inventory
+	// and rejects pairing writes if its group, routes, or owner changed after verification.
+	LockPairingSnapshot(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, expected *pairingpb.Device, expectedFleetNodeID *int64) error
+
+	// Save stores device metadata. Existing endpoint groups retain their current addresses.
 	Save(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error)
 
 	// SaveDirect rejects updates to FleetNode-owned records during local discovery.
 	SaveDirect(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier, device *discoverymodels.DiscoveredDevice) (*discoverymodels.DiscoveredDevice, error)
+
+	// ActivateDirect marks a server-managed discovery active without rewriting its addresses.
+	ActivateDirect(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier) error
 
 	// GetDevice retrieves a discovered device by its organization and device identifier
 	GetDevice(ctx context.Context, doi discoverymodels.DeviceOrgIdentifier) (*discoverymodels.DiscoveredDevice, error)

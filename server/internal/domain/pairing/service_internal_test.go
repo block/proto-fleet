@@ -101,10 +101,13 @@ func TestHandleAuthenticationRequiredPairing_PreservesExistingWorkerName(t *test
 
 	mockTransactor := mocks.NewMockTransactor(ctrl)
 	mockDeviceStore := mocks.NewMockDeviceStore(ctrl)
+	mockDiscoveredStore := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	mockDiscoveredStore.EXPECT().LockPairingSnapshot(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 
 	service := &Service{
-		deviceStore: mockDeviceStore,
-		transactor:  mockTransactor,
+		deviceStore:           mockDeviceStore,
+		transactor:            mockTransactor,
+		discoveredDeviceStore: mockDiscoveredStore,
 	}
 
 	discoveredDevice := &discoverymodels.DiscoveredDevice{
@@ -145,6 +148,19 @@ func TestHandleAuthenticationRequiredPairing_PreservesExistingWorkerName(t *test
 
 	err := service.handleAuthenticationRequiredPairing(t.Context(), discoveredDevice)
 	require.NoError(t, err)
+}
+
+func TestAuthenticationRequiredPairingRejectsStaleSnapshot(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	discovered := mocks.NewMockDiscoveredDeviceStore(ctrl)
+	transactor := mocks.NewMockTransactor(ctrl)
+	device := &discoverymodels.DiscoveredDevice{Device: pb.Device{DeviceIdentifier: "container", DriverName: "proto", DeviceClass: commonv1.DeviceClass_DEVICE_CLASS_CONTAINER, IpAddress: "10.0.0.11", Port: "8080", RpcPort: 9095,
+		Endpoints: []*commonv1.DeviceEndpoint{{Id: "a", DeviceKey: "a-b", Host: "10.0.0.11", Port: 8080, RpcPort: 9095}}}, OrgID: 7, IsActive: true}
+	transactor.EXPECT().RunInTx(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, action func(context.Context) error) error { return action(ctx) })
+	discovered.EXPECT().LockPairingSnapshot(gomock.Any(), device.GetDeviceOrgIdentifier(), &device.Device, gomock.Nil()).Return(fleeterror.NewFailedPreconditionError("discovery changed"))
+	service := &Service{deviceStore: mocks.NewMockDeviceStore(ctrl), discoveredDeviceStore: discovered, transactor: transactor}
+	err := service.handleAuthenticationRequiredPairing(t.Context(), device)
+	require.True(t, fleeterror.IsFailedPreconditionError(err), "stale auth-needed state must not reach any device writes: %v", err)
 }
 
 func TestResolveDeviceIdentifiers_AllDevicesPassesFullFilter(t *testing.T) {

@@ -2,15 +2,21 @@ package driver
 
 import (
 	"context"
+	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	mdk "github.com/block/proto-fleet/sdk/mdk/generated/mdk/v2"
 	sdk "github.com/block/proto-fleet/server/sdk/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -109,4 +115,98 @@ func TestContainerDiscoveryRejectsConfiguredBearerToken(t *testing.T) {
 	require.Equal(t, sdk.ErrCodeInvalidConfig, sdkErr.Code)
 	require.ErrorContains(t, err, "CT1_RPC_TOKEN_FILE is unsupported")
 	require.NotContains(t, err.Error(), "test-token")
+}
+
+type slowContainerIdentityServer struct {
+	containerServer
+}
+
+func (slowContainerIdentityServer) GetSystemInfo(ctx context.Context, _ *mdk.GetSystemInfoRequest) (*mdk.GetSystemInfoResponse, error) {
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("system info delay: %w", ctx.Err())
+	case <-time.After(600 * time.Millisecond):
+	}
+	return &mdk.GetSystemInfoResponse{Info: &mdk.SystemInfo{Id: "controller-a", Product: "Frigate"}}, nil
+}
+
+func (slowContainerIdentityServer) GetHAStatus(ctx context.Context, _ *mdk.GetHAStatusRequest) (*mdk.GetHAStatusResponse, error) {
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("partner info delay: %w", ctx.Err())
+	case <-time.After(600 * time.Millisecond):
+	}
+	return &mdk.GetHAStatusResponse{Status: &mdk.HAStatus{
+		Enabled: true, ReportingServerId: "controller-a", PeerServerId: "controller-b",
+		ClusterId: "7900e1a3-5be9-4a6b-b640-eaf3d959333b", InventoryReady: true,
+		IdentityState: mdk.HAIdentityState_HA_IDENTITY_STATE_CONFIRMED,
+		Members: []*mdk.HAMemberStatus{
+			{Id: "controller-a", Kind: mdk.HAMemberRole_HA_MEMBER_ROLE_FRIGATE, Local: true},
+			{Id: "controller-b", Kind: mdk.HAMemberRole_HA_MEMBER_ROLE_FRIGATE},
+		},
+	}}, nil
+}
+
+func TestContainerDiscoveryAllowsSlowSequentialIdentityRPCs(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	server := grpc.NewServer()
+	fixture := slowContainerIdentityServer{}
+	mdk.RegisterSystemServiceServer(server, fixture)
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+	host, portText, err := net.SplitHostPort(listener.Addr().String())
+	require.NoError(t, err)
+	port, err := sdk.ParsePort(portText)
+	require.NoError(t, err)
+	driver, err := New(int(port))
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	info, err := driver.DiscoverDevice(ctx, host, portText)
+	require.NoError(t, err)
+	require.Equal(t, "controller-a", info.SerialNumber)
+	require.Len(t, info.Endpoints, 1)
+
+	shortCtx, shortCancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer shortCancel()
+	_, err = discoverContainer(shortCtx, host, port)
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err))
+}
+
+func TestContainerDiscoveryBoundsWebPortFallback(t *testing.T) {
+	probeStarted := make(chan struct{}, 1)
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 {
+			select {
+			case probeStarted <- struct{}{}:
+			default:
+			}
+			<-r.Context().Done()
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	server.Config.Protocols = new(http.Protocols)
+	server.Config.Protocols.SetHTTP1(true)
+	server.Config.Protocols.SetUnencryptedHTTP2(true)
+	server.Start()
+	t.Cleanup(server.Close)
+	host, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	require.NoError(t, err)
+	driver, err := New(0)
+	require.NoError(t, err)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+
+	_, err = driver.DiscoverDevice(ctx, host, port)
+	var sdkErr sdk.SDKError
+	require.ErrorAs(t, err, &sdkErr)
+	require.Equal(t, sdk.ErrCodeDeviceNotFound, sdkErr.Code)
+	require.NoError(t, ctx.Err(), "the stalled fallback must not consume the caller's full budget")
+	select {
+	case <-probeStarted:
+	default:
+		t.Fatal("the CT1 fallback did not reach the stalled HTTP/2 handler")
+	}
 }

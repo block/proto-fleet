@@ -49,6 +49,7 @@ message Device {
   // Independent native RPC listener on the same host; zero uses the driver default.
   int32 rpc_port = 13 [(buf.validate.field).int32 = {gte: 0, lte: 65535}];
   bool rpc_tls = 14;
+  repeated common.v1.DeviceEndpoint endpoints = 15 [(buf.validate.field).repeated.max_items = 16];
 }
 
 // Represents login credentials used for device pairing
@@ -196,6 +197,7 @@ message FleetNodePairTarget {
   common.v1.DeviceClass device_class = 8 [(buf.validate.field).enum.defined_only = true];
   int32 rpc_port = 9 [(buf.validate.field).int32 = {gte: 0, lte: 65535}];
   bool rpc_tls = 10;
+  repeated common.v1.DeviceEndpoint endpoints = 11 [(buf.validate.field).repeated.max_items = 16];
 }
 
 // Service for discovering and pairing with network devices

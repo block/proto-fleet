@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
 export const file_common_v1_common: GenFile =
   /*@__PURE__*/
   fileDesc(
-    "ChZjb21tb24vdjEvY29tbW9uLnByb3RvEgljb21tb24udjEiKAoLUmVzb3VyY2VSZWYSCgoCaWQYASABKAMSDQoFbGFiZWwYAiABKAkiuwEKDVBsYWNlbWVudFJlZnMSJAoEc2l0ZRgBIAEoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZhIoCghidWlsZGluZxgCIAEoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZhIkCgRyYWNrGAMgASgLMhYuY29tbW9uLnYxLlJlc291cmNlUmVmEiYKBmdyb3VwcxgEIAMoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZhIMCgR6b25lGAUgASgJIm8KEUZsZWV0RXJyb3JEZXRhaWxzEisKBmNvbW1vbhgBIAEoDjIZLmNvbW1vbi52MS5GbGVldEVycm9yQ29kZUgAEhEKB3NlcnZpY2UYAiABKAVIABISCghlbmRwb2ludBgDIAEoBUgAQgYKBGNvZGUqUwoORmxlZXRFcnJvckNvZGUSIAocRkxFRVRfRVJST1JfQ09ERV9VTlNQRUNJRklFRBAAEh8KG0ZMRUVUX0VSUk9SX0NPREVfTk9UX0FDVElWRRABKl0KC0RldmljZUNsYXNzEhwKGERFVklDRV9DTEFTU19VTlNQRUNJRklFRBAAEhQKEERFVklDRV9DTEFTU19SSUcQARIaChZERVZJQ0VfQ0xBU1NfQ09OVEFJTkVSEAJCqAEKDWNvbS5jb21tb24udjFCC0NvbW1vblByb3RvUAFaRWdpdGh1Yi5jb20vYmxvY2svcHJvdG8tZmxlZXQvc2VydmVyL2dlbmVyYXRlZC9ncnBjL2NvbW1vbi92MTtjb21tb252MaICA0NYWKoCCUNvbW1vbi5WMcoCCUNvbW1vblxWMeICFUNvbW1vblxWMVxHUEJNZXRhZGF0YeoCCkNvbW1vbjo6VjFiBnByb3RvMw",
+    "ChZjb21tb24vdjEvY29tbW9uLnByb3RvEgljb21tb24udjEiKAoLUmVzb3VyY2VSZWYSCgoCaWQYASABKAMSDQoFbGFiZWwYAiABKAkiuwEKDVBsYWNlbWVudFJlZnMSJAoEc2l0ZRgBIAEoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZhIoCghidWlsZGluZxgCIAEoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZhIkCgRyYWNrGAMgASgLMhYuY29tbW9uLnYxLlJlc291cmNlUmVmEiYKBmdyb3VwcxgEIAMoCzIWLmNvbW1vbi52MS5SZXNvdXJjZVJlZhIMCgR6b25lGAUgASgJIm8KEUZsZWV0RXJyb3JEZXRhaWxzEisKBmNvbW1vbhgBIAEoDjIZLmNvbW1vbi52MS5GbGVldEVycm9yQ29kZUgAEhEKB3NlcnZpY2UYAiABKAVIABISCghlbmRwb2ludBgDIAEoBUgAQgYKBGNvZGUilwEKDkRldmljZUVuZHBvaW50EgoKAmlkGAEgASgJEhIKCmRldmljZV9rZXkYAiABKAkSDAoEaG9zdBgDIAEoCRIMCgRwb3J0GAQgASgFEhIKCnVybF9zY2hlbWUYBSABKAkSEAoIcnBjX3BvcnQYBiABKAUSDwoHcnBjX3RscxgHIAEoCBISCgptZW1iZXJfaWRzGAggAygJKlMKDkZsZWV0RXJyb3JDb2RlEiAKHEZMRUVUX0VSUk9SX0NPREVfVU5TUEVDSUZJRUQQABIfChtGTEVFVF9FUlJPUl9DT0RFX05PVF9BQ1RJVkUQASpdCgtEZXZpY2VDbGFzcxIcChhERVZJQ0VfQ0xBU1NfVU5TUEVDSUZJRUQQABIUChBERVZJQ0VfQ0xBU1NfUklHEAESGgoWREVWSUNFX0NMQVNTX0NPTlRBSU5FUhACQqgBCg1jb20uY29tbW9uLnYxQgtDb21tb25Qcm90b1ABWkVnaXRodWIuY29tL2Jsb2NrL3Byb3RvLWZsZWV0L3NlcnZlci9nZW5lcmF0ZWQvZ3JwYy9jb21tb24vdjE7Y29tbW9udjGiAgNDWFiqAglDb21tb24uVjHKAglDb21tb25cVjHiAhVDb21tb25cVjFcR1BCTWV0YWRhdGHqAgpDb21tb246OlYxYgZwcm90bzM",
   );
 
 /**
@@ -119,6 +119,62 @@ export type FleetErrorDetails = Message<"common.v1.FleetErrorDetails"> & {
 export const FleetErrorDetailsSchema: GenMessage<FleetErrorDetails> =
   /*@__PURE__*/
   messageDesc(file_common_v1_common, 2);
+
+/**
+ * Discovered device address. The plugin defines the opaque endpoint ID and
+ * shared device key; Fleet scopes the key by driver and network owner.
+ *
+ * @generated from message common.v1.DeviceEndpoint
+ */
+export type DeviceEndpoint = Message<"common.v1.DeviceEndpoint"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string device_key = 2;
+   */
+  deviceKey: string;
+
+  /**
+   * @generated from field: string host = 3;
+   */
+  host: string;
+
+  /**
+   * @generated from field: int32 port = 4;
+   */
+  port: number;
+
+  /**
+   * @generated from field: string url_scheme = 5;
+   */
+  urlScheme: string;
+
+  /**
+   * @generated from field: int32 rpc_port = 6;
+   */
+  rpcPort: number;
+
+  /**
+   * @generated from field: bool rpc_tls = 7;
+   */
+  rpcTls: boolean;
+
+  /**
+   * Current group members. Discovery removes routes for replaced members.
+   *
+   * @generated from field: repeated string member_ids = 8;
+   */
+  memberIds: string[];
+};
+
+/**
+ * Describes the message common.v1.DeviceEndpoint.
+ * Use `create(DeviceEndpointSchema)` to create a new message.
+ */
+export const DeviceEndpointSchema: GenMessage<DeviceEndpoint> = /*@__PURE__*/ messageDesc(file_common_v1_common, 3);
 
 /**
  * @generated from enum common.v1.FleetErrorCode

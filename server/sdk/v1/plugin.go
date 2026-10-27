@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"math"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
@@ -2085,6 +2086,7 @@ func secretBundleFromProto(p *pb.SecretBundle) SecretBundle {
 // DeviceInfo conversion functions
 func deviceInfoToProto(d DeviceInfo) *pb.DeviceInfo {
 	return &pb.DeviceInfo{
+		Endpoints:             endpointsToProto(d.Endpoints),
 		RpcPort:               d.RPCPort,
 		RpcTls:                d.RPCTLS,
 		Host:                  d.Host,
@@ -2102,6 +2104,7 @@ func deviceInfoToProto(d DeviceInfo) *pb.DeviceInfo {
 
 func deviceInfoFromProto(p *pb.DeviceInfo) DeviceInfo {
 	return DeviceInfo{
+		Endpoints:             endpointsFromProto(p.Endpoints),
 		RPCPort:               p.RpcPort,
 		RPCTLS:                p.RpcTls,
 		Host:                  p.Host,
@@ -2127,4 +2130,19 @@ var HandshakeConfig = plugin.HandshakeConfig{
 // PluginMap for go-plugin
 var PluginMap = map[string]plugin.Plugin{
 	"driver": &DriverPlugin{},
+}
+
+func endpointsToProto(endpoints []DeviceEndpoint) []*pb.DeviceEndpoint {
+	var result []*pb.DeviceEndpoint
+	for _, c := range endpoints {
+		result = append(result, &pb.DeviceEndpoint{Id: c.ID, DeviceKey: c.DeviceKey, MemberIds: slices.Clone(c.MemberIDs), Host: c.Host, Port: c.Port, UrlScheme: c.URLScheme, RpcPort: c.RPCPort, RpcTls: c.RPCTLS})
+	}
+	return result
+}
+func endpointsFromProto(endpoints []*pb.DeviceEndpoint) []DeviceEndpoint {
+	var result []DeviceEndpoint
+	for _, c := range endpoints {
+		result = append(result, DeviceEndpoint{ID: c.GetId(), DeviceKey: c.GetDeviceKey(), MemberIDs: slices.Clone(c.GetMemberIds()), Host: c.GetHost(), Port: c.GetPort(), URLScheme: c.GetUrlScheme(), RPCPort: c.GetRpcPort(), RPCTLS: c.GetRpcTls()})
+	}
+	return result
 }

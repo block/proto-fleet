@@ -30,6 +30,7 @@ SELECT
     dd.url_scheme,
     dd.rpc_port,
     dd.rpc_tls,
+    dd.endpoints::text AS endpoints,
     d.site_id,
     d.discovered_device_id,
     dp.paired_at,
@@ -69,6 +70,7 @@ type GetDeviceWithCredentialsAndIPByDeviceIdentifierRow struct {
 	UrlScheme          string
 	RpcPort            int32
 	RpcTls             bool
+	Endpoints          string
 	SiteID             sql.NullInt64
 	DiscoveredDeviceID int64
 	PairedAt           sql.NullTime
@@ -96,6 +98,7 @@ func (q *Queries) GetDeviceWithCredentialsAndIPByDeviceIdentifier(ctx context.Co
 		&i.UrlScheme,
 		&i.RpcPort,
 		&i.RpcTls,
+		&i.Endpoints,
 		&i.SiteID,
 		&i.DiscoveredDeviceID,
 		&i.PairedAt,
@@ -123,6 +126,7 @@ SELECT
     dd.url_scheme,
     dd.rpc_port,
     dd.rpc_tls,
+    dd.endpoints::text AS endpoints,
     d.site_id,
     d.discovered_device_id,
     dp.paired_at,
@@ -169,6 +173,7 @@ type GetDeviceWriteDeletionBindingsRow struct {
 	UrlScheme          string
 	RpcPort            int32
 	RpcTls             bool
+	Endpoints          string
 	SiteID             sql.NullInt64
 	DiscoveredDeviceID int64
 	PairedAt           sql.NullTime
@@ -202,6 +207,7 @@ func (q *Queries) GetDeviceWriteDeletionBindings(ctx context.Context, arg GetDev
 			&i.UrlScheme,
 			&i.RpcPort,
 			&i.RpcTls,
+			&i.Endpoints,
 			&i.SiteID,
 			&i.DiscoveredDeviceID,
 			&i.PairedAt,
@@ -234,6 +240,7 @@ SELECT
     dd.url_scheme,
     dd.rpc_port,
     dd.rpc_tls,
+    dd.endpoints::text AS endpoints,
     dd.driver_name,
     mc.username_enc,
     mc.password_enc,
@@ -282,6 +289,7 @@ type GetDirectProtoMinerProxyTargetRow struct {
 	UrlScheme          string
 	RpcPort            int32
 	RpcTls             bool
+	Endpoints          string
 	DriverName         string
 	UsernameEnc        sql.NullString
 	PasswordEnc        sql.NullString
@@ -306,6 +314,7 @@ func (q *Queries) GetDirectProtoMinerProxyTarget(ctx context.Context, arg GetDir
 		&i.UrlScheme,
 		&i.RpcPort,
 		&i.RpcTls,
+		&i.Endpoints,
 		&i.DriverName,
 		&i.UsernameEnc,
 		&i.PasswordEnc,
@@ -337,6 +346,7 @@ SELECT
     dd.url_scheme,
     dd.rpc_port,
     dd.rpc_tls,
+    dd.endpoints::text AS endpoints,
     dd.firmware_version,
     d.discovered_device_id,
     dp.paired_at,
@@ -375,6 +385,7 @@ type GetFleetNodeTelemetryRouteByDeviceIdentifierRow struct {
 	UrlScheme          string
 	RpcPort            int32
 	RpcTls             bool
+	Endpoints          string
 	FirmwareVersion    sql.NullString
 	DiscoveredDeviceID int64
 	PairedAt           sql.NullTime
@@ -408,6 +419,7 @@ func (q *Queries) GetFleetNodeTelemetryRouteByDeviceIdentifier(ctx context.Conte
 		&i.UrlScheme,
 		&i.RpcPort,
 		&i.RpcTls,
+		&i.Endpoints,
 		&i.FirmwareVersion,
 		&i.DiscoveredDeviceID,
 		&i.PairedAt,

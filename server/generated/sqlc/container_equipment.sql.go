@@ -8,6 +8,7 @@ package sqlc
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 const advanceContainerControls = `-- name: AdvanceContainerControls :one
@@ -108,5 +109,26 @@ type UpsertContainerFansParams struct {
 // Source time orders fans independently of inventory and control reads.
 func (q *Queries) UpsertContainerFans(ctx context.Context, arg UpsertContainerFansParams) error {
 	_, err := q.exec(ctx, q.upsertContainerFansStmt, upsertContainerFans, arg.Fans, arg.DeviceIdentifier)
+	return err
+}
+
+const upsertContainerHA = `-- name: UpsertContainerHA :exec
+INSERT INTO container_ha_observation (device_id, observed_at, degraded)
+SELECT d.id, $1::timestamptz, $2::boolean
+FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+WHERE d.device_identifier=$3 AND d.deleted_at IS NULL
+AND dd.deleted_at IS NULL AND dd.device_class=2
+ON CONFLICT (device_id) DO UPDATE SET observed_at=EXCLUDED.observed_at, degraded=EXCLUDED.degraded
+WHERE container_ha_observation.observed_at < EXCLUDED.observed_at
+`
+
+type UpsertContainerHAParams struct {
+	ObservedAt       time.Time
+	Degraded         bool
+	DeviceIdentifier string
+}
+
+func (q *Queries) UpsertContainerHA(ctx context.Context, arg UpsertContainerHAParams) error {
+	_, err := q.exec(ctx, q.upsertContainerHAStmt, upsertContainerHA, arg.ObservedAt, arg.Degraded, arg.DeviceIdentifier)
 	return err
 }

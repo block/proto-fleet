@@ -117,8 +117,14 @@ func TestPersistPairResultLocksIdentityThenDeviceThenEnrollmentBeforeWrites(t *t
 			}
 			existing := &pairingpb.Device{DeviceIdentifier: identifier}
 			discoveredStore.EXPECT().GetDevice(gomock.Any(), gomock.Any()).Return(dd, nil)
+			discoveredStore.EXPECT().LockPairingSnapshot(gomock.Any(), gomock.Any(), gomock.Any(), &fleetNodeID).DoAndReturn(
+				func(context.Context, discoverymodels.DeviceOrgIdentifier, *pairingpb.Device, *int64) error {
+					events = append(events, "lock_snapshot")
+					return nil
+				},
+			)
 			deviceStore.EXPECT().GetDeviceByDeviceIdentifier(gomock.Any(), identifier, orgID).Return(existing, nil)
-			wantEvents := []string{"lock_node_identity", "resolve_device", "lock_device", "lock_node"}
+			wantEvents := []string{"lock_node_identity", "lock_snapshot", "resolve_device", "lock_device", "lock_node"}
 			wantStatus := StatusPaired
 			if tc.outcome != gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED {
 				wantEvents = append(wantEvents, "check_active_pairing")
@@ -160,7 +166,7 @@ func TestPersistPairResultLocksIdentityThenDeviceThenEnrollmentBeforeWrites(t *t
 				DeviceIdentifier:      identifier,
 				Outcome:               tc.outcome,
 				DefaultPasswordActive: &defaultPasswordActive,
-			}, nil)
+			}, nil, &pairingpb.FleetNodePairTarget{DeviceIdentifier: identifier})
 
 			require.NoError(t, err)
 			require.Equal(t, wantStatus, status)

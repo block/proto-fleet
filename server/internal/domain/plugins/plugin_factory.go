@@ -24,8 +24,9 @@ type PluginDriverGetter interface {
 
 // PluginMinerConfig contains all parameters needed to create a plugin-based miner
 type PluginMinerConfig struct {
-	RPCPort int32
-	RPCTLS  bool
+	Endpoints []sdk.DeviceEndpoint
+	RPCPort   int32
+	RPCTLS    bool
 	// Required binding scope for Fleet resolution; never plaintext credentials.
 	SDKReuseScopeKey string
 	WriteGate        interfaces.MinerWriteGate
@@ -87,6 +88,7 @@ func NewPluginMinerWithCredentials(
 		URLScheme:    config.DeviceScheme,
 		RPCPort:      config.RPCPort,
 		RPCTLS:       config.RPCTLS,
+		Endpoints:    config.Endpoints,
 		SerialNumber: config.DeviceSerialNumber,
 		MacAddress:   config.MacAddress,
 	}

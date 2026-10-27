@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
 	"buf.build/go/protovalidate"
 	"github.com/google/uuid"
 	"google.golang.org/grpc/codes"
@@ -175,6 +177,7 @@ func (f *pluginTelemetryFetcher) Fetch(ctx context.Context, req *telemetrypb.Fle
 		URLScheme:       req.GetUrlScheme(),
 		RPCPort:         req.GetRpcPort(),
 		RPCTLS:          req.GetRpcTls(),
+		Endpoints:       deviceendpoints.ToSDK(req.GetEndpoints()),
 		SerialNumber:    req.GetSerialNumber(),
 		Model:           req.GetModel(),
 		Manufacturer:    req.GetManufacturer(),
@@ -306,6 +309,7 @@ func telemetryDialTarget(req *telemetrypb.FleetNodeTelemetryRequest) *pb.MinerCo
 		UrlScheme:          req.GetUrlScheme(),
 		RpcPort:            req.GetRpcPort(),
 		RpcTls:             req.GetRpcTls(),
+		Endpoints:          req.GetEndpoints(),
 		SerialNumber:       req.GetSerialNumber(),
 		MacAddress:         req.GetMacAddress(),
 		CredentialUsername: req.GetCredentialUsername(),

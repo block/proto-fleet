@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
 	"github.com/google/uuid"
@@ -170,6 +172,7 @@ func (r *RunCmd) handleMinerCommand(ctx context.Context, client gatewayClient, s
 		URLScheme:    target.GetUrlScheme(),
 		RPCPort:      target.GetRpcPort(),
 		RPCTLS:       target.GetRpcTls(),
+		Endpoints:    deviceendpoints.ToSDK(target.GetEndpoints()),
 		SerialNumber: target.GetSerialNumber(),
 		MacAddress:   target.GetMacAddress(),
 	}
@@ -331,16 +334,34 @@ func minerCommandActionTimeout(mc *pb.MinerCommand) time.Duration {
 // or link-local address, or a scheme the drivers can't dial. Loopback is allowed for the
 // dev virtual driver; mirrors the discovery path's private-address policy.
 func validateDialTarget(t *pb.MinerConnectionDescriptor) error {
-	addr, err := netip.ParseAddr(t.GetIpAddress())
-	if err != nil {
-		return fmt.Errorf("ip_address %q is not a valid IP", t.GetIpAddress())
-	}
-	if a := addr.Unmap(); !a.IsPrivate() && !a.IsLoopback() {
-		return fmt.Errorf("ip_address %q is not a private or loopback address", t.GetIpAddress())
+	if err := validateTargetAddresses(t.GetIpAddress(), t.GetEndpoints()); err != nil {
+		return err
 	}
 	// Restrict to schemes the dial path accepts (networking.ProtocolFromString); rejects empty/unknown.
 	if _, err := networking.ProtocolFromString(t.GetUrlScheme()); err != nil {
 		return fmt.Errorf("unsupported url_scheme %q", t.GetUrlScheme())
+	}
+	return nil
+}
+
+// Pairing and command targets share the same endpoint and private-address checks.
+func validateTargetAddresses(ipAddress string, endpoints []*commonpb.DeviceEndpoint) error {
+	if _, err := deviceendpoints.Key(endpoints); err != nil {
+		return err
+	}
+	for _, controller := range endpoints {
+		addr, err := netip.ParseAddr(controller.GetHost())
+		if err != nil || (!addr.Unmap().IsPrivate() && !addr.Unmap().IsLoopback()) {
+			return fmt.Errorf("device endpoint must use a private or loopback IP")
+		}
+	}
+
+	addr, err := netip.ParseAddr(ipAddress)
+	if err != nil {
+		return fmt.Errorf("ip_address %q is not a valid IP", ipAddress)
+	}
+	if a := addr.Unmap(); !a.IsPrivate() && !a.IsLoopback() {
+		return fmt.Errorf("ip_address %q is not a private or loopback address", ipAddress)
 	}
 	return nil
 }

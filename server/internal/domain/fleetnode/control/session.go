@@ -3,8 +3,12 @@ package control
 import (
 	"context"
 	"errors"
+	"maps"
+
+	"google.golang.org/protobuf/proto"
 
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
+	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 )
 
@@ -36,6 +40,16 @@ func (s *Session) Close() {
 // minimumCommandProtocolVersion is checked before the command is registered or
 // enqueued. Many commands may be in flight per node concurrently.
 func (r *Registry) Send(ctx context.Context, fleetNodeID int64, minimumCommandProtocolVersion gatewaypb.CommandProtocolVersion, cmd *gatewaypb.ControlCommand, scope ReportScope, kind ReportKind, pair *PairMeta) (*Session, error) {
+	if pair != nil {
+		cloned := &PairMeta{OrgID: pair.OrgID, Targets: maps.Clone(pair.Targets), Snapshots: make(map[string]*pairingpb.FleetNodePairTarget, len(pair.Snapshots))}
+		if pair.AssignedBy != nil {
+			cloned.AssignedBy = new(*pair.AssignedBy)
+		}
+		for identifier, target := range pair.Snapshots {
+			cloned.Snapshots[identifier] = proto.CloneOf(target)
+		}
+		pair = cloned
+	}
 	maxReports := maxReportsPerCommand
 	if pair != nil {
 		maxReports = len(pair.Targets)

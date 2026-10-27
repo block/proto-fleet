@@ -26,9 +26,10 @@ It is disabled by default. Audit actor metadata does not authenticate callers.
 
 SDK `DeviceInfo` and FleetNode descriptors carry `RPCPort`/`RPCTLS` independently
 of the existing web `Port`/`URLScheme`, on the same host. These values persist
-in `discovered_device.rpc_port` / `rpc_tls`. Zero means the CT1 driver's default
-9095; false selects plaintext. Verified TLS uses the host as server name,
-system trust roots, and TLS 1.2 or newer, with no insecure verification bypass
+in `discovered_device.rpc_port` / `rpc_tls`. CT1 requires an explicit RPC port;
+discovery saves the scanned port, normally 9095. False selects plaintext.
+Verified TLS uses the host as server name, system trust roots, and TLS 1.2 or
+newer, with no insecure verification bypass
 or plaintext downgrade. It requires a deployment that exposes a TLS endpoint;
 the pinned Frigate server itself is plaintext.
 
@@ -51,16 +52,16 @@ including when probing unknown discovery candidates. A nonempty
 `CT1_RPC_TOKEN_FILE` is rejected before creating a connection; the file is never
 read. This prevents a shared credential from being disclosed to scanned hosts.
 
-Pairing verifies `SystemService.GetSystemInfo` and controller identity; it does
-not perform REST login or token refresh. Controllers requiring authentication
+Discovery verifies `SystemService.GetSystemInfo`. Pairing a saved group verifies
+its cluster ID and controller IDs through `GetHAStatus` and `GetSystemStatus`.
+Pairing does not perform REST login or token refresh. Controllers requiring authentication
 return `Unauthenticated`, with no REST fallback. Supporting authenticated
 controllers requires a separate design with verified TLS and credentials bound
 to explicitly trusted endpoints. The `x-frigate-actor` audit metadata remains
 present and is not an authentication credential.
 
-Existing CT1 rows use the default RPC endpoint without delete/re-pair. Creating
-the device verifies the saved serial against `SystemInfo.id` before polling or
-controls. Custom RPC endpoints are persisted by identity on rediscovery;
+Saved HA groups verify their cluster and controller IDs at pairing and before
+each operation. Custom RPC endpoints are persisted by identity on rediscovery;
 rediscovery retains an existing CT1's web port and scheme, so a discovery default
 cannot replace a custom browser address. The probed host remains authoritative.
 Direct rediscovery matches the organization's server-managed container by shared
@@ -74,11 +75,109 @@ and IP recovery. Recovery scans the configured RPC port and preserves the web
 port; it does not infer a changed RPC listener port. Endpoint changes invalidate
 the FleetNode telemetry handle fingerprint.
 
+## Endpoint groups and HA failover
+
+The Proto plugin reads `GetSystemInfo` and `GetHAStatus`. A confirmed, durable
+`clusterId` becomes the opaque `ct1:<UUID>` device key. The cluster ID identifies
+the container; a controller ID identifies the server at each saved address.
+MAC addresses, advertised IPs, and hashboard inventory do not define identity.
+A new group needs loaded inventory and a confirmed cluster ID. A saved group
+can use a retained matching ID during a shared-store outage, with degraded HA.
+Conflicting identity, a different cluster, or the wrong controller rejects the
+endpoint. Without HA identity, the existing single-address path remains usable.
+
+### Discovery and pairing
+
+Scan both controller addresses before pairing. Each report adds only the address
+that Fleet scanned. Fleet does not dial advertised peer addresses. It stores
+scanned endpoints under the plugin's key, scoped by organization, driver, and
+network owner. The plugin also supplies current member IDs so unpaired discovery
+can remove a replaced controller's route without interpreting CT1 state.
+A rescan updates an unpaired controller's address while retaining the other
+scanned route and custom web settings. Different cluster IDs are different
+inventory identities; discovery does not migrate one cluster into another.
+
+CT1 discovery uses an organization lock before device and inventory locks.
+Rig-only batches do not take this lock.
+Network probes remain concurrent. Pairing checks the saved owner, key, and
+routes against the discovery snapshot before writing identity or pairing state.
+Fleet Node retries retain the original dispatched snapshot. A changed snapshot
+requires a new pairing attempt. An invalid endpoint report does not discard other
+valid reports; a database failure rolls back the batch.
+
+Once paired, routes are pinned. Scans cannot add or move a route. Unpair the last
+owner, scan both addresses, and pair again to change routes or replace a
+controller. Removing the last pairing clears the saved endpoint set and hardware
+identity. Removing only a Fleet Node binding retains routes while cloud pairing
+still exists. If an unpaired controller first reports no HA identity, a later
+scan adds its confirmed group to the same record at that socket.
+A report without a group cannot erase an existing group.
+
+A replacement Fleet Node can reclaim one matching group from a revoked node at
+its saved addresses. Live network owners remain separate. Public IDs do not
+authenticate a route change; initial discovery and pairing need a trusted network.
+
+### Controller selection
+
+The plugin retains one connection per saved controller. Before an operation, it
+calls `GetHAStatus` and `GetSystemStatus` on both controllers in parallel.
+The shared probe budget is at most five seconds and half the caller's remaining
+deadline. The first call checks durable identity; the second supplies the live
+role, write authority, and firmware version. It does not repeat `GetSystemInfo`.
+
+Reads prefer a settled primary, then a settled standby, then the unique live
+write primary. If primary telemetry collection fails, the same poll can use its
+verified settled standby once, within the caller's deadline, with degraded HA.
+Writes require one
+verified controller with primary role and explicit write authority. Recovery
+health does not override that authority. Conflicting write claims reject the
+command. Frigate owns promotion. A command stays on the selected connection,
+and an uncertain write is never replayed on the peer. All container mutations,
+including mining-group commands, use the same device-level lock and selection.
+
+### HA health
+
+Both saved controllers must respond with this live state:
+
+| Field | Primary | Standby |
+| --- | --- | --- |
+| `haRole` | `HA_ROLE_PRIMARY` | `HA_ROLE_STANDBY` |
+| `containerWritePrimary` | `true` | `false` |
+| `databaseConnected` | `true` | `true` |
+| `haRecovery.state` | `HA_RECOVERY_STATE_STEADY` | `HA_RECOVERY_STATE_STEADY` |
+
+Cached HA reports must agree with this pair. Role and Frigate reachability
+observations need the expected source and must be fresh within 15 seconds.
+Reported etcd observations, including witness observations, must be reachable
+and fresh within 90 seconds. Witnesses need no Frigate role. Response time and
+interface inventory age do not refresh role or service observations. Missing,
+stale, conflicting, or unknown evidence degrades HA. An explicitly false
+optional `dcsHealthy` also degrades HA. Cached diagnostics never authorize writes.
+
+Fleet stores the plugin's HA observation without interpreting CT1 APIs. The
+container's Issues column shows **HA degraded** when the observation is absent,
+degraded, or older than two minutes. A current healthy observation clears it.
+Older samples cannot replace newer samples. If both controllers are unreachable,
+ordinary polling reports the outage and the last HA observation becomes stale.
+
+### Rollout and boundaries
+
+- Upgrade both Frigate peers and confirm that they report the same cluster UUID.
+  Initial identity can remain unavailable until both peers are ready.
+- Upgrade Fleet Server, Fleet Nodes, and the Proto plugin together. Scan both
+  addresses before pairing. This unmerged feature has no stored-data migration.
+- The HTTP ProtoOS proxy and plugin web URL use the saved browser address.
+  HTTP proxy failover is separate. Reading the web URL does not probe controllers.
+- The single-address recovery job does not rewrite endpoint groups.
+- Authenticated MDK discovery remains unsupported. The optional `TestFrigateHALab`
+  sends its lab credential only to loopback test addresses.
+
 ## Collection and controls
 
-Each active CT1 owns a reusable gRPC connection, closed by `Device.Close`.
+Each active CT1 owns a reusable gRPC connection per saved endpoint, closed by
+`Device.Close`.
 Temporary discovery/pairing connections are closed on success and failure.
-Client construction is lazy; a bounded SystemInfo call proves reachability.
+Client construction is lazy; bounded discovery or HA/status calls prove reachability.
 The transport reconnects after interruptions. No CT1 REST fallback is enabled.
 
 Collection requires `HashboardService.GetContainerMap`. Mining status, plant/PDU/fan
@@ -179,7 +278,7 @@ remain outside the supported rollout configuration. Compare bytes, latency,
 timeouts and controller load against the previous build at the same cadence. No hardware validation is implied by simulator success.
 
 Monitor failed required reads, supplemental gRPC status warnings, unknown slots,
-and unconfirmed writes during the canary. Roll back application/plugin builds to
-restore the previous REST path; keep the additive columns while rolling back.
-The down migration removes only RPC endpoint configuration after all consumers
-have rolled back. It does not modify collected telemetry/history.
+and unconfirmed writes during the canary. Roll back application/plugin builds
+before removing the additive schema. The endpoint-group down migration removes
+saved endpoint lists and HA observations; it does not remove hashboard telemetry.
+Both peers must support the new HA API before a new group can be established.

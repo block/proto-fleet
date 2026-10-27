@@ -176,6 +176,7 @@ func (q *Queries) ListContainerPlacements(ctx context.Context, orgID int64) ([]L
 
 const listContainers = `-- name: ListContainers :many
 SELECT d.id, d.device_identifier, d.site_id, d.serial_number,
+ ha.observed_at AS ha_observed_at, ha.degraded AS ha_degraded,
        COALESCE(d.custom_name, '')::text AS name,
        COALESCE(s.name, '')::text AS site_name,
        COALESCE(fans.readings, '[]'::jsonb)::jsonb AS fans,
@@ -188,6 +189,7 @@ JOIN discovered_device dd ON dd.id = d.discovered_device_id AND dd.org_id = d.or
 JOIN device_pairing dp ON dp.device_id = d.id
 LEFT JOIN site s ON s.id = d.site_id AND s.org_id = d.org_id AND s.deleted_at IS NULL
 LEFT JOIN container_inventory ci ON ci.device_id = d.id
+LEFT JOIN container_ha_observation ha ON ha.device_id = d.id
 LEFT JOIN LATERAL (
  SELECT metrics FROM container_plant_metrics WHERE device_id = d.id
  ORDER BY time DESC LIMIT 1
@@ -246,6 +248,8 @@ type ListContainersRow struct {
 	DeviceIdentifier string
 	SiteID           sql.NullInt64
 	SerialNumber     sql.NullString
+	HaObservedAt     sql.NullTime
+	HaDegraded       sql.NullBool
 	Name             string
 	SiteName         string
 	Fans             json.RawMessage
@@ -284,6 +288,8 @@ func (q *Queries) ListContainers(ctx context.Context, arg ListContainersParams) 
 			&i.DeviceIdentifier,
 			&i.SiteID,
 			&i.SerialNumber,
+			&i.HaObservedAt,
+			&i.HaDegraded,
 			&i.Name,
 			&i.SiteName,
 			&i.Fans,

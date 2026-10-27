@@ -82,7 +82,7 @@ func TestModuleMiningSimulatorLeavesNeighborsUnaffected(t *testing.T) {
 	for _, mining := range []bool{false, true} {
 		req.Mining = &mining
 		require.NoError(t, dev.SetModuleMining(t.Context(), req))
-		wire, err := dev.client.boards.GetContainerMap(t.Context(), &mdk.GetContainerMapRequest{})
+		wire, err := dev.clients[0].boards.GetContainerMap(t.Context(), &mdk.GetContainerMapRequest{})
 		require.NoError(t, err)
 		after := mapResponse(wire)
 		for _, tank := range after.ContainerMap.Tanks {
@@ -140,7 +140,7 @@ func testMiningGroupsSimulator(t *testing.T, dev *Device) {
 	require.Equal(t, originalPools, resumed.Groups[0].Pools)
 	require.Positive(t, call(sdk.MiningGroupRequest{Action: "mining_status"}).MiningStatus.ActiveBoards)
 	// Stop default for the existing exact-board assignment checks below.
-	_, err := dev.client.mining.StopMining(t.Context(), &mdk.StopMiningRequest{})
+	_, err := dev.clients[0].mining.StopMining(t.Context(), &mdk.StopMiningRequest{})
 	require.NoError(t, err)
 	source = call(sdk.MiningGroupRequest{Action: "observe"}).Groups[0]
 	created := call(sdk.MiningGroupRequest{Action: "create", ConfigID: "customer", Key: "create"})
@@ -163,7 +163,7 @@ func testMiningGroupsSimulator(t *testing.T, dev *Device) {
 		require.Equal(t, "customer.backup", group.Pools[1].Username)
 		call(sdk.MiningGroupRequest{Action: "start", GroupID: group.ID, Revision: group.Revision, Key: "start"})
 	}
-	wire, err := dev.client.boards.GetContainerMap(t.Context(), &mdk.GetContainerMapRequest{})
+	wire, err := dev.clients[0].boards.GetContainerMap(t.Context(), &mdk.GetContainerMapRequest{})
 	require.NoError(t, err)
 	for _, tank := range mapResponse(wire).ContainerMap.Tanks {
 		for _, module := range tank.Modules {

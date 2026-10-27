@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/block/proto-fleet/server/internal/domain/fleeterror"
 	"github.com/block/proto-fleet/server/internal/domain/fleetnode/control"
@@ -43,7 +45,8 @@ type Store interface { //nolint:interfacebloat // Pairing coordinates several sq
 	ListFleetNodeDevices(ctx context.Context, orgID int64, fleetNodeID *int64) ([]FleetNodeDevice, error)
 	CountFleetNodeDevicesByNode(ctx context.Context, orgID int64) (map[int64]int64, error)
 	ListFleetNodeDiscoveredDevices(ctx context.Context, orgID int64, fleetNodeID *int64, filter FleetNodeDiscoveredDeviceFilter) ([]FleetNodeDiscoveredDevice, error)
-	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID int64, fleetNodeID int64, report DiscoveredDeviceReport) (commonpb.DeviceClass, bool, error)
+	LockDiscoveredDeviceReports(ctx context.Context, orgID int64, reports []DiscoveredDeviceReport) error
+	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, orgID int64, fleetNodeID int64, report DiscoveredDeviceReport) (DiscoveredDeviceReport, bool, error)
 	DeviceExistsInOrg(ctx context.Context, deviceID, orgID int64) (bool, error)
 	GetDeviceIDByDeviceIdentifier(ctx context.Context, identifier string) (int64, error)
 	GetFleetNodePairedDeviceIdentifier(ctx context.Context, deviceID, orgID int64) (string, error)
@@ -417,11 +420,10 @@ func (s *Service) ListDiscoveredDevicesForFleetNode(ctx context.Context, orgID i
 	return devices, nextCursor, nil
 }
 
-// UpsertDiscoveredDevices validates the whole batch up front, then runs
+// UpsertDiscoveredDevices validates report fields up front, then runs
 // every upsert inside a single transaction so a mid-batch failure can't
-// leave a committed prefix. Ownership-rejected rows are
-// counted in rejectedOwnership without aborting the tx — they're the
-// store's normal "we refused to overwrite a hijacked row" signal.
+// leave a committed prefix. Ownership conflicts and invalid endpoint groups
+// are counted in rejectedOwnership without aborting the transaction.
 // Returns accepted reports with their persisted class so operator-facing
 // consumers retain known classes when a node omits them on rediscovery.
 func (s *Service) UpsertDiscoveredDevices(ctx context.Context, fleetNodeID, orgID int64, reports []DiscoveredDeviceReport) (acceptedReports []DiscoveredDeviceReport, rejectedOwnership int64, err error) {
@@ -440,23 +442,46 @@ func (s *Service) UpsertDiscoveredDevices(ctx context.Context, fleetNodeID, orgI
 	if txErr := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		accepted = accepted[:0]
 		rejected = 0
+		if err := s.store.LockDiscoveredDeviceReports(ctx, orgID, reports); err != nil {
+			return logInternal("lock discovered device reports", clientErrUpsertDiscoveredDevice, err)
+		}
 		for _, r := range reports {
-			deviceClass, stored, upErr := s.store.UpsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, r)
+			if endpointErr := validateReportEndpoints(r); endpointErr != nil {
+				slog.WarnContext(ctx, "rejected Fleet Node device discovery endpoints", "fleet_node_id", fleetNodeID, "org_id", orgID, "device_identifier", r.DeviceIdentifier, "reason", endpointErr)
+				rejected++
+				continue
+			}
+			saved, stored, upErr := s.store.UpsertDiscoveredDeviceFromFleetNode(ctx, orgID, fleetNodeID, r)
 			if upErr != nil {
-				return fleeterror.LogInternal(component, "upsert discovered device", clientErrUpsertDiscoveredDevice, upErr)
+				return logInternal("upsert discovered device", clientErrUpsertDiscoveredDevice, upErr)
 			}
 			if !stored {
 				rejected++
 				continue
 			}
-			r.DeviceClass = deviceClass
-			accepted = append(accepted, r)
+			accepted = append(accepted, saved)
 		}
 		return nil
 	}); txErr != nil {
 		return nil, 0, txErr
 	}
 	return accepted, rejected, nil
+}
+
+func validateReportEndpoints(r DiscoveredDeviceReport) error {
+	if len(r.Endpoints) > 0 {
+		if _, err := deviceendpoints.Key(r.Endpoints); err != nil {
+			return err
+		}
+		if len(r.Endpoints) != 1 {
+			return fmt.Errorf("discovery must report one scanned endpoint")
+		}
+		c := r.Endpoints[0]
+		if c.Host != r.IPAddress || strconv.Itoa(int(c.Port)) != r.Port || c.UrlScheme != r.URLScheme || c.RpcPort != r.RPCPort || c.RpcTls != r.RPCTLS {
+			return fmt.Errorf("device endpoint must match the scanned endpoint")
+		}
+	}
+	return nil
 }
 
 func validateReport(r DiscoveredDeviceReport) error {

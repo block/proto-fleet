@@ -18,9 +18,12 @@ func (d *Device) SetContainerControl(ctx context.Context, req sdk.ContainerContr
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	c := d.client
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	d.writeMu.Lock()
+	defer d.writeMu.Unlock()
+	c, err := d.selectClient(ctx, true)
+	if err != nil {
+		return err
+	}
 	wire, err := c.power.GetContainerControls(ctx, &mdk.GetContainerControlsRequest{})
 	if err != nil {
 		return err

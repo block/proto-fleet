@@ -4,6 +4,8 @@ import (
 	"log/slog"
 	"sync"
 
+	"google.golang.org/protobuf/proto"
+
 	gatewaypb "github.com/block/proto-fleet/server/generated/grpc/fleetnodegateway/v1"
 	pairingpb "github.com/block/proto-fleet/server/generated/grpc/pairing/v1"
 )
@@ -409,6 +411,7 @@ func artifactExpectationMatches(exp, want ArtifactExpectation) bool {
 type PairPersistMeta struct {
 	OrgID      int64
 	AssignedBy *int64
+	Snapshots  map[string]*pairingpb.FleetNodePairTarget
 }
 
 // AdmitAndScopePairResults is the single atomic gate for the gateway's
@@ -430,6 +433,7 @@ func (r *Registry) AdmitAndScopePairResults(fleetNodeID int64, commandID string,
 	}
 
 	kept := make([]*gatewaypb.FleetNodePairResult, 0, len(results))
+	snapshots := make(map[string]*pairingpb.FleetNodePairTarget, len(results))
 	for _, res := range results {
 		id := res.GetDeviceIdentifier()
 		if _, ok := cmd.pair.Targets[id]; !ok {
@@ -439,10 +443,11 @@ func (r *Registry) AdmitAndScopePairResults(fleetNodeID int64, commandID string,
 			continue
 		}
 		delete(cmd.pair.Targets, id)
+		snapshots[id] = proto.CloneOf(cmd.pair.Snapshots[id])
 		kept = append(kept, res)
 	}
 	cmd.reported += len(kept)
-	return kept, PairPersistMeta{OrgID: cmd.pair.OrgID, AssignedBy: cmd.pair.AssignedBy}, nil
+	return kept, PairPersistMeta{OrgID: cmd.pair.OrgID, AssignedBy: cmd.pair.AssignedBy, Snapshots: snapshots}, nil
 }
 
 // ReinstatePairTargets returns identifiers to the in-flight pair command's target

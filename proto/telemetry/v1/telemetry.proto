@@ -261,6 +261,7 @@ message FleetNodeTelemetryRequest {
   // Independent native RPC listener on the same host; zero uses the driver default.
   int32 rpc_port = 17 [(buf.validate.field).int32 = {gte: 0, lte: 65535}];
   bool rpc_tls = 18;
+  repeated common.v1.DeviceEndpoint endpoints = 19 [(buf.validate.field).repeated.max_items = 16];
 }
 
 message FleetNodeTelemetryResult {

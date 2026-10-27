@@ -99,11 +99,11 @@ func TestCloudPairingGuards_DistinguishNodeBoundFromCloudPaired(t *testing.T) {
 	assert.True(t, cloudIsCloud, "a PAIRED device with no fleet_node_device is cloud-dialed")
 	assert.True(t, defaultIsCloud, "a DEFAULT_PASSWORD device with no fleet_node_device is cloud-dialed")
 
-	// Act: promotion guard. The owning node re-scans both devices.
+	// Act: promotion guard. The owning node re-scans each saved route.
 	accepted, rejected, err := pairing.UpsertDiscoveredDevices(ctx, node, orgID, []fleetnodepairing.DiscoveredDeviceReport{
-		{DeviceIdentifier: "mac:guard-bound", IPAddress: "10.0.0.9", Port: "80", URLScheme: "http", DriverName: "virtual"},
-		{DeviceIdentifier: "mac:guard-cloud", IPAddress: "10.0.0.9", Port: "80", URLScheme: "http", DriverName: "virtual"},
-		{DeviceIdentifier: "mac:guard-default", IPAddress: "10.0.0.9", Port: "80", URLScheme: "http", DriverName: "virtual"},
+		{DeviceIdentifier: "mac:guard-bound", IPAddress: "10.0.0.5", Port: "80", URLScheme: "http", DriverName: "virtual"},
+		{DeviceIdentifier: "mac:guard-cloud", IPAddress: "10.0.0.5", Port: "80", URLScheme: "http", DriverName: "virtual"},
+		{DeviceIdentifier: "mac:guard-default", IPAddress: "10.0.0.5", Port: "80", URLScheme: "http", DriverName: "virtual"},
 	})
 	require.NoError(t, err)
 

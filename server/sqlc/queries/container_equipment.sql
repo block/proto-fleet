@@ -37,3 +37,12 @@ FROM jsonb_to_recordset(sqlc.arg('controls')::jsonb) AS x(name text, enabled boo
 INSERT INTO container_setpoint_observation (device_id, name, value, unit)
 SELECT sqlc.arg('device_id'), x.name, x.value, x.unit
 FROM jsonb_to_recordset(sqlc.arg('setpoints')::jsonb) AS x(name text, value double precision, unit text);
+
+-- name: UpsertContainerHA :exec
+INSERT INTO container_ha_observation (device_id, observed_at, degraded)
+SELECT d.id, sqlc.arg(observed_at)::timestamptz, sqlc.arg(degraded)::boolean
+FROM device d JOIN discovered_device dd ON dd.id=d.discovered_device_id AND dd.org_id=d.org_id
+WHERE d.device_identifier=sqlc.arg(device_identifier) AND d.deleted_at IS NULL
+AND dd.deleted_at IS NULL AND dd.device_class=2
+ON CONFLICT (device_id) DO UPDATE SET observed_at=EXCLUDED.observed_at, degraded=EXCLUDED.degraded
+WHERE container_ha_observation.observed_at < EXCLUDED.observed_at;

@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"math"
 	"net"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -30,14 +29,14 @@ const maxReceiveBytes = 8 << 20
 type Client struct {
 	closeOnce sync.Once
 	closeErr  error
-	baseURL   string
 	conn      *grpc.ClientConn
+	endpoint  sdk.DeviceInfo
+	memberID  string
 	system    mdk.SystemServiceClient
 	boards    mdk.HashboardServiceClient
 	mining    mdk.MiningServiceClient
 	telemetry mdk.TelemetryServiceClient
 	power     mdk.PowerServiceClient
-	mu        sync.Mutex
 	pollMu    sync.Mutex
 }
 
@@ -46,9 +45,6 @@ func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
 		return nil, fmt.Errorf("invalid CT1 web endpoint")
 	}
 	port := info.RPCPort
-	if port == 0 {
-		port = DefaultRPCPort
-	}
 	if port < 1 || port > 65535 {
 		return nil, fmt.Errorf("invalid CT1 RPC port")
 	}
@@ -70,8 +66,7 @@ func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create CT1 connection: %w", err)
 	}
-	web := url.URL{Scheme: info.URLScheme, Host: net.JoinHostPort(info.Host, strconv.Itoa(int(info.Port)))}
-	return &Client{baseURL: web.String(), conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn)}, nil
+	return &Client{endpoint: info, conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn)}, nil
 }
 func (c *Client) Close() error {
 	c.closeOnce.Do(func() { c.closeErr = c.conn.Close() })
@@ -92,14 +87,27 @@ func (c *Client) Discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceI
 	if info.SerialNumber != "" && info.SerialNumber != v.Id {
 		return sdk.DeviceInfo{}, fmt.Errorf("CT1 controller identity mismatch")
 	}
+	report, key, err := c.readHA(ctx, v.Id, "")
+	if err != nil {
+		return sdk.DeviceInfo{}, err
+	}
+	if key != "" {
+		if strings.TrimSpace(report.PeerServerId) == "" || report.PeerServerId == v.Id {
+			return sdk.DeviceInfo{}, fmt.Errorf("invalid CT1 HA membership")
+		}
+		info.Endpoints = []sdk.DeviceEndpoint{{ID: v.Id, DeviceKey: key, MemberIDs: []string{v.Id, report.PeerServerId}, Host: c.endpoint.Host, Port: c.endpoint.Port, URLScheme: c.endpoint.URLScheme, RPCPort: c.endpoint.RPCPort, RPCTLS: c.endpoint.RPCTLS}}
+		if _, err := sdk.DeviceEndpointKey(info.Endpoints); err != nil {
+			return sdk.DeviceInfo{}, err
+		}
+	}
 	info.DeviceClass = sdk.DeviceClassContainer
-	info.SerialNumber = v.Id
+	if info.SerialNumber == "" {
+		info.SerialNumber = v.Id
+	}
 	info.Model = "CT1"
 	info.Manufacturer = "Proto"
 	info.FirmwareVersion = v.Version
-	if info.RPCPort == 0 {
-		info.RPCPort = DefaultRPCPort
-	}
+	info.RPCPort = c.endpoint.RPCPort
 	return info, nil
 }
 

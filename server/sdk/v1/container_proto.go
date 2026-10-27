@@ -12,6 +12,9 @@ func containerSnapshotToProto(s *ContainerSnapshot) *pb.ContainerSnapshot {
 		return nil
 	}
 	out := &pb.ContainerSnapshot{ObservedAt: timestamppb.New(s.ObservedAt), TopologyComplete: s.TopologyComplete, Metrics: rollupToProto(s.Metrics)}
+	if s.HA != nil {
+		out.Ha = &pb.ContainerHA{ObservedAt: timestamppb.New(s.HA.ObservedAt), Degraded: s.HA.Degraded}
+	}
 	for _, b := range s.UnlocatedHashboards {
 		out.UnlocatedHashboards = append(out.UnlocatedHashboards, hashboardToProto(b))
 	}
@@ -63,6 +66,10 @@ func containerSnapshotFromProto(s *pb.ContainerSnapshot) *ContainerSnapshot {
 		return nil
 	}
 	out := &ContainerSnapshot{ObservedAt: s.ObservedAt.AsTime(), TopologyComplete: s.TopologyComplete, Metrics: rollupFromProto(s.Metrics), Tanks: []ContainerTank{}}
+	if s.Ha != nil {
+		out.HA = &ContainerHA{ObservedAt: s.Ha.ObservedAt.AsTime(), Degraded: s.Ha.Degraded}
+	}
+
 	for _, b := range s.UnlocatedHashboards {
 		if b != nil {
 			out.UnlocatedHashboards = append(out.UnlocatedHashboards, hashboardFromProto(b))

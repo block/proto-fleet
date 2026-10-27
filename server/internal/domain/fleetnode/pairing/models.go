@@ -21,6 +21,7 @@ const (
 type DiscoveredDeviceReport struct {
 	RPCPort          int32
 	RPCTLS           bool
+	Endpoints        []*commonpb.DeviceEndpoint
 	DeviceIdentifier string
 	IPAddress        string
 	Port             string
@@ -49,6 +50,7 @@ type FleetNodeDevice struct {
 type FleetNodeDiscoveredDevice struct {
 	RPCPort          int32
 	RPCTLS           bool
+	Endpoints        []*commonpb.DeviceEndpoint
 	ID               int64
 	FleetNodeID      int64
 	DeviceIdentifier string

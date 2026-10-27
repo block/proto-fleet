@@ -35,6 +35,7 @@ import (
 	"github.com/block/proto-fleet/server/internal/infrastructure/networking"
 
 	"github.com/grandcat/zeroconf"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -526,6 +527,10 @@ func (s *Service) processDiscoveredDevice(ctx context.Context, discoveredDevice 
 	// Use existing device identifier if available
 	deviceIdentifier := discoveredDevice.DeviceIdentifier
 	preserveMissingFirmware := deviceIdentifier != ""
+	if deviceIdentifier == "" && len(discoveredDevice.Endpoints) > 0 {
+		// The store reconciles the plugin-defined identity across scanned addresses.
+		deviceIdentifier = id.GenerateID()
+	}
 	if deviceIdentifier == "" && discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
 		// Containers keep one shared IP even when their HTTP/RPC ports differ.
 		// Resolve them before the generic scanned-port path, which may refer to
@@ -681,8 +686,8 @@ func (s *Service) hydrateMissingFirmwareVersion(
 // If a match is found, it returns the existing discovered_device_identifier so the
 // upsert updates the old record's IP instead of creating a duplicate.
 func (s *Service) reconcileByMAC(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice, orgID int64, newIP string, newPort string) (string, error) {
-	if discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER {
-		return "", nil // Controller identity must not move a container off its shared IP.
+	if discoveredDevice.DeviceClass == commonpb.DeviceClass_DEVICE_CLASS_CONTAINER || len(discoveredDevice.Endpoints) > 0 {
+		return "", nil // A controller MAC does not identify the whole device.
 	}
 	mac := networking.NormalizeMAC(discoveredDevice.MacAddress)
 
@@ -1187,9 +1192,14 @@ func isAlreadyPairedKeyRotationError(err error) bool {
 // handleAuthenticationRequiredPairing inserts a device and creates a pairing record with AUTHENTICATION_NEEDED status
 func (s *Service) handleAuthenticationRequiredPairing(ctx context.Context, discoveredDevice *discoverymodels.DiscoveredDevice) error {
 	originalIdentifier := discoveredDevice.DeviceIdentifier
+	expected := proto.CloneOf(&discoveredDevice.Device)
+	expectedFleetNodeID := discoveredDevice.DiscoveredByFleetNodeID
 	if err := s.transactor.RunInTx(ctx, func(ctx context.Context) error {
 		// Restore original identifier so retries after serialization failures start with clean state.
 		discoveredDevice.DeviceIdentifier = originalIdentifier
+		if err := s.discoveredDeviceStore.LockPairingSnapshot(ctx, discoverymodels.DeviceOrgIdentifier{OrgID: discoveredDevice.OrgID, DeviceIdentifier: originalIdentifier}, expected, expectedFleetNodeID); err != nil {
+			return err
+		}
 
 		reconciledIdentifier, err := s.reconcileByMAC(ctx, discoveredDevice, discoveredDevice.OrgID, discoveredDevice.IpAddress, discoveredDevice.Port)
 		if err != nil {
@@ -1280,7 +1290,7 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 	pairer := s.pairer
 
 	discoveredDevice.IsActive = true
-	_, err = s.discoveredDeviceStore.SaveDirect(ctx, orgDeviceID, discoveredDevice)
+	err = s.discoveredDeviceStore.ActivateDirect(ctx, orgDeviceID)
 	if err != nil {
 		return "", fleeterror.NewInternalErrorf("error activating discovered device: %v", err)
 	}
@@ -1329,7 +1339,7 @@ func (s *Service) pairDevice(ctx context.Context, deviceID string, orgID int64, 
 		}
 
 		// Preserve authentication errors - don't wrap them
-		if fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) {
+		if fleeterror.IsAuthenticationError(err) || fleeterror.IsForbiddenError(err) || fleeterror.IsFailedPreconditionError(err) {
 			return "", err
 		}
 		return "", fleeterror.NewInternalErrorf("pairing device %s: %v", discoveredDevice.DeviceIdentifier, err)

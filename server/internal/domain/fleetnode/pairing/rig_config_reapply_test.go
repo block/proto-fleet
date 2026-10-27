@@ -19,7 +19,7 @@ func TestPersistFleetNodePairResult_ReappliesOnlyCommittedPairTargets(t *testing
 
 	// An existing rig must not be targeted again as new devices join the fleet.
 	upsertNodeDiscovered(t, svc, orgID, nodeID, "existing")
-	status, err := svc.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult("existing", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
+	status, err := svc.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult("existing", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy, pairingSnapshot(t, db, orgID, "existing"))
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusPaired, status)
 
@@ -42,31 +42,31 @@ func TestPersistFleetNodePairResult_ReappliesOnlyCommittedPairTargets(t *testing
 	protoResult := pairResult("new-proto", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)
 	protoResult.Manufacturer = "Proto"
 	protoResult.Model = "Proto Rig"
-	status, err = svc.PersistFleetNodePairResult(ctx, nodeID, orgID, protoResult, &assignedBy)
+	status, err = svc.PersistFleetNodePairResult(ctx, nodeID, orgID, protoResult, &assignedBy, pairingSnapshot(t, db, orgID, protoResult.GetDeviceIdentifier()))
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusPaired, status)
 
-	status, err = svc.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult("auth-needed", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED), &assignedBy)
+	status, err = svc.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult("auth-needed", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED), &assignedBy, pairingSnapshot(t, db, orgID, "auth-needed"))
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusAuthenticationNeeded, status)
-	status, err = svc.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult("failed", gatewaypb.PairOutcome_PAIR_OUTCOME_ERROR), &assignedBy)
+	status, err = svc.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult("failed", gatewaypb.PairOutcome_PAIR_OUTCOME_ERROR), &assignedBy, pairingSnapshot(t, db, orgID, "failed"))
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusFailed, status)
 
 	// This fails after the bind, causing its transaction to roll back.
 	invalid := pairResult("rolled-back", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED)
 	invalid.EncryptedCredentials = &gatewaypb.EncryptedCredentials{}
-	_, err = svc.PersistFleetNodePairResult(ctx, nodeID, orgID, invalid, &assignedBy)
+	_, err = svc.PersistFleetNodePairResult(ctx, nodeID, orgID, invalid, &assignedBy, pairingSnapshot(t, db, orgID, invalid.GetDeviceIdentifier()))
 	require.Error(t, err)
 	require.False(t, deviceBoundToNode(t, db, orgID, nodeID, "rolled-back"))
 
 	// A stale AUTH_NEEDED report returns PAIRED for an existing binding, but
 	// must not cause a configuration request merely because of that status.
-	status, err = svc.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult("existing", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED), &assignedBy)
+	status, err = svc.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult("existing", gatewaypb.PairOutcome_PAIR_OUTCOME_AUTH_NEEDED), &assignedBy, pairingSnapshot(t, db, orgID, "existing"))
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusPaired, status)
 
-	status, err = svc.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult("new-bitmain", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy)
+	status, err = svc.PersistFleetNodePairResult(ctx, nodeID, orgID, pairResult("new-bitmain", gatewaypb.PairOutcome_PAIR_OUTCOME_PAIRED), &assignedBy, pairingSnapshot(t, db, orgID, "new-bitmain"))
 	require.NoError(t, err)
 	require.Equal(t, fleetnodepairing.StatusPaired, status)
 	// Eligibility for curtailment is decided by the reconciliation store;

@@ -25,6 +25,10 @@ Hermit-managed Go generators; managed mode overrides only Go package paths. Do
 not edit generated files. Commit source and generated output together.
 Generated historical RPC definitions do not enable historical fetching.
 
+`SystemService.GetHAStatus` provides durable cluster identity, configured members,
+and independently aged HA observations. The plugin uses confirmed cluster IDs
+for new endpoint groups and live `GetSystemStatus` for command selection.
+
 Fleet's mining group observation contains every configured pool's URL, worker,
 priority, enabled flag, and weight. Passwords are write-only in MDK and are not
 inferred from readback. Fleet retains an encrypted write receipt to associate

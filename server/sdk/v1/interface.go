@@ -405,8 +405,24 @@ const (
 	DeviceClassContainer
 )
 
-// DeviceInfo represents information about a discovered device
+// DeviceEndpoint is a discovered address for a device. The plugin supplies
+// ID (endpoint identity) and DeviceKey (shared device identity). Fleet treats
+// both as opaque values and scopes DeviceKey by driver and network owner.
+type DeviceEndpoint struct {
+	ID        string
+	DeviceKey string
+	// MemberIDs declares current group members so discovery can retire replaced endpoints.
+	MemberIDs []string
+	Host      string
+	Port      int32
+	URLScheme string
+	RPCPort   int32
+	RPCTLS    bool
+}
+
+// DeviceInfo represents information about a discovered device.
 type DeviceInfo struct {
+	Endpoints []DeviceEndpoint
 	// RPCPort and RPCTLS select a separate native RPC listener on Host.
 	// Zero port uses the driver's default; Port/URLScheme remain the web endpoint.
 	RPCPort         int32

@@ -15,8 +15,9 @@ import (
 )
 
 func (d *Device) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (out sdk.MiningGroupResult, resultErr error) {
+	write := !r.ReadOnly()
 	defer func() {
-		if !r.ReadOnly() && status.Code(resultErr) == codes.Aborted {
+		if write && status.Code(resultErr) == codes.Aborted {
 			out = sdk.MiningGroupResult{RevisionConflict: true}
 			resultErr = nil
 		}
@@ -26,14 +27,22 @@ func (d *Device) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (ou
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
-	client := mdk.NewMiningGroupServiceClient(d.client.conn)
+	if write {
+		d.writeMu.Lock()
+		defer d.writeMu.Unlock()
+	}
+	c, err := d.selectClient(ctx, write)
+	if err != nil {
+		return out, err
+	}
+	client := mdk.NewMiningGroupServiceClient(c.conn)
 	if r.Action == "observe" {
 		return observeGroups(ctx, client)
 	}
 	var group *mdk.MiningGroupRecord
 	switch r.Action {
 	case "mining_status":
-		v, e := mdk.NewMiningServiceClient(d.client.conn).GetMiningStatus(ctx, &mdk.GetMiningStatusRequest{})
+		v, e := c.mining.GetMiningStatus(ctx, &mdk.GetMiningStatusRequest{})
 		if e != nil {
 			return out, e
 		}
@@ -49,7 +58,7 @@ func (d *Device) MiningGroups(ctx context.Context, r sdk.MiningGroupRequest) (ou
 		// A lost stop acknowledgement may be retried after external activation.
 		// Never turn that retry into a stop of the newly enabled default group.
 		if !capability.Capability.Enabled {
-			if _, e = mdk.NewMiningServiceClient(d.client.conn).StopMining(ctx, &mdk.StopMiningRequest{}); e != nil {
+			if _, e = c.mining.StopMining(ctx, &mdk.StopMiningRequest{}); e != nil {
 				return out, e
 			}
 		}

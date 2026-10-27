@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/block/proto-fleet/server/internal/domain/deviceendpoints"
+
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
 	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
@@ -44,6 +46,7 @@ var _ interfaces.FirmwareUpdateStatusProvider = (*RemoteFleetNodeMiner)(nil)
 var _ interfaces.MinerCurtailmentConfigurator = (*RemoteFleetNodeMiner)(nil)
 
 type remoteTelemetryRoute struct {
+	endpoints          []*commonpb.DeviceEndpoint
 	rpcPort            int32
 	rpcTLS             bool
 	deviceClass        commonpb.DeviceClass
@@ -82,7 +85,12 @@ type RemoteFleetNodeMiner struct {
 }
 
 func (s *Service) remoteRouteFromRow(row sqlc.GetFleetNodeTelemetryRouteByDeviceIdentifierRow) (remoteTelemetryRoute, error) {
+	controllers, err := deviceendpoints.Decode([]byte(row.Endpoints))
+	if err != nil {
+		return remoteTelemetryRoute{}, err
+	}
 	return remoteTelemetryRoute{
+		endpoints:          controllers,
 		deviceClass:        commonpb.DeviceClass(row.DeviceClass),
 		fleetNodeID:        row.FleetNodeID,
 		orgID:              row.OrgID,
@@ -276,6 +284,7 @@ func (m *RemoteFleetNodeMiner) telemetryRequest(ctx context.Context) *telemetryp
 		UrlScheme:          m.route.urlScheme,
 		RpcPort:            m.route.rpcPort,
 		RpcTls:             m.route.rpcTLS,
+		Endpoints:          m.route.endpoints,
 		DriverName:         m.route.driverName,
 		Manufacturer:       m.route.manufacturer,
 		Model:              m.route.model,

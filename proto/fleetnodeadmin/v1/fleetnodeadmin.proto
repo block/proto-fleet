@@ -175,6 +175,7 @@ message FleetNodeDiscoveredDevice {
     string pairing_status    = 11 [(buf.validate.field).string.max_len = 64];
   int32 rpc_port = 13 [(buf.validate.field).int32 = {gte: 0, lte: 65535}];
   bool rpc_tls = 14;
+  repeated common.v1.DeviceEndpoint endpoints = 15 [(buf.validate.field).repeated.max_items = 16];
 }
 
 message PairDiscoveredDevicesOnFleetNodeRequest {

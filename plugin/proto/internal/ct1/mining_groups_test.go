@@ -72,7 +72,7 @@ func TestMiningGroupsNativeTransport(t *testing.T) {
 	conn, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	device := &Device{client: &Client{conn: conn}}
+	device := &Device{clients: []*Client{{conn: conn, mining: mdk.NewMiningServiceClient(conn)}}}
 	mining, err := device.MiningGroups(t.Context(), sdk.MiningGroupRequest{Action: "mining_status"})
 	require.NoError(t, err)
 	require.Equal(t, &sdk.MiningGroupMiningStatus{Mining: true, ActiveBoards: 3}, mining.MiningStatus)

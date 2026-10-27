@@ -198,6 +198,8 @@ message DiscoveredDeviceReport {
   // Independent native RPC listener on the same host; zero uses the driver default.
   int32 rpc_port = 10 [(buf.validate.field).int32 = {gte: 0, lte: 65535}];
   bool rpc_tls = 11;
+
+  repeated common.v1.DeviceEndpoint endpoints = 12 [(buf.validate.field).repeated.max_items = 16];
 }
 
 message ReportDiscoveredDevicesResponse {
@@ -350,6 +352,7 @@ message MinerConnectionDescriptor {
   int32 rpc_port = 10 [(buf.validate.field).int32 = {gte: 0, lte: 65535}];
   bool rpc_tls = 11;
   common.v1.DeviceClass device_class = 12 [(buf.validate.field).enum.defined_only = true];
+  repeated common.v1.DeviceEndpoint endpoints = 13 [(buf.validate.field).repeated.max_items = 16];
 }
 
 // RecoverMinerEndpointsRequest asks a fleet node to find the current endpoints

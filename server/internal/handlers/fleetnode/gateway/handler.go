@@ -546,6 +546,7 @@ func (h *Handler) ReportDiscoveredDevices(ctx context.Context, req *connect.Requ
 			URLScheme:        d.GetUrlScheme(),
 			RPCPort:          d.GetRpcPort(),
 			RPCTLS:           d.GetRpcTls(),
+			Endpoints:        d.GetEndpoints(),
 			DriverName:       d.GetDriverName(),
 			Model:            d.GetModel(),
 			DeviceClass:      d.GetDeviceClass(),
@@ -608,7 +609,7 @@ func (h *Handler) ReportPairedDevices(ctx context.Context, req *connect.Request[
 	persisted := make([]*pb.FleetNodePairResult, 0, len(kept))
 	var persistFailed []string
 	for _, r := range kept {
-		status, err := h.pairing.PersistFleetNodePairResult(ctx, subject.FleetNodeID, meta.OrgID, r, meta.AssignedBy)
+		status, err := h.pairing.PersistFleetNodePairResult(ctx, subject.FleetNodeID, meta.OrgID, r, meta.AssignedBy, meta.Snapshots[r.GetDeviceIdentifier()])
 		if err != nil {
 			// Per-device isolation: one persist failure must not drop the others
 			// (already paired on the node). A failed result isn't forwarded as paired;
@@ -678,6 +679,7 @@ func toPairingDevice(d pairing.DiscoveredDeviceReport) *pairingpb.Device {
 		UrlScheme:        d.URLScheme,
 		RpcPort:          d.RPCPort,
 		RpcTls:           d.RPCTLS,
+		Endpoints:        d.Endpoints,
 		DriverName:       d.DriverName,
 		Model:            d.Model,
 		DeviceClass:      d.DeviceClass,

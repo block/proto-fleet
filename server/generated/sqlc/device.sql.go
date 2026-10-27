@@ -69,6 +69,7 @@ WHERE d.discovered_device_id = dd.id
   AND dd.rpc_tls = $12
   AND d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
+  AND dd.endpoint_key = ''
   AND dd.is_active = TRUE
   AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD')
 RETURNING d.id
@@ -134,6 +135,7 @@ WITH eligible AS MATERIALIZED (
   AND dd.rpc_port = $10
   AND dd.rpc_tls = $11
       AND dd.deleted_at IS NULL
+  AND dd.endpoint_key = ''
       AND dd.is_active = TRUE
     FOR UPDATE OF fnd, ds, dd
 ), updated_pairing AS (
@@ -155,6 +157,7 @@ WITH eligible AS MATERIALIZED (
   AND dd.rpc_tls = $11
       AND d.deleted_at IS NULL
       AND dd.deleted_at IS NULL
+  AND dd.endpoint_key = ''
       AND dd.is_active = TRUE
       AND (
           (mc.device_id IS NULL
@@ -1708,6 +1711,7 @@ JOIN fleet_node_live fn ON fn.id = fnd.fleet_node_id AND fn.org_id = fnd.org_id
 LEFT JOIN miner_credentials mc ON mc.device_id = d.id
 WHERE d.deleted_at IS NULL
   AND dd.deleted_at IS NULL
+  AND dd.endpoint_key = ''
   AND dd.is_active = TRUE
   AND fn.deleted_at IS NULL
   AND fn.enrollment_status = 'CONFIRMED'
@@ -2779,12 +2783,28 @@ func (q *Queries) SoftDeleteDevices(ctx context.Context, arg SoftDeleteDevicesPa
 }
 
 const softDeleteDiscoveredDevicesForDeletedDevices = `-- name: SoftDeleteDiscoveredDevicesForDeletedDevices :exec
-UPDATE discovered_device dd SET deleted_at = NOW()
+UPDATE discovered_device dd SET
+    deleted_at = NOW(),
+    endpoints = '{}',
+    endpoint_key = '',
+    serial_number = CASE WHEN dd.endpoint_key <> '' THEN '' ELSE dd.serial_number END,
+    mac_address = CASE WHEN dd.endpoint_key <> '' THEN '' ELSE dd.mac_address END
 FROM device d
 WHERE dd.id = d.discovered_device_id
   AND d.device_identifier = ANY($1::text[])
   AND d.org_id = $2
   AND dd.deleted_at IS NULL
+  AND NOT EXISTS (
+      SELECT 1 FROM device owner
+      WHERE owner.discovered_device_id = dd.id
+        AND owner.org_id = dd.org_id
+        AND owner.deleted_at IS NULL
+        AND (
+            EXISTS (SELECT 1 FROM device_pairing dp WHERE dp.device_id = owner.id
+                    AND dp.pairing_status IN ('PAIRED', 'DEFAULT_PASSWORD', 'AUTHENTICATION_NEEDED'))
+            OR EXISTS (SELECT 1 FROM fleet_node_device fnd WHERE fnd.device_id = owner.id AND fnd.org_id = owner.org_id)
+        )
+  )
 `
 
 type SoftDeleteDiscoveredDevicesForDeletedDevicesParams struct {
@@ -2792,7 +2812,8 @@ type SoftDeleteDiscoveredDevicesForDeletedDevicesParams struct {
 	OrgID             int64
 }
 
-// Soft-deletes discovered_device records linked to the specified devices.
+// Keep a shared discovery record while another live device still owns it.
+// Grouped controllers must rebuild their saved routes after explicit unpairing.
 func (q *Queries) SoftDeleteDiscoveredDevicesForDeletedDevices(ctx context.Context, arg SoftDeleteDiscoveredDevicesForDeletedDevicesParams) error {
 	_, err := q.exec(ctx, q.softDeleteDiscoveredDevicesForDeletedDevicesStmt, softDeleteDiscoveredDevicesForDeletedDevices, pq.Array(arg.DeviceIdentifiers), arg.OrgID)
 	return err

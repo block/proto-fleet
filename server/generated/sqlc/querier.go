@@ -23,6 +23,7 @@ type Querier interface {
 	// with locks taken by other parts of the system (see schedule.sql for
 	// the same pattern).
 	AcquireReconcileLock(ctx context.Context) error
+	ActivateDirectDiscoveredDevice(ctx context.Context, arg ActivateDirectDiscoveredDeviceParams) (int64, error)
 	// RETURNING yields one row per device whose membership was actually inserted
 	// (ON CONFLICT DO NOTHING skips already-members), so callers can both count
 	// the change (len of result) and resolve the changed set for activity site
@@ -549,6 +550,10 @@ type Querier interface {
 	DeviceSetsByIDs(ctx context.Context, arg DeviceSetsByIDsParams) ([]int64, error)
 	DisableCurtailmentAutomationRuleByActiveEvent(ctx context.Context, arg DisableCurtailmentAutomationRuleByActiveEventParams) (int64, error)
 	DisableSyncCommit(ctx context.Context) error
+	// Read after taking inventory locks so a pairing that won the wait is visible.
+	EndpointDiscoveryHasPairing(ctx context.Context, arg EndpointDiscoveryHasPairingParams) (bool, error)
+	// A keyless fallback must not create another row for a known group's peer.
+	EndpointDiscoveryHasSavedGroupAtSocket(ctx context.Context, arg EndpointDiscoveryHasSavedGroupAtSocketParams) (bool, error)
 	// Idempotent backfill (INSERT ... DO NOTHING + fallback SELECT). Both
 	// branches require organization.deleted_at IS NULL.
 	EnsureCurtailmentOrgConfig(ctx context.Context, orgID int64) (EnsureCurtailmentOrgConfigRow, error)
@@ -604,6 +609,7 @@ type Querier interface {
 	// Container identity follows its shared IP, independently of either service port.
 	// Return two candidates so callers can reject ambiguous existing inventory.
 	FindDirectContainerByIP(ctx context.Context, arg FindDirectContainerByIPParams) ([]DiscoveredDevice, error)
+	FindEndpointDiscovery(ctx context.Context, arg FindEndpointDiscoveryParams) ([]DiscoveredDevice, error)
 	FindHashboardIdentities(ctx context.Context, arg FindHashboardIdentitiesParams) ([]FindHashboardIdentitiesRow, error)
 	// Membership administration may look up only members of the selected account.
 	FindHostedAccountMemberByUUID(ctx context.Context, arg FindHostedAccountMemberByUUIDParams) (int64, error)
@@ -1798,6 +1804,11 @@ type Querier interface {
 	// atomic against a concurrent reassign. Empty result means none of the
 	// identifiers exist; the caller still wants the lock side-effect.
 	LockDevicesForReassign(ctx context.Context, arg LockDevicesForReassignParams) ([]int64, error)
+	// FOR UPDATE also waits for an in-flight first pairing's foreign-key lock.
+	LockDiscoveredDeviceForEndpointDiscovery(ctx context.Context, arg LockDiscoveredDeviceForEndpointDiscoveryParams) (DiscoveredDevice, error)
+	LockEndpointDiscovery(ctx context.Context, lockKey string) error
+	// Pairing locks device rows before writing their discovered inventory.
+	LockEndpointDiscoveryDevices(ctx context.Context, arg LockEndpointDiscoveryDevicesParams) ([]int64, error)
 	LockFleetNodeByID(ctx context.Context, arg LockFleetNodeByIDParams) (LockFleetNodeByIDRow, error)
 	// Teardown follows dispatch's device-before-child order and retains routing
 	// children until any admitted physical call has actually returned.
@@ -2256,7 +2267,8 @@ type Querier interface {
 	// Soft-deletes a discovered_device record. Used to clean up orphaned records
 	// after device reconciliation during subnet migration.
 	SoftDeleteDiscoveredDeviceByIdentifier(ctx context.Context, arg SoftDeleteDiscoveredDeviceByIdentifierParams) error
-	// Soft-deletes discovered_device records linked to the specified devices.
+	// Keep a shared discovery record while another live device still owns it.
+	// Grouped controllers must rebuild their saved routes after explicit unpairing.
 	SoftDeleteDiscoveredDevicesForDeletedDevices(ctx context.Context, arg SoftDeleteDiscoveredDevicesForDeletedDevicesParams) error
 	SoftDeleteFleetNode(ctx context.Context, arg SoftDeleteFleetNodeParams) (int64, error)
 	SoftDeleteFleetNodesForExpiredEnrollments(ctx context.Context, deletedAt sql.NullTime) (int64, error)
@@ -2351,6 +2363,7 @@ type Querier interface {
 	UndeleteOrganization(ctx context.Context, id int64) error
 	UndeleteRole(ctx context.Context, id int64) error
 	UnlockTelemetrySeedMaintenance(ctx context.Context) error
+	// A remaining cloud pairing or another inventory owner keeps its saved routes.
 	UnpairDevice(ctx context.Context, arg UnpairDeviceParams) (int64, error)
 	UnpairDevicesForFleetNodeRevocation(ctx context.Context, arg UnpairDevicesForFleetNodeRevocationParams) (int64, error)
 	// Reopens convergence for verified miners the enforcement loop sees drifting
@@ -2540,6 +2553,7 @@ type Querier interface {
 	UpsertCommandOnDeviceLog(ctx context.Context, arg UpsertCommandOnDeviceLogParams) error
 	// Source time orders fans independently of inventory and control reads.
 	UpsertContainerFans(ctx context.Context, arg UpsertContainerFansParams) error
+	UpsertContainerHA(ctx context.Context, arg UpsertContainerHAParams) error
 	UpsertContainerRollup(ctx context.Context, arg UpsertContainerRollupParams) error
 	UpsertContainerTopologyVersion(ctx context.Context, arg UpsertContainerTopologyVersionParams) (int64, error)
 	UpsertCurtailmentAutomationSignalState(ctx context.Context, arg UpsertCurtailmentAutomationSignalStateParams) error
@@ -2563,6 +2577,7 @@ type Querier interface {
 	// revocation committed and waited on this row's lock.
 	UpsertDeviceStatus(ctx context.Context, arg UpsertDeviceStatusParams) error
 	// PostgreSQL version returns the id directly using RETURNING
+	// A web-only scan cannot erase a saved native RPC route.
 	UpsertDiscoveredDevice(ctx context.Context, arg UpsertDiscoveredDeviceParams) (int64, error)
 	// No returned row on conflict signals rejection. A remote report must not redirect the
 	// endpoint/credentials of a miner the cloud owns, so the update is blocked
@@ -2571,7 +2586,8 @@ type Querier interface {
 	// refreshable, subject to the attribution guard. The agent synthesizes a stable
 	// per-device identifier (mac:/serial:, else auto:<hash>), so a re-scan reuses
 	// the same row.
-	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (int32, error)
+	// A web-only scan cannot erase a saved native RPC route.
+	UpsertDiscoveredDeviceFromFleetNode(ctx context.Context, arg UpsertDiscoveredDeviceFromFleetNodeParams) (UpsertDiscoveredDeviceFromFleetNodeRow, error)
 	UpsertFleetMetricRollups(ctx context.Context, arg UpsertFleetMetricRollupsParams) error
 	UpsertFleetNodeAuthChallenge(ctx context.Context, arg UpsertFleetNodeAuthChallengeParams) error
 	UpsertFleetNodeSession(ctx context.Context, arg UpsertFleetNodeSessionParams) error

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	commonpb "github.com/block/proto-fleet/server/generated/grpc/common/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -801,6 +802,34 @@ func TestRegistry_ReinstatePairTargets_AllowsRetryAfterPersistFailure(t *testing
 	require.NoError(t, err)
 	require.Len(t, retried, 1)
 	assert.Equal(t, "a", retried[0].GetDeviceIdentifier())
+}
+
+func TestRegistryPairSnapshotsRemainFixedAcrossDispatchAndRetry(t *testing.T) {
+	r := NewRegistry()
+	operator := int64(7)
+	target := &pairingpb.FleetNodePairTarget{DeviceIdentifier: "a", IpAddress: "10.0.0.1", Port: "8080", Endpoints: []*commonpb.DeviceEndpoint{{Id: "a", Host: "10.0.0.1"}}}
+	pair := &PairMeta{OrgID: 1, AssignedBy: &operator, Targets: map[string]struct{}{"a": {}}, Snapshots: map[string]*pairingpb.FleetNodePairTarget{"a": target}}
+	session, stream := sendPair(t, r, 6, "snapshot", pair)
+	defer stream.Unregister()
+	defer session.Close()
+	target.IpAddress = "10.0.0.99"
+	target.Endpoints[0].Host = "10.0.0.99"
+	operator = 9
+	delete(pair.Snapshots, "a")
+	delete(pair.Targets, "a")
+
+	_, meta, err := r.AdmitAndScopePairResults(6, "snapshot", []*gatewaypb.FleetNodePairResult{{DeviceIdentifier: "a"}})
+	require.NoError(t, err)
+	require.EqualValues(t, 7, *meta.AssignedBy)
+	require.Equal(t, "10.0.0.1", meta.Snapshots["a"].GetIpAddress())
+	require.Equal(t, "10.0.0.1", meta.Snapshots["a"].GetEndpoints()[0].GetHost())
+	meta.Snapshots["a"].IpAddress = "10.0.0.88"
+	meta.Snapshots["a"].Endpoints[0].Host = "10.0.0.88"
+	r.ReinstatePairTargets(6, "snapshot", []string{"a"})
+	_, retried, err := r.AdmitAndScopePairResults(6, "snapshot", []*gatewaypb.FleetNodePairResult{{DeviceIdentifier: "a"}})
+	require.NoError(t, err)
+	require.Equal(t, "10.0.0.1", retried.Snapshots["a"].GetIpAddress())
+	require.Equal(t, "10.0.0.1", retried.Snapshots["a"].GetEndpoints()[0].GetHost())
 }
 
 func TestRegistry_UnregisterSignalsInFlightCommandDone(t *testing.T) {

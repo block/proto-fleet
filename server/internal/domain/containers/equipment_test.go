@@ -38,7 +38,7 @@ func TestEquipmentObservationsDirectAndFleetNodeTransport(t *testing.T) {
 			store, err := timescaledb.NewTelemetryStore(db, timescaledb.DefaultConfig())
 			require.NoError(t, err)
 			now := time.Now().UTC().Truncate(time.Microsecond)
-			snapshot := &sdk.ContainerSnapshot{Plant: &sdk.ContainerPlant{ObservedAt: now, DryCoolerInletTemperatureC: new(0.0)}, ObservedAt: now, Tanks: []sdk.ContainerTank{{Position: 1}}, Fans: []sdk.ContainerFan{{ComponentID: "fan-a", ObservedAt: now.Add(-time.Second), SpeedPercent: new(0.0), PowerW: new(0.0), AlarmActive: new(false)}, {ComponentID: "fan-b", ObservedAt: now.Add(-3 * time.Minute)}}, Controls: &sdk.ContainerControls{ObservedAt: now, Supported: new(true), Controls: []sdk.ContainerControl{{Name: "dry_cooler", Enabled: new(false)}, {Name: "coolant_pump"}}, Setpoints: []sdk.ContainerSetpoint{{Name: "coolant_pump_speed_hz", Value: new(0.0), Unit: "Hz"}}, MainCircuitBreakerSupported: new(true)}}
+			snapshot := &sdk.ContainerSnapshot{HA: &sdk.ContainerHA{ObservedAt: now, Degraded: true}, Plant: &sdk.ContainerPlant{ObservedAt: now, DryCoolerInletTemperatureC: new(0.0)}, ObservedAt: now, Tanks: []sdk.ContainerTank{{Position: 1}}, Fans: []sdk.ContainerFan{{ComponentID: "fan-a", ObservedAt: now.Add(-time.Second), SpeedPercent: new(0.0), PowerW: new(0.0), AlarmActive: new(false)}, {ComponentID: "fan-b", ObservedAt: now.Add(-3 * time.Minute)}}, Controls: &sdk.ContainerControls{ObservedAt: now, Supported: new(true), Controls: []sdk.ContainerControl{{Name: "dry_cooler", Enabled: new(false)}, {Name: "coolant_pump"}}, Setpoints: []sdk.ContainerSetpoint{{Name: "coolant_pump_speed_hz", Value: new(0.0), Unit: "Hz"}}, MainCircuitBreakerSupported: new(true)}}
 			write := func() {
 				t.Helper()
 				metrics := telemetry.DeviceMetrics{DeviceIdentifier: d.DeviceIdentifier, Timestamp: snapshot.ObservedAt, Container: snapshot}
@@ -56,6 +56,9 @@ func TestEquipmentObservationsDirectAndFleetNodeTransport(t *testing.T) {
 			write() // transport retries are idempotent
 			got, err := read.Get(ctx, org, d.DeviceIdentifier, allow)
 			require.NoError(t, err)
+			require.NotNil(t, got.Ha)
+			require.True(t, got.Ha.Degraded)
+			require.False(t, got.Ha.Stale)
 			require.NotNil(t, got.Plant)
 			require.False(t, got.Plant.Stale)
 			require.Equal(t, 0.0, *got.Plant.DryCoolerInletTemperatureC)
@@ -83,9 +86,11 @@ func TestEquipmentObservationsDirectAndFleetNodeTransport(t *testing.T) {
 			got, err = read.Get(ctx, org, d.DeviceIdentifier, allow)
 			require.NoError(t, err)
 			require.Equal(t, 40.0, *got.Fans[0].SpeedPercent)
+			require.True(t, got.Ha.Degraded)
 			require.Equal(t, false, *got.Controls.Controls[1].Enabled)
 			// Newer polls cannot promote older fan samples to current readings.
 			snapshot.ObservedAt = now.Add(500 * time.Millisecond)
+			snapshot.HA = &sdk.ContainerHA{ObservedAt: now.Add(500 * time.Millisecond), Degraded: false}
 			snapshot.Fans[0].ObservedAt = now.Add(-time.Second)
 			snapshot.Fans[0].SpeedPercent = new(90.0)
 			snapshot.Controls = nil
@@ -95,12 +100,14 @@ func TestEquipmentObservationsDirectAndFleetNodeTransport(t *testing.T) {
 			require.Equal(t, 40.0, *got.Fans[0].SpeedPercent)
 			// Failed supplementary reads leave prior observation timestamps unchanged.
 			snapshot.ObservedAt = now.Add(time.Second)
+			snapshot.HA = &sdk.ContainerHA{ObservedAt: now, Degraded: true}
 			snapshot.Fans = nil
 			snapshot.Controls = nil
 			write()
 			got, err = read.Get(ctx, org, d.DeviceIdentifier, allow)
 			require.NoError(t, err)
 			require.Equal(t, now, got.Fans[0].ObservedAt.AsTime())
+			require.False(t, got.Ha.Degraded, "older failure evidence cannot overwrite recovery")
 			require.Equal(t, now, got.Controls.ObservedAt.AsTime())
 			require.Len(t, got.Tanks, 1)
 			// A newer unsupported response replaces capabilities and old control state.

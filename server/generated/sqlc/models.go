@@ -532,6 +532,12 @@ type ContainerFanObservation struct {
 	AlarmActive  sql.NullBool
 }
 
+type ContainerHaObservation struct {
+	DeviceID   int64
+	ObservedAt time.Time
+	Degraded   bool
+}
+
 type ContainerInventory struct {
 	DeviceID   int64
 	ObservedAt time.Time
@@ -1457,6 +1463,8 @@ type DiscoveredDevice struct {
 	RpcTls                  bool
 	SerialNumber            string
 	MacAddress              string
+	EndpointKey             string
+	Endpoints               json.RawMessage
 }
 
 type Error struct {
