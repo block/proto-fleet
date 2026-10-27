@@ -1,7 +1,7 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 package_name := "proto-python-gen"
-version := "0.2.1"
+version := "0.2.2"
 package_root := justfile_directory()
 repo_root := package_root / "../.."
 
@@ -31,6 +31,8 @@ format: setup-dev
 test: setup
   #!/usr/bin/env bash
   set -euo pipefail
+
+  "{{package_root}}/.venv/bin/python" "{{package_root}}/tests/test_setup.py" -v
 
   TEST_OUTPUT="{{package_root}}/tests/output"
   rm -rf "${TEST_OUTPUT}"
