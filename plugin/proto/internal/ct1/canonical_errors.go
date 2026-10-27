@@ -39,6 +39,7 @@ var canonicalCauses = map[string]sdkerrors.MinerError{
 	"ASIC_THERMAL_THROTTLING":              sdkerrors.ASICThermalThrottling,
 	"STACK_ENUMERATION":                    sdkerrors.HashboardStackEnumerationFailed,
 	"STACK_DELTA_THERMAL_THROTTLE":         sdkerrors.ASICThermalThrottling,
+	"STACK_DROPOUT":                        sdkerrors.HashboardNoStackRunning,
 	"HASHRAIL_NOT_OK":                      sdkerrors.BoardPowerRailFault,
 	"REFERENCE_CLOCKS_NOT_OK":              sdkerrors.ReferenceClockFault,
 }

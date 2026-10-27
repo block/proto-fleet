@@ -471,6 +471,10 @@ message GetContainerHealthResponse {
   optional DryCoolerFanReverseStatus dry_cooler_fan_reverse = 15;
   // Present only when include_module_distribution is requested and supported.
   ModuleDistribution module_distribution = 16;
+  // Whether the controller can honor PowerService.MuteContainerAlarm on its
+  // active command path, reported with live plant telemetry. Older Frigate
+  // releases omit it; consumers then keep assuming mute is supported.
+  optional bool alarm_mute_supported = 17;
 }
 
 // ModuleDistribution summarizes current physical modules in known tanks.

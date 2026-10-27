@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -22,8 +21,7 @@ var dryCoolerFanIDs = []string{
 // CT1 container. JSON field names follow the grpc-gateway camelCase encoding
 // of the mdk.v2 protos so the simulator can't silently drift from the client.
 type RESTApiHandler struct {
-	state    *ContainerState
-	requests sync.Mutex
+	state *ContainerState
 }
 
 // NewRESTApiHandler creates a handler backed by the given container state.
@@ -41,20 +39,7 @@ func NewRESTApiHandler(state *ContainerState) *RESTApiHandler {
 func (h *RESTApiHandler) RegisterRoutes(mux *http.ServeMux) {
 	register := func(pattern string, handler http.HandlerFunc) {
 		mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-			h.requests.Lock()
-			defer h.requests.Unlock()
-			h.state.mu.Lock()
-			now := h.state.now()
-			h.state.recordUntil(now)
-			h.state.advance(now)
-			h.state.mu.Unlock()
-			handler(w, r)
-			if r.Method != http.MethodGet {
-				h.state.mu.Lock()
-				h.state.advance(now)
-				h.state.recordTransition()
-				h.state.mu.Unlock()
-			}
+			h.state.serve(r.Method != http.MethodGet, func() { handler(w, r) })
 		})
 	}
 
@@ -405,8 +390,8 @@ type targetPowerResponse struct {
 type targetPowerRequest struct {
 	Watts            float64 `json:"watts"`
 	PerformanceMode  string  `json:"performanceMode"`
-	BalanceBays      bool    `json:"balanceBays"`
-	HashOnDisconnect bool    `json:"hashOnDisconnect"`
+	BalanceBays      *bool   `json:"balanceBays,omitempty"`
+	HashOnDisconnect *bool   `json:"hashOnDisconnect,omitempty"`
 }
 
 type timeSeriesBucket struct {
@@ -651,22 +636,9 @@ func (s *ContainerState) systemInfoDTO() systemInfoResponse {
 }
 
 func (h *RESTApiHandler) handleSystemStatus(w http.ResponseWriter, r *http.Request) {
-	s := h.state
-	s.mu.RLock()
-	active, total := s.boardCounts()
-	resp := systemStatusResponse{Status: systemStatus{
-		Health:                s.healthStatus(active, total),
-		Mining:                active > 0,
-		ActiveBoards:          active,
-		TotalBoards:           total,
-		ActivePool:            defaultActivePool,
-		DatabaseConnected:     true,
-		ServerID:              s.ServerID,
-		HARole:                "HA_ROLE_PRIMARY",
-		Version:               s.Version,
-		ContainerWritePrimary: true,
-	}}
-	s.mu.RUnlock()
+	h.state.mu.RLock()
+	resp := h.state.systemStatusDTO()
+	h.state.mu.RUnlock()
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -841,78 +813,32 @@ func (h *RESTApiHandler) handlePools(w http.ResponseWriter, r *http.Request) {
 
 func (h *RESTApiHandler) handlePoolDiagnostics(w http.ResponseWriter, r *http.Request) {
 	h.state.mu.RLock()
-	activeBoards, _ := h.state.boardCounts()
+	resp := h.state.poolDiagnosticsDTO()
 	h.state.mu.RUnlock()
-	active := activeBoards > 0
-	state := "POOL_CONN_STATE_IDLE"
-	var activePoolID *int64str
-	if active {
-		state = "POOL_CONN_STATE_ACTIVE"
-		id := int64str(1)
-		activePoolID = &id
-	}
-	var diagnostics []poolDiagnostics
-	for _, pool := range demoPools() {
-		connectionState := "POOL_CONN_STATE_IDLE"
-		if pool.ID == 1 {
-			connectionState = state
-		}
-		diagnostics = append(diagnostics, poolDiagnostics{
-			PoolID:     pool.ID,
-			PoolName:   pool.Name,
-			ConnState:  connectionState,
-			IsActive:   pool.ID == 1 && active,
-			IsReady:    true,
-			Difficulty: 2048,
-		})
-	}
-	writeJSON(w, http.StatusOK, poolDiagnosticsResponse{
-		ActivePoolID: activePoolID,
-		Pools:        diagnostics,
-	})
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *RESTApiHandler) handleTargetPower(w http.ResponseWriter, r *http.Request) {
-	var request targetPowerRequest
-	if r.Method == http.MethodPut && !decodeJSON(w, r, &request) {
-		return
-	}
-
-	s := h.state
-	s.mu.Lock()
-	boards := s.eachBoard()
-	if len(boards) == 0 {
-		s.mu.Unlock()
-		writeError(w, http.StatusConflict, "container has no hashboards")
-		return
-	}
+	var update *targetPowerUpdate
 	if r.Method == http.MethodPut {
-		if request.Watts <= 0 {
-			s.mu.Unlock()
-			writeError(w, http.StatusBadRequest, "watts must be greater than zero")
+		var request targetPowerRequest
+		if !decodeJSON(w, r, &request) {
 			return
 		}
-		for _, board := range boards {
-			board.PowerTargetW = math.Max(board.PowerTargetMinW, math.Min(board.PowerTargetMaxW, request.Watts))
+		update = &targetPowerUpdate{
+			watts:            request.Watts,
+			performanceMode:  request.PerformanceMode,
+			balanceBays:      request.BalanceBays,
+			hashOnDisconnect: request.HashOnDisconnect,
 		}
-		s.PerformanceMode = request.PerformanceMode
-		s.BalanceBays = request.BalanceBays
-		s.HashOnDisconnect = request.HashOnDisconnect
 	}
-	current := boards[0].PowerTargetW
-	response := targetPowerResponse{
-		Watts:            current,
-		DefaultWatts:     boardPowerTargetW,
-		MinimumWatts:     boardPowerTargetMinW,
-		MaximumWatts:     boardPowerTargetMaxW,
-		PerformanceMode:  s.PerformanceMode,
-		BalanceBays:      s.BalanceBays,
-		HashOnDisconnect: s.HashOnDisconnect,
+	h.state.mu.Lock()
+	response, err := h.state.targetPower(update)
+	h.state.mu.Unlock()
+	if err != nil {
+		writeAPIError(w, err)
+		return
 	}
-	if response.PerformanceMode == "" {
-		response.PerformanceMode = "PERFORMANCE_MODE_MAXIMUM_HASHRATE"
-	}
-	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, response)
 }
 
@@ -962,18 +888,13 @@ func (h *RESTApiHandler) handleContainerSetpoint(w http.ResponseWriter, r *http.
 	if !decodeJSON(w, r, &request) {
 		return
 	}
-	if math.IsNaN(request.Value) || math.IsInf(request.Value, 0) || request.Value < 20 || request.Value > 55 {
-		writeError(w, http.StatusBadRequest, "temperature target must be between 20 and 55°C (simulator bounds)")
-		return
-	}
 	h.state.mu.Lock()
-	if _, supported := h.state.ContainerSetpoints[name]; !supported {
-		h.state.mu.Unlock()
-		writeError(w, http.StatusNotFound, "unknown container setpoint")
+	err := h.state.setContainerSetpoint(name, request.Value)
+	h.state.mu.Unlock()
+	if err != nil {
+		writeAPIError(w, err)
 		return
 	}
-	h.state.ContainerSetpoints[name] = request.Value
-	h.state.mu.Unlock()
 	writeJSON(w, http.StatusOK, setContainerSetpointResponse{Setpoint: containerSetpoint{
 		Name: name, Value: request.Value, Unit: "°C",
 	}})
@@ -988,80 +909,18 @@ func (h *RESTApiHandler) handleTimeSeries(w http.ResponseWriter, r *http.Request
 		return
 	}
 	end, err := time.Parse(time.RFC3339Nano, query.Get("range.end"))
-	if err != nil || !end.After(start) {
+	if err != nil {
 		writeError(w, http.StatusBadRequest, "range.end must be after range.start")
 		return
 	}
-	bucketDurations := map[string]time.Duration{
-		"BUCKET_SIZE_1M":  time.Minute,
-		"BUCKET_SIZE_5M":  5 * time.Minute,
-		"BUCKET_SIZE_15M": 15 * time.Minute,
-		"BUCKET_SIZE_1H":  time.Hour,
-		"BUCKET_SIZE_1D":  24 * time.Hour,
-	}
-	bucketDuration := bucketDurations[query.Get("bucketSize")]
-	if bucketDuration == 0 {
-		writeError(w, http.StatusBadRequest, "unsupported bucketSize")
-		return
-	}
-	s := h.state
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	identifier := query.Get("identifier")
-	unit, boardIndex, err := s.historyMetric(metric, identifier)
+	h.state.mu.Lock()
+	resp, err := h.state.timeSeries(metric, query.Get("identifier"), start, end, query.Get("bucketSize"))
+	h.state.mu.Unlock()
 	if err != nil {
-		status := http.StatusBadRequest
-		if strings.HasPrefix(err.Error(), "unknown") {
-			status = http.StatusNotFound
-		}
-		writeError(w, status, err.Error())
+		writeAPIError(w, err)
 		return
 	}
-	if strings.Contains(metric, "_FAN_") || strings.Contains(metric, "_DISTRIBUTION_") || strings.Contains(metric, "_PHASE_") || strings.HasPrefix(metric, "TIME_SERIES_METRIC_POWER_FEED_") {
-		if _, ok := s.recordSample().metric(metric, identifier, boardIndex); !ok {
-			writeError(w, http.StatusNotFound, "unknown component identifier")
-			return
-		}
-	}
-	buckets := make([]timeSeriesBucket, 0, 300)
-	for at := start; at.Before(end) && len(buckets) < 300; at = at.Add(bucketDuration) {
-		bucket := timeSeriesBucket{Time: at}
-		sum := 0.0
-		addSample := func(sample recordedSample) {
-			value, ok := sample.metric(metric, identifier, boardIndex)
-			if !ok {
-				return
-			}
-			if bucket.Count == 0 {
-				bucket.Min = value
-				bucket.Max = value
-			}
-			bucket.Min = math.Min(bucket.Min, value)
-			bucket.Max = math.Max(bucket.Max, value)
-			sum += value
-			bucket.Count++
-		}
-		bucketEnd := minTime(at.Add(bucketDuration), end)
-		for tick := at; tick.Before(bucketEnd); tick = tick.Add(time.Minute) {
-			if sample, ok := s.sampleAt(tick); ok {
-				addSample(sample)
-			}
-		}
-		first := sort.Search(len(s.history.Samples), func(i int) bool { return s.history.Samples[i].At.After(at) })
-		for _, sample := range s.history.Samples[first:] {
-			if !sample.At.Before(bucketEnd) {
-				break
-			}
-			if sample.At.Sub(at)%time.Minute != 0 && !sample.At.Before(s.sampleTime.Add(-historyRetention)) {
-				addSample(sample)
-			}
-		}
-		if bucket.Count > 0 {
-			bucket.Avg = sum / float64(bucket.Count)
-		}
-		buckets = append(buckets, bucket)
-	}
-	writeJSON(w, http.StatusOK, timeSeriesResponse{Metric: metric, Unit: unit, Buckets: buckets})
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func minTime(a, b time.Time) time.Time {
@@ -1076,42 +935,14 @@ func (h *RESTApiHandler) handleModuleRunIn(w http.ResponseWriter, r *http.Reques
 	if !decodeJSON(w, r, &config) {
 		return
 	}
-	moduleID := r.PathValue("moduleId")
-	s := h.state
-	s.mu.RLock()
-	module := s.modulesByID[moduleID]
-	if module == nil {
-		s.mu.RUnlock()
-		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown module %q", moduleID))
+	h.state.mu.RLock()
+	resp, err := h.state.moduleRunIn(r.PathValue("moduleId"), r.URL.Query().Get("taskId"))
+	h.state.mu.RUnlock()
+	if err != nil {
+		writeAPIError(w, err)
 		return
 	}
-	boards := make([]moduleRunInBoard, 0, len(module.Slots))
-	leader := ""
-	for _, slot := range module.Slots {
-		if slot.Board == nil {
-			continue
-		}
-		if leader == "" {
-			leader = slot.Board.MAC
-		}
-		boards = append(boards, moduleRunInBoard{
-			MACAddress: slot.Board.MAC,
-			Serial:     slot.Board.Serial,
-			Status:     "RUN_IN_BOARD_STATUS_QUEUED",
-		})
-	}
-	s.mu.RUnlock()
-	taskID := r.URL.Query().Get("taskId")
-	if taskID == "" {
-		taskID = fmt.Sprintf("run-in-%d", time.Now().UnixNano())
-	}
-	writeJSON(w, http.StatusOK, moduleRunInResponse{
-		TaskID:           taskID,
-		ModuleID:         moduleID,
-		Status:           "HASHBOARD_RUN_IN_STATUS_QUEUED",
-		VoltageLeaderMAC: leader,
-		Boards:           boards,
-	})
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleModuleFixedVoltage serves PUT/DELETE
@@ -1131,46 +962,26 @@ func (h *RESTApiHandler) handleModuleFixedVoltage(w http.ResponseWriter, r *http
 		millivolts = int64(req.Millivolts)
 	}
 
-	s := h.state
-	s.mu.Lock()
-	module := s.modulesByID[moduleID]
-	if module == nil {
-		s.mu.Unlock()
-		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown module %q", moduleID))
+	h.state.mu.Lock()
+	resp, err := h.state.setModuleFixedVoltage(moduleID, millivolts, r.Method == http.MethodPut)
+	h.state.mu.Unlock()
+	if err != nil {
+		writeAPIError(w, err)
 		return
 	}
-	if r.Method == http.MethodPut {
-		if millivolts < 26000 || millivolts > 30000 {
-			s.mu.Unlock()
-			writeError(w, http.StatusBadRequest, "fixed voltage must be between 26000 and 30000 mV (simulator bounds)")
-			return
-		}
-		module.FixedMillivolts = millivolts
-		module.FixedVoltageSet = true
-	} else {
-		module.FixedMillivolts = 0
-		module.FixedVoltageSet = false
-	}
-	resp := s.moduleVoltageResponse(module)
-	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, resp)
 }
 
 // handleHashboardAsics serves GET /api/v2/hashboards/{identifier}/asics, where
 // identifier is a MAC address (CT1) or serial (R2).
 func (h *RESTApiHandler) handleHashboardAsics(w http.ResponseWriter, r *http.Request) {
-	identifier := r.PathValue("identifier")
-
-	s := h.state
-	s.mu.RLock()
-	board := s.findBoard(identifier)
-	if board == nil {
-		s.mu.RUnlock()
-		writeError(w, http.StatusNotFound, fmt.Sprintf("unknown hashboard %q", identifier))
+	h.state.mu.RLock()
+	resp, err := h.state.hashboardASICs(r.PathValue("identifier"))
+	h.state.mu.RUnlock()
+	if err != nil {
+		writeAPIError(w, err)
 		return
 	}
-	resp := s.asicsResponse(board)
-	s.mu.RUnlock()
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -1185,15 +996,7 @@ func (h *RESTApiHandler) handleScopedPower(w http.ResponseWriter, r *http.Reques
 	}
 	s := h.state
 	s.mu.Lock()
-	results := s.applyToScope(req.Scope, func(b *Hashboard) (bool, string) {
-		clamped := math.Max(b.PowerTargetMinW, math.Min(b.PowerTargetMaxW, req.Watts))
-		b.ScopedWatts = clamped
-		b.ScopedWattsSet = true
-		if clamped != req.Watts {
-			return true, fmt.Sprintf("clamped to %.0fW", clamped)
-		}
-		return true, ""
-	})
+	results := s.applyToScope(req.Scope, scopedPowerTarget(req.Watts))
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, setPowerScopedResponse{BoardsUpdated: countApplied(results), Results: results})
 }
@@ -1205,11 +1008,7 @@ func (h *RESTApiHandler) handleScopedPowerClear(w http.ResponseWriter, r *http.R
 	}
 	s := h.state
 	s.mu.Lock()
-	results := s.applyToScope(req.Scope, func(b *Hashboard) (bool, string) {
-		b.ScopedWatts = 0
-		b.ScopedWattsSet = false
-		return true, ""
-	})
+	results := s.applyToScope(req.Scope, clearScopedPowerTarget)
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, clearPowerScopedResponse{BoardsUpdated: countApplied(results), Results: results})
 }
@@ -1221,13 +1020,7 @@ func (h *RESTApiHandler) handleScopedStart(w http.ResponseWriter, r *http.Reques
 	}
 	s := h.state
 	s.mu.Lock()
-	results := s.applyToScope(req.Scope, func(b *Hashboard) (bool, string) {
-		if b.Isolated {
-			return false, "board isolated"
-		}
-		b.State = miningStateMining
-		return true, ""
-	})
+	results := s.applyToScope(req.Scope, startBoard)
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, startScopedResponse{BoardsStarted: countApplied(results), Results: results})
 }
@@ -1239,10 +1032,7 @@ func (h *RESTApiHandler) handleScopedStop(w http.ResponseWriter, r *http.Request
 	}
 	s := h.state
 	s.mu.Lock()
-	results := s.applyToScope(req.Scope, func(b *Hashboard) (bool, string) {
-		b.State = miningStateIdle
-		return true, ""
-	})
+	results := s.applyToScope(req.Scope, stopBoard)
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, stopScopedResponse{BoardsStopped: countApplied(results), Results: results})
 }

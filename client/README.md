@@ -104,7 +104,7 @@ Vite is configured with mode-based builds. Each app has its own `index.html` ent
 
 ### CT1 on-device standalone
 
-CT1 uses the same `dist/protoOS` build as the standalone rig dashboard. The browser opens the MDK v2 API listener at `http://<controller>:8080/` and probes `/api/v2/system/info` on that origin. The CT1 adapter makes relative `/api/v2/…` requests with the required `X-Frigate-Actor: proto-os` wire header, without a v1 bearer token or login/onboarding gate. No Vite server, minerproxy, CORS setup, or `PROXY_URL` is needed on the device.
+CT1 uses the same `dist/protoOS` build as the standalone rig dashboard. The browser opens the MDK v2 API listener at `http://<controller>:8080/` and probes `/api/v2/system/info` on that origin. The CT1 adapter then makes same-origin Connect calls (`/mdk.v2.<Service>/<Method>`, binary protobuf) with the required `X-Frigate-Actor: proto-os` wire header, without a v1 bearer token or login/onboarding gate. No Vite server, minerproxy, CORS setup, or `PROXY_URL` is needed on the device. Locally, the ProtoOS Vite server proxies `/api/v1`, `/api/v2`, and `/mdk.v2.*` to `PROXY_URL`. Fleet-hosted CT1 views keep using the `/api/v2` REST routes because Fleet's miner proxy allowlists and authorizes those routes.
 
 The MDK v2 host packaging flow consumes the existing protoOS artifact:
 

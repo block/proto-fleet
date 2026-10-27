@@ -1,0 +1,189 @@
+syntax = "proto3";
+
+package mdk.v2;
+
+import "google/protobuf/timestamp.proto";
+import "mdk/v2/options.proto";
+
+option go_package = "github.com/btc-mining/frigate/gen/mdk/v2;mdkv2";
+
+// ServerUpdateService stages one verified Frigate package on an exact host.
+// These methods are the only tunnel mutations permitted on a warm standby.
+service ServerUpdateService {
+  rpc GetServerUpdateSupport(GetServerUpdateSupportRequest) returns (GetServerUpdateSupportResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_READ;
+  }
+
+  rpc StageServerUpdate(stream StageServerUpdateRequest) returns (StageServerUpdateResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+
+  // The additive unary staging surface is instance-scoped over the tunnel and
+  // lets Flotilla resume an acknowledged partial package after reconnecting.
+  rpc BeginServerUpdateStage(BeginServerUpdateStageRequest) returns (BeginServerUpdateStageResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+  rpc AppendServerUpdateStage(AppendServerUpdateStageRequest) returns (AppendServerUpdateStageResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+  rpc CommitServerUpdateStage(CommitServerUpdateStageRequest) returns (CommitServerUpdateStageResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+  rpc AbortServerUpdateStage(AbortServerUpdateStageRequest) returns (AbortServerUpdateStageResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (mdk.v2.tunnel_access) = TUNNEL_ACCESS_MUTATE;
+  }
+}
+
+// FrigateUpdateMaintenanceService keeps a package installer reachable while
+// the main Frigate process and its regular tunnel are stopped.
+service FrigateUpdateMaintenanceService {
+  // Preserve the established maintenance transport message names.
+  // buf:lint:ignore RPC_REQUEST_STANDARD_NAME
+  // buf:lint:ignore RPC_RESPONSE_STANDARD_NAME
+  rpc Exchange(FrigateUpdateAgentStatus) returns (FrigateUpdateAgentCommand);
+}
+
+enum ServerInstallationType {
+  SERVER_INSTALLATION_TYPE_UNSPECIFIED = 0;
+  SERVER_INSTALLATION_TYPE_DEBIAN_PACKAGE = 1;
+  SERVER_INSTALLATION_TYPE_DIRECT_BINARY = 2;
+}
+
+enum FrigateUpdateAgentPhase {
+  FRIGATE_UPDATE_AGENT_PHASE_UNSPECIFIED = 0;
+  FRIGATE_UPDATE_AGENT_PHASE_CONNECTING = 1;
+  FRIGATE_UPDATE_AGENT_PHASE_STAGED = 2;
+  FRIGATE_UPDATE_AGENT_PHASE_STOPPED = 3;
+  FRIGATE_UPDATE_AGENT_PHASE_INSTALLED = 4;
+  FRIGATE_UPDATE_AGENT_PHASE_MIGRATED = 5;
+  FRIGATE_UPDATE_AGENT_PHASE_STARTED = 6;
+  FRIGATE_UPDATE_AGENT_PHASE_FAILED = 7;
+}
+
+enum FrigateUpdateAgentAction {
+  FRIGATE_UPDATE_AGENT_ACTION_UNSPECIFIED = 0;
+  FRIGATE_UPDATE_AGENT_ACTION_WAIT = 1;
+  FRIGATE_UPDATE_AGENT_ACTION_STOP = 2;
+  FRIGATE_UPDATE_AGENT_ACTION_INSTALL = 3;
+  FRIGATE_UPDATE_AGENT_ACTION_MIGRATE = 4;
+  FRIGATE_UPDATE_AGENT_ACTION_START = 5;
+  FRIGATE_UPDATE_AGENT_ACTION_EXIT = 6;
+}
+
+message GetServerUpdateSupportRequest {}
+
+message GetServerUpdateSupportResponse {
+  string instance_id = 1;
+  string peer_instance_id = 2;
+  string running_version = 3;
+  string architecture = 4;
+  ServerInstallationType installation_type = 5;
+  bool helper_available = 6;
+  string support_message = 7;
+}
+
+message ServerUpdateManifest {
+  string job_id = 1;
+  string site_id = 2;
+  string container_id = 3;
+  string instance_id = 4;
+  repeated string expected_instance_ids = 5;
+  string release_tag = 6;
+  string target_version = 7;
+  int64 asset_id = 8;
+  string asset_name = 9;
+  string sha256 = 10;
+  int64 size_bytes = 11;
+  string actor = 12;
+  string maintenance_token = 13;
+  string flotilla_address = 14;
+  string tls_server_name = 15;
+  string root_ca_file = 16;
+  string client_certificate_file = 17;
+  string client_key_file = 18;
+  string site_token = 19;
+}
+
+message StageServerUpdateRequest {
+  oneof payload {
+    ServerUpdateManifest manifest = 1;
+    bytes chunk = 2;
+  }
+}
+
+message StageServerUpdateResponse {
+  string job_id = 1;
+  int64 bytes_staged = 2;
+  string sha256 = 3;
+}
+
+message BeginServerUpdateStageRequest {
+  ServerUpdateManifest manifest = 1;
+}
+
+message AppendServerUpdateStageRequest {
+  string job_id = 1;
+  string manifest_sha256 = 2;
+  int64 offset = 3;
+  bytes chunk = 4;
+}
+
+message CommitServerUpdateStageRequest {
+  string job_id = 1;
+  string manifest_sha256 = 2;
+}
+
+message AbortServerUpdateStageRequest {
+  string job_id = 1;
+  string manifest_sha256 = 2;
+}
+
+message AbortServerUpdateStageResponse {}
+
+message BeginServerUpdateStageResponse {
+  string job_id = 1;
+  string manifest_sha256 = 2;
+  int64 next_offset = 3;
+  int64 size_bytes = 4;
+}
+
+message AppendServerUpdateStageResponse {
+  string job_id = 1;
+  string manifest_sha256 = 2;
+  int64 next_offset = 3;
+  int64 size_bytes = 4;
+}
+
+message CommitServerUpdateStageResponse {
+  string job_id = 1;
+  int64 bytes_staged = 2;
+  string sha256 = 3;
+}
+
+message FrigateUpdateAgentStatus {
+  string job_id = 1;
+  string site_id = 2;
+  string container_id = 3;
+  string instance_id = 4;
+  string maintenance_token = 5;
+  FrigateUpdateAgentPhase phase = 6;
+  string running_version = 7;
+  bool migration_executed = 8;
+  string error = 9;
+  google.protobuf.Timestamp updated_at = 10;
+  // manifest_sha256 binds the locally validated package manifest to the
+  // authenticated rollout retained by Flotilla.
+  string manifest_sha256 = 11;
+}
+
+message FrigateUpdateAgentCommand {
+  FrigateUpdateAgentAction action = 1;
+  string message = 2;
+  uint32 poll_after_seconds = 3;
+}

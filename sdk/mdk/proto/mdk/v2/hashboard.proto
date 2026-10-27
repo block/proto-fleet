@@ -98,6 +98,20 @@ service HashboardService {
       body: "*"
     };
   }
+
+  // ListRecoveryEvidence returns bounded summaries of evidence snapshots taken
+  // before automatic hashboard recovery acted, newest first.
+  rpc ListRecoveryEvidence(ListRecoveryEvidenceRequest) returns (ListRecoveryEvidenceResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {get: "/api/v2/recovery-evidence"};
+  }
+
+  // GetRecoveryEvidence returns one recovery evidence snapshot, including its
+  // bounded JSON payload.
+  rpc GetRecoveryEvidence(GetRecoveryEvidenceRequest) returns (GetRecoveryEvidenceResponse) {
+    option (mdk.v2.product) = PRODUCT_CT1;
+    option (google.api.http) = {get: "/api/v2/recovery-evidence/{evidence_id}"};
+  }
 }
 
 // HashboardIdentifyLEDMode is the operator-requested identification LED mode.
@@ -399,6 +413,13 @@ enum HashboardErrorCause {
   HASHBOARD_ERROR_CAUSE_STACK_ENUMERATION = 30;
   HASHBOARD_ERROR_CAUSE_STACK_DELTA_THERMAL_THROTTLE = 31;
   HASHBOARD_ERROR_CAUSE_UNKNOWN_ERROR = 99;
+  // Frigate derives a stack dropout warning when a stack that hashed in the
+  // current mining session, whether enumerated at session start or joining
+  // later, stops hashing while other stacks continue. The warning clears when
+  // the stack hashes again. Firmware does not emit this value; it sits outside
+  // the firmware numbering range so future firmware causes cannot collide
+  // with it.
+  HASHBOARD_ERROR_CAUSE_STACK_DROPOUT = 1000;
 }
 
 // HashboardVoltageDomain identifies the ASIC voltage domain involved in an error.
@@ -415,10 +436,31 @@ enum HashboardVoltageDomain {
 
 // HashboardASICErrorState contains ASIC-specific detail for an error.
 message HashboardASICErrorState {
+  // Id is the raw zero-based firmware ASIC ID. Firmware numbers only the
+  // ASICs in its live topology, so on a board with an unpopulated or
+  // non-enumerated stack it can differ from the physical ASIC index.
   uint32 id = 1;
   double voltage = 2;
   double temperature = 3;
   HashboardVoltageDomain voltage_domain = 4;
+  // PhysicalPosition is the owning Frigate's mapping of id onto the board's
+  // physical ASIC layout at capture time. Its index uses the same physical
+  // index space as ASIC.index. It is absent when the layout could not
+  // resolve id unambiguously, from older Frigate releases, and for latched
+  // last-shutdown errors whose firmware topology may predate the current one.
+  HashboardASICPhysicalPosition physical_position = 5;
+}
+
+// HashboardASICPhysicalPosition locates one ASIC on the hashboard's physical
+// layout.
+message HashboardASICPhysicalPosition {
+  // Index is the zero-based physical ASIC position, stack_id multiplied by
+  // the layout's ASICs per stack plus stack_index.
+  uint32 index = 1;
+  // StackId is the zero-based physical stack; stack 0 is labeled A.
+  uint32 stack_id = 2;
+  // StackIndex is the zero-based ASIC position within the stack.
+  uint32 stack_index = 3;
 }
 
 // HashboardHealthError is a firmware-reported or Frigate-derived error or
@@ -451,6 +493,54 @@ message ASIC {
   // compact_index is the original zero-based CT1 firmware identity. It is
   // absent when the producer cannot map this sample to a physical position.
   optional int32 compact_index = 8;
+  // debug_health is the newest sampled production debug-health observation
+  // for this ASIC from the shared database, which may have been recorded by
+  // either HA node. It is absent when the Frigate node serving this request
+  // has opt-in production debug-health capture disabled (even if its HA peer
+  // captures the board), when firmware does not publish debug-health frames,
+  // when no sample is newer than three sample intervals, or when the newest
+  // sample reported a different ASIC count than this health frame. It can lag
+  // the health frame by up to one sample interval plus a short read cache;
+  // compare observed_at with the frame time before treating both as current.
+  ASICDebugHealth debug_health = 9;
+}
+
+// ASICECCCounters holds the three cumulative MC3 ULink ECC (UECC) counters
+// that firmware reports for one ASIC. Zero is also what firmware reports when
+// it does not populate a counter, so zeros do not prove an error-free link.
+message ASICECCCounters {
+  uint32 uecc0 = 1;
+  uint32 uecc1 = 2;
+  uint32 uecc2 = 3;
+}
+
+// ASICDebugHealth is one sampled firmware debug-health observation for one
+// ASIC: ECC counters and raw voltage-domain sensor readings.
+message ASICDebugHealth {
+  // observed_at is when Frigate accepted the sampled firmware frame.
+  google.protobuf.Timestamp observed_at = 1;
+  // ecc_total holds the cumulative firmware counters at observed_at.
+  ASICECCCounters ecc_total = 2;
+  // ecc_delta counts errors since ecc_delta_since. It is absent for the first
+  // sample of a board connection or mining session, after a gap longer than
+  // three sample intervals, after the reported ASIC count changed, and when
+  // ecc_counter_reset is set.
+  ASICECCCounters ecc_delta = 3;
+  // ecc_delta_since is the observation time of the baseline sample that
+  // ecc_delta is measured from. It is present exactly when ecc_delta is.
+  google.protobuf.Timestamp ecc_delta_since = 4;
+  // ecc_counter_reset reports that a counter or the firmware slot counter went
+  // backwards since the baseline, for example after an undetected firmware
+  // restart or a slot counter wrap. No delta is reported for that sample.
+  bool ecc_counter_reset = 5;
+  // Raw MC3 voltage-domain sensor readings in volts, as reported by firmware.
+  double vddi1_v = 6;
+  double vddi2_v = 7;
+  double vddi3_v = 8;
+  double vss_v = 9;
+  double vdd_v = 10;
+  double vddio_v = 11;
+  double vddh_v = 12;
 }
 
 // ASICMetadata is decoded, immutable eFuse identity and binning data for one
@@ -499,6 +589,14 @@ message Tank {
   // module_layout describes the physical module grid for this tank. Only
   // mapped modules appear in modules; grid gaps remain meaningful positions.
   ModuleLayout module_layout = 3;
+  // display_number is the operator-facing tank number from the optional
+  // container tank_display configuration. Zero means unset, and clients then
+  // display id. It is presentation only: id remains the identity used by
+  // hashboard locations, power-feed IDs, PLC addressing, and stored data.
+  int32 display_number = 4;
+  // display_label is the optional operator-facing tank name, for example
+  // "Tank 4 (door)". Empty means clients show "Tank <display number>".
+  string display_label = 5;
 }
 
 // ModuleNumberingOrder describes how sequential module IDs fill a grid.
@@ -656,6 +754,9 @@ enum HashboardEventType {
   HASHBOARD_EVENT_TYPE_WARNING = 3;
   HASHBOARD_EVENT_TYPE_ISOLATION = 4;
   HASHBOARD_EVENT_TYPE_LAST_SHUTDOWN = 5;
+  // A stack that hashed earlier in the mining session, at session start or
+  // after joining later, stopped hashing.
+  HASHBOARD_EVENT_TYPE_STACK_DROPOUT = 6;
 }
 
 // HashboardEvent is a single entry in a hashboard's event history.
@@ -693,4 +794,48 @@ message GetHashboardEventsResponse {
   string serial = 4;
   // slot is the optional one-based R2 chassis slot.
   optional uint32 slot = 5;
+}
+
+// RecoveryEvidenceSummary describes one evidence snapshot without its payload.
+message RecoveryEvidenceSummary {
+  // evidence_id is the stable snapshot identifier.
+  string evidence_id = 1;
+  // episode_id links the snapshot to the recovery episode or power cycle.
+  string episode_id = 2;
+  string mac_address = 3;
+  // trigger is power_recovery, power_recovery_capture_only, or ready_recovery.
+  string trigger = 4;
+  // causes are the active causes that made the board eligible for recovery.
+  repeated HashboardErrorCause causes = 5;
+  google.protobuf.Timestamp captured_at = 6;
+  // captured_by is the HA server ID of the node that took the snapshot.
+  string captured_by = 7;
+  // truncated reports that the payload dropped data to stay within its cap.
+  bool truncated = 8;
+  // payload_bytes is the stored JSON payload size.
+  uint32 payload_bytes = 9;
+}
+
+message ListRecoveryEvidenceRequest {
+  // identifier optionally selects one CT1 hashboard by MAC address.
+  string identifier = 1;
+  // episode_id optionally selects snapshots for one recovery episode.
+  string episode_id = 2;
+  // limit bounds the result; the server defaults and caps it.
+  uint32 limit = 3;
+}
+
+message ListRecoveryEvidenceResponse {
+  repeated RecoveryEvidenceSummary evidence = 1;
+}
+
+message GetRecoveryEvidenceRequest {
+  string evidence_id = 1;
+}
+
+message GetRecoveryEvidenceResponse {
+  RecoveryEvidenceSummary summary = 1;
+  // evidence_json is the bounded JSON snapshot. Its sources carry explicit
+  // ok, unavailable, or error status so readers tolerate missing data.
+  string evidence_json = 2;
 }

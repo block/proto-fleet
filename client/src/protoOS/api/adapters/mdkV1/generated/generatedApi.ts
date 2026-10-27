@@ -3034,7 +3034,7 @@ export class Api<
       }),
 
     /**
-     * @description The logs endpoint provides the most recent log lines from a given source, either OS, pool software, or miner logs. The default miner_sw source examines up to 10000 journal entries, plus one exhaustion probe; requests requiring more history fail rather than returning truncated logs. Exact-unit sources and current-boot kernel logs do not use this wildcard scan limit.
+     * @description The logs endpoint provides the most recent log lines from a given source, either OS, pool software, or miner logs. The default miner_sw source scans until the requested matching tail is complete or journal end is reached, with a 20-second read deadline. Unrelated journal entries do not reduce the requested tail; deadline expiration fails rather than returning truncated logs. Exact-unit sources and current-boot kernel logs do not use this wildcard read deadline.
      *
      * @tags System
      * @name GetSystemLogs

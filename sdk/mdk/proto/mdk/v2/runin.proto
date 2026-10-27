@@ -187,6 +187,9 @@ message TuningSweep {
   TuningSweepFailurePolicy failure_policy = 4;
   PowerTargetRange power_target = 5;
   repeated PLLAlgorithm pll_algorithms = 6;
+  // Restart AUTO voltage tuning after applying each point's power/PLL settings.
+  // Defaults to false; ignored when a fixed voltage range is supplied.
+  bool restart_voltage_tuning_each_point = 7;
 }
 
 // VoltageRange defines requested PSU voltage sweep points in volts.
@@ -342,6 +345,8 @@ message GetRunInCapabilitiesResponse {
   // outside_ambient_start permits queue eligibility based on a fresh held
   // outside-ambient temperature band with a required deadline.
   bool outside_ambient_start = 10;
+  // voltage_tuning_restart permits tuning_sweep.restart_voltage_tuning_each_point.
+  bool voltage_tuning_restart = 11;
 }
 
 message CancelHashboardRunInRequest {

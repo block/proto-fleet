@@ -59,7 +59,9 @@ const DryCoolerSettingsModal = ({
         await setControl("dry_cooler_auto", true, params);
       },
       onError: (error) => {
-        const message = error instanceof Error ? error.message : "The request did not complete";
+        const message =
+          (error as { error?: { message?: string } } | undefined)?.error?.message ||
+          (error instanceof Error ? error.message : "The request did not complete");
         saveError = targetSaved
           ? `Target temperature saved, but automatic mode could not be confirmed: ${message}`
           : `Could not confirm the target temperature was saved: ${message}`;

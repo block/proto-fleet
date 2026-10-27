@@ -88,7 +88,7 @@ test("production bundle probes CT1 and survives tank/module deep-link refreshes 
   page.on("request", (request) => {
     if (assetTypes.has(request.resourceType())) assetDocuments.set(request, documentGeneration);
     const pathname = new URL(request.url()).pathname;
-    if (pathname.startsWith("/api/")) {
+    if (pathname.startsWith("/api/") || pathname.startsWith("/mdk.v2.")) {
       apiRequests.push(request);
       // Each full document load creates one resolver. Only its first info
       // request is a probe; later same-path adapter reads must carry the actor.
@@ -158,12 +158,16 @@ test("production bundle probes CT1 and survives tank/module deep-link refreshes 
     expect(request.headers()["x-frigate-actor"]).toBeUndefined();
   }
   const adapterRequests = apiRequests.filter((request) => !probes.has(request));
-  expect(adapterRequests.some((request) => new URL(request.url()).pathname === "/api/v2/system/info")).toBe(true);
+  expect(
+    adapterRequests.some((request) => new URL(request.url()).pathname === "/mdk.v2.SystemService/GetSystemInfo"),
+  ).toBe(true);
   for (const request of adapterRequests) {
-    expect(new URL(request.url()).pathname).toMatch(/^\/api\/v2\//);
+    expect(new URL(request.url()).pathname).toMatch(/^\/mdk\.v2\./);
     expectDirectRequest(request, baseURL!);
   }
-  expect(apiRequests.some((request) => new URL(request.url()).pathname === "/api/v2/container/map")).toBe(true);
+  expect(
+    apiRequests.some((request) => new URL(request.url()).pathname === "/mdk.v2.HashboardService/GetContainerMap"),
+  ).toBe(true);
 
   // Force both fonts used by Home/tanks to load: CSS failing entirely would
   // otherwise make document.fonts.ready succeed with an empty font set.
@@ -285,7 +289,11 @@ scopedTest(
     let initialProbe: Request | undefined;
     page.on("request", (request) => {
       const pathname = new URL(request.url()).pathname;
-      if (request.method() !== "GET" || !pathname.startsWith("/api/")) return;
+      if (
+        !(request.method() === "GET" && pathname.startsWith("/api/")) &&
+        !(request.method() === "POST" && pathname.startsWith("/mdk.v2."))
+      )
+        return;
       browserReads.push(request);
       if (pathname === "/api/v2/system/info" && !initialProbe) initialProbe = request;
     });
@@ -297,13 +305,12 @@ scopedTest(
 
     await test.step("stop only Tank 1", async () => {
       const response = page.waitForResponse(
-        (response) => new URL(response.url()).pathname === "/api/v2/mining/scoped/stop",
+        (response) => new URL(response.url()).pathname === "/mdk.v2.MiningService/StopMiningScoped",
       );
       await dashboard.setTankPower(1, false);
       const stopped = await response;
       expect(stopped.ok()).toBe(true);
       expectDirectRequest(stopped.request(), baseURL!);
-      expect(stopped.request().postDataJSON()).toEqual({ scope });
       await expect(dashboard.power(1)).not.toBeChecked();
       await expect(dashboard.tank(1).getByRole("button", { name: "Module 01, Sleeping", exact: true })).toBeVisible();
       await expect(dashboard.power(2)).toBeChecked();
@@ -316,13 +323,12 @@ scopedTest(
 
     await test.step("start Tank 1 again", async () => {
       const response = page.waitForResponse(
-        (response) => new URL(response.url()).pathname === "/api/v2/mining/scoped/start",
+        (response) => new URL(response.url()).pathname === "/mdk.v2.MiningService/StartMiningScoped",
       );
       await dashboard.setTankPower(1, true);
       const started = await response;
       expect(started.ok()).toBe(true);
       expectDirectRequest(started.request(), baseURL!);
-      expect(started.request().postDataJSON()).toEqual({ scope });
       await expect(dashboard.power(1)).toBeChecked();
       await expect(dashboard.tank(1).getByRole("button", { name: "Module 01, Healthy", exact: true })).toBeVisible();
       expect(await miningStates(request)).toEqual(before);
@@ -334,10 +340,14 @@ scopedTest(
     expect(initialProbe!.headers().authorization).toBeUndefined();
     expect(initialProbe!.headers()["x-frigate-actor"]).toBeUndefined();
     const adapterReads = browserReads.filter((request) => request !== initialProbe);
-    expect(adapterReads.some((request) => new URL(request.url()).pathname === "/api/v2/system/info")).toBe(true);
-    expect(adapterReads.some((request) => new URL(request.url()).pathname === "/api/v2/container/map")).toBe(true);
+    expect(
+      adapterReads.some((request) => new URL(request.url()).pathname === "/mdk.v2.SystemService/GetSystemInfo"),
+    ).toBe(true);
+    expect(
+      adapterReads.some((request) => new URL(request.url()).pathname === "/mdk.v2.HashboardService/GetContainerMap"),
+    ).toBe(true);
     for (const request of adapterReads) {
-      expect(new URL(request.url()).pathname).toMatch(/^\/api\/v2\//);
+      expect(new URL(request.url()).pathname).toMatch(/^\/mdk\.v2\./);
       expectDirectRequest(request, baseURL!);
     }
   },

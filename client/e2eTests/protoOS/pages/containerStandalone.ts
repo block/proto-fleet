@@ -1,37 +1,45 @@
-import { expect, type Page } from "@playwright/test";
-import type {
-  V2GetContainerMapResponse,
-  V2GetHashboardASICsResponse,
-} from "../../../src/protoOS/api/adapters/mdkV2/generated/generatedApi";
+import { type DescMessage, fromBinary, type MessageShape } from "@bufbuild/protobuf";
+import { expect, type Page, type Response } from "@playwright/test";
+import type { V2GetContainerMapResponse } from "../../../src/protoOS/api/adapters/mdkV2/generated/generatedApi";
+import { TimeSeriesMetric } from "../../../src/protoOS/api/adapters/mdkV2/generated/proto/mdk/v2/common_pb";
+import {
+  GetHashboardASICsRequestSchema,
+  GetHashboardASICsResponseSchema,
+} from "../../../src/protoOS/api/adapters/mdkV2/generated/proto/mdk/v2/hashboard_pb";
+import {
+  QueryTimeSeriesRequestSchema,
+  QueryTimeSeriesResponseSchema,
+} from "../../../src/protoOS/api/adapters/mdkV2/generated/proto/mdk/v2/telemetry_pb";
+
+const connectRequest = <Desc extends DescMessage>(
+  response: Response,
+  procedure: string,
+  schema: Desc,
+): MessageShape<Desc> | undefined => {
+  const request = response.request();
+  if (request.method() !== "POST" || new URL(response.url()).pathname !== procedure) return undefined;
+  return fromBinary(schema, request.postDataBuffer() ?? new Uint8Array());
+};
 
 export class ContainerStandalonePage {
   constructor(private page: Page) {}
 
   async openOverview() {
     const historyRead = this.page.waitForResponse((response) => {
-      const url = new URL(response.url());
-      return (
-        response.request().method() === "GET" &&
-        url.pathname === "/api/v2/telemetry/timeseries" &&
-        url.searchParams.get("metric") === "TIME_SERIES_METRIC_HASHRATE" &&
-        !url.searchParams.has("identifier")
-      );
+      const query = connectRequest(response, "/mdk.v2.TelemetryService/QueryTimeSeries", QueryTimeSeriesRequestSchema);
+      return query?.metric === TimeSeriesMetric.HASHRATE && query.identifier === "";
     });
     await this.page.goto("/");
     await expect(this.page.getByRole("navigation", { name: "Container Home" })).toBeVisible();
     await expect(this.page.getByRole("link", { name: "View Hashrate" })).toBeVisible();
     const response = await historyRead;
     expect(response.ok()).toBe(true);
-    const data = await response.json();
-    expect(data.metric).toBe("TIME_SERIES_METRIC_HASHRATE");
+    const data = fromBinary(QueryTimeSeriesResponseSchema, await response.body());
+    expect(data.metric).toBe(TimeSeriesMetric.HASHRATE);
     expect(data.unit).toBe("TH/s");
     expect(data.buckets.length).toBeGreaterThan(0);
     const populated = data.buckets.some(
-      (bucket: { time: string; avg: number; count: string }) =>
-        Number.isFinite(Date.parse(bucket.time)) &&
-        Number.isFinite(bucket.avg) &&
-        bucket.avg > 0 &&
-        Number(bucket.count) > 0,
+      (bucket) => bucket.time !== undefined && Number.isFinite(bucket.avg) && bucket.avg > 0 && bucket.count > 0n,
     );
     expect(populated).toBe(true);
     const chart = this.page.getByRole("figure", {
@@ -84,7 +92,9 @@ export class ContainerStandalonePage {
     expect(new Set(targets.map((target) => target.slot)).size).toBe(3);
     const reads = targets.map(({ identifier }) =>
       this.page.waitForResponse(
-        (response) => decodeURIComponent(new URL(response.url()).pathname) === `/api/v2/hashboards/${identifier}/asics`,
+        (response) =>
+          connectRequest(response, "/mdk.v2.HashboardService/GetHashboardASICs", GetHashboardASICsRequestSchema)
+            ?.identifier === identifier,
       ),
     );
     const dialog = this.page.getByRole("dialog", { name: "Modules", exact: true });
@@ -99,10 +109,10 @@ export class ContainerStandalonePage {
     ]);
     for (const [index, response] of responses.entries()) {
       expect(response.ok()).toBe(true);
-      const data = (await response.json()) as V2GetHashboardASICsResponse;
-      const position = data.layout?.entries?.find((entry) => entry.x === 0 && entry.y === 0);
-      expect(position?.index).toBeDefined();
-      const asic = data.asics?.find((asic) => asic.index === position!.index);
+      const data = fromBinary(GetHashboardASICsResponseSchema, await response.body());
+      const position = data.layout?.entries.find((entry) => entry.x === 0 && entry.y === 0);
+      expect(position).toBeDefined();
+      const asic = data.asics.find((asic) => asic.index === position!.index);
       expect(asic?.temperatureDc).toBeGreaterThan(0);
       const board = dialog
         .getByTestId("card")
