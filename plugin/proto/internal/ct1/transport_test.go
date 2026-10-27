@@ -16,21 +16,20 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func TestTransportDefaultsAndValidation(t *testing.T) {
-	info := sdk.DeviceInfo{Host: "controller.example", Port: 8181, URLScheme: "https"}
+func TestTransportPortAndValidation(t *testing.T) {
+	info := sdk.DeviceInfo{Host: "controller.example", Port: 8181, URLScheme: "https", RPCPort: 9443}
 	c, err := NewClient(info, sdk.UsernamePassword{})
 	require.NoError(t, err)
 	defer c.Close()
-	require.Equal(t, "dns:///controller.example:9095", c.conn.CanonicalTarget())
+	require.Equal(t, "dns:///controller.example:9443", c.conn.CanonicalTarget())
 	require.Equal(t, info.Host, c.endpoint.Host)
 	require.Equal(t, info.Port, c.endpoint.Port)
 	require.Equal(t, info.URLScheme, c.endpoint.URLScheme)
-	info.RPCPort = -1
-	_, err = NewClient(info, sdk.UsernamePassword{})
-	require.Error(t, err)
-	info.RPCPort = 65536
-	_, err = NewClient(info, sdk.UsernamePassword{})
-	require.Error(t, err)
+	for _, port := range []int32{0, -1, 65536} {
+		info.RPCPort = port
+		_, err = NewClient(info, sdk.UsernamePassword{})
+		require.ErrorContains(t, err, "invalid CT1 RPC port")
+	}
 }
 
 func TestTLSRejectsUntrustedCertificate(t *testing.T) {

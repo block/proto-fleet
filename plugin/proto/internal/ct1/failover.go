@@ -46,7 +46,7 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerP
 	defer cancel()
 	for _, c := range clients {
 		go func(c *Client) {
-			id := c.endpointID(d.info.Endpoints)
+			id := c.memberID
 			report, _, err := c.readHA(probe, id, d.info.Endpoints[0].DeviceKey)
 			if err != nil {
 				results <- &controllerProbe{err: err}
@@ -130,18 +130,6 @@ func (d *Device) probeControllers(ctx context.Context, write bool) (*controllerP
 	}
 	errs = append(errs, errors.New("no eligible controller"))
 	return nil, ha, fmt.Errorf("no CT1 controller available for this operation: %w", errors.Join(errs...))
-}
-
-func (c *Client) endpointID(controllers []sdk.DeviceEndpoint) string {
-	if c.memberID != "" {
-		return c.memberID
-	}
-	for _, controller := range controllers {
-		if controller.Host == c.endpoint.Host && effectiveRPCPort(controller.RPCPort) == effectiveRPCPort(c.endpoint.RPCPort) {
-			return controller.ID
-		}
-	}
-	return ""
 }
 
 // Missing or unknown recovery values do not establish a settled pair.

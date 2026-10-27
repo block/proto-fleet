@@ -28,9 +28,10 @@ It is disabled by default. Audit actor metadata does not authenticate callers.
 
 SDK `DeviceInfo` and FleetNode descriptors carry `RPCPort`/`RPCTLS` independently
 of the existing web `Port`/`URLScheme`, on the same host. These values persist
-in `discovered_device.rpc_port` / `rpc_tls`. Zero means the CT1 driver's default
-9095; false selects plaintext. Verified TLS uses the host as server name,
-system trust roots, and TLS 1.2 or newer, with no insecure verification bypass
+in `discovered_device.rpc_port` / `rpc_tls`. CT1 requires an explicit RPC port;
+discovery saves the scanned port, normally 9095. False selects plaintext.
+Verified TLS uses the host as server name, system trust roots, and TLS 1.2 or
+newer, with no insecure verification bypass
 or plaintext downgrade. It requires a deployment that exposes a TLS endpoint;
 the pinned Frigate server itself is plaintext.
 
@@ -61,9 +62,8 @@ controllers requires a separate design with verified TLS and credentials bound
 to explicitly trusted endpoints. The `x-frigate-actor` audit metadata remains
 present and is not an authentication credential.
 
-Existing CT1 rows use the default RPC endpoint without delete/re-pair. Creating
-the device verifies the saved serial against `SystemInfo.id` before polling or
-controls. Custom RPC endpoints are persisted by identity on rediscovery;
+Saved HA groups verify their cluster and controller IDs at pairing and before
+each operation. Custom RPC endpoints are persisted by identity on rediscovery;
 rediscovery retains an existing CT1's web port and scheme, so a discovery default
 cannot replace a custom browser address. The probed host remains authoritative.
 Direct rediscovery matches the organization's server-managed container by shared

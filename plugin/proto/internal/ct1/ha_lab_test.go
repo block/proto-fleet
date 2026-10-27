@@ -84,7 +84,7 @@ func TestFrigateHALab(t *testing.T) {
 		return err == nil && metrics.Container.HA.Degraded == expected
 	}, time.Minute, time.Second)
 	if want := os.Getenv("CT1_HA_EXPECT_CONTROLLER"); want != "" {
-		require.Equal(t, want, selected.endpointID(endpoints))
+		require.Equal(t, want, selected.memberID)
 	}
-	t.Logf("read succeeded; write-ready controller=%s; HA degraded=%t", selected.endpointID(endpoints), expected)
+	t.Logf("read succeeded; write-ready controller=%s; HA degraded=%t", selected.memberID, expected)
 }

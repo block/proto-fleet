@@ -24,13 +24,6 @@ import (
 const DefaultRPCPort int32 = 9095
 const maxReceiveBytes = 8 << 20
 
-func effectiveRPCPort(port int32) int32 {
-	if port == 0 {
-		return DefaultRPCPort
-	}
-	return port
-}
-
 // Client owns one controller connection. Independent reads share it; controls
 // retain their serialized read/write/readback sequence.
 type Client struct {
@@ -51,7 +44,7 @@ func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
 	if info.Host == "" || info.Port <= 0 || info.Port > 65535 || (info.URLScheme != "http" && info.URLScheme != "https") {
 		return nil, fmt.Errorf("invalid CT1 web endpoint")
 	}
-	port := effectiveRPCPort(info.RPCPort)
+	port := info.RPCPort
 	if port < 1 || port > 65535 {
 		return nil, fmt.Errorf("invalid CT1 RPC port")
 	}
@@ -73,7 +66,6 @@ func NewClient(info sdk.DeviceInfo, _ sdk.UsernamePassword) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create CT1 connection: %w", err)
 	}
-	info.RPCPort = port
 	return &Client{endpoint: info, conn: conn, system: mdk.NewSystemServiceClient(conn), boards: mdk.NewHashboardServiceClient(conn), mining: mdk.NewMiningServiceClient(conn), telemetry: mdk.NewTelemetryServiceClient(conn), power: mdk.NewPowerServiceClient(conn)}, nil
 }
 func (c *Client) Close() error {
@@ -115,9 +107,7 @@ func (c *Client) Discover(ctx context.Context, info sdk.DeviceInfo) (sdk.DeviceI
 	info.Model = "CT1"
 	info.Manufacturer = "Proto"
 	info.FirmwareVersion = v.Version
-	if info.RPCPort == 0 {
-		info.RPCPort = DefaultRPCPort
-	}
+	info.RPCPort = c.endpoint.RPCPort
 	return info, nil
 }
 

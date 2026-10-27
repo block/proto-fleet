@@ -202,7 +202,7 @@ func TestHAPairingAndFailoverWithoutHashboards(t *testing.T) {
 	require.Equal(t, "v1-b", info.FirmwareVersion)
 }
 
-func TestHAReusedDefaultRPCAddressKeepsVerifiedPartnerUsable(t *testing.T) {
+func TestHAReusedControllerAddressKeepsVerifiedPartnerUsable(t *testing.T) {
 	a, b := startHAServer(t, "a", "b"), startHAServer(t, "b", "a")
 	b.primary.Store(true)
 	info := haInfo(a, b)
@@ -212,11 +212,7 @@ func TestHAReusedDefaultRPCAddressKeepsVerifiedPartnerUsable(t *testing.T) {
 	stale, current := d.clients[0], d.clients[1]
 	aSystem, aPower := stale.system, stale.power
 
-	// Keep the saved logical ports while routing both clients to B's ephemeral
-	// listener. The old zero port and explicit 9095 name the same CT1 socket.
-	d.info.Endpoints[0].RPCPort = 0
-	d.info.Endpoints[1].RPCPort = DefaultRPCPort
-	stale.endpoint.RPCPort, current.endpoint.RPCPort = DefaultRPCPort, DefaultRPCPort
+	// Simulate B answering at A's saved address as well as its own.
 	stale.system, stale.power = current.system, current.power
 
 	selected, ha, err := d.probeControllers(t.Context(), true)
@@ -229,8 +225,6 @@ func TestHAReusedDefaultRPCAddressKeepsVerifiedPartnerUsable(t *testing.T) {
 
 	// Rediscovery restores A's own address and makes the full pair healthy.
 	stale.system, stale.power = aSystem, aPower
-	d.info.Endpoints[0] = a.endpoint
-	stale.endpoint.RPCPort = a.endpoint.RPCPort
 	selected, ha, err = d.probeControllers(t.Context(), true)
 	require.NoError(t, err)
 	require.Same(t, current, selected.client)

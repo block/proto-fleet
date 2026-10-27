@@ -20,7 +20,7 @@ func TestConfiguredNativeBearerTokenIsRejected(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "token")
 	require.NoError(t, os.WriteFile(path, []byte("test-token\n"), 0o600))
 	t.Setenv("CT1_RPC_TOKEN_FILE", path)
-	c, err := NewClient(sdk.DeviceInfo{Host: "127.0.0.1", Port: 8080, URLScheme: "http"}, sdk.UsernamePassword{})
+	c, err := NewClient(sdk.DeviceInfo{Host: "127.0.0.1", Port: 8080, URLScheme: "http", RPCPort: DefaultRPCPort}, sdk.UsernamePassword{})
 	if c != nil {
 		t.Cleanup(func() { _ = c.Close() })
 	}
